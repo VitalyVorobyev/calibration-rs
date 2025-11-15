@@ -9,3 +9,6 @@ calib-optim = { path = "../calib-optim" }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 nalgebra = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

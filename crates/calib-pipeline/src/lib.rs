@@ -149,6 +149,7 @@ pub fn run_planar_intrinsics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json;
 
     #[test]
     fn planar_intrinsics_pipeline_synthetic_recovers_intrinsics() {
@@ -218,5 +219,131 @@ mod tests {
         assert!((ki.fy - k_gt.fy).abs() < 20.0);
         assert!((ki.cx - k_gt.cx).abs() < 20.0);
         assert!((ki.cy - k_gt.cy).abs() < 20.0);
+    }
+
+    #[test]
+    fn config_json_roundtrip() {
+        let config = PlanarIntrinsicsConfig {
+            robust_kernel: Some(RobustKernelConfig::Huber { delta: 2.5 }),
+            max_iters: Some(80),
+        };
+
+        let json = serde_json::to_string_pretty(&config).unwrap();
+        assert!(
+            json.contains("Huber") && json.contains("2.5"),
+            "json missing expected content: {}",
+            json
+        );
+
+        let de: PlanarIntrinsicsConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(de.max_iters, config.max_iters);
+        match (de.robust_kernel, config.robust_kernel) {
+            (
+                Some(RobustKernelConfig::Huber { delta: d1 }),
+                Some(RobustKernelConfig::Huber { delta: d2 }),
+            ) => assert!((d1 - d2).abs() < 1e-12),
+            other => panic!("mismatch in kernels: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn input_json_roundtrip() {
+        let input = PlanarIntrinsicsInput {
+            views: vec![PlanarViewData {
+                points_3d: vec![
+                    Pt3::new(0.0, 0.0, 0.0),
+                    Pt3::new(1.0, 0.0, 0.0),
+                    Pt3::new(1.0, 1.0, 0.0),
+                    Pt3::new(0.0, 1.0, 0.0),
+                ],
+                points_2d: vec![
+                    Vec2::new(100.0, 100.0),
+                    Vec2::new(200.0, 100.0),
+                    Vec2::new(200.0, 200.0),
+                    Vec2::new(100.0, 200.0),
+                ],
+            }],
+        };
+
+        let json = serde_json::to_string_pretty(&input).unwrap();
+        let de: PlanarIntrinsicsInput = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(de.views.len(), input.views.len());
+        for (view_a, view_b) in de.views.iter().zip(input.views.iter()) {
+            assert_eq!(view_a.points_3d.len(), view_b.points_3d.len());
+            assert_eq!(view_a.points_2d.len(), view_b.points_2d.len());
+            for (a, b) in view_a.points_3d.iter().zip(view_b.points_3d.iter()) {
+                assert!((a.x - b.x).abs() < 1e-12);
+                assert!((a.y - b.y).abs() < 1e-12);
+                assert!((a.z - b.z).abs() < 1e-12);
+            }
+            for (a, b) in view_a.points_2d.iter().zip(view_b.points_2d.iter()) {
+                assert!((a.x - b.x).abs() < 1e-12);
+                assert!((a.y - b.y).abs() < 1e-12);
+            }
+        }
+    }
+
+    #[test]
+    fn report_json_roundtrip() {
+        let report = PlanarIntrinsicsReport {
+            camera: PinholeCamera {
+                intrinsics: CameraIntrinsics {
+                    fx: 800.0,
+                    fy: 780.0,
+                    cx: 640.0,
+                    cy: 360.0,
+                    skew: 0.0,
+                },
+                distortion: Some(RadialTangential::BrownConrady {
+                    k1: -0.1,
+                    k2: 0.01,
+                    p1: 0.001,
+                    p2: -0.001,
+                    k3: 0.0,
+                }),
+            },
+            final_cost: 1e-8,
+            iterations: 12,
+            converged: true,
+        };
+
+        let json = serde_json::to_string_pretty(&report).unwrap();
+        let de: PlanarIntrinsicsReport = serde_json::from_str(&json).unwrap();
+
+        assert!((de.camera.intrinsics.fx - report.camera.intrinsics.fx).abs() < 1e-12);
+        assert!((de.camera.intrinsics.fy - report.camera.intrinsics.fy).abs() < 1e-12);
+        assert!((de.camera.intrinsics.cx - report.camera.intrinsics.cx).abs() < 1e-12);
+        assert!((de.camera.intrinsics.cy - report.camera.intrinsics.cy).abs() < 1e-12);
+
+        match (de.camera.distortion, report.camera.distortion) {
+            (
+                Some(RadialTangential::BrownConrady {
+                    k1: k1a,
+                    k2: k2a,
+                    p1: p1a,
+                    p2: p2a,
+                    k3: k3a,
+                }),
+                Some(RadialTangential::BrownConrady {
+                    k1: k1b,
+                    k2: k2b,
+                    p1: p1b,
+                    p2: p2b,
+                    k3: k3b,
+                }),
+            ) => {
+                assert!((k1a - k1b).abs() < 1e-12);
+                assert!((k2a - k2b).abs() < 1e-12);
+                assert!((p1a - p1b).abs() < 1e-12);
+                assert!((p2a - p2b).abs() < 1e-12);
+                assert!((k3a - k3b).abs() < 1e-12);
+            }
+            other => panic!("distortion mismatch: {:?}", other),
+        }
+
+        assert!((de.final_cost - report.final_cost).abs() < 1e-12);
+        assert_eq!(de.iterations, report.iterations);
+        assert_eq!(de.converged, report.converged);
     }
 }
