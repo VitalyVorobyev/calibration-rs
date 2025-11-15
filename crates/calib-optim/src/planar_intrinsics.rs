@@ -1,10 +1,7 @@
-use crate::{NllsProblem, NllsSolverBackend, SolveOptions, SolveReport};
 use crate::robust::RobustKernel;
-use calib_core::{
-    Iso3, PinholeCamera, Pt3, Vec2, Real,
-    RadialTangential, CameraIntrinsics,
-};
-use nalgebra::{DMatrix, DVector, Point3, Vector3, UnitQuaternion};
+use crate::{NllsProblem, NllsSolverBackend, SolveOptions, SolveReport};
+use calib_core::{CameraIntrinsics, Iso3, PinholeCamera, Pt3, RadialTangential, Real, Vec2};
+use nalgebra::{DMatrix, DVector, Point3, UnitQuaternion, Vector3};
 
 /// Observations for a single image/view of the planar target.
 #[derive(Debug, Clone)]
@@ -22,11 +19,18 @@ impl PlanarViewObservations {
             points_2d.len(),
             "3D / 2D point counts must match"
         );
-        Self { points_3d, points_2d }
+        Self {
+            points_3d,
+            points_2d,
+        }
     }
 
     pub fn len(&self) -> usize {
         self.points_3d.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.points_3d.is_empty()
     }
 }
 
@@ -39,16 +43,9 @@ pub struct PlanarIntrinsicsProblem {
 
 impl PlanarIntrinsicsProblem {
     pub fn new(views: Vec<PlanarViewObservations>) -> Self {
-        assert!(
-            !views.is_empty(),
-            "need at least one view for calibration"
-        );
+        assert!(!views.is_empty(), "need at least one view for calibration");
         for (i, v) in views.iter().enumerate() {
-            assert!(
-                v.len() >= 4,
-                "view {} has too few points (need >=4)",
-                i
-            );
+            assert!(v.len() >= 4, "view {} has too few points (need >=4)", i);
         }
         Self {
             views,
@@ -75,14 +72,8 @@ impl PlanarIntrinsicsProblem {
 }
 
 /// Pack initial intrinsics, distortion and poses into parameter vector.
-pub fn pack_initial_params(
-    camera: &PinholeCamera,
-    poses_board_to_cam: &[Iso3],
-) -> DVector<Real> {
-    assert!(
-        !poses_board_to_cam.is_empty(),
-        "need at least one pose"
-    );
+pub fn pack_initial_params(camera: &PinholeCamera, poses_board_to_cam: &[Iso3]) -> DVector<Real> {
+    assert!(!poses_board_to_cam.is_empty(), "need at least one pose");
     let n_views = poses_board_to_cam.len();
     let dim = 10 + 6 * n_views;
     let mut x = DVector::zeros(dim);
@@ -95,9 +86,7 @@ pub fn pack_initial_params(
     x[4] = k.skew;
 
     let (k1, k2, p1, p2, k3) = match camera.distortion {
-        Some(RadialTangential::BrownConrady {
-            k1, k2, p1, p2, k3,
-        }) => (k1, k2, p1, p2, k3),
+        Some(RadialTangential::BrownConrady { k1, k2, p1, p2, k3 }) => (k1, k2, p1, p2, k3),
         None => (0.0, 0.0, 0.0, 0.0, 0.0),
     };
 
@@ -112,7 +101,7 @@ pub fn pack_initial_params(
 
         // axis-angle from rotation
         let axis_angle = pose.rotation.scaled_axis();
-        x[idx + 0] = axis_angle.x;
+        x[idx] = axis_angle.x;
         x[idx + 1] = axis_angle.y;
         x[idx + 2] = axis_angle.z;
 
@@ -126,10 +115,7 @@ pub fn pack_initial_params(
 }
 
 /// Helper: decode parameter vector into camera + per-view poses.
-fn decode_params(
-    prob: &PlanarIntrinsicsProblem,
-    x: &DVector<Real>,
-) -> (PinholeCamera, Vec<Iso3>) {
+fn decode_params(prob: &PlanarIntrinsicsProblem, x: &DVector<Real>) -> (PinholeCamera, Vec<Iso3>) {
     let n_views = prob.num_views();
     assert_eq!(x.len(), 10 + 6 * n_views);
 
@@ -152,13 +138,7 @@ fn decode_params(
         cy,
         skew,
     };
-    let distortion = Some(RadialTangential::BrownConrady {
-        k1,
-        k2,
-        p1,
-        p2,
-        k3,
-    });
+    let distortion = Some(RadialTangential::BrownConrady { k1, k2, p1, p2, k3 });
 
     let camera = PinholeCamera {
         intrinsics,
@@ -168,7 +148,7 @@ fn decode_params(
     let mut poses = Vec::with_capacity(n_views);
     for i in 0..n_views {
         let idx = 10 + 6 * i;
-        let wx = x[idx + 0];
+        let wx = x[idx];
         let wy = x[idx + 1];
         let wz = x[idx + 2];
         let tx = x[idx + 3];
@@ -199,10 +179,7 @@ impl NllsProblem for PlanarIntrinsicsProblem {
             for j in 0..view.points_3d.len() {
                 let pw = view.points_3d[j];
                 let z0 = pw.z;
-                debug_assert!(
-                    z0.abs() < 1e-9,
-                    "planar assumption: z ≈ 0"
-                );
+                debug_assert!(z0.abs() < 1e-9, "planar assumption: z ≈ 0");
 
                 // board → camera
                 let p_cam: Point3<Real> = pose.transform_point(&pw);
@@ -214,7 +191,7 @@ impl NllsProblem for PlanarIntrinsicsProblem {
                 let r2 = ru * ru + rv * rv;
                 let (_, w) = self.robust_kernel.rho_and_weight(r2);
                 let s = w.sqrt();
-                r[offset + 0] = s * ru;
+                r[offset] = s * ru;
                 r[offset + 1] = s * rv;
 
                 offset += 2;
@@ -333,7 +310,11 @@ mod tests {
                 let mut coords = Pt2::new(proj.x, proj.y).coords;
 
                 if noise_amplitude > 0.0 {
-                    let sign = if (view_idx + pt_idx) % 2 == 0 { 1.0 } else { -1.0 };
+                    let sign = if (view_idx + pt_idx) % 2 == 0 {
+                        1.0
+                    } else {
+                        -1.0
+                    };
                     let delta = noise_amplitude * sign;
                     coords.x += delta;
                     coords.y -= delta;
@@ -379,7 +360,7 @@ mod tests {
         let k_gt = cam_gt.intrinsics;
 
         let x0 = pack_initial_params(&cam_init, &poses_gt);
-        let backend = LmBackend::default();
+        let backend = LmBackend;
         let opts = SolveOptions::default();
 
         let (cam_refined, poses_refined, report) =
@@ -407,7 +388,7 @@ mod tests {
         let k_gt = cam_gt.intrinsics;
 
         let x0 = pack_initial_params(&cam_init, &poses_gt);
-        let backend = LmBackend::default();
+        let backend = LmBackend;
         let opts = SolveOptions::default();
 
         let (cam_refined, poses_refined, report) =
@@ -453,7 +434,7 @@ mod tests {
         let r_init = problem.residuals(&x0);
         let initial_cost = 0.5 * r_init.dot(&r_init);
 
-        let backend = LmBackend::default();
+        let backend = LmBackend;
         let opts = SolveOptions::default();
         let x0_for_solver = x0.clone();
         let (cam_refined, poses_refined, report) =
@@ -563,11 +544,10 @@ mod tests {
         let x0_l2 = x0.clone();
         let x0_robust = x0;
 
-        let backend = LmBackend::default();
+        let backend = LmBackend;
         let opts = SolveOptions::default();
 
-        let (cam_l2, _, report_l2) =
-            refine_planar_intrinsics(&backend, &problem_l2, x0_l2, &opts);
+        let (cam_l2, _, report_l2) = refine_planar_intrinsics(&backend, &problem_l2, x0_l2, &opts);
         let (cam_robust, _, report_robust) =
             refine_planar_intrinsics(&backend, &problem_robust, x0_robust, &opts);
 

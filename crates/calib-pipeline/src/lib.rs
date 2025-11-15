@@ -1,8 +1,7 @@
 use calib_core::{CameraIntrinsics, Iso3, PinholeCamera, Pt3, RadialTangential, Real, Vec2};
 use calib_optim::backend_lm::LmBackend;
 use calib_optim::planar_intrinsics::{
-    pack_initial_params, refine_planar_intrinsics, PlanarIntrinsicsProblem,
-    PlanarViewObservations,
+    pack_initial_params, refine_planar_intrinsics, PlanarIntrinsicsProblem, PlanarViewObservations,
 };
 use calib_optim::problem::SolveOptions;
 use calib_optim::robust::RobustKernel;
@@ -45,7 +44,7 @@ impl From<&RobustKernelConfig> for RobustKernel {
 
 fn kernel_from_option(opt: &Option<RobustKernelConfig>) -> RobustKernel {
     opt.as_ref()
-        .map(|cfg| RobustKernel::from(cfg))
+        .map(RobustKernel::from)
         .unwrap_or(RobustKernel::None)
 }
 

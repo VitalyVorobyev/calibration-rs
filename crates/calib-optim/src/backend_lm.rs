@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn lm_backend_solves_trivial_problem() {
-        let backend = LmBackend::default();
+        let backend = LmBackend;
         let problem = OneDimProblem;
         let x0 = DVector::from_element(1, 10.0);
         let opts = SolveOptions::default();
@@ -105,7 +105,11 @@ mod tests {
             "final cost too high: {}",
             report.final_cost
         );
-        assert!(report.converged, "LM backend did not report convergence: {:?}", report);
+        assert!(
+            report.converged,
+            "LM backend did not report convergence: {:?}",
+            report
+        );
         assert!(
             report.iterations > 0,
             "expected positive iterations, got {}",

@@ -1,20 +1,15 @@
 use calib_core::Real;
 
 /// Robust loss kernels for iteratively re-weighted least squares (IRLS).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum RobustKernel {
     /// No robustness, pure L2 (quadratic).
+    #[default]
     None,
     /// Huber loss with a given threshold.
     Huber { delta: Real },
     /// Cauchy loss with a scale parameter.
     Cauchy { c: Real },
-}
-
-impl Default for RobustKernel {
-    fn default() -> Self {
-        RobustKernel::None
-    }
 }
 
 impl RobustKernel {
@@ -95,7 +90,11 @@ mod tests {
         let kernel = RobustKernel::Cauchy { c: 1.0 };
         let (_, w_small) = kernel.rho_and_weight(0.1_f64.powi(2));
         let (_, w_large) = kernel.rho_and_weight(10.0_f64.powi(2));
-        assert!(w_small > 0.9, "w_small should be close to 1, got {}", w_small);
+        assert!(
+            w_small > 0.9,
+            "w_small should be close to 1, got {}",
+            w_small
+        );
         assert!(
             w_large < 0.02,
             "w_large should be small for large residuals, got {}",
