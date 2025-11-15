@@ -254,7 +254,7 @@ pub fn refine_planar_intrinsics<B: NllsSolverBackend>(
 mod tests {
     use super::*;
     use crate::backend_lm::LmBackend;
-    use calib_core::{Pt2, Pt3};
+    use calib_core::Pt3;
 
     #[test]
     fn synthetic_planar_intrinsics_refinement() {
@@ -301,7 +301,7 @@ mod tests {
             let rq = UnitQuaternion::from_scaled_axis(axis * angle);
             let rot = rq.to_rotation_matrix();
             let trans = Vector3::new(0.0, 0.0, 0.5 + 0.2 * view_idx as f64);
-            let pose = Iso3::from_parts(trans.into(), rot);
+            let pose = Iso3::from_parts(trans.into(), rot.into());
 
             poses_gt.push(pose);
 

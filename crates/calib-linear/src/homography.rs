@@ -1,5 +1,6 @@
 use calib_core::{Mat3, Pt2};
-use nalgebra::DMatrix;
+use nalgebra::{DMatrix, DVector};
+use std::cmp::Ordering;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -43,15 +44,22 @@ pub fn dlt_homography(world: &[Pt2], image: &[Pt2]) -> Result<Mat3, HomographyEr
         a[(r1, 8)] = v;
     }
 
-    // Solve A h = 0 via SVD (smallest singular value)
-    let svd = a.svd(true, false);
-    let v_t = svd.v_t.ok_or(HomographyError::SvdFailed)?;
-    let h = v_t.row(v_t.nrows() - 1);
+    // Solve A h = 0 by finding the eigenvector of A^T A with the smallest eigenvalue.
+    let ata = a.transpose() * &a;
+    let eig = ata.symmetric_eigen();
+    let min_idx = eig
+        .eigenvalues
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+        .map(|(idx, _)| idx)
+        .ok_or(HomographyError::SvdFailed)?;
+    let h_vec: DVector<f64> = eig.eigenvectors.column(min_idx).into();
 
     let mut h_mat = Mat3::zeros();
     for r in 0..3 {
         for c in 0..3 {
-            h_mat[(r, c)] = h[3 * r + c];
+            h_mat[(r, c)] = h_vec[3 * r + c];
         }
     }
 

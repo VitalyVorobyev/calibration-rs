@@ -64,3 +64,52 @@ impl NllsSolverBackend for LmBackend {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::LmBackend;
+    use crate::{NllsProblem, NllsSolverBackend, SolveOptions};
+    use calib_core::Real;
+    use nalgebra::{DMatrix, DVector};
+
+    #[derive(Debug)]
+    struct OneDimProblem;
+
+    impl NllsProblem for OneDimProblem {
+        fn residuals(&self, x: &DVector<Real>) -> DVector<Real> {
+            DVector::from_element(1, x[0] - 3.0)
+        }
+
+        fn jacobian(&self, _x: &DVector<Real>) -> DMatrix<Real> {
+            DMatrix::from_element(1, 1, 1.0)
+        }
+    }
+
+    #[test]
+    fn lm_backend_solves_trivial_problem() {
+        let backend = LmBackend::default();
+        let problem = OneDimProblem;
+        let x0 = DVector::from_element(1, 10.0);
+        let opts = SolveOptions::default();
+
+        let (x_opt, report) = backend.solve(&problem, x0, &opts);
+        let x_final = x_opt[0];
+
+        assert!(
+            (x_final - 3.0).abs() < 1e-6,
+            "expected optimizer to reach 3.0, got {}",
+            x_final
+        );
+        assert!(
+            report.final_cost.abs() < 1e-12,
+            "final cost too high: {}",
+            report.final_cost
+        );
+        assert!(report.converged, "LM backend did not report convergence: {:?}", report);
+        assert!(
+            report.iterations > 0,
+            "expected positive iterations, got {}",
+            report.iterations
+        );
+    }
+}
