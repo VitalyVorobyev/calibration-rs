@@ -9,6 +9,7 @@ pub mod backend_lm;
 
 pub mod intrinsics;
 pub mod planar_intrinsics;
+pub mod robust;
 
 #[cfg(feature = "ceres-backend")]
 pub mod backend_ceres; // stub for later
