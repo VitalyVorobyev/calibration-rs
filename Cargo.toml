@@ -1,0 +1,28 @@
+[workspace]
+members = [
+    "crates/calib-core",
+    "crates/calib-linear",
+    "crates/calib-optim",
+#    "crates/calib-io",
+#    "crates/calib-pipeline",
+#    "crates/calib-reports",
+    "crates/calib-cli",
+]
+
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+authors = ["Vitaly Vorobyev <you@example.com>"]
+homepage = "https://vitalyvorobyev.github.io/calibration"
+repository = "https://github.com/VitalyVorobyev/calibration-rs"
+
+[workspace.dependencies]
+nalgebra = { version = "0.33", features = ["serde-serialize"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+levenberg-marquardt = "0.13"
+# or: argmin = "0.11"

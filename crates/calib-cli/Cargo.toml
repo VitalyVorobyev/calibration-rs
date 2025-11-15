@@ -1,0 +1,11 @@
+[package]
+name = "calib-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+calib-core = { path = "../calib-core" }
+calib-linear = { path = "../calib-linear" }
+# calib-pipeline = { path = "../calib-pipeline" } # later
+clap = { workspace = true }
+serde_json = { workspace = true }
