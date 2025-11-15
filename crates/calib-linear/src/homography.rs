@@ -1,5 +1,5 @@
-use calib-core::{Mat3, Pt2};
-use nalgebra::{DMatrix, DVector};
+use calib_core::{Mat3, Pt2};
+use nalgebra::DMatrix;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -51,7 +51,7 @@ pub fn dlt_homography(world: &[Pt2], image: &[Pt2]) -> Result<Mat3, HomographyEr
     let mut h_mat = Mat3::zeros();
     for r in 0..3 {
         for c in 0..3 {
-            h_mat[(r, c)] = h[(3 * r + c)];
+            h_mat[(r, c)] = h[3 * r + c];
         }
     }
 
@@ -67,7 +67,7 @@ pub fn dlt_homography(world: &[Pt2], image: &[Pt2]) -> Result<Mat3, HomographyEr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib-core::Pt2;
+    use calib_core::Pt2;
 
     #[test]
     fn basic_homography() {

@@ -19,10 +19,10 @@ homepage = "https://vitalyvorobyev.github.io/calibration"
 repository = "https://github.com/VitalyVorobyev/calibration-rs"
 
 [workspace.dependencies]
-nalgebra = { version = "0.33", features = ["serde-serialize"] }
+nalgebra = { version = "0.34", features = ["serde-serialize"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
 clap = { version = "4", features = ["derive"] }
-levenberg-marquardt = "0.13"
+levenberg-marquardt = "0.15"
 # or: argmin = "0.11"

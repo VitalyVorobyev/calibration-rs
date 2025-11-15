@@ -1,5 +1,5 @@
 use crate::{NllsProblem, NllsSolverBackend, SolveOptions};
-use calib_core::{PinholeCamera, Pt3, Vec2, Real};
+use calib_core::{Pt3, Vec2, Real};
 use nalgebra::{DMatrix, DVector};
 
 pub struct PlanarIntrinsicsProblem {
@@ -9,17 +9,14 @@ pub struct PlanarIntrinsicsProblem {
 }
 
 impl NllsProblem for PlanarIntrinsicsProblem {
-    type Param = DVector<Real>;
-    type Residual = DVector<Real>;
-
-    fn residuals(&self, x: &Self::Param) -> Self::Residual {
+    fn residuals(&self, _x: &DVector<Real>) -> DVector<Real> {
         // decode x → intrinsics/distortion, maybe board pose(s)
         // compute projected points & residuals
         // placeholder:
         DVector::zeros(self.points_3d.len() * 2)
     }
 
-    fn jacobian(&self, x: &Self::Param) -> DMatrix<Real> {
+    fn jacobian(&self, x: &DVector<Real>) -> DMatrix<Real> {
         // analytic jacobian; start with finite differences if needed
         DMatrix::zeros(self.points_3d.len() * 2, x.len())
     }

@@ -101,8 +101,7 @@ pub fn pack_initial_params(
         let idx = 10 + 6 * i;
 
         // axis-angle from rotation
-        let rq = UnitQuaternion::from_rotation_matrix(&pose.rotation);
-        let axis_angle = rq.scaled_axis();
+        let axis_angle = pose.rotation.scaled_axis();
         x[idx + 0] = axis_angle.x;
         x[idx + 1] = axis_angle.y;
         x[idx + 2] = axis_angle.z;
@@ -168,10 +167,9 @@ fn decode_params(
 
         let axis_angle = Vector3::new(wx, wy, wz);
         let rq = UnitQuaternion::from_scaled_axis(axis_angle);
-        let rot = rq.to_rotation_matrix();
         let trans = Vector3::new(tx, ty, tz);
 
-        let iso = Iso3::from_parts(trans.into(), rot);
+        let iso = Iso3::from_parts(trans.into(), rq);
         poses.push(iso);
     }
 
@@ -179,10 +177,7 @@ fn decode_params(
 }
 
 impl NllsProblem for PlanarIntrinsicsProblem {
-    type Param = DVector<Real>;
-    type Residual = DVector<Real>;
-
-    fn residuals(&self, x: &Self::Param) -> Self::Residual {
+    fn residuals(&self, x: &DVector<Real>) -> DVector<Real> {
         let (camera, poses) = decode_params(self, x);
 
         let mut r = DVector::zeros(self.residual_dim());
@@ -214,7 +209,7 @@ impl NllsProblem for PlanarIntrinsicsProblem {
         r
     }
 
-    fn jacobian(&self, x: &Self::Param) -> DMatrix<Real> {
+    fn jacobian(&self, x: &DVector<Real>) -> DMatrix<Real> {
         // Finite differences for now; replace with analytic Jacobian later.
         let m = self.residual_dim();
         let n = x.len();
