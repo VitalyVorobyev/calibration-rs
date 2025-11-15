@@ -14,9 +14,7 @@ pub struct CameraIntrinsics {
 impl CameraIntrinsics {
     pub fn matrix(&self) -> Mat3 {
         Mat3::new(
-            self.fx, self.skew, self.cx,
-            0.0,      self.fy,  self.cy,
-            0.0,      0.0,      1.0,
+            self.fx, self.skew, self.cx, 0.0, self.fy, self.cy, 0.0, 0.0, 1.0,
         )
     }
 }

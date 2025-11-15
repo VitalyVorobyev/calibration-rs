@@ -1,6 +1,4 @@
-use nalgebra::{
-    Isometry3, Matrix3, Matrix4, Point2, Point3, Vector2, Vector3,
-};
+use nalgebra::{Isometry3, Matrix3, Matrix4, Point2, Point3, Vector2, Vector3};
 
 pub type Real = f64;
 
