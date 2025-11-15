@@ -1,0 +1,11 @@
+[package]
+name = "calib-pipeline"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+calib-core = { path = "../calib-core" }
+calib-optim = { path = "../calib-optim" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+nalgebra = { workspace = true }

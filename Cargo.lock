@@ -112,6 +112,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "calib-pipeline"
+version = "0.1.0"
+dependencies = [
+ "calib-core",
+ "calib-optim",
+ "nalgebra",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
