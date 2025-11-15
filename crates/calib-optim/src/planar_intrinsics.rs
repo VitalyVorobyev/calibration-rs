@@ -1,4 +1,5 @@
 use crate::{NllsProblem, NllsSolverBackend, SolveOptions, SolveReport};
+use crate::robust::RobustKernel;
 use calib_core::{
     Iso3, PinholeCamera, Pt3, Vec2, Real,
     RadialTangential, CameraIntrinsics,
@@ -33,6 +34,7 @@ impl PlanarViewObservations {
 #[derive(Debug, Clone)]
 pub struct PlanarIntrinsicsProblem {
     pub views: Vec<PlanarViewObservations>,
+    pub robust_kernel: RobustKernel,
 }
 
 impl PlanarIntrinsicsProblem {
@@ -48,7 +50,15 @@ impl PlanarIntrinsicsProblem {
                 i
             );
         }
-        Self { views }
+        Self {
+            views,
+            robust_kernel: RobustKernel::None,
+        }
+    }
+
+    pub fn with_kernel(mut self, kernel: RobustKernel) -> Self {
+        self.robust_kernel = kernel;
+        self
     }
 
     pub fn num_views(&self) -> usize {
@@ -199,8 +209,13 @@ impl NllsProblem for PlanarIntrinsicsProblem {
                 let proj = camera.project(&p_cam);
 
                 let meas = view.points_2d[j];
-                r[offset + 0] = meas.x - proj.x;
-                r[offset + 1] = meas.y - proj.y;
+                let ru = meas.x - proj.x;
+                let rv = meas.y - proj.y;
+                let r2 = ru * ru + rv * rv;
+                let (_, w) = self.robust_kernel.rho_and_weight(r2);
+                let s = w.sqrt();
+                r[offset + 0] = s * ru;
+                r[offset + 1] = s * rv;
 
                 offset += 2;
             }
@@ -255,7 +270,8 @@ mod tests {
     use super::*;
     use crate::backend_lm::LmBackend;
     use crate::problem::SolveOptions;
-    use calib_core::{CameraIntrinsics, Iso3, PinholeCamera, Pt2, Pt3, RadialTangential};
+    use crate::robust::RobustKernel;
+    use calib_core::{CameraIntrinsics, Iso3, PinholeCamera, Pt2, Pt3, RadialTangential, Real};
     use nalgebra::{UnitQuaternion, Vector3};
 
     struct SyntheticScenario {
@@ -458,6 +474,121 @@ mod tests {
             "reported final cost {} disagrees with recomputed {}",
             report.final_cost,
             final_cost
+        );
+    }
+
+    #[test]
+    fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
+        // Ground-truth camera
+        let k_gt = CameraIntrinsics {
+            fx: 800.0,
+            fy: 780.0,
+            cx: 640.0,
+            cy: 360.0,
+            skew: 0.0,
+        };
+        let dist_gt = RadialTangential::BrownConrady {
+            k1: -0.1,
+            k2: 0.01,
+            p1: 0.001,
+            p2: -0.001,
+            k3: 0.0,
+        };
+        let cam_gt = PinholeCamera {
+            intrinsics: k_gt,
+            distortion: Some(dist_gt),
+        };
+
+        // Board setup
+        let nx = 6;
+        let ny = 4;
+        let spacing = 0.03_f64;
+        let mut board_points = Vec::new();
+        for j in 0..ny {
+            for i in 0..nx {
+                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
+            }
+        }
+
+        let mut views = Vec::new();
+        let mut poses_gt = Vec::new();
+        let outlier_stride = 12;
+        let outlier_offset = 20.0;
+
+        for view_idx in 0..3 {
+            let angle = 0.1 * (view_idx as f64);
+            let axis = Vector3::new(0.0, 1.0, 0.0);
+            let rq = UnitQuaternion::from_scaled_axis(axis * angle);
+            let rot = rq.to_rotation_matrix();
+            let trans = Vector3::new(0.0, 0.0, 0.5 + 0.2 * view_idx as f64);
+            let pose = Iso3::from_parts(trans.into(), rot.into());
+            poses_gt.push(pose);
+
+            let mut img_points = Vec::new();
+            for (pt_idx, pw) in board_points.iter().enumerate() {
+                let p_cam = pose.transform_point(pw);
+                let proj = cam_gt.project(&p_cam);
+                let mut coords = Pt2::new(proj.x, proj.y).coords;
+
+                if pt_idx % outlier_stride == 0 {
+                    coords.x += outlier_offset;
+                    coords.y += outlier_offset;
+                }
+
+                img_points.push(coords);
+            }
+
+            views.push(PlanarViewObservations::new(
+                board_points.clone(),
+                img_points,
+            ));
+        }
+
+        let problem_l2 = PlanarIntrinsicsProblem::new(views.clone());
+        let problem_robust =
+            PlanarIntrinsicsProblem::new(views).with_kernel(RobustKernel::Huber { delta: 2.0 });
+
+        let cam_init = PinholeCamera {
+            intrinsics: CameraIntrinsics {
+                fx: 780.0,
+                fy: 760.0,
+                cx: 630.0,
+                cy: 350.0,
+                skew: 0.0,
+            },
+            distortion: None,
+        };
+
+        let x0 = pack_initial_params(&cam_init, &poses_gt);
+        let x0_l2 = x0.clone();
+        let x0_robust = x0;
+
+        let backend = LmBackend::default();
+        let opts = SolveOptions::default();
+
+        let (cam_l2, _, report_l2) =
+            refine_planar_intrinsics(&backend, &problem_l2, x0_l2, &opts);
+        let (cam_robust, _, report_robust) =
+            refine_planar_intrinsics(&backend, &problem_robust, x0_robust, &opts);
+
+        assert!(report_l2.converged);
+        assert!(report_robust.converged);
+
+        let err_total = |cam: &PinholeCamera| -> Real {
+            (cam.intrinsics.fx - k_gt.fx).abs()
+                + (cam.intrinsics.fy - k_gt.fy).abs()
+                + (cam.intrinsics.cx - k_gt.cx).abs()
+                + (cam.intrinsics.cy - k_gt.cy).abs()
+        };
+
+        let err_l2 = err_total(&cam_l2);
+        let err_robust = err_total(&cam_robust);
+
+        assert!(
+            err_robust < err_l2,
+            "robust intrinsics error {} should be smaller than L2 {}",
+            err_robust,
+            err_l2
         );
     }
 }
