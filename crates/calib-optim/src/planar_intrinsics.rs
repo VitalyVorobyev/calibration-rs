@@ -254,11 +254,18 @@ pub fn refine_planar_intrinsics<B: NllsSolverBackend>(
 mod tests {
     use super::*;
     use crate::backend_lm::LmBackend;
-    use calib_core::Pt3;
+    use crate::problem::SolveOptions;
+    use calib_core::{CameraIntrinsics, Iso3, PinholeCamera, Pt2, Pt3, RadialTangential};
+    use nalgebra::{UnitQuaternion, Vector3};
 
-    #[test]
-    fn synthetic_planar_intrinsics_refinement() {
-        // Ground-truth camera
+    struct SyntheticScenario {
+        problem: PlanarIntrinsicsProblem,
+        poses_gt: Vec<Iso3>,
+        cam_gt: PinholeCamera,
+        cam_init: PinholeCamera,
+    }
+
+    fn build_synthetic_scenario(noise_amplitude: f64) -> SyntheticScenario {
         let k_gt = CameraIntrinsics {
             fx: 800.0,
             fy: 780.0,
@@ -278,7 +285,6 @@ mod tests {
             distortion: Some(dist_gt),
         };
 
-        // Simple 6x4 board with 30mm spacing on the plane z=0.
         let nx = 6;
         let ny = 4;
         let spacing = 0.03_f64;
@@ -291,11 +297,10 @@ mod tests {
             }
         }
 
-        // Two synthetic views with different poses.
         let mut views = Vec::new();
         let mut poses_gt = Vec::new();
 
-        for view_idx in 0..2 {
+        for view_idx in 0..3 {
             let angle = 0.1 * (view_idx as f64);
             let axis = Vector3::new(0.0, 1.0, 0.0);
             let rq = UnitQuaternion::from_scaled_axis(axis * angle);
@@ -306,10 +311,19 @@ mod tests {
             poses_gt.push(pose);
 
             let mut img_points = Vec::new();
-            for pw in &board_points {
+            for (pt_idx, pw) in board_points.iter().enumerate() {
                 let p_cam = pose.transform_point(pw);
                 let proj = cam_gt.project(&p_cam);
-                img_points.push(proj);
+                let mut coords = Pt2::new(proj.x, proj.y).coords;
+
+                if noise_amplitude > 0.0 {
+                    let sign = if (view_idx + pt_idx) % 2 == 0 { 1.0 } else { -1.0 };
+                    let delta = noise_amplitude * sign;
+                    coords.x += delta;
+                    coords.y -= delta;
+                }
+
+                img_points.push(coords);
             }
 
             views.push(PlanarViewObservations::new(
@@ -319,8 +333,6 @@ mod tests {
         }
 
         let problem = PlanarIntrinsicsProblem::new(views);
-
-        // Initial guess: slightly wrong intrinsics, no distortion, poses = GT.
         let cam_init = PinholeCamera {
             intrinsics: CameraIntrinsics {
                 fx: 780.0,
@@ -332,15 +344,30 @@ mod tests {
             distortion: None,
         };
 
+        SyntheticScenario {
+            problem,
+            poses_gt,
+            cam_gt,
+            cam_init,
+        }
+    }
+
+    #[test]
+    fn synthetic_planar_intrinsics_refinement_converges() {
+        let SyntheticScenario {
+            problem,
+            poses_gt,
+            cam_gt,
+            cam_init,
+        } = build_synthetic_scenario(0.0);
+        let k_gt = cam_gt.intrinsics;
+
         let x0 = pack_initial_params(&cam_init, &poses_gt);
         let backend = LmBackend::default();
         let opts = SolveOptions::default();
 
         let (cam_refined, poses_refined, report) =
             refine_planar_intrinsics(&backend, &problem, x0, &opts);
-
-        println!("LM report: {:?}", report);
-        println!("Refined intrinsics: {:?}", cam_refined.intrinsics);
 
         // Very simple checks – just ensure we're close to GT.
         assert!((cam_refined.intrinsics.fx - k_gt.fx).abs() < 5.0);
@@ -351,5 +378,86 @@ mod tests {
         assert!(report.converged);
         assert!(report.final_cost < 1e-6);
         assert_eq!(poses_refined.len(), poses_gt.len());
+    }
+
+    #[test]
+    fn synthetic_planar_intrinsics_with_noise_still_works() {
+        let SyntheticScenario {
+            problem,
+            poses_gt,
+            cam_gt,
+            cam_init,
+        } = build_synthetic_scenario(0.001);
+        let k_gt = cam_gt.intrinsics;
+
+        let x0 = pack_initial_params(&cam_init, &poses_gt);
+        let backend = LmBackend::default();
+        let opts = SolveOptions::default();
+
+        let (cam_refined, poses_refined, report) =
+            refine_planar_intrinsics(&backend, &problem, x0, &opts);
+
+        assert!(report.converged);
+        assert!(
+            report.final_cost < 1e-4,
+            "final cost too high with noise: {}",
+            report.final_cost
+        );
+        assert_eq!(poses_refined.len(), poses_gt.len());
+
+        let init_fx_err = (cam_init.intrinsics.fx - k_gt.fx).abs();
+        let init_fy_err = (cam_init.intrinsics.fy - k_gt.fy).abs();
+        let refined_fx_err = (cam_refined.intrinsics.fx - k_gt.fx).abs();
+        let refined_fy_err = (cam_refined.intrinsics.fy - k_gt.fy).abs();
+
+        assert!(
+            refined_fx_err < init_fx_err,
+            "fx error did not improve: init {} vs refined {}",
+            init_fx_err,
+            refined_fx_err
+        );
+        assert!(
+            refined_fy_err < init_fy_err,
+            "fy error did not improve: init {} vs refined {}",
+            init_fy_err,
+            refined_fy_err
+        );
+    }
+
+    #[test]
+    fn planar_intrinsics_cost_improves_over_initial() {
+        let SyntheticScenario {
+            problem,
+            poses_gt,
+            cam_gt: _,
+            cam_init,
+        } = build_synthetic_scenario(0.0);
+
+        let x0 = pack_initial_params(&cam_init, &poses_gt);
+        let r_init = problem.residuals(&x0);
+        let initial_cost = 0.5 * r_init.dot(&r_init);
+
+        let backend = LmBackend::default();
+        let opts = SolveOptions::default();
+        let x0_for_solver = x0.clone();
+        let (cam_refined, poses_refined, report) =
+            refine_planar_intrinsics(&backend, &problem, x0_for_solver, &opts);
+
+        let refined_params = pack_initial_params(&cam_refined, &poses_refined);
+        let r_final = problem.residuals(&refined_params);
+        let final_cost = 0.5 * r_final.dot(&r_final);
+
+        assert!(
+            final_cost < 0.1 * initial_cost,
+            "final cost {} not sufficiently smaller than initial {}",
+            final_cost,
+            initial_cost
+        );
+        assert!(
+            (report.final_cost - final_cost).abs() < 1e-9,
+            "reported final cost {} disagrees with recomputed {}",
+            report.final_cost,
+            final_cost
+        );
     }
 }
