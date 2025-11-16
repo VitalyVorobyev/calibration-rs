@@ -1,8 +1,8 @@
 mod extrinsics;
+mod handeye;
 mod homography;
 mod planar_pose;
 mod zhang_intrinsics;
-mod handeye;
 
 pub use extrinsics::*;
 pub use homography::*;

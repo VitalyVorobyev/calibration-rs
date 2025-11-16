@@ -1,8 +1,8 @@
 // crates/calib-linear/src/handeye.rs
 
-use calib_core::{Real, Iso3};
+use calib_core::{Iso3, Real};
 use nalgebra::{
-    DMatrix, DVector, Isometry3, Matrix3, Translation3, Unit, UnitQuaternion, Vector3,
+    DMatrix, DVector, Isometry3, Matrix3, Quaternion, Translation3, Unit, UnitQuaternion, Vector3,
 };
 
 /// Motion pair for Tsai–Lenz AX = XB:
@@ -30,7 +30,7 @@ fn make_motion_pair(
     cam_se3_target_b: &Iso3,
 ) -> MotionPair {
     let affine_a = base_se3_gripper_a.inverse() * base_se3_gripper_b;
-    let affine_b = cam_se3_target_a * cam_se3_target_b.inverse();
+    let affine_b = cam_se3_target_a.inverse() * cam_se3_target_b;
 
     let rot_a = project_to_so3(*affine_a.rotation.to_rotation_matrix().matrix());
     let rot_b = project_to_so3(*affine_b.rotation.to_rotation_matrix().matrix());
@@ -106,7 +106,7 @@ pub fn build_all_pairs(
 
     for i in 0..(num_poses - 1) {
         for j in (i + 1)..num_poses {
-            let mut pair = make_motion_pair(
+            let pair = make_motion_pair(
                 &base_se3_gripper[i],
                 &cam_se3_target[i],
                 &base_se3_gripper[j],
@@ -134,28 +134,42 @@ pub fn build_all_pairs(
 // ---------- weighted Tsai–Lenz rotation over all pairs ----------
 
 fn estimate_rotation_allpairs_weighted(pairs: &[MotionPair]) -> Matrix3<Real> {
-    let num_pairs = pairs.len() as i32;
-    let mut mat_m = DMatrix::<Real>::zeros(3 * num_pairs as usize, 3);
-    let mut vec_d = DVector::<Real>::zeros(3 * num_pairs as usize);
-
-    for idx in 0..num_pairs {
-        let p = &pairs[idx as usize];
-        let alpha = log_so3(&p.rot_a);
-        let beta = log_so3(&p.rot_b);
-        let weight = 1.0;
-
-        mat_m
-            .view_mut((3 * idx as usize, 0), (3, 3))
-            .copy_from(&(weight * skew(&(alpha + beta))));
-
-        vec_d
-            .segment_mut(3 * idx as usize, 3)
-            .copy_from(&(weight * (beta - alpha)));
+    fn quat_left(q: &UnitQuaternion<Real>) -> nalgebra::Matrix4<Real> {
+        let w = q.w;
+        let (x, y, z) = (q.i, q.j, q.k);
+        nalgebra::Matrix4::new(w, -x, -y, -z, x, w, -z, y, y, z, w, -x, z, -y, x, w)
     }
 
-    let ridge = 1e-12;
-    let rot_vec = ridge_llsq(&mat_m, &vec_d, ridge);
-    exp_so3(&rot_vec)
+    fn quat_right(q: &UnitQuaternion<Real>) -> nalgebra::Matrix4<Real> {
+        let w = q.w;
+        let (x, y, z) = (q.i, q.j, q.k);
+        nalgebra::Matrix4::new(w, -x, -y, -z, x, w, z, -y, y, -z, w, x, z, y, -x, w)
+    }
+
+    let num_pairs = pairs.len();
+    let mut m = DMatrix::<Real>::zeros(4 * num_pairs, 4);
+
+    for (idx, p) in pairs.iter().enumerate() {
+        let qa = UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(
+            p.rot_a,
+        ));
+        let qb = UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(
+            p.rot_b,
+        ));
+
+        let row_start = 4 * idx;
+        m.view_mut((row_start, 0), (4, 4))
+            .copy_from(&(quat_left(&qa) - quat_right(&qb)));
+    }
+
+    let svd = m.svd(true, true);
+    let v_t = svd.v_t.expect("V^T from SVD");
+    let q_vec = v_t.row(v_t.nrows() - 1);
+
+    let q = Quaternion::new(q_vec[0], q_vec[1], q_vec[2], q_vec[3]).normalize();
+    UnitQuaternion::from_quaternion(q)
+        .to_rotation_matrix()
+        .into_inner()
 }
 
 // ---------- weighted Tsai–Lenz translation over all pairs ----------
@@ -177,11 +191,11 @@ fn estimate_translation_allpairs_weighted(
         let weight = 1.0;
 
         mat_c
-            .slice_mut((3 * idx as usize, 0), (3, 3))
+            .view_mut((3 * idx as usize, 0), (3, 3))
             .copy_from(&(weight * (rot_a - Matrix3::identity())));
 
         vec_w
-            .segment_mut(3 * idx as usize, 3)
+            .rows_mut(3 * idx as usize, 3)
             .copy_from(&(weight * (rot_x * tran_b - tran_a)));
     }
 
@@ -204,24 +218,21 @@ pub fn estimate_handeye_dlt(
         base_se3_gripper,
         camera_se3_target,
         min_angle_deg,
-        true,    // reject_axis_parallel
-        1e-3,    // axis_parallel_eps
+        true, // reject_axis_parallel
+        1e-3, // axis_parallel_eps
     );
 
     let rot_x = estimate_rotation_allpairs_weighted(&pairs);
     let g_tra_c = estimate_translation_allpairs_weighted(&pairs, &rot_x);
 
-    let rot = UnitQuaternion::from_rotation_matrix(&rot_x);
+    let rot =
+        UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(rot_x));
     let trans = Translation3::from(g_tra_c);
     Isometry3::from_parts(trans, rot)
 }
 
 fn skew(v: &Vector3<Real>) -> Matrix3<Real> {
-    Matrix3::new(
-        0.0,     -v[2],   v[1],
-        v[2],     0.0,   -v[0],
-       -v[1],    v[0],    0.0,
-    )
+    Matrix3::new(0.0, -v[2], v[1], v[2], 0.0, -v[0], -v[1], v[0], 0.0)
 }
 
 /// Project a general 3x3 matrix to the closest rotation matrix (SO(3))
@@ -243,12 +254,14 @@ fn project_to_so3(m: Matrix3<Real>) -> Matrix3<Real> {
 
 /// log: SO(3) -> so(3) as a 3-vector (axis * angle)
 fn log_so3(r: &Matrix3<Real>) -> Vector3<Real> {
-    let rot = UnitQuaternion::from_rotation_matrix(r);
+    let rot = UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(*r));
     let angle = rot.angle();
     if angle < 1e-12 {
         return Vector3::zeros();
     }
-    let axis: Unit<Vector3<Real>> = rot.axis().unwrap_or_else(|| Unit::new_unchecked(Vector3::x_axis().into_inner()));
+    let axis: Unit<Vector3<Real>> = rot
+        .axis()
+        .unwrap_or_else(|| Unit::new_unchecked(Vector3::x_axis().into_inner()));
     axis.into_inner() * angle
 }
 
@@ -265,11 +278,7 @@ fn exp_so3(v: &Vector3<Real>) -> Matrix3<Real> {
 
 /// Ridge-regularized least squares:
 /// min ||A x - b||^2 + λ ||x||^2
-fn ridge_llsq(
-    a: &DMatrix<Real>,
-    b: &DVector<Real>,
-    lambda: Real,
-) -> Vector3<Real> {
+fn ridge_llsq(a: &DMatrix<Real>, b: &DVector<Real>, lambda: Real) -> Vector3<Real> {
     let m = a.nrows();
     let n = a.ncols(); // should be 3
 
@@ -279,7 +288,7 @@ fn ridge_llsq(
     }
 
     let mut a_aug = DMatrix::<Real>::zeros(m + n, n);
-    a_aug.slice_mut((0, 0), (m, n)).copy_from(a);
+    a_aug.view_mut((0, 0), (m, n)).copy_from(a);
 
     let sqrt_lambda = lambda.sqrt();
     for i in 0..n {
@@ -287,9 +296,7 @@ fn ridge_llsq(
     }
 
     let mut b_aug = DVector::<Real>::zeros(m + n);
-    b_aug
-        .rows_mut(0, m)
-        .copy_from(b);
+    b_aug.rows_mut(0, m).copy_from(b);
 
     let svd = a_aug.svd(true, true);
     let x = svd
@@ -302,12 +309,9 @@ fn ridge_llsq(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Rotation3};
+    use nalgebra::Rotation3;
 
-    fn make_iso(
-        angles: (Real, Real, Real),
-        t: (Real, Real, Real),
-    ) -> Iso3 {
+    fn make_iso(angles: (Real, Real, Real), t: (Real, Real, Real)) -> Iso3 {
         let rot = Rotation3::from_euler_angles(angles.0, angles.1, angles.2);
         let tr = Translation3::new(t.0, t.1, t.2);
         Isometry3::from_parts(tr, rot.into())
@@ -320,7 +324,7 @@ mod tests {
         let r_a = a.rotation.to_rotation_matrix();
         let r_b = b.rotation.to_rotation_matrix();
         let r_diff = r_a.transpose() * r_b;
-        let trace = r_diff.trace();
+        let trace = r_diff.matrix().trace();
         let cos_theta = ((trace - 1.0) * 0.5).clamp(-1.0, 1.0);
         let angle = cos_theta.acos();
 
