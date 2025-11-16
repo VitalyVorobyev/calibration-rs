@@ -132,9 +132,11 @@ pub fn run_planar_intrinsics(
 
     let x0 = pack_initial_params(&initial_camera, &poses0);
 
-    let backend = LmBackend::default();
-    let mut opts = SolveOptions::default();
-    opts.max_iters = config.max_iters_or_default();
+    let backend = LmBackend;
+    let opts = SolveOptions {
+        max_iters: config.max_iters_or_default(),
+        ..Default::default()
+    };
 
     let (camera, _poses, report) = refine_planar_intrinsics(&backend, &problem, x0, &opts);
 
@@ -149,7 +151,6 @@ pub fn run_planar_intrinsics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json;
 
     #[test]
     fn planar_intrinsics_pipeline_synthetic_recovers_intrinsics() {

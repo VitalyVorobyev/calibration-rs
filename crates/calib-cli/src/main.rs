@@ -1,8 +1,6 @@
 use std::{error::Error, fs, path::Path};
 
-use calib_pipeline::{
-    run_planar_intrinsics, PlanarIntrinsicsConfig, PlanarIntrinsicsInput,
-};
+use calib_pipeline::{run_planar_intrinsics, PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
 use clap::Parser;
 
 /// Calibration CLI for planar camera intrinsics.
@@ -24,7 +22,9 @@ fn load_json_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Box<
     Ok(value)
 }
 
-fn write_report_json(report: &calib_pipeline::PlanarIntrinsicsReport) -> Result<String, Box<dyn Error>> {
+fn write_report_json(
+    report: &calib_pipeline::PlanarIntrinsicsReport,
+) -> Result<String, Box<dyn Error>> {
     Ok(serde_json::to_string_pretty(report)?)
 }
 

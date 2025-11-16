@@ -1,4 +1,4 @@
-use calib_core::{Mat3, Pt2};
+use calib_core::{from_homogeneous, ransac, to_homogeneous, Estimator, Mat3, Pt2, RansacOptions};
 use nalgebra::{DMatrix, DVector};
 use std::cmp::Ordering;
 use thiserror::Error;
@@ -9,6 +9,8 @@ pub enum HomographyError {
     NotEnoughPoints(usize),
     #[error("svd failed")]
     SvdFailed,
+    #[error("ransac failed to find a consensus homography")]
+    RansacFailed,
 }
 
 /// Estimate H such that x' ~ H x using DLT.
@@ -72,10 +74,98 @@ pub fn dlt_homography(world: &[Pt2], image: &[Pt2]) -> Result<Mat3, HomographyEr
     Ok(h_mat)
 }
 
+/// Estimate a homography using DLT inside a RANSAC loop.
+///
+/// Returns the best homography and the indices of inliers.
+pub fn dlt_homography_ransac(
+    world: &[Pt2],
+    image: &[Pt2],
+    opts: &RansacOptions,
+) -> Result<(Mat3, Vec<usize>), HomographyError> {
+    let n = world.len();
+    if n < 4 || image.len() != n {
+        return Err(HomographyError::NotEnoughPoints(n));
+    }
+
+    #[derive(Clone)]
+    struct HomographyDatum {
+        w: Pt2,
+        i: Pt2,
+    }
+
+    struct HomographyEst;
+
+    impl Estimator for HomographyEst {
+        type Datum = HomographyDatum;
+        type Model = Mat3;
+
+        const MIN_SAMPLES: usize = 4;
+
+        fn fit(data: &[Self::Datum], sample_indices: &[usize]) -> Option<Self::Model> {
+            let mut world = Vec::with_capacity(sample_indices.len());
+            let mut image = Vec::with_capacity(sample_indices.len());
+            for &idx in sample_indices {
+                world.push(data[idx].w);
+                image.push(data[idx].i);
+            }
+            dlt_homography(&world, &image).ok()
+        }
+
+        fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
+            let p = to_homogeneous(&datum.w);
+            let proj = model * p;
+            let proj_pt = from_homogeneous(&proj);
+            let du = proj_pt.x - datum.i.x;
+            let dv = proj_pt.y - datum.i.y;
+            (du * du + dv * dv).sqrt()
+        }
+
+        fn is_degenerate(data: &[Self::Datum], sample_indices: &[usize]) -> bool {
+            if sample_indices.len() < 3 {
+                return false;
+            }
+            let p0 = data[sample_indices[0]].w;
+            let p1 = data[sample_indices[1]].w;
+            let p2 = data[sample_indices[2]].w;
+            let area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+            area.abs() < 1e-9
+        }
+
+        fn refit(data: &[Self::Datum], inliers: &[usize]) -> Option<Self::Model> {
+            if inliers.len() < 4 {
+                return None;
+            }
+            let mut world = Vec::with_capacity(inliers.len());
+            let mut image = Vec::with_capacity(inliers.len());
+            for &idx in inliers {
+                world.push(data[idx].w);
+                image.push(data[idx].i);
+            }
+            dlt_homography(&world, &image).ok()
+        }
+    }
+
+    let data: Vec<HomographyDatum> = world
+        .iter()
+        .cloned()
+        .zip(image.iter().cloned())
+        .map(|(w, i)| HomographyDatum { w, i })
+        .collect();
+
+    let res = ransac::<HomographyEst>(&data, opts);
+    if !res.success {
+        return Err(HomographyError::RansacFailed);
+    }
+
+    let h = res.model.expect("success guarantees a model");
+    Ok((h, res.inliers))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use calib_core::Pt2;
+    use calib_core::RansacOptions;
 
     #[test]
     fn basic_homography() {
@@ -95,5 +185,45 @@ mod tests {
         let h = dlt_homography(&w, &img).unwrap();
         let s = h[(0, 0)];
         assert!((s - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn homography_ransac_handles_outliers() {
+        let w = vec![
+            Pt2::new(0.0, 0.0),
+            Pt2::new(1.0, 0.0),
+            Pt2::new(1.0, 1.0),
+            Pt2::new(0.0, 1.0),
+        ];
+        let img_inliers = vec![
+            Pt2::new(0.0, 0.0),
+            Pt2::new(2.0, 0.0),
+            Pt2::new(2.0, 2.0),
+            Pt2::new(0.0, 2.0),
+        ];
+
+        // Add a couple of outlier correspondences
+        let mut w_all = w.clone();
+        let mut img_all = img_inliers.clone();
+        w_all.push(Pt2::new(0.5, 0.5));
+        img_all.push(Pt2::new(10.0, -3.0));
+        w_all.push(Pt2::new(-0.2, 0.3));
+        img_all.push(Pt2::new(-5.0, 7.0));
+
+        let opts = RansacOptions {
+            max_iters: 200,
+            thresh: 0.1,
+            min_inliers: 4,
+            confidence: 0.99,
+            seed: 7,
+            refit_on_inliers: true,
+        };
+
+        let (h, inliers) = dlt_homography_ransac(&w_all, &img_all, &opts).unwrap();
+
+        // The inliers should at least include the four good correspondences.
+        assert!(inliers.len() >= 4);
+        let scale = h[(0, 0)];
+        assert!((scale - 2.0).abs() < 1e-2);
     }
 }
