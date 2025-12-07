@@ -1,6 +1,4 @@
-use calib_core::{
-    ransac, CameraIntrinsics, Estimator, Iso3, Mat3, Pt3, RansacOptions, Real, Vec2,
-};
+use calib_core::{ransac, CameraIntrinsics, Estimator, Iso3, Mat3, Pt3, RansacOptions, Real, Vec2};
 use nalgebra::{DMatrix, DVector, Isometry3, Rotation3, Translation3, UnitQuaternion};
 use thiserror::Error;
 
@@ -31,20 +29,14 @@ impl PnpSolver {
     ///
     /// `world` are 3D points in world coordinates, `image` are their
     /// corresponding pixel positions, and `k` are the camera intrinsics.
-    pub fn dlt(
-        world: &[Pt3],
-        image: &[Vec2],
-        k: &CameraIntrinsics,
-    ) -> Result<Iso3, PnpError> {
+    pub fn dlt(world: &[Pt3], image: &[Vec2], k: &CameraIntrinsics) -> Result<Iso3, PnpError> {
         let n = world.len();
         if n < 6 || image.len() != n {
             return Err(PnpError::NotEnoughPoints(n));
         }
 
         let kmtx: Mat3 = k.k_matrix();
-        let k_inv = kmtx
-            .try_inverse()
-            .expect("K must be invertible in PnP DLT");
+        let k_inv = kmtx.try_inverse().expect("K must be invertible in PnP DLT");
 
         // Build 2n x 12 DLT matrix for camera matrix P = [R | t] in normalized coords.
         let mut a = DMatrix::<Real>::zeros(2 * n, 12);
@@ -104,7 +96,7 @@ impl PnpSolver {
             }
         }
 
-        let m = p_mtx.fixed_slice::<3, 3>(0, 0).into_owned();
+        let m = p_mtx.fixed_view::<3, 3>(0, 0).into_owned();
         let mut r_approx = m;
 
         // Normalise scale using average row norm.
@@ -200,11 +192,7 @@ impl PnpSolver {
             .iter()
             .cloned()
             .zip(image.iter().cloned())
-            .map(|(pw, pi)| PnpDatum {
-                pw,
-                pi,
-                k: *k,
-            })
+            .map(|(pw, pi)| PnpDatum { pw, pi, k: *k })
             .collect();
 
         let res = ransac::<PnpEst>(&data, opts);

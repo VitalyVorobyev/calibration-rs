@@ -40,27 +40,27 @@ impl PlanarIntrinsicsLinearInit {
     ///
     /// At least three views with sufficiently rich geometry are required.
     pub fn from_homographies(hmtxs: &[Mat3]) -> CameraIntrinsics {
-    assert!(
-        hmtxs.len() >= 3,
-        "need at least 3 homographies for intrinsics estimation"
-    );
+        assert!(
+            hmtxs.len() >= 3,
+            "need at least 3 homographies for intrinsics estimation"
+        );
 
         let m = hmtxs.len();
         let mut vmtx = DMatrix::<Real>::zeros(2 * m, 6);
 
         for (k, hmtx) in hmtxs.iter().enumerate() {
-        let v11 = v_ij(hmtx, 0, 0);
-        let v22 = v_ij(hmtx, 1, 1);
-        let v12 = v_ij(hmtx, 0, 1);
+            let v11 = v_ij(hmtx, 0, 0);
+            let v22 = v_ij(hmtx, 1, 1);
+            let v12 = v_ij(hmtx, 0, 1);
 
-        // Row 2k: v_12^T
+            // Row 2k: v_12^T
             vmtx.row_mut(2 * k).copy_from(&v12.transpose());
-        // Row 2k+1: (v_11 - v_22)^T
+            // Row 2k+1: (v_11 - v_22)^T
             vmtx.row_mut(2 * k + 1).copy_from(&(v11 - v22).transpose());
-    }
+        }
 
-    // Solve V b = 0 via SVD: take the singular vector corresponding to the
-    // smallest singular value.
+        // Solve V b = 0 via SVD: take the singular vector corresponding to the
+        // smallest singular value.
         let svd = vmtx.svd(true, true);
         let v_t = svd.v_t.expect("V^T from SVD");
         let b = v_t.row(v_t.nrows() - 1); // last row
@@ -72,16 +72,16 @@ impl PlanarIntrinsicsLinearInit {
         let b23 = b[4];
         let b33 = b[5];
 
-    // From Zhang's paper:
-    //
-    // v0 = (B12 B13 - B11 B23) / (B11 B22 - B12^2)
-    // λ = B33 - (B13^2 + v0 (B12 B13 - B11 B23)) / B11
-    // α = sqrt(λ / B11)
-    // β = sqrt(λ B11 / (B11 B22 - B12^2))
-    // γ = -B12 α^2 β / λ
-    // u0 = γ v0 / β - B13 α^2 / λ
-    //
-    // We name them fx, fy, skew, cx, cy accordingly.
+        // From Zhang's paper:
+        //
+        // v0 = (B12 B13 - B11 B23) / (B11 B22 - B12^2)
+        // λ = B33 - (B13^2 + v0 (B12 B13 - B11 B23)) / B11
+        // α = sqrt(λ / B11)
+        // β = sqrt(λ B11 / (B11 B22 - B12^2))
+        // γ = -B12 α^2 β / λ
+        // u0 = γ v0 / β - B13 α^2 / λ
+        //
+        // We name them fx, fy, skew, cx, cy accordingly.
 
         let denom = b11 * b22 - b12 * b12;
         let denom_norm = b11 * b11 + b22 * b22;

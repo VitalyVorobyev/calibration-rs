@@ -82,80 +82,80 @@ impl MultiCamExtrinsicsInit {
         cam_se3_target: &[Vec<Option<Iso3>>],
         ref_cam_idx: usize,
     ) -> ExtrinsicPoses {
-    let num_views = cam_se3_target.len();
-    assert!(num_views > 0, "need at least one view");
+        let num_views = cam_se3_target.len();
+        assert!(num_views > 0, "need at least one view");
 
-    let num_cameras = cam_se3_target[0].len();
-    assert!(ref_cam_idx < num_cameras, "invalid ref_cam_idx");
+        let num_cameras = cam_se3_target[0].len();
+        assert!(ref_cam_idx < num_cameras, "invalid ref_cam_idx");
 
-    for (v_idx, view) in cam_se3_target.iter().enumerate() {
-        assert_eq!(
-            view.len(),
-            num_cameras,
-            "view {} has different camera count",
-            v_idx
-        );
-    }
-
-    // 1) Estimate cam_to_rig (camera -> rig), with rig = ref camera frame
-    let mut cam_to_rig: Vec<Iso3> = Vec::with_capacity(num_cameras);
-
-    for cam_idx in 0..num_cameras {
-        if cam_idx == ref_cam_idx {
-            cam_to_rig.push(Iso3::identity());
-            continue;
+        for (v_idx, view) in cam_se3_target.iter().enumerate() {
+            assert_eq!(
+                view.len(),
+                num_cameras,
+                "view {} has different camera count",
+                v_idx
+            );
         }
 
-        let mut candidates: Vec<Iso3> = Vec::new();
+        // 1) Estimate cam_to_rig (camera -> rig), with rig = ref camera frame
+        let mut cam_to_rig: Vec<Iso3> = Vec::with_capacity(num_cameras);
 
-        for view in cam_se3_target {
-            if let (Some(ct_cam), Some(ct_ref)) = (&view[cam_idx], &view[ref_cam_idx]) {
-                // X = C_i->T * (C_ref->T)^(-1)
-                let x = ct_cam * ct_ref.inverse();
-                candidates.push(x);
+        for cam_idx in 0..num_cameras {
+            if cam_idx == ref_cam_idx {
+                cam_to_rig.push(Iso3::identity());
+                continue;
             }
-        }
 
-        assert!(
-            !candidates.is_empty(),
-            "no overlapping views between camera {} and reference {}",
-            cam_idx,
-            ref_cam_idx
-        );
+            let mut candidates: Vec<Iso3> = Vec::new();
 
-        let avg = average_isometries(&candidates);
-        cam_to_rig.push(avg);
-    }
-
-    // 2) Estimate rig_to_target for each view by averaging over cameras
-    let mut rig_to_target: Vec<Iso3> = Vec::with_capacity(num_views);
-
-    for (v_idx, view) in cam_se3_target.iter().enumerate() {
-        let mut candidates: Vec<Iso3> = Vec::new();
-
-        for (cam_idx, opt_ct) in view.iter().enumerate() {
-            if let Some(ct) = opt_ct {
-                // rig->target = (cam->rig)^(-1) * (cam->target)
-                let rt = cam_to_rig[cam_idx].inverse() * ct;
-                candidates.push(rt);
+            for view in cam_se3_target {
+                if let (Some(ct_cam), Some(ct_ref)) = (&view[cam_idx], &view[ref_cam_idx]) {
+                    // X = C_i->T * (C_ref->T)^(-1)
+                    let x = ct_cam * ct_ref.inverse();
+                    candidates.push(x);
+                }
             }
+
+            assert!(
+                !candidates.is_empty(),
+                "no overlapping views between camera {} and reference {}",
+                cam_idx,
+                ref_cam_idx
+            );
+
+            let avg = average_isometries(&candidates);
+            cam_to_rig.push(avg);
         }
 
-        assert!(
-            !candidates.is_empty(),
-            "view {} has no valid camera poses",
-            v_idx
-        );
+        // 2) Estimate rig_to_target for each view by averaging over cameras
+        let mut rig_to_target: Vec<Iso3> = Vec::with_capacity(num_views);
 
-        let avg = average_isometries(&candidates);
-        rig_to_target.push(avg);
-    }
+        for (v_idx, view) in cam_se3_target.iter().enumerate() {
+            let mut candidates: Vec<Iso3> = Vec::new();
 
-            ExtrinsicPoses {
-                cam_to_rig,
-                rig_to_target,
+            for (cam_idx, opt_ct) in view.iter().enumerate() {
+                if let Some(ct) = opt_ct {
+                    // rig->target = (cam->rig)^(-1) * (cam->target)
+                    let rt = cam_to_rig[cam_idx].inverse() * ct;
+                    candidates.push(rt);
+                }
             }
+
+            assert!(
+                !candidates.is_empty(),
+                "view {} has no valid camera poses",
+                v_idx
+            );
+
+            let avg = average_isometries(&candidates);
+            rig_to_target.push(avg);
         }
+
+        ExtrinsicPoses {
+            cam_to_rig,
+            rig_to_target,
+        }
+    }
 }
 
 #[cfg(test)]

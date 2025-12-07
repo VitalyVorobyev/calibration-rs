@@ -37,13 +37,13 @@ impl HomographySolver {
         let mut a = DMatrix::<f64>::zeros(2 * n, 9);
 
         for (i, (pw, pi)) in world.iter().zip(image.iter()).enumerate() {
-        let x = pw.x;
-        let y = pw.y;
-        let u = pi.x;
-        let v = pi.y;
+            let x = pw.x;
+            let y = pw.y;
+            let u = pi.x;
+            let v = pi.y;
 
-        let r0 = 2 * i;
-        let r1 = 2 * i + 1;
+            let r0 = 2 * i;
+            let r1 = 2 * i + 1;
 
             a[(r0, 0)] = -x;
             a[(r0, 1)] = -y;
@@ -154,8 +154,7 @@ impl HomographySolver {
                 let p0 = data[sample_indices[0]].w;
                 let p1 = data[sample_indices[1]].w;
                 let p2 = data[sample_indices[2]].w;
-                let area =
-                    (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+                let area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
                 area.abs() < 1e-9
             }
 

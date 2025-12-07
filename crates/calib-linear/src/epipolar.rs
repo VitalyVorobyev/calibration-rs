@@ -24,10 +24,7 @@ impl EpipolarSolver {
     /// Normalised 8-point algorithm for the fundamental matrix.
     ///
     /// `pts1` and `pts2` are corresponding points in two images.
-    pub fn fundamental_8point(
-        pts1: &[Pt2],
-        pts2: &[Pt2],
-    ) -> Result<Mat3, EpipolarError> {
+    pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3, EpipolarError> {
         let n = pts1.len();
         if n < 8 || pts2.len() != n {
             return Err(EpipolarError::NotEnoughPoints(n));
@@ -74,7 +71,7 @@ impl EpipolarSolver {
 
         // Enforce rank-2 constraint on F.
         let svd_f = f.svd(true, true);
-        let mut u = svd_f.u.ok_or(EpipolarError::SvdFailed)?;
+        let u = svd_f.u.ok_or(EpipolarError::SvdFailed)?;
         let mut s = svd_f.singular_values;
         let v_t = svd_f.v_t.ok_or(EpipolarError::SvdFailed)?;
         s[2] = 0.0;
@@ -215,4 +212,3 @@ mod tests {
         assert!(norm_f > 0.0);
     }
 }
-

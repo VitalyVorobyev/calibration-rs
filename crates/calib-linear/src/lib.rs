@@ -11,18 +11,18 @@
 //! Non-linear refinement and full pipelines live in `calib-optim` and
 //! `calib-pipeline` and are re-exported via the top-level `calib` crate.
 
+pub mod epipolar;
 pub mod extrinsics;
 pub mod handeye;
 pub mod homography;
 pub mod planar_pose;
-pub mod zhang_intrinsics;
 pub mod pnp;
-pub mod epipolar;
+pub mod zhang_intrinsics;
 
+pub use epipolar::*;
 pub use extrinsics::*;
 pub use handeye::*;
 pub use homography::*;
 pub use planar_pose::*;
-pub use zhang_intrinsics::*;
 pub use pnp::*;
-pub use epipolar::*;
+pub use zhang_intrinsics::*;

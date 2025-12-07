@@ -228,26 +228,23 @@ impl HandEyeInit {
         camera_se3_target: &[Iso3],
         min_angle_deg: Real,
     ) -> Iso3 {
-    let pairs = build_all_pairs(
-        base_se3_gripper,
-        camera_se3_target,
-        min_angle_deg,
-        true, // reject_axis_parallel
-        1e-3, // axis_parallel_eps
-    );
+        let pairs = build_all_pairs(
+            base_se3_gripper,
+            camera_se3_target,
+            min_angle_deg,
+            true, // reject_axis_parallel
+            1e-3, // axis_parallel_eps
+        );
 
-    let rot_x = estimate_rotation_allpairs_weighted(&pairs);
-    let g_tra_c = estimate_translation_allpairs_weighted(&pairs, &rot_x);
+        let rot_x = estimate_rotation_allpairs_weighted(&pairs);
+        let g_tra_c = estimate_translation_allpairs_weighted(&pairs, &rot_x);
 
-    let rot =
-        UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(rot_x));
-    let trans = Translation3::from(g_tra_c);
-            Isometry3::from_parts(trans, rot)
-        }
-}
-
-fn skew(v: &Vector3<Real>) -> Matrix3<Real> {
-    Matrix3::new(0.0, -v[2], v[1], v[2], 0.0, -v[0], -v[1], v[0], 0.0)
+        let rot = UnitQuaternion::from_rotation_matrix(
+            &nalgebra::Rotation3::from_matrix_unchecked(rot_x),
+        );
+        let trans = Translation3::from(g_tra_c);
+        Isometry3::from_parts(trans, rot)
+    }
 }
 
 /// Project a general 3x3 matrix to the closest rotation matrix (SO(3))
@@ -278,17 +275,6 @@ fn log_so3(r: &Matrix3<Real>) -> Vector3<Real> {
         .axis()
         .unwrap_or_else(|| Unit::new_unchecked(Vector3::x_axis().into_inner()));
     axis.into_inner() * angle
-}
-
-/// exp: so(3) (axis * angle) -> SO(3)
-fn exp_so3(v: &Vector3<Real>) -> Matrix3<Real> {
-    let theta = v.norm();
-    if theta < 1e-12 {
-        return Matrix3::identity();
-    }
-    let axis = v / theta;
-    let q = UnitQuaternion::from_axis_angle(&Unit::new_normalize(axis), theta);
-    *q.to_rotation_matrix().matrix()
 }
 
 /// Ridge-regularized least squares:

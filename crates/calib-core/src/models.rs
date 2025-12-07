@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{Mat3, Pt3, Vec2, Vec3, Real};
+use crate::{Mat3, Pt3, Real, Vec2, Vec3};
 
 /// Brown–Conrady-style camera intrinsics for a pinhole model.
 ///

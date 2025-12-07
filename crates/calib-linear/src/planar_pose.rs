@@ -20,12 +20,12 @@ pub fn estimate_planar_pose_from_h(kmtx: &Mat3, hmtx: &Mat3) -> Iso3 {
 impl PlanarPoseSolver {
     /// Decompose a homography into a pose `T_C_B` given intrinsics `K`.
     pub fn from_homography(kmtx: &Mat3, hmtx: &Mat3) -> Iso3 {
-    // K^{-1}
-    let k_inv = kmtx
-        .try_inverse()
-        .expect("K must be invertible in estimate_planar_pose_from_h");
+        // K^{-1}
+        let k_inv = kmtx
+            .try_inverse()
+            .expect("K must be invertible in estimate_planar_pose_from_h");
 
-    // Columns of H
+        // Columns of H
         let h1 = hmtx.column(0);
         let h2 = hmtx.column(1);
         let h3 = hmtx.column(2).into_owned();
@@ -33,7 +33,7 @@ impl PlanarPoseSolver {
         let k_inv_h1 = k_inv * h1;
         let k_inv_h2 = k_inv * h2;
 
-    // Scale factor λ: normalize first two columns (average for robustness)
+        // Scale factor λ: normalize first two columns (average for robustness)
         let norm1 = k_inv_h1.norm();
         let norm2 = k_inv_h2.norm();
         let lambda = 1.0 / ((norm1 + norm2) * 0.5);
