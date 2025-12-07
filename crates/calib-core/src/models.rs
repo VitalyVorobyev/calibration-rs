@@ -70,7 +70,29 @@ impl CameraIntrinsics {
     }
 }
 
-/// Radial–tangential distortion models supported by [`PinholeCamera`].
+/// Common interface for camera projection / back-projection models.
+///
+/// This trait is intentionally small and focuses on geometric operations.
+/// Implementations are provided for [`PinholeCamera`] and
+/// [`ScheimpflugCamera`], and can be used from generic calibration code.
+pub trait CameraModel {
+    /// Project a 3D point in camera coordinates onto the image plane.
+    fn project(&self, p_c: &Pt3) -> Vec2;
+
+    /// Unproject a pixel with a given depth into a 3D point.
+    ///
+    /// Returns `None` if the operation is not defined (e.g. non-positive
+    /// depth or singular intrinsics / homographies).
+    fn unproject(&self, uv: &Vec2, depth: Real) -> Option<Pt3>;
+
+    /// Compute a unit ray direction from a pixel coordinate.
+    ///
+    /// This is equivalent to normalising any valid unprojected 3D point
+    /// lying on the ray defined by `uv`.
+    fn unproject_ray(&self, uv: &Vec2) -> Option<Vec3>;
+}
+
+/// Radial–tangential distortion models supported by camera models.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum RadialTangential {
     /// Classic Brown–Conrady 5-parameter model.
@@ -183,6 +205,126 @@ impl PinholeCamera {
     }
 }
 
+impl CameraModel for PinholeCamera {
+    fn project(&self, p_c: &Pt3) -> Vec2 {
+        self.project(p_c)
+    }
+
+    fn unproject(&self, uv: &Vec2, depth: Real) -> Option<Pt3> {
+        self.unproject(uv, depth)
+    }
+
+    fn unproject_ray(&self, uv: &Vec2) -> Option<Vec3> {
+        self.unproject_ray(uv)
+    }
+}
+
+/// Pinhole camera with an oblique image plane following the Scheimpflug
+/// principle.
+///
+/// This model composes a standard [`PinholeCamera`] with a 3×3 homography
+/// acting on the image plane. The homography maps *ideal* pinhole pixel
+/// coordinates into *physical* sensor coordinates, and can be used to model
+/// sensor tilt (as in a tilt–shift or Scheimpflug camera).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheimpflugCamera {
+    /// Underlying pinhole camera (intrinsics + lens distortion).
+    pub pinhole: PinholeCamera,
+    /// Homography from ideal pinhole pixels to physical sensor pixels.
+    pub sensor_h: Mat3,
+}
+
+impl ScheimpflugCamera {
+    /// Project a 3D point in camera coordinates onto the (tilted) sensor.
+    ///
+    /// This is implemented as:
+    /// 1. project with the underlying [`PinholeCamera`],
+    /// 2. apply the image-plane homography `sensor_h`.
+    pub fn project(&self, p_c: &Pt3) -> Vec2 {
+        let uv_pinhole = self.pinhole.project(p_c);
+        let p = Vec3::new(uv_pinhole.x, uv_pinhole.y, 1.0);
+        let q = self.sensor_h * p;
+        Vec2::new(q.x / q.z, q.y / q.z)
+    }
+
+    /// Map a sensor pixel back to the underlying pinhole image coordinates.
+    ///
+    /// Returns `None` if `sensor_h` is not invertible.
+    fn sensor_to_pinhole(&self, uv_sensor: &Vec2) -> Option<Vec2> {
+        let h_inv = self.sensor_h.try_inverse()?;
+        let p = Vec3::new(uv_sensor.x, uv_sensor.y, 1.0);
+        let q = h_inv * p;
+        Some(Vec2::new(q.x / q.z, q.y / q.z))
+    }
+
+    /// Unproject a sensor pixel and depth into a 3D point in camera coords.
+    ///
+    /// This inverts the sensor homography and then delegates to the underlying
+    /// pinhole camera's [`PinholeCamera::unproject`] implementation.
+    pub fn unproject(&self, uv_sensor: &Vec2, depth: Real) -> Option<Pt3> {
+        let uv_pinhole = self.sensor_to_pinhole(uv_sensor)?;
+        self.pinhole.unproject(&uv_pinhole, depth)
+    }
+
+    /// Compute a unit ray direction in camera coordinates for a sensor pixel.
+    ///
+    /// This inverts the sensor homography and then delegates to
+    /// [`PinholeCamera::unproject_ray`].
+    pub fn unproject_ray(&self, uv_sensor: &Vec2) -> Option<Vec3> {
+        let uv_pinhole = self.sensor_to_pinhole(uv_sensor)?;
+        self.pinhole.unproject_ray(&uv_pinhole)
+    }
+}
+
+impl CameraModel for ScheimpflugCamera {
+    fn project(&self, p_c: &Pt3) -> Vec2 {
+        self.project(p_c)
+    }
+
+    fn unproject(&self, uv: &Vec2, depth: Real) -> Option<Pt3> {
+        self.unproject(uv, depth)
+    }
+
+    fn unproject_ray(&self, uv: &Vec2) -> Option<Vec3> {
+        self.unproject_ray(uv)
+    }
+}
+
+/// Convenience enum covering the built-in camera model types.
+///
+/// This is useful when calibration code needs to operate on different models
+/// without monomorphisation over the [`CameraModel`] trait.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GenericCamera {
+    /// Standard pinhole model with Brown–Conrady distortion.
+    Pinhole(PinholeCamera),
+    /// Pinhole model with a tilted sensor, following the Scheimpflug principle.
+    Scheimpflug(ScheimpflugCamera),
+}
+
+impl CameraModel for GenericCamera {
+    fn project(&self, p_c: &Pt3) -> Vec2 {
+        match self {
+            GenericCamera::Pinhole(cam) => cam.project(p_c),
+            GenericCamera::Scheimpflug(cam) => cam.project(p_c),
+        }
+    }
+
+    fn unproject(&self, uv: &Vec2, depth: Real) -> Option<Pt3> {
+        match self {
+            GenericCamera::Pinhole(cam) => cam.unproject(uv, depth),
+            GenericCamera::Scheimpflug(cam) => cam.unproject(uv, depth),
+        }
+    }
+
+    fn unproject_ray(&self, uv: &Vec2) -> Option<Vec3> {
+        match self {
+            GenericCamera::Pinhole(cam) => cam.unproject_ray(uv),
+            GenericCamera::Scheimpflug(cam) => cam.unproject_ray(uv),
+        }
+    }
+}
+
 fn distort_normalised(model: RadialTangential, x: Real, y: Real) -> (Real, Real) {
     match model {
         RadialTangential::BrownConrady { k1, k2, k3, p1, p2 } => {
@@ -228,6 +370,92 @@ fn undistort_normalised(model: RadialTangential, x_d: Real, y_d: Real) -> (Real,
             }
 
             (x_u, y_u)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scheimpflug_identity_matches_pinhole_projection() {
+        let k = CameraIntrinsics {
+            fx: 800.0,
+            fy: 780.0,
+            cx: 640.0,
+            cy: 360.0,
+            skew: 0.0,
+        };
+        let pinhole = PinholeCamera {
+            intrinsics: k,
+            distortion: Some(RadialTangential::BrownConrady {
+                k1: -0.1,
+                k2: 0.01,
+                p1: 0.001,
+                p2: -0.001,
+                k3: 0.0,
+            }),
+        };
+
+        let scheimpflug = ScheimpflugCamera {
+            pinhole: pinhole.clone(),
+            sensor_h: Mat3::identity(),
+        };
+
+        let pts = [
+            Pt3::new(0.0, 0.0, 1.0),
+            Pt3::new(0.1, -0.05, 1.2),
+            Pt3::new(-0.2, 0.15, 2.0),
+        ];
+
+        for p in &pts {
+            let u_p = pinhole.project(p);
+            let u_s = scheimpflug.project(p);
+            assert!((u_p.x - u_s.x).abs() < 1e-9);
+            assert!((u_p.y - u_s.y).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn scheimpflug_roundtrip_project_unproject() {
+        let k = CameraIntrinsics {
+            fx: 600.0,
+            fy: 590.0,
+            cx: 320.0,
+            cy: 240.0,
+            skew: 0.0,
+        };
+        let pinhole = PinholeCamera {
+            intrinsics: k,
+            distortion: None,
+        };
+
+        // Simple invertible homography: translate the sensor.
+        let sensor_h = Mat3::new(
+            1.0, 0.0, 10.0, //
+            0.0, 1.0, -5.0, //
+            0.0, 0.0, 1.0,
+        );
+
+        let cam = ScheimpflugCamera { pinhole, sensor_h };
+
+        let pts = [
+            Pt3::new(0.0, 0.0, 1.0),
+            Pt3::new(0.1, 0.2, 1.5),
+            Pt3::new(-0.3, 0.1, 2.0),
+        ];
+
+        for p in &pts {
+            let uv = cam.project(p);
+            let depth = p.z;
+            let p_back = cam
+                .unproject(&uv, depth)
+                .expect("unproject should succeed for valid depth");
+
+            assert!((p_back.x - p.x).abs() < 1e-6, "x mismatch");
+            assert!((p_back.y - p.y).abs() < 1e-6, "y mismatch");
+            assert!((p_back.z - p.z).abs() < 1e-6, "z mismatch");
         }
     }
 }
