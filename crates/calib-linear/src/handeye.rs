@@ -16,6 +16,10 @@ pub struct MotionPair {
     pub tra_b: Vector3<Real>,
 }
 
+/// Linear hand–eye initialisation using the Tsai–Lenz formulation.
+#[derive(Debug, Clone, Copy)]
+pub struct HandEyeInit;
+
 /// Build a single motion pair from two pose samples.
 ///
 /// base_se3_gripper_*: ^B T_G
@@ -214,6 +218,16 @@ pub fn estimate_handeye_dlt(
     camera_se3_target: &[Iso3],
     min_angle_deg: Real,
 ) -> Iso3 {
+    HandEyeInit::tsai_lenz(base_se3_gripper, camera_se3_target, min_angle_deg)
+}
+
+impl HandEyeInit {
+    /// Tsai–Lenz hand–eye initialisation over all motion pairs.
+    pub fn tsai_lenz(
+        base_se3_gripper: &[Iso3],
+        camera_se3_target: &[Iso3],
+        min_angle_deg: Real,
+    ) -> Iso3 {
     let pairs = build_all_pairs(
         base_se3_gripper,
         camera_se3_target,
@@ -228,7 +242,8 @@ pub fn estimate_handeye_dlt(
     let rot =
         UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(rot_x));
     let trans = Translation3::from(g_tra_c);
-    Isometry3::from_parts(trans, rot)
+            Isometry3::from_parts(trans, rot)
+        }
 }
 
 fn skew(v: &Vector3<Real>) -> Matrix3<Real> {

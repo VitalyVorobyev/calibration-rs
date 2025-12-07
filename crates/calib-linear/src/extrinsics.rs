@@ -12,6 +12,10 @@ pub struct ExtrinsicPoses {
     pub rig_to_target: Vec<Iso3>,
 }
 
+/// Linear initialisation of a camera rig from per-camera target poses.
+#[derive(Debug, Clone, Copy)]
+pub struct MultiCamExtrinsicsInit;
+
 /// Simple SE(3) averaging:
 /// - translations are averaged arithmetically
 /// - rotations are averaged in quaternion space (with hemisphere correction)
@@ -69,6 +73,15 @@ pub fn estimate_extrinsics_from_cam_target_poses(
     cam_se3_target: &[Vec<Option<Iso3>>],
     ref_cam_idx: usize,
 ) -> ExtrinsicPoses {
+    MultiCamExtrinsicsInit::from_cam_target_poses(cam_se3_target, ref_cam_idx)
+}
+
+impl MultiCamExtrinsicsInit {
+    /// Estimate rig and camera poses from per-camera target observations.
+    pub fn from_cam_target_poses(
+        cam_se3_target: &[Vec<Option<Iso3>>],
+        ref_cam_idx: usize,
+    ) -> ExtrinsicPoses {
     let num_views = cam_se3_target.len();
     assert!(num_views > 0, "need at least one view");
 
@@ -138,10 +151,11 @@ pub fn estimate_extrinsics_from_cam_target_poses(
         rig_to_target.push(avg);
     }
 
-    ExtrinsicPoses {
-        cam_to_rig,
-        rig_to_target,
-    }
+            ExtrinsicPoses {
+                cam_to_rig,
+                rig_to_target,
+            }
+        }
 }
 
 #[cfg(test)]

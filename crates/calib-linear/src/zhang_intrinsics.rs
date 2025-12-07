@@ -1,5 +1,3 @@
-// crates/calib-linear/src/zhang_intrinsics.rs
-
 use calib_core::{CameraIntrinsics, Mat3, Real};
 use nalgebra::DMatrix;
 
@@ -19,42 +17,60 @@ fn v_ij(hmtx: &Mat3, i: usize, j: usize) -> nalgebra::SVector<Real, 6> {
     ])
 }
 
+/// High-level linear initialisation of intrinsics for planar calibration.
+///
+/// This implements the closed-form solution proposed by Zhengyou Zhang for
+/// estimating the calibration matrix `K` from multiple plane homographies.
+#[derive(Debug, Clone, Copy)]
+pub struct PlanarIntrinsicsLinearInit;
+
 /// Estimate camera intrinsics K from a set of plane homographies H_k using
 /// Zhang's closed-form solution (no distortion).
 ///
 /// Requires at least 3 homographies for a stable solution.
 pub fn estimate_intrinsics_from_homographies(hmtxs: &[Mat3]) -> CameraIntrinsics {
+    PlanarIntrinsicsLinearInit::from_homographies(hmtxs)
+}
+
+impl PlanarIntrinsicsLinearInit {
+    /// Estimate camera intrinsics from a slice of plane homographies.
+    ///
+    /// Each homography maps points from **board coordinates** (assumed to be
+    /// on `Z = 0`) into image coordinates.
+    ///
+    /// At least three views with sufficiently rich geometry are required.
+    pub fn from_homographies(hmtxs: &[Mat3]) -> CameraIntrinsics {
     assert!(
         hmtxs.len() >= 3,
         "need at least 3 homographies for intrinsics estimation"
     );
 
-    let m = hmtxs.len();
-    let mut vmtx = DMatrix::<Real>::zeros(2 * m, 6);
+        let m = hmtxs.len();
+        let mut vmtx = DMatrix::<Real>::zeros(2 * m, 6);
 
-    for (k, hmtx) in hmtxs.iter().enumerate() {
+        for (k, hmtx) in hmtxs.iter().enumerate() {
         let v11 = v_ij(hmtx, 0, 0);
         let v22 = v_ij(hmtx, 1, 1);
         let v12 = v_ij(hmtx, 0, 1);
 
         // Row 2k: v_12^T
-        vmtx.row_mut(2 * k).copy_from(&v12.transpose());
+            vmtx.row_mut(2 * k).copy_from(&v12.transpose());
         // Row 2k+1: (v_11 - v_22)^T
-        vmtx.row_mut(2 * k + 1).copy_from(&(v11 - v22).transpose());
+            vmtx.row_mut(2 * k + 1).copy_from(&(v11 - v22).transpose());
     }
 
     // Solve V b = 0 via SVD: take the singular vector corresponding to the
     // smallest singular value.
-    let svd = vmtx.svd(true, true);
-    let v_t = svd.v_t.expect("V^T from SVD");
-    let b = v_t.row(v_t.nrows() - 1); // last row
+        let svd = vmtx.svd(true, true);
+        let v_t = svd.v_t.expect("V^T from SVD");
+        let b = v_t.row(v_t.nrows() - 1); // last row
 
-    let b11 = b[0];
-    let b12 = b[1];
-    let b22 = b[2];
-    let b13 = b[3];
-    let b23 = b[4];
-    let b33 = b[5];
+        let b11 = b[0];
+        let b12 = b[1];
+        let b22 = b[2];
+        let b13 = b[3];
+        let b23 = b[4];
+        let b33 = b[5];
 
     // From Zhang's paper:
     //
@@ -67,37 +83,38 @@ pub fn estimate_intrinsics_from_homographies(hmtxs: &[Mat3]) -> CameraIntrinsics
     //
     // We name them fx, fy, skew, cx, cy accordingly.
 
-    let denom = b11 * b22 - b12 * b12;
-    let denom_norm = b11 * b11 + b22 * b22;
-    let denom_rel = if denom_norm > 0.0 {
-        denom.abs() / denom_norm
-    } else {
-        0.0
-    };
-    assert!(
-        denom_rel > 1e-6,
-        "degenerate configuration in intrinsics estimation"
-    );
+        let denom = b11 * b22 - b12 * b12;
+        let denom_norm = b11 * b11 + b22 * b22;
+        let denom_rel = if denom_norm > 0.0 {
+            denom.abs() / denom_norm
+        } else {
+            0.0
+        };
+        assert!(
+            denom_rel > 1e-6,
+            "degenerate configuration in intrinsics estimation"
+        );
 
-    let v0 = (b12 * b13 - b11 * b23) / denom;
-    let lambda = b33 - (b13 * b13 + v0 * (b12 * b13 - b11 * b23)) / b11;
+        let v0 = (b12 * b13 - b11 * b23) / denom;
+        let lambda = b33 - (b13 * b13 + v0 * (b12 * b13 - b11 * b23)) / b11;
 
-    assert!(
-        lambda.signum() == b11.signum(),
-        "invalid sign for λ; check homographies"
-    );
+        assert!(
+            lambda.signum() == b11.signum(),
+            "invalid sign for λ; check homographies"
+        );
 
-    let alpha = (lambda / b11).sqrt();
-    let beta = (lambda * b11 / denom).sqrt();
-    let gamma = -b12 * alpha * alpha * beta / lambda;
-    let u0 = gamma * v0 / beta - b13 * alpha * alpha / lambda;
+        let alpha = (lambda / b11).sqrt();
+        let beta = (lambda * b11 / denom).sqrt();
+        let gamma = -b12 * alpha * alpha * beta / lambda;
+        let u0 = gamma * v0 / beta - b13 * alpha * alpha / lambda;
 
-    CameraIntrinsics {
-        fx: alpha,
-        fy: beta,
-        cx: u0,
-        cy: v0,
-        skew: gamma,
+        CameraIntrinsics {
+            fx: alpha,
+            fy: beta,
+            cx: u0,
+            cy: v0,
+            skew: gamma,
+        }
     }
 }
 

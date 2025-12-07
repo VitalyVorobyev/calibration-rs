@@ -1,52 +1,67 @@
 use calib_core::{Iso3, Mat3, Real};
 use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
 
+/// Linear pose initialisation from a homography and intrinsics.
+///
+/// This implements the classic decomposition of a plane-induced homography
+/// `H` into a rotation and translation, assuming the target lies on the plane
+/// `Z = 0` in its own coordinates.
+#[derive(Debug, Clone, Copy)]
+pub struct PlanarPoseSolver;
+
 /// Estimate pose of a planar board (Z=0) relative to camera, given intrinsics K
 /// and homography H (plane -> image).
 ///
 /// Returns an Iso3 that maps board coordinates into camera coordinates.
 pub fn estimate_planar_pose_from_h(kmtx: &Mat3, hmtx: &Mat3) -> Iso3 {
+    PlanarPoseSolver::from_homography(kmtx, hmtx)
+}
+
+impl PlanarPoseSolver {
+    /// Decompose a homography into a pose `T_C_B` given intrinsics `K`.
+    pub fn from_homography(kmtx: &Mat3, hmtx: &Mat3) -> Iso3 {
     // K^{-1}
     let k_inv = kmtx
         .try_inverse()
         .expect("K must be invertible in estimate_planar_pose_from_h");
 
     // Columns of H
-    let h1 = hmtx.column(0);
-    let h2 = hmtx.column(1);
-    let h3 = hmtx.column(2).into_owned();
+        let h1 = hmtx.column(0);
+        let h2 = hmtx.column(1);
+        let h3 = hmtx.column(2).into_owned();
 
-    let k_inv_h1 = k_inv * h1;
-    let k_inv_h2 = k_inv * h2;
+        let k_inv_h1 = k_inv * h1;
+        let k_inv_h2 = k_inv * h2;
 
     // Scale factor λ: normalize first two columns (average for robustness)
-    let norm1 = k_inv_h1.norm();
-    let norm2 = k_inv_h2.norm();
-    let lambda = 1.0 / ((norm1 + norm2) * 0.5);
+        let norm1 = k_inv_h1.norm();
+        let norm2 = k_inv_h2.norm();
+        let lambda = 1.0 / ((norm1 + norm2) * 0.5);
 
-    let r1 = (lambda * k_inv_h1).into_owned();
-    let r2 = (lambda * k_inv_h2).into_owned();
-    let r3 = r1.cross(&r2);
+        let r1 = (lambda * k_inv_h1).into_owned();
+        let r2 = (lambda * k_inv_h2).into_owned();
+        let r3 = r1.cross(&r2);
 
-    let mut r_mat = Matrix3::<Real>::zeros();
-    r_mat.set_column(0, &r1);
-    r_mat.set_column(1, &r2);
-    r_mat.set_column(2, &r3);
+        let mut r_mat = Matrix3::<Real>::zeros();
+        r_mat.set_column(0, &r1);
+        r_mat.set_column(1, &r2);
+        r_mat.set_column(2, &r3);
 
-    // Project onto SO(3) (polar decomposition via SVD)
-    let svd = r_mat.svd(true, true);
-    let u = svd.u.expect("U from SVD");
-    let v_t = svd.v_t.expect("V^T from SVD");
-    let r_orth = u * v_t;
+        // Project onto SO(3) (polar decomposition via SVD)
+        let svd = r_mat.svd(true, true);
+        let u = svd.u.expect("U from SVD");
+        let v_t = svd.v_t.expect("V^T from SVD");
+        let r_orth = u * v_t;
 
-    // Ensure det(R) > 0
-    if r_orth.determinant() < 0.0 {
-        let mut u_flipped = u;
-        u_flipped.column_mut(2).neg_mut();
-        let r_orth = u_flipped * v_t;
-        build_iso(r_orth, lambda, &k_inv, &h3)
-    } else {
-        build_iso(r_orth, lambda, &k_inv, &h3)
+        // Ensure det(R) > 0
+        if r_orth.determinant() < 0.0 {
+            let mut u_flipped = u;
+            u_flipped.column_mut(2).neg_mut();
+            let r_orth = u_flipped * v_t;
+            build_iso(r_orth, lambda, &k_inv, &h3)
+        } else {
+            build_iso(r_orth, lambda, &k_inv, &h3)
+        }
     }
 }
 
