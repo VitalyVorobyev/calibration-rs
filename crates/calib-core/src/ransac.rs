@@ -1,15 +1,29 @@
-// crates/calib-core/src/ransac.rs (or calib-ransac crate)
+//! Generic, model-agnostic RANSAC implementation.
+//!
+//! To use this module, implement the [`Estimator`] trait for your model and
+//! call [`ransac`] with a slice of input data and some [`RansacOptions`].
+//!
+//! This implementation is deliberately minimal and does not panic on failure:
+//! when consensus is not found, [`ransac`] returns a [`RansacResult`] with
+//! `success == false` and `model == None`.
 
 use rand::prelude::IndexedRandom;
 use rand::{rngs::StdRng, SeedableRng};
 
+/// Configuration parameters for the generic RANSAC engine.
 #[derive(Debug, Clone)]
 pub struct RansacOptions {
+    /// Maximum number of RANSAC iterations.
     pub max_iters: usize,
+    /// Inlier residual threshold.
     pub thresh: f64,
+    /// Minimum number of inliers required to accept a model.
     pub min_inliers: usize,
+    /// Desired confidence level in `[0, 1]` for finding a good model.
     pub confidence: f64,
+    /// Random-number generator seed (for reproducibility).
     pub seed: u64,
+    /// If `true`, refit the model on all inliers before scoring.
     pub refit_on_inliers: bool,
 }
 
@@ -26,12 +40,21 @@ impl Default for RansacOptions {
     }
 }
 
+/// Output of a RANSAC run.
+///
+/// Check the [`success`] flag before using the model; if it is `false`, then
+/// [`model`] will be `None` and the other fields are unspecified.
 #[derive(Debug, Clone)]
 pub struct RansacResult<M> {
+    /// Whether a consensus set satisfying the options was found.
     pub success: bool,
+    /// Best model found (if any).
     pub model: Option<M>,
+    /// Indices of inlier data points.
     pub inliers: Vec<usize>,
+    /// Root-mean-square residual over inliers.
     pub inlier_rms: f64,
+    /// Number of iterations actually performed.
     pub iters: usize,
 }
 
@@ -128,6 +151,12 @@ fn is_better_model(
         || (new_inlier_count == best_inlier_count && new_inlier_rms < best_inlier_rms)
 }
 
+/// Run a generic RANSAC loop for a given [`Estimator`] implementation.
+///
+/// This function never panics under normal circumstances. If there is
+/// insufficient data or no consensus model can be found within the iteration
+/// budget, it returns a [`RansacResult`] with `success == false` and
+/// `model == None`.
 pub fn ransac<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> RansacResult<E::Model> {
     let mut best: RansacResult<E::Model> = RansacResult::default();
 

@@ -1,0 +1,17 @@
+[package]
+name = "calib"
+version = "0.1.0"
+edition = "2021"
+
+description = "High-level entry crate for the calibration-rs toolbox"
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+calib-core = { path = "../calib-core" }
+calib-linear = { path = "../calib-linear" }
+calib-optim = { path = "../calib-optim" }
+calib-pipeline = { path = "../calib-pipeline" }
+
