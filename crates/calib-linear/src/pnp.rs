@@ -1,4 +1,4 @@
-use calib_core::{ransac, CameraIntrinsics, Estimator, Iso3, Mat3, Pt3, RansacOptions, Real, Vec2};
+use calib_core::{ransac_fit, CameraIntrinsics, Estimator, Iso3, Mat3, Pt3, RansacOptions, Real, Vec2};
 use nalgebra::{DMatrix, DVector, Isometry3, Rotation3, Translation3, UnitQuaternion};
 use thiserror::Error;
 
@@ -195,7 +195,7 @@ impl PnpSolver {
             .map(|(pw, pi)| PnpDatum { pw, pi, k: *k })
             .collect();
 
-        let res = ransac::<PnpEst>(&data, opts);
+        let res = ransac_fit::<PnpEst>(&data, opts);
         if !res.success {
             return Err(PnpError::RansacFailed);
         }

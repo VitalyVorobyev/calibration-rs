@@ -4,8 +4,8 @@ use calib_core::{Iso3, Real};
 use nalgebra::{Quaternion, Translation3, UnitQuaternion, Vector3};
 
 /// Result of multi-camera extrinsics initialization:
-/// - cam_to_rig[cam]: transform from camera frame to rig frame
-/// - rig_to_target[view]: transform from rig frame to target frame
+/// - `cam_to_rig(cam)`: transform from camera frame to rig frame
+/// - `rig_to_target(view)`: transform from rig frame to target frame
 #[derive(Debug, Clone)]
 pub struct ExtrinsicPoses {
     pub cam_to_rig: Vec<Iso3>,
@@ -60,10 +60,10 @@ pub fn average_isometries(poses: &[Iso3]) -> Iso3 {
     Iso3::from_parts(t_avg, r_avg)
 }
 
-/// cam_se3_target[view][cam] = Some(T_CT) where T_CT: camera -> target pose
+/// `cam_se3_target[view][cam] = Some(T_CT)` where `T_CT`: camera -> target pose
 ///
 /// ref_cam_idx: index of the camera whose frame will define the rig frame.
-///              For it we enforce cam_to_rig[ref_cam_idx] = Identity.
+///              For it we enforce `cam_to_rig[ref_cam_idx] = Identity`.
 ///
 /// Returns ExtrinsicPoses { cam_to_rig, rig_to_target }.
 ///

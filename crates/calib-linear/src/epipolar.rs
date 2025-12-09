@@ -1,4 +1,4 @@
-use calib_core::{ransac, Estimator, Mat3, Pt2, RansacOptions, Real};
+use calib_core::{ransac_fit, Estimator, Mat3, Pt2, RansacOptions, Real};
 use nalgebra::{DMatrix, SMatrix};
 use thiserror::Error;
 
@@ -142,7 +142,7 @@ impl EpipolarSolver {
             .map(|(x1, x2)| FDatum { x1, x2 })
             .collect();
 
-        let res = ransac::<FundamentalEst>(&data, opts);
+        let res = ransac_fit::<FundamentalEst>(&data, opts);
         if !res.success {
             return Err(EpipolarError::RansacFailed);
         }

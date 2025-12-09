@@ -2,6 +2,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Mat3, Pt3, Real, Vec2, Vec3};
 
+/// Common interface for camera projection / back-projection models.
+///
+/// This trait is intentionally small and focuses on geometric operations.
+/// Implementations are provided for [`PinholeCamera`] and
+/// [`ScheimpflugCamera`], and can be used from generic calibration code.
+pub trait CameraModel {
+    /// Project a 3D point in camera coordinates onto the image plane.
+    fn project(&self, p_c: &Pt3) -> Vec2;
+
+    /// Unproject a pixel with a given depth into a 3D point.
+    ///
+    /// Returns `None` if the operation is not defined (e.g. non-positive
+    /// depth or singular intrinsics / homographies).
+    fn unproject(&self, uv: &Vec2, depth: Real) -> Option<Pt3>;
+
+    /// Compute a unit ray direction from a pixel coordinate.
+    ///
+    /// This is equivalent to normalising any valid unprojected 3D point
+    /// lying on the ray defined by `uv`.
+    fn unproject_ray(&self, uv: &Vec2) -> Option<Vec3>;
+}
+
 /// Brown–Conrady-style camera intrinsics for a pinhole model.
 ///
 /// The corresponding calibration matrix `K` has the form:
@@ -68,28 +90,6 @@ impl CameraIntrinsics {
             cy: k_norm[(1, 2)],
         })
     }
-}
-
-/// Common interface for camera projection / back-projection models.
-///
-/// This trait is intentionally small and focuses on geometric operations.
-/// Implementations are provided for [`PinholeCamera`] and
-/// [`ScheimpflugCamera`], and can be used from generic calibration code.
-pub trait CameraModel {
-    /// Project a 3D point in camera coordinates onto the image plane.
-    fn project(&self, p_c: &Pt3) -> Vec2;
-
-    /// Unproject a pixel with a given depth into a 3D point.
-    ///
-    /// Returns `None` if the operation is not defined (e.g. non-positive
-    /// depth or singular intrinsics / homographies).
-    fn unproject(&self, uv: &Vec2, depth: Real) -> Option<Pt3>;
-
-    /// Compute a unit ray direction from a pixel coordinate.
-    ///
-    /// This is equivalent to normalising any valid unprojected 3D point
-    /// lying on the ray defined by `uv`.
-    fn unproject_ray(&self, uv: &Vec2) -> Option<Vec3>;
 }
 
 /// Radial–tangential distortion models supported by camera models.

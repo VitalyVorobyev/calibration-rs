@@ -1,10 +1,10 @@
 //! Generic, model-agnostic RANSAC implementation.
 //!
 //! To use this module, implement the [`Estimator`] trait for your model and
-//! call [`ransac`] with a slice of input data and some [`RansacOptions`].
+//! call [`ransac_fit`] with a slice of input data and some [`RansacOptions`].
 //!
 //! This implementation is deliberately minimal and does not panic on failure:
-//! when consensus is not found, [`ransac`] returns a [`RansacResult`] with
+//! when consensus is not found, [`ransac_fit`] returns a [`RansacResult`] with
 //! `success == false` and `model == None`.
 
 use rand::prelude::IndexedRandom;
@@ -42,8 +42,8 @@ impl Default for RansacOptions {
 
 /// Output of a RANSAC run.
 ///
-/// Check the [`success`] flag before using the model; if it is `false`, then
-/// [`model`] will be `None` and the other fields are unspecified.
+/// Check the `success` flag before using the model; if it is `false`, then
+/// `model` will be `None` and the other fields are unspecified.
 #[derive(Debug, Clone)]
 pub struct RansacResult<M> {
     /// Whether a consensus set satisfying the options was found.
@@ -101,7 +101,7 @@ pub trait Estimator {
     ///
     /// Default: no refit; use the original model.
     fn refit(_data: &[Self::Datum], _inliers: &[usize]) -> Option<Self::Model> {
-        None
+        Self::fit(_data, _inliers)
     }
 }
 
@@ -114,7 +114,6 @@ fn rms(vals: &[f64]) -> f64 {
 }
 
 /// Dynamic iteration bound from current inlier ratio.
-/// Same formula as in your C++ code.
 fn calculate_iterations(
     confidence: f64,
     inlier_ratio: f64,
@@ -157,7 +156,7 @@ fn is_better_model(
 /// insufficient data or no consensus model can be found within the iteration
 /// budget, it returns a [`RansacResult`] with `success == false` and
 /// `model == None`.
-pub fn ransac<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> RansacResult<E::Model> {
+pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> RansacResult<E::Model> {
     let mut best: RansacResult<E::Model> = RansacResult::default();
 
     if data.len() < E::MIN_SAMPLES {
@@ -352,7 +351,7 @@ mod tests {
     #[test]
     fn ransac_handles_insufficient_data() {
         let data = vec![(0.0, 0.0)];
-        let res = ransac::<LineEstimator>(&data, &default_opts());
+        let res = ransac_fit::<LineEstimator>(&data, &default_opts());
         assert!(!res.success);
         assert!(res.model.is_none());
         assert!(res.inliers.is_empty());
@@ -372,7 +371,7 @@ mod tests {
         data.push((7.0, -8.0));
 
         let opts = default_opts();
-        let res = ransac::<LineEstimator>(&data, &opts);
+        let res = ransac_fit::<LineEstimator>(&data, &opts);
 
         assert!(res.success);
         let model = res.model.expect("model should be present");

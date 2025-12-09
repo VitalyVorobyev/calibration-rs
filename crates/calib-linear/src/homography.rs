@@ -1,4 +1,4 @@
-use calib_core::{from_homogeneous, ransac, to_homogeneous, Estimator, Mat3, Pt2, RansacOptions};
+use calib_core::{from_homogeneous, ransac_fit, to_homogeneous, Estimator, Mat3, Pt2, RansacOptions};
 use nalgebra::{DMatrix, DVector};
 use std::cmp::Ordering;
 use thiserror::Error;
@@ -179,7 +179,7 @@ impl HomographySolver {
             .map(|(w, i)| HomographyDatum { w, i })
             .collect();
 
-        let res = ransac::<HomographyEst>(&data, opts);
+        let res = ransac_fit::<HomographyEst>(&data, opts);
         if !res.success {
             return Err(HomographyError::RansacFailed);
         }
