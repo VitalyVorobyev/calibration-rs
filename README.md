@@ -4,7 +4,7 @@ A Rust toolbox for calibrating vision sensors (perspective and linescan) and mul
 
 ## Crate layout
 - `calib`: convenience facade that re-exports all sub-crates.
-- `calib-core`: math aliases, camera models, distortion utilities, and a generic RANSAC engine.
+- `calib-core`: math aliases, composable camera models (projection, distortion, sensor), and a generic RANSAC engine.
 - `calib-linear`: classic closed-form solvers (homography, planar pose, Zhang intrinsics, epipolar geometry, rig extrinsics, hand–eye).
 - `calib-optim`: non-linear least-squares traits and backends (currently LM), robust kernels, and problem definitions.
 - `calib-pipeline`: ready-to-use calibration pipelines; currently planar intrinsics (Zhang-style) with LM refinement.
@@ -21,7 +21,7 @@ Use the high-level pipeline API:
 
 ```rust
 use calib::pipeline::{run_planar_intrinsics, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarViewData};
-use calib::core::{Pt3, Vec2};
+use calib::core::{IntrinsicsConfig, Pt3, Vec2};
 
 fn main() {
     // Populate per-view correspondences (normally from a detector)
@@ -39,9 +39,28 @@ fn main() {
     let config = PlanarIntrinsicsConfig::default();
 
     let report = run_planar_intrinsics(&input, &config);
-    println!("Estimated intrinsics: {:?}", report.camera.intrinsics);
+    println!("Estimated camera config: {:?}", report.camera);
+
+    if let IntrinsicsConfig::FxFyCxCySkew { fx, fy, cx, cy, skew } = &report.camera.intrinsics {
+        println!("Estimated intrinsics: fx={fx} fy={fy} cx={cx} cy={cy} skew={skew}");
+    }
 }
 ```
+
+## Camera model
+`calib-core` models cameras as a composable pipeline:
+
+```
+pixel = K ∘ sensor ∘ distortion ∘ projection(dir)
+```
+
+Where:
+- `projection` maps a camera-frame direction to normalized coordinates (e.g., pinhole).
+- `distortion` warps normalized coordinates (Brown–Conrady radial/tangential).
+- `sensor` applies a homography (identity or Scheimpflug/tilt).
+- `K` maps sensor coordinates to pixels (`fx`, `fy`, `cx`, `cy`, `skew`).
+
+`SensorConfig::Scheimpflug` follows OpenCV’s tilted sensor model (`tau_x`, `tau_y`), implemented as the same homography computed by OpenCV’s `computeTiltProjectionMatrix`.
 
 CLI usage for batch jobs:
 

@@ -154,11 +154,11 @@ impl EpipolarSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::{CameraIntrinsics, Mat3};
+    use calib_core::{FxFyCxCySkew, Mat3};
     use nalgebra::{Rotation3, Translation3};
 
-    fn make_k() -> (CameraIntrinsics, Mat3) {
-        let k = CameraIntrinsics {
+    fn make_k() -> (FxFyCxCySkew<Real>, Mat3) {
+        let k = FxFyCxCySkew {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,

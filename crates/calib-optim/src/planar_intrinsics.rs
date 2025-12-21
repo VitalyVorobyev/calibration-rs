@@ -1,7 +1,12 @@
 use crate::robust::RobustKernel;
 use crate::{NllsProblem, NllsSolverBackend, SolveOptions, SolveReport};
-use calib_core::{CameraIntrinsics, Iso3, PinholeCamera, Pt3, RadialTangential, Real, Vec2};
+use calib_core::{
+    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
+};
 use nalgebra::{DMatrix, DVector, Point3, UnitQuaternion, Vector3};
+
+pub type PinholeCamera =
+    Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
 
 /// Observations for a single image/view of the planar target.
 #[derive(Debug, Clone)]
@@ -78,23 +83,19 @@ pub fn pack_initial_params(camera: &PinholeCamera, poses_board_to_cam: &[Iso3]) 
     let dim = 10 + 6 * n_views;
     let mut x = DVector::zeros(dim);
 
-    let k = &camera.intrinsics;
+    let k = &camera.k;
     x[0] = k.fx;
     x[1] = k.fy;
     x[2] = k.cx;
     x[3] = k.cy;
     x[4] = k.skew;
 
-    let (k1, k2, p1, p2, k3) = match camera.distortion {
-        Some(RadialTangential::BrownConrady { k1, k2, p1, p2, k3 }) => (k1, k2, p1, p2, k3),
-        None => (0.0, 0.0, 0.0, 0.0, 0.0),
-    };
-
-    x[5] = k1;
-    x[6] = k2;
-    x[7] = p1;
-    x[8] = p2;
-    x[9] = k3;
+    let dist = &camera.dist;
+    x[5] = dist.k1;
+    x[6] = dist.k2;
+    x[7] = dist.p1;
+    x[8] = dist.p2;
+    x[9] = dist.k3;
 
     for (i, pose) in poses_board_to_cam.iter().enumerate() {
         let idx = 10 + 6 * i;
@@ -131,19 +132,23 @@ fn decode_params(prob: &PlanarIntrinsicsProblem, x: &DVector<Real>) -> (PinholeC
     let p2 = x[8];
     let k3 = x[9];
 
-    let intrinsics = CameraIntrinsics {
+    let intrinsics = FxFyCxCySkew {
         fx,
         fy,
         cx,
         cy,
         skew,
     };
-    let distortion = Some(RadialTangential::BrownConrady { k1, k2, p1, p2, k3 });
-
-    let camera = PinholeCamera {
-        intrinsics,
-        distortion,
+    let distortion = BrownConrady5 {
+        k1,
+        k2,
+        k3,
+        p1,
+        p2,
+        iters: 8,
     };
+
+    let camera = Camera::new(Pinhole, distortion, IdentitySensor, intrinsics);
 
     let mut poses = Vec::with_capacity(n_views);
     for i in 0..n_views {
@@ -183,7 +188,12 @@ impl NllsProblem for PlanarIntrinsicsProblem {
 
                 // board → camera
                 let p_cam: Point3<Real> = pose.transform_point(&pw);
-                let proj = camera.project(&p_cam);
+                let Some(proj) = camera.project_point(&p_cam) else {
+                    r[offset] = 1.0e6;
+                    r[offset + 1] = 1.0e6;
+                    offset += 2;
+                    continue;
+                };
 
                 let meas = view.points_2d[j];
                 let ru = meas.x - proj.x;
@@ -248,7 +258,7 @@ mod tests {
     use crate::backend_lm::LmBackend;
     use crate::problem::SolveOptions;
     use crate::robust::RobustKernel;
-    use calib_core::{CameraIntrinsics, Iso3, PinholeCamera, Pt2, Pt3, RadialTangential, Real};
+    use calib_core::{BrownConrady5, FxFyCxCySkew, Pt2, Pt3, Real};
     use nalgebra::{UnitQuaternion, Vector3};
 
     struct SyntheticScenario {
@@ -258,25 +268,27 @@ mod tests {
         cam_init: PinholeCamera,
     }
 
+    fn make_camera(k: FxFyCxCySkew<Real>, dist: BrownConrady5<Real>) -> PinholeCamera {
+        Camera::new(Pinhole, dist, IdentitySensor, k)
+    }
+
     fn build_synthetic_scenario(noise_amplitude: f64) -> SyntheticScenario {
-        let k_gt = CameraIntrinsics {
+        let k_gt = FxFyCxCySkew {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
             skew: 0.0,
         };
-        let dist_gt = RadialTangential::BrownConrady {
+        let dist_gt = BrownConrady5 {
             k1: -0.1,
             k2: 0.01,
+            k3: 0.0,
             p1: 0.001,
             p2: -0.001,
-            k3: 0.0,
+            iters: 8,
         };
-        let cam_gt = PinholeCamera {
-            intrinsics: k_gt,
-            distortion: Some(dist_gt),
-        };
+        let cam_gt = make_camera(k_gt, dist_gt);
 
         let nx = 6;
         let ny = 4;
@@ -306,7 +318,7 @@ mod tests {
             let mut img_points = Vec::new();
             for (pt_idx, pw) in board_points.iter().enumerate() {
                 let p_cam = pose.transform_point(pw);
-                let proj = cam_gt.project(&p_cam);
+                let proj = cam_gt.project_point(&p_cam).unwrap();
                 let mut coords = Pt2::new(proj.x, proj.y).coords;
 
                 if noise_amplitude > 0.0 {
@@ -330,16 +342,23 @@ mod tests {
         }
 
         let problem = PlanarIntrinsicsProblem::new(views);
-        let cam_init = PinholeCamera {
-            intrinsics: CameraIntrinsics {
+        let cam_init = make_camera(
+            FxFyCxCySkew {
                 fx: 780.0,
                 fy: 760.0,
                 cx: 630.0,
                 cy: 350.0,
                 skew: 0.0,
             },
-            distortion: None,
-        };
+            BrownConrady5 {
+                k1: 0.0,
+                k2: 0.0,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            },
+        );
 
         SyntheticScenario {
             problem,
@@ -357,7 +376,7 @@ mod tests {
             cam_gt,
             cam_init,
         } = build_synthetic_scenario(0.0);
-        let k_gt = cam_gt.intrinsics;
+        let k_gt = cam_gt.k;
 
         let x0 = pack_initial_params(&cam_init, &poses_gt);
         let backend = LmBackend;
@@ -367,10 +386,10 @@ mod tests {
             refine_planar_intrinsics(&backend, &problem, x0, &opts);
 
         // Very simple checks – just ensure we're close to GT.
-        assert!((cam_refined.intrinsics.fx - k_gt.fx).abs() < 5.0);
-        assert!((cam_refined.intrinsics.fy - k_gt.fy).abs() < 5.0);
-        assert!((cam_refined.intrinsics.cx - k_gt.cx).abs() < 5.0);
-        assert!((cam_refined.intrinsics.cy - k_gt.cy).abs() < 5.0);
+        assert!((cam_refined.k.fx - k_gt.fx).abs() < 5.0);
+        assert!((cam_refined.k.fy - k_gt.fy).abs() < 5.0);
+        assert!((cam_refined.k.cx - k_gt.cx).abs() < 5.0);
+        assert!((cam_refined.k.cy - k_gt.cy).abs() < 5.0);
 
         assert!(report.converged);
         assert!(report.final_cost < 1e-6);
@@ -385,7 +404,7 @@ mod tests {
             cam_gt,
             cam_init,
         } = build_synthetic_scenario(0.001);
-        let k_gt = cam_gt.intrinsics;
+        let k_gt = cam_gt.k;
 
         let x0 = pack_initial_params(&cam_init, &poses_gt);
         let backend = LmBackend;
@@ -402,10 +421,10 @@ mod tests {
         );
         assert_eq!(poses_refined.len(), poses_gt.len());
 
-        let init_fx_err = (cam_init.intrinsics.fx - k_gt.fx).abs();
-        let init_fy_err = (cam_init.intrinsics.fy - k_gt.fy).abs();
-        let refined_fx_err = (cam_refined.intrinsics.fx - k_gt.fx).abs();
-        let refined_fy_err = (cam_refined.intrinsics.fy - k_gt.fy).abs();
+        let init_fx_err = (cam_init.k.fx - k_gt.fx).abs();
+        let init_fy_err = (cam_init.k.fy - k_gt.fy).abs();
+        let refined_fx_err = (cam_refined.k.fx - k_gt.fx).abs();
+        let refined_fy_err = (cam_refined.k.fy - k_gt.fy).abs();
 
         assert!(
             refined_fx_err < init_fx_err,
@@ -461,24 +480,22 @@ mod tests {
     #[test]
     fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
         // Ground-truth camera
-        let k_gt = CameraIntrinsics {
+        let k_gt = FxFyCxCySkew {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
             skew: 0.0,
         };
-        let dist_gt = RadialTangential::BrownConrady {
+        let dist_gt = BrownConrady5 {
             k1: -0.1,
             k2: 0.01,
+            k3: 0.0,
             p1: 0.001,
             p2: -0.001,
-            k3: 0.0,
+            iters: 8,
         };
-        let cam_gt = PinholeCamera {
-            intrinsics: k_gt,
-            distortion: Some(dist_gt),
-        };
+        let cam_gt = make_camera(k_gt, dist_gt);
 
         // Board setup
         let nx = 6;
@@ -508,7 +525,7 @@ mod tests {
             let mut img_points = Vec::new();
             for (pt_idx, pw) in board_points.iter().enumerate() {
                 let p_cam = pose.transform_point(pw);
-                let proj = cam_gt.project(&p_cam);
+                let proj = cam_gt.project_point(&p_cam).unwrap();
                 let mut coords = Pt2::new(proj.x, proj.y).coords;
 
                 if pt_idx % outlier_stride == 0 {
@@ -529,16 +546,23 @@ mod tests {
         let problem_robust =
             PlanarIntrinsicsProblem::new(views).with_kernel(RobustKernel::Huber { delta: 2.0 });
 
-        let cam_init = PinholeCamera {
-            intrinsics: CameraIntrinsics {
+        let cam_init = make_camera(
+            FxFyCxCySkew {
                 fx: 780.0,
                 fy: 760.0,
                 cx: 630.0,
                 cy: 350.0,
                 skew: 0.0,
             },
-            distortion: None,
-        };
+            BrownConrady5 {
+                k1: 0.0,
+                k2: 0.0,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            },
+        );
 
         let x0 = pack_initial_params(&cam_init, &poses_gt);
         let x0_l2 = x0.clone();
@@ -555,10 +579,10 @@ mod tests {
         assert!(report_robust.converged);
 
         let err_total = |cam: &PinholeCamera| -> Real {
-            (cam.intrinsics.fx - k_gt.fx).abs()
-                + (cam.intrinsics.fy - k_gt.fy).abs()
-                + (cam.intrinsics.cx - k_gt.cx).abs()
-                + (cam.intrinsics.cy - k_gt.cy).abs()
+            (cam.k.fx - k_gt.fx).abs()
+                + (cam.k.fy - k_gt.fy).abs()
+                + (cam.k.cx - k_gt.cx).abs()
+                + (cam.k.cy - k_gt.cy).abs()
         };
 
         let err_l2 = err_total(&cam_l2);
