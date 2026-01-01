@@ -77,11 +77,11 @@ fn build_iso(r_orth: Matrix3<Real>, lambda: Real, k_inv: &Mat3, h3: &Vector3<Rea
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::CameraIntrinsics;
+    use calib_core::FxFyCxCySkew;
     use nalgebra::{Isometry3, Matrix3, Rotation3, Vector3};
 
     fn make_kmtx() -> Mat3 {
-        let k = CameraIntrinsics {
+        let k = FxFyCxCySkew {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,

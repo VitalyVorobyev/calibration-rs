@@ -1,4 +1,7 @@
-use calib_core::{ransac_fit, CameraIntrinsics, Estimator, Iso3, Mat3, Pt3, RansacOptions, Real, Vec2};
+use calib_core::{
+    ransac_fit, Camera, Estimator, FxFyCxCySkew, IdentitySensor, Iso3, Mat3, NoDistortion, Pinhole,
+    Pt3, RansacOptions, Real, Vec2,
+};
 use nalgebra::{DMatrix, DVector, Isometry3, Rotation3, Translation3, UnitQuaternion};
 use thiserror::Error;
 
@@ -29,7 +32,7 @@ impl PnpSolver {
     ///
     /// `world` are 3D points in world coordinates, `image` are their
     /// corresponding pixel positions, and `k` are the camera intrinsics.
-    pub fn dlt(world: &[Pt3], image: &[Vec2], k: &CameraIntrinsics) -> Result<Iso3, PnpError> {
+    pub fn dlt(world: &[Pt3], image: &[Vec2], k: &FxFyCxCySkew<Real>) -> Result<Iso3, PnpError> {
         let n = world.len();
         if n < 6 || image.len() != n {
             return Err(PnpError::NotEnoughPoints(n));
@@ -136,7 +139,7 @@ impl PnpSolver {
     pub fn dlt_ransac(
         world: &[Pt3],
         image: &[Vec2],
-        k: &CameraIntrinsics,
+        k: &FxFyCxCySkew<Real>,
         opts: &RansacOptions,
     ) -> Result<(Iso3, Vec<usize>), PnpError> {
         let n = world.len();
@@ -148,7 +151,7 @@ impl PnpSolver {
         struct PnpDatum {
             pw: Pt3,
             pi: Vec2,
-            k: CameraIntrinsics,
+            k: FxFyCxCySkew<Real>,
         }
 
         struct PnpEst;
@@ -171,13 +174,12 @@ impl PnpSolver {
             }
 
             fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
-                let cam = calib_core::PinholeCamera {
-                    intrinsics: datum.k,
-                    distortion: None,
-                };
+                let cam = Camera::new(Pinhole, NoDistortion, IdentitySensor, datum.k);
                 let pw = datum.pw;
                 let pc = model.transform_point(&pw);
-                let proj = cam.project(&pc);
+                let Some(proj) = cam.project_point(&pc) else {
+                    return f64::INFINITY;
+                };
                 let du = proj.x - datum.pi.x;
                 let dv = proj.y - datum.pi.y;
                 (du * du + dv * dv).sqrt()
@@ -207,21 +209,17 @@ impl PnpSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::PinholeCamera;
 
     #[test]
     fn pnp_dlt_recovers_pose_synthetic() {
-        let k = CameraIntrinsics {
+        let k = FxFyCxCySkew {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
             skew: 0.0,
         };
-        let cam = PinholeCamera {
-            intrinsics: k,
-            distortion: None,
-        };
+        let cam = Camera::new(Pinhole, NoDistortion, IdentitySensor, k);
 
         // Ground-truth pose: world -> camera.
         let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.2);
@@ -236,7 +234,7 @@ mod tests {
                 for x in 0..4 {
                     let pw = Pt3::new(x as Real * 0.1, y as Real * 0.1, 0.5 + z as Real * 0.1);
                     let pc = iso_gt.transform_point(&pw);
-                    let uv = cam.project(&pc);
+                    let uv = cam.project_point(&pc).unwrap();
                     world.push(pw);
                     image.push(uv);
                 }
@@ -244,6 +242,72 @@ mod tests {
         }
 
         let est = PnpSolver::dlt(&world, &image, &k).unwrap();
+
+        let dt = (est.translation.vector - iso_gt.translation.vector).norm();
+        let r_est = est.rotation.to_rotation_matrix();
+        let r_gt = iso_gt.rotation.to_rotation_matrix();
+        let r_diff = r_est.transpose() * r_gt;
+        let trace = r_diff.matrix().trace();
+        let cos_theta = ((trace - 1.0) * 0.5).clamp(-1.0, 1.0);
+        let ang = cos_theta.acos();
+
+        assert!(dt < 1e-3, "translation error too large: {}", dt);
+        assert!(ang < 1e-3, "rotation error too large: {}", ang);
+    }
+
+    #[test]
+    fn pnp_ransac_handles_outliers() {
+        let k = FxFyCxCySkew {
+            fx: 800.0,
+            fy: 780.0,
+            cx: 640.0,
+            cy: 360.0,
+            skew: 0.0,
+        };
+        let cam = Camera::new(Pinhole, NoDistortion, IdentitySensor, k);
+
+        let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.2);
+        let t = Translation3::new(0.1, -0.05, 1.0);
+        let iso_gt = Isometry3::from_parts(t, rot.into());
+
+        let mut world = Vec::new();
+        let mut image = Vec::new();
+        for z in 0..2 {
+            for y in 0..3 {
+                for x in 0..4 {
+                    let pw = Pt3::new(x as Real * 0.1, y as Real * 0.1, 0.5 + z as Real * 0.1);
+                    let pc = iso_gt.transform_point(&pw);
+                    let uv = cam.project_point(&pc).unwrap();
+                    world.push(pw);
+                    image.push(uv);
+                }
+            }
+        }
+
+        let inlier_count = world.len();
+
+        // Add a few mismatched correspondences as outliers.
+        for i in 0..4 {
+            world.push(Pt3::new(0.5 + i as Real * 0.2, -0.3, 1.2));
+            image.push(Vec2::new(
+                1200.0 + i as Real * 50.0,
+                -100.0 - i as Real * 25.0,
+            ));
+        }
+
+        let opts = RansacOptions {
+            max_iters: 500,
+            thresh: 1.0,
+            min_inliers: inlier_count.saturating_sub(2),
+            confidence: 0.99,
+            seed: 77,
+            refit_on_inliers: true,
+        };
+
+        let (est, inliers) = PnpSolver::dlt_ransac(&world, &image, &k, &opts).unwrap();
+
+        assert!(inliers.len() >= inlier_count.saturating_sub(2));
+        assert!(inliers.len() < world.len());
 
         let dt = (est.translation.vector - iso_gt.translation.vector).norm();
         let r_est = est.rotation.to_rotation_matrix();

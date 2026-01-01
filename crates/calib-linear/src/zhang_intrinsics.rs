@@ -1,4 +1,4 @@
-use calib_core::{CameraIntrinsics, Mat3, Real};
+use calib_core::{FxFyCxCySkew, Mat3, Real};
 use nalgebra::DMatrix;
 
 /// Build the 6-vector v_ij(H) as in Zhang's method.
@@ -28,7 +28,7 @@ pub struct PlanarIntrinsicsLinearInit;
 /// Zhang's closed-form solution (no distortion).
 ///
 /// Requires at least 3 homographies for a stable solution.
-pub fn estimate_intrinsics_from_homographies(hmtxs: &[Mat3]) -> CameraIntrinsics {
+pub fn estimate_intrinsics_from_homographies(hmtxs: &[Mat3]) -> FxFyCxCySkew<Real> {
     PlanarIntrinsicsLinearInit::from_homographies(hmtxs)
 }
 
@@ -39,7 +39,7 @@ impl PlanarIntrinsicsLinearInit {
     /// on `Z = 0`) into image coordinates.
     ///
     /// At least three views with sufficiently rich geometry are required.
-    pub fn from_homographies(hmtxs: &[Mat3]) -> CameraIntrinsics {
+    pub fn from_homographies(hmtxs: &[Mat3]) -> FxFyCxCySkew<Real> {
         assert!(
             hmtxs.len() >= 3,
             "need at least 3 homographies for intrinsics estimation"
@@ -108,7 +108,7 @@ impl PlanarIntrinsicsLinearInit {
         let gamma = -b12 * alpha * alpha * beta / lambda;
         let u0 = gamma * v0 / beta - b13 * alpha * alpha / lambda;
 
-        CameraIntrinsics {
+        FxFyCxCySkew {
             fx: alpha,
             fy: beta,
             cx: u0,
@@ -123,8 +123,8 @@ mod tests {
     use super::*;
     use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, Vector3};
 
-    fn make_kmtx() -> (CameraIntrinsics, Mat3) {
-        let intr = CameraIntrinsics {
+    fn make_kmtx() -> (FxFyCxCySkew<Real>, Mat3) {
+        let intr = FxFyCxCySkew {
             fx: 900.0,
             fy: 880.0,
             cx: 640.0,

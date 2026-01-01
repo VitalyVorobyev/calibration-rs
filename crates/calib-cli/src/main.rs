@@ -40,7 +40,7 @@ fn run_planar_intrinsics_from_files(
         PlanarIntrinsicsConfig::default()
     };
 
-    let report = run_planar_intrinsics(&input, &config);
+    let report = run_planar_intrinsics(&input, &config)?;
     write_report_json(&report)
 }
 
@@ -61,7 +61,9 @@ fn try_main() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::{CameraIntrinsics, Iso3, PinholeCamera, Pt3, RadialTangential, Vec2};
+    use calib_core::{
+        BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Vec2,
+    };
     use calib_pipeline::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData,
         RobustKernelConfig,
@@ -75,24 +77,22 @@ mod tests {
     }
 
     fn synthetic_input() -> (PlanarIntrinsicsInput, PlanarIntrinsicsConfig) {
-        let k_gt = CameraIntrinsics {
+        let k_gt = FxFyCxCySkew {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
             skew: 0.0,
         };
-        let dist_gt = RadialTangential::BrownConrady {
+        let dist_gt = BrownConrady5 {
             k1: -0.1,
             k2: 0.01,
+            k3: 0.0,
             p1: 0.001,
             p2: -0.001,
-            k3: 0.0,
+            iters: 8,
         };
-        let cam_gt = PinholeCamera {
-            intrinsics: k_gt,
-            distortion: Some(dist_gt),
-        };
+        let cam_gt = Camera::new(Pinhole, dist_gt, IdentitySensor, k_gt);
 
         let nx = 5;
         let ny = 4;
@@ -115,7 +115,7 @@ mod tests {
             let mut points_2d = Vec::new();
             for pw in &board_points {
                 let pc = pose.transform_point(pw);
-                let proj = cam_gt.project(&pc);
+                let proj = cam_gt.project_point(&pc).unwrap();
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 

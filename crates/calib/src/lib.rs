@@ -14,7 +14,7 @@
 //!
 //! ```no_run
 //! use calib::pipeline::{PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarViewData};
-//! use calib::core::{CameraIntrinsics, PinholeCamera, Pt3, RadialTangential, Vec2};
+//! use calib::core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, IntrinsicsConfig, Pinhole, Pt3, Vec2};
 //!
 //! # fn main() {
 //! // Build some synthetic observations (normally these come from a detector).
@@ -26,23 +26,22 @@
 //! let mut views = Vec::new();
 //!
 //! // Ground-truth camera just for the example.
-//! let k_gt = CameraIntrinsics {
+//! let k_gt = FxFyCxCySkew {
 //!     fx: 800.0,
 //!     fy: 780.0,
 //!     cx: 640.0,
 //!     cy: 360.0,
 //!     skew: 0.0,
 //! };
-//! let cam_gt = PinholeCamera {
-//!     intrinsics: k_gt,
-//!     distortion: Some(RadialTangential::BrownConrady {
-//!         k1: -0.1,
-//!         k2: 0.01,
-//!         p1: 0.0,
-//!         p2: 0.0,
-//!         k3: 0.0,
-//!     }),
+//! let dist_gt = BrownConrady5 {
+//!     k1: -0.1,
+//!     k2: 0.01,
+//!     k3: 0.0,
+//!     p1: 0.0,
+//!     p2: 0.0,
+//!     iters: 8,
 //! };
+//! let cam_gt = Camera::new(Pinhole, dist_gt, IdentitySensor, k_gt);
 //!
 //! // For simplicity we just create one fronto-parallel view here.
 //! let points_2d: Vec<Vec2> = board_points
@@ -50,7 +49,7 @@
 //!     .map(|pw| {
 //!         // In a real setup you would transform by the camera pose first.
 //!         let pc = Pt3::new(pw.x, pw.y, 1.0);
-//!         cam_gt.project(&pc)
+//!         cam_gt.project_point(&pc).unwrap()
 //!     })
 //!     .collect();
 //!
@@ -62,8 +61,11 @@
 //! let input = PlanarIntrinsicsInput { views };
 //! let config = PlanarIntrinsicsConfig::default();
 //!
-//! let report = calib::pipeline::run_planar_intrinsics(&input, &config);
-//! println!("estimated intrinsics: {:?}", report.camera.intrinsics);
+//! let report = calib::pipeline::run_planar_intrinsics(&input, &config)
+//!     .expect("planar intrinsics failed");
+//! if let IntrinsicsConfig::FxFyCxCySkew { fx, fy, cx, cy, skew } = &report.camera.intrinsics {
+//!     println!("estimated intrinsics: fx={fx} fy={fy} cx={cx} cy={cy} skew={skew}");
+//! }
 //! # }
 //! ```
 
