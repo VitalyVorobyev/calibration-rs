@@ -1,9 +1,7 @@
-use calib_core::{
-    BrownConrady5, DistortionModel, Iso3, Mat3, Mat4, Pt2, Pt3, Real, Vec2, Vec3,
-};
+use calib_core::{BrownConrady5, DistortionModel, Iso3, Mat3, Mat4, Pt2, Pt3, Real, Vec2, Vec3};
 use calib_linear::{
-    triangulate_point_linear, EpipolarSolver, HomographySolver, Mat34,
-    PlanarIntrinsicsLinearInit, PlanarPoseSolver,
+    triangulate_point_linear, EpipolarSolver, HomographySolver, Mat34, PlanarIntrinsicsLinearInit,
+    PlanarPoseSolver,
 };
 use serde::Deserialize;
 use std::fs;
@@ -84,8 +82,8 @@ fn mat3_from_array(a: &[[Real; 3]; 3]) -> Mat3 {
 
 fn mat4_from_array(a: &[[Real; 4]; 4]) -> Mat4 {
     Mat4::from_row_slice(&[
-        a[0][0], a[0][1], a[0][2], a[0][3], a[1][0], a[1][1], a[1][2], a[1][3], a[2][0],
-        a[2][1], a[2][2], a[2][3], a[3][0], a[3][1], a[3][2], a[3][3],
+        a[0][0], a[0][1], a[0][2], a[0][3], a[1][0], a[1][1], a[1][2], a[1][3], a[2][0], a[2][1],
+        a[2][2], a[2][3], a[3][0], a[3][1], a[3][2], a[3][3],
     ])
 }
 
@@ -112,11 +110,7 @@ fn pixel_from_normalized(n: Vec2, k: &Mat3) -> Pt2 {
     Pt2::new(v.x / v.z, v.y / v.z)
 }
 
-fn build_corners(
-    view: &ViewDet,
-    k: &Mat3,
-    dist: &BrownConrady5<Real>,
-) -> Vec<CornerInfo> {
+fn build_corners(view: &ViewDet, k: &Mat3, dist: &BrownConrady5<Real>) -> Vec<CornerInfo> {
     let mut corners = Vec::with_capacity(view.corners.len());
     for c in &view.corners {
         let i = c[0] as usize;
@@ -135,7 +129,7 @@ fn build_corners(
     corners
 }
 
-fn find_corner<'a>(corners: &'a [CornerInfo], i: usize, j: usize) -> Option<&'a CornerInfo> {
+fn find_corner(corners: &[CornerInfo], i: usize, j: usize) -> Option<&CornerInfo> {
     corners.iter().find(|c| c.i == i && c.j == j)
 }
 
@@ -180,7 +174,11 @@ fn scaled_error_mat3(est: &Mat3, gt: &Mat3) -> Real {
         .map(|(a, b)| a * b)
         .sum();
     let denom: Real = est.as_slice().iter().map(|v| v * v).sum();
-    let scale = if denom.abs() > 1e-12 { dot / denom } else { 1.0 };
+    let scale = if denom.abs() > 1e-12 {
+        dot / denom
+    } else {
+        1.0
+    };
     (est * scale - gt).norm() / gt.norm()
 }
 
@@ -204,7 +202,11 @@ fn stereo_zhang_intrinsics_left_right() {
 
         let mut homographies = Vec::new();
         for view in &data.views {
-            let det = if side == "left" { &view.left } else { &view.right };
+            let det = if side == "left" {
+                &view.left
+            } else {
+                &view.right
+            };
             let corners = build_corners(det, &k_gt, &dist);
 
             let mut world = Vec::with_capacity(corners.len());
@@ -218,8 +220,8 @@ fn stereo_zhang_intrinsics_left_right() {
             homographies.push(h);
         }
 
-        let intr = PlanarIntrinsicsLinearInit::from_homographies(&homographies)
-            .expect("zhang intrinsics");
+        let intr =
+            PlanarIntrinsicsLinearInit::from_homographies(&homographies).expect("zhang intrinsics");
 
         let fx_gt = k_gt[(0, 0)];
         let fy_gt = k_gt[(1, 1)];
@@ -231,14 +233,8 @@ fn stereo_zhang_intrinsics_left_right() {
         let cx_err = (intr.cx - cx_gt).abs();
         let cy_err = (intr.cy - cy_gt).abs();
 
-        assert!(
-            fx_rel < 0.05,
-            "{side}: fx rel error too large: {fx_rel}"
-        );
-        assert!(
-            fy_rel < 0.05,
-            "{side}: fy rel error too large: {fy_rel}"
-        );
+        assert!(fx_rel < 0.05, "{side}: fx rel error too large: {fx_rel}");
+        assert!(fy_rel < 0.05, "{side}: fy rel error too large: {fy_rel}");
         assert!(cx_err < 8.0, "{side}: cx error too large: {cx_err}");
         assert!(cy_err < 8.0, "{side}: cy error too large: {cy_err}");
         assert!(
@@ -275,7 +271,11 @@ fn stereo_planar_pose_matches_ground_truth() {
         let mut trans_errs = Vec::new();
 
         for view in &data.views {
-            let det = if side == "left" { &view.left } else { &view.right };
+            let det = if side == "left" {
+                &view.left
+            } else {
+                &view.right
+            };
             let corners = build_corners(det, &k_gt, &dist);
 
             let mut world = Vec::with_capacity(corners.len());
@@ -298,10 +298,7 @@ fn stereo_planar_pose_matches_ground_truth() {
         let rot_p90 = percentile(&mut rot_errs, 0.9);
         let trans_p90 = percentile(&mut trans_errs, 0.9);
 
-        assert!(
-            rot_p90 < 0.05,
-            "{side}: rotation p90 too large: {rot_p90}"
-        );
+        assert!(rot_p90 < 0.05, "{side}: rotation p90 too large: {rot_p90}");
         assert!(
             trans_p90 < 5.0,
             "{side}: translation p90 too large: {trans_p90}"
@@ -359,8 +356,7 @@ fn stereo_fundamental_and_essential_match_ground_truth() {
         n_r.push(Pt2::new(r.undist_norm.x, r.undist_norm.y));
     }
 
-    let mut e_candidates =
-        EpipolarSolver::essential_5point(&n_l, &n_r).expect("essential 5-point");
+    let mut e_candidates = EpipolarSolver::essential_5point(&n_l, &n_r).expect("essential 5-point");
     let e_gt = mat3_from_array(&data.essential);
 
     let mut best = Real::INFINITY;
@@ -423,8 +419,9 @@ fn stereo_triangulation_recovers_board_points() {
                 continue;
             }
             let world = board_point(l.i, l.j, board.square_size);
-            let est = triangulate_point_linear(&[p_left, p_right], &[l.undist_pixel, r.undist_pixel])
-                .expect("triangulation");
+            let est =
+                triangulate_point_linear(&[p_left, p_right], &[l.undist_pixel, r.undist_pixel])
+                    .expect("triangulation");
             errs.push((est - world).norm());
         }
     }
