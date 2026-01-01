@@ -101,17 +101,21 @@ impl EpipolarSolver {
             a[(i, 8)] = 1.0;
         }
 
-        // Solve A f = 0 using SVD on A^T A.
-        let ata = a.transpose() * &a;
-        let eig = ata.symmetric_eigen();
-        let min_idx = eig
-            .eigenvalues
-            .iter()
-            .enumerate()
-            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .map(|(idx, _)| idx)
-            .ok_or(EpipolarError::SvdFailed)?;
-        let f_vec = eig.eigenvectors.column(min_idx);
+        // Solve A f = 0 via SVD: take the singular vector for the smallest singular value.
+        let mut a_work = a;
+        if a_work.nrows() < a_work.ncols() {
+            let rows = a_work.nrows();
+            let cols = a_work.ncols();
+            let mut a_pad = DMatrix::<Real>::zeros(cols, cols);
+            a_pad
+                .view_mut((0, 0), (rows, cols))
+                .copy_from(&a_work);
+            a_work = a_pad;
+        }
+
+        let svd = a_work.svd(true, true);
+        let v_t = svd.v_t.ok_or(EpipolarError::SvdFailed)?;
+        let f_vec = v_t.row(v_t.nrows() - 1);
 
         let mut f = Mat3::zeros();
         for r in 0..3 {

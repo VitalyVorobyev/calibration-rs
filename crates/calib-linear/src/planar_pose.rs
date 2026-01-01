@@ -51,15 +51,27 @@ impl PlanarPoseSolver {
         // Scale factor λ: normalize first two columns (average for robustness)
         let norm1 = k_inv_h1.norm();
         let norm2 = k_inv_h2.norm();
+        if norm1 <= 1e-12 || norm2 <= 1e-12 {
+            return Err(PlanarPoseError::DegenerateHomography);
+        }
         let denom = (norm1 + norm2) * 0.5;
         if denom <= 1e-12 {
             return Err(PlanarPoseError::DegenerateHomography);
         }
         let lambda = 1.0 / denom;
 
-        let r1 = (lambda * k_inv_h1).into_owned();
-        let r2 = (lambda * k_inv_h2).into_owned();
+        let mut r1 = (lambda * k_inv_h1).into_owned();
+        let mut r2 = (lambda * k_inv_h2).into_owned();
+        let mut t_vec: Vector3<Real> = (lambda * (k_inv * h3)).into_owned();
+        if t_vec.z < 0.0 {
+            r1 = -r1;
+            r2 = -r2;
+            t_vec = -t_vec;
+        }
         let r3 = r1.cross(&r2);
+        if r3.norm() <= 1e-12 {
+            return Err(PlanarPoseError::DegenerateHomography);
+        }
 
         let mut r_mat = Matrix3::<Real>::zeros();
         r_mat.set_column(0, &r1);
@@ -73,20 +85,25 @@ impl PlanarPoseSolver {
         let r_orth = u * v_t;
 
         // Ensure det(R) > 0
-        if r_orth.determinant() < 0.0 {
+        let mut r_orth = if r_orth.determinant() < 0.0 {
             let mut u_flipped = u;
             u_flipped.column_mut(2).neg_mut();
-            let r_orth = u_flipped * v_t;
-            Ok(build_iso(r_orth, lambda, &k_inv, &h3))
+            u_flipped * v_t
         } else {
-            Ok(build_iso(r_orth, lambda, &k_inv, &h3))
+            r_orth
+        };
+
+        if t_vec.z < 0.0 {
+            r_orth.column_mut(0).neg_mut();
+            r_orth.column_mut(1).neg_mut();
+            t_vec = -t_vec;
         }
+
+        Ok(build_iso(r_orth, t_vec))
     }
 }
 
-fn build_iso(r_orth: Matrix3<Real>, lambda: Real, k_inv: &Mat3, h3: &Vector3<Real>) -> Iso3 {
-    let t_vec: Vector3<Real> = (lambda * (k_inv * h3)).into_owned();
-
+fn build_iso(r_orth: Matrix3<Real>, t_vec: Vector3<Real>) -> Iso3 {
     let rot = UnitQuaternion::from_rotation_matrix(&Rotation3::from_matrix_unchecked(r_orth));
     let trans = Translation3::from(t_vec);
 

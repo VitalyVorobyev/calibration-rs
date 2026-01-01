@@ -1,8 +1,8 @@
 use calib_core::{
-    ransac_fit, Camera, Estimator, FxFyCxCySkew, IdentitySensor, Iso3, Mat3, NoDistortion, Pinhole,
-    Pt3, RansacOptions, Real, Vec2,
+    ransac_fit, Camera, Estimator, FxFyCxCySkew, IdentitySensor, Iso3, Mat3, Mat4, NoDistortion,
+    Pinhole, Pt3, RansacOptions, Real, Vec2,
 };
-use nalgebra::{DMatrix, DVector, Isometry3, Rotation3, Translation3, UnitQuaternion};
+use nalgebra::{DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion};
 use thiserror::Error;
 
 /// Errors that can occur during PnP estimation.
@@ -14,6 +14,9 @@ pub enum PnpError {
     /// Intrinsics matrix is not invertible.
     #[error("intrinsics matrix is not invertible")]
     SingularIntrinsics,
+    /// 3D points are degenerate for normalization.
+    #[error("degenerate 3d point configuration for normalization")]
+    DegeneratePoints,
     /// Linear solve (SVD) failed.
     #[error("svd failed in PnP DLT")]
     SvdFailed,
@@ -44,13 +47,58 @@ impl PnpSolver {
         let kmtx: Mat3 = k.k_matrix();
         let k_inv = kmtx.try_inverse().ok_or(PnpError::SingularIntrinsics)?;
 
+        let mut cx = 0.0;
+        let mut cy = 0.0;
+        let mut cz = 0.0;
+        for p in world {
+            cx += p.x;
+            cy += p.y;
+            cz += p.z;
+        }
+        let n_real = n as Real;
+        cx /= n_real;
+        cy /= n_real;
+        cz /= n_real;
+
+        let mut mean_dist = 0.0;
+        for p in world {
+            let dx = p.x - cx;
+            let dy = p.y - cy;
+            let dz = p.z - cz;
+            mean_dist += (dx * dx + dy * dy + dz * dz).sqrt();
+        }
+        mean_dist /= n_real;
+        if mean_dist <= Real::EPSILON {
+            return Err(PnpError::DegeneratePoints);
+        }
+
+        let scale = (3.0_f64).sqrt() / mean_dist;
+        let t_world = Mat4::new(
+            scale,
+            0.0,
+            0.0,
+            -scale * cx,
+            0.0,
+            scale,
+            0.0,
+            -scale * cy,
+            0.0,
+            0.0,
+            scale,
+            -scale * cz,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        );
+
         // Build 2n x 12 DLT matrix for camera matrix P = [R | t] in normalized coords.
         let mut a = DMatrix::<Real>::zeros(2 * n, 12);
 
         for (i, (pw, pi)) in world.iter().zip(image.iter()).enumerate() {
-            let x = pw.x;
-            let y = pw.y;
-            let z = pw.z;
+            let x = (pw.x - cx) * scale;
+            let y = (pw.y - cy) * scale;
+            let z = (pw.z - cz) * scale;
 
             // Normalized image point: x_n = K^{-1} [u,v,1]^T.
             let v_img = k_inv * nalgebra::Vector3::new(pi.x, pi.y, 1.0);
@@ -81,18 +129,10 @@ impl PnpSolver {
             a[(r1, 11)] = -v;
         }
 
-        // Solve A p = 0 by SVD on A^T A.
-        let ata = a.transpose() * &a;
-        let eig = ata.symmetric_eigen();
-        let min_idx = eig
-            .eigenvalues
-            .iter()
-            .enumerate()
-            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .map(|(idx, _)| idx)
-            .ok_or(PnpError::SvdFailed)?;
-
-        let p_vec: DVector<Real> = eig.eigenvectors.column(min_idx).into();
+        // Solve A p = 0 via SVD: take the singular vector for the smallest singular value.
+        let svd = a.svd(true, true);
+        let v_t = svd.v_t.ok_or(PnpError::SvdFailed)?;
+        let p_vec = v_t.row(v_t.nrows() - 1);
 
         // Reshape into 3x4 matrix P = [R|t] (up to scale).
         let mut p_mtx = nalgebra::Matrix3x4::<Real>::zeros();
@@ -102,6 +142,9 @@ impl PnpSolver {
             }
         }
 
+        // De-normalize 3D points: P = P_norm * T_world.
+        let p_mtx = p_mtx * t_world;
+
         let m = p_mtx.fixed_view::<3, 3>(0, 0).into_owned();
         let mut r_approx = m;
 
@@ -109,7 +152,10 @@ impl PnpSolver {
         let row0 = r_approx.row(0);
         let row1 = r_approx.row(1);
         let row2 = r_approx.row(2);
-        let s = (row0.norm() + row1.norm() + row2.norm()) / 3.0;
+        let mut s = (row0.norm() + row1.norm() + row2.norm()) / 3.0;
+        if r_approx.determinant() < 0.0 {
+            s = -s;
+        }
         if s.abs() > 0.0 {
             r_approx /= s;
         }

@@ -1,8 +1,7 @@
 use calib_core::{
     from_homogeneous, ransac_fit, to_homogeneous, Estimator, Mat3, Pt2, RansacOptions,
 };
-use nalgebra::{DMatrix, DVector};
-use std::cmp::Ordering;
+use nalgebra::DMatrix;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -112,17 +111,21 @@ impl HomographySolver {
             a[(r1, 8)] = v;
         }
 
-        // Solve A h = 0 by finding the eigenvector of A^T A with the smallest eigenvalue.
-        let ata = a.transpose() * &a;
-        let eig = ata.symmetric_eigen();
-        let min_idx = eig
-            .eigenvalues
-            .iter()
-            .enumerate()
-            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-            .map(|(idx, _)| idx)
-            .ok_or(HomographyError::SvdFailed)?;
-        let h_vec: DVector<f64> = eig.eigenvectors.column(min_idx).into();
+        // Solve A h = 0 via SVD: take the singular vector for the smallest singular value.
+        let mut a_work = a;
+        if a_work.nrows() < a_work.ncols() {
+            let rows = a_work.nrows();
+            let cols = a_work.ncols();
+            let mut a_pad = DMatrix::<f64>::zeros(cols, cols);
+            a_pad
+                .view_mut((0, 0), (rows, cols))
+                .copy_from(&a_work);
+            a_work = a_pad;
+        }
+
+        let svd = a_work.svd(true, true);
+        let v_t = svd.v_t.ok_or(HomographyError::SvdFailed)?;
+        let h_vec = v_t.row(v_t.nrows() - 1);
 
         let mut h_mat = Mat3::zeros();
         for r in 0..3 {
