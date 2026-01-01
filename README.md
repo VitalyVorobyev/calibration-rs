@@ -38,7 +38,7 @@ fn main() {
     let input = PlanarIntrinsicsInput { views: vec![view] };
     let config = PlanarIntrinsicsConfig::default();
 
-    let report = run_planar_intrinsics(&input, &config);
+    let report = run_planar_intrinsics(&input, &config).expect("planar intrinsics failed");
     println!("Estimated camera config: {:?}", report.camera);
 
     if let IntrinsicsConfig::FxFyCxCySkew { fx, fy, cx, cy, skew } = &report.camera.intrinsics {

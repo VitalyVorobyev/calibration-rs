@@ -1,4 +1,17 @@
 //! Camera model building blocks and composable pipelines.
+//!
+//! This module defines a composable camera pipeline with four stages:
+//!
+//! 1. `ProjectionModel`: map a 3D ray to normalized coordinates (e.g. pinhole).
+//! 2. `DistortionModel`: apply radial/tangential distortion in normalized space.
+//! 3. `SensorModel`: apply a sensor-plane homography (identity or tilt).
+//! 4. `IntrinsicsModel`: map sensor-plane coordinates to pixels (K matrix).
+//!
+//! The combined mapping is:
+//! `pixel = intrinsics(sensor(distortion(projection(dir))))`
+//!
+//! Config structs are provided for JSON serialization and for constructing
+//! concrete camera models with f64 precision.
 
 mod camera;
 mod config;
@@ -37,7 +50,7 @@ mod tests {
 
         let px = Vector2::new(1000.0, 200.0);
         let ray = cam.backproject_pixel(&px);
-        let p = ray.dir * 2.5;
+        let p = ray.point * 2.5;
         let px2 = cam.project_point_c(&p).unwrap();
 
         let err = (px2 - px).norm();
@@ -65,7 +78,7 @@ mod tests {
 
         let px = Vector2::new(900.0, 500.0);
         let ray = cam.backproject_pixel(&px);
-        let p = ray.dir * 3.0;
+        let p = ray.point * 3.0;
         let px2 = cam.project_point_c(&p).unwrap();
 
         let err = (px2 - px).norm();

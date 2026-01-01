@@ -40,7 +40,7 @@ fn run_planar_intrinsics_from_files(
         PlanarIntrinsicsConfig::default()
     };
 
-    let report = run_planar_intrinsics(&input, &config);
+    let report = run_planar_intrinsics(&input, &config)?;
     write_report_json(&report)
 }
 

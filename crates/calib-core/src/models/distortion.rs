@@ -1,11 +1,15 @@
 use nalgebra::{RealField, Vector2};
 use serde::{Deserialize, Serialize};
 
+/// Distortion model mapping between ideal and distorted normalized coordinates.
 pub trait DistortionModel<S: RealField + Copy> {
+    /// Apply distortion to undistorted normalized coordinates.
     fn distort(&self, n_undist: &Vector2<S>) -> Vector2<S>;
+    /// Remove distortion from distorted normalized coordinates.
     fn undistort(&self, n_dist: &Vector2<S>) -> Vector2<S>;
 }
 
+/// No distortion (identity mapping).
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct NoDistortion;
 
@@ -19,13 +23,20 @@ impl<S: RealField + Copy> DistortionModel<S> for NoDistortion {
     }
 }
 
+/// Brown-Conrady 5-parameter radial-tangential distortion model.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct BrownConrady5<S: RealField> {
+    /// Radial coefficient k1.
     pub k1: S,
+    /// Radial coefficient k2.
     pub k2: S,
+    /// Radial coefficient k3.
     pub k3: S,
+    /// Tangential coefficient p1.
     pub p1: S,
+    /// Tangential coefficient p2.
     pub p2: S,
+    /// Iterations for undistortion.
     pub iters: u32,
 }
 
@@ -64,8 +75,8 @@ impl<S: RealField + Copy> DistortionModel<S> for BrownConrady5<S> {
             let (xd, yd) = self.distort_impl(x, y);
             let ex = xd - n_dist.x;
             let ey = yd - n_dist.y;
-            x = x - ex;
-            y = y - ey;
+            x -= ex;
+            y -= ey;
         }
         Vector2::new(x, y)
     }

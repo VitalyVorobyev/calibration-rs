@@ -61,7 +61,8 @@
 //! let input = PlanarIntrinsicsInput { views };
 //! let config = PlanarIntrinsicsConfig::default();
 //!
-//! let report = calib::pipeline::run_planar_intrinsics(&input, &config);
+//! let report = calib::pipeline::run_planar_intrinsics(&input, &config)
+//!     .expect("planar intrinsics failed");
 //! if let IntrinsicsConfig::FxFyCxCySkew { fx, fy, cx, cy, skew } = &report.camera.intrinsics {
 //!     println!("estimated intrinsics: fx={fx} fy={fy} cx={cx} cy={cy} skew={skew}");
 //! }

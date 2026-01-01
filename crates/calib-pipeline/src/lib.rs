@@ -4,13 +4,14 @@ use calib_core::{
 };
 use calib_optim::backend_lm::LmBackend;
 use calib_optim::planar_intrinsics::{
-    pack_initial_params, refine_planar_intrinsics, PlanarIntrinsicsProblem, PlanarViewObservations,
-    PinholeCamera,
+    pack_initial_params, refine_planar_intrinsics, PinholeCamera, PlanarIntrinsicsProblem,
+    PlanarViewObservations,
 };
 use calib_optim::problem::SolveOptions;
 use calib_optim::robust::RobustKernel;
 use nalgebra::{UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
+use std::{error::Error, fmt};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsConfig {
@@ -78,6 +79,45 @@ pub struct PlanarIntrinsicsReport {
     pub converged: bool,
 }
 
+/// Errors returned by the planar intrinsics pipeline.
+#[derive(Debug, Clone)]
+pub enum PlanarIntrinsicsError {
+    /// No views were provided.
+    EmptyViews,
+    /// A view has mismatched 3D/2D point counts.
+    MismatchedPointCounts {
+        view: usize,
+        points_3d: usize,
+        points_2d: usize,
+    },
+    /// A view has too few correspondences to be usable.
+    NotEnoughPoints { view: usize, points: usize },
+}
+
+impl fmt::Display for PlanarIntrinsicsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PlanarIntrinsicsError::EmptyViews => {
+                write!(f, "need at least one view for planar intrinsics")
+            }
+            PlanarIntrinsicsError::MismatchedPointCounts {
+                view,
+                points_3d,
+                points_2d,
+            } => write!(
+                f,
+                "view {} has mismatched 3D/2D points ({} vs {})",
+                view, points_3d, points_2d
+            ),
+            PlanarIntrinsicsError::NotEnoughPoints { view, points } => {
+                write!(f, "view {} needs at least 4 points (got {})", view, points)
+            }
+        }
+    }
+}
+
+impl Error for PlanarIntrinsicsError {}
+
 fn make_pinhole_camera(k: FxFyCxCySkew<Real>, dist: BrownConrady5<Real>) -> PinholeCamera {
     Camera::new(Pinhole, dist, IdentitySensor, k)
 }
@@ -107,25 +147,26 @@ fn pinhole_camera_config(camera: &PinholeCamera) -> CameraConfig {
 pub fn run_planar_intrinsics(
     input: &PlanarIntrinsicsInput,
     config: &PlanarIntrinsicsConfig,
-) -> PlanarIntrinsicsReport {
-    assert!(
-        !input.views.is_empty(),
-        "need at least one view for planar intrinsics"
-    );
+) -> Result<PlanarIntrinsicsReport, PlanarIntrinsicsError> {
+    if input.views.is_empty() {
+        return Err(PlanarIntrinsicsError::EmptyViews);
+    }
 
     let mut observations = Vec::new();
     for (idx, view) in input.views.iter().enumerate() {
-        assert_eq!(
-            view.points_3d.len(),
-            view.points_2d.len(),
-            "view {} has mismatched 3D/2D points",
-            idx
-        );
-        assert!(
-            view.points_3d.len() >= 4,
-            "view {} needs at least 4 points",
-            idx
-        );
+        if view.points_3d.len() != view.points_2d.len() {
+            return Err(PlanarIntrinsicsError::MismatchedPointCounts {
+                view: idx,
+                points_3d: view.points_3d.len(),
+                points_2d: view.points_2d.len(),
+            });
+        }
+        if view.points_3d.len() < 4 {
+            return Err(PlanarIntrinsicsError::NotEnoughPoints {
+                view: idx,
+                points: view.points_3d.len(),
+            });
+        }
         observations.push(PlanarViewObservations::new(
             view.points_3d.clone(),
             view.points_2d.clone(),
@@ -172,12 +213,12 @@ pub fn run_planar_intrinsics(
     let (camera, _poses, report) = refine_planar_intrinsics(&backend, &problem, x0, &opts);
     let camera_cfg = pinhole_camera_config(&camera);
 
-    PlanarIntrinsicsReport {
+    Ok(PlanarIntrinsicsReport {
         camera: camera_cfg,
         final_cost: report.final_cost,
         iterations: report.iterations,
         converged: report.converged,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -186,7 +227,13 @@ mod tests {
 
     fn intrinsics_from_config(cfg: &CameraConfig) -> FxFyCxCySkew<Real> {
         match &cfg.intrinsics {
-            IntrinsicsConfig::FxFyCxCySkew { fx, fy, cx, cy, skew } => FxFyCxCySkew {
+            IntrinsicsConfig::FxFyCxCySkew {
+                fx,
+                fy,
+                cx,
+                cy,
+                skew,
+            } => FxFyCxCySkew {
                 fx: *fx,
                 fy: *fy,
                 cx: *cx,
@@ -249,7 +296,7 @@ mod tests {
         let input = PlanarIntrinsicsInput { views };
         let config = PlanarIntrinsicsConfig::default();
 
-        let report = run_planar_intrinsics(&input, &config);
+        let report = run_planar_intrinsics(&input, &config).expect("pipeline should succeed");
         assert!(report.converged, "LM did not converge");
         assert!(
             report.final_cost < 1e-6,
