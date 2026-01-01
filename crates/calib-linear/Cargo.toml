@@ -7,3 +7,4 @@ edition = "2021"
 calib-core = { path = "../calib-core" }
 nalgebra = { workspace = true }
 thiserror = { workspace = true }
+log = "0.4"

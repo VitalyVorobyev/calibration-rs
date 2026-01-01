@@ -1,5 +1,23 @@
 use calib_core::{FxFyCxCySkew, Mat3, Real};
 use nalgebra::DMatrix;
+use thiserror::Error;
+
+/// Errors that can occur during planar intrinsics initialization.
+#[derive(Debug, Error, Clone, Copy)]
+pub enum PlanarIntrinsicsInitError {
+    /// Not enough homographies were provided.
+    #[error("need at least 3 homographies, got {0}")]
+    NotEnoughHomographies(usize),
+    /// SVD failed when solving for the intrinsic parameters.
+    #[error("svd failed during intrinsics estimation")]
+    SvdFailed,
+    /// The configuration is degenerate for intrinsics estimation.
+    #[error("degenerate configuration for intrinsics estimation")]
+    DegenerateConfiguration,
+    /// The recovered parameters are not physically valid.
+    #[error("invalid sign for lambda; check homographies")]
+    InvalidLambdaSign,
+}
 
 /// Build the 6-vector v_ij(H) as in Zhang's method.
 /// i, j are 0- or 1-based column indices (we'll use 0/1 for (1,2) and (1,1),(2,2)).
@@ -28,7 +46,9 @@ pub struct PlanarIntrinsicsLinearInit;
 /// Zhang's closed-form solution (no distortion).
 ///
 /// Requires at least 3 homographies for a stable solution.
-pub fn estimate_intrinsics_from_homographies(hmtxs: &[Mat3]) -> FxFyCxCySkew<Real> {
+pub fn estimate_intrinsics_from_homographies(
+    hmtxs: &[Mat3],
+) -> Result<FxFyCxCySkew<Real>, PlanarIntrinsicsInitError> {
     PlanarIntrinsicsLinearInit::from_homographies(hmtxs)
 }
 
@@ -39,11 +59,14 @@ impl PlanarIntrinsicsLinearInit {
     /// on `Z = 0`) into image coordinates.
     ///
     /// At least three views with sufficiently rich geometry are required.
-    pub fn from_homographies(hmtxs: &[Mat3]) -> FxFyCxCySkew<Real> {
-        assert!(
-            hmtxs.len() >= 3,
-            "need at least 3 homographies for intrinsics estimation"
-        );
+    pub fn from_homographies(
+        hmtxs: &[Mat3],
+    ) -> Result<FxFyCxCySkew<Real>, PlanarIntrinsicsInitError> {
+        if hmtxs.len() < 3 {
+            return Err(PlanarIntrinsicsInitError::NotEnoughHomographies(
+                hmtxs.len(),
+            ));
+        }
 
         let m = hmtxs.len();
         let mut vmtx = DMatrix::<Real>::zeros(2 * m, 6);
@@ -62,7 +85,7 @@ impl PlanarIntrinsicsLinearInit {
         // Solve V b = 0 via SVD: take the singular vector corresponding to the
         // smallest singular value.
         let svd = vmtx.svd(true, true);
-        let v_t = svd.v_t.expect("V^T from SVD");
+        let v_t = svd.v_t.ok_or(PlanarIntrinsicsInitError::SvdFailed)?;
         let b = v_t.row(v_t.nrows() - 1); // last row
 
         let b11 = b[0];
@@ -90,31 +113,29 @@ impl PlanarIntrinsicsLinearInit {
         } else {
             0.0
         };
-        assert!(
-            denom_rel > 1e-6,
-            "degenerate configuration in intrinsics estimation"
-        );
+        if denom_rel <= 1e-6 || b11.abs() <= 1e-12 {
+            return Err(PlanarIntrinsicsInitError::DegenerateConfiguration);
+        }
 
         let v0 = (b12 * b13 - b11 * b23) / denom;
         let lambda = b33 - (b13 * b13 + v0 * (b12 * b13 - b11 * b23)) / b11;
 
-        assert!(
-            lambda.signum() == b11.signum(),
-            "invalid sign for λ; check homographies"
-        );
+        if lambda.signum() != b11.signum() {
+            return Err(PlanarIntrinsicsInitError::InvalidLambdaSign);
+        }
 
         let alpha = (lambda / b11).sqrt();
         let beta = (lambda * b11 / denom).sqrt();
         let gamma = -b12 * alpha * alpha * beta / lambda;
         let u0 = gamma * v0 / beta - b13 * alpha * alpha / lambda;
 
-        FxFyCxCySkew {
+        Ok(FxFyCxCySkew {
             fx: alpha,
             fy: beta,
             cx: u0,
             cy: v0,
             skew: gamma,
-        }
+        })
     }
 }
 
@@ -177,7 +198,7 @@ mod tests {
             ),
         ];
 
-        let intr_est = estimate_intrinsics_from_homographies(&hmts);
+        let intr_est = estimate_intrinsics_from_homographies(&hmts).unwrap();
 
         // Tolerances are somewhat arbitrary; adjust based on your geometry
         assert!((intr_est.fx - intr_gt.fx).abs() < 5.0, "fx mismatch");

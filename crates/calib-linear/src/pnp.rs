@@ -11,6 +11,9 @@ pub enum PnpError {
     /// Not enough point correspondences were provided.
     #[error("need at least 6 point correspondences, got {0}")]
     NotEnoughPoints(usize),
+    /// Intrinsics matrix is not invertible.
+    #[error("intrinsics matrix is not invertible")]
+    SingularIntrinsics,
     /// Linear solve (SVD) failed.
     #[error("svd failed in PnP DLT")]
     SvdFailed,
@@ -39,7 +42,7 @@ impl PnpSolver {
         }
 
         let kmtx: Mat3 = k.k_matrix();
-        let k_inv = kmtx.try_inverse().expect("K must be invertible in PnP DLT");
+        let k_inv = kmtx.try_inverse().ok_or(PnpError::SingularIntrinsics)?;
 
         // Build 2n x 12 DLT matrix for camera matrix P = [R | t] in normalized coords.
         let mut a = DMatrix::<Real>::zeros(2 * n, 12);

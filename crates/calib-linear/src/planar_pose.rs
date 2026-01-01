@@ -1,5 +1,20 @@
 use calib_core::{Iso3, Mat3, Real};
 use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
+use thiserror::Error;
+
+/// Errors that can occur during planar pose initialization.
+#[derive(Debug, Error, Clone, Copy)]
+pub enum PlanarPoseError {
+    /// Intrinsics matrix is not invertible.
+    #[error("intrinsics matrix is not invertible")]
+    SingularIntrinsics,
+    /// Homography is degenerate for pose extraction.
+    #[error("degenerate homography for planar pose extraction")]
+    DegenerateHomography,
+    /// SVD failed while projecting to SO(3).
+    #[error("svd failed during planar pose extraction")]
+    SvdFailed,
+}
 
 /// Linear pose initialisation from a homography and intrinsics.
 ///
@@ -13,17 +28,17 @@ pub struct PlanarPoseSolver;
 /// and homography H (plane -> image).
 ///
 /// Returns an Iso3 that maps board coordinates into camera coordinates.
-pub fn estimate_planar_pose_from_h(kmtx: &Mat3, hmtx: &Mat3) -> Iso3 {
+pub fn estimate_planar_pose_from_h(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3, PlanarPoseError> {
     PlanarPoseSolver::from_homography(kmtx, hmtx)
 }
 
 impl PlanarPoseSolver {
     /// Decompose a homography into a pose `T_C_B` given intrinsics `K`.
-    pub fn from_homography(kmtx: &Mat3, hmtx: &Mat3) -> Iso3 {
+    pub fn from_homography(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3, PlanarPoseError> {
         // K^{-1}
         let k_inv = kmtx
             .try_inverse()
-            .expect("K must be invertible in estimate_planar_pose_from_h");
+            .ok_or(PlanarPoseError::SingularIntrinsics)?;
 
         // Columns of H
         let h1 = hmtx.column(0);
@@ -36,7 +51,11 @@ impl PlanarPoseSolver {
         // Scale factor λ: normalize first two columns (average for robustness)
         let norm1 = k_inv_h1.norm();
         let norm2 = k_inv_h2.norm();
-        let lambda = 1.0 / ((norm1 + norm2) * 0.5);
+        let denom = (norm1 + norm2) * 0.5;
+        if denom <= 1e-12 {
+            return Err(PlanarPoseError::DegenerateHomography);
+        }
+        let lambda = 1.0 / denom;
 
         let r1 = (lambda * k_inv_h1).into_owned();
         let r2 = (lambda * k_inv_h2).into_owned();
@@ -49,8 +68,8 @@ impl PlanarPoseSolver {
 
         // Project onto SO(3) (polar decomposition via SVD)
         let svd = r_mat.svd(true, true);
-        let u = svd.u.expect("U from SVD");
-        let v_t = svd.v_t.expect("V^T from SVD");
+        let u = svd.u.ok_or(PlanarPoseError::SvdFailed)?;
+        let v_t = svd.v_t.ok_or(PlanarPoseError::SvdFailed)?;
         let r_orth = u * v_t;
 
         // Ensure det(R) > 0
@@ -58,9 +77,9 @@ impl PlanarPoseSolver {
             let mut u_flipped = u;
             u_flipped.column_mut(2).neg_mut();
             let r_orth = u_flipped * v_t;
-            build_iso(r_orth, lambda, &k_inv, &h3)
+            Ok(build_iso(r_orth, lambda, &k_inv, &h3))
         } else {
-            build_iso(r_orth, lambda, &k_inv, &h3)
+            Ok(build_iso(r_orth, lambda, &k_inv, &h3))
         }
     }
 }
@@ -112,7 +131,7 @@ mod tests {
         hmtx.set_column(1, &(kmtx * r2));
         hmtx.set_column(2, &(kmtx * t));
 
-        let iso_est = estimate_planar_pose_from_h(&kmtx, &hmtx);
+        let iso_est = estimate_planar_pose_from_h(&kmtx, &hmtx).unwrap();
 
         let t_est = iso_est.translation.vector;
         let r_est_binding = iso_est.rotation.to_rotation_matrix();
