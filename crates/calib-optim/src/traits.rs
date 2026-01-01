@@ -2,9 +2,48 @@ use calib_core::Real;
 use nalgebra::{DMatrix, DVector};
 
 /// Generic non-linear least squares problem with dense parameter/residual vectors.
+///
+/// The default implementations apply robust IRLS row scaling without differentiating
+/// the weights: residuals and Jacobian rows are scaled by `sqrt(w_i)` computed from
+/// unweighted residuals.
 pub trait NllsProblem {
-    fn residuals(&self, x: &DVector<Real>) -> DVector<Real>;
-    fn jacobian(&self, x: &DVector<Real>) -> DMatrix<Real>;
+    /// Number of parameters in the optimization vector.
+    fn num_params(&self) -> usize;
+    /// Number of residual rows in the problem.
+    fn num_residuals(&self) -> usize;
+
+    /// Unweighted residuals for the current parameters.
+    fn residuals_unweighted(&self, x: &DVector<Real>) -> DVector<Real>;
+    /// Unweighted Jacobian for the current parameters.
+    fn jacobian_unweighted(&self, x: &DVector<Real>) -> DMatrix<Real>;
+
+    /// Per-row IRLS scales (sqrt(weights)) computed from unweighted residuals.
+    fn robust_row_scales(&self, r_unweighted: &DVector<Real>) -> DVector<Real> {
+        DVector::from_element(r_unweighted.len(), 1.0)
+    }
+
+    /// Weighted residuals used by the solver.
+    fn residuals(&self, x: &DVector<Real>) -> DVector<Real> {
+        let mut r = self.residuals_unweighted(x);
+        let scales = self.robust_row_scales(&r);
+        debug_assert_eq!(scales.len(), r.len());
+        r.component_mul_assign(&scales);
+        r
+    }
+
+    /// Weighted Jacobian used by the solver.
+    fn jacobian(&self, x: &DVector<Real>) -> DMatrix<Real> {
+        let r_unweighted = self.residuals_unweighted(x);
+        let scales = self.robust_row_scales(&r_unweighted);
+        let mut j = self.jacobian_unweighted(x);
+        debug_assert_eq!(scales.len(), j.nrows());
+        for (mut row, scale) in j.row_iter_mut().zip(scales.iter()) {
+            if *scale != 1.0 {
+                row.scale_mut(*scale);
+            }
+        }
+        j
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

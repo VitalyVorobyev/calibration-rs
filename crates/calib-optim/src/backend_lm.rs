@@ -112,11 +112,19 @@ mod tests {
     struct OneDimProblem;
 
     impl NllsProblem for OneDimProblem {
-        fn residuals(&self, x: &DVector<Real>) -> DVector<Real> {
+        fn num_params(&self) -> usize {
+            1
+        }
+
+        fn num_residuals(&self) -> usize {
+            1
+        }
+
+        fn residuals_unweighted(&self, x: &DVector<Real>) -> DVector<Real> {
             DVector::from_element(1, x[0] - 3.0)
         }
 
-        fn jacobian(&self, _x: &DVector<Real>) -> DMatrix<Real> {
+        fn jacobian_unweighted(&self, _x: &DVector<Real>) -> DMatrix<Real> {
             DMatrix::from_element(1, 1, 1.0)
         }
     }

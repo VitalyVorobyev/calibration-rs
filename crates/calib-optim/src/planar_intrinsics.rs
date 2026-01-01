@@ -74,6 +74,115 @@ impl PlanarIntrinsicsProblem {
     pub fn residual_dim(&self) -> usize {
         self.views.iter().map(|v| 2 * v.len()).sum()
     }
+
+    fn eval_residuals_unweighted_into(&self, x: &DVector<Real>, out: &mut DVector<Real>) {
+        let (camera, poses) = decode_params(self, x);
+        debug_assert_eq!(out.len(), self.residual_dim());
+
+        let mut offset = 0;
+        for (view_idx, view) in self.views.iter().enumerate() {
+            let pose = &poses[view_idx];
+
+            for (pw, meas) in view.points_3d.iter().zip(view.points_2d.iter()) {
+                let z0 = pw.z;
+                debug_assert!(z0.abs() < 1e-9, "planar assumption: z ≈ 0");
+
+                // board -> camera
+                let p_cam: Point3<Real> = pose.transform_point(pw);
+                let Some(proj) = camera.project_point(&p_cam) else {
+                    out[offset] = 1.0e6;
+                    out[offset + 1] = 1.0e6;
+                    offset += 2;
+                    continue;
+                };
+
+                let ru = meas.x - proj.x;
+                let rv = meas.y - proj.y;
+                out[offset] = ru;
+                out[offset + 1] = rv;
+                offset += 2;
+            }
+        }
+
+        debug_assert_eq!(offset, out.len());
+    }
+
+    fn residuals_unweighted_impl(&self, x: &DVector<Real>) -> DVector<Real> {
+        let mut r = DVector::zeros(self.residual_dim());
+        self.eval_residuals_unweighted_into(x, &mut r);
+        r
+    }
+
+    fn robust_row_scales_from_unweighted(&self, r_unweighted: &DVector<Real>) -> DVector<Real> {
+        debug_assert_eq!(r_unweighted.len(), self.residual_dim());
+        let mut scales = DVector::from_element(r_unweighted.len(), 1.0);
+        if matches!(self.robust_kernel, RobustKernel::None) {
+            return scales;
+        }
+
+        let mut offset = 0;
+        for view in &self.views {
+            for _ in 0..view.points_3d.len() {
+                let ru = r_unweighted[offset];
+                let rv = r_unweighted[offset + 1];
+                let r2 = ru * ru + rv * rv;
+                let s = self.robust_kernel.sqrt_weight(r2);
+                scales[offset] = s;
+                scales[offset + 1] = s;
+                offset += 2;
+            }
+        }
+
+        debug_assert_eq!(offset, scales.len());
+        scales
+    }
+
+    fn residuals_weighted(&self, x: &DVector<Real>) -> DVector<Real> {
+        let mut r = self.residuals_unweighted_impl(x);
+        let scales = self.robust_row_scales_from_unweighted(&r);
+        r.component_mul_assign(&scales);
+        r
+    }
+
+    fn jacobian_unweighted_fd(&self, x: &DVector<Real>) -> DMatrix<Real> {
+        let m = self.residual_dim();
+        let n = x.len();
+        let mut j = DMatrix::zeros(m, n);
+
+        let base_r = self.residuals_unweighted_impl(x);
+        let mut x_pert = x.clone();
+        let mut r_plus = DVector::zeros(m);
+        let mut diff = DVector::zeros(m);
+
+        for k in 0..n {
+            let orig = x_pert[k];
+            let eps = 1e-6 * (1.0 + orig.abs());
+            x_pert[k] = orig + eps;
+
+            self.eval_residuals_unweighted_into(&x_pert, &mut r_plus);
+            diff.copy_from(&r_plus);
+            diff -= &base_r;
+            diff /= eps;
+            j.set_column(k, &diff);
+
+            x_pert[k] = orig;
+        }
+
+        j
+    }
+
+    fn jacobian_weighted(&self, x: &DVector<Real>) -> DMatrix<Real> {
+        let r_unweighted = self.residuals_unweighted_impl(x);
+        let scales = self.robust_row_scales_from_unweighted(&r_unweighted);
+        let mut j = self.jacobian_unweighted_fd(x);
+        debug_assert_eq!(scales.len(), j.nrows());
+        for (mut row, scale) in j.row_iter_mut().zip(scales.iter()) {
+            if *scale != 1.0 {
+                row.scale_mut(*scale);
+            }
+        }
+        j
+    }
 }
 
 /// Pack initial intrinsics, distortion and poses into parameter vector.
@@ -172,63 +281,33 @@ fn decode_params(prob: &PlanarIntrinsicsProblem, x: &DVector<Real>) -> (PinholeC
 }
 
 impl NllsProblem for PlanarIntrinsicsProblem {
+    fn num_params(&self) -> usize {
+        self.param_dim()
+    }
+
+    fn num_residuals(&self) -> usize {
+        self.residual_dim()
+    }
+
+    fn residuals_unweighted(&self, x: &DVector<Real>) -> DVector<Real> {
+        self.residuals_unweighted_impl(x)
+    }
+
+    fn jacobian_unweighted(&self, x: &DVector<Real>) -> DMatrix<Real> {
+        // Finite differences for now; replace with analytic Jacobian later.
+        self.jacobian_unweighted_fd(x)
+    }
+
+    fn robust_row_scales(&self, r_unweighted: &DVector<Real>) -> DVector<Real> {
+        self.robust_row_scales_from_unweighted(r_unweighted)
+    }
+
     fn residuals(&self, x: &DVector<Real>) -> DVector<Real> {
-        let (camera, poses) = decode_params(self, x);
-
-        let mut r = DVector::zeros(self.residual_dim());
-        let mut offset = 0;
-
-        for (view_idx, view) in self.views.iter().enumerate() {
-            let pose = &poses[view_idx];
-
-            for j in 0..view.points_3d.len() {
-                let pw = view.points_3d[j];
-                let z0 = pw.z;
-                debug_assert!(z0.abs() < 1e-9, "planar assumption: z ≈ 0");
-
-                // board → camera
-                let p_cam: Point3<Real> = pose.transform_point(&pw);
-                let Some(proj) = camera.project_point(&p_cam) else {
-                    r[offset] = 1.0e6;
-                    r[offset + 1] = 1.0e6;
-                    offset += 2;
-                    continue;
-                };
-
-                let meas = view.points_2d[j];
-                let ru = meas.x - proj.x;
-                let rv = meas.y - proj.y;
-                let r2 = ru * ru + rv * rv;
-                let (_, w) = self.robust_kernel.rho_and_weight(r2);
-                let s = w.sqrt();
-                r[offset] = s * ru;
-                r[offset + 1] = s * rv;
-
-                offset += 2;
-            }
-        }
-
-        r
+        self.residuals_weighted(x)
     }
 
     fn jacobian(&self, x: &DVector<Real>) -> DMatrix<Real> {
-        // Finite differences for now; replace with analytic Jacobian later.
-        let m = self.residual_dim();
-        let n = x.len();
-        let mut j = DMatrix::zeros(m, n);
-
-        let base_r = self.residuals(x);
-        let eps = 1e-6;
-
-        for k in 0..n {
-            let mut x_pert = x.clone();
-            x_pert[k] += eps;
-            let r_plus = self.residuals(&x_pert);
-            let diff = (r_plus - &base_r) / eps;
-            j.set_column(k, &diff);
-        }
-
-        j
+        self.jacobian_weighted(x)
     }
 }
 
@@ -474,6 +553,46 @@ mod tests {
             "reported final cost {} disagrees with recomputed {}",
             report.final_cost,
             final_cost
+        );
+    }
+
+    #[test]
+    fn irls_jacobian_matches_row_scaled_unweighted() {
+        let SyntheticScenario {
+            problem,
+            poses_gt,
+            cam_gt: _,
+            cam_init,
+        } = build_synthetic_scenario(0.0);
+
+        let problem = problem.with_kernel(RobustKernel::Cauchy { c: 1.0e-6 });
+        let x = pack_initial_params(&cam_init, &poses_gt);
+
+        let r_unweighted = problem.residuals_unweighted(&x);
+        let scales = problem.robust_row_scales_from_unweighted(&r_unweighted);
+        assert!(
+            scales.iter().any(|s| *s < 0.999),
+            "expected some robust down-weighting"
+        );
+
+        let j_unweighted = problem.jacobian_unweighted_fd(&x);
+        let mut expected = j_unweighted.clone();
+        for (mut row, scale) in expected.row_iter_mut().zip(scales.iter()) {
+            if *scale != 1.0 {
+                row.scale_mut(*scale);
+            }
+        }
+
+        let actual = problem.jacobian(&x);
+        let max_abs: Real = actual
+            .iter()
+            .zip(expected.iter())
+            .fold(0.0, |acc, (a, b)| acc.max((a - b).abs()));
+
+        assert!(
+            max_abs < 1e-10,
+            "weighted Jacobian mismatch, max abs diff {}",
+            max_abs
         );
     }
 

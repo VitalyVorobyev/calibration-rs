@@ -31,4 +31,32 @@ let opts = SolveOptions {
 };
 ```
 
+## NLLS problem interface
+
+`NllsProblem` separates unweighted residuals from robust IRLS scaling. Implement
+`residuals_unweighted` and `jacobian_unweighted`, and optionally override
+`robust_row_scales` to apply per-row `sqrt(w)` scaling without differentiating
+the weights.
+
+```rust
+use calib_core::Real;
+use calib_optim::NllsProblem;
+use nalgebra::{DMatrix, DVector};
+
+struct MyProblem;
+
+impl NllsProblem for MyProblem {
+    fn num_params(&self) -> usize { 2 }
+    fn num_residuals(&self) -> usize { 2 }
+
+    fn residuals_unweighted(&self, x: &DVector<Real>) -> DVector<Real> {
+        DVector::from_vec(vec![x[0], x[1]])
+    }
+
+    fn jacobian_unweighted(&self, _x: &DVector<Real>) -> DMatrix<Real> {
+        DMatrix::identity(2, 2)
+    }
+}
+```
+
 > TODO: add example of custom problem implementation and profiling checklist.

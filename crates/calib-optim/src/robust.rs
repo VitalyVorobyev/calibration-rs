@@ -47,6 +47,19 @@ impl RobustKernel {
             }
         }
     }
+
+    /// Return the IRLS weight `w(r)` for a squared residual.
+    pub fn weight(self, r2: Real) -> Real {
+        self.rho_and_weight(r2).1
+    }
+
+    /// Return the IRLS row scale `sqrt(w(r))` for a squared residual.
+    ///
+    /// This is used to scale residuals and Jacobian rows without differentiating
+    /// the weights.
+    pub fn sqrt_weight(self, r2: Real) -> Real {
+        self.weight(r2).sqrt()
+    }
 }
 
 #[cfg(test)]
