@@ -145,6 +145,8 @@ dependencies = [
  "calib-core",
  "log",
  "nalgebra",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 

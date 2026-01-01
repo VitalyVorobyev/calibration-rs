@@ -53,6 +53,17 @@ def main() -> None:
     pos = corners[1]['position']
     print(i, j, pos)
 
+    # ground truth
+    data = np.load(f'stereo/out/parameters.npz')
+    print(list(data.keys()))
+
+    print(data['BoardSize'], data['SquareSize'])
+    print(data['Transformation'])
+    print(data['R_Extrinsics'])
+    print(data['L_Extrinsics'])
+    print(data['Essential'])
+    print(data['Fundamental'])
+
 
 if __name__ == "__main__":
     main()

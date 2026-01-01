@@ -9,3 +9,7 @@ calib-core = { path = "../calib-core" }
 nalgebra = { workspace = true }
 thiserror = { workspace = true }
 log = "0.4"
+
+[dev-dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
