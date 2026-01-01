@@ -18,6 +18,20 @@ refinement in `calib-optim` or `calib-pipeline`.
 - Multi-camera rig extrinsics
 - Hand-eye calibration (Tsai-Lenz)
 
+## Current status and expected accuracy
+These solvers are intended as **initialization**. The current regression tests
+validate coarse correctness against a real stereo chessboard dataset:
+
+- Zhang intrinsics recover fx/fy within ~5% and cx/cy within ~8 px.
+- Planar pose p90 rotation error < ~0.05 rad and translation p90 < ~5 units
+  (board square is 30 units).
+- Fundamental matrix (8-point) scaled error < ~0.07.
+- Essential matrix (5-point) residuals within ~3x ground truth.
+- Linear triangulation p90 error < ~2 units (given ground-truth poses).
+
+These thresholds are intentionally loose and aim to ensure stable,
+deterministic initial estimates before non-linear refinement.
+
 ## Coordinate conventions
 - Poses are `T_C_W`: transform from world/board coordinates into the camera
   frame.
