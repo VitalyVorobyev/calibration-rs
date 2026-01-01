@@ -158,6 +158,7 @@ dependencies = [
  "ceres-solver",
  "levenberg-marquardt",
  "nalgebra",
+ "num-dual",
  "thiserror",
 ]
 
@@ -596,6 +597,18 @@ checksum = "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
 dependencies = [
  "num-traits",
  "serde",
+]
+
+[[package]]
+name = "num-dual"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6af00e35bc4073c068713aba7256f772fe908cd7bd74815572bbb4cc2753d5fd"
+dependencies = [
+ "approx",
+ "nalgebra",
+ "num-traits",
+ "simba",
 ]
 
 [[package]]

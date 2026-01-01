@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 calib-core = { path = "../calib-core" }
 nalgebra = { workspace = true }
+num-dual = { workspace = true }
 thiserror = { workspace = true }
 
 # default backend: pure Rust LM

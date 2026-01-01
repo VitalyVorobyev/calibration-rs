@@ -66,7 +66,7 @@ pub struct SolveOptions {
 impl Default for SolveOptions {
     fn default() -> Self {
         Self {
-            max_iters: 100,
+            max_iters: 200,
             ftol: 1e-10,
             gtol: 1e-10,
             xtol: 1e-10,

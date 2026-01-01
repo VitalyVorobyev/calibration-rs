@@ -1,3 +1,4 @@
+mod jacobian_ad;
 pub mod problem;
 pub mod traits;
 

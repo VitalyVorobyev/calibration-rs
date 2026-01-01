@@ -1,12 +1,109 @@
+use crate::jacobian_ad;
 use crate::robust::RobustKernel;
 use crate::{NllsProblem, NllsSolverBackend, SolveOptions, SolveReport};
 use calib_core::{
     BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
 };
-use nalgebra::{DMatrix, DVector, Point3, UnitQuaternion, Vector3};
+use nalgebra::{DMatrix, DVector, UnitQuaternion, Vector3};
+use num_dual::DualNum;
 
 pub type PinholeCamera =
     Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
+
+pub(crate) const INTRINSICS_DIM: usize = 10;
+pub(crate) const POSE_DIM: usize = 6;
+pub(crate) const LOCAL_DIM: usize = INTRINSICS_DIM + POSE_DIM;
+
+fn add_vec3<D: DualNum<Real> + Copy>(a: [D; 3], b: [D; 3]) -> [D; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+fn mat3_mul_vec3<D: DualNum<Real> + Copy>(m: &[[D; 3]; 3], v: [D; 3]) -> [D; 3] {
+    [
+        m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+        m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+        m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+    ]
+}
+
+fn distort_brown_conrady<D: DualNum<Real> + Copy>(
+    x: D,
+    y: D,
+    k1: D,
+    k2: D,
+    k3: D,
+    p1: D,
+    p2: D,
+) -> (D, D) {
+    let r2 = x * x + y * y;
+    let r4 = r2 * r2;
+    let r6 = r4 * r2;
+
+    let radial = D::from(1.0) + k1 * r2 + k2 * r4 + k3 * r6;
+
+    let two = D::from(2.0);
+    let x2 = x * x;
+    let y2 = y * y;
+    let xy = x * y;
+
+    let x_tan = two * p1 * xy + p2 * (r2 + two * x2);
+    let y_tan = p1 * (r2 + two * y2) + two * p2 * xy;
+
+    (x * radial + x_tan, y * radial + y_tan)
+}
+
+/// Rodrigues rotation from axis-angle.
+///
+/// Uses `R = I + A [w]_x + B [w]_x^2`, with small-angle series for `A` and `B`.
+fn rodrigues<D: DualNum<Real> + Copy>(w: [D; 3]) -> [[D; 3]; 3] {
+    let wx = w[0];
+    let wy = w[1];
+    let wz = w[2];
+
+    let theta2 = wx * wx + wy * wy + wz * wz;
+    let theta2_val = theta2.re();
+    let one = D::from(1.0);
+
+    // Branch on the value only; derivatives are computed from the chosen series.
+    const SMALL_ANGLE: f64 = 1.0e-6;
+    let (a, b) = if theta2_val < SMALL_ANGLE * SMALL_ANGLE {
+        let theta4 = theta2 * theta2;
+        let a = one - theta2 * D::from(1.0 / 6.0) + theta4 * D::from(1.0 / 120.0);
+        let b = D::from(0.5) - theta2 * D::from(1.0 / 24.0) + theta4 * D::from(1.0 / 720.0);
+        (a, b)
+    } else {
+        let theta = theta2.sqrt();
+        let (s, c) = theta.sin_cos();
+        let a = s / theta;
+        let b = (one - c) / theta2;
+        (a, b)
+    };
+
+    let wx2 = wx * wx;
+    let wy2 = wy * wy;
+    let wz2 = wz * wz;
+    let wxwy = wx * wy;
+    let wxwz = wx * wz;
+    let wywz = wy * wz;
+
+    [
+        [
+            one + b * (wx2 - theta2),
+            a * (-wz) + b * wxwy,
+            a * wy + b * wxwz,
+        ],
+        [
+            a * wz + b * wxwy,
+            one + b * (wy2 - theta2),
+            a * (-wx) + b * wywz,
+        ],
+        [
+            a * (-wy) + b * wxwz,
+            a * wx + b * wywz,
+            one + b * (wz2 - theta2),
+        ],
+    ]
+}
 
 /// Observations for a single image/view of the planar target.
 #[derive(Debug, Clone)]
@@ -39,6 +136,60 @@ impl PlanarViewObservations {
     }
 }
 
+/// Unweighted reprojection residuals for a single view.
+pub(crate) fn residuals_view_unweighted<D: DualNum<Real> + Copy>(
+    intrinsics: &[D],
+    pose: &[D],
+    view: &PlanarViewObservations,
+) -> DVector<D> {
+    debug_assert_eq!(intrinsics.len(), INTRINSICS_DIM);
+    debug_assert_eq!(pose.len(), POSE_DIM);
+
+    let fx = intrinsics[0];
+    let fy = intrinsics[1];
+    let cx = intrinsics[2];
+    let cy = intrinsics[3];
+    let skew = intrinsics[4];
+
+    let k1 = intrinsics[5];
+    let k2 = intrinsics[6];
+    let p1 = intrinsics[7];
+    let p2 = intrinsics[8];
+    let k3 = intrinsics[9];
+
+    let w = [pose[0], pose[1], pose[2]];
+    let t = [pose[3], pose[4], pose[5]];
+    let r_mat = rodrigues(w);
+
+    let mut r = Vec::with_capacity(view.points_3d.len() * 2);
+    for (pw, meas) in view.points_3d.iter().zip(view.points_2d.iter()) {
+        let z0 = pw.z;
+        debug_assert!(z0.abs() < 1e-9, "planar assumption: z ≈ 0");
+
+        let p = [D::from(pw.x), D::from(pw.y), D::from(pw.z)];
+        let p_cam = add_vec3(mat3_mul_vec3(&r_mat, p), t);
+        if p_cam[2].re() <= 0.0 {
+            let big = D::from(1.0e6);
+            r.push(big);
+            r.push(big);
+            continue;
+        }
+
+        let x_n = p_cam[0] / p_cam[2];
+        let y_n = p_cam[1] / p_cam[2];
+        let (x_d, y_d) = distort_brown_conrady(x_n, y_n, k1, k2, k3, p1, p2);
+        let u = fx * x_d + skew * y_d + cx;
+        let v = fy * y_d + cy;
+
+        let ru = D::from(meas.x) - u;
+        let rv = D::from(meas.y) - v;
+        r.push(ru);
+        r.push(rv);
+    }
+
+    DVector::from_vec(r)
+}
+
 /// Non-linear refinement problem for planar intrinsics (and per-view poses).
 #[derive(Debug, Clone)]
 pub struct PlanarIntrinsicsProblem {
@@ -68,49 +219,27 @@ impl PlanarIntrinsicsProblem {
     }
 
     pub fn param_dim(&self) -> usize {
-        10 + 6 * self.num_views()
+        INTRINSICS_DIM + POSE_DIM * self.num_views()
     }
 
     pub fn residual_dim(&self) -> usize {
         self.views.iter().map(|v| 2 * v.len()).sum()
     }
 
-    fn eval_residuals_unweighted_into(&self, x: &DVector<Real>, out: &mut DVector<Real>) {
-        let (camera, poses) = decode_params(self, x);
-        debug_assert_eq!(out.len(), self.residual_dim());
+    fn residuals_unweighted_impl(&self, x: &DVector<Real>) -> DVector<Real> {
+        debug_assert_eq!(x.len(), self.param_dim());
+        let mut r = Vec::with_capacity(self.residual_dim());
+        let x_slice = x.as_slice();
+        let intrinsics = &x_slice[..INTRINSICS_DIM];
 
-        let mut offset = 0;
         for (view_idx, view) in self.views.iter().enumerate() {
-            let pose = &poses[view_idx];
-
-            for (pw, meas) in view.points_3d.iter().zip(view.points_2d.iter()) {
-                let z0 = pw.z;
-                debug_assert!(z0.abs() < 1e-9, "planar assumption: z ≈ 0");
-
-                // board -> camera
-                let p_cam: Point3<Real> = pose.transform_point(pw);
-                let Some(proj) = camera.project_point(&p_cam) else {
-                    out[offset] = 1.0e6;
-                    out[offset + 1] = 1.0e6;
-                    offset += 2;
-                    continue;
-                };
-
-                let ru = meas.x - proj.x;
-                let rv = meas.y - proj.y;
-                out[offset] = ru;
-                out[offset + 1] = rv;
-                offset += 2;
-            }
+            let pose_offset = INTRINSICS_DIM + POSE_DIM * view_idx;
+            let pose = &x_slice[pose_offset..pose_offset + POSE_DIM];
+            let r_view = residuals_view_unweighted::<Real>(intrinsics, pose, view);
+            r.extend(r_view.iter().copied());
         }
 
-        debug_assert_eq!(offset, out.len());
-    }
-
-    fn residuals_unweighted_impl(&self, x: &DVector<Real>) -> DVector<Real> {
-        let mut r = DVector::zeros(self.residual_dim());
-        self.eval_residuals_unweighted_into(x, &mut r);
-        r
+        DVector::from_vec(r)
     }
 
     fn robust_row_scales_from_unweighted(&self, r_unweighted: &DVector<Real>) -> DVector<Real> {
@@ -144,25 +273,29 @@ impl PlanarIntrinsicsProblem {
         r
     }
 
+    fn jacobian_unweighted_ad(&self, x: &DVector<Real>) -> DMatrix<Real> {
+        jacobian_ad::jacobian_unweighted_ad(self, x)
+    }
+
+    #[cfg(test)]
     fn jacobian_unweighted_fd(&self, x: &DVector<Real>) -> DMatrix<Real> {
         let m = self.residual_dim();
         let n = x.len();
         let mut j = DMatrix::zeros(m, n);
 
-        let base_r = self.residuals_unweighted_impl(x);
         let mut x_pert = x.clone();
-        let mut r_plus = DVector::zeros(m);
-        let mut diff = DVector::zeros(m);
 
         for k in 0..n {
             let orig = x_pert[k];
             let eps = 1e-6 * (1.0 + orig.abs());
-            x_pert[k] = orig + eps;
 
-            self.eval_residuals_unweighted_into(&x_pert, &mut r_plus);
-            diff.copy_from(&r_plus);
-            diff -= &base_r;
-            diff /= eps;
+            x_pert[k] = orig + eps;
+            let r_plus = self.residuals_unweighted_impl(&x_pert);
+
+            x_pert[k] = orig - eps;
+            let r_minus = self.residuals_unweighted_impl(&x_pert);
+
+            let diff = (r_plus - r_minus) / (2.0 * eps);
             j.set_column(k, &diff);
 
             x_pert[k] = orig;
@@ -174,7 +307,7 @@ impl PlanarIntrinsicsProblem {
     fn jacobian_weighted(&self, x: &DVector<Real>) -> DMatrix<Real> {
         let r_unweighted = self.residuals_unweighted_impl(x);
         let scales = self.robust_row_scales_from_unweighted(&r_unweighted);
-        let mut j = self.jacobian_unweighted_fd(x);
+        let mut j = self.jacobian_unweighted_ad(x);
         debug_assert_eq!(scales.len(), j.nrows());
         for (mut row, scale) in j.row_iter_mut().zip(scales.iter()) {
             if *scale != 1.0 {
@@ -186,10 +319,13 @@ impl PlanarIntrinsicsProblem {
 }
 
 /// Pack initial intrinsics, distortion and poses into parameter vector.
+///
+/// Layout:
+/// `[fx, fy, cx, cy, skew, k1, k2, p1, p2, k3, (axis-angle xyz, translation xyz) per view]`.
 pub fn pack_initial_params(camera: &PinholeCamera, poses_board_to_cam: &[Iso3]) -> DVector<Real> {
     assert!(!poses_board_to_cam.is_empty(), "need at least one pose");
     let n_views = poses_board_to_cam.len();
-    let dim = 10 + 6 * n_views;
+    let dim = INTRINSICS_DIM + POSE_DIM * n_views;
     let mut x = DVector::zeros(dim);
 
     let k = &camera.k;
@@ -207,7 +343,7 @@ pub fn pack_initial_params(camera: &PinholeCamera, poses_board_to_cam: &[Iso3]) 
     x[9] = dist.k3;
 
     for (i, pose) in poses_board_to_cam.iter().enumerate() {
-        let idx = 10 + 6 * i;
+        let idx = INTRINSICS_DIM + POSE_DIM * i;
 
         // axis-angle from rotation
         let axis_angle = pose.rotation.scaled_axis();
@@ -227,7 +363,7 @@ pub fn pack_initial_params(camera: &PinholeCamera, poses_board_to_cam: &[Iso3]) 
 /// Helper: decode parameter vector into camera + per-view poses.
 fn decode_params(prob: &PlanarIntrinsicsProblem, x: &DVector<Real>) -> (PinholeCamera, Vec<Iso3>) {
     let n_views = prob.num_views();
-    assert_eq!(x.len(), 10 + 6 * n_views);
+    assert_eq!(x.len(), INTRINSICS_DIM + POSE_DIM * n_views);
 
     let fx = x[0];
     let fy = x[1];
@@ -261,7 +397,7 @@ fn decode_params(prob: &PlanarIntrinsicsProblem, x: &DVector<Real>) -> (PinholeC
 
     let mut poses = Vec::with_capacity(n_views);
     for i in 0..n_views {
-        let idx = 10 + 6 * i;
+        let idx = INTRINSICS_DIM + POSE_DIM * i;
         let wx = x[idx];
         let wy = x[idx + 1];
         let wz = x[idx + 2];
@@ -294,8 +430,7 @@ impl NllsProblem for PlanarIntrinsicsProblem {
     }
 
     fn jacobian_unweighted(&self, x: &DVector<Real>) -> DMatrix<Real> {
-        // Finite differences for now; replace with analytic Jacobian later.
-        self.jacobian_unweighted_fd(x)
+        self.jacobian_unweighted_ad(x)
     }
 
     fn robust_row_scales(&self, r_unweighted: &DVector<Real>) -> DVector<Real> {
@@ -447,6 +582,54 @@ mod tests {
         }
     }
 
+    fn assert_matrix_close(a: &DMatrix<Real>, b: &DMatrix<Real>, abs_tol: Real, rel_tol: Real) {
+        assert_eq!(a.nrows(), b.nrows(), "row mismatch");
+        assert_eq!(a.ncols(), b.ncols(), "col mismatch");
+
+        let mut worst = None;
+        for i in 0..a.nrows() {
+            for j in 0..a.ncols() {
+                let av = a[(i, j)];
+                let bv = b[(i, j)];
+                let diff = (av - bv).abs();
+                let scale = abs_tol.max(rel_tol * av.abs().max(bv.abs()));
+                if diff > scale {
+                    let replace = match worst {
+                        None => true,
+                        Some((worst_diff, _, _, _, _, _)) => diff > worst_diff,
+                    };
+                    if replace {
+                        worst = Some((diff, scale, i, j, av, bv));
+                    }
+                }
+            }
+        }
+
+        if let Some((diff, scale, i, j, av, bv)) = worst {
+            panic!(
+                "Jacobian mismatch at ({}, {}): ad={} fd={}, diff={}, tol={}",
+                i, j, av, bv, diff, scale
+            );
+        }
+    }
+
+    fn max_abs_block(
+        mat: &DMatrix<Real>,
+        rows: std::ops::Range<usize>,
+        cols: std::ops::Range<usize>,
+    ) -> Real {
+        let mut max_abs = 0.0;
+        for i in rows {
+            for j in cols.clone() {
+                let diff = mat[(i, j)].abs();
+                if diff > max_abs {
+                    max_abs = diff;
+                }
+            }
+        }
+        max_abs
+    }
+
     #[test]
     fn synthetic_planar_intrinsics_refinement_converges() {
         let SyntheticScenario {
@@ -557,6 +740,53 @@ mod tests {
     }
 
     #[test]
+    fn ad_jacobian_matches_fd() {
+        let SyntheticScenario {
+            problem,
+            poses_gt,
+            cam_init,
+            ..
+        } = build_synthetic_scenario(0.0);
+
+        let x = pack_initial_params(&cam_init, &poses_gt);
+        let j_fd = problem.jacobian_unweighted_fd(&x);
+        let j_ad = problem.jacobian_unweighted_ad(&x);
+        assert_matrix_close(&j_ad, &j_fd, 1e-6, 1e-6);
+    }
+
+    #[test]
+    fn ad_scatter_keeps_pose_blocks_isolated() {
+        let SyntheticScenario {
+            problem,
+            poses_gt,
+            cam_init,
+            ..
+        } = build_synthetic_scenario(0.0);
+
+        let x = pack_initial_params(&cam_init, &poses_gt);
+        let j_ad = problem.jacobian_unweighted_ad(&x);
+
+        let rows_view0 = 0..(problem.views[0].len() * 2);
+        let pose1_offset = INTRINSICS_DIM + POSE_DIM;
+        let max_diff = max_abs_block(&j_ad, rows_view0, pose1_offset..pose1_offset + POSE_DIM);
+        assert!(
+            max_diff < 1e-12,
+            "cross-view pose block should be zero, max abs {}",
+            max_diff
+        );
+
+        let rows_view1 =
+            (problem.views[0].len() * 2)..(problem.views[0].len() * 2 + problem.views[1].len() * 2);
+        let pose0_offset = INTRINSICS_DIM;
+        let max_diff = max_abs_block(&j_ad, rows_view1, pose0_offset..pose0_offset + POSE_DIM);
+        assert!(
+            max_diff < 1e-12,
+            "cross-view pose block should be zero, max abs {}",
+            max_diff
+        );
+    }
+
+    #[test]
     fn irls_jacobian_matches_row_scaled_unweighted() {
         let SyntheticScenario {
             problem,
@@ -575,7 +805,7 @@ mod tests {
             "expected some robust down-weighting"
         );
 
-        let j_unweighted = problem.jacobian_unweighted_fd(&x);
+        let j_unweighted = problem.jacobian_unweighted_ad(&x);
         let mut expected = j_unweighted.clone();
         for (mut row, scale) in expected.row_iter_mut().zip(scales.iter()) {
             if *scale != 1.0 {
@@ -590,7 +820,7 @@ mod tests {
             .fold(0.0, |acc, (a, b)| acc.max((a - b).abs()));
 
         assert!(
-            max_abs < 1e-10,
+            max_abs < 1e-12,
             "weighted Jacobian mismatch, max abs diff {}",
             max_abs
         );

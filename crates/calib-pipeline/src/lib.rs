@@ -56,7 +56,7 @@ impl PlanarIntrinsicsConfig {
     }
 
     pub fn max_iters_or_default(&self) -> usize {
-        self.max_iters.unwrap_or(50)
+        self.max_iters.unwrap_or(SolveOptions::default().max_iters)
     }
 }
 

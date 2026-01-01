@@ -128,7 +128,7 @@ mod tests {
         let input = PlanarIntrinsicsInput { views };
         let config = PlanarIntrinsicsConfig {
             robust_kernel: Some(RobustKernelConfig::None),
-            max_iters: Some(60),
+            max_iters: Some(200),
         };
         (input, config)
     }

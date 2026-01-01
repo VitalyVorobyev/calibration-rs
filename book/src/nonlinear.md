@@ -59,4 +59,12 @@ impl NllsProblem for MyProblem {
 }
 ```
 
+## Jacobians
+
+The planar intrinsics problem computes unweighted Jacobians via per-view
+forward-mode autodiff using `num-dual`. Each view differentiates only the
+local parameter block (intrinsics + that view’s pose) and scatters the result
+into the global Jacobian. Robust IRLS weights are applied as row scales after
+Jacobian evaluation (no weight derivatives).
+
 > TODO: add example of custom problem implementation and profiling checklist.
