@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 nalgebra = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+rand = { version = "0.9" }
