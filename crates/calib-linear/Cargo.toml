@@ -2,6 +2,7 @@
 name = "calib-linear"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
 
 [dependencies]
 calib-core = { path = "../calib-core" }

@@ -1,0 +1,3 @@
+calib-targets==0.2
+numpy
+matplotlib

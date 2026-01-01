@@ -5,7 +5,7 @@ A Rust toolbox for calibrating vision sensors (perspective and linescan) and mul
 ## Crate layout
 - `calib`: convenience facade that re-exports all sub-crates.
 - `calib-core`: math aliases, composable camera models (projection, distortion, sensor), and a generic RANSAC engine.
-- `calib-linear`: classic closed-form solvers (homography, planar pose, Zhang intrinsics, epipolar geometry, rig extrinsics, hand–eye).
+- `calib-linear`: classic closed-form solvers (homography, planar pose, Zhang intrinsics, epipolar geometry incl. 7-point/5-point, PnP DLT/P3P/EPnP, camera matrix DLT, triangulation, rig extrinsics, hand-eye).
 - `calib-optim`: non-linear least-squares traits and backends (currently LM), robust kernels, and problem definitions.
 - `calib-pipeline`: ready-to-use calibration pipelines; currently planar intrinsics (Zhang-style) with LM refinement.
 - `calib-cli`: small CLI wrapper around `calib-pipeline` for batch / scripting workflows.
@@ -46,6 +46,8 @@ fn main() {
     }
 }
 ```
+
+For a linear-algorithm overview and usage notes, see `crates/calib-linear/README.md`.
 
 ## Camera model
 `calib-core` models cameras as a composable pipeline:

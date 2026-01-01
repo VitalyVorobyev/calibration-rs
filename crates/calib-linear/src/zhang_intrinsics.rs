@@ -1,3 +1,9 @@
+//! Zhang-style planar intrinsics initialization.
+//!
+//! Estimates the camera matrix `K` from multiple plane homographies without
+//! distortion. This is a classic closed-form initialization used before
+//! non-linear refinement.
+
 use calib_core::{FxFyCxCySkew, Mat3, Real};
 use nalgebra::DMatrix;
 use thiserror::Error;
@@ -42,10 +48,10 @@ fn v_ij(hmtx: &Mat3, i: usize, j: usize) -> nalgebra::SVector<Real, 6> {
 #[derive(Debug, Clone, Copy)]
 pub struct PlanarIntrinsicsLinearInit;
 
-/// Estimate camera intrinsics K from a set of plane homographies H_k using
-/// Zhang's closed-form solution (no distortion).
+/// Estimate camera intrinsics `K` from a set of plane homographies `H_k`.
 ///
-/// Requires at least 3 homographies for a stable solution.
+/// Uses Zhang's closed-form solution (no distortion). Requires at least three
+/// homographies with sufficiently diverse viewpoints.
 pub fn estimate_intrinsics_from_homographies(
     hmtxs: &[Mat3],
 ) -> Result<FxFyCxCySkew<Real>, PlanarIntrinsicsInitError> {

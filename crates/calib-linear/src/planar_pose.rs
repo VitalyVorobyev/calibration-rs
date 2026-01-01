@@ -1,3 +1,8 @@
+//! Planar pose estimation from a homography.
+//!
+//! Decomposes a plane-induced homography into a pose `T_C_B` given intrinsics
+//! `K`, assuming the board lies on `Z = 0` in its own coordinates.
+
 use calib_core::{Iso3, Mat3, Real};
 use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
 use thiserror::Error;
@@ -24,16 +29,19 @@ pub enum PlanarPoseError {
 #[derive(Debug, Clone, Copy)]
 pub struct PlanarPoseSolver;
 
-/// Estimate pose of a planar board (Z=0) relative to camera, given intrinsics K
-/// and homography H (plane -> image).
+/// Estimate pose of a planar board (Z = 0) relative to camera, given intrinsics
+/// `K` and homography `H` (plane -> image).
 ///
-/// Returns an Iso3 that maps board coordinates into camera coordinates.
+/// Returns an `Iso3` that maps board coordinates into camera coordinates.
 pub fn estimate_planar_pose_from_h(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3, PlanarPoseError> {
     PlanarPoseSolver::from_homography(kmtx, hmtx)
 }
 
 impl PlanarPoseSolver {
     /// Decompose a homography into a pose `T_C_B` given intrinsics `K`.
+    ///
+    /// The resulting rotation is projected onto SO(3); the translation is
+    /// scaled so that the first two rotation columns have unit norm.
     pub fn from_homography(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3, PlanarPoseError> {
         // K^{-1}
         let k_inv = kmtx

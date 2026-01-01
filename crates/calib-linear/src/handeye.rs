@@ -1,4 +1,7 @@
-// crates/calib-linear/src/handeye.rs
+//! Hand-eye calibration (AX = XB) using Tsai–Lenz.
+//!
+//! Provides a linear initialization from paired pose streams, returning the
+//! rigid transform between the gripper and camera frames.
 
 use calib_core::{Iso3, Real};
 use log::debug;
@@ -111,8 +114,11 @@ fn is_good_pair(
 
 /// Build all valid motion pairs from pose streams.
 ///
-/// base_se3_gripper: ^B T_G,i
-/// cam_se3_target:   ^C T_T,i
+/// `base_se3_gripper` are gripper poses in the base frame, and
+/// `cam_se3_target` are target poses in the camera frame.
+///
+/// Pairs with too-small rotations or near-parallel rotation axes can be
+/// rejected to improve conditioning.
 pub fn build_all_pairs(
     base_se3_gripper: &[Iso3],
     cam_se3_target: &[Iso3],
@@ -237,10 +243,10 @@ fn estimate_translation_allpairs_weighted(
 
 /// Main linear hand–eye init: Tsai–Lenz with all pairs.
 ///
-/// base_se3_gripper: ^B T_G,i
-/// camera_se3_target: ^C T_T,i
+/// `base_se3_gripper`: gripper poses in base frame.
+/// `camera_se3_target`: target poses in camera frame.
 ///
-/// Returns X = ^G T_C (gripper -> camera).
+/// Returns `X = ^G T_C` (gripper -> camera).
 pub fn estimate_handeye_dlt(
     base_se3_gripper: &[Iso3],
     camera_se3_target: &[Iso3],
@@ -251,6 +257,9 @@ pub fn estimate_handeye_dlt(
 
 impl HandEyeInit {
     /// Tsai–Lenz hand–eye initialisation over all motion pairs.
+    ///
+    /// `min_angle_deg` controls the minimum motion magnitude used to build
+    /// pairs; this helps reject ill-conditioned data.
     pub fn tsai_lenz(
         base_se3_gripper: &[Iso3],
         camera_se3_target: &[Iso3],

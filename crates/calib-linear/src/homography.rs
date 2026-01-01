@@ -1,9 +1,19 @@
+//! Homography estimation (plane-induced projective transform).
+//!
+//! Implements the normalized Direct Linear Transform (DLT) and a robust
+//! RANSAC wrapper. The homography `H` maps **world/board points** on a plane
+//! to **image points** in pixels: `x' ~ H x`.
+//!
+//! Input points should be in consistent units; normalization is applied
+//! internally for numerical stability and the output is de-normalized.
+
 use calib_core::{
     from_homogeneous, ransac_fit, to_homogeneous, Estimator, Mat3, Pt2, RansacOptions,
 };
 use nalgebra::DMatrix;
 use thiserror::Error;
 
+/// Errors that can occur during homography estimation.
 #[derive(Debug, Error)]
 pub enum HomographyError {
     #[error("need at least 4 point correspondences, got {0}")]
@@ -14,7 +24,7 @@ pub enum HomographyError {
     RansacFailed,
 }
 
-/// High level entry point for homography estimation.
+/// High-level entry point for homography estimation.
 ///
 /// This is a thin wrapper around the DLT and DLT+RANSAC helpers in this
 /// module and is provided mainly for API consistency with other solvers.
@@ -69,13 +79,20 @@ fn normalize_points(points: &[Pt2]) -> Option<(Vec<Pt2>, Mat3)> {
     Some((norm, t))
 }
 
-/// Estimate H such that x' ~ H x using normalized DLT.
+/// Estimate `H` such that `x' ~ H x` using normalized DLT.
+///
+/// `world` are planar points in a board or world coordinate frame, and `image`
+/// are their pixel coordinates. The returned homography is scaled so that
+/// `H[2,2] == 1` when possible.
 pub fn dlt_homography(world: &[Pt2], image: &[Pt2]) -> Result<Mat3, HomographyError> {
     HomographySolver::dlt(world, image)
 }
 
 impl HomographySolver {
     /// Estimate a homography `H` such that `x' ~ H x` using the normalized DLT.
+    ///
+    /// This uses Hartley-style point normalization (zero-mean, average distance
+    /// sqrt(2)) and solves `A h = 0` via SVD on the design matrix `A`.
     pub fn dlt(world: &[Pt2], image: &[Pt2]) -> Result<Mat3, HomographyError> {
         let n = world.len();
         if n < 4 || image.len() != n {
@@ -117,9 +134,7 @@ impl HomographySolver {
             let rows = a_work.nrows();
             let cols = a_work.ncols();
             let mut a_pad = DMatrix::<f64>::zeros(cols, cols);
-            a_pad
-                .view_mut((0, 0), (rows, cols))
-                .copy_from(&a_work);
+            a_pad.view_mut((0, 0), (rows, cols)).copy_from(&a_work);
             a_work = a_pad;
         }
 
@@ -161,7 +176,8 @@ pub fn dlt_homography_ransac(
 impl HomographySolver {
     /// Estimate a homography using DLT inside a RANSAC loop.
     ///
-    /// Returns the best homography and the indices of inliers.
+    /// Returns the best homography and the indices of inliers. The residual is
+    /// Euclidean reprojection error in pixels.
     pub fn dlt_ransac(
         world: &[Pt2],
         image: &[Pt2],

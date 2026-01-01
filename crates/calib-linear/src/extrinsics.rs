@@ -1,4 +1,7 @@
-// crates/calib-linear/src/extrinsics.rs
+//! Multi-camera rig extrinsics initialization.
+//!
+//! Estimates per-camera rig transforms and per-view rig-to-target poses from
+//! per-camera target observations.
 
 use calib_core::{Iso3, Real};
 use nalgebra::{Quaternion, Translation3, UnitQuaternion, Vector3};
@@ -53,6 +56,9 @@ pub struct MultiCamExtrinsicsInit;
 /// Simple SE(3) averaging:
 /// - translations are averaged arithmetically
 /// - rotations are averaged in quaternion space (with hemisphere correction)
+///
+/// Use this only for initialization; it does not preserve full rotation
+/// statistics and should be refined downstream.
 pub fn average_isometries(poses: &[Iso3]) -> Result<Iso3, ExtrinsicsError> {
     if poses.is_empty() {
         return Err(ExtrinsicsError::EmptyPoses);
@@ -96,15 +102,17 @@ pub fn average_isometries(poses: &[Iso3]) -> Result<Iso3, ExtrinsicsError> {
     Ok(Iso3::from_parts(t_avg, r_avg))
 }
 
-/// `cam_se3_target[view][cam] = Some(T_CT)` where `T_CT`: camera -> target pose
+/// Estimate rig extrinsics from per-view camera-to-target poses.
 ///
-/// ref_cam_idx: index of the camera whose frame will define the rig frame.
-///              For it we enforce `cam_to_rig[ref_cam_idx] = Identity`.
+/// `cam_se3_target[view][cam] = Some(T_CT)` where `T_CT` is camera -> target.
 ///
-/// Returns ExtrinsicPoses { cam_to_rig, rig_to_target }.
+/// `ref_cam_idx` defines the rig frame by enforcing
+/// `cam_to_rig[ref_cam_idx] = Identity`.
+///
+/// Returns `ExtrinsicPoses { cam_to_rig, rig_to_target }`.
 ///
 /// Returns an error if there is not enough overlap (no views where both cameras
-/// see the target, or view with no cameras).
+/// see the target, or a view with no valid camera poses).
 pub fn estimate_extrinsics_from_cam_target_poses(
     cam_se3_target: &[Vec<Option<Iso3>>],
     ref_cam_idx: usize,
@@ -114,6 +122,9 @@ pub fn estimate_extrinsics_from_cam_target_poses(
 
 impl MultiCamExtrinsicsInit {
     /// Estimate rig and camera poses from per-camera target observations.
+    ///
+    /// Each camera must share at least one overlapping view with the reference
+    /// camera; otherwise the rig transform is underconstrained.
     pub fn from_cam_target_poses(
         cam_se3_target: &[Vec<Option<Iso3>>],
         ref_cam_idx: usize,
