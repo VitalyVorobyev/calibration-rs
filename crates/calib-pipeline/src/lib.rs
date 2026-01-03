@@ -3,11 +3,11 @@ use calib_core::{
     BrownConrady5, Camera, CameraConfig, DistortionConfig, FxFyCxCySkew, IdentitySensor,
     IntrinsicsConfig, Iso3, Pinhole, ProjectionConfig, Pt3, Real, SensorConfig, Vec2,
 };
+use calib_optim::backend::BackendSolveOptions;
 use calib_optim::planar_intrinsics::{
     optimize_planar_intrinsics, PinholeCamera, PlanarDataset, PlanarIntrinsicsInit,
     PlanarIntrinsicsSolveOptions, PlanarViewObservations, RobustLoss,
 };
-use calib_optim::solver::tiny::TinySolveOptions;
 use nalgebra::{UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +34,7 @@ pub enum RobustLossConfig {
     None,
     Huber { scale: Real },
     Cauchy { scale: Real },
-    Arctan { tol: Real },
+    Arctan { scale: Real },
 }
 
 impl Default for PlanarIntrinsicsConfig {
@@ -57,7 +57,7 @@ impl RobustLossConfig {
             RobustLossConfig::None => RobustLoss::None,
             RobustLossConfig::Huber { scale } => RobustLoss::Huber { scale },
             RobustLossConfig::Cauchy { scale } => RobustLoss::Cauchy { scale },
-            RobustLossConfig::Arctan { tol } => RobustLoss::Arctan { tol },
+            RobustLossConfig::Arctan { scale } => RobustLoss::Arctan { scale },
         }
     }
 }
@@ -78,8 +78,8 @@ impl PlanarIntrinsicsConfig {
         }
     }
 
-    pub fn solver_options(&self) -> TinySolveOptions {
-        let mut opts = TinySolveOptions::default();
+    pub fn solver_options(&self) -> BackendSolveOptions {
+        let mut opts = BackendSolveOptions::default();
         if let Some(max_iters) = self.max_iters {
             opts.max_iters = max_iters;
         }

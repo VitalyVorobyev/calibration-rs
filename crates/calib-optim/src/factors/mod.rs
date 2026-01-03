@@ -1,3 +1,3 @@
-//! Residual factor implementations used by tiny-solver problems.
+//! Residual model implementations shared across backends.
 
-pub mod reprojection;
+pub mod reprojection_model;

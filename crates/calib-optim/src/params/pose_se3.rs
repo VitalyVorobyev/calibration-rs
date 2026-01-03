@@ -1,4 +1,4 @@
-//! SE(3) parameter conversions for tiny-solver.
+//! SE(3) parameter conversions for solver backends.
 
 use anyhow::{ensure, Result};
 use calib_core::Iso3;

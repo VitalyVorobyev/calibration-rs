@@ -1,22 +1,20 @@
-//! Planar intrinsics optimization built on tiny-solver.
+//! Planar intrinsics optimization using the backend-agnostic IR.
 //!
 //! Each observation contributes a residual block with two residuals (u, v),
 //! enabling robust loss to operate per point rather than per view.
 
-use crate::factors::reprojection::ReprojPointFactor;
+use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions};
+use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock};
 use crate::params::intrinsics::Intrinsics4;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
-use crate::solver::tiny::{solve, TinySolveOptions};
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
     BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
 };
 use nalgebra::DVector;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tiny_solver::loss_functions::{ArctanLoss, CauchyLoss, HuberLoss, Loss};
-use tiny_solver::manifold::se3::SE3Manifold;
-use tiny_solver::problem::Problem;
+
+pub use crate::ir::RobustLoss;
 
 /// Camera type returned by planar intrinsics optimization.
 pub type PinholeCamera =
@@ -122,41 +120,6 @@ impl PlanarIntrinsicsInit {
     }
 }
 
-/// Robust loss applied per point residual block.
-#[derive(Debug, Clone)]
-pub enum RobustLoss {
-    None,
-    Huber { scale: f64 },
-    Cauchy { scale: f64 },
-    Arctan { tol: f64 },
-}
-
-impl Default for RobustLoss {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-impl RobustLoss {
-    fn to_loss(&self) -> Result<Option<Box<dyn Loss + Send>>> {
-        match *self {
-            RobustLoss::None => Ok(None),
-            RobustLoss::Huber { scale } => {
-                ensure!(scale > 0.0, "Huber scale must be positive");
-                Ok(Some(Box::new(HuberLoss::new(scale))))
-            }
-            RobustLoss::Cauchy { scale } => {
-                ensure!(scale > 0.0, "Cauchy scale must be positive");
-                Ok(Some(Box::new(CauchyLoss::new(scale))))
-            }
-            RobustLoss::Arctan { tol } => {
-                ensure!(tol > 0.0, "Arctan tolerance must be positive");
-                Ok(Some(Box::new(ArctanLoss::new(tol))))
-            }
-        }
-    }
-}
-
 /// Solve options specific to planar intrinsics.
 #[derive(Debug, Clone)]
 pub struct PlanarIntrinsicsSolveOptions {
@@ -189,12 +152,12 @@ pub struct PlanarIntrinsicsResult {
     pub final_cost: f64,
 }
 
-/// Build a tiny-solver problem and initial parameter map.
-pub fn build_planar_intrinsics_problem(
+/// Build the backend-agnostic IR and initial values for planar intrinsics.
+pub fn build_planar_intrinsics_ir(
     dataset: &PlanarDataset,
     initial: &PlanarIntrinsicsInit,
     opts: &PlanarIntrinsicsSolveOptions,
-) -> Result<(Problem, HashMap<String, DVector<f64>>)> {
+) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
     ensure!(
         dataset.num_views() == initial.poses.len(),
         "pose count ({}) must match number of views ({})",
@@ -210,60 +173,91 @@ pub fn build_planar_intrinsics_problem(
         );
     }
 
-    let mut problem = Problem::new();
+    let mut ir = ProblemIR::new();
     let mut initial_map: HashMap<String, DVector<f64>> = HashMap::new();
-    initial_map.insert("cam".to_string(), initial.intrinsics.to_dvec());
 
+    let mut cam_fixed = Vec::new();
     if opts.fix_fx {
-        problem.fix_variable("cam", 0);
+        cam_fixed.push(0);
     }
     if opts.fix_fy {
-        problem.fix_variable("cam", 1);
+        cam_fixed.push(1);
     }
     if opts.fix_cx {
-        problem.fix_variable("cam", 2);
+        cam_fixed.push(2);
     }
     if opts.fix_cy {
-        problem.fix_variable("cam", 3);
+        cam_fixed.push(3);
     }
+
+    let cam_id = ir.add_param_block(
+        "cam",
+        Intrinsics4::DIM,
+        ManifoldKind::Euclidean,
+        FixedMask::fix_indices(&cam_fixed),
+        None,
+    );
+    initial_map.insert("cam".to_string(), initial.intrinsics.to_dvec());
 
     for (view_idx, view) in dataset.views.iter().enumerate() {
         let pose_key = format!("pose/{}", view_idx);
+        let fixed = if opts.fix_poses.contains(&view_idx) {
+            FixedMask::all_fixed(7)
+        } else {
+            FixedMask::all_free()
+        };
+        let pose_id = ir.add_param_block(&pose_key, 7, ManifoldKind::SE3, fixed, None);
         initial_map.insert(pose_key.clone(), iso3_to_se3_dvec(&initial.poses[view_idx]));
 
-        if opts.fix_poses.contains(&view_idx) {
-            for idx in 0..7 {
-                problem.fix_variable(&pose_key, idx);
-            }
-        } else {
-            problem.set_variable_manifold(&pose_key, Arc::new(SE3Manifold));
-        }
-
         for (pt_idx, (pw, uv)) in view.points_3d.iter().zip(view.points_2d.iter()).enumerate() {
-            let factor = ReprojPointFactor {
-                pw: pw.clone(),
-                uv: uv.clone(),
+            let factor = FactorKind::ReprojPointPinhole4 {
+                pw: [pw.x, pw.y, pw.z],
+                uv: [uv.x, uv.y],
                 w: view.weight(pt_idx),
             };
-            let loss = opts.robust_loss.to_loss()?;
-            problem.add_residual_block(2, &["cam", pose_key.as_str()], Box::new(factor), loss);
+            let residual = ResidualBlock {
+                params: vec![cam_id, pose_id],
+                loss: opts.robust_loss,
+                factor,
+                residual_dim: 2,
+            };
+            ir.add_residual_block(residual);
         }
     }
 
-    Ok((problem, initial_map))
+    ir.validate()?;
+    Ok((ir, initial_map))
 }
 
-/// Optimize planar intrinsics using tiny-solver.
+/// Optimize planar intrinsics using the default tiny-solver backend.
 pub fn optimize_planar_intrinsics(
     dataset: PlanarDataset,
     initial: PlanarIntrinsicsInit,
     opts: PlanarIntrinsicsSolveOptions,
-    solver: TinySolveOptions,
+    backend_opts: BackendSolveOptions,
 ) -> Result<PlanarIntrinsicsResult> {
-    let (problem, initial_map) = build_planar_intrinsics_problem(&dataset, &initial, &opts)?;
-    let solution = solve(&problem, initial_map, &solver)?;
+    optimize_planar_intrinsics_with_backend(
+        dataset,
+        initial,
+        opts,
+        BackendKind::TinySolver,
+        backend_opts,
+    )
+}
+
+/// Optimize planar intrinsics using the selected backend.
+pub fn optimize_planar_intrinsics_with_backend(
+    dataset: PlanarDataset,
+    initial: PlanarIntrinsicsInit,
+    opts: PlanarIntrinsicsSolveOptions,
+    backend: BackendKind,
+    backend_opts: BackendSolveOptions,
+) -> Result<PlanarIntrinsicsResult> {
+    let (ir, initial_map) = build_planar_intrinsics_ir(&dataset, &initial, &opts)?;
+    let solution = solve_with_backend(backend, &ir, &initial_map, &backend_opts)?;
 
     let cam_vec = solution
+        .params
         .get("cam")
         .ok_or_else(|| anyhow!("missing camera parameters in solution"))?;
     let intrinsics = Intrinsics4::from_dvec(cam_vec.as_view())?;
@@ -272,6 +266,7 @@ pub fn optimize_planar_intrinsics(
     for i in 0..dataset.num_views() {
         let key = format!("pose/{}", i);
         let pose_vec = solution
+            .params
             .get(&key)
             .ok_or_else(|| anyhow!("missing pose {} in solution", i))?;
         poses.push(se3_dvec_to_iso3(pose_vec.as_view())?);
@@ -291,21 +286,17 @@ pub fn optimize_planar_intrinsics(
         intrinsics.to_core(),
     );
 
-    let param_blocks = problem.initialize_parameter_blocks(&solution);
-    let residuals = problem.compute_residuals(&param_blocks, true);
-    let final_cost = 0.5 * residuals.as_ref().squared_norm_l2();
-
     Ok(PlanarIntrinsicsResult {
         camera,
         poses,
-        final_cost,
+        final_cost: solution.final_cost,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::solver::tiny::TinySolveOptions;
+    use crate::backend::BackendSolveOptions;
     use calib_core::{Pt2, Pt3};
     use nalgebra::{UnitQuaternion, Vector3};
 
@@ -425,7 +416,7 @@ mod tests {
 
         let init = PlanarIntrinsicsInit::from_camera_and_poses(&cam_init, poses_gt).unwrap();
         let opts = PlanarIntrinsicsSolveOptions::default();
-        let solver = TinySolveOptions::default();
+        let solver = BackendSolveOptions::default();
 
         let result = optimize_planar_intrinsics(dataset, init, opts, solver).unwrap();
 
@@ -515,7 +506,7 @@ mod tests {
         );
 
         let init = PlanarIntrinsicsInit::from_camera_and_poses(&cam_init, poses_gt).unwrap();
-        let solver = TinySolveOptions::default();
+        let solver = BackendSolveOptions::default();
 
         let l2_opts = PlanarIntrinsicsSolveOptions::default();
         let robust_opts = PlanarIntrinsicsSolveOptions {
@@ -560,7 +551,7 @@ mod tests {
             fix_fy: true,
             ..PlanarIntrinsicsSolveOptions::default()
         };
-        let solver = TinySolveOptions::default();
+        let solver = BackendSolveOptions::default();
 
         let result = optimize_planar_intrinsics(dataset, init.clone(), opts, solver).unwrap();
 
@@ -571,6 +562,36 @@ mod tests {
         assert!(
             (result.camera.k.fy - init.intrinsics.fy).abs() < 1e-12,
             "fy should remain fixed"
+        );
+    }
+
+    #[test]
+    fn ir_validation_catches_missing_param() {
+        let mut ir = ProblemIR::new();
+        let cam_id = ir.add_param_block(
+            "cam",
+            Intrinsics4::DIM,
+            ManifoldKind::Euclidean,
+            FixedMask::all_free(),
+            None,
+        );
+        let residual = ResidualBlock {
+            params: vec![cam_id, crate::ir::ParamId(42)],
+            loss: RobustLoss::None,
+            factor: FactorKind::ReprojPointPinhole4 {
+                pw: [0.0, 0.0, 0.0],
+                uv: [0.0, 0.0],
+                w: 1.0,
+            },
+            residual_dim: 2,
+        };
+        ir.add_residual_block(residual);
+
+        let err = ir.validate().unwrap_err().to_string();
+        assert!(
+            err.contains("references missing param"),
+            "unexpected validation error: {}",
+            err
         );
     }
 }

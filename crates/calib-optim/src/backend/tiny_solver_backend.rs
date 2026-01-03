@@ -1,0 +1,215 @@
+use crate::backend::{BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend};
+use crate::factors::reprojection_model::reproj_residual_pinhole4_se3_generic;
+use crate::ir::{FactorKind, ManifoldKind, ProblemIR, RobustLoss};
+use anyhow::{anyhow, ensure, Result};
+use nalgebra::DVector;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tiny_solver::factors::Factor;
+use tiny_solver::loss_functions::{ArctanLoss, CauchyLoss, HuberLoss, Loss};
+use tiny_solver::manifold::se3::SE3Manifold;
+use tiny_solver::manifold::so3::QuaternionManifold;
+use tiny_solver::optimizer::{Optimizer, OptimizerOptions};
+use tiny_solver::problem::Problem;
+use tiny_solver::{linear::sparse::LinearSolverType, LevenbergMarquardtOptimizer};
+
+/// tiny-solver backend adapter.
+#[derive(Debug, Clone, Copy)]
+pub struct TinySolverBackend;
+
+impl TinySolverBackend {
+    fn compile(
+        &self,
+        ir: &ProblemIR,
+        initial: &HashMap<String, DVector<f64>>,
+    ) -> Result<(Problem, HashMap<String, DVector<f64>>)> {
+        ir.validate()?;
+
+        let mut problem = Problem::new();
+
+        for param in &ir.params {
+            let init = initial.get(&param.name).ok_or_else(|| {
+                anyhow!(
+                    "initial values missing parameter {} (id {:?})",
+                    param.name,
+                    param.id
+                )
+            })?;
+            ensure!(
+                init.len() == param.dim,
+                "initial dimension mismatch for {}: expected {}, got {}",
+                param.name,
+                param.dim,
+                init.len()
+            );
+
+            let mut set_manifold = true;
+
+            match param.manifold {
+                ManifoldKind::Euclidean => {}
+                ManifoldKind::SE3 => {
+                    if !param.fixed.is_empty() {
+                        if param.fixed.is_all_fixed(param.dim) {
+                            set_manifold = false;
+                        } else {
+                            return Err(anyhow!(
+                                "tiny-solver cannot partially fix SE3 manifold {}",
+                                param.name
+                            ));
+                        }
+                    }
+                    if set_manifold {
+                        problem.set_variable_manifold(&param.name, Arc::new(SE3Manifold));
+                    }
+                }
+                ManifoldKind::SO3 => {
+                    if !param.fixed.is_empty() {
+                        if param.fixed.is_all_fixed(param.dim) {
+                            set_manifold = false;
+                        } else {
+                            return Err(anyhow!(
+                                "tiny-solver cannot partially fix SO3 manifold {}",
+                                param.name
+                            ));
+                        }
+                    }
+                    if set_manifold {
+                        problem.set_variable_manifold(&param.name, Arc::new(QuaternionManifold));
+                    }
+                }
+                ManifoldKind::S2 => {
+                    return Err(anyhow!("tiny-solver backend does not support S2 manifolds"));
+                }
+            }
+
+            for idx in param.fixed.iter() {
+                problem.fix_variable(&param.name, idx);
+            }
+
+            if let Some(bounds) = &param.bounds {
+                for bound in bounds {
+                    problem.set_variable_bounds(&param.name, bound.idx, bound.lower, bound.upper);
+                }
+            }
+        }
+
+        for residual in &ir.residuals {
+            let (factor, loss) = compile_factor(residual)?;
+            let param_names: Vec<String> = residual
+                .params
+                .iter()
+                .map(|id| ir.params[id.0].name.clone())
+                .collect();
+            let param_refs: Vec<&str> = param_names.iter().map(|s| s.as_str()).collect();
+            problem.add_residual_block(residual.residual_dim, &param_refs, factor, loss);
+        }
+
+        Ok((problem, initial.clone()))
+    }
+}
+
+impl OptimBackend for TinySolverBackend {
+    fn solve(
+        &self,
+        ir: &ProblemIR,
+        initial: &HashMap<String, DVector<f64>>,
+        opts: &BackendSolveOptions,
+    ) -> Result<BackendSolution> {
+        let (problem, initial_map) = self.compile(ir, initial)?;
+        let optimizer = LevenbergMarquardtOptimizer::default();
+        let options = to_optimizer_options(opts);
+        let solution = optimizer
+            .optimize(&problem, &initial_map, Some(options))
+            .ok_or_else(|| anyhow!("tiny-solver failed to converge"))?;
+
+        let param_blocks = problem.initialize_parameter_blocks(&solution);
+        let residuals = problem.compute_residuals(&param_blocks, true);
+        let final_cost = 0.5 * residuals.as_ref().squared_norm_l2();
+
+        Ok(BackendSolution {
+            params: solution,
+            final_cost,
+        })
+    }
+}
+
+fn to_optimizer_options(opts: &BackendSolveOptions) -> OptimizerOptions {
+    let mut options = OptimizerOptions::default();
+    options.max_iteration = opts.max_iters;
+    options.verbosity_level = opts.verbosity;
+    if let Some(solver) = opts.linear_solver {
+        options.linear_solver_type = match solver {
+            LinearSolverKind::SparseCholesky => LinearSolverType::SparseCholesky,
+            LinearSolverKind::SparseQR => LinearSolverType::SparseQR,
+        };
+    }
+    if let Some(v) = opts.min_abs_decrease {
+        options.min_abs_error_decrease_threshold = v;
+    }
+    if let Some(v) = opts.min_rel_decrease {
+        options.min_rel_error_decrease_threshold = v;
+    }
+    if let Some(v) = opts.min_error {
+        options.min_error_threshold = v;
+    }
+    options
+}
+
+fn compile_loss(loss: RobustLoss) -> Result<Option<Box<dyn Loss + Send>>> {
+    match loss {
+        RobustLoss::None => Ok(None),
+        RobustLoss::Huber { scale } => {
+            ensure!(scale > 0.0, "Huber scale must be positive");
+            Ok(Some(Box::new(HuberLoss::new(scale))))
+        }
+        RobustLoss::Cauchy { scale } => {
+            ensure!(scale > 0.0, "Cauchy scale must be positive");
+            Ok(Some(Box::new(CauchyLoss::new(scale))))
+        }
+        RobustLoss::Arctan { scale } => {
+            ensure!(scale > 0.0, "Arctan scale must be positive");
+            Ok(Some(Box::new(ArctanLoss::new(scale))))
+        }
+    }
+}
+
+fn compile_factor(
+    residual: &crate::ir::ResidualBlock,
+) -> Result<(
+    Box<dyn tiny_solver::factors::FactorImpl + Send>,
+    Option<Box<dyn Loss + Send>>,
+)> {
+    let loss = compile_loss(residual.loss)?;
+    match &residual.factor {
+        FactorKind::ReprojPointPinhole4 { pw, uv, w } => {
+            let factor = TinyReprojPointFactor {
+                pw: *pw,
+                uv: *uv,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
+        }
+        other => Err(anyhow!("factor kind {:?} not supported", other)),
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyReprojPointFactor {
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(params.len(), 2, "expected [cam, pose] parameter blocks");
+        let r = reproj_residual_pinhole4_se3_generic(
+            params[0].as_view(),
+            params[1].as_view(),
+            self.pw,
+            self.uv,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
