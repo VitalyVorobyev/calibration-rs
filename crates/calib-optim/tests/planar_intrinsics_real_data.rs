@@ -31,8 +31,6 @@ struct StereoData {
 
 #[derive(Debug, Deserialize)]
 struct BoardSpec {
-    cols: usize,
-    rows: usize,
     square_size: Real,
 }
 
@@ -230,13 +228,19 @@ fn planar_intrinsics_real_data_improves_reprojection() {
 
         for (h, (world, undist_pixels)) in homographies.iter().zip(&undistorted_views) {
             // Estimate initial pose from homography
-            let pose = calib_linear::PlanarPoseSolver::from_homography(&k_init, h)
-                .expect("planar pose");
+            let pose =
+                calib_linear::PlanarPoseSolver::from_homography(&k_init, h).expect("planar pose");
 
             // Use original distorted pixels for optimization
             let points_3d: Vec<Pt3> = world
                 .iter()
-                .map(|p| board_point_3d((p.x / board.square_size) as usize, (p.y / board.square_size) as usize, board.square_size))
+                .map(|p| {
+                    board_point_3d(
+                        (p.x / board.square_size) as usize,
+                        (p.y / board.square_size) as usize,
+                        board.square_size,
+                    )
+                })
                 .collect();
 
             let points_2d: Vec<Vec2> = undist_pixels.iter().map(|p| Vec2::new(p.x, p.y)).collect();
@@ -306,12 +310,8 @@ fn planar_intrinsics_real_data_improves_reprojection() {
         };
         let opt_distortion = BrownConrady5Params::from_core(&result.camera.dist);
 
-        let (final_mean, final_max) = compute_reprojection_error(
-            &nl_views,
-            &opt_intrinsics,
-            &opt_distortion,
-            &result.poses,
-        );
+        let (final_mean, final_max) =
+            compute_reprojection_error(&nl_views, &opt_intrinsics, &opt_distortion, &result.poses);
         println!(
             "Final reprojection error: mean={:.3} px, max={:.3} px",
             final_mean, final_max
@@ -407,8 +407,8 @@ fn planar_intrinsics_parameter_fixing_works() {
     );
 
     for (h, _) in homographies.iter().zip(&nl_views) {
-        let pose = calib_linear::PlanarPoseSolver::from_homography(&k_init, h)
-            .expect("planar pose");
+        let pose =
+            calib_linear::PlanarPoseSolver::from_homography(&k_init, h).expect("planar pose");
         init_poses.push(pose);
     }
 
@@ -435,25 +435,26 @@ fn planar_intrinsics_parameter_fixing_works() {
         ..Default::default()
     };
 
-    let result = optimize_planar_intrinsics(dataset.clone(), init, opts, BackendSolveOptions::default())
-        .expect("optimization with fixed p1, p2");
+    let result =
+        optimize_planar_intrinsics(dataset.clone(), init, opts, BackendSolveOptions::default())
+            .expect("optimization with fixed p1, p2");
 
-    assert_eq!(
-        result.camera.dist.p1, 0.0,
-        "p1 should remain fixed at 0.0"
+    assert_eq!(result.camera.dist.p1, 0.0, "p1 should remain fixed at 0.0");
+    assert_eq!(result.camera.dist.p2, 0.0, "p2 should remain fixed at 0.0");
+    println!(
+        "✓ Tangential distortion stayed fixed: p1={}, p2={}",
+        result.camera.dist.p1, result.camera.dist.p2
     );
-    assert_eq!(
-        result.camera.dist.p2, 0.0,
-        "p2 should remain fixed at 0.0"
-    );
-    println!("✓ Tangential distortion stayed fixed: p1={}, p2={}", result.camera.dist.p1, result.camera.dist.p2);
 
     // Radial should have changed
     assert!(
         result.camera.dist.k1.abs() > 1e-6 || result.camera.dist.k2.abs() > 1e-6,
         "Radial distortion should be optimized"
     );
-    println!("✓ Radial distortion optimized: k1={:.6}, k2={:.6}", result.camera.dist.k1, result.camera.dist.k2);
+    println!(
+        "✓ Radial distortion optimized: k1={:.6}, k2={:.6}",
+        result.camera.dist.k1, result.camera.dist.k2
+    );
 
     // Test 2: Fix k3 (default behavior)
     println!("\nTest 2: Fixing k3 (default)");
@@ -471,11 +472,19 @@ fn planar_intrinsics_parameter_fixing_works() {
 
     let opts2 = PlanarIntrinsicsSolveOptions::default(); // fix_k3 is true by default
 
-    let result2 = optimize_planar_intrinsics(dataset.clone(), init2, opts2, BackendSolveOptions::default())
-        .expect("optimization with default k3 fixed");
+    let result2 = optimize_planar_intrinsics(
+        dataset.clone(),
+        init2,
+        opts2,
+        BackendSolveOptions::default(),
+    )
+    .expect("optimization with default k3 fixed");
 
     assert_eq!(result2.camera.dist.k3, 0.0, "k3 should be fixed by default");
-    println!("✓ k3 stayed fixed at default: k3={}", result2.camera.dist.k3);
+    println!(
+        "✓ k3 stayed fixed at default: k3={}",
+        result2.camera.dist.k3
+    );
 
     // Test 3: Fix intrinsics, optimize only distortion
     println!("\nTest 3: Fixing intrinsics (fx, fy), optimizing distortion");
@@ -498,8 +507,13 @@ fn planar_intrinsics_parameter_fixing_works() {
         ..Default::default()
     };
 
-    let result3 = optimize_planar_intrinsics(dataset, init3.clone(), opts3, BackendSolveOptions::default())
-        .expect("optimization with fixed fx, fy");
+    let result3 = optimize_planar_intrinsics(
+        dataset,
+        init3.clone(),
+        opts3,
+        BackendSolveOptions::default(),
+    )
+    .expect("optimization with fixed fx, fy");
 
     assert!(
         (result3.camera.k.fx - init3.intrinsics.fx).abs() < 1e-6,
@@ -509,8 +523,14 @@ fn planar_intrinsics_parameter_fixing_works() {
         (result3.camera.k.fy - init3.intrinsics.fy).abs() < 1e-6,
         "fy should remain fixed"
     );
-    println!("✓ Intrinsics stayed fixed: fx={:.2}, fy={:.2}", result3.camera.k.fx, result3.camera.k.fy);
-    println!("✓ Distortion optimized: k1={:.6}, k2={:.6}", result3.camera.dist.k1, result3.camera.dist.k2);
+    println!(
+        "✓ Intrinsics stayed fixed: fx={:.2}, fy={:.2}",
+        result3.camera.k.fx, result3.camera.k.fy
+    );
+    println!(
+        "✓ Distortion optimized: k1={:.6}, k2={:.6}",
+        result3.camera.dist.k1, result3.camera.dist.k2
+    );
 
     println!("\n✓ All parameter fixing tests passed\n");
 }
