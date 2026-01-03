@@ -9,5 +9,10 @@ nalgebra = { workspace = true }
 anyhow = "1"
 tiny-solver = "0.18"
 
+[dev-dependencies]
+calib-linear = { path = "../calib-linear" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
 [features]
 default = []

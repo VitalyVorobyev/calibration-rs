@@ -210,7 +210,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "calib-core",
+ "calib-linear",
  "nalgebra",
+ "serde",
+ "serde_json",
  "tiny-solver",
 ]
 
