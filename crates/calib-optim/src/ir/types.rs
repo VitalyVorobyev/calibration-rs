@@ -2,10 +2,15 @@ use anyhow::{anyhow, ensure, Result};
 use std::collections::HashSet;
 
 /// Identifier for a parameter block in the IR.
+///
+/// This is stable within a `ProblemIR` instance and is used by residual blocks
+/// to reference their parameter dependencies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ParamId(pub usize);
 
 /// Supported manifold types for parameter blocks.
+///
+/// Each variant implies an expected ambient parameter dimension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManifoldKind {
     /// Standard Euclidean vector space.
@@ -19,6 +24,7 @@ pub enum ManifoldKind {
 }
 
 impl ManifoldKind {
+    /// Returns `true` if the given ambient dimension matches the manifold storage.
     pub fn compatible_dim(self, dim: usize) -> bool {
         match self {
             ManifoldKind::Euclidean => true,
@@ -30,6 +36,8 @@ impl ManifoldKind {
 }
 
 /// Bounds for a single parameter index.
+///
+/// Bounds are applied after each update in backends that support them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bound {
     pub idx: usize,
@@ -38,63 +46,78 @@ pub struct Bound {
 }
 
 /// Fixed parameter mask for a block.
+///
+/// Backends interpret this as per-index fixing for Euclidean blocks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FixedMask {
     fixed_indices: HashSet<usize>,
 }
 
 impl FixedMask {
+    /// Creates a mask with no fixed indices.
     pub fn all_free() -> Self {
         Self {
             fixed_indices: HashSet::new(),
         }
     }
 
+    /// Creates a mask with all indices fixed.
     pub fn all_fixed(dim: usize) -> Self {
         Self {
             fixed_indices: (0..dim).collect(),
         }
     }
 
+    /// Creates a mask from an explicit list of indices.
     pub fn fix_indices(indices: &[usize]) -> Self {
         Self {
             fixed_indices: indices.iter().copied().collect(),
         }
     }
 
+    /// Returns `true` if the index is fixed.
     pub fn is_fixed(&self, idx: usize) -> bool {
         self.fixed_indices.contains(&idx)
     }
 
+    /// Returns `true` if all indices `[0, dim)` are fixed.
     pub fn is_all_fixed(&self, dim: usize) -> bool {
         self.fixed_indices.len() == dim
     }
 
+    /// Iterates over fixed indices.
     pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
         self.fixed_indices.iter().copied()
     }
 
+    /// Returns `true` if no indices are fixed.
     pub fn is_empty(&self) -> bool {
         self.fixed_indices.is_empty()
     }
 }
 
 /// Robust loss applied to a residual block.
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// Each residual block has its own loss; per-point robustification is achieved
+/// by using one residual block per observation.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum RobustLoss {
+    #[default]
     None,
-    Huber { scale: f64 },
-    Cauchy { scale: f64 },
-    Arctan { scale: f64 },
-}
-
-impl Default for RobustLoss {
-    fn default() -> Self {
-        Self::None
-    }
+    Huber {
+        scale: f64,
+    },
+    Cauchy {
+        scale: f64,
+    },
+    Arctan {
+        scale: f64,
+    },
 }
 
 /// Backend-agnostic factor kinds.
+///
+/// Each factor kind implies its parameter layout and residual dimension.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FactorKind {
     /// Reprojection residual for a pinhole camera with 4 intrinsics and an SE3 pose.
@@ -106,6 +129,7 @@ pub enum FactorKind {
 }
 
 impl FactorKind {
+    /// Residual dimension implied by the factor.
     pub fn residual_dim(&self) -> usize {
         match self {
             FactorKind::ReprojPointPinhole4 { .. } => 2,
@@ -116,6 +140,8 @@ impl FactorKind {
 }
 
 /// Parameter block definition in the IR.
+///
+/// This describes the storage layout and constraints for a single variable.
 #[derive(Debug, Clone)]
 pub struct ParamBlock {
     pub id: ParamId,
@@ -127,6 +153,8 @@ pub struct ParamBlock {
 }
 
 /// Residual block definition in the IR.
+///
+/// The order of `params` must match the factor's expected parameter order.
 #[derive(Debug, Clone)]
 pub struct ResidualBlock {
     pub params: Vec<ParamId>,
@@ -136,6 +164,8 @@ pub struct ResidualBlock {
 }
 
 /// Backend-agnostic optimization problem representation.
+///
+/// Backends compile this IR into solver-specific problems.
 #[derive(Debug, Default, Clone)]
 pub struct ProblemIR {
     pub params: Vec<ParamBlock>,
@@ -143,10 +173,12 @@ pub struct ProblemIR {
 }
 
 impl ProblemIR {
+    /// Creates an empty IR.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Adds a parameter block and returns its `ParamId`.
     pub fn add_param_block(
         &mut self,
         name: impl Into<String>,
@@ -167,14 +199,17 @@ impl ProblemIR {
         id
     }
 
+    /// Adds a residual block to the IR.
     pub fn add_residual_block(&mut self, residual: ResidualBlock) {
         self.residuals.push(residual);
     }
 
+    /// Finds a parameter by name.
     pub fn param_by_name(&self, name: &str) -> Option<ParamId> {
         self.params.iter().find(|p| p.name == name).map(|p| p.id)
     }
 
+    /// Validates internal consistency and factor expectations.
     pub fn validate(&self) -> Result<()> {
         for (idx, param) in self.params.iter().enumerate() {
             ensure!(

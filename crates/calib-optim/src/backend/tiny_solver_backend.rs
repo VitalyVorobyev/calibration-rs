@@ -134,9 +134,11 @@ impl OptimBackend for TinySolverBackend {
 }
 
 fn to_optimizer_options(opts: &BackendSolveOptions) -> OptimizerOptions {
-    let mut options = OptimizerOptions::default();
-    options.max_iteration = opts.max_iters;
-    options.verbosity_level = opts.verbosity;
+    let mut options = OptimizerOptions {
+        max_iteration: opts.max_iters,
+        verbosity_level: opts.verbosity,
+        ..OptimizerOptions::default()
+    };
     if let Some(solver) = opts.linear_solver {
         options.linear_solver_type = match solver {
             LinearSolverKind::SparseCholesky => LinearSolverType::SparseCholesky,
@@ -173,12 +175,12 @@ fn compile_loss(loss: RobustLoss) -> Result<Option<Box<dyn Loss + Send>>> {
     }
 }
 
-fn compile_factor(
-    residual: &crate::ir::ResidualBlock,
-) -> Result<(
+type CompiledFactor = (
     Box<dyn tiny_solver::factors::FactorImpl + Send>,
     Option<Box<dyn Loss + Send>>,
-)> {
+);
+
+fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor> {
     let loss = compile_loss(residual.loss)?;
     match &residual.factor {
         FactorKind::ReprojPointPinhole4 { pw, uv, w } => {
@@ -213,3 +215,4 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointFactor {
         DVector::from_row_slice(r.as_slice())
     }
 }
+//! tiny-solver backend adapter for `ProblemIR`.

@@ -4,6 +4,8 @@ use crate::math::projection::project_pinhole;
 use nalgebra::{DVector, DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector3};
 
 /// Compute a 2D reprojection residual for pinhole intrinsics and SE3 pose.
+///
+/// The residual is scaled by `sqrt(w)` and ordered `[u_residual, v_residual]`.
 pub fn reproj_residual_pinhole4_se3(
     intr: &DVector<f64>,
     pose: &DVector<f64>,
@@ -14,6 +16,7 @@ pub fn reproj_residual_pinhole4_se3(
     reproj_residual_pinhole4_se3_generic(intr.as_view(), pose.as_view(), pw, uv, w)
 }
 
+/// Generic reprojection residual evaluator for backend adapters.
 pub(crate) fn reproj_residual_pinhole4_se3_generic<T: RealField>(
     intr: DVectorView<'_, T>,
     pose: DVectorView<'_, T>,

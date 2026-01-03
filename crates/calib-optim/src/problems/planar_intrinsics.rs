@@ -71,12 +71,18 @@ impl PlanarViewObservations {
         self.points_3d.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.points_3d.is_empty()
+    }
+
     pub fn weight(&self, idx: usize) -> f64 {
         self.weights.as_ref().map_or(1.0, |w| w[idx])
     }
 }
 
 /// A planar dataset consisting of multiple views.
+///
+/// Each view observes a planar calibration target in pixel coordinates.
 #[derive(Debug, Clone)]
 pub struct PlanarDataset {
     pub views: Vec<PlanarViewObservations>,
@@ -97,6 +103,8 @@ impl PlanarDataset {
 }
 
 /// Initial values for planar intrinsics optimization.
+///
+/// Poses are board-to-camera transforms for each view.
 #[derive(Debug, Clone)]
 pub struct PlanarIntrinsicsInit {
     pub intrinsics: Intrinsics4,
@@ -123,11 +131,17 @@ impl PlanarIntrinsicsInit {
 /// Solve options specific to planar intrinsics.
 #[derive(Debug, Clone)]
 pub struct PlanarIntrinsicsSolveOptions {
+    /// Robust loss applied per observation.
     pub robust_loss: RobustLoss,
+    /// Fix `fx` during optimization.
     pub fix_fx: bool,
+    /// Fix `fy` during optimization.
     pub fix_fy: bool,
+    /// Fix `cx` during optimization.
     pub fix_cx: bool,
+    /// Fix `cy` during optimization.
     pub fix_cy: bool,
+    /// Indices of poses to keep fixed.
     pub fix_poses: Vec<usize>,
 }
 
@@ -147,12 +161,17 @@ impl Default for PlanarIntrinsicsSolveOptions {
 /// Optimization result for planar intrinsics.
 #[derive(Debug, Clone)]
 pub struct PlanarIntrinsicsResult {
+    /// Refined camera intrinsics with zero distortion.
     pub camera: PinholeCamera,
+    /// Refined board-to-camera poses.
     pub poses: Vec<Iso3>,
+    /// Final robustified cost.
     pub final_cost: f64,
 }
 
 /// Build the backend-agnostic IR and initial values for planar intrinsics.
+///
+/// This is the canonical problem builder reused by all backends.
 pub fn build_planar_intrinsics_ir(
     dataset: &PlanarDataset,
     initial: &PlanarIntrinsicsInit,

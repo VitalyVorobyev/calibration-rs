@@ -5,15 +5,22 @@ use calib_core::{FxFyCxCySkew, Real};
 use nalgebra::{DVector, DVectorView};
 
 /// Minimal 4-parameter intrinsics block.
+///
+/// This is the primary intrinsics representation for planar optimization.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Intrinsics4 {
+    /// Focal length in x (pixels).
     pub fx: f64,
+    /// Focal length in y (pixels).
     pub fy: f64,
+    /// Principal point x (pixels).
     pub cx: f64,
+    /// Principal point y (pixels).
     pub cy: f64,
 }
 
 impl Intrinsics4 {
+    /// Dimension of the parameter vector.
     pub const DIM: usize = 4;
 
     /// Convert to a dense parameter vector `[fx, fy, cx, cy]`.
