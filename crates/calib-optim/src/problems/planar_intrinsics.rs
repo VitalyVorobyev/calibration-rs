@@ -5,6 +5,7 @@
 
 use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions};
 use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock};
+use crate::params::distortion::BrownConrady5Params;
 use crate::params::intrinsics::Intrinsics4;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
@@ -108,13 +109,27 @@ impl PlanarDataset {
 #[derive(Debug, Clone)]
 pub struct PlanarIntrinsicsInit {
     pub intrinsics: Intrinsics4,
+    pub distortion: BrownConrady5Params,
     pub poses: Vec<Iso3>,
 }
 
 impl PlanarIntrinsicsInit {
-    pub fn new(intrinsics: Intrinsics4, poses: Vec<Iso3>) -> Result<Self> {
+    pub fn new(
+        intrinsics: Intrinsics4,
+        distortion: BrownConrady5Params,
+        poses: Vec<Iso3>,
+    ) -> Result<Self> {
         ensure!(!poses.is_empty(), "need at least one pose");
-        Ok(Self { intrinsics, poses })
+        Ok(Self {
+            intrinsics,
+            distortion,
+            poses,
+        })
+    }
+
+    /// Create with zero distortion (pinhole model only).
+    pub fn new_pinhole(intrinsics: Intrinsics4, poses: Vec<Iso3>) -> Result<Self> {
+        Self::new(intrinsics, BrownConrady5Params::zeros(), poses)
     }
 
     pub fn from_camera_and_poses(camera: &PinholeCamera, poses: Vec<Iso3>) -> Result<Self> {
@@ -124,7 +139,8 @@ impl PlanarIntrinsicsInit {
             cx: camera.k.cx,
             cy: camera.k.cy,
         };
-        Self::new(intrinsics, poses)
+        let distortion = BrownConrady5Params::from_core(&camera.dist);
+        Self::new(intrinsics, distortion, poses)
     }
 }
 
@@ -141,6 +157,16 @@ pub struct PlanarIntrinsicsSolveOptions {
     pub fix_cx: bool,
     /// Fix `cy` during optimization.
     pub fix_cy: bool,
+    /// Fix `k1` (first radial distortion) during optimization.
+    pub fix_k1: bool,
+    /// Fix `k2` (second radial distortion) during optimization.
+    pub fix_k2: bool,
+    /// Fix `k3` (third radial distortion) during optimization.
+    pub fix_k3: bool,
+    /// Fix `p1` (first tangential distortion) during optimization.
+    pub fix_p1: bool,
+    /// Fix `p2` (second tangential distortion) during optimization.
+    pub fix_p2: bool,
     /// Indices of poses to keep fixed.
     pub fix_poses: Vec<usize>,
 }
@@ -153,6 +179,11 @@ impl Default for PlanarIntrinsicsSolveOptions {
             fix_fy: false,
             fix_cx: false,
             fix_cy: false,
+            fix_k1: false,
+            fix_k2: false,
+            fix_k3: true, // k3 often overfits, fix by default
+            fix_p1: false,
+            fix_p2: false,
             fix_poses: Vec::new(),
         }
     }
@@ -161,7 +192,7 @@ impl Default for PlanarIntrinsicsSolveOptions {
 /// Optimization result for planar intrinsics.
 #[derive(Debug, Clone)]
 pub struct PlanarIntrinsicsResult {
-    /// Refined camera intrinsics with zero distortion.
+    /// Refined camera with intrinsics and distortion.
     pub camera: PinholeCamera,
     /// Refined board-to-camera poses.
     pub poses: Vec<Iso3>,
@@ -218,6 +249,33 @@ pub fn build_planar_intrinsics_ir(
     );
     initial_map.insert("cam".to_string(), initial.intrinsics.to_dvec());
 
+    // Add distortion parameter block
+    let mut dist_fixed = Vec::new();
+    if opts.fix_k1 {
+        dist_fixed.push(0);
+    }
+    if opts.fix_k2 {
+        dist_fixed.push(1);
+    }
+    if opts.fix_k3 {
+        dist_fixed.push(2);
+    }
+    if opts.fix_p1 {
+        dist_fixed.push(3);
+    }
+    if opts.fix_p2 {
+        dist_fixed.push(4);
+    }
+
+    let dist_id = ir.add_param_block(
+        "dist",
+        BrownConrady5Params::DIM,
+        ManifoldKind::Euclidean,
+        FixedMask::fix_indices(&dist_fixed),
+        None,
+    );
+    initial_map.insert("dist".to_string(), initial.distortion.to_dvec());
+
     for (view_idx, view) in dataset.views.iter().enumerate() {
         let pose_key = format!("pose/{}", view_idx);
         let fixed = if opts.fix_poses.contains(&view_idx) {
@@ -229,13 +287,13 @@ pub fn build_planar_intrinsics_ir(
         initial_map.insert(pose_key.clone(), iso3_to_se3_dvec(&initial.poses[view_idx]));
 
         for (pt_idx, (pw, uv)) in view.points_3d.iter().zip(view.points_2d.iter()).enumerate() {
-            let factor = FactorKind::ReprojPointPinhole4 {
+            let factor = FactorKind::ReprojPointPinhole4Dist5 {
                 pw: [pw.x, pw.y, pw.z],
                 uv: [uv.x, uv.y],
                 w: view.weight(pt_idx),
             };
             let residual = ResidualBlock {
-                params: vec![cam_id, pose_id],
+                params: vec![cam_id, dist_id, pose_id],
                 loss: opts.robust_loss,
                 factor,
                 residual_dim: 2,
@@ -281,6 +339,12 @@ pub fn optimize_planar_intrinsics_with_backend(
         .ok_or_else(|| anyhow!("missing camera parameters in solution"))?;
     let intrinsics = Intrinsics4::from_dvec(cam_vec.as_view())?;
 
+    let dist_vec = solution
+        .params
+        .get("dist")
+        .ok_or_else(|| anyhow!("missing distortion parameters in solution"))?;
+    let distortion = BrownConrady5Params::from_dvec(dist_vec.as_view())?;
+
     let mut poses = Vec::with_capacity(dataset.num_views());
     for i in 0..dataset.num_views() {
         let key = format!("pose/{}", i);
@@ -293,14 +357,7 @@ pub fn optimize_planar_intrinsics_with_backend(
 
     let camera = Camera::new(
         Pinhole,
-        BrownConrady5 {
-            k1: 0.0,
-            k2: 0.0,
-            k3: 0.0,
-            p1: 0.0,
-            p2: 0.0,
-            iters: 8,
-        },
+        distortion.to_core(),
         IdentitySensor,
         intrinsics.to_core(),
     );
@@ -611,6 +668,233 @@ mod tests {
             err.contains("references missing param"),
             "unexpected validation error: {}",
             err
+        );
+    }
+
+    #[test]
+    fn synthetic_planar_with_distortion_converges() {
+        // Test that distortion optimization works with known ground truth
+        let k_gt = FxFyCxCySkew {
+            fx: 800.0,
+            fy: 780.0,
+            cx: 640.0,
+            cy: 360.0,
+            skew: 0.0,
+        };
+        let dist_gt = BrownConrady5 {
+            k1: -0.2, // Barrel distortion
+            k2: 0.05,
+            k3: 0.0,
+            p1: 0.001,
+            p2: -0.001,
+            iters: 8,
+        };
+        let cam_gt = make_camera(k_gt, dist_gt);
+
+        // Generate synthetic planar target (10x7 grid, 3cm spacing)
+        let board_points: Vec<Pt3> = (0..10)
+            .flat_map(|i| (0..7).map(move |j| Pt3::new(j as Real * 0.03, i as Real * 0.03, 0.0)))
+            .collect();
+
+        let mut views = vec![];
+        let mut poses_gt = vec![];
+
+        // Create 10 views at different poses
+        for i in 0..10 {
+            let angle = (i as Real * 10.0).to_radians();
+            let dist_from_board = 0.5 + i as Real * 0.05;
+            let rot = UnitQuaternion::from_euler_angles(angle, angle * 0.5, 0.0);
+            let trans = Vector3::new(0.1, 0.1, dist_from_board);
+            let pose = Iso3::from_parts(trans.into(), rot);
+            poses_gt.push(pose);
+
+            // Project points through ground truth camera
+            let mut points_2d = vec![];
+            let mut points_3d = vec![];
+
+            for pw in &board_points {
+                let pc = pose.transform_point(pw).coords;
+                if pc.z > 0.1 {
+                    if let Some(uv) = cam_gt.project_point_c(&pc) {
+                        points_2d.push(Vec2::new(uv.x, uv.y));
+                        points_3d.push(*pw);
+                    }
+                }
+            }
+
+            views.push(PlanarViewObservations::new(points_3d, points_2d).unwrap());
+        }
+
+        let dataset = PlanarDataset::new(views).unwrap();
+
+        // Initialize with noisy intrinsics and zero distortion
+        let init = PlanarIntrinsicsInit {
+            intrinsics: Intrinsics4 {
+                fx: 780.0, // -20 error
+                fy: 760.0, // -20 error
+                cx: 630.0, // -10 error
+                cy: 350.0, // -10 error
+            },
+            distortion: BrownConrady5Params::zeros(),
+            poses: poses_gt.clone(),
+        };
+
+        let opts = PlanarIntrinsicsSolveOptions {
+            robust_loss: RobustLoss::None,
+            ..Default::default()
+        };
+
+        let backend_opts = BackendSolveOptions::default();
+        let result = optimize_planar_intrinsics(dataset, init, opts, backend_opts).unwrap();
+
+        // Verify convergence to ground truth
+        println!(
+            "Final camera: fx={}, fy={}, cx={}, cy={}",
+            result.camera.k.fx, result.camera.k.fy, result.camera.k.cx, result.camera.k.cy
+        );
+        println!(
+            "Final distortion: k1={}, k2={}, k3={}, p1={}, p2={}",
+            result.camera.dist.k1,
+            result.camera.dist.k2,
+            result.camera.dist.k3,
+            result.camera.dist.p1,
+            result.camera.dist.p2
+        );
+
+        assert!(
+            (result.camera.k.fx - k_gt.fx).abs() < 5.0,
+            "fx off by {}",
+            result.camera.k.fx - k_gt.fx
+        );
+        assert!(
+            (result.camera.k.fy - k_gt.fy).abs() < 5.0,
+            "fy off by {}",
+            result.camera.k.fy - k_gt.fy
+        );
+        assert!(
+            (result.camera.k.cx - k_gt.cx).abs() < 3.0,
+            "cx off by {}",
+            result.camera.k.cx - k_gt.cx
+        );
+        assert!(
+            (result.camera.k.cy - k_gt.cy).abs() < 3.0,
+            "cy off by {}",
+            result.camera.k.cy - k_gt.cy
+        );
+
+        assert!(
+            (result.camera.dist.k1 - dist_gt.k1).abs() < 0.01,
+            "k1 off by {}",
+            result.camera.dist.k1 - dist_gt.k1
+        );
+        assert!(
+            (result.camera.dist.k2 - dist_gt.k2).abs() < 0.01,
+            "k2 off by {}",
+            result.camera.dist.k2 - dist_gt.k2
+        );
+        assert!(
+            (result.camera.dist.p1 - dist_gt.p1).abs() < 0.001,
+            "p1 off by {}",
+            result.camera.dist.p1 - dist_gt.p1
+        );
+        assert!(
+            (result.camera.dist.p2 - dist_gt.p2).abs() < 0.001,
+            "p2 off by {}",
+            result.camera.dist.p2 - dist_gt.p2
+        );
+    }
+
+    #[test]
+    fn distortion_parameter_masking_works() {
+        // Test selective fixing of distortion parameters
+        let k_gt = FxFyCxCySkew {
+            fx: 800.0,
+            fy: 780.0,
+            cx: 640.0,
+            cy: 360.0,
+            skew: 0.0,
+        };
+        let dist_gt = BrownConrady5 {
+            k1: -0.15,
+            k2: 0.04,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+        let cam_gt = make_camera(k_gt, dist_gt);
+
+        // Generate smaller synthetic dataset
+        let board_points: Vec<Pt3> = (0..6)
+            .flat_map(|i| (0..5).map(move |j| Pt3::new(j as Real * 0.03, i as Real * 0.03, 0.0)))
+            .collect();
+
+        let mut views = vec![];
+        let mut poses_gt = vec![];
+
+        for i in 0..5 {
+            let angle = (i as Real * 15.0).to_radians();
+            let rot = UnitQuaternion::from_euler_angles(angle, angle * 0.3, 0.0);
+            let trans = Vector3::new(0.0, 0.0, 0.6);
+            let pose = Iso3::from_parts(trans.into(), rot);
+            poses_gt.push(pose);
+
+            let mut points_2d = vec![];
+            let mut points_3d = vec![];
+
+            for pw in &board_points {
+                let pc = pose.transform_point(pw).coords;
+                if pc.z > 0.1 {
+                    if let Some(uv) = cam_gt.project_point_c(&pc) {
+                        points_2d.push(Vec2::new(uv.x, uv.y));
+                        points_3d.push(*pw);
+                    }
+                }
+            }
+
+            views.push(PlanarViewObservations::new(points_3d, points_2d).unwrap());
+        }
+
+        let dataset = PlanarDataset::new(views).unwrap();
+
+        let init = PlanarIntrinsicsInit {
+            intrinsics: Intrinsics4 {
+                fx: 790.0,
+                fy: 770.0,
+                cx: 635.0,
+                cy: 355.0,
+            },
+            distortion: BrownConrady5Params::zeros(),
+            poses: poses_gt,
+        };
+
+        // Fix k3, p1, p2 (they are zero in ground truth)
+        let opts = PlanarIntrinsicsSolveOptions {
+            fix_k3: true,
+            fix_p1: true,
+            fix_p2: true,
+            ..Default::default()
+        };
+
+        let result =
+            optimize_planar_intrinsics(dataset, init, opts, BackendSolveOptions::default())
+                .unwrap();
+
+        // Fixed params should stay at initial values
+        assert_eq!(result.camera.dist.k3, 0.0, "k3 should stay fixed at 0");
+        assert_eq!(result.camera.dist.p1, 0.0, "p1 should stay fixed at 0");
+        assert_eq!(result.camera.dist.p2, 0.0, "p2 should stay fixed at 0");
+
+        // k1, k2 should converge
+        assert!(
+            (result.camera.dist.k1 - dist_gt.k1).abs() < 0.01,
+            "k1 should converge, off by {}",
+            result.camera.dist.k1 - dist_gt.k1
+        );
+        assert!(
+            (result.camera.dist.k2 - dist_gt.k2).abs() < 0.01,
+            "k2 should converge, off by {}",
+            result.camera.dist.k2 - dist_gt.k2
         );
     }
 }

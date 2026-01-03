@@ -75,6 +75,7 @@ impl PlanarIntrinsicsConfig {
             fix_cx: self.fix_cx,
             fix_cy: self.fix_cy,
             fix_poses: self.fix_poses.clone().unwrap_or_default(),
+            ..Default::default()
         }
     }
 

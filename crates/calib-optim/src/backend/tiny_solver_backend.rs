@@ -1,5 +1,7 @@
 use crate::backend::{BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend};
-use crate::factors::reprojection_model::reproj_residual_pinhole4_se3_generic;
+use crate::factors::reprojection_model::{
+    reproj_residual_pinhole4_dist5_se3_generic, reproj_residual_pinhole4_se3_generic,
+};
 use crate::ir::{FactorKind, ManifoldKind, ProblemIR, RobustLoss};
 use anyhow::{anyhow, ensure, Result};
 use nalgebra::DVector;
@@ -191,6 +193,14 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor>
             };
             Ok((Box::new(factor), loss))
         }
+        FactorKind::ReprojPointPinhole4Dist5 { pw, uv, w } => {
+            let factor = TinyReprojPointDistFactor {
+                pw: *pw,
+                uv: *uv,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
+        }
         other => Err(anyhow!("factor kind {:?} not supported", other)),
     }
 }
@@ -215,4 +225,29 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointFactor {
         DVector::from_row_slice(r.as_slice())
     }
 }
-//! tiny-solver backend adapter for `ProblemIR`.
+
+#[derive(Debug, Clone)]
+struct TinyReprojPointDistFactor {
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            3,
+            "expected [cam, dist, pose] parameter blocks"
+        );
+        let r = reproj_residual_pinhole4_dist5_se3_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // pose
+            self.pw,
+            self.uv,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}

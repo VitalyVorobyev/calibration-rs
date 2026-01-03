@@ -122,6 +122,8 @@ pub enum RobustLoss {
 pub enum FactorKind {
     /// Reprojection residual for a pinhole camera with 4 intrinsics and an SE3 pose.
     ReprojPointPinhole4 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    /// Reprojection residual with pinhole intrinsics, Brown-Conrady distortion, and SE3 pose.
+    ReprojPointPinhole4Dist5 { pw: [f64; 3], uv: [f64; 2], w: f64 },
     /// Placeholder for future prior factors.
     Prior,
     /// Placeholder for future distortion-aware reprojection.
@@ -133,6 +135,7 @@ impl FactorKind {
     pub fn residual_dim(&self) -> usize {
         match self {
             FactorKind::ReprojPointPinhole4 { .. } => 2,
+            FactorKind::ReprojPointPinhole4Dist5 { .. } => 2,
             FactorKind::Prior => 0,
             FactorKind::ReprojPointWithDistortion => 2,
         }
@@ -284,6 +287,33 @@ impl ProblemIR {
                     ensure!(
                         pose.dim == 7 && pose.manifold == ManifoldKind::SE3,
                         "reprojection factor expects 7D SE3 pose"
+                    );
+                }
+                FactorKind::ReprojPointPinhole4Dist5 { .. } => {
+                    ensure!(
+                        residual.params.len() == 3,
+                        "distortion reprojection factor requires 3 params [cam, dist, pose]"
+                    );
+                    let cam = &self.params[residual.params[0].0];
+                    let dist = &self.params[residual.params[1].0];
+                    let pose = &self.params[residual.params[2].0];
+                    ensure!(
+                        cam.dim == 4 && cam.manifold == ManifoldKind::Euclidean,
+                        "distortion reprojection expects 4D Euclidean intrinsics, got dim={} manifold={:?}",
+                        cam.dim,
+                        cam.manifold
+                    );
+                    ensure!(
+                        dist.dim == 5 && dist.manifold == ManifoldKind::Euclidean,
+                        "distortion reprojection expects 5D Euclidean distortion, got dim={} manifold={:?}",
+                        dist.dim,
+                        dist.manifold
+                    );
+                    ensure!(
+                        pose.dim == 7 && pose.manifold == ManifoldKind::SE3,
+                        "distortion reprojection expects 7D SE3 pose, got dim={} manifold={:?}",
+                        pose.dim,
+                        pose.manifold
                     );
                 }
                 FactorKind::Prior | FactorKind::ReprojPointWithDistortion => {
