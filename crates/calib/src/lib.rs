@@ -56,6 +56,7 @@
 //! views.push(PlanarViewData {
 //!     points_3d: board_points,
 //!     points_2d,
+//!     weights: None,
 //! });
 //!
 //! let input = PlanarIntrinsicsInput { views };

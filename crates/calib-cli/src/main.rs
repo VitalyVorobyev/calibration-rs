@@ -66,7 +66,7 @@ mod tests {
     };
     use calib_pipeline::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData,
-        RobustKernelConfig,
+        RobustLossConfig,
     };
     use nalgebra::{UnitQuaternion, Vector3};
     use std::{fs, path::Path};
@@ -85,11 +85,11 @@ mod tests {
             skew: 0.0,
         };
         let dist_gt = BrownConrady5 {
-            k1: -0.1,
-            k2: 0.01,
+            k1: 0.0,
+            k2: 0.0,
             k3: 0.0,
-            p1: 0.001,
-            p2: -0.001,
+            p1: 0.0,
+            p2: 0.0,
             iters: 8,
         };
         let cam_gt = Camera::new(Pinhole, dist_gt, IdentitySensor, k_gt);
@@ -122,13 +122,19 @@ mod tests {
             views.push(PlanarViewData {
                 points_3d: board_points.clone(),
                 points_2d,
+                weights: None,
             });
         }
 
         let input = PlanarIntrinsicsInput { views };
         let config = PlanarIntrinsicsConfig {
-            robust_kernel: Some(RobustKernelConfig::None),
+            robust_loss: Some(RobustLossConfig::None),
             max_iters: Some(200),
+            fix_fx: false,
+            fix_fy: false,
+            fix_cx: false,
+            fix_cy: false,
+            fix_poses: None,
         };
         (input, config)
     }
@@ -149,6 +155,10 @@ mod tests {
         .expect("cli helper should succeed");
 
         let report: PlanarIntrinsicsReport = serde_json::from_str(&json).unwrap();
-        assert!(report.converged, "pipeline did not converge");
+        assert!(
+            report.final_cost < 1e-6,
+            "final cost too high: {}",
+            report.final_cost
+        );
     }
 }

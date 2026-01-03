@@ -1,15 +1,13 @@
-mod jacobian_ad;
-pub mod problem;
-pub mod traits;
+//! Non-linear optimization utilities and calibration problems built on tiny-solver.
+//!
+//! This crate focuses on reusable parameter blocks, factors, and problem builders so
+//! multiple calibration tasks can share the same projection and residual machinery.
 
-// Re-export core optimization traits/types at the crate root for ergonomic use.
-pub use crate::traits::{NllsProblem, NllsSolverBackend, SolveOptions, SolveReport};
+pub mod factors;
+pub mod math;
+pub mod params;
+pub mod problems;
+pub mod solver;
 
-#[cfg(feature = "lm-backend")]
-pub mod backend_lm;
-
-pub mod planar_intrinsics;
-pub mod robust;
-
-//#[cfg(feature = "ceres-backend")]
-// pub mod backend_ceres; // stub for later
+pub use crate::problems::planar_intrinsics;
+pub use crate::solver::tiny::TinySolveOptions;
