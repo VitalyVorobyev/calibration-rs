@@ -6,15 +6,13 @@ edition = "2021"
 [dependencies]
 calib-core = { path = "../calib-core" }
 nalgebra = { workspace = true }
-thiserror = { workspace = true }
+anyhow = "1"
+tiny-solver = "0.18"
 
-# default backend: pure Rust LM
-levenberg-marquardt = { version = "0.15", optional = true } # rust-cv LM  [oai_citation:6‡Docs.rs](https://docs.rs/crate/levenberg-marquardt/latest?utm_source=chatgpt.com)
-
-# optional: Ceres backend later
-ceres-solver = { version = "0.4", optional = true }         # safe bindings  [oai_citation:7‡Docs.rs](https://docs.rs/ceres-solver?utm_source=chatgpt.com)
+[dev-dependencies]
+calib-linear = { path = "../calib-linear" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [features]
-default = ["lm-backend"]
-lm-backend = ["levenberg-marquardt"]
-ceres-backend = ["ceres-solver"]
+default = []

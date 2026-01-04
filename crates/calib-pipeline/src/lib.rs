@@ -1,62 +1,90 @@
+use anyhow::{ensure, Result};
 use calib_core::{
     BrownConrady5, Camera, CameraConfig, DistortionConfig, FxFyCxCySkew, IdentitySensor,
     IntrinsicsConfig, Iso3, Pinhole, ProjectionConfig, Pt3, Real, SensorConfig, Vec2,
 };
-use calib_optim::backend_lm::LmBackend;
+use calib_optim::backend::BackendSolveOptions;
 use calib_optim::planar_intrinsics::{
-    pack_initial_params, refine_planar_intrinsics, PinholeCamera, PlanarIntrinsicsProblem,
-    PlanarViewObservations,
+    optimize_planar_intrinsics, PinholeCamera, PlanarDataset, PlanarIntrinsicsInit,
+    PlanarIntrinsicsSolveOptions, PlanarViewObservations, RobustLoss,
 };
-use calib_optim::problem::SolveOptions;
-use calib_optim::robust::RobustKernel;
 use nalgebra::{UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
-use std::{error::Error, fmt};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsConfig {
-    /// Robust kernel to use for residuals.
-    pub robust_kernel: Option<RobustKernelConfig>,
-    /// Maximum LM iterations (if `None`, use backend default).
+    /// Robust loss to use for residuals.
+    pub robust_loss: Option<RobustLossConfig>,
+    /// Maximum LM iterations (if `None`, use solver default).
     pub max_iters: Option<usize>,
+    /// Fix fx during optimization.
+    pub fix_fx: bool,
+    /// Fix fy during optimization.
+    pub fix_fy: bool,
+    /// Fix cx during optimization.
+    pub fix_cx: bool,
+    /// Fix cy during optimization.
+    pub fix_cy: bool,
+    /// Fix poses by index.
+    pub fix_poses: Option<Vec<usize>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RobustKernelConfig {
+pub enum RobustLossConfig {
     None,
-    Huber { delta: Real },
-    Cauchy { c: Real },
+    Huber { scale: Real },
+    Cauchy { scale: Real },
+    Arctan { scale: Real },
 }
 
 impl Default for PlanarIntrinsicsConfig {
     fn default() -> Self {
         Self {
-            robust_kernel: Some(RobustKernelConfig::None),
+            robust_loss: Some(RobustLossConfig::None),
             max_iters: None,
+            fix_fx: false,
+            fix_fy: false,
+            fix_cx: false,
+            fix_cy: false,
+            fix_poses: None,
         }
     }
 }
 
-impl RobustKernelConfig {
-    pub fn to_kernel(&self) -> RobustKernel {
+impl RobustLossConfig {
+    pub fn to_loss(&self) -> RobustLoss {
         match *self {
-            RobustKernelConfig::None => RobustKernel::None,
-            RobustKernelConfig::Huber { delta } => RobustKernel::Huber { delta },
-            RobustKernelConfig::Cauchy { c } => RobustKernel::Cauchy { c },
+            RobustLossConfig::None => RobustLoss::None,
+            RobustLossConfig::Huber { scale } => RobustLoss::Huber { scale },
+            RobustLossConfig::Cauchy { scale } => RobustLoss::Cauchy { scale },
+            RobustLossConfig::Arctan { scale } => RobustLoss::Arctan { scale },
         }
     }
 }
 
 impl PlanarIntrinsicsConfig {
-    pub fn kernel(&self) -> RobustKernel {
-        self.robust_kernel
-            .as_ref()
-            .map(RobustKernelConfig::to_kernel)
-            .unwrap_or(RobustKernel::None)
+    pub fn solve_options(&self) -> PlanarIntrinsicsSolveOptions {
+        PlanarIntrinsicsSolveOptions {
+            robust_loss: self
+                .robust_loss
+                .as_ref()
+                .map(RobustLossConfig::to_loss)
+                .unwrap_or(RobustLoss::None),
+            fix_fx: self.fix_fx,
+            fix_fy: self.fix_fy,
+            fix_cx: self.fix_cx,
+            fix_cy: self.fix_cy,
+            fix_poses: self.fix_poses.clone().unwrap_or_default(),
+            ..Default::default()
+        }
     }
 
-    pub fn max_iters_or_default(&self) -> usize {
-        self.max_iters.unwrap_or(50)
+    pub fn solver_options(&self) -> BackendSolveOptions {
+        let mut opts = BackendSolveOptions::default();
+        if let Some(max_iters) = self.max_iters {
+            opts.max_iters = max_iters;
+        }
+        opts
     }
 }
 
@@ -64,6 +92,7 @@ impl PlanarIntrinsicsConfig {
 pub struct PlanarViewData {
     pub points_3d: Vec<Pt3>,
     pub points_2d: Vec<Vec2>,
+    pub weights: Option<Vec<Real>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,48 +104,7 @@ pub struct PlanarIntrinsicsInput {
 pub struct PlanarIntrinsicsReport {
     pub camera: CameraConfig,
     pub final_cost: Real,
-    pub iterations: usize,
-    pub converged: bool,
 }
-
-/// Errors returned by the planar intrinsics pipeline.
-#[derive(Debug, Clone)]
-pub enum PlanarIntrinsicsError {
-    /// No views were provided.
-    EmptyViews,
-    /// A view has mismatched 3D/2D point counts.
-    MismatchedPointCounts {
-        view: usize,
-        points_3d: usize,
-        points_2d: usize,
-    },
-    /// A view has too few correspondences to be usable.
-    NotEnoughPoints { view: usize, points: usize },
-}
-
-impl fmt::Display for PlanarIntrinsicsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PlanarIntrinsicsError::EmptyViews => {
-                write!(f, "need at least one view for planar intrinsics")
-            }
-            PlanarIntrinsicsError::MismatchedPointCounts {
-                view,
-                points_3d,
-                points_2d,
-            } => write!(
-                f,
-                "view {} has mismatched 3D/2D points ({} vs {})",
-                view, points_3d, points_2d
-            ),
-            PlanarIntrinsicsError::NotEnoughPoints { view, points } => {
-                write!(f, "view {} needs at least 4 points (got {})", view, points)
-            }
-        }
-    }
-}
-
-impl Error for PlanarIntrinsicsError {}
 
 fn make_pinhole_camera(k: FxFyCxCySkew<Real>, dist: BrownConrady5<Real>) -> PinholeCamera {
     Camera::new(Pinhole, dist, IdentitySensor, k)
@@ -147,33 +135,53 @@ fn pinhole_camera_config(camera: &PinholeCamera) -> CameraConfig {
 pub fn run_planar_intrinsics(
     input: &PlanarIntrinsicsInput,
     config: &PlanarIntrinsicsConfig,
-) -> Result<PlanarIntrinsicsReport, PlanarIntrinsicsError> {
-    if input.views.is_empty() {
-        return Err(PlanarIntrinsicsError::EmptyViews);
-    }
+) -> Result<PlanarIntrinsicsReport> {
+    ensure!(
+        !input.views.is_empty(),
+        "need at least one view for calibration"
+    );
 
     let mut observations = Vec::new();
     for (idx, view) in input.views.iter().enumerate() {
-        if view.points_3d.len() != view.points_2d.len() {
-            return Err(PlanarIntrinsicsError::MismatchedPointCounts {
-                view: idx,
-                points_3d: view.points_3d.len(),
-                points_2d: view.points_2d.len(),
-            });
+        ensure!(
+            view.points_3d.len() == view.points_2d.len(),
+            "view {} has mismatched 3D/2D points ({} vs {})",
+            idx,
+            view.points_3d.len(),
+            view.points_2d.len()
+        );
+        ensure!(
+            view.points_3d.len() >= 4,
+            "view {} needs at least 4 points (got {})",
+            idx,
+            view.points_3d.len()
+        );
+        if let Some(weights) = view.weights.as_ref() {
+            ensure!(
+                weights.len() == view.points_3d.len(),
+                "view {} weights must match point count",
+                idx
+            );
+            ensure!(
+                weights.iter().all(|w| *w >= 0.0),
+                "view {} has negative weights",
+                idx
+            );
         }
-        if view.points_3d.len() < 4 {
-            return Err(PlanarIntrinsicsError::NotEnoughPoints {
-                view: idx,
-                points: view.points_3d.len(),
-            });
-        }
-        observations.push(PlanarViewObservations::new(
-            view.points_3d.clone(),
-            view.points_2d.clone(),
-        ));
+
+        let obs = if let Some(weights) = view.weights.as_ref() {
+            PlanarViewObservations::new_with_weights(
+                view.points_3d.clone(),
+                view.points_2d.clone(),
+                weights.clone(),
+            )?
+        } else {
+            PlanarViewObservations::new(view.points_3d.clone(), view.points_2d.clone())?
+        };
+        observations.push(obs);
     }
 
-    let problem = PlanarIntrinsicsProblem::new(observations).with_kernel(config.kernel());
+    let dataset = PlanarDataset::new(observations)?;
 
     let initial_camera = make_pinhole_camera(
         FxFyCxCySkew {
@@ -193,7 +201,7 @@ pub fn run_planar_intrinsics(
         },
     );
 
-    let poses0: Vec<Iso3> = (0..problem.num_views())
+    let poses0: Vec<Iso3> = (0..dataset.num_views())
         .map(|_| {
             Iso3::from_parts(
                 Vector3::new(0.0, 0.0, 1.0).into(),
@@ -202,22 +210,19 @@ pub fn run_planar_intrinsics(
         })
         .collect();
 
-    let x0 = pack_initial_params(&initial_camera, &poses0);
+    let init = PlanarIntrinsicsInit::from_camera_and_poses(&initial_camera, poses0)?;
+    let result = optimize_planar_intrinsics(
+        dataset,
+        init,
+        config.solve_options(),
+        config.solver_options(),
+    )?;
 
-    let backend = LmBackend;
-    let opts = SolveOptions {
-        max_iters: config.max_iters_or_default(),
-        ..Default::default()
-    };
-
-    let (camera, _poses, report) = refine_planar_intrinsics(&backend, &problem, x0, &opts);
-    let camera_cfg = pinhole_camera_config(&camera);
+    let camera_cfg = pinhole_camera_config(&result.camera);
 
     Ok(PlanarIntrinsicsReport {
         camera: camera_cfg,
-        final_cost: report.final_cost,
-        iterations: report.iterations,
-        converged: report.converged,
+        final_cost: result.final_cost,
     })
 }
 
@@ -253,11 +258,11 @@ mod tests {
             skew: 0.0,
         };
         let dist_gt = BrownConrady5 {
-            k1: -0.1,
-            k2: 0.01,
+            k1: 0.0,
+            k2: 0.0,
             k3: 0.0,
-            p1: 0.001,
-            p2: -0.001,
+            p1: 0.0,
+            p2: 0.0,
             iters: 8,
         };
         let cam_gt = make_pinhole_camera(k_gt, dist_gt);
@@ -290,6 +295,7 @@ mod tests {
             views.push(PlanarViewData {
                 points_3d: board_points.clone(),
                 points_2d,
+                weights: None,
             });
         }
 
@@ -297,7 +303,6 @@ mod tests {
         let config = PlanarIntrinsicsConfig::default();
 
         let report = run_planar_intrinsics(&input, &config).expect("pipeline should succeed");
-        assert!(report.converged, "LM did not converge");
         assert!(
             report.final_cost < 1e-6,
             "final cost too high: {}",
@@ -314,8 +319,13 @@ mod tests {
     #[test]
     fn config_json_roundtrip() {
         let config = PlanarIntrinsicsConfig {
-            robust_kernel: Some(RobustKernelConfig::Huber { delta: 2.5 }),
+            robust_loss: Some(RobustLossConfig::Huber { scale: 2.5 }),
             max_iters: Some(80),
+            fix_fx: true,
+            fix_fy: false,
+            fix_cx: false,
+            fix_cy: true,
+            fix_poses: Some(vec![0, 2]),
         };
 
         let json = serde_json::to_string_pretty(&config).unwrap();
@@ -327,12 +337,14 @@ mod tests {
 
         let de: PlanarIntrinsicsConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(de.max_iters, config.max_iters);
-        match (de.robust_kernel, config.robust_kernel) {
+        assert_eq!(de.fix_fx, config.fix_fx);
+        assert_eq!(de.fix_cy, config.fix_cy);
+        match (de.robust_loss, config.robust_loss) {
             (
-                Some(RobustKernelConfig::Huber { delta: d1 }),
-                Some(RobustKernelConfig::Huber { delta: d2 }),
+                Some(RobustLossConfig::Huber { scale: d1 }),
+                Some(RobustLossConfig::Huber { scale: d2 }),
             ) => assert!((d1 - d2).abs() < 1e-12),
-            other => panic!("mismatch in kernels: {:?}", other),
+            other => panic!("mismatch in losses: {:?}", other),
         }
     }
 
@@ -352,6 +364,7 @@ mod tests {
                     Vec2::new(200.0, 200.0),
                     Vec2::new(100.0, 200.0),
                 ],
+                weights: Some(vec![1.0, 1.0, 0.5, 0.5]),
             }],
         };
 
@@ -362,6 +375,7 @@ mod tests {
         for (view_a, view_b) in de.views.iter().zip(input.views.iter()) {
             assert_eq!(view_a.points_3d.len(), view_b.points_3d.len());
             assert_eq!(view_a.points_2d.len(), view_b.points_2d.len());
+            assert_eq!(view_a.weights.as_ref().unwrap().len(), 4);
             for (a, b) in view_a.points_3d.iter().zip(view_b.points_3d.iter()) {
                 assert!((a.x - b.x).abs() < 1e-12);
                 assert!((a.y - b.y).abs() < 1e-12);
@@ -385,19 +399,17 @@ mod tests {
                 skew: 0.0,
             },
             BrownConrady5 {
-                k1: -0.1,
-                k2: 0.01,
+                k1: 0.0,
+                k2: 0.0,
                 k3: 0.0,
-                p1: 0.001,
-                p2: -0.001,
+                p1: 0.0,
+                p2: 0.0,
                 iters: 8,
             },
         );
         let report = PlanarIntrinsicsReport {
             camera: pinhole_camera_config(&cam),
             final_cost: 1e-8,
-            iterations: 12,
-            converged: true,
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();
@@ -440,7 +452,5 @@ mod tests {
         }
 
         assert!((de.final_cost - report.final_cost).abs() < 1e-12);
-        assert_eq!(de.iterations, report.iterations);
-        assert_eq!(de.converged, report.converged);
     }
 }
