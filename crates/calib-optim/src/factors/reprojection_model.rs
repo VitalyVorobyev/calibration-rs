@@ -188,14 +188,26 @@ fn tilt_projection_matrix_generic<T: RealField>(tau_x: T, tau_y: T) -> nalgebra:
     let one = T::one();
 
     let rot_x = nalgebra::Matrix3::new(
-        one.clone(), zero.clone(), zero.clone(),
-        zero.clone(), c_tx.clone(), s_tx.clone(),
-        zero.clone(), -s_tx.clone(), c_tx,
+        one.clone(),
+        zero.clone(),
+        zero.clone(),
+        zero.clone(),
+        c_tx.clone(),
+        s_tx.clone(),
+        zero.clone(),
+        -s_tx.clone(),
+        c_tx,
     );
     let rot_y = nalgebra::Matrix3::new(
-        c_ty.clone(), zero.clone(), -s_ty.clone(),
-        zero.clone(), one.clone(), zero.clone(),
-        s_ty.clone(), zero.clone(), c_ty,
+        c_ty.clone(),
+        zero.clone(),
+        -s_ty.clone(),
+        zero.clone(),
+        one.clone(),
+        zero.clone(),
+        s_ty.clone(),
+        zero.clone(),
+        c_ty,
     );
     let rot_xy = rot_y * rot_x;
 
@@ -204,9 +216,15 @@ fn tilt_projection_matrix_generic<T: RealField>(tau_x: T, tau_y: T) -> nalgebra:
     let r12 = rot_xy[(1, 2)].clone();
 
     nalgebra::Matrix3::new(
-        r22.clone(), zero.clone(), -r02,
-        zero.clone(), r22.clone(), -r12,
-        zero.clone(), zero.clone(), one,
+        r22.clone(),
+        zero.clone(),
+        -r02,
+        zero.clone(),
+        r22.clone(),
+        -r12,
+        zero.clone(),
+        zero.clone(),
+        one,
     ) * rot_xy
 }
 
@@ -221,7 +239,10 @@ fn apply_scheimpflug_generic<T: RealField>(x_norm: T, y_norm: T, tau_x: T, tau_y
     } else {
         eps
     };
-    (p_tilted.x.clone() / z_safe.clone(), p_tilted.y.clone() / z_safe)
+    (
+        p_tilted.x.clone() / z_safe.clone(),
+        p_tilted.y.clone() / z_safe,
+    )
 }
 
 /// Compute reprojection residual with Scheimpflug sensor, distortion, intrinsics, and SE3 pose.

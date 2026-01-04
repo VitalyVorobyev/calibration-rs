@@ -418,7 +418,11 @@ pub fn solve_quartic_real(a: Real, b: Real, c: Real, d: Real, e: Real) -> Vec<Re
 /// - Fundamental matrix estimation (extract F from nullspace)
 /// - Essential matrix estimation (extract E from nullspace)
 pub fn mat3_from_svd_row(v_t: &DMatrix<Real>, row_idx: usize) -> Mat3 {
-    assert_eq!(v_t.ncols(), 9, "Expected 9 columns for 3x3 matrix extraction");
+    assert_eq!(
+        v_t.ncols(),
+        9,
+        "Expected 9 columns for 3x3 matrix extraction"
+    );
     let mut m = Mat3::zeros();
     for r in 0..3 {
         for c in 0..3 {
@@ -486,7 +490,10 @@ mod tests {
         assert!(cy.abs() < 1e-10, "Centroid y not at origin: {}", cy);
 
         // Check mean distance is sqrt(2)
-        let mean_dist: f64 = norm.iter().map(|p| (p.x * p.x + p.y * p.y).sqrt()).sum::<f64>()
+        let mean_dist: f64 = norm
+            .iter()
+            .map(|p| (p.x * p.x + p.y * p.y).sqrt())
+            .sum::<f64>()
             / norm.len() as f64;
         assert!(
             (mean_dist - 2.0_f64.sqrt()).abs() < 1e-10,

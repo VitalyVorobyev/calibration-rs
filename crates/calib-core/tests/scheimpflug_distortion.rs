@@ -242,9 +242,8 @@ fn combined_scheimpflug_distortion_unproject() {
             .project_point(&Pt3::from(point_on_ray))
             .expect("ray point should project");
 
-        let reproject_diff = ((reprojected.x - pixel.x).powi(2)
-            + (reprojected.y - pixel.y).powi(2))
-        .sqrt();
+        let reproject_diff =
+            ((reprojected.x - pixel.x).powi(2) + (reprojected.y - pixel.y).powi(2)).sqrt();
 
         assert!(
             reproject_diff < 1e-3,
