@@ -124,6 +124,8 @@ pub enum FactorKind {
     ReprojPointPinhole4 { pw: [f64; 3], uv: [f64; 2], w: f64 },
     /// Reprojection residual with pinhole intrinsics, Brown-Conrady distortion, and SE3 pose.
     ReprojPointPinhole4Dist5 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    /// Reprojection with pinhole, distortion, Scheimpflug sensor, and SE3 pose.
+    ReprojPointPinhole4Dist5Scheimpflug2 { pw: [f64; 3], uv: [f64; 2], w: f64 },
     /// Placeholder for future prior factors.
     Prior,
     /// Placeholder for future distortion-aware reprojection.
@@ -136,6 +138,7 @@ impl FactorKind {
         match self {
             FactorKind::ReprojPointPinhole4 { .. } => 2,
             FactorKind::ReprojPointPinhole4Dist5 { .. } => 2,
+            FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 { .. } => 2,
             FactorKind::Prior => 0,
             FactorKind::ReprojPointWithDistortion => 2,
         }
@@ -312,6 +315,40 @@ impl ProblemIR {
                     ensure!(
                         pose.dim == 7 && pose.manifold == ManifoldKind::SE3,
                         "distortion reprojection expects 7D SE3 pose, got dim={} manifold={:?}",
+                        pose.dim,
+                        pose.manifold
+                    );
+                }
+                FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 { .. } => {
+                    ensure!(
+                        residual.params.len() == 4,
+                        "Scheimpflug distortion reprojection factor requires 4 params [cam, dist, sensor, pose]"
+                    );
+                    let cam = &self.params[residual.params[0].0];
+                    let dist = &self.params[residual.params[1].0];
+                    let sensor = &self.params[residual.params[2].0];
+                    let pose = &self.params[residual.params[3].0];
+                    ensure!(
+                        cam.dim == 4 && cam.manifold == ManifoldKind::Euclidean,
+                        "Scheimpflug reprojection expects 4D Euclidean intrinsics, got dim={} manifold={:?}",
+                        cam.dim,
+                        cam.manifold
+                    );
+                    ensure!(
+                        dist.dim == 5 && dist.manifold == ManifoldKind::Euclidean,
+                        "Scheimpflug reprojection expects 5D Euclidean distortion, got dim={} manifold={:?}",
+                        dist.dim,
+                        dist.manifold
+                    );
+                    ensure!(
+                        sensor.dim == 2 && sensor.manifold == ManifoldKind::Euclidean,
+                        "Scheimpflug reprojection expects 2D Euclidean sensor, got dim={} manifold={:?}",
+                        sensor.dim,
+                        sensor.manifold
+                    );
+                    ensure!(
+                        pose.dim == 7 && pose.manifold == ManifoldKind::SE3,
+                        "Scheimpflug reprojection expects 7D SE3 pose, got dim={} manifold={:?}",
                         pose.dim,
                         pose.manifold
                     );
