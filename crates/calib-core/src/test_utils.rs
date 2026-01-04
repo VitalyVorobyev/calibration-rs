@@ -4,7 +4,7 @@
 //! but is not intended for production use. It provides shared data structures
 //! and helper functions for working with calibration test data.
 
-use crate::{BrownConrady5, DistortionModel, Mat3, Pt2, Real, Vec2, Vec3};
+use crate::{BrownConrady5, Mat3, Pt2, Real, Vec2};
 use serde::Deserialize;
 
 /// A calibration board view with detections for multiple cameras.
@@ -49,6 +49,11 @@ pub struct CornerInfo {
 
 /// Undistort a pixel coordinate using intrinsics and distortion model.
 ///
+/// This is a wrapper around [`crate::math::undistort_pixel`] that accepts
+/// the Brown-Conrady distortion model specifically. Use this function in tests
+/// for backward compatibility, or use the generic version from the math module
+/// for production code.
+///
 /// # Arguments
 /// * `pixel` - Distorted pixel coordinate
 /// * `intrinsics` - Camera intrinsics matrix K
@@ -56,24 +61,19 @@ pub struct CornerInfo {
 ///
 /// # Returns
 /// Undistorted normalized coordinates (on the Z=1 plane in camera frame).
-///
-/// # Algorithm
-/// 1. Convert pixel to normalized coordinates: `n = K^-1 * [x, y, 1]^T`
-/// 2. Apply iterative undistortion: `n_undist = distortion.undistort(n)`
 pub fn undistort_pixel_normalized(
     pixel: Pt2,
     intrinsics: &Mat3,
     distortion: &BrownConrady5<Real>,
 ) -> Vec2 {
-    let k_inv = intrinsics
-        .try_inverse()
-        .expect("intrinsics matrix should be invertible");
-    let v = k_inv * Vec3::new(pixel.x, pixel.y, 1.0);
-    let n = Vec2::new(v.x / v.z, v.y / v.z);
-    distortion.undistort(&n)
+    crate::math::undistort_pixel(pixel, intrinsics, distortion)
 }
 
 /// Project normalized coordinates to pixel coordinates using intrinsics.
+///
+/// This is a wrapper around [`crate::math::normalized_to_pixel`]. Use this
+/// function in tests for backward compatibility, or use the version from
+/// the math module for production code.
 ///
 /// # Arguments
 /// * `normalized` - Normalized coordinates (on Z=1 plane)
@@ -82,8 +82,7 @@ pub fn undistort_pixel_normalized(
 /// # Returns
 /// Pixel coordinates computed as `K * [x, y, 1]^T` (homogeneous division applied).
 pub fn pixel_from_normalized(normalized: Vec2, intrinsics: &Mat3) -> Pt2 {
-    let v = intrinsics * Vec3::new(normalized.x, normalized.y, 1.0);
-    Pt2::new(v.x / v.z, v.y / v.z)
+    crate::math::normalized_to_pixel(normalized, intrinsics)
 }
 
 /// Build corner info list with ground truth undistortion applied.
