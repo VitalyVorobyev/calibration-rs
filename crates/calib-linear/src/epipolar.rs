@@ -7,6 +7,7 @@
 //! - Essential matrix `E` expects **normalized coordinates** (after applying
 //!   `K^{-1}`), or equivalently calibrated rays on the normalized image plane.
 
+use crate::math::{mat3_from_svd_row, normalize_points_2d, solve_cubic_real};
 use calib_core::{ransac_fit, Estimator, Mat3, Pt2, RansacOptions, Real, Vec3};
 use nalgebra::{linalg::Schur, DMatrix, SMatrix};
 use thiserror::Error;
@@ -36,130 +37,6 @@ pub enum EpipolarError {
 /// All solvers are deterministic and use SVD-based nullspace extraction.
 #[derive(Debug, Clone, Copy)]
 pub struct EpipolarSolver;
-
-fn normalize_points(points: &[Pt2]) -> Option<(Vec<Pt2>, Mat3)> {
-    if points.is_empty() {
-        return None;
-    }
-
-    let n = points.len() as Real;
-    let mut cx = 0.0;
-    let mut cy = 0.0;
-    for p in points {
-        cx += p.x;
-        cy += p.y;
-    }
-    cx /= n;
-    cy /= n;
-
-    let mut mean_dist = 0.0;
-    for p in points {
-        let dx = p.x - cx;
-        let dy = p.y - cy;
-        mean_dist += (dx * dx + dy * dy).sqrt();
-    }
-    mean_dist /= n;
-
-    if mean_dist <= Real::EPSILON {
-        return None;
-    }
-
-    let scale = (2.0_f64).sqrt() / mean_dist;
-    let t = Mat3::new(
-        scale,
-        0.0,
-        -scale * cx,
-        0.0,
-        scale,
-        -scale * cy,
-        0.0,
-        0.0,
-        1.0,
-    );
-
-    let norm = points
-        .iter()
-        .map(|p| Pt2::new((p.x - cx) * scale, (p.y - cy) * scale))
-        .collect();
-
-    Some((norm, t))
-}
-
-fn solve_quadratic_real(a: Real, b: Real, c: Real) -> Vec<Real> {
-    let eps = 1e-12;
-    if a.abs() < eps {
-        if b.abs() < eps {
-            return Vec::new();
-        }
-        return vec![-c / b];
-    }
-    let disc = b * b - 4.0 * a * c;
-    if disc.abs() < eps {
-        return vec![-b / (2.0 * a)];
-    }
-    if disc < 0.0 {
-        return Vec::new();
-    }
-    let sqrt_disc = disc.sqrt();
-    let r1 = (-b + sqrt_disc) / (2.0 * a);
-    let r2 = (-b - sqrt_disc) / (2.0 * a);
-    if (r1 - r2).abs() < 1e-8 {
-        vec![r1]
-    } else {
-        vec![r1, r2]
-    }
-}
-
-fn solve_cubic_real(a: Real, b: Real, c: Real, d: Real) -> Vec<Real> {
-    let eps = 1e-12;
-    if a.abs() < eps {
-        return solve_quadratic_real(b, c, d);
-    }
-
-    let a_inv = 1.0 / a;
-    let b = b * a_inv;
-    let c = c * a_inv;
-    let d = d * a_inv;
-
-    let p = c - b * b / 3.0;
-    let q = 2.0 * b * b * b / 27.0 - b * c / 3.0 + d;
-
-    let disc = (q * 0.5) * (q * 0.5) + (p / 3.0) * (p / 3.0) * (p / 3.0);
-    let shift = b / 3.0;
-
-    let mut roots = Vec::new();
-    if disc > eps {
-        let sqrt_disc = disc.sqrt();
-        let u = (-q * 0.5 + sqrt_disc).signum() * (-q * 0.5 + sqrt_disc).abs().powf(1.0 / 3.0);
-        let v = (-q * 0.5 - sqrt_disc).signum() * (-q * 0.5 - sqrt_disc).abs().powf(1.0 / 3.0);
-        roots.push(u + v - shift);
-    } else if disc.abs() <= eps {
-        let u = (-q * 0.5).signum() * (-q * 0.5).abs().powf(1.0 / 3.0);
-        roots.push(2.0 * u - shift);
-        roots.push(-u - shift);
-    } else {
-        let r = (-p / 3.0).sqrt();
-        let phi = ((-q * 0.5) / (r * r * r)).clamp(-1.0, 1.0).acos();
-        let two_r = 2.0 * r;
-        roots.push(two_r * (phi / 3.0).cos() - shift);
-        roots.push(two_r * ((phi + 2.0 * std::f64::consts::PI) / 3.0).cos() - shift);
-        roots.push(two_r * ((phi + 4.0 * std::f64::consts::PI) / 3.0).cos() - shift);
-    }
-
-    roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    roots.dedup_by(|a, b| (*a - *b).abs() < 1e-8);
-    roots
-}
-
-fn mat3_from_row(row: nalgebra::RowDVector<Real>) -> Mat3 {
-    let mut m = Mat3::zeros();
-    for r in 0..3 {
-        for c in 0..3 {
-            m[(r, c)] = row[3 * r + c];
-        }
-    }
-    m
-}
 
 const MONOMIALS: [(u8, u8, u8); 20] = [
     (3, 0, 0), // x^3
@@ -469,8 +346,8 @@ impl EpipolarSolver {
             return Err(EpipolarError::SvdFailed);
         }
 
-        let f1 = mat3_from_row(v_t.row(v_t.nrows() - 2).into_owned());
-        let f2 = mat3_from_row(v_t.row(v_t.nrows() - 1).into_owned());
+        let f1 = mat3_from_svd_row(&v_t, v_t.nrows() - 2);
+        let f2 = mat3_from_svd_row(&v_t, v_t.nrows() - 1);
 
         let det0 = f2.determinant();
         let det1 = (f2 + f1).determinant();
@@ -532,8 +409,8 @@ impl EpipolarSolver {
             });
         }
 
-        let (pts1_n, t1) = normalize_points(pts1).ok_or(EpipolarError::SvdFailed)?;
-        let (pts2_n, t2) = normalize_points(pts2).ok_or(EpipolarError::SvdFailed)?;
+        let (pts1_n, t1) = normalize_points_2d(pts1).ok_or(EpipolarError::SvdFailed)?;
+        let (pts2_n, t2) = normalize_points_2d(pts2).ok_or(EpipolarError::SvdFailed)?;
 
         let mut a = DMatrix::<Real>::zeros(5, 9);
         for (i, (p1, p2)) in pts1_n.iter().zip(pts2_n.iter()).enumerate() {
@@ -568,10 +445,10 @@ impl EpipolarSolver {
             return Err(EpipolarError::SvdFailed);
         }
 
-        let e1 = mat3_from_row(v_t.row(v_t.nrows() - 4).into_owned());
-        let e2 = mat3_from_row(v_t.row(v_t.nrows() - 3).into_owned());
-        let e3 = mat3_from_row(v_t.row(v_t.nrows() - 2).into_owned());
-        let e4 = mat3_from_row(v_t.row(v_t.nrows() - 1).into_owned());
+        let e1 = mat3_from_svd_row(&v_t, v_t.nrows() - 4);
+        let e2 = mat3_from_svd_row(&v_t, v_t.nrows() - 3);
+        let e3 = mat3_from_svd_row(&v_t, v_t.nrows() - 2);
+        let e4 = mat3_from_svd_row(&v_t, v_t.nrows() - 1);
 
         let eqs = build_polynomial_system(&e1, &e2, &e3, &e4);
 

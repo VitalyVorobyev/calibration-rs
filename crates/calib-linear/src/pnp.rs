@@ -9,13 +9,13 @@
 //! All methods estimate a pose `T_C_W`: transform from world coordinates into
 //! the camera frame.
 
+use crate::math::{mat34_from_svd_row, solve_quartic_real};
 use calib_core::{
     ransac_fit, Camera, Estimator, FxFyCxCySkew, IdentitySensor, Iso3, Mat3, Mat4, NoDistortion,
     Pinhole, Pt3, RansacOptions, Real, Vec2, Vec3,
 };
 use nalgebra::{
-    linalg::{Schur, SymmetricEigen},
-    DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion, Vector3,
+    linalg::SymmetricEigen, DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion, Vector3,
 };
 use thiserror::Error;
 
@@ -56,31 +56,6 @@ pub enum PnpError {
 #[derive(Debug, Clone, Copy)]
 pub struct PnpSolver;
 
-fn solve_quadratic_real(a: Real, b: Real, c: Real) -> Vec<Real> {
-    let eps = 1e-12;
-    if a.abs() < eps {
-        if b.abs() < eps {
-            return Vec::new();
-        }
-        return vec![-c / b];
-    }
-    let disc = b * b - 4.0 * a * c;
-    if disc.abs() < eps {
-        return vec![-b / (2.0 * a)];
-    }
-    if disc < 0.0 {
-        return Vec::new();
-    }
-    let sqrt_disc = disc.sqrt();
-    let r1 = (-b + sqrt_disc) / (2.0 * a);
-    let r2 = (-b - sqrt_disc) / (2.0 * a);
-    if (r1 - r2).abs() < 1e-8 {
-        vec![r1]
-    } else {
-        vec![r1, r2]
-    }
-}
-
 fn poly_mul_1d(a: &[Real; 5], b: &[Real; 5]) -> [Real; 5] {
     let mut out = [0.0; 5];
     for i in 0..5 {
@@ -92,77 +67,6 @@ fn poly_mul_1d(a: &[Real; 5], b: &[Real; 5]) -> [Real; 5] {
         }
     }
     out
-}
-
-fn solve_cubic_real(a: Real, b: Real, c: Real, d: Real) -> Vec<Real> {
-    let eps = 1e-12;
-    if a.abs() < eps {
-        return solve_quadratic_real(b, c, d);
-    }
-
-    let a_inv = 1.0 / a;
-    let b = b * a_inv;
-    let c = c * a_inv;
-    let d = d * a_inv;
-
-    let p = c - b * b / 3.0;
-    let q = 2.0 * b * b * b / 27.0 - b * c / 3.0 + d;
-
-    let disc = (q * 0.5) * (q * 0.5) + (p / 3.0) * (p / 3.0) * (p / 3.0);
-    let shift = b / 3.0;
-
-    let mut roots = Vec::new();
-    if disc > eps {
-        let sqrt_disc = disc.sqrt();
-        let u = (-q * 0.5 + sqrt_disc).signum() * (-q * 0.5 + sqrt_disc).abs().powf(1.0 / 3.0);
-        let v = (-q * 0.5 - sqrt_disc).signum() * (-q * 0.5 - sqrt_disc).abs().powf(1.0 / 3.0);
-        roots.push(u + v - shift);
-    } else if disc.abs() <= eps {
-        let u = (-q * 0.5).signum() * (-q * 0.5).abs().powf(1.0 / 3.0);
-        roots.push(2.0 * u - shift);
-        roots.push(-u - shift);
-    } else {
-        let r = (-p / 3.0).sqrt();
-        let phi = ((-q * 0.5) / (r * r * r)).clamp(-1.0, 1.0).acos();
-        let two_r = 2.0 * r;
-        roots.push(two_r * (phi / 3.0).cos() - shift);
-        roots.push(two_r * ((phi + 2.0 * std::f64::consts::PI) / 3.0).cos() - shift);
-        roots.push(two_r * ((phi + 4.0 * std::f64::consts::PI) / 3.0).cos() - shift);
-    }
-
-    roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    roots.dedup_by(|a, b| (*a - *b).abs() < 1e-8);
-    roots
-}
-
-fn solve_quartic_real(a: Real, b: Real, c: Real, d: Real, e: Real) -> Vec<Real> {
-    let eps = 1e-12;
-    if a.abs() < eps {
-        return solve_cubic_real(b, c, d, e);
-    }
-
-    let mut comp = DMatrix::<Real>::zeros(4, 4);
-    comp[(0, 0)] = -b / a;
-    comp[(0, 1)] = -c / a;
-    comp[(0, 2)] = -d / a;
-    comp[(0, 3)] = -e / a;
-    comp[(1, 0)] = 1.0;
-    comp[(2, 1)] = 1.0;
-    comp[(3, 2)] = 1.0;
-
-    let schur = Schur::new(comp);
-    let eigvals = schur.complex_eigenvalues();
-
-    let mut roots = Vec::new();
-    for val in eigvals.iter() {
-        if val.im.abs() < 1e-8 {
-            roots.push(val.re);
-        }
-    }
-
-    roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    roots.dedup_by(|a, b| (*a - *b).abs() < 1e-8);
-    roots
 }
 
 fn pose_from_points(world: &[Pt3], camera: &[Vec3]) -> Result<Iso3, PnpError> {
@@ -303,15 +207,8 @@ impl PnpSolver {
         // Solve A p = 0 via SVD: take the singular vector for the smallest singular value.
         let svd = a.svd(true, true);
         let v_t = svd.v_t.ok_or(PnpError::SvdFailed)?;
-        let p_vec = v_t.row(v_t.nrows() - 1);
-
         // Reshape into 3x4 matrix P = [R|t] (up to scale).
-        let mut p_mtx = nalgebra::Matrix3x4::<Real>::zeros();
-        for r in 0..3 {
-            for c in 0..4 {
-                p_mtx[(r, c)] = p_vec[4 * r + c];
-            }
-        }
+        let p_mtx = mat34_from_svd_row(&v_t, v_t.nrows() - 1);
 
         // De-normalize 3D points: P = P_norm * T_world.
         let p_mtx = p_mtx * t_world;
