@@ -211,16 +211,8 @@ fn stereo_rig_extrinsics_converges() {
         dt, ang
     );
 
-    assert!(
-        dt < 1e-3,
-        "camera 1 translation error too large: {}",
-        dt
-    );
-    assert!(
-        ang < 1e-3,
-        "camera 1 rotation error too large: {}",
-        ang
-    );
+    assert!(dt < 1e-3, "camera 1 translation error too large: {}", dt);
+    assert!(ang < 1e-3, "camera 1 rotation error too large: {}", ang);
 
     println!("✓ Stereo rig extrinsics converged to ground truth");
     println!("  Final cost: {:.6e}", result.final_cost);

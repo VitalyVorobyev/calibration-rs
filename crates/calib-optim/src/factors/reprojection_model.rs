@@ -3,6 +3,30 @@
 use crate::math::projection::project_pinhole;
 use nalgebra::{DVector, DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector3};
 
+/// Observation data for reprojection residuals.
+///
+/// Groups together the 3D world point, 2D pixel observation, and weight.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ObservationData {
+    /// 3D point in world/target frame.
+    pub pw: [f64; 3],
+    /// 2D pixel observation.
+    pub uv: [f64; 2],
+    /// Observation weight.
+    pub w: f64,
+}
+
+/// Robot pose data for hand-eye calibration.
+///
+/// Groups together the known robot pose (base-to-gripper) and calibration mode.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RobotPoseData {
+    /// Known robot pose as SE3: [qx, qy, qz, qw, tx, ty, tz].
+    pub robot_se3: [f64; 7],
+    /// Hand-eye calibration mode.
+    pub mode: crate::ir::HandEyeMode,
+}
+
 /// Compute a 2D reprojection residual for pinhole intrinsics and SE3 pose.
 ///
 /// The residual is scaled by `sqrt(w)` and ordered `[u_residual, v_residual]`.

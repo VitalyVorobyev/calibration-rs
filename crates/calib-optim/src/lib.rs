@@ -132,7 +132,7 @@
 //!
 //! # Performance Considerations
 //!
-//! - **Initialization**: Always initialize with linear methods ([`calib_linear`] crate) for faster convergence
+//! - **Initialization**: Always initialize with linear methods (the `calib-linear` crate) for faster convergence
 //! - **Robust Loss**: Use Huber with `scale ≈ 2.0` for real data with corner detection noise
 //! - **Distortion**: Fix `k3` by default unless calibrating wide-angle lenses
 //! - **Manifolds**: SE3/SO3 parameters use proper Lie group updates for stability

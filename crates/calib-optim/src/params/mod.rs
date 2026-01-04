@@ -10,7 +10,7 @@
 //!
 //! - [`intrinsics::Intrinsics4`] - Pinhole camera intrinsics (fx, fy, cx, cy)
 //! - [`distortion::BrownConrady5Params`] - Brown-Conrady distortion (k1, k2, k3, p1, p2)
-//! - [`pose_se3::SE3Params`] - 6-DOF camera pose as SE(3) Lie group
+//! - [`pose_se3::iso3_to_se3_dvec`] / [`pose_se3::se3_dvec_to_iso3`] - SE(3) pose conversions
 //!
 //! # Example
 //!

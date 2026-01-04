@@ -9,7 +9,9 @@ use crate::params::distortion::BrownConrady5Params;
 use crate::params::intrinsics::Intrinsics4;
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use anyhow::{ensure, Result};
-use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2};
+use calib_core::{
+    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
+};
 use nalgebra::DVector;
 use std::collections::HashMap;
 
@@ -273,7 +275,8 @@ pub fn optimize_rig_extrinsics(
 
     // Extract camera
     let intrinsics = Intrinsics4::from_dvec(solution.params.get("cam").unwrap().as_view())?;
-    let distortion = BrownConrady5Params::from_dvec(solution.params.get("dist").unwrap().as_view())?;
+    let distortion =
+        BrownConrady5Params::from_dvec(solution.params.get("dist").unwrap().as_view())?;
     let camera = Camera::new(
         Pinhole,
         distortion.to_core(),
