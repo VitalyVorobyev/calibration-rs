@@ -1,5 +1,6 @@
 use crate::backend::{BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend};
 use crate::factors::reprojection_model::{
+    reproj_residual_pinhole4_dist5_scheimpflug2_se3_generic,
     reproj_residual_pinhole4_dist5_se3_generic, reproj_residual_pinhole4_se3_generic,
 };
 use crate::ir::{FactorKind, ManifoldKind, ProblemIR, RobustLoss};
@@ -201,6 +202,14 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor>
             };
             Ok((Box::new(factor), loss))
         }
+        FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 { pw, uv, w } => {
+            let factor = TinyReprojPointDistScheimpflugFactor {
+                pw: *pw,
+                uv: *uv,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
+        }
         other => Err(anyhow!("factor kind {:?} not supported", other)),
     }
 }
@@ -244,6 +253,33 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistFactor {
             params[0].as_view(), // intrinsics
             params[1].as_view(), // distortion
             params[2].as_view(), // pose
+            self.pw,
+            self.uv,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyReprojPointDistScheimpflugFactor {
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistScheimpflugFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            4,
+            "expected [cam, dist, sensor, pose] parameter blocks"
+        );
+        let r = reproj_residual_pinhole4_dist5_scheimpflug2_se3_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // sensor (Scheimpflug)
+            params[3].as_view(), // pose
             self.pw,
             self.uv,
             self.w,

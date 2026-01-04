@@ -3,7 +3,8 @@
 //! Provides a normalized DLT solver for the 3x4 projection matrix `P` and an
 //! RQ decomposition to recover intrinsics and rotation.
 
-use calib_core::{Mat3, Mat4, Pt2, Pt3, Real, Vec3};
+use crate::math::{mat34_from_svd_row, normalize_points_2d, normalize_points_3d};
+use calib_core::{Mat3, Pt2, Pt3, Real, Vec3};
 use nalgebra::{DMatrix, Matrix3x4};
 use thiserror::Error;
 
@@ -39,113 +40,6 @@ pub struct CameraMatrixDecomposition {
     pub r: Mat3,
     /// Translation vector in camera coordinates.
     pub t: Vec3,
-}
-
-fn normalize_points_2d(points: &[Pt2]) -> Option<(Vec<Pt2>, Mat3)> {
-    if points.is_empty() {
-        return None;
-    }
-
-    let n = points.len() as Real;
-    let mut cx = 0.0;
-    let mut cy = 0.0;
-    for p in points {
-        cx += p.x;
-        cy += p.y;
-    }
-    cx /= n;
-    cy /= n;
-
-    let mut mean_dist = 0.0;
-    for p in points {
-        let dx = p.x - cx;
-        let dy = p.y - cy;
-        mean_dist += (dx * dx + dy * dy).sqrt();
-    }
-    mean_dist /= n;
-
-    if mean_dist <= Real::EPSILON {
-        return None;
-    }
-
-    let scale = (2.0_f64).sqrt() / mean_dist;
-    let t = Mat3::new(
-        scale,
-        0.0,
-        -scale * cx,
-        0.0,
-        scale,
-        -scale * cy,
-        0.0,
-        0.0,
-        1.0,
-    );
-
-    let norm = points
-        .iter()
-        .map(|p| Pt2::new((p.x - cx) * scale, (p.y - cy) * scale))
-        .collect();
-
-    Some((norm, t))
-}
-
-fn normalize_points_3d(points: &[Pt3]) -> Option<(Vec<Pt3>, Mat4)> {
-    if points.is_empty() {
-        return None;
-    }
-
-    let n = points.len() as Real;
-    let mut cx = 0.0;
-    let mut cy = 0.0;
-    let mut cz = 0.0;
-    for p in points {
-        cx += p.x;
-        cy += p.y;
-        cz += p.z;
-    }
-    cx /= n;
-    cy /= n;
-    cz /= n;
-
-    let mut mean_dist = 0.0;
-    for p in points {
-        let dx = p.x - cx;
-        let dy = p.y - cy;
-        let dz = p.z - cz;
-        mean_dist += (dx * dx + dy * dy + dz * dz).sqrt();
-    }
-    mean_dist /= n;
-
-    if mean_dist <= Real::EPSILON {
-        return None;
-    }
-
-    let scale = (3.0_f64).sqrt() / mean_dist;
-    let t = Mat4::new(
-        scale,
-        0.0,
-        0.0,
-        -scale * cx,
-        0.0,
-        scale,
-        0.0,
-        -scale * cy,
-        0.0,
-        0.0,
-        scale,
-        -scale * cz,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    );
-
-    let norm = points
-        .iter()
-        .map(|p| Pt3::new((p.x - cx) * scale, (p.y - cy) * scale, (p.z - cz) * scale))
-        .collect();
-
-    Some((norm, t))
 }
 
 /// Estimate a camera projection matrix `P` using normalized DLT.
@@ -200,14 +94,7 @@ pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34, CameraMa
 
     let svd = a.svd(true, true);
     let v_t = svd.v_t.ok_or(CameraMatrixError::SvdFailed)?;
-    let p_vec = v_t.row(v_t.nrows() - 1);
-
-    let mut p_norm = Mat34::zeros();
-    for r in 0..3 {
-        for c in 0..4 {
-            p_norm[(r, c)] = p_vec[4 * r + c];
-        }
-    }
+    let p_norm = mat34_from_svd_row(&v_t, v_t.nrows() - 1);
 
     let t_i_inv = t_i.try_inverse().ok_or(CameraMatrixError::SvdFailed)?;
     let p = t_i_inv * p_norm * t_w;

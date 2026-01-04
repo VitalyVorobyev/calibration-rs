@@ -174,6 +174,166 @@ pub(crate) fn reproj_residual_pinhole4_dist5_se3_generic<T: RealField>(
     SVector::<T, 2>::new(ru, rv)
 }
 
+/// Compute tilt projection matrix for Scheimpflug sensor (generic for autodiff).
+///
+/// This implements the OpenCV-compatible tilted sensor model using rotations
+/// around X and Y axes followed by z-normalization projection.
+fn tilt_projection_matrix_generic<T: RealField>(tau_x: T, tau_y: T) -> nalgebra::Matrix3<T> {
+    let s_tx = tau_x.clone().sin();
+    let c_tx = tau_x.cos();
+    let s_ty = tau_y.clone().sin();
+    let c_ty = tau_y.cos();
+
+    let zero = T::zero();
+    let one = T::one();
+
+    let rot_x = nalgebra::Matrix3::new(
+        one.clone(),
+        zero.clone(),
+        zero.clone(),
+        zero.clone(),
+        c_tx.clone(),
+        s_tx.clone(),
+        zero.clone(),
+        -s_tx.clone(),
+        c_tx,
+    );
+    let rot_y = nalgebra::Matrix3::new(
+        c_ty.clone(),
+        zero.clone(),
+        -s_ty.clone(),
+        zero.clone(),
+        one.clone(),
+        zero.clone(),
+        s_ty.clone(),
+        zero.clone(),
+        c_ty,
+    );
+    let rot_xy = rot_y * rot_x;
+
+    let r22 = rot_xy[(2, 2)].clone();
+    let r02 = rot_xy[(0, 2)].clone();
+    let r12 = rot_xy[(1, 2)].clone();
+
+    nalgebra::Matrix3::new(
+        r22.clone(),
+        zero.clone(),
+        -r02,
+        zero.clone(),
+        r22.clone(),
+        -r12,
+        zero.clone(),
+        zero.clone(),
+        one,
+    ) * rot_xy
+}
+
+/// Apply Scheimpflug sensor homography to normalized coordinates (generic for autodiff).
+fn apply_scheimpflug_generic<T: RealField>(x_norm: T, y_norm: T, tau_x: T, tau_y: T) -> (T, T) {
+    let h = tilt_projection_matrix_generic(tau_x, tau_y);
+    let p = nalgebra::Vector3::new(x_norm, y_norm, T::one());
+    let p_tilted = h * p;
+    let eps = T::from_f64(1e-12).unwrap();
+    let z_safe = if p_tilted.z.clone() > eps.clone() {
+        p_tilted.z.clone()
+    } else {
+        eps
+    };
+    (
+        p_tilted.x.clone() / z_safe.clone(),
+        p_tilted.y.clone() / z_safe,
+    )
+}
+
+/// Compute reprojection residual with Scheimpflug sensor, distortion, intrinsics, and SE3 pose.
+///
+/// # Parameters
+/// - `intr`: Intrinsics vector `[fx, fy, cx, cy]`
+/// - `dist`: Distortion vector `[k1, k2, k3, p1, p2]`
+/// - `sensor`: Scheimpflug parameters `[tilt_x, tilt_y]`
+/// - `pose`: SE3 pose `[qx, qy, qz, qw, tx, ty, tz]`
+/// - `pw`: 3D point in world coordinates
+/// - `uv`: 2D measured pixel coordinates
+/// - `w`: Weight for this observation
+pub(crate) fn reproj_residual_pinhole4_dist5_scheimpflug2_se3_generic<T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
+    pose: DVectorView<'_, T>,
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+) -> SVector<T, 2> {
+    debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
+    debug_assert!(dist.len() >= 5, "distortion must have 5 params");
+    debug_assert!(sensor.len() >= 2, "sensor must have 2 params");
+    debug_assert!(pose.len() == 7, "pose must have 7 params");
+
+    let fx = intr[0].clone();
+    let fy = intr[1].clone();
+    let cx = intr[2].clone();
+    let cy = intr[3].clone();
+
+    let k1 = dist[0].clone();
+    let k2 = dist[1].clone();
+    let k3 = dist[2].clone();
+    let p1 = dist[3].clone();
+    let p2 = dist[4].clone();
+
+    let tau_x = sensor[0].clone();
+    let tau_y = sensor[1].clone();
+
+    let qx = pose[0].clone();
+    let qy = pose[1].clone();
+    let qz = pose[2].clone();
+    let qw = pose[3].clone();
+    let tx = pose[4].clone();
+    let ty = pose[5].clone();
+    let tz = pose[6].clone();
+
+    let quat = Quaternion::new(qw, qx, qy, qz);
+    let rot = UnitQuaternion::from_quaternion(quat);
+    let t = Vector3::new(tx, ty, tz);
+
+    // Transform to camera frame
+    let pw_t = Vector3::new(
+        T::from_f64(pw[0]).unwrap(),
+        T::from_f64(pw[1]).unwrap(),
+        T::from_f64(pw[2]).unwrap(),
+    );
+    let pc = rot.transform_vector(&pw_t) + t;
+
+    // Project to normalized coordinates
+    let eps = T::from_f64(1e-12).unwrap();
+    let z_safe = if pc.z.clone() > eps.clone() {
+        pc.z.clone()
+    } else {
+        eps
+    };
+    let x_norm = pc.x.clone() / z_safe.clone();
+    let y_norm = pc.y.clone() / z_safe;
+
+    // Apply distortion
+    let (x_dist, y_dist) = distort_brown_conrady_generic(x_norm, y_norm, k1, k2, k3, p1, p2);
+
+    // Apply Scheimpflug sensor transformation
+    let (x_sensor, y_sensor) = apply_scheimpflug_generic(x_dist, y_dist, tau_x, tau_y);
+
+    // Apply intrinsics
+    let u_proj = fx * x_sensor + cx;
+    let v_proj = fy * y_sensor + cy;
+
+    // Compute weighted residual
+    let sqrt_w = T::from_f64(w.sqrt()).unwrap();
+    let u_meas = T::from_f64(uv[0]).unwrap();
+    let v_meas = T::from_f64(uv[1]).unwrap();
+
+    let ru = (u_meas - u_proj) * sqrt_w.clone();
+    let rv = (v_meas - v_proj) * sqrt_w;
+
+    SVector::<T, 2>::new(ru, rv)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

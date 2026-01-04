@@ -7,6 +7,7 @@
 //! Input points should be in consistent units; normalization is applied
 //! internally for numerical stability and the output is de-normalized.
 
+use crate::math::normalize_points_2d;
 use calib_core::{
     from_homogeneous, ransac_fit, to_homogeneous, Estimator, Mat3, Pt2, RansacOptions,
 };
@@ -31,54 +32,6 @@ pub enum HomographyError {
 #[derive(Debug, Clone, Copy)]
 pub struct HomographySolver;
 
-fn normalize_points(points: &[Pt2]) -> Option<(Vec<Pt2>, Mat3)> {
-    if points.is_empty() {
-        return None;
-    }
-
-    let n = points.len() as f64;
-    let mut cx = 0.0;
-    let mut cy = 0.0;
-    for p in points {
-        cx += p.x;
-        cy += p.y;
-    }
-    cx /= n;
-    cy /= n;
-
-    let mut mean_dist = 0.0;
-    for p in points {
-        let dx = p.x - cx;
-        let dy = p.y - cy;
-        mean_dist += (dx * dx + dy * dy).sqrt();
-    }
-    mean_dist /= n;
-
-    if mean_dist <= f64::EPSILON {
-        return None;
-    }
-
-    let scale = (2.0_f64).sqrt() / mean_dist;
-    let t = Mat3::new(
-        scale,
-        0.0,
-        -scale * cx,
-        0.0,
-        scale,
-        -scale * cy,
-        0.0,
-        0.0,
-        1.0,
-    );
-
-    let norm = points
-        .iter()
-        .map(|p| Pt2::new((p.x - cx) * scale, (p.y - cy) * scale))
-        .collect();
-
-    Some((norm, t))
-}
-
 /// Estimate `H` such that `x' ~ H x` using normalized DLT.
 ///
 /// `world` are planar points in a board or world coordinate frame, and `image`
@@ -99,8 +52,8 @@ impl HomographySolver {
             return Err(HomographyError::NotEnoughPoints(n));
         }
 
-        let (world_n, t_w) = normalize_points(world).ok_or(HomographyError::SvdFailed)?;
-        let (image_n, t_i) = normalize_points(image).ok_or(HomographyError::SvdFailed)?;
+        let (world_n, t_w) = normalize_points_2d(world).ok_or(HomographyError::SvdFailed)?;
+        let (image_n, t_i) = normalize_points_2d(image).ok_or(HomographyError::SvdFailed)?;
 
         let mut a = DMatrix::<f64>::zeros(2 * n, 9);
 

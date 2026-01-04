@@ -1,4 +1,16 @@
+//! Mathematical utilities and type definitions.
+//!
+//! This module provides fundamental types used throughout the library
+//! and utility functions for coordinate transformations.
+
 use nalgebra::{Isometry3, Matrix3, Matrix4, Point2, Point3, Vector2, Vector3};
+
+pub mod coordinate_utils;
+
+// Re-export coordinate utilities for convenience
+pub use coordinate_utils::{
+    distort_to_pixel, normalized_to_pixel, pixel_to_normalized, undistort_pixel,
+};
 
 /// Scalar type used throughout the library (currently `f64`).
 pub type Real = f64;
