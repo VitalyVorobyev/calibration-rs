@@ -334,6 +334,227 @@ pub(crate) fn reproj_residual_pinhole4_dist5_scheimpflug2_se3_generic<T: RealFie
     SVector::<T, 2>::new(ru, rv)
 }
 
+/// Reprojection residual with two composed SE3 transforms (for rig extrinsics).
+///
+/// Transform chain: P_camera = extr^-1 * pose * P_world
+/// where extr is camera-to-rig and pose is rig-to-target.
+///
+/// # Parameters
+/// - `intr`: [fx, fy, cx, cy] intrinsics
+/// - `dist`: [k1, k2, k3, p1, p2] Brown-Conrady distortion
+/// - `extr`: [qx, qy, qz, qw, tx, ty, tz] camera-to-rig SE3
+/// - `pose`: [qx, qy, qz, qw, tx, ty, tz] rig-to-target SE3
+/// - `pw`: 3D point in target/world frame
+/// - `uv`: observed pixel coordinates
+/// - `w`: weight for the residual
+pub(crate) fn reproj_residual_pinhole4_dist5_two_se3_generic<T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: DVectorView<'_, T>,
+    extr: DVectorView<'_, T>,
+    pose: DVectorView<'_, T>,
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+) -> SVector<T, 2> {
+    use nalgebra::{Quaternion, UnitQuaternion, Vector3};
+
+    // Extract SE3 from extr: [qx, qy, qz, qw, tx, ty, tz]
+    let extr_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        extr[3].clone(),
+        extr[0].clone(),
+        extr[1].clone(),
+        extr[2].clone(),
+    ));
+    let extr_t = Vector3::new(extr[4].clone(), extr[5].clone(), extr[6].clone());
+
+    // Extract SE3 from pose
+    let pose_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        pose[3].clone(),
+        pose[0].clone(),
+        pose[1].clone(),
+        pose[2].clone(),
+    ));
+    let pose_t = Vector3::new(pose[4].clone(), pose[5].clone(), pose[6].clone());
+
+    // Point in target frame
+    let pw_t = Vector3::new(
+        T::from_f64(pw[0]).unwrap(),
+        T::from_f64(pw[1]).unwrap(),
+        T::from_f64(pw[2]).unwrap(),
+    );
+
+    // Transform: target -> rig -> camera
+    let p_rig = pose_q.transform_vector(&pw_t) + pose_t;
+    let p_camera = extr_q.inverse_transform_vector(&(p_rig - extr_t));
+
+    // Project to normalized coordinates
+    let eps = T::from_f64(1e-12).unwrap();
+    let z_safe = if p_camera.z.clone() > eps.clone() {
+        p_camera.z.clone()
+    } else {
+        eps
+    };
+    let x_norm = p_camera.x.clone() / z_safe.clone();
+    let y_norm = p_camera.y.clone() / z_safe;
+
+    // Apply Brown-Conrady distortion
+    let k1 = dist[0].clone();
+    let k2 = dist[1].clone();
+    let k3 = dist[2].clone();
+    let p1 = dist[3].clone();
+    let p2 = dist[4].clone();
+    let (xd, yd) = distort_brown_conrady_generic(x_norm, y_norm, k1, k2, k3, p1, p2);
+
+    // Apply intrinsics
+    let fx = intr[0].clone();
+    let fy = intr[1].clone();
+    let cx = intr[2].clone();
+    let cy = intr[3].clone();
+
+    let u_pred = fx * xd + cx;
+    let v_pred = fy * yd + cy;
+
+    // Weighted residual
+    let sqrt_w = T::from_f64(w.sqrt()).unwrap();
+    let u_meas = T::from_f64(uv[0]).unwrap();
+    let v_meas = T::from_f64(uv[1]).unwrap();
+
+    SVector::<T, 2>::new(
+        (u_meas - u_pred) * sqrt_w.clone(),
+        (v_meas - v_pred) * sqrt_w,
+    )
+}
+
+/// Reprojection residual for hand-eye calibration with robot pose as measurement.
+///
+/// Eye-in-hand: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world
+/// Eye-to-hand: P_camera = extr^-1 * handeye * robot * target * P_world
+///
+/// # Parameters
+/// - `intr`: [fx, fy, cx, cy] intrinsics
+/// - `dist`: [k1, k2, k3, p1, p2] Brown-Conrady distortion
+/// - `extr`: [qx, qy, qz, qw, tx, ty, tz] camera-to-rig SE3
+/// - `handeye`: [qx, qy, qz, qw, tx, ty, tz] hand-eye SE3 (rig-to-gripper or rig-to-base)
+/// - `target`: [qx, qy, qz, qw, tx, ty, tz] target pose SE3
+/// - `robot_se3`: [qx, qy, qz, qw, tx, ty, tz] known robot pose (base-to-gripper)
+/// - `mode`: `HandEyeMode` specifying transform chain
+/// - `pw`: 3D point in target frame
+/// - `uv`: observed pixel coordinates
+/// - `w`: weight for the residual
+pub(crate) fn reproj_residual_pinhole4_dist5_handeye_generic<T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: DVectorView<'_, T>,
+    extr: DVectorView<'_, T>,
+    handeye: DVectorView<'_, T>,
+    target: DVectorView<'_, T>,
+    robot_se3: &[f64; 7],
+    mode: crate::ir::HandEyeMode,
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+) -> SVector<T, 2> {
+    use nalgebra::{Quaternion, UnitQuaternion, Vector3};
+
+    // Extract all SE3 parameters
+    let extr_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        extr[3].clone(),
+        extr[0].clone(),
+        extr[1].clone(),
+        extr[2].clone(),
+    ));
+    let extr_t = Vector3::new(extr[4].clone(), extr[5].clone(), extr[6].clone());
+
+    let handeye_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        handeye[3].clone(),
+        handeye[0].clone(),
+        handeye[1].clone(),
+        handeye[2].clone(),
+    ));
+    let handeye_t = Vector3::new(handeye[4].clone(), handeye[5].clone(), handeye[6].clone());
+
+    let target_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        target[3].clone(),
+        target[0].clone(),
+        target[1].clone(),
+        target[2].clone(),
+    ));
+    let target_t = Vector3::new(target[4].clone(), target[5].clone(), target[6].clone());
+
+    // Convert robot measurement to generic
+    let robot_q: UnitQuaternion<T> = UnitQuaternion::from_quaternion(Quaternion::new(
+        T::from_f64(robot_se3[3]).unwrap(),
+        T::from_f64(robot_se3[0]).unwrap(),
+        T::from_f64(robot_se3[1]).unwrap(),
+        T::from_f64(robot_se3[2]).unwrap(),
+    ));
+    let robot_t = Vector3::new(
+        T::from_f64(robot_se3[4]).unwrap(),
+        T::from_f64(robot_se3[5]).unwrap(),
+        T::from_f64(robot_se3[6]).unwrap(),
+    );
+
+    let pw_t = Vector3::new(
+        T::from_f64(pw[0]).unwrap(),
+        T::from_f64(pw[1]).unwrap(),
+        T::from_f64(pw[2]).unwrap(),
+    );
+
+    // Compose transforms based on mode
+    let p_camera = match mode {
+        crate::ir::HandEyeMode::EyeInHand => {
+            // target -> robot_base -> gripper -> rig -> camera
+            let p_base = target_q.transform_vector(&pw_t) + target_t.clone();
+            let p_gripper = robot_q.inverse_transform_vector(&(p_base - robot_t.clone()));
+            let p_rig = handeye_q.inverse_transform_vector(&(p_gripper - handeye_t.clone()));
+            extr_q.inverse_transform_vector(&(p_rig - extr_t.clone()))
+        }
+        crate::ir::HandEyeMode::EyeToHand => {
+            // target -> gripper -> robot_base -> rig -> camera
+            let p_gripper = target_q.transform_vector(&pw_t) + target_t.clone();
+            let p_base = robot_q.transform_vector(&p_gripper) + robot_t.clone();
+            let p_rig = handeye_q.transform_vector(&p_base) + handeye_t.clone();
+            extr_q.inverse_transform_vector(&(p_rig - extr_t.clone()))
+        }
+    };
+
+    // Project (same as two_se3)
+    let eps = T::from_f64(1e-12).unwrap();
+    let z_safe = if p_camera.z.clone() > eps.clone() {
+        p_camera.z.clone()
+    } else {
+        eps
+    };
+    let x_norm = p_camera.x.clone() / z_safe.clone();
+    let y_norm = p_camera.y.clone() / z_safe;
+
+    // Apply Brown-Conrady distortion
+    let k1 = dist[0].clone();
+    let k2 = dist[1].clone();
+    let k3 = dist[2].clone();
+    let p1 = dist[3].clone();
+    let p2 = dist[4].clone();
+    let (xd, yd) = distort_brown_conrady_generic(x_norm, y_norm, k1, k2, k3, p1, p2);
+
+    // Apply intrinsics
+    let fx = intr[0].clone();
+    let fy = intr[1].clone();
+    let cx = intr[2].clone();
+    let cy = intr[3].clone();
+
+    let u_pred = fx * xd + cx;
+    let v_pred = fy * yd + cy;
+
+    // Weighted residual
+    let sqrt_w = T::from_f64(w.sqrt()).unwrap();
+    let u_meas = T::from_f64(uv[0]).unwrap();
+    let v_meas = T::from_f64(uv[1]).unwrap();
+
+    SVector::<T, 2>::new(
+        (u_meas - u_pred) * sqrt_w.clone(),
+        (v_meas - v_pred) * sqrt_w,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

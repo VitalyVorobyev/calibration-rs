@@ -1,7 +1,9 @@
 use crate::backend::{BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend};
 use crate::factors::reprojection_model::{
+    reproj_residual_pinhole4_dist5_handeye_generic,
     reproj_residual_pinhole4_dist5_scheimpflug2_se3_generic,
-    reproj_residual_pinhole4_dist5_se3_generic, reproj_residual_pinhole4_se3_generic,
+    reproj_residual_pinhole4_dist5_se3_generic, reproj_residual_pinhole4_dist5_two_se3_generic,
+    reproj_residual_pinhole4_se3_generic,
 };
 use crate::ir::{FactorKind, ManifoldKind, ProblemIR, RobustLoss};
 use anyhow::{anyhow, ensure, Result};
@@ -210,6 +212,30 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor>
             };
             Ok((Box::new(factor), loss))
         }
+        FactorKind::ReprojPointPinhole4Dist5TwoSE3 { pw, uv, w } => {
+            let factor = TinyReprojPointDistTwoSE3Factor {
+                pw: *pw,
+                uv: *uv,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
+        }
+        FactorKind::ReprojPointPinhole4Dist5HandEye {
+            pw,
+            uv,
+            w,
+            base_to_gripper_se3,
+            mode,
+        } => {
+            let factor = TinyReprojPointDistHandEyeFactor {
+                pw: *pw,
+                uv: *uv,
+                w: *w,
+                robot_se3: *base_to_gripper_se3,
+                mode: *mode,
+            };
+            Ok((Box::new(factor), loss))
+        }
         other => Err(anyhow!("factor kind {:?} not supported", other)),
     }
 }
@@ -280,6 +306,65 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistScheimpflugFactor 
             params[1].as_view(), // distortion
             params[2].as_view(), // sensor (Scheimpflug)
             params[3].as_view(), // pose
+            self.pw,
+            self.uv,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyReprojPointDistTwoSE3Factor {
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistTwoSE3Factor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            4,
+            "expected [cam, dist, extr, pose] parameter blocks"
+        );
+        let r = reproj_residual_pinhole4_dist5_two_se3_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // extr (camera-to-rig)
+            params[3].as_view(), // pose (rig-to-target)
+            self.pw,
+            self.uv,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyReprojPointDistHandEyeFactor {
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+    robot_se3: [f64; 7],
+    mode: crate::ir::HandEyeMode,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistHandEyeFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            5,
+            "expected [cam, dist, extr, handeye, target] parameter blocks"
+        );
+        let r = reproj_residual_pinhole4_dist5_handeye_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // extr (camera-to-rig)
+            params[3].as_view(), // handeye
+            params[4].as_view(), // target
+            &self.robot_se3,
+            self.mode,
             self.pw,
             self.uv,
             self.w,
