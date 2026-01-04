@@ -8,6 +8,8 @@
 //! # Algorithms
 //! - Homography estimation (normalized DLT, optional RANSAC)
 //! - Planar intrinsics (Zhang method from multiple homographies)
+//! - Distortion estimation (Brown-Conrady from homography residuals)
+//! - Iterative intrinsics refinement (alternating K and distortion estimation)
 //! - Planar pose from homography + intrinsics
 //! - Fundamental matrix: 8-point (normalized) and 7-point
 //! - Essential matrix: 5-point minimal solver + decomposition to (R, t)
@@ -49,20 +51,24 @@
 //! `calib-pipeline` and are re-exported via the top-level `calib` crate.
 
 pub mod camera_matrix;
+pub mod distortion_fit;
 pub mod epipolar;
 pub mod extrinsics;
 pub mod handeye;
 pub mod homography;
+pub mod iterative_intrinsics;
 pub mod planar_pose;
 pub mod pnp;
 pub mod triangulation;
 pub mod zhang_intrinsics;
 
 pub use camera_matrix::*;
+pub use distortion_fit::*;
 pub use epipolar::*;
 pub use extrinsics::*;
 pub use handeye::*;
 pub use homography::*;
+pub use iterative_intrinsics::*;
 pub use planar_pose::*;
 pub use pnp::*;
 pub use triangulation::*;

@@ -69,8 +69,8 @@ calib (facade) → calib-pipeline (high-level pipelines)
 
 ### Crate Responsibilities
 
-- **calib-core**: Math types (nalgebra-based), composable camera models (projection → distortion → sensor → intrinsics), generic RANSAC engine
-- **calib-linear**: Closed-form initialization solvers (Zhang, homography, PnP, epipolar, hand-eye) for bootstrapping optimization
+- **calib-core**: Math types (nalgebra-based), composable camera models (projection → distortion → sensor → intrinsics), generic RANSAC engine, shared test utilities
+- **calib-linear**: Closed-form initialization solvers (Zhang, homography, PnP, epipolar, hand-eye, **iterative intrinsics + distortion**) for bootstrapping optimization
 - **calib-optim**: Non-linear least-squares with backend-agnostic IR, autodiff-compatible factors, pluggable solvers (currently tiny-solver)
 - **calib-pipeline**: Ready-to-use end-to-end calibration workflows with JSON I/O
 - **calib-cli**: Command-line interface for batch processing
@@ -166,6 +166,89 @@ Example workflow is demonstrated in the planar intrinsics implementation.
 
 **Distortion optimization**: k3 is fixed by default (`fix_k3: true`) because it often causes overfitting with typical calibration data. Only optimize k3 for wide-angle lenses or with high-quality data.
 
+## Iterative Intrinsics Estimation (NEW)
+
+calib-linear now supports **iterative refinement** for jointly estimating camera intrinsics and Brown-Conrady distortion **without requiring ground truth distortion**. This enables realistic calibration workflows.
+
+### Problem
+
+The classic Zhang method assumes distortion-free inputs. When distortion is present, directly applying Zhang to distorted pixels produces **biased intrinsics estimates**.
+
+### Solution
+
+An alternating optimization scheme:
+1. **Initial estimate**: Compute K from distorted pixels (ignoring distortion)
+2. **Distortion estimation**: Estimate distortion from homography residuals using K
+3. **Pixel undistortion**: Apply estimated distortion to correct observations
+4. **Intrinsics refinement**: Re-estimate K from undistorted pixels
+5. **Iterate**: Repeat steps 2-4 (typically 1-2 iterations sufficient)
+
+### API Usage
+
+```rust
+use calib_linear::iterative_intrinsics::{
+    IterativeCalibView, IterativeIntrinsicsOptions, IterativeIntrinsicsSolver,
+};
+use calib_linear::DistortionFitOptions;
+
+// Prepare views from raw corner detections
+let views: Vec<IterativeCalibView> = /* load from calibration data */;
+
+// Configure options
+let opts = IterativeIntrinsicsOptions {
+    iterations: 2,  // 1-3 typically sufficient
+    distortion_opts: DistortionFitOptions {
+        fix_k3: true,          // Conservative: estimate only k1, k2
+        fix_tangential: false, // Estimate p1, p2
+        iters: 8,
+    },
+};
+
+// Run iterative estimation
+let result = IterativeIntrinsicsSolver::estimate(&views, opts)?;
+
+// Access results
+println!("K: fx={}, fy={}, cx={}, cy={}",
+         result.intrinsics.fx, result.intrinsics.fy,
+         result.intrinsics.cx, result.intrinsics.cy);
+println!("Distortion: k1={}, k2={}, p1={}, p2={}",
+         result.distortion.k1, result.distortion.k2,
+         result.distortion.p1, result.distortion.p2);
+
+// Use for non-linear refinement initialization
+```
+
+### Modules
+
+- **`distortion_fit`**: Closed-form distortion estimation from homography residuals (linear least-squares on pixel residuals)
+- **`iterative_intrinsics`**: Alternating K and distortion refinement loop
+
+### Typical Workflow
+
+```
+Raw corner detections
+    ↓
+IterativeIntrinsicsSolver (calib-linear)
+    ↓
+Initial K + distortion estimates (10-40% accuracy)
+    ↓
+optimize_planar_intrinsics (calib-optim)
+    ↓
+Final calibrated camera (<1% accuracy, <1px reprojection error)
+```
+
+### Accuracy Expectations
+
+- **After iterative linear init**: 10-40% error on intrinsics (sufficient for initialization)
+- **After non-linear refinement**: <2% error on intrinsics, <1px mean reprojection error
+
+### When to Use
+
+- ✅ You have multiple views of a planar calibration pattern
+- ✅ You don't have ground truth distortion parameters
+- ✅ You need both K and distortion for initialization
+- ❌ For distortion-free cameras, use Zhang directly
+
 ## Project Status
 
 **Current state**: Early development, APIs may change
@@ -174,4 +257,9 @@ Example workflow is demonstrated in the planar intrinsics implementation.
 - calib-pipeline: 🟡 Basic planar intrinsics pipeline functional
 - Multi-camera, bundle adjustment: ❌ Not yet implemented
 
-**Recent work**: Just completed implementation of Brown-Conrady distortion optimization in calib-optim (k1, k2, k3, p1, p2 coefficients). All 38 workspace tests passing.
+**Recent work**:
+- ✅ Implemented iterative linear intrinsics + distortion estimation in calib-linear
+- ✅ Added closed-form distortion fitting from homography residuals
+- ✅ Created shared test utilities in calib-core
+- ✅ Added realistic calibration tests (no ground truth distortion required)
+- All 43+ workspace tests passing

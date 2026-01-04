@@ -47,6 +47,11 @@ pub mod math;
 pub mod models;
 /// Generic RANSAC engine and traits.
 pub mod ransac;
+/// Test utilities for cross-crate calibration testing.
+///
+/// This module is public to allow usage in integration tests across
+/// the workspace, but is not intended for production use.
+pub mod test_utils;
 
 pub use math::*;
 pub use models::*;

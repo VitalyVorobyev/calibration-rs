@@ -6,7 +6,10 @@
 //! 3. Optimize intrinsics + distortion + poses (calib-optim)
 //! 4. Verify reprojection error improves after optimization
 
-use calib_core::{BrownConrady5, DistortionModel, Mat3, Pt2, Pt3, Real, Vec2, Vec3};
+use calib_core::{
+    test_utils::{pixel_from_normalized, undistort_pixel_normalized, CalibrationView},
+    BrownConrady5, DistortionModel, Mat3, Pt2, Pt3, Real, Vec2,
+};
 use calib_linear::{HomographySolver, PlanarIntrinsicsLinearInit};
 use calib_optim::ir::RobustLoss;
 use calib_optim::params::distortion::BrownConrady5Params;
@@ -26,7 +29,7 @@ struct StereoData {
     board: BoardSpec,
     intrinsics: IntrinsicsPair,
     distortion: DistortionPair,
-    views: Vec<View>,
+    views: Vec<CalibrationView>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,18 +47,6 @@ struct IntrinsicsPair {
 struct DistortionPair {
     left: [Real; 5],
     right: [Real; 5],
-}
-
-#[derive(Debug, Deserialize)]
-struct View {
-    view_index: usize,
-    left: ViewDet,
-    right: ViewDet,
-}
-
-#[derive(Debug, Deserialize)]
-struct ViewDet {
-    corners: Vec<[Real; 4]>, // [i, j, x, y]
 }
 
 fn load_data() -> StereoData {
@@ -88,18 +79,6 @@ fn distortion_from_array(d: [Real; 5]) -> BrownConrady5<Real> {
         k3: d[4],
         iters: 8,
     }
-}
-
-fn undistort_normalized(pt: Pt2, k: &Mat3, dist: &BrownConrady5<Real>) -> Vec2 {
-    let k_inv = k.try_inverse().expect("intrinsics invertible");
-    let v = k_inv * Vec3::new(pt.x, pt.y, 1.0);
-    let n = Vec2::new(v.x / v.z, v.y / v.z);
-    dist.undistort(&n)
-}
-
-fn pixel_from_normalized(n: Vec2, k: &Mat3) -> Pt2 {
-    let v = k * Vec3::new(n.x, n.y, 1.0);
-    Pt2::new(v.x / v.z, v.y / v.z)
 }
 
 fn board_point_2d(i: usize, j: usize, square: Real) -> Pt2 {
@@ -189,7 +168,7 @@ fn planar_intrinsics_real_data_improves_reprojection() {
                 let pixel = Pt2::new(c[2], c[3]);
 
                 // Undistort using ground truth (simulates having good corner detection)
-                let undist_norm = undistort_normalized(pixel, &k_gt, &dist_gt);
+                let undist_norm = undistort_pixel_normalized(pixel, &k_gt, &dist_gt);
                 let undist_pixel = pixel_from_normalized(undist_norm, &k_gt);
 
                 world.push(board_point_2d(i, j, board.square_size));
@@ -374,7 +353,7 @@ fn planar_intrinsics_parameter_fixing_works() {
             let j = c[1] as usize;
             let pixel = Pt2::new(c[2], c[3]);
 
-            let undist_norm = undistort_normalized(pixel, &k_gt, &dist_gt);
+            let undist_norm = undistort_pixel_normalized(pixel, &k_gt, &dist_gt);
             let undist_pixel = pixel_from_normalized(undist_norm, &k_gt);
 
             world.push(board_point_2d(i, j, board.square_size));
@@ -533,4 +512,239 @@ fn planar_intrinsics_parameter_fixing_works() {
     );
 
     println!("\n✓ All parameter fixing tests passed\n");
+}
+
+// ============================================================================
+// NEW TEST: Full calibration pipeline with iterative linear initialization
+// ============================================================================
+
+use calib_linear::iterative_intrinsics::{
+    IterativeCalibView, IterativeIntrinsicsOptions, IterativeIntrinsicsSolver,
+};
+use calib_linear::DistortionFitOptions;
+
+/// Test the complete calibration pipeline WITHOUT using ground truth distortion.
+///
+/// Pipeline:
+/// 1. Iterative linear init: Estimate K + distortion from raw pixels (calib-linear)
+/// 2. Non-linear refinement: Optimize all parameters via bundle adjustment (calib-optim)
+///
+/// This demonstrates a realistic calibration workflow from corner detections to
+/// final calibrated camera parameters.
+#[test]
+fn planar_intrinsics_with_iterative_linear_init() {
+    let data = load_data();
+    let board = &data.board;
+
+    // Test both cameras
+    for (side, k_arr, d_arr) in [
+        ("left", data.intrinsics.left, data.distortion.left),
+        ("right", data.intrinsics.right, data.distortion.right),
+    ] {
+        println!("\n=== Testing {side} camera with iterative init ===");
+
+        let k_gt = mat3_from_array(&k_arr);
+        let dist_gt = distortion_from_array(d_arr);
+
+        // Step 1: Iterative linear initialization (NO ground truth used)
+        println!("Step 1: Iterative linear initialization...");
+
+        let views_iter: Vec<IterativeCalibView> = data
+            .views
+            .iter()
+            .map(|view| {
+                let det = if side == "left" {
+                    &view.left
+                } else {
+                    &view.right
+                };
+
+                let board_points: Vec<Pt2> = det
+                    .corners
+                    .iter()
+                    .map(|c| board_point_2d(c[0] as usize, c[1] as usize, board.square_size))
+                    .collect();
+
+                let pixel_points: Vec<Pt2> =
+                    det.corners.iter().map(|c| Pt2::new(c[2], c[3])).collect();
+
+                IterativeCalibView::new(board_points, pixel_points)
+            })
+            .collect();
+
+        let iter_opts = IterativeIntrinsicsOptions {
+            iterations: 2,
+            distortion_opts: DistortionFitOptions {
+                fix_k3: true,
+                fix_tangential: false,
+                iters: 8,
+            },
+        };
+
+        let iter_result = IterativeIntrinsicsSolver::estimate(&views_iter, iter_opts)
+            .expect("iterative linear init");
+
+        println!(
+            "  Initial K: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
+            iter_result.intrinsics.fx,
+            iter_result.intrinsics.fy,
+            iter_result.intrinsics.cx,
+            iter_result.intrinsics.cy
+        );
+        println!(
+            "  Initial distortion: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}",
+            iter_result.distortion.k1,
+            iter_result.distortion.k2,
+            iter_result.distortion.p1,
+            iter_result.distortion.p2
+        );
+
+        // Step 2: Prepare optimization dataset
+        println!("Step 2: Non-linear refinement...");
+
+        let k_iter = iter_result.intrinsics.k_matrix();
+
+        let mut views_optim = Vec::new();
+        let mut init_poses = Vec::new();
+
+        for view in &data.views {
+            let det = if side == "left" {
+                &view.left
+            } else {
+                &view.right
+            };
+
+            // Compute homography for pose initialization
+            let board_pts: Vec<Pt2> = det
+                .corners
+                .iter()
+                .map(|c| board_point_2d(c[0] as usize, c[1] as usize, board.square_size))
+                .collect();
+
+            let pixel_pts: Vec<Pt2> = det.corners.iter().map(|c| Pt2::new(c[2], c[3])).collect();
+
+            let h =
+                calib_linear::HomographySolver::dlt(&board_pts, &pixel_pts).expect("homography");
+            let pose = calib_linear::PlanarPoseSolver::from_homography(&k_iter, &h).expect("pose");
+            init_poses.push(pose);
+
+            let points_3d: Vec<Pt3> = det
+                .corners
+                .iter()
+                .map(|c| board_point_3d(c[0] as usize, c[1] as usize, board.square_size))
+                .collect();
+
+            let points_2d: Vec<Vec2> = det.corners.iter().map(|c| Vec2::new(c[2], c[3])).collect();
+
+            views_optim.push(PlanarViewObservations::new(points_3d, points_2d).expect("view"));
+        }
+
+        let dataset = PlanarDataset::new(views_optim.clone()).expect("dataset");
+
+        // Initialize from iterative result
+        let init = PlanarIntrinsicsInit {
+            intrinsics: Intrinsics4 {
+                fx: iter_result.intrinsics.fx,
+                fy: iter_result.intrinsics.fy,
+                cx: iter_result.intrinsics.cx,
+                cy: iter_result.intrinsics.cy,
+            },
+            distortion: BrownConrady5Params::from_core(&iter_result.distortion),
+            poses: init_poses.clone(),
+        };
+
+        let optim_opts = PlanarIntrinsicsSolveOptions {
+            robust_loss: RobustLoss::None,
+            ..Default::default()
+        };
+
+        let backend_opts = BackendSolveOptions {
+            max_iters: 100,
+            verbosity: 0,
+            ..Default::default()
+        };
+
+        let result = optimize_planar_intrinsics(dataset, init, optim_opts, backend_opts)
+            .expect("optimization");
+
+        println!(
+            "  Final K: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
+            result.camera.k.fx, result.camera.k.fy, result.camera.k.cx, result.camera.k.cy
+        );
+        println!(
+            "  Final distortion: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}",
+            result.camera.dist.k1,
+            result.camera.dist.k2,
+            result.camera.dist.p1,
+            result.camera.dist.p2
+        );
+
+        // Step 3: Compute reprojection error
+        let opt_intrinsics = Intrinsics4 {
+            fx: result.camera.k.fx,
+            fy: result.camera.k.fy,
+            cx: result.camera.k.cx,
+            cy: result.camera.k.cy,
+        };
+        let opt_distortion_params = BrownConrady5Params::from_core(&result.camera.dist);
+        let (mean_err, max_err) = compute_reprojection_error(
+            &views_optim,
+            &opt_intrinsics,
+            &opt_distortion_params,
+            &result.poses,
+        );
+
+        println!(
+            "  Reprojection error: mean={:.3}px, max={:.3}px",
+            mean_err, max_err
+        );
+
+        // Step 4: Validate final results
+        let fx_gt = k_gt[(0, 0)];
+        let fy_gt = k_gt[(1, 1)];
+        let cx_gt = k_gt[(0, 2)];
+        let cy_gt = k_gt[(1, 2)];
+
+        let fx_err_pct = (result.camera.k.fx - fx_gt).abs() / fx_gt * 100.0;
+        let fy_err_pct = (result.camera.k.fy - fy_gt).abs() / fy_gt * 100.0;
+        let cx_err = (result.camera.k.cx - cx_gt).abs();
+        let cy_err = (result.camera.k.cy - cy_gt).abs();
+
+        println!(
+            "  Final errors: fx={:.2}%, fy={:.2}%, cx={:.2}px, cy={:.2}px",
+            fx_err_pct, fy_err_pct, cx_err, cy_err
+        );
+
+        // Validate: After non-linear refinement, should achieve good accuracy
+        assert!(
+            mean_err < 1.5,
+            "{side}: mean reprojection error {mean_err:.3}px too large"
+        );
+        assert!(
+            max_err < 3.0,
+            "{side}: max reprojection error {max_err:.3}px too large"
+        );
+
+        // Intrinsics should be close to ground truth after optimization
+        assert!(
+            fx_err_pct < 5.0,
+            "{side}: fx error {fx_err_pct:.2}% too large"
+        );
+        assert!(
+            fy_err_pct < 5.0,
+            "{side}: fy error {fy_err_pct:.2}% too large"
+        );
+        assert!(cx_err < 10.0, "{side}: cx error {cx_err:.2}px too large");
+        assert!(cy_err < 10.0, "{side}: cy error {cy_err:.2}px too large");
+
+        // Distortion signs should match
+        assert!(
+            result.camera.dist.k1.signum() == dist_gt.k1.signum(),
+            "{side}: k1 sign mismatch"
+        );
+
+        println!("✓ {side} camera calibration successful!");
+    }
+
+    println!("\n✓ Full pipeline test passed (iterative init → optimization)\n");
 }
