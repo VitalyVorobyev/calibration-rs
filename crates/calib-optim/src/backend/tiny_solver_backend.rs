@@ -1,5 +1,7 @@
 use crate::backend::{BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend};
-use crate::factors::linescan::laser_plane_pixel_residual_generic;
+use crate::factors::linescan::{
+    laser_line_dist_normalized_generic, laser_plane_pixel_residual_generic,
+};
 use crate::factors::reprojection_model::{
     reproj_residual_pinhole4_dist5_handeye_generic,
     reproj_residual_pinhole4_dist5_scheimpflug2_se3_generic,
@@ -244,6 +246,13 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor>
             };
             Ok((Box::new(factor), loss))
         }
+        FactorKind::LaserLineDist2D { laser_pixel, w } => {
+            let factor = TinyLaserLineDist2DFactor {
+                laser_pixel: *laser_pixel,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
+        }
         other => Err(anyhow!("factor kind {:?} not supported", other)),
     }
 }
@@ -404,6 +413,31 @@ impl<T: nalgebra::RealField> Factor<T> for TinyLaserPlanePixelFactor {
             "expected [cam, dist, pose, plane] parameter blocks"
         );
         let r = laser_plane_pixel_residual_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // pose (camera-to-target)
+            params[3].as_view(), // plane
+            self.laser_pixel,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyLaserLineDist2DFactor {
+    laser_pixel: [f64; 2],
+    w: f64,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyLaserLineDist2DFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            4,
+            "expected [cam, dist, pose, plane] parameter blocks"
+        );
+        let r = laser_line_dist_normalized_generic(
             params[0].as_view(), // intrinsics
             params[1].as_view(), // distortion
             params[2].as_view(), // pose (camera-to-target)

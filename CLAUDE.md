@@ -249,6 +249,98 @@ Final calibrated camera (<1% accuracy, <1px reprojection error)
 - ✅ You need both K and distortion for initialization
 - ❌ For distortion-free cameras, use Zhang directly
 
+## Linescan Calibration with Laser Plane
+
+calib-optim supports **linescan sensor calibration** ([problems/linescan_bundle.rs](crates/calib-optim/src/problems/linescan_bundle.rs)) that jointly optimizes camera intrinsics, distortion, poses, and laser plane parameters using both calibration pattern observations and laser line observations.
+
+### Laser Residual Types
+
+Two approaches are available for laser plane calibration, selectable via `LaserResidualType`:
+
+**1. Point-to-Plane Distance (PointToPlane)**
+- Undistorts pixel → back-projects to 3D ray → intersects with target plane
+- Computes 3D point in camera frame
+- Measures signed distance from point to laser plane
+- Residual: 1D distance (in meters)
+
+**2. Line-Distance in Normalized Plane (LineDistNormalized)** *(default)*
+- Computes 3D intersection line of laser plane and target plane in camera frame
+- Projects line onto z=1 normalized camera plane
+- Undistorts laser pixels to normalized coordinates (done once per pixel)
+- Measures perpendicular distance from pixel to projected line (2D geometry)
+- Scales by `sqrt(fx*fy)` for pixel-comparable residual
+- Residual: 1D distance (in pixels)
+
+### Choosing the Approach
+
+- **`LineDistNormalized` (default)**: Recommended for most use cases
+  - Faster: undistortion done once, no ray-plane intersection per pixel
+  - Residuals in pixels (directly comparable to reprojection error)
+  - Simpler 2D geometry in normalized plane
+  - Uniform handling of all laser pixels in one coordinate system
+
+- **`PointToPlane`**: Alternative approach
+  - May be more robust when line projection is degenerate
+  - Residuals in metric units (meters)
+
+Both approaches yield similar accuracy in practice. Benchmark tests show convergence to <6% intrinsics error and <5° plane normal error.
+
+### API Usage
+
+```rust
+use calib_optim::problems::linescan_bundle::*;
+use calib_optim::backend::BackendSolveOptions;
+
+// Prepare dataset with calibration points and laser line observations
+let views: Vec<LinescanViewObservations> = /* ... */;
+let dataset = LinescanDataset::new_single_plane(views)?;
+
+// Initial estimates
+let initial = LinescanInit::new(intrinsics, distortion, poses, planes)?;
+
+// Configure options
+let opts = LinescanSolveOptions {
+    fix_k3: true,
+    fix_poses: vec![0],  // Fix first pose for gauge freedom
+    laser_residual_type: LaserResidualType::LineDistNormalized,  // Default
+    ..Default::default()
+};
+
+let backend_opts = BackendSolveOptions {
+    max_iters: 50,
+    verbosity: 1,
+    ..Default::default()
+};
+
+// Run optimization
+let result = optimize_linescan(&dataset, &initial, &opts, &backend_opts)?;
+
+println!("Laser plane: normal={:?}, distance={}",
+         result.planes[0].normal, result.planes[0].distance);
+```
+
+### Implementation Details
+
+**Factors** ([factors/linescan.rs](crates/calib-optim/src/factors/linescan.rs)):
+- `laser_plane_pixel_residual_generic()`: Point-to-plane distance
+- `laser_line_dist_normalized_generic()`: Line-distance in normalized plane
+
+**IR types** ([ir/types.rs](crates/calib-optim/src/ir/types.rs)):
+- `FactorKind::LaserPlanePixel`: Original point-to-plane factor
+- `FactorKind::LaserLineDist2D`: New line-distance factor
+
+Both factors:
+- Take 4 parameter blocks: [intrinsics, distortion, pose, plane]
+- Return 1D residuals
+- Support autodiff for analytical Jacobians
+
+### Testing
+
+Integration tests ([tests/linescan_bundle.rs](crates/calib-optim/tests/linescan_bundle.rs)) verify:
+- Convergence with synthetic ground truth data
+- Comparison of both residual types
+- Similar accuracy: ~4-5% intrinsics error, ~1-2° plane normal error
+
 ## Project Status
 
 **Current state**: Early development, APIs may change

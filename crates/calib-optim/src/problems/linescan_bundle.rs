@@ -195,6 +195,25 @@ impl LinescanInit {
     }
 }
 
+/// Type of laser plane residual to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaserResidualType {
+    /// Point-to-plane distance (original approach).
+    ///
+    /// Undistorts pixel, back-projects to 3D ray, intersects with target plane,
+    /// computes 3D point in camera frame, measures signed distance to laser plane.
+    /// Residual: 1D distance in meters.
+    PointToPlane,
+    /// Line-distance in normalized plane (alternative approach).
+    ///
+    /// Computes 3D intersection line of laser plane and target plane, projects
+    /// line onto z=1 normalized camera plane, undistorts laser pixels to normalized
+    /// coordinates, measures perpendicular distance from pixel to projected line,
+    /// scales by sqrt(fx*fy) for pixel-comparable residual.
+    /// Residual: 1D distance in pixels.
+    LineDistNormalized,
+}
+
 /// Solve options for linescan bundle adjustment.
 #[derive(Debug, Clone)]
 pub struct LinescanSolveOptions {
@@ -208,10 +227,12 @@ pub struct LinescanSolveOptions {
     pub fix_distortion: bool,
     /// Fix k3 distortion parameter (common for typical lenses)
     pub fix_k3: bool,
-    /// Indices of poses to fix (e.g., [0] to fix first pose for gauge freedom)
+    /// Indices of poses to fix (e.g., \[0\] to fix first pose for gauge freedom)
     pub fix_poses: Vec<usize>,
     /// Indices of planes to fix
     pub fix_planes: Vec<usize>,
+    /// Laser residual type: point-to-plane distance or line-distance in normalized plane
+    pub laser_residual_type: LaserResidualType,
 }
 
 impl Default for LinescanSolveOptions {
@@ -224,6 +245,7 @@ impl Default for LinescanSolveOptions {
             fix_k3: true,
             fix_poses: vec![0], // Fix first pose by default
             fix_planes: vec![],
+            laser_residual_type: LaserResidualType::LineDistNormalized, // New default
         }
     }
 }
@@ -347,13 +369,23 @@ fn build_linescan_ir(
         for &plane_id in plane_ids.iter().take(dataset.num_planes) {
             for (laser_idx, laser_pixel) in view.laser_pixels.iter().enumerate() {
                 let w = view.laser_weight(laser_idx);
-                ir.add_residual_block(ResidualBlock {
-                    params: vec![intrinsics_id, distortion_id, pose_id, plane_id],
-                    loss: opts.laser_loss,
-                    factor: FactorKind::LaserPlanePixel {
+
+                // Select factor type based on options
+                let factor = match opts.laser_residual_type {
+                    LaserResidualType::PointToPlane => FactorKind::LaserPlanePixel {
                         laser_pixel: [laser_pixel.x, laser_pixel.y],
                         w,
                     },
+                    LaserResidualType::LineDistNormalized => FactorKind::LaserLineDist2D {
+                        laser_pixel: [laser_pixel.x, laser_pixel.y],
+                        w,
+                    },
+                };
+
+                ir.add_residual_block(ResidualBlock {
+                    params: vec![intrinsics_id, distortion_id, pose_id, plane_id],
+                    loss: opts.laser_loss,
+                    factor,
                     residual_dim: 1,
                 });
             }
