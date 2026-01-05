@@ -376,9 +376,7 @@ pub(crate) fn reproj_residual_pinhole4_dist5_two_se3_generic<T: RealField>(
     dist: DVectorView<'_, T>,
     extr: DVectorView<'_, T>,
     pose: DVectorView<'_, T>,
-    pw: [f64; 3],
-    uv: [f64; 2],
-    w: f64,
+    obs: &ObservationData,
 ) -> SVector<T, 2> {
     use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 
@@ -402,9 +400,9 @@ pub(crate) fn reproj_residual_pinhole4_dist5_two_se3_generic<T: RealField>(
 
     // Point in target frame
     let pw_t = Vector3::new(
-        T::from_f64(pw[0]).unwrap(),
-        T::from_f64(pw[1]).unwrap(),
-        T::from_f64(pw[2]).unwrap(),
+        T::from_f64(obs.pw[0]).unwrap(),
+        T::from_f64(obs.pw[1]).unwrap(),
+        T::from_f64(obs.pw[2]).unwrap(),
     );
 
     // Transform: target -> rig -> camera
@@ -439,9 +437,9 @@ pub(crate) fn reproj_residual_pinhole4_dist5_two_se3_generic<T: RealField>(
     let v_pred = fy * yd + cy;
 
     // Weighted residual
-    let sqrt_w = T::from_f64(w.sqrt()).unwrap();
-    let u_meas = T::from_f64(uv[0]).unwrap();
-    let v_meas = T::from_f64(uv[1]).unwrap();
+    let sqrt_w = T::from_f64(obs.w.sqrt()).unwrap();
+    let u_meas = T::from_f64(obs.uv[0]).unwrap();
+    let v_meas = T::from_f64(obs.uv[1]).unwrap();
 
     SVector::<T, 2>::new(
         (u_meas - u_pred) * sqrt_w.clone(),
@@ -471,11 +469,8 @@ pub(crate) fn reproj_residual_pinhole4_dist5_handeye_generic<T: RealField>(
     extr: DVectorView<'_, T>,
     handeye: DVectorView<'_, T>,
     target: DVectorView<'_, T>,
-    robot_se3: &[f64; 7],
-    mode: crate::ir::HandEyeMode,
-    pw: [f64; 3],
-    uv: [f64; 2],
-    w: f64,
+    robot_data: &RobotPoseData,
+    obs: &ObservationData,
 ) -> SVector<T, 2> {
     use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 
@@ -506,25 +501,25 @@ pub(crate) fn reproj_residual_pinhole4_dist5_handeye_generic<T: RealField>(
 
     // Convert robot measurement to generic
     let robot_q: UnitQuaternion<T> = UnitQuaternion::from_quaternion(Quaternion::new(
-        T::from_f64(robot_se3[3]).unwrap(),
-        T::from_f64(robot_se3[0]).unwrap(),
-        T::from_f64(robot_se3[1]).unwrap(),
-        T::from_f64(robot_se3[2]).unwrap(),
+        T::from_f64(robot_data.robot_se3[3]).unwrap(),
+        T::from_f64(robot_data.robot_se3[0]).unwrap(),
+        T::from_f64(robot_data.robot_se3[1]).unwrap(),
+        T::from_f64(robot_data.robot_se3[2]).unwrap(),
     ));
     let robot_t = Vector3::new(
-        T::from_f64(robot_se3[4]).unwrap(),
-        T::from_f64(robot_se3[5]).unwrap(),
-        T::from_f64(robot_se3[6]).unwrap(),
+        T::from_f64(robot_data.robot_se3[4]).unwrap(),
+        T::from_f64(robot_data.robot_se3[5]).unwrap(),
+        T::from_f64(robot_data.robot_se3[6]).unwrap(),
     );
 
     let pw_t = Vector3::new(
-        T::from_f64(pw[0]).unwrap(),
-        T::from_f64(pw[1]).unwrap(),
-        T::from_f64(pw[2]).unwrap(),
+        T::from_f64(obs.pw[0]).unwrap(),
+        T::from_f64(obs.pw[1]).unwrap(),
+        T::from_f64(obs.pw[2]).unwrap(),
     );
 
     // Compose transforms based on mode
-    let p_camera = match mode {
+    let p_camera = match robot_data.mode {
         crate::ir::HandEyeMode::EyeInHand => {
             // target -> robot_base -> gripper -> rig -> camera
             let p_base = target_q.transform_vector(&pw_t) + target_t.clone();
@@ -569,9 +564,9 @@ pub(crate) fn reproj_residual_pinhole4_dist5_handeye_generic<T: RealField>(
     let v_pred = fy * yd + cy;
 
     // Weighted residual
-    let sqrt_w = T::from_f64(w.sqrt()).unwrap();
-    let u_meas = T::from_f64(uv[0]).unwrap();
-    let v_meas = T::from_f64(uv[1]).unwrap();
+    let sqrt_w = T::from_f64(obs.w.sqrt()).unwrap();
+    let u_meas = T::from_f64(obs.uv[0]).unwrap();
+    let v_meas = T::from_f64(obs.uv[1]).unwrap();
 
     SVector::<T, 2>::new(
         (u_meas - u_pred) * sqrt_w.clone(),

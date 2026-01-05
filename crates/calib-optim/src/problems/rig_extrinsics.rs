@@ -88,8 +88,10 @@ impl RigExtrinsicsDataset {
 /// Initial values for rig extrinsics optimization.
 #[derive(Debug, Clone)]
 pub struct RigExtrinsicsInit {
-    pub intrinsics: Intrinsics4,
-    pub distortion: BrownConrady5Params,
+    /// Per-camera intrinsics (usually same values for homogeneous rig).
+    pub intrinsics: Vec<Intrinsics4>,
+    /// Per-camera distortion (usually same values for homogeneous rig).
+    pub distortion: Vec<BrownConrady5Params>,
     pub cam_to_rig: Vec<Iso3>,
     pub rig_to_target: Vec<Iso3>,
 }
@@ -98,15 +100,24 @@ pub struct RigExtrinsicsInit {
 #[derive(Debug, Clone)]
 pub struct RigExtrinsicsSolveOptions {
     pub robust_loss: RobustLoss,
+
+    // Default intrinsics flags applied to all cameras
     pub fix_fx: bool,
     pub fix_fy: bool,
     pub fix_cx: bool,
     pub fix_cy: bool,
+
+    // Default distortion flags applied to all cameras
     pub fix_k1: bool,
     pub fix_k2: bool,
     pub fix_k3: bool,
     pub fix_p1: bool,
     pub fix_p2: bool,
+
+    /// Optional per-camera override: fix ALL intrinsics for camera i.
+    pub fix_intrinsics: Vec<bool>,
+    /// Optional per-camera override: fix ALL distortion for camera i.
+    pub fix_distortion: Vec<bool>,
     /// Per-camera extrinsics masking (length must match num_cameras).
     pub fix_extrinsics: Vec<bool>,
     /// View indices to fix (e.g., first view for gauge freedom).
@@ -126,6 +137,8 @@ impl Default for RigExtrinsicsSolveOptions {
             fix_k3: true, // k3 often overfits
             fix_p1: false,
             fix_p2: false,
+            fix_intrinsics: Vec::new(),
+            fix_distortion: Vec::new(),
             fix_extrinsics: Vec::new(),
             fix_rig_poses: Vec::new(),
         }
@@ -135,7 +148,8 @@ impl Default for RigExtrinsicsSolveOptions {
 /// Result of rig extrinsics optimization.
 #[derive(Debug, Clone)]
 pub struct RigExtrinsicsResult {
-    pub camera: PinholeCamera,
+    /// Per-camera calibrated parameters.
+    pub cameras: Vec<PinholeCamera>,
     pub cam_to_rig: Vec<Iso3>,
     pub rig_to_target: Vec<Iso3>,
     pub final_cost: f64,
@@ -147,6 +161,18 @@ pub fn build_rig_extrinsics_ir(
     initial: &RigExtrinsicsInit,
     opts: &RigExtrinsicsSolveOptions,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
+    ensure!(
+        initial.intrinsics.len() == dataset.num_cameras,
+        "intrinsics count {} != num_cameras {}",
+        initial.intrinsics.len(),
+        dataset.num_cameras
+    );
+    ensure!(
+        initial.distortion.len() == dataset.num_cameras,
+        "distortion count {} != num_cameras {}",
+        initial.distortion.len(),
+        dataset.num_cameras
+    );
     ensure!(
         initial.cam_to_rig.len() == dataset.num_cameras,
         "cam_to_rig count {} != num_cameras {}",
@@ -163,56 +189,67 @@ pub fn build_rig_extrinsics_ir(
     let mut ir = ProblemIR::new();
     let mut initial_map = HashMap::new();
 
-    // 1. Shared intrinsics
-    let mut cam_fixed = Vec::new();
-    if opts.fix_fx {
-        cam_fixed.push(0);
-    }
-    if opts.fix_fy {
-        cam_fixed.push(1);
-    }
-    if opts.fix_cx {
-        cam_fixed.push(2);
-    }
-    if opts.fix_cy {
-        cam_fixed.push(3);
+    // 1. Per-camera intrinsics blocks
+    let mut cam_ids = Vec::new();
+    for cam_idx in 0..dataset.num_cameras {
+        let mut cam_fixed = Vec::new();
+        if opts.fix_fx {
+            cam_fixed.push(0);
+        }
+        if opts.fix_fy {
+            cam_fixed.push(1);
+        }
+        if opts.fix_cx {
+            cam_fixed.push(2);
+        }
+        if opts.fix_cy {
+            cam_fixed.push(3);
+        }
+
+        // Check per-camera override
+        let fixed_mask = if opts.fix_intrinsics.get(cam_idx).copied().unwrap_or(false) {
+            FixedMask::all_fixed(4)
+        } else {
+            FixedMask::fix_indices(&cam_fixed)
+        };
+
+        let key = format!("cam/{}", cam_idx);
+        let cam_id = ir.add_param_block(&key, 4, ManifoldKind::Euclidean, fixed_mask, None);
+        cam_ids.push(cam_id);
+        initial_map.insert(key, initial.intrinsics[cam_idx].to_dvec());
     }
 
-    let cam_id = ir.add_param_block(
-        "cam",
-        4,
-        ManifoldKind::Euclidean,
-        FixedMask::fix_indices(&cam_fixed),
-        None,
-    );
-    initial_map.insert("cam".to_string(), initial.intrinsics.to_dvec());
+    // 2. Per-camera distortion blocks
+    let mut dist_ids = Vec::new();
+    for cam_idx in 0..dataset.num_cameras {
+        let mut dist_fixed = Vec::new();
+        if opts.fix_k1 {
+            dist_fixed.push(0);
+        }
+        if opts.fix_k2 {
+            dist_fixed.push(1);
+        }
+        if opts.fix_k3 {
+            dist_fixed.push(2);
+        }
+        if opts.fix_p1 {
+            dist_fixed.push(3);
+        }
+        if opts.fix_p2 {
+            dist_fixed.push(4);
+        }
 
-    // 2. Shared distortion
-    let mut dist_fixed = Vec::new();
-    if opts.fix_k1 {
-        dist_fixed.push(0);
-    }
-    if opts.fix_k2 {
-        dist_fixed.push(1);
-    }
-    if opts.fix_k3 {
-        dist_fixed.push(2);
-    }
-    if opts.fix_p1 {
-        dist_fixed.push(3);
-    }
-    if opts.fix_p2 {
-        dist_fixed.push(4);
-    }
+        let fixed_mask = if opts.fix_distortion.get(cam_idx).copied().unwrap_or(false) {
+            FixedMask::all_fixed(5)
+        } else {
+            FixedMask::fix_indices(&dist_fixed)
+        };
 
-    let dist_id = ir.add_param_block(
-        "dist",
-        5,
-        ManifoldKind::Euclidean,
-        FixedMask::fix_indices(&dist_fixed),
-        None,
-    );
-    initial_map.insert("dist".to_string(), initial.distortion.to_dvec());
+        let key = format!("dist/{}", cam_idx);
+        let dist_id = ir.add_param_block(&key, 5, ManifoldKind::Euclidean, fixed_mask, None);
+        dist_ids.push(dist_id);
+        initial_map.insert(key, initial.distortion[cam_idx].to_dvec());
+    }
 
     // 3. Per-camera extrinsics
     let mut extr_ids = Vec::new();
@@ -244,7 +281,12 @@ pub fn build_rig_extrinsics_ir(
             if let Some(obs) = cam_obs {
                 for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
                     let residual = ResidualBlock {
-                        params: vec![cam_id, dist_id, extr_ids[cam_idx], rig_pose_id],
+                        params: vec![
+                            cam_ids[cam_idx],
+                            dist_ids[cam_idx],
+                            extr_ids[cam_idx],
+                            rig_pose_id,
+                        ],
                         loss: opts.robust_loss,
                         factor: FactorKind::ReprojPointPinhole4Dist5TwoSE3 {
                             pw: [pw.x, pw.y, pw.z],
@@ -273,16 +315,31 @@ pub fn optimize_rig_extrinsics(
     let (ir, initial_map) = build_rig_extrinsics_ir(&dataset, &initial, &opts)?;
     let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)?;
 
-    // Extract camera
-    let intrinsics = Intrinsics4::from_dvec(solution.params.get("cam").unwrap().as_view())?;
-    let distortion =
-        BrownConrady5Params::from_dvec(solution.params.get("dist").unwrap().as_view())?;
-    let camera = Camera::new(
-        Pinhole,
-        distortion.to_core(),
-        IdentitySensor,
-        intrinsics.to_core(),
-    );
+    // Extract per-camera calibrated parameters
+    let cameras = (0..dataset.num_cameras)
+        .map(|cam_idx| {
+            let intrinsics = Intrinsics4::from_dvec(
+                solution
+                    .params
+                    .get(&format!("cam/{}", cam_idx))
+                    .unwrap()
+                    .as_view(),
+            )?;
+            let distortion = BrownConrady5Params::from_dvec(
+                solution
+                    .params
+                    .get(&format!("dist/{}", cam_idx))
+                    .unwrap()
+                    .as_view(),
+            )?;
+            Ok(Camera::new(
+                Pinhole,
+                distortion.to_core(),
+                IdentitySensor,
+                intrinsics.to_core(),
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     // Extract extrinsics
     let cam_to_rig = (0..dataset.num_cameras)
@@ -301,7 +358,7 @@ pub fn optimize_rig_extrinsics(
         .collect::<Result<Vec<_>>>()?;
 
     Ok(RigExtrinsicsResult {
-        camera,
+        cameras,
         cam_to_rig,
         rig_to_target,
         final_cost: solution.final_cost,

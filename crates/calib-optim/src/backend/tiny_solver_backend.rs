@@ -328,14 +328,17 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistTwoSE3Factor {
             4,
             "expected [cam, dist, extr, pose] parameter blocks"
         );
+        let obs = crate::factors::reprojection_model::ObservationData {
+            pw: self.pw,
+            uv: self.uv,
+            w: self.w,
+        };
         let r = reproj_residual_pinhole4_dist5_two_se3_generic(
             params[0].as_view(), // intrinsics
             params[1].as_view(), // distortion
             params[2].as_view(), // extr (camera-to-rig)
             params[3].as_view(), // pose (rig-to-target)
-            self.pw,
-            self.uv,
-            self.w,
+            &obs,
         );
         DVector::from_row_slice(r.as_slice())
     }
@@ -357,17 +360,23 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistHandEyeFactor {
             5,
             "expected [cam, dist, extr, handeye, target] parameter blocks"
         );
+        let obs = crate::factors::reprojection_model::ObservationData {
+            pw: self.pw,
+            uv: self.uv,
+            w: self.w,
+        };
+        let robot_data = crate::factors::reprojection_model::RobotPoseData {
+            robot_se3: self.robot_se3,
+            mode: self.mode,
+        };
         let r = reproj_residual_pinhole4_dist5_handeye_generic(
             params[0].as_view(), // intrinsics
             params[1].as_view(), // distortion
             params[2].as_view(), // extr (camera-to-rig)
             params[3].as_view(), // handeye
             params[4].as_view(), // target
-            &self.robot_se3,
-            self.mode,
-            self.pw,
-            self.uv,
-            self.w,
+            &robot_data,
+            &obs,
         );
         DVector::from_row_slice(r.as_slice())
     }
