@@ -64,9 +64,8 @@ use nalgebra::{DMatrix, Matrix3x4, Schur};
 /// # Used By
 ///
 /// - Homography estimation ([`HomographySolver`](crate::HomographySolver))
-/// - Fundamental matrix estimation ([`FundamentalSolver`](crate::FundamentalSolver))
-/// - Essential matrix estimation ([`EssentialSolver`](crate::EssentialSolver))
-/// - Camera matrix DLT ([`CameraMatrixSolver`](crate::CameraMatrixSolver))
+/// - Essential matrix estimation ([`essential_5point`](crate::essential_5point))
+/// - Camera matrix DLT ([`dlt_camera_matrix`](crate::dlt_camera_matrix))
 ///
 /// # References
 ///
@@ -137,8 +136,7 @@ pub fn normalize_points_2d(points: &[Pt2]) -> Option<(Vec<Pt2>, Mat3)> {
 ///
 /// # Used By
 ///
-/// - Camera matrix DLT ([`CameraMatrixSolver`](crate::CameraMatrixSolver))
-/// - PnP solvers ([`PnpSolver`](crate::PnpSolver))
+/// - Camera matrix DLT ([`dlt_camera_matrix`](crate::dlt_camera_matrix))
 ///
 /// # References
 ///

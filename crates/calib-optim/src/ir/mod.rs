@@ -3,6 +3,6 @@
 mod types;
 
 pub use types::{
-    Bound, FactorKind, FixedMask, ManifoldKind, ParamBlock, ParamId, ProblemIR, ResidualBlock,
-    RobustLoss,
+    Bound, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ParamBlock, ParamId, ProblemIR,
+    ResidualBlock, RobustLoss,
 };

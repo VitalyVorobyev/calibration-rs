@@ -115,6 +115,21 @@ pub enum RobustLoss {
     },
 }
 
+/// Hand-eye calibration mode.
+///
+/// Specifies the transform chain used for hand-eye calibration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandEyeMode {
+    /// Camera mounted on robot end-effector (gripper).
+    ///
+    /// Transform chain: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world
+    EyeInHand,
+    /// Camera fixed in workspace, observes robot end-effector.
+    ///
+    /// Transform chain: P_camera = extr^-1 * handeye * robot * target * P_world
+    EyeToHand,
+}
+
 /// Backend-agnostic factor kinds.
 ///
 /// Each factor kind implies its parameter layout and residual dimension.
@@ -126,6 +141,22 @@ pub enum FactorKind {
     ReprojPointPinhole4Dist5 { pw: [f64; 3], uv: [f64; 2], w: f64 },
     /// Reprojection with pinhole, distortion, Scheimpflug sensor, and SE3 pose.
     ReprojPointPinhole4Dist5Scheimpflug2 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    /// Reprojection with two composed SE3 transforms for rig extrinsics.
+    ///
+    /// Parameters: [intrinsics, distortion, extr_camera_to_rig, pose_rig_to_target]
+    /// Transform chain: P_camera = extr^-1 * pose * P_world
+    ReprojPointPinhole4Dist5TwoSE3 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    /// Reprojection for hand-eye calibration with robot pose as measurement.
+    ///
+    /// Parameters: [intrinsics, distortion, extr, handeye, target]
+    /// Robot pose (base-to-gripper) is stored in the factor as known data.
+    ReprojPointPinhole4Dist5HandEye {
+        pw: [f64; 3],
+        uv: [f64; 2],
+        w: f64,
+        base_to_gripper_se3: [f64; 7],
+        mode: HandEyeMode,
+    },
     /// Placeholder for future prior factors.
     Prior,
     /// Placeholder for future distortion-aware reprojection.
@@ -139,6 +170,8 @@ impl FactorKind {
             FactorKind::ReprojPointPinhole4 { .. } => 2,
             FactorKind::ReprojPointPinhole4Dist5 { .. } => 2,
             FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 { .. } => 2,
+            FactorKind::ReprojPointPinhole4Dist5TwoSE3 { .. } => 2,
+            FactorKind::ReprojPointPinhole4Dist5HandEye { .. } => 2,
             FactorKind::Prior => 0,
             FactorKind::ReprojPointWithDistortion => 2,
         }
@@ -351,6 +384,81 @@ impl ProblemIR {
                         "Scheimpflug reprojection expects 7D SE3 pose, got dim={} manifold={:?}",
                         pose.dim,
                         pose.manifold
+                    );
+                }
+                FactorKind::ReprojPointPinhole4Dist5TwoSE3 { .. } => {
+                    ensure!(
+                        residual.params.len() == 4,
+                        "TwoSE3 factor requires 4 params [cam, dist, extr, pose]"
+                    );
+                    let cam = &self.params[residual.params[0].0];
+                    let dist = &self.params[residual.params[1].0];
+                    let extr = &self.params[residual.params[2].0];
+                    let pose = &self.params[residual.params[3].0];
+                    ensure!(
+                        cam.dim == 4 && cam.manifold == ManifoldKind::Euclidean,
+                        "TwoSE3 factor expects 4D Euclidean intrinsics, got dim={} manifold={:?}",
+                        cam.dim,
+                        cam.manifold
+                    );
+                    ensure!(
+                        dist.dim == 5 && dist.manifold == ManifoldKind::Euclidean,
+                        "TwoSE3 factor expects 5D Euclidean distortion, got dim={} manifold={:?}",
+                        dist.dim,
+                        dist.manifold
+                    );
+                    ensure!(
+                        extr.dim == 7 && extr.manifold == ManifoldKind::SE3,
+                        "TwoSE3 factor expects 7D SE3 extrinsics, got dim={} manifold={:?}",
+                        extr.dim,
+                        extr.manifold
+                    );
+                    ensure!(
+                        pose.dim == 7 && pose.manifold == ManifoldKind::SE3,
+                        "TwoSE3 factor expects 7D SE3 pose, got dim={} manifold={:?}",
+                        pose.dim,
+                        pose.manifold
+                    );
+                }
+                FactorKind::ReprojPointPinhole4Dist5HandEye { .. } => {
+                    ensure!(
+                        residual.params.len() == 5,
+                        "HandEye factor requires 5 params [cam, dist, extr, handeye, target]"
+                    );
+                    let cam = &self.params[residual.params[0].0];
+                    let dist = &self.params[residual.params[1].0];
+                    let extr = &self.params[residual.params[2].0];
+                    let handeye = &self.params[residual.params[3].0];
+                    let target = &self.params[residual.params[4].0];
+                    ensure!(
+                        cam.dim == 4 && cam.manifold == ManifoldKind::Euclidean,
+                        "HandEye factor expects 4D Euclidean intrinsics, got dim={} manifold={:?}",
+                        cam.dim,
+                        cam.manifold
+                    );
+                    ensure!(
+                        dist.dim == 5 && dist.manifold == ManifoldKind::Euclidean,
+                        "HandEye factor expects 5D Euclidean distortion, got dim={} manifold={:?}",
+                        dist.dim,
+                        dist.manifold
+                    );
+                    ensure!(
+                        extr.dim == 7 && extr.manifold == ManifoldKind::SE3,
+                        "HandEye factor expects 7D SE3 extrinsics, got dim={} manifold={:?}",
+                        extr.dim,
+                        extr.manifold
+                    );
+                    ensure!(
+                        handeye.dim == 7 && handeye.manifold == ManifoldKind::SE3,
+                        "HandEye factor expects 7D SE3 hand-eye transform, got dim={} manifold={:?}",
+                        handeye.dim,
+                        handeye.manifold
+                    );
+                    ensure!(
+                        target.dim == 7 && target.manifold == ManifoldKind::SE3,
+                        "HandEye factor expects 7D SE3 target pose, got dim={} manifold={:?}",
+                        target.dim,
+                        target.manifold
                     );
                 }
                 FactorKind::Prior | FactorKind::ReprojPointWithDistortion => {
