@@ -8,7 +8,9 @@
 //! in workspace) configurations.
 
 use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions};
-use crate::ir::{FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
+use crate::ir::{
+    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
+};
 use crate::params::distortion::BrownConrady5Params;
 use crate::params::intrinsics::Intrinsics4;
 use crate::params::pose_se3::iso3_to_se3_dvec;
@@ -314,8 +316,13 @@ pub fn build_handeye_ir(
         // Convert robot pose to SE3 array for factor
         let robot_se3 = iso3_to_se3_dvec(&view.robot_pose);
         let robot_se3_array: [f64; 7] = [
-            robot_se3[0], robot_se3[1], robot_se3[2], robot_se3[3],
-            robot_se3[4], robot_se3[5], robot_se3[6],
+            robot_se3[0],
+            robot_se3[1],
+            robot_se3[2],
+            robot_se3[3],
+            robot_se3[4],
+            robot_se3[5],
+            robot_se3[6],
         ];
 
         // Add residuals for each camera observation

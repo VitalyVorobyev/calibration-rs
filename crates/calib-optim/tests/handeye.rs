@@ -181,7 +181,7 @@ fn eye_in_hand_calibration_converges() {
     // Solve options - fix camera 0 extrinsics and first target pose for gauge freedom
     let opts = HandEyeSolveOptions {
         fix_extrinsics: vec![true], // Fix cam0 (gauge freedom)
-        fix_target_poses: vec![0],   // Fix first target pose (gauge freedom)
+        fix_target_poses: vec![0],  // Fix first target pose (gauge freedom)
         ..Default::default()
     };
 
