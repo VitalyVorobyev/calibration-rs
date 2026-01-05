@@ -159,10 +159,7 @@ impl LinescanPlaneSolver {
         camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
     ) -> LinescanResult<LinearPlaneEstimate> {
         if view.laser_pixels.is_empty() {
-            return Err(LinescanError::InsufficientPoints {
-                got: 0,
-                min: 1,
-            });
+            return Err(LinescanError::InsufficientPoints { got: 0, min: 1 });
         }
 
         // Compute 3D points in camera frame
