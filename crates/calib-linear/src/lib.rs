@@ -17,6 +17,7 @@
 //! - Camera matrix DLT and RQ decomposition
 //! - Linear triangulation (DLT)
 //! - Multi-camera rig extrinsics and hand-eye calibration
+//! - Linescan laser plane estimation (SVD-based from ray-plane intersections)
 //!
 //! # Coordinate conventions
 //! - Most solvers accept **pixel coordinates** directly.
@@ -57,6 +58,7 @@ pub mod extrinsics;
 pub mod handeye;
 pub mod homography;
 pub mod iterative_intrinsics;
+pub mod linescan;
 pub mod math;
 pub mod planar_pose;
 pub mod pnp;
@@ -70,6 +72,7 @@ pub use extrinsics::*;
 pub use handeye::*;
 pub use homography::*;
 pub use iterative_intrinsics::*;
+pub use linescan::*;
 pub use math::*;
 pub use planar_pose::*;
 pub use pnp::*;
