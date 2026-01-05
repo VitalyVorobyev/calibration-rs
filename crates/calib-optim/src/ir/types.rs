@@ -157,6 +157,12 @@ pub enum FactorKind {
         base_to_gripper_se3: [f64; 7],
         mode: HandEyeMode,
     },
+    /// Laser line pixel constrained to lie on laser plane.
+    ///
+    /// Parameters: [intrinsics, distortion, pose_cam_to_target, plane]
+    /// Residual: point-to-plane distance for ray-target intersection point.
+    /// Note: Target is always planar (Z=0), so 3D point is computed as ray intersection.
+    LaserPlanePixel { laser_pixel: [f64; 2], w: f64 },
     /// Placeholder for future prior factors.
     Prior,
     /// Placeholder for future distortion-aware reprojection.
@@ -172,6 +178,7 @@ impl FactorKind {
             FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 { .. } => 2,
             FactorKind::ReprojPointPinhole4Dist5TwoSE3 { .. } => 2,
             FactorKind::ReprojPointPinhole4Dist5HandEye { .. } => 2,
+            FactorKind::LaserPlanePixel { .. } => 1,
             FactorKind::Prior => 0,
             FactorKind::ReprojPointWithDistortion => 2,
         }
@@ -459,6 +466,40 @@ impl ProblemIR {
                         "HandEye factor expects 7D SE3 target pose, got dim={} manifold={:?}",
                         target.dim,
                         target.manifold
+                    );
+                }
+                FactorKind::LaserPlanePixel { .. } => {
+                    ensure!(
+                        residual.params.len() == 4,
+                        "LaserPlanePixel factor requires 4 params [cam, dist, pose, plane]"
+                    );
+                    let cam = &self.params[residual.params[0].0];
+                    let dist = &self.params[residual.params[1].0];
+                    let pose = &self.params[residual.params[2].0];
+                    let plane = &self.params[residual.params[3].0];
+                    ensure!(
+                        cam.dim == 4 && cam.manifold == ManifoldKind::Euclidean,
+                        "LaserPlanePixel factor expects 4D Euclidean intrinsics, got dim={} manifold={:?}",
+                        cam.dim,
+                        cam.manifold
+                    );
+                    ensure!(
+                        dist.dim == 5 && dist.manifold == ManifoldKind::Euclidean,
+                        "LaserPlanePixel factor expects 5D Euclidean distortion, got dim={} manifold={:?}",
+                        dist.dim,
+                        dist.manifold
+                    );
+                    ensure!(
+                        pose.dim == 7 && pose.manifold == ManifoldKind::SE3,
+                        "LaserPlanePixel factor expects 7D SE3 pose, got dim={} manifold={:?}",
+                        pose.dim,
+                        pose.manifold
+                    );
+                    ensure!(
+                        plane.dim == 4 && plane.manifold == ManifoldKind::Euclidean,
+                        "LaserPlanePixel factor expects 4D Euclidean plane, got dim={} manifold={:?}",
+                        plane.dim,
+                        plane.manifold
                     );
                 }
                 FactorKind::Prior | FactorKind::ReprojPointWithDistortion => {
