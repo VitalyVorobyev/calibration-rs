@@ -2,9 +2,7 @@
 //!
 //! These tests verify end-to-end convergence with synthetic ground truth data.
 
-use calib_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Vec2,
-};
+use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Vec2};
 use calib_optim::backend::BackendSolveOptions;
 use calib_optim::params::laser_plane::LaserPlane;
 use calib_optim::problems::linescan_bundle::*;
