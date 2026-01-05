@@ -31,9 +31,6 @@ fn synthetic_linescan_calibration_smoke_test() {
         },
     );
 
-    // Ground truth laser plane: tilted in camera frame
-    let laser_plane = LaserPlane::new(Vector3::new(0.1, 0.05, 0.99), -0.4);
-
     // Simple calibration target: 5x5 grid in target frame (Z=0)
     let grid_spacing = 0.03; // 3cm
     let mut target_points_3d = Vec::new();
@@ -63,8 +60,19 @@ fn synthetic_linescan_calibration_smoke_test() {
         ),
     ];
 
+    // Ground truth laser plane: tilted in camera frame, passing near target center.
+    let laser_normal = Vector3::new(0.1, 0.05, 0.99);
+    let laser_normal_unit = laser_normal.normalize();
+    let target_center = Pt3::new(2.0 * grid_spacing, 2.0 * grid_spacing, 0.0);
+    let target_center_cam = poses[0].transform_point(&target_center);
+    let laser_plane = LaserPlane::new(
+        laser_normal,
+        -laser_normal_unit.dot(&target_center_cam.coords),
+    );
+
     // Generate synthetic observations
     let mut views = Vec::new();
+    let mut used_poses = Vec::new();
     for (view_idx, pose) in poses.iter().enumerate() {
         // Project calibration points
         let mut calib_pixels = Vec::new();
@@ -79,24 +87,34 @@ fn synthetic_linescan_calibration_smoke_test() {
             }
         }
 
-        // Generate laser pixels on the plane
+        // Generate laser pixels from the laser/target plane intersection line.
         let mut laser_pixels = Vec::new();
-        let n = laser_plane.normal.as_ref();
-        let tangent1 = Vector3::new(1.0, 0.0, 0.0).cross(n).normalize();
-        let tangent2 = n.cross(&tangent1);
+        let n_c = laser_plane.normal.as_ref();
+        let n_t = pose.rotation.inverse_transform_vector(n_c);
+        let d_t = n_c.dot(&pose.translation.vector) + laser_plane.distance;
 
-        for i in 0..20 {
-            let u = (i as f64 / 20.0) * 0.4 - 0.2;
-            let v = 0.0;
-            // Point on plane: -d*n + u*t1 + v*t2
-            let pt_on_plane = Point3::from(-laser_plane.distance * n + u * tangent1 + v * tangent2);
+        let dir = Vector3::new(n_t.y, -n_t.x, 0.0);
+        let dir_norm = dir.norm();
+        if dir_norm > 1e-9 {
+            let dir = dir / dir_norm;
+            let (x0, y0) = if n_t.x.abs() > n_t.y.abs() {
+                (-d_t / n_t.x, 0.0)
+            } else {
+                (0.0, -d_t / n_t.y)
+            };
 
-            if let Some(proj) = camera.project_point(&pt_on_plane) {
-                if proj.x > 100.0 && proj.x < 1180.0 && proj.y > 100.0 && proj.y < 860.0 {
-                    let seed = view_idx * 10000 + i;
-                    let noise_u = ((seed * 1103515245 + 12345) % 1000) as f64 / 1000.0 - 0.5;
-                    let noise_v = ((seed * 48271 + 11) % 1000) as f64 / 1000.0 - 0.5;
-                    laser_pixels.push(Vec2::new(proj.x + noise_u, proj.y + noise_v));
+            for i in 0..40 {
+                let s = (i as f64 / 39.0) * 0.2 - 0.1;
+                let pt_target = Point3::new(x0 + s * dir.x, y0 + s * dir.y, 0.0);
+                let pt_camera = pose.transform_point(&pt_target);
+
+                if let Some(proj) = camera.project_point(&pt_camera) {
+                    if proj.x > 100.0 && proj.x < 1180.0 && proj.y > 100.0 && proj.y < 860.0 {
+                        let seed = view_idx * 10000 + i;
+                        let noise_u = ((seed * 1103515245 + 12345) % 1000) as f64 / 1000.0 - 0.5;
+                        let noise_v = ((seed * 48271 + 11) % 1000) as f64 / 1000.0 - 0.5;
+                        laser_pixels.push(Vec2::new(proj.x + noise_u, proj.y + noise_v));
+                    }
                 }
             }
         }
@@ -106,6 +124,7 @@ fn synthetic_linescan_calibration_smoke_test() {
                 LinescanViewObservations::new(target_points_3d.clone(), calib_pixels, laser_pixels)
                     .unwrap(),
             );
+            used_poses.push(*pose);
         }
     }
 
@@ -130,7 +149,7 @@ fn synthetic_linescan_calibration_smoke_test() {
     };
 
     // Perturb poses slightly
-    let poses_init: Vec<Iso3> = poses
+    let poses_init: Vec<Iso3> = used_poses
         .iter()
         .map(|pose| {
             let small_rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
