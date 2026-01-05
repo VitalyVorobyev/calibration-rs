@@ -205,14 +205,12 @@ fn project_line_to_normalized_plane<T: RealField>(
     // dx_norm/ds|_{s=0} = (v.x * z - x * v.z) / z^2 at s=0
     //                    = (v.x * p0.z - p0.x * v.z) / p0.z^2
     let z2_inv = T::one() / (p0.z.clone() * p0.z.clone());
-    let v_norm_x =
-        (v.x.clone() * p0.z.clone() - p0.x.clone() * v.z.clone()) * z2_inv.clone();
+    let v_norm_x = (v.x.clone() * p0.z.clone() - p0.x.clone() * v.z.clone()) * z2_inv.clone();
     let v_norm_y = (v.y.clone() * p0.z.clone() - p0.y.clone() * v.z.clone()) * z2_inv;
 
     // Normalize direction vector
-    let v_norm_len = (v_norm_x.clone() * v_norm_x.clone()
-        + v_norm_y.clone() * v_norm_y.clone())
-    .sqrt();
+    let v_norm_len =
+        (v_norm_x.clone() * v_norm_x.clone() + v_norm_y.clone() * v_norm_y.clone()).sqrt();
     let v_norm = Vector2::new(v_norm_x / v_norm_len.clone(), v_norm_y / v_norm_len);
 
     (p0_norm, v_norm)

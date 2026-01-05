@@ -227,7 +227,7 @@ pub struct LinescanSolveOptions {
     pub fix_distortion: bool,
     /// Fix k3 distortion parameter (common for typical lenses)
     pub fix_k3: bool,
-    /// Indices of poses to fix (e.g., [0] to fix first pose for gauge freedom)
+    /// Indices of poses to fix (e.g., \[0\] to fix first pose for gauge freedom)
     pub fix_poses: Vec<usize>,
     /// Indices of planes to fix
     pub fix_planes: Vec<usize>,
