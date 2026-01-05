@@ -4,9 +4,8 @@
 //! - n̂ is a unit normal vector (3D)
 //! - d is the signed distance from the camera origin
 //!
-//! In optimization, we store the normal as a plain 3D vector (not unit)
-//! and normalize it inside the residual function. This avoids the need
-//! for S2 manifold support which is not yet implemented in tiny-solver.
+//! In optimization, the normal is optimized on the S2 manifold (unit sphere),
+//! while the distance is a separate Euclidean scalar.
 
 use anyhow::{ensure, Result};
 use calib_core::Pt3;
@@ -16,6 +15,19 @@ use nalgebra::{DVector, DVectorView, Unit, Vector3};
 ///
 /// The plane equation is: n̂ · p + d = 0
 /// where p is a point in camera coordinates.
+///
+/// # Example
+///
+/// ```rust
+/// use calib_optim::params::laser_plane::LaserPlane;
+/// use nalgebra::Vector3;
+///
+/// let plane = LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.5);
+/// let normal = plane.normal_to_dvec();
+/// let distance = plane.distance_to_dvec();
+/// let restored = LaserPlane::from_split_dvec(normal.as_view(), distance.as_view()).unwrap();
+/// assert!((plane.distance - restored.distance).abs() < 1e-12);
+/// ```
 #[derive(Debug, Clone)]
 pub struct LaserPlane {
     /// Unit normal vector in camera frame
@@ -37,8 +49,9 @@ impl LaserPlane {
 
     /// Convert to 4D parameter vector [nx, ny, nz, d].
     ///
-    /// Note: The normal is stored as a plain vector (not unit) in optimization.
-    /// Normalization is enforced inside the residual function.
+    /// This is a compact serialization form. For S2 optimization, prefer
+    /// [`normal_to_dvec`](Self::normal_to_dvec) and
+    /// [`distance_to_dvec`](Self::distance_to_dvec).
     pub fn to_dvec(&self) -> DVector<f64> {
         DVector::from_vec(vec![
             self.normal.x,
@@ -46,6 +59,16 @@ impl LaserPlane {
             self.normal.z,
             self.distance,
         ])
+    }
+
+    /// Convert the unit normal to a 3D parameter vector [nx, ny, nz].
+    pub fn normal_to_dvec(&self) -> DVector<f64> {
+        DVector::from_vec(vec![self.normal.x, self.normal.y, self.normal.z])
+    }
+
+    /// Convert the distance to a 1D parameter vector [d].
+    pub fn distance_to_dvec(&self) -> DVector<f64> {
+        DVector::from_vec(vec![self.distance])
     }
 
     /// Parse from 4D vector [nx, ny, nz, d].
@@ -61,6 +84,25 @@ impl LaserPlane {
         Ok(Self {
             normal,
             distance: v[3],
+        })
+    }
+
+    /// Parse from split normal + distance vectors.
+    pub fn from_split_dvec(normal: DVectorView<f64>, distance: DVectorView<f64>) -> Result<Self> {
+        ensure!(
+            normal.len() == 3,
+            "LaserPlane normal requires 3D vector, got {}",
+            normal.len()
+        );
+        ensure!(
+            distance.len() == 1,
+            "LaserPlane distance requires 1D vector, got {}",
+            distance.len()
+        );
+        let normal = Unit::new_normalize(Vector3::new(normal[0], normal[1], normal[2]));
+        Ok(Self {
+            normal,
+            distance: distance[0],
         })
     }
 
@@ -124,5 +166,19 @@ mod tests {
     fn plane_from_dvec_wrong_size() {
         let v = DVector::from_vec(vec![1.0, 2.0, 3.0]); // Only 3D
         assert!(LaserPlane::from_dvec(v.as_view()).is_err());
+    }
+
+    #[test]
+    fn plane_split_roundtrip() {
+        let plane = LaserPlane::new(Vector3::new(1.0, 2.0, 3.0), -0.4);
+
+        let normal = plane.normal_to_dvec();
+        let distance = plane.distance_to_dvec();
+        let plane2 = LaserPlane::from_split_dvec(normal.as_view(), distance.as_view()).unwrap();
+
+        assert!((plane.normal.x - plane2.normal.x).abs() < 1e-10);
+        assert!((plane.normal.y - plane2.normal.y).abs() < 1e-10);
+        assert!((plane.normal.z - plane2.normal.z).abs() < 1e-10);
+        assert!((plane.distance - plane2.distance).abs() < 1e-10);
     }
 }

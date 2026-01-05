@@ -1,3 +1,4 @@
+use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
 use crate::backend::{BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend};
 use crate::factors::linescan::{
     laser_line_dist_normalized_generic, laser_plane_pixel_residual_generic,
@@ -86,7 +87,19 @@ impl TinySolverBackend {
                     }
                 }
                 ManifoldKind::S2 => {
-                    return Err(anyhow!("tiny-solver backend does not support S2 manifolds"));
+                    if !param.fixed.is_empty() {
+                        if param.fixed.is_all_fixed(param.dim) {
+                            set_manifold = false;
+                        } else {
+                            return Err(anyhow!(
+                                "tiny-solver cannot partially fix S2 manifold {}",
+                                param.name
+                            ));
+                        }
+                    }
+                    if set_manifold {
+                        problem.set_variable_manifold(&param.name, Arc::new(UnitVector3Manifold));
+                    }
                 }
             }
 
@@ -409,14 +422,15 @@ impl<T: nalgebra::RealField> Factor<T> for TinyLaserPlanePixelFactor {
     fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
         debug_assert_eq!(
             params.len(),
-            4,
-            "expected [cam, dist, pose, plane] parameter blocks"
+            5,
+            "expected [cam, dist, pose, plane_normal, plane_distance] parameter blocks"
         );
         let r = laser_plane_pixel_residual_generic(
             params[0].as_view(), // intrinsics
             params[1].as_view(), // distortion
             params[2].as_view(), // pose (camera-to-target)
-            params[3].as_view(), // plane
+            params[3].as_view(), // plane normal
+            params[4].as_view(), // plane distance
             self.laser_pixel,
             self.w,
         );
@@ -434,14 +448,15 @@ impl<T: nalgebra::RealField> Factor<T> for TinyLaserLineDist2DFactor {
     fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
         debug_assert_eq!(
             params.len(),
-            4,
-            "expected [cam, dist, pose, plane] parameter blocks"
+            5,
+            "expected [cam, dist, pose, plane_normal, plane_distance] parameter blocks"
         );
         let r = laser_line_dist_normalized_generic(
             params[0].as_view(), // intrinsics
             params[1].as_view(), // distortion
             params[2].as_view(), // pose (camera-to-target)
-            params[3].as_view(), // plane
+            params[3].as_view(), // plane normal
+            params[4].as_view(), // plane distance
             self.laser_pixel,
             self.w,
         );
