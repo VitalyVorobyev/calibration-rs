@@ -204,11 +204,7 @@ impl<'de> Deserialize<'de> for RigExtrinsicsOptimOptions {
             }
         }
 
-        deserializer.deserialize_struct(
-            "RigExtrinsicsOptimOptions",
-            &[],
-            OptionsVisitor,
-        )
+        deserializer.deserialize_struct("RigExtrinsicsOptimOptions", &[], OptionsVisitor)
     }
 }
 
@@ -307,13 +303,13 @@ impl ProblemType for RigExtrinsicsProblem {
 
                 // Extract K matrix from camera config
                 let k = match &per_camera_calibrations[cam_idx].camera.intrinsics {
-                    calib_core::IntrinsicsConfig::FxFyCxCySkew { fx, fy, cx, cy, skew } => {
-                        calib_core::Mat3::new(
-                            *fx, *skew, *cx,
-                            0.0, *fy, *cy,
-                            0.0, 0.0, 1.0,
-                        )
-                    }
+                    calib_core::IntrinsicsConfig::FxFyCxCySkew {
+                        fx,
+                        fy,
+                        cx,
+                        cy,
+                        skew,
+                    } => calib_core::Mat3::new(*fx, *skew, *cx, 0.0, *fy, *cy, 0.0, 0.0, 1.0),
                 };
 
                 let pose = planar_pose::estimate_planar_pose_from_h(&k, &h)?;
@@ -368,14 +364,18 @@ impl ProblemType for RigExtrinsicsProblem {
             .per_camera_calibrations
             .iter()
             .map(|report| match &report.camera.intrinsics {
-                calib_core::IntrinsicsConfig::FxFyCxCySkew { fx, fy, cx, cy, skew: _ } => {
-                    calib_optim::params::intrinsics::Intrinsics4 {
-                        fx: *fx,
-                        fy: *fy,
-                        cx: *cx,
-                        cy: *cy,
-                    }
-                }
+                calib_core::IntrinsicsConfig::FxFyCxCySkew {
+                    fx,
+                    fy,
+                    cx,
+                    cy,
+                    skew: _,
+                } => calib_optim::params::intrinsics::Intrinsics4 {
+                    fx: *fx,
+                    fy: *fy,
+                    cx: *cx,
+                    cy: *cy,
+                },
             })
             .collect();
 
@@ -383,7 +383,15 @@ impl ProblemType for RigExtrinsicsProblem {
             .per_camera_calibrations
             .iter()
             .map(|report| {
-                if let calib_core::DistortionConfig::BrownConrady5 { k1, k2, k3, p1, p2, iters: _ } = &report.camera.distortion {
+                if let calib_core::DistortionConfig::BrownConrady5 {
+                    k1,
+                    k2,
+                    k3,
+                    p1,
+                    p2,
+                    iters: _,
+                } = &report.camera.distortion
+                {
                     calib_optim::params::distortion::BrownConrady5Params {
                         k1: *k1,
                         k2: *k2,
@@ -702,11 +710,19 @@ mod tests {
 
         // Initialize
         let init_result = session.initialize(RigExtrinsicsInitOptions { ref_cam_idx: 0 });
-        assert!(init_result.is_ok(), "Initialization failed: {:?}", init_result.err());
+        assert!(
+            init_result.is_ok(),
+            "Initialization failed: {:?}",
+            init_result.err()
+        );
 
         // Optimize
         let optim_result = session.optimize(RigExtrinsicsOptimOptions::default());
-        assert!(optim_result.is_ok(), "Optimization failed: {:?}", optim_result.err());
+        assert!(
+            optim_result.is_ok(),
+            "Optimization failed: {:?}",
+            optim_result.err()
+        );
 
         // Export
         let export_result = session.export();
@@ -721,12 +737,21 @@ mod tests {
 
         // Verify cam0_to_rig is identity (reference camera)
         let cam0_rig_trans = final_result.cam_to_rig[0].translation.vector.norm();
-        assert!(cam0_rig_trans < 0.01, "cam0 translation not identity: {}", cam0_rig_trans);
+        assert!(
+            cam0_rig_trans < 0.01,
+            "cam0 translation not identity: {}",
+            cam0_rig_trans
+        );
 
         // Verify cam1_to_rig is reasonable (loose tolerance for initialization + optimization)
         // Linear initialization can have ~20% error without distortion
-        let cam1_rig_trans_error = (final_result.cam_to_rig[1].translation.vector - cam1_to_rig.translation.vector).norm();
-        assert!(cam1_rig_trans_error < 0.25, "cam1 translation error too large: {}", cam1_rig_trans_error);
+        let cam1_rig_trans_error =
+            (final_result.cam_to_rig[1].translation.vector - cam1_to_rig.translation.vector).norm();
+        assert!(
+            cam1_rig_trans_error < 0.25,
+            "cam1 translation error too large: {}",
+            cam1_rig_trans_error
+        );
     }
 
     #[test]
