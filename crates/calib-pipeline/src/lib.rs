@@ -1,3 +1,5 @@
+pub mod session;
+
 use anyhow::{ensure, Result};
 use calib_core::{
     BrownConrady5, Camera, CameraConfig, DistortionConfig, FxFyCxCySkew, IdentitySensor,
@@ -106,11 +108,14 @@ pub struct PlanarIntrinsicsReport {
     pub final_cost: Real,
 }
 
-fn make_pinhole_camera(k: FxFyCxCySkew<Real>, dist: BrownConrady5<Real>) -> PinholeCamera {
+pub(crate) fn make_pinhole_camera(
+    k: FxFyCxCySkew<Real>,
+    dist: BrownConrady5<Real>,
+) -> PinholeCamera {
     Camera::new(Pinhole, dist, IdentitySensor, k)
 }
 
-fn pinhole_camera_config(camera: &PinholeCamera) -> CameraConfig {
+pub(crate) fn pinhole_camera_config(camera: &PinholeCamera) -> CameraConfig {
     CameraConfig {
         projection: ProjectionConfig::Pinhole,
         distortion: DistortionConfig::BrownConrady5 {

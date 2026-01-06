@@ -66,7 +66,7 @@ impl LaserPlane {
         DVector::from_vec(vec![self.normal.x, self.normal.y, self.normal.z])
     }
 
-    /// Convert the distance to a 1D parameter vector [d].
+    /// Convert the distance to a 1D parameter vector \[d\].
     pub fn distance_to_dvec(&self) -> DVector<f64> {
         DVector::from_vec(vec![self.distance])
     }
