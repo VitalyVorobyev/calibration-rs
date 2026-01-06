@@ -210,6 +210,7 @@ pub fn run_planar_intrinsics(
 
     let dataset = PlanarDataset::new(observations)?;
 
+    // TODO: use Zhang initialization instead of fixed initial camera!
     let initial_camera = make_pinhole_camera(
         FxFyCxCySkew {
             fx: 800.0,

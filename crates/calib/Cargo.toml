@@ -15,3 +15,9 @@ calib-linear = { path = "../calib-linear" }
 calib-optim = { path = "../calib-optim" }
 calib-pipeline = { path = "../calib-pipeline" }
 
+[dev-dependencies]
+serde_json = { workspace = true }
+chess-corners = { version = "0.3", features = ["rayon", "ml-refiner"] }
+calib-targets = "0.2"
+anyhow = "1"
+image = { version = "0.25" }

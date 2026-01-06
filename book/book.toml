@@ -1,7 +1,6 @@
 [book]
 authors = ["Vitaly Vorobyev"]
 language = "en"
-multilingual = false
 src = "src"
 title = "calibration-rs Book"
 
