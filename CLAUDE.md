@@ -464,6 +464,106 @@ impl ProblemType for MyProblem {
 }
 ```
 
+## Dual API: Session vs. Imperative Functions
+
+calib-pipeline supports **two complementary APIs** for different use cases:
+
+### Session API (Structured Workflows)
+
+**Use when:**
+- You have a standard calibration workflow
+- You want automatic state management and checkpointing
+- Type safety and enforced stage transitions are valuable
+
+**Example:**
+```rust
+let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+session.set_observations(obs);
+session.initialize(init_opts)?;  // Can checkpoint here
+session.optimize(optim_opts)?;   // Can checkpoint here
+let report = session.export()?;
+```
+
+**Characteristics:**
+- Opinionated, type-safe, stage-based
+- Automatic state tracking
+- JSON serialization
+- Enforced transitions
+- ~80% use case
+
+### Imperative Function API (Custom Workflows)
+
+**Use when:**
+- You need to inspect intermediate results
+- You want to compose custom workflows
+- You need to integrate calibration into a larger system
+- You want maximum flexibility and control
+
+**Example:**
+```rust
+// Direct access to building blocks
+use calib_pipeline::{homography, iterative_intrinsics, zhang_intrinsics};
+
+// Compute homographies
+let H = homography::dlt_homography_ransac(&p3d, &p2d, opts)?;
+
+// Initialize intrinsics
+let linear_result = iterative_intrinsics::IterativeIntrinsicsSolver::estimate(&views, opts)?;
+
+// Inspect before committing
+println!("Initial K: {:?}", linear_result.intrinsics);
+
+// Then optimize
+let dataset = PlanarDataset::new(observations)?;
+let init = PlanarIntrinsicsInit::from_linear_result(&linear_result)?;
+let final_result = optimize_planar_intrinsics_raw(dataset, init, optim_opts, backend_opts)?;
+```
+
+**Characteristics:**
+- Flexible, composable, explicit
+- User manages state
+- Access to intermediate results
+- ~20% use case for custom needs
+
+### Re-exported Modules
+
+calib-pipeline re-exports all building blocks from calib-linear and calib-optim:
+
+**From calib-linear:**
+- `homography` - DLT homography estimation (+ RANSAC)
+- `zhang_intrinsics` - Intrinsics from homographies
+- `distortion_fit` - Distortion estimation from residuals
+- `iterative_intrinsics` - Alternating K + distortion refinement
+- `planar_pose` - Pose from homography + K
+- `pnp` - Perspective-n-Point solvers (DLT, P3P, EPnP, RANSAC)
+- `epipolar` - Fundamental/essential matrices + decomposition
+- `triangulation` - Linear triangulation from two views
+- `extrinsics` - Multi-camera rig extrinsics
+- `handeye` - Hand-eye calibration (AX=XB)
+- `linescan` - Laser plane estimation
+
+**From calib-optim:**
+- `BackendSolveOptions` - Non-linear solver configuration
+- `PlanarDataset`, `PlanarIntrinsicsInit`, `PlanarIntrinsicsSolveOptions`
+- `optimize_planar_intrinsics_raw` - Direct access to planar intrinsics optimization
+- `RobustLoss` - Outlier handling (Huber, Cauchy, Arctan)
+
+**Documentation:** See [functions.md](crates/calib-pipeline/src/functions.md) for comprehensive examples and best practices.
+
+### API Selection Guidelines
+
+| Scenario | Recommended API |
+|----------|----------------|
+| Standard single-camera calibration | Session API |
+| Need to checkpoint between init/optimize | Session API |
+| Custom stereo rig workflow | Imperative Functions |
+| Inspect linear initialization quality | Imperative Functions |
+| Integrate calibration into larger system | Imperative Functions |
+| Research/experimentation | Imperative Functions |
+| Production deployment (standard case) | Session API |
+
+**Note:** The two APIs complement each other - use session for common cases, functions for custom needs. They are not redundant but serve different purposes.
+
 ## Project Status
 
 **Current state**: Early development, APIs may change

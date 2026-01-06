@@ -223,6 +223,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "calib-core",
+ "calib-linear",
  "calib-optim",
  "nalgebra",
  "serde",
