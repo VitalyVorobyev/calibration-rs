@@ -272,12 +272,8 @@ pub fn optimize_planar_intrinsics_from_init(
     let distortion = optim_result.camera.dist;
 
     // Compute mean reprojection error
-    let mean_reproj_error = compute_mean_reproj_error(
-        views,
-        &intrinsics,
-        &distortion,
-        &optim_result.poses,
-    )?;
+    let mean_reproj_error =
+        compute_mean_reproj_error(views, &intrinsics, &distortion, &optim_result.poses)?;
 
     // Note: num_iterations is not currently returned by optimize_planar_intrinsics
     // We'll set it to 0 for now (TODO: add to PlanarIntrinsicsResult in calib-optim)
@@ -432,13 +428,9 @@ mod tests {
             ..Default::default()
         };
 
-        let optim_result = optimize_planar_intrinsics_from_init(
-            &views,
-            &init_result,
-            &solve_opts,
-            &backend_opts,
-        )
-        .expect("optimization should succeed");
+        let optim_result =
+            optimize_planar_intrinsics_from_init(&views, &init_result, &solve_opts, &backend_opts)
+                .expect("optimization should succeed");
 
         // Should converge to reasonable error
         // Note: These are loose bounds since we use default initialization

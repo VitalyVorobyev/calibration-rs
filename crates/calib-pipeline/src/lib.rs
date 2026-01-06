@@ -12,9 +12,8 @@ pub use calib_linear::{
 pub use calib_optim::{
     backend::BackendSolveOptions,
     planar_intrinsics::{
-        optimize_planar_intrinsics as optimize_planar_intrinsics_raw, PinholeCamera,
-        PlanarDataset, PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions, PlanarViewObservations,
-        RobustLoss,
+        optimize_planar_intrinsics as optimize_planar_intrinsics_raw, PinholeCamera, PlanarDataset,
+        PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions, PlanarViewObservations, RobustLoss,
     },
 };
 
