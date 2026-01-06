@@ -1,3 +1,4 @@
+pub mod helpers;
 pub mod session;
 
 // Re-export key building block modules from calib-linear for custom workflows
