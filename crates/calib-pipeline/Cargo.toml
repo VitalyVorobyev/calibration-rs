@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 calib-core = { path = "../calib-core" }
+calib-linear = { path = "../calib-linear" }
 calib-optim = { path = "../calib-optim" }
 anyhow = "1"
 serde = { workspace = true, features = ["derive"] }

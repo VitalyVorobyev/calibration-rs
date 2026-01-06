@@ -14,7 +14,8 @@ use nalgebra::{DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vect
 /// - `intr`: [fx, fy, cx, cy] (4D) - Pinhole intrinsics
 /// - `dist`: [k1, k2, k3, p1, p2] (5D) - Brown-Conrady distortion
 /// - `pose`: [qx, qy, qz, qw, tx, ty, tz] (7D) - SE(3) camera-to-target transform
-/// - `plane`: [nx, ny, nz, d] (4D) - Laser plane (normal + distance, normalized in function)
+/// - `plane_normal`: [nx, ny, nz] (3D) - Laser plane unit normal (S2)
+/// - `plane_distance`: [d] (1D) - Laser plane signed distance
 /// - `laser_pixel`: [u, v] - Observed laser line pixel
 /// - `w`: Weight
 ///
@@ -33,14 +34,19 @@ pub(crate) fn laser_plane_pixel_residual_generic<T: RealField>(
     intr: DVectorView<'_, T>,
     dist: DVectorView<'_, T>,
     pose: DVectorView<'_, T>,
-    plane: DVectorView<'_, T>,
+    plane_normal: DVectorView<'_, T>,
+    plane_distance: DVectorView<'_, T>,
     laser_pixel: [f64; 2],
     w: f64,
 ) -> SVector<T, 1> {
     debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
     debug_assert!(dist.len() >= 5, "distortion must have 5 params");
     debug_assert!(pose.len() == 7, "pose must have 7 params (SE3)");
-    debug_assert!(plane.len() == 4, "plane must have 4 params");
+    debug_assert!(plane_normal.len() == 3, "plane normal must have 3 params");
+    debug_assert!(
+        plane_distance.len() == 1,
+        "plane distance must have 1 param"
+    );
 
     // Extract intrinsics
     let fx = intr[0].clone();
@@ -117,25 +123,17 @@ pub(crate) fn laser_plane_pixel_residual_generic<T: RealField>(
     // p_camera = R_C_T * p_target + t_C_T
     let pt_camera = pose_rot.transform_vector(&pt_target) + pose_t;
 
-    // 6. Normalize plane parameters (enforce manifold constraint)
-    let n_x = plane[0].clone();
-    let n_y = plane[1].clone();
-    let n_z = plane[2].clone();
-    let d_raw = plane[3].clone();
-
-    let n_norm =
-        (n_x.clone() * n_x.clone() + n_y.clone() * n_y.clone() + n_z.clone() * n_z.clone()).sqrt();
-    let n_x_unit = n_x / n_norm.clone();
-    let n_y_unit = n_y / n_norm.clone();
-    let n_z_unit = n_z / n_norm.clone();
-    let d_unit = d_raw / n_norm;
+    // 6. Read plane parameters (unit normal + distance)
+    let n_c = Vector3::new(
+        plane_normal[0].clone(),
+        plane_normal[1].clone(),
+        plane_normal[2].clone(),
+    );
+    let d_c = plane_distance[0].clone();
 
     // 7. Compute signed distance from pt_camera to laser plane
     // Plane equation: n · p + d = 0
-    let dist_to_plane = n_x_unit * pt_camera.x.clone()
-        + n_y_unit * pt_camera.y.clone()
-        + n_z_unit * pt_camera.z.clone()
-        + d_unit;
+    let dist_to_plane = n_c.dot(&pt_camera) + d_c;
 
     // 8. Scale by sqrt(weight)
     let sqrt_w = T::from_f64(w.sqrt()).unwrap();
@@ -223,7 +221,8 @@ fn project_line_to_normalized_plane<T: RealField>(
 /// - `intr`: [fx, fy, cx, cy] (4D) - Pinhole intrinsics
 /// - `dist`: [k1, k2, k3, p1, p2] (5D) - Brown-Conrady distortion
 /// - `pose`: [qx, qy, qz, qw, tx, ty, tz] (7D) - SE(3) camera-to-target transform
-/// - `plane`: [nx, ny, nz, d] (4D) - Laser plane in camera frame (normal + distance)
+/// - `plane_normal`: [nx, ny, nz] (3D) - Laser plane unit normal (S2)
+/// - `plane_distance`: [d] (1D) - Laser plane signed distance
 /// - `laser_pixel`: [u, v] - Observed laser line pixel
 /// - `w`: Weight
 ///
@@ -242,14 +241,19 @@ pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
     intr: DVectorView<'_, T>,
     dist: DVectorView<'_, T>,
     pose: DVectorView<'_, T>,
-    plane: DVectorView<'_, T>,
+    plane_normal: DVectorView<'_, T>,
+    plane_distance: DVectorView<'_, T>,
     laser_pixel: [f64; 2],
     w: f64,
 ) -> SVector<T, 1> {
     debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
     debug_assert!(dist.len() >= 5, "distortion must have 5 params");
     debug_assert!(pose.len() == 7, "pose must have 7 params (SE3)");
-    debug_assert!(plane.len() == 4, "plane must have 4 params");
+    debug_assert!(plane_normal.len() == 3, "plane normal must have 3 params");
+    debug_assert!(
+        plane_distance.len() == 1,
+        "plane distance must have 1 param"
+    );
 
     // Extract intrinsics
     let fx = intr[0].clone();
@@ -278,8 +282,12 @@ pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
     let pose_t = Vector3::new(pose_tx, pose_ty, pose_tz);
 
     // Extract laser plane in camera frame
-    let n_c = Vector3::new(plane[0].clone(), plane[1].clone(), plane[2].clone());
-    let d_c = plane[3].clone();
+    let n_c = Vector3::new(
+        plane_normal[0].clone(),
+        plane_normal[1].clone(),
+        plane_normal[2].clone(),
+    );
+    let d_c = plane_distance[0].clone();
 
     // 1. Compute target plane normal in camera frame
     // Target plane is Z=0 in target frame, so normal in target frame is [0, 0, 1]
@@ -379,7 +387,8 @@ mod tests {
         let pose = DVector::from_vec(vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
 
         // Plane: z = 0.5, normal = [0, 0, 1], distance = -0.5
-        let plane = DVector::from_vec(vec![0.0, 0.0, 1.0, -0.5]);
+        let plane_normal = DVector::from_vec(vec![0.0, 0.0, 1.0]);
+        let plane_distance = DVector::from_vec(vec![-0.5]);
 
         // Pixel at center (will project to z=0 in target frame since pose is identity)
         let pixel = [640.0, 360.0];
@@ -389,7 +398,8 @@ mod tests {
             intr.as_view(),
             dist.as_view(),
             pose.as_view(),
-            plane.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
             pixel,
             w,
         );
@@ -416,7 +426,9 @@ mod tests {
 
         // Laser plane: tilted, passing through camera frame
         // Normal: [0.1, 0, 1] (tilted), distance: -0.4 (40cm in front)
-        let plane = DVector::from_vec(vec![0.1, 0.0, 1.0, -0.4]);
+        let normal = nalgebra::Vector3::new(0.1, 0.0, 1.0).normalize();
+        let plane_normal = DVector::from_vec(vec![normal.x, normal.y, normal.z]);
+        let plane_distance = DVector::from_vec(vec![-0.4]);
 
         // Pixel at center
         let pixel = [640.0, 360.0];
@@ -426,7 +438,8 @@ mod tests {
             intr.as_view(),
             dist.as_view(),
             pose.as_view(),
-            plane.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
             pixel,
             w,
         );

@@ -4,6 +4,7 @@
 //! applying manifolds and constraints, and returning a solved parameter map.
 
 mod tiny_solver_backend;
+mod tiny_solver_manifolds;
 
 use anyhow::{anyhow, Result};
 use nalgebra::DVector;

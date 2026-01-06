@@ -1,13 +1,37 @@
+pub mod helpers;
+pub mod session;
+
+// Re-export key building block modules from calib-linear for custom workflows
+// Users can access functions like: calib_pipeline::homography::dlt_homography()
+pub use calib_linear::{
+    distortion_fit, epipolar, extrinsics, handeye, homography, iterative_intrinsics, linescan,
+    planar_pose, pnp, triangulation, zhang_intrinsics,
+};
+
+// Re-export optimization problem builders from calib-optim
+pub use calib_optim::{
+    backend::BackendSolveOptions,
+    planar_intrinsics::{
+        optimize_planar_intrinsics as optimize_planar_intrinsics_raw, PinholeCamera, PlanarDataset,
+        PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions, PlanarViewObservations, RobustLoss,
+    },
+};
+
+// Re-export problem builders (these require adding pub use in calib-optim)
+// TODO: Once calib-optim exposes these in lib.rs:
+// pub use calib_optim::problems::{
+//     handeye::{optimize_handeye, HandEyeDataset, HandEyeInit, HandEyeSolveOptions},
+//     linescan_bundle::{optimize_linescan, LinescanDataset, LinescanInit, LinescanSolveOptions},
+//     rig_extrinsics::{optimize_rig_extrinsics, RigExtrinsicsDataset, RigExtrinsicsInit, RigExtrinsicsSolveOptions},
+// };
+
 use anyhow::{ensure, Result};
 use calib_core::{
     BrownConrady5, Camera, CameraConfig, DistortionConfig, FxFyCxCySkew, IdentitySensor,
     IntrinsicsConfig, Iso3, Pinhole, ProjectionConfig, Pt3, Real, SensorConfig, Vec2,
 };
-use calib_optim::backend::BackendSolveOptions;
-use calib_optim::planar_intrinsics::{
-    optimize_planar_intrinsics, PinholeCamera, PlanarDataset, PlanarIntrinsicsInit,
-    PlanarIntrinsicsSolveOptions, PlanarViewObservations, RobustLoss,
-};
+// Note: These are now re-exported above for public API, not imported here
+use calib_optim::planar_intrinsics::optimize_planar_intrinsics;
 use nalgebra::{UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
 
@@ -106,11 +130,14 @@ pub struct PlanarIntrinsicsReport {
     pub final_cost: Real,
 }
 
-fn make_pinhole_camera(k: FxFyCxCySkew<Real>, dist: BrownConrady5<Real>) -> PinholeCamera {
+pub(crate) fn make_pinhole_camera(
+    k: FxFyCxCySkew<Real>,
+    dist: BrownConrady5<Real>,
+) -> PinholeCamera {
     Camera::new(Pinhole, dist, IdentitySensor, k)
 }
 
-fn pinhole_camera_config(camera: &PinholeCamera) -> CameraConfig {
+pub(crate) fn pinhole_camera_config(camera: &PinholeCamera) -> CameraConfig {
     CameraConfig {
         projection: ProjectionConfig::Pinhole,
         distortion: DistortionConfig::BrownConrady5 {

@@ -72,7 +72,7 @@ calib (facade) → calib-pipeline (high-level pipelines)
 - **calib-core**: Math types (nalgebra-based), composable camera models (projection → distortion → sensor → intrinsics), generic RANSAC engine, shared test utilities
 - **calib-linear**: Closed-form initialization solvers (Zhang, homography, PnP, epipolar, hand-eye, **iterative intrinsics + distortion**) for bootstrapping optimization
 - **calib-optim**: Non-linear least-squares with backend-agnostic IR, autodiff-compatible factors, pluggable solvers (currently tiny-solver)
-- **calib-pipeline**: Ready-to-use end-to-end calibration workflows with JSON I/O
+- **calib-pipeline**: Ready-to-use end-to-end calibration workflows with JSON I/O, **session management with state tracking**
 - **calib-cli**: Command-line interface for batch processing
 - **calib**: Convenience re-export facade
 
@@ -341,17 +341,241 @@ Integration tests ([tests/linescan_bundle.rs](crates/calib-optim/tests/linescan_
 - Comparison of both residual types
 - Similar accuracy: ~4-5% intrinsics error, ~1-2° plane normal error
 
+## Session Framework (calib-pipeline)
+
+calib-pipeline provides a **stateful session API** for calibration workflows with automatic state tracking and JSON checkpointing.
+
+### Core Abstractions
+
+**ProblemType trait** ([session/mod.rs](crates/calib-pipeline/src/session/mod.rs)):
+- Defines interface for calibration problems
+- Parameterizes observation types, initialization, and optimization
+- Each problem (planar intrinsics, hand-eye, linescan) implements this trait
+
+**CalibrationSession<P: ProblemType>** ([session/mod.rs](crates/calib-pipeline/src/session/mod.rs)):
+- Generic session container with state machine
+- Tracks progress: Uninitialized → Initialized → Optimized → Exported
+- Supports JSON serialization for checkpointing
+
+### State Machine
+
+```
+Uninitialized  ---[initialize()]--->  Initialized  ---[optimize()]--->  Optimized  ---[export()]--->  Exported
+     ↑                                                                                                      |
+     |                                                                                                      |
+     +------------------------------------[set_observations()]--------------------------------------------+
+```
+
+- **Uninitialized**: Session created, observations set (or replaced)
+- **Initialized**: Linear initialization complete
+- **Optimized**: Non-linear optimization complete
+- **Exported**: Results exported (terminal state)
+
+Setting new observations resets the session to Uninitialized (clearing init/optim results).
+
+### Usage Example
+
+```rust
+use calib_pipeline::session::{CalibrationSession, PlanarIntrinsicsProblem};
+use calib_pipeline::session::problem_types::{
+    PlanarIntrinsicsObservations, PlanarIntrinsicsInitOptions, PlanarIntrinsicsOptimOptions
+};
+
+// Create session
+let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new_with_description(
+    "My calibration session".to_string()
+);
+
+// Add observations
+let obs = PlanarIntrinsicsObservations { views: /* ... */ };
+session.set_observations(obs);
+
+// Initialize (linear solver)
+session.initialize(PlanarIntrinsicsInitOptions::default())?;
+
+// Optimize (non-linear refinement)
+session.optimize(PlanarIntrinsicsOptimOptions::default())?;
+
+// Export results
+let report = session.export()?;
+
+// Save checkpoint
+let json = session.to_json()?;
+std::fs::write("session.json", json)?;
+
+// Resume later
+let restored = CalibrationSession::<PlanarIntrinsicsProblem>::from_json(&json)?;
+```
+
+### Available Problem Types
+
+**PlanarIntrinsicsProblem** ([session/problem_types.rs](crates/calib-pipeline/src/session/problem_types.rs)):
+- Zhang's method with Brown-Conrady distortion
+- Observations: `PlanarIntrinsicsObservations` (multiple views of planar pattern)
+- Init: Quick initialization with 10 iterations
+- Optim: Full refinement with user-configurable options (robust loss, fixed params, etc.)
+- Report: `CameraConfig` + final cost
+
+### Session Metadata
+
+Each session tracks:
+- `problem_type`: Identifier string (e.g., "planar_intrinsics")
+- `created_at`: Unix timestamp when session was created
+- `last_updated`: Unix timestamp of last stage change
+- `description`: Optional user-provided description
+
+### Design Principles
+
+- **Fail-fast validation**: Stage transitions enforce preconditions (e.g., can't optimize without initialization)
+- **Type safety**: Generic over `ProblemType` ensures correct observation/result types
+- **Checkpointing**: Full session state serializable to JSON for resumption
+- **Immutable history**: Once exported, session is in terminal state (no further modifications)
+
+### Adding New Problem Types
+
+To add a new calibration problem:
+
+1. Define observation/result types (must implement `Clone + Serialize + Deserialize`)
+2. Implement `ProblemType` trait with `initialize()` and `optimize()` methods
+3. Add to `session::problem_types` module
+4. Sessions automatically inherit state management and checkpointing
+
+Example skeleton:
+
+```rust
+pub struct MyProblem;
+
+impl ProblemType for MyProblem {
+    type Observations = MyObservations;
+    type InitialValues = MyInitial;
+    type OptimizedResults = MyResults;
+    type InitOptions = MyInitOpts;
+    type OptimOptions = MyOptimOpts;
+
+    fn problem_name() -> &'static str { "my_problem" }
+
+    fn initialize(obs: &Self::Observations, opts: &Self::InitOptions) -> Result<Self::InitialValues> {
+        // Call calib-linear solver
+    }
+
+    fn optimize(obs: &Self::Observations, init: &Self::InitialValues, opts: &Self::OptimOptions) -> Result<Self::OptimizedResults> {
+        // Call calib-optim solver
+    }
+}
+```
+
+## Dual API: Session vs. Imperative Functions
+
+calib-pipeline supports **two complementary APIs** for different use cases:
+
+### Session API (Structured Workflows)
+
+**Use when:**
+- You have a standard calibration workflow
+- You want automatic state management and checkpointing
+- Type safety and enforced stage transitions are valuable
+
+**Example:**
+```rust
+let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+session.set_observations(obs);
+session.initialize(init_opts)?;  // Can checkpoint here
+session.optimize(optim_opts)?;   // Can checkpoint here
+let report = session.export()?;
+```
+
+**Characteristics:**
+- Opinionated, type-safe, stage-based
+- Automatic state tracking
+- JSON serialization
+- Enforced transitions
+- ~80% use case
+
+### Imperative Function API (Custom Workflows)
+
+**Use when:**
+- You need to inspect intermediate results
+- You want to compose custom workflows
+- You need to integrate calibration into a larger system
+- You want maximum flexibility and control
+
+**Example:**
+```rust
+// Direct access to building blocks
+use calib_pipeline::{homography, iterative_intrinsics, zhang_intrinsics};
+
+// Compute homographies
+let H = homography::dlt_homography_ransac(&p3d, &p2d, opts)?;
+
+// Initialize intrinsics
+let linear_result = iterative_intrinsics::IterativeIntrinsicsSolver::estimate(&views, opts)?;
+
+// Inspect before committing
+println!("Initial K: {:?}", linear_result.intrinsics);
+
+// Then optimize
+let dataset = PlanarDataset::new(observations)?;
+let init = PlanarIntrinsicsInit::from_linear_result(&linear_result)?;
+let final_result = optimize_planar_intrinsics_raw(dataset, init, optim_opts, backend_opts)?;
+```
+
+**Characteristics:**
+- Flexible, composable, explicit
+- User manages state
+- Access to intermediate results
+- ~20% use case for custom needs
+
+### Re-exported Modules
+
+calib-pipeline re-exports all building blocks from calib-linear and calib-optim:
+
+**From calib-linear:**
+- `homography` - DLT homography estimation (+ RANSAC)
+- `zhang_intrinsics` - Intrinsics from homographies
+- `distortion_fit` - Distortion estimation from residuals
+- `iterative_intrinsics` - Alternating K + distortion refinement
+- `planar_pose` - Pose from homography + K
+- `pnp` - Perspective-n-Point solvers (DLT, P3P, EPnP, RANSAC)
+- `epipolar` - Fundamental/essential matrices + decomposition
+- `triangulation` - Linear triangulation from two views
+- `extrinsics` - Multi-camera rig extrinsics
+- `handeye` - Hand-eye calibration (AX=XB)
+- `linescan` - Laser plane estimation
+
+**From calib-optim:**
+- `BackendSolveOptions` - Non-linear solver configuration
+- `PlanarDataset`, `PlanarIntrinsicsInit`, `PlanarIntrinsicsSolveOptions`
+- `optimize_planar_intrinsics_raw` - Direct access to planar intrinsics optimization
+- `RobustLoss` - Outlier handling (Huber, Cauchy, Arctan)
+
+**Documentation:** See [functions.md](crates/calib-pipeline/src/functions.md) for comprehensive examples and best practices.
+
+### API Selection Guidelines
+
+| Scenario | Recommended API |
+|----------|----------------|
+| Standard single-camera calibration | Session API |
+| Need to checkpoint between init/optimize | Session API |
+| Custom stereo rig workflow | Imperative Functions |
+| Inspect linear initialization quality | Imperative Functions |
+| Integrate calibration into larger system | Imperative Functions |
+| Research/experimentation | Imperative Functions |
+| Production deployment (standard case) | Session API |
+
+**Note:** The two APIs complement each other - use session for common cases, functions for custom needs. They are not redundant but serve different purposes.
+
 ## Project Status
 
 **Current state**: Early development, APIs may change
 - calib-linear: ✅ Feature-complete and tested
 - calib-optim: ✅ Planar intrinsics with distortion working (just implemented)
-- calib-pipeline: 🟡 Basic planar intrinsics pipeline functional
+- calib-pipeline: ✅ Session framework with state management implemented (PlanarIntrinsicsProblem ready)
 - Multi-camera, bundle adjustment: ❌ Not yet implemented
 
 **Recent work**:
-- ✅ Implemented iterative linear intrinsics + distortion estimation in calib-linear
-- ✅ Added closed-form distortion fitting from homography residuals
-- ✅ Created shared test utilities in calib-core
-- ✅ Added realistic calibration tests (no ground truth distortion required)
+- ✅ Implemented session framework with generic `CalibrationSession<P: ProblemType>` in calib-pipeline
+- ✅ Added state machine tracking (Uninitialized → Initialized → Optimized → Exported)
+- ✅ JSON checkpointing support for session state
+- ✅ Implemented `PlanarIntrinsicsProblem` as first problem type
+- ✅ Full test coverage for session infrastructure (17 tests passing)
 - All 43+ workspace tests passing

@@ -327,18 +327,34 @@ fn build_linescan_ir(
         initial_map.insert(name, iso3_to_se3_dvec(pose));
     }
 
-    // Add laser plane parameter blocks
+    // Add laser plane parameter blocks (unit normal on S2 + scalar distance)
     let mut plane_ids = Vec::new();
     for (i, plane) in initial.planes.iter().enumerate() {
-        let fixed = if opts.fix_planes.contains(&i) {
-            FixedMask::all_fixed(4)
+        let fixed_plane = opts.fix_planes.contains(&i);
+        let normal_fixed = if fixed_plane {
+            FixedMask::all_fixed(3)
         } else {
             FixedMask::all_free()
         };
-        let name = format!("plane_{}", i);
-        let id = ir.add_param_block(&name, 4, ManifoldKind::Euclidean, fixed, None);
-        plane_ids.push(id);
-        initial_map.insert(name, plane.to_dvec());
+        let distance_fixed = if fixed_plane {
+            FixedMask::all_fixed(1)
+        } else {
+            FixedMask::all_free()
+        };
+
+        let normal_name = format!("plane_{}_normal", i);
+        let distance_name = format!("plane_{}_distance", i);
+        let normal_id = ir.add_param_block(&normal_name, 3, ManifoldKind::S2, normal_fixed, None);
+        let distance_id = ir.add_param_block(
+            &distance_name,
+            1,
+            ManifoldKind::Euclidean,
+            distance_fixed,
+            None,
+        );
+        plane_ids.push((normal_id, distance_id));
+        initial_map.insert(normal_name, plane.normal_to_dvec());
+        initial_map.insert(distance_name, plane.distance_to_dvec());
     }
 
     // Add residual blocks
@@ -366,7 +382,7 @@ fn build_linescan_ir(
         }
 
         // Laser plane residuals (one per plane, typically just one)
-        for &plane_id in plane_ids.iter().take(dataset.num_planes) {
+        for &(plane_normal_id, plane_distance_id) in plane_ids.iter().take(dataset.num_planes) {
             for (laser_idx, laser_pixel) in view.laser_pixels.iter().enumerate() {
                 let w = view.laser_weight(laser_idx);
 
@@ -383,7 +399,13 @@ fn build_linescan_ir(
                 };
 
                 ir.add_residual_block(ResidualBlock {
-                    params: vec![intrinsics_id, distortion_id, pose_id, plane_id],
+                    params: vec![
+                        intrinsics_id,
+                        distortion_id,
+                        pose_id,
+                        plane_normal_id,
+                        plane_distance_id,
+                    ],
                     loss: opts.laser_loss,
                     factor,
                     residual_dim: 1,
@@ -429,12 +451,20 @@ fn extract_solution(
 
     let mut planes = Vec::new();
     for i in 0..num_planes {
-        let name = format!("plane_{}", i);
-        let plane_vec = solution
+        let normal_name = format!("plane_{}_normal", i);
+        let distance_name = format!("plane_{}_distance", i);
+        let plane_normal = solution
             .params
-            .get(&name)
-            .ok_or_else(|| anyhow!("missing {} in solution", name))?;
-        planes.push(LaserPlane::from_dvec(plane_vec.as_view())?);
+            .get(&normal_name)
+            .ok_or_else(|| anyhow!("missing {} in solution", normal_name))?;
+        let plane_distance = solution
+            .params
+            .get(&distance_name)
+            .ok_or_else(|| anyhow!("missing {} in solution", distance_name))?;
+        planes.push(LaserPlane::from_split_dvec(
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+        )?);
     }
 
     let camera = Camera::new(
@@ -521,5 +551,42 @@ mod tests {
         let backend_opts = BackendSolveOptions::default();
         let result = backend.solve(&ir, &initial_map, &backend_opts);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn ir_uses_s2_for_plane_normal() {
+        let views = vec![LinescanViewObservations {
+            calib_points_3d: vec![Pt3::new(0.0, 0.0, 0.0); 4],
+            calib_pixels: vec![Vec2::new(100.0, 100.0); 4],
+            laser_pixels: vec![Vec2::new(200.0, 200.0); 5],
+            calib_weights: None,
+            laser_weights: None,
+        }];
+        let dataset = LinescanDataset::new_single_plane(views).unwrap();
+
+        let intrinsics = Intrinsics4 {
+            fx: 800.0,
+            fy: 800.0,
+            cx: 512.0,
+            cy: 384.0,
+        };
+        let distortion = BrownConrady5Params::zeros();
+        let poses = vec![Iso3::identity()];
+        let planes = vec![LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5)];
+        let initial = LinescanInit::new(intrinsics, distortion, poses, planes).unwrap();
+
+        let opts = LinescanSolveOptions::default();
+        let (ir, _) = build_linescan_ir(&dataset, &initial, &opts).unwrap();
+
+        let normal_id = ir.param_by_name("plane_0_normal").unwrap();
+        let distance_id = ir.param_by_name("plane_0_distance").unwrap();
+
+        let normal_param = &ir.params[normal_id.0];
+        let distance_param = &ir.params[distance_id.0];
+
+        assert_eq!(normal_param.dim, 3);
+        assert_eq!(normal_param.manifold, ManifoldKind::S2);
+        assert_eq!(distance_param.dim, 1);
+        assert_eq!(distance_param.manifold, ManifoldKind::Euclidean);
     }
 }

@@ -7,5 +7,6 @@ Shared mental model for the project.
 - Error metrics and residuals; reprojection cost vs. algebraic errors.
 - Robust estimation: RANSAC traits, consensus scoring, and kernel selection.
 - Data serialization with `serde` for reproducible experiments.
+- Linescan optimization: laser plane normals are optimized on S2 with a separate distance scalar.
 
 > TODO: add figures for frame relationships and distortion mapping.
