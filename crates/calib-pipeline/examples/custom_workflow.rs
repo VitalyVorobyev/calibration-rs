@@ -8,11 +8,11 @@
 //!
 //! Run with: cargo run --example custom_workflow
 
+use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Vec2};
+use calib_pipeline::distortion_fit::DistortionFitOptions;
 use calib_pipeline::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
 use calib_pipeline::iterative_intrinsics::IterativeIntrinsicsOptions;
-use calib_pipeline::distortion_fit::DistortionFitOptions;
 use calib_pipeline::{BackendSolveOptions, PlanarIntrinsicsSolveOptions, PlanarViewData};
-use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Vec2};
 use nalgebra::{UnitQuaternion, Vector3};
 
 fn main() -> anyhow::Result<()> {
@@ -64,12 +64,11 @@ fn main() -> anyhow::Result<()> {
     );
 
     // Compute initialization errors
-    let fx_error = 100.0 * (init_result.intrinsics.fx - ground_truth_k.fx).abs() / ground_truth_k.fx;
-    let fy_error = 100.0 * (init_result.intrinsics.fy - ground_truth_k.fy).abs() / ground_truth_k.fy;
-    println!(
-        "Initial errors: fx={:.1}%, fy={:.1}%",
-        fx_error, fy_error
-    );
+    let fx_error =
+        100.0 * (init_result.intrinsics.fx - ground_truth_k.fx).abs() / ground_truth_k.fx;
+    let fy_error =
+        100.0 * (init_result.intrinsics.fy - ground_truth_k.fy).abs() / ground_truth_k.fy;
+    println!("Initial errors: fx={:.1}%, fy={:.1}%", fx_error, fy_error);
 
     // Step 3: Decide whether to proceed with optimization
     if init_result.intrinsics.fx < 100.0 || init_result.intrinsics.fx > 2000.0 {
@@ -97,18 +96,17 @@ fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    let optim_result = optimize_planar_intrinsics_from_init(
-        &views,
-        &init_result,
-        &solve_opts,
-        &backend_opts,
-    )?;
+    let optim_result =
+        optimize_planar_intrinsics_from_init(&views, &init_result, &solve_opts, &backend_opts)?;
     println!("✓ Optimization complete");
 
     // Step 5: Analyze final results
     println!("\n=== Final Results ===");
     println!("Final cost: {:.6}", optim_result.final_cost);
-    println!("Mean reprojection error: {:.3} pixels", optim_result.mean_reproj_error);
+    println!(
+        "Mean reprojection error: {:.3} pixels",
+        optim_result.mean_reproj_error
+    );
 
     println!(
         "\nFinal intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}, skew={:.4}",
@@ -129,10 +127,14 @@ fn main() -> anyhow::Result<()> {
 
     // Compare with ground truth
     println!("\n--- Accuracy Assessment ---");
-    let final_fx_error = 100.0 * (optim_result.intrinsics.fx - ground_truth_k.fx).abs() / ground_truth_k.fx;
-    let final_fy_error = 100.0 * (optim_result.intrinsics.fy - ground_truth_k.fy).abs() / ground_truth_k.fy;
-    let final_cx_error = 100.0 * (optim_result.intrinsics.cx - ground_truth_k.cx).abs() / ground_truth_k.cx;
-    let final_cy_error = 100.0 * (optim_result.intrinsics.cy - ground_truth_k.cy).abs() / ground_truth_k.cy;
+    let final_fx_error =
+        100.0 * (optim_result.intrinsics.fx - ground_truth_k.fx).abs() / ground_truth_k.fx;
+    let final_fy_error =
+        100.0 * (optim_result.intrinsics.fy - ground_truth_k.fy).abs() / ground_truth_k.fy;
+    let final_cx_error =
+        100.0 * (optim_result.intrinsics.cx - ground_truth_k.cx).abs() / ground_truth_k.cx;
+    let final_cy_error =
+        100.0 * (optim_result.intrinsics.cy - ground_truth_k.cy).abs() / ground_truth_k.cy;
 
     println!(
         "Final errors: fx={:.2}%, fy={:.2}%, cx={:.2}%, cy={:.2}%",

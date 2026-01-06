@@ -5,16 +5,16 @@
 //!
 //! Run with: cargo run --example compare_apis
 
+use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Vec2};
+use calib_pipeline::distortion_fit::DistortionFitOptions;
 use calib_pipeline::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
 use calib_pipeline::iterative_intrinsics::IterativeIntrinsicsOptions;
-use calib_pipeline::distortion_fit::DistortionFitOptions;
 use calib_pipeline::session::problem_types::{
     PlanarIntrinsicsInitOptions, PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions,
     PlanarIntrinsicsProblem,
 };
 use calib_pipeline::session::CalibrationSession;
 use calib_pipeline::{BackendSolveOptions, PlanarIntrinsicsSolveOptions, PlanarViewData};
-use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Vec2};
 use nalgebra::{UnitQuaternion, Vector3};
 
 fn main() -> anyhow::Result<()> {
@@ -165,12 +165,8 @@ fn run_with_imperative_api(views: Vec<PlanarViewData>) -> anyhow::Result<Calibra
     let backend_opts = BackendSolveOptions::default();
 
     println!("Running non-linear optimization...");
-    let optim_result = optimize_planar_intrinsics_from_init(
-        &views,
-        &init_result,
-        &solve_opts,
-        &backend_opts,
-    )?;
+    let optim_result =
+        optimize_planar_intrinsics_from_init(&views, &init_result, &solve_opts, &backend_opts)?;
 
     println!("✓ Imperative API completed");
 

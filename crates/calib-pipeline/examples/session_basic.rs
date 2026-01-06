@@ -10,13 +10,13 @@
 //!
 //! Run with: cargo run --example session_basic
 
+use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Vec2};
 use calib_pipeline::session::problem_types::{
     PlanarIntrinsicsInitOptions, PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions,
     PlanarIntrinsicsProblem,
 };
 use calib_pipeline::session::CalibrationSession;
 use calib_pipeline::PlanarViewData;
-use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Vec2};
 use nalgebra::{UnitQuaternion, Vector3};
 
 fn main() -> anyhow::Result<()> {
@@ -52,7 +52,10 @@ fn main() -> anyhow::Result<()> {
 
     // Step 4: Checkpoint state (optional)
     let checkpoint_json = session.to_json()?;
-    println!("✓ Session state saved to JSON ({} bytes)", checkpoint_json.len());
+    println!(
+        "✓ Session state saved to JSON ({} bytes)",
+        checkpoint_json.len()
+    );
 
     // Could save to file:
     // std::fs::write("checkpoint.json", checkpoint_json)?;
@@ -68,25 +71,34 @@ fn main() -> anyhow::Result<()> {
     println!("Final cost: {:.6}", final_results.report.final_cost);
 
     // Extract and display intrinsics
-    if let calib_core::IntrinsicsConfig::FxFyCxCySkew { fx, fy, cx, cy, skew } =
-        &final_results.report.camera.intrinsics
-    {
-        println!(
-            "Estimated intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}, skew={:.4}",
-            fx, fy, cx, cy, skew
-        );
-        println!(
-            "Errors: fx={:.2}%, fy={:.2}%, cx={:.2}%, cy={:.2}%",
-            100.0 * (fx - ground_truth_k.fx).abs() / ground_truth_k.fx,
-            100.0 * (fy - ground_truth_k.fy).abs() / ground_truth_k.fy,
-            100.0 * (cx - ground_truth_k.cx).abs() / ground_truth_k.cx,
-            100.0 * (cy - ground_truth_k.cy).abs() / ground_truth_k.cy
-        );
-    }
+    let calib_core::IntrinsicsConfig::FxFyCxCySkew {
+        fx,
+        fy,
+        cx,
+        cy,
+        skew,
+    } = &final_results.report.camera.intrinsics;
+    println!(
+        "Estimated intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}, skew={:.4}",
+        fx, fy, cx, cy, skew
+    );
+    println!(
+        "Errors: fx={:.2}%, fy={:.2}%, cx={:.2}%, cy={:.2}%",
+        100.0 * (fx - ground_truth_k.fx).abs() / ground_truth_k.fx,
+        100.0 * (fy - ground_truth_k.fy).abs() / ground_truth_k.fy,
+        100.0 * (cx - ground_truth_k.cx).abs() / ground_truth_k.cx,
+        100.0 * (cy - ground_truth_k.cy).abs() / ground_truth_k.cy
+    );
 
     // Extract and display distortion
-    if let calib_core::DistortionConfig::BrownConrady5 { k1, k2, k3, p1, p2, iters: _ } =
-        &final_results.report.camera.distortion
+    if let calib_core::DistortionConfig::BrownConrady5 {
+        k1,
+        k2,
+        k3,
+        p1,
+        p2,
+        iters: _,
+    } = &final_results.report.camera.distortion
     {
         println!(
             "Estimated distortion: k1={:.4}, k2={:.4}, k3={:.4}, p1={:.4}, p2={:.4}",
