@@ -25,13 +25,16 @@ pub use calib_optim::{
 //     rig_extrinsics::{optimize_rig_extrinsics, RigExtrinsicsDataset, RigExtrinsicsInit, RigExtrinsicsSolveOptions},
 // };
 
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use calib_core::{
     BrownConrady5, Camera, CameraConfig, DistortionConfig, FxFyCxCySkew, IdentitySensor,
-    IntrinsicsConfig, Iso3, Pinhole, ProjectionConfig, Pt3, Real, SensorConfig, Vec2,
+    IntrinsicsConfig, Iso3, Mat3, Pinhole, ProjectionConfig, Pt2, Pt3, Real, SensorConfig, Vec2,
 };
 // Note: These are now re-exported above for public API, not imported here
-use calib_optim::planar_intrinsics::optimize_planar_intrinsics;
+use calib_optim::{
+    params::{distortion::BrownConrady5Params, intrinsics::Intrinsics4},
+    planar_intrinsics::optimize_planar_intrinsics,
+};
 use nalgebra::{UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
 
@@ -159,15 +162,132 @@ pub(crate) fn pinhole_camera_config(camera: &PinholeCamera) -> CameraConfig {
     }
 }
 
-pub fn run_planar_intrinsics(
-    input: &PlanarIntrinsicsInput,
-    config: &PlanarIntrinsicsConfig,
-) -> Result<PlanarIntrinsicsReport> {
+fn board_and_pixel_points(view: &PlanarViewData) -> (Vec<Pt2>, Vec<Pt2>) {
+    let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
+
+    let pixel_2d: Vec<Pt2> = view.points_2d.iter().map(|v| Pt2::new(v.x, v.y)).collect();
+
+    (board_2d, pixel_2d)
+}
+
+pub(crate) fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
+    Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
+}
+
+pub(crate) fn planar_homographies_from_views(views: &[PlanarViewData]) -> Result<Vec<Mat3>> {
+    use calib_linear::homography::dlt_homography;
+
+    let mut homographies = Vec::with_capacity(views.len());
+    for (idx, view) in views.iter().enumerate() {
+        let (board_2d, pixel_2d) = board_and_pixel_points(view);
+        let h = dlt_homography(&board_2d, &pixel_2d).with_context(|| {
+            format!(
+                "failed to compute homography for view {} (need >=4 well-conditioned points)",
+                idx
+            )
+        })?;
+        homographies.push(h);
+    }
+    Ok(homographies)
+}
+
+pub(crate) fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso3>> {
+    use calib_linear::planar_pose::estimate_planar_pose_from_h;
+
+    homographies
+        .iter()
+        .enumerate()
+        .map(|(idx, h)| {
+            estimate_planar_pose_from_h(kmtx, h)
+                .with_context(|| format!("failed to recover pose for view {}", idx))
+        })
+        .collect()
+}
+
+fn iterative_init_guess(
+    views: &[PlanarViewData],
+) -> Option<(FxFyCxCySkew<Real>, BrownConrady5<Real>)> {
+    use calib_linear::iterative_intrinsics::{
+        estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
+    };
+
+    if views.len() < 3 {
+        return None;
+    }
+
+    let calib_views: Vec<IterativeCalibView> = views
+        .iter()
+        .map(|v| {
+            let (board_2d, pixel_2d) = board_and_pixel_points(v);
+            IterativeCalibView::new(board_2d, pixel_2d)
+        })
+        .collect();
+
+    let opts = IterativeIntrinsicsOptions::default();
+    match estimate_intrinsics_iterative(&calib_views, opts) {
+        Ok(res) => Some((
+            res.intrinsics,
+            BrownConrady5 {
+                iters: res.distortion.iters,
+                ..res.distortion
+            },
+        )),
+        Err(_) => None,
+    }
+}
+
+pub(crate) fn planar_init_seed_from_views(
+    views: &[PlanarViewData],
+) -> Result<(PlanarIntrinsicsInit, PinholeCamera)> {
+    use calib_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
+
     ensure!(
-        !input.views.is_empty(),
-        "need at least one view for calibration"
+        views.len() >= 3,
+        "need at least 3 views for planar initialization (got {})",
+        views.len()
     );
 
+    let homographies = planar_homographies_from_views(views)?;
+
+    // Primary path: Zhang closed-form intrinsics (no distortion)
+    let mut intrinsics = estimate_intrinsics_from_homographies(&homographies)
+        .context("zhang intrinsics initialization failed")?;
+    let mut distortion = BrownConrady5 {
+        k1: 0.0,
+        k2: 0.0,
+        k3: 0.0,
+        p1: 0.0,
+        p2: 0.0,
+        iters: 8,
+    };
+
+    // Fallback: iterative intrinsics to capture distortion if Zhang is unstable
+    if let Some((intr, dist)) = iterative_init_guess(views) {
+        intrinsics = intr;
+        distortion = dist;
+    }
+
+    // Compute pose seeds from homographies and intrinsics
+    let kmtx = k_matrix_from_intrinsics(&intrinsics);
+    let poses0 = poses_from_homographies(&kmtx, &homographies)?;
+
+    let init = PlanarIntrinsicsInit::new(
+        Intrinsics4 {
+            fx: intrinsics.fx,
+            fy: intrinsics.fy,
+            cx: intrinsics.cx,
+            cy: intrinsics.cy,
+        },
+        BrownConrady5Params::from_core(&distortion),
+        poses0,
+    )?;
+
+    let camera = make_pinhole_camera(intrinsics, distortion);
+
+    Ok((init, camera))
+}
+
+pub(crate) fn build_planar_dataset(input: &PlanarIntrinsicsInput) -> Result<PlanarDataset> {
     let mut observations = Vec::new();
     for (idx, view) in input.views.iter().enumerate() {
         ensure!(
@@ -208,43 +328,34 @@ pub fn run_planar_intrinsics(
         observations.push(obs);
     }
 
-    let dataset = PlanarDataset::new(observations)?;
+    PlanarDataset::new(observations).context("invalid planar dataset")
+}
 
-    // TODO: use Zhang initialization instead of fixed initial camera!
-    let initial_camera = make_pinhole_camera(
-        FxFyCxCySkew {
-            fx: 800.0,
-            fy: 800.0,
-            cx: 640.0,
-            cy: 480.0,
-            skew: 0.0,
-        },
-        BrownConrady5 {
-            k1: 0.0,
-            k2: 0.0,
-            k3: 0.0,
-            p1: 0.0,
-            p2: 0.0,
-            iters: 8,
-        },
-    );
-
-    let poses0: Vec<Iso3> = (0..dataset.num_views())
-        .map(|_| {
-            Iso3::from_parts(
-                Vector3::new(0.0, 0.0, 1.0).into(),
-                UnitQuaternion::identity(),
-            )
-        })
-        .collect();
-
-    let init = PlanarIntrinsicsInit::from_camera_and_poses(&initial_camera, poses0)?;
-    let result = optimize_planar_intrinsics(
+pub(crate) fn optimize_planar_intrinsics_with_init(
+    dataset: PlanarDataset,
+    init: PlanarIntrinsicsInit,
+    config: &PlanarIntrinsicsConfig,
+) -> Result<calib_optim::planar_intrinsics::PlanarIntrinsicsResult> {
+    optimize_planar_intrinsics(
         dataset,
         init,
         config.solve_options(),
         config.solver_options(),
-    )?;
+    )
+}
+
+pub fn run_planar_intrinsics(
+    input: &PlanarIntrinsicsInput,
+    config: &PlanarIntrinsicsConfig,
+) -> Result<PlanarIntrinsicsReport> {
+    ensure!(
+        !input.views.is_empty(),
+        "need at least one view for calibration"
+    );
+
+    let dataset = build_planar_dataset(input)?;
+    let (init, _) = planar_init_seed_from_views(&input.views)?;
+    let result = optimize_planar_intrinsics_with_init(dataset, init, config)?;
 
     let camera_cfg = pinhole_camera_config(&result.camera);
 
@@ -257,6 +368,65 @@ pub fn run_planar_intrinsics(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zhang_initialization_recovers_intrinsics_seed() {
+        let k_gt = FxFyCxCySkew {
+            fx: 1250.0,
+            fy: 1220.0,
+            cx: 640.0,
+            cy: 400.0,
+            skew: 0.0,
+        };
+        let dist_gt = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+        let cam_gt = make_pinhole_camera(k_gt, dist_gt);
+
+        // Simple grid
+        let nx = 6;
+        let ny = 5;
+        let spacing = 0.05_f64;
+        let mut board_points = Vec::new();
+        for j in 0..ny {
+            for i in 0..nx {
+                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
+            }
+        }
+
+        let mut views = Vec::new();
+        for view_idx in 0..4 {
+            let angle = 0.08 * (view_idx as f64);
+            let axis = Vector3::new(0.0, 1.0, 0.0);
+            let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
+            let translation = Vector3::new(0.0, 0.0, 0.6 + 0.05 * view_idx as f64);
+            let pose = Iso3::from_parts(translation.into(), rotation);
+
+            let mut points_2d = Vec::new();
+            for pw in &board_points {
+                let pc = pose.transform_point(pw);
+                let proj = cam_gt.project_point(&pc).unwrap();
+                points_2d.push(Vec2::new(proj.x, proj.y));
+            }
+
+            views.push(PlanarViewData {
+                points_3d: board_points.clone(),
+                points_2d,
+                weights: None,
+            });
+        }
+
+        let (seed, _) = planar_init_seed_from_views(&views).expect("init should succeed");
+        assert!((seed.intrinsics.fx - k_gt.fx).abs() < 30.0);
+        assert!((seed.intrinsics.fy - k_gt.fy).abs() < 30.0);
+        assert!((seed.intrinsics.cx - k_gt.cx).abs() < 25.0);
+        assert!((seed.intrinsics.cy - k_gt.cy).abs() < 25.0);
+    }
 
     fn intrinsics_from_config(cfg: &CameraConfig) -> FxFyCxCySkew<Real> {
         match &cfg.intrinsics {

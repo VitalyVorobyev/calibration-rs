@@ -2,11 +2,12 @@
 
 use super::ProblemType;
 use crate::{
+    optimize_planar_intrinsics_with_init, pinhole_camera_config, planar_init_seed_from_views,
     run_planar_intrinsics, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
     PlanarViewData,
 };
 use anyhow::Result;
-use calib_core::{Iso3, Pt3, Vec2};
+use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt3, Real, Vec2};
 use serde::{Deserialize, Serialize};
 
 /// Planar intrinsics calibration problem (Zhang's method with distortion).
@@ -24,8 +25,11 @@ pub struct PlanarIntrinsicsObservations {
 /// Initial values from linear initialization (iterative Zhang's method).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsInitial {
-    /// Initial intrinsics and distortion estimates.
+    /// Initial intrinsics and distortion estimates (for compatibility).
     pub report: PlanarIntrinsicsReport,
+    /// Serialized seed for nonlinear refinement.
+    #[serde(default)]
+    pub init: Option<PlanarIntrinsicsInitState>,
 }
 
 /// Optimized results from non-linear refinement.
@@ -33,6 +37,59 @@ pub struct PlanarIntrinsicsInitial {
 pub struct PlanarIntrinsicsOptimized {
     /// Final calibration report with refined parameters.
     pub report: PlanarIntrinsicsReport,
+}
+
+/// Serializable seed for planar intrinsics optimization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanarIntrinsicsInitState {
+    pub intrinsics: FxFyCxCySkew<Real>,
+    pub distortion: BrownConrady5<Real>,
+    pub poses: Vec<Iso3>,
+}
+
+impl PlanarIntrinsicsInitState {
+    pub fn from_seed(seed: &calib_optim::planar_intrinsics::PlanarIntrinsicsInit) -> Self {
+        Self {
+            intrinsics: FxFyCxCySkew {
+                fx: seed.intrinsics.fx,
+                fy: seed.intrinsics.fy,
+                cx: seed.intrinsics.cx,
+                cy: seed.intrinsics.cy,
+                skew: 0.0,
+            },
+            distortion: BrownConrady5 {
+                k1: seed.distortion.k1,
+                k2: seed.distortion.k2,
+                k3: seed.distortion.k3,
+                p1: seed.distortion.p1,
+                p2: seed.distortion.p2,
+                iters: 8,
+            },
+            poses: seed.poses.clone(),
+        }
+    }
+
+    pub fn to_seed(&self) -> Result<calib_optim::planar_intrinsics::PlanarIntrinsicsInit> {
+        let distortion = calib_optim::params::distortion::BrownConrady5Params {
+            k1: self.distortion.k1,
+            k2: self.distortion.k2,
+            k3: self.distortion.k3,
+            p1: self.distortion.p1,
+            p2: self.distortion.p2,
+        };
+        let intrinsics = calib_optim::params::intrinsics::Intrinsics4 {
+            fx: self.intrinsics.fx,
+            fy: self.intrinsics.fy,
+            cx: self.intrinsics.cx,
+            cy: self.intrinsics.cy,
+        };
+        calib_optim::planar_intrinsics::PlanarIntrinsicsInit::new(
+            intrinsics,
+            distortion,
+            self.poses.clone(),
+        )
+        .map_err(Into::into)
+    }
 }
 
 /// Options for linear initialization.
@@ -69,32 +126,42 @@ impl ProblemType for PlanarIntrinsicsProblem {
         obs: &Self::Observations,
         _opts: &Self::InitOptions,
     ) -> Result<Self::InitialValues> {
-        // Use default config for initialization (no robust loss, fewer iterations)
-        let init_config = PlanarIntrinsicsConfig {
-            max_iters: Some(10), // Quick initialization
-            ..Default::default()
+        let (seed, cam) = planar_init_seed_from_views(&obs.views)?;
+        let init_state = PlanarIntrinsicsInitState::from_seed(&seed);
+
+        let report = PlanarIntrinsicsReport {
+            camera: pinhole_camera_config(&cam),
+            final_cost: 0.0,
         };
 
-        let input = PlanarIntrinsicsInput {
-            views: obs.views.clone(),
-        };
-
-        let report = run_planar_intrinsics(&input, &init_config)?;
-
-        Ok(PlanarIntrinsicsInitial { report })
+        Ok(PlanarIntrinsicsInitial {
+            report,
+            init: Some(init_state),
+        })
     }
 
     fn optimize(
         obs: &Self::Observations,
-        _init: &Self::InitialValues,
+        init: &Self::InitialValues,
         opts: &Self::OptimOptions,
     ) -> Result<Self::OptimizedResults> {
-        // Run full optimization with user-provided config
         let input = PlanarIntrinsicsInput {
             views: obs.views.clone(),
         };
 
-        let report = run_planar_intrinsics(&input, &opts.config)?;
+        let dataset = crate::build_planar_dataset(&input)?;
+        let seed = if let Some(state) = init.init.as_ref() {
+            state.to_seed()?
+        } else {
+            planar_init_seed_from_views(&input.views)?.0
+        };
+
+        let result = optimize_planar_intrinsics_with_init(dataset, seed, &opts.config)?;
+
+        let report = PlanarIntrinsicsReport {
+            camera: pinhole_camera_config(&result.camera),
+            final_cost: result.final_cost,
+        };
 
         Ok(PlanarIntrinsicsOptimized { report })
     }

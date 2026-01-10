@@ -27,8 +27,8 @@
 
 use crate::{
     iterative_intrinsics::{IterativeCalibView, IterativeIntrinsicsOptions},
-    optimize_planar_intrinsics_raw, BackendSolveOptions, PlanarDataset, PlanarIntrinsicsInit,
-    PlanarIntrinsicsSolveOptions, PlanarViewData, PlanarViewObservations,
+    optimize_planar_intrinsics_raw, BackendSolveOptions, PlanarIntrinsicsInit,
+    PlanarIntrinsicsInput, PlanarIntrinsicsSolveOptions, PlanarViewData,
 };
 use anyhow::Result;
 use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Real};
@@ -200,64 +200,30 @@ pub fn initialize_planar_intrinsics(
 /// ```
 pub fn optimize_planar_intrinsics_from_init(
     views: &[PlanarViewData],
-    _init: &PlanarIntrinsicsInitResult,
+    init: &PlanarIntrinsicsInitResult,
     solve_opts: &PlanarIntrinsicsSolveOptions,
     backend_opts: &BackendSolveOptions,
 ) -> Result<PlanarIntrinsicsOptimResult> {
-    // Convert views to observations
-    let observations: Result<Vec<PlanarViewObservations>> = views
-        .iter()
-        .map(|v| {
-            if let Some(weights) = v.weights.as_ref() {
-                PlanarViewObservations::new_with_weights(
-                    v.points_3d.clone(),
-                    v.points_2d.clone(),
-                    weights.clone(),
-                )
-            } else {
-                PlanarViewObservations::new(v.points_3d.clone(), v.points_2d.clone())
-            }
-        })
-        .collect();
+    let input = PlanarIntrinsicsInput {
+        views: views.to_vec(),
+    };
+    let dataset = crate::build_planar_dataset(&input)?;
 
-    let dataset = PlanarDataset::new(observations?)?;
+    // Recover pose seeds from homographies using provided intrinsics
+    let homographies = crate::planar_homographies_from_views(&input.views)?;
+    let kmtx = crate::k_matrix_from_intrinsics(&init.intrinsics);
+    let poses0 = crate::poses_from_homographies(&kmtx, &homographies)?;
 
-    // Note: We use default initialization here (identity poses, reasonable intrinsics)
-    // The init parameter is kept for API consistency but poses are recomputed
-    // For full control over initial values, use calib-optim directly
-    use calib_core::{Camera, IdentitySensor, Pinhole};
-    use nalgebra::{UnitQuaternion, Vector3};
-
-    let init_camera = Camera::new(
-        Pinhole,
-        BrownConrady5 {
-            k1: 0.0,
-            k2: 0.0,
-            k3: 0.0,
-            p1: 0.0,
-            p2: 0.0,
-            iters: 8,
+    let planar_init = PlanarIntrinsicsInit::new(
+        calib_optim::params::intrinsics::Intrinsics4 {
+            fx: init.intrinsics.fx,
+            fy: init.intrinsics.fy,
+            cx: init.intrinsics.cx,
+            cy: init.intrinsics.cy,
         },
-        IdentitySensor,
-        FxFyCxCySkew {
-            fx: 800.0,
-            fy: 800.0,
-            cx: 640.0,
-            cy: 480.0,
-            skew: 0.0,
-        },
-    );
-
-    let poses0: Vec<Iso3> = (0..dataset.num_views())
-        .map(|_| {
-            Iso3::from_parts(
-                Vector3::new(0.0, 0.0, 1.0).into(),
-                UnitQuaternion::identity(),
-            )
-        })
-        .collect();
-
-    let planar_init = PlanarIntrinsicsInit::from_camera_and_poses(&init_camera, poses0)?;
+        calib_optim::params::distortion::BrownConrady5Params::from_core(&init.distortion),
+        poses0,
+    )?;
 
     // Run optimization
     let optim_result = optimize_planar_intrinsics_raw(
