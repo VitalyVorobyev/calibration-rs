@@ -98,6 +98,39 @@ fn main() {
 
 For a linear-algorithm overview and usage notes, see `crates/calib-linear/README.md`.
 
+### Hand-eye calibration (session)
+
+Use the dedicated session problem for a compact workflow (see
+`crates/calib/examples/handeye_session.rs`):
+
+```rust
+use calib::session::{
+    CalibrationSession, HandEyeModeConfig, HandEyeSingleInitOptions, HandEyeSingleObservations,
+    HandEyeSingleOptimOptions, HandEyeSingleProblem,
+};
+use calib::pipeline::handeye_single::HandEyeView;
+
+fn main() -> anyhow::Result<()> {
+    let views: Vec<HandEyeView> = /* load 2D/3D views + robot poses */;
+
+    let mut session = CalibrationSession::<HandEyeSingleProblem>::new();
+    session.set_observations(HandEyeSingleObservations {
+        views,
+        mode: HandEyeModeConfig::EyeInHand,
+    });
+
+    session.initialize(HandEyeSingleInitOptions::default())?;
+    session.optimize(HandEyeSingleOptimOptions::default())?;
+    let report = session.export()?;
+
+    println!(
+        "final reproj error: {:.3} px",
+        report.handeye_optimized.mean_reproj_error
+    );
+    Ok(())
+}
+```
+
 ## Camera model
 
 `calib-core` models cameras as a composable pipeline:

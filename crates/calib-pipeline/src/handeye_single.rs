@@ -6,8 +6,8 @@ use crate::{
 };
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
-    BrownConrady5, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, Iso3, Mat3,
-    ProjectionParams, Pt2, Real, SensorParams, Vec2, Vec3, DistortionModel
+    BrownConrady5, CameraParams, DistortionModel, DistortionParams, FxFyCxCySkew, IntrinsicsParams,
+    Iso3, Mat3, ProjectionParams, Pt2, Real, SensorParams, Vec2, Vec3,
 };
 use calib_linear::extrinsics::average_isometries;
 use calib_linear::handeye::estimate_handeye_dlt;
@@ -24,9 +24,10 @@ pub use calib_optim::ir::RobustLoss;
 pub use calib_optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
 use calib_optim::planar_intrinsics::{optimize_planar_intrinsics, PlanarIntrinsicsInit};
 use nalgebra::{Translation3, UnitQuaternion};
+use serde::{Deserialize, Serialize};
 
 /// Input view for single-camera hand-eye calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeView {
     /// Planar target observations in this view.
     pub view: PlanarViewData,
@@ -35,7 +36,7 @@ pub struct HandEyeView {
 }
 
 /// Intrinsics stage output with per-view poses and reprojection error.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntrinsicsStage {
     /// Pinhole intrinsics (fx, fy, cx, cy, skew).
     pub intrinsics: calib_core::FxFyCxCySkew<Real>,
@@ -50,7 +51,7 @@ pub struct IntrinsicsStage {
 }
 
 /// Pose RANSAC stage output with filtered views and inlier stats.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoseRansacStage {
     /// Filtered views containing only inlier points.
     pub views: Vec<HandEyeView>,
@@ -65,7 +66,7 @@ pub struct PoseRansacStage {
 }
 
 /// Hand-eye stage output with target poses and reprojection error.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeStage {
     /// Hand-eye transform (eye-in-hand: gripper-from-camera, eye-to-hand: camera-from-base).
     pub handeye: Iso3,
@@ -78,7 +79,7 @@ pub struct HandEyeStage {
 }
 
 /// Full report for stepwise hand-eye calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeSingleReport {
     pub intrinsics_init: IntrinsicsStage,
     pub intrinsics_optimized: IntrinsicsStage,

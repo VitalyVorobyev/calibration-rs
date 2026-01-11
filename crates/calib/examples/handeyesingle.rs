@@ -31,15 +31,11 @@ fn main() -> Result<()> {
     let board_params = kuka_chessboard_params();
 
     println!("Extracting calibration features (chessboard corners)...");
-    let (samples, summary) = load_kuka_dataset_with_progress(
-        base_path,
-        &chess_config,
-        &board_params,
-        |idx, total| {
+    let (samples, summary) =
+        load_kuka_dataset_with_progress(base_path, &chess_config, &board_params, |idx, total| {
             print!("\r  processing image {idx}/{total}");
             let _ = io::stdout().flush();
-        },
-    )?;
+        })?;
     println!();
     ensure!(
         samples.len() >= 3,
@@ -97,12 +93,8 @@ fn main() -> Result<()> {
     print_ransac_stage(&pose_ransac, views.len());
 
     // 4) Intrinsics re-optimization on inliers
-    let intr_inliers = optimize_intrinsics(
-        &pose_ransac.views,
-        &intr_opt,
-        &solve_opts,
-        &backend_opts,
-    )?;
+    let intr_inliers =
+        optimize_intrinsics(&pose_ransac.views, &intr_opt, &solve_opts, &backend_opts)?;
     print_intrinsics_stage("Intrinsics optimized (inliers)", &intr_inliers);
 
     // 5) Hand-eye DLT init
@@ -157,7 +149,10 @@ fn main() -> Result<()> {
         &handeye_opts_refine,
         &BackendSolveOptions::default(),
     )?;
-    print_handeye_stage("Hand-eye optimized (refine robot poses)", &handeye_opt_refine);
+    print_handeye_stage(
+        "Hand-eye optimized (refine robot poses)",
+        &handeye_opt_refine,
+    );
 
     Ok(())
 }

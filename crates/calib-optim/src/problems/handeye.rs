@@ -510,10 +510,7 @@ pub fn optimize_handeye(
     opts: HandEyeSolveOptions,
     backend_opts: BackendSolveOptions,
 ) -> Result<HandEyeResult> {
-    Ok(
-        optimize_handeye_with_diagnostics(dataset, initial, opts, backend_opts)?
-            .result,
-    )
+    Ok(optimize_handeye_with_diagnostics(dataset, initial, opts, backend_opts)?.result)
 }
 
 /// Optimize hand-eye calibration and return diagnostic outputs.
