@@ -190,7 +190,7 @@ pub mod optim {
 pub mod prelude {
     // Common types
     pub use crate::core::{
-        BrownConrady5, Camera, CameraConfig, FxFyCxCySkew, IdentitySensor, IntrinsicsConfig, Iso3,
+        BrownConrady5, Camera, CameraParams, FxFyCxCySkew, IdentitySensor, IntrinsicsParams, Iso3,
         Pinhole, Pt2, Pt3, Vec2, Vec3,
     };
 

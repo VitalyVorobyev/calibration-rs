@@ -8,12 +8,10 @@
 
 use calib_core::{
     test_utils::{pixel_from_normalized, undistort_pixel_normalized, CalibrationView},
-    BrownConrady5, DistortionModel, Mat3, Pt2, Pt3, Real, Vec2,
+    BrownConrady5, DistortionModel, FxFyCxCySkew, Mat3, Pt2, Pt3, Real, Vec2,
 };
 use calib_linear::{HomographySolver, PlanarIntrinsicsLinearInit};
 use calib_optim::ir::RobustLoss;
-use calib_optim::params::distortion::BrownConrady5Params;
-use calib_optim::params::intrinsics::Intrinsics4;
 use calib_optim::problems::planar_intrinsics::{
     optimize_planar_intrinsics, PlanarDataset, PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions,
     PlanarViewObservations,
@@ -92,13 +90,10 @@ fn board_point_3d(i: usize, j: usize, square: Real) -> Pt3 {
 /// Compute reprojection error for a set of observations.
 fn compute_reprojection_error(
     views: &[PlanarViewObservations],
-    intrinsics: &Intrinsics4,
-    distortion: &BrownConrady5Params,
+    intrinsics: &FxFyCxCySkew<Real>,
+    distortion: &BrownConrady5<Real>,
     poses: &[Isometry3<Real>],
 ) -> (Real, Real) {
-    let k = intrinsics.to_core();
-    let dist = distortion.to_core();
-
     let mut errors = Vec::new();
 
     for (view, pose) in views.iter().zip(poses.iter()) {
@@ -114,11 +109,12 @@ fn compute_reprojection_error(
             let y_norm = pc.y / pc.z;
 
             // Apply distortion
-            let distorted = dist.distort(&Vec2::new(x_norm, y_norm));
+            let distorted = distortion.distort(&Vec2::new(x_norm, y_norm));
 
             // Apply intrinsics
-            let u_proj = k.fx * distorted.x + k.cx;
-            let v_proj = k.fy * distorted.y + k.cy;
+            let u_proj =
+                intrinsics.fx * distorted.x + intrinsics.skew * distorted.y + intrinsics.cx;
+            let v_proj = intrinsics.fy * distorted.y + intrinsics.cy;
 
             // Compute pixel error
             let du = uv.x - u_proj;
@@ -234,13 +230,21 @@ fn planar_intrinsics_real_data_improves_reprojection() {
         let dataset = PlanarDataset::new(nl_views.clone()).expect("planar dataset");
 
         let init = PlanarIntrinsicsInit {
-            intrinsics: Intrinsics4 {
+            intrinsics: FxFyCxCySkew {
                 fx: linear_init.fx,
                 fy: linear_init.fy,
                 cx: linear_init.cx,
                 cy: linear_init.cy,
+                skew: 0.0,
             },
-            distortion: BrownConrady5Params::zeros(), // Start with zero distortion
+            distortion: BrownConrady5 {
+                k1: 0.0,
+                k2: 0.0,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            }, // Start with zero distortion
             poses: init_poses.clone(),
         };
 
@@ -281,13 +285,8 @@ fn planar_intrinsics_real_data_improves_reprojection() {
         );
 
         // Compute final reprojection error
-        let opt_intrinsics = Intrinsics4 {
-            fx: result.camera.k.fx,
-            fy: result.camera.k.fy,
-            cx: result.camera.k.cx,
-            cy: result.camera.k.cy,
-        };
-        let opt_distortion = BrownConrady5Params::from_core(&result.camera.dist);
+        let opt_intrinsics = result.camera.k;
+        let opt_distortion = result.camera.dist;
 
         let (final_mean, final_max) =
             compute_reprojection_error(&nl_views, &opt_intrinsics, &opt_distortion, &result.poses);
@@ -397,13 +396,21 @@ fn planar_intrinsics_parameter_fixing_works() {
     println!("\nTest 1: Fixing tangential distortion (p1, p2)");
 
     let init = PlanarIntrinsicsInit {
-        intrinsics: Intrinsics4 {
+        intrinsics: FxFyCxCySkew {
             fx: linear_init.fx,
             fy: linear_init.fy,
             cx: linear_init.cx,
             cy: linear_init.cy,
+            skew: 0.0,
         },
-        distortion: BrownConrady5Params::zeros(),
+        distortion: BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        },
         poses: init_poses.clone(),
     };
 
@@ -439,13 +446,21 @@ fn planar_intrinsics_parameter_fixing_works() {
     println!("\nTest 2: Fixing k3 (default)");
 
     let init2 = PlanarIntrinsicsInit {
-        intrinsics: Intrinsics4 {
+        intrinsics: FxFyCxCySkew {
             fx: linear_init.fx,
             fy: linear_init.fy,
             cx: linear_init.cx,
             cy: linear_init.cy,
+            skew: 0.0,
         },
-        distortion: BrownConrady5Params::zeros(),
+        distortion: BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        },
         poses: init_poses.clone(),
     };
 
@@ -469,13 +484,21 @@ fn planar_intrinsics_parameter_fixing_works() {
     println!("\nTest 3: Fixing intrinsics (fx, fy), optimizing distortion");
 
     let init3 = PlanarIntrinsicsInit {
-        intrinsics: Intrinsics4 {
+        intrinsics: FxFyCxCySkew {
             fx: linear_init.fx,
             fy: linear_init.fy,
             cx: linear_init.cx,
             cy: linear_init.cy,
+            skew: 0.0,
         },
-        distortion: BrownConrady5Params::zeros(),
+        distortion: BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        },
         poses: init_poses.clone(),
     };
 
@@ -643,13 +666,14 @@ fn planar_intrinsics_with_iterative_linear_init() {
 
         // Initialize from iterative result
         let init = PlanarIntrinsicsInit {
-            intrinsics: Intrinsics4 {
+            intrinsics: FxFyCxCySkew {
                 fx: iter_result.intrinsics.fx,
                 fy: iter_result.intrinsics.fy,
                 cx: iter_result.intrinsics.cx,
                 cy: iter_result.intrinsics.cy,
+                skew: 0.0,
             },
-            distortion: BrownConrady5Params::from_core(&iter_result.distortion),
+            distortion: iter_result.distortion,
             poses: init_poses.clone(),
         };
 
@@ -680,13 +704,8 @@ fn planar_intrinsics_with_iterative_linear_init() {
         );
 
         // Step 3: Compute reprojection error
-        let opt_intrinsics = Intrinsics4 {
-            fx: result.camera.k.fx,
-            fy: result.camera.k.fy,
-            cx: result.camera.k.cx,
-            cy: result.camera.k.cy,
-        };
-        let opt_distortion_params = BrownConrady5Params::from_core(&result.camera.dist);
+        let opt_intrinsics = result.camera.k;
+        let opt_distortion_params = result.camera.dist;
         let (mean_err, max_err) = compute_reprojection_error(
             &views_optim,
             &opt_intrinsics,

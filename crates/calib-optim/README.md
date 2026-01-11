@@ -39,8 +39,7 @@ Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Doma
 
 ```rust
 use calib_optim::problems::planar_intrinsics::*;
-use calib_optim::params::intrinsics::Intrinsics4;
-use calib_optim::params::distortion::BrownConrady5Params;
+use calib_core::{BrownConrady5, FxFyCxCySkew};
 use calib_optim::ir::RobustLoss;
 use calib_optim::BackendSolveOptions;
 
@@ -50,8 +49,8 @@ let dataset = PlanarDataset::new(views)?;
 
 // 2. Initialize with linear method (from calib-linear crate)
 let init = PlanarIntrinsicsInit {
-    intrinsics: Intrinsics4 { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 },
-    distortion: BrownConrady5Params::zeros(),
+    intrinsics: FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 },
+    distortion: BrownConrady5 { k1: 0.0, k2: 0.0, k3: 0.0, p1: 0.0, p2: 0.0, iters: 8 },
     poses: vec![/* initial poses from homographies */],
 };
 

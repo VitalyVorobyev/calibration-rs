@@ -2,14 +2,18 @@
 //!
 //! This module provides a generic calibration session infrastructure that tracks
 //! progress through pipeline stages (Uninitialized → Initialized → Optimized → Exported)
-//! and supports checkpointing via JSON serialization.
+//! and supports checkpointing via JSON serialization. Sessions are primarily a
+//! *data + checkpoint container*: they hold observations, linear seeds, and optimized
+//! results, while high-level orchestration (feature detection → init → refine) is
+//! expected to live in helper/pipeline functions.
 //!
 //! # Architecture
 //!
 //! The session system is built around two key abstractions:
 //!
 //! - [`ProblemType`]: A trait that defines the interface for a calibration problem,
-//!   including observation types, initialization, and optimization methods.
+//!   including observation types, **linear initialization** (seed generation), and
+//!   **non-linear optimization** that *consumes* those seeds.
 //! - [`CalibrationSession`]: A generic session container parameterized over a problem type,
 //!   managing state transitions and providing a fluent API for running calibration pipelines.
 //!
@@ -24,10 +28,12 @@
 //! // Add observations
 //! session.add_observations(observations)?;
 //!
-//! // Run initialization
-//! session.initialize(init_options)?;
+//! // Run linear initialization (e.g., Zhang)
+//! let init_seed = session.initialize(init_options)?;
+//! // Optionally checkpoint here
+//! let json = session.to_json()?;
 //!
-//! // Run optimization
+//! // Run non-linear refinement using the init seed
 //! session.optimize(optim_options)?;
 //!
 //! // Export results
@@ -44,7 +50,11 @@ use std::time::SystemTime;
 ///
 /// Each problem type (e.g., planar intrinsics, hand-eye, linescan) implements
 /// this trait to provide its specific observation types, initialization logic,
-/// and optimization routines.
+/// and optimization routines. The contract is intentionally split:
+/// - `initialize` should perform **linear or closed-form seeding only** (no nonlinear BA).
+/// - `optimize` should **consume** both observations and the seeds produced by `initialize`
+///   to run nonlinear refinement. This separation keeps stage semantics meaningful and
+///   allows checkpointing between init and refine.
 pub trait ProblemType: Sized {
     /// Type holding observations (e.g., image points, poses).
     type Observations: Clone + Serialize + for<'de> Deserialize<'de>;
@@ -71,6 +81,10 @@ pub trait ProblemType: Sized {
     ) -> Result<Self::InitialValues>;
 
     /// Run non-linear optimization to refine parameters.
+    ///
+    /// Implementations must consume both the observations and the initial values
+    /// produced by [`initialize`](ProblemType::initialize); `optimize` should not
+    /// recompute its own seeds.
     fn optimize(
         obs: &Self::Observations,
         init: &Self::InitialValues,

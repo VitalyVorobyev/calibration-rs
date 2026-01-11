@@ -5,8 +5,8 @@
 
 use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions};
 use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
-use crate::params::distortion::BrownConrady5Params;
-use crate::params::intrinsics::Intrinsics4;
+use crate::params::distortion::{pack_distortion, unpack_distortion, DISTORTION_DIM};
+use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_DIM};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use anyhow::{ensure, Result};
 use calib_core::{
@@ -89,9 +89,9 @@ impl RigExtrinsicsDataset {
 #[derive(Debug, Clone)]
 pub struct RigExtrinsicsInit {
     /// Per-camera intrinsics (usually same values for homogeneous rig).
-    pub intrinsics: Vec<Intrinsics4>,
+    pub intrinsics: Vec<FxFyCxCySkew<Real>>,
     /// Per-camera distortion (usually same values for homogeneous rig).
-    pub distortion: Vec<BrownConrady5Params>,
+    pub distortion: Vec<BrownConrady5<Real>>,
     pub cam_to_rig: Vec<Iso3>,
     pub rig_to_target: Vec<Iso3>,
 }
@@ -208,15 +208,21 @@ pub fn build_rig_extrinsics_ir(
 
         // Check per-camera override
         let fixed_mask = if opts.fix_intrinsics.get(cam_idx).copied().unwrap_or(false) {
-            FixedMask::all_fixed(4)
+            FixedMask::all_fixed(INTRINSICS_DIM)
         } else {
             FixedMask::fix_indices(&cam_fixed)
         };
 
         let key = format!("cam/{}", cam_idx);
-        let cam_id = ir.add_param_block(&key, 4, ManifoldKind::Euclidean, fixed_mask, None);
+        let cam_id = ir.add_param_block(
+            &key,
+            INTRINSICS_DIM,
+            ManifoldKind::Euclidean,
+            fixed_mask,
+            None,
+        );
         cam_ids.push(cam_id);
-        initial_map.insert(key, initial.intrinsics[cam_idx].to_dvec());
+        initial_map.insert(key, pack_intrinsics(&initial.intrinsics[cam_idx])?);
     }
 
     // 2. Per-camera distortion blocks
@@ -240,15 +246,21 @@ pub fn build_rig_extrinsics_ir(
         }
 
         let fixed_mask = if opts.fix_distortion.get(cam_idx).copied().unwrap_or(false) {
-            FixedMask::all_fixed(5)
+            FixedMask::all_fixed(DISTORTION_DIM)
         } else {
             FixedMask::fix_indices(&dist_fixed)
         };
 
         let key = format!("dist/{}", cam_idx);
-        let dist_id = ir.add_param_block(&key, 5, ManifoldKind::Euclidean, fixed_mask, None);
+        let dist_id = ir.add_param_block(
+            &key,
+            DISTORTION_DIM,
+            ManifoldKind::Euclidean,
+            fixed_mask,
+            None,
+        );
         dist_ids.push(dist_id);
-        initial_map.insert(key, initial.distortion[cam_idx].to_dvec());
+        initial_map.insert(key, pack_distortion(&initial.distortion[cam_idx]));
     }
 
     // 3. Per-camera extrinsics
@@ -318,26 +330,21 @@ pub fn optimize_rig_extrinsics(
     // Extract per-camera calibrated parameters
     let cameras = (0..dataset.num_cameras)
         .map(|cam_idx| {
-            let intrinsics = Intrinsics4::from_dvec(
+            let intrinsics = unpack_intrinsics(
                 solution
                     .params
                     .get(&format!("cam/{}", cam_idx))
                     .unwrap()
                     .as_view(),
             )?;
-            let distortion = BrownConrady5Params::from_dvec(
+            let distortion = unpack_distortion(
                 solution
                     .params
                     .get(&format!("dist/{}", cam_idx))
                     .unwrap()
                     .as_view(),
             )?;
-            Ok(Camera::new(
-                Pinhole,
-                distortion.to_core(),
-                IdentitySensor,
-                intrinsics.to_core(),
-            ))
+            Ok(Camera::new(Pinhole, distortion, IdentitySensor, intrinsics))
         })
         .collect::<Result<Vec<_>>>()?;
 

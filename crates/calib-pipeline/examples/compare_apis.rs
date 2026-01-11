@@ -113,21 +113,15 @@ fn run_with_session_api(views: Vec<PlanarViewData>) -> anyhow::Result<Calibratio
     let report = session.export()?;
 
     // Extract results
-    let calib_core::IntrinsicsConfig::FxFyCxCySkew {
-        fx,
-        fy,
-        cx,
-        cy,
-        skew: _,
-    } = &report.report.camera.intrinsics;
+    let calib_core::IntrinsicsParams::FxFyCxCySkew { params } = &report.report.camera.intrinsics;
 
     println!("✓ Session API completed");
 
     Ok(CalibrationResult {
-        fx: *fx,
-        fy: *fy,
-        cx: *cx,
-        cy: *cy,
+        fx: params.fx,
+        fy: params.fy,
+        cx: params.cx,
+        cy: params.cy,
         final_cost: report.report.final_cost,
     })
 }

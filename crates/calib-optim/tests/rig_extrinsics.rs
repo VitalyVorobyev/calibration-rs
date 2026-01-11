@@ -8,8 +8,6 @@
 
 use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Real};
 use calib_optim::backend::{BackendSolveOptions, LinearSolverKind};
-use calib_optim::params::distortion::BrownConrady5Params;
-use calib_optim::params::intrinsics::Intrinsics4;
 use calib_optim::problems::rig_extrinsics::*;
 use nalgebra::{Isometry3, Rotation3, Translation3};
 
@@ -103,34 +101,38 @@ fn stereo_rig_extrinsics_converges() {
     // Initial values (perturbed from ground truth)
     // Per-camera initialization (same values for homogeneous rig)
     let intrinsics_init = vec![
-        Intrinsics4 {
+        FxFyCxCySkew {
             fx: 810.0, // Perturbed
             fy: 790.0, // Perturbed
             cx: 645.0, // Perturbed
             cy: 365.0, // Perturbed
+            skew: 0.0,
         },
-        Intrinsics4 {
+        FxFyCxCySkew {
             fx: 810.0, // Same for camera 1
             fy: 790.0,
             cx: 645.0,
             cy: 365.0,
+            skew: 0.0,
         },
     ];
 
     let distortion_init = vec![
-        BrownConrady5Params {
+        BrownConrady5 {
             k1: -0.22, // Perturbed
             k2: 0.06,  // Perturbed
             k3: 0.0,
             p1: 0.0, // Perturbed
             p2: 0.0, // Perturbed
+            iters: 8,
         },
-        BrownConrady5Params {
+        BrownConrady5 {
             k1: -0.22, // Same for camera 1
             k2: 0.06,
             k3: 0.0,
             p1: 0.0,
             p2: 0.0,
+            iters: 8,
         },
     ];
 

@@ -2,9 +2,8 @@
 
 use super::ProblemType;
 use crate::{
-    optimize_planar_intrinsics_with_init, pinhole_camera_config, planar_init_seed_from_views,
-    run_planar_intrinsics, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
-    PlanarViewData,
+    optimize_planar_intrinsics_with_init, pinhole_camera_params, planar_init_seed_from_views,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData,
 };
 use anyhow::Result;
 use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt3, Real, Vec2};
@@ -70,25 +69,11 @@ impl PlanarIntrinsicsInitState {
     }
 
     pub fn to_seed(&self) -> Result<calib_optim::planar_intrinsics::PlanarIntrinsicsInit> {
-        let distortion = calib_optim::params::distortion::BrownConrady5Params {
-            k1: self.distortion.k1,
-            k2: self.distortion.k2,
-            k3: self.distortion.k3,
-            p1: self.distortion.p1,
-            p2: self.distortion.p2,
-        };
-        let intrinsics = calib_optim::params::intrinsics::Intrinsics4 {
-            fx: self.intrinsics.fx,
-            fy: self.intrinsics.fy,
-            cx: self.intrinsics.cx,
-            cy: self.intrinsics.cy,
-        };
         calib_optim::planar_intrinsics::PlanarIntrinsicsInit::new(
-            intrinsics,
-            distortion,
+            self.intrinsics,
+            self.distortion,
             self.poses.clone(),
         )
-        .map_err(Into::into)
     }
 }
 
@@ -130,7 +115,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         let init_state = PlanarIntrinsicsInitState::from_seed(&seed);
 
         let report = PlanarIntrinsicsReport {
-            camera: pinhole_camera_config(&cam),
+            camera: pinhole_camera_params(&cam),
             final_cost: 0.0,
         };
 
@@ -159,7 +144,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         let result = optimize_planar_intrinsics_with_init(dataset, seed, &opts.config)?;
 
         let report = PlanarIntrinsicsReport {
-            camera: pinhole_camera_config(&result.camera),
+            camera: pinhole_camera_params(&result.camera),
             final_cost: result.final_cost,
         };
 
@@ -214,7 +199,7 @@ pub struct RigExtrinsicsInitial {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigExtrinsicsOptimized {
     /// Per-camera calibrated parameters.
-    pub cameras: Vec<calib_core::CameraConfig>,
+    pub cameras: Vec<calib_core::CameraParams>,
     /// Camera-to-rig transforms.
     pub cam_to_rig: Vec<Iso3>,
     /// Per-view rig-to-target poses.
@@ -303,7 +288,7 @@ impl ProblemType for RigExtrinsicsProblem {
         opts: &Self::InitOptions,
     ) -> Result<Self::InitialValues> {
         use anyhow::{bail, Context};
-        use calib_linear::{homography, planar_pose};
+        use calib_linear::{homography, planar_pose, zhang_intrinsics};
 
         let num_cameras = obs.num_cameras;
         let num_views = obs.views.len();
@@ -328,32 +313,9 @@ impl ProblemType for RigExtrinsicsProblem {
                 bail!("camera {} has no observations", cam_idx);
             }
 
-            // Build PlanarViewData for this camera
-            let planar_views: Vec<PlanarViewData> = cam_views
-                .iter()
-                .map(|(_, cam_data)| PlanarViewData {
-                    points_3d: cam_data.points_3d.clone(),
-                    points_2d: cam_data.points_2d.clone(),
-                    weights: cam_data.weights.clone(),
-                })
-                .collect();
-
-            // Run planar intrinsics calibration
-            let input = PlanarIntrinsicsInput {
-                views: planar_views.clone(),
-            };
-            let config = PlanarIntrinsicsConfig {
-                max_iters: Some(20),
-                ..Default::default()
-            };
-            let report = run_planar_intrinsics(&input, &config)
-                .with_context(|| format!("failed to calibrate camera {}", cam_idx))?;
-
-            per_camera_calibrations.push(report);
-
-            // Compute per-view camera-to-target poses from homographies
+            // Compute homographies for this camera
+            let mut homographies = Vec::with_capacity(cam_views.len());
             for (view_idx, cam_data) in &cam_views {
-                // Project 3D points to 2D (Z=0 plane)
                 let board_2d: Vec<calib_core::Pt2> = cam_data
                     .points_3d
                     .iter()
@@ -366,21 +328,67 @@ impl ProblemType for RigExtrinsicsProblem {
                     .map(|v| calib_core::Pt2::new(v.x, v.y))
                     .collect();
 
-                let h = homography::dlt_homography(&board_2d, &pixel_2d)?;
+                let h = homography::dlt_homography(&board_2d, &pixel_2d).with_context(|| {
+                    format!("view {} homography failed for camera {}", view_idx, cam_idx)
+                })?;
+                homographies.push(h);
+            }
 
-                // Extract K matrix from camera config
-                let k = match &per_camera_calibrations[cam_idx].camera.intrinsics {
-                    calib_core::IntrinsicsConfig::FxFyCxCySkew {
-                        fx,
-                        fy,
-                        cx,
-                        cy,
-                        skew,
-                    } => calib_core::Mat3::new(*fx, *skew, *cx, 0.0, *fy, *cy, 0.0, 0.0, 1.0),
-                };
+            anyhow::ensure!(
+                homographies.len() >= 3,
+                "camera {} needs at least 3 views for Zhang initialization (got {})",
+                cam_idx,
+                homographies.len()
+            );
 
-                let pose = planar_pose::estimate_planar_pose_from_h(&k, &h)?;
-                cam_target_poses[*view_idx][cam_idx] = Some(pose);
+            let intrinsics = zhang_intrinsics::estimate_intrinsics_from_homographies(&homographies)
+                .with_context(|| format!("Zhang initialization failed for camera {}", cam_idx))?;
+
+            let k = calib_core::Mat3::new(
+                intrinsics.fx,
+                intrinsics.skew,
+                intrinsics.cx,
+                0.0,
+                intrinsics.fy,
+                intrinsics.cy,
+                0.0,
+                0.0,
+                1.0,
+            );
+
+            // Zero distortion seed; refined in joint BA
+            let dist = calib_core::DistortionParams::BrownConrady5 {
+                params: calib_core::BrownConrady5 {
+                    k1: 0.0,
+                    k2: 0.0,
+                    k3: 0.0,
+                    p1: 0.0,
+                    p2: 0.0,
+                    iters: 8,
+                },
+            };
+
+            let cam_cfg = calib_core::CameraParams {
+                projection: calib_core::ProjectionParams::Pinhole,
+                distortion: dist,
+                sensor: calib_core::SensorParams::Identity,
+                intrinsics: calib_core::IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
+            };
+
+            per_camera_calibrations.push(PlanarIntrinsicsReport {
+                camera: cam_cfg,
+                final_cost: 0.0,
+            });
+
+            // Compute per-view camera-to-target poses from homographies
+            for (view_idx, h) in homographies.iter().enumerate() {
+                let pose = planar_pose::estimate_planar_pose_from_h(&k, h).with_context(|| {
+                    format!(
+                        "failed to recover pose for view {} camera {}",
+                        view_idx, cam_idx
+                    )
+                })?;
+                cam_target_poses[view_idx][cam_idx] = Some(pose);
             }
         }
 
@@ -427,45 +435,22 @@ impl ProblemType for RigExtrinsicsProblem {
         let dataset = RigExtrinsicsDataset::new(rig_views, obs.num_cameras)?;
 
         // Extract initial values
-        let intrinsics: Vec<calib_optim::params::intrinsics::Intrinsics4> = init
+        let intrinsics: Vec<FxFyCxCySkew<Real>> = init
             .per_camera_calibrations
             .iter()
             .map(|report| match &report.camera.intrinsics {
-                calib_core::IntrinsicsConfig::FxFyCxCySkew {
-                    fx,
-                    fy,
-                    cx,
-                    cy,
-                    skew: _,
-                } => calib_optim::params::intrinsics::Intrinsics4 {
-                    fx: *fx,
-                    fy: *fy,
-                    cx: *cx,
-                    cy: *cy,
-                },
+                calib_core::IntrinsicsParams::FxFyCxCySkew { params } => *params,
             })
             .collect();
 
-        let distortion: Vec<calib_optim::params::distortion::BrownConrady5Params> = init
+        let distortion: Vec<BrownConrady5<Real>> = init
             .per_camera_calibrations
             .iter()
             .map(|report| {
-                if let calib_core::DistortionConfig::BrownConrady5 {
-                    k1,
-                    k2,
-                    k3,
-                    p1,
-                    p2,
-                    iters: _,
-                } = &report.camera.distortion
+                if let calib_core::DistortionParams::BrownConrady5 { params } =
+                    &report.camera.distortion
                 {
-                    calib_optim::params::distortion::BrownConrady5Params {
-                        k1: *k1,
-                        k2: *k2,
-                        k3: *k3,
-                        p1: *p1,
-                        p2: *p2,
-                    }
+                    *params
                 } else {
                     unreachable!("planar intrinsics always returns BrownConrady5")
                 }
@@ -487,28 +472,15 @@ impl ProblemType for RigExtrinsicsProblem {
             opts.backend_opts.clone(),
         )?;
 
-        // Convert Camera to CameraConfig
-        let cameras: Vec<calib_core::CameraConfig> = result
+        // Convert Camera to CameraParams
+        let cameras: Vec<calib_core::CameraParams> = result
             .cameras
             .into_iter()
-            .map(|cam| calib_core::CameraConfig {
-                projection: calib_core::ProjectionConfig::Pinhole,
-                distortion: calib_core::DistortionConfig::BrownConrady5 {
-                    k1: cam.dist.k1,
-                    k2: cam.dist.k2,
-                    k3: cam.dist.k3,
-                    p1: cam.dist.p1,
-                    p2: cam.dist.p2,
-                    iters: Some(cam.dist.iters),
-                },
-                sensor: calib_core::SensorConfig::Identity,
-                intrinsics: calib_core::IntrinsicsConfig::FxFyCxCySkew {
-                    fx: cam.k.fx,
-                    fy: cam.k.fy,
-                    cx: cam.k.cx,
-                    cy: cam.k.cy,
-                    skew: cam.k.skew,
-                },
+            .map(|cam| calib_core::CameraParams {
+                projection: calib_core::ProjectionParams::Pinhole,
+                distortion: calib_core::DistortionParams::BrownConrady5 { params: cam.dist },
+                sensor: calib_core::SensorParams::Identity,
+                intrinsics: calib_core::IntrinsicsParams::FxFyCxCySkew { params: cam.k },
             })
             .collect();
 
@@ -627,17 +599,11 @@ mod tests {
         // Verify intrinsics are close to ground truth
         let cam_cfg = &final_report.camera;
         let k_est = match &cam_cfg.intrinsics {
-            calib_core::IntrinsicsConfig::FxFyCxCySkew {
-                fx,
-                fy,
-                cx,
-                cy,
-                skew: _,
-            } => FxFyCxCySkew {
-                fx: *fx,
-                fy: *fy,
-                cx: *cx,
-                cy: *cy,
+            calib_core::IntrinsicsParams::FxFyCxCySkew { params } => FxFyCxCySkew {
+                fx: params.fx,
+                fy: params.fy,
+                cx: params.cx,
+                cy: params.cy,
                 skew: 0.0,
             },
         };
@@ -818,6 +784,121 @@ mod tests {
             cam1_rig_trans_error < 0.25,
             "cam1 translation error too large: {}",
             cam1_rig_trans_error
+        );
+    }
+
+    #[test]
+    fn rig_extrinsics_cost_improves_after_optimization() {
+        // Ground truth parameters
+        let k_gt = FxFyCxCySkew {
+            fx: 800.0,
+            fy: 780.0,
+            cx: 640.0,
+            cy: 360.0,
+            skew: 0.0,
+        };
+        let dist_gt = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+
+        let cam0 = make_pinhole_camera(k_gt, dist_gt);
+        let cam1 = make_pinhole_camera(k_gt, dist_gt);
+
+        let cam0_to_rig = Iso3::identity();
+        let cam1_to_rig = Iso3::from_parts(
+            Vector3::new(0.1, 0.0, 0.0).into(),
+            UnitQuaternion::from_scaled_axis(Vector3::new(0.0, 0.05, 0.0)),
+        );
+
+        // Checkerboard
+        let nx = 5;
+        let ny = 4;
+        let spacing = 0.05_f64;
+        let mut board_points = Vec::new();
+        for j in 0..ny {
+            for i in 0..nx {
+                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
+            }
+        }
+
+        let mut views = Vec::new();
+        for view_idx in 0..3 {
+            let angle = 0.1 * (view_idx as f64);
+            let axis = Vector3::new(0.0, 1.0, 0.0);
+            let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
+            let translation = Vector3::new(0.0, 0.0, 0.6 + 0.1 * view_idx as f64);
+            let rig_to_target = Iso3::from_parts(translation.into(), rotation);
+
+            let cam0_to_target = cam0_to_rig * rig_to_target;
+            let cam1_to_target = cam1_to_rig * rig_to_target;
+
+            let mut cam0_pixels = Vec::new();
+            let mut cam1_pixels = Vec::new();
+            for pw in &board_points {
+                let pc0 = cam0_to_target.transform_point(pw);
+                let pc1 = cam1_to_target.transform_point(pw);
+                if let Some(proj) = cam0.project_point(&pc0) {
+                    cam0_pixels.push(Vec2::new(proj.x, proj.y));
+                }
+                if let Some(proj) = cam1.project_point(&pc1) {
+                    cam1_pixels.push(Vec2::new(proj.x, proj.y));
+                }
+            }
+
+            views.push(RigViewData {
+                cameras: vec![
+                    Some(CameraViewData {
+                        points_3d: board_points.clone(),
+                        points_2d: cam0_pixels,
+                        weights: None,
+                    }),
+                    Some(CameraViewData {
+                        points_3d: board_points.clone(),
+                        points_2d: cam1_pixels,
+                        weights: None,
+                    }),
+                ],
+            });
+        }
+
+        // Initial cost: run optimize with 0 iterations (evaluates seed)
+        let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+        session.set_observations(RigExtrinsicsObservations {
+            views: views.clone(),
+            num_cameras: 2,
+        });
+        session
+            .initialize(RigExtrinsicsInitOptions { ref_cam_idx: 0 })
+            .unwrap();
+
+        let mut opts_eval = RigExtrinsicsOptimOptions::default();
+        opts_eval.backend_opts.max_iters = 0;
+        let cost0 = session.optimize(opts_eval).unwrap().final_cost;
+
+        // Optimized cost: new session to avoid stage conflicts
+        let mut session_opt = CalibrationSession::<RigExtrinsicsProblem>::new();
+        session_opt.set_observations(RigExtrinsicsObservations {
+            views,
+            num_cameras: 2,
+        });
+        session_opt
+            .initialize(RigExtrinsicsInitOptions { ref_cam_idx: 0 })
+            .unwrap();
+        let result = session_opt
+            .optimize(RigExtrinsicsOptimOptions::default())
+            .unwrap();
+        let cost1 = result.final_cost;
+
+        assert!(
+            cost1 < cost0,
+            "optimization did not reduce cost: initial {} vs optimized {}",
+            cost0,
+            cost1
         );
     }
 

@@ -8,8 +8,8 @@
 use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, Pinhole, Pt3, Real, ScheimpflugParams};
 use calib_optim::backend::{BackendKind, BackendSolveOptions, LinearSolverKind};
 use calib_optim::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
-use calib_optim::params::distortion::BrownConrady5Params;
-use calib_optim::params::intrinsics::Intrinsics4;
+use calib_optim::params::distortion::{pack_distortion, DISTORTION_DIM};
+use calib_optim::params::intrinsics::{pack_intrinsics, INTRINSICS_DIM};
 use calib_optim::params::pose_se3::iso3_to_se3_dvec;
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
 use std::collections::HashMap;
@@ -80,19 +80,21 @@ fn scheimpflug_optimization_synthetic() {
     }
 
     // Initial values (perturbed from ground truth)
-    let intrinsics_init = Intrinsics4 {
+    let intrinsics_init = FxFyCxCySkew {
         fx: 810.0, // Perturbed
         fy: 790.0, // Perturbed
         cx: 645.0, // Perturbed
         cy: 365.0, // Perturbed
+        skew: 0.0,
     };
 
-    let distortion_init = BrownConrady5Params {
+    let distortion_init = BrownConrady5 {
         k1: -0.25, // Perturbed
         k2: 0.08,  // Perturbed
         k3: 0.0,
         p1: 0.0, // Perturbed
         p2: 0.0, // Perturbed
+        iters: 8,
     };
 
     let sensor_init = [0.015, -0.008]; // Perturbed from [0.02, -0.01]
@@ -115,21 +117,24 @@ fn scheimpflug_optimization_synthetic() {
     // Add parameter blocks
     let cam_id = ir.add_param_block(
         "cam",
-        4,
+        INTRINSICS_DIM,
         ManifoldKind::Euclidean,
         FixedMask::all_free(),
         None,
     );
-    initial_map.insert("cam".to_string(), intrinsics_init.to_dvec());
+    initial_map.insert(
+        "cam".to_string(),
+        pack_intrinsics(&intrinsics_init).unwrap(),
+    );
 
     let dist_id = ir.add_param_block(
         "dist",
-        5,
+        DISTORTION_DIM,
         ManifoldKind::Euclidean,
         FixedMask::fix_indices(&[2]), // Fix k3
         None,
     );
-    initial_map.insert("dist".to_string(), distortion_init.to_dvec());
+    initial_map.insert("dist".to_string(), pack_distortion(&distortion_init));
 
     let sensor_id = ir.add_param_block(
         "sensor",

@@ -133,19 +133,21 @@ fn synthetic_linescan_calibration_smoke_test() {
     let dataset = LinescanDataset::new_single_plane(views).unwrap();
 
     // Create perturbed initialization (10-20% error)
-    let intrinsics_init = calib_optim::params::intrinsics::Intrinsics4 {
+    let intrinsics_init = FxFyCxCySkew {
         fx: camera.k.fx * 1.1,
         fy: camera.k.fy * 0.9,
         cx: camera.k.cx + 20.0,
         cy: camera.k.cy - 15.0,
+        skew: 0.0,
     };
 
-    let distortion_init = calib_optim::params::distortion::BrownConrady5Params {
+    let distortion_init = BrownConrady5 {
         k1: camera.dist.k1 * 1.2,
         k2: camera.dist.k2 * 0.8,
         k3: 0.0,
         p1: camera.dist.p1 * 1.1,
         p2: camera.dist.p2 * 0.9,
+        iters: 8,
     };
 
     // Perturb poses slightly
@@ -337,19 +339,21 @@ fn synthetic_linescan_line_dist_normalized_converges() {
 
     let dataset = LinescanDataset::new_single_plane(views).unwrap();
 
-    let intrinsics_init = calib_optim::params::intrinsics::Intrinsics4 {
+    let intrinsics_init = FxFyCxCySkew {
         fx: camera.k.fx * 1.1,
         fy: camera.k.fy * 0.9,
         cx: camera.k.cx + 20.0,
         cy: camera.k.cy - 15.0,
+        skew: 0.0,
     };
 
-    let distortion_init = calib_optim::params::distortion::BrownConrady5Params {
+    let distortion_init = BrownConrady5 {
         k1: camera.dist.k1 * 1.2,
         k2: camera.dist.k2 * 0.8,
         k3: 0.0,
         p1: camera.dist.p1 * 1.1,
         p2: camera.dist.p2 * 0.9,
+        iters: 8,
     };
 
     let poses_init: Vec<Iso3> = used_poses
@@ -539,19 +543,21 @@ fn compare_point_plane_vs_line_dist() {
 
     let dataset = LinescanDataset::new_single_plane(views).unwrap();
 
-    let intrinsics_init = calib_optim::params::intrinsics::Intrinsics4 {
+    let intrinsics_init = FxFyCxCySkew {
         fx: camera.k.fx * 1.1,
         fy: camera.k.fy * 0.9,
         cx: camera.k.cx + 20.0,
         cy: camera.k.cy - 15.0,
+        skew: 0.0,
     };
 
-    let distortion_init = calib_optim::params::distortion::BrownConrady5Params {
+    let distortion_init = BrownConrady5 {
         k1: camera.dist.k1 * 1.2,
         k2: camera.dist.k2 * 0.8,
         k3: 0.0,
         p1: camera.dist.p1 * 1.1,
         p2: camera.dist.p2 * 0.9,
+        iters: 8,
     };
 
     let poses_init: Vec<Iso3> = used_poses

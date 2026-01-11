@@ -22,21 +22,26 @@
 //! # Example
 //!
 //! ```no_run
-//! use calib_core::{CameraConfig, DistortionConfig, IntrinsicsConfig, ProjectionConfig, SensorConfig};
+//! use calib_core::{
+//!     CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, ProjectionParams,
+//!     SensorParams,
+//! };
 //!
-//! let cfg = CameraConfig {
-//!     projection: ProjectionConfig::Pinhole,
-//!     distortion: DistortionConfig::None,
-//!     sensor: SensorConfig::Identity,
-//!     intrinsics: IntrinsicsConfig::FxFyCxCySkew {
-//!         fx: 800.0,
-//!         fy: 800.0,
-//!         cx: 640.0,
-//!         cy: 360.0,
-//!         skew: 0.0,
+//! let params = CameraParams {
+//!     projection: ProjectionParams::Pinhole,
+//!     distortion: DistortionParams::None,
+//!     sensor: SensorParams::Identity,
+//!     intrinsics: IntrinsicsParams::FxFyCxCySkew {
+//!         params: FxFyCxCySkew {
+//!             fx: 800.0,
+//!             fy: 800.0,
+//!             cx: 640.0,
+//!             cy: 360.0,
+//!             skew: 0.0,
+//!         },
 //!     },
 //! };
-//! let cam = cfg.build();
+//! let cam = params.build();
 //! let px = cam.project_point_c(&nalgebra::Vector3::new(0.1, 0.2, 1.0));
 //! assert!(px.is_some());
 //! ```

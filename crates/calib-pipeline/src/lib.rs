@@ -27,15 +27,11 @@ pub use calib_optim::{
 
 use anyhow::{ensure, Context, Result};
 use calib_core::{
-    BrownConrady5, Camera, CameraConfig, DistortionConfig, FxFyCxCySkew, IdentitySensor,
-    IntrinsicsConfig, Iso3, Mat3, Pinhole, ProjectionConfig, Pt2, Pt3, Real, SensorConfig, Vec2,
+    BrownConrady5, Camera, CameraParams, DistortionParams, FxFyCxCySkew, IdentitySensor,
+    IntrinsicsParams, Iso3, Mat3, Pinhole, ProjectionParams, Pt2, Pt3, Real, SensorParams, Vec2,
 };
 // Note: These are now re-exported above for public API, not imported here
-use calib_optim::{
-    params::{distortion::BrownConrady5Params, intrinsics::Intrinsics4},
-    planar_intrinsics::optimize_planar_intrinsics,
-};
-use nalgebra::{UnitQuaternion, Vector3};
+use calib_optim::planar_intrinsics::optimize_planar_intrinsics;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,7 +125,7 @@ pub struct PlanarIntrinsicsInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsReport {
-    pub camera: CameraConfig,
+    pub camera: CameraParams,
     pub final_cost: Real,
 }
 
@@ -140,24 +136,28 @@ pub(crate) fn make_pinhole_camera(
     Camera::new(Pinhole, dist, IdentitySensor, k)
 }
 
-pub(crate) fn pinhole_camera_config(camera: &PinholeCamera) -> CameraConfig {
-    CameraConfig {
-        projection: ProjectionConfig::Pinhole,
-        distortion: DistortionConfig::BrownConrady5 {
-            k1: camera.dist.k1,
-            k2: camera.dist.k2,
-            k3: camera.dist.k3,
-            p1: camera.dist.p1,
-            p2: camera.dist.p2,
-            iters: Some(camera.dist.iters),
+pub(crate) fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
+    CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 {
+            params: BrownConrady5 {
+                k1: camera.dist.k1,
+                k2: camera.dist.k2,
+                k3: camera.dist.k3,
+                p1: camera.dist.p1,
+                p2: camera.dist.p2,
+                iters: camera.dist.iters,
+            },
         },
-        sensor: SensorConfig::Identity,
-        intrinsics: IntrinsicsConfig::FxFyCxCySkew {
-            fx: camera.k.fx,
-            fy: camera.k.fy,
-            cx: camera.k.cx,
-            cy: camera.k.cy,
-            skew: camera.k.skew,
+        sensor: SensorParams::Identity,
+        intrinsics: IntrinsicsParams::FxFyCxCySkew {
+            params: FxFyCxCySkew {
+                fx: camera.k.fx,
+                fy: camera.k.fy,
+                cx: camera.k.cx,
+                cy: camera.k.cy,
+                skew: camera.k.skew,
+            },
         },
     }
 }
@@ -271,16 +271,7 @@ pub(crate) fn planar_init_seed_from_views(
     let kmtx = k_matrix_from_intrinsics(&intrinsics);
     let poses0 = poses_from_homographies(&kmtx, &homographies)?;
 
-    let init = PlanarIntrinsicsInit::new(
-        Intrinsics4 {
-            fx: intrinsics.fx,
-            fy: intrinsics.fy,
-            cx: intrinsics.cx,
-            cy: intrinsics.cy,
-        },
-        BrownConrady5Params::from_core(&distortion),
-        poses0,
-    )?;
+    let init = PlanarIntrinsicsInit::new(intrinsics, distortion, poses0)?;
 
     let camera = make_pinhole_camera(intrinsics, distortion);
 
@@ -357,7 +348,7 @@ pub fn run_planar_intrinsics(
     let (init, _) = planar_init_seed_from_views(&input.views)?;
     let result = optimize_planar_intrinsics_with_init(dataset, init, config)?;
 
-    let camera_cfg = pinhole_camera_config(&result.camera);
+    let camera_cfg = pinhole_camera_params(&result.camera);
 
     Ok(PlanarIntrinsicsReport {
         camera: camera_cfg,
@@ -368,6 +359,7 @@ pub fn run_planar_intrinsics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nalgebra::{UnitQuaternion, Vector3};
 
     #[test]
     fn zhang_initialization_recovers_intrinsics_seed() {
@@ -428,21 +420,9 @@ mod tests {
         assert!((seed.intrinsics.cy - k_gt.cy).abs() < 25.0);
     }
 
-    fn intrinsics_from_config(cfg: &CameraConfig) -> FxFyCxCySkew<Real> {
+    fn intrinsics_from_params(cfg: &CameraParams) -> FxFyCxCySkew<Real> {
         match &cfg.intrinsics {
-            IntrinsicsConfig::FxFyCxCySkew {
-                fx,
-                fy,
-                cx,
-                cy,
-                skew,
-            } => FxFyCxCySkew {
-                fx: *fx,
-                fy: *fy,
-                cx: *cx,
-                cy: *cy,
-                skew: *skew,
-            },
+            IntrinsicsParams::FxFyCxCySkew { params } => *params,
         }
     }
 
@@ -507,7 +487,7 @@ mod tests {
             report.final_cost
         );
 
-        let ki = intrinsics_from_config(&report.camera);
+        let ki = intrinsics_from_params(&report.camera);
         assert!((ki.fx - k_gt.fx).abs() < 20.0);
         assert!((ki.fy - k_gt.fy).abs() < 20.0);
         assert!((ki.cx - k_gt.cx).abs() < 20.0);
@@ -606,15 +586,15 @@ mod tests {
             },
         );
         let report = PlanarIntrinsicsReport {
-            camera: pinhole_camera_config(&cam),
+            camera: pinhole_camera_params(&cam),
             final_cost: 1e-8,
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();
         let de: PlanarIntrinsicsReport = serde_json::from_str(&json).unwrap();
 
-        let ki_de = intrinsics_from_config(&de.camera);
-        let ki_report = intrinsics_from_config(&report.camera);
+        let ki_de = intrinsics_from_params(&de.camera);
+        let ki_report = intrinsics_from_params(&report.camera);
 
         assert!((ki_de.fx - ki_report.fx).abs() < 1e-12);
         assert!((ki_de.fy - ki_report.fy).abs() < 1e-12);
@@ -623,28 +603,14 @@ mod tests {
 
         match (&de.camera.distortion, &report.camera.distortion) {
             (
-                DistortionConfig::BrownConrady5 {
-                    k1: k1a,
-                    k2: k2a,
-                    k3: k3a,
-                    p1: p1a,
-                    p2: p2a,
-                    ..
-                },
-                DistortionConfig::BrownConrady5 {
-                    k1: k1b,
-                    k2: k2b,
-                    k3: k3b,
-                    p1: p1b,
-                    p2: p2b,
-                    ..
-                },
+                DistortionParams::BrownConrady5 { params: a },
+                DistortionParams::BrownConrady5 { params: b },
             ) => {
-                assert!((k1a - k1b).abs() < 1e-12);
-                assert!((k2a - k2b).abs() < 1e-12);
-                assert!((p1a - p1b).abs() < 1e-12);
-                assert!((p2a - p2b).abs() < 1e-12);
-                assert!((k3a - k3b).abs() < 1e-12);
+                assert!((a.k1 - b.k1).abs() < 1e-12);
+                assert!((a.k2 - b.k2).abs() < 1e-12);
+                assert!((a.p1 - b.p1).abs() < 1e-12);
+                assert!((a.p2 - b.p2).abs() < 1e-12);
+                assert!((a.k3 - b.k3).abs() < 1e-12);
             }
             other => panic!("distortion mismatch: {:?}", other),
         }

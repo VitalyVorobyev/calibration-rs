@@ -214,16 +214,7 @@ pub fn optimize_planar_intrinsics_from_init(
     let kmtx = crate::k_matrix_from_intrinsics(&init.intrinsics);
     let poses0 = crate::poses_from_homographies(&kmtx, &homographies)?;
 
-    let planar_init = PlanarIntrinsicsInit::new(
-        calib_optim::params::intrinsics::Intrinsics4 {
-            fx: init.intrinsics.fx,
-            fy: init.intrinsics.fy,
-            cx: init.intrinsics.cx,
-            cy: init.intrinsics.cy,
-        },
-        calib_optim::params::distortion::BrownConrady5Params::from_core(&init.distortion),
-        poses0,
-    )?;
+    let planar_init = PlanarIntrinsicsInit::new(init.intrinsics, init.distortion, poses0)?;
 
     // Run optimization
     let optim_result = optimize_planar_intrinsics_raw(

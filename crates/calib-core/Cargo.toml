@@ -11,3 +11,6 @@ nalgebra = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 rand = { version = "0.9" }
 tracing = { version = "0.1", optional=true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

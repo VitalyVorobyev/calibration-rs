@@ -10,16 +10,17 @@ Status legend: [TODO] not started, [IN PROGRESS], [DONE]
 - [IN PROGRESS] Add robustness tests (noisy focal, skewed scales, few views) and regression coverage for the new init path.
 
 ## 2) Session semantics and problem boundaries
-- [TODO] Clarify `ProblemType` contract: `initialize` returns linear seeds; `optimize` consumes them and observations. Update rustdoc and examples accordingly.
-- [TODO] Document sessions as data + checkpoint containers; recommend orchestration helpers for real pipelines.
+- [DONE] Clarify `ProblemType` contract: `initialize` returns linear seeds; `optimize` consumes them and observations. Update rustdoc and examples accordingly.
+- [DONE] Document sessions as data + checkpoint containers; recommend orchestration helpers for real pipelines.
 
 ## 3) Rig extrinsics pipeline correctness
-- [TODO] Implement true linear init: per-camera Zhang intrinsics + planar poses; remove full nonlinear per-camera solves from init.
-- [TODO] Ensure optimize stage performs a single joint BA using init seeds. Add regression tests showing init ≠ optimize and cost improvement.
+- [DONE] Implement true linear init: per-camera Zhang intrinsics + planar poses; remove full nonlinear per-camera solves from init.
+- [DONE] Ensure optimize stage performs a single joint BA using init seeds.
+- [DONE] Add regression tests showing init ≠ optimize and cost improvement.
 
 ## 4) Config/model naming cleanup
-- [TODO] Rename serialized camera structs to indicate calibrated parameters (e.g., `CameraParams`, `IntrinsicsParams`, etc.) while preserving serde/backward compatibility and `calib` public API stability.
-- [TODO] Wrap core math structs (`FxFyCxCySkew`, `BrownConrady5`, etc.) instead of duplicating fields; add roundtrip/build tests.
+- [DONE] Rename model config structs to params (`config.rs` → `params.rs`) and update all imports/call sites to the new names.
+- [DONE] Use core math structs (`FxFyCxCySkew`, `BrownConrady5`) directly inside params enums and remove the optimizer-specific aliases/params types.
 
 ## 5) Hand-eye pipeline and example
 - [TODO] Re-export hand-eye optimizer (and needed types) through `calib-pipeline`/`calib`.
