@@ -2,11 +2,16 @@
 name = "calib-pipeline"
 version = "0.1.0"
 edition = "2021"
+description = "End-to-end calibration workflows and session APIs for calibration-rs"
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
-calib-core = { path = "../calib-core" }
-calib-linear = { path = "../calib-linear" }
-calib-optim = { path = "../calib-optim" }
+calib-core = { path = "../calib-core", version = "0.1.0" }
+calib-linear = { path = "../calib-linear", version = "0.1.0" }
+calib-optim = { path = "../calib-optim", version = "0.1.0" }
 anyhow = "1"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

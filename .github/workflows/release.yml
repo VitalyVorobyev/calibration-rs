@@ -37,17 +37,18 @@ jobs:
 
       - name: Package crates
         run: |
-          cargo package -p genicp --locked
-          cargo package -p genapi-xml --locked
+          for crate in calib calib-core calib-linear calib-optim calib-pipeline calib-cli; do
+            cargo package -p "$crate" --locked
+          done
 
       - name: Build release binaries
-        run: cargo build --release --locked --bin genicam-rs
+        run: cargo build -p calib-cli --release --locked --bin calib-cli
 
       - name: Collect artifacts
         run: |
           mkdir -p dist
-          BIN_NAME="genicam-rs-${{ github.ref_name }}"
-          cp target/release/genicam-rs "dist/${BIN_NAME}"
+          BIN_NAME="calib-cli-${{ github.ref_name }}"
+          cp target/release/calib-cli "dist/${BIN_NAME}"
           tar -czf "dist/${BIN_NAME}-x86_64-unknown-linux-gnu.tar.gz" -C dist "${BIN_NAME}"
           rm "dist/${BIN_NAME}"
           cp target/package/*.crate dist/

@@ -125,6 +125,11 @@
 //! - **[`linear`]**: Closed-form initialization algorithms
 //! - **[`optim`]**: Non-linear least-squares optimization
 //! - **[`prelude`]**: Convenient re-exports for common use cases
+//!
+//! ## Stability
+//!
+//! The `calib` crate is the public compatibility boundary. Lower-level crates are
+//! intended for advanced usage and may evolve more quickly.
 
 /// Type-safe calibration session framework for structured workflows.
 ///
@@ -180,7 +185,7 @@ pub mod linear {
 
 /// Non-linear least-squares optimization problems and backends.
 ///
-/// Provides bundle adjustment and other refinement algorithms.
+/// Includes planar intrinsics, hand-eye, rig extrinsics, and linescan bundle refinement.
 pub mod optim {
     pub use calib_optim::*;
 }

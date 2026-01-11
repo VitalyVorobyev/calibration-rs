@@ -8,6 +8,7 @@
 //!
 //! ```ignore
 //! use calib_pipeline::helpers::*;
+//! use calib_pipeline::{BackendSolveOptions, PlanarIntrinsicsSolveOptions};
 //!
 //! // Step 1: Initialize intrinsics
 //! let init_result = initialize_planar_intrinsics(&views, &init_opts)?;
@@ -15,14 +16,16 @@
 //! // Inspect intermediate results
 //! println!("Initial fx: {}, fy: {}", init_result.intrinsics.fx, init_result.intrinsics.fy);
 //!
-//! // Step 2: Optimize if initialization looks good
-//! if init_result.mean_reproj_error < 10.0 {
-//!     let final_result = optimize_planar_intrinsics_from_init(
-//!         &views,
-//!         &init_result,
-//!         &optim_opts
-//!     )?;
-//! }
+//! // Step 2: Optimize after inspecting the seed
+//! let optim_opts = PlanarIntrinsicsSolveOptions::default();
+//! let backend_opts = BackendSolveOptions::default();
+//! let final_result = optimize_planar_intrinsics_from_init(
+//!     &views,
+//!     &init_result,
+//!     &optim_opts,
+//!     &backend_opts
+//! )?;
+//! println!("Final reprojection error: {:.2} px", final_result.mean_reproj_error);
 //! ```
 
 use crate::{
@@ -76,7 +79,7 @@ pub struct PlanarIntrinsicsOptimResult {
 ///
 /// # Returns
 ///
-/// Initial estimates for intrinsics, distortion, and poses with quality metrics.
+/// Initial estimates for intrinsics and distortion.
 ///
 /// # Example
 ///
@@ -99,8 +102,8 @@ pub struct PlanarIntrinsicsOptimResult {
 ///
 /// let result = initialize_planar_intrinsics(&views, &opts)?;
 ///
-/// if result.mean_reproj_error > 10.0 {
-///     eprintln!("Warning: Poor initialization, check corner detection");
+/// if result.intrinsics.fx < 100.0 {
+///     eprintln!("Warning: Suspiciously low focal length, check inputs");
 /// }
 /// ```
 pub fn initialize_planar_intrinsics(
@@ -147,17 +150,16 @@ pub fn initialize_planar_intrinsics(
 
 /// Optimize camera intrinsics from initial estimates using non-linear refinement.
 ///
-/// This is a convenience wrapper that uses the existing `run_planar_intrinsics` pipeline
-/// but allows you to inspect the initial linear estimates first.
+/// This is a convenience wrapper that allows you to inspect the initial linear
+/// estimates, then seed a non-linear solve. Pose seeds are recovered from homographies
+/// using the provided intrinsics.
 ///
-/// **Note:** Since the full pipeline recomputes poses internally, the init parameter
-/// is currently only used for validation. For full control over initialization, use
-/// calib-optim functions directly.
+/// **Note:** Skew is forced to zero to match the current optimizer parameterization.
 ///
 /// # Arguments
 ///
 /// * `views` - Calibration views (same as used for initialization)
-/// * `_init` - Initial parameter estimates (currently unused, for API consistency)
+/// * `init` - Initial intrinsics and distortion used to seed optimization
 /// * `solve_opts` - Per-parameter optimization options (fixing, robust loss)
 /// * `backend_opts` - Solver configuration (iterations, verbosity)
 ///
