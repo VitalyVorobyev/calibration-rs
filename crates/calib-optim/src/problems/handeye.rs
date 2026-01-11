@@ -1,11 +1,23 @@
 //! Hand-eye calibration for robot-mounted cameras.
 //!
-//! Optimizes per-camera intrinsics, distortion, camera-to-rig extrinsics,
-//! hand-eye transform (rig-to-robot or robot-to-rig depending on mode),
-//! and calibration target poses.
+//! Default optimization state (fixed target):
+//! - per-camera intrinsics and distortion
+//! - per-camera extrinsics (camera-to-rig)
+//! - hand-eye transform (gripper-from-rig for eye-in-hand, base-from-rig for eye-to-hand)
+//! - fixed target pose in base frame (shared across views)
+//! - optional per-view robot pose corrections delta_i in se(3), with zero-mean priors
 //!
-//! Supports both eye-in-hand (camera on gripper) and eye-to-hand (camera fixed
-//! in workspace) configurations.
+//! Transform chain (eye-in-hand):
+//! `T_C_T_i = (T_B_E_i * X)^-1 * Y` where `X` is hand-eye and `Y` is target in base.
+//! With robot refinement: `T_B_E_i_corr = exp(delta_i) * T_B_E_i` (left-multiply).
+//!
+//! Residuals:
+//! - reprojection errors for observed target points using the robot pose chain
+//! - optional priors on delta_i (anisotropic rotation/translation sigmas)
+//! - when delta_i are enabled, delta_0 is fixed to zero to remove gauge freedom
+//!
+//! Legacy mode can relax per-view target poses, but that is discouraged for a
+//! physically fixed target because it weakens hand-eye observability.
 
 use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions};
 use crate::ir::{
@@ -113,7 +125,10 @@ pub struct HandEyeInit {
     pub cam_to_rig: Vec<Iso3>,
     /// Hand-eye transform (gripper-from-rig for eye-in-hand, base-from-rig for eye-to-hand).
     pub handeye: Iso3,
-    /// Calibration target poses (one per view).
+    /// Calibration target poses.
+    ///
+    /// - Default (fixed target): the first pose is used as the initial `T_B_T`.
+    /// - Legacy (`relax_target_poses = true`): one pose per view is required.
     pub target_poses: Vec<Iso3>,
 }
 
@@ -143,8 +158,18 @@ pub struct HandEyeSolveOptions {
     pub fix_extrinsics: Vec<bool>,
     /// Fix hand-eye transform (for testing with known hand-eye).
     pub fix_handeye: bool,
-    /// View indices to fix (e.g., first view for gauge freedom).
+    /// View indices to fix (legacy per-view target mode only).
     pub fix_target_poses: Vec<usize>,
+    /// Legacy mode: relax per-view target poses instead of a fixed target.
+    pub relax_target_poses: bool,
+    /// Refine robot poses with per-view se(3) corrections and strong priors.
+    ///
+    /// When enabled, delta_0 is fixed to zero for gauge consistency.
+    pub refine_robot_poses: bool,
+    /// Robot rotation prior sigma (radians).
+    pub robot_rot_sigma: Real,
+    /// Robot translation prior sigma (meters).
+    pub robot_trans_sigma: Real,
 }
 
 impl Default for HandEyeSolveOptions {
@@ -165,6 +190,10 @@ impl Default for HandEyeSolveOptions {
             fix_extrinsics: Vec::new(),
             fix_handeye: false,
             fix_target_poses: Vec::new(),
+            relax_target_poses: false,
+            refine_robot_poses: false,
+            robot_rot_sigma: std::f64::consts::PI / 360.0, // 0.5 deg
+            robot_trans_sigma: 1.0e-3,                    // 1 mm
         }
     }
 }
@@ -178,12 +207,21 @@ pub struct HandEyeResult {
     pub cam_to_rig: Vec<Iso3>,
     /// Hand-eye transform.
     pub handeye: Iso3,
-    /// Calibration target poses.
+    /// Calibration target poses (fixed-target mode returns the same pose per view).
     pub target_poses: Vec<Iso3>,
     pub final_cost: f64,
 }
 
 /// Build IR for hand-eye calibration.
+///
+/// State vector:
+/// - intrinsics/distortion, extrinsics, hand-eye transform
+/// - target pose (fixed by default, per-view in legacy mode)
+/// - optional per-view robot pose deltas (se(3) tangent)
+///
+/// Residuals:
+/// - per-point reprojection error using robot pose measurements
+/// - optional zero-mean priors on robot pose deltas
 pub fn build_handeye_ir(
     dataset: &HandEyeDataset,
     initial: &HandEyeInit,
@@ -208,11 +246,31 @@ pub fn build_handeye_ir(
         dataset.num_cameras
     );
     ensure!(
-        initial.target_poses.len() == dataset.num_views(),
-        "target_poses count {} != num_views {}",
-        initial.target_poses.len(),
-        dataset.num_views()
+        !initial.target_poses.is_empty(),
+        "target_poses must contain at least one pose"
     );
+    if opts.relax_target_poses {
+        ensure!(
+            initial.target_poses.len() == dataset.num_views(),
+            "target_poses count {} != num_views {}",
+            initial.target_poses.len(),
+            dataset.num_views()
+        );
+    }
+    ensure!(
+        opts.relax_target_poses || opts.fix_target_poses.is_empty(),
+        "fix_target_poses is only supported when relax_target_poses is true"
+    );
+    if opts.refine_robot_poses {
+        ensure!(
+            opts.robot_rot_sigma > 0.0,
+            "robot_rot_sigma must be positive"
+        );
+        ensure!(
+            opts.robot_trans_sigma > 0.0,
+            "robot_trans_sigma must be positive"
+        );
+    }
 
     let mut ir = ProblemIR::new();
     let mut initial_map = HashMap::new();
@@ -314,16 +372,61 @@ pub fn build_handeye_ir(
     let handeye_id = ir.add_param_block("handeye", 7, ManifoldKind::SE3, handeye_fixed, None);
     initial_map.insert("handeye".to_string(), iso3_to_se3_dvec(&initial.handeye));
 
-    // 5. Per-view target poses + residuals
+    // 5. Target pose (fixed by default) + residuals
+    let target_id = if opts.relax_target_poses {
+        None
+    } else {
+        let target_seed = initial.target_poses[0].clone();
+        let id = ir.add_param_block("target", 7, ManifoldKind::SE3, FixedMask::all_free(), None);
+        initial_map.insert("target".to_string(), iso3_to_se3_dvec(&target_seed));
+        Some(id)
+    };
+
+    let robot_prior_sqrt_info = if opts.refine_robot_poses {
+        let rot = 1.0 / opts.robot_rot_sigma;
+        let trans = 1.0 / opts.robot_trans_sigma;
+        [rot, rot, rot, trans, trans, trans]
+    } else {
+        [0.0; 6]
+    };
+
     for (view_idx, view) in dataset.views.iter().enumerate() {
-        let fixed = if opts.fix_target_poses.contains(&view_idx) {
-            FixedMask::all_fixed(7)
+        let target_id = if opts.relax_target_poses {
+            let fixed = if opts.fix_target_poses.contains(&view_idx) {
+                FixedMask::all_fixed(7)
+            } else {
+                FixedMask::all_free()
+            };
+            let key = format!("target/{}", view_idx);
+            let target_id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
+            initial_map.insert(key, iso3_to_se3_dvec(&initial.target_poses[view_idx]));
+            target_id
         } else {
-            FixedMask::all_free()
+            target_id.expect("target id should be set for fixed-target mode")
         };
-        let key = format!("target/{}", view_idx);
-        let target_id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
-        initial_map.insert(key, iso3_to_se3_dvec(&initial.target_poses[view_idx]));
+
+        let robot_delta_id = if opts.refine_robot_poses {
+            let fixed = if view_idx == 0 {
+                FixedMask::all_fixed(6)
+            } else {
+                FixedMask::all_free()
+            };
+            let key = format!("robot_delta/{}", view_idx);
+            let id = ir.add_param_block(&key, 6, ManifoldKind::Euclidean, fixed, None);
+            initial_map.insert(key, DVector::from_element(6, 0.0));
+            let prior = ResidualBlock {
+                params: vec![id],
+                loss: RobustLoss::None,
+                factor: FactorKind::Se3TangentPrior {
+                    sqrt_info: robot_prior_sqrt_info,
+                },
+                residual_dim: 6,
+            };
+            ir.add_residual_block(prior);
+            Some(id)
+        } else {
+            None
+        };
 
         // Convert robot pose to SE3 array for factor
         let robot_se3 = iso3_to_se3_dvec(&view.robot_pose);
@@ -341,23 +444,45 @@ pub fn build_handeye_ir(
         for (cam_idx, cam_obs) in view.cameras.iter().enumerate() {
             if let Some(obs) = cam_obs {
                 for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
-                    let residual = ResidualBlock {
-                        params: vec![
-                            cam_ids[cam_idx],
-                            dist_ids[cam_idx],
-                            extr_ids[cam_idx],
-                            handeye_id,
-                            target_id,
-                        ],
-                        loss: opts.robust_loss,
-                        factor: FactorKind::ReprojPointPinhole4Dist5HandEye {
-                            pw: [pw.x, pw.y, pw.z],
-                            uv: [uv.x, uv.y],
-                            w: obs.weight(pt_idx),
-                            base_to_gripper_se3: robot_se3_array,
-                            mode: dataset.mode,
-                        },
-                        residual_dim: 2,
+                    let residual = if let Some(robot_delta_id) = robot_delta_id {
+                        ResidualBlock {
+                            params: vec![
+                                cam_ids[cam_idx],
+                                dist_ids[cam_idx],
+                                extr_ids[cam_idx],
+                                handeye_id,
+                                target_id,
+                                robot_delta_id,
+                            ],
+                            loss: opts.robust_loss,
+                            factor: FactorKind::ReprojPointPinhole4Dist5HandEyeRobotDelta {
+                                pw: [pw.x, pw.y, pw.z],
+                                uv: [uv.x, uv.y],
+                                w: obs.weight(pt_idx),
+                                base_to_gripper_se3: robot_se3_array,
+                                mode: dataset.mode,
+                            },
+                            residual_dim: 2,
+                        }
+                    } else {
+                        ResidualBlock {
+                            params: vec![
+                                cam_ids[cam_idx],
+                                dist_ids[cam_idx],
+                                extr_ids[cam_idx],
+                                handeye_id,
+                                target_id,
+                            ],
+                            loss: opts.robust_loss,
+                            factor: FactorKind::ReprojPointPinhole4Dist5HandEye {
+                                pw: [pw.x, pw.y, pw.z],
+                                uv: [uv.x, uv.y],
+                                w: obs.weight(pt_idx),
+                                base_to_gripper_se3: robot_se3_array,
+                                mode: dataset.mode,
+                            },
+                            residual_dim: 2,
+                        }
                     };
                     ir.add_residual_block(residual);
                 }
@@ -414,12 +539,21 @@ pub fn optimize_handeye(
     )?;
 
     // Extract target poses
-    let target_poses = (0..dataset.num_views())
-        .map(|i| {
-            let key = format!("target/{}", i);
-            crate::params::pose_se3::se3_dvec_to_iso3(solution.params.get(&key).unwrap().as_view())
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let target_poses = if opts.relax_target_poses {
+        (0..dataset.num_views())
+            .map(|i| {
+                let key = format!("target/{}", i);
+                crate::params::pose_se3::se3_dvec_to_iso3(
+                    solution.params.get(&key).unwrap().as_view(),
+                )
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        let target_pose = crate::params::pose_se3::se3_dvec_to_iso3(
+            solution.params.get("target").unwrap().as_view(),
+        )?;
+        vec![target_pose; dataset.num_views()]
+    };
 
     Ok(HandEyeResult {
         cameras,

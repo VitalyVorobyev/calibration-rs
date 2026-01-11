@@ -109,7 +109,6 @@ fn main() -> Result<()> {
         fix_p1: true,
         fix_p2: true,
         fix_extrinsics: vec![true],
-        fix_target_poses: vec![0],
         ..Default::default()
     };
 

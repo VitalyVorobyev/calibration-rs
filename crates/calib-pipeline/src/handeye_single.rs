@@ -506,7 +506,7 @@ fn ensure_handeye_defaults(opts: &mut HandEyeSolveOptions, num_cameras: usize) {
     if opts.fix_extrinsics.is_empty() {
         opts.fix_extrinsics = vec![true; num_cameras];
     }
-    if opts.fix_target_poses.is_empty() {
+    if opts.relax_target_poses && opts.fix_target_poses.is_empty() {
         opts.fix_target_poses = vec![0];
     }
 }
