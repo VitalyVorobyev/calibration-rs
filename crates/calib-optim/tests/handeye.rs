@@ -6,10 +6,10 @@
 //! 3. Per-camera intrinsics and distortion optimization
 //! 4. Hand-eye transform estimation
 
-use calib_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Real, Vec2,
+use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Real, Vec2};
+use calib_optim::backend::{
+    solve_with_backend, BackendKind, BackendSolveOptions, LinearSolverKind,
 };
-use calib_optim::backend::{solve_with_backend, BackendKind, BackendSolveOptions, LinearSolverKind};
 use calib_optim::ir::HandEyeMode;
 use calib_optim::params::pose_se3::se3_dvec_to_iso3;
 use calib_optim::problems::handeye::*;
@@ -486,11 +486,16 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         ..Default::default()
     };
 
-    let result_no_refine =
-        optimize_handeye(dataset.clone(), init.clone(), base_opts.clone(), backend_opts.clone())
-            .unwrap();
+    let result_no_refine = optimize_handeye(
+        dataset.clone(),
+        init.clone(),
+        base_opts.clone(),
+        backend_opts.clone(),
+    )
+    .unwrap();
 
-    let dt_no = (result_no_refine.handeye.translation.vector - handeye_gt.translation.vector).norm();
+    let dt_no =
+        (result_no_refine.handeye.translation.vector - handeye_gt.translation.vector).norm();
     let ang_no = rotation_angle(&result_no_refine.handeye, &handeye_gt);
     let reproj_no = mean_reproj_error_eye_in_hand(
         &views,

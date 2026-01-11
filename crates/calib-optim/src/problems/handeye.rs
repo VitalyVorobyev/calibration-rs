@@ -193,7 +193,7 @@ impl Default for HandEyeSolveOptions {
             relax_target_poses: false,
             refine_robot_poses: false,
             robot_rot_sigma: std::f64::consts::PI / 360.0, // 0.5 deg
-            robot_trans_sigma: 1.0e-3,                    // 1 mm
+            robot_trans_sigma: 1.0e-3,                     // 1 mm
         }
     }
 }
@@ -376,7 +376,7 @@ pub fn build_handeye_ir(
     let target_id = if opts.relax_target_poses {
         None
     } else {
-        let target_seed = initial.target_poses[0].clone();
+        let target_seed = initial.target_poses[0];
         let id = ir.add_param_block("target", 7, ManifoldKind::SE3, FixedMask::all_free(), None);
         initial_map.insert("target".to_string(), iso3_to_se3_dvec(&target_seed));
         Some(id)

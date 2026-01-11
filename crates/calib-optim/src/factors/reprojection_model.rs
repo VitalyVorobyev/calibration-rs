@@ -141,7 +141,7 @@ fn se3_exp<T: RealField>(xi: DVectorView<'_, T>) -> (UnitQuaternion<T>, Vector3<
     let eps = T::from_f64(1e-9).unwrap();
 
     let w_hat = skew_matrix(&w);
-    let w_hat2 = w_hat * w_hat;
+    let w_hat2 = w_hat.clone() * w_hat.clone();
 
     let (b, c) = if theta.clone() <= eps {
         let half = T::from_f64(0.5).unwrap();
@@ -676,7 +676,7 @@ pub(crate) fn reproj_residual_pinhole4_dist5_handeye_robot_delta_generic<T: Real
     );
 
     let (delta_q, delta_t) = se3_exp(robot_delta);
-    let robot_q = delta_q * robot_q;
+    let robot_q = delta_q.clone() * robot_q;
     let robot_t = delta_q.transform_vector(&robot_t) + delta_t;
 
     let pw_t = Vector3::new(
