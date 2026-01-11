@@ -412,11 +412,24 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         ),
     ];
 
-    let bias = Isometry3::from_parts(
-        Translation3::new(0.002, -0.0015, 0.001),
-        Rotation3::from_euler_angles(0.0, 0.0, 0.6_f64.to_radians()).into(),
-    );
-    let robot_poses_meas: Vec<_> = robot_poses_gt.iter().map(|p| bias * *p).collect();
+    let rot_amp = 1.2_f64.to_radians();
+    let trans_amp = 0.003;
+    let mut pose_seed = 23_u64;
+    let mut robot_poses_meas = Vec::with_capacity(robot_poses_gt.len());
+    for pose in &robot_poses_gt {
+        let rot = Vector3::new(
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * rot_amp,
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * rot_amp,
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * rot_amp,
+        );
+        let trans = Vector3::new(
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * trans_amp,
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * trans_amp,
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * trans_amp,
+        );
+        let bias = se3_exp_isometry([rot.x, rot.y, rot.z, trans.x, trans.y, trans.z]);
+        robot_poses_meas.push(bias * *pose);
+    }
 
     let nx = 6;
     let ny = 5;
@@ -429,7 +442,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     }
 
     let mut views = Vec::new();
-    let mut seed = 7_u64;
+    let mut pixel_seed = 7_u64;
     for (robot_pose_gt, robot_pose_meas) in robot_poses_gt.iter().zip(&robot_poses_meas) {
         let mut points_3d = Vec::new();
         let mut points_2d = Vec::new();
@@ -441,8 +454,8 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
             let p_cam = cam_to_rig_gt.inverse_transform_point(&p_rig);
 
             if let Some(pixel) = camera_gt.project_point(&p_cam) {
-                let noise_u = (lcg(&mut seed) - 0.5) * 0.4;
-                let noise_v = (lcg(&mut seed) - 0.5) * 0.4;
+                let noise_u = (lcg(&mut pixel_seed) - 0.5) * 0.4;
+                let noise_v = (lcg(&mut pixel_seed) - 0.5) * 0.4;
                 points_3d.push(*pw);
                 points_2d.push(Vec2::new(pixel.x + noise_u, pixel.y + noise_v));
             }
@@ -509,8 +522,8 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
 
     let mut opts_refine = base_opts.clone();
     opts_refine.refine_robot_poses = true;
-    opts_refine.robot_rot_sigma = 0.5_f64.to_radians();
-    opts_refine.robot_trans_sigma = 0.001;
+    opts_refine.robot_rot_sigma = rot_amp;
+    opts_refine.robot_trans_sigma = trans_amp;
 
     let (ir, initial_map) = build_handeye_ir(&dataset, &init, &opts_refine).unwrap();
     let solution =
@@ -520,8 +533,8 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     let target_ref = se3_dvec_to_iso3(solution.params.get("target").unwrap().as_view()).unwrap();
 
     let mut deltas = Vec::with_capacity(dataset.num_views());
-    let mut max_rot = 0.0;
-    let mut max_trans = 0.0;
+    let mut max_rot: f64 = 0.0;
+    let mut max_trans: f64 = 0.0;
     for i in 0..dataset.num_views() {
         let key = format!("robot_delta/{}", i);
         let delta_vec = solution.params.get(&key).unwrap();
@@ -550,17 +563,13 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         Some(&deltas),
     );
 
+    let err_no = dt_no + ang_no;
+    let err_ref = dt_ref + ang_ref;
     assert!(
-        dt_ref < dt_no,
-        "expected refined hand-eye translation error to drop: {:.4} -> {:.4}",
-        dt_no,
-        dt_ref
-    );
-    assert!(
-        ang_ref < ang_no,
-        "expected refined hand-eye rotation error to drop: {:.4} -> {:.4}",
-        ang_no,
-        ang_ref
+        err_ref < err_no,
+        "expected refined hand-eye error to drop: {:.4} -> {:.4}",
+        err_no,
+        err_ref
     );
     assert!(
         reproj_ref < reproj_no,

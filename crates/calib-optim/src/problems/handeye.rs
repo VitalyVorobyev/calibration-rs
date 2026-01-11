@@ -212,6 +212,15 @@ pub struct HandEyeResult {
     pub final_cost: f64,
 }
 
+/// Diagnostic outputs for hand-eye optimization.
+#[derive(Debug, Clone)]
+pub struct HandEyeDiagnostics {
+    /// Optimized parameters for the hand-eye problem.
+    pub result: HandEyeResult,
+    /// Optional per-view robot pose deltas (se(3) tangent, `[rx, ry, rz, tx, ty, tz]`).
+    pub robot_deltas: Option<Vec<[Real; 6]>>,
+}
+
 /// Build IR for hand-eye calibration.
 ///
 /// State vector:
@@ -501,6 +510,19 @@ pub fn optimize_handeye(
     opts: HandEyeSolveOptions,
     backend_opts: BackendSolveOptions,
 ) -> Result<HandEyeResult> {
+    Ok(
+        optimize_handeye_with_diagnostics(dataset, initial, opts, backend_opts)?
+            .result,
+    )
+}
+
+/// Optimize hand-eye calibration and return diagnostic outputs.
+pub fn optimize_handeye_with_diagnostics(
+    dataset: HandEyeDataset,
+    initial: HandEyeInit,
+    opts: HandEyeSolveOptions,
+    backend_opts: BackendSolveOptions,
+) -> Result<HandEyeDiagnostics> {
     let (ir, initial_map) = build_handeye_ir(&dataset, &initial, &opts)?;
     let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)?;
 
@@ -555,11 +577,33 @@ pub fn optimize_handeye(
         vec![target_pose; dataset.num_views()]
     };
 
-    Ok(HandEyeResult {
-        cameras,
-        cam_to_rig,
-        handeye,
-        target_poses,
-        final_cost: solution.final_cost,
+    let robot_deltas = if opts.refine_robot_poses {
+        let mut deltas = Vec::with_capacity(dataset.num_views());
+        for i in 0..dataset.num_views() {
+            let key = format!("robot_delta/{}", i);
+            let delta_vec = solution.params.get(&key).unwrap();
+            deltas.push([
+                delta_vec[0],
+                delta_vec[1],
+                delta_vec[2],
+                delta_vec[3],
+                delta_vec[4],
+                delta_vec[5],
+            ]);
+        }
+        Some(deltas)
+    } else {
+        None
+    };
+
+    Ok(HandEyeDiagnostics {
+        result: HandEyeResult {
+            cameras,
+            cam_to_rig,
+            handeye,
+            target_poses,
+            final_cost: solution.final_cost,
+        },
+        robot_deltas,
     })
 }

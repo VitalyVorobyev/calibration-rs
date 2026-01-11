@@ -42,6 +42,18 @@ pub fn load_kuka_dataset(
     chess_config: &ChessConfig,
     board_params: &ChessboardParams,
 ) -> Result<(Vec<ViewSample>, DatasetSummary)> {
+    load_kuka_dataset_with_progress(base_path, chess_config, board_params, |_, _| {})
+}
+
+pub fn load_kuka_dataset_with_progress<F>(
+    base_path: &Path,
+    chess_config: &ChessConfig,
+    board_params: &ChessboardParams,
+    mut progress: F,
+) -> Result<(Vec<ViewSample>, DatasetSummary)>
+where
+    F: FnMut(usize, usize),
+{
     ensure!(
         base_path.exists(),
         "dataset not found at {}",
@@ -56,6 +68,7 @@ pub fn load_kuka_dataset(
 
     for (idx, robot_pose) in robot_poses.iter().enumerate() {
         let image_index = idx + 1;
+        progress(image_index, robot_poses.len());
         let img_path = base_path.join(format!("{:02}.png", image_index));
         let img = ImageReader::open(&img_path)
             .with_context(|| format!("failed to read image {}", img_path.display()))?
