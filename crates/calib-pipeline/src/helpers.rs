@@ -209,12 +209,16 @@ pub fn optimize_planar_intrinsics_from_init(
     };
     let dataset = crate::build_planar_dataset(&input)?;
 
+    // Optimization packs only [fx, fy, cx, cy]; enforce zero skew.
+    let mut intrinsics = init.intrinsics;
+    intrinsics.skew = 0.0;
+
     // Recover pose seeds from homographies using provided intrinsics
     let homographies = crate::planar_homographies_from_views(&input.views)?;
-    let kmtx = crate::k_matrix_from_intrinsics(&init.intrinsics);
+    let kmtx = crate::k_matrix_from_intrinsics(&intrinsics);
     let poses0 = crate::poses_from_homographies(&kmtx, &homographies)?;
 
-    let planar_init = PlanarIntrinsicsInit::new(init.intrinsics, init.distortion, poses0)?;
+    let planar_init = PlanarIntrinsicsInit::new(intrinsics, init.distortion, poses0)?;
 
     // Run optimization
     let optim_result = optimize_planar_intrinsics_raw(

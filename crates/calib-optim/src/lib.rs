@@ -166,4 +166,5 @@ pub mod params;
 pub mod problems;
 
 pub use crate::backend::{BackendKind, BackendSolution, BackendSolveOptions};
+pub use crate::problems::handeye;
 pub use crate::problems::planar_intrinsics;

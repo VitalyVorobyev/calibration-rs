@@ -4,26 +4,22 @@ pub mod session;
 // Re-export key building block modules from calib-linear for custom workflows
 // Users can access functions like: calib_pipeline::homography::dlt_homography()
 pub use calib_linear::{
-    distortion_fit, epipolar, extrinsics, handeye, homography, iterative_intrinsics, linescan,
-    planar_pose, pnp, triangulation, zhang_intrinsics,
+    distortion_fit, epipolar, extrinsics, handeye as handeye_linear, homography,
+    iterative_intrinsics, linescan, planar_pose, pnp, triangulation, zhang_intrinsics,
 };
 
 // Re-export optimization problem builders from calib-optim
 pub use calib_optim::{
     backend::BackendSolveOptions,
+    handeye,
+    ir::HandEyeMode,
     planar_intrinsics::{
         optimize_planar_intrinsics as optimize_planar_intrinsics_raw, PinholeCamera, PlanarDataset,
         PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions, PlanarViewObservations, RobustLoss,
     },
 };
 
-// Re-export problem builders (these require adding pub use in calib-optim)
-// TODO: Once calib-optim exposes these in lib.rs:
-// pub use calib_optim::problems::{
-//     handeye::{optimize_handeye, HandEyeDataset, HandEyeInit, HandEyeSolveOptions},
-//     linescan_bundle::{optimize_linescan, LinescanDataset, LinescanInit, LinescanSolveOptions},
-//     rig_extrinsics::{optimize_rig_extrinsics, RigExtrinsicsDataset, RigExtrinsicsInit, RigExtrinsicsSolveOptions},
-// };
+// Re-export problem modules as they become public in calib-optim.
 
 use anyhow::{ensure, Context, Result};
 use calib_core::{
@@ -359,6 +355,16 @@ pub fn run_planar_intrinsics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handeye::{
+        optimize_handeye, CameraViewObservations, HandEyeDataset, HandEyeInit, HandEyeSolveOptions,
+        RigViewObservations,
+    };
+    use crate::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
+    use calib_linear::distortion_fit::DistortionFitOptions;
+    use calib_linear::handeye::estimate_handeye_dlt;
+    use calib_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
+    use calib_optim::ir::HandEyeMode;
+    use nalgebra::Translation3;
     use nalgebra::{UnitQuaternion, Vector3};
 
     #[test]
@@ -492,6 +498,162 @@ mod tests {
         assert!((ki.fy - k_gt.fy).abs() < 20.0);
         assert!((ki.cx - k_gt.cx).abs() < 20.0);
         assert!((ki.cy - k_gt.cy).abs() < 20.0);
+    }
+
+    #[test]
+    fn handeye_pipeline_synthetic_recovers_handeye() {
+        let k_gt = FxFyCxCySkew {
+            fx: 820.0,
+            fy: 800.0,
+            cx: 640.0,
+            cy: 360.0,
+            skew: 0.0,
+        };
+        let dist_gt = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+        let cam_gt = make_pinhole_camera(k_gt, dist_gt);
+
+        // Hand-eye parameter is gripper-from-camera (T_GC) for EyeInHand.
+        let handeye_gt = Iso3::from_parts(
+            Translation3::new(0.02, -0.015, 0.12),
+            UnitQuaternion::from_euler_angles(0.06, -0.02, 0.05),
+        );
+
+        let robot_poses = vec![
+            Iso3::from_parts(
+                Translation3::new(0.0, 0.0, -1.0),
+                UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0),
+            ),
+            Iso3::from_parts(
+                Translation3::new(0.08, -0.05, -0.95),
+                UnitQuaternion::from_euler_angles(0.12, 0.05, 0.1),
+            ),
+            Iso3::from_parts(
+                Translation3::new(-0.07, 0.06, -1.08),
+                UnitQuaternion::from_euler_angles(-0.1, 0.14, -0.12),
+            ),
+            Iso3::from_parts(
+                Translation3::new(0.05, 0.09, -1.05),
+                UnitQuaternion::from_euler_angles(0.2, -0.08, 0.06),
+            ),
+            Iso3::from_parts(
+                Translation3::new(-0.06, -0.04, -0.92),
+                UnitQuaternion::from_euler_angles(-0.16, 0.1, 0.12),
+            ),
+        ];
+
+        let nx = 6;
+        let ny = 5;
+        let spacing = 0.04_f64;
+        let mut board_points = Vec::new();
+        for j in 0..ny {
+            for i in 0..nx {
+                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
+            }
+        }
+
+        let mut views = Vec::new();
+        for robot_pose in &robot_poses {
+            let cam_to_target = handeye_gt.inverse() * robot_pose.inverse();
+            let mut points_2d = Vec::new();
+            for pw in &board_points {
+                let pc = cam_to_target.transform_point(pw);
+                let proj = cam_gt.project_point(&pc).unwrap();
+                points_2d.push(Vec2::new(proj.x, proj.y));
+            }
+
+            views.push(PlanarViewData {
+                points_3d: board_points.clone(),
+                points_2d,
+                weights: None,
+            });
+        }
+
+        let init_opts = IterativeIntrinsicsOptions {
+            iterations: 2,
+            distortion_opts: DistortionFitOptions {
+                fix_k3: true,
+                fix_tangential: false,
+                iters: 8,
+            },
+        };
+        let init = initialize_planar_intrinsics(&views, &init_opts).unwrap();
+
+        let solve_opts = PlanarIntrinsicsSolveOptions {
+            fix_k3: true,
+            ..Default::default()
+        };
+        let optim =
+            optimize_planar_intrinsics_from_init(&views, &init, &solve_opts, &Default::default())
+                .unwrap();
+
+        let cam_in_target: Vec<Iso3> = optim.poses.iter().map(|pose| pose.inverse()).collect();
+        let handeye_init = estimate_handeye_dlt(&robot_poses, &cam_in_target, 1.0).unwrap();
+
+        let target_poses: Vec<Iso3> = robot_poses
+            .iter()
+            .zip(&optim.poses)
+            .map(|(base_to_gripper, cam_to_target)| {
+                base_to_gripper.clone() * handeye_init * cam_to_target.clone()
+            })
+            .collect();
+
+        let mut rig_views = Vec::new();
+        for (robot_pose, view) in robot_poses.iter().zip(&views) {
+            let obs = CameraViewObservations::new(view.points_3d.clone(), view.points_2d.clone())
+                .unwrap();
+            rig_views.push(RigViewObservations {
+                cameras: vec![Some(obs)],
+                robot_pose: robot_pose.clone(),
+            });
+        }
+
+        let dataset = HandEyeDataset::new(rig_views, 1, HandEyeMode::EyeInHand).unwrap();
+        let mut handeye_intrinsics = optim.intrinsics;
+        handeye_intrinsics.skew = 0.0;
+        let init = HandEyeInit {
+            intrinsics: vec![handeye_intrinsics],
+            distortion: vec![optim.distortion],
+            cam_to_rig: vec![Iso3::identity()],
+            handeye: handeye_init,
+            target_poses,
+        };
+
+        let mut opts = HandEyeSolveOptions::default();
+        opts.fix_fx = true;
+        opts.fix_fy = true;
+        opts.fix_cx = true;
+        opts.fix_cy = true;
+        opts.fix_k1 = true;
+        opts.fix_k2 = true;
+        opts.fix_k3 = true;
+        opts.fix_p1 = true;
+        opts.fix_p2 = true;
+        opts.fix_extrinsics = vec![true];
+        opts.fix_target_poses = vec![0];
+
+        let result = optimize_handeye(dataset, init, opts, BackendSolveOptions::default()).unwrap();
+
+        let t_err = (result.handeye.translation.vector - handeye_gt.translation.vector).norm();
+        let r_final = result.handeye.rotation.to_rotation_matrix();
+        let r_gt = handeye_gt.rotation.to_rotation_matrix();
+        let r_diff = r_final.transpose() * r_gt;
+        let angle = ((r_diff.matrix().trace() - 1.0) * 0.5)
+            .clamp(-1.0, 1.0)
+            .acos();
+
+        assert!(
+            t_err < 1e-3,
+            "handeye translation error too large: {}",
+            t_err
+        );
+        assert!(angle < 1e-3, "handeye rotation error too large: {}", angle);
     }
 
     #[test]

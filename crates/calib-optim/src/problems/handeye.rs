@@ -111,7 +111,7 @@ pub struct HandEyeInit {
     pub distortion: Vec<BrownConrady5<Real>>,
     /// Per-camera extrinsics (camera-to-rig transforms).
     pub cam_to_rig: Vec<Iso3>,
-    /// Hand-eye transform (rig-to-robot for eye-in-hand, robot-to-rig for eye-to-hand).
+    /// Hand-eye transform (gripper-from-rig for eye-in-hand, base-from-rig for eye-to-hand).
     pub handeye: Iso3,
     /// Calibration target poses (one per view).
     pub target_poses: Vec<Iso3>,

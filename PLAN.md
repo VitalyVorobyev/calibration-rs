@@ -23,9 +23,9 @@ Status legend: [TODO] not started, [IN PROGRESS], [DONE]
 - [DONE] Use core math structs (`FxFyCxCySkew`, `BrownConrady5`) directly inside params enums and remove the optimizer-specific aliases/params types.
 
 ## 5) Hand-eye pipeline and example
-- [TODO] Re-export hand-eye optimizer (and needed types) through `calib-pipeline`/`calib`.
-- [TODO] Implement `handeyesingle.rs` example: planar intrinsics init → refine → per-view poses → hand-eye DLT seed → hand-eye nonlinear refinement. Use deterministic seeds and real-data-friendly IO.
-- [TODO] Add synthetic regression test covering the end-to-end hand-eye pipeline and minimal doc snippet.
+- [DONE] Re-export hand-eye optimizer (and needed types) through `calib-pipeline`/`calib`.
+- [DONE] Implement `handeyesingle.rs` example: planar intrinsics init → refine → per-view poses → hand-eye DLT seed → hand-eye nonlinear refinement. Use deterministic seeds and real-data-friendly IO.
+- [DONE] Add synthetic regression test covering the end-to-end hand-eye pipeline and minimal doc snippet.
 
 ## 6) Documentation and migration
 - [TODO] Update README/book/rustdoc to reflect new init flow, session guidance, and any renamed param types.

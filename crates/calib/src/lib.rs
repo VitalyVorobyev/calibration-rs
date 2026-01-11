@@ -158,7 +158,7 @@ pub mod helpers {
 /// Use these when you want a simple, single-call solution without managing state.
 pub mod pipeline {
     pub use calib_pipeline::{
-        run_planar_intrinsics, PlanarIntrinsicsConfig, PlanarIntrinsicsInput,
+        handeye, run_planar_intrinsics, HandEyeMode, PlanarIntrinsicsConfig, PlanarIntrinsicsInput,
         PlanarIntrinsicsReport, PlanarViewData,
     };
 }
