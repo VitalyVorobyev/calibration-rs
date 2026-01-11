@@ -4,10 +4,10 @@ use crate::{
     build_planar_dataset, k_matrix_from_intrinsics, make_pinhole_camera,
     planar_homographies_from_views, poses_from_homographies, PlanarIntrinsicsInput, PlanarViewData,
 };
-use anyhow::{ensure, Result};
+use anyhow::{anyhow, ensure, Result};
 use calib_core::{
-    BrownConrady5, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, Iso3,
-    ProjectionParams, Pt2, Real, SensorParams,
+    BrownConrady5, CameraParams, DistortionModel, DistortionParams, FxFyCxCySkew, IntrinsicsParams,
+    Iso3, Mat3, ProjectionParams, Pt2, Real, SensorParams, Vec2, Vec3,
 };
 use calib_linear::handeye::estimate_handeye_dlt;
 use calib_linear::homography::dlt_homography_ransac;
@@ -265,14 +265,10 @@ pub fn ransac_planar_poses(
             .iter()
             .map(|p| Pt2::new(p.x, p.y))
             .collect();
-        let pixel_2d: Vec<Pt2> = view
-            .view
-            .points_2d
-            .iter()
-            .map(|p| Pt2::new(p.x, p.y))
-            .collect();
+        let undistorted_pixels = undistort_pixels(&view.view.points_2d, &kmtx, distortion)?;
 
-        let (h, inliers) = match dlt_homography_ransac(&board_2d, &pixel_2d, &ransac_opts) {
+        let (h, inliers) =
+            match dlt_homography_ransac(&board_2d, &undistorted_pixels, &ransac_opts) {
             Ok(res) => res,
             Err(_) => {
                 dropped += 1;
@@ -532,6 +528,27 @@ fn filter_view_inliers(view: &PlanarViewData, inliers: &[usize]) -> PlanarViewDa
         points_2d,
         weights,
     }
+}
+
+fn undistort_pixels(
+    pixels: &[Vec2],
+    kmtx: &Mat3,
+    distortion: &BrownConrady5<Real>,
+) -> Result<Vec<Pt2>> {
+    let k_inv = kmtx
+        .try_inverse()
+        .ok_or_else(|| anyhow!("intrinsics matrix is not invertible"))?;
+
+    let mut undistorted = Vec::with_capacity(pixels.len());
+    for p in pixels {
+        let v_h = k_inv * Vec3::new(p.x, p.y, 1.0);
+        let n_dist = Vec2::new(v_h.x / v_h.z, v_h.y / v_h.z);
+        let n_undist = distortion.undistort(&n_dist);
+        let p_h = kmtx * Vec3::new(n_undist.x, n_undist.y, 1.0);
+        undistorted.push(Pt2::new(p_h.x / p_h.z, p_h.y / p_h.z));
+    }
+
+    Ok(undistorted)
 }
 
 fn mean_reproj_error_planar(
