@@ -7,6 +7,7 @@
 //! 4) Hand-eye DLT initialization (mean reprojection error on inliers)
 //! 5) Hand-eye optimization (mean reprojection error on inliers)
 
+#[path = "support/handeye_io.rs"]
 mod handeye_io;
 
 use anyhow::{ensure, Result};
@@ -93,19 +94,21 @@ fn main() -> Result<()> {
     print_handeye_stage("Hand-eye DLT init", &handeye_init);
 
     // 5) Hand-eye optimize (intrinsics/distortion fixed)
-    let mut handeye_opts = HandEyeSolveOptions::default();
-    handeye_opts.robust_loss = RobustLoss::Huber { scale: 2.0 };
-    handeye_opts.fix_fx = true;
-    handeye_opts.fix_fy = true;
-    handeye_opts.fix_cx = true;
-    handeye_opts.fix_cy = true;
-    handeye_opts.fix_k1 = true;
-    handeye_opts.fix_k2 = true;
-    handeye_opts.fix_k3 = true;
-    handeye_opts.fix_p1 = true;
-    handeye_opts.fix_p2 = true;
-    handeye_opts.fix_extrinsics = vec![true];
-    handeye_opts.fix_target_poses = vec![0];
+    let handeye_opts = HandEyeSolveOptions {
+        robust_loss: RobustLoss::Huber { scale: 2.0 },
+        fix_fx: true,
+        fix_fy: true,
+        fix_cx: true,
+        fix_cy: true,
+        fix_k1: true,
+        fix_k2: true,
+        fix_k3: true,
+        fix_p1: true,
+        fix_p2: true,
+        fix_extrinsics: vec![true],
+        fix_target_poses: vec![0],
+        ..Default::default()
+    };
 
     let handeye_opt = optimize_handeye_stage(
         &pose_ransac.views,

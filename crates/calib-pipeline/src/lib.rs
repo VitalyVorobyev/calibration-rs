@@ -602,7 +602,7 @@ mod tests {
             .iter()
             .zip(&optim.poses)
             .map(|(base_to_gripper, cam_to_target)| {
-                base_to_gripper.clone() * handeye_init * cam_to_target.clone()
+                *base_to_gripper * handeye_init * *cam_to_target
             })
             .collect();
 
@@ -612,7 +612,7 @@ mod tests {
                 .unwrap();
             rig_views.push(RigViewObservations {
                 cameras: vec![Some(obs)],
-                robot_pose: robot_pose.clone(),
+                robot_pose: *robot_pose,
             });
         }
 
@@ -627,18 +627,20 @@ mod tests {
             target_poses,
         };
 
-        let mut opts = HandEyeSolveOptions::default();
-        opts.fix_fx = true;
-        opts.fix_fy = true;
-        opts.fix_cx = true;
-        opts.fix_cy = true;
-        opts.fix_k1 = true;
-        opts.fix_k2 = true;
-        opts.fix_k3 = true;
-        opts.fix_p1 = true;
-        opts.fix_p2 = true;
-        opts.fix_extrinsics = vec![true];
-        opts.fix_target_poses = vec![0];
+        let opts = HandEyeSolveOptions {
+            fix_fx: true,
+            fix_fy: true,
+            fix_cx: true,
+            fix_cy: true,
+            fix_k1: true,
+            fix_k2: true,
+            fix_k3: true,
+            fix_p1: true,
+            fix_p2: true,
+            fix_extrinsics: vec![true],
+            fix_target_poses: vec![0],
+            ..Default::default()
+        };
 
         let result = optimize_handeye(dataset, init, opts, BackendSolveOptions::default()).unwrap();
 

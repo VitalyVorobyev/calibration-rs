@@ -68,23 +68,11 @@ Use the stepwise helpers in `calib::pipeline::handeye_single` (see
 `crates/calib/examples/handeyesingle.rs` and `crates/calib/examples/handeye_session.rs`):
 
 ```rust
-use calib::pipeline::handeye_single::{
-    run_handeye_single, BackendSolveOptions, HandEyeMode, HandEyeSolveOptions, HandEyeView,
-    IterativeIntrinsicsOptions, PlanarIntrinsicsSolveOptions, PoseRansacOptions,
-};
+use calib::pipeline::handeye_single::{run_handeye_single, HandEyeSingleOptions, HandEyeView};
 
 fn main() {
     let views: Vec<HandEyeView> = /* load 2D/3D views + robot poses */;
-    let report = run_handeye_single(
-        &views,
-        &IterativeIntrinsicsOptions::default(),
-        &PlanarIntrinsicsSolveOptions::default(),
-        &BackendSolveOptions::default(),
-        &PoseRansacOptions::default(),
-        HandEyeMode::EyeInHand,
-        &HandEyeSolveOptions::default(),
-        &BackendSolveOptions::default(),
-    )
+    let report = run_handeye_single(&views, &HandEyeSingleOptions::default())
     .expect("hand-eye failed");
 
     println!(

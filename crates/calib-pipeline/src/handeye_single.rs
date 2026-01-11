@@ -122,6 +122,32 @@ impl Default for PoseRansacOptions {
     }
 }
 
+/// Options for the full stepwise hand-eye pipeline.
+#[derive(Debug, Clone)]
+pub struct HandEyeSingleOptions {
+    pub intrinsics_init_opts: IterativeIntrinsicsOptions,
+    pub intrinsics_solve_opts: PlanarIntrinsicsSolveOptions,
+    pub intrinsics_backend_opts: BackendSolveOptions,
+    pub ransac_opts: PoseRansacOptions,
+    pub mode: HandEyeMode,
+    pub handeye_solve_opts: HandEyeSolveOptions,
+    pub handeye_backend_opts: BackendSolveOptions,
+}
+
+impl Default for HandEyeSingleOptions {
+    fn default() -> Self {
+        Self {
+            intrinsics_init_opts: IterativeIntrinsicsOptions::default(),
+            intrinsics_solve_opts: PlanarIntrinsicsSolveOptions::default(),
+            intrinsics_backend_opts: BackendSolveOptions::default(),
+            ransac_opts: PoseRansacOptions::default(),
+            mode: HandEyeMode::EyeInHand,
+            handeye_solve_opts: HandEyeSolveOptions::default(),
+            handeye_backend_opts: BackendSolveOptions::default(),
+        }
+    }
+}
+
 /// Initialize intrinsics and distortion from planar views.
 pub fn init_intrinsics(
     views: &[HandEyeView],
@@ -267,8 +293,8 @@ pub fn ransac_planar_poses(
             .collect();
         let undistorted_pixels = undistort_pixels(&view.view.points_2d, &kmtx, distortion)?;
 
-        let (h, inliers) =
-            match dlt_homography_ransac(&board_2d, &undistorted_pixels, &ransac_opts) {
+        let (h, inliers) = match dlt_homography_ransac(&board_2d, &undistorted_pixels, &ransac_opts)
+        {
             Ok(res) => res,
             Err(_) => {
                 dropped += 1;
@@ -293,7 +319,7 @@ pub fn ransac_planar_poses(
 
         filtered_views.push(HandEyeView {
             view: filtered_view,
-            robot_pose: view.robot_pose.clone(),
+            robot_pose: view.robot_pose,
         });
         poses.push(pose);
         inliers_per_view.push(inlier_count);
@@ -340,7 +366,7 @@ pub fn init_handeye(
         cam_from_target.len()
     );
 
-    let base_to_gripper: Vec<Iso3> = views.iter().map(|v| v.robot_pose.clone()).collect();
+    let base_to_gripper: Vec<Iso3> = views.iter().map(|v| v.robot_pose).collect();
     let cam_in_target: Vec<Iso3> = cam_from_target.iter().map(|pose| pose.inverse()).collect();
 
     let handeye = estimate_handeye_dlt(&base_to_gripper, &cam_in_target, 1.0)?;
@@ -381,7 +407,7 @@ pub fn optimize_handeye_stage(
             CameraViewObservations::new(view.view.points_3d.clone(), view.view.points_2d.clone())?;
         rig_views.push(RigViewObservations {
             cameras: vec![Some(obs)],
-            robot_pose: view.robot_pose.clone(),
+            robot_pose: view.robot_pose,
         });
     }
 
@@ -393,7 +419,7 @@ pub fn optimize_handeye_stage(
         intrinsics: vec![intrinsics_fixed],
         distortion: vec![*distortion],
         cam_to_rig: vec![Iso3::identity()],
-        handeye: init.handeye.clone(),
+        handeye: init.handeye,
         target_poses: init.target_poses.clone(),
     };
 
@@ -419,35 +445,29 @@ pub fn optimize_handeye_stage(
 /// Run the full stepwise hand-eye pipeline with fixed intrinsics/distortion.
 pub fn run_handeye_single(
     views: &[HandEyeView],
-    intrinsics_init_opts: &IterativeIntrinsicsOptions,
-    intrinsics_solve_opts: &PlanarIntrinsicsSolveOptions,
-    intrinsics_backend_opts: &BackendSolveOptions,
-    ransac_opts: &PoseRansacOptions,
-    mode: HandEyeMode,
-    handeye_solve_opts: &HandEyeSolveOptions,
-    handeye_backend_opts: &BackendSolveOptions,
+    opts: &HandEyeSingleOptions,
 ) -> Result<HandEyeSingleReport> {
-    let intrinsics_init = init_intrinsics(views, intrinsics_init_opts)?;
+    let intrinsics_init = init_intrinsics(views, &opts.intrinsics_init_opts)?;
     let intrinsics_optimized = optimize_intrinsics(
         views,
         &intrinsics_init,
-        intrinsics_solve_opts,
-        intrinsics_backend_opts,
+        &opts.intrinsics_solve_opts,
+        &opts.intrinsics_backend_opts,
     )?;
     let pose_ransac = ransac_planar_poses(
         views,
         &intrinsics_optimized.intrinsics,
         &intrinsics_optimized.distortion,
-        ransac_opts,
+        &opts.ransac_opts,
     )?;
     let handeye_init = init_handeye(
         &pose_ransac.views,
         &pose_ransac.poses,
         &intrinsics_optimized.intrinsics,
         &intrinsics_optimized.distortion,
-        mode,
+        opts.mode,
     )?;
-    let mut handeye_opts = handeye_solve_opts.clone();
+    let mut handeye_opts = opts.handeye_solve_opts.clone();
     apply_handeye_fixed_intrinsics(&mut handeye_opts);
     ensure_handeye_defaults(&mut handeye_opts, 1);
 
@@ -456,9 +476,9 @@ pub fn run_handeye_single(
         &handeye_init,
         &intrinsics_optimized.intrinsics,
         &intrinsics_optimized.distortion,
-        mode,
+        opts.mode,
         &handeye_opts,
-        handeye_backend_opts,
+        &opts.handeye_backend_opts,
     )?;
 
     Ok(HandEyeSingleReport {

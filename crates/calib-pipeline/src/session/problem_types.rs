@@ -5,8 +5,10 @@ use crate::{
     optimize_planar_intrinsics_with_init, pinhole_camera_params, planar_init_seed_from_views,
     PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData,
 };
-use anyhow::Result;
-use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt3, Real, Vec2};
+use anyhow::{ensure, Result};
+use calib_core::{
+    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
+};
 use serde::{Deserialize, Serialize};
 
 /// Planar intrinsics calibration problem (Zhang's method with distortion).
@@ -36,6 +38,10 @@ pub struct PlanarIntrinsicsInitial {
 pub struct PlanarIntrinsicsOptimized {
     /// Final calibration report with refined parameters.
     pub report: PlanarIntrinsicsReport,
+    /// Refined board-to-camera poses.
+    pub poses: Vec<Iso3>,
+    /// Mean reprojection error after optimization (pixels).
+    pub mean_reproj_error: Real,
 }
 
 /// Serializable seed for planar intrinsics optimization.
@@ -143,13 +149,53 @@ impl ProblemType for PlanarIntrinsicsProblem {
 
         let result = optimize_planar_intrinsics_with_init(dataset, seed, &opts.config)?;
 
+        let mean_reproj_error = mean_reproj_error_planar(
+            &obs.views,
+            &result.camera.k,
+            &result.camera.dist,
+            &result.poses,
+        )?;
+
         let report = PlanarIntrinsicsReport {
             camera: pinhole_camera_params(&result.camera),
             final_cost: result.final_cost,
         };
 
-        Ok(PlanarIntrinsicsOptimized { report })
+        Ok(PlanarIntrinsicsOptimized {
+            report,
+            poses: result.poses,
+            mean_reproj_error,
+        })
     }
+}
+
+fn mean_reproj_error_planar(
+    views: &[PlanarViewData],
+    intrinsics: &FxFyCxCySkew<Real>,
+    distortion: &BrownConrady5<Real>,
+    poses: &[Iso3],
+) -> Result<Real> {
+    let camera = Camera::new(Pinhole, *distortion, IdentitySensor, *intrinsics);
+
+    let mut total_error = 0.0;
+    let mut total_points = 0usize;
+
+    for (view, pose) in views.iter().zip(poses.iter()) {
+        for (p3d, p2d) in view.points_3d.iter().zip(view.points_2d.iter()) {
+            let p_cam = pose.transform_point(p3d);
+            if let Some(projected) = camera.project_point_c(&p_cam.coords) {
+                let error = (projected - *p2d).norm();
+                total_error += error;
+                total_points += 1;
+            }
+        }
+    }
+
+    ensure!(
+        total_points > 0,
+        "no valid projections for error computation"
+    );
+    Ok(total_error / total_points as Real)
 }
 
 //─────────────────────────────────────────────────────────────────────────────
@@ -299,23 +345,31 @@ impl ProblemType for RigExtrinsicsProblem {
         // Step 1: Per-camera planar intrinsics calibration
         let mut per_camera_calibrations = Vec::with_capacity(num_cameras);
         let mut cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
+        let mut cam_views: Vec<Vec<(usize, &CameraViewData)>> = vec![Vec::new(); num_cameras];
 
-        for cam_idx in 0..num_cameras {
-            // Collect views for this camera
-            let mut cam_views = Vec::new();
-            for (view_idx, view) in obs.views.iter().enumerate() {
-                if let Some(cam_data) = &view.cameras[cam_idx] {
-                    cam_views.push((view_idx, cam_data));
+        for (view_idx, view) in obs.views.iter().enumerate() {
+            anyhow::ensure!(
+                view.cameras.len() == num_cameras,
+                "view {} has {} cameras, expected {}",
+                view_idx,
+                view.cameras.len(),
+                num_cameras
+            );
+            for (cam_idx, cam_opt) in view.cameras.iter().enumerate() {
+                if let Some(cam_data) = cam_opt {
+                    cam_views[cam_idx].push((view_idx, cam_data));
                 }
             }
+        }
 
+        for (cam_idx, cam_views) in cam_views.iter().enumerate() {
             if cam_views.is_empty() {
                 bail!("camera {} has no observations", cam_idx);
             }
 
             // Compute homographies for this camera
             let mut homographies = Vec::with_capacity(cam_views.len());
-            for (view_idx, cam_data) in &cam_views {
+            for (view_idx, cam_data) in cam_views {
                 let board_2d: Vec<calib_core::Pt2> = cam_data
                     .points_3d
                     .iter()
@@ -331,7 +385,7 @@ impl ProblemType for RigExtrinsicsProblem {
                 let h = homography::dlt_homography(&board_2d, &pixel_2d).with_context(|| {
                     format!("view {} homography failed for camera {}", view_idx, cam_idx)
                 })?;
-                homographies.push(h);
+                homographies.push((*view_idx, h));
             }
 
             anyhow::ensure!(
@@ -341,8 +395,13 @@ impl ProblemType for RigExtrinsicsProblem {
                 homographies.len()
             );
 
-            let intrinsics = zhang_intrinsics::estimate_intrinsics_from_homographies(&homographies)
-                .with_context(|| format!("Zhang initialization failed for camera {}", cam_idx))?;
+            let homography_mats: Vec<calib_core::Mat3> =
+                homographies.iter().map(|(_, h)| *h).collect();
+            let intrinsics =
+                zhang_intrinsics::estimate_intrinsics_from_homographies(&homography_mats)
+                    .with_context(|| {
+                        format!("Zhang initialization failed for camera {}", cam_idx)
+                    })?;
 
             let k = calib_core::Mat3::new(
                 intrinsics.fx,
@@ -381,14 +440,14 @@ impl ProblemType for RigExtrinsicsProblem {
             });
 
             // Compute per-view camera-to-target poses from homographies
-            for (view_idx, h) in homographies.iter().enumerate() {
+            for (view_idx, h) in homographies.iter() {
                 let pose = planar_pose::estimate_planar_pose_from_h(&k, h).with_context(|| {
                     format!(
                         "failed to recover pose for view {} camera {}",
                         view_idx, cam_idx
                     )
                 })?;
-                cam_target_poses[view_idx][cam_idx] = Some(pose);
+                cam_target_poses[*view_idx][cam_idx] = Some(pose);
             }
         }
 

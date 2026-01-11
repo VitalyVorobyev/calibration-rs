@@ -14,7 +14,9 @@ use std::path::Path;
 pub struct ViewSample {
     pub view: PlanarViewData,
     pub robot_pose: Iso3,
+    #[allow(dead_code)]
     pub image_index: usize,
+    #[allow(dead_code)]
     pub num_corners: usize,
 }
 
@@ -75,7 +77,7 @@ pub fn load_kuka_dataset(
 
         samples.push(ViewSample {
             view,
-            robot_pose: robot_pose.clone(),
+            robot_pose: *robot_pose,
             image_index,
             num_corners,
         });

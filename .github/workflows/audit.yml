@@ -11,13 +11,12 @@ env:
 jobs:
   cargo-audit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Run cargo audit
-        uses: actions-rs/audit-check@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions-rs/audit-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
