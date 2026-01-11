@@ -67,6 +67,7 @@
 //!         fix_tangential: false,
 //!         iters: 8,
 //!     },
+//!     zero_skew: true,
 //! };
 //! let init_result = initialize_planar_intrinsics(&views, &init_opts)?;
 //!
@@ -158,8 +159,8 @@ pub mod helpers {
 /// Use these when you want a simple, single-call solution without managing state.
 pub mod pipeline {
     pub use calib_pipeline::{
-        handeye, run_planar_intrinsics, HandEyeMode, PlanarIntrinsicsConfig, PlanarIntrinsicsInput,
-        PlanarIntrinsicsReport, PlanarViewData,
+        handeye, handeye_single, run_planar_intrinsics, HandEyeMode, PlanarIntrinsicsConfig,
+        PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData, RobustLossConfig,
     };
 }
 

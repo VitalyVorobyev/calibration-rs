@@ -135,6 +135,7 @@ fn run_with_imperative_api(views: Vec<PlanarViewData>) -> anyhow::Result<Calibra
             fix_tangential: false,
             iters: 8,
         },
+        zero_skew: true,
     };
 
     println!("Running linear initialization...");

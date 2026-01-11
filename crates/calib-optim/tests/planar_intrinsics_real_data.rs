@@ -602,6 +602,7 @@ fn planar_intrinsics_with_iterative_linear_init() {
                 fix_tangential: false,
                 iters: 8,
             },
+            zero_skew: true,
         };
 
         let iter_result = IterativeIntrinsicsSolver::estimate(&views_iter, iter_opts)

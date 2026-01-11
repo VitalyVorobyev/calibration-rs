@@ -39,6 +39,7 @@ fn main() -> anyhow::Result<()> {
             fix_tangential: false, // Estimate p1, p2
             iters: 8,
         },
+        zero_skew: true,
     };
 
     let init_result = initialize_planar_intrinsics(&views, &init_opts)?;

@@ -1,3 +1,4 @@
+pub mod handeye_single;
 pub mod helpers;
 pub mod session;
 
@@ -582,6 +583,7 @@ mod tests {
                 fix_tangential: false,
                 iters: 8,
             },
+            zero_skew: true,
         };
         let init = initialize_planar_intrinsics(&views, &init_opts).unwrap();
 

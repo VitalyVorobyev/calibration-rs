@@ -33,7 +33,7 @@ Use the high-level pipeline API:
 
 ```rust
 use calib::pipeline::{run_planar_intrinsics, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarViewData};
-use calib::core::{IntrinsicsConfig, Pt3, Vec2};
+use calib::core::{IntrinsicsParams, Pt3, Vec2};
 
 fn main() {
     // Populate per-view correspondences (normally from a detector)
@@ -46,6 +46,7 @@ fn main() {
     let view = PlanarViewData {
         points_3d: board.clone(),
         points_2d: vec![Vec2::new(100.0, 120.0), Vec2::new(180.0, 118.0), Vec2::new(182.0, 192.0), Vec2::new(98.0, 196.0)],
+        weights: None,
     };
     let input = PlanarIntrinsicsInput { views: vec![view] };
     let config = PlanarIntrinsicsConfig::default();
@@ -53,9 +54,43 @@ fn main() {
     let report = run_planar_intrinsics(&input, &config).expect("planar intrinsics failed");
     println!("Estimated camera config: {:?}", report.camera);
 
-    if let IntrinsicsConfig::FxFyCxCySkew { fx, fy, cx, cy, skew } = &report.camera.intrinsics {
-        println!("Estimated intrinsics: fx={fx} fy={fy} cx={cx} cy={cy} skew={skew}");
+    if let IntrinsicsParams::FxFyCxCySkew { params } = &report.camera.intrinsics {
+        println!(
+            "Estimated intrinsics: fx={} fy={} cx={} cy={} skew={}",
+            params.fx, params.fy, params.cx, params.cy, params.skew
+        );
     }
+}
+```
+
+### Hand-eye calibration (stepwise)
+Use the stepwise helpers in `calib::pipeline::handeye_single` (see
+`crates/calib/examples/handeyesingle.rs` and `crates/calib/examples/handeye_session.rs`):
+
+```rust
+use calib::pipeline::handeye_single::{
+    run_handeye_single, BackendSolveOptions, HandEyeMode, HandEyeSolveOptions, HandEyeView,
+    IterativeIntrinsicsOptions, PlanarIntrinsicsSolveOptions, PoseRansacOptions,
+};
+
+fn main() {
+    let views: Vec<HandEyeView> = /* load 2D/3D views + robot poses */;
+    let report = run_handeye_single(
+        &views,
+        &IterativeIntrinsicsOptions::default(),
+        &PlanarIntrinsicsSolveOptions::default(),
+        &BackendSolveOptions::default(),
+        &PoseRansacOptions::default(),
+        HandEyeMode::EyeInHand,
+        &HandEyeSolveOptions::default(),
+        &BackendSolveOptions::default(),
+    )
+    .expect("hand-eye failed");
+
+    println!(
+        "final reproj error: {:.3} px",
+        report.handeye_optimized.mean_reproj_error
+    );
 }
 ```
 

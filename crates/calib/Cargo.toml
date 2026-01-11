@@ -21,3 +21,4 @@ chess-corners = { version = "0.3", features = ["rayon", "ml-refiner"] }
 calib-targets = "0.2"
 anyhow = "1"
 image = { version = "0.25" }
+nalgebra = { workspace = true }

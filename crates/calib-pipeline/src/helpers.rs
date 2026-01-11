@@ -94,6 +94,7 @@ pub struct PlanarIntrinsicsOptimResult {
 ///         fix_tangential: false,
 ///         iters: 8,
 ///     },
+///     zero_skew: true,
 /// };
 ///
 /// let result = initialize_planar_intrinsics(&views, &opts)?;
@@ -353,6 +354,7 @@ mod tests {
                 fix_tangential: true,
                 iters: 8,
             },
+            zero_skew: true,
         };
 
         let result = initialize_planar_intrinsics(&views, &opts).expect("init should succeed");
@@ -374,6 +376,7 @@ mod tests {
                 fix_tangential: true,
                 iters: 8,
             },
+            zero_skew: true,
         };
 
         let init_result =

@@ -360,6 +360,7 @@ dependencies = [
  "calib-targets",
  "chess-corners",
  "image",
+ "nalgebra",
  "serde_json",
 ]
 
