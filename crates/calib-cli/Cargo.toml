@@ -2,10 +2,15 @@
 name = "calib-cli"
 version = "0.1.0"
 edition = "2021"
+description = "Command-line interface for calibration-rs pipelines"
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
-calib-pipeline = { path = "../calib-pipeline" }
-calib-core = { path = "../calib-core" }
+calib-pipeline = { path = "../calib-pipeline", version = "0.1.0" }
+calib-core = { path = "../calib-core", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

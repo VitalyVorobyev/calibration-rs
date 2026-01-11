@@ -2,8 +2,20 @@
 name = "calib-core"
 version = "0.1.0"
 edition = "2021"
+description = "Core math types, camera models, and RANSAC primitives for calibration-rs"
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+tracing = ["dep:tracing"]
 
 [dependencies]
 nalgebra = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 rand = { version = "0.9" }
+tracing = { version = "0.1", optional=true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

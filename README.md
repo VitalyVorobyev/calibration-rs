@@ -1,39 +1,45 @@
 # calibration-rs
 
-A Rust toolbox for calibrating vision sensors (perspective and linescan) and multi-camera rigs. The project provides modern algorithms, clear abstractions, and ergonomic APIs for both research and production use, with a complete pipeline from linear initialization through non-linear refinement.
+[![CI](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/ci.yml)
+[![Docs](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/publish-docs.yml/badge.svg)](https://vitalyvorobyev.github.io/calibration/)
+[![Audit](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml)
 
-## Current Status
+A Rust workspace for end-to-end camera calibration: math primitives, linear solvers, non-linear
+refinement, pipelines, and a CLI. Supports perspective and linescan sensors and multi-camera rigs.
 
-✅ **Production-ready components**:
-- **calib-linear**: Feature-complete with 19 comprehensive tests using real stereo data
-- **calib-optim**: Planar intrinsics with Brown-Conrady distortion optimization, validated on real data
+## Status
 
-🚧 **In active development**:
-- calib-pipeline: Basic planar intrinsics pipeline functional
-- Multi-camera rig calibration
-- Bundle adjustment
+- Stable foundation: core math types, camera models, deterministic RANSAC, and linear solvers.
+- Working pipelines: planar intrinsics with Brown-Conrady distortion and stepwise hand-eye for
+  single-camera setups.
+- Optimization: planar intrinsics, hand-eye, rig extrinsics, and linescan bundle problems with a
+  Levenberg-Marquardt backend.
+- In progress: broader pipeline coverage (rig and linescan), more CLI commands, and additional
+  real-data validation.
+- API stability: `calib` is the compatibility boundary; lower crates may evolve.
 
-## Crate Layout
+## Crate layout
 
-- **`calib`**: Convenience facade that re-exports all sub-crates
-- **`calib-core`**: Math types, composable camera models (projection, distortion, sensor), generic RANSAC engine
-- **`calib-linear`**: ✅ Closed-form solvers (homography, planar pose, Zhang intrinsics, epipolar geometry, PnP DLT/P3P/EPnP, triangulation, hand-eye)
-- **`calib-optim`**: ✅ Non-linear optimization with backend-agnostic IR, autodiff support, Brown-Conrady distortion (k1-k3, p1-p2)
-- **`calib-pipeline`**: Ready-to-use calibration workflows with JSON I/O
-- **`calib-cli`**: Command-line interface for batch processing
+- `calib`: facade re-exporting all sub-crates for a stable API surface
+- `calib-core`: math types, camera models, deterministic RANSAC
+- `calib-linear`: closed-form solvers (homography, PnP, epipolar, triangulation, hand-eye, rig)
+- `calib-optim`: non-linear refinement (planar intrinsics, rig extrinsics, hand-eye, linescan)
+- `calib-pipeline`: end-to-end workflows, session API, JSON I/O
+- `calib-cli`: command-line wrapper for batch planar intrinsics
 
 ## Quickstart
-Add the workspace or the top-level crate to your `Cargo.toml`:
+
+Add the facade crate to your `Cargo.toml`:
 
 ```toml
-calibration = { git = "https://github.com/VitalyVorobyev/calibration-rs", package = "calib" }
+calib = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
 ```
 
 Use the high-level pipeline API:
 
 ```rust
 use calib::pipeline::{run_planar_intrinsics, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarViewData};
-use calib::core::{IntrinsicsConfig, Pt3, Vec2};
+use calib::core::{IntrinsicsParams, Pt3, Vec2};
 
 fn main() {
     // Populate per-view correspondences (normally from a detector)
@@ -45,7 +51,13 @@ fn main() {
     ];
     let view = PlanarViewData {
         points_3d: board.clone(),
-        points_2d: vec![Vec2::new(100.0, 120.0), Vec2::new(180.0, 118.0), Vec2::new(182.0, 192.0), Vec2::new(98.0, 196.0)],
+        points_2d: vec![
+            Vec2::new(100.0, 120.0),
+            Vec2::new(180.0, 118.0),
+            Vec2::new(182.0, 192.0),
+            Vec2::new(98.0, 196.0),
+        ],
+        weights: None,
     };
     let input = PlanarIntrinsicsInput { views: vec![view] };
     let config = PlanarIntrinsicsConfig::default();
@@ -53,86 +65,86 @@ fn main() {
     let report = run_planar_intrinsics(&input, &config).expect("planar intrinsics failed");
     println!("Estimated camera config: {:?}", report.camera);
 
-    if let IntrinsicsConfig::FxFyCxCySkew { fx, fy, cx, cy, skew } = &report.camera.intrinsics {
-        println!("Estimated intrinsics: fx={fx} fy={fy} cx={cx} cy={cy} skew={skew}");
+    if let IntrinsicsParams::FxFyCxCySkew { params } = &report.camera.intrinsics {
+        println!(
+            "Estimated intrinsics: fx={} fy={} cx={} cy={} skew={}",
+            params.fx, params.fy, params.cx, params.cy, params.skew
+        );
     }
+}
+```
+
+For checkpointed workflows, see `calib::session` and `calib::pipeline::session`.
+
+### Hand-eye calibration (stepwise)
+
+Use the stepwise helpers in `calib::pipeline::handeye_single` (see
+`crates/calib/examples/handeyesingle.rs` and `crates/calib/examples/handeye_session.rs`):
+
+```rust
+use calib::pipeline::handeye_single::{run_handeye_single, HandEyeSingleOptions, HandEyeView};
+
+fn main() {
+    let views: Vec<HandEyeView> = /* load 2D/3D views + robot poses */;
+    let report = run_handeye_single(&views, &HandEyeSingleOptions::default())
+        .expect("hand-eye failed");
+
+    println!(
+        "final reproj error: {:.3} px",
+        report.handeye_optimized.mean_reproj_error
+    );
 }
 ```
 
 For a linear-algorithm overview and usage notes, see `crates/calib-linear/README.md`.
 
 ## Camera model
+
 `calib-core` models cameras as a composable pipeline:
 
 ```
-pixel = K ∘ sensor ∘ distortion ∘ projection(dir)
+pixel = K(sensor(distortion(projection(dir))))
 ```
 
 Where:
 - `projection` maps a camera-frame direction to normalized coordinates (e.g., pinhole).
-- `distortion` warps normalized coordinates (Brown–Conrady radial/tangential).
+- `distortion` warps normalized coordinates (Brown-Conrady radial and tangential).
 - `sensor` applies a homography (identity or Scheimpflug/tilt).
 - `K` maps sensor coordinates to pixels (`fx`, `fy`, `cx`, `cy`, `skew`).
 
-`SensorConfig::Scheimpflug` follows OpenCV’s tilted sensor model (`tau_x`, `tau_y`), implemented as the same homography computed by OpenCV’s `computeTiltProjectionMatrix`.
+`SensorConfig::Scheimpflug` follows OpenCV's tilted sensor model (`tau_x`, `tau_y`), implemented as
+the same homography computed by OpenCV's `computeTiltProjectionMatrix`.
 
-CLI usage for batch jobs:
+## CLI usage
 
 ```bash
 cargo run -p calib-cli -- --input views.json --config config.json > report.json
 ```
 
+## Docs
+
+- API docs and book: https://vitalyvorobyev.github.io/calibration/
+- Book sources: `book/`
+- Examples: `crates/calib/examples/` and `crates/calib-pipeline/examples/`
+
 ## Design principles
-- Modern, correct algorithms with clear numerical assumptions.
-- Strong separation between math primitives (`calib-core`), initialization (`calib-linear`), and refinement (`calib-optim` / `calib-pipeline`).
-- Testable components with synthetic checks and JSON roundtrips.
-- Ergonomics first: simple data structures, serde support, and a stable public surface.
 
-## Recent Updates
+- Correctness and numerical stability with explicit failure modes.
+- Deterministic outputs (seeded RNGs, stable ordering).
+- Performance-aware implementations (fixed-size math, minimal allocations).
+- API stability at the `calib` crate boundary and JSON schemas.
 
-### December 2024 - January 2025
-- ✅ **Brown-Conrady distortion optimization** (k1, k2, k3, p1, p2) with autodiff
-- ✅ **Selective parameter fixing** for robust convergence
-- ✅ **Real data validation** using stereo chessboard dataset
-- ✅ **Integration tests** demonstrating 18-20% reprojection error improvement
-- ✅ **Comprehensive documentation** with examples and API docs
+## Roadmap (near term)
 
-## Implementation Status
-
-| Component | Status | Tests | Notes |
-|-----------|--------|-------|-------|
-| calib-core | ✅ Complete | 4 passing | Composable camera models, RANSAC |
-| calib-linear | ✅ Complete | 19 passing | All solvers validated on real stereo data |
-| calib-optim | ✅ Functional | 13 passing | Planar intrinsics + distortion working |
-| calib-pipeline | 🟡 Basic | 4 passing | Planar intrinsics pipeline functional |
-| calib-cli | 🟡 Basic | N/A | Command-line wrapper |
-
-**Total: 40 tests passing** across the workspace.
-
-## Project Roadmap
-
-### Short Term (Q1 2025)
-- Polish existing documentation and examples
-- Add more robust epipolar estimation variants
-- Extend hand-eye calibration options
-
-### Medium Term (Q2-Q3 2025)
-- Bundle adjustment for multi-view optimization
-- Multi-camera rig calibration refinement
-- Additional optimization backends (trust region, Dogleg)
-- Linescan camera models
-
-### Long Term
-- Rolling-shutter support
-- Stereo/LiDAR-camera/IMU-camera pipelines
-- Dataset I/O crate for common formats
-- Benchmarking harness
-- C/FFI bindings for integration with other languages
+- Expand pipeline coverage for rig extrinsics and linescan bundle.
+- Add JSON schemas and CLI flows for additional pipelines.
+- Extend validation on real datasets and regression fixtures.
 
 ## Development
-- Run tests: `cargo test`
-- Format/lint: `cargo fmt && cargo clippy`
-- Docs: `cargo doc --workspace --no-deps`
-- CLI smoke test: `cargo run -p calib-cli -- --help`
 
-The project is in early development—APIs may change. Contributions welcome; see the Rust book outline in `book/` for the evolving guide.
+- Format: `cargo fmt --all`
+- Lint: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- Test: `cargo test --workspace --all-features`
+- Docs: `cargo doc --workspace --no-deps`
+
+The project is in active development. Contributions welcome; see `book/` for the evolving guide.

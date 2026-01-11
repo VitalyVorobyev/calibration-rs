@@ -8,6 +8,7 @@
 //!
 //! ```ignore
 //! use calib_pipeline::helpers::*;
+//! use calib_pipeline::{BackendSolveOptions, PlanarIntrinsicsSolveOptions};
 //!
 //! // Step 1: Initialize intrinsics
 //! let init_result = initialize_planar_intrinsics(&views, &init_opts)?;
@@ -15,20 +16,22 @@
 //! // Inspect intermediate results
 //! println!("Initial fx: {}, fy: {}", init_result.intrinsics.fx, init_result.intrinsics.fy);
 //!
-//! // Step 2: Optimize if initialization looks good
-//! if init_result.mean_reproj_error < 10.0 {
-//!     let final_result = optimize_planar_intrinsics_from_init(
-//!         &views,
-//!         &init_result,
-//!         &optim_opts
-//!     )?;
-//! }
+//! // Step 2: Optimize after inspecting the seed
+//! let optim_opts = PlanarIntrinsicsSolveOptions::default();
+//! let backend_opts = BackendSolveOptions::default();
+//! let final_result = optimize_planar_intrinsics_from_init(
+//!     &views,
+//!     &init_result,
+//!     &optim_opts,
+//!     &backend_opts
+//! )?;
+//! println!("Final reprojection error: {:.2} px", final_result.mean_reproj_error);
 //! ```
 
 use crate::{
     iterative_intrinsics::{IterativeCalibView, IterativeIntrinsicsOptions},
-    optimize_planar_intrinsics_raw, BackendSolveOptions, PlanarDataset, PlanarIntrinsicsInit,
-    PlanarIntrinsicsSolveOptions, PlanarViewData, PlanarViewObservations,
+    optimize_planar_intrinsics_raw, BackendSolveOptions, PlanarIntrinsicsInit,
+    PlanarIntrinsicsInput, PlanarIntrinsicsSolveOptions, PlanarViewData,
 };
 use anyhow::Result;
 use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Real};
@@ -76,7 +79,7 @@ pub struct PlanarIntrinsicsOptimResult {
 ///
 /// # Returns
 ///
-/// Initial estimates for intrinsics, distortion, and poses with quality metrics.
+/// Initial estimates for intrinsics and distortion.
 ///
 /// # Example
 ///
@@ -94,12 +97,13 @@ pub struct PlanarIntrinsicsOptimResult {
 ///         fix_tangential: false,
 ///         iters: 8,
 ///     },
+///     zero_skew: true,
 /// };
 ///
 /// let result = initialize_planar_intrinsics(&views, &opts)?;
 ///
-/// if result.mean_reproj_error > 10.0 {
-///     eprintln!("Warning: Poor initialization, check corner detection");
+/// if result.intrinsics.fx < 100.0 {
+///     eprintln!("Warning: Suspiciously low focal length, check inputs");
 /// }
 /// ```
 pub fn initialize_planar_intrinsics(
@@ -146,17 +150,16 @@ pub fn initialize_planar_intrinsics(
 
 /// Optimize camera intrinsics from initial estimates using non-linear refinement.
 ///
-/// This is a convenience wrapper that uses the existing `run_planar_intrinsics` pipeline
-/// but allows you to inspect the initial linear estimates first.
+/// This is a convenience wrapper that allows you to inspect the initial linear
+/// estimates, then seed a non-linear solve. Pose seeds are recovered from homographies
+/// using the provided intrinsics.
 ///
-/// **Note:** Since the full pipeline recomputes poses internally, the init parameter
-/// is currently only used for validation. For full control over initialization, use
-/// calib-optim functions directly.
+/// **Note:** Skew is forced to zero to match the current optimizer parameterization.
 ///
 /// # Arguments
 ///
 /// * `views` - Calibration views (same as used for initialization)
-/// * `_init` - Initial parameter estimates (currently unused, for API consistency)
+/// * `init` - Initial intrinsics and distortion used to seed optimization
 /// * `solve_opts` - Per-parameter optimization options (fixing, robust loss)
 /// * `backend_opts` - Solver configuration (iterations, verbosity)
 ///
@@ -200,64 +203,25 @@ pub fn initialize_planar_intrinsics(
 /// ```
 pub fn optimize_planar_intrinsics_from_init(
     views: &[PlanarViewData],
-    _init: &PlanarIntrinsicsInitResult,
+    init: &PlanarIntrinsicsInitResult,
     solve_opts: &PlanarIntrinsicsSolveOptions,
     backend_opts: &BackendSolveOptions,
 ) -> Result<PlanarIntrinsicsOptimResult> {
-    // Convert views to observations
-    let observations: Result<Vec<PlanarViewObservations>> = views
-        .iter()
-        .map(|v| {
-            if let Some(weights) = v.weights.as_ref() {
-                PlanarViewObservations::new_with_weights(
-                    v.points_3d.clone(),
-                    v.points_2d.clone(),
-                    weights.clone(),
-                )
-            } else {
-                PlanarViewObservations::new(v.points_3d.clone(), v.points_2d.clone())
-            }
-        })
-        .collect();
+    let input = PlanarIntrinsicsInput {
+        views: views.to_vec(),
+    };
+    let dataset = crate::build_planar_dataset(&input)?;
 
-    let dataset = PlanarDataset::new(observations?)?;
+    // Optimization packs only [fx, fy, cx, cy]; enforce zero skew.
+    let mut intrinsics = init.intrinsics;
+    intrinsics.skew = 0.0;
 
-    // Note: We use default initialization here (identity poses, reasonable intrinsics)
-    // The init parameter is kept for API consistency but poses are recomputed
-    // For full control over initial values, use calib-optim directly
-    use calib_core::{Camera, IdentitySensor, Pinhole};
-    use nalgebra::{UnitQuaternion, Vector3};
+    // Recover pose seeds from homographies using provided intrinsics
+    let homographies = crate::planar_homographies_from_views(&input.views)?;
+    let kmtx = crate::k_matrix_from_intrinsics(&intrinsics);
+    let poses0 = crate::poses_from_homographies(&kmtx, &homographies)?;
 
-    let init_camera = Camera::new(
-        Pinhole,
-        BrownConrady5 {
-            k1: 0.0,
-            k2: 0.0,
-            k3: 0.0,
-            p1: 0.0,
-            p2: 0.0,
-            iters: 8,
-        },
-        IdentitySensor,
-        FxFyCxCySkew {
-            fx: 800.0,
-            fy: 800.0,
-            cx: 640.0,
-            cy: 480.0,
-            skew: 0.0,
-        },
-    );
-
-    let poses0: Vec<Iso3> = (0..dataset.num_views())
-        .map(|_| {
-            Iso3::from_parts(
-                Vector3::new(0.0, 0.0, 1.0).into(),
-                UnitQuaternion::identity(),
-            )
-        })
-        .collect();
-
-    let planar_init = PlanarIntrinsicsInit::from_camera_and_poses(&init_camera, poses0)?;
+    let planar_init = PlanarIntrinsicsInit::new(intrinsics, init.distortion, poses0)?;
 
     // Run optimization
     let optim_result = optimize_planar_intrinsics_raw(
@@ -392,6 +356,7 @@ mod tests {
                 fix_tangential: true,
                 iters: 8,
             },
+            zero_skew: true,
         };
 
         let result = initialize_planar_intrinsics(&views, &opts).expect("init should succeed");
@@ -413,6 +378,7 @@ mod tests {
                 fix_tangential: true,
                 iters: 8,
             },
+            zero_skew: true,
         };
 
         let init_result =

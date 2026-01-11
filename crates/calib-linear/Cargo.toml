@@ -3,9 +3,14 @@ name = "calib-linear"
 version = "0.1.0"
 edition = "2021"
 readme = "README.md"
+description = "Closed-form and linear initialization solvers for calibration-rs"
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
-calib-core = { path = "../calib-core" }
+calib-core = { path = "../calib-core", version = "0.1.0" }
 nalgebra = { workspace = true }
 thiserror = { workspace = true }
 log = "0.4"

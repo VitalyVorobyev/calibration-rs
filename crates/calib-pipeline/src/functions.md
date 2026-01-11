@@ -227,22 +227,30 @@ let result = optimize_linescan(&dataset, &init, &opts, &backend_opts)?;
 
 #### Hand-Eye Calibration
 ```rust
-use calib_optim::problems::handeye::{
+use calib_pipeline::handeye::{
     optimize_handeye,
+    CameraViewObservations,
     HandEyeDataset,
     HandEyeInit,
     HandEyeSolveOptions,
+    RigViewObservations,
+};
+use calib_optim::ir::HandEyeMode;
+
+let dataset = HandEyeDataset::new(views, num_cameras, HandEyeMode::EyeInHand)?;
+let init = HandEyeInit {
+    intrinsics,
+    distortion,
+    cam_to_rig,
+    handeye,
+    target_poses,
 };
 
-// Configure whether camera is on robot arm or separate
-let opts = HandEyeSolveOptions {
-    mode: HandEyeMode::EyeInHand,
-    fix_intrinsics: vec![],
-    fix_camera_extrinsics: vec![],
-    ..Default::default()
-};
+let mut opts = HandEyeSolveOptions::default();
+opts.fix_extrinsics = vec![true]; // fix camera 0 for gauge freedom
+opts.fix_target_poses = vec![0];
 
-let result = optimize_handeye(&dataset, &init, &opts, &backend_opts)?;
+let result = optimize_handeye(dataset, init, opts, backend_opts)?;
 ```
 
 #### Rig Extrinsics (Multi-Camera)
@@ -289,11 +297,11 @@ use calib_linear::handeye::estimate_handeye_dlt;
 
 // Robot base-to-end-effector transforms
 let base_to_ee: Vec<Iso3> = /* ... */;
-// Camera-to-target transforms
-let cam_to_target: Vec<Iso3> = /* ... */;
+// Camera poses in the target frame (invert target-in-camera poses)
+let cam_in_target: Vec<Iso3> = /* ... */;
 
-// Solve AX = XB
-let hand_eye_transform = estimate_handeye_dlt(&base_to_ee, &cam_to_target)?;
+// Solve AX = XB (gripper->camera)
+let hand_eye_transform = estimate_handeye_dlt(&base_to_ee, &cam_in_target, 1.0)?;
 ```
 
 ### 6. Epipolar Geometry (calib-linear)

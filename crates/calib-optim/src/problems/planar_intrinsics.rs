@@ -5,8 +5,8 @@
 
 use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions};
 use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock};
-use crate::params::distortion::BrownConrady5Params;
-use crate::params::intrinsics::Intrinsics4;
+use crate::params::distortion::{pack_distortion, unpack_distortion, DISTORTION_DIM};
+use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_DIM};
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
@@ -108,15 +108,15 @@ impl PlanarDataset {
 /// Poses are board-to-camera transforms for each view.
 #[derive(Debug, Clone)]
 pub struct PlanarIntrinsicsInit {
-    pub intrinsics: Intrinsics4,
-    pub distortion: BrownConrady5Params,
+    pub intrinsics: FxFyCxCySkew<Real>,
+    pub distortion: BrownConrady5<Real>,
     pub poses: Vec<Iso3>,
 }
 
 impl PlanarIntrinsicsInit {
     pub fn new(
-        intrinsics: Intrinsics4,
-        distortion: BrownConrady5Params,
+        intrinsics: FxFyCxCySkew<Real>,
+        distortion: BrownConrady5<Real>,
         poses: Vec<Iso3>,
     ) -> Result<Self> {
         ensure!(!poses.is_empty(), "need at least one pose");
@@ -128,18 +128,24 @@ impl PlanarIntrinsicsInit {
     }
 
     /// Create with zero distortion (pinhole model only).
-    pub fn new_pinhole(intrinsics: Intrinsics4, poses: Vec<Iso3>) -> Result<Self> {
-        Self::new(intrinsics, BrownConrady5Params::zeros(), poses)
+    pub fn new_pinhole(intrinsics: FxFyCxCySkew<Real>, poses: Vec<Iso3>) -> Result<Self> {
+        Self::new(
+            intrinsics,
+            BrownConrady5 {
+                k1: 0.0,
+                k2: 0.0,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            },
+            poses,
+        )
     }
 
     pub fn from_camera_and_poses(camera: &PinholeCamera, poses: Vec<Iso3>) -> Result<Self> {
-        let intrinsics = Intrinsics4 {
-            fx: camera.k.fx,
-            fy: camera.k.fy,
-            cx: camera.k.cx,
-            cy: camera.k.cy,
-        };
-        let distortion = BrownConrady5Params::from_core(&camera.dist);
+        let intrinsics = camera.k;
+        let distortion = camera.dist;
         Self::new(intrinsics, distortion, poses)
     }
 }
@@ -242,12 +248,12 @@ pub fn build_planar_intrinsics_ir(
 
     let cam_id = ir.add_param_block(
         "cam",
-        Intrinsics4::DIM,
+        INTRINSICS_DIM,
         ManifoldKind::Euclidean,
         FixedMask::fix_indices(&cam_fixed),
         None,
     );
-    initial_map.insert("cam".to_string(), initial.intrinsics.to_dvec());
+    initial_map.insert("cam".to_string(), pack_intrinsics(&initial.intrinsics)?);
 
     // Add distortion parameter block
     let mut dist_fixed = Vec::new();
@@ -269,12 +275,12 @@ pub fn build_planar_intrinsics_ir(
 
     let dist_id = ir.add_param_block(
         "dist",
-        BrownConrady5Params::DIM,
+        DISTORTION_DIM,
         ManifoldKind::Euclidean,
         FixedMask::fix_indices(&dist_fixed),
         None,
     );
-    initial_map.insert("dist".to_string(), initial.distortion.to_dvec());
+    initial_map.insert("dist".to_string(), pack_distortion(&initial.distortion));
 
     for (view_idx, view) in dataset.views.iter().enumerate() {
         let pose_key = format!("pose/{}", view_idx);
@@ -337,13 +343,13 @@ pub fn optimize_planar_intrinsics_with_backend(
         .params
         .get("cam")
         .ok_or_else(|| anyhow!("missing camera parameters in solution"))?;
-    let intrinsics = Intrinsics4::from_dvec(cam_vec.as_view())?;
+    let intrinsics = unpack_intrinsics(cam_vec.as_view())?;
 
     let dist_vec = solution
         .params
         .get("dist")
         .ok_or_else(|| anyhow!("missing distortion parameters in solution"))?;
-    let distortion = BrownConrady5Params::from_dvec(dist_vec.as_view())?;
+    let distortion = unpack_distortion(dist_vec.as_view())?;
 
     let mut poses = Vec::with_capacity(dataset.num_views());
     for i in 0..dataset.num_views() {
@@ -355,12 +361,7 @@ pub fn optimize_planar_intrinsics_with_backend(
         poses.push(se3_dvec_to_iso3(pose_vec.as_view())?);
     }
 
-    let camera = Camera::new(
-        Pinhole,
-        distortion.to_core(),
-        IdentitySensor,
-        intrinsics.to_core(),
-    );
+    let camera = Camera::new(Pinhole, distortion, IdentitySensor, intrinsics);
 
     Ok(PlanarIntrinsicsResult {
         camera,
@@ -646,7 +647,7 @@ mod tests {
         let mut ir = ProblemIR::new();
         let cam_id = ir.add_param_block(
             "cam",
-            Intrinsics4::DIM,
+            INTRINSICS_DIM,
             ManifoldKind::Euclidean,
             FixedMask::all_free(),
             None,
@@ -729,13 +730,21 @@ mod tests {
 
         // Initialize with noisy intrinsics and zero distortion
         let init = PlanarIntrinsicsInit {
-            intrinsics: Intrinsics4 {
+            intrinsics: FxFyCxCySkew {
                 fx: 780.0, // -20 error
                 fy: 760.0, // -20 error
                 cx: 630.0, // -10 error
                 cy: 350.0, // -10 error
+                skew: 0.0,
             },
-            distortion: BrownConrady5Params::zeros(),
+            distortion: BrownConrady5 {
+                k1: 0.0,
+                k2: 0.0,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            },
             poses: poses_gt.clone(),
         };
 
@@ -858,13 +867,21 @@ mod tests {
         let dataset = PlanarDataset::new(views).unwrap();
 
         let init = PlanarIntrinsicsInit {
-            intrinsics: Intrinsics4 {
+            intrinsics: FxFyCxCySkew {
                 fx: 790.0,
                 fy: 770.0,
                 cx: 635.0,
                 cy: 355.0,
+                skew: 0.0,
             },
-            distortion: BrownConrady5Params::zeros(),
+            distortion: BrownConrady5 {
+                k1: 0.0,
+                k2: 0.0,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            },
             poses: poses_gt,
         };
 

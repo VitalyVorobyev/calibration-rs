@@ -102,6 +102,12 @@ pub struct IterativeIntrinsicsOptions {
     ///
     /// Controls which distortion parameters to estimate (fix_k3, fix_tangential).
     pub distortion_opts: DistortionFitOptions,
+
+    /// Force skew to zero after each intrinsics estimate.
+    ///
+    /// Recommended for most cameras and required by current 4-parameter
+    /// optimization backends.
+    pub zero_skew: bool,
 }
 
 impl Default for IterativeIntrinsicsOptions {
@@ -109,6 +115,7 @@ impl Default for IterativeIntrinsicsOptions {
         Self {
             iterations: 2, // One distortion estimate + one K re-estimate typically sufficient
             distortion_opts: DistortionFitOptions::default(),
+            zero_skew: true,
         }
     }
 }
@@ -220,7 +227,8 @@ pub fn estimate_intrinsics_iterative(
         .collect();
     let homographies_iter0 = homographies_iter0?;
 
-    let intrinsics_iter0 = PlanarIntrinsicsLinearInit::from_homographies(&homographies_iter0)?;
+    let mut intrinsics_iter0 = PlanarIntrinsicsLinearInit::from_homographies(&homographies_iter0)?;
+    enforce_zero_skew(&mut intrinsics_iter0, opts.zero_skew);
     intrinsics_history.push(intrinsics_iter0);
 
     // Initial distortion is zero
@@ -277,6 +285,7 @@ pub fn estimate_intrinsics_iterative(
         let homographies = homographies?;
 
         // Step 2: Estimate distortion from residuals
+        enforce_zero_skew(&mut current_intrinsics, opts.zero_skew);
         let k_mtx = current_intrinsics.k_matrix();
         let dist_views: Result<Vec<DistortionView>, _> = views
             .iter()
@@ -321,6 +330,7 @@ pub fn estimate_intrinsics_iterative(
 
         current_intrinsics =
             PlanarIntrinsicsLinearInit::from_homographies(&undistorted_homographies)?;
+        enforce_zero_skew(&mut current_intrinsics, opts.zero_skew);
         intrinsics_history.push(current_intrinsics);
     }
 
@@ -330,6 +340,12 @@ pub fn estimate_intrinsics_iterative(
         intrinsics_history,
         distortion_history,
     })
+}
+
+fn enforce_zero_skew(intrinsics: &mut FxFyCxCySkew<Real>, zero_skew: bool) {
+    if zero_skew {
+        intrinsics.skew = 0.0;
+    }
 }
 
 /// High-level solver struct for iterative intrinsics estimation.
@@ -446,6 +462,7 @@ mod tests {
                 fix_tangential: false,
                 iters: 8,
             },
+            zero_skew: true,
         };
 
         let result = estimate_intrinsics_iterative(&views, opts).unwrap();
@@ -506,6 +523,7 @@ mod tests {
                 fix_tangential: true,
                 iters: 8,
             },
+            zero_skew: true,
         };
 
         let result = estimate_intrinsics_iterative(&views, opts).unwrap();

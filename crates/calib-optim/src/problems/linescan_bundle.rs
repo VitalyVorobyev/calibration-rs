@@ -6,8 +6,8 @@
 
 use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions};
 use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
-use crate::params::distortion::BrownConrady5Params;
-use crate::params::intrinsics::Intrinsics4;
+use crate::params::distortion::{pack_distortion, unpack_distortion, DISTORTION_DIM};
+use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_DIM};
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
@@ -156,16 +156,16 @@ impl LinescanDataset {
 /// Initial values for linescan bundle adjustment.
 #[derive(Debug, Clone)]
 pub struct LinescanInit {
-    pub intrinsics: Intrinsics4,
-    pub distortion: BrownConrady5Params,
+    pub intrinsics: FxFyCxCySkew<Real>,
+    pub distortion: BrownConrady5<Real>,
     pub poses: Vec<Iso3>,
     pub planes: Vec<LaserPlane>,
 }
 
 impl LinescanInit {
     pub fn new(
-        intrinsics: Intrinsics4,
-        distortion: BrownConrady5Params,
+        intrinsics: FxFyCxCySkew<Real>,
+        distortion: BrownConrady5<Real>,
         poses: Vec<Iso3>,
         planes: Vec<LaserPlane>,
     ) -> Result<Self> {
@@ -184,13 +184,8 @@ impl LinescanInit {
         poses: Vec<Iso3>,
         planes: Vec<LaserPlane>,
     ) -> Result<Self> {
-        let intrinsics = Intrinsics4 {
-            fx: camera.k.fx,
-            fy: camera.k.fy,
-            cx: camera.k.cx,
-            cy: camera.k.cy,
-        };
-        let distortion = BrownConrady5Params::from_core(&camera.dist);
+        let intrinsics = camera.k;
+        let distortion = camera.dist;
         Self::new(intrinsics, distortion, poses, planes)
     }
 }
@@ -283,22 +278,25 @@ fn build_linescan_ir(
 
     // Add intrinsics parameter block
     let intrinsics_fixed = if opts.fix_intrinsics {
-        FixedMask::all_fixed(4)
+        FixedMask::all_fixed(INTRINSICS_DIM)
     } else {
         FixedMask::all_free()
     };
     let intrinsics_id = ir.add_param_block(
         "intrinsics",
-        4,
+        INTRINSICS_DIM,
         ManifoldKind::Euclidean,
         intrinsics_fixed,
         None,
     );
-    initial_map.insert("intrinsics".to_string(), initial.intrinsics.to_dvec());
+    initial_map.insert(
+        "intrinsics".to_string(),
+        pack_intrinsics(&initial.intrinsics)?,
+    );
 
     // Add distortion parameter block
     let distortion_fixed = if opts.fix_distortion {
-        FixedMask::all_fixed(5)
+        FixedMask::all_fixed(DISTORTION_DIM)
     } else if opts.fix_k3 {
         FixedMask::fix_indices(&[2]) // k3 is at index 2
     } else {
@@ -306,12 +304,15 @@ fn build_linescan_ir(
     };
     let distortion_id = ir.add_param_block(
         "distortion",
-        5,
+        DISTORTION_DIM,
         ManifoldKind::Euclidean,
         distortion_fixed,
         None,
     );
-    initial_map.insert("distortion".to_string(), initial.distortion.to_dvec());
+    initial_map.insert(
+        "distortion".to_string(),
+        pack_distortion(&initial.distortion),
+    );
 
     // Add pose parameter blocks (one per view)
     let mut pose_ids = Vec::new();
@@ -423,7 +424,7 @@ fn extract_solution(
     num_poses: usize,
     num_planes: usize,
 ) -> Result<LinescanResult> {
-    let intrinsics = Intrinsics4::from_dvec(
+    let intrinsics = unpack_intrinsics(
         solution
             .params
             .get("intrinsics")
@@ -431,7 +432,7 @@ fn extract_solution(
             .as_view(),
     )?;
 
-    let distortion = BrownConrady5Params::from_dvec(
+    let distortion = unpack_distortion(
         solution
             .params
             .get("distortion")
@@ -467,12 +468,7 @@ fn extract_solution(
         )?);
     }
 
-    let camera = Camera::new(
-        Pinhole,
-        distortion.to_core(),
-        IdentitySensor,
-        intrinsics.to_core(),
-    );
+    let camera = Camera::new(Pinhole, distortion, IdentitySensor, intrinsics);
 
     Ok(LinescanResult {
         camera,
@@ -528,13 +524,21 @@ mod tests {
         }];
         let dataset = LinescanDataset::new_single_plane(views).unwrap();
 
-        let intrinsics = Intrinsics4 {
+        let intrinsics = FxFyCxCySkew {
             fx: 800.0,
             fy: 800.0,
             cx: 512.0,
             cy: 384.0,
+            skew: 0.0,
         };
-        let distortion = BrownConrady5Params::zeros();
+        let distortion = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
         let poses = vec![Iso3::identity()];
         let planes = vec![LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5)];
         let initial = LinescanInit::new(intrinsics, distortion, poses, planes).unwrap();
@@ -564,13 +568,21 @@ mod tests {
         }];
         let dataset = LinescanDataset::new_single_plane(views).unwrap();
 
-        let intrinsics = Intrinsics4 {
+        let intrinsics = FxFyCxCySkew {
             fx: 800.0,
             fy: 800.0,
             cx: 512.0,
             cy: 384.0,
+            skew: 0.0,
         };
-        let distortion = BrownConrady5Params::zeros();
+        let distortion = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
         let poses = vec![Iso3::identity()];
         let planes = vec![LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5)];
         let initial = LinescanInit::new(intrinsics, distortion, poses, planes).unwrap();

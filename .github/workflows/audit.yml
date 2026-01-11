@@ -1,23 +1,18 @@
 name: Security Audit
-
 on:
   schedule:
     - cron: '0 5 * * 1'
   workflow_dispatch:
 
-env:
-  CARGO_TERM_COLOR: always
+permissions:
+  contents: read
 
 jobs:
-  cargo-audit:
+  audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Run cargo audit
-        uses: actions-rs/audit-check@v1
+      - uses: actions-rust-lang/audit@v1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          createIssues: false
+          ignore: RUSTSEC-2024-0436

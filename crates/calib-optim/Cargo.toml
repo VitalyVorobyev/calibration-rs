@@ -2,15 +2,21 @@
 name = "calib-optim"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
+description = "Non-linear optimization problems and solvers for calibration-rs"
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
-calib-core = { path = "../calib-core" }
+calib-core = { path = "../calib-core", version = "0.1.0" }
 nalgebra = { workspace = true }
 anyhow = "1"
 tiny-solver = "0.18"
 
 [dev-dependencies]
-calib-linear = { path = "../calib-linear" }
+calib-linear = { path = "../calib-linear", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

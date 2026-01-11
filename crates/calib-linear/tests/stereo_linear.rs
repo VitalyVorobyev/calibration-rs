@@ -437,6 +437,7 @@ fn stereo_iterative_intrinsics_left_no_gt() {
             fix_tangential: false,
             iters: 8,
         },
+        zero_skew: true,
     };
 
     let result =
@@ -538,6 +539,7 @@ fn stereo_iterative_improves_over_zhang_left() {
             fix_tangential: true, // Radial only for this test
             iters: 8,
         },
+        zero_skew: true,
     };
 
     let result = IterativeIntrinsicsSolver::estimate(&views, opts).expect("iterative intrinsics");

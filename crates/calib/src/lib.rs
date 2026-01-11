@@ -67,6 +67,7 @@
 //!         fix_tangential: false,
 //!         iters: 8,
 //!     },
+//!     zero_skew: true,
 //! };
 //! let init_result = initialize_planar_intrinsics(&views, &init_opts)?;
 //!
@@ -124,6 +125,11 @@
 //! - **[`linear`]**: Closed-form initialization algorithms
 //! - **[`optim`]**: Non-linear least-squares optimization
 //! - **[`prelude`]**: Convenient re-exports for common use cases
+//!
+//! ## Stability
+//!
+//! The `calib` crate is the public compatibility boundary. Lower-level crates are
+//! intended for advanced usage and may evolve more quickly.
 
 /// Type-safe calibration session framework for structured workflows.
 ///
@@ -158,8 +164,8 @@ pub mod helpers {
 /// Use these when you want a simple, single-call solution without managing state.
 pub mod pipeline {
     pub use calib_pipeline::{
-        run_planar_intrinsics, PlanarIntrinsicsConfig, PlanarIntrinsicsInput,
-        PlanarIntrinsicsReport, PlanarViewData,
+        handeye, handeye_single, run_planar_intrinsics, HandEyeMode, PlanarIntrinsicsConfig,
+        PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData, RobustLossConfig,
     };
 }
 
@@ -179,7 +185,7 @@ pub mod linear {
 
 /// Non-linear least-squares optimization problems and backends.
 ///
-/// Provides bundle adjustment and other refinement algorithms.
+/// Includes planar intrinsics, hand-eye, rig extrinsics, and linescan bundle refinement.
 pub mod optim {
     pub use calib_optim::*;
 }
@@ -190,7 +196,7 @@ pub mod optim {
 pub mod prelude {
     // Common types
     pub use crate::core::{
-        BrownConrady5, Camera, CameraConfig, FxFyCxCySkew, IdentitySensor, IntrinsicsConfig, Iso3,
+        BrownConrady5, Camera, CameraParams, FxFyCxCySkew, IdentitySensor, IntrinsicsParams, Iso3,
         Pinhole, Pt2, Pt3, Vec2, Vec3,
     };
 

@@ -10,8 +10,15 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-calib-core = { path = "../calib-core" }
-calib-linear = { path = "../calib-linear" }
-calib-optim = { path = "../calib-optim" }
-calib-pipeline = { path = "../calib-pipeline" }
+calib-core = { path = "../calib-core", version = "0.1.0" }
+calib-linear = { path = "../calib-linear", version = "0.1.0" }
+calib-optim = { path = "../calib-optim", version = "0.1.0" }
+calib-pipeline = { path = "../calib-pipeline", version = "0.1.0" }
 
+[dev-dependencies]
+serde_json = { workspace = true }
+chess-corners = { version = "0.3", features = ["rayon", "ml-refiner"] }
+calib-targets = "0.2"
+anyhow = "1"
+image = { version = "0.25" }
+nalgebra = { workspace = true }

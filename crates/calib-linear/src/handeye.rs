@@ -48,10 +48,10 @@ pub struct HandEyeInit;
 /// Build a single motion pair from two pose samples.
 ///
 /// base_se3_gripper_*: ^B T_G
-/// cam_se3_target_*:   ^C T_T
+/// cam_se3_target_*:   ^T T_C
 ///
 /// A = (^B T_G,a)^(-1) (^B T_G,b)
-/// B = (^C T_T,a) (^C T_T,b)^(-1)
+/// B = (^T T_C,a)^(-1) (^T T_C,b)
 fn make_motion_pair(
     base_se3_gripper_a: &Iso3,
     cam_se3_target_a: &Iso3,
@@ -115,7 +115,7 @@ fn is_good_pair(
 /// Build all valid motion pairs from pose streams.
 ///
 /// `base_se3_gripper` are gripper poses in the base frame, and
-/// `cam_se3_target` are target poses in the camera frame.
+/// `cam_se3_target` are camera poses in the target frame.
 ///
 /// Pairs with too-small rotations or near-parallel rotation axes can be
 /// rejected to improve conditioning.
@@ -244,7 +244,7 @@ fn estimate_translation_allpairs_weighted(
 /// Main linear hand–eye init: Tsai–Lenz with all pairs.
 ///
 /// `base_se3_gripper`: gripper poses in base frame.
-/// `camera_se3_target`: target poses in camera frame.
+/// `camera_se3_target`: camera poses in target frame.
 ///
 /// Returns `X = ^G T_C` (gripper -> camera).
 pub fn estimate_handeye_dlt(
