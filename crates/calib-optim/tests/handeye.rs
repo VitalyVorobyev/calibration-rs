@@ -323,8 +323,7 @@ fn se3_exp_isometry(xi: [Real; 6]) -> Isometry3<Real> {
 
 fn lcg(seed: &mut u64) -> Real {
     *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-    let u = ((*seed >> 32) as u32) as Real / (u32::MAX as Real);
-    u
+    ((*seed >> 32) as u32) as Real / (u32::MAX as Real)
 }
 
 fn mean_reproj_error_eye_in_hand(

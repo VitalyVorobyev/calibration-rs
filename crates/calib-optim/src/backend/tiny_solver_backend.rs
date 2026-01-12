@@ -451,14 +451,16 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistHandEyeDeltaFactor
             6,
             "expected [cam, dist, extr, handeye, target, robot_delta] parameter blocks"
         );
-        let obs = crate::factors::reprojection_model::ObservationData {
-            pw: self.pw,
-            uv: self.uv,
-            w: self.w,
-        };
-        let robot_data = crate::factors::reprojection_model::RobotPoseData {
-            robot_se3: self.robot_se3,
-            mode: self.mode,
+        let data = crate::factors::reprojection_model::HandEyeRobotDeltaData {
+            robot: crate::factors::reprojection_model::RobotPoseData {
+                robot_se3: self.robot_se3,
+                mode: self.mode,
+            },
+            obs: crate::factors::reprojection_model::ObservationData {
+                pw: self.pw,
+                uv: self.uv,
+                w: self.w,
+            },
         };
         let r = reproj_residual_pinhole4_dist5_handeye_robot_delta_generic(
             params[0].as_view(), // intrinsics
@@ -467,8 +469,7 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistHandEyeDeltaFactor
             params[3].as_view(), // handeye
             params[4].as_view(), // target
             params[5].as_view(), // robot delta (se3 tangent)
-            &robot_data,
-            &obs,
+            &data,
         );
         DVector::from_row_slice(r.as_slice())
     }

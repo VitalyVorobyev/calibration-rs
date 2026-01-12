@@ -605,7 +605,7 @@ mod tests {
                 *base_to_gripper * handeye_init * *cam_to_target
             })
             .collect();
-        let target_pose = target_poses[0].clone();
+        let target_pose = target_poses[0];
 
         let mut rig_views = Vec::new();
         for (robot_pose, view) in robot_poses.iter().zip(&views) {

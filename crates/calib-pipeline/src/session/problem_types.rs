@@ -270,17 +270,9 @@ pub struct HandEyeSingleOptimized {
 }
 
 /// Options for hand-eye initialization.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct HandEyeSingleInitOptions {
     pub intrinsics_init_opts: IterativeIntrinsicsOptions,
-}
-
-impl Default for HandEyeSingleInitOptions {
-    fn default() -> Self {
-        Self {
-            intrinsics_init_opts: IterativeIntrinsicsOptions::default(),
-        }
-    }
 }
 
 // Manual Serialize/Deserialize to satisfy session trait bounds.

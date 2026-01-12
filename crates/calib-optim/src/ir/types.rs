@@ -186,7 +186,7 @@ pub enum FactorKind {
     Prior,
     /// Zero-mean prior on a 6D se(3) tangent vector.
     ///
-    /// Parameters: [se3_delta] (6D Euclidean).
+    /// Parameters: \[se3_delta\] (6D Euclidean).
     Se3TangentPrior { sqrt_info: [f64; 6] },
     /// Placeholder for future distortion-aware reprojection.
     ReprojPointWithDistortion,

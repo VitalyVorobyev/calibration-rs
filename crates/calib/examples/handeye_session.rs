@@ -61,10 +61,12 @@ fn main() -> Result<()> {
     let init = session.initialize(HandEyeSingleInitOptions::default())?;
     print_intrinsics_stage("Intrinsics init", &init.intrinsics_init);
 
-    let mut optim_opts = HandEyeSingleOptimOptions::default();
-    optim_opts.refine_robot_poses = true;
-    optim_opts.robot_rot_sigma = 0.5_f64.to_radians();
-    optim_opts.robot_trans_sigma = 1.0e-3;
+    let optim_opts = HandEyeSingleOptimOptions {
+        refine_robot_poses: true,
+        robot_rot_sigma: 0.5_f64.to_radians(),
+        robot_trans_sigma: 1.0e-3,
+        ..Default::default()
+    };
     session.optimize(optim_opts)?;
 
     let report = session.export()?;

@@ -37,14 +37,6 @@ pub fn kuka_chessboard_params() -> ChessboardParams {
     }
 }
 
-pub fn load_kuka_dataset(
-    base_path: &Path,
-    chess_config: &ChessConfig,
-    board_params: &ChessboardParams,
-) -> Result<(Vec<ViewSample>, DatasetSummary)> {
-    load_kuka_dataset_with_progress(base_path, chess_config, board_params, |_, _| {})
-}
-
 pub fn load_kuka_dataset_with_progress<F>(
     base_path: &Path,
     chess_config: &ChessConfig,

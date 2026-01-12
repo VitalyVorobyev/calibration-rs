@@ -29,6 +29,13 @@ pub(crate) struct RobotPoseData {
     pub mode: crate::ir::HandEyeMode,
 }
 
+/// Observation + robot pose bundle for hand-eye factors with robot deltas.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct HandEyeRobotDeltaData {
+    pub robot: RobotPoseData,
+    pub obs: ObservationData,
+}
+
 /// Compute a 2D reprojection residual for pinhole intrinsics and SE3 pose.
 ///
 /// The residual is scaled by `sqrt(w)` and ordered `[u_residual, v_residual]`.
@@ -632,10 +639,12 @@ pub(crate) fn reproj_residual_pinhole4_dist5_handeye_robot_delta_generic<T: Real
     handeye: DVectorView<'_, T>,
     target: DVectorView<'_, T>,
     robot_delta: DVectorView<'_, T>,
-    robot_data: &RobotPoseData,
-    obs: &ObservationData,
+    data: &HandEyeRobotDeltaData,
 ) -> SVector<T, 2> {
     use nalgebra::{Quaternion, UnitQuaternion, Vector3};
+
+    let robot_data = &data.robot;
+    let obs = &data.obs;
 
     // Extract all SE3 parameters
     let extr_q = UnitQuaternion::from_quaternion(Quaternion::new(
