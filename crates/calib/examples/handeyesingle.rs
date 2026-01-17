@@ -4,8 +4,10 @@
 //! 1) Intrinsics initialization (mean reprojection error)
 //! 2) Intrinsics optimization (mean reprojection error)
 //! 3) Per-view pose RANSAC (mean reprojection error on inliers)
-//! 4) Hand-eye DLT initialization (mean reprojection error on inliers)
-//! 5) Hand-eye optimization (mean reprojection error on inliers)
+//! 4) Intrinsics re-optimization on inliers
+//! 5) Hand-eye DLT initialization (mean reprojection error on inliers)
+//! 6) Hand-eye optimization (mean reprojection error on inliers)
+//! 7) Hand-eye optimization with robot pose refinement
 
 #[path = "support/handeye_io.rs"]
 mod handeye_io;
@@ -17,7 +19,8 @@ use calib::pipeline::handeye_single::{
     IterativeIntrinsicsOptions, PlanarIntrinsicsSolveOptions, PoseRansacOptions, RobustLoss,
 };
 use chess_corners::ChessConfig;
-use handeye_io::{kuka_chessboard_params, load_kuka_dataset};
+use handeye_io::{kuka_chessboard_params, load_kuka_dataset_with_progress};
+use std::io::{self, Write};
 use std::path::Path;
 
 fn main() -> Result<()> {
@@ -27,7 +30,13 @@ fn main() -> Result<()> {
     let chess_config = ChessConfig::default();
     let board_params = kuka_chessboard_params();
 
-    let (samples, summary) = load_kuka_dataset(base_path, &chess_config, &board_params)?;
+    println!("Extracting calibration features (chessboard corners)...");
+    let (samples, summary) =
+        load_kuka_dataset_with_progress(base_path, &chess_config, &board_params, |idx, total| {
+            print!("\r  processing image {idx}/{total}");
+            let _ = io::stdout().flush();
+        })?;
+    println!();
     ensure!(
         samples.len() >= 3,
         "need at least 3 valid views, got {}",
@@ -83,17 +92,22 @@ fn main() -> Result<()> {
     )?;
     print_ransac_stage(&pose_ransac, views.len());
 
-    // 4) Hand-eye DLT init
+    // 4) Intrinsics re-optimization on inliers
+    let intr_inliers =
+        optimize_intrinsics(&pose_ransac.views, &intr_opt, &solve_opts, &backend_opts)?;
+    print_intrinsics_stage("Intrinsics optimized (inliers)", &intr_inliers);
+
+    // 5) Hand-eye DLT init
     let handeye_init = init_handeye(
         &pose_ransac.views,
-        &pose_ransac.poses,
-        &intr_opt.intrinsics,
-        &intr_opt.distortion,
+        &intr_inliers.poses,
+        &intr_inliers.intrinsics,
+        &intr_inliers.distortion,
         HandEyeMode::EyeInHand,
     )?;
     print_handeye_stage("Hand-eye DLT init", &handeye_init);
 
-    // 5) Hand-eye optimize (intrinsics/distortion fixed)
+    // 6) Hand-eye optimize (intrinsics/distortion fixed)
     let handeye_opts = HandEyeSolveOptions {
         robust_loss: RobustLoss::Huber { scale: 2.0 },
         fix_fx: true,
@@ -106,20 +120,39 @@ fn main() -> Result<()> {
         fix_p1: true,
         fix_p2: true,
         fix_extrinsics: vec![true],
-        fix_target_poses: vec![0],
         ..Default::default()
     };
 
     let handeye_opt = optimize_handeye_stage(
         &pose_ransac.views,
         &handeye_init,
-        &intr_opt.intrinsics,
-        &intr_opt.distortion,
+        &intr_inliers.intrinsics,
+        &intr_inliers.distortion,
         HandEyeMode::EyeInHand,
         &handeye_opts,
         &BackendSolveOptions::default(),
     )?;
-    print_handeye_stage("Hand-eye optimized", &handeye_opt);
+    print_handeye_stage("Hand-eye optimized (fixed robot poses)", &handeye_opt);
+
+    // 7) Hand-eye optimize with robot pose refinement
+    let mut handeye_opts_refine = handeye_opts.clone();
+    handeye_opts_refine.refine_robot_poses = true;
+    handeye_opts_refine.robot_rot_sigma = 0.5_f64.to_radians(); // radians
+    handeye_opts_refine.robot_trans_sigma = 1.0e-3; // meters
+
+    let handeye_opt_refine = optimize_handeye_stage(
+        &pose_ransac.views,
+        &handeye_init,
+        &intr_inliers.intrinsics,
+        &intr_inliers.distortion,
+        HandEyeMode::EyeInHand,
+        &handeye_opts_refine,
+        &BackendSolveOptions::default(),
+    )?;
+    print_handeye_stage(
+        "Hand-eye optimized (refine robot poses)",
+        &handeye_opt_refine,
+    );
 
     Ok(())
 }

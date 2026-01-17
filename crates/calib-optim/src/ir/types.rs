@@ -157,6 +157,18 @@ pub enum FactorKind {
         base_to_gripper_se3: [f64; 7],
         mode: HandEyeMode,
     },
+    /// Reprojection for hand-eye calibration with per-view robot pose correction.
+    ///
+    /// Parameters: [intrinsics, distortion, extr, handeye, target, robot_delta]
+    /// Robot pose (base-to-gripper) is stored in the factor as known data.
+    /// `robot_delta` is a 6D se(3) tangent correction applied via exp(delta) * T_B_E.
+    ReprojPointPinhole4Dist5HandEyeRobotDelta {
+        pw: [f64; 3],
+        uv: [f64; 2],
+        w: f64,
+        base_to_gripper_se3: [f64; 7],
+        mode: HandEyeMode,
+    },
     /// Laser line pixel constrained to lie on laser plane.
     ///
     /// Parameters: [intrinsics, distortion, pose_cam_to_target, plane_normal, plane_distance]
@@ -172,6 +184,10 @@ pub enum FactorKind {
     LaserLineDist2D { laser_pixel: [f64; 2], w: f64 },
     /// Placeholder for future prior factors.
     Prior,
+    /// Zero-mean prior on a 6D se(3) tangent vector.
+    ///
+    /// Parameters: \[se3_delta\] (6D Euclidean).
+    Se3TangentPrior { sqrt_info: [f64; 6] },
     /// Placeholder for future distortion-aware reprojection.
     ReprojPointWithDistortion,
 }
@@ -185,9 +201,11 @@ impl FactorKind {
             FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 { .. } => 2,
             FactorKind::ReprojPointPinhole4Dist5TwoSE3 { .. } => 2,
             FactorKind::ReprojPointPinhole4Dist5HandEye { .. } => 2,
+            FactorKind::ReprojPointPinhole4Dist5HandEyeRobotDelta { .. } => 2,
             FactorKind::LaserPlanePixel { .. } => 1,
             FactorKind::LaserLineDist2D { .. } => 1,
             FactorKind::Prior => 0,
+            FactorKind::Se3TangentPrior { .. } => 6,
             FactorKind::ReprojPointWithDistortion => 2,
         }
     }
@@ -476,6 +494,54 @@ impl ProblemIR {
                         target.manifold
                     );
                 }
+                FactorKind::ReprojPointPinhole4Dist5HandEyeRobotDelta { .. } => {
+                    ensure!(
+                        residual.params.len() == 6,
+                        "HandEye factor requires 6 params [cam, dist, extr, handeye, target, robot_delta]"
+                    );
+                    let cam = &self.params[residual.params[0].0];
+                    let dist = &self.params[residual.params[1].0];
+                    let extr = &self.params[residual.params[2].0];
+                    let handeye = &self.params[residual.params[3].0];
+                    let target = &self.params[residual.params[4].0];
+                    let robot_delta = &self.params[residual.params[5].0];
+                    ensure!(
+                        cam.dim == 4 && cam.manifold == ManifoldKind::Euclidean,
+                        "HandEye factor expects 4D Euclidean intrinsics, got dim={} manifold={:?}",
+                        cam.dim,
+                        cam.manifold
+                    );
+                    ensure!(
+                        dist.dim == 5 && dist.manifold == ManifoldKind::Euclidean,
+                        "HandEye factor expects 5D Euclidean distortion, got dim={} manifold={:?}",
+                        dist.dim,
+                        dist.manifold
+                    );
+                    ensure!(
+                        extr.dim == 7 && extr.manifold == ManifoldKind::SE3,
+                        "HandEye factor expects 7D SE3 extrinsics, got dim={} manifold={:?}",
+                        extr.dim,
+                        extr.manifold
+                    );
+                    ensure!(
+                        handeye.dim == 7 && handeye.manifold == ManifoldKind::SE3,
+                        "HandEye factor expects 7D SE3 hand-eye transform, got dim={} manifold={:?}",
+                        handeye.dim,
+                        handeye.manifold
+                    );
+                    ensure!(
+                        target.dim == 7 && target.manifold == ManifoldKind::SE3,
+                        "HandEye factor expects 7D SE3 target pose, got dim={} manifold={:?}",
+                        target.dim,
+                        target.manifold
+                    );
+                    ensure!(
+                        robot_delta.dim == 6 && robot_delta.manifold == ManifoldKind::Euclidean,
+                        "HandEye factor expects 6D Euclidean robot delta, got dim={} manifold={:?}",
+                        robot_delta.dim,
+                        robot_delta.manifold
+                    );
+                }
                 FactorKind::LaserPlanePixel { .. } => {
                     ensure!(
                         residual.params.len() == 5,
@@ -556,6 +622,19 @@ impl ProblemIR {
                         "LaserLineDist2D factor expects 1D Euclidean plane distance, got dim={} manifold={:?}",
                         plane_distance.dim,
                         plane_distance.manifold
+                    );
+                }
+                FactorKind::Se3TangentPrior { .. } => {
+                    ensure!(
+                        residual.params.len() == 1,
+                        "Se3TangentPrior requires 1 param [robot_delta]"
+                    );
+                    let delta = &self.params[residual.params[0].0];
+                    ensure!(
+                        delta.dim == 6 && delta.manifold == ManifoldKind::Euclidean,
+                        "Se3TangentPrior expects 6D Euclidean delta, got dim={} manifold={:?}",
+                        delta.dim,
+                        delta.manifold
                     );
                 }
                 FactorKind::Prior | FactorKind::ReprojPointWithDistortion => {

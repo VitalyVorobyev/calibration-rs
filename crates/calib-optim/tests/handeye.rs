@@ -6,11 +6,14 @@
 //! 3. Per-camera intrinsics and distortion optimization
 //! 4. Hand-eye transform estimation
 
-use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Real};
-use calib_optim::backend::{BackendSolveOptions, LinearSolverKind};
+use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Real, Vec2};
+use calib_optim::backend::{
+    solve_with_backend, BackendKind, BackendSolveOptions, LinearSolverKind,
+};
 use calib_optim::ir::HandEyeMode;
+use calib_optim::params::pose_se3::se3_dvec_to_iso3;
 use calib_optim::problems::handeye::*;
-use nalgebra::{Isometry3, Rotation3, Translation3};
+use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
 
 #[test]
 fn eye_in_hand_calibration_converges() {
@@ -76,17 +79,12 @@ fn eye_in_hand_calibration_converges() {
         ),
     ];
 
-    // Ground truth calibration target poses (fixed in base/world frame at origin)
-    let target_poses_gt = vec![
-        Isometry3::identity(),
-        Isometry3::identity(),
-        Isometry3::identity(),
-        Isometry3::identity(),
-    ];
+    // Ground truth calibration target pose (fixed in base/world frame at origin)
+    let target_pose_gt = Isometry3::identity();
 
     // Generate synthetic observations
     let mut views = Vec::new();
-    for (robot_pose, target_pose) in robot_poses_gt.iter().zip(&target_poses_gt) {
+    for robot_pose in &robot_poses_gt {
         let mut cameras_obs = Vec::new();
 
         // Use only camera 0 for simplified test
@@ -101,9 +99,9 @@ fn eye_in_hand_calibration_converges() {
 
                 // Eye-in-hand transform chain:
                 // P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world
-                let p_target = target_pose.transform_point(&pw);
-                let p_base = robot_pose.inverse_transform_point(&p_target);
-                let p_rig = handeye_gt.inverse_transform_point(&p_base);
+                let p_base = target_pose_gt.transform_point(&pw);
+                let p_gripper = robot_pose.inverse_transform_point(&p_base);
+                let p_rig = handeye_gt.inverse_transform_point(&p_gripper);
                 let p_cam = cam_to_rig.inverse_transform_point(&p_rig);
 
                 if let Some(pixel) = camera_gt.project_point(&p_cam) {
@@ -153,22 +151,7 @@ fn eye_in_hand_calibration_converges() {
         Rotation3::from_euler_angles(0.098, -0.048, 0.148).into(),
     );
 
-    // Perturb target poses (all identity, so just add small perturbations)
-    let target_poses_init = vec![
-        Isometry3::identity(), // Fix first pose for gauge freedom
-        Isometry3::from_parts(
-            Translation3::new(0.008, -0.005, 0.002),
-            Rotation3::from_euler_angles(0.01, -0.008, 0.005).into(),
-        ),
-        Isometry3::from_parts(
-            Translation3::new(-0.005, 0.008, -0.003),
-            Rotation3::from_euler_angles(-0.008, 0.01, -0.005).into(),
-        ),
-        Isometry3::from_parts(
-            Translation3::new(0.005, -0.003, 0.005),
-            Rotation3::from_euler_angles(0.005, -0.005, 0.008).into(),
-        ),
-    ];
+    let target_poses_init = vec![Isometry3::identity()];
 
     let initial = HandEyeInit {
         intrinsics: intrinsics_init,
@@ -178,10 +161,9 @@ fn eye_in_hand_calibration_converges() {
         target_poses: target_poses_init,
     };
 
-    // Solve options - fix camera 0 extrinsics and first target pose for gauge freedom
+    // Solve options - fix camera 0 extrinsics for gauge freedom
     let opts = HandEyeSolveOptions {
         fix_extrinsics: vec![true], // Fix cam0 (gauge freedom)
-        fix_target_poses: vec![0],  // Fix first target pose (gauge freedom)
         ..Default::default()
     };
 
@@ -301,4 +283,307 @@ fn eye_in_hand_calibration_converges() {
 
     println!("✓ Eye-in-hand calibration converged to ground truth");
     println!("  Final cost: {:.6e}", result.final_cost);
+}
+
+fn rotation_angle(a: &Isometry3<Real>, b: &Isometry3<Real>) -> Real {
+    let r_final = a.rotation.to_rotation_matrix();
+    let r_gt = b.rotation.to_rotation_matrix();
+    let r_diff = r_final.transpose() * r_gt;
+    let trace = r_diff.matrix().trace();
+    let cos_theta = ((trace - 1.0) * 0.5).clamp(-1.0, 1.0);
+    cos_theta.acos()
+}
+
+fn skew_matrix(w: &Vector3<Real>) -> Matrix3<Real> {
+    Matrix3::new(0.0, -w.z, w.y, w.z, 0.0, -w.x, -w.y, w.x, 0.0)
+}
+
+fn se3_exp_isometry(xi: [Real; 6]) -> Isometry3<Real> {
+    let w = Vector3::new(xi[0], xi[1], xi[2]);
+    let v = Vector3::new(xi[3], xi[4], xi[5]);
+
+    let theta = w.norm();
+    let w_hat = skew_matrix(&w);
+    let w_hat2 = w_hat * w_hat;
+
+    let (b, c) = if theta <= 1e-9 {
+        (0.5, 1.0 / 6.0)
+    } else {
+        let theta2 = theta * theta;
+        let theta3 = theta2 * theta;
+        let b = (1.0 - theta.cos()) / theta2;
+        let c = (theta - theta.sin()) / theta3;
+        (b, c)
+    };
+
+    let v_mat = Matrix3::identity() + w_hat * b + w_hat2 * c;
+    let t = v_mat * v;
+    Isometry3::from_parts(Translation3::from(t), UnitQuaternion::from_scaled_axis(w))
+}
+
+fn lcg(seed: &mut u64) -> Real {
+    *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+    ((*seed >> 32) as u32) as Real / (u32::MAX as Real)
+}
+
+fn mean_reproj_error_eye_in_hand(
+    views: &[RigViewObservations],
+    intrinsics: FxFyCxCySkew<Real>,
+    distortion: BrownConrady5<Real>,
+    cam_to_rig: &Isometry3<Real>,
+    handeye: &Isometry3<Real>,
+    target_pose: &Isometry3<Real>,
+    robot_deltas: Option<&Vec<Isometry3<Real>>>,
+) -> Real {
+    let camera = Camera::new(Pinhole, distortion, IdentitySensor, intrinsics);
+    let mut total_error = 0.0;
+    let mut total_points = 0usize;
+
+    for (view_idx, view) in views.iter().enumerate() {
+        let robot_pose = if let Some(deltas) = robot_deltas {
+            deltas[view_idx] * view.robot_pose
+        } else {
+            view.robot_pose
+        };
+
+        let obs = view.cameras[0].as_ref().unwrap();
+        for (pw, uv) in obs.points_3d.iter().zip(&obs.points_2d) {
+            let p_base = target_pose.transform_point(pw);
+            let p_gripper = robot_pose.inverse_transform_point(&p_base);
+            let p_rig = handeye.inverse_transform_point(&p_gripper);
+            let p_cam = cam_to_rig.inverse_transform_point(&p_rig);
+            if let Some(pred) = camera.project_point(&p_cam) {
+                total_error += (pred - *uv).norm();
+                total_points += 1;
+            }
+        }
+    }
+
+    total_error / total_points as Real
+}
+
+#[test]
+fn eye_in_hand_robot_pose_refinement_improves_handeye() {
+    let intrinsics_gt = FxFyCxCySkew {
+        fx: 820.0,
+        fy: 810.0,
+        cx: 640.0,
+        cy: 360.0,
+        skew: 0.0,
+    };
+    let distortion_gt = BrownConrady5 {
+        k1: 0.0,
+        k2: 0.0,
+        k3: 0.0,
+        p1: 0.0,
+        p2: 0.0,
+        iters: 8,
+    };
+    let camera_gt = Camera::new(Pinhole, distortion_gt, IdentitySensor, intrinsics_gt);
+
+    let cam_to_rig_gt = Isometry3::identity();
+    let handeye_gt = Isometry3::from_parts(
+        Translation3::new(0.04, -0.02, 0.12),
+        Rotation3::from_euler_angles(0.05, -0.03, 0.08).into(),
+    );
+    let target_pose_gt = Isometry3::identity();
+
+    let robot_poses_gt = vec![
+        Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, -1.0),
+            Rotation3::from_euler_angles(0.0, 0.0, 0.0).into(),
+        ),
+        Isometry3::from_parts(
+            Translation3::new(-0.06, 0.03, -1.05),
+            Rotation3::from_euler_angles(0.02, -0.04, 0.08).into(),
+        ),
+        Isometry3::from_parts(
+            Translation3::new(0.05, -0.04, -0.95),
+            Rotation3::from_euler_angles(-0.03, 0.06, -0.07).into(),
+        ),
+        Isometry3::from_parts(
+            Translation3::new(0.08, 0.02, -1.02),
+            Rotation3::from_euler_angles(0.05, 0.02, 0.04).into(),
+        ),
+        Isometry3::from_parts(
+            Translation3::new(-0.04, -0.05, -0.98),
+            Rotation3::from_euler_angles(-0.02, 0.05, 0.03).into(),
+        ),
+    ];
+
+    let rot_amp = 1.2_f64.to_radians();
+    let trans_amp = 0.003;
+    let mut pose_seed = 23_u64;
+    let mut robot_poses_meas = Vec::with_capacity(robot_poses_gt.len());
+    for pose in &robot_poses_gt {
+        let rot = Vector3::new(
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * rot_amp,
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * rot_amp,
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * rot_amp,
+        );
+        let trans = Vector3::new(
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * trans_amp,
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * trans_amp,
+            (lcg(&mut pose_seed) * 2.0 - 1.0) * trans_amp,
+        );
+        let bias = se3_exp_isometry([rot.x, rot.y, rot.z, trans.x, trans.y, trans.z]);
+        robot_poses_meas.push(bias * *pose);
+    }
+
+    let nx = 6;
+    let ny = 5;
+    let spacing = 0.04_f64;
+    let mut board_points = Vec::new();
+    for j in 0..ny {
+        for i in 0..nx {
+            board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
+        }
+    }
+
+    let mut views = Vec::new();
+    let mut pixel_seed = 7_u64;
+    for (robot_pose_gt, robot_pose_meas) in robot_poses_gt.iter().zip(&robot_poses_meas) {
+        let mut points_3d = Vec::new();
+        let mut points_2d = Vec::new();
+
+        for pw in &board_points {
+            let p_base = target_pose_gt.transform_point(pw);
+            let p_gripper = robot_pose_gt.inverse_transform_point(&p_base);
+            let p_rig = handeye_gt.inverse_transform_point(&p_gripper);
+            let p_cam = cam_to_rig_gt.inverse_transform_point(&p_rig);
+
+            if let Some(pixel) = camera_gt.project_point(&p_cam) {
+                let noise_u = (lcg(&mut pixel_seed) - 0.5) * 0.4;
+                let noise_v = (lcg(&mut pixel_seed) - 0.5) * 0.4;
+                points_3d.push(*pw);
+                points_2d.push(Vec2::new(pixel.x + noise_u, pixel.y + noise_v));
+            }
+        }
+
+        let obs = CameraViewObservations::new(points_3d, points_2d).unwrap();
+        views.push(RigViewObservations {
+            cameras: vec![Some(obs)],
+            robot_pose: *robot_pose_meas,
+        });
+    }
+
+    let dataset = HandEyeDataset::new(views.clone(), 1, HandEyeMode::EyeInHand).unwrap();
+    let init = HandEyeInit {
+        intrinsics: vec![intrinsics_gt],
+        distortion: vec![distortion_gt],
+        cam_to_rig: vec![cam_to_rig_gt],
+        handeye: Isometry3::from_parts(
+            Translation3::new(0.038, -0.021, 0.118),
+            Rotation3::from_euler_angles(0.052, -0.028, 0.075).into(),
+        ),
+        target_poses: vec![target_pose_gt],
+    };
+
+    let base_opts = HandEyeSolveOptions {
+        fix_fx: true,
+        fix_fy: true,
+        fix_cx: true,
+        fix_cy: true,
+        fix_k1: true,
+        fix_k2: true,
+        fix_k3: true,
+        fix_p1: true,
+        fix_p2: true,
+        fix_extrinsics: vec![true],
+        ..Default::default()
+    };
+
+    let backend_opts = BackendSolveOptions {
+        max_iters: 60,
+        ..Default::default()
+    };
+
+    let result_no_refine = optimize_handeye(
+        dataset.clone(),
+        init.clone(),
+        base_opts.clone(),
+        backend_opts.clone(),
+    )
+    .unwrap();
+
+    let dt_no =
+        (result_no_refine.handeye.translation.vector - handeye_gt.translation.vector).norm();
+    let ang_no = rotation_angle(&result_no_refine.handeye, &handeye_gt);
+    let reproj_no = mean_reproj_error_eye_in_hand(
+        &views,
+        intrinsics_gt,
+        distortion_gt,
+        &cam_to_rig_gt,
+        &result_no_refine.handeye,
+        &result_no_refine.target_poses[0],
+        None,
+    );
+
+    let mut opts_refine = base_opts.clone();
+    opts_refine.refine_robot_poses = true;
+    opts_refine.robot_rot_sigma = rot_amp;
+    opts_refine.robot_trans_sigma = trans_amp;
+
+    let (ir, initial_map) = build_handeye_ir(&dataset, &init, &opts_refine).unwrap();
+    let solution =
+        solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts).unwrap();
+
+    let handeye_ref = se3_dvec_to_iso3(solution.params.get("handeye").unwrap().as_view()).unwrap();
+    let target_ref = se3_dvec_to_iso3(solution.params.get("target").unwrap().as_view()).unwrap();
+
+    let mut deltas = Vec::with_capacity(dataset.num_views());
+    let mut max_rot: f64 = 0.0;
+    let mut max_trans: f64 = 0.0;
+    for i in 0..dataset.num_views() {
+        let key = format!("robot_delta/{}", i);
+        let delta_vec = solution.params.get(&key).unwrap();
+        let xi = [
+            delta_vec[0],
+            delta_vec[1],
+            delta_vec[2],
+            delta_vec[3],
+            delta_vec[4],
+            delta_vec[5],
+        ];
+        max_rot = max_rot.max(Vector3::new(xi[0], xi[1], xi[2]).norm());
+        max_trans = max_trans.max(Vector3::new(xi[3], xi[4], xi[5]).norm());
+        deltas.push(se3_exp_isometry(xi));
+    }
+
+    let dt_ref = (handeye_ref.translation.vector - handeye_gt.translation.vector).norm();
+    let ang_ref = rotation_angle(&handeye_ref, &handeye_gt);
+    let reproj_ref = mean_reproj_error_eye_in_hand(
+        &views,
+        intrinsics_gt,
+        distortion_gt,
+        &cam_to_rig_gt,
+        &handeye_ref,
+        &target_ref,
+        Some(&deltas),
+    );
+
+    let err_no = dt_no + ang_no;
+    let err_ref = dt_ref + ang_ref;
+    assert!(
+        err_ref < err_no,
+        "expected refined hand-eye error to drop: {:.4} -> {:.4}",
+        err_no,
+        err_ref
+    );
+    assert!(
+        reproj_ref < reproj_no,
+        "expected reprojection error to drop: {:.4} -> {:.4}",
+        reproj_no,
+        reproj_ref
+    );
+    assert!(
+        max_rot < opts_refine.robot_rot_sigma * 5.0,
+        "robot rotation deltas too large: {:.4} rad",
+        max_rot
+    );
+    assert!(
+        max_trans < opts_refine.robot_trans_sigma * 5.0,
+        "robot translation deltas too large: {:.4} m",
+        max_trans
+    );
 }

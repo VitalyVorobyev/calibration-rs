@@ -5,6 +5,7 @@ use crate::factors::linescan::{
 };
 use crate::factors::reprojection_model::{
     reproj_residual_pinhole4_dist5_handeye_generic,
+    reproj_residual_pinhole4_dist5_handeye_robot_delta_generic,
     reproj_residual_pinhole4_dist5_scheimpflug2_se3_generic,
     reproj_residual_pinhole4_dist5_se3_generic, reproj_residual_pinhole4_dist5_two_se3_generic,
     reproj_residual_pinhole4_se3_generic,
@@ -252,6 +253,28 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor>
             };
             Ok((Box::new(factor), loss))
         }
+        FactorKind::ReprojPointPinhole4Dist5HandEyeRobotDelta {
+            pw,
+            uv,
+            w,
+            base_to_gripper_se3,
+            mode,
+        } => {
+            let factor = TinyReprojPointDistHandEyeDeltaFactor {
+                pw: *pw,
+                uv: *uv,
+                w: *w,
+                robot_se3: *base_to_gripper_se3,
+                mode: *mode,
+            };
+            Ok((Box::new(factor), loss))
+        }
+        FactorKind::Se3TangentPrior { sqrt_info } => {
+            let factor = TinySe3TangentPriorFactor {
+                sqrt_info: *sqrt_info,
+            };
+            Ok((Box::new(factor), loss))
+        }
         FactorKind::LaserPlanePixel { laser_pixel, w } => {
             let factor = TinyLaserPlanePixelFactor {
                 laser_pixel: *laser_pixel,
@@ -409,6 +432,61 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistHandEyeFactor {
             &obs,
         );
         DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyReprojPointDistHandEyeDeltaFactor {
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+    robot_se3: [f64; 7],
+    mode: crate::ir::HandEyeMode,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistHandEyeDeltaFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            6,
+            "expected [cam, dist, extr, handeye, target, robot_delta] parameter blocks"
+        );
+        let data = crate::factors::reprojection_model::HandEyeRobotDeltaData {
+            robot: crate::factors::reprojection_model::RobotPoseData {
+                robot_se3: self.robot_se3,
+                mode: self.mode,
+            },
+            obs: crate::factors::reprojection_model::ObservationData {
+                pw: self.pw,
+                uv: self.uv,
+                w: self.w,
+            },
+        };
+        let r = reproj_residual_pinhole4_dist5_handeye_robot_delta_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // extr (camera-to-rig)
+            params[3].as_view(), // handeye
+            params[4].as_view(), // target
+            params[5].as_view(), // robot delta (se3 tangent)
+            &data,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinySe3TangentPriorFactor {
+    sqrt_info: [f64; 6],
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinySe3TangentPriorFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(params.len(), 1, "expected [robot_delta] parameter blocks");
+        DVector::from_fn(6, |idx, _| {
+            let w = T::from_f64(self.sqrt_info[idx]).unwrap();
+            params[0][idx].clone() * w
+        })
     }
 }
 

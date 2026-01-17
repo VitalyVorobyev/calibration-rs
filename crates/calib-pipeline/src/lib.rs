@@ -605,6 +605,7 @@ mod tests {
                 *base_to_gripper * handeye_init * *cam_to_target
             })
             .collect();
+        let target_pose = target_poses[0];
 
         let mut rig_views = Vec::new();
         for (robot_pose, view) in robot_poses.iter().zip(&views) {
@@ -624,7 +625,7 @@ mod tests {
             distortion: vec![optim.distortion],
             cam_to_rig: vec![Iso3::identity()],
             handeye: handeye_init,
-            target_poses,
+            target_poses: vec![target_pose],
         };
 
         let opts = HandEyeSolveOptions {
@@ -638,7 +639,6 @@ mod tests {
             fix_p1: true,
             fix_p2: true,
             fix_extrinsics: vec![true],
-            fix_target_poses: vec![0],
             ..Default::default()
         };
 

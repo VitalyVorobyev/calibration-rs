@@ -9,21 +9,25 @@ use calib_core::{
     BrownConrady5, CameraParams, DistortionModel, DistortionParams, FxFyCxCySkew, IntrinsicsParams,
     Iso3, Mat3, ProjectionParams, Pt2, Real, SensorParams, Vec2, Vec3,
 };
+use calib_linear::extrinsics::average_isometries;
 use calib_linear::handeye::estimate_handeye_dlt;
 use calib_linear::homography::dlt_homography_ransac;
 pub use calib_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
 pub use calib_optim::backend::BackendSolveOptions;
 pub use calib_optim::handeye::HandEyeSolveOptions;
 use calib_optim::handeye::{
-    optimize_handeye, CameraViewObservations, HandEyeDataset, HandEyeInit, RigViewObservations,
+    optimize_handeye_with_diagnostics, CameraViewObservations, HandEyeDataset, HandEyeInit,
+    RigViewObservations,
 };
 pub use calib_optim::ir::HandEyeMode;
 pub use calib_optim::ir::RobustLoss;
 pub use calib_optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
 use calib_optim::planar_intrinsics::{optimize_planar_intrinsics, PlanarIntrinsicsInit};
+use nalgebra::{Translation3, UnitQuaternion};
+use serde::{Deserialize, Serialize};
 
 /// Input view for single-camera hand-eye calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeView {
     /// Planar target observations in this view.
     pub view: PlanarViewData,
@@ -32,7 +36,7 @@ pub struct HandEyeView {
 }
 
 /// Intrinsics stage output with per-view poses and reprojection error.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntrinsicsStage {
     /// Pinhole intrinsics (fx, fy, cx, cy, skew).
     pub intrinsics: calib_core::FxFyCxCySkew<Real>,
@@ -47,7 +51,7 @@ pub struct IntrinsicsStage {
 }
 
 /// Pose RANSAC stage output with filtered views and inlier stats.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoseRansacStage {
     /// Filtered views containing only inlier points.
     pub views: Vec<HandEyeView>,
@@ -62,7 +66,7 @@ pub struct PoseRansacStage {
 }
 
 /// Hand-eye stage output with target poses and reprojection error.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeStage {
     /// Hand-eye transform (eye-in-hand: gripper-from-camera, eye-to-hand: camera-from-base).
     pub handeye: Iso3,
@@ -75,7 +79,7 @@ pub struct HandEyeStage {
 }
 
 /// Full report for stepwise hand-eye calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeSingleReport {
     pub intrinsics_init: IntrinsicsStage,
     pub intrinsics_optimized: IntrinsicsStage,
@@ -370,7 +374,11 @@ pub fn init_handeye(
     let cam_in_target: Vec<Iso3> = cam_from_target.iter().map(|pose| pose.inverse()).collect();
 
     let handeye = estimate_handeye_dlt(&base_to_gripper, &cam_in_target, 1.0)?;
-    let target_poses = compute_target_poses(&base_to_gripper, cam_from_target, &handeye, mode);
+    let per_view_target_poses =
+        compute_target_poses(&base_to_gripper, cam_from_target, &handeye, mode);
+    let target_pose = average_isometries(&per_view_target_poses)
+        .map_err(|err| anyhow!("failed to average target poses: {err}"))?;
+    let target_poses = vec![target_pose; views.len()];
 
     let mut intrinsics_fixed = *intrinsics;
     intrinsics_fixed.skew = 0.0;
@@ -381,6 +389,7 @@ pub fn init_handeye(
         &handeye,
         &target_poses,
         mode,
+        None,
     )?;
 
     Ok(HandEyeStage {
@@ -423,22 +432,24 @@ pub fn optimize_handeye_stage(
         target_poses: init.target_poses.clone(),
     };
 
-    let result = optimize_handeye(dataset, init, solve_opts.clone(), backend_opts.clone())?;
+    let diagnostics =
+        optimize_handeye_with_diagnostics(dataset, init, solve_opts.clone(), backend_opts.clone())?;
 
     let mean_reproj_error = mean_reproj_error_handeye(
         views,
         &intrinsics_fixed,
         distortion,
-        &result.handeye,
-        &result.target_poses,
+        &diagnostics.result.handeye,
+        &diagnostics.result.target_poses,
         mode,
+        diagnostics.robot_deltas.as_deref(),
     )?;
 
     Ok(HandEyeStage {
-        handeye: result.handeye,
-        target_poses: result.target_poses,
+        handeye: diagnostics.result.handeye,
+        target_poses: diagnostics.result.target_poses,
         mean_reproj_error,
-        final_cost: Some(result.final_cost),
+        final_cost: Some(diagnostics.result.final_cost),
     })
 }
 
@@ -506,7 +517,7 @@ fn ensure_handeye_defaults(opts: &mut HandEyeSolveOptions, num_cameras: usize) {
     if opts.fix_extrinsics.is_empty() {
         opts.fix_extrinsics = vec![true; num_cameras];
     }
-    if opts.fix_target_poses.is_empty() {
+    if opts.relax_target_poses && opts.fix_target_poses.is_empty() {
         opts.fix_target_poses = vec![0];
     }
 }
@@ -609,6 +620,7 @@ fn mean_reproj_error_handeye(
     handeye: &Iso3,
     target_poses: &[Iso3],
     mode: HandEyeMode,
+    robot_deltas: Option<&[[Real; 6]]>,
 ) -> Result<Real> {
     ensure!(
         views.len() == target_poses.len(),
@@ -616,6 +628,14 @@ fn mean_reproj_error_handeye(
         target_poses.len(),
         views.len()
     );
+    if let Some(deltas) = robot_deltas {
+        ensure!(
+            deltas.len() == views.len(),
+            "robot delta count ({}) must match view count ({})",
+            deltas.len(),
+            views.len()
+        );
+    }
 
     let camera = make_pinhole_camera(*intrinsics, *distortion);
     let cam_to_rig = Iso3::identity();
@@ -623,8 +643,12 @@ fn mean_reproj_error_handeye(
     let mut total_error = 0.0;
     let mut total_points = 0usize;
 
-    for (view, target_pose) in views.iter().zip(target_poses.iter()) {
-        let base_to_gripper = &view.robot_pose;
+    for (view_idx, (view, target_pose)) in views.iter().zip(target_poses.iter()).enumerate() {
+        let base_to_gripper = if let Some(deltas) = robot_deltas {
+            se3_exp_isometry(deltas[view_idx]) * view.robot_pose
+        } else {
+            view.robot_pose
+        };
         for (p3d, p2d) in view.view.points_3d.iter().zip(view.view.points_2d.iter()) {
             let p_cam = match mode {
                 HandEyeMode::EyeInHand => {
@@ -654,4 +678,32 @@ fn mean_reproj_error_handeye(
         "no valid projections for error computation"
     );
     Ok(total_error / total_points as Real)
+}
+
+fn skew_matrix(w: &Vec3) -> Mat3 {
+    Mat3::new(0.0, -w.z, w.y, w.z, 0.0, -w.x, -w.y, w.x, 0.0)
+}
+
+fn se3_exp_isometry(xi: [Real; 6]) -> Iso3 {
+    let w = Vec3::new(xi[0], xi[1], xi[2]);
+    let v = Vec3::new(xi[3], xi[4], xi[5]);
+
+    let theta = w.norm();
+    let eps = 1e-9;
+
+    let w_hat = skew_matrix(&w);
+    let w_hat2 = w_hat * w_hat;
+
+    let (b, c) = if theta <= eps {
+        (0.5, 1.0 / 6.0)
+    } else {
+        let theta2 = theta * theta;
+        let theta3 = theta2 * theta;
+        ((1.0 - theta.cos()) / theta2, (theta - theta.sin()) / theta3)
+    };
+
+    let v_mat = Mat3::identity() + w_hat * b + w_hat2 * c;
+    let t = v_mat * v;
+    let rot = UnitQuaternion::from_scaled_axis(w);
+    Iso3::from_parts(Translation3::from(t), rot)
 }

@@ -146,8 +146,9 @@ pub mod session {
 
     // Re-export common problem types at top level for convenience
     pub use calib_pipeline::session::problem_types::{
-        PlanarIntrinsicsInitOptions, PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions,
-        PlanarIntrinsicsProblem,
+        HandEyeModeConfig, HandEyeSingleInitOptions, HandEyeSingleObservations,
+        HandEyeSingleOptimOptions, HandEyeSingleProblem, PlanarIntrinsicsInitOptions,
+        PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions, PlanarIntrinsicsProblem,
     };
 }
 

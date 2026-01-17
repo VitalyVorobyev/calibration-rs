@@ -248,10 +248,17 @@ let init = HandEyeInit {
 
 let mut opts = HandEyeSolveOptions::default();
 opts.fix_extrinsics = vec![true]; // fix camera 0 for gauge freedom
-opts.fix_target_poses = vec![0];
+opts.refine_robot_poses = true;
+opts.robot_rot_sigma = 0.5_f64.to_radians(); // radians
+opts.robot_trans_sigma = 1.0e-3; // meters
 
 let result = optimize_handeye(dataset, init, opts, backend_opts)?;
 ```
+
+Notes:
+- Default hand-eye optimization assumes a fixed target (single `T_B_T` across views).
+- Legacy per-view target relaxation is available via `relax_target_poses = true`.
+- Robot pose correction priors use radians (rotation) and meters (translation); delta_0 is fixed to zero.
 
 #### Rig Extrinsics (Multi-Camera)
 ```rust
