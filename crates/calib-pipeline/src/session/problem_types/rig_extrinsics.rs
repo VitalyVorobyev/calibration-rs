@@ -1,8 +1,7 @@
 //! Multi-camera rig extrinsics session problem.
 
-use crate::PlanarIntrinsicsReport;
 use anyhow::Result;
-use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt2, Pt3, Real, Vec2};
+use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt2, Real, Vec2};
 use serde::{Deserialize, Serialize};
 
 use crate::session::ProblemType;
@@ -28,18 +27,16 @@ pub struct RigViewData {
 }
 
 /// Observations from one camera in one view.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CameraViewData {
-    pub points_3d: Vec<Pt3>,
-    pub points_2d: Vec<Vec2>,
-    pub weights: Option<Vec<f64>>,
-}
+///
+/// This is the same data structure as planar intrinsics uses, re-exported under a
+/// rig-specific name to avoid duplicated definitions.
+pub type CameraViewData = crate::PlanarViewData;
 
 /// Initial values from rig extrinsics initialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigExtrinsicsInitial {
-    /// Per-camera calibration reports.
-    pub per_camera_calibrations: Vec<PlanarIntrinsicsReport>,
+    /// Per-camera calibrated parameters (K + distortion).
+    pub cameras: Vec<calib_core::CameraParams>,
     /// Reference camera index defining the rig frame.
     pub ref_cam_idx: usize,
     /// Camera-to-rig transforms.
@@ -122,7 +119,7 @@ impl ProblemType for RigExtrinsicsProblem {
         anyhow::ensure!(num_views > 0, "need at least one view");
 
         // Step 1: Per-camera planar intrinsics calibration
-        let mut per_camera_calibrations = Vec::with_capacity(num_cameras);
+        let mut cameras = Vec::with_capacity(num_cameras);
         let mut cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
         let mut cam_views: Vec<Vec<(usize, &CameraViewData)>> = vec![Vec::new(); num_cameras];
 
@@ -220,10 +217,7 @@ impl ProblemType for RigExtrinsicsProblem {
                 intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
             };
 
-            per_camera_calibrations.push(PlanarIntrinsicsReport {
-                camera: cam_cfg,
-                final_cost: 0.0,
-            });
+            cameras.push(cam_cfg);
 
             // Helper: undistort pixels into an ideal pinhole image for homography/pose recovery.
             fn undistort_pixels(
@@ -285,7 +279,7 @@ impl ProblemType for RigExtrinsicsProblem {
         )?;
 
         Ok(RigExtrinsicsInitial {
-            per_camera_calibrations,
+            cameras,
             ref_cam_idx: opts.ref_cam_idx,
             cam_to_rig: extrinsics.cam_to_rig,
             rig_from_target: extrinsics.rig_from_target,
@@ -330,24 +324,26 @@ impl ProblemType for RigExtrinsicsProblem {
 
         // Extract initial values
         let intrinsics: Vec<FxFyCxCySkew<Real>> = init
-            .per_camera_calibrations
+            .cameras
             .iter()
-            .map(|report| match &report.camera.intrinsics {
+            .map(|cam| match &cam.intrinsics {
                 calib_core::IntrinsicsParams::FxFyCxCySkew { params } => *params,
             })
             .collect();
 
         let distortion: Vec<BrownConrady5<Real>> = init
-            .per_camera_calibrations
+            .cameras
             .iter()
-            .map(|report| {
-                if let calib_core::DistortionParams::BrownConrady5 { params } =
-                    &report.camera.distortion
-                {
-                    *params
-                } else {
-                    unreachable!("planar intrinsics always returns BrownConrady5")
-                }
+            .map(|cam| match &cam.distortion {
+                calib_core::DistortionParams::BrownConrady5 { params } => *params,
+                calib_core::DistortionParams::None => BrownConrady5 {
+                    k1: 0.0,
+                    k2: 0.0,
+                    k3: 0.0,
+                    p1: 0.0,
+                    p2: 0.0,
+                    iters: 8,
+                },
             })
             .collect();
 
@@ -449,12 +445,14 @@ mod tests {
 
         // Generate views
         let mut views = Vec::new();
+        let mut rig_from_target_gt = Vec::new();
         for view_idx in 0..3 {
             let angle = 0.1 * (view_idx as f64);
             let axis = Vector3::new(0.0, 1.0, 0.0);
             let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
             let translation = Vector3::new(0.0, 0.0, 0.6 + 0.1 * view_idx as f64);
             let rig_from_target = Iso3::from_parts(translation.into(), rotation);
+            rig_from_target_gt.push(rig_from_target);
 
             // Compute target -> camera poses: T_C_T = (T_R_C)^-1 * (T_R_T)
             let cam0_from_target = cam0_to_rig.inverse() * rig_from_target;
@@ -494,10 +492,11 @@ mod tests {
 
         // Create session and run pipeline
         let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
-        session.set_observations(RigExtrinsicsObservations {
+        let input = RigExtrinsicsObservations {
             views,
             num_cameras: 2,
-        });
+        };
+        session.set_observations(input.clone());
 
         // Initialize
         let init_result = session.initialize(RigExtrinsicsInitOptions {
@@ -523,29 +522,175 @@ mod tests {
         assert!(export_result.is_ok(), "Export failed");
 
         let final_result = export_result.unwrap();
+        let reproj =
+            crate::rig_extrinsics::rig_reprojection_errors_from_report(&input, &final_result)
+                .unwrap();
+        let mean_px = reproj.mean_px.unwrap();
+        let rmse_px = reproj.rmse_px.unwrap();
         assert!(
-            final_result.final_cost < 1e-4,
-            "Final cost too high: {}",
-            final_result.final_cost
+            mean_px < 1e-3,
+            "mean reprojection error too high: {mean_px}"
+        );
+        assert!(
+            rmse_px < 1e-3,
+            "rmse reprojection error too high: {rmse_px}"
         );
 
         // Verify cam0_to_rig is identity (reference camera)
-        let cam0_rig_trans = final_result.cam_to_rig[0].translation.vector.norm();
+        let cam0_trans = final_result.cam_to_rig[0].translation.vector.norm();
+        let cam0_rot = final_result.cam_to_rig[0].rotation.angle();
         assert!(
-            cam0_rig_trans < 0.01,
-            "cam0 translation not identity: {}",
-            cam0_rig_trans
+            cam0_trans < 1e-12,
+            "cam0 translation not identity: {cam0_trans}"
+        );
+        assert!(cam0_rot < 1e-12, "cam0 rotation not identity: {cam0_rot}");
+
+        // Verify cam1_to_rig translation + rotation
+        let cam1_trans_err =
+            (final_result.cam_to_rig[1].translation.vector - cam1_to_rig.translation.vector).norm();
+        let cam1_rot_err =
+            (final_result.cam_to_rig[1].rotation * cam1_to_rig.rotation.inverse()).angle();
+        assert!(
+            cam1_trans_err < 1e-3,
+            "cam1 translation error too large: {cam1_trans_err}"
+        );
+        assert!(
+            cam1_rot_err < 1e-3,
+            "cam1 rotation error too large: {cam1_rot_err}"
         );
 
-        // Verify cam1_to_rig is reasonable (loose tolerance for initialization + optimization)
-        // Linear initialization can have ~20% error without distortion
-        let cam1_rig_trans_error =
-            (final_result.cam_to_rig[1].translation.vector - cam1_to_rig.translation.vector).norm();
-        assert!(
-            cam1_rig_trans_error < 0.25,
-            "cam1 translation error too large: {}",
-            cam1_rig_trans_error
+        // Verify per-view rig poses
+        assert_eq!(final_result.rig_from_target.len(), rig_from_target_gt.len());
+        for (view_idx, (rig_est, rig_gt)) in final_result
+            .rig_from_target
+            .iter()
+            .zip(rig_from_target_gt.iter())
+            .enumerate()
+        {
+            let trans_err = (rig_est.translation.vector - rig_gt.translation.vector).norm();
+            let rot_err = (rig_est.rotation * rig_gt.rotation.inverse()).angle();
+            assert!(
+                trans_err < 1e-3,
+                "view {} rig translation error too large: {}",
+                view_idx,
+                trans_err
+            );
+            assert!(
+                rot_err < 1e-3,
+                "view {} rig rotation error too large: {}",
+                view_idx,
+                rot_err
+            );
+        }
+    }
+
+    #[test]
+    fn rig_extrinsics_handles_missing_observations() {
+        let k_gt = FxFyCxCySkew {
+            fx: 800.0,
+            fy: 780.0,
+            cx: 640.0,
+            cy: 360.0,
+            skew: 0.0,
+        };
+        let dist_gt = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+
+        let cam0 = make_pinhole_camera(k_gt, dist_gt);
+        let cam1 = make_pinhole_camera(k_gt, dist_gt);
+
+        let cam0_to_rig = Iso3::identity();
+        let cam1_to_rig = Iso3::from_parts(
+            Vector3::new(0.1, 0.0, 0.0).into(),
+            UnitQuaternion::from_scaled_axis(Vector3::new(0.0, 0.05, 0.0)),
         );
+
+        let nx = 5;
+        let ny = 4;
+        let spacing = 0.05_f64;
+        let mut board_points = Vec::new();
+        for j in 0..ny {
+            for i in 0..nx {
+                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
+            }
+        }
+
+        let mut views = Vec::new();
+        for view_idx in 0..4 {
+            let angle = 0.1 * (view_idx as f64);
+            let axis = Vector3::new(0.0, 1.0, 0.0);
+            let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
+            let translation = Vector3::new(0.0, 0.0, 0.6 + 0.1 * view_idx as f64);
+            let rig_from_target = Iso3::from_parts(translation.into(), rotation);
+
+            let cam0_from_target = cam0_to_rig.inverse() * rig_from_target;
+            let cam1_from_target = cam1_to_rig.inverse() * rig_from_target;
+
+            let mut cam0_pixels = Vec::new();
+            let mut cam1_pixels = Vec::new();
+            for pw in &board_points {
+                let pc0 = cam0_from_target.transform_point(pw);
+                let pc1 = cam1_from_target.transform_point(pw);
+                if let Some(proj) = cam0.project_point(&pc0) {
+                    cam0_pixels.push(Vec2::new(proj.x, proj.y));
+                }
+                if let Some(proj) = cam1.project_point(&pc1) {
+                    cam1_pixels.push(Vec2::new(proj.x, proj.y));
+                }
+            }
+
+            views.push(RigViewData {
+                cameras: vec![
+                    Some(CameraViewData {
+                        points_3d: board_points.clone(),
+                        points_2d: cam0_pixels,
+                        weights: None,
+                    }),
+                    if view_idx == 0 {
+                        None
+                    } else {
+                        Some(CameraViewData {
+                            points_3d: board_points.clone(),
+                            points_2d: cam1_pixels,
+                            weights: None,
+                        })
+                    },
+                ],
+            });
+        }
+
+        let input = RigExtrinsicsObservations {
+            views,
+            num_cameras: 2,
+        };
+
+        let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+        session.set_observations(input.clone());
+        session
+            .initialize(RigExtrinsicsInitOptions {
+                ref_cam_idx: 0,
+                ..Default::default()
+            })
+            .unwrap();
+        session
+            .optimize(RigExtrinsicsOptimOptions::default())
+            .unwrap();
+        let report = session.export().unwrap();
+
+        let reproj =
+            crate::rig_extrinsics::rig_reprojection_errors_from_report(&input, &report).unwrap();
+        let mean_px = reproj.mean_px.unwrap();
+        assert!(
+            mean_px < 1e-3,
+            "mean reprojection error too high: {mean_px}"
+        );
+        assert_eq!(report.rig_from_target.len(), 4);
     }
 
     #[test]

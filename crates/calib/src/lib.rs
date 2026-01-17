@@ -167,10 +167,23 @@ pub mod helpers {
 /// Use these when you want a simple, single-call solution without managing state.
 pub mod pipeline {
     pub use calib_pipeline::{
-        handeye, handeye_single, run_planar_intrinsics, run_rig_extrinsics, HandEyeMode,
-        PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData,
+        handeye, handeye_single, rig_reprojection_errors, rig_reprojection_errors_from_report,
+        run_planar_intrinsics, run_rig_extrinsics, HandEyeMode, PlanarIntrinsicsConfig,
+        PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData, RigCameraViewData,
+        RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
+        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
+        RobustLossConfig,
+    };
+}
+
+/// Multi-camera rig calibration (intrinsics + camera-to-rig extrinsics).
+///
+/// This module is a curated entry-point for the rig pipeline and its common utilities.
+pub mod rig {
+    pub use calib_pipeline::{
+        rig_reprojection_errors, rig_reprojection_errors_from_report, run_rig_extrinsics,
         RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
-        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigViewData, RobustLossConfig,
+        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
     };
 }
 
@@ -221,6 +234,11 @@ pub mod prelude {
     pub use crate::pipeline::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData,
         RigExtrinsicsConfig, RigExtrinsicsInput, RigExtrinsicsReport, RigViewData,
+    };
+
+    // Rig metrics
+    pub use crate::pipeline::{
+        rig_reprojection_errors, rig_reprojection_errors_from_report, RigReprojectionErrors,
     };
 
     // Common options

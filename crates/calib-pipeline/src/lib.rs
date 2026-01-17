@@ -4,8 +4,9 @@ pub mod rig_extrinsics;
 pub mod session;
 
 pub use rig_extrinsics::{
-    run_rig_extrinsics, RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInitOptions,
-    RigExtrinsicsInput, RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigViewData,
+    rig_reprojection_errors, rig_reprojection_errors_from_report, run_rig_extrinsics,
+    RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
+    RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
 };
 
 // Re-export key building block modules from calib-linear for custom workflows
