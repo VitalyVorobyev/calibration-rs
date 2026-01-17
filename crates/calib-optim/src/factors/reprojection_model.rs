@@ -514,7 +514,7 @@ pub(crate) fn reproj_residual_pinhole4_dist5_two_se3_generic<T: RealField>(
 /// - `dist`: [k1, k2, k3, p1, p2] Brown-Conrady distortion
 /// - `extr`: [qx, qy, qz, qw, tx, ty, tz] camera-to-rig SE3
 /// - `handeye`: [qx, qy, qz, qw, tx, ty, tz] hand-eye SE3
-///   (gripper-from-rig for eye-in-hand, base-from-rig for eye-to-hand)
+///   (gripper-from-rig for eye-in-hand, rig-from-base for eye-to-hand)
 /// - `target`: [qx, qy, qz, qw, tx, ty, tz] target pose SE3
 /// - `robot_se3`: [qx, qy, qz, qw, tx, ty, tz] known robot pose (base-to-gripper)
 /// - `mode`: `HandEyeMode` specifying transform chain

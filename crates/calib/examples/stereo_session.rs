@@ -6,20 +6,22 @@
 //! - per-step reprojection error reporting,
 //! - optionally fixing intrinsics during rig BA (`--fix-intrinsics`).
 
+#[path = "support/stereo_io.rs"]
+mod stereo_io;
+
 use anyhow::{ensure, Context, Result};
-use calib::core::{CameraParams, Iso3, Real};
+use calib::core::{CameraParams, Iso3};
 use calib::optim::ir::RobustLoss;
 use calib::rig::{
-    rig_reprojection_errors, rig_reprojection_errors_from_report, RigCameraViewData,
-    RigExtrinsicsInitOptions, RigExtrinsicsInput, RigExtrinsicsOptimOptions, RigReprojectionErrors,
-    RigViewData,
+    rig_reprojection_errors, rig_reprojection_errors_from_report, RigExtrinsicsInitOptions,
+    RigExtrinsicsOptimOptions, RigReprojectionErrors,
 };
 use calib::session::{CalibrationSession, RigExtrinsicsProblem};
-use calib_targets::chessboard::ChessboardDetectionResult;
-use calib_targets::{detect, ChessboardParams};
+use calib_targets::ChessboardParams;
 use chess_corners::ChessConfig;
-use image::ImageReader;
-use std::path::{Path, PathBuf};
+use std::io::{self, Write};
+use std::path::PathBuf;
+use stereo_io::load_stereo_input_with_progress;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -63,13 +65,27 @@ fn main() -> Result<()> {
     }
     println!();
 
-    let input = load_stereo_input(
+    println!("Extracting calibration features (chessboard corners)...");
+    let (input, summary) = load_stereo_input_with_progress(
         &imgs_dir,
         &chess_config,
         &board_params,
         square_size_m,
         max_views,
+        |idx, total, image_index| {
+            print!("\r  processing pair {idx}/{total} (index {image_index})");
+            let _ = io::stdout().flush();
+        },
     )?;
+    println!();
+    println!(
+        "Loaded {} views from {} pairs ({} skipped empty), usable left={}, right={}",
+        summary.used_views,
+        summary.total_pairs,
+        summary.skipped_views,
+        summary.usable_left,
+        summary.usable_right
+    );
     ensure!(
         input.views.len() >= 3,
         "need at least 3 usable views, got {}",
@@ -129,155 +145,6 @@ fn parse_max_views(args: &[String]) -> Result<Option<usize>> {
         return Ok(Some(n));
     }
     Ok(None)
-}
-
-fn load_stereo_input(
-    imgs_dir: &Path,
-    chess_config: &ChessConfig,
-    board_params: &ChessboardParams,
-    square_size_m: Real,
-    max_views: Option<usize>,
-) -> Result<RigExtrinsicsInput> {
-    let left_dir = imgs_dir.join("leftcamera");
-    let right_dir = imgs_dir.join("rightcamera");
-    ensure!(
-        left_dir.exists(),
-        "left camera folder not found: {}",
-        left_dir.display()
-    );
-    ensure!(
-        right_dir.exists(),
-        "right camera folder not found: {}",
-        right_dir.display()
-    );
-
-    let mut views = Vec::new();
-    let mut total_left = 0usize;
-    let mut total_right = 0usize;
-    let mut skipped = 0usize;
-
-    for idx in 1usize.. {
-        if let Some(max) = max_views {
-            if views.len() >= max {
-                break;
-            }
-        }
-
-        let left_path = left_dir.join(format!("Im_L_{idx}.png"));
-        let right_path = right_dir.join(format!("Im_R_{idx}.png"));
-
-        if !left_path.exists() && !right_path.exists() {
-            break;
-        }
-        ensure!(
-            left_path.exists() && right_path.exists(),
-            "missing stereo pair: left={}, right={}",
-            left_path.display(),
-            right_path.display()
-        );
-
-        let left = detect_view(
-            &left_path,
-            chess_config,
-            board_params.clone(),
-            square_size_m,
-        )
-        .with_context(|| format!("left detection failed for {}", left_path.display()))?;
-        let right = detect_view(
-            &right_path,
-            chess_config,
-            board_params.clone(),
-            square_size_m,
-        )
-        .with_context(|| format!("right detection failed for {}", right_path.display()))?;
-
-        if left.is_none() && right.is_none() {
-            skipped += 1;
-            continue;
-        }
-        if left.is_some() {
-            total_left += 1;
-        }
-        if right.is_some() {
-            total_right += 1;
-        }
-
-        views.push(RigViewData {
-            cameras: vec![left, right],
-        });
-    }
-
-    ensure!(
-        total_left >= 3 && total_right >= 3,
-        "need >=3 usable views per camera (left={}, right={})",
-        total_left,
-        total_right
-    );
-
-    println!(
-        "Loaded {} views (skipped {} empty), usable left={}, right={}",
-        views.len(),
-        skipped,
-        total_left,
-        total_right
-    );
-
-    Ok(RigExtrinsicsInput {
-        views,
-        num_cameras: 2,
-    })
-}
-
-fn detect_view(
-    path: &Path,
-    chess_config: &ChessConfig,
-    board_params: ChessboardParams,
-    square_size_m: Real,
-) -> Result<Option<RigCameraViewData>> {
-    let img = ImageReader::open(path)
-        .with_context(|| format!("failed to read image {}", path.display()))?
-        .decode()
-        .with_context(|| format!("failed to decode {}", path.display()))?
-        .to_luma8();
-
-    let detection = detect::detect_chessboard(&img, chess_config, board_params);
-    let Some(detection) = detection else {
-        return Ok(None);
-    };
-    Ok(Some(detection_to_view_data(detection, square_size_m)?))
-}
-
-fn detection_to_view_data(
-    detection: ChessboardDetectionResult,
-    square_size_m: Real,
-) -> Result<RigCameraViewData> {
-    let mut points_3d = Vec::new();
-    let mut points_2d = Vec::new();
-    for corner in detection.detection.corners {
-        let Some(grid) = corner.grid else {
-            continue;
-        };
-        points_3d.push(calib::core::Pt3::new(
-            grid.i as Real * square_size_m,
-            grid.j as Real * square_size_m,
-            0.0,
-        ));
-        points_2d.push(calib::core::Vec2::new(
-            corner.position.x as Real,
-            corner.position.y as Real,
-        ));
-    }
-
-    ensure!(
-        points_3d.len() >= 4,
-        "insufficient corners after grid filtering"
-    );
-
-    Ok(RigCameraViewData {
-        points_3d,
-        points_2d,
-        weights: None,
-    })
 }
 
 fn print_cameras(label: &str, cams: &[CameraParams]) {

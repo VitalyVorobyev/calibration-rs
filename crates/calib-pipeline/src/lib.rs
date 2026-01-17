@@ -1,12 +1,17 @@
 pub mod handeye_single;
 pub mod helpers;
 pub mod rig_extrinsics;
+pub mod rig_handeye;
 pub mod session;
 
 pub use rig_extrinsics::{
     rig_reprojection_errors, rig_reprojection_errors_from_report, run_rig_extrinsics,
     RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
     RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
+};
+pub use rig_handeye::{
+    run_rig_handeye, RigHandEyeCameraViewData, RigHandEyeConfig, RigHandEyeInitOptions,
+    RigHandEyeInput, RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
 };
 
 // Re-export key building block modules from calib-linear for custom workflows
