@@ -390,7 +390,7 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistTwoSE3Factor {
             params[0].as_view(), // intrinsics
             params[1].as_view(), // distortion
             params[2].as_view(), // extr (camera-to-rig)
-            params[3].as_view(), // pose (rig-to-target)
+            params[3].as_view(), // pose (target-to-rig)
             &obs,
         );
         DVector::from_row_slice(r.as_slice())

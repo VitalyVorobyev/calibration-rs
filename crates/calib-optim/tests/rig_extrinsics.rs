@@ -45,8 +45,8 @@ fn stereo_rig_extrinsics_converges() {
 
     let cam_to_rig_gt = vec![cam0_to_rig_gt, cam1_to_rig_gt];
 
-    // Ground truth rig poses (3 views)
-    let rig_to_target_gt = vec![
+    // Ground truth rig poses (3 views): T_R_T (target -> rig)
+    let rig_from_target_gt = vec![
         Isometry3::from_parts(
             Translation3::new(0.1, -0.05, 1.0),
             Rotation3::from_euler_angles(0.1, -0.05, 0.2).into(),
@@ -63,7 +63,7 @@ fn stereo_rig_extrinsics_converges() {
 
     // Generate synthetic observations
     let mut views = Vec::new();
-    for rig_pose in &rig_to_target_gt {
+    for rig_pose in &rig_from_target_gt {
         let mut cameras_obs = Vec::new();
 
         for cam_to_rig in &cam_to_rig_gt {
@@ -146,7 +146,7 @@ fn stereo_rig_extrinsics_converges() {
     );
 
     // Perturb rig poses
-    let rig_to_target_init = rig_to_target_gt
+    let rig_from_target_init = rig_from_target_gt
         .iter()
         .map(|iso| {
             let t = iso.translation.vector + nalgebra::Vector3::new(0.008, -0.005, 0.01);
@@ -160,7 +160,7 @@ fn stereo_rig_extrinsics_converges() {
         intrinsics: intrinsics_init,
         distortion: distortion_init,
         cam_to_rig: vec![cam0_to_rig_init, cam1_to_rig_init],
-        rig_to_target: rig_to_target_init,
+        rig_from_target: rig_from_target_init,
     };
 
     // Solve options - fix camera 0 extrinsics to remove gauge freedom

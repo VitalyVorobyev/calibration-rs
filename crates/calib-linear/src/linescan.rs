@@ -83,6 +83,7 @@ impl LinescanPlaneSolver {
     /// 3. Normalize to unit normal
     ///
     /// Requires at least 3 non-colinear points.
+    /// TODO: check non-colinearity
     pub fn from_points_3d(points_camera: &[Pt3]) -> LinescanResult<LinearPlaneEstimate> {
         if points_camera.len() < 3 {
             return Err(LinescanError::InsufficientPoints {
@@ -154,6 +155,9 @@ impl LinescanPlaneSolver {
     ///
     /// - `view`: Laser pixel observations and camera pose
     /// - `camera`: Calibrated camera model (with intrinsics and distortion)
+    ///
+    /// TODO: single view only provides collinear points. That is a degenerate case. Need
+    /// multiple views to fit a plane. Review this API, probably change to `from_views`.
     pub fn from_view(
         view: &LinescanView,
         camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,

@@ -1,6 +1,12 @@
 pub mod handeye_single;
 pub mod helpers;
+pub mod rig_extrinsics;
 pub mod session;
+
+pub use rig_extrinsics::{
+    run_rig_extrinsics, RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInitOptions,
+    RigExtrinsicsInput, RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigViewData,
+};
 
 // Re-export key building block modules from calib-linear for custom workflows
 // Users can access functions like: calib_pipeline::homography::dlt_homography()

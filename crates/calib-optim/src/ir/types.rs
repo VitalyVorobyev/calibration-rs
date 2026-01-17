@@ -1,4 +1,5 @@
 use anyhow::{anyhow, ensure, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 /// Identifier for a parameter block in the IR.
@@ -100,7 +101,7 @@ impl FixedMask {
 ///
 /// Each residual block has its own loss; per-point robustification is achieved
 /// by using one residual block per observation.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum RobustLoss {
     #[default]
     None,
@@ -118,7 +119,7 @@ pub enum RobustLoss {
 /// Hand-eye calibration mode.
 ///
 /// Specifies the transform chain used for hand-eye calibration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HandEyeMode {
     /// Camera mounted on robot end-effector (gripper).
     ///
@@ -143,7 +144,7 @@ pub enum FactorKind {
     ReprojPointPinhole4Dist5Scheimpflug2 { pw: [f64; 3], uv: [f64; 2], w: f64 },
     /// Reprojection with two composed SE3 transforms for rig extrinsics.
     ///
-    /// Parameters: [intrinsics, distortion, extr_camera_to_rig, pose_rig_to_target]
+    /// Parameters: [intrinsics, distortion, extr_camera_to_rig, pose_target_to_rig]
     /// Transform chain: P_camera = extr^-1 * pose * P_world
     ReprojPointPinhole4Dist5TwoSE3 { pw: [f64; 3], uv: [f64; 2], w: f64 },
     /// Reprojection for hand-eye calibration with robot pose as measurement.

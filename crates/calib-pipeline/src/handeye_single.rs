@@ -100,7 +100,7 @@ pub const RANSAC_CONFIDENCE: Real = 0.99;
 pub const RANSAC_SEED: u64 = 1_234_567;
 
 /// Options for per-view planar pose RANSAC.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoseRansacOptions {
     /// Reprojection threshold in pixels.
     pub thresh_px: Real,

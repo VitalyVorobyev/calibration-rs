@@ -262,6 +262,7 @@ Notes:
 
 #### Rig Extrinsics (Multi-Camera)
 ```rust
+use calib_optim::backend::BackendSolveOptions;
 use calib_optim::problems::rig_extrinsics::{
     optimize_rig_extrinsics,
     RigExtrinsicsDataset,
@@ -269,18 +270,19 @@ use calib_optim::problems::rig_extrinsics::{
     RigExtrinsicsSolveOptions,
 };
 
-let opts = RigExtrinsicsSolveOptions {
-    fix_reference_camera: true,  // Fix camera 0 as reference frame
-    fix_shared_intrinsics: false,
-    ..Default::default()
-};
+let mut opts = RigExtrinsicsSolveOptions::default();
+opts.fix_extrinsics = vec![true, false]; // fix camera 0 extrinsics (rig frame)
+opts.fix_rig_poses = vec![0]; // optional gauge fix (fix first target->rig pose)
 
-let result = optimize_rig_extrinsics(&dataset, &init, &opts, &backend_opts)?;
+let backend_opts = BackendSolveOptions::default();
+let result = optimize_rig_extrinsics(dataset, init, opts, backend_opts)?;
 
 // Extract baseline for stereo rig
-if dataset.num_cameras() == 2 {
-    let baseline = &result.camera_extrinsics[1];  // T_C1_C0
-    println!("Baseline: {:?}", baseline.translation);
+if result.cam_to_rig.len() == 2 {
+    // If the rig frame is camera 0, then cam_to_rig[1] is T_R_C1 == T_C0_C1.
+    let cam1_to_rig = &result.cam_to_rig[1];
+    let cam0_to_cam1 = cam1_to_rig.inverse();
+    println!("Baseline (cam0->cam1): {:?}", cam0_to_cam1.translation.vector);
 }
 ```
 
@@ -290,12 +292,14 @@ if dataset.num_cameras() == 2 {
 ```rust
 use calib_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
 
-// Given multiple views of a target with both cameras
-let left_poses: Vec<Iso3> = /* T_L_Target */;
-let right_poses: Vec<Iso3> = /* T_R_Target */;
+// cam_se3_target[view][cam] = camera->target for that view/camera.
+let cam_se3_target: Vec<Vec<Option<Iso3>>> = /* ... */;
 
-// Estimate T_R_L (right camera in left camera frame)
-let extrinsics = estimate_extrinsics_from_cam_target_poses(&left_poses, &right_poses)?;
+// Reference camera index defines the rig frame (rig == reference camera frame).
+let extrinsics = estimate_extrinsics_from_cam_target_poses(&cam_se3_target, 0)?;
+
+let cam_to_rig = extrinsics.cam_to_rig; // camera->rig
+let rig_from_target = extrinsics.rig_from_target; // target->rig (per view)
 ```
 
 #### Hand-Eye DLT
@@ -395,30 +399,19 @@ let final_result = optimize_planar_intrinsics(dataset, init, optim_opts, backend
 ### Workflow 2: Custom Stereo Rig Calibration
 
 ```rust
-// Calibrate left camera
-let left_linear = IterativeIntrinsicsSolver::estimate(&left_views, opts)?;
-let left_dataset = /* build from left_views */;
-let left_init = /* from left_linear */;
-let left_camera = optimize_planar_intrinsics(left_dataset, left_init, opts, backend_opts)?;
+use calib_pipeline::{run_rig_extrinsics, RigExtrinsicsConfig, RigExtrinsicsInput};
 
-// Calibrate right camera
-let right_linear = IterativeIntrinsicsSolver::estimate(&right_views, opts)?;
-let right_dataset = /* build from right_views */;
-let right_init = /* from right_linear */;
-let right_camera = optimize_planar_intrinsics(right_dataset, right_init, opts, backend_opts)?;
+// Build multi-camera observations: input.views[view].cameras[camera] = Some(obs)
+let input: RigExtrinsicsInput = /* ... */;
 
-// Estimate baseline
-let baseline_init = estimate_extrinsics_from_cam_target_poses(
-    &left_poses,
-    &right_poses,
-)?;
+// Run per-camera intrinsics init + rig extrinsics init + joint BA
+let report = run_rig_extrinsics(&input, &RigExtrinsicsConfig::default())?;
 
-// Joint refinement
-let rig_dataset = RigExtrinsicsDataset::new(vec![left_camera, right_camera], stereo_views)?;
-let rig_init = RigExtrinsicsInit::new(vec![left_camera, right_camera], baseline_init)?;
-let rig_result = optimize_rig_extrinsics(rig_dataset, rig_init, rig_opts, backend_opts)?;
-
-println!("Baseline: {:?}", rig_result.camera_extrinsics[1].translation);
+// If the rig frame is camera 0, baseline cam0->cam1 is the inverse of cam1->rig.
+if report.cam_to_rig.len() == 2 {
+    let cam0_to_cam1 = report.cam_to_rig[1].inverse();
+    println!("Baseline (cam0->cam1): {:?}", cam0_to_cam1.translation.vector);
+}
 ```
 
 ### Workflow 3: Homography-Based Calibration with Outlier Analysis

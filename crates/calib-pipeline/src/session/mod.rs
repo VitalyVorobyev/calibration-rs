@@ -156,6 +156,12 @@ pub struct CalibrationSession<P: ProblemType> {
     initial_values: Option<P::InitialValues>,
     /// Optimized results (populated after optimization).
     optimized_results: Option<P::OptimizedResults>,
+    /// Options used for initialization (captured for reproducibility).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    init_options: Option<P::InitOptions>,
+    /// Options used for optimization (captured for reproducibility).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    optim_options: Option<P::OptimOptions>,
     /// Session metadata.
     metadata: SessionMetadata,
 }
@@ -168,6 +174,8 @@ impl<P: ProblemType> CalibrationSession<P> {
             observations: None,
             initial_values: None,
             optimized_results: None,
+            init_options: None,
+            optim_options: None,
             metadata: SessionMetadata::new(P::problem_name().to_string()),
         }
     }
@@ -209,6 +217,16 @@ impl<P: ProblemType> CalibrationSession<P> {
         self.optimized_results.as_ref()
     }
 
+    /// Get options used for initialization, if present.
+    pub fn init_options(&self) -> Option<&P::InitOptions> {
+        self.init_options.as_ref()
+    }
+
+    /// Get options used for optimization, if present.
+    pub fn optim_options(&self) -> Option<&P::OptimOptions> {
+        self.optim_options.as_ref()
+    }
+
     /// Set observations and transition to Uninitialized stage.
     ///
     /// This can be called multiple times to replace observations.
@@ -217,6 +235,8 @@ impl<P: ProblemType> CalibrationSession<P> {
         self.stage = SessionStage::Uninitialized;
         self.initial_values = None;
         self.optimized_results = None;
+        self.init_options = None;
+        self.optim_options = None;
         self.metadata.touch();
     }
 
@@ -239,6 +259,7 @@ impl<P: ProblemType> CalibrationSession<P> {
 
         let init = P::initialize(obs, &opts)?;
         self.initial_values = Some(init);
+        self.init_options = Some(opts);
         self.stage = SessionStage::Initialized;
         self.metadata.touch();
 
@@ -262,6 +283,7 @@ impl<P: ProblemType> CalibrationSession<P> {
 
         let result = P::optimize(obs, init, &opts)?;
         self.optimized_results = Some(result);
+        self.optim_options = Some(opts);
         self.stage = SessionStage::Optimized;
         self.metadata.touch();
 
@@ -324,10 +346,10 @@ mod tests {
     }
 
     #[derive(Clone, Serialize, Deserialize)]
-    struct MockInitOptions;
+    struct MockInitOptions {}
 
     #[derive(Clone, Serialize, Deserialize)]
-    struct MockOptimOptions;
+    struct MockOptimOptions {}
 
     struct MockProblem;
 
@@ -390,7 +412,7 @@ mod tests {
         };
         session.set_observations(obs);
 
-        let result = session.initialize(MockInitOptions);
+        let result = session.initialize(MockInitOptions {});
         assert!(result.is_ok());
         assert_eq!(session.stage(), SessionStage::Initialized);
         assert!((session.initial_values().unwrap().value - 6.0).abs() < 1e-12);
@@ -399,7 +421,7 @@ mod tests {
     #[test]
     fn initialize_fails_without_observations() {
         let mut session = CalibrationSession::<MockProblem>::new();
-        let result = session.initialize(MockInitOptions);
+        let result = session.initialize(MockInitOptions {});
         assert!(result.is_err());
     }
 
@@ -410,9 +432,9 @@ mod tests {
             data: vec![1.0, 2.0, 3.0],
         };
         session.set_observations(obs);
-        session.initialize(MockInitOptions).unwrap();
+        session.initialize(MockInitOptions {}).unwrap();
 
-        let result = session.optimize(MockOptimOptions);
+        let result = session.optimize(MockOptimOptions {});
         assert!(result.is_ok());
         assert_eq!(session.stage(), SessionStage::Optimized);
         assert!((session.optimized_results().unwrap().optimized_value - 12.0).abs() < 1e-12);
@@ -421,7 +443,7 @@ mod tests {
     #[test]
     fn optimize_fails_if_not_initialized() {
         let mut session = CalibrationSession::<MockProblem>::new();
-        let result = session.optimize(MockOptimOptions);
+        let result = session.optimize(MockOptimOptions {});
         assert!(result.is_err());
     }
 
@@ -432,8 +454,8 @@ mod tests {
             data: vec![1.0, 2.0, 3.0],
         };
         session.set_observations(obs);
-        session.initialize(MockInitOptions).unwrap();
-        session.optimize(MockOptimOptions).unwrap();
+        session.initialize(MockInitOptions {}).unwrap();
+        session.optimize(MockOptimOptions {}).unwrap();
 
         let result = session.export();
         assert!(result.is_ok());
@@ -456,7 +478,7 @@ mod tests {
             data: vec![1.0, 2.0, 3.0],
         };
         session.set_observations(obs);
-        session.initialize(MockInitOptions).unwrap();
+        session.initialize(MockInitOptions {}).unwrap();
 
         let json = session.to_json().unwrap();
         let restored: CalibrationSession<MockProblem> =
@@ -465,6 +487,8 @@ mod tests {
         assert_eq!(restored.stage(), SessionStage::Initialized);
         assert_eq!(restored.observations().unwrap().data, vec![1.0, 2.0, 3.0]);
         assert!((restored.initial_values().unwrap().value - 6.0).abs() < 1e-12);
+        assert!(restored.init_options().is_some());
+        assert!(restored.optim_options().is_none());
         assert_eq!(
             restored.metadata().description.as_ref().unwrap(),
             "Test session"
@@ -487,8 +511,9 @@ mod tests {
             data: vec![1.0, 2.0],
         };
         session.set_observations(obs1);
-        session.initialize(MockInitOptions).unwrap();
+        session.initialize(MockInitOptions {}).unwrap();
         assert_eq!(session.stage(), SessionStage::Initialized);
+        assert!(session.init_options().is_some());
 
         let obs2 = MockObservations {
             data: vec![3.0, 4.0],
@@ -496,5 +521,7 @@ mod tests {
         session.set_observations(obs2);
         assert_eq!(session.stage(), SessionStage::Uninitialized);
         assert!(session.initial_values().is_none());
+        assert!(session.init_options().is_none());
+        assert!(session.optim_options().is_none());
     }
 }

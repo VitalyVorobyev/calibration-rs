@@ -14,6 +14,7 @@ calib-core = { path = "../calib-core", version = "0.1.0" }
 nalgebra = { workspace = true }
 anyhow = "1"
 tiny-solver = "0.18"
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 calib-linear = { path = "../calib-linear", version = "0.1.0" }

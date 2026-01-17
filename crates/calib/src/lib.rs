@@ -149,6 +149,8 @@ pub mod session {
         HandEyeModeConfig, HandEyeSingleInitOptions, HandEyeSingleObservations,
         HandEyeSingleOptimOptions, HandEyeSingleProblem, PlanarIntrinsicsInitOptions,
         PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions, PlanarIntrinsicsProblem,
+        RigExtrinsicsInitOptions, RigExtrinsicsObservations, RigExtrinsicsOptimOptions,
+        RigExtrinsicsProblem,
     };
 }
 
@@ -165,8 +167,10 @@ pub mod helpers {
 /// Use these when you want a simple, single-call solution without managing state.
 pub mod pipeline {
     pub use calib_pipeline::{
-        handeye, handeye_single, run_planar_intrinsics, HandEyeMode, PlanarIntrinsicsConfig,
-        PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData, RobustLossConfig,
+        handeye, handeye_single, run_planar_intrinsics, run_rig_extrinsics, HandEyeMode,
+        PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData,
+        RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
+        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigViewData, RobustLossConfig,
     };
 }
 
@@ -204,7 +208,7 @@ pub mod prelude {
     // Session API
     pub use crate::session::{
         CalibrationSession, PlanarIntrinsicsObservations, PlanarIntrinsicsProblem, ProblemType,
-        SessionStage,
+        RigExtrinsicsObservations, RigExtrinsicsProblem, SessionStage,
     };
 
     // Helper functions
@@ -216,6 +220,7 @@ pub mod prelude {
     // Pipeline types
     pub use crate::pipeline::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData,
+        RigExtrinsicsConfig, RigExtrinsicsInput, RigExtrinsicsReport, RigViewData,
     };
 
     // Common options
