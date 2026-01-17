@@ -11,10 +11,10 @@
 //!
 //! ```no_run
 //! use calib::session::{CalibrationSession, PlanarIntrinsicsProblem, PlanarIntrinsicsObservations};
-//! use calib::pipeline::PlanarViewData;
+//! use calib::pipeline::CameraViewData;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let views: Vec<PlanarViewData> = /* load calibration data */
+//! let views: Vec<CameraViewData> = /* load calibration data */
 //! # vec![];
 //!
 //! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
@@ -53,10 +53,10 @@
 //! use calib::linear::distortion_fit::DistortionFitOptions;
 //! use calib::optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
 //! use calib::optim::backend::BackendSolveOptions;
-//! use calib::pipeline::PlanarViewData;
+//! use calib::pipeline::CameraViewData;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let views: Vec<PlanarViewData> = /* load calibration data */
+//! let views: Vec<CameraViewData> = /* load calibration data */
 //! # vec![];
 //!
 //! // Step 1: Linear initialization
@@ -168,8 +168,8 @@ pub mod helpers {
 pub mod pipeline {
     pub use calib_pipeline::{
         handeye, handeye_single, rig_reprojection_errors, rig_reprojection_errors_from_report,
-        run_planar_intrinsics, run_rig_extrinsics, HandEyeMode, PlanarIntrinsicsConfig,
-        PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData, RigCameraViewData,
+        run_planar_intrinsics, run_rig_extrinsics, CameraViewData, HandEyeMode,
+        PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, RigCameraViewData,
         RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
         RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
         RobustLossConfig,
@@ -232,7 +232,7 @@ pub mod prelude {
 
     // Pipeline types
     pub use crate::pipeline::{
-        PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData,
+        CameraViewData, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
         RigExtrinsicsConfig, RigExtrinsicsInput, RigExtrinsicsReport, RigViewData,
     };
 

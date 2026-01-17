@@ -246,7 +246,7 @@ fn ensure_handeye_defaults(opts: &mut HandEyeSolveOptions, num_cameras: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{make_pinhole_camera, session::CalibrationSession, PlanarViewData};
+    use crate::{make_pinhole_camera, session::CalibrationSession, CameraViewData};
     use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt3, Vec2};
     use nalgebra::{UnitQuaternion, Vector3};
 
@@ -321,7 +321,7 @@ mod tests {
             }
 
             views.push(HandEyeView {
-                view: PlanarViewData {
+                view: CameraViewData {
                     points_3d,
                     points_2d,
                     weights: None,

@@ -26,11 +26,7 @@ pub struct RigViewData {
     pub cameras: Vec<Option<CameraViewData>>,
 }
 
-/// Observations from one camera in one view.
-///
-/// This is the same data structure as planar intrinsics uses, re-exported under a
-/// rig-specific name to avoid duplicated definitions.
-pub type CameraViewData = crate::PlanarViewData;
+pub use crate::CameraViewData;
 
 /// Initial values from rig extrinsics initialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]

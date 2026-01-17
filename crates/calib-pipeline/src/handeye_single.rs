@@ -2,7 +2,7 @@
 
 use crate::{
     build_planar_dataset, k_matrix_from_intrinsics, make_pinhole_camera,
-    planar_homographies_from_views, poses_from_homographies, PlanarIntrinsicsInput, PlanarViewData,
+    planar_homographies_from_views, poses_from_homographies, CameraViewData, PlanarIntrinsicsInput,
 };
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeView {
     /// Planar target observations in this view.
-    pub view: PlanarViewData,
+    pub view: CameraViewData,
     /// Robot pose (base-to-gripper) for this view.
     pub robot_pose: Iso3,
 }
@@ -157,7 +157,7 @@ pub fn init_intrinsics(
     views: &[HandEyeView],
     opts: &IterativeIntrinsicsOptions,
 ) -> Result<IntrinsicsStage> {
-    let planar_views: Vec<PlanarViewData> = views.iter().map(|v| v.view.clone()).collect();
+    let planar_views: Vec<CameraViewData> = views.iter().map(|v| v.view.clone()).collect();
     let init = crate::helpers::initialize_planar_intrinsics(&planar_views, opts)?;
 
     let homographies = planar_homographies_from_views(&planar_views)?;
@@ -182,7 +182,7 @@ pub fn intrinsics_stage_from_params(
     intrinsics: FxFyCxCySkew<Real>,
     distortion: BrownConrady5<Real>,
 ) -> Result<IntrinsicsStage> {
-    let planar_views: Vec<PlanarViewData> = views.iter().map(|v| v.view.clone()).collect();
+    let planar_views: Vec<CameraViewData> = views.iter().map(|v| v.view.clone()).collect();
     let homographies = planar_homographies_from_views(&planar_views)?;
     let kmtx = k_matrix_from_intrinsics(&intrinsics);
     let poses = poses_from_homographies(&kmtx, &homographies)?;
@@ -238,7 +238,7 @@ pub fn optimize_intrinsics(
     solve_opts: &PlanarIntrinsicsSolveOptions,
     backend_opts: &BackendSolveOptions,
 ) -> Result<IntrinsicsStage> {
-    let planar_views: Vec<PlanarViewData> = views.iter().map(|v| v.view.clone()).collect();
+    let planar_views: Vec<CameraViewData> = views.iter().map(|v| v.view.clone()).collect();
     let dataset = build_planar_dataset(&PlanarIntrinsicsInput {
         views: planar_views.clone(),
     })?;
@@ -540,7 +540,7 @@ fn compute_target_poses(
         .collect()
 }
 
-fn filter_view_inliers(view: &PlanarViewData, inliers: &[usize]) -> PlanarViewData {
+fn filter_view_inliers(view: &CameraViewData, inliers: &[usize]) -> CameraViewData {
     let mut points_3d = Vec::with_capacity(inliers.len());
     let mut points_2d = Vec::with_capacity(inliers.len());
 
@@ -554,7 +554,7 @@ fn filter_view_inliers(view: &PlanarViewData, inliers: &[usize]) -> PlanarViewDa
         .as_ref()
         .map(|w| inliers.iter().map(|&idx| w[idx]).collect::<Vec<_>>());
 
-    PlanarViewData {
+    CameraViewData {
         points_3d,
         points_2d,
         weights,
@@ -583,7 +583,7 @@ fn undistort_pixels(
 }
 
 fn mean_reproj_error_planar(
-    views: &[PlanarViewData],
+    views: &[CameraViewData],
     intrinsics: &calib_core::FxFyCxCySkew<Real>,
     distortion: &calib_core::BrownConrady5<Real>,
     poses: &[Iso3],

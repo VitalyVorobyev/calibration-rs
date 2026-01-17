@@ -29,7 +29,11 @@ Non-goals (for this iteration):
 - Session checkpoints record init/optim options; option types derive `serde` in `calib-linear`/`calib-optim`.
 - Rig extrinsics conventions standardized to `rig_from_target` (target → rig).
 - `calib-pipeline` exposes `run_rig_extrinsics`; `calib` facade re-exports rig session + pipeline APIs.
-- Example added: `crates/calib/examples/rig_extrinsics_session.rs`.
+- Rig reprojection metrics are available via `calib_pipeline::rig_reprojection_errors*` and re-exported as `calib::rig::*`.
+- Observation type cleanup: `PlanarViewData` renamed to `CameraViewData` (shared between planar + rig pipelines).
+- Examples added:
+  - `crates/calib/examples/rig_extrinsics_session.rs`
+  - `crates/calib/examples/stereo_session.rs` (real images in `data/stereo/imgs`, per-step reprojection report, optional `--fix-intrinsics`)
 
 ---
 
@@ -192,3 +196,107 @@ Update `calib::prelude` to include the rig pipeline types that are expected to b
 4. Improve rig initialization to seed distortion (reuse existing planar init utilities).
 5. Tighten rig tests + docs for pose conventions.
 6. Update `calib` facade exports + README/functions docs.
+
+---
+
+## 6) Add a full “rig on robot end-effector” pipeline (multi-camera intrinsics + rig extrinsics + hand-eye)
+
+Goal: calibrate a multi-camera rig mounted on a robot end-effector end-to-end:
+- per-camera intrinsics + distortion,
+- per-camera camera→rig extrinsics,
+- rig↔robot hand-eye transform,
+- (optionally) target pose(s) in the world/base frame,
+with missing camera observations supported.
+
+### 6.1 Proposed public API (calib-pipeline + calib facade)
+
+Add a new pipeline module (name bikeshed):
+- `crates/calib-pipeline/src/rig_handeye.rs` (or `robot_rig.rs`)
+
+Expose via `calib`:
+- `calib::rig_handeye::*` (or `calib::robot::*`)
+
+Types:
+- `RigHandEyeInput` (serde)
+- `RigHandEyeConfig` (serde)
+- `RigHandEyeReport` (serde)
+
+Entry points:
+- `run_rig_handeye(input, cfg) -> RigHandEyeReport`
+- optionally split-stage API:
+  - `initialize_rig_handeye(...) -> RigHandEyeInit`
+  - `optimize_rig_handeye(...) -> RigHandEyeReport`
+
+Session API:
+- add `RigHandEyeProblem` as a `ProblemType` in `crates/calib-pipeline/src/session/problem_types/`.
+
+### 6.2 Observations model (input)
+
+Each view has:
+- multi-camera corner observations (same as rig extrinsics):
+  - `RigViewData { cameras: Vec<Option<CameraViewData>> }`
+- a robot pose measurement for that view:
+  - **explicitly named** as `base_from_gripper: Iso3` (or `base_T_gripper`) to avoid ambiguity.
+
+So the input can look like:
+- `views: Vec<RigRobotView>`
+  - `rig_view: RigViewData`
+  - `base_from_gripper: Iso3`
+- `num_cameras: usize`
+- `ref_cam_idx: usize`
+- `mode: HandEyeMode` (`EyeInHand` / `EyeToHand`)
+- (optionally) board description if needed later (grid dims + square size), but v1 can use explicit per-point `points_3d`.
+
+### 6.3 Parameterization (what we solve for)
+
+Recommended unknowns:
+- `cameras[j]`: per-camera intrinsics + distortion (same model family initially)
+- `cam_to_rig[j]`: camera → rig (gauge fixed by `cam_to_rig[ref_cam_idx] = I`)
+- `handeye`: transform relating rig to robot (mode-dependent, but **naming should be explicit**)
+  - eye-in-hand: `gripper_from_rig`
+  - eye-to-hand: `base_from_rig`
+- `base_from_target[k]`: pose of target in the base/world frame
+  - for a fixed target: a single pose
+  - for multiple targets or moving target: allow `k` targets or even per-view (configurable)
+- (optional) robot pose refinement:
+  - either disabled by default, or modeled as per-view SE(3) deltas with tight priors.
+
+### 6.4 Factor graph / transform chain (semantic contract)
+
+Reuse the existing rig reprojection chain for each (view, cam, point), but with rig pose constrained by robot kinematics + hand-eye:
+- compute `base_from_rig(view)` from `base_from_gripper(view)` and `handeye` (mode-specific)
+- compute `rig_from_target(view) = (base_from_rig(view))^-1 * base_from_target`
+- then project as in rig BA:
+  - `p_rig = rig_from_target * p_target`
+  - `p_cam = cam_to_rig^-1 * p_rig`
+  - project with per-camera K+distortion
+
+This removes free per-view rig poses and replaces them with a physically meaningful model.
+
+### 6.5 Initialization strategy (robust and explainable)
+
+Stage plan (pipeline orchestration in `calib-pipeline`):
+1. Per-camera intrinsics + distortion init (existing iterative init) using all views for each camera.
+2. Rig extrinsics BA (existing rig pipeline) to get initial `cam_to_rig` and per-view `rig_from_target` estimates.
+3. Hand-eye init:
+   - derive `base_from_rig(view)` from `rig_from_target(view)` and a provisional `base_from_target` (or directly via DLT if you choose a formulation),
+   - run `calib_linear::handeye::estimate_handeye_dlt` using **rig poses** (not camera poses).
+4. Joint BA (new `calib-optim` problem) solving for the full parameter set, with options to:
+   - fix or refine intrinsics/distortion during joint BA,
+   - fix rig extrinsics or let them move,
+   - include robust loss and robot-pose priors.
+
+### 6.6 API design review (extendability: future linescan devices)
+
+Current strengths:
+- The `ProblemType` + `CalibrationSession` abstraction is a good extension point for adding new problems.
+- `calib-core` keeps camera model composition and math primitives reusable.
+
+Current pain points (to address before linescan + multi-model rigs):
+- Observation types are still scattered across crates; keep consolidating into a small set of canonical “view observation” structs.
+- Several pipelines hardcode pinhole + Brown-Conrady assumptions in both init and optimization glue; this will fight linescan support.
+
+Recommended refactors (planned, not required for v1 of rig-handeye):
+- Introduce a `calib_pipeline::data` module with canonical observation structs and constructors/validators.
+- Consider moving the generic “3D↔2D correspondences + optional weights” struct into `calib-core` so `calib-linear` and `calib-optim` can reuse it without duplication.
+- In `calib-optim`, model-specific factor kinds (pinhole/linescan) should be separate residual types under a shared problem builder interface, so adding linescan becomes additive instead of invasive.
