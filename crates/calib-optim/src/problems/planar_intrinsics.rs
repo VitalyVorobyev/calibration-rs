@@ -13,6 +13,7 @@ use calib_core::{
     BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
 };
 use nalgebra::DVector;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub use crate::ir::RobustLoss;
@@ -151,7 +152,7 @@ impl PlanarIntrinsicsInit {
 }
 
 /// Solve options specific to planar intrinsics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsSolveOptions {
     /// Robust loss applied per observation.
     pub robust_loss: RobustLoss,

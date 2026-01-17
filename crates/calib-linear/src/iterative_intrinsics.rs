@@ -66,6 +66,7 @@ use crate::{
     zhang_intrinsics::{PlanarIntrinsicsInitError, PlanarIntrinsicsLinearInit},
 };
 use calib_core::{BrownConrady5, DistortionModel, FxFyCxCySkew, Mat3, Pt2, Real, Vec2, Vec3};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Errors that can occur during iterative intrinsics estimation.
@@ -86,7 +87,7 @@ pub enum IterativeIntrinsicsError {
 }
 
 /// Options controlling iterative intrinsics estimation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct IterativeIntrinsicsOptions {
     /// Number of refinement iterations (distortion → K → distortion → K).
     ///

@@ -31,6 +31,7 @@ use calib_core::{
     BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
 };
 use nalgebra::DVector;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Camera type for hand-eye calibration.
@@ -133,7 +134,7 @@ pub struct HandEyeInit {
 }
 
 /// Solve options for hand-eye calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeSolveOptions {
     pub robust_loss: RobustLoss,
 

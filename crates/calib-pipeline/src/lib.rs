@@ -1,6 +1,13 @@
 pub mod handeye_single;
 pub mod helpers;
+pub mod rig_extrinsics;
 pub mod session;
+
+pub use rig_extrinsics::{
+    rig_reprojection_errors, rig_reprojection_errors_from_report, run_rig_extrinsics,
+    RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
+    RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
+};
 
 // Re-export key building block modules from calib-linear for custom workflows
 // Users can access functions like: calib_pipeline::homography::dlt_homography()
@@ -109,7 +116,7 @@ impl PlanarIntrinsicsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlanarViewData {
+pub struct CameraViewData {
     pub points_3d: Vec<Pt3>,
     pub points_2d: Vec<Vec2>,
     pub weights: Option<Vec<Real>>,
@@ -117,7 +124,7 @@ pub struct PlanarViewData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsInput {
-    pub views: Vec<PlanarViewData>,
+    pub views: Vec<CameraViewData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,7 +166,7 @@ pub(crate) fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
     }
 }
 
-fn board_and_pixel_points(view: &PlanarViewData) -> (Vec<Pt2>, Vec<Pt2>) {
+fn board_and_pixel_points(view: &CameraViewData) -> (Vec<Pt2>, Vec<Pt2>) {
     let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
 
     let pixel_2d: Vec<Pt2> = view.points_2d.iter().map(|v| Pt2::new(v.x, v.y)).collect();
@@ -171,7 +178,7 @@ pub(crate) fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
     Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
 }
 
-pub(crate) fn planar_homographies_from_views(views: &[PlanarViewData]) -> Result<Vec<Mat3>> {
+pub(crate) fn planar_homographies_from_views(views: &[CameraViewData]) -> Result<Vec<Mat3>> {
     use calib_linear::homography::dlt_homography;
 
     let mut homographies = Vec::with_capacity(views.len());
@@ -202,7 +209,7 @@ pub(crate) fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Res
 }
 
 fn iterative_init_guess(
-    views: &[PlanarViewData],
+    views: &[CameraViewData],
 ) -> Option<(FxFyCxCySkew<Real>, BrownConrady5<Real>)> {
     use calib_linear::iterative_intrinsics::{
         estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
@@ -234,7 +241,7 @@ fn iterative_init_guess(
 }
 
 pub(crate) fn planar_init_seed_from_views(
-    views: &[PlanarViewData],
+    views: &[CameraViewData],
 ) -> Result<(PlanarIntrinsicsInit, PinholeCamera)> {
     use calib_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
 
@@ -413,7 +420,7 @@ mod tests {
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 
-            views.push(PlanarViewData {
+            views.push(CameraViewData {
                 points_3d: board_points.clone(),
                 points_2d,
                 weights: None,
@@ -477,7 +484,7 @@ mod tests {
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 
-            views.push(PlanarViewData {
+            views.push(CameraViewData {
                 points_3d: board_points.clone(),
                 points_2d,
                 weights: None,
@@ -569,7 +576,7 @@ mod tests {
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 
-            views.push(PlanarViewData {
+            views.push(CameraViewData {
                 points_3d: board_points.clone(),
                 points_2d,
                 weights: None,
@@ -695,7 +702,7 @@ mod tests {
     #[test]
     fn input_json_roundtrip() {
         let input = PlanarIntrinsicsInput {
-            views: vec![PlanarViewData {
+            views: vec![CameraViewData {
                 points_3d: vec![
                     Pt3::new(0.0, 0.0, 0.0),
                     Pt3::new(1.0, 0.0, 0.0),

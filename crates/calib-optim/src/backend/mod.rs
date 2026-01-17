@@ -8,6 +8,7 @@ mod tiny_solver_manifolds;
 
 use anyhow::{anyhow, Result};
 use nalgebra::DVector;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::ir::ProblemIR;
@@ -15,7 +16,7 @@ use crate::ir::ProblemIR;
 pub use tiny_solver_backend::TinySolverBackend;
 
 /// Backend-agnostic solver options.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendSolveOptions {
     /// Maximum number of iterations for the optimizer.
     pub max_iters: usize,
@@ -45,7 +46,7 @@ impl Default for BackendSolveOptions {
 }
 
 /// Linear solver selection (backend-agnostic).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinearSolverKind {
     /// Sparse Cholesky decomposition.
     SparseCholesky,

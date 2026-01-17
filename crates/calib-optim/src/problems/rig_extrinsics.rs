@@ -1,7 +1,7 @@
 //! Multi-camera rig extrinsics calibration.
 //!
-//! Optimizes shared intrinsics, shared distortion, per-camera extrinsics (camera-to-rig),
-//! and per-view rig poses (rig-to-target).
+//! Optimizes per-camera intrinsics and distortion, per-camera extrinsics (`T_R_C`, camera-to-rig),
+//! and per-view rig poses (`T_R_T`, target-to-rig).
 
 use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions};
 use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
@@ -13,6 +13,7 @@ use calib_core::{
     BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
 };
 use nalgebra::DVector;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Camera type for rig extrinsics optimization.
@@ -93,11 +94,11 @@ pub struct RigExtrinsicsInit {
     /// Per-camera distortion (usually same values for homogeneous rig).
     pub distortion: Vec<BrownConrady5<Real>>,
     pub cam_to_rig: Vec<Iso3>,
-    pub rig_to_target: Vec<Iso3>,
+    pub rig_from_target: Vec<Iso3>,
 }
 
 /// Solve options for rig extrinsics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigExtrinsicsSolveOptions {
     pub robust_loss: RobustLoss,
 
@@ -151,7 +152,7 @@ pub struct RigExtrinsicsResult {
     /// Per-camera calibrated parameters.
     pub cameras: Vec<PinholeCamera>,
     pub cam_to_rig: Vec<Iso3>,
-    pub rig_to_target: Vec<Iso3>,
+    pub rig_from_target: Vec<Iso3>,
     pub final_cost: f64,
 }
 
@@ -180,9 +181,9 @@ pub fn build_rig_extrinsics_ir(
         dataset.num_cameras
     );
     ensure!(
-        initial.rig_to_target.len() == dataset.num_views(),
-        "rig_to_target count {} != num_views {}",
-        initial.rig_to_target.len(),
+        initial.rig_from_target.len() == dataset.num_views(),
+        "rig_from_target count {} != num_views {}",
+        initial.rig_from_target.len(),
         dataset.num_views()
     );
 
@@ -286,7 +287,7 @@ pub fn build_rig_extrinsics_ir(
         };
         let key = format!("rig_pose/{}", view_idx);
         let rig_pose_id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
-        initial_map.insert(key, iso3_to_se3_dvec(&initial.rig_to_target[view_idx]));
+        initial_map.insert(key, iso3_to_se3_dvec(&initial.rig_from_target[view_idx]));
 
         // Add residuals for each camera observation
         for (cam_idx, cam_obs) in view.cameras.iter().enumerate() {
@@ -357,7 +358,7 @@ pub fn optimize_rig_extrinsics(
         .collect::<Result<Vec<_>>>()?;
 
     // Extract rig poses
-    let rig_to_target = (0..dataset.num_views())
+    let rig_from_target = (0..dataset.num_views())
         .map(|i| {
             let key = format!("rig_pose/{}", i);
             crate::params::pose_se3::se3_dvec_to_iso3(solution.params.get(&key).unwrap().as_view())
@@ -367,7 +368,7 @@ pub fn optimize_rig_extrinsics(
     Ok(RigExtrinsicsResult {
         cameras,
         cam_to_rig,
-        rig_to_target,
+        rig_from_target,
         final_cost: solution.final_cost,
     })
 }

@@ -16,7 +16,7 @@ use calib_pipeline::session::problem_types::{
     PlanarIntrinsicsProblem,
 };
 use calib_pipeline::session::CalibrationSession;
-use calib_pipeline::PlanarViewData;
+use calib_pipeline::CameraViewData;
 use nalgebra::{UnitQuaternion, Vector3};
 
 fn main() -> anyhow::Result<()> {
@@ -101,7 +101,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Generate synthetic calibration data with known ground truth.
-fn generate_synthetic_data() -> (Vec<PlanarViewData>, FxFyCxCySkew<f64>, BrownConrady5<f64>) {
+fn generate_synthetic_data() -> (Vec<CameraViewData>, FxFyCxCySkew<f64>, BrownConrady5<f64>) {
     // Ground truth camera parameters
     let k_gt = FxFyCxCySkew {
         fx: 800.0,
@@ -150,7 +150,7 @@ fn generate_synthetic_data() -> (Vec<PlanarViewData>, FxFyCxCySkew<f64>, BrownCo
             }
         }
 
-        views.push(PlanarViewData {
+        views.push(CameraViewData {
             points_3d: board_points.clone(),
             points_2d,
             weights: None,

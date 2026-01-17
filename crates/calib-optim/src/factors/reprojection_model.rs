@@ -414,14 +414,17 @@ pub(crate) fn reproj_residual_pinhole4_dist5_scheimpflug2_se3_generic<T: RealFie
 
 /// Reprojection residual with two composed SE3 transforms (for rig extrinsics).
 ///
-/// Transform chain: P_camera = extr^-1 * pose * P_world
-/// where extr is camera-to-rig and pose is rig-to-target.
+/// Transform chain (using `T_dst_src` notation):
+/// - `pose` is `T_R_T` (target -> rig)
+/// - `extr` is `T_R_C` (camera -> rig)
+/// - `p_rig = pose * p_target`
+/// - `p_cam = extr^-1 * p_rig`
 ///
 /// # Parameters
 /// - `intr`: [fx, fy, cx, cy] intrinsics
 /// - `dist`: [k1, k2, k3, p1, p2] Brown-Conrady distortion
 /// - `extr`: [qx, qy, qz, qw, tx, ty, tz] camera-to-rig SE3
-/// - `pose`: [qx, qy, qz, qw, tx, ty, tz] rig-to-target SE3
+/// - `pose`: [qx, qy, qz, qw, tx, ty, tz] target-to-rig SE3
 /// - `pw`: 3D point in target/world frame
 /// - `uv`: observed pixel coordinates
 /// - `w`: weight for the residual

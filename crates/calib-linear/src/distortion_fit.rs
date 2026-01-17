@@ -38,6 +38,7 @@
 
 use calib_core::{BrownConrady5, Mat3, Pt2, Real, Vec2, Vec3};
 use nalgebra::DMatrix;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Errors that can occur during distortion estimation.
@@ -58,7 +59,7 @@ pub enum DistortionFitError {
 }
 
 /// Options controlling distortion parameter estimation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct DistortionFitOptions {
     /// Fix tangential distortion coefficients (p1, p2) to zero.
     ///

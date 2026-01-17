@@ -65,7 +65,7 @@ mod tests {
         BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Vec2,
     };
     use calib_pipeline::{
-        PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, PlanarViewData,
+        CameraViewData, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
         RobustLossConfig,
     };
     use nalgebra::{UnitQuaternion, Vector3};
@@ -119,7 +119,7 @@ mod tests {
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 
-            views.push(PlanarViewData {
+            views.push(CameraViewData {
                 points_3d: board_points.clone(),
                 points_2d,
                 weights: None,

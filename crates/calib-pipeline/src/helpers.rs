@@ -30,8 +30,8 @@
 
 use crate::{
     iterative_intrinsics::{IterativeCalibView, IterativeIntrinsicsOptions},
-    optimize_planar_intrinsics_raw, BackendSolveOptions, PlanarIntrinsicsInit,
-    PlanarIntrinsicsInput, PlanarIntrinsicsSolveOptions, PlanarViewData,
+    optimize_planar_intrinsics_raw, BackendSolveOptions, CameraViewData, PlanarIntrinsicsInit,
+    PlanarIntrinsicsInput, PlanarIntrinsicsSolveOptions,
 };
 use anyhow::Result;
 use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Real};
@@ -107,7 +107,7 @@ pub struct PlanarIntrinsicsOptimResult {
 /// }
 /// ```
 pub fn initialize_planar_intrinsics(
-    views: &[PlanarViewData],
+    views: &[CameraViewData],
     opts: &IterativeIntrinsicsOptions,
 ) -> Result<PlanarIntrinsicsInitResult> {
     use crate::iterative_intrinsics::IterativeIntrinsicsSolver;
@@ -202,7 +202,7 @@ pub fn initialize_planar_intrinsics(
 /// println!("Final reprojection error: {:.2} px", result.mean_reproj_error);
 /// ```
 pub fn optimize_planar_intrinsics_from_init(
-    views: &[PlanarViewData],
+    views: &[CameraViewData],
     init: &PlanarIntrinsicsInitResult,
     solve_opts: &PlanarIntrinsicsSolveOptions,
     backend_opts: &BackendSolveOptions,
@@ -253,7 +253,7 @@ pub fn optimize_planar_intrinsics_from_init(
 
 /// Compute mean reprojection error for quality assessment.
 fn compute_mean_reproj_error(
-    views: &[PlanarViewData],
+    views: &[CameraViewData],
     intrinsics: &FxFyCxCySkew<Real>,
     distortion: &BrownConrady5<Real>,
     poses: &[Iso3],
@@ -290,7 +290,7 @@ mod tests {
     use calib_core::{Camera, IdentitySensor, Pinhole, Pt3, Vec2};
     use nalgebra::{UnitQuaternion, Vector3};
 
-    fn generate_synthetic_views() -> Vec<PlanarViewData> {
+    fn generate_synthetic_views() -> Vec<CameraViewData> {
         let k_gt = FxFyCxCySkew {
             fx: 800.0,
             fy: 780.0,
@@ -335,7 +335,7 @@ mod tests {
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 
-            views.push(PlanarViewData {
+            views.push(CameraViewData {
                 points_3d: board_points.clone(),
                 points_2d,
                 weights: None,

@@ -42,11 +42,11 @@ pub enum ExtrinsicsError {
 
 /// Result of multi-camera extrinsics initialization:
 /// - `cam_to_rig(cam)`: transform from camera frame to rig frame
-/// - `rig_to_target(view)`: transform from rig frame to target frame
+/// - `rig_from_target(view)`: transform from target frame to rig frame
 #[derive(Debug, Clone)]
 pub struct ExtrinsicPoses {
     pub cam_to_rig: Vec<Iso3>,
-    pub rig_to_target: Vec<Iso3>,
+    pub rig_from_target: Vec<Iso3>,
 }
 
 /// Linear initialisation of a camera rig from per-camera target poses.
@@ -109,7 +109,7 @@ pub fn average_isometries(poses: &[Iso3]) -> Result<Iso3, ExtrinsicsError> {
 /// `ref_cam_idx` defines the rig frame by enforcing
 /// `cam_to_rig[ref_cam_idx] = Identity`.
 ///
-/// Returns `ExtrinsicPoses { cam_to_rig, rig_to_target }`.
+/// Returns `ExtrinsicPoses { cam_to_rig, rig_from_target }`.
 ///
 /// Returns an error if there is not enough overlap (no views where both cameras
 /// see the target, or a view with no valid camera poses).
@@ -185,17 +185,17 @@ impl MultiCamExtrinsicsInit {
             cam_to_rig.push(avg);
         }
 
-        // 2) Estimate rig_to_target for each view by averaging over cameras
-        let mut rig_to_target: Vec<Iso3> = Vec::with_capacity(num_views);
+        // 2) Estimate rig_from_target (target -> rig) for each view by averaging over cameras
+        let mut rig_from_target: Vec<Iso3> = Vec::with_capacity(num_views);
 
         for (v_idx, view) in cam_se3_target.iter().enumerate() {
             let mut candidates: Vec<Iso3> = Vec::new();
 
             for (cam_idx, opt_ct) in view.iter().enumerate() {
                 if let Some(ct) = opt_ct {
-                    // rig->target = (cam->rig)^(-1) * (cam->target)
-                    let rt = cam_to_rig[cam_idx].inverse() * ct;
-                    candidates.push(rt);
+                    // target->rig = (cam->target)^(-1) * (cam->rig)
+                    let tr = ct.inverse() * cam_to_rig[cam_idx];
+                    candidates.push(tr);
                 }
             }
 
@@ -204,12 +204,12 @@ impl MultiCamExtrinsicsInit {
             }
 
             let avg = average_isometries(&candidates)?;
-            rig_to_target.push(avg);
+            rig_from_target.push(avg);
         }
 
         Ok(ExtrinsicPoses {
             cam_to_rig,
-            rig_to_target,
+            rig_from_target,
         })
     }
 }
@@ -237,7 +237,7 @@ mod tests {
         let cam1_to_rig_gt = make_iso((0.1, -0.05, 0.2), (0.2, -0.1, 0.0));
 
         // rig -> target per view
-        let rig_to_target_gt: Vec<Iso3> = vec![
+        let rig_from_target_gt: Vec<Iso3> = vec![
             make_iso((0.2, 0.1, 0.0), (0.0, 0.0, 1.0)),
             make_iso((-0.1, 0.0, 0.15), (0.1, -0.05, 1.2)),
             make_iso((0.05, -0.2, 0.1), (-0.2, 0.05, 1.1)),
@@ -248,9 +248,9 @@ mod tests {
 
         let mut cam_se3_target: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cams]; num_views];
 
-        for (v_idx, rt) in rig_to_target_gt.iter().enumerate() {
-            let ct0 = cam0_to_rig_gt * rt;
-            let ct1 = cam1_to_rig_gt * rt;
+        for (v_idx, tr) in rig_from_target_gt.iter().enumerate() {
+            let ct0 = cam0_to_rig_gt * tr.inverse();
+            let ct1 = cam1_to_rig_gt * tr.inverse();
             cam_se3_target[v_idx][0] = Some(ct0);
             cam_se3_target[v_idx][1] = Some(ct1);
         }
@@ -260,7 +260,7 @@ mod tests {
         let est = estimate_extrinsics_from_cam_target_poses(&cam_se3_target, 0).unwrap();
 
         assert_eq!(est.cam_to_rig.len(), num_cams);
-        assert_eq!(est.rig_to_target.len(), num_views);
+        assert_eq!(est.rig_from_target.len(), num_views);
 
         // Helper: compare two Iso3 with angle + translation norms
         fn pose_error(a: &Iso3, b: &Iso3) -> (Real, Real) {
@@ -286,9 +286,9 @@ mod tests {
         assert!(dt1 < 1e-10, "cam1 translation error {}", dt1);
         assert!(ang1 < 1e-10, "cam1 rotation error {}", ang1);
 
-        // rig->target per view
-        for (v, item) in rig_to_target_gt.iter().enumerate().take(num_views) {
-            let (dt, ang) = pose_error(&est.rig_to_target[v], item);
+        // target->rig per view
+        for (v, item) in rig_from_target_gt.iter().enumerate().take(num_views) {
+            let (dt, ang) = pose_error(&est.rig_from_target[v], item);
             assert!(dt < 1e-10, "view {} translation error {}", v, dt);
             assert!(ang < 1e-10, "view {} rotation error {}", v, ang);
         }
