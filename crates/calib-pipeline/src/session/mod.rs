@@ -46,6 +46,43 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ArtifactId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RunId(pub u64);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RunKind {
+    Init,
+    Optimize,
+    FilterObs,
+    Export,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunRecord<O> {
+    pub id: RunId,
+    pub kind: RunKind,
+    pub started_at: u64,
+    pub finished_at: u64,
+    pub inputs: Vec<ArtifactId>,
+    pub outputs: Vec<ArtifactId>,
+    pub options: O,              // typed options for this run kind
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Artifact<P: ProblemType> {
+    Observations(P::Observations),
+    InitialValues(P::InitialValues),
+    OptimizedResults(P::OptimizedResults),
+
+    // Optional but very useful:
+    Metrics(serde_json::Value),       // reprojection stats, residual histograms, etc.
+    Report(serde_json::Value),        // export summaries
+}
+
 /// Trait defining the interface for a calibration problem.
 ///
 /// Each problem type (e.g., planar intrinsics, hand-eye, linescan) implements
@@ -142,29 +179,48 @@ impl SessionMetadata {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalibrationSession<P: ProblemType> {
+    pub metadata: SessionMetadata,
+
+    next_artifact_id: u64,
+    next_run_id: u64,
+
+    pub artifacts: std::collections::BTreeMap<ArtifactId, Artifact<P>>,
+    pub runs: Vec<RunRecord<serde_json::Value>>, // or a typed enum (below)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RunOptions<P: ProblemType> {
+    Init(P::InitOptions),
+    Optimize(P::OptimOptions),
+    FilterObs(FilterOptions),
+    Export(ExportOptions),
+}
+
 /// A generic calibration session parameterized over a problem type.
 ///
 /// Tracks progress through pipeline stages and provides a stateful API for
 /// running calibration workflows with checkpoint support.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CalibrationSession<P: ProblemType> {
-    /// Current pipeline stage.
-    stage: SessionStage,
-    /// Problem-specific observations.
-    observations: Option<P::Observations>,
-    /// Initial parameter estimates (populated after initialization).
-    initial_values: Option<P::InitialValues>,
-    /// Optimized results (populated after optimization).
-    optimized_results: Option<P::OptimizedResults>,
-    /// Options used for initialization (captured for reproducibility).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    init_options: Option<P::InitOptions>,
-    /// Options used for optimization (captured for reproducibility).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    optim_options: Option<P::OptimOptions>,
-    /// Session metadata.
-    metadata: SessionMetadata,
-}
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+// pub struct CalibrationSession<P: ProblemType> {
+//     /// Current pipeline stage.
+//     stage: SessionStage,
+//     /// Problem-specific observations.
+//     observations: Option<P::Observations>,
+//     /// Initial parameter estimates (populated after initialization).
+//     initial_values: Option<P::InitialValues>,
+//     /// Optimized results (populated after optimization).
+//     optimized_results: Option<P::OptimizedResults>,
+//     /// Options used for initialization (captured for reproducibility).
+//     #[serde(default, skip_serializing_if = "Option::is_none")]
+//     init_options: Option<P::InitOptions>,
+//     /// Options used for optimization (captured for reproducibility).
+//     #[serde(default, skip_serializing_if = "Option::is_none")]
+//     optim_options: Option<P::OptimOptions>,
+//     /// Session metadata.
+//     metadata: SessionMetadata,
+// }
 
 impl<P: ProblemType> CalibrationSession<P> {
     /// Create a new uninitialized session.

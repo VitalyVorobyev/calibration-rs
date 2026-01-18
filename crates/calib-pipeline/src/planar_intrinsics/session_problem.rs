@@ -1,7 +1,9 @@
 //! Planar intrinsics session problem.
 
+
+use calib_core::pinhole_camera_params;
 use crate::{
-    optimize_planar_intrinsics_with_init, pinhole_camera_params, planar_init_seed_from_views,
+    optimize_planar_intrinsics_with_init, planar_init_seed_from_views,
     CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
 };
 use anyhow::{ensure, Result};
@@ -103,8 +105,8 @@ pub struct PlanarIntrinsicsOptimOptions {
 
 impl ProblemType for PlanarIntrinsicsProblem {
     type Observations = PlanarIntrinsicsObservations;
-    type InitialValues = PlanarIntrinsicsInitial;
-    type OptimizedResults = PlanarIntrinsicsOptimized;
+    type InitialValues = PlanarIntrinsicsParams;
+    type OptimizedResults = PlanarIntrinsicsEstimate;
     type InitOptions = PlanarIntrinsicsInitOptions;
     type OptimOptions = PlanarIntrinsicsOptimOptions;
 

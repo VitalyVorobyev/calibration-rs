@@ -8,8 +8,8 @@ use calib_core::{
 use calib_optim::{
     optimize_planar_intrinsics, PlanarDataset,
     PlanarIntrinsicsSolveOptions,
-    BackendSolveOptions, PlanarIntrinsicsInit,
-    PlanarIntrinsicsResult, RobustLoss
+    BackendSolveOptions, PlanarIntrinsicsParams,
+    PlanarIntrinsicsEstimate, RobustLoss
 };
 
 use serde::{Deserialize, Serialize};
@@ -41,17 +41,15 @@ pub struct PlanarIntrinsicsReport {
 
 fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
     let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
-
     let pixel_2d: Vec<Pt2> = view.points_2d.iter().map(|v| Pt2::new(v.x, v.y)).collect();
-
     (board_2d, pixel_2d)
 }
 
-pub(crate) fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
+fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
     Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
 }
 
-pub(crate) fn planar_homographies_from_views(views: &[CorrespondenceView]) -> Result<Vec<Mat3>> {
+fn planar_homographies_from_views(views: &[CorrespondenceView]) -> Result<Vec<Mat3>> {
     use calib_linear::homography::dlt_homography;
 
     let mut homographies = Vec::with_capacity(views.len());
@@ -68,7 +66,7 @@ pub(crate) fn planar_homographies_from_views(views: &[CorrespondenceView]) -> Re
     Ok(homographies)
 }
 
-pub(crate) fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso3>> {
+fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso3>> {
     use calib_linear::planar_pose::estimate_planar_pose_from_h;
 
     homographies
@@ -115,7 +113,7 @@ fn iterative_init_guess(
 
 pub fn planar_init_seed_from_views(
     views: &[CorrespondenceView],
-) -> Result<(PlanarIntrinsicsInit, PinholeCamera)> {
+) -> Result<PlanarIntrinsicsParams> {
     use calib_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
 
     ensure!(
@@ -148,18 +146,17 @@ pub fn planar_init_seed_from_views(
     let kmtx = k_matrix_from_intrinsics(&intrinsics);
     let poses0 = poses_from_homographies(&kmtx, &homographies)?;
 
-    let init = PlanarIntrinsicsInit::new(intrinsics, distortion, poses0)?;
-
     let camera = make_pinhole_camera(intrinsics, distortion);
+    let init = PlanarIntrinsicsParams::new(camera, poses0)?;
 
-    Ok((init, camera))
+    Ok(init)
 }
 
 fn optimize_planar_intrinsics_with_init(
     dataset: &PlanarDataset,
-    init: PlanarIntrinsicsInit,
+    init: PlanarIntrinsicsParams,
     config: &PlanarIntrinsicsConfig,
-) -> Result<calib_optim::PlanarIntrinsicsResult> {
+) -> Result<calib_optim::PlanarIntrinsicsEstimate> {
     optimize_planar_intrinsics(
         dataset,
         init,
@@ -177,7 +174,7 @@ pub fn run_planar_intrinsics(
         "need at least one view for calibration"
     );
 
-    let (init, _) = planar_init_seed_from_views(&dataset.views)?;
+    let init = planar_init_seed_from_views(&dataset.views)?;
     let result = optimize_planar_intrinsics_with_init(dataset, init, config)?;
 
     let camera_cfg = pinhole_camera_params(&result.camera);
