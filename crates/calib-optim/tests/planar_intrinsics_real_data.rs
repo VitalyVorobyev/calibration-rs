@@ -12,9 +12,8 @@ use calib_core::{
     IntrinsicsFixMask, Mat3, Pt2, Pt3, Real, Vec2,
 };
 use calib_linear::{HomographySolver, PlanarIntrinsicsLinearInit};
-use calib_optim::ir::RobustLoss;
-use calib_optim::problems::planar_intrinsics::{
-    optimize_planar_intrinsics, PlanarDataset, PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions,
+use calib_optim::{optimize_planar_intrinsics, RobustLoss, PlanarDataset,
+    PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions,
 };
 use calib_optim::BackendSolveOptions;
 use nalgebra::Isometry3;
@@ -265,7 +264,7 @@ fn planar_intrinsics_real_data_improves_reprojection() {
             ..Default::default()
         };
 
-        let result = optimize_planar_intrinsics(dataset, init, opts, backend_opts)
+        let result = optimize_planar_intrinsics(&dataset, init, opts, backend_opts)
             .expect("optimization failed");
 
         println!(
@@ -420,7 +419,7 @@ fn planar_intrinsics_parameter_fixing_works() {
     };
 
     let result =
-        optimize_planar_intrinsics(dataset.clone(), init, opts, BackendSolveOptions::default())
+        optimize_planar_intrinsics(&dataset, init, opts, BackendSolveOptions::default())
             .expect("optimization with fixed p1, p2");
 
     assert_eq!(result.camera.dist.p1, 0.0, "p1 should remain fixed at 0.0");
@@ -465,7 +464,7 @@ fn planar_intrinsics_parameter_fixing_works() {
     let opts2 = PlanarIntrinsicsSolveOptions::default(); // fix_k3 is true by default
 
     let result2 = optimize_planar_intrinsics(
-        dataset.clone(),
+        &dataset,
         init2,
         opts2,
         BackendSolveOptions::default(),
@@ -511,7 +510,7 @@ fn planar_intrinsics_parameter_fixing_works() {
     };
 
     let result3 = optimize_planar_intrinsics(
-        dataset,
+        &dataset,
         init3.clone(),
         opts3,
         BackendSolveOptions::default(),
@@ -690,7 +689,7 @@ fn planar_intrinsics_with_iterative_linear_init() {
             ..Default::default()
         };
 
-        let result = optimize_planar_intrinsics(dataset, init, optim_opts, backend_opts)
+        let result = optimize_planar_intrinsics(&dataset, init, optim_opts, backend_opts)
             .expect("optimization");
 
         println!(

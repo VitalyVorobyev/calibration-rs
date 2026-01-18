@@ -48,11 +48,11 @@
 //! ```
 
 /// Linear algebra type aliases and helpers.
-pub mod math;
+mod math;
 /// Camera models and distortion utilities.
-pub mod models;
+mod models;
 /// Generic RANSAC engine and traits.
-pub mod ransac;
+mod ransac;
 /// Deterministic synthetic data generation helpers.
 ///
 /// This module provides small, reusable building blocks for constructing
@@ -66,9 +66,42 @@ pub mod synthetic;
 /// the workspace, but is not intended for production use.
 pub mod test_utils;
 /// Common types for observations, results, and options.
-pub mod types;
+mod types;
 
 pub use math::*;
 pub use models::*;
 pub use ransac::*;
 pub use types::*;
+
+pub type PinholeCamera =
+    Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
+
+pub fn make_pinhole_camera(k: FxFyCxCySkew<Real>, dist: BrownConrady5<Real>) -> PinholeCamera {
+    Camera::new(Pinhole, dist, IdentitySensor, k)
+}
+
+pub fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
+    CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::BrownConrady5 {
+            params: BrownConrady5 {
+                k1: camera.dist.k1,
+                k2: camera.dist.k2,
+                k3: camera.dist.k3,
+                p1: camera.dist.p1,
+                p2: camera.dist.p2,
+                iters: camera.dist.iters,
+            },
+        },
+        sensor: SensorParams::Identity,
+        intrinsics: IntrinsicsParams::FxFyCxCySkew {
+            params: FxFyCxCySkew {
+                fx: camera.k.fx,
+                fy: camera.k.fy,
+                cx: camera.k.cx,
+                cy: camera.k.cy,
+                skew: camera.k.skew,
+            },
+        },
+    }
+}

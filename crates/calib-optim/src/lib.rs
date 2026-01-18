@@ -158,13 +158,31 @@
 //! - Manifold-aware parameter updates for rotations
 //! - Sparse linear solvers for large problems
 
-pub mod backend;
-pub mod factors;
-pub mod ir;
-pub mod math;
-pub mod params;
-pub mod problems;
+mod backend;
+mod factors;
+mod ir;
+mod math;
+mod params;
+mod problems;
 
-pub use crate::backend::{BackendKind, BackendSolution, BackendSolveOptions};
+pub use math::*;
+
+pub use crate::backend::{
+    BackendKind,
+    BackendSolution,
+    BackendSolveOptions,
+    SolveReport,
+};
+
+pub use crate::ir::{
+    RobustLoss
+};
+
 pub use crate::problems::handeye;
-pub use crate::problems::planar_intrinsics;
+pub use crate::problems::planar_intrinsics::{
+    optimize_planar_intrinsics,
+    PlanarIntrinsicsSolveOptions,
+    PlanarIntrinsicsParams,
+    PlanarIntrinsicsEstimate,
+    PlanarDataset,
+};

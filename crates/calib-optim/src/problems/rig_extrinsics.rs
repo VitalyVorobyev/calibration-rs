@@ -11,15 +11,11 @@ use crate::params::pose_se3::iso3_to_se3_dvec;
 use anyhow::{ensure, Result};
 use calib_core::{
     BrownConrady5, Camera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3,
-    Pinhole, Real,
+    Pinhole, Real, PinholeCamera,
 };
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-/// Camera type for rig extrinsics optimization.
-pub type PinholeCamera =
-    Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
 
 /// Multi-camera observations for one rig view.
 #[derive(Debug, Clone)]
@@ -296,6 +292,6 @@ pub fn optimize_rig_extrinsics(
         cameras,
         cam_to_rig,
         rig_from_target,
-        final_cost: solution.final_cost,
+        final_cost: solution.solve_report.final_cost,
     })
 }

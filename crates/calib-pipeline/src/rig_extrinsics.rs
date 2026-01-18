@@ -114,7 +114,7 @@ pub fn rig_reprojection_errors(
             let k = match cameras[cam_idx].intrinsics {
                 calib_core::IntrinsicsParams::FxFyCxCySkew { params } => params,
             };
-            let dist = match cameras[cam_idx].distortion {
+            let dist: calib_core::BrownConrady5<f64> = match cameras[cam_idx].distortion {
                 calib_core::DistortionParams::BrownConrady5 { params } => params,
                 calib_core::DistortionParams::None => calib_core::BrownConrady5 {
                     k1: 0.0,

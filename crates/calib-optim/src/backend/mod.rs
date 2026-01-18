@@ -54,6 +54,15 @@ pub enum LinearSolverKind {
     SparseQR,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SolveReport {
+    pub final_cost: f64,
+    // strongly consider adding:
+    // pub num_iters: usize,
+    // pub status: SolveStatus,
+    // pub time_ms: u64,
+}
+
 /// Solver output from a backend.
 ///
 /// The `params` map uses the IR parameter block names.
@@ -62,7 +71,7 @@ pub struct BackendSolution {
     /// Optimized parameter vectors keyed by block name.
     pub params: HashMap<String, DVector<f64>>,
     /// Final robustified cost if supported by the backend.
-    pub final_cost: f64,
+    pub solve_report: SolveReport,
 }
 
 /// Backend interface implemented by solver adapters.

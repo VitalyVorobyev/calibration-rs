@@ -28,16 +28,12 @@ use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_D
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use anyhow::{ensure, Result};
 use calib_core::{
-    BrownConrady5, Camera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3,
+    BrownConrady5, Camera, PinholeCamera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3,
     Pinhole, Real,
 };
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-/// Camera type for hand-eye calibration.
-pub type PinholeCamera =
-    Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
 
 /// Multi-camera rig observations for one robot pose.
 #[derive(Debug, Clone)]

@@ -1,0 +1,532 @@
+use calib_core::{
+    CorrespondenceView, PinholeCamera, IntrinsicsFixMask,
+    BrownConrady5, Camera, CameraParams, DistortionParams, FxFyCxCySkew, IdentitySensor,
+    IntrinsicsParams, Iso3, Mat3, Pinhole, ProjectionParams, Pt2, Real, SensorParams,
+    make_pinhole_camera, pinhole_camera_params,
+};
+
+use calib_optim::{
+    optimize_planar_intrinsics, PlanarDataset,
+    PlanarIntrinsicsSolveOptions,
+    BackendSolveOptions, PlanarIntrinsicsInit,
+    PlanarIntrinsicsResult, RobustLoss
+};
+
+use serde::{Deserialize, Serialize};
+use anyhow::{ensure, Context, Result};
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlanarIntrinsicsConfig {
+    #[serde(default)]
+    pub solve_opts: PlanarIntrinsicsSolveOptions,
+    #[serde(default)]
+    pub backend_opts: BackendSolveOptions,
+}
+
+impl PlanarIntrinsicsConfig {
+    pub fn solve_options(&self) -> PlanarIntrinsicsSolveOptions {
+        self.solve_opts.clone()
+    }
+
+    pub fn solver_options(&self) -> BackendSolveOptions {
+        self.backend_opts.clone()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanarIntrinsicsReport {
+    pub camera: CameraParams,
+    pub final_cost: Real,
+}
+
+fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
+    let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
+
+    let pixel_2d: Vec<Pt2> = view.points_2d.iter().map(|v| Pt2::new(v.x, v.y)).collect();
+
+    (board_2d, pixel_2d)
+}
+
+pub(crate) fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
+    Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
+}
+
+pub(crate) fn planar_homographies_from_views(views: &[CorrespondenceView]) -> Result<Vec<Mat3>> {
+    use calib_linear::homography::dlt_homography;
+
+    let mut homographies = Vec::with_capacity(views.len());
+    for (idx, view) in views.iter().enumerate() {
+        let (board_2d, pixel_2d) = board_and_pixel_points(view);
+        let h = dlt_homography(&board_2d, &pixel_2d).with_context(|| {
+            format!(
+                "failed to compute homography for view {} (need >=4 well-conditioned points)",
+                idx
+            )
+        })?;
+        homographies.push(h);
+    }
+    Ok(homographies)
+}
+
+pub(crate) fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso3>> {
+    use calib_linear::planar_pose::estimate_planar_pose_from_h;
+
+    homographies
+        .iter()
+        .enumerate()
+        .map(|(idx, h)| {
+            estimate_planar_pose_from_h(kmtx, h)
+                .with_context(|| format!("failed to recover pose for view {}", idx))
+        })
+        .collect()
+}
+
+fn iterative_init_guess(
+    views: &[CorrespondenceView],
+) -> Option<(FxFyCxCySkew<Real>, BrownConrady5<Real>)> {
+    use calib_linear::iterative_intrinsics::{
+        estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
+    };
+
+    if views.len() < 3 {
+        return None;
+    }
+
+    let calib_views: Vec<IterativeCalibView> = views
+        .iter()
+        .map(|v| {
+            let (board_2d, pixel_2d) = board_and_pixel_points(v);
+            IterativeCalibView::new(board_2d, pixel_2d)
+        })
+        .collect();
+
+    let opts = IterativeIntrinsicsOptions::default();
+    match estimate_intrinsics_iterative(&calib_views, opts) {
+        Ok(res) => Some((
+            res.intrinsics,
+            BrownConrady5 {
+                iters: res.distortion.iters,
+                ..res.distortion
+            },
+        )),
+        Err(_) => None,
+    }
+}
+
+pub fn planar_init_seed_from_views(
+    views: &[CorrespondenceView],
+) -> Result<(PlanarIntrinsicsInit, PinholeCamera)> {
+    use calib_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
+
+    ensure!(
+        views.len() >= 3,
+        "need at least 3 views for planar initialization (got {})",
+        views.len()
+    );
+
+    let homographies = planar_homographies_from_views(views)?;
+
+    // Primary path: Zhang closed-form intrinsics (no distortion)
+    let mut intrinsics = estimate_intrinsics_from_homographies(&homographies)
+        .context("zhang intrinsics initialization failed")?;
+    let mut distortion = BrownConrady5 {
+        k1: 0.0,
+        k2: 0.0,
+        k3: 0.0,
+        p1: 0.0,
+        p2: 0.0,
+        iters: 8,
+    };
+
+    // Fallback: iterative intrinsics to capture distortion if Zhang is unstable
+    if let Some((intr, dist)) = iterative_init_guess(views) {
+        intrinsics = intr;
+        distortion = dist;
+    }
+
+    // Compute pose seeds from homographies and intrinsics
+    let kmtx = k_matrix_from_intrinsics(&intrinsics);
+    let poses0 = poses_from_homographies(&kmtx, &homographies)?;
+
+    let init = PlanarIntrinsicsInit::new(intrinsics, distortion, poses0)?;
+
+    let camera = make_pinhole_camera(intrinsics, distortion);
+
+    Ok((init, camera))
+}
+
+fn optimize_planar_intrinsics_with_init(
+    dataset: &PlanarDataset,
+    init: PlanarIntrinsicsInit,
+    config: &PlanarIntrinsicsConfig,
+) -> Result<calib_optim::PlanarIntrinsicsResult> {
+    optimize_planar_intrinsics(
+        dataset,
+        init,
+        config.solve_options(),
+        config.solver_options(),
+    )
+}
+
+pub fn run_planar_intrinsics(
+    dataset: &PlanarDataset,
+    config: &PlanarIntrinsicsConfig,
+) -> Result<PlanarIntrinsicsReport> {
+    ensure!(
+        !dataset.views.is_empty(),
+        "need at least one view for calibration"
+    );
+
+    let (init, _) = planar_init_seed_from_views(&dataset.views)?;
+    let result = optimize_planar_intrinsics_with_init(dataset, init, config)?;
+
+    let camera_cfg = pinhole_camera_params(&result.camera);
+
+    Ok(PlanarIntrinsicsReport {
+        camera: camera_cfg,
+        final_cost: result.final_cost,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::handeye::{
+        optimize_handeye, HandEyeDataset, HandEyeInit, HandEyeSolveOptions, RigViewObservations,
+    };
+    use crate::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
+    use calib_core::{synthetic::planar, Pt3, Vec2};
+    use calib_linear::distortion_fit::DistortionFitOptions;
+    use calib_linear::handeye::estimate_handeye_dlt;
+    use calib_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
+    use calib_optim::ir::HandEyeMode;
+    use nalgebra::Translation3;
+    use nalgebra::UnitQuaternion;
+
+    #[test]
+    fn zhang_initialization_recovers_intrinsics_seed() {
+        let k_gt = FxFyCxCySkew {
+            fx: 1250.0,
+            fy: 1220.0,
+            cx: 640.0,
+            cy: 400.0,
+            skew: 0.0,
+        };
+        let dist_gt = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+        let cam_gt = make_pinhole_camera(k_gt, dist_gt);
+
+        let board_points = planar::grid_points(6, 5, 0.05);
+        let poses = planar::poses_yaw_y_z(4, 0.0, 0.08, 0.6, 0.05);
+        let views = planar::project_views_all(&cam_gt, &board_points, &poses).unwrap();
+
+        let (seed, _) = planar_init_seed_from_views(&views).expect("init should succeed");
+        assert!((seed.intrinsics.fx - k_gt.fx).abs() < 30.0);
+        assert!((seed.intrinsics.fy - k_gt.fy).abs() < 30.0);
+        assert!((seed.intrinsics.cx - k_gt.cx).abs() < 25.0);
+        assert!((seed.intrinsics.cy - k_gt.cy).abs() < 25.0);
+    }
+
+    fn intrinsics_from_params(cfg: &CameraParams) -> FxFyCxCySkew<Real> {
+        match &cfg.intrinsics {
+            IntrinsicsParams::FxFyCxCySkew { params } => *params,
+        }
+    }
+
+    #[test]
+    fn planar_intrinsics_pipeline_synthetic_recovers_intrinsics() {
+        let k_gt = FxFyCxCySkew {
+            fx: 800.0,
+            fy: 780.0,
+            cx: 640.0,
+            cy: 360.0,
+            skew: 0.0,
+        };
+        let dist_gt = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+        let cam_gt = make_pinhole_camera(k_gt, dist_gt);
+
+        let board_points = planar::grid_points(5, 4, 0.05);
+        let poses = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
+        let views = planar::project_views_all(&cam_gt, &board_points, &poses).unwrap();
+
+        let input = PlanarDataset { views };
+        let config = PlanarIntrinsicsConfig::default();
+
+        let report = run_planar_intrinsics(&input, &config).expect("pipeline should succeed");
+        assert!(
+            report.final_cost < 1e-6,
+            "final cost too high: {}",
+            report.final_cost
+        );
+
+        let ki = intrinsics_from_params(&report.camera);
+        assert!((ki.fx - k_gt.fx).abs() < 20.0);
+        assert!((ki.fy - k_gt.fy).abs() < 20.0);
+        assert!((ki.cx - k_gt.cx).abs() < 20.0);
+        assert!((ki.cy - k_gt.cy).abs() < 20.0);
+    }
+
+    #[test]
+    fn handeye_pipeline_synthetic_recovers_handeye() {
+        let k_gt = FxFyCxCySkew {
+            fx: 820.0,
+            fy: 800.0,
+            cx: 640.0,
+            cy: 360.0,
+            skew: 0.0,
+        };
+        let dist_gt = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+        let cam_gt = make_pinhole_camera(k_gt, dist_gt);
+
+        // Hand-eye parameter is gripper-from-camera (T_GC) for EyeInHand.
+        let handeye_gt = Iso3::from_parts(
+            Translation3::new(0.02, -0.015, 0.12),
+            UnitQuaternion::from_euler_angles(0.06, -0.02, 0.05),
+        );
+
+        let robot_poses = vec![
+            Iso3::from_parts(
+                Translation3::new(0.0, 0.0, -1.0),
+                UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0),
+            ),
+            Iso3::from_parts(
+                Translation3::new(0.08, -0.05, -0.95),
+                UnitQuaternion::from_euler_angles(0.12, 0.05, 0.1),
+            ),
+            Iso3::from_parts(
+                Translation3::new(-0.07, 0.06, -1.08),
+                UnitQuaternion::from_euler_angles(-0.1, 0.14, -0.12),
+            ),
+            Iso3::from_parts(
+                Translation3::new(0.05, 0.09, -1.05),
+                UnitQuaternion::from_euler_angles(0.2, -0.08, 0.06),
+            ),
+            Iso3::from_parts(
+                Translation3::new(-0.06, -0.04, -0.92),
+                UnitQuaternion::from_euler_angles(-0.16, 0.1, 0.12),
+            ),
+        ];
+
+        let board_points = planar::grid_points(6, 5, 0.04);
+
+        let mut views = Vec::new();
+        for robot_pose in &robot_poses {
+            let cam_to_target = handeye_gt.inverse() * robot_pose.inverse();
+            let view = planar::project_view_all(&cam_gt, &cam_to_target, &board_points).unwrap();
+            views.push(view);
+        }
+
+        let init_opts = IterativeIntrinsicsOptions {
+            iterations: 2,
+            distortion_opts: DistortionFitOptions {
+                fix_k3: true,
+                fix_tangential: false,
+                iters: 8,
+            },
+            zero_skew: true,
+        };
+        let init = initialize_planar_intrinsics(&views, &init_opts).unwrap();
+
+        let solve_opts = PlanarIntrinsicsSolveOptions::default();
+        let optim =
+            optimize_planar_intrinsics_from_init(&views, &init, &solve_opts, &Default::default())
+                .unwrap();
+
+        let cam_in_target: Vec<Iso3> = optim.poses.iter().map(|pose| pose.inverse()).collect();
+        let handeye_init = estimate_handeye_dlt(&robot_poses, &cam_in_target, 1.0).unwrap();
+
+        let target_poses: Vec<Iso3> = robot_poses
+            .iter()
+            .zip(&optim.poses)
+            .map(|(base_to_gripper, cam_to_target)| {
+                *base_to_gripper * handeye_init * *cam_to_target
+            })
+            .collect();
+        let target_pose = target_poses[0];
+
+        let mut rig_views = Vec::new();
+        for (robot_pose, view) in robot_poses.iter().zip(&views) {
+            let obs = view.clone();
+            rig_views.push(RigViewObservations {
+                cameras: vec![Some(obs)],
+                robot_pose: *robot_pose,
+            });
+        }
+
+        let dataset = HandEyeDataset::new(rig_views, 1, HandEyeMode::EyeInHand).unwrap();
+        let mut handeye_intrinsics = optim.intrinsics;
+        handeye_intrinsics.skew = 0.0;
+        let init = HandEyeInit {
+            intrinsics: vec![handeye_intrinsics],
+            distortion: vec![optim.distortion],
+            cam_to_rig: vec![Iso3::identity()],
+            handeye: handeye_init,
+            target_poses: vec![target_pose],
+        };
+
+        let opts = HandEyeSolveOptions {
+            default_fix: calib_core::CameraFixMask::all_fixed(),
+            fix_extrinsics: vec![true],
+            ..Default::default()
+        };
+
+        let result = optimize_handeye(dataset, init, opts, BackendSolveOptions::default()).unwrap();
+
+        let t_err = (result.handeye.translation.vector - handeye_gt.translation.vector).norm();
+        let r_final = result.handeye.rotation.to_rotation_matrix();
+        let r_gt = handeye_gt.rotation.to_rotation_matrix();
+        let r_diff = r_final.transpose() * r_gt;
+        let angle = ((r_diff.matrix().trace() - 1.0) * 0.5)
+            .clamp(-1.0, 1.0)
+            .acos();
+
+        assert!(
+            t_err < 1e-3,
+            "handeye translation error too large: {}",
+            t_err
+        );
+        assert!(angle < 1e-3, "handeye rotation error too large: {}", angle);
+    }
+
+    #[test]
+    fn config_json_roundtrip() {
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.solve_opts.robust_loss = RobustLoss::Huber { scale: 2.5 };
+        config.solve_opts.fix_intrinsics = IntrinsicsFixMask {
+            fx: true,
+            cy: true,
+            ..Default::default()
+        };
+        config.solve_opts.fix_poses = vec![0, 2];
+        config.backend_opts.max_iters = 80;
+
+        let json = serde_json::to_string_pretty(&config).unwrap();
+        assert!(
+            json.contains("Huber") && json.contains("2.5"),
+            "json missing expected content: {}",
+            json
+        );
+
+        let de: PlanarIntrinsicsConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(de.backend_opts.max_iters, 80);
+        assert!(de.solve_opts.fix_intrinsics.fx);
+        assert!(de.solve_opts.fix_intrinsics.cy);
+        assert_eq!(de.solve_opts.fix_poses, vec![0, 2]);
+        match de.solve_opts.robust_loss {
+            RobustLoss::Huber { scale } => assert!((scale - 2.5).abs() < 1e-12),
+            other => panic!("unexpected robust_loss: {other:?}"),
+        };
+    }
+
+    #[test]
+    fn input_json_roundtrip() {
+        let input = PlanarDataset {
+            views: vec![CorrespondenceView {
+                points_3d: vec![
+                    Pt3::new(0.0, 0.0, 0.0),
+                    Pt3::new(1.0, 0.0, 0.0),
+                    Pt3::new(1.0, 1.0, 0.0),
+                    Pt3::new(0.0, 1.0, 0.0),
+                ],
+                points_2d: vec![
+                    Vec2::new(100.0, 100.0),
+                    Vec2::new(200.0, 100.0),
+                    Vec2::new(200.0, 200.0),
+                    Vec2::new(100.0, 200.0),
+                ],
+                weights: Some(vec![1.0, 1.0, 0.5, 0.5]),
+            }],
+        };
+
+        let json = serde_json::to_string_pretty(&input).unwrap();
+        let de: PlanarDataset = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(de.views.len(), input.views.len());
+        for (view_a, view_b) in de.views.iter().zip(input.views.iter()) {
+            assert_eq!(view_a.points_3d.len(), view_b.points_3d.len());
+            assert_eq!(view_a.points_2d.len(), view_b.points_2d.len());
+            assert_eq!(view_a.weights.as_ref().unwrap().len(), 4);
+            for (a, b) in view_a.points_3d.iter().zip(view_b.points_3d.iter()) {
+                assert!((a.x - b.x).abs() < 1e-12);
+                assert!((a.y - b.y).abs() < 1e-12);
+                assert!((a.z - b.z).abs() < 1e-12);
+            }
+            for (a, b) in view_a.points_2d.iter().zip(view_b.points_2d.iter()) {
+                assert!((a.x - b.x).abs() < 1e-12);
+                assert!((a.y - b.y).abs() < 1e-12);
+            }
+        }
+    }
+
+    #[test]
+    fn report_json_roundtrip() {
+        let cam = make_pinhole_camera(
+            FxFyCxCySkew {
+                fx: 800.0,
+                fy: 780.0,
+                cx: 640.0,
+                cy: 360.0,
+                skew: 0.0,
+            },
+            BrownConrady5 {
+                k1: 0.0,
+                k2: 0.0,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            },
+        );
+        let report = PlanarIntrinsicsReport {
+            camera: pinhole_camera_params(&cam),
+            final_cost: 1e-8,
+        };
+
+        let json = serde_json::to_string_pretty(&report).unwrap();
+        let de: PlanarIntrinsicsReport = serde_json::from_str(&json).unwrap();
+
+        let ki_de = intrinsics_from_params(&de.camera);
+        let ki_report = intrinsics_from_params(&report.camera);
+
+        assert!((ki_de.fx - ki_report.fx).abs() < 1e-12);
+        assert!((ki_de.fy - ki_report.fy).abs() < 1e-12);
+        assert!((ki_de.cx - ki_report.cx).abs() < 1e-12);
+        assert!((ki_de.cy - ki_report.cy).abs() < 1e-12);
+
+        match (&de.camera.distortion, &report.camera.distortion) {
+            (
+                DistortionParams::BrownConrady5 { params: a },
+                DistortionParams::BrownConrady5 { params: b },
+            ) => {
+                assert!((a.k1 - b.k1).abs() < 1e-12);
+                assert!((a.k2 - b.k2).abs() < 1e-12);
+                assert!((a.p1 - b.p1).abs() < 1e-12);
+                assert!((a.p2 - b.p2).abs() < 1e-12);
+                assert!((a.k3 - b.k3).abs() < 1e-12);
+            }
+            other => panic!("distortion mismatch: {:?}", other),
+        }
+
+        assert!((de.final_cost - report.final_cost).abs() < 1e-12);
+    }
+}

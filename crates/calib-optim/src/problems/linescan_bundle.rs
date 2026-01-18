@@ -12,14 +12,10 @@ use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
+    BrownConrady5, PinholeCamera, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
 };
 use nalgebra::DVector;
 use std::collections::HashMap;
-
-/// Camera type returned by linescan optimization.
-pub type PinholeCamera =
-    Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
 
 /// Observations for a single view with both calibration features and laser line.
 #[derive(Debug, Clone)]
@@ -475,7 +471,7 @@ fn extract_solution(
         camera,
         poses,
         planes,
-        final_cost: solution.final_cost,
+        final_cost: solution.solve_report.final_cost,
     })
 }
 
