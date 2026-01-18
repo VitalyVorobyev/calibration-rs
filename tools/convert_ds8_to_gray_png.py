@@ -19,13 +19,13 @@ import sys
 from pathlib import Path
 
 
-TIFF_SUFFIXES = {".tif", ".tiff"}
+CONVERT_SUFFIXES = {".tif", ".tiff", ".bmp", ".jpg"}
 
 
 def iter_tiffs(root: Path) -> list[Path]:
     paths: list[Path] = []
     for p in root.rglob("*"):
-        if p.is_file() and p.suffix.lower() in TIFF_SUFFIXES:
+        if p.is_file() and p.suffix.lower() in CONVERT_SUFFIXES:
             paths.append(p)
     paths.sort()
     return paths
@@ -53,12 +53,12 @@ def convert_one(src: Path, dst: Path) -> None:
     with Image.open(src) as img:
         gray = to_gray_8bit(img)
         dst.parent.mkdir(parents=True, exist_ok=True)
-        gray.save(dst, format="BMP")
+        gray.save(dst, format="PNG")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Convert TIFF images to 8-bit grayscale BMPs."
+        description="Convert TIFF images to 8-bit grayscale PNGs."
     )
     parser.add_argument(
         "--in",
@@ -77,12 +77,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--in-place",
         action="store_true",
-        help="Write .bmp next to each source image (keeps input tree unchanged).",
+        help="Write .png next to each source image (keeps input tree unchanged).",
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Overwrite existing .bmp outputs.",
+        help="Overwrite existing .png outputs.",
     )
     parser.add_argument(
         "--dry-run",
@@ -121,9 +121,9 @@ def main(argv: list[str]) -> int:
 
     for src in tiffs:
         if args.in_place:
-            dst = src.with_suffix(".bmp")
+            dst = src.with_suffix(".png")
         else:
-            rel = src.relative_to(in_root).with_suffix(".bmp")
+            rel = src.relative_to(in_root).with_suffix(".png")
             dst = args.out_root / rel
 
         if dst.exists() and not args.overwrite:
