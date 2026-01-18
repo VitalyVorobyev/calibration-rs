@@ -125,12 +125,8 @@ impl LinescanPlaneSolver {
         let eigen = cov.symmetric_eigen();
 
         // Sort eigenvalues to identify smallest and second-smallest
-        let mut indexed_eigenvalues: Vec<(usize, f64)> = eigen
-            .eigenvalues
-            .iter()
-            .copied()
-            .enumerate()
-            .collect();
+        let mut indexed_eigenvalues: Vec<(usize, f64)> =
+            eigen.eigenvalues.iter().copied().enumerate().collect();
         indexed_eigenvalues.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
         let (min_idx, min_eigenvalue) = indexed_eigenvalues[0];
@@ -305,7 +301,8 @@ mod tests {
     use calib_core::Camera;
     use nalgebra::UnitQuaternion;
 
-    fn make_test_camera() -> Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>> {
+    fn make_test_camera(
+    ) -> Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>> {
         let intrinsics = FxFyCxCySkew {
             fx: 800.0,
             fy: 800.0,

@@ -180,21 +180,17 @@ The implementation uses several techniques for robustness:
 - Manifold-aware parameter updates for rotations (proper SE(3)/SO(3) handling)
 - Sparse linear solvers for large problems (efficient memory usage)
 
-## Relationship to Other Crates
-
-- **calib-core**: Math types, camera models, RANSAC framework
-- **calib-linear**: Closed-form initialization solvers (Zhang, homography, PnP, etc.)
-- **calib-pipeline**: High-level end-to-end calibration pipelines
-- **calib-cli**: Command-line interface for batch processing
-
 ## Examples
 
-See:
+Integration tests with full examples:
 - [`tests/planar_intrinsics_real_data.rs`](tests/planar_intrinsics_real_data.rs)
 - [`tests/rig_extrinsics.rs`](tests/rig_extrinsics.rs)
 - [`tests/handeye.rs`](tests/handeye.rs)
 - [`tests/linescan_bundle.rs`](tests/linescan_bundle.rs)
 
-## License
+## See Also
 
-MIT
+- [calib-core](../calib-core): Math types, camera models, RANSAC framework
+- [calib-linear](../calib-linear): Closed-form initialization solvers
+- [calib-pipeline](../calib-pipeline): High-level end-to-end calibration pipelines
+- [Book: Non-linear Optimization](../../book/src/nonlinear.md)

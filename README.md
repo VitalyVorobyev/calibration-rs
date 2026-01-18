@@ -18,14 +18,43 @@ refinement, pipelines, and a CLI. Supports perspective and linescan sensors and 
   real-data validation.
 - API stability: `calib` is the compatibility boundary; lower crates may evolve.
 
-## Crate layout
+## Architecture
 
-- `calib`: facade re-exporting all sub-crates for a stable API surface
-- `calib-core`: math types, camera models, deterministic RANSAC
-- `calib-linear`: closed-form solvers (homography, PnP, epipolar, triangulation, hand-eye, rig)
-- `calib-optim`: non-linear refinement (planar intrinsics, rig extrinsics, hand-eye, linescan)
-- `calib-pipeline`: end-to-end workflows, session API, JSON I/O
-- `calib-cli`: command-line wrapper for batch planar intrinsics
+```
+                           ┌─────────────────────────┐
+                           │         calib           │  ◄── Stable API facade
+                           │    (public interface)   │
+                           └───────────┬─────────────┘
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              │                        │                        │
+              ▼                        ▼                        ▼
+┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
+│   calib-pipeline    │  │    calib-optim      │  │    calib-linear     │
+│  Session API, JSON  │  │   Non-linear BA     │  │   Linear solvers    │
+│   I/O, workflows    │  │   LM optimization   │  │   Initialization    │
+└─────────┬───────────┘  └─────────┬───────────┘  └─────────┬───────────┘
+          │                        │                        │
+          └────────────────────────┼────────────────────────┘
+                                   │
+                                   ▼
+                       ┌─────────────────────┐
+                       │     calib-core      │  ◄── Math types, camera
+                       │   Types, models,    │      models, RANSAC
+                       │       RANSAC        │
+                       └─────────────────────┘
+```
+
+## Crate Summary
+
+| Crate | Description |
+|-------|-------------|
+| **calib** | Facade re-exporting all sub-crates for a stable API surface |
+| **calib-core** | Math types (nalgebra), composable camera models, RANSAC, synthetic data |
+| **calib-linear** | Closed-form solvers: homography, Zhang, PnP, epipolar, hand-eye, linescan |
+| **calib-optim** | Non-linear LM refinement: planar intrinsics, rig, hand-eye, linescan |
+| **calib-pipeline** | End-to-end workflows, session API, JSON I/O |
+| **calib-cli** | Command-line interface for batch processing |
 
 ## Quickstart
 

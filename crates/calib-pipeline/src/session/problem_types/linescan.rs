@@ -11,8 +11,8 @@ use calib_optim::{
     ir::RobustLoss,
     params::laser_plane::LaserPlane,
     problems::linescan_bundle::{
-        optimize_linescan, LaserResidualType, LinescanDataset, LinescanInit,
-        LinescanSolveOptions, LinescanViewObservations, PinholeCamera,
+        optimize_linescan, LaserResidualType, LinescanDataset, LinescanInit, LinescanSolveOptions,
+        LinescanViewObservations, PinholeCamera,
     },
     BackendSolveOptions,
 };
@@ -269,10 +269,12 @@ impl ProblemType for LinescanProblem {
             .collect();
 
         let dataset = LinescanDataset::new_single_plane(optim_views)?;
-        let linescan_init =
-            LinescanInit::new(init.intrinsics, init.distortion, init.poses.clone(), vec![
-                init.plane.clone(),
-            ])?;
+        let linescan_init = LinescanInit::new(
+            init.intrinsics,
+            init.distortion,
+            init.poses.clone(),
+            vec![init.plane.clone()],
+        )?;
 
         let solve_opts = LinescanSolveOptions {
             calib_loss: opts.calib_loss,
@@ -477,7 +479,11 @@ mod tests {
 
         // Initialize
         let init_result = session.initialize(LinescanInitOptions::default());
-        assert!(init_result.is_ok(), "Initialization failed: {:?}", init_result);
+        assert!(
+            init_result.is_ok(),
+            "Initialization failed: {:?}",
+            init_result
+        );
         assert_eq!(
             session.stage(),
             crate::session::SessionStage::Initialized,
@@ -492,7 +498,11 @@ mod tests {
 
         // Optimize
         let optim_result = session.optimize(LinescanOptimOptions::default());
-        assert!(optim_result.is_ok(), "Optimization failed: {:?}", optim_result);
+        assert!(
+            optim_result.is_ok(),
+            "Optimization failed: {:?}",
+            optim_result
+        );
         assert_eq!(
             session.stage(),
             crate::session::SessionStage::Optimized,
