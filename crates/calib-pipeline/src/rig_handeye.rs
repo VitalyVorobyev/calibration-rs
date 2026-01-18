@@ -5,8 +5,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 pub use crate::session::problem_types::{
-    CameraViewData as RigHandEyeCameraViewData, RigHandEyeInitOptions,
-    RigHandEyeObservations as RigHandEyeInput, RigHandEyeOptimOptions,
+    RigHandEyeInitOptions, RigHandEyeObservations as RigHandEyeInput, RigHandEyeOptimOptions,
     RigHandEyeOptimized as RigHandEyeReport, RigHandEyeViewData,
 };
 
@@ -35,8 +34,8 @@ pub fn run_rig_handeye(
 mod tests {
     use super::*;
     use calib_core::{
-        BrownConrady5, FxFyCxCySkew, IntrinsicsParams, Iso3, ProjectionParams, Pt3, SensorParams,
-        Vec2,
+        BrownConrady5, CorrespondenceView, FxFyCxCySkew, IntrinsicsParams, Iso3, ProjectionParams,
+        Pt3, SensorParams, Vec2,
     };
     use calib_optim::ir::{HandEyeMode, RobustLoss};
 
@@ -60,7 +59,7 @@ mod tests {
         let input = RigHandEyeInput {
             views: vec![RigHandEyeViewData {
                 cameras: vec![
-                    Some(RigHandEyeCameraViewData {
+                    Some(CorrespondenceView {
                         points_3d: vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(0.05, 0.0, 0.0)],
                         points_2d: vec![Vec2::new(100.0, 100.0), Vec2::new(200.0, 100.0)],
                         weights: None,

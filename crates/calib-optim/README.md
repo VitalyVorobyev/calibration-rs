@@ -1,17 +1,24 @@
 # calib-optim
 
-Non-linear optimization for camera calibration with automatic differentiation.
+Non-linear least-squares optimization (bundle-adjustment style) for camera calibration.
 
-This crate provides a **backend-agnostic optimization framework** for camera calibration problems. The core design separates problem definition from solver implementation using an intermediate representation (IR) that can be compiled to different optimization backends.
+This crate provides a **backend-agnostic optimization framework** for calibration problems. The core
+design separates problem definition from solver implementation using an intermediate representation
+(IR) that can be compiled to different backends.
 
 ## Features
 
-- ✅ **Automatic differentiation** via generic `RealField` trait
-- ✅ **Backend-agnostic IR** for solver portability
-- ✅ **Brown-Conrady distortion** optimization (k1, k2, k3, p1, p2)
-- ✅ **Flexible parameter fixing** for selective optimization
-- ✅ **Robust loss functions** (Huber, Cauchy, Arctan) for outlier handling
-- ✅ **Manifold-aware optimization** for SE(3)/SO(3) parameters
+- ✅ **Automatic differentiation support** (factors are `RealField`-generic)
+- ✅ **Backend-agnostic IR** (`ir::ProblemIR`) with robust losses and manifolds
+- ✅ **Levenberg–Marquardt backend** (tiny-solver) with sparse linear solvers
+- ✅ **Built-in problems**
+  - `planar_intrinsics`: pinhole intrinsics + Brown-Conrady5 + per-view poses
+  - `rig_extrinsics`: multi-camera rig BA (supports missing observations)
+  - `handeye`: multi-camera rig + robot hand-eye BA (EyeInHand / EyeToHand) with optional robot pose refinement
+  - `linescan_bundle`: linescan bundle refinement
+- ✅ **Structured parameter fixing** via `IntrinsicsFixMask` / `DistortionFixMask` / `CameraFixMask` (+ per-camera overrides)
+- ✅ **Robust loss functions** (`None`, `Huber`, `Cauchy`, `Arctan`)
+- ✅ **Manifold-aware optimization** for SE(3) parameters
 
 ## Architecture
 
@@ -31,33 +38,35 @@ Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Doma
 - **`params`** - Parameter block definitions (intrinsics, distortion, poses)
 - **`factors`** - Residual functions with autodiff support
 - **`backend`** - Solver implementations (currently tiny-solver with Levenberg-Marquardt)
-- **`problems`** - High-level problem builders (planar intrinsics, etc.)
+- **`problems`** - High-level problem builders (planar intrinsics, rig extrinsics, hand-eye, linescan)
 
 ## Quick Start
 
 ### Planar Intrinsics Calibration
 
 ```rust
-use calib_optim::problems::planar_intrinsics::*;
-use calib_core::{BrownConrady5, FxFyCxCySkew};
+use calib_optim::planar_intrinsics::*;
+use calib_core::{BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask};
 use calib_optim::ir::RobustLoss;
 use calib_optim::BackendSolveOptions;
 
 // 1. Prepare observations (world points + image detections)
-let views = vec![/* PlanarViewObservations from corner detections */];
+let views: Vec<CorrespondenceView> = Vec::new(); // fill from a detector
 let dataset = PlanarDataset::new(views)?;
 
 // 2. Initialize with linear method (from calib-linear crate)
 let init = PlanarIntrinsicsInit {
     intrinsics: FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 },
     distortion: BrownConrady5 { k1: 0.0, k2: 0.0, k3: 0.0, p1: 0.0, p2: 0.0, iters: 8 },
-    poses: vec![/* initial poses from homographies */],
+    poses: Vec::new(), // initial poses from homographies
 };
 
 // 3. Configure optimization
 let opts = PlanarIntrinsicsSolveOptions {
     robust_loss: RobustLoss::Huber { scale: 2.0 },
-    fix_k3: true,  // Fix k3 to prevent overfitting
+    fix_intrinsics: IntrinsicsFixMask::default(),
+    fix_distortion: DistortionFixMask::default(), // k3 fixed by default
+    fix_poses: vec![0], // fix one pose for gauge freedom
     ..Default::default()
 };
 
@@ -68,22 +77,32 @@ println!("Calibrated camera: {:?}", result.camera);
 println!("Final cost: {}", result.final_cost);
 ```
 
+### Other Built-In Problems
+
+- Rig extrinsics (multi-camera BA): `calib_optim::problems::rig_extrinsics`
+- Hand-eye (rig + robot BA): `calib_optim::handeye`
+- Linescan bundle refinement: `calib_optim::problems::linescan_bundle`
+
+For end-to-end examples, see the integration tests linked below.
+
 ## Parameter Fixing
 
 Selectively fix parameters during optimization:
 
 ```rust
+use calib_core::{DistortionFixMask, IntrinsicsFixMask};
+use calib_optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
+
 let opts = PlanarIntrinsicsSolveOptions {
     // Fix intrinsics, optimize only distortion
-    fix_fx: true,
-    fix_fy: true,
+    fix_intrinsics: IntrinsicsFixMask::all_fixed(),
 
-    // Fix tangential distortion
-    fix_p1: true,
-    fix_p2: true,
-
-    // Fix k3 (recommended for most lenses)
-    fix_k3: true,
+    // Fix tangential distortion, keep k3 fixed (default)
+    fix_distortion: DistortionFixMask {
+        p1: true,
+        p2: true,
+        ..Default::default()
+    },
 
     ..Default::default()
 };
@@ -95,6 +114,7 @@ Handle outliers with M-estimators:
 
 ```rust
 use calib_optim::ir::RobustLoss;
+use calib_optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
 
 // Huber loss: L2 near zero, L1 for outliers
 let opts = PlanarIntrinsicsSolveOptions {
@@ -111,7 +131,7 @@ let opts = PlanarIntrinsicsSolveOptions {
 
 ## Testing with Real Data
 
-The crate includes integration tests using real stereo chessboard data:
+The crate includes integration tests using both synthetic and real data:
 
 ```bash
 # Run all tests including real data integration
@@ -121,10 +141,10 @@ cargo test --package calib-optim
 cargo test --package calib-optim --test planar_intrinsics_real_data
 ```
 
-Test results with real data:
-- **Reprojection error improvement**: 18-20% reduction
-- **Final mean error**: < 0.25 pixels
-- **Parameter fixing**: Verified working for all parameter subsets
+Other useful tests:
+- `cargo test --package calib-optim --test rig_extrinsics`
+- `cargo test --package calib-optim --test handeye`
+- `cargo test --package calib-optim --test linescan_bundle`
 
 ## Implementation Status
 
@@ -133,13 +153,16 @@ Test results with real data:
 | Backend-agnostic IR | ✅ Complete |
 | tiny-solver backend (LM) | ✅ Complete |
 | Planar intrinsics problem | ✅ Complete |
+| Rig extrinsics problem | ✅ Complete |
+| Hand-eye problem | ✅ Complete |
+| Robot pose refinement (hand-eye) | ✅ Complete |
+| Linescan bundle problem | ✅ Complete |
 | Pinhole reprojection | ✅ Complete |
 | Brown-Conrady distortion | ✅ Complete (k1, k2, k3, p1, p2) |
 | Parameter fixing | ✅ Complete |
 | Robust loss functions | ✅ Complete |
 | Real data validation | ✅ Complete |
-| Bundle adjustment | ❌ Not implemented |
-| Multi-camera rigs | ❌ Not implemented |
+| Ceres backend | ❌ Not implemented |
 
 ## Performance Tips
 
@@ -166,11 +189,11 @@ The implementation uses several techniques for robustness:
 
 ## Examples
 
-See [`tests/planar_intrinsics_real_data.rs`](tests/planar_intrinsics_real_data.rs) for a complete example using real stereo chessboard data with:
-- Linear initialization via Zhang's method
-- Non-linear refinement with distortion
-- Parameter fixing demonstrations
-- Reprojection error validation
+See:
+- [`tests/planar_intrinsics_real_data.rs`](tests/planar_intrinsics_real_data.rs)
+- [`tests/rig_extrinsics.rs`](tests/rig_extrinsics.rs)
+- [`tests/handeye.rs`](tests/handeye.rs)
+- [`tests/linescan_bundle.rs`](tests/linescan_bundle.rs)
 
 ## License
 

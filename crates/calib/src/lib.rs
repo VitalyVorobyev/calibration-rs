@@ -11,10 +11,10 @@
 //!
 //! ```no_run
 //! use calib::session::{CalibrationSession, PlanarIntrinsicsProblem, PlanarIntrinsicsObservations};
-//! use calib::pipeline::CameraViewData;
+//! use calib::pipeline::CorrespondenceView;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let views: Vec<CameraViewData> = /* load calibration data */
+//! let views: Vec<CorrespondenceView> = /* load calibration data */
 //! # vec![];
 //!
 //! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
@@ -53,10 +53,10 @@
 //! use calib::linear::distortion_fit::DistortionFitOptions;
 //! use calib::optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
 //! use calib::optim::backend::BackendSolveOptions;
-//! use calib::pipeline::CameraViewData;
+//! use calib::pipeline::CorrespondenceView;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let views: Vec<CameraViewData> = /* load calibration data */
+//! let views: Vec<CorrespondenceView> = /* load calibration data */
 //! # vec![];
 //!
 //! // Step 1: Linear initialization
@@ -169,12 +169,12 @@ pub mod helpers {
 pub mod pipeline {
     pub use calib_pipeline::{
         handeye, handeye_single, rig_reprojection_errors, rig_reprojection_errors_from_report,
-        run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, CameraViewData, HandEyeMode,
-        PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, RigCameraViewData,
+        run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, CorrespondenceView,
+        HandEyeMode, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
         RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
-        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigHandEyeCameraViewData, RigHandEyeConfig,
-        RigHandEyeInitOptions, RigHandEyeInput, RigHandEyeOptimOptions, RigHandEyeReport,
-        RigHandEyeViewData, RigReprojectionErrors, RigViewData, RobustLossConfig,
+        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigHandEyeConfig, RigHandEyeInitOptions,
+        RigHandEyeInput, RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
+        RigReprojectionErrors, RigViewData,
     };
 }
 
@@ -184,7 +184,7 @@ pub mod pipeline {
 pub mod rig {
     pub use calib_pipeline::{
         rig_reprojection_errors, rig_reprojection_errors_from_report, run_rig_extrinsics,
-        RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
+        RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
         RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
     };
 }
@@ -192,8 +192,8 @@ pub mod rig {
 /// Multi-camera rig + robot hand-eye calibration.
 pub mod rig_handeye {
     pub use calib_pipeline::{
-        run_rig_handeye, RigHandEyeCameraViewData, RigHandEyeConfig, RigHandEyeInitOptions,
-        RigHandEyeInput, RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
+        run_rig_handeye, RigHandEyeConfig, RigHandEyeInitOptions, RigHandEyeInput,
+        RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
     };
 }
 
@@ -243,7 +243,7 @@ pub mod prelude {
 
     // Pipeline types
     pub use crate::pipeline::{
-        CameraViewData, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
+        CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
         RigExtrinsicsConfig, RigExtrinsicsInput, RigExtrinsicsReport, RigViewData,
     };
 

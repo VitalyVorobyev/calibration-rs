@@ -6,7 +6,9 @@
 //! 3. Shared intrinsics and distortion across cameras
 //! 4. Per-camera extrinsics parameters
 
-use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Real};
+use calib_core::{
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Real,
+};
 use calib_optim::backend::{BackendSolveOptions, LinearSolverKind};
 use calib_optim::problems::rig_extrinsics::*;
 use nalgebra::{Isometry3, Rotation3, Translation3};
@@ -86,9 +88,7 @@ fn stereo_rig_extrinsics_converges() {
                 }
             }
 
-            cameras_obs.push(Some(
-                CameraViewObservations::new(points_3d, points_2d).unwrap(),
-            ));
+            cameras_obs.push(Some(CorrespondenceView::new(points_3d, points_2d).unwrap()));
         }
 
         views.push(RigViewObservations {

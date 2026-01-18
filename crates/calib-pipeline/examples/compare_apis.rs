@@ -14,7 +14,7 @@ use calib_pipeline::session::problem_types::{
     PlanarIntrinsicsProblem,
 };
 use calib_pipeline::session::CalibrationSession;
-use calib_pipeline::{BackendSolveOptions, CameraViewData, PlanarIntrinsicsSolveOptions};
+use calib_pipeline::{BackendSolveOptions, CorrespondenceView, PlanarIntrinsicsSolveOptions};
 use nalgebra::{UnitQuaternion, Vector3};
 
 fn main() -> anyhow::Result<()> {
@@ -92,7 +92,7 @@ struct CalibrationResult {
     final_cost: f64,
 }
 
-fn run_with_session_api(views: Vec<CameraViewData>) -> anyhow::Result<CalibrationResult> {
+fn run_with_session_api(views: Vec<CorrespondenceView>) -> anyhow::Result<CalibrationResult> {
     println!("Creating session...");
     let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
@@ -126,7 +126,7 @@ fn run_with_session_api(views: Vec<CameraViewData>) -> anyhow::Result<Calibratio
     })
 }
 
-fn run_with_imperative_api(views: Vec<CameraViewData>) -> anyhow::Result<CalibrationResult> {
+fn run_with_imperative_api(views: Vec<CorrespondenceView>) -> anyhow::Result<CalibrationResult> {
     println!("Configuring initialization options...");
     let init_opts = IterativeIntrinsicsOptions {
         iterations: 2,
@@ -174,7 +174,7 @@ fn run_with_imperative_api(views: Vec<CameraViewData>) -> anyhow::Result<Calibra
     })
 }
 
-fn generate_synthetic_data() -> Vec<CameraViewData> {
+fn generate_synthetic_data() -> Vec<CorrespondenceView> {
     // Ground truth camera
     let k_gt = FxFyCxCySkew {
         fx: 800.0,
@@ -221,7 +221,7 @@ fn generate_synthetic_data() -> Vec<CameraViewData> {
             }
         }
 
-        views.push(CameraViewData {
+        views.push(CorrespondenceView {
             points_3d: board_points.clone(),
             points_2d,
             weights: None,

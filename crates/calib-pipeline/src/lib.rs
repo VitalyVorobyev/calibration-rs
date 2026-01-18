@@ -6,12 +6,12 @@ pub mod session;
 
 pub use rig_extrinsics::{
     rig_reprojection_errors, rig_reprojection_errors_from_report, run_rig_extrinsics,
-    RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
-    RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
+    RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput, RigExtrinsicsOptimOptions,
+    RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
 };
 pub use rig_handeye::{
-    run_rig_handeye, RigHandEyeCameraViewData, RigHandEyeConfig, RigHandEyeInitOptions,
-    RigHandEyeInput, RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
+    run_rig_handeye, RigHandEyeConfig, RigHandEyeInitOptions, RigHandEyeInput,
+    RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
 };
 
 // Re-export key building block modules from calib-linear for custom workflows
@@ -28,8 +28,13 @@ pub use calib_optim::{
     ir::HandEyeMode,
     planar_intrinsics::{
         optimize_planar_intrinsics as optimize_planar_intrinsics_raw, PinholeCamera, PlanarDataset,
-        PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions, PlanarViewObservations, RobustLoss,
+        PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions, RobustLoss,
     },
+};
+
+// Re-export core types for convenience
+pub use calib_core::{
+    CameraFixMask, CorrespondenceView, DistortionFixMask, IntrinsicsFixMask, ReprojectionStats,
 };
 
 // Re-export problem modules as they become public in calib-optim.
@@ -37,99 +42,33 @@ pub use calib_optim::{
 use anyhow::{ensure, Context, Result};
 use calib_core::{
     BrownConrady5, Camera, CameraParams, DistortionParams, FxFyCxCySkew, IdentitySensor,
-    IntrinsicsParams, Iso3, Mat3, Pinhole, ProjectionParams, Pt2, Pt3, Real, SensorParams, Vec2,
+    IntrinsicsParams, Iso3, Mat3, Pinhole, ProjectionParams, Pt2, Real, SensorParams,
 };
 // Note: These are now re-exported above for public API, not imported here
 use calib_optim::planar_intrinsics::optimize_planar_intrinsics;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsConfig {
-    /// Robust loss to use for residuals.
-    pub robust_loss: Option<RobustLossConfig>,
-    /// Maximum LM iterations (if `None`, use solver default).
-    pub max_iters: Option<usize>,
-    /// Fix fx during optimization.
-    pub fix_fx: bool,
-    /// Fix fy during optimization.
-    pub fix_fy: bool,
-    /// Fix cx during optimization.
-    pub fix_cx: bool,
-    /// Fix cy during optimization.
-    pub fix_cy: bool,
-    /// Fix poses by index.
-    pub fix_poses: Option<Vec<usize>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RobustLossConfig {
-    None,
-    Huber { scale: Real },
-    Cauchy { scale: Real },
-    Arctan { scale: Real },
-}
-
-impl Default for PlanarIntrinsicsConfig {
-    fn default() -> Self {
-        Self {
-            robust_loss: Some(RobustLossConfig::None),
-            max_iters: None,
-            fix_fx: false,
-            fix_fy: false,
-            fix_cx: false,
-            fix_cy: false,
-            fix_poses: None,
-        }
-    }
-}
-
-impl RobustLossConfig {
-    pub fn to_loss(&self) -> RobustLoss {
-        match *self {
-            RobustLossConfig::None => RobustLoss::None,
-            RobustLossConfig::Huber { scale } => RobustLoss::Huber { scale },
-            RobustLossConfig::Cauchy { scale } => RobustLoss::Cauchy { scale },
-            RobustLossConfig::Arctan { scale } => RobustLoss::Arctan { scale },
-        }
-    }
+    #[serde(default)]
+    pub solve_opts: PlanarIntrinsicsSolveOptions,
+    #[serde(default)]
+    pub backend_opts: BackendSolveOptions,
 }
 
 impl PlanarIntrinsicsConfig {
     pub fn solve_options(&self) -> PlanarIntrinsicsSolveOptions {
-        PlanarIntrinsicsSolveOptions {
-            robust_loss: self
-                .robust_loss
-                .as_ref()
-                .map(RobustLossConfig::to_loss)
-                .unwrap_or(RobustLoss::None),
-            fix_fx: self.fix_fx,
-            fix_fy: self.fix_fy,
-            fix_cx: self.fix_cx,
-            fix_cy: self.fix_cy,
-            fix_poses: self.fix_poses.clone().unwrap_or_default(),
-            ..Default::default()
-        }
+        self.solve_opts.clone()
     }
 
     pub fn solver_options(&self) -> BackendSolveOptions {
-        let mut opts = BackendSolveOptions::default();
-        if let Some(max_iters) = self.max_iters {
-            opts.max_iters = max_iters;
-        }
-        opts
+        self.backend_opts.clone()
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CameraViewData {
-    pub points_3d: Vec<Pt3>,
-    pub points_2d: Vec<Vec2>,
-    pub weights: Option<Vec<Real>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsInput {
-    pub views: Vec<CameraViewData>,
+    pub views: Vec<CorrespondenceView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,7 +110,7 @@ pub(crate) fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
     }
 }
 
-fn board_and_pixel_points(view: &CameraViewData) -> (Vec<Pt2>, Vec<Pt2>) {
+fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
     let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
 
     let pixel_2d: Vec<Pt2> = view.points_2d.iter().map(|v| Pt2::new(v.x, v.y)).collect();
@@ -183,7 +122,7 @@ pub(crate) fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
     Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
 }
 
-pub(crate) fn planar_homographies_from_views(views: &[CameraViewData]) -> Result<Vec<Mat3>> {
+pub(crate) fn planar_homographies_from_views(views: &[CorrespondenceView]) -> Result<Vec<Mat3>> {
     use calib_linear::homography::dlt_homography;
 
     let mut homographies = Vec::with_capacity(views.len());
@@ -214,7 +153,7 @@ pub(crate) fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Res
 }
 
 fn iterative_init_guess(
-    views: &[CameraViewData],
+    views: &[CorrespondenceView],
 ) -> Option<(FxFyCxCySkew<Real>, BrownConrady5<Real>)> {
     use calib_linear::iterative_intrinsics::{
         estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
@@ -246,7 +185,7 @@ fn iterative_init_guess(
 }
 
 pub(crate) fn planar_init_seed_from_views(
-    views: &[CameraViewData],
+    views: &[CorrespondenceView],
 ) -> Result<(PlanarIntrinsicsInit, PinholeCamera)> {
     use calib_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
 
@@ -288,7 +227,6 @@ pub(crate) fn planar_init_seed_from_views(
 }
 
 pub(crate) fn build_planar_dataset(input: &PlanarIntrinsicsInput) -> Result<PlanarDataset> {
-    let mut observations = Vec::new();
     for (idx, view) in input.views.iter().enumerate() {
         ensure!(
             view.points_3d.len() == view.points_2d.len(),
@@ -315,20 +253,9 @@ pub(crate) fn build_planar_dataset(input: &PlanarIntrinsicsInput) -> Result<Plan
                 idx
             );
         }
-
-        let obs = if let Some(weights) = view.weights.as_ref() {
-            PlanarViewObservations::new_with_weights(
-                view.points_3d.clone(),
-                view.points_2d.clone(),
-                weights.clone(),
-            )?
-        } else {
-            PlanarViewObservations::new(view.points_3d.clone(), view.points_2d.clone())?
-        };
-        observations.push(obs);
     }
 
-    PlanarDataset::new(observations).context("invalid planar dataset")
+    PlanarDataset::new(input.views.clone()).context("invalid planar dataset")
 }
 
 pub(crate) fn optimize_planar_intrinsics_with_init(
@@ -369,10 +296,10 @@ pub fn run_planar_intrinsics(
 mod tests {
     use super::*;
     use crate::handeye::{
-        optimize_handeye, CameraViewObservations, HandEyeDataset, HandEyeInit, HandEyeSolveOptions,
-        RigViewObservations,
+        optimize_handeye, HandEyeDataset, HandEyeInit, HandEyeSolveOptions, RigViewObservations,
     };
     use crate::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
+    use calib_core::{Pt3, Vec2};
     use calib_linear::distortion_fit::DistortionFitOptions;
     use calib_linear::handeye::estimate_handeye_dlt;
     use calib_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
@@ -425,7 +352,7 @@ mod tests {
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 
-            views.push(CameraViewData {
+            views.push(CorrespondenceView {
                 points_3d: board_points.clone(),
                 points_2d,
                 weights: None,
@@ -489,7 +416,7 @@ mod tests {
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 
-            views.push(CameraViewData {
+            views.push(CorrespondenceView {
                 points_3d: board_points.clone(),
                 points_2d,
                 weights: None,
@@ -581,7 +508,7 @@ mod tests {
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 
-            views.push(CameraViewData {
+            views.push(CorrespondenceView {
                 points_3d: board_points.clone(),
                 points_2d,
                 weights: None,
@@ -599,10 +526,7 @@ mod tests {
         };
         let init = initialize_planar_intrinsics(&views, &init_opts).unwrap();
 
-        let solve_opts = PlanarIntrinsicsSolveOptions {
-            fix_k3: true,
-            ..Default::default()
-        };
+        let solve_opts = PlanarIntrinsicsSolveOptions::default();
         let optim =
             optimize_planar_intrinsics_from_init(&views, &init, &solve_opts, &Default::default())
                 .unwrap();
@@ -621,8 +545,7 @@ mod tests {
 
         let mut rig_views = Vec::new();
         for (robot_pose, view) in robot_poses.iter().zip(&views) {
-            let obs = CameraViewObservations::new(view.points_3d.clone(), view.points_2d.clone())
-                .unwrap();
+            let obs = view.clone();
             rig_views.push(RigViewObservations {
                 cameras: vec![Some(obs)],
                 robot_pose: *robot_pose,
@@ -641,15 +564,7 @@ mod tests {
         };
 
         let opts = HandEyeSolveOptions {
-            fix_fx: true,
-            fix_fy: true,
-            fix_cx: true,
-            fix_cy: true,
-            fix_k1: true,
-            fix_k2: true,
-            fix_k3: true,
-            fix_p1: true,
-            fix_p2: true,
+            default_fix: calib_core::CameraFixMask::all_fixed(),
             fix_extrinsics: vec![true],
             ..Default::default()
         };
@@ -674,15 +589,15 @@ mod tests {
 
     #[test]
     fn config_json_roundtrip() {
-        let config = PlanarIntrinsicsConfig {
-            robust_loss: Some(RobustLossConfig::Huber { scale: 2.5 }),
-            max_iters: Some(80),
-            fix_fx: true,
-            fix_fy: false,
-            fix_cx: false,
-            fix_cy: true,
-            fix_poses: Some(vec![0, 2]),
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.solve_opts.robust_loss = RobustLoss::Huber { scale: 2.5 };
+        config.solve_opts.fix_intrinsics = IntrinsicsFixMask {
+            fx: true,
+            cy: true,
+            ..Default::default()
         };
+        config.solve_opts.fix_poses = vec![0, 2];
+        config.backend_opts.max_iters = 80;
 
         let json = serde_json::to_string_pretty(&config).unwrap();
         assert!(
@@ -692,22 +607,20 @@ mod tests {
         );
 
         let de: PlanarIntrinsicsConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(de.max_iters, config.max_iters);
-        assert_eq!(de.fix_fx, config.fix_fx);
-        assert_eq!(de.fix_cy, config.fix_cy);
-        match (de.robust_loss, config.robust_loss) {
-            (
-                Some(RobustLossConfig::Huber { scale: d1 }),
-                Some(RobustLossConfig::Huber { scale: d2 }),
-            ) => assert!((d1 - d2).abs() < 1e-12),
-            other => panic!("mismatch in losses: {:?}", other),
-        }
+        assert_eq!(de.backend_opts.max_iters, 80);
+        assert!(de.solve_opts.fix_intrinsics.fx);
+        assert!(de.solve_opts.fix_intrinsics.cy);
+        assert_eq!(de.solve_opts.fix_poses, vec![0, 2]);
+        match de.solve_opts.robust_loss {
+            RobustLoss::Huber { scale } => assert!((scale - 2.5).abs() < 1e-12),
+            other => panic!("unexpected robust_loss: {other:?}"),
+        };
     }
 
     #[test]
     fn input_json_roundtrip() {
         let input = PlanarIntrinsicsInput {
-            views: vec![CameraViewData {
+            views: vec![CorrespondenceView {
                 points_3d: vec![
                     Pt3::new(0.0, 0.0, 0.0),
                     Pt3::new(1.0, 0.0, 0.0),

@@ -38,7 +38,7 @@ calib = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
 Use the high-level pipeline API:
 
 ```rust
-use calib::pipeline::{run_planar_intrinsics, CameraViewData, PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
+use calib::pipeline::{run_planar_intrinsics, CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
 use calib::core::{IntrinsicsParams, Pt3, Vec2};
 
 fn main() {
@@ -49,7 +49,7 @@ fn main() {
         Pt3::new(0.1, 0.1, 0.0),
         Pt3::new(0.0, 0.1, 0.0),
     ];
-    let view = CameraViewData {
+    let view = CorrespondenceView {
         points_3d: board.clone(),
         points_2d: vec![
             Vec2::new(100.0, 120.0),

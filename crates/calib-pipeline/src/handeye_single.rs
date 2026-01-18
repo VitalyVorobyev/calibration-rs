@@ -2,7 +2,8 @@
 
 use crate::{
     build_planar_dataset, k_matrix_from_intrinsics, make_pinhole_camera,
-    planar_homographies_from_views, poses_from_homographies, CameraViewData, PlanarIntrinsicsInput,
+    planar_homographies_from_views, poses_from_homographies, CorrespondenceView,
+    PlanarIntrinsicsInput,
 };
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
@@ -16,8 +17,7 @@ pub use calib_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
 pub use calib_optim::backend::BackendSolveOptions;
 pub use calib_optim::handeye::HandEyeSolveOptions;
 use calib_optim::handeye::{
-    optimize_handeye_with_diagnostics, CameraViewObservations, HandEyeDataset, HandEyeInit,
-    RigViewObservations,
+    optimize_handeye_with_diagnostics, HandEyeDataset, HandEyeInit, RigViewObservations,
 };
 pub use calib_optim::ir::HandEyeMode;
 pub use calib_optim::ir::RobustLoss;
@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeView {
     /// Planar target observations in this view.
-    pub view: CameraViewData,
+    pub view: CorrespondenceView,
     /// Robot pose (base-to-gripper) for this view.
     pub robot_pose: Iso3,
 }
@@ -157,7 +157,7 @@ pub fn init_intrinsics(
     views: &[HandEyeView],
     opts: &IterativeIntrinsicsOptions,
 ) -> Result<IntrinsicsStage> {
-    let planar_views: Vec<CameraViewData> = views.iter().map(|v| v.view.clone()).collect();
+    let planar_views: Vec<CorrespondenceView> = views.iter().map(|v| v.view.clone()).collect();
     let init = crate::helpers::initialize_planar_intrinsics(&planar_views, opts)?;
 
     let homographies = planar_homographies_from_views(&planar_views)?;
@@ -182,7 +182,7 @@ pub fn intrinsics_stage_from_params(
     intrinsics: FxFyCxCySkew<Real>,
     distortion: BrownConrady5<Real>,
 ) -> Result<IntrinsicsStage> {
-    let planar_views: Vec<CameraViewData> = views.iter().map(|v| v.view.clone()).collect();
+    let planar_views: Vec<CorrespondenceView> = views.iter().map(|v| v.view.clone()).collect();
     let homographies = planar_homographies_from_views(&planar_views)?;
     let kmtx = k_matrix_from_intrinsics(&intrinsics);
     let poses = poses_from_homographies(&kmtx, &homographies)?;
@@ -238,7 +238,7 @@ pub fn optimize_intrinsics(
     solve_opts: &PlanarIntrinsicsSolveOptions,
     backend_opts: &BackendSolveOptions,
 ) -> Result<IntrinsicsStage> {
-    let planar_views: Vec<CameraViewData> = views.iter().map(|v| v.view.clone()).collect();
+    let planar_views: Vec<CorrespondenceView> = views.iter().map(|v| v.view.clone()).collect();
     let dataset = build_planar_dataset(&PlanarIntrinsicsInput {
         views: planar_views.clone(),
     })?;
@@ -413,7 +413,7 @@ pub fn optimize_handeye_stage(
     let mut rig_views = Vec::new();
     for view in views {
         let obs =
-            CameraViewObservations::new(view.view.points_3d.clone(), view.view.points_2d.clone())?;
+            CorrespondenceView::new(view.view.points_3d.clone(), view.view.points_2d.clone())?;
         rig_views.push(RigViewObservations {
             cameras: vec![Some(obs)],
             robot_pose: view.robot_pose,
@@ -502,15 +502,8 @@ pub fn run_handeye_single(
 }
 
 fn apply_handeye_fixed_intrinsics(opts: &mut HandEyeSolveOptions) {
-    opts.fix_fx = true;
-    opts.fix_fy = true;
-    opts.fix_cx = true;
-    opts.fix_cy = true;
-    opts.fix_k1 = true;
-    opts.fix_k2 = true;
-    opts.fix_k3 = true;
-    opts.fix_p1 = true;
-    opts.fix_p2 = true;
+    opts.default_fix = calib_core::CameraFixMask::all_fixed();
+    opts.camera_overrides.clear();
 }
 
 fn ensure_handeye_defaults(opts: &mut HandEyeSolveOptions, num_cameras: usize) {
@@ -540,21 +533,25 @@ fn compute_target_poses(
         .collect()
 }
 
-fn filter_view_inliers(view: &CameraViewData, inliers: &[usize]) -> CameraViewData {
+fn filter_view_inliers(view: &CorrespondenceView, inliers: &[usize]) -> CorrespondenceView {
     let mut points_3d = Vec::with_capacity(inliers.len());
     let mut points_2d = Vec::with_capacity(inliers.len());
 
     for &idx in inliers {
-        points_3d.push(view.points_3d[idx]);
-        points_2d.push(view.points_2d[idx]);
+        if let (Some(p3d), Some(p2d)) = (view.points_3d.get(idx), view.points_2d.get(idx)) {
+            points_3d.push(*p3d);
+            points_2d.push(*p2d);
+        }
     }
 
-    let weights = view
-        .weights
-        .as_ref()
-        .map(|w| inliers.iter().map(|&idx| w[idx]).collect::<Vec<_>>());
+    let weights = view.weights.as_ref().map(|w| {
+        inliers
+            .iter()
+            .filter_map(|&idx| w.get(idx).copied())
+            .collect()
+    });
 
-    CameraViewData {
+    CorrespondenceView {
         points_3d,
         points_2d,
         weights,
@@ -583,7 +580,7 @@ fn undistort_pixels(
 }
 
 fn mean_reproj_error_planar(
-    views: &[CameraViewData],
+    views: &[CorrespondenceView],
     intrinsics: &calib_core::FxFyCxCySkew<Real>,
     distortion: &calib_core::BrownConrady5<Real>,
     poses: &[Iso3],

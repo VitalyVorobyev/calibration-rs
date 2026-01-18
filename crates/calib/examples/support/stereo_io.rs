@@ -1,8 +1,8 @@
 //! Shared I/O helpers for the stereo rig calibration example.
 
 use anyhow::{ensure, Context, Result};
-use calib::core::{Pt3, Real, Vec2};
-use calib::rig::{RigCameraViewData, RigExtrinsicsInput, RigViewData};
+use calib::core::{CorrespondenceView, Pt3, Real, Vec2};
+use calib::rig::{RigExtrinsicsInput, RigViewData};
 use calib_targets::chessboard::ChessboardDetectionResult;
 use calib_targets::{detect, ChessboardParams};
 use chess_corners::ChessConfig;
@@ -177,7 +177,7 @@ fn detect_view(
     chess_config: &ChessConfig,
     board_params: ChessboardParams,
     square_size_m: Real,
-) -> Result<Option<RigCameraViewData>> {
+) -> Result<Option<CorrespondenceView>> {
     let img = ImageReader::open(path)
         .with_context(|| format!("failed to read image {}", path.display()))?
         .decode()
@@ -194,7 +194,7 @@ fn detect_view(
 fn detection_to_view_data(
     detection: ChessboardDetectionResult,
     square_size_m: Real,
-) -> Result<RigCameraViewData> {
+) -> Result<CorrespondenceView> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();
     for corner in detection.detection.corners {
@@ -217,7 +217,7 @@ fn detection_to_view_data(
         "insufficient corners after grid filtering"
     );
 
-    Ok(RigCameraViewData {
+    Ok(CorrespondenceView {
         points_3d,
         points_2d,
         weights: None,

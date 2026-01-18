@@ -28,7 +28,8 @@ use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_D
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use anyhow::{ensure, Result};
 use calib_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
+    BrownConrady5, Camera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3,
+    Pinhole, Real,
 };
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -38,41 +39,11 @@ use std::collections::HashMap;
 pub type PinholeCamera =
     Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
 
-/// Observations from one camera in one robot pose view.
-#[derive(Debug, Clone)]
-pub struct CameraViewObservations {
-    pub points_3d: Vec<Pt3>,
-    pub points_2d: Vec<Vec2>,
-    pub weights: Option<Vec<f64>>,
-}
-
-impl CameraViewObservations {
-    /// Create observations from 3D and 2D points.
-    pub fn new(points_3d: Vec<Pt3>, points_2d: Vec<Vec2>) -> Result<Self> {
-        ensure!(
-            points_3d.len() == points_2d.len(),
-            "3D/2D point count mismatch: {} vs {}",
-            points_3d.len(),
-            points_2d.len()
-        );
-        Ok(Self {
-            points_3d,
-            points_2d,
-            weights: None,
-        })
-    }
-
-    /// Get weight for point at index.
-    pub fn weight(&self, idx: usize) -> f64 {
-        self.weights.as_ref().map_or(1.0, |w| w[idx])
-    }
-}
-
 /// Multi-camera rig observations for one robot pose.
 #[derive(Debug, Clone)]
 pub struct RigViewObservations {
     /// Observations for each camera (None if camera didn't observe in this view).
-    pub cameras: Vec<Option<CameraViewObservations>>,
+    pub cameras: Vec<Option<CorrespondenceView>>,
     /// Known robot pose (base-to-gripper) for this view.
     pub robot_pose: Iso3,
 }
@@ -143,23 +114,10 @@ pub struct HandEyeInit {
 pub struct HandEyeSolveOptions {
     pub robust_loss: RobustLoss,
 
-    // Default intrinsics flags applied to all cameras
-    pub fix_fx: bool,
-    pub fix_fy: bool,
-    pub fix_cx: bool,
-    pub fix_cy: bool,
-
-    // Default distortion flags applied to all cameras
-    pub fix_k1: bool,
-    pub fix_k2: bool,
-    pub fix_k3: bool,
-    pub fix_p1: bool,
-    pub fix_p2: bool,
-
-    /// Optional per-camera override: fix ALL intrinsics for camera i.
-    pub fix_intrinsics: Vec<bool>,
-    /// Optional per-camera override: fix ALL distortion for camera i.
-    pub fix_distortion: Vec<bool>,
+    /// Default mask for fixing camera parameters (applied to all cameras).
+    pub default_fix: CameraFixMask,
+    /// Optional per-camera overrides (None = use default_fix).
+    pub camera_overrides: Vec<Option<CameraFixMask>>,
     /// Per-camera extrinsics masking (length must match num_cameras).
     pub fix_extrinsics: Vec<bool>,
     /// Fix hand-eye transform (for testing with known hand-eye).
@@ -182,17 +140,8 @@ impl Default for HandEyeSolveOptions {
     fn default() -> Self {
         Self {
             robust_loss: RobustLoss::None,
-            fix_fx: false,
-            fix_fy: false,
-            fix_cx: false,
-            fix_cy: false,
-            fix_k1: false,
-            fix_k2: false,
-            fix_k3: true, // k3 often overfits
-            fix_p1: false,
-            fix_p2: false,
-            fix_intrinsics: Vec::new(),
-            fix_distortion: Vec::new(),
+            default_fix: CameraFixMask::default(), // k3 fixed by default
+            camera_overrides: Vec::new(),
             fix_extrinsics: Vec::new(),
             fix_handeye: false,
             fix_target_poses: Vec::new(),
@@ -293,26 +242,14 @@ pub fn build_handeye_ir(
     // 1. Per-camera intrinsics blocks
     let mut cam_ids = Vec::new();
     for cam_idx in 0..dataset.num_cameras {
-        let mut cam_fixed = Vec::new();
-        if opts.fix_fx {
-            cam_fixed.push(0);
-        }
-        if opts.fix_fy {
-            cam_fixed.push(1);
-        }
-        if opts.fix_cx {
-            cam_fixed.push(2);
-        }
-        if opts.fix_cy {
-            cam_fixed.push(3);
-        }
-
-        // Check per-camera override
-        let fixed_mask = if opts.fix_intrinsics.get(cam_idx).copied().unwrap_or(false) {
-            FixedMask::all_fixed(INTRINSICS_DIM)
-        } else {
-            FixedMask::fix_indices(&cam_fixed)
-        };
+        let cam_fix = opts
+            .camera_overrides
+            .get(cam_idx)
+            .copied()
+            .flatten()
+            .unwrap_or(opts.default_fix);
+        let fixed = cam_fix.intrinsics.to_indices();
+        let fixed_mask = FixedMask::fix_indices(&fixed);
 
         let key = format!("cam/{}", cam_idx);
         let cam_id = ir.add_param_block(
@@ -329,28 +266,14 @@ pub fn build_handeye_ir(
     // 2. Per-camera distortion blocks
     let mut dist_ids = Vec::new();
     for cam_idx in 0..dataset.num_cameras {
-        let mut dist_fixed = Vec::new();
-        if opts.fix_k1 {
-            dist_fixed.push(0);
-        }
-        if opts.fix_k2 {
-            dist_fixed.push(1);
-        }
-        if opts.fix_k3 {
-            dist_fixed.push(2);
-        }
-        if opts.fix_p1 {
-            dist_fixed.push(3);
-        }
-        if opts.fix_p2 {
-            dist_fixed.push(4);
-        }
-
-        let fixed_mask = if opts.fix_distortion.get(cam_idx).copied().unwrap_or(false) {
-            FixedMask::all_fixed(DISTORTION_DIM)
-        } else {
-            FixedMask::fix_indices(&dist_fixed)
-        };
+        let cam_fix = opts
+            .camera_overrides
+            .get(cam_idx)
+            .copied()
+            .flatten()
+            .unwrap_or(opts.default_fix);
+        let fixed = cam_fix.distortion.to_indices();
+        let fixed_mask = FixedMask::fix_indices(&fixed);
 
         let key = format!("dist/{}", cam_idx);
         let dist_id = ir.add_param_block(

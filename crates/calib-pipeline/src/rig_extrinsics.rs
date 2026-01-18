@@ -6,9 +6,8 @@ use calib_core::{CameraParams, Iso3, Pt3, Real};
 use serde::{Deserialize, Serialize};
 
 pub use crate::session::problem_types::{
-    CameraViewData as RigCameraViewData, RigExtrinsicsInitOptions,
-    RigExtrinsicsObservations as RigExtrinsicsInput, RigExtrinsicsOptimOptions,
-    RigExtrinsicsOptimized as RigExtrinsicsReport, RigViewData,
+    RigExtrinsicsInitOptions, RigExtrinsicsObservations as RigExtrinsicsInput,
+    RigExtrinsicsOptimOptions, RigExtrinsicsOptimized as RigExtrinsicsReport, RigViewData,
 };
 
 /// End-to-end rig extrinsics configuration (init + non-linear refinement).

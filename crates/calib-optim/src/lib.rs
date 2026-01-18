@@ -30,13 +30,13 @@
 //!
 //! ```rust,no_run
 //! use calib_optim::problems::planar_intrinsics::*;
-//! use calib_core::{BrownConrady5, FxFyCxCySkew};
+//! use calib_core::{BrownConrady5, DistortionFixMask, FxFyCxCySkew};
 //! use calib_optim::{BackendSolveOptions, ir::RobustLoss};
 //! use nalgebra::{Isometry3, Vector3};
 //!
 //! # fn example() -> anyhow::Result<()> {
 //! // 1. Prepare observations (world points + image detections)
-//! let views = vec![/* PlanarViewObservations */];
+//! let views = vec![/* CorrespondenceView */];
 //! let dataset = PlanarDataset::new(views)?;
 //!
 //! // 2. Initialize with linear method or prior calibration
@@ -62,7 +62,7 @@
 //! // 3. Configure optimization
 //! let opts = PlanarIntrinsicsSolveOptions {
 //!     robust_loss: RobustLoss::Huber { scale: 2.0 },
-//!     fix_k3: true, // Fix k3 to prevent overfitting
+//!     fix_distortion: DistortionFixMask { k3: true, ..Default::default() }, // Fix k3 to prevent overfitting
 //!     ..Default::default()
 //! };
 //!
@@ -126,10 +126,10 @@
 //!
 //! ```rust
 //! # use calib_optim::problems::planar_intrinsics::PlanarIntrinsicsSolveOptions;
+//! # use calib_core::{DistortionFixMask, IntrinsicsFixMask};
 //! let opts = PlanarIntrinsicsSolveOptions {
-//!     fix_fx: true,           // Fix focal length
-//!     fix_p1: true,           // Fix tangential distortion
-//!     fix_p2: true,
+//!     fix_intrinsics: IntrinsicsFixMask { fx: true, ..Default::default() }, // Fix focal length
+//!     fix_distortion: DistortionFixMask { p1: true, p2: true, ..Default::default() }, // Fix tangential distortion
 //!     ..Default::default()
 //! };
 //! ```

@@ -151,3 +151,40 @@ This can let a “mostly working” pipeline hide convention inversions.
    - rig frame is defined by `ref_cam_idx` (reference camera)
 4. **Rig initialization default**: quality-first; run per-camera iterative intrinsics + distortion initialization before rig extrinsics.
 5. **Missing observations**: must be supported (some cameras may be absent in some views).
+
+---
+
+## 4) Refactoring Progress (2026-01-18)
+
+### Completed
+
+#### A. Unified Observation Types (calib-core)
+- Added `CorrespondenceView` as the canonical 2D-3D correspondence type in `calib-core/src/types/observation.rs`
+- Replaced duplicate `PlanarViewObservations` and `CameraViewObservations` in calib-optim
+- Added `ReprojectionStats` for consistent error reporting
+
+#### B. Structured Fix Masks (calib-core)
+- Added `IntrinsicsFixMask` (fx, fy, cx, cy) in `calib-core/src/types/options.rs`
+- Added `DistortionFixMask` (k1, k2, k3, p1, p2) with k3 fixed by default
+- Added `CameraFixMask` combining intrinsics + distortion masks
+- Helper methods: `to_indices()`, `all_fixed()`, `all_free()`, `radial_only()`
+
+#### C. Updated Solve Options (calib-optim)
+- `PlanarIntrinsicsSolveOptions` now uses `fix_intrinsics: IntrinsicsFixMask` and `fix_distortion: DistortionFixMask`
+- `RigExtrinsicsSolveOptions` now uses `default_fix: CameraFixMask` with optional `camera_overrides: Vec<Option<CameraFixMask>>`
+- `HandEyeSolveOptions` now uses `default_fix: CameraFixMask` with optional `camera_overrides: Vec<Option<CameraFixMask>>`
+- Eliminates 9 boolean fields pattern
+
+#### D. Updated calib-pipeline
+- All pipelines/session problem types now use `CorrespondenceView` (no duplicated view structs)
+- High-level configs use mask-based solve options (no boolean explosion)
+
+### In Progress
+
+- (none)
+
+### Pending
+
+- Update calib-linear `IterativeCalibView` to use consistent field naming (points_3d/points_2d)
+- Complete book documentation chapters
+- Linescan feature completion and session integration

@@ -99,21 +99,12 @@ impl Default for HandEyeSingleOptimOptions {
     fn default() -> Self {
         let intrinsics_solve_opts = PlanarIntrinsicsSolveOptions {
             robust_loss: RobustLoss::Huber { scale: 2.0 },
-            fix_k3: true,
             ..Default::default()
         };
 
         let mut handeye_solve_opts = HandEyeSolveOptions {
             robust_loss: RobustLoss::Huber { scale: 2.0 },
-            fix_fx: true,
-            fix_fy: true,
-            fix_cx: true,
-            fix_cy: true,
-            fix_k1: true,
-            fix_k2: true,
-            fix_k3: true,
-            fix_p1: true,
-            fix_p2: true,
+            default_fix: calib_core::CameraFixMask::all_fixed(),
             fix_extrinsics: vec![true],
             ..Default::default()
         };
@@ -246,8 +237,8 @@ fn ensure_handeye_defaults(opts: &mut HandEyeSolveOptions, num_cameras: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{make_pinhole_camera, session::CalibrationSession, CameraViewData};
-    use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt3, Vec2};
+    use crate::{make_pinhole_camera, session::CalibrationSession};
+    use calib_core::{BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Pt3, Vec2};
     use nalgebra::{UnitQuaternion, Vector3};
 
     #[test]
@@ -321,7 +312,7 @@ mod tests {
             }
 
             views.push(HandEyeView {
-                view: CameraViewData {
+                view: CorrespondenceView {
                     points_3d,
                     points_2d,
                     weights: None,

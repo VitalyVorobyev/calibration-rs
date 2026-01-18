@@ -1,7 +1,7 @@
 //! Multi-camera rig extrinsics session problem.
 
 use anyhow::Result;
-use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt2, Real, Vec2};
+use calib_core::{BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Pt2, Real, Vec2};
 use serde::{Deserialize, Serialize};
 
 use crate::session::ProblemType;
@@ -23,10 +23,8 @@ pub struct RigExtrinsicsObservations {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigViewData {
     /// Per-camera observations (None if camera didn't observe target).
-    pub cameras: Vec<Option<CameraViewData>>,
+    pub cameras: Vec<Option<CorrespondenceView>>,
 }
-
-pub use crate::CameraViewData;
 
 /// Initial values from rig extrinsics initialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,7 +133,7 @@ impl ProblemType for RigExtrinsicsProblem {
         // Step 1: Per-camera planar intrinsics calibration
         let mut cameras = Vec::with_capacity(num_cameras);
         let mut cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
-        let mut cam_views: Vec<Vec<(usize, &CameraViewData)>> = vec![Vec::new(); num_cameras];
+        let mut cam_views: Vec<Vec<(usize, &CorrespondenceView)>> = vec![Vec::new(); num_cameras];
 
         for (view_idx, view) in obs.views.iter().enumerate() {
             anyhow::ensure!(
@@ -363,20 +361,32 @@ impl ProblemType for RigExtrinsicsProblem {
             .views
             .iter()
             .map(|view| {
-                let cameras: Vec<Option<CameraViewObservations>> = view
+                let cameras: Vec<Option<calib_core::CorrespondenceView>> = view
                     .cameras
                     .iter()
-                    .map(|cam_opt| {
-                        cam_opt.as_ref().map(|cam_data| CameraViewObservations {
-                            points_3d: cam_data.points_3d.clone(),
-                            points_2d: cam_data.points_2d.clone(),
-                            weights: cam_data.weights.clone(),
-                        })
-                    })
-                    .collect();
-                RigViewObservations { cameras }
+                    .map(
+                        |cam_opt| -> Result<Option<calib_core::CorrespondenceView>> {
+                            let Some(cam_data) = cam_opt else {
+                                return Ok(None);
+                            };
+                            let view = match cam_data.weights.clone() {
+                                Some(w) => calib_core::CorrespondenceView::new_with_weights(
+                                    cam_data.points_3d.clone(),
+                                    cam_data.points_2d.clone(),
+                                    w,
+                                )?,
+                                None => calib_core::CorrespondenceView::new(
+                                    cam_data.points_3d.clone(),
+                                    cam_data.points_2d.clone(),
+                                )?,
+                            };
+                            Ok(Some(view))
+                        },
+                    )
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(RigViewObservations { cameras })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
         let dataset = RigExtrinsicsDataset::new(rig_views, obs.num_cameras)?;
 
@@ -534,12 +544,12 @@ mod tests {
 
             views.push(RigViewData {
                 cameras: vec![
-                    Some(CameraViewData {
+                    Some(CorrespondenceView {
                         points_3d: board_points.clone(),
                         points_2d: cam0_pixels,
                         weights: None,
                     }),
-                    Some(CameraViewData {
+                    Some(CorrespondenceView {
                         points_3d: board_points.clone(),
                         points_2d: cam1_pixels,
                         weights: None,
@@ -705,7 +715,7 @@ mod tests {
 
             views.push(RigViewData {
                 cameras: vec![
-                    Some(CameraViewData {
+                    Some(CorrespondenceView {
                         points_3d: board_points.clone(),
                         points_2d: cam0_pixels,
                         weights: None,
@@ -713,7 +723,7 @@ mod tests {
                     if view_idx == 0 {
                         None
                     } else {
-                        Some(CameraViewData {
+                        Some(CorrespondenceView {
                             points_3d: board_points.clone(),
                             points_2d: cam1_pixels,
                             weights: None,
@@ -816,12 +826,12 @@ mod tests {
 
             views.push(RigViewData {
                 cameras: vec![
-                    Some(CameraViewData {
+                    Some(CorrespondenceView {
                         points_3d: board_points.clone(),
                         points_2d: cam0_pixels,
                         weights: None,
                     }),
-                    Some(CameraViewData {
+                    Some(CorrespondenceView {
                         points_3d: board_points.clone(),
                         points_2d: cam1_pixels,
                         weights: None,
@@ -876,12 +886,12 @@ mod tests {
     fn rig_extrinsics_session_json_roundtrip() {
         let views = vec![RigViewData {
             cameras: vec![
-                Some(CameraViewData {
+                Some(CorrespondenceView {
                     points_3d: vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(0.05, 0.0, 0.0)],
                     points_2d: vec![Vec2::new(100.0, 100.0), Vec2::new(200.0, 100.0)],
                     weights: None,
                 }),
-                Some(CameraViewData {
+                Some(CorrespondenceView {
                     points_3d: vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(0.05, 0.0, 0.0)],
                     points_2d: vec![Vec2::new(150.0, 100.0), Vec2::new(250.0, 100.0)],
                     weights: None,
