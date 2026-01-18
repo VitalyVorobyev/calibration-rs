@@ -238,7 +238,7 @@ fn ensure_handeye_defaults(opts: &mut HandEyeSolveOptions, num_cameras: usize) {
 mod tests {
     use super::*;
     use crate::{make_pinhole_camera, session::CalibrationSession};
-    use calib_core::{BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Pt3, Vec2};
+    use calib_core::{synthetic::planar, BrownConrady5, FxFyCxCySkew, Iso3};
     use nalgebra::{UnitQuaternion, Vector3};
 
     #[test]
@@ -286,37 +286,15 @@ mod tests {
             ),
         ];
 
-        let nx = 5;
-        let ny = 4;
-        let spacing = 0.05_f64;
-        let mut board_points = Vec::new();
-        for j in 0..ny {
-            for i in 0..nx {
-                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-            }
-        }
+        let board_points = planar::grid_points(5, 4, 0.05);
 
         let mut views = Vec::new();
         for robot_pose in &robot_poses {
-            let mut points_3d = Vec::new();
-            let mut points_2d = Vec::new();
-            for pw in &board_points {
-                let p_base = target_pose.transform_point(pw);
-                let p_gripper = robot_pose.inverse_transform_point(&p_base);
-                let p_rig = handeye_gt.inverse_transform_point(&p_gripper);
-                let p_cam = cam_to_rig.inverse_transform_point(&p_rig);
-                if let Some(pixel) = cam_gt.project_point(&p_cam) {
-                    points_3d.push(*pw);
-                    points_2d.push(Vec2::new(pixel.x, pixel.y));
-                }
-            }
-
+            let cam_from_target =
+                cam_to_rig.inverse() * handeye_gt.inverse() * robot_pose.inverse() * target_pose;
+            let view = planar::project_view_all(&cam_gt, &cam_from_target, &board_points).unwrap();
             views.push(HandEyeView {
-                view: CorrespondenceView {
-                    points_3d,
-                    points_2d,
-                    weights: None,
-                },
+                view,
                 robot_pose: *robot_pose,
             });
         }

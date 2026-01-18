@@ -76,6 +76,27 @@ fn main() {
 
 For checkpointed workflows, see `calib::session` and `calib::pipeline::session`.
 
+### Synthetic data generation
+
+For examples, tests, and benchmarking you can generate deterministic synthetic correspondences:
+
+```rust
+use calib::synthetic::planar;
+use calib::core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole};
+
+fn main() -> anyhow::Result<()> {
+    let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
+    let dist = BrownConrady5 { k1: 0.0, k2: 0.0, k3: 0.0, p1: 0.0, p2: 0.0, iters: 8 };
+    let cam = Camera::new(Pinhole, dist, IdentitySensor, k);
+
+    let board = planar::grid_points(6, 5, 0.04);
+    let poses = planar::poses_yaw_y_z(5, -0.3, 0.15, 0.5, 0.1);
+    let views = planar::project_views_all(&cam, &board, &poses)?;
+    println!("generated {} views", views.len());
+    Ok(())
+}
+```
+
 ### Hand-eye calibration (stepwise)
 
 Use the stepwise helpers in `calib::pipeline::handeye_single` (see

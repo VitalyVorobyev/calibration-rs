@@ -467,7 +467,7 @@ impl ProblemType for RigExtrinsicsProblem {
 mod tests {
     use super::*;
     use crate::{make_pinhole_camera, session::CalibrationSession};
-    use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt3, Vec2};
+    use calib_core::{synthetic::planar, BrownConrady5, FxFyCxCySkew, Iso3, Pt3, Vec2};
     use nalgebra::{UnitQuaternion, Vector3};
 
     #[test]
@@ -500,61 +500,22 @@ mod tests {
             UnitQuaternion::from_scaled_axis(Vector3::new(0.0, 0.05, 0.0)),
         );
 
-        // Generate checkerboard
-        let nx = 5;
-        let ny = 4;
-        let spacing = 0.05_f64;
-        let mut board_points = Vec::new();
-        for j in 0..ny {
-            for i in 0..nx {
-                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-            }
-        }
+        let board_points = planar::grid_points(5, 4, 0.05);
 
         // Generate views
+        let rig_from_target_gt = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
         let mut views = Vec::new();
-        let mut rig_from_target_gt = Vec::new();
-        for view_idx in 0..3 {
-            let angle = 0.1 * (view_idx as f64);
-            let axis = Vector3::new(0.0, 1.0, 0.0);
-            let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
-            let translation = Vector3::new(0.0, 0.0, 0.6 + 0.1 * view_idx as f64);
-            let rig_from_target = Iso3::from_parts(translation.into(), rotation);
-            rig_from_target_gt.push(rig_from_target);
-
+        for rig_from_target in &rig_from_target_gt {
             // Compute target -> camera poses: T_C_T = (T_R_C)^-1 * (T_R_T)
-            let cam0_from_target = cam0_to_rig.inverse() * rig_from_target;
-            let cam1_from_target = cam1_to_rig.inverse() * rig_from_target;
-
-            // Project through cameras
-            let mut cam0_pixels = Vec::new();
-            let mut cam1_pixels = Vec::new();
-
-            for pw in &board_points {
-                let pc0 = cam0_from_target.transform_point(pw);
-                let pc1 = cam1_from_target.transform_point(pw);
-
-                if let Some(proj) = cam0.project_point(&pc0) {
-                    cam0_pixels.push(Vec2::new(proj.x, proj.y));
-                }
-                if let Some(proj) = cam1.project_point(&pc1) {
-                    cam1_pixels.push(Vec2::new(proj.x, proj.y));
-                }
-            }
+            let cam0_from_target = cam0_to_rig.inverse() * *rig_from_target;
+            let cam1_from_target = cam1_to_rig.inverse() * *rig_from_target;
+            let cam0_view =
+                planar::project_view_all(&cam0, &cam0_from_target, &board_points).unwrap();
+            let cam1_view =
+                planar::project_view_all(&cam1, &cam1_from_target, &board_points).unwrap();
 
             views.push(RigViewData {
-                cameras: vec![
-                    Some(CorrespondenceView {
-                        points_3d: board_points.clone(),
-                        points_2d: cam0_pixels,
-                        weights: None,
-                    }),
-                    Some(CorrespondenceView {
-                        points_3d: board_points.clone(),
-                        points_2d: cam1_pixels,
-                        weights: None,
-                    }),
-                ],
+                cameras: vec![Some(cam0_view), Some(cam1_view)],
             });
         }
 
@@ -679,56 +640,22 @@ mod tests {
             UnitQuaternion::from_scaled_axis(Vector3::new(0.0, 0.05, 0.0)),
         );
 
-        let nx = 5;
-        let ny = 4;
-        let spacing = 0.05_f64;
-        let mut board_points = Vec::new();
-        for j in 0..ny {
-            for i in 0..nx {
-                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-            }
-        }
+        let board_points = planar::grid_points(5, 4, 0.05);
 
         let mut views = Vec::new();
-        for view_idx in 0..4 {
-            let angle = 0.1 * (view_idx as f64);
-            let axis = Vector3::new(0.0, 1.0, 0.0);
-            let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
-            let translation = Vector3::new(0.0, 0.0, 0.6 + 0.1 * view_idx as f64);
-            let rig_from_target = Iso3::from_parts(translation.into(), rotation);
-
-            let cam0_from_target = cam0_to_rig.inverse() * rig_from_target;
-            let cam1_from_target = cam1_to_rig.inverse() * rig_from_target;
-
-            let mut cam0_pixels = Vec::new();
-            let mut cam1_pixels = Vec::new();
-            for pw in &board_points {
-                let pc0 = cam0_from_target.transform_point(pw);
-                let pc1 = cam1_from_target.transform_point(pw);
-                if let Some(proj) = cam0.project_point(&pc0) {
-                    cam0_pixels.push(Vec2::new(proj.x, proj.y));
-                }
-                if let Some(proj) = cam1.project_point(&pc1) {
-                    cam1_pixels.push(Vec2::new(proj.x, proj.y));
-                }
-            }
+        let rig_from_target_gt = planar::poses_yaw_y_z(4, 0.0, 0.1, 0.6, 0.1);
+        for (view_idx, rig_from_target) in rig_from_target_gt.iter().enumerate() {
+            let cam0_from_target = cam0_to_rig.inverse() * *rig_from_target;
+            let cam1_from_target = cam1_to_rig.inverse() * *rig_from_target;
+            let cam0_view =
+                planar::project_view_all(&cam0, &cam0_from_target, &board_points).unwrap();
+            let cam1_view =
+                planar::project_view_all(&cam1, &cam1_from_target, &board_points).unwrap();
 
             views.push(RigViewData {
                 cameras: vec![
-                    Some(CorrespondenceView {
-                        points_3d: board_points.clone(),
-                        points_2d: cam0_pixels,
-                        weights: None,
-                    }),
-                    if view_idx == 0 {
-                        None
-                    } else {
-                        Some(CorrespondenceView {
-                            points_3d: board_points.clone(),
-                            points_2d: cam1_pixels,
-                            weights: None,
-                        })
-                    },
+                    Some(cam0_view),
+                    if view_idx == 0 { None } else { Some(cam1_view) },
                 ],
             });
         }
@@ -789,54 +716,20 @@ mod tests {
             UnitQuaternion::from_scaled_axis(Vector3::new(0.0, 0.05, 0.0)),
         );
 
-        // Checkerboard
-        let nx = 5;
-        let ny = 4;
-        let spacing = 0.05_f64;
-        let mut board_points = Vec::new();
-        for j in 0..ny {
-            for i in 0..nx {
-                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-            }
-        }
+        let board_points = planar::grid_points(5, 4, 0.05);
 
         let mut views = Vec::new();
-        for view_idx in 0..3 {
-            let angle = 0.1 * (view_idx as f64);
-            let axis = Vector3::new(0.0, 1.0, 0.0);
-            let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
-            let translation = Vector3::new(0.0, 0.0, 0.6 + 0.1 * view_idx as f64);
-            let rig_from_target = Iso3::from_parts(translation.into(), rotation);
-
-            let cam0_from_target = cam0_to_rig.inverse() * rig_from_target;
-            let cam1_from_target = cam1_to_rig.inverse() * rig_from_target;
-
-            let mut cam0_pixels = Vec::new();
-            let mut cam1_pixels = Vec::new();
-            for pw in &board_points {
-                let pc0 = cam0_from_target.transform_point(pw);
-                let pc1 = cam1_from_target.transform_point(pw);
-                if let Some(proj) = cam0.project_point(&pc0) {
-                    cam0_pixels.push(Vec2::new(proj.x, proj.y));
-                }
-                if let Some(proj) = cam1.project_point(&pc1) {
-                    cam1_pixels.push(Vec2::new(proj.x, proj.y));
-                }
-            }
+        let rig_from_target_gt = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
+        for rig_from_target in &rig_from_target_gt {
+            let cam0_from_target = cam0_to_rig.inverse() * *rig_from_target;
+            let cam1_from_target = cam1_to_rig.inverse() * *rig_from_target;
+            let cam0_view =
+                planar::project_view_all(&cam0, &cam0_from_target, &board_points).unwrap();
+            let cam1_view =
+                planar::project_view_all(&cam1, &cam1_from_target, &board_points).unwrap();
 
             views.push(RigViewData {
-                cameras: vec![
-                    Some(CorrespondenceView {
-                        points_3d: board_points.clone(),
-                        points_2d: cam0_pixels,
-                        weights: None,
-                    }),
-                    Some(CorrespondenceView {
-                        points_3d: board_points.clone(),
-                        points_2d: cam1_pixels,
-                        weights: None,
-                    }),
-                ],
+                cameras: vec![Some(cam0_view), Some(cam1_view)],
             });
         }
 

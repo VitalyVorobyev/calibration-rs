@@ -62,10 +62,9 @@ fn try_main() -> Result<(), Box<dyn Error>> {
 mod tests {
     use super::*;
     use calib_core::{
-        BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Vec2,
+        synthetic::planar, BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole,
     };
-    use calib_pipeline::{CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
-    use nalgebra::{UnitQuaternion, Vector3};
+    use calib_pipeline::{PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
     use std::{fs, path::Path};
     use tempfile::NamedTempFile;
 
@@ -91,37 +90,9 @@ mod tests {
         };
         let cam_gt = Camera::new(Pinhole, dist_gt, IdentitySensor, k_gt);
 
-        let nx = 5;
-        let ny = 4;
-        let spacing = 0.05_f64;
-        let mut board_points = Vec::new();
-        for j in 0..ny {
-            for i in 0..nx {
-                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-            }
-        }
-
-        let mut views = Vec::new();
-        for view_idx in 0..3 {
-            let angle = 0.1 * (view_idx as f64);
-            let axis = Vector3::new(0.0, 1.0, 0.0);
-            let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
-            let translation = Vector3::new(0.0, 0.0, 0.6 + 0.1 * view_idx as f64);
-            let pose = Iso3::from_parts(translation.into(), rotation);
-
-            let mut points_2d = Vec::new();
-            for pw in &board_points {
-                let pc = pose.transform_point(pw);
-                let proj = cam_gt.project_point(&pc).unwrap();
-                points_2d.push(Vec2::new(proj.x, proj.y));
-            }
-
-            views.push(CorrespondenceView {
-                points_3d: board_points.clone(),
-                points_2d,
-                weights: None,
-            });
-        }
+        let board_points = planar::grid_points(5, 4, 0.05);
+        let poses = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
+        let views = planar::project_views_all(&cam_gt, &board_points, &poses).expect("projection");
 
         let input = PlanarIntrinsicsInput { views };
         let mut config = PlanarIntrinsicsConfig::default();

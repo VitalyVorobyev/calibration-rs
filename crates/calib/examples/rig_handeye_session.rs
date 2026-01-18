@@ -1,7 +1,7 @@
 //! Synthetic multi-camera rig + robot hand-eye calibration session.
 
 use anyhow::Result;
-use calib::core::{Iso3, Pt3, Real, Vec2};
+use calib::core::{synthetic::planar, Iso3, Real};
 use calib::optim::ir::HandEyeMode;
 use calib::prelude::*;
 use nalgebra::{UnitQuaternion, Vector3};
@@ -41,15 +41,7 @@ fn main() -> Result<()> {
     );
 
     // Board points
-    let nx = 6;
-    let ny = 5;
-    let spacing = 0.04_f64;
-    let mut board_points = Vec::new();
-    for j in 0..ny {
-        for i in 0..nx {
-            board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-        }
-    }
+    let board_points = planar::grid_points(6, 5, 0.04);
 
     // Scenario constants depend on mode.
     let (handeye_gt, target_gt) = match mode {
@@ -102,30 +94,11 @@ fn main() -> Result<()> {
         let cam0_from_target = cam0_to_rig.inverse() * rig_from_target;
         let cam1_from_target = cam1_to_rig.inverse() * rig_from_target;
 
-        let mut cam0_pixels = Vec::new();
-        let mut cam1_pixels = Vec::new();
-        for pw in &board_points {
-            if let Some(p) = cam0.project_point(&cam0_from_target.transform_point(pw)) {
-                cam0_pixels.push(Vec2::new(p.x, p.y));
-            }
-            if let Some(p) = cam1.project_point(&cam1_from_target.transform_point(pw)) {
-                cam1_pixels.push(Vec2::new(p.x, p.y));
-            }
-        }
+        let cam0_view = planar::project_view_all(&cam0, &cam0_from_target, &board_points)?;
+        let cam1_view = planar::project_view_all(&cam1, &cam1_from_target, &board_points)?;
 
         views.push(calib::session::problem_types::RigHandEyeViewData {
-            cameras: vec![
-                Some(CorrespondenceView {
-                    points_3d: board_points.clone(),
-                    points_2d: cam0_pixels,
-                    weights: None,
-                }),
-                Some(CorrespondenceView {
-                    points_3d: board_points.clone(),
-                    points_2d: cam1_pixels,
-                    weights: None,
-                }),
-            ],
+            cameras: vec![Some(cam0_view), Some(cam1_view)],
             base_from_gripper,
         });
     }

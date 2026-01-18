@@ -10,15 +10,13 @@
 //!
 //! Run with: cargo run --example session_basic
 
-use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Vec2};
+use calib_core::{synthetic::planar, BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole};
 use calib_pipeline::session::problem_types::{
     PlanarIntrinsicsInitOptions, PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions,
     PlanarIntrinsicsProblem,
 };
 use calib_pipeline::session::CalibrationSession;
 use calib_pipeline::CorrespondenceView;
-use nalgebra::{UnitQuaternion, Vector3};
-
 fn main() -> anyhow::Result<()> {
     println!("=== Session API Example ===\n");
 
@@ -125,41 +123,12 @@ fn generate_synthetic_data() -> (
     let cam_gt = Camera::new(Pinhole, dist_gt, IdentitySensor, k_gt);
 
     // Generate checkerboard pattern (5x4 grid, 5cm spacing)
-    let nx = 5;
-    let ny = 4;
-    let spacing = 0.05;
-    let mut board_points = Vec::new();
-    for j in 0..ny {
-        for i in 0..nx {
-            board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-        }
-    }
+    let board_points = planar::grid_points(5, 4, 0.05);
 
-    // Generate views from different poses
-    let mut views = Vec::new();
-    for view_idx in 0..5 {
-        // Vary rotation and translation for each view
-        let angle = 0.15 * (view_idx as f64) - 0.3; // -0.3 to +0.3 radians
-        let axis = Vector3::new(0.0, 1.0, 0.0);
-        let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
-        let translation = Vector3::new(0.0, 0.0, 0.5 + 0.1 * view_idx as f64);
-        let pose = calib_core::Iso3::from_parts(translation.into(), rotation);
-
-        // Project points through camera
-        let mut points_2d = Vec::new();
-        for pw in &board_points {
-            let pc = pose.transform_point(pw);
-            if let Some(proj) = cam_gt.project_point(&pc) {
-                points_2d.push(Vec2::new(proj.x, proj.y));
-            }
-        }
-
-        views.push(CorrespondenceView {
-            points_3d: board_points.clone(),
-            points_2d,
-            weights: None,
-        });
-    }
+    // Generate views from different poses (yaw around +Y, increasing distance).
+    let poses = planar::poses_yaw_y_z(5, -0.3, 0.15, 0.5, 0.1);
+    let views =
+        planar::project_views_all(&cam_gt, &board_points, &poses).expect("synthetic projection");
 
     (views, k_gt, dist_gt)
 }

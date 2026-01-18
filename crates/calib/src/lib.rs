@@ -124,6 +124,7 @@
 //! - **[`core`]**: Math types, camera models, RANSAC primitives
 //! - **[`linear`]**: Closed-form initialization algorithms
 //! - **[`optim`]**: Non-linear least-squares optimization
+//! - **[`synthetic`]**: Deterministic synthetic data helpers
 //! - **[`prelude`]**: Convenient re-exports for common use cases
 //!
 //! ## Stability
@@ -202,6 +203,13 @@ pub mod rig_handeye {
 /// This module contains the fundamental building blocks used throughout the library.
 pub mod core {
     pub use calib_core::*;
+}
+
+/// Deterministic synthetic data generation helpers.
+///
+/// Useful for tests, examples, and benchmarking (e.g. generating planar targets and projections).
+pub mod synthetic {
+    pub use calib_core::synthetic::*;
 }
 
 /// Closed-form initialization algorithms (Zhang, PnP, homography, etc.).

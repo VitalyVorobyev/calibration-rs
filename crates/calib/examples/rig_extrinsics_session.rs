@@ -3,10 +3,10 @@
 //! Demonstrates the session API and the pipeline convenience wrapper.
 
 use anyhow::{ensure, Result};
-use calib::core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Vec2};
-use calib::pipeline::{
-    run_rig_extrinsics, CorrespondenceView, RigExtrinsicsConfig, RigExtrinsicsInput, RigViewData,
+use calib::core::{
+    synthetic::planar, BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole,
 };
+use calib::pipeline::{run_rig_extrinsics, RigExtrinsicsConfig, RigExtrinsicsInput, RigViewData};
 use calib::session::{CalibrationSession, RigExtrinsicsInitOptions, RigExtrinsicsProblem};
 use nalgebra::{UnitQuaternion, Vector3};
 
@@ -37,24 +37,12 @@ fn main() -> Result<()> {
     );
 
     // Planar target points (Z=0)
-    let nx = 6;
-    let ny = 5;
-    let spacing = 0.05_f64;
-    let mut board_points = Vec::new();
-    for j in 0..ny {
-        for i in 0..nx {
-            board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-        }
-    }
+    let board_points = planar::grid_points(6, 5, 0.05);
 
     // Views: target->rig (T_R_T), with a missing observation for camera 1 in one view
     let mut views = Vec::new();
-    for view_idx in 0..4 {
-        let angle = 0.08 * (view_idx as f64);
-        let rotation = UnitQuaternion::from_scaled_axis(Vector3::new(0.0, 1.0, 0.0) * angle);
-        let translation = Vector3::new(0.0, 0.0, 0.7 + 0.05 * view_idx as f64);
-        let rig_from_target = Iso3::from_parts(translation.into(), rotation);
-
+    let rig_from_targets = planar::poses_yaw_y_z(4, 0.0, 0.08, 0.7, 0.05);
+    for (view_idx, rig_from_target) in rig_from_targets.iter().enumerate() {
         let mut cameras = Vec::with_capacity(2);
         for cam_idx in 0..2 {
             let cam_to_rig = if cam_idx == 0 {
@@ -69,21 +57,9 @@ fn main() -> Result<()> {
                 continue;
             }
 
-            let mut pixels = Vec::new();
-            for pw in &board_points {
-                let p_rig = rig_from_target.transform_point(pw);
-                let p_cam = cam_to_rig.inverse_transform_point(&p_rig);
-                let pix = camera_gt
-                    .project_point(&p_cam)
-                    .expect("point should be in front of camera");
-                pixels.push(Vec2::new(pix.x, pix.y));
-            }
-
-            cameras.push(Some(CorrespondenceView {
-                points_3d: board_points.clone(),
-                points_2d: pixels,
-                weights: None,
-            }));
+            let cam_from_target = cam_to_rig.inverse() * *rig_from_target;
+            let view = planar::project_view_all(&camera_gt, &cam_from_target, &board_points)?;
+            cameras.push(Some(view));
         }
 
         views.push(RigViewData { cameras });

@@ -299,13 +299,13 @@ mod tests {
         optimize_handeye, HandEyeDataset, HandEyeInit, HandEyeSolveOptions, RigViewObservations,
     };
     use crate::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
-    use calib_core::{Pt3, Vec2};
+    use calib_core::{synthetic::planar, Pt3, Vec2};
     use calib_linear::distortion_fit::DistortionFitOptions;
     use calib_linear::handeye::estimate_handeye_dlt;
     use calib_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
     use calib_optim::ir::HandEyeMode;
     use nalgebra::Translation3;
-    use nalgebra::{UnitQuaternion, Vector3};
+    use nalgebra::UnitQuaternion;
 
     #[test]
     fn zhang_initialization_recovers_intrinsics_seed() {
@@ -326,38 +326,9 @@ mod tests {
         };
         let cam_gt = make_pinhole_camera(k_gt, dist_gt);
 
-        // Simple grid
-        let nx = 6;
-        let ny = 5;
-        let spacing = 0.05_f64;
-        let mut board_points = Vec::new();
-        for j in 0..ny {
-            for i in 0..nx {
-                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-            }
-        }
-
-        let mut views = Vec::new();
-        for view_idx in 0..4 {
-            let angle = 0.08 * (view_idx as f64);
-            let axis = Vector3::new(0.0, 1.0, 0.0);
-            let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
-            let translation = Vector3::new(0.0, 0.0, 0.6 + 0.05 * view_idx as f64);
-            let pose = Iso3::from_parts(translation.into(), rotation);
-
-            let mut points_2d = Vec::new();
-            for pw in &board_points {
-                let pc = pose.transform_point(pw);
-                let proj = cam_gt.project_point(&pc).unwrap();
-                points_2d.push(Vec2::new(proj.x, proj.y));
-            }
-
-            views.push(CorrespondenceView {
-                points_3d: board_points.clone(),
-                points_2d,
-                weights: None,
-            });
-        }
+        let board_points = planar::grid_points(6, 5, 0.05);
+        let poses = planar::poses_yaw_y_z(4, 0.0, 0.08, 0.6, 0.05);
+        let views = planar::project_views_all(&cam_gt, &board_points, &poses).unwrap();
 
         let (seed, _) = planar_init_seed_from_views(&views).expect("init should succeed");
         assert!((seed.intrinsics.fx - k_gt.fx).abs() < 30.0);
@@ -391,37 +362,9 @@ mod tests {
         };
         let cam_gt = make_pinhole_camera(k_gt, dist_gt);
 
-        let nx = 5;
-        let ny = 4;
-        let spacing = 0.05_f64;
-        let mut board_points = Vec::new();
-        for j in 0..ny {
-            for i in 0..nx {
-                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-            }
-        }
-
-        let mut views = Vec::new();
-        for view_idx in 0..3 {
-            let angle = 0.1 * (view_idx as f64);
-            let axis = Vector3::new(0.0, 1.0, 0.0);
-            let rotation = UnitQuaternion::from_scaled_axis(axis * angle);
-            let translation = Vector3::new(0.0, 0.0, 0.6 + 0.1 * view_idx as f64);
-            let pose = Iso3::from_parts(translation.into(), rotation);
-
-            let mut points_2d = Vec::new();
-            for pw in &board_points {
-                let pc = pose.transform_point(pw);
-                let proj = cam_gt.project_point(&pc).unwrap();
-                points_2d.push(Vec2::new(proj.x, proj.y));
-            }
-
-            views.push(CorrespondenceView {
-                points_3d: board_points.clone(),
-                points_2d,
-                weights: None,
-            });
-        }
+        let board_points = planar::grid_points(5, 4, 0.05);
+        let poses = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
+        let views = planar::project_views_all(&cam_gt, &board_points, &poses).unwrap();
 
         let input = PlanarIntrinsicsInput { views };
         let config = PlanarIntrinsicsConfig::default();
@@ -488,31 +431,13 @@ mod tests {
             ),
         ];
 
-        let nx = 6;
-        let ny = 5;
-        let spacing = 0.04_f64;
-        let mut board_points = Vec::new();
-        for j in 0..ny {
-            for i in 0..nx {
-                board_points.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
-            }
-        }
+        let board_points = planar::grid_points(6, 5, 0.04);
 
         let mut views = Vec::new();
         for robot_pose in &robot_poses {
             let cam_to_target = handeye_gt.inverse() * robot_pose.inverse();
-            let mut points_2d = Vec::new();
-            for pw in &board_points {
-                let pc = cam_to_target.transform_point(pw);
-                let proj = cam_gt.project_point(&pc).unwrap();
-                points_2d.push(Vec2::new(proj.x, proj.y));
-            }
-
-            views.push(CorrespondenceView {
-                points_3d: board_points.clone(),
-                points_2d,
-                weights: None,
-            });
+            let view = planar::project_view_all(&cam_gt, &cam_to_target, &board_points).unwrap();
+            views.push(view);
         }
 
         let init_opts = IterativeIntrinsicsOptions {

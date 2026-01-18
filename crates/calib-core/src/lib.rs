@@ -18,6 +18,7 @@
 //! - [`math`]: basic type aliases and homogeneous helpers.
 //! - [`models`]: camera model traits and configuration wrappers.
 //! - [`ransac`]: generic robust estimation helpers.
+//! - [`synthetic`]: deterministic synthetic data helpers (tests/examples/benchmarks).
 //!
 //! # Example
 //!
@@ -52,6 +53,13 @@ pub mod math;
 pub mod models;
 /// Generic RANSAC engine and traits.
 pub mod ransac;
+/// Deterministic synthetic data generation helpers.
+///
+/// This module provides small, reusable building blocks for constructing
+/// synthetic calibration problems (planar grids, poses, projections, noise).
+/// It is used in workspace tests/examples and can be useful for benchmarking
+/// and regression testing.
+pub mod synthetic;
 /// Test utilities for cross-crate calibration testing.
 ///
 /// This module is public to allow usage in integration tests across
