@@ -28,8 +28,13 @@ pub use calib_optim::{
     ir::HandEyeMode,
     planar_intrinsics::{
         optimize_planar_intrinsics as optimize_planar_intrinsics_raw, PinholeCamera, PlanarDataset,
-        PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions, PlanarViewObservations, RobustLoss,
+        PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions, RobustLoss,
     },
+};
+
+// Re-export core types for convenience
+pub use calib_core::{
+    CameraFixMask, CorrespondenceView, DistortionFixMask, IntrinsicsFixMask, ReprojectionStats,
 };
 
 // Re-export problem modules as they become public in calib-optim.

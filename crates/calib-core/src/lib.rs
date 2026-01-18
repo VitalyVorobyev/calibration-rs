@@ -57,7 +57,10 @@ pub mod ransac;
 /// This module is public to allow usage in integration tests across
 /// the workspace, but is not intended for production use.
 pub mod test_utils;
+/// Common types for observations, results, and options.
+pub mod types;
 
 pub use math::*;
 pub use models::*;
 pub use ransac::*;
+pub use types::*;

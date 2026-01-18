@@ -10,7 +10,8 @@ use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_D
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Real, Vec2,
+    BrownConrady5, Camera, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, IdentitySensor,
+    IntrinsicsFixMask, Iso3, Pinhole, Real,
 };
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -22,76 +23,16 @@ pub use crate::ir::RobustLoss;
 pub type PinholeCamera =
     Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
 
-/// Observations for a single view of a planar target.
-#[derive(Debug, Clone)]
-pub struct PlanarViewObservations {
-    pub points_3d: Vec<Pt3>,
-    pub points_2d: Vec<Vec2>,
-    pub weights: Option<Vec<f64>>,
-}
-
-impl PlanarViewObservations {
-    /// Construct observations without per-point weights.
-    pub fn new(points_3d: Vec<Pt3>, points_2d: Vec<Vec2>) -> Result<Self> {
-        ensure!(
-            points_3d.len() == points_2d.len(),
-            "3D / 2D point counts must match"
-        );
-        Ok(Self {
-            points_3d,
-            points_2d,
-            weights: None,
-        })
-    }
-
-    /// Construct observations with per-point weights.
-    pub fn new_with_weights(
-        points_3d: Vec<Pt3>,
-        points_2d: Vec<Vec2>,
-        weights: Vec<f64>,
-    ) -> Result<Self> {
-        ensure!(
-            points_3d.len() == points_2d.len(),
-            "3D / 2D point counts must match"
-        );
-        ensure!(
-            weights.len() == points_3d.len(),
-            "weight count must match point count"
-        );
-        ensure!(
-            weights.iter().all(|w| *w >= 0.0),
-            "weights must be non-negative"
-        );
-        Ok(Self {
-            points_3d,
-            points_2d,
-            weights: Some(weights),
-        })
-    }
-
-    pub fn len(&self) -> usize {
-        self.points_3d.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.points_3d.is_empty()
-    }
-
-    pub fn weight(&self, idx: usize) -> f64 {
-        self.weights.as_ref().map_or(1.0, |w| w[idx])
-    }
-}
-
 /// A planar dataset consisting of multiple views.
 ///
 /// Each view observes a planar calibration target in pixel coordinates.
 #[derive(Debug, Clone)]
 pub struct PlanarDataset {
-    pub views: Vec<PlanarViewObservations>,
+    pub views: Vec<CorrespondenceView>,
 }
 
 impl PlanarDataset {
-    pub fn new(views: Vec<PlanarViewObservations>) -> Result<Self> {
+    pub fn new(views: Vec<CorrespondenceView>) -> Result<Self> {
         ensure!(!views.is_empty(), "need at least one view for calibration");
         for (i, view) in views.iter().enumerate() {
             ensure!(view.len() >= 4, "view {} has too few points (need >=4)", i);
@@ -156,24 +97,10 @@ impl PlanarIntrinsicsInit {
 pub struct PlanarIntrinsicsSolveOptions {
     /// Robust loss applied per observation.
     pub robust_loss: RobustLoss,
-    /// Fix `fx` during optimization.
-    pub fix_fx: bool,
-    /// Fix `fy` during optimization.
-    pub fix_fy: bool,
-    /// Fix `cx` during optimization.
-    pub fix_cx: bool,
-    /// Fix `cy` during optimization.
-    pub fix_cy: bool,
-    /// Fix `k1` (first radial distortion) during optimization.
-    pub fix_k1: bool,
-    /// Fix `k2` (second radial distortion) during optimization.
-    pub fix_k2: bool,
-    /// Fix `k3` (third radial distortion) during optimization.
-    pub fix_k3: bool,
-    /// Fix `p1` (first tangential distortion) during optimization.
-    pub fix_p1: bool,
-    /// Fix `p2` (second tangential distortion) during optimization.
-    pub fix_p2: bool,
+    /// Mask for fixing intrinsics parameters.
+    pub fix_intrinsics: IntrinsicsFixMask,
+    /// Mask for fixing distortion parameters (k3 fixed by default).
+    pub fix_distortion: DistortionFixMask,
     /// Indices of poses to keep fixed.
     pub fix_poses: Vec<usize>,
 }
@@ -182,15 +109,8 @@ impl Default for PlanarIntrinsicsSolveOptions {
     fn default() -> Self {
         Self {
             robust_loss: RobustLoss::None,
-            fix_fx: false,
-            fix_fy: false,
-            fix_cx: false,
-            fix_cy: false,
-            fix_k1: false,
-            fix_k2: false,
-            fix_k3: true, // k3 often overfits, fix by default
-            fix_p1: false,
-            fix_p2: false,
+            fix_intrinsics: IntrinsicsFixMask::default(),
+            fix_distortion: DistortionFixMask::default(), // k3 fixed by default
             fix_poses: Vec::new(),
         }
     }
@@ -233,52 +153,21 @@ pub fn build_planar_intrinsics_ir(
     let mut ir = ProblemIR::new();
     let mut initial_map: HashMap<String, DVector<f64>> = HashMap::new();
 
-    let mut cam_fixed = Vec::new();
-    if opts.fix_fx {
-        cam_fixed.push(0);
-    }
-    if opts.fix_fy {
-        cam_fixed.push(1);
-    }
-    if opts.fix_cx {
-        cam_fixed.push(2);
-    }
-    if opts.fix_cy {
-        cam_fixed.push(3);
-    }
-
     let cam_id = ir.add_param_block(
         "cam",
         INTRINSICS_DIM,
         ManifoldKind::Euclidean,
-        FixedMask::fix_indices(&cam_fixed),
+        FixedMask::fix_indices(&opts.fix_intrinsics.to_indices()),
         None,
     );
     initial_map.insert("cam".to_string(), pack_intrinsics(&initial.intrinsics)?);
 
     // Add distortion parameter block
-    let mut dist_fixed = Vec::new();
-    if opts.fix_k1 {
-        dist_fixed.push(0);
-    }
-    if opts.fix_k2 {
-        dist_fixed.push(1);
-    }
-    if opts.fix_k3 {
-        dist_fixed.push(2);
-    }
-    if opts.fix_p1 {
-        dist_fixed.push(3);
-    }
-    if opts.fix_p2 {
-        dist_fixed.push(4);
-    }
-
     let dist_id = ir.add_param_block(
         "dist",
         DISTORTION_DIM,
         ManifoldKind::Euclidean,
-        FixedMask::fix_indices(&dist_fixed),
+        FixedMask::fix_indices(&opts.fix_distortion.to_indices()),
         None,
     );
     initial_map.insert("dist".to_string(), pack_distortion(&initial.distortion));
@@ -375,7 +264,7 @@ pub fn optimize_planar_intrinsics_with_backend(
 mod tests {
     use super::*;
     use crate::backend::BackendSolveOptions;
-    use calib_core::{Pt2, Pt3};
+    use calib_core::{Pt2, Pt3, Vec2};
     use nalgebra::{UnitQuaternion, Vector3};
 
     struct SyntheticScenario {
@@ -452,7 +341,7 @@ mod tests {
                 img_points.push(coords);
             }
 
-            views.push(PlanarViewObservations::new(board_points.clone(), img_points).unwrap());
+            views.push(CorrespondenceView::new(board_points.clone(), img_points).unwrap());
         }
 
         let dataset = PlanarDataset::new(views).unwrap();
@@ -561,7 +450,7 @@ mod tests {
                 img_points.push(coords);
             }
 
-            views.push(PlanarViewObservations::new(board_points.clone(), img_points).unwrap());
+            views.push(CorrespondenceView::new(board_points.clone(), img_points).unwrap());
         }
 
         let dataset = PlanarDataset::new(views).unwrap();
@@ -625,8 +514,11 @@ mod tests {
 
         let init = PlanarIntrinsicsInit::from_camera_and_poses(&cam_init, poses_gt).unwrap();
         let opts = PlanarIntrinsicsSolveOptions {
-            fix_fx: true,
-            fix_fy: true,
+            fix_intrinsics: IntrinsicsFixMask {
+                fx: true,
+                fy: true,
+                ..Default::default()
+            },
             ..PlanarIntrinsicsSolveOptions::default()
         };
         let solver = BackendSolveOptions::default();
@@ -724,7 +616,7 @@ mod tests {
                 }
             }
 
-            views.push(PlanarViewObservations::new(points_3d, points_2d).unwrap());
+            views.push(CorrespondenceView::new(points_3d, points_2d).unwrap());
         }
 
         let dataset = PlanarDataset::new(views).unwrap();
@@ -862,7 +754,7 @@ mod tests {
                 }
             }
 
-            views.push(PlanarViewObservations::new(points_3d, points_2d).unwrap());
+            views.push(CorrespondenceView::new(points_3d, points_2d).unwrap());
         }
 
         let dataset = PlanarDataset::new(views).unwrap();
@@ -888,9 +780,12 @@ mod tests {
 
         // Fix k3, p1, p2 (they are zero in ground truth)
         let opts = PlanarIntrinsicsSolveOptions {
-            fix_k3: true,
-            fix_p1: true,
-            fix_p2: true,
+            fix_distortion: DistortionFixMask {
+                k3: true,
+                p1: true,
+                p2: true,
+                ..Default::default()
+            },
             ..Default::default()
         };
 

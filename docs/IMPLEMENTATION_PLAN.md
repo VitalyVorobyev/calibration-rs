@@ -308,10 +308,67 @@ Current strengths:
 - `calib-core` keeps camera model composition and math primitives reusable.
 
 Current pain points (to address before linescan + multi-model rigs):
-- Observation types are still scattered across crates; keep consolidating into a small set of canonical “view observation” structs.
+- Observation types are still scattered across crates; keep consolidating into a small set of canonical "view observation" structs.
 - Several pipelines hardcode pinhole + Brown-Conrady assumptions in both init and optimization glue; this will fight linescan support.
 
 Recommended refactors (planned, not required for v1 of rig-handeye):
 - Introduce a `calib_pipeline::data` module with canonical observation structs and constructors/validators.
-- Consider moving the generic “3D↔2D correspondences + optional weights” struct into `calib-core` so `calib-linear` and `calib-optim` can reuse it without duplication.
+- Consider moving the generic "3D↔2D correspondences + optional weights" struct into `calib-core` so `calib-linear` and `calib-optim` can reuse it without duplication.
 - In `calib-optim`, model-specific factor kinds (pinhole/linescan) should be separate residual types under a shared problem builder interface, so adding linescan becomes additive instead of invasive.
+
+---
+
+## 7) Data Structure Refactoring (2026-01-18)
+
+Status: In progress.
+
+### 7.1 Completed: Canonical Types in calib-core
+
+Added to `calib-core/src/types/`:
+
+**observation.rs:**
+- `CorrespondenceView`: Canonical 2D-3D correspondence type replacing duplicated `PlanarViewObservations` and `CameraViewObservations`
+- `ReprojectionStats`: Unified reprojection error statistics (mean, rms, max, count)
+- `ObservationError`: Validation error type
+
+**options.rs:**
+- `IntrinsicsFixMask`: Structured mask for fx, fy, cx, cy fixing
+- `DistortionFixMask`: Structured mask for k1, k2, k3, p1, p2 fixing (k3 fixed by default)
+- `CameraFixMask`: Combined intrinsics + distortion masks
+
+### 7.2 Completed: Updated calib-optim
+
+**planar_intrinsics.rs:**
+- `PlanarDataset` now uses `Vec<CorrespondenceView>` instead of `Vec<PlanarViewObservations>`
+- `PlanarIntrinsicsSolveOptions` uses `fix_intrinsics: IntrinsicsFixMask` and `fix_distortion: DistortionFixMask`
+- Eliminates 9 individual boolean fields
+
+**rig_extrinsics.rs:**
+- `RigViewObservations` now uses `Vec<Option<CorrespondenceView>>` instead of custom `CameraViewObservations`
+- `RigExtrinsicsSolveOptions` uses `default_fix: CameraFixMask` with optional `camera_overrides: Vec<Option<CameraFixMask>>`
+- Eliminates 9 individual boolean fields + confusing per-camera override logic
+
+### 7.3 Pending: Update calib-pipeline
+
+Files requiring updates to use new types and options:
+- `crates/calib-pipeline/src/lib.rs` - import/export updates
+- `crates/calib-pipeline/src/session/problem_types/rig_extrinsics.rs` - use CorrespondenceView
+- `crates/calib-pipeline/src/session/problem_types/rig_handeye.rs` - use new option masks
+- `crates/calib-pipeline/src/session/problem_types/handeye_single.rs` - use new option masks
+- `crates/calib-pipeline/src/handeye_single.rs` - use CorrespondenceView
+
+### 7.4 Pending: Update calib-linear
+
+Update `IterativeCalibView` to use consistent field naming:
+- `board_points` → `points_3d` (or keep as 2D z=0 points?)
+- `pixel_points` → `points_2d`
+
+Consider making it a wrapper around `CorrespondenceView` for planar targets.
+
+### 7.5 Benefits of Refactoring
+
+1. **Reduced duplication**: Single source of truth for observation and mask types
+2. **Better API ergonomics**: Structured masks instead of 9 boolean fields
+3. **Easier maintenance**: Changes to observation handling in one place
+4. **Clearer documentation**: Canonical types can have thorough documentation
+5. **Better serde**: Masks serialize as objects with named fields, not positional booleans

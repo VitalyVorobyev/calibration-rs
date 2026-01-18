@@ -151,3 +151,43 @@ This can let a “mostly working” pipeline hide convention inversions.
    - rig frame is defined by `ref_cam_idx` (reference camera)
 4. **Rig initialization default**: quality-first; run per-camera iterative intrinsics + distortion initialization before rig extrinsics.
 5. **Missing observations**: must be supported (some cameras may be absent in some views).
+
+---
+
+## 4) Refactoring Progress (2026-01-18)
+
+### Completed
+
+#### A. Unified Observation Types (calib-core)
+- Added `CorrespondenceView` as the canonical 2D-3D correspondence type in `calib-core/src/types/observation.rs`
+- Replaced duplicate `PlanarViewObservations` and `CameraViewObservations` in calib-optim
+- Added `ReprojectionStats` for consistent error reporting
+
+#### B. Structured Fix Masks (calib-core)
+- Added `IntrinsicsFixMask` (fx, fy, cx, cy) in `calib-core/src/types/options.rs`
+- Added `DistortionFixMask` (k1, k2, k3, p1, p2) with k3 fixed by default
+- Added `CameraFixMask` combining intrinsics + distortion masks
+- Helper methods: `to_indices()`, `all_fixed()`, `all_free()`, `radial_only()`
+
+#### C. Updated Solve Options (calib-optim)
+- `PlanarIntrinsicsSolveOptions` now uses `fix_intrinsics: IntrinsicsFixMask` and `fix_distortion: DistortionFixMask`
+- `RigExtrinsicsSolveOptions` now uses `default_fix: CameraFixMask` with optional `camera_overrides: Vec<Option<CameraFixMask>>`
+- Eliminates 9 boolean fields pattern
+
+### In Progress
+
+#### D. Update calib-pipeline
+- Need to update all files using old `PlanarViewObservations` type
+- Need to update files using old boolean option fields (fix_fx, fix_fy, etc.)
+- Files requiring updates:
+  - `crates/calib-pipeline/src/lib.rs`
+  - `crates/calib-pipeline/src/session/problem_types/rig_extrinsics.rs`
+  - `crates/calib-pipeline/src/session/problem_types/rig_handeye.rs`
+  - `crates/calib-pipeline/src/session/problem_types/handeye_single.rs`
+  - `crates/calib-pipeline/src/handeye_single.rs`
+
+### Pending
+
+- Update calib-linear `IterativeCalibView` to use consistent field naming (points_3d/points_2d)
+- Complete book documentation chapters
+- Linescan feature completion and session integration
