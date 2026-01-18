@@ -168,21 +168,22 @@ mod problems;
 pub use math::*;
 
 pub use crate::backend::{
-    BackendKind,
-    BackendSolution,
-    BackendSolveOptions,
-    SolveReport,
+    solve_with_backend, BackendKind, BackendSolution, BackendSolveOptions, SolveReport,
 };
 
-pub use crate::ir::{
-    RobustLoss
-};
+pub use crate::ir::{HandEyeMode, RobustLoss};
 
-pub use crate::problems::handeye;
+pub use crate::params::pose_se3::se3_dvec_to_iso3;
+
 pub use crate::problems::planar_intrinsics::{
-    optimize_planar_intrinsics,
+    optimize_planar_intrinsics, PlanarDataset, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
     PlanarIntrinsicsSolveOptions,
-    PlanarIntrinsicsParams,
-    PlanarIntrinsicsEstimate,
-    PlanarDataset,
+};
+
+pub use crate::problems::handeye::optimize_handeye;
+
+pub use crate::problems::rig_extrinsics::{
+    optimize_rig_extrinsics,
+    View, RigDataset,
+    RigExtrinsicsDataset, RigExtrinsicsSolveOptions, RigViewObs, RigExtrinsicsEstimate
 };

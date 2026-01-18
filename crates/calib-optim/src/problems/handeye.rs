@@ -19,76 +19,67 @@
 //! Legacy mode can relax per-view target poses, but that is discouraged for a
 //! physically fixed target because it weakens hand-eye observability.
 
-use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions};
+use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions, SolveReport};
 use crate::ir::{
     FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{pack_distortion, unpack_distortion, DISTORTION_DIM};
 use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_DIM};
 use crate::params::pose_se3::iso3_to_se3_dvec;
+use crate::{RigDataset, View};
 use anyhow::{ensure, Result};
 use calib_core::{
-    BrownConrady5, Camera, PinholeCamera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3,
-    Pinhole, Real,
+    make_pinhole_camera, CameraFixMask, Iso3, Pinhole, PinholeCamera,
+    Real,
 };
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Multi-camera rig observations for one robot pose.
 #[derive(Debug, Clone)]
-pub struct RigViewObservations {
-    /// Observations for each camera (None if camera didn't observe in this view).
-    pub cameras: Vec<Option<CorrespondenceView>>,
-    /// Known robot pose (base-to-gripper) for this view.
-    pub robot_pose: Iso3,
+pub struct RobotPoseMeta {
+    pub robot_pose: Iso3, // base-to-gripper
 }
 
-/// Complete hand-eye calibration dataset.
 #[derive(Debug, Clone)]
 pub struct HandEyeDataset {
-    pub views: Vec<RigViewObservations>,
-    pub num_cameras: usize,
+    pub data: RigDataset<RobotPoseMeta>,
     pub mode: HandEyeMode,
 }
 
 impl HandEyeDataset {
     /// Create dataset from views.
     pub fn new(
-        views: Vec<RigViewObservations>,
+        views: Vec<View<RobotPoseMeta>>,
         num_cameras: usize,
         mode: HandEyeMode,
     ) -> Result<Self> {
         ensure!(!views.is_empty(), "need at least one view");
         for (idx, view) in views.iter().enumerate() {
             ensure!(
-                view.cameras.len() == num_cameras,
+                view.obs.cameras.len() == num_cameras,
                 "view {} has {} cameras, expected {}",
                 idx,
-                view.cameras.len(),
+                view.obs.cameras.len(),
                 num_cameras
             );
         }
         Ok(Self {
-            views,
-            num_cameras,
+            data: RigDataset { views, num_cameras },
             mode,
         })
     }
 
     /// Number of views.
     pub fn num_views(&self) -> usize {
-        self.views.len()
+        self.data.views.len()
     }
 }
 
 /// Initial values for hand-eye calibration.
 #[derive(Debug, Clone)]
-pub struct HandEyeInit {
-    /// Per-camera intrinsics (usually same values for homogeneous rig).
-    pub intrinsics: Vec<FxFyCxCySkew<Real>>,
-    /// Per-camera distortion (usually same values for homogeneous rig).
-    pub distortion: Vec<BrownConrady5<Real>>,
+pub struct HandEyeParams {
+    pub cameras: Vec<PinholeCamera>,
     /// Per-camera extrinsics (camera-to-rig transforms).
     pub cam_to_rig: Vec<Iso3>,
     /// Hand-eye transform (mode-dependent).
@@ -151,25 +142,102 @@ impl Default for HandEyeSolveOptions {
 
 /// Result of hand-eye calibration.
 #[derive(Debug, Clone)]
-pub struct HandEyeResult {
-    /// Per-camera calibrated parameters.
-    pub cameras: Vec<PinholeCamera>,
-    /// Per-camera extrinsics (camera-to-rig transforms).
-    pub cam_to_rig: Vec<Iso3>,
-    /// Hand-eye transform.
-    pub handeye: Iso3,
-    /// Calibration target poses (fixed-target mode returns the same pose per view).
-    pub target_poses: Vec<Iso3>,
-    pub final_cost: f64,
-}
-
-/// Diagnostic outputs for hand-eye optimization.
-#[derive(Debug, Clone)]
-pub struct HandEyeDiagnostics {
-    /// Optimized parameters for the hand-eye problem.
-    pub result: HandEyeResult,
+pub struct HandEyeEstimate {
+    pub params: HandEyeParams,
+    pub report: SolveReport,
     /// Optional per-view robot pose deltas (se(3) tangent, `[rx, ry, rz, tx, ty, tz]`).
     pub robot_deltas: Option<Vec<[Real; 6]>>,
+}
+
+/// Optimize hand-eye calibration using specified backend.
+pub fn optimize_handeye(
+    dataset: HandEyeDataset,
+    initial: HandEyeParams,
+    opts: HandEyeSolveOptions,
+    backend_opts: BackendSolveOptions,
+) -> Result<HandEyeEstimate> {
+    let (ir, initial_map) = build_handeye_ir(&dataset, &initial, &opts)?;
+    let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)?;
+
+    // Extract per-camera calibrated parameters
+    let cameras = (0..dataset.data.num_cameras)
+        .map(|cam_idx| {
+            let intrinsics = unpack_intrinsics(
+                solution
+                    .params
+                    .get(&format!("cam/{}", cam_idx))
+                    .unwrap()
+                    .as_view(),
+            )?;
+            let distortion = unpack_distortion(
+                solution
+                    .params
+                    .get(&format!("dist/{}", cam_idx))
+                    .unwrap()
+                    .as_view(),
+            )?;
+            Ok(make_pinhole_camera(intrinsics, distortion))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // Extract extrinsics
+    let cam_to_rig = (0..dataset.data.num_cameras)
+        .map(|i| {
+            let key = format!("extr/{}", i);
+            crate::params::pose_se3::se3_dvec_to_iso3(solution.params.get(&key).unwrap().as_view())
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // Extract hand-eye transform
+    let handeye = crate::params::pose_se3::se3_dvec_to_iso3(
+        solution.params.get("handeye").unwrap().as_view(),
+    )?;
+
+    // Extract target poses
+    let target_poses = if opts.relax_target_poses {
+        (0..dataset.num_views())
+            .map(|i| {
+                let key = format!("target/{}", i);
+                crate::params::pose_se3::se3_dvec_to_iso3(
+                    solution.params.get(&key).unwrap().as_view(),
+                )
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        let target_pose = crate::params::pose_se3::se3_dvec_to_iso3(
+            solution.params.get("target").unwrap().as_view(),
+        )?;
+        vec![target_pose; dataset.num_views()]
+    };
+
+    let robot_deltas = if opts.refine_robot_poses {
+        let mut deltas = Vec::with_capacity(dataset.num_views());
+        for i in 0..dataset.num_views() {
+            let key = format!("robot_delta/{}", i);
+            let delta_vec = solution.params.get(&key).unwrap();
+            deltas.push([
+                delta_vec[0],
+                delta_vec[1],
+                delta_vec[2],
+                delta_vec[3],
+                delta_vec[4],
+                delta_vec[5],
+            ]);
+        }
+        Some(deltas)
+    } else {
+        None
+    };
+    Ok(HandEyeEstimate {
+        params: HandEyeParams {
+            cameras,
+            cam_to_rig,
+            handeye,
+            target_poses,
+        },
+        report: solution.solve_report,
+        robot_deltas,
+    })
 }
 
 /// Build IR for hand-eye calibration.
@@ -182,28 +250,22 @@ pub struct HandEyeDiagnostics {
 /// Residuals:
 /// - per-point reprojection error using robot pose measurements
 /// - optional zero-mean priors on robot pose deltas
-pub fn build_handeye_ir(
+fn build_handeye_ir(
     dataset: &HandEyeDataset,
-    initial: &HandEyeInit,
+    initial: &HandEyeParams,
     opts: &HandEyeSolveOptions,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
     ensure!(
-        initial.intrinsics.len() == dataset.num_cameras,
+        initial.cameras.len() == dataset.data.num_cameras,
         "intrinsics count {} != num_cameras {}",
-        initial.intrinsics.len(),
-        dataset.num_cameras
+        initial.cameras.len(),
+        dataset.data.num_cameras
     );
     ensure!(
-        initial.distortion.len() == dataset.num_cameras,
-        "distortion count {} != num_cameras {}",
-        initial.distortion.len(),
-        dataset.num_cameras
-    );
-    ensure!(
-        initial.cam_to_rig.len() == dataset.num_cameras,
+        initial.cam_to_rig.len() == dataset.data.num_cameras,
         "cam_to_rig count {} != num_cameras {}",
         initial.cam_to_rig.len(),
-        dataset.num_cameras
+        dataset.data.num_cameras
     );
     ensure!(
         !initial.target_poses.is_empty(),
@@ -237,7 +299,7 @@ pub fn build_handeye_ir(
 
     // 1. Per-camera intrinsics blocks
     let mut cam_ids = Vec::new();
-    for cam_idx in 0..dataset.num_cameras {
+    for cam_idx in 0..dataset.data.num_cameras {
         let cam_fix = opts
             .camera_overrides
             .get(cam_idx)
@@ -256,12 +318,12 @@ pub fn build_handeye_ir(
             None,
         );
         cam_ids.push(cam_id);
-        initial_map.insert(key, pack_intrinsics(&initial.intrinsics[cam_idx])?);
+        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k)?);
     }
 
     // 2. Per-camera distortion blocks
     let mut dist_ids = Vec::new();
-    for cam_idx in 0..dataset.num_cameras {
+    for cam_idx in 0..dataset.data.num_cameras {
         let cam_fix = opts
             .camera_overrides
             .get(cam_idx)
@@ -280,12 +342,12 @@ pub fn build_handeye_ir(
             None,
         );
         dist_ids.push(dist_id);
-        initial_map.insert(key, pack_distortion(&initial.distortion[cam_idx]));
+        initial_map.insert(key, pack_distortion(&initial.cameras[cam_idx].dist));
     }
 
     // 3. Per-camera extrinsics
     let mut extr_ids = Vec::new();
-    for cam_idx in 0..dataset.num_cameras {
+    for cam_idx in 0..dataset.data.num_cameras {
         let fixed = if opts.fix_extrinsics.get(cam_idx).copied().unwrap_or(false) {
             FixedMask::all_fixed(7)
         } else {
@@ -324,7 +386,7 @@ pub fn build_handeye_ir(
         [0.0; 6]
     };
 
-    for (view_idx, view) in dataset.views.iter().enumerate() {
+    for (view_idx, view) in dataset.data.views.iter().enumerate() {
         let target_id = if opts.relax_target_poses {
             let fixed = if opts.fix_target_poses.contains(&view_idx) {
                 FixedMask::all_fixed(7)
@@ -363,7 +425,7 @@ pub fn build_handeye_ir(
         };
 
         // Convert robot pose to SE3 array for factor
-        let robot_se3 = iso3_to_se3_dvec(&view.robot_pose);
+        let robot_se3 = iso3_to_se3_dvec(&view.meta.robot_pose);
         let robot_se3_array: [f64; 7] = [
             robot_se3[0],
             robot_se3[1],
@@ -375,7 +437,7 @@ pub fn build_handeye_ir(
         ];
 
         // Add residuals for each camera observation
-        for (cam_idx, cam_obs) in view.cameras.iter().enumerate() {
+        for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
             if let Some(obs) = cam_obs {
                 for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
                     let residual = if let Some(robot_delta_id) = robot_delta_id {
@@ -426,106 +488,4 @@ pub fn build_handeye_ir(
 
     ir.validate()?;
     Ok((ir, initial_map))
-}
-
-/// Optimize hand-eye calibration using specified backend.
-pub fn optimize_handeye(
-    dataset: HandEyeDataset,
-    initial: HandEyeInit,
-    opts: HandEyeSolveOptions,
-    backend_opts: BackendSolveOptions,
-) -> Result<HandEyeResult> {
-    Ok(optimize_handeye_with_diagnostics(dataset, initial, opts, backend_opts)?.result)
-}
-
-/// Optimize hand-eye calibration and return diagnostic outputs.
-pub fn optimize_handeye_with_diagnostics(
-    dataset: HandEyeDataset,
-    initial: HandEyeInit,
-    opts: HandEyeSolveOptions,
-    backend_opts: BackendSolveOptions,
-) -> Result<HandEyeDiagnostics> {
-    let (ir, initial_map) = build_handeye_ir(&dataset, &initial, &opts)?;
-    let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)?;
-
-    // Extract per-camera calibrated parameters
-    let cameras = (0..dataset.num_cameras)
-        .map(|cam_idx| {
-            let intrinsics = unpack_intrinsics(
-                solution
-                    .params
-                    .get(&format!("cam/{}", cam_idx))
-                    .unwrap()
-                    .as_view(),
-            )?;
-            let distortion = unpack_distortion(
-                solution
-                    .params
-                    .get(&format!("dist/{}", cam_idx))
-                    .unwrap()
-                    .as_view(),
-            )?;
-            Ok(Camera::new(Pinhole, distortion, IdentitySensor, intrinsics))
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    // Extract extrinsics
-    let cam_to_rig = (0..dataset.num_cameras)
-        .map(|i| {
-            let key = format!("extr/{}", i);
-            crate::params::pose_se3::se3_dvec_to_iso3(solution.params.get(&key).unwrap().as_view())
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    // Extract hand-eye transform
-    let handeye = crate::params::pose_se3::se3_dvec_to_iso3(
-        solution.params.get("handeye").unwrap().as_view(),
-    )?;
-
-    // Extract target poses
-    let target_poses = if opts.relax_target_poses {
-        (0..dataset.num_views())
-            .map(|i| {
-                let key = format!("target/{}", i);
-                crate::params::pose_se3::se3_dvec_to_iso3(
-                    solution.params.get(&key).unwrap().as_view(),
-                )
-            })
-            .collect::<Result<Vec<_>>>()?
-    } else {
-        let target_pose = crate::params::pose_se3::se3_dvec_to_iso3(
-            solution.params.get("target").unwrap().as_view(),
-        )?;
-        vec![target_pose; dataset.num_views()]
-    };
-
-    let robot_deltas = if opts.refine_robot_poses {
-        let mut deltas = Vec::with_capacity(dataset.num_views());
-        for i in 0..dataset.num_views() {
-            let key = format!("robot_delta/{}", i);
-            let delta_vec = solution.params.get(&key).unwrap();
-            deltas.push([
-                delta_vec[0],
-                delta_vec[1],
-                delta_vec[2],
-                delta_vec[3],
-                delta_vec[4],
-                delta_vec[5],
-            ]);
-        }
-        Some(deltas)
-    } else {
-        None
-    };
-
-    Ok(HandEyeDiagnostics {
-        result: HandEyeResult {
-            cameras,
-            cam_to_rig,
-            handeye,
-            target_poses,
-            final_cost: solution.final_cost,
-        },
-        robot_deltas,
-    })
 }

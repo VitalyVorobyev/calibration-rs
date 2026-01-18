@@ -3,44 +3,51 @@
 //! Optimizes per-camera intrinsics and distortion, per-camera extrinsics (`T_R_C`, camera-to-rig),
 //! and per-view rig poses (`T_R_T`, target-to-rig).
 
-use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions};
+use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions, SolveReport};
 use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
 use crate::params::distortion::{pack_distortion, unpack_distortion, DISTORTION_DIM};
 use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_DIM};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use anyhow::{ensure, Result};
-use calib_core::{
-    BrownConrady5, Camera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3,
-    Pinhole, Real, PinholeCamera,
-};
+use calib_core::{make_pinhole_camera, CameraFixMask, CorrespondenceView, Iso3, PinholeCamera};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Multi-camera observations for one rig view.
+/// Multi-camera observations for one rig view/frame.
 #[derive(Debug, Clone)]
-pub struct RigViewObservations {
-    /// Observations for each camera (None if camera didn't observe in this view).
+pub struct RigViewObs {
+    /// Per-camera observation; None if camera didn't observe in this view.
     pub cameras: Vec<Option<CorrespondenceView>>,
 }
 
-/// Complete rig extrinsics dataset.
 #[derive(Debug, Clone)]
-pub struct RigExtrinsicsDataset {
-    pub views: Vec<RigViewObservations>,
-    pub num_cameras: usize,
+pub struct View<Meta> {
+    pub obs: RigViewObs,
+    pub meta: Meta,
 }
+
+#[derive(Debug, Clone)]
+pub struct RigDataset<Meta> {
+    pub num_cameras: usize,
+    pub views: Vec<View<Meta>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NoMeta;
+
+pub type RigExtrinsicsDataset = RigDataset<NoMeta>;
 
 impl RigExtrinsicsDataset {
     /// Create dataset from views.
-    pub fn new(views: Vec<RigViewObservations>, num_cameras: usize) -> Result<Self> {
+    pub fn new(views: Vec<View<NoMeta>>, num_cameras: usize) -> Result<Self> {
         ensure!(!views.is_empty(), "need at least one view");
         for (idx, view) in views.iter().enumerate() {
             ensure!(
-                view.cameras.len() == num_cameras,
+                view.obs.cameras.len() == num_cameras,
                 "view {} has {} cameras, expected {}",
                 idx,
-                view.cameras.len(),
+                view.obs.cameras.len(),
                 num_cameras
             );
         }
@@ -53,15 +60,19 @@ impl RigExtrinsicsDataset {
     }
 }
 
-/// Initial values for rig extrinsics optimization.
+/// Result of rig extrinsics optimization.
 #[derive(Debug, Clone)]
-pub struct RigExtrinsicsInit {
-    /// Per-camera intrinsics (usually same values for homogeneous rig).
-    pub intrinsics: Vec<FxFyCxCySkew<Real>>,
-    /// Per-camera distortion (usually same values for homogeneous rig).
-    pub distortion: Vec<BrownConrady5<Real>>,
+pub struct RigExtrinsicsParams {
+    /// Per-camera calibrated parameters.
+    pub cameras: Vec<PinholeCamera>,
     pub cam_to_rig: Vec<Iso3>,
     pub rig_from_target: Vec<Iso3>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RigExtrinsicsEstimate {
+    pub params: RigExtrinsicsParams,
+    pub report: SolveReport,
 }
 
 /// Solve options for rig extrinsics.
@@ -91,32 +102,16 @@ impl Default for RigExtrinsicsSolveOptions {
     }
 }
 
-/// Result of rig extrinsics optimization.
-#[derive(Debug, Clone)]
-pub struct RigExtrinsicsResult {
-    /// Per-camera calibrated parameters.
-    pub cameras: Vec<PinholeCamera>,
-    pub cam_to_rig: Vec<Iso3>,
-    pub rig_from_target: Vec<Iso3>,
-    pub final_cost: f64,
-}
-
 /// Build IR for rig extrinsics optimization.
-pub fn build_rig_extrinsics_ir(
+fn build_rig_extrinsics_ir(
     dataset: &RigExtrinsicsDataset,
-    initial: &RigExtrinsicsInit,
+    initial: &RigExtrinsicsParams,
     opts: &RigExtrinsicsSolveOptions,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
     ensure!(
-        initial.intrinsics.len() == dataset.num_cameras,
+        initial.cameras.len() == dataset.num_cameras,
         "intrinsics count {} != num_cameras {}",
-        initial.intrinsics.len(),
-        dataset.num_cameras
-    );
-    ensure!(
-        initial.distortion.len() == dataset.num_cameras,
-        "distortion count {} != num_cameras {}",
-        initial.distortion.len(),
+        initial.cameras.len(),
         dataset.num_cameras
     );
     ensure!(
@@ -162,7 +157,7 @@ pub fn build_rig_extrinsics_ir(
             None,
         );
         cam_ids.push(cam_id);
-        initial_map.insert(key, pack_intrinsics(&initial.intrinsics[cam_idx])?);
+        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k)?);
     }
 
     // 2. Per-camera distortion blocks
@@ -184,7 +179,7 @@ pub fn build_rig_extrinsics_ir(
             None,
         );
         dist_ids.push(dist_id);
-        initial_map.insert(key, pack_distortion(&initial.distortion[cam_idx]));
+        initial_map.insert(key, pack_distortion(&initial.cameras[cam_idx].dist));
     }
 
     // 3. Per-camera extrinsics
@@ -213,7 +208,7 @@ pub fn build_rig_extrinsics_ir(
         initial_map.insert(key, iso3_to_se3_dvec(&initial.rig_from_target[view_idx]));
 
         // Add residuals for each camera observation
-        for (cam_idx, cam_obs) in view.cameras.iter().enumerate() {
+        for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
             if let Some(obs) = cam_obs {
                 for (pt_idx, (pw, uv)) in obs.points_3d.iter().zip(&obs.points_2d).enumerate() {
                     let residual = ResidualBlock {
@@ -244,10 +239,10 @@ pub fn build_rig_extrinsics_ir(
 /// Optimize rig extrinsics using specified backend.
 pub fn optimize_rig_extrinsics(
     dataset: RigExtrinsicsDataset,
-    initial: RigExtrinsicsInit,
+    initial: RigExtrinsicsParams,
     opts: RigExtrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
-) -> Result<RigExtrinsicsResult> {
+) -> Result<RigExtrinsicsEstimate> {
     let (ir, initial_map) = build_rig_extrinsics_ir(&dataset, &initial, &opts)?;
     let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)?;
 
@@ -268,7 +263,7 @@ pub fn optimize_rig_extrinsics(
                     .unwrap()
                     .as_view(),
             )?;
-            Ok(Camera::new(Pinhole, distortion, IdentitySensor, intrinsics))
+            Ok(make_pinhole_camera(intrinsics, distortion))
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -288,10 +283,12 @@ pub fn optimize_rig_extrinsics(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    Ok(RigExtrinsicsResult {
-        cameras,
-        cam_to_rig,
-        rig_from_target,
-        final_cost: solution.solve_report.final_cost,
+    Ok(RigExtrinsicsEstimate {
+        params: RigExtrinsicsParams {
+            cameras,
+            cam_to_rig,
+            rig_from_target,
+        },
+        report: solution.solve_report,
     })
 }

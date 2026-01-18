@@ -4,15 +4,14 @@
 //! enabling robust loss to operate per point rather than per view.
 
 use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions, SolveReport};
-use crate::ir::{RobustLoss, FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock};
+use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
 use crate::params::distortion::{pack_distortion, unpack_distortion, DISTORTION_DIM};
 use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_DIM};
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
-    make_pinhole_camera,
-    BrownConrady5, Camera, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, IdentitySensor,
-    IntrinsicsFixMask, Iso3, Pinhole, Real, PinholeCamera,
+    make_pinhole_camera, BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew,
+    IntrinsicsFixMask, Iso3, PinholeCamera, Real,
 };
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -50,10 +49,7 @@ pub struct PlanarIntrinsicsParams {
 }
 
 impl PlanarIntrinsicsParams {
-    pub fn new(
-        camera: PinholeCamera,
-        camera_se3_target: Vec<Iso3>,
-    ) -> Result<Self> {
+    pub fn new(camera: PinholeCamera, camera_se3_target: Vec<Iso3>) -> Result<Self> {
         ensure!(!camera_se3_target.is_empty(), "need at least one pose");
         Ok(Self {
             camera,
@@ -61,12 +57,21 @@ impl PlanarIntrinsicsParams {
         })
     }
     /// Create with zero distortion (pinhole model only).
-    pub fn from_intrinsics(intrinsics: FxFyCxCySkew<Real>, camera_se3_target: Vec<Iso3>) -> Result<Self> {
+    pub fn from_intrinsics(
+        intrinsics: FxFyCxCySkew<Real>,
+        camera_se3_target: Vec<Iso3>,
+    ) -> Result<Self> {
         Self::new(
             make_pinhole_camera(intrinsics, BrownConrady5::default()),
             camera_se3_target,
         )
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct PlanarIntrinsicsEstimate {
+    pub params: PlanarIntrinsicsParams,
+    pub report: SolveReport,
 }
 
 /// Solve options specific to planar intrinsics.
@@ -146,7 +151,10 @@ fn build_planar_intrinsics_ir(
             FixedMask::all_free()
         };
         let pose_id = ir.add_param_block(&pose_key, 7, ManifoldKind::SE3, fixed, None);
-        initial_map.insert(pose_key.clone(), iso3_to_se3_dvec(&initial.camera_se3_target[view_idx]));
+        initial_map.insert(
+            pose_key.clone(),
+            iso3_to_se3_dvec(&initial.camera_se3_target[view_idx]),
+        );
 
         for (pt_idx, (pw, uv)) in view.points_3d.iter().zip(view.points_2d.iter()).enumerate() {
             let factor = FactorKind::ReprojPointPinhole4Dist5 {
@@ -166,12 +174,6 @@ fn build_planar_intrinsics_ir(
 
     ir.validate()?;
     Ok((ir, initial_map))
-}
-
-#[derive(Clone, Debug)]
-pub struct PlanarIntrinsicsEstimate {
-    pub params: PlanarIntrinsicsParams,
-    pub report: SolveReport,
 }
 
 /// Optimize planar intrinsics using the default tiny-solver backend.
