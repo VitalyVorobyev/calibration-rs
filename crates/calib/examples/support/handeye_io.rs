@@ -1,8 +1,7 @@
 //! Shared I/O helpers for the KUKA hand-eye examples.
 
 use anyhow::{ensure, Context, Result};
-use calib::core::{Iso3, Pt3, Vec2};
-use calib::pipeline::CameraViewData;
+use calib::core::{CorrespondenceView, Iso3, Pt3, Vec2};
 use calib_targets::chessboard::ChessboardDetectionResult;
 use calib_targets::{detect, ChessboardParams};
 use chess_corners::ChessConfig;
@@ -12,7 +11,7 @@ use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct ViewSample {
-    pub view: CameraViewData,
+    pub view: CorrespondenceView,
     pub robot_pose: Iso3,
     #[allow(dead_code)]
     pub image_index: usize,
@@ -161,7 +160,7 @@ fn load_robot_poses(path: &Path) -> Result<Vec<Iso3>> {
 fn detection_to_view_data(
     detection: ChessboardDetectionResult,
     square_size_m: f64,
-) -> Result<CameraViewData> {
+) -> Result<CorrespondenceView> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();
     for corner in detection.detection.corners {
@@ -184,7 +183,7 @@ fn detection_to_view_data(
         "insufficient corners after grid filtering"
     );
 
-    Ok(CameraViewData {
+    Ok(CorrespondenceView {
         points_3d,
         points_2d,
         weights: None,

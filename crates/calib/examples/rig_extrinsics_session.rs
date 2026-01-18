@@ -5,7 +5,7 @@
 use anyhow::{ensure, Result};
 use calib::core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Vec2};
 use calib::pipeline::{
-    run_rig_extrinsics, RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInput, RigViewData,
+    run_rig_extrinsics, CorrespondenceView, RigExtrinsicsConfig, RigExtrinsicsInput, RigViewData,
 };
 use calib::session::{CalibrationSession, RigExtrinsicsInitOptions, RigExtrinsicsProblem};
 use nalgebra::{UnitQuaternion, Vector3};
@@ -79,7 +79,7 @@ fn main() -> Result<()> {
                 pixels.push(Vec2::new(pix.x, pix.y));
             }
 
-            cameras.push(Some(RigCameraViewData {
+            cameras.push(Some(CorrespondenceView {
                 points_3d: board_points.clone(),
                 points_2d: pixels,
                 weights: None,

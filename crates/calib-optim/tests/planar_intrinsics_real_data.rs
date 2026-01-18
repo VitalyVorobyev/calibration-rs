@@ -8,13 +8,13 @@
 
 use calib_core::{
     test_utils::{pixel_from_normalized, undistort_pixel_normalized, CalibrationView},
-    BrownConrady5, DistortionModel, FxFyCxCySkew, Mat3, Pt2, Pt3, Real, Vec2,
+    BrownConrady5, CorrespondenceView, DistortionFixMask, DistortionModel, FxFyCxCySkew,
+    IntrinsicsFixMask, Mat3, Pt2, Pt3, Real, Vec2,
 };
 use calib_linear::{HomographySolver, PlanarIntrinsicsLinearInit};
 use calib_optim::ir::RobustLoss;
 use calib_optim::problems::planar_intrinsics::{
     optimize_planar_intrinsics, PlanarDataset, PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions,
-    PlanarViewObservations,
 };
 use calib_optim::BackendSolveOptions;
 use nalgebra::Isometry3;
@@ -89,7 +89,7 @@ fn board_point_3d(i: usize, j: usize, square: Real) -> Pt3 {
 
 /// Compute reprojection error for a set of observations.
 fn compute_reprojection_error(
-    views: &[PlanarViewObservations],
+    views: &[CorrespondenceView],
     intrinsics: &FxFyCxCySkew<Real>,
     distortion: &BrownConrady5<Real>,
     poses: &[Isometry3<Real>],
@@ -220,10 +220,7 @@ fn planar_intrinsics_real_data_improves_reprojection() {
 
             let points_2d: Vec<Vec2> = undist_pixels.iter().map(|p| Vec2::new(p.x, p.y)).collect();
 
-            nl_views.push(
-                PlanarViewObservations::new(points_3d, points_2d)
-                    .expect("planar view observations"),
-            );
+            nl_views.push(CorrespondenceView::new(points_3d, points_2d).expect("view"));
             init_poses.push(pose);
         }
 
@@ -364,9 +361,7 @@ fn planar_intrinsics_parameter_fixing_works() {
         let h = HomographySolver::dlt(&world, &undist_pixels).expect("homography");
         homographies.push(h);
 
-        nl_views.push(
-            PlanarViewObservations::new(points_3d, points_2d).expect("planar view observations"),
-        );
+        nl_views.push(CorrespondenceView::new(points_3d, points_2d).expect("view"));
     }
 
     let linear_init =
@@ -415,8 +410,11 @@ fn planar_intrinsics_parameter_fixing_works() {
     };
 
     let opts = PlanarIntrinsicsSolveOptions {
-        fix_p1: true, // Fix tangential
-        fix_p2: true,
+        fix_distortion: DistortionFixMask {
+            p1: true,
+            p2: true,
+            ..Default::default()
+        },
         robust_loss: RobustLoss::None,
         ..Default::default()
     };
@@ -503,8 +501,11 @@ fn planar_intrinsics_parameter_fixing_works() {
     };
 
     let opts3 = PlanarIntrinsicsSolveOptions {
-        fix_fx: true,
-        fix_fy: true,
+        fix_intrinsics: IntrinsicsFixMask {
+            fx: true,
+            fy: true,
+            ..Default::default()
+        },
         robust_loss: RobustLoss::None,
         ..Default::default()
     };
@@ -660,7 +661,7 @@ fn planar_intrinsics_with_iterative_linear_init() {
 
             let points_2d: Vec<Vec2> = det.corners.iter().map(|c| Vec2::new(c[2], c[3])).collect();
 
-            views_optim.push(PlanarViewObservations::new(points_3d, points_2d).expect("view"));
+            views_optim.push(CorrespondenceView::new(points_3d, points_2d).expect("view"));
         }
 
         let dataset = PlanarDataset::new(views_optim.clone()).expect("dataset");

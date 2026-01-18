@@ -115,12 +115,12 @@ fn main() -> Result<()> {
 
         views.push(calib::session::problem_types::RigHandEyeViewData {
             cameras: vec![
-                Some(CameraViewData {
+                Some(CorrespondenceView {
                     points_3d: board_points.clone(),
                     points_2d: cam0_pixels,
                     weights: None,
                 }),
-                Some(CameraViewData {
+                Some(CorrespondenceView {
                     points_3d: board_points.clone(),
                     points_2d: cam1_pixels,
                     weights: None,

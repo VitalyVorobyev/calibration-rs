@@ -1,7 +1,7 @@
 //! Multi-camera rig + robot hand-eye session problem.
 
 use anyhow::Result;
-use calib_core::{Iso3, Real};
+use calib_core::{CorrespondenceView, Iso3, Real};
 use serde::{Deserialize, Serialize};
 
 use crate::session::ProblemType;
@@ -28,12 +28,10 @@ pub struct RigHandEyeObservations {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigHandEyeViewData {
     /// Per-camera observations (None if camera didn't observe target).
-    pub cameras: Vec<Option<CameraViewData>>,
+    pub cameras: Vec<Option<CorrespondenceView>>,
     /// Robot pose measurement for this view (base_from_gripper, `T_B_G`).
     pub base_from_gripper: Iso3,
 }
-
-pub use crate::CameraViewData;
 
 /// Initial values from rig + hand-eye initialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,15 +96,7 @@ fn default_rig_preopt() -> super::RigExtrinsicsOptimOptions {
 
     let mut opts = super::RigExtrinsicsOptimOptions::default();
     opts.solve_opts.robust_loss = RobustLoss::Huber { scale: 2.0 };
-    opts.solve_opts.fix_fx = true;
-    opts.solve_opts.fix_fy = true;
-    opts.solve_opts.fix_cx = true;
-    opts.solve_opts.fix_cy = true;
-    opts.solve_opts.fix_k1 = true;
-    opts.solve_opts.fix_k2 = true;
-    opts.solve_opts.fix_k3 = true;
-    opts.solve_opts.fix_p1 = true;
-    opts.solve_opts.fix_p2 = true;
+    opts.solve_opts.default_fix = calib_core::CameraFixMask::all_fixed();
     opts.backend_opts.max_iters = 60;
     opts
 }
@@ -135,15 +125,7 @@ impl Default for RigHandEyeOptimOptions {
 
         let solve_opts = HandEyeSolveOptions {
             robust_loss: RobustLoss::Huber { scale: 2.0 },
-            fix_fx: true,
-            fix_fy: true,
-            fix_cx: true,
-            fix_cy: true,
-            fix_k1: true,
-            fix_k2: true,
-            fix_k3: true,
-            fix_p1: true,
-            fix_p2: true,
+            default_fix: calib_core::CameraFixMask::all_fixed(),
             refine_robot_poses: true,
             ..Default::default()
         };
@@ -352,17 +334,7 @@ impl ProblemType for RigHandEyeProblem {
             .views
             .iter()
             .map(|view| {
-                let cameras: Vec<Option<CameraViewObservations>> = view
-                    .cameras
-                    .iter()
-                    .map(|cam_opt| {
-                        cam_opt.as_ref().map(|cam_data| CameraViewObservations {
-                            points_3d: cam_data.points_3d.clone(),
-                            points_2d: cam_data.points_2d.clone(),
-                            weights: cam_data.weights.clone(),
-                        })
-                    })
-                    .collect();
+                let cameras = view.cameras.clone();
                 RigViewObservations {
                     cameras,
                     robot_pose: view.base_from_gripper,
@@ -631,12 +603,12 @@ mod tests {
 
             views.push(RigHandEyeViewData {
                 cameras: vec![
-                    Some(CameraViewData {
+                    Some(CorrespondenceView {
                         points_3d: board_points.clone(),
                         points_2d: cam0_pixels,
                         weights: None,
                     }),
-                    Some(CameraViewData {
+                    Some(CorrespondenceView {
                         points_3d: board_points.clone(),
                         points_2d: cam1_pixels,
                         weights: None,
@@ -778,12 +750,12 @@ mod tests {
 
             views.push(RigHandEyeViewData {
                 cameras: vec![
-                    Some(CameraViewData {
+                    Some(CorrespondenceView {
                         points_3d: board_points.clone(),
                         points_2d: cam0_pixels,
                         weights: None,
                     }),
-                    Some(CameraViewData {
+                    Some(CorrespondenceView {
                         points_3d: board_points.clone(),
                         points_2d: cam1_pixels,
                         weights: None,
@@ -805,15 +777,7 @@ mod tests {
 
         let mut optim_opts = RigHandEyeOptimOptions::default();
         optim_opts.solve_opts.refine_robot_poses = false;
-        optim_opts.solve_opts.fix_fx = false;
-        optim_opts.solve_opts.fix_fy = false;
-        optim_opts.solve_opts.fix_cx = false;
-        optim_opts.solve_opts.fix_cy = false;
-        optim_opts.solve_opts.fix_k1 = false;
-        optim_opts.solve_opts.fix_k2 = false;
-        optim_opts.solve_opts.fix_k3 = false;
-        optim_opts.solve_opts.fix_p1 = false;
-        optim_opts.solve_opts.fix_p2 = false;
+        optim_opts.solve_opts.default_fix = calib_core::CameraFixMask::truly_all_free();
         optim_opts.backend_opts.max_iters = 200;
         optim_opts.backend_opts.min_abs_decrease = Some(1e-12);
         optim_opts.backend_opts.min_rel_decrease = Some(1e-12);
@@ -848,7 +812,7 @@ mod tests {
     fn rig_handeye_session_json_roundtrip() {
         let obs = RigHandEyeObservations {
             views: vec![RigHandEyeViewData {
-                cameras: vec![Some(CameraViewData {
+                cameras: vec![Some(CorrespondenceView {
                     points_3d: vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(0.05, 0.0, 0.0)],
                     points_2d: vec![Vec2::new(100.0, 100.0), Vec2::new(200.0, 100.0)],
                     weights: None,

@@ -4,21 +4,8 @@
 //! correspondences used throughout the calibration pipeline.
 
 use crate::{Pt3, Vec2};
+use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
-use std::error::Error;
-use std::fmt;
-
-/// Error type for observation validation.
-#[derive(Debug, Clone)]
-pub struct ObservationError(String);
-
-impl fmt::Display for ObservationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Error for ObservationError {}
 
 /// A single view containing 2D-3D point correspondences.
 ///
@@ -61,14 +48,13 @@ impl CorrespondenceView {
     /// # Errors
     ///
     /// Returns an error if the 3D and 2D point counts don't match.
-    pub fn new(points_3d: Vec<Pt3>, points_2d: Vec<Vec2>) -> Result<Self, ObservationError> {
-        if points_3d.len() != points_2d.len() {
-            return Err(ObservationError(format!(
-                "3D / 2D point counts must match: {} vs {}",
-                points_3d.len(),
-                points_2d.len()
-            )));
-        }
+    pub fn new(points_3d: Vec<Pt3>, points_2d: Vec<Vec2>) -> Result<Self> {
+        ensure!(
+            points_3d.len() == points_2d.len(),
+            "3D / 2D point counts must match: {} vs {}",
+            points_3d.len(),
+            points_2d.len()
+        );
         Ok(Self {
             points_3d,
             points_2d,
@@ -85,24 +71,23 @@ impl CorrespondenceView {
         points_3d: Vec<Pt3>,
         points_2d: Vec<Vec2>,
         weights: Vec<f64>,
-    ) -> Result<Self, ObservationError> {
-        if points_3d.len() != points_2d.len() {
-            return Err(ObservationError(format!(
-                "3D / 2D point counts must match: {} vs {}",
-                points_3d.len(),
-                points_2d.len()
-            )));
-        }
-        if weights.len() != points_3d.len() {
-            return Err(ObservationError(format!(
-                "weight count must match point count: {} vs {}",
-                weights.len(),
-                points_3d.len()
-            )));
-        }
-        if !weights.iter().all(|w| *w >= 0.0) {
-            return Err(ObservationError("weights must be non-negative".to_string()));
-        }
+    ) -> Result<Self> {
+        ensure!(
+            points_3d.len() == points_2d.len(),
+            "3D / 2D point counts must match: {} vs {}",
+            points_3d.len(),
+            points_2d.len()
+        );
+        ensure!(
+            weights.len() == points_3d.len(),
+            "weight count must match point count: {} vs {}",
+            weights.len(),
+            points_3d.len()
+        );
+        ensure!(
+            weights.iter().all(|w| *w >= 0.0),
+            "weights must be non-negative"
+        );
         Ok(Self {
             points_3d,
             points_2d,
@@ -127,7 +112,11 @@ impl CorrespondenceView {
     /// Returns 1.0 if no weights were provided.
     #[inline]
     pub fn weight(&self, idx: usize) -> f64 {
-        self.weights.as_ref().map_or(1.0, |w| w[idx])
+        self.weights
+            .as_ref()
+            .and_then(|w| w.get(idx))
+            .copied()
+            .unwrap_or(1.0)
     }
 
     /// Iterate over (3D point, 2D point) pairs.

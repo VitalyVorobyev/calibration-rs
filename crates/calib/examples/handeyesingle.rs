@@ -68,7 +68,6 @@ fn main() -> Result<()> {
     // 2) Intrinsics optimize
     let solve_opts = PlanarIntrinsicsSolveOptions {
         robust_loss: RobustLoss::Huber { scale: 2.0 },
-        fix_k3: true,
         ..Default::default()
     };
     let backend_opts = BackendSolveOptions {
@@ -110,15 +109,7 @@ fn main() -> Result<()> {
     // 6) Hand-eye optimize (intrinsics/distortion fixed)
     let handeye_opts = HandEyeSolveOptions {
         robust_loss: RobustLoss::Huber { scale: 2.0 },
-        fix_fx: true,
-        fix_fy: true,
-        fix_cx: true,
-        fix_cy: true,
-        fix_k1: true,
-        fix_k2: true,
-        fix_k3: true,
-        fix_p1: true,
-        fix_p2: true,
+        default_fix: calib::core::CameraFixMask::all_fixed(),
         fix_extrinsics: vec![true],
         ..Default::default()
     };

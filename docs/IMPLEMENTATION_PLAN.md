@@ -36,7 +36,7 @@ Non-goals (for this iteration):
 - `calib-pipeline` exposes `run_rig_extrinsics`; `calib` facade re-exports rig session + pipeline APIs.
 - `calib-pipeline` exposes `run_rig_handeye`; `calib` facade re-exports rig+hand-eye session + pipeline APIs.
 - Rig reprojection metrics are available via `calib_pipeline::rig_reprojection_errors*` and re-exported as `calib::rig::*`.
-- Observation type cleanup: `PlanarViewData` renamed to `CameraViewData` (shared between planar + rig pipelines).
+- Observation type cleanup: use `CorrespondenceView` (shared between planar + rig pipelines).
 - Rig initialization optionally refines per-camera planar intrinsics (enabled by default).
 - Examples added:
   - `crates/calib/examples/rig_extrinsics_session.rs`
@@ -241,7 +241,7 @@ Session API:
 
 Each view has:
 - multi-camera corner observations (same as rig extrinsics):
-  - `RigViewData { cameras: Vec<Option<CameraViewData>> }`
+  - `RigViewData { cameras: Vec<Option<CorrespondenceView>> }`
 - a robot pose measurement for that view:
   - **explicitly named** as `base_from_gripper: Iso3` (`T_B_G`, maps gripper → base) to avoid ambiguity.
 
@@ -320,7 +320,7 @@ Recommended refactors (planned, not required for v1 of rig-handeye):
 
 ## 7) Data Structure Refactoring (2026-01-18)
 
-Status: In progress.
+Status: Completed for `calib-core`, `calib-optim`, and `calib-pipeline` (2026-01-18).
 
 ### 7.1 Completed: Canonical Types in calib-core
 
@@ -329,7 +329,7 @@ Added to `calib-core/src/types/`:
 **observation.rs:**
 - `CorrespondenceView`: Canonical 2D-3D correspondence type replacing duplicated `PlanarViewObservations` and `CameraViewObservations`
 - `ReprojectionStats`: Unified reprojection error statistics (mean, rms, max, count)
-- `ObservationError`: Validation error type
+- Validation uses `anyhow::Result` (no custom error type)
 
 **options.rs:**
 - `IntrinsicsFixMask`: Structured mask for fx, fy, cx, cy fixing
@@ -348,14 +348,10 @@ Added to `calib-core/src/types/`:
 - `RigExtrinsicsSolveOptions` uses `default_fix: CameraFixMask` with optional `camera_overrides: Vec<Option<CameraFixMask>>`
 - Eliminates 9 individual boolean fields + confusing per-camera override logic
 
-### 7.3 Pending: Update calib-pipeline
+### 7.3 Completed: Updated calib-pipeline
 
-Files requiring updates to use new types and options:
-- `crates/calib-pipeline/src/lib.rs` - import/export updates
-- `crates/calib-pipeline/src/session/problem_types/rig_extrinsics.rs` - use CorrespondenceView
-- `crates/calib-pipeline/src/session/problem_types/rig_handeye.rs` - use new option masks
-- `crates/calib-pipeline/src/session/problem_types/handeye_single.rs` - use new option masks
-- `crates/calib-pipeline/src/handeye_single.rs` - use CorrespondenceView
+- Session problem types updated to use `CorrespondenceView` and mask-based solve options.
+- Examples/tests updated to match the new API.
 
 ### 7.4 Pending: Update calib-linear
 

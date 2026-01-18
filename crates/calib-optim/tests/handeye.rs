@@ -6,7 +6,10 @@
 //! 3. Per-camera intrinsics and distortion optimization
 //! 4. Hand-eye transform estimation
 
-use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Real, Vec2};
+use calib_core::{
+    BrownConrady5, Camera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, IdentitySensor,
+    Pinhole, Pt3, Real, Vec2,
+};
 use calib_optim::backend::{
     solve_with_backend, BackendKind, BackendSolveOptions, LinearSolverKind,
 };
@@ -111,9 +114,7 @@ fn eye_in_hand_calibration_converges() {
             }
         }
 
-        cameras_obs.push(Some(
-            CameraViewObservations::new(points_3d, points_2d).unwrap(),
-        ));
+        cameras_obs.push(Some(CorrespondenceView::new(points_3d, points_2d).unwrap()));
 
         views.push(RigViewObservations {
             cameras: cameras_obs,
@@ -460,7 +461,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
             }
         }
 
-        let obs = CameraViewObservations::new(points_3d, points_2d).unwrap();
+        let obs = CorrespondenceView::new(points_3d, points_2d).unwrap();
         views.push(RigViewObservations {
             cameras: vec![Some(obs)],
             robot_pose: *robot_pose_meas,
@@ -480,15 +481,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     };
 
     let base_opts = HandEyeSolveOptions {
-        fix_fx: true,
-        fix_fy: true,
-        fix_cx: true,
-        fix_cy: true,
-        fix_k1: true,
-        fix_k2: true,
-        fix_k3: true,
-        fix_p1: true,
-        fix_p2: true,
+        default_fix: CameraFixMask::all_fixed(),
         fix_extrinsics: vec![true],
         ..Default::default()
     };

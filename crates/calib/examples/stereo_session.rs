@@ -10,7 +10,7 @@
 mod stereo_io;
 
 use anyhow::{ensure, Context, Result};
-use calib::core::{CameraParams, Iso3};
+use calib::core::{CameraFixMask, CameraParams, Iso3};
 use calib::optim::ir::RobustLoss;
 use calib::rig::{
     rig_reprojection_errors, rig_reprojection_errors_from_report, RigExtrinsicsInitOptions,
@@ -118,9 +118,7 @@ fn main() -> Result<()> {
     optim_opts.solve_opts.robust_loss = RobustLoss::Huber { scale: 2.0 };
     optim_opts.backend_opts.max_iters = 200;
     if fix_intrinsics {
-        let n = input.num_cameras;
-        optim_opts.solve_opts.fix_intrinsics = vec![true; n];
-        optim_opts.solve_opts.fix_distortion = vec![true; n];
+        optim_opts.solve_opts.default_fix = CameraFixMask::all_fixed();
     }
 
     session.optimize(optim_opts)?;

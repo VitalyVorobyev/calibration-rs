@@ -2,7 +2,7 @@
 
 use crate::{
     optimize_planar_intrinsics_with_init, pinhole_camera_params, planar_init_seed_from_views,
-    CameraViewData, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
+    CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
 };
 use anyhow::{ensure, Result};
 use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Real};
@@ -19,7 +19,7 @@ pub struct PlanarIntrinsicsProblem;
 /// Observations for planar intrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsObservations {
-    pub views: Vec<CameraViewData>,
+    pub views: Vec<CorrespondenceView>,
 }
 
 /// Initial values from linear initialization (iterative Zhang's method).
@@ -169,7 +169,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
 }
 
 fn mean_reproj_error_planar(
-    views: &[CameraViewData],
+    views: &[CorrespondenceView],
     intrinsics: &FxFyCxCySkew<Real>,
     distortion: &BrownConrady5<Real>,
     poses: &[Iso3],
@@ -251,7 +251,7 @@ mod tests {
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 
-            views.push(CameraViewData {
+            views.push(CorrespondenceView {
                 points_3d: board_points.clone(),
                 points_2d,
                 weights: None,
@@ -321,7 +321,7 @@ mod tests {
     #[test]
     fn planar_intrinsics_session_json_checkpoint() {
         // Create a simple session with observations
-        let views = vec![CameraViewData {
+        let views = vec![CorrespondenceView {
             points_3d: vec![
                 Pt3::new(0.0, 0.0, 0.0),
                 Pt3::new(0.05, 0.0, 0.0),

@@ -172,19 +172,16 @@ This can let a “mostly working” pipeline hide convention inversions.
 #### C. Updated Solve Options (calib-optim)
 - `PlanarIntrinsicsSolveOptions` now uses `fix_intrinsics: IntrinsicsFixMask` and `fix_distortion: DistortionFixMask`
 - `RigExtrinsicsSolveOptions` now uses `default_fix: CameraFixMask` with optional `camera_overrides: Vec<Option<CameraFixMask>>`
+- `HandEyeSolveOptions` now uses `default_fix: CameraFixMask` with optional `camera_overrides: Vec<Option<CameraFixMask>>`
 - Eliminates 9 boolean fields pattern
+
+#### D. Updated calib-pipeline
+- All pipelines/session problem types now use `CorrespondenceView` (no duplicated view structs)
+- High-level configs use mask-based solve options (no boolean explosion)
 
 ### In Progress
 
-#### D. Update calib-pipeline
-- Need to update all files using old `PlanarViewObservations` type
-- Need to update files using old boolean option fields (fix_fx, fix_fy, etc.)
-- Files requiring updates:
-  - `crates/calib-pipeline/src/lib.rs`
-  - `crates/calib-pipeline/src/session/problem_types/rig_extrinsics.rs`
-  - `crates/calib-pipeline/src/session/problem_types/rig_handeye.rs`
-  - `crates/calib-pipeline/src/session/problem_types/handeye_single.rs`
-  - `crates/calib-pipeline/src/handeye_single.rs`
+- (none)
 
 ### Pending
 

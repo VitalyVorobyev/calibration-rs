@@ -64,10 +64,7 @@ mod tests {
     use calib_core::{
         BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt3, Vec2,
     };
-    use calib_pipeline::{
-        CameraViewData, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
-        RobustLossConfig,
-    };
+    use calib_pipeline::{CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
     use nalgebra::{UnitQuaternion, Vector3};
     use std::{fs, path::Path};
     use tempfile::NamedTempFile;
@@ -119,7 +116,7 @@ mod tests {
                 points_2d.push(Vec2::new(proj.x, proj.y));
             }
 
-            views.push(CameraViewData {
+            views.push(CorrespondenceView {
                 points_3d: board_points.clone(),
                 points_2d,
                 weights: None,
@@ -127,15 +124,8 @@ mod tests {
         }
 
         let input = PlanarIntrinsicsInput { views };
-        let config = PlanarIntrinsicsConfig {
-            robust_loss: Some(RobustLossConfig::None),
-            max_iters: Some(200),
-            fix_fx: false,
-            fix_fy: false,
-            fix_cx: false,
-            fix_cy: false,
-            fix_poses: None,
-        };
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.backend_opts.max_iters = 200;
         (input, config)
     }
 
@@ -154,7 +144,7 @@ mod tests {
         )
         .expect("cli helper should succeed");
 
-        let report: PlanarIntrinsicsReport = serde_json::from_str(&json).unwrap();
+        let report: calib_pipeline::PlanarIntrinsicsReport = serde_json::from_str(&json).unwrap();
         assert!(
             report.final_cost < 1e-6,
             "final cost too high: {}",

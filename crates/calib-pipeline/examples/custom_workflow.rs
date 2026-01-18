@@ -12,7 +12,7 @@ use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, P
 use calib_pipeline::distortion_fit::DistortionFitOptions;
 use calib_pipeline::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
 use calib_pipeline::iterative_intrinsics::IterativeIntrinsicsOptions;
-use calib_pipeline::{BackendSolveOptions, CameraViewData, PlanarIntrinsicsSolveOptions};
+use calib_pipeline::{BackendSolveOptions, CorrespondenceView, PlanarIntrinsicsSolveOptions};
 use nalgebra::{UnitQuaternion, Vector3};
 
 fn main() -> anyhow::Result<()> {
@@ -162,7 +162,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Generate synthetic calibration data with known ground truth.
-fn generate_synthetic_data() -> (Vec<CameraViewData>, FxFyCxCySkew<f64>, BrownConrady5<f64>) {
+fn generate_synthetic_data() -> (
+    Vec<CorrespondenceView>,
+    FxFyCxCySkew<f64>,
+    BrownConrady5<f64>,
+) {
     // Ground truth camera parameters
     let k_gt = FxFyCxCySkew {
         fx: 800.0,
@@ -211,7 +215,7 @@ fn generate_synthetic_data() -> (Vec<CameraViewData>, FxFyCxCySkew<f64>, BrownCo
             }
         }
 
-        views.push(CameraViewData {
+        views.push(CorrespondenceView {
             points_3d: board_points.clone(),
             points_2d,
             weights: None,
