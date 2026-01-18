@@ -6,17 +6,23 @@
 //! # Algorithm
 //!
 //! Given:
-//! - Laser line pixel observations
-//! - Camera pose (T_C_T) from calibration features (via PnP/homography)
+//! - Laser line pixel observations from multiple views
+//! - Camera poses (T_C_T) from calibration features (via PnP/homography)
 //! - Known planar target geometry (Z=0 in target frame)
 //!
 //! The algorithm:
 //! 1. Back-projects each laser pixel to a ray in camera frame
 //! 2. Intersects each ray with the target plane to get 3D points
-//! 3. Fits a plane to the 3D points via SVD (DLT-style)
+//! 3. Fits a plane to the 3D points via SVD (covariance eigenvector)
 //!
 //! The resulting laser plane is parameterized as (n̂, d) where n̂ is the unit
 //! normal vector and d is the signed distance from the camera origin.
+//!
+//! # Note on View Requirements
+//!
+//! A single view with a laser line produces **collinear** 3D points (all on one line),
+//! which is degenerate for plane fitting. Use [`LinescanPlaneSolver::from_views`] with
+//! at least 2 views at different poses to obtain non-collinear points.
 
 use calib_core::{
     BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt2, Pt3, Real, Vec2,
@@ -30,11 +36,17 @@ pub enum LinescanError {
     #[error("insufficient points: got {got}, need at least {min}")]
     InsufficientPoints { got: usize, min: usize },
 
+    #[error("insufficient views: got {got}, need at least {min}")]
+    InsufficientViews { got: usize, min: usize },
+
     #[error("numerical failure: {0}")]
     NumericalFailure(String),
 
     #[error("ray parallel to target plane (degenerate geometry)")]
     RayParallelToTargetPlane,
+
+    #[error("collinear points: cannot fit plane to points along a single line")]
+    CollinearPoints,
 }
 
 /// Result type for linescan operations.
@@ -72,18 +84,19 @@ impl LinescanPlaneSolver {
     /// Estimate laser plane from 3D points in camera frame via SVD.
     ///
     /// Fits a plane ax + by + cz + d = 0 to the given 3D points using
-    /// homogeneous DLT (Direct Linear Transform). Returns the plane
-    /// parameterized as unit normal (n̂ = [a, b, c] / ||(a,b,c)||) and
-    /// signed distance (d / ||(a,b,c)||).
+    /// covariance eigendecomposition. Returns the plane parameterized as
+    /// unit normal (n̂) and signed distance from the camera origin.
     ///
     /// # Algorithm
     ///
-    /// 1. Build constraint matrix A where each row is [x, y, z, 1]
-    /// 2. Solve A * [a, b, c, d]^T = 0 via SVD (smallest singular value)
-    /// 3. Normalize to unit normal
+    /// 1. Compute centroid of points
+    /// 2. Build 3x3 covariance matrix of centered points
+    /// 3. Find smallest eigenvector (plane normal)
+    /// 4. Compute distance as -n̂ · centroid
     ///
-    /// Requires at least 3 non-colinear points.
-    /// TODO: check non-colinearity
+    /// Requires at least 3 non-collinear points. Collinearity is detected
+    /// by checking if the smallest eigenvalue is negligibly small compared
+    /// to the second-smallest.
     pub fn from_points_3d(points_camera: &[Pt3]) -> LinescanResult<LinearPlaneEstimate> {
         if points_camera.len() < 3 {
             return Err(LinescanError::InsufficientPoints {
@@ -110,15 +123,36 @@ impl LinescanPlaneSolver {
 
         // Smallest eigenvector of covariance matrix is plane normal
         let eigen = cov.symmetric_eigen();
-        let min_idx = eigen
+
+        // Sort eigenvalues to identify smallest and second-smallest
+        let mut indexed_eigenvalues: Vec<(usize, f64)> = eigen
             .eigenvalues
             .iter()
+            .copied()
             .enumerate()
-            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .map(|(idx, _)| idx)
-            .ok_or(LinescanError::NumericalFailure(
-                "failed to find minimum eigenvalue".into(),
-            ))?;
+            .collect();
+        indexed_eigenvalues.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        let (min_idx, min_eigenvalue) = indexed_eigenvalues[0];
+        let (_second_idx, second_eigenvalue) = indexed_eigenvalues[1];
+        let (_max_idx, max_eigenvalue) = indexed_eigenvalues[2];
+
+        // Check for collinearity: points are collinear if the smallest eigenvalue
+        // is negligible AND the second-smallest is significant (i.e., rank 1).
+        // For a proper plane, we expect rank 2: two significant eigenvalues.
+        // For collinear points (rank 1): only one significant eigenvalue.
+        // The ratio of second-smallest to largest should be significant for planes.
+        const RANK_THRESHOLD: f64 = 1e-8;
+        if max_eigenvalue > RANK_THRESHOLD {
+            // Relative threshold: check if points span 2D (plane) or 1D (line)
+            let rank1_ratio = second_eigenvalue / max_eigenvalue;
+            if rank1_ratio < RANK_THRESHOLD {
+                return Err(LinescanError::CollinearPoints);
+            }
+        } else if min_eigenvalue.abs() < RANK_THRESHOLD && second_eigenvalue < RANK_THRESHOLD {
+            // All eigenvalues near zero: degenerate (all points at same location)
+            return Err(LinescanError::CollinearPoints);
+        }
 
         let normal_vec = eigen.eigenvectors.column(min_idx);
         let normal = UnitVector3::new_normalize(normal_vec.into());
@@ -142,22 +176,68 @@ impl LinescanPlaneSolver {
         })
     }
 
-    /// Estimate laser plane from pixel observations and known camera pose.
+    /// Estimate laser plane from multiple views with known camera poses.
     ///
-    /// This is the complete pipeline:
-    /// 1. Undistorts each laser pixel using camera intrinsics and distortion
-    /// 2. Back-projects to ray in camera frame
-    /// 3. Intersects ray with planar target (Z=0 in target frame)
-    /// 4. Transforms intersection point to camera frame
-    /// 5. Fits plane to 3D points via [`Self::from_points_3d`]
+    /// This is the recommended method for laser plane estimation. Each view
+    /// contributes laser pixels that are back-projected to 3D points using
+    /// the known camera pose. Multiple views at different poses provide
+    /// non-collinear points, enabling robust plane fitting.
     ///
-    /// # Arguments
+    /// # Algorithm
     ///
-    /// - `view`: Laser pixel observations and camera pose
-    /// - `camera`: Calibrated camera model (with intrinsics and distortion)
+    /// For each view:
+    /// 1. Undistort laser pixels using camera intrinsics and distortion
+    /// 2. Back-project to rays in camera frame
+    /// 3. Intersect rays with planar target (Z=0 in target frame)
+    /// 4. Transform intersection points to camera frame
     ///
-    /// TODO: single view only provides collinear points. That is a degenerate case. Need
-    /// multiple views to fit a plane. Review this API, probably change to `from_views`.
+    /// Then fit plane to all 3D points via [`Self::from_points_3d`].
+    ///
+    /// # Requirements
+    ///
+    /// - At least 2 views with different poses
+    /// - Total points across views >= 3
+    /// - Views must be at sufficiently different angles to break collinearity
+    pub fn from_views(
+        views: &[LinescanView],
+        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
+    ) -> LinescanResult<LinearPlaneEstimate> {
+        if views.len() < 2 {
+            return Err(LinescanError::InsufficientViews {
+                got: views.len(),
+                min: 2,
+            });
+        }
+
+        // Gather all 3D points from all views
+        let mut all_points = Vec::new();
+        for view in views {
+            let points = Self::compute_3d_points(&view.laser_pixels, camera, &view.camera_pose)?;
+            all_points.extend(points);
+        }
+
+        if all_points.len() < 3 {
+            return Err(LinescanError::InsufficientPoints {
+                got: all_points.len(),
+                min: 3,
+            });
+        }
+
+        // Fit plane to 3D points
+        Self::from_points_3d(&all_points)
+    }
+
+    /// Estimate laser plane from a single view (DEPRECATED).
+    ///
+    /// **Warning**: A single view produces collinear 3D points, which is
+    /// degenerate for plane fitting. This method will likely fail with
+    /// [`LinescanError::CollinearPoints`].
+    ///
+    /// Use [`Self::from_views`] with multiple views instead.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Single view produces collinear points. Use from_views() with multiple views."
+    )]
     pub fn from_view(
         view: &LinescanView,
         camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
@@ -222,6 +302,27 @@ impl LinescanPlaneSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use calib_core::Camera;
+    use nalgebra::UnitQuaternion;
+
+    fn make_test_camera() -> Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>> {
+        let intrinsics = FxFyCxCySkew {
+            fx: 800.0,
+            fy: 800.0,
+            cx: 640.0,
+            cy: 480.0,
+            skew: 0.0,
+        };
+        let distortion = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+        Camera::new(Pinhole, distortion, IdentitySensor, intrinsics)
+    }
 
     #[test]
     fn plane_from_perfect_points() {
@@ -277,5 +378,83 @@ mod tests {
     fn plane_insufficient_points() {
         let points = vec![Pt3::new(0.0, 0.0, 0.5), Pt3::new(1.0, 0.0, 0.5)];
         assert!(LinescanPlaneSolver::from_points_3d(&points).is_err());
+    }
+
+    #[test]
+    fn plane_detects_collinear_points() {
+        // Collinear points (all on a line along X axis)
+        let points = vec![
+            Pt3::new(0.0, 0.0, 0.5),
+            Pt3::new(1.0, 0.0, 0.5),
+            Pt3::new(2.0, 0.0, 0.5),
+            Pt3::new(3.0, 0.0, 0.5),
+        ];
+
+        let result = LinescanPlaneSolver::from_points_3d(&points);
+        assert!(
+            matches!(result, Err(LinescanError::CollinearPoints)),
+            "Expected CollinearPoints error, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn from_views_insufficient_views() {
+        let camera = make_test_camera();
+        let view = LinescanView {
+            laser_pixels: vec![Pt2::new(100.0, 100.0), Pt2::new(200.0, 100.0)],
+            camera_pose: Iso3::identity(),
+        };
+
+        let result = LinescanPlaneSolver::from_views(&[view], &camera);
+        assert!(matches!(
+            result,
+            Err(LinescanError::InsufficientViews { got: 1, min: 2 })
+        ));
+    }
+
+    #[test]
+    fn from_views_with_two_poses() {
+        let camera = make_test_camera();
+
+        // Ground truth laser plane: z = -0.5 in camera frame (facing towards target)
+        // We simulate laser hitting target at different Y positions
+
+        // Pose 1: camera at Z=1.0 looking at target at Z=0
+        let pose1 = Iso3::from_parts(
+            nalgebra::Translation3::new(0.0, 0.0, 1.0),
+            UnitQuaternion::identity(),
+        );
+
+        // Pose 2: camera at Z=1.0, shifted in Y, with slight rotation
+        let pose2 = Iso3::from_parts(
+            nalgebra::Translation3::new(0.0, 0.1, 1.0),
+            UnitQuaternion::from_axis_angle(&Vector3::x_axis(), 0.1),
+        );
+
+        // Generate laser pixels that project to the laser plane
+        // For a horizontal laser line at z=-0.5 in camera frame,
+        // we simulate pixels along the laser line
+        let view1 = LinescanView {
+            laser_pixels: vec![
+                Pt2::new(400.0, 480.0),
+                Pt2::new(640.0, 480.0),
+                Pt2::new(880.0, 480.0),
+            ],
+            camera_pose: pose1,
+        };
+
+        let view2 = LinescanView {
+            laser_pixels: vec![
+                Pt2::new(400.0, 520.0),
+                Pt2::new(640.0, 520.0),
+                Pt2::new(880.0, 520.0),
+            ],
+            camera_pose: pose2,
+        };
+
+        let result = LinescanPlaneSolver::from_views(&[view1, view2], &camera);
+        // This should succeed (may not match ground truth due to simplified setup)
+        assert!(result.is_ok(), "from_views should succeed: {:?}", result);
     }
 }

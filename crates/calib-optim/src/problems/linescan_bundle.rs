@@ -191,7 +191,7 @@ impl LinescanInit {
 }
 
 /// Type of laser plane residual to use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum LaserResidualType {
     /// Point-to-plane distance (original approach).
     ///
@@ -206,6 +206,7 @@ pub enum LaserResidualType {
     /// coordinates, measures perpendicular distance from pixel to projected line,
     /// scales by sqrt(fx*fy) for pixel-comparable residual.
     /// Residual: 1D distance in pixels.
+    #[default]
     LineDistNormalized,
 }
 

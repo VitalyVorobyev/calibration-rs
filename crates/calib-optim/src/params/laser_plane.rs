@@ -10,6 +10,7 @@
 use anyhow::{ensure, Result};
 use calib_core::Pt3;
 use nalgebra::{DVector, DVectorView, Unit, Vector3};
+use serde::{Deserialize, Serialize};
 
 /// Laser plane in camera frame: unit normal + signed distance.
 ///
@@ -28,7 +29,7 @@ use nalgebra::{DVector, DVectorView, Unit, Vector3};
 /// let restored = LaserPlane::from_split_dvec(normal.as_view(), distance.as_view()).unwrap();
 /// assert!((plane.distance - restored.distance).abs() < 1e-12);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserPlane {
     /// Unit normal vector in camera frame
     pub normal: Unit<Vector3<f64>>,

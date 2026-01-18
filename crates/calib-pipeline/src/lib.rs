@@ -77,14 +77,14 @@ pub struct PlanarIntrinsicsReport {
     pub final_cost: Real,
 }
 
-pub(crate) fn make_pinhole_camera(
-    k: FxFyCxCySkew<Real>,
-    dist: BrownConrady5<Real>,
-) -> PinholeCamera {
+/// Type alias for camera configuration (serializable representation).
+pub type CameraConfig = CameraParams;
+
+pub fn make_pinhole_camera(k: FxFyCxCySkew<Real>, dist: BrownConrady5<Real>) -> PinholeCamera {
     Camera::new(Pinhole, dist, IdentitySensor, k)
 }
 
-pub(crate) fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
+pub fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
     CameraParams {
         projection: ProjectionParams::Pinhole,
         distortion: DistortionParams::BrownConrady5 {
@@ -184,7 +184,7 @@ fn iterative_init_guess(
     }
 }
 
-pub(crate) fn planar_init_seed_from_views(
+pub fn planar_init_seed_from_views(
     views: &[CorrespondenceView],
 ) -> Result<(PlanarIntrinsicsInit, PinholeCamera)> {
     use calib_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
