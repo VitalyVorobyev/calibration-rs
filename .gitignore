@@ -1,3 +1,5 @@
 target
 stereo
 Cargo.lock
+DS8
+*.pyc
