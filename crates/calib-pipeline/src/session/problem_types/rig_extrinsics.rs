@@ -55,7 +55,7 @@ pub struct RigExtrinsicsOptimized {
 }
 
 /// Options for rig extrinsics initialization.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigExtrinsicsInitOptions {
     /// Reference camera index (defines rig frame). Default: 0.
     #[serde(default)]
@@ -63,6 +63,23 @@ pub struct RigExtrinsicsInitOptions {
     /// Per-camera intrinsics initialization options (iterative Zhang + distortion).
     #[serde(default)]
     pub intrinsics_init_opts: calib_linear::iterative_intrinsics::IterativeIntrinsicsOptions,
+    /// Optional per-camera non-linear planar intrinsics refinement before rig initialization.
+    ///
+    /// When enabled, runs a single-camera planar intrinsics optimization for each camera using
+    /// the views where that camera observed the target. This typically improves the camera poses
+    /// used for rig extrinsics initialization and helps avoid local minima in the subsequent rig BA.
+    #[serde(default)]
+    pub intrinsics_refine: Option<crate::PlanarIntrinsicsConfig>,
+}
+
+impl Default for RigExtrinsicsInitOptions {
+    fn default() -> Self {
+        Self {
+            ref_cam_idx: 0,
+            intrinsics_init_opts: Default::default(),
+            intrinsics_refine: Some(Default::default()),
+        }
+    }
 }
 
 /// Options for rig extrinsics optimization.
@@ -107,6 +124,7 @@ impl ProblemType for RigExtrinsicsProblem {
         use calib_core::{DistortionModel, IntrinsicsParams, Mat3, Vec3};
         use calib_linear::iterative_intrinsics::{IterativeCalibView, IterativeIntrinsicsSolver};
         use calib_linear::{homography, planar_pose};
+        use calib_optim::planar_intrinsics::PlanarIntrinsicsInit;
 
         let num_cameras = obs.num_cameras;
         let num_views = obs.views.len();
@@ -213,8 +231,6 @@ impl ProblemType for RigExtrinsicsProblem {
                 intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
             };
 
-            cameras.push(cam_cfg);
-
             // Helper: undistort pixels into an ideal pinhole image for homography/pose recovery.
             fn undistort_pixels(
                 pixels: &[Vec2],
@@ -237,8 +253,12 @@ impl ProblemType for RigExtrinsicsProblem {
                 Ok(undistorted)
             }
 
-            // 1b) Per-view camera->target pose recovery from undistorted homographies.
+            // 1b) Per-view pose seeds from undistorted homographies.
+            let mut view_indices = Vec::with_capacity(cam_views.len());
+            let mut pose_seeds = Vec::with_capacity(cam_views.len());
             for (view_idx, cam_data) in cam_views {
+                view_indices.push(*view_idx);
+
                 let board_2d: Vec<Pt2> = cam_data
                     .points_3d
                     .iter()
@@ -257,14 +277,56 @@ impl ProblemType for RigExtrinsicsProblem {
                     || format!("view {} homography failed for camera {}", view_idx, cam_idx),
                 )?;
 
-                let target_to_cam =
-                    planar_pose::estimate_planar_pose_from_h(&k, &h).with_context(|| {
+                let cam_from_target = planar_pose::estimate_planar_pose_from_h(&k, &h)
+                    .with_context(|| {
                         format!(
                             "pose recovery failed for view {} camera {}",
                             view_idx, cam_idx
                         )
                     })?;
-                cam_target_poses[*view_idx][cam_idx] = Some(target_to_cam.inverse());
+                pose_seeds.push(cam_from_target);
+            }
+
+            // Optional: per-camera planar intrinsics refinement.
+            if let Some(refine_cfg) = opts.intrinsics_refine.as_ref() {
+                let planar_input = crate::PlanarIntrinsicsInput {
+                    views: cam_views.iter().map(|(_, v)| (*v).clone()).collect(),
+                };
+                let dataset = crate::build_planar_dataset(&planar_input).with_context(|| {
+                    format!(
+                        "failed to build planar dataset for intrinsics refinement (camera {})",
+                        cam_idx
+                    )
+                })?;
+                let init = PlanarIntrinsicsInit::new(intrinsics, distortion, pose_seeds)
+                    .with_context(|| {
+                        format!(
+                            "invalid planar init for intrinsics refinement (camera {})",
+                            cam_idx
+                        )
+                    })?;
+                let result = crate::optimize_planar_intrinsics_with_init(dataset, init, refine_cfg)
+                    .with_context(|| {
+                        format!("planar intrinsics refinement failed for camera {}", cam_idx)
+                    })?;
+
+                cameras.push(crate::pinhole_camera_params(&result.camera));
+
+                anyhow::ensure!(
+                    result.poses.len() == view_indices.len(),
+                    "intrinsics refinement returned {} poses, expected {} (camera {})",
+                    result.poses.len(),
+                    view_indices.len(),
+                    cam_idx
+                );
+                for (pose, view_idx) in result.poses.iter().zip(view_indices.iter()) {
+                    cam_target_poses[*view_idx][cam_idx] = Some(pose.inverse());
+                }
+            } else {
+                cameras.push(cam_cfg);
+                for (pose, view_idx) in pose_seeds.iter().zip(view_indices.iter()) {
+                    cam_target_poses[*view_idx][cam_idx] = Some(pose.inverse());
+                }
             }
         }
 

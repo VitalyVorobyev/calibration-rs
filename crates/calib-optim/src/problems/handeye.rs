@@ -3,8 +3,8 @@
 //! Default optimization state (fixed target):
 //! - per-camera intrinsics and distortion
 //! - per-camera extrinsics (camera-to-rig)
-//! - hand-eye transform (gripper-from-rig for eye-in-hand, base-from-rig for eye-to-hand)
-//! - fixed target pose in base frame (shared across views)
+//! - hand-eye transform (mode-dependent; see `HandEyeInit::handeye`)
+//! - fixed target pose (mode-dependent; see `HandEyeInit::target_poses`)
 //! - optional per-view robot pose corrections delta_i in se(3), with zero-mean priors
 //!
 //! Transform chain (eye-in-hand):
@@ -124,11 +124,16 @@ pub struct HandEyeInit {
     pub distortion: Vec<BrownConrady5<Real>>,
     /// Per-camera extrinsics (camera-to-rig transforms).
     pub cam_to_rig: Vec<Iso3>,
-    /// Hand-eye transform (gripper-from-rig for eye-in-hand, base-from-rig for eye-to-hand).
+    /// Hand-eye transform (mode-dependent).
+    ///
+    /// - `EyeInHand`: `handeye = gripper_from_rig` (`T_G_R`)
+    /// - `EyeToHand`: `handeye = rig_from_base` (`T_R_B`)
     pub handeye: Iso3,
     /// Calibration target poses.
     ///
-    /// - Default (fixed target): the first pose is used as the initial `T_B_T`.
+    /// - Default (fixed target):
+    ///   - `EyeInHand`: the first pose is used as the initial `base_from_target` (`T_B_T`)
+    ///   - `EyeToHand`: the first pose is used as the initial `gripper_from_target` (`T_G_T`)
     /// - Legacy (`relax_target_poses = true`): one pose per view is required.
     pub target_poses: Vec<Iso3>,
 }

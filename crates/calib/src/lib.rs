@@ -150,7 +150,8 @@ pub mod session {
         HandEyeSingleOptimOptions, HandEyeSingleProblem, PlanarIntrinsicsInitOptions,
         PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions, PlanarIntrinsicsProblem,
         RigExtrinsicsInitOptions, RigExtrinsicsObservations, RigExtrinsicsOptimOptions,
-        RigExtrinsicsProblem,
+        RigExtrinsicsProblem, RigHandEyeInitOptions, RigHandEyeObservations,
+        RigHandEyeOptimOptions, RigHandEyeProblem,
     };
 }
 
@@ -168,11 +169,12 @@ pub mod helpers {
 pub mod pipeline {
     pub use calib_pipeline::{
         handeye, handeye_single, rig_reprojection_errors, rig_reprojection_errors_from_report,
-        run_planar_intrinsics, run_rig_extrinsics, CameraViewData, HandEyeMode,
+        run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, CameraViewData, HandEyeMode,
         PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport, RigCameraViewData,
         RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
-        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
-        RobustLossConfig,
+        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigHandEyeCameraViewData, RigHandEyeConfig,
+        RigHandEyeInitOptions, RigHandEyeInput, RigHandEyeOptimOptions, RigHandEyeReport,
+        RigHandEyeViewData, RigReprojectionErrors, RigViewData, RobustLossConfig,
     };
 }
 
@@ -184,6 +186,14 @@ pub mod rig {
         rig_reprojection_errors, rig_reprojection_errors_from_report, run_rig_extrinsics,
         RigCameraViewData, RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
         RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
+    };
+}
+
+/// Multi-camera rig + robot hand-eye calibration.
+pub mod rig_handeye {
+    pub use calib_pipeline::{
+        run_rig_handeye, RigHandEyeCameraViewData, RigHandEyeConfig, RigHandEyeInitOptions,
+        RigHandEyeInput, RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
     };
 }
 
@@ -221,7 +231,8 @@ pub mod prelude {
     // Session API
     pub use crate::session::{
         CalibrationSession, PlanarIntrinsicsObservations, PlanarIntrinsicsProblem, ProblemType,
-        RigExtrinsicsObservations, RigExtrinsicsProblem, SessionStage,
+        RigExtrinsicsObservations, RigExtrinsicsProblem, RigHandEyeObservations, RigHandEyeProblem,
+        SessionStage,
     };
 
     // Helper functions

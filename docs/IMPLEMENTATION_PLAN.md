@@ -22,6 +22,11 @@ Non-goals (for this iteration):
 3. **Session checkpointing**: session JSON checkpoints must capture init/optim options (avoid “empty-serde” workarounds that drop config).
 4. **Rig gauge definition**: rig frame defined by a reference camera (`ref_cam_idx`); fix that camera’s extrinsics and fix (at least) one rig pose.
 5. **Rig initialization default**: quality-first; per-camera iterative intrinsics + distortion initialization, and support missing observations.
+6. **Rig-on-robot pipeline conventions**:
+   - robot pose measurements are provided as `base_from_gripper: Iso3` (`T_B_G`),
+   - support both `EyeInHand` and `EyeToHand` hand-eye modes,
+   - target is single; for now assume it is fixed (non-moving) and refine robot poses during optimization,
+   - start with a synthetic example (dataset later).
 
 ## 0.1 Status (already implemented)
 
@@ -29,10 +34,13 @@ Non-goals (for this iteration):
 - Session checkpoints record init/optim options; option types derive `serde` in `calib-linear`/`calib-optim`.
 - Rig extrinsics conventions standardized to `rig_from_target` (target → rig).
 - `calib-pipeline` exposes `run_rig_extrinsics`; `calib` facade re-exports rig session + pipeline APIs.
+- `calib-pipeline` exposes `run_rig_handeye`; `calib` facade re-exports rig+hand-eye session + pipeline APIs.
 - Rig reprojection metrics are available via `calib_pipeline::rig_reprojection_errors*` and re-exported as `calib::rig::*`.
 - Observation type cleanup: `PlanarViewData` renamed to `CameraViewData` (shared between planar + rig pipelines).
+- Rig initialization optionally refines per-camera planar intrinsics (enabled by default).
 - Examples added:
   - `crates/calib/examples/rig_extrinsics_session.rs`
+  - `crates/calib/examples/rig_handeye_session.rs` (synthetic, supports eye-in-hand and eye-to-hand)
   - `crates/calib/examples/stereo_session.rs` (real images in `data/stereo/imgs`, per-step reprojection report, optional `--fix-intrinsics`)
 
 ---
@@ -208,13 +216,15 @@ Goal: calibrate a multi-camera rig mounted on a robot end-effector end-to-end:
 - (optionally) target pose(s) in the world/base frame,
 with missing camera observations supported.
 
-### 6.1 Proposed public API (calib-pipeline + calib facade)
+Status: implemented (2026-01-17).
 
-Add a new pipeline module (name bikeshed):
-- `crates/calib-pipeline/src/rig_handeye.rs` (or `robot_rig.rs`)
+### 6.1 Public API (calib-pipeline + calib facade)
+
+Pipeline module:
+- `crates/calib-pipeline/src/rig_handeye.rs`
 
 Expose via `calib`:
-- `calib::rig_handeye::*` (or `calib::robot::*`)
+- `calib::rig_handeye::*`
 
 Types:
 - `RigHandEyeInput` (serde)
@@ -223,12 +233,9 @@ Types:
 
 Entry points:
 - `run_rig_handeye(input, cfg) -> RigHandEyeReport`
-- optionally split-stage API:
-  - `initialize_rig_handeye(...) -> RigHandEyeInit`
-  - `optimize_rig_handeye(...) -> RigHandEyeReport`
 
 Session API:
-- add `RigHandEyeProblem` as a `ProblemType` in `crates/calib-pipeline/src/session/problem_types/`.
+- `RigHandEyeProblem` (`crates/calib-pipeline/src/session/problem_types/rig_handeye.rs`)
 
 ### 6.2 Observations model (input)
 
@@ -236,7 +243,7 @@ Each view has:
 - multi-camera corner observations (same as rig extrinsics):
   - `RigViewData { cameras: Vec<Option<CameraViewData>> }`
 - a robot pose measurement for that view:
-  - **explicitly named** as `base_from_gripper: Iso3` (or `base_T_gripper`) to avoid ambiguity.
+  - **explicitly named** as `base_from_gripper: Iso3` (`T_B_G`, maps gripper → base) to avoid ambiguity.
 
 So the input can look like:
 - `views: Vec<RigRobotView>`
@@ -252,39 +259,47 @@ So the input can look like:
 Recommended unknowns:
 - `cameras[j]`: per-camera intrinsics + distortion (same model family initially)
 - `cam_to_rig[j]`: camera → rig (gauge fixed by `cam_to_rig[ref_cam_idx] = I`)
-- `handeye`: transform relating rig to robot (mode-dependent, but **naming should be explicit**)
-  - eye-in-hand: `gripper_from_rig`
-  - eye-to-hand: `base_from_rig`
-- `base_from_target[k]`: pose of target in the base/world frame
-  - for a fixed target: a single pose
-  - for multiple targets or moving target: allow `k` targets or even per-view (configurable)
-- (optional) robot pose refinement:
-  - either disabled by default, or modeled as per-view SE(3) deltas with tight priors.
+- `handeye` (mode-dependent; align naming with the existing `calib-optim` hand-eye factor):
+  - eye-in-hand: `gripper_from_rig` (rig → gripper)
+  - eye-to-hand: `rig_from_base` (base → rig)
+- target pose (mode-dependent):
+  - eye-in-hand: `base_from_target` (target fixed in base/world; single transform)
+  - eye-to-hand: `gripper_from_target` (target fixed on gripper; single transform)
+- robot pose refinement: enabled; model per-view `robot_delta` as `exp(delta) * base_from_gripper` with tight priors.
 
 ### 6.4 Factor graph / transform chain (semantic contract)
 
 Reuse the existing rig reprojection chain for each (view, cam, point), but with rig pose constrained by robot kinematics + hand-eye:
-- compute `base_from_rig(view)` from `base_from_gripper(view)` and `handeye` (mode-specific)
-- compute `rig_from_target(view) = (base_from_rig(view))^-1 * base_from_target`
-- then project as in rig BA:
-  - `p_rig = rig_from_target * p_target`
-  - `p_cam = cam_to_rig^-1 * p_rig`
-  - project with per-camera K+distortion
+- start from the observed point in target coordinates `p_target`
+- compute `p_cam` by the mode-specific chain (consistent with `calib-optim`):
+  - eye-in-hand:
+    - `p_base = base_from_target * p_target`
+    - `p_gripper = base_from_gripper(view)^-1 * p_base`
+    - `p_rig = gripper_from_rig^-1 * p_gripper`
+    - `p_cam = cam_to_rig^-1 * p_rig`
+  - eye-to-hand:
+    - `p_gripper = gripper_from_target * p_target`
+    - `p_base = base_from_gripper(view) * p_gripper`
+    - `p_rig = rig_from_base * p_base`
+    - `p_cam = cam_to_rig^-1 * p_rig`
+- project `p_cam` with per-camera intrinsics + distortion
+
+When robot pose refinement is enabled, use `base_from_gripper_corr(view) = exp(robot_delta(view)) * base_from_gripper(view)`.
 
 This removes free per-view rig poses and replaces them with a physically meaningful model.
 
 ### 6.5 Initialization strategy (robust and explainable)
 
 Stage plan (pipeline orchestration in `calib-pipeline`):
-1. Per-camera intrinsics + distortion init (existing iterative init) using all views for each camera.
+1. Per-camera intrinsics + distortion init (iterative init + optional planar refinement) using all views for each camera.
 2. Rig extrinsics BA (existing rig pipeline) to get initial `cam_to_rig` and per-view `rig_from_target` estimates.
-3. Hand-eye init:
-   - derive `base_from_rig(view)` from `rig_from_target(view)` and a provisional `base_from_target` (or directly via DLT if you choose a formulation),
-   - run `calib_linear::handeye::estimate_handeye_dlt` using **rig poses** (not camera poses).
-4. Joint BA (new `calib-optim` problem) solving for the full parameter set, with options to:
+3. Hand-eye init + target init (mode-dependent):
+   - eye-in-hand: estimate `gripper_from_rig` and `base_from_target` from `{base_from_gripper(view), rig_from_target(view)}` (single fixed target).
+   - eye-to-hand: estimate `rig_from_base` and `gripper_from_target` from `{base_from_gripper(view), rig_from_target(view)}` (single target on gripper).
+4. Joint BA using the existing multi-camera hand-eye solver in `calib-optim` (`calib_optim::problems::handeye::optimize_handeye`), with options to:
    - fix or refine intrinsics/distortion during joint BA,
    - fix rig extrinsics or let them move,
-   - include robust loss and robot-pose priors.
+   - include robust loss and robot-pose priors (robot deltas enabled).
 
 ### 6.6 API design review (extendability: future linescan devices)
 
