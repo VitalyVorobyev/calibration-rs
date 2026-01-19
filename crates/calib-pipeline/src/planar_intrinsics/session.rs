@@ -4,15 +4,14 @@ use anyhow::{ensure, Result};
 use calib_core::{
     pinhole_camera_params, Camera, CorrespondenceView, IdentitySensor, Pinhole, Real,
 };
+use calib_optim::{
+    PlanarDataset, PlanarIntrinsicsParams, PlanarIntrinsicsEstimate, PlanarIntrinsicsSolveOptions,
+};
 
 use crate::session::types::{ExportOptions, FilterOptions};
 use crate::session::ProblemType;
 
 use super::functions::planar_init_seed_from_views;
-use super::types::{
-    PlanarIntrinsicsInitOptions, PlanarIntrinsicsInitial, PlanarIntrinsicsObservations,
-    PlanarIntrinsicsOptimOptions, PlanarIntrinsicsOptimized, PlanarIntrinsicsReport,
-};
 
 /// Planar intrinsics calibration problem (Zhang's method with distortion).
 ///

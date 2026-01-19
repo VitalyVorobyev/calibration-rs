@@ -78,3 +78,11 @@ pub use planar_pose::*;
 pub use pnp::*;
 pub use triangulation::*;
 pub use zhang_intrinsics::*;
+
+pub mod prelude {
+    pub use crate::homography::dlt_homography;
+    pub use crate::iterative_intrinsics::{
+        estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
+    };
+    pub use crate::planar_pose::estimate_planar_pose_from_h;
+}

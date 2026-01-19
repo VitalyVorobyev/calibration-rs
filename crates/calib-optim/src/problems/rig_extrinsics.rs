@@ -9,56 +9,12 @@ use crate::params::distortion::{pack_distortion, unpack_distortion, DISTORTION_D
 use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_DIM};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use anyhow::{ensure, Result};
-use calib_core::{make_pinhole_camera, CameraFixMask, CorrespondenceView, Iso3, PinholeCamera};
+use calib_core::{make_pinhole_camera, CameraFixMask, Iso3, PinholeCamera, RigDataset, NoMeta};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Multi-camera observations for one rig view/frame.
-#[derive(Debug, Clone)]
-pub struct RigViewObs {
-    /// Per-camera observation; None if camera didn't observe in this view.
-    pub cameras: Vec<Option<CorrespondenceView>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct View<Meta> {
-    pub obs: RigViewObs,
-    pub meta: Meta,
-}
-
-#[derive(Debug, Clone)]
-pub struct RigDataset<Meta> {
-    pub num_cameras: usize,
-    pub views: Vec<View<Meta>>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct NoMeta;
-
 pub type RigExtrinsicsDataset = RigDataset<NoMeta>;
-
-impl RigExtrinsicsDataset {
-    /// Create dataset from views.
-    pub fn new(views: Vec<View<NoMeta>>, num_cameras: usize) -> Result<Self> {
-        ensure!(!views.is_empty(), "need at least one view");
-        for (idx, view) in views.iter().enumerate() {
-            ensure!(
-                view.obs.cameras.len() == num_cameras,
-                "view {} has {} cameras, expected {}",
-                idx,
-                view.obs.cameras.len(),
-                num_cameras
-            );
-        }
-        Ok(Self { views, num_cameras })
-    }
-
-    /// Number of views.
-    pub fn num_views(&self) -> usize {
-        self.views.len()
-    }
-}
 
 /// Result of rig extrinsics optimization.
 #[derive(Debug, Clone)]

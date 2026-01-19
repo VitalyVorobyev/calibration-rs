@@ -40,31 +40,6 @@ use calib_optim::{
     optimize_planar_intrinsics, BackendSolveOptions, PlanarDataset, PlanarIntrinsicsParams,
     PlanarIntrinsicsSolveOptions,
 };
-use serde::{Deserialize, Serialize};
-
-/// Result from linear intrinsics initialization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlanarIntrinsicsInitResult {
-    /// Estimated camera intrinsics.
-    pub intrinsics: FxFyCxCySkew<Real>,
-    /// Estimated Brown-Conrady distortion.
-    pub distortion: BrownConrady5<Real>,
-}
-
-/// Result from non-linear intrinsics optimization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlanarIntrinsicsOptimResult {
-    /// Optimized camera intrinsics.
-    pub intrinsics: FxFyCxCySkew<Real>,
-    /// Optimized Brown-Conrady distortion.
-    pub distortion: BrownConrady5<Real>,
-    /// Optimized poses (board-to-camera transforms).
-    pub poses: Vec<Iso3>,
-    /// Final optimization cost.
-    pub final_cost: Real,
-    /// Mean reprojection error after optimization (pixels).
-    pub mean_reproj_error: Real,
-}
 
 /// Initialize camera intrinsics using iterative Zhang's method.
 pub fn initialize_planar_intrinsics(
@@ -164,35 +139,6 @@ fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso
         .iter()
         .map(|h| estimate_planar_pose_from_h(kmtx, h).map_err(|e| anyhow::anyhow!("{}", e)))
         .collect()
-}
-
-fn compute_mean_reproj_error(
-    views: &[CorrespondenceView],
-    intrinsics: &FxFyCxCySkew<Real>,
-    distortion: &BrownConrady5<Real>,
-    poses: &[Iso3],
-) -> Result<Real> {
-    let camera = Camera::new(Pinhole, *distortion, IdentitySensor, *intrinsics);
-
-    let mut total_error = 0.0;
-    let mut total_points = 0;
-
-    for (view, pose) in views.iter().zip(poses.iter()) {
-        for (p3d, p2d) in view.points_3d.iter().zip(view.points_2d.iter()) {
-            let p_cam = pose.transform_point(p3d);
-            if let Some(projected) = camera.project_point_c(&p_cam.coords) {
-                let error = (projected - *p2d).norm();
-                total_error += error;
-                total_points += 1;
-            }
-        }
-    }
-
-    if total_points == 0 {
-        anyhow::bail!("No valid projections for error computation");
-    }
-
-    Ok(total_error / total_points as Real)
 }
 
 #[cfg(test)]

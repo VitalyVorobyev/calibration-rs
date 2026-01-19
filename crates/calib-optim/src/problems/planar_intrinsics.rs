@@ -10,8 +10,7 @@ use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_D
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
-    make_pinhole_camera, BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew,
-    IntrinsicsFixMask, Iso3, PinholeCamera, Real,
+    View, NoMeta, BrownConrady5, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, PinholeCamera, Real, compute_mean_reproj_error, make_pinhole_camera
 };
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -22,14 +21,14 @@ use std::collections::HashMap;
 /// Each view observes a planar calibration target in pixel coordinates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarDataset {
-    pub views: Vec<CorrespondenceView>,
+    pub views: Vec<View<NoMeta>>,
 }
 
 impl PlanarDataset {
-    pub fn new(views: Vec<CorrespondenceView>) -> Result<Self> {
+    pub fn new(views: Vec<View<NoMeta>>) -> Result<Self> {
         ensure!(!views.is_empty(), "need at least one view for calibration");
         for (i, view) in views.iter().enumerate() {
-            ensure!(view.len() >= 4, "view {} has too few points (need >=4)", i);
+            ensure!(view.obs.len() >= 4, "view {} has too few points (need >=4)", i);
         }
         Ok(Self { views })
     }
@@ -97,6 +96,7 @@ impl PlanarIntrinsicsParams {
 pub struct PlanarIntrinsicsEstimate {
     pub params: PlanarIntrinsicsParams,
     pub report: SolveReport,
+    pub mean_reproj_error: f64,
 }
 
 /// Solve options specific to planar intrinsics.
@@ -251,6 +251,7 @@ pub fn optimize_planar_intrinsics_with_backend(
     }
 
     let camera = make_pinhole_camera(intrinsics, distortion);
+    let mean_reproj_error = compute_mean_reproj_error(&camera, &dataset.views)?;
 
     Ok(PlanarIntrinsicsEstimate {
         params: PlanarIntrinsicsParams::new(camera, poses)?,

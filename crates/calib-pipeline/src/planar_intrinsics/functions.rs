@@ -1,7 +1,9 @@
 use calib_core::{
-    make_pinhole_camera, pinhole_camera_params, BrownConrady5, CorrespondenceView, FxFyCxCySkew,
+    make_pinhole_camera, pinhole_camera_params, PinholeCamera, BrownConrady5, CorrespondenceView, FxFyCxCySkew,
     Iso3, Mat3, Pt2, Real,
 };
+
+use calib_linear::prelude::*;
 
 use calib_optim::{
     optimize_planar_intrinsics, BackendSolveOptions, PlanarDataset, PlanarIntrinsicsParams,
@@ -43,8 +45,6 @@ fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
 }
 
 fn planar_homographies_from_views(views: &[CorrespondenceView]) -> Result<Vec<Mat3>> {
-    use calib_linear::homography::dlt_homography;
-
     let mut homographies = Vec::with_capacity(views.len());
     for (idx, view) in views.iter().enumerate() {
         let (board_2d, pixel_2d) = board_and_pixel_points(view);
@@ -60,8 +60,6 @@ fn planar_homographies_from_views(views: &[CorrespondenceView]) -> Result<Vec<Ma
 }
 
 fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso3>> {
-    use calib_linear::planar_pose::estimate_planar_pose_from_h;
-
     homographies
         .iter()
         .enumerate()
@@ -74,11 +72,7 @@ fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso
 
 fn iterative_init_guess(
     views: &[CorrespondenceView],
-) -> Option<(FxFyCxCySkew<Real>, BrownConrady5<Real>)> {
-    use calib_linear::iterative_intrinsics::{
-        estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
-    };
-
+) -> Option<(PinholeCamera)> {
     if views.len() < 3 {
         return None;
     }
@@ -105,8 +99,6 @@ fn iterative_init_guess(
 }
 
 pub fn planar_init_seed_from_views(views: &[CorrespondenceView]) -> Result<PlanarIntrinsicsParams> {
-    use calib_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
-
     ensure!(
         views.len() >= 3,
         "need at least 3 views for planar initialization (got {})",
@@ -184,37 +176,6 @@ pub fn run_planar_intrinsics(
         mean_reproj_error,
         poses: Some(result.params.poses().to_vec()),
     })
-}
-
-fn compute_mean_reproj_error(
-    views: &[CorrespondenceView],
-    intrinsics: &FxFyCxCySkew<Real>,
-    distortion: &BrownConrady5<Real>,
-    poses: &[calib_core::Iso3],
-) -> Result<Real> {
-    use calib_core::{Camera, IdentitySensor, Pinhole};
-
-    let camera = Camera::new(Pinhole, *distortion, IdentitySensor, *intrinsics);
-
-    let mut total_error = 0.0;
-    let mut total_points = 0;
-
-    for (view, pose) in views.iter().zip(poses.iter()) {
-        for (p3d, p2d) in view.points_3d.iter().zip(view.points_2d.iter()) {
-            let p_cam = pose.transform_point(p3d);
-            if let Some(projected) = camera.project_point_c(&p_cam.coords) {
-                let error = (projected - *p2d).norm();
-                total_error += error;
-                total_points += 1;
-            }
-        }
-    }
-
-    if total_points == 0 {
-        anyhow::bail!("No valid projections for error computation");
-    }
-
-    Ok(total_error / total_points as Real)
 }
 
 #[cfg(test)]

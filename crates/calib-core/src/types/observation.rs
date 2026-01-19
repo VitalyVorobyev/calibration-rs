@@ -3,7 +3,7 @@
 //! This module provides canonical data structures for storing 2D-3D point
 //! correspondences used throughout the calibration pipeline.
 
-use crate::{Pt3, Vec2};
+use crate::{Pt3, Pt2};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 
@@ -21,11 +21,11 @@ use serde::{Deserialize, Serialize};
 /// # Example
 ///
 /// ```
-/// use calib_core::{CorrespondenceView, Pt3, Vec2};
+/// use calib_core::{CorrespondenceView, Pt3, Pt2};
 ///
 /// // Create from vectors
 /// let points_3d = vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(0.1, 0.0, 0.0)];
-/// let points_2d = vec![Vec2::new(320.0, 240.0), Vec2::new(400.0, 240.0)];
+/// let points_2d = vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)];
 /// let view = CorrespondenceView::new(points_3d, points_2d).unwrap();
 ///
 /// assert_eq!(view.len(), 2);
@@ -36,7 +36,7 @@ pub struct CorrespondenceView {
     /// 3D points in world/target frame.
     pub points_3d: Vec<Pt3>,
     /// Corresponding 2D pixel observations.
-    pub points_2d: Vec<Vec2>,
+    pub points_2d: Vec<Pt2>,
     /// Optional per-point weights (default: 1.0 for all points).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weights: Option<Vec<f64>>,
@@ -48,7 +48,7 @@ impl CorrespondenceView {
     /// # Errors
     ///
     /// Returns an error if the 3D and 2D point counts don't match.
-    pub fn new(points_3d: Vec<Pt3>, points_2d: Vec<Vec2>) -> Result<Self> {
+    pub fn new(points_3d: Vec<Pt3>, points_2d: Vec<Pt2>) -> Result<Self> {
         ensure!(
             points_3d.len() == points_2d.len(),
             "3D / 2D point counts must match: {} vs {}",
@@ -62,6 +62,13 @@ impl CorrespondenceView {
         })
     }
 
+    pub fn planar_points(&self) -> Vec<Pt2> {
+        self.points_3d
+            .iter()
+            .map(|p3| Pt2::new(p3.x, p3.y))
+            .collect()
+    }
+
     /// Construct observations with per-point weights.
     ///
     /// # Errors
@@ -69,7 +76,7 @@ impl CorrespondenceView {
     /// Returns an error if counts don't match or weights are negative.
     pub fn new_with_weights(
         points_3d: Vec<Pt3>,
-        points_2d: Vec<Vec2>,
+        points_2d: Vec<Pt2>,
         weights: Vec<f64>,
     ) -> Result<Self> {
         ensure!(
@@ -120,12 +127,12 @@ impl CorrespondenceView {
     }
 
     /// Iterate over (3D point, 2D point) pairs.
-    pub fn iter(&self) -> impl Iterator<Item = (&Pt3, &Vec2)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&Pt3, &Pt2)> {
         self.points_3d.iter().zip(self.points_2d.iter())
     }
 
     /// Iterate over (3D point, 2D point, weight) tuples.
-    pub fn iter_weighted(&self) -> impl Iterator<Item = (&Pt3, &Vec2, f64)> + '_ {
+    pub fn iter_weighted(&self) -> impl Iterator<Item = (&Pt3, &Pt2, f64)> + '_ {
         self.points_3d
             .iter()
             .zip(self.points_2d.iter())
@@ -180,7 +187,7 @@ mod tests {
     #[test]
     fn correspondence_view_creation() {
         let p3 = vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(1.0, 0.0, 0.0)];
-        let p2 = vec![Vec2::new(320.0, 240.0), Vec2::new(400.0, 240.0)];
+        let p2 = vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)];
 
         let view = CorrespondenceView::new(p3.clone(), p2.clone()).unwrap();
         assert_eq!(view.len(), 2);
@@ -192,7 +199,7 @@ mod tests {
     #[test]
     fn correspondence_view_with_weights() {
         let p3 = vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(1.0, 0.0, 0.0)];
-        let p2 = vec![Vec2::new(320.0, 240.0), Vec2::new(400.0, 240.0)];
+        let p2 = vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)];
         let w = vec![0.5, 2.0];
 
         let view = CorrespondenceView::new_with_weights(p3, p2, w).unwrap();
@@ -203,7 +210,7 @@ mod tests {
     #[test]
     fn correspondence_view_rejects_mismatch() {
         let p3 = vec![Pt3::new(0.0, 0.0, 0.0)];
-        let p2 = vec![Vec2::new(320.0, 240.0), Vec2::new(400.0, 240.0)];
+        let p2 = vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)];
 
         assert!(CorrespondenceView::new(p3, p2).is_err());
     }
@@ -211,7 +218,7 @@ mod tests {
     #[test]
     fn correspondence_view_rejects_negative_weights() {
         let p3 = vec![Pt3::new(0.0, 0.0, 0.0)];
-        let p2 = vec![Vec2::new(320.0, 240.0)];
+        let p2 = vec![Pt2::new(320.0, 240.0)];
         let w = vec![-1.0];
 
         assert!(CorrespondenceView::new_with_weights(p3, p2, w).is_err());
@@ -238,7 +245,7 @@ mod tests {
     #[test]
     fn correspondence_view_serde_roundtrip() {
         let p3 = vec![Pt3::new(0.0, 0.0, 0.0)];
-        let p2 = vec![Vec2::new(320.0, 240.0)];
+        let p2 = vec![Pt2::new(320.0, 240.0)];
         let view = CorrespondenceView::new(p3, p2).unwrap();
 
         let json = serde_json::to_string(&view).unwrap();

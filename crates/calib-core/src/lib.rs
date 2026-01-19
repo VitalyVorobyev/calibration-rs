@@ -67,11 +67,15 @@ pub mod synthetic;
 pub mod test_utils;
 /// Common types for observations, results, and options.
 mod types;
+mod view;
 
 pub use math::*;
 pub use models::*;
 pub use ransac::*;
 pub use types::*;
+pub use view::*;
+
+use anyhow::Result;
 
 pub type PinholeCamera =
     Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
@@ -104,4 +108,26 @@ pub fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
             },
         },
     }
+}
+
+pub fn compute_mean_reproj_error(camera: &PinholeCamera, views: &[View<Iso3>]) -> Result<Real> {
+    let mut total_error = 0.0;
+    let mut total_points = 0;
+
+    for view in views {
+        for (p3d, p2d) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
+            let p_cam = view.meta.transform_point(p3d);
+            if let Some(projected) = camera.project_point_c(&p_cam.coords) {
+                let error = (projected - *p2d).norm();
+                total_error += error;
+                total_points += 1;
+            }
+        }
+    }
+
+    if total_points == 0 {
+        anyhow::bail!("No valid projections for error computation");
+    }
+
+    Ok(total_error / total_points as Real)
 }

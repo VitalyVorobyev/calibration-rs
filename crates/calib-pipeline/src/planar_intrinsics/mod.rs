@@ -31,16 +31,9 @@
 
 mod functions;
 mod session;
-mod types;
 
 // Session problem type
 pub use session::PlanarIntrinsicsProblem;
-
-// Types
-pub use types::{
-    PlanarIntrinsicsInitOptions, PlanarIntrinsicsInitial, PlanarIntrinsicsObservations,
-    PlanarIntrinsicsOptimOptions, PlanarIntrinsicsOptimized, PlanarIntrinsicsReport,
-};
 
 // Imperative functions
 pub use functions::{planar_init_seed_from_views, run_planar_intrinsics, PlanarIntrinsicsConfig};
