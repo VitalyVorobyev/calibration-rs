@@ -10,7 +10,7 @@ pub trait SensorModel<S: RealField + Copy> {
 }
 
 /// Identity sensor model.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct IdentitySensor;
 
 impl<S: RealField + Copy> SensorModel<S> for IdentitySensor {

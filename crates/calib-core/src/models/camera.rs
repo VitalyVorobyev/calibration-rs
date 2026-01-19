@@ -1,4 +1,5 @@
 use nalgebra::{Point3, RealField, Vector2, Vector3};
+use serde::{Deserialize, Serialize};
 
 use super::{DistortionModel, IntrinsicsModel, ProjectionModel, SensorModel};
 
@@ -10,7 +11,7 @@ pub struct Ray<S: RealField + Copy> {
 }
 
 /// A composable camera model: projection -> distortion -> sensor -> intrinsics.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Camera<S, P, D, Sm, K>
 where
     S: RealField + Copy,

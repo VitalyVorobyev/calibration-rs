@@ -1,6 +1,6 @@
 use calib_core::{
-    BrownConrady5, CameraParams, CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, Pt2, Real,
-    make_pinhole_camera, pinhole_camera_params,
+    make_pinhole_camera, pinhole_camera_params, BrownConrady5, CorrespondenceView, FxFyCxCySkew,
+    Iso3, Mat3, Pt2, Real,
 };
 
 use calib_optim::{
@@ -8,8 +8,8 @@ use calib_optim::{
     PlanarIntrinsicsSolveOptions,
 };
 
-use serde::{Deserialize, Serialize};
 use anyhow::{ensure, Context, Result};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsConfig {
@@ -104,9 +104,7 @@ fn iterative_init_guess(
     }
 }
 
-pub fn planar_init_seed_from_views(
-    views: &[CorrespondenceView],
-) -> Result<PlanarIntrinsicsParams> {
+pub fn planar_init_seed_from_views(views: &[CorrespondenceView]) -> Result<PlanarIntrinsicsParams> {
     use calib_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
 
     ensure!(
@@ -223,7 +221,8 @@ fn compute_mean_reproj_error(
 mod tests {
     use super::*;
     use calib_core::{
-        synthetic::planar, DistortionParams, IntrinsicsFixMask, IntrinsicsParams, Pt3, Vec2,
+        synthetic::planar, CameraParams, DistortionParams, IntrinsicsFixMask, IntrinsicsParams,
+        Pt3, Vec2,
     };
     use calib_optim::RobustLoss;
 

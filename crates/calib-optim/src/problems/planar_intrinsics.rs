@@ -40,7 +40,7 @@ impl PlanarDataset {
 }
 
 /// Optimization result for planar intrinsics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsParams {
     /// Refined camera with intrinsics and distortion.
     pub camera: PinholeCamera,
