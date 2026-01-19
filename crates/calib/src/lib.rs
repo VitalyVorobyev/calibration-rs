@@ -6,35 +6,34 @@
 //!
 //! Use when you want:
 //! - Type-safe, structured calibration workflows
-//! - Automatic state management and checkpointing
-//! - Enforced stage transitions (Uninitialized → Initialized → Optimized → Exported)
+//! - Artifact-based state management with branching support
+//! - JSON checkpointing for session persistence
 //!
-//! ```no_run
-//! use calib::session::{CalibrationSession, PlanarIntrinsicsProblem, PlanarIntrinsicsObservations};
-//! use calib::pipeline::CorrespondenceView;
+//! ```ignore
+//! use calib::session::{CalibrationSession, FilterOptions, ExportOptions};
+//! use calib::planar_intrinsics::{
+//!     PlanarIntrinsicsProblem, PlanarIntrinsicsObservations,
+//! };
+//! use calib::CorrespondenceView;
 //!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let views: Vec<CorrespondenceView> = /* load calibration data */
-//! # vec![];
+//! let views: Vec<CorrespondenceView> = /* load calibration data */;
 //!
 //! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-//! session.set_observations(PlanarIntrinsicsObservations { views });
+//! let obs_id = session.add_observations(PlanarIntrinsicsObservations { views });
 //!
-//! // Initialize with linear solver
-//! session.initialize(Default::default())?;
+//! // Try different initialization strategies
+//! let seed_a = session.run_init(obs_id, Default::default())?;
 //!
-//! // Can checkpoint here
-//! let json = session.to_json()?;
-//! std::fs::write("checkpoint.json", json)?;
+//! // Optimize
+//! let result_id = session.run_optimize(obs_id, seed_a, Default::default())?;
 //!
-//! // Optimize with non-linear refinement
-//! session.optimize(Default::default())?;
+//! // Filter outliers and re-optimize
+//! let obs_filtered = session.run_filter_obs(obs_id, result_id, FilterOptions::default())?;
+//! let seed_b = session.run_init(obs_filtered, Default::default())?;
+//! let result2 = session.run_optimize(obs_filtered, seed_b, Default::default())?;
 //!
 //! // Export final results
-//! let report = session.export()?;
-//! println!("Final cost: {}", report.report.final_cost);
-//! # Ok(())
-//! # }
+//! let report = session.run_export(result2, ExportOptions::default())?;
 //! ```
 //!
 //! ## 2. Imperative Function API (Custom Workflows)
@@ -43,194 +42,102 @@
 //! - Full control over calibration workflow
 //! - Ability to inspect intermediate results
 //! - Custom composition of calibration steps
-//! - Integration into larger systems
 //!
-//! ### Using High-Level Helper Functions
-//!
-//! ```no_run
+//! ```ignore
 //! use calib::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
-//! use calib::linear::iterative_intrinsics::IterativeIntrinsicsOptions;
-//! use calib::linear::distortion_fit::DistortionFitOptions;
-//! use calib::optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
-//! use calib::optim::backend::BackendSolveOptions;
-//! use calib::pipeline::CorrespondenceView;
+//! use calib_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
+//! use calib::BackendSolveOptions;
+//! use calib::PlanarIntrinsicsSolveOptions;
 //!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let views: Vec<CorrespondenceView> = /* load calibration data */
-//! # vec![];
+//! let views: Vec<CorrespondenceView> = /* load calibration data */;
 //!
 //! // Step 1: Linear initialization
-//! let init_opts = IterativeIntrinsicsOptions {
-//!     iterations: 2,
-//!     distortion_opts: DistortionFitOptions {
-//!         fix_k3: true,
-//!         fix_tangential: false,
-//!         iters: 8,
-//!     },
-//!     zero_skew: true,
-//! };
+//! let init_opts = IterativeIntrinsicsOptions::default();
 //! let init_result = initialize_planar_intrinsics(&views, &init_opts)?;
 //!
 //! // Inspect before committing to optimization
 //! println!("Initial fx: {}, fy: {}", init_result.intrinsics.fx, init_result.intrinsics.fy);
 //!
-//! // Step 2: Non-linear optimization (if init looks good)
+//! // Step 2: Non-linear optimization
 //! let solve_opts = PlanarIntrinsicsSolveOptions::default();
 //! let backend_opts = BackendSolveOptions::default();
 //! let optim_result = optimize_planar_intrinsics_from_init(
-//!     &views,
-//!     &init_result,
-//!     &solve_opts,
-//!     &backend_opts
+//!     &views, &init_result, &solve_opts, &backend_opts
 //! )?;
 //!
 //! println!("Final reprojection error: {:.2} px", optim_result.mean_reproj_error);
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ### Using Low-Level Building Blocks
-//!
-//! For maximum control, directly access linear and optimization modules:
-//!
-//! ```no_run
-//! use calib::linear::{homography, zhang_intrinsics};
-//! use calib::optim::planar_intrinsics::optimize_planar_intrinsics;
-//! use calib::core::{Pt2, Pt3};
-//!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let world_points: Vec<Pt2> = /* 2D points on planar pattern */
-//! # vec![];
-//! let image_points: Vec<Pt2> = /* corresponding 2D pixel coordinates */
-//! # vec![];
-//!
-//! // Compute homography (planar pattern uses 2D coordinates)
-//! let H = homography::dlt_homography(&world_points, &image_points)?;
-//!
-//! // Estimate intrinsics from multiple homographies
-//! let homographies = vec![H];
-//! let K = zhang_intrinsics::estimate_intrinsics_from_homographies(&homographies)?;
-//!
-//! println!("Estimated K: {:?}", K);
-//! # Ok(())
-//! # }
 //! ```
 //!
 //! ## Module Organization
 //!
 //! - **[`session`]**: Type-safe calibration session framework
 //! - **[`helpers`]**: Granular helper functions for common operations
-//! - **[`pipeline`]**: All-in-one convenience functions (original API)
+//! - **[`planar_intrinsics`]**: Planar intrinsics calibration (Zhang's method)
 //! - **[`core`]**: Math types, camera models, RANSAC primitives
 //! - **[`linear`]**: Closed-form initialization algorithms
 //! - **[`optim`]**: Non-linear least-squares optimization
-//! - **[`synthetic`]**: Deterministic synthetic data helpers
-//! - **[`prelude`]**: Convenient re-exports for common use cases
-//!
-//! ## Stability
-//!
-//! The `calib` crate is the public compatibility boundary. Lower-level crates are
-//! intended for advanced usage and may evolve more quickly.
 
 /// Type-safe calibration session framework for structured workflows.
 ///
-/// Provides state management, checkpointing, and enforced stage transitions.
+/// Provides artifact-based state management, branching workflows, and checkpointing.
 pub mod session {
     pub use calib_pipeline::session::{
-        CalibrationSession, ProblemType, SessionMetadata, SessionStage,
-    };
-
-    // Problem types
-    pub mod problem_types {
-        pub use calib_pipeline::session::problem_types::*;
-    }
-
-    // Re-export common problem types at top level for convenience
-    pub use calib_pipeline::session::problem_types::{
-        HandEyeModeConfig, HandEyeSingleInitOptions, HandEyeSingleObservations,
-        HandEyeSingleOptimOptions, HandEyeSingleProblem, PlanarIntrinsicsInitOptions,
-        PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions, PlanarIntrinsicsProblem,
-        RigExtrinsicsInitOptions, RigExtrinsicsObservations, RigExtrinsicsOptimOptions,
-        RigExtrinsicsProblem, RigHandEyeInitOptions, RigHandEyeObservations,
-        RigHandEyeOptimOptions, RigHandEyeProblem,
+        ArtifactId, ArtifactKind, CalibrationSession, ExportOptions, FilterOptions, ProblemType,
+        RunId, RunKind, RunRecord, SessionMetadata,
     };
 }
 
+/// Planar intrinsics calibration (Zhang's method with distortion).
+pub mod planar_intrinsics {
+    pub use calib_pipeline::planar_intrinsics::*;
+}
+
 /// Granular helper functions for custom calibration workflows.
-///
-/// These functions bridge between linear initialization and non-linear optimization,
-/// allowing you to inspect intermediate results and compose custom workflows.
 pub mod helpers {
     pub use calib_pipeline::helpers::*;
 }
 
-/// All-in-one convenience functions for standard calibration tasks.
-///
-/// Use these when you want a simple, single-call solution without managing state.
-pub mod pipeline {
-    pub use calib_pipeline::{
-        handeye, handeye_single, rig_reprojection_errors, rig_reprojection_errors_from_report,
-        run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, CorrespondenceView,
-        HandEyeMode, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
-        RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
-        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigHandEyeConfig, RigHandEyeInitOptions,
-        RigHandEyeInput, RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
-        RigReprojectionErrors, RigViewData,
-    };
-}
-
-/// Multi-camera rig calibration (intrinsics + camera-to-rig extrinsics).
-///
-/// This module is a curated entry-point for the rig pipeline and its common utilities.
-pub mod rig {
-    pub use calib_pipeline::{
-        rig_reprojection_errors, rig_reprojection_errors_from_report, run_rig_extrinsics,
-        RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
-        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
-    };
-}
-
-/// Multi-camera rig + robot hand-eye calibration.
-pub mod rig_handeye {
-    pub use calib_pipeline::{
-        run_rig_handeye, RigHandEyeConfig, RigHandEyeInitOptions, RigHandEyeInput,
-        RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
-    };
+/// Hand-eye calibration types.
+pub mod handeye {
+    pub use calib_pipeline::handeye::*;
 }
 
 /// Core math types, camera models, and RANSAC primitives.
-///
-/// This module contains the fundamental building blocks used throughout the library.
 pub mod core {
     pub use calib_core::*;
 }
 
 /// Deterministic synthetic data generation helpers.
-///
-/// Useful for tests, examples, and benchmarking (e.g. generating planar targets and projections).
 pub mod synthetic {
     pub use calib_core::synthetic::*;
 }
 
-/// Closed-form initialization algorithms (Zhang, PnP, homography, etc.).
-///
-/// Use these for linear initialization before non-linear refinement.
+/// Closed-form initialization algorithms.
 pub mod linear {
     pub use calib_linear::*;
 }
 
-/// Non-linear least-squares optimization problems and backends.
-///
-/// Includes planar intrinsics, hand-eye, rig extrinsics, and linescan bundle refinement.
+/// Non-linear least-squares optimization.
 pub mod optim {
     pub use calib_optim::*;
 }
 
+// Re-exports for convenience
+pub use calib_core::{
+    make_pinhole_camera, pinhole_camera_params, BrownConrady5, CameraParams, CorrespondenceView,
+    FxFyCxCySkew, Iso3, PinholeCamera,
+};
+
+pub use calib_optim::{BackendSolveOptions, HandEyeMode, PlanarIntrinsicsSolveOptions, RobustLoss};
+
+pub use calib_pipeline::{
+    planar_init_seed_from_views, run_planar_intrinsics, PlanarDataset, PlanarIntrinsicsConfig,
+    PlanarIntrinsicsParams, PlanarIntrinsicsReport,
+};
+
 /// Convenient re-exports for common use cases.
-///
-/// Import with `use calib::prelude::*;` to get started quickly.
 pub mod prelude {
-    // Common types
+    // Core types
     pub use crate::core::{
         BrownConrady5, Camera, CameraParams, FxFyCxCySkew, IdentitySensor, IntrinsicsParams, Iso3,
         Pinhole, Pt2, Pt3, Vec2, Vec3,
@@ -238,9 +145,13 @@ pub mod prelude {
 
     // Session API
     pub use crate::session::{
-        CalibrationSession, PlanarIntrinsicsObservations, PlanarIntrinsicsProblem, ProblemType,
-        RigExtrinsicsObservations, RigExtrinsicsProblem, RigHandEyeObservations, RigHandEyeProblem,
-        SessionStage,
+        ArtifactId, CalibrationSession, ExportOptions, FilterOptions, ProblemType,
+    };
+
+    // Planar intrinsics
+    pub use crate::planar_intrinsics::{
+        PlanarIntrinsicsInitOptions, PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions,
+        PlanarIntrinsicsProblem, PlanarIntrinsicsReport,
     };
 
     // Helper functions
@@ -249,20 +160,11 @@ pub mod prelude {
         PlanarIntrinsicsInitResult, PlanarIntrinsicsOptimResult,
     };
 
-    // Pipeline types
-    pub use crate::pipeline::{
-        CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
-        RigExtrinsicsConfig, RigExtrinsicsInput, RigExtrinsicsReport, RigViewData,
-    };
-
-    // Rig metrics
-    pub use crate::pipeline::{
-        rig_reprojection_errors, rig_reprojection_errors_from_report, RigReprojectionErrors,
-    };
+    // Common types
+    pub use crate::{CorrespondenceView, PlanarIntrinsicsConfig};
 
     // Common options
     pub use crate::linear::distortion_fit::DistortionFitOptions;
     pub use crate::linear::iterative_intrinsics::IterativeIntrinsicsOptions;
-    pub use crate::optim::backend::BackendSolveOptions;
-    pub use crate::optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
+    pub use crate::{BackendSolveOptions, PlanarIntrinsicsSolveOptions};
 }

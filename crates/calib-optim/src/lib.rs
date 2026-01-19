@@ -180,7 +180,10 @@ pub use crate::problems::planar_intrinsics::{
     PlanarIntrinsicsSolveOptions,
 };
 
-pub use crate::problems::handeye::optimize_handeye;
+pub use crate::problems::handeye::{
+    optimize_handeye, HandEyeDataset, HandEyeEstimate, HandEyeParams, HandEyeSolveOptions,
+    RobotPoseMeta,
+};
 
 pub use crate::problems::rig_extrinsics::{
     optimize_rig_extrinsics,

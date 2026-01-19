@@ -1,13 +1,13 @@
 use std::{error::Error, fs, path::Path};
 
-use calib_pipeline::{run_planar_intrinsics, PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
+use calib_pipeline::{run_planar_intrinsics, PlanarDataset, PlanarIntrinsicsConfig};
 use clap::Parser;
 
 /// Calibration CLI for planar camera intrinsics.
 #[derive(Debug, Parser)]
 #[command(author, version, about = "Planar intrinsics calibration pipeline")]
 struct Args {
-    /// Path to JSON file containing PlanarIntrinsicsInput.
+    /// Path to JSON file containing PlanarDataset (views with correspondences).
     #[arg(long)]
     input: String,
 
@@ -32,7 +32,7 @@ fn run_planar_intrinsics_from_files(
     input_path: &str,
     config_path: Option<&str>,
 ) -> Result<String, Box<dyn Error>> {
-    let input: PlanarIntrinsicsInput = load_json_file(Path::new(input_path))?;
+    let input: PlanarDataset = load_json_file(Path::new(input_path))?;
 
     let config = if let Some(cfg_path) = config_path {
         load_json_file::<PlanarIntrinsicsConfig>(Path::new(cfg_path))?
@@ -64,7 +64,7 @@ mod tests {
     use calib_core::{
         synthetic::planar, BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole,
     };
-    use calib_pipeline::{PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
+    use calib_pipeline::PlanarIntrinsicsConfig;
     use std::{fs, path::Path};
     use tempfile::NamedTempFile;
 
@@ -72,7 +72,7 @@ mod tests {
         serde_json::to_writer_pretty(fs::File::create(path).unwrap(), value).unwrap();
     }
 
-    fn synthetic_input() -> (PlanarIntrinsicsInput, PlanarIntrinsicsConfig) {
+    fn synthetic_input() -> (PlanarDataset, PlanarIntrinsicsConfig) {
         let k_gt = FxFyCxCySkew {
             fx: 800.0,
             fy: 780.0,
@@ -94,7 +94,7 @@ mod tests {
         let poses = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
         let views = planar::project_views_all(&cam_gt, &board_points, &poses).expect("projection");
 
-        let input = PlanarIntrinsicsInput { views };
+        let input = PlanarDataset { views };
         let mut config = PlanarIntrinsicsConfig::default();
         config.backend_opts.max_iters = 200;
         (input, config)

@@ -56,6 +56,16 @@ impl PlanarIntrinsicsParams {
             camera_se3_target,
         })
     }
+
+    /// Create from individual components.
+    pub fn new_from_components(
+        intrinsics: FxFyCxCySkew<Real>,
+        distortion: BrownConrady5<Real>,
+        poses: Vec<Iso3>,
+    ) -> Result<Self> {
+        Self::new(make_pinhole_camera(intrinsics, distortion), poses)
+    }
+
     /// Create with zero distortion (pinhole model only).
     pub fn from_intrinsics(
         intrinsics: FxFyCxCySkew<Real>,
@@ -65,6 +75,21 @@ impl PlanarIntrinsicsParams {
             make_pinhole_camera(intrinsics, BrownConrady5::default()),
             camera_se3_target,
         )
+    }
+
+    /// Get intrinsics.
+    pub fn intrinsics(&self) -> FxFyCxCySkew<Real> {
+        self.camera.k
+    }
+
+    /// Get distortion.
+    pub fn distortion(&self) -> BrownConrady5<Real> {
+        self.camera.dist
+    }
+
+    /// Get poses.
+    pub fn poses(&self) -> &[Iso3] {
+        &self.camera_se3_target
     }
 }
 

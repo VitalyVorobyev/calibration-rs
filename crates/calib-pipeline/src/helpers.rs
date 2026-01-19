@@ -28,20 +28,21 @@
 //! println!("Final reprojection error: {:.2} px", final_result.mean_reproj_error);
 //! ```
 
-use crate::{
-    iterative_intrinsics::{IterativeCalibView, IterativeIntrinsicsOptions},
-    optimize_planar_intrinsics_raw, BackendSolveOptions, CorrespondenceView, PlanarIntrinsicsInit,
-    PlanarIntrinsicsInput, PlanarIntrinsicsSolveOptions,
-};
 use anyhow::Result;
-use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Real};
+use calib_core::{
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3, Mat3, Pinhole,
+    Pt2, Real,
+};
+use calib_linear::iterative_intrinsics::{
+    estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
+};
+use calib_optim::{
+    optimize_planar_intrinsics, BackendSolveOptions, PlanarDataset, PlanarIntrinsicsParams,
+    PlanarIntrinsicsSolveOptions,
+};
 use serde::{Deserialize, Serialize};
 
 /// Result from linear intrinsics initialization.
-///
-/// Note: This is a simplified result type. The poses are not returned because
-/// they are recomputed during optimization. For full control, use calib-linear
-/// functions directly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsInitResult {
     /// Estimated camera intrinsics.
@@ -63,75 +64,18 @@ pub struct PlanarIntrinsicsOptimResult {
     pub final_cost: Real,
     /// Mean reprojection error after optimization (pixels).
     pub mean_reproj_error: Real,
-    /// Number of optimization iterations performed.
-    pub num_iterations: usize,
 }
 
 /// Initialize camera intrinsics using iterative Zhang's method.
-///
-/// This performs linear initialization with alternating intrinsics and distortion
-/// estimation. The result can be inspected before committing to non-linear optimization.
-///
-/// # Arguments
-///
-/// * `views` - Calibration views with 3D-2D correspondences
-/// * `opts` - Initialization options (number of iterations, distortion constraints)
-///
-/// # Returns
-///
-/// Initial estimates for intrinsics and distortion.
-///
-/// # Example
-///
-/// ```ignore
-/// use calib_pipeline::helpers::*;
-/// use calib_pipeline::iterative_intrinsics::IterativeIntrinsicsOptions;
-/// use calib_pipeline::distortion_fit::DistortionFitOptions;
-///
-/// let views = load_calibration_views()?;
-///
-/// let opts = IterativeIntrinsicsOptions {
-///     iterations: 2,
-///     distortion_opts: DistortionFitOptions {
-///         fix_k3: true,
-///         fix_tangential: false,
-///         iters: 8,
-///     },
-///     zero_skew: true,
-/// };
-///
-/// let result = initialize_planar_intrinsics(&views, &opts)?;
-///
-/// if result.intrinsics.fx < 100.0 {
-///     eprintln!("Warning: Suspiciously low focal length, check inputs");
-/// }
-/// ```
 pub fn initialize_planar_intrinsics(
     views: &[CorrespondenceView],
     opts: &IterativeIntrinsicsOptions,
 ) -> Result<PlanarIntrinsicsInitResult> {
-    use crate::iterative_intrinsics::IterativeIntrinsicsSolver;
-
-    // Convert to format expected by iterative solver
-    // Note: IterativeIntrinsicsSolver expects 2D board points (planar pattern)
-    use calib_core::Pt2;
-
     let calib_views: Vec<IterativeCalibView> = views
         .iter()
         .map(|v| {
-            // Project 3D points to 2D (assuming Z=0 plane)
-            let board_2d: Vec<Pt2> = v
-                .points_3d
-                .iter()
-                .map(|p3d| Pt2::new(p3d.x, p3d.y))
-                .collect();
-
-            let pixel_2d: Vec<Pt2> = v
-                .points_2d
-                .iter()
-                .map(|v2d| Pt2::new(v2d.x, v2d.y))
-                .collect();
-
+            let board_2d: Vec<Pt2> = v.points_3d.iter().map(|p3d| Pt2::new(p3d.x, p3d.y)).collect();
+            let pixel_2d: Vec<Pt2> = v.points_2d.iter().map(|v2d| Pt2::new(v2d.x, v2d.y)).collect();
             IterativeCalibView {
                 board_points: board_2d,
                 pixel_points: pixel_2d,
@@ -139,8 +83,7 @@ pub fn initialize_planar_intrinsics(
         })
         .collect();
 
-    // Run iterative linear initialization
-    let result = IterativeIntrinsicsSolver::estimate(&calib_views, *opts)?;
+    let result = estimate_intrinsics_iterative(&calib_views, *opts)?;
 
     Ok(PlanarIntrinsicsInitResult {
         intrinsics: result.intrinsics,
@@ -149,117 +92,86 @@ pub fn initialize_planar_intrinsics(
 }
 
 /// Optimize camera intrinsics from initial estimates using non-linear refinement.
-///
-/// This is a convenience wrapper that allows you to inspect the initial linear
-/// estimates, then seed a non-linear solve. Pose seeds are recovered from homographies
-/// using the provided intrinsics.
-///
-/// **Note:** Skew is forced to zero to match the current optimizer parameterization.
-///
-/// # Arguments
-///
-/// * `views` - Calibration views (same as used for initialization)
-/// * `init` - Initial intrinsics and distortion used to seed optimization
-/// * `solve_opts` - Per-parameter optimization options (fixing, robust loss)
-/// * `backend_opts` - Solver configuration (iterations, verbosity)
-///
-/// # Returns
-///
-/// Optimized parameters with quality metrics.
-///
-/// # Example
-///
-/// ```ignore
-/// use calib_pipeline::helpers::*;
-/// use calib_pipeline::{PlanarIntrinsicsSolveOptions, BackendSolveOptions, RobustLoss};
-///
-/// let init_result = initialize_planar_intrinsics(&views, &init_opts)?;
-///
-/// // Inspect init results before committing to optimization
-/// if init_result.intrinsics.fx < 100.0 {
-///     eprintln!("Warning: Suspiciously low focal length");
-/// }
-///
-/// let solve_opts = PlanarIntrinsicsSolveOptions {
-///     robust_loss: RobustLoss::Huber { scale: 2.0 },
-///     fix_poses: vec![0],  // Fix first pose for gauge freedom
-///     ..Default::default()
-/// };
-///
-/// let backend_opts = BackendSolveOptions {
-///     max_iters: 50,
-///     verbosity: 1,
-///     ..Default::default()
-/// };
-///
-/// let result = optimize_planar_intrinsics_from_init(
-///     &views,
-///     &init_result,
-///     &solve_opts,
-///     &backend_opts
-/// )?;
-///
-/// println!("Final reprojection error: {:.2} px", result.mean_reproj_error);
-/// ```
 pub fn optimize_planar_intrinsics_from_init(
     views: &[CorrespondenceView],
     init: &PlanarIntrinsicsInitResult,
     solve_opts: &PlanarIntrinsicsSolveOptions,
     backend_opts: &BackendSolveOptions,
 ) -> Result<PlanarIntrinsicsOptimResult> {
-    let input = PlanarIntrinsicsInput {
+    let dataset = PlanarDataset {
         views: views.to_vec(),
     };
-    let dataset = crate::build_planar_dataset(&input)?;
 
     // Optimization packs only [fx, fy, cx, cy]; enforce zero skew.
     let mut intrinsics = init.intrinsics;
     intrinsics.skew = 0.0;
 
     // Recover pose seeds from homographies using provided intrinsics
-    let homographies = crate::planar_homographies_from_views(&input.views)?;
-    let kmtx = crate::k_matrix_from_intrinsics(&intrinsics);
-    let poses0 = crate::poses_from_homographies(&kmtx, &homographies)?;
+    let homographies = planar_homographies_from_views(views)?;
+    let kmtx = k_matrix_from_intrinsics(&intrinsics);
+    let poses0 = poses_from_homographies(&kmtx, &homographies)?;
 
-    let planar_init = PlanarIntrinsicsInit::new(intrinsics, init.distortion, poses0)?;
+    let planar_init =
+        PlanarIntrinsicsParams::new_from_components(intrinsics, init.distortion, poses0)?;
 
     // Run optimization
-    let optim_result = optimize_planar_intrinsics_raw(
-        dataset,
+    let optim_result = optimize_planar_intrinsics(
+        &dataset,
         planar_init,
         solve_opts.clone(),
         backend_opts.clone(),
     )?;
 
-    // Extract results - camera is a PinholeCamera struct
-    let intrinsics = optim_result.camera.k;
-    let distortion = optim_result.camera.dist;
+    // Extract results
+    let result_intrinsics = optim_result.params.intrinsics();
+    let result_distortion = optim_result.params.distortion();
+    let result_poses = optim_result.params.poses().to_vec();
 
     // Compute mean reprojection error
     let mean_reproj_error =
-        compute_mean_reproj_error(views, &intrinsics, &distortion, &optim_result.poses)?;
+        compute_mean_reproj_error(views, &result_intrinsics, &result_distortion, &result_poses)?;
 
-    // Note: num_iterations is not currently returned by optimize_planar_intrinsics
-    // We'll set it to 0 for now (TODO: add to PlanarIntrinsicsResult in calib-optim)
     Ok(PlanarIntrinsicsOptimResult {
-        intrinsics,
-        distortion,
-        poses: optim_result.poses,
-        final_cost: optim_result.final_cost,
+        intrinsics: result_intrinsics,
+        distortion: result_distortion,
+        poses: result_poses,
+        final_cost: optim_result.report.final_cost,
         mean_reproj_error,
-        num_iterations: 0, // TODO: get from solver
     })
 }
 
-/// Compute mean reprojection error for quality assessment.
+fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
+    Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
+}
+
+fn planar_homographies_from_views(views: &[CorrespondenceView]) -> Result<Vec<Mat3>> {
+    use calib_linear::homography::dlt_homography;
+
+    let mut homographies = Vec::with_capacity(views.len());
+    for view in views {
+        let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
+        let pixel_2d: Vec<Pt2> = view.points_2d.iter().map(|v| Pt2::new(v.x, v.y)).collect();
+        let h = dlt_homography(&board_2d, &pixel_2d)?;
+        homographies.push(h);
+    }
+    Ok(homographies)
+}
+
+fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso3>> {
+    use calib_linear::planar_pose::estimate_planar_pose_from_h;
+
+    homographies
+        .iter()
+        .map(|h| estimate_planar_pose_from_h(kmtx, h).map_err(|e| anyhow::anyhow!("{}", e)))
+        .collect()
+}
+
 fn compute_mean_reproj_error(
     views: &[CorrespondenceView],
     intrinsics: &FxFyCxCySkew<Real>,
     distortion: &BrownConrady5<Real>,
     poses: &[Iso3],
 ) -> Result<Real> {
-    use calib_core::{Camera, IdentitySensor, Pinhole};
-
     let camera = Camera::new(Pinhole, *distortion, IdentitySensor, *intrinsics);
 
     let mut total_error = 0.0;
@@ -286,8 +198,8 @@ fn compute_mean_reproj_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::distortion_fit::DistortionFitOptions;
-    use calib_core::{synthetic::planar, Camera, IdentitySensor, Pinhole};
+    use calib_core::{make_pinhole_camera, synthetic::planar};
+    use calib_linear::distortion_fit::DistortionFitOptions;
 
     fn generate_synthetic_views() -> Vec<CorrespondenceView> {
         let k_gt = FxFyCxCySkew {
@@ -305,7 +217,7 @@ mod tests {
             p2: 0.0,
             iters: 8,
         };
-        let cam_gt = Camera::new(Pinhole, dist_gt, IdentitySensor, k_gt);
+        let cam_gt = make_pinhole_camera(k_gt, dist_gt);
 
         let board_points = planar::grid_points(5, 4, 0.05);
         let poses = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
@@ -328,10 +240,9 @@ mod tests {
 
         let result = initialize_planar_intrinsics(&views, &opts).expect("init should succeed");
 
-        // Check reasonable values
         assert!(result.intrinsics.fx > 0.0);
         assert!(result.intrinsics.fy > 0.0);
-        assert!(result.distortion.k1.abs() < 1.0); // Reasonable distortion range
+        assert!(result.distortion.k1.abs() < 1.0);
     }
 
     #[test]
@@ -365,23 +276,16 @@ mod tests {
             optimize_planar_intrinsics_from_init(&views, &init_result, &solve_opts, &backend_opts)
                 .expect("optimization should succeed");
 
-        // Should converge to reasonable error
-        // Note: These are loose bounds since we use default initialization
         assert!(
             optim_result.mean_reproj_error < 10.0,
             "final error too high: {}",
             optim_result.mean_reproj_error
         );
 
-        // Should have reasonable final cost
         assert!(
             optim_result.final_cost < 10.0,
             "final cost too high: {}",
             optim_result.final_cost
         );
     }
-
-    // Note: Removed full_pipeline_recovers_intrinsics test because these helpers
-    // are intentionally simplified wrappers. For precise calibration testing,
-    // use the existing pipeline tests or calib-optim tests directly.
 }
