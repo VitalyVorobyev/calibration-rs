@@ -362,18 +362,15 @@ pub fn step_filter(
         "filtering would remove all views"
     );
 
-    let filtered_dataset =
-        calib_core::PlanarDataset::new(filtered_views).context("failed to create filtered dataset")?;
+    let filtered_dataset = calib_core::PlanarDataset::new(filtered_views)
+        .context("failed to create filtered dataset")?;
 
     // This will clear state and output per invalidation policy
     session.set_input(filtered_dataset)?;
 
     session.log_success_with_notes(
         "filter",
-        format!(
-            "removed {} points, {} views",
-            total_removed, views_removed
-        ),
+        format!("removed {} points, {} views", total_removed, views_removed),
     );
 
     Ok(())
@@ -390,9 +387,7 @@ pub fn step_filter(
 /// # Errors
 ///
 /// Any error from [`step_init`] or [`step_optimize`].
-pub fn run_calibration(
-    session: &mut CalibrationSession<PlanarIntrinsicsProblemV2>,
-) -> Result<()> {
+pub fn run_calibration(session: &mut CalibrationSession<PlanarIntrinsicsProblemV2>) -> Result<()> {
     step_init(session, None)?;
     step_optimize(session, None)?;
     Ok(())
@@ -567,9 +562,8 @@ mod tests {
 
     #[test]
     fn session_json_checkpoint() {
-        let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::with_description(
-            "Test calibration",
-        );
+        let mut session =
+            CalibrationSession::<PlanarIntrinsicsProblemV2>::with_description("Test calibration");
         session.set_input(make_test_dataset()).unwrap();
         run_calibration(&mut session).unwrap();
         session.export().unwrap();
@@ -578,8 +572,7 @@ mod tests {
         let json = session.to_json().unwrap();
 
         // Restore
-        let restored =
-            CalibrationSession::<PlanarIntrinsicsProblemV2>::from_json(&json).unwrap();
+        let restored = CalibrationSession::<PlanarIntrinsicsProblemV2>::from_json(&json).unwrap();
 
         assert_eq!(
             restored.metadata.description,

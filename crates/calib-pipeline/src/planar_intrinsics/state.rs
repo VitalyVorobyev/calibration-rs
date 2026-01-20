@@ -103,29 +103,37 @@ mod tests {
 
     #[test]
     fn is_initialized_requires_both() {
-        let mut state = PlanarState::default();
-
-        // Only intrinsics - not initialized
-        state.initial_intrinsics = Some(FxFyCxCySkew {
+        let intrinsics = FxFyCxCySkew {
             fx: 800.0,
             fy: 800.0,
             cx: 320.0,
             cy: 240.0,
             skew: 0.0,
-        });
-        assert!(!state.is_initialized());
+        };
 
-        // Add poses - now initialized
-        state.initial_poses = Some(vec![Iso3::identity()]);
+        let state = PlanarState {
+            initial_intrinsics: Some(intrinsics),
+            ..Default::default()
+        };
+        assert!(!state.is_initialized()); // missing poses
+
+        let state = PlanarState {
+            initial_intrinsics: Some(intrinsics),
+            initial_poses: Some(vec![Iso3::identity()]),
+            ..Default::default()
+        };
         assert!(state.is_initialized());
     }
 
     #[test]
     fn is_optimized() {
-        let mut state = PlanarState::default();
+        let state = PlanarState::default();
         assert!(!state.is_optimized());
 
-        state.final_cost = Some(0.001);
+        let state = PlanarState {
+            final_cost: Some(0.001),
+            ..Default::default()
+        };
         assert!(state.is_optimized());
     }
 
@@ -137,16 +145,17 @@ mod tests {
 
     #[test]
     fn initial_params_with_default_distortion() {
-        let mut state = PlanarState::default();
-        state.initial_intrinsics = Some(FxFyCxCySkew {
-            fx: 800.0,
-            fy: 800.0,
-            cx: 320.0,
-            cy: 240.0,
-            skew: 0.0,
-        });
-        state.initial_poses = Some(vec![Iso3::identity()]);
-        // No distortion set - should use default
+        let state = PlanarState {
+            initial_intrinsics: Some(FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            }),
+            initial_poses: Some(vec![Iso3::identity()]),
+            ..Default::default()
+        };
 
         let params = state.initial_params();
         assert!(params.is_some());
@@ -156,18 +165,20 @@ mod tests {
 
     #[test]
     fn clear_optimization_keeps_init() {
-        let mut state = PlanarState::default();
-        state.initial_intrinsics = Some(FxFyCxCySkew {
-            fx: 800.0,
-            fy: 800.0,
-            cx: 320.0,
-            cy: 240.0,
-            skew: 0.0,
-        });
-        state.initial_poses = Some(vec![Iso3::identity()]);
-        state.final_cost = Some(0.001);
-        state.mean_reproj_error = Some(0.5);
-        state.iterations = Some(10);
+        let mut state = PlanarState {
+            initial_intrinsics: Some(FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            }),
+            initial_poses: Some(vec![Iso3::identity()]),
+            final_cost: Some(0.001),
+            mean_reproj_error: Some(0.5),
+            iterations: Some(10),
+            ..Default::default()
+        };
 
         state.clear_optimization();
 
@@ -180,16 +191,18 @@ mod tests {
 
     #[test]
     fn clear_removes_everything() {
-        let mut state = PlanarState::default();
-        state.initial_intrinsics = Some(FxFyCxCySkew {
-            fx: 800.0,
-            fy: 800.0,
-            cx: 320.0,
-            cy: 240.0,
-            skew: 0.0,
-        });
-        state.initial_poses = Some(vec![Iso3::identity()]);
-        state.final_cost = Some(0.001);
+        let mut state = PlanarState {
+            initial_intrinsics: Some(FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            }),
+            initial_poses: Some(vec![Iso3::identity()]),
+            final_cost: Some(0.001),
+            ..Default::default()
+        };
 
         state.clear();
 
@@ -199,26 +212,28 @@ mod tests {
 
     #[test]
     fn json_roundtrip() {
-        let mut state = PlanarState::default();
-        state.initial_intrinsics = Some(FxFyCxCySkew {
-            fx: 800.0,
-            fy: 780.0,
-            cx: 320.0,
-            cy: 240.0,
-            skew: 0.1,
-        });
-        state.initial_distortion = Some(BrownConrady5 {
-            k1: -0.1,
-            k2: 0.05,
-            k3: 0.0,
-            p1: 0.001,
-            p2: -0.001,
-            iters: 8,
-        });
-        state.initial_poses = Some(vec![Iso3::identity(), Iso3::identity()]);
-        state.final_cost = Some(0.001);
-        state.mean_reproj_error = Some(0.5);
-        state.iterations = Some(25);
+        let state = PlanarState {
+            initial_intrinsics: Some(FxFyCxCySkew {
+                fx: 800.0,
+                fy: 780.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.1,
+            }),
+            initial_distortion: Some(BrownConrady5 {
+                k1: -0.1,
+                k2: 0.05,
+                k3: 0.0,
+                p1: 0.001,
+                p2: -0.001,
+                iters: 8,
+            }),
+            initial_poses: Some(vec![Iso3::identity(), Iso3::identity()]),
+            final_cost: Some(0.001),
+            mean_reproj_error: Some(0.5),
+            iterations: Some(25),
+            ..Default::default()
+        };
 
         let json = serde_json::to_string_pretty(&state).unwrap();
         let restored: PlanarState = serde_json::from_str(&json).unwrap();

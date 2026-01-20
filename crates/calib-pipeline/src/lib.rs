@@ -93,11 +93,17 @@ pub use session::{
 
 // Re-export planar intrinsics (including both old and new APIs)
 pub use planar_intrinsics::{
-    planar_init_seed_from_views, run_planar_intrinsics, PlanarIntrinsicsConfig,
-    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsProblem,
-    PlanarIntrinsicsSolveOptions,
+    planar_init_seed_from_views,
+    run_planar_intrinsics,
     // New v2 types also at top level for convenience
-    PlanarConfig, PlanarIntrinsicsProblemV2, PlanarState,
+    PlanarConfig,
+    PlanarIntrinsicsConfig,
+    PlanarIntrinsicsEstimate,
+    PlanarIntrinsicsParams,
+    PlanarIntrinsicsProblem,
+    PlanarIntrinsicsProblemV2,
+    PlanarIntrinsicsSolveOptions,
+    PlanarState,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

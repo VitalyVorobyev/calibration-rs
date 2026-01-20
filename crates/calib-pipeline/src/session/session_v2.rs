@@ -665,10 +665,7 @@ mod tests {
         session.export_with_notes("final result").unwrap();
 
         assert_eq!(session.exports.len(), 1);
-        assert_eq!(
-            session.exports[0].notes,
-            Some("final result".to_string())
-        );
+        assert_eq!(session.exports[0].notes, Some("final result".to_string()));
     }
 
     #[test]

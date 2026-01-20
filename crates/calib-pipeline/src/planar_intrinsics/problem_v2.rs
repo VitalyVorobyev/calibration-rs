@@ -264,8 +264,10 @@ mod tests {
 
     #[test]
     fn validate_config_requires_positive_iters() {
-        let mut config = PlanarConfig::default();
-        config.max_iters = 0;
+        let config = PlanarConfig {
+            max_iters: 0,
+            ..Default::default()
+        };
         let result = PlanarIntrinsicsProblemV2::validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("max_iters"));
@@ -280,10 +282,12 @@ mod tests {
 
     #[test]
     fn config_json_roundtrip() {
-        let mut config = PlanarConfig::default();
-        config.max_iters = 100;
-        config.fix_k3_in_init = false;
-        config.robust_loss = calib_optim::RobustLoss::Huber { scale: 2.5 };
+        let config = PlanarConfig {
+            max_iters: 100,
+            fix_k3_in_init: false,
+            robust_loss: calib_optim::RobustLoss::Huber { scale: 2.5 },
+            ..Default::default()
+        };
 
         let json = serde_json::to_string_pretty(&config).unwrap();
         let restored: PlanarConfig = serde_json::from_str(&json).unwrap();

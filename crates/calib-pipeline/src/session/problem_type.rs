@@ -215,17 +215,30 @@ mod tests {
     // Verify that InvalidationPolicy constants are correct
     #[test]
     fn invalidation_policy_constants() {
-        assert!(!InvalidationPolicy::KEEP_ALL.clear_state);
-        assert!(!InvalidationPolicy::KEEP_ALL.clear_output);
-        assert!(!InvalidationPolicy::KEEP_ALL.clear_exports);
-
-        assert!(InvalidationPolicy::CLEAR_COMPUTED.clear_state);
-        assert!(InvalidationPolicy::CLEAR_COMPUTED.clear_output);
-        assert!(!InvalidationPolicy::CLEAR_COMPUTED.clear_exports);
-
-        assert!(InvalidationPolicy::CLEAR_ALL.clear_state);
-        assert!(InvalidationPolicy::CLEAR_ALL.clear_output);
-        assert!(InvalidationPolicy::CLEAR_ALL.clear_exports);
+        assert_eq!(
+            InvalidationPolicy::KEEP_ALL,
+            InvalidationPolicy {
+                clear_state: false,
+                clear_output: false,
+                clear_exports: false,
+            }
+        );
+        assert_eq!(
+            InvalidationPolicy::CLEAR_COMPUTED,
+            InvalidationPolicy {
+                clear_state: true,
+                clear_output: true,
+                clear_exports: false,
+            }
+        );
+        assert_eq!(
+            InvalidationPolicy::CLEAR_ALL,
+            InvalidationPolicy {
+                clear_state: true,
+                clear_output: true,
+                clear_exports: true,
+            }
+        );
     }
 
     #[test]
