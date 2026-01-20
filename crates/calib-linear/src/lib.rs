@@ -85,4 +85,8 @@ pub mod prelude {
         estimate_intrinsics_iterative, IterativeIntrinsicsOptions,
     };
     pub use crate::planar_pose::estimate_planar_pose_from_h;
+    pub use crate::zhang_intrinsics::{
+        estimate_intrinsics_from_homographies, PlanarIntrinsicsLinearInit,
+    };
+    pub use crate::distortion_fit::DistortionFitOptions;
 }

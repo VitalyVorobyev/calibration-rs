@@ -11,7 +11,7 @@ use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
     compute_mean_reproj_error, make_pinhole_camera, BrownConrady5, DistortionFixMask, FxFyCxCySkew,
-    IntrinsicsFixMask, Iso3, PinholeCamera, Real, View, PlanarDataset
+    IntrinsicsFixMask, Iso3, PinholeCamera, PlanarDataset, Real, TargetPose, View,
 };
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -71,7 +71,7 @@ impl PlanarIntrinsicsParams {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsEstimate {
     pub params: PlanarIntrinsicsParams,
     pub report: SolveReport,
@@ -189,7 +189,7 @@ fn build_planar_intrinsics_ir(
 /// Optimize planar intrinsics using the default tiny-solver backend.
 pub fn optimize_planar_intrinsics(
     dataset: &PlanarDataset,
-    initial: PlanarIntrinsicsParams,
+    initial: &PlanarIntrinsicsParams,
     opts: PlanarIntrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
 ) -> Result<PlanarIntrinsicsEstimate> {
@@ -205,7 +205,7 @@ pub fn optimize_planar_intrinsics(
 /// Optimize planar intrinsics using the selected backend.
 pub fn optimize_planar_intrinsics_with_backend(
     dataset: &PlanarDataset,
-    initial: PlanarIntrinsicsParams,
+    initial: &PlanarIntrinsicsParams,
     opts: PlanarIntrinsicsSolveOptions,
     backend: BackendKind,
     backend_opts: BackendSolveOptions,
@@ -236,11 +236,13 @@ pub fn optimize_planar_intrinsics_with_backend(
     }
 
     let camera = make_pinhole_camera(intrinsics, distortion);
-    let views_with_poses: Vec<View<Iso3>> = dataset
+    let views_with_poses: Vec<View<TargetPose>> = dataset
         .views
         .iter()
         .zip(poses.iter().cloned())
-        .map(|(view, pose)| View::new(view.obs.clone(), pose))
+        .map(|(view, camera_se3_target)| {
+            View::new(view.obs.clone(), TargetPose { camera_se3_target })
+        })
         .collect();
     let mean_reproj_error = compute_mean_reproj_error(&camera, &views_with_poses)?;
 

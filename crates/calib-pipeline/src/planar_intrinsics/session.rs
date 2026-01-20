@@ -2,10 +2,10 @@
 
 use anyhow::{ensure, Result};
 use calib_core::{
-    pinhole_camera_params, Camera, CorrespondenceView, IdentitySensor, Pinhole, Real,
+    pinhole_camera_params, Camera, CorrespondenceView, IdentitySensor, Pinhole, Real, PlanarDataset
 };
 use calib_optim::{
-    PlanarDataset, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
 };
 
 use crate::session::types::{ExportOptions, FilterOptions};
@@ -20,9 +20,9 @@ use super::functions::planar_init_seed_from_views;
 pub struct PlanarIntrinsicsProblem;
 
 impl ProblemType for PlanarIntrinsicsProblem {
-    type Observations = PlanarIntrinsicsObservations;
-    type InitialValues = PlanarIntrinsicsInitial;
-    type OptimizedResults = PlanarIntrinsicsOptimized;
+    type Observations = PlanarDataset;
+    type InitialValues = PlanarIntrinsicsParams;
+    type OptimizedResults = PlanarIntrinsicsEstimate;
     type ExportReport = PlanarIntrinsicsReport;
     type InitOptions = PlanarIntrinsicsInitOptions;
     type OptimOptions = PlanarIntrinsicsOptimOptions;
@@ -333,7 +333,8 @@ mod tests {
 
     #[test]
     fn session_json_checkpoint() {
-        let views = vec![CorrespondenceView {
+        let dataset = PlanarDataset::new()
+        let dataset = vec![CorrespondenceView {
             points_3d: vec![
                 Pt3::new(0.0, 0.0, 0.0),
                 Pt3::new(0.05, 0.0, 0.0),
@@ -350,7 +351,7 @@ mod tests {
         }];
 
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-        session.add_observations(PlanarIntrinsicsObservations { views });
+        session.add_observations(dataset);
 
         let json = session.to_json().unwrap();
         assert!(json.contains("planar_intrinsics"));

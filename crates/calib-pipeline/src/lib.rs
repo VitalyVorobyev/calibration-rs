@@ -26,9 +26,6 @@ pub mod session;
 // Problem-specific modules
 pub mod planar_intrinsics;
 
-// Shared helpers
-pub mod helpers;
-
 // Re-export session types
 pub use session::{
     Artifact, ArtifactId, ArtifactKind, CalibrationSession, ExportOptions, FilterOptions,
@@ -41,12 +38,6 @@ pub use planar_intrinsics::{
     PlanarIntrinsicsInitOptions, PlanarIntrinsicsInitial, PlanarIntrinsicsObservations,
     PlanarIntrinsicsOptimOptions, PlanarIntrinsicsOptimized, PlanarIntrinsicsParams,
     PlanarIntrinsicsProblem, PlanarIntrinsicsReport, PlanarIntrinsicsSolveOptions,
-};
-
-// Re-export shared helpers
-pub use helpers::{
-    initialize_planar_intrinsics, optimize_planar_intrinsics_from_init, PlanarIntrinsicsInitResult,
-    PlanarIntrinsicsOptimResult,
 };
 
 // Re-export from calib-core for convenience

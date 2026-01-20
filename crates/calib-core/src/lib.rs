@@ -110,13 +110,17 @@ pub fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
     }
 }
 
-pub fn compute_mean_reproj_error(camera: &PinholeCamera, views: &[View<Iso3>]) -> Result<Real> {
+pub struct TargetPose {
+    pub camera_se3_target: Iso3,
+}
+
+pub fn compute_mean_reproj_error(camera: &PinholeCamera, views: &[View<TargetPose>]) -> Result<Real> {
     let mut total_error = 0.0;
     let mut total_points = 0;
 
     for view in views {
         for (p3d, p2d) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
-            let p_cam = view.meta.transform_point(p3d);
+            let p_cam = view.meta.camera_se3_target * p3d;
             if let Some(projected) = camera.project_point_c(&p_cam.coords) {
                 let error = (projected - *p2d).norm();
                 total_error += error;

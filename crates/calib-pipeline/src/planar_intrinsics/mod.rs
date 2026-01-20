@@ -39,4 +39,4 @@ pub use session::PlanarIntrinsicsProblem;
 pub use functions::{planar_init_seed_from_views, run_planar_intrinsics, PlanarIntrinsicsConfig};
 
 // Re-export useful types from calib-optim
-pub use calib_optim::{PlanarDataset, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions};
+pub use calib_optim::{PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions};
