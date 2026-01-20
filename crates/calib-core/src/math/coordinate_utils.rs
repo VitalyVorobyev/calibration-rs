@@ -23,7 +23,7 @@ use crate::{DistortionModel, Mat3, Pt2, Real, Vec3};
 /// # Example
 /// ```no_run
 /// use calib_core::{Mat3, Pt2};
-/// use calib_core::math::pixel_to_normalized;
+/// use calib_core::pixel_to_normalized;
 ///
 /// let k = Mat3::new(800.0, 0.0, 640.0, 0.0, 800.0, 480.0, 0.0, 0.0, 1.0);
 /// let pixel = Pt2::new(640.0, 480.0);
@@ -51,11 +51,11 @@ pub fn pixel_to_normalized(pixel: Pt2, intrinsics: &Mat3) -> Pt2 {
 ///
 /// # Example
 /// ```no_run
-/// use calib_core::{Mat3, Vec2};
-/// use calib_core::math::normalized_to_pixel;
+/// use calib_core::{Mat3, Pt2};
+/// use calib_core::normalized_to_pixel;
 ///
 /// let k = Mat3::new(800.0, 0.0, 640.0, 0.0, 800.0, 480.0, 0.0, 0.0, 1.0);
-/// let normalized = Vec2::new(0.0, 0.0);
+/// let normalized = Pt2::new(0.0, 0.0);
 /// let pixel = normalized_to_pixel(normalized, &k);
 /// // pixel ≈ (640.0, 480.0) at the principal point
 /// ```
@@ -85,7 +85,7 @@ pub fn normalized_to_pixel(normalized: Pt2, intrinsics: &Mat3) -> Pt2 {
 /// # Example
 /// ```no_run
 /// use calib_core::{BrownConrady5, Mat3, Pt2};
-/// use calib_core::math::undistort_pixel;
+/// use calib_core::undistort_pixel;
 ///
 /// let k = Mat3::new(800.0, 0.0, 640.0, 0.0, 800.0, 480.0, 0.0, 0.0, 1.0);
 /// let distortion = BrownConrady5 { k1: -0.3, k2: 0.1, k3: 0.0, p1: 0.0, p2: 0.0, iters: 5 };
@@ -121,8 +121,8 @@ pub fn undistort_pixel<D: DistortionModel<Real>>(
 ///
 /// # Example
 /// ```no_run
-/// use calib_core::{BrownConrady5, Mat3, Vec2};
-/// use calib_core::math::distort_to_pixel;
+/// use calib_core::{BrownConrady5, Mat3, Pt2};
+/// use calib_core::distort_to_pixel;
 ///
 /// let k = Mat3::new(800.0, 0.0, 640.0, 0.0, 800.0, 480.0, 0.0, 0.0, 1.0);
 /// let distortion = BrownConrady5 { k1: -0.3, k2: 0.1, k3: 0.0, p1: 0.0, p2: 0.0, iters: 5 };

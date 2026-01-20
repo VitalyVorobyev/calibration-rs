@@ -1,31 +1,24 @@
-//! ProblemType implementation for planar intrinsics calibration.
+//! [`ProblemType`] implementation for planar intrinsics calibration.
 
 use anyhow::{ensure, Result};
-use calib_core::{
-    pinhole_camera_params, Camera, CorrespondenceView, IdentitySensor, Pinhole, Real, PlanarDataset
-};
-use calib_optim::{
-    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
-};
+use calib_core::{CorrespondenceView, PlanarDataset, View};
+use calib_optim::{optimize_planar_intrinsics, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams};
 
 use crate::session::types::{ExportOptions, FilterOptions};
 use crate::session::ProblemType;
 
-use super::functions::planar_init_seed_from_views;
+use super::functions::{planar_init_seed_from_views, PlanarIntrinsicsConfig};
 
 /// Planar intrinsics calibration problem (Zhang's method with distortion).
-///
-/// Estimates camera intrinsics (fx, fy, cx, cy, skew) and Brown-Conrady distortion
-/// (k1, k2, k3, p1, p2) from observations of a planar calibration pattern.
 pub struct PlanarIntrinsicsProblem;
 
 impl ProblemType for PlanarIntrinsicsProblem {
     type Observations = PlanarDataset;
     type InitialValues = PlanarIntrinsicsParams;
     type OptimizedResults = PlanarIntrinsicsEstimate;
-    type ExportReport = PlanarIntrinsicsReport;
-    type InitOptions = PlanarIntrinsicsInitOptions;
-    type OptimOptions = PlanarIntrinsicsOptimOptions;
+    type ExportReport = PlanarIntrinsicsEstimate;
+    type InitOptions = PlanarIntrinsicsConfig;
+    type OptimOptions = PlanarIntrinsicsConfig;
 
     fn problem_name() -> &'static str {
         "planar_intrinsics"
@@ -33,21 +26,9 @@ impl ProblemType for PlanarIntrinsicsProblem {
 
     fn initialize(
         obs: &Self::Observations,
-        _opts: &Self::InitOptions,
+        opts: &Self::InitOptions,
     ) -> Result<Self::InitialValues> {
-        ensure!(
-            obs.views.len() >= 3,
-            "need at least 3 views for planar initialization (got {})",
-            obs.views.len()
-        );
-
-        let params = planar_init_seed_from_views(&obs.views)?;
-
-        Ok(PlanarIntrinsicsInitial {
-            intrinsics: params.intrinsics(),
-            distortion: params.distortion(),
-            poses: params.poses().to_vec(),
-        })
+        planar_init_seed_from_views(obs, opts.init_opts)
     }
 
     fn optimize(
@@ -55,40 +36,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         init: &Self::InitialValues,
         opts: &Self::OptimOptions,
     ) -> Result<Self::OptimizedResults> {
-        use calib_optim::{optimize_planar_intrinsics, PlanarDataset, PlanarIntrinsicsParams};
-
-        let dataset = PlanarDataset {
-            views: obs.views.clone(),
-        };
-
-        let params = PlanarIntrinsicsParams::new_from_components(
-            init.intrinsics,
-            init.distortion,
-            init.poses.clone(),
-        )?;
-
-        let result = optimize_planar_intrinsics(
-            &dataset,
-            params,
-            opts.solve_opts.clone(),
-            opts.backend_opts.clone(),
-        )?;
-
-        // Compute per-view errors for filtering
-        let per_view_errors = compute_per_view_errors(
-            &obs.views,
-            &result.params.intrinsics(),
-            &result.params.distortion(),
-            result.params.poses(),
-        )?;
-
-        Ok(PlanarIntrinsicsOptimized {
-            intrinsics: result.params.intrinsics(),
-            distortion: result.params.distortion(),
-            poses: result.params.poses().to_vec(),
-            final_cost: result.report.final_cost,
-            per_view_errors,
-        })
+        optimize_planar_intrinsics(obs, init, opts.optim_options(), opts.solver_options())
     }
 
     fn filter_observations(
@@ -96,147 +44,103 @@ impl ProblemType for PlanarIntrinsicsProblem {
         result: &Self::OptimizedResults,
         opts: &FilterOptions,
     ) -> Result<Self::Observations> {
-        let camera = Camera::new(
-            Pinhole,
-            result.distortion,
-            IdentitySensor,
-            result.intrinsics,
+        ensure!(
+            opts.min_points_per_view >= 4,
+            "min_points_per_view must be >=4 for planar intrinsics"
+        );
+
+        let poses = result.params.poses();
+        ensure!(
+            obs.views.len() == poses.len(),
+            "pose count ({}) must match view count ({})",
+            poses.len(),
+            obs.views.len()
         );
 
         let threshold = opts.max_reproj_error.unwrap_or(f64::INFINITY);
+        let camera = &result.params.camera;
+
         let mut filtered_views = Vec::new();
+        for (view, pose) in obs.views.iter().zip(poses) {
+            let mut points_3d = Vec::new();
+            let mut points_2d = Vec::new();
+            let mut weights = view.obs.weights.as_ref().map(|_| Vec::<f64>::new());
 
-        for (view, pose) in obs.views.iter().zip(&result.poses) {
-            let mut filtered_3d = Vec::new();
-            let mut filtered_2d = Vec::new();
-            let mut filtered_weights = Vec::new();
-
-            for (i, (p3d, p2d)) in view.points_3d.iter().zip(&view.points_2d).enumerate() {
+            for (i, (p3d, p2d)) in view
+                .obs
+                .points_3d
+                .iter()
+                .zip(view.obs.points_2d.iter())
+                .enumerate()
+            {
                 let p_cam = pose.transform_point(p3d);
-                if let Some(projected) = camera.project_point_c(&p_cam.coords) {
-                    let error = (projected - *p2d).norm();
+                let Some(projected) = camera.project_point_c(&p_cam.coords) else {
+                    continue;
+                };
 
-                    if error <= threshold {
-                        filtered_3d.push(*p3d);
-                        filtered_2d.push(*p2d);
-                        if let Some(ref w) = view.weights {
-                            if i < w.len() {
-                                filtered_weights.push(w[i]);
-                            }
-                        }
+                let error = (projected - *p2d).norm();
+                if error <= threshold {
+                    points_3d.push(*p3d);
+                    points_2d.push(*p2d);
+                    if let Some(ref mut w) = weights {
+                        w.push(view.obs.weight(i));
                     }
                 }
             }
 
-            // Check minimum points
-            if filtered_3d.len() >= opts.min_points_per_view {
-                filtered_views.push(CorrespondenceView {
-                    points_3d: filtered_3d,
-                    points_2d: filtered_2d,
-                    weights: if view.weights.is_some() && !filtered_weights.is_empty() {
-                        Some(filtered_weights)
-                    } else {
-                        None
-                    },
-                });
+            if points_3d.len() >= opts.min_points_per_view {
+                let obs = if let Some(w) = weights {
+                    CorrespondenceView::new_with_weights(points_3d, points_2d, w)?
+                } else {
+                    CorrespondenceView::new(points_3d, points_2d)?
+                };
+                filtered_views.push(View::without_meta(obs));
             } else if !opts.remove_sparse_views {
-                // Keep original view if not removing sparse views
                 filtered_views.push(view.clone());
             }
-            // else: drop the view entirely
         }
 
-        ensure!(!filtered_views.is_empty(), "filtering removed all views");
-
-        Ok(PlanarIntrinsicsObservations {
-            views: filtered_views,
-        })
+        PlanarDataset::new(filtered_views)
     }
 
-    fn export(result: &Self::OptimizedResults, opts: &ExportOptions) -> Result<Self::ExportReport> {
-        use calib_core::make_pinhole_camera;
-
-        let camera = make_pinhole_camera(result.intrinsics, result.distortion);
-        let camera_params = pinhole_camera_params(&camera);
-
-        // Compute mean reprojection error
-        let mean_error = if result.per_view_errors.is_empty() {
-            0.0
-        } else {
-            result.per_view_errors.iter().sum::<Real>() / result.per_view_errors.len() as Real
-        };
-
-        Ok(PlanarIntrinsicsReport {
-            camera: camera_params,
-            final_cost: result.final_cost,
-            mean_reproj_error: mean_error,
-            poses: if opts.include_poses {
-                Some(result.poses.clone())
-            } else {
-                None
-            },
-        })
+    fn export(
+        result: &Self::OptimizedResults,
+        _opts: &ExportOptions,
+    ) -> Result<Self::ExportReport> {
+        Ok(result.clone())
     }
-}
-
-/// Compute per-view mean reprojection errors.
-fn compute_per_view_errors(
-    views: &[CorrespondenceView],
-    intrinsics: &calib_core::FxFyCxCySkew<Real>,
-    distortion: &calib_core::BrownConrady5<Real>,
-    poses: &[calib_core::Iso3],
-) -> Result<Vec<Real>> {
-    let camera = Camera::new(Pinhole, *distortion, IdentitySensor, *intrinsics);
-
-    let mut per_view_errors = Vec::with_capacity(views.len());
-
-    for (view, pose) in views.iter().zip(poses) {
-        let mut view_error = 0.0;
-        let mut count = 0usize;
-
-        for (p3d, p2d) in view.points_3d.iter().zip(&view.points_2d) {
-            let p_cam = pose.transform_point(p3d);
-            if let Some(projected) = camera.project_point_c(&p_cam.coords) {
-                view_error += (projected - *p2d).norm();
-                count += 1;
-            }
-        }
-
-        if count > 0 {
-            per_view_errors.push(view_error / count as Real);
-        } else {
-            per_view_errors.push(0.0);
-        }
-    }
-
-    Ok(per_view_errors)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::session::CalibrationSession;
-    use calib_core::{synthetic::planar, BrownConrady5, FxFyCxCySkew, Pt3, Vec2};
+    use calib_core::{synthetic::planar, BrownConrady5, FxFyCxCySkew};
 
     fn make_test_camera() -> calib_core::PinholeCamera {
         use calib_core::make_pinhole_camera;
 
-        let k = FxFyCxCySkew {
-            fx: 800.0,
-            fy: 780.0,
-            cx: 640.0,
-            cy: 360.0,
-            skew: 0.0,
-        };
-        let dist = BrownConrady5 {
-            k1: 0.0,
-            k2: 0.0,
-            k3: 0.0,
-            p1: 0.0,
-            p2: 0.0,
-            iters: 8,
-        };
-        make_pinhole_camera(k, dist)
+        make_pinhole_camera(
+            FxFyCxCySkew {
+                fx: 800.0,
+                fy: 780.0,
+                cx: 640.0,
+                cy: 360.0,
+                skew: 0.0,
+            },
+            BrownConrady5 {
+                k1: 0.0,
+                k2: 0.0,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            },
+        )
+    }
+
+    fn num_points(dataset: &PlanarDataset) -> usize {
+        dataset.views.iter().map(|v| v.obs.len()).sum()
     }
 
     #[test]
@@ -247,30 +151,34 @@ mod tests {
         let poses = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
         let views = planar::project_views_all(&cam_gt, &board_points, &poses).unwrap();
 
+        let dataset =
+            PlanarDataset::new(views.into_iter().map(View::without_meta).collect()).unwrap();
+
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new_with_description(
             "Synthetic planar intrinsics test".to_string(),
         );
 
-        let obs_id = session.add_observations(PlanarIntrinsicsObservations { views });
+        let obs_id = session.add_observations(dataset);
 
         // Initialize
+        let config = PlanarIntrinsicsConfig::default();
         let init_id = session
-            .run_init(obs_id, PlanarIntrinsicsInitOptions::default())
+            .run_init(obs_id, config.clone())
             .expect("initialization should succeed");
 
         let init = session.get_initial_values(init_id).unwrap();
-        assert!(init.poses.len() == 3);
+        assert_eq!(init.poses().len(), 3);
 
         // Optimize
         let result_id = session
-            .run_optimize(obs_id, init_id, PlanarIntrinsicsOptimOptions::default())
+            .run_optimize(obs_id, init_id, config)
             .expect("optimization should succeed");
 
         let result = session.get_optimized_results(result_id).unwrap();
         assert!(
-            result.final_cost < 1e-6,
+            result.report.final_cost < 1e-6,
             "final cost too high: {}",
-            result.final_cost
+            result.report.final_cost
         );
 
         // Export
@@ -284,8 +192,7 @@ mod tests {
             )
             .expect("export should succeed");
 
-        assert!(report.poses.is_some());
-        assert_eq!(report.poses.as_ref().unwrap().len(), 3);
+        assert_eq!(report.params.poses().len(), 3);
     }
 
     #[test]
@@ -296,24 +203,25 @@ mod tests {
         let poses = planar::poses_yaw_y_z(4, 0.0, 0.1, 0.6, 0.1);
         let mut views = planar::project_views_all(&cam_gt, &board_points, &poses).unwrap();
 
-        // Add outlier to first view
+        // Add an outlier to the first view.
         if let Some(first_view) = views.first_mut() {
             if let Some(p) = first_view.points_2d.first_mut() {
-                p.x += 50.0; // Large outlier
+                p.x += 50.0;
             }
         }
 
+        let dataset =
+            PlanarDataset::new(views.into_iter().map(View::without_meta).collect()).unwrap();
+        let original_points = num_points(&dataset);
+
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-        let obs_id = session.add_observations(PlanarIntrinsicsObservations { views });
+        let obs_id = session.add_observations(dataset);
 
-        let init_id = session
-            .run_init(obs_id, PlanarIntrinsicsInitOptions::default())
-            .unwrap();
-        let result_id = session
-            .run_optimize(obs_id, init_id, PlanarIntrinsicsOptimOptions::default())
-            .unwrap();
+        let config = PlanarIntrinsicsConfig::default();
+        let init_id = session.run_init(obs_id, config.clone()).unwrap();
+        let result_id = session.run_optimize(obs_id, init_id, config).unwrap();
 
-        // Filter with tight threshold
+        // Filter with tight threshold.
         let filtered_id = session
             .run_filter_obs(
                 obs_id,
@@ -327,28 +235,32 @@ mod tests {
             .unwrap();
 
         let filtered = session.get_observations(filtered_id).unwrap();
-        // Outlier should be removed
-        assert!(filtered.num_points() < 4 * 6 * 5);
+        assert!(num_points(filtered) < original_points);
     }
 
     #[test]
     fn session_json_checkpoint() {
-        let dataset = PlanarDataset::new()
-        let dataset = vec![CorrespondenceView {
-            points_3d: vec![
-                Pt3::new(0.0, 0.0, 0.0),
-                Pt3::new(0.05, 0.0, 0.0),
-                Pt3::new(0.05, 0.05, 0.0),
-                Pt3::new(0.0, 0.05, 0.0),
-            ],
-            points_2d: vec![
-                Pt2::new(100.0, 100.0),
-                Pt2::new(200.0, 100.0),
-                Pt2::new(200.0, 200.0),
-                Pt2::new(100.0, 200.0),
-            ],
-            weights: None,
-        }];
+        use calib_core::{NoMeta, Pt2, Pt3};
+
+        let dataset = PlanarDataset::new(vec![View::new(
+            CorrespondenceView {
+                points_3d: vec![
+                    Pt3::new(0.0, 0.0, 0.0),
+                    Pt3::new(0.05, 0.0, 0.0),
+                    Pt3::new(0.05, 0.05, 0.0),
+                    Pt3::new(0.0, 0.05, 0.0),
+                ],
+                points_2d: vec![
+                    Pt2::new(100.0, 100.0),
+                    Pt2::new(200.0, 100.0),
+                    Pt2::new(200.0, 200.0),
+                    Pt2::new(100.0, 200.0),
+                ],
+                weights: None,
+            },
+            NoMeta {},
+        )])
+        .unwrap();
 
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.add_observations(dataset);

@@ -114,7 +114,10 @@ pub struct TargetPose {
     pub camera_se3_target: Iso3,
 }
 
-pub fn compute_mean_reproj_error(camera: &PinholeCamera, views: &[View<TargetPose>]) -> Result<Real> {
+pub fn compute_mean_reproj_error(
+    camera: &PinholeCamera,
+    views: &[View<TargetPose>],
+) -> Result<Real> {
     let mut total_error = 0.0;
     let mut total_points = 0;
 

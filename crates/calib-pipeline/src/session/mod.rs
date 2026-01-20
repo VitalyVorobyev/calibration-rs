@@ -18,8 +18,8 @@
 //! # Example
 //!
 //! ```ignore
-//! use calib_pipeline::session::{CalibrationSession, PlanarIntrinsicsProblem};
-//! use calib_pipeline::session::types::FilterOptions;
+//! use calib_pipeline::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
+//! use calib_pipeline::session::{CalibrationSession, ExportOptions, FilterOptions};
 //!
 //! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 //!
@@ -27,8 +27,8 @@
 //! let obs0 = session.add_observations(observations);
 //!
 //! // Try two different initialization strategies
-//! let seed_a = session.run_init(obs0, init_opts_a)?;
-//! let seed_b = session.run_init(obs0, init_opts_b)?;
+//! let seed_a = session.run_init(obs0, PlanarIntrinsicsConfig::default())?;
+//! let seed_b = session.run_init(obs0, PlanarIntrinsicsConfig::default())?;
 //!
 //! // Optimize from the better seed
 //! let sol1 = session.run_optimize(obs0, seed_a, optim_opts)?;
@@ -41,7 +41,7 @@
 //! let sol2 = session.run_optimize(obs1, seed_c, optim_opts)?;
 //!
 //! // Export final results
-//! let report = session.run_export(sol2, Default::default())?;
+//! let report = session.run_export(sol2, ExportOptions::default())?;
 //! ```
 
 pub mod types;
@@ -886,7 +886,7 @@ mod tests {
 
         // Try two different seeds
         let seed_a = s.run_init(obs0, MockInitOptions { scale: 1.0 }).unwrap();
-        let seed_b = s.run_init(obs0, MockInitOptions { scale: 0.5 }).unwrap();
+        let _seed_b = s.run_init(obs0, MockInitOptions { scale: 0.5 }).unwrap();
 
         // Optimize from seed_a
         let sol1 = s

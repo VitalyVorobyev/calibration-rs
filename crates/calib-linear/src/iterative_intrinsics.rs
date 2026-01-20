@@ -199,14 +199,7 @@ pub fn estimate_intrinsics_iterative(
             .views
             .iter()
             .zip(&homographies_for_distortion)
-            .map(|(v, h)| {
-                DistortionView::new(
-                    v.obs.clone(),
-                    MetaHomography {
-                        homography: h.clone(),
-                    },
-                )
-            })
+            .map(|(v, h)| DistortionView::new(v.obs.clone(), MetaHomography { homography: *h }))
             .collect();
 
         current_distortion =

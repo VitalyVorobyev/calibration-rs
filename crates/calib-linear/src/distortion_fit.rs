@@ -121,17 +121,33 @@ pub type DistortionView = View<MetaHomography>;
 /// # Example
 ///
 /// ```no_run
-/// use calib_core::{Mat3, Pt2};
-/// use calib_linear::distortion_fit::{DistortionView, DistortionFitOptions, estimate_distortion_from_homographies};
+/// use calib_core::{CorrespondenceView, Mat3, Pt2, Pt3, View};
+/// use calib_linear::distortion_fit::{
+///     estimate_distortion_from_homographies, DistortionFitOptions, DistortionView, MetaHomography,
+/// };
 ///
 /// let k = Mat3::identity(); // Your intrinsics
-/// let views = vec![
-///     DistortionView::new(
-///         Mat3::identity(), // homography
-///         vec![Pt2::new(0.0, 0.0), /* ... */],
-///         vec![Pt2::new(320.0, 240.0), /* ... */],
-///     ).unwrap(),
-/// ];
+/// let obs = CorrespondenceView::new(
+///     vec![
+///         Pt3::new(0.0, 0.0, 0.0),
+///         Pt3::new(1.0, 0.0, 0.0),
+///         Pt3::new(1.0, 1.0, 0.0),
+///         Pt3::new(0.0, 1.0, 0.0),
+///     ],
+///     vec![
+///         Pt2::new(320.0, 240.0),
+///         Pt2::new(420.0, 240.0),
+///         Pt2::new(420.0, 340.0),
+///         Pt2::new(320.0, 340.0),
+///     ],
+/// )
+/// .unwrap();
+/// let views = vec![DistortionView::new(
+///     obs,
+///     MetaHomography {
+///         homography: Mat3::identity(),
+///     },
+/// )];
 /// let opts = DistortionFitOptions::default();
 /// let distortion = estimate_distortion_from_homographies(&k, &views, opts).unwrap();
 /// ```
@@ -311,7 +327,7 @@ pub fn estimate_distortion_from_homographies(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::{DistortionModel, Pt3, CorrespondenceView};
+    use calib_core::{CorrespondenceView, DistortionModel, Pt3};
     use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, Vector3};
 
     fn make_kmtx() -> Mat3 {

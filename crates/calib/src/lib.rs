@@ -11,26 +11,26 @@
 //!
 //! ```ignore
 //! use calib::session::{CalibrationSession, FilterOptions, ExportOptions};
-//! use calib::planar_intrinsics::{
-//!     PlanarIntrinsicsProblem, PlanarIntrinsicsObservations,
-//! };
-//! use calib::CorrespondenceView;
+//! use calib::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
+//! use calib::{CorrespondenceView, PlanarDataset, View};
 //!
 //! let views: Vec<CorrespondenceView> = /* load calibration data */;
+//! let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
 //!
 //! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-//! let obs_id = session.add_observations(PlanarIntrinsicsObservations { views });
+//! let obs_id = session.add_observations(dataset);
 //!
 //! // Try different initialization strategies
-//! let seed_a = session.run_init(obs_id, Default::default())?;
+//! let config = PlanarIntrinsicsConfig::default();
+//! let seed_a = session.run_init(obs_id, config.clone())?;
 //!
 //! // Optimize
-//! let result_id = session.run_optimize(obs_id, seed_a, Default::default())?;
+//! let result_id = session.run_optimize(obs_id, seed_a, config.clone())?;
 //!
 //! // Filter outliers and re-optimize
 //! let obs_filtered = session.run_filter_obs(obs_id, result_id, FilterOptions::default())?;
-//! let seed_b = session.run_init(obs_filtered, Default::default())?;
-//! let result2 = session.run_optimize(obs_filtered, seed_b, Default::default())?;
+//! let seed_b = session.run_init(obs_filtered, config.clone())?;
+//! let result2 = session.run_optimize(obs_filtered, seed_b, config)?;
 //!
 //! // Export final results
 //! let report = session.run_export(result2, ExportOptions::default())?;
@@ -56,7 +56,8 @@
 //! let init_result = initialize_planar_intrinsics(&views, &init_opts)?;
 //!
 //! // Inspect before committing to optimization
-//! println!("Initial fx: {}, fy: {}", init_result.intrinsics.fx, init_result.intrinsics.fy);
+//! let k0 = init_result.intrinsics();
+//! println!("Initial fx: {}, fy: {}", k0.fx, k0.fy);
 //!
 //! // Step 2: Non-linear optimization
 //! let solve_opts = PlanarIntrinsicsSolveOptions::default();
@@ -94,7 +95,34 @@ pub mod planar_intrinsics {
 
 /// Granular helper functions for custom calibration workflows.
 pub mod helpers {
-    pub use calib_pipeline::helpers::*;
+    use anyhow::Result;
+    use calib_core::{CorrespondenceView, PlanarDataset, View};
+    use calib_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
+    use calib_optim::{
+        optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsEstimate,
+        PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+    };
+
+    pub type PlanarIntrinsicsInitResult = PlanarIntrinsicsParams;
+    pub type PlanarIntrinsicsOptimResult = PlanarIntrinsicsEstimate;
+
+    pub fn initialize_planar_intrinsics(
+        views: &[CorrespondenceView],
+        opts: &IterativeIntrinsicsOptions,
+    ) -> Result<PlanarIntrinsicsInitResult> {
+        let dataset = PlanarDataset::new(views.iter().cloned().map(View::without_meta).collect())?;
+        calib_pipeline::planar_init_seed_from_views(&dataset, *opts)
+    }
+
+    pub fn optimize_planar_intrinsics_from_init(
+        views: &[CorrespondenceView],
+        init: &PlanarIntrinsicsParams,
+        solve_opts: &PlanarIntrinsicsSolveOptions,
+        backend_opts: &BackendSolveOptions,
+    ) -> Result<PlanarIntrinsicsOptimResult> {
+        let dataset = PlanarDataset::new(views.iter().cloned().map(View::without_meta).collect())?;
+        optimize_planar_intrinsics(&dataset, init, solve_opts.clone(), backend_opts.clone())
+    }
 }
 
 /// Hand-eye calibration types.
@@ -132,7 +160,7 @@ pub use calib_optim::{BackendSolveOptions, HandEyeMode, PlanarIntrinsicsSolveOpt
 
 pub use calib_pipeline::{
     planar_init_seed_from_views, run_planar_intrinsics, PlanarDataset, PlanarIntrinsicsConfig,
-    PlanarIntrinsicsParams, PlanarIntrinsicsReport,
+    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
 };
 
 /// Convenient re-exports for common use cases.
@@ -149,10 +177,7 @@ pub mod prelude {
     };
 
     // Planar intrinsics
-    pub use crate::planar_intrinsics::{
-        PlanarIntrinsicsInitOptions, PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions,
-        PlanarIntrinsicsProblem, PlanarIntrinsicsReport,
-    };
+    pub use crate::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
 
     // Helper functions
     pub use crate::helpers::{
@@ -161,7 +186,7 @@ pub mod prelude {
     };
 
     // Common types
-    pub use crate::{CorrespondenceView, PlanarIntrinsicsConfig};
+    pub use crate::CorrespondenceView;
 
     // Common options
     pub use crate::linear::distortion_fit::DistortionFitOptions;

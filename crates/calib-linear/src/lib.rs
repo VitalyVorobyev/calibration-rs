@@ -80,6 +80,7 @@ pub use triangulation::*;
 pub use zhang_intrinsics::*;
 
 pub mod prelude {
+    pub use crate::distortion_fit::DistortionFitOptions;
     pub use crate::homography::dlt_homography;
     pub use crate::iterative_intrinsics::{
         estimate_intrinsics_iterative, IterativeIntrinsicsOptions,
@@ -88,5 +89,4 @@ pub mod prelude {
     pub use crate::zhang_intrinsics::{
         estimate_intrinsics_from_homographies, PlanarIntrinsicsLinearInit,
     };
-    pub use crate::distortion_fit::DistortionFitOptions;
 }

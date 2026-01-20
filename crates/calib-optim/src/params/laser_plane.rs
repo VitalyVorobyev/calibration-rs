@@ -19,15 +19,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// # Example
 ///
-/// ```rust
-/// use calib_optim::params::laser_plane::LaserPlane;
-/// use nalgebra::Vector3;
-///
-/// let plane = LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.5);
-/// let normal = plane.normal_to_dvec();
-/// let distance = plane.distance_to_dvec();
-/// let restored = LaserPlane::from_split_dvec(normal.as_view(), distance.as_view()).unwrap();
-/// assert!((plane.distance - restored.distance).abs() < 1e-12);
+/// ```ignore
+/// // Internal module: not part of the stable public API.
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserPlane {

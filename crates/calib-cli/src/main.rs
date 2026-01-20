@@ -1,6 +1,8 @@
 use std::{error::Error, fs, path::Path};
 
-use calib_pipeline::{run_planar_intrinsics, PlanarDataset, PlanarIntrinsicsConfig};
+use calib_pipeline::{
+    run_planar_intrinsics, PlanarDataset, PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate,
+};
 use clap::Parser;
 
 /// Calibration CLI for planar camera intrinsics.
@@ -22,9 +24,7 @@ fn load_json_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Box<
     Ok(value)
 }
 
-fn write_report_json(
-    report: &calib_pipeline::PlanarIntrinsicsReport,
-) -> Result<String, Box<dyn Error>> {
+fn write_report_json(report: &PlanarIntrinsicsEstimate) -> Result<String, Box<dyn Error>> {
     Ok(serde_json::to_string_pretty(report)?)
 }
 
@@ -64,7 +64,7 @@ mod tests {
     use calib_core::{
         synthetic::planar, BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole,
     };
-    use calib_pipeline::PlanarIntrinsicsConfig;
+    use calib_pipeline::{PlanarIntrinsicsConfig, View};
     use std::{fs, path::Path};
     use tempfile::NamedTempFile;
 
@@ -94,7 +94,8 @@ mod tests {
         let poses = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
         let views = planar::project_views_all(&cam_gt, &board_points, &poses).expect("projection");
 
-        let input = PlanarDataset { views };
+        let input =
+            PlanarDataset::new(views.into_iter().map(View::without_meta).collect()).unwrap();
         let mut config = PlanarIntrinsicsConfig::default();
         config.backend_opts.max_iters = 200;
         (input, config)
@@ -115,11 +116,11 @@ mod tests {
         )
         .expect("cli helper should succeed");
 
-        let report: calib_pipeline::PlanarIntrinsicsReport = serde_json::from_str(&json).unwrap();
+        let report: PlanarIntrinsicsEstimate = serde_json::from_str(&json).unwrap();
         assert!(
-            report.final_cost < 1e-6,
+            report.report.final_cost < 1e-6,
             "final cost too high: {}",
-            report.final_cost
+            report.report.final_cost
         );
     }
 }

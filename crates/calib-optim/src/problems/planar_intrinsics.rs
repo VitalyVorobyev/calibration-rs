@@ -210,7 +210,7 @@ pub fn optimize_planar_intrinsics_with_backend(
     backend: BackendKind,
     backend_opts: BackendSolveOptions,
 ) -> Result<PlanarIntrinsicsEstimate> {
-    let (ir, initial_map) = build_planar_intrinsics_ir(&dataset, &initial, &opts)?;
+    let (ir, initial_map) = build_planar_intrinsics_ir(dataset, initial, &opts)?;
     let solution = solve_with_backend(backend, &ir, &initial_map, &backend_opts)?;
 
     let cam_vec = solution

@@ -162,27 +162,22 @@ let pose = PlanarPoseSolver::from_homography(&H, &K)?;
 
 #### Planar Intrinsics
 ```rust
-use calib_optim::planar_intrinsics::{
-    optimize_planar_intrinsics,
-    PlanarDataset,
-    PlanarIntrinsicsInit,
-    PlanarIntrinsicsSolveOptions,
+use calib_core::PlanarDataset;
+use calib_optim::{
+    optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsParams,
+    PlanarIntrinsicsSolveOptions, RobustLoss,
 };
-use calib_optim::backend::BackendSolveOptions;
 
 // Prepare dataset
-let views = /* PlanarViewObservations */;
 let dataset = PlanarDataset::new(views)?;
 
 // Initial estimates (from linear solver)
-let init = PlanarIntrinsicsInit::new_pinhole(intrinsics, distortion, poses)?;
+let init = PlanarIntrinsicsParams::new_from_components(intrinsics, distortion, poses)?;
 
 // Configure optimization
 let opts = PlanarIntrinsicsSolveOptions {
     robust_loss: RobustLoss::Huber { scale: 2.0 },
-    fix_fx: false,
-    fix_fy: false,
-    fix_poses: vec![0],  // Fix first pose for gauge freedom
+    fix_poses: vec![0],
     ..Default::default()
 };
 
@@ -193,11 +188,11 @@ let backend_opts = BackendSolveOptions {
 };
 
 // Optimize
-let result = optimize_planar_intrinsics(dataset, init, opts, backend_opts)?;
+let result = optimize_planar_intrinsics(&dataset, &init, opts, backend_opts)?;
 
 // Extract results
-let camera = &result.camera;
-println!("Final cost: {}", result.final_cost);
+let camera = &result.params.camera;
+println!("Final cost: {}", result.report.final_cost);
 ```
 
 **Typical accuracy:** <2% error on intrinsics, <1px reprojection error

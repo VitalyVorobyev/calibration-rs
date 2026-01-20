@@ -386,7 +386,7 @@ fn stereo_triangulation_recovers_board_points() {
     assert!(p90 < 2.0, "triangulation error too large: {p90}");
 }
 
-use calib_core::{View};
+use calib_core::View;
 use calib_linear::iterative_intrinsics::{
     estimate_intrinsics_iterative, IterativeIntrinsicsOptions,
 };

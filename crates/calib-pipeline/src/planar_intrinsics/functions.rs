@@ -1,13 +1,10 @@
-use calib_core::{
-    compute_mean_reproj_error, CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, PlanarDataset, Pt2,
-    Real, TargetPose, View,
-};
+use calib_core::{CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, PlanarDataset, Pt2, Real};
 
 use calib_linear::prelude::*;
 
 use calib_optim::{
     optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsEstimate,
-    PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, SolveReport,
+    PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
 };
 
 use anyhow::{ensure, Context, Result};
@@ -71,7 +68,7 @@ fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso
 pub fn planar_init_seed_from_views(
     dataset: &PlanarDataset,
     opts: IterativeIntrinsicsOptions,
-) -> Result<PlanarIntrinsicsEstimate> {
+) -> Result<PlanarIntrinsicsParams> {
     ensure!(
         dataset.views.len() >= 3,
         "need at least 3 views for planar initialization (got {})",
@@ -85,24 +82,7 @@ pub fn planar_init_seed_from_views(
     let kmtx = k_matrix_from_intrinsics(&camera.k);
     let camera_se3_target = poses_from_homographies(&kmtx, &homographies)?;
 
-    Ok(PlanarIntrinsicsEstimate {
-        params: PlanarIntrinsicsParams::new(camera, camera_se3_target)?,
-        report: SolveReport { final_cost: 0.0 },
-        mean_reproj_error: 0.0,
-    })
-}
-
-fn optimize_planar_intrinsics_with_init(
-    dataset: &PlanarDataset,
-    init: &PlanarIntrinsicsParams,
-    config: &PlanarIntrinsicsConfig,
-) -> Result<PlanarIntrinsicsEstimate> {
-    optimize_planar_intrinsics(
-        dataset,
-        init,
-        config.optim_options(),
-        config.solver_options(),
-    )
+    PlanarIntrinsicsParams::new(camera, camera_se3_target)
 }
 
 pub fn run_planar_intrinsics(
@@ -114,30 +94,21 @@ pub fn run_planar_intrinsics(
         "need at least one view for calibration"
     );
 
-    let init = planar_init_seed_from_views(dataset, config.init_opts.clone())?;
-    let mut result = optimize_planar_intrinsics_with_init(dataset, &init.params, config)?;
-    let view_with_poses: Vec<View<TargetPose>> = dataset
-        .views
-        .iter()
-        .zip(result.params.poses().iter().cloned())
-        .map(|(view, camera_se3_target)| {
-            View::new(view.obs.clone(), TargetPose { camera_se3_target })
-        })
-        .collect();
-
-    // Compute mean reprojection error
-    let mean_reproj_error = compute_mean_reproj_error(&result.params.camera, &view_with_poses)?;
-    result.mean_reproj_error = mean_reproj_error;
-
-    Ok(result)
+    let init = planar_init_seed_from_views(dataset, config.init_opts)?;
+    optimize_planar_intrinsics(
+        dataset,
+        &init,
+        config.optim_options(),
+        config.solver_options(),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use calib_core::{
-        make_pinhole_camera, synthetic::planar, BrownConrady5, CameraParams, DistortionParams,
-        IntrinsicsFixMask, IntrinsicsParams, NoMeta, Pt3, Vec2,
+        make_pinhole_camera, synthetic::planar, BrownConrady5, IntrinsicsFixMask, NoMeta, Pt2, Pt3,
+        View,
     };
     use calib_optim::RobustLoss;
 
@@ -183,12 +154,6 @@ mod tests {
         assert!((k.cy - k_gt.cy).abs() < 25.0);
     }
 
-    fn intrinsics_from_params(cfg: &CameraParams) -> FxFyCxCySkew<Real> {
-        match &cfg.intrinsics {
-            IntrinsicsParams::FxFyCxCySkew { params } => *params,
-        }
-    }
-
     #[test]
     fn planar_intrinsics_pipeline_synthetic_recovers_intrinsics() {
         let k_gt = FxFyCxCySkew {
@@ -212,17 +177,18 @@ mod tests {
         let poses = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
         let views = planar::project_views_all(&cam_gt, &board_points, &poses).unwrap();
 
-        let input = PlanarDataset { views.into_iter().map(View::without_meta).collect() };
+        let input =
+            PlanarDataset::new(views.into_iter().map(View::without_meta).collect()).unwrap();
         let config = PlanarIntrinsicsConfig::default();
 
-        let report = run_planar_intrinsics(&input, &config).expect("pipeline should succeed");
+        let result = run_planar_intrinsics(&input, &config).expect("pipeline should succeed");
         assert!(
-            report.final_cost < 1e-6,
+            result.report.final_cost < 1e-6,
             "final cost too high: {}",
-            report.final_cost
+            result.report.final_cost
         );
 
-        let ki = intrinsics_from_params(&report.camera);
+        let ki = result.params.intrinsics();
         assert!((ki.fx - k_gt.fx).abs() < 20.0);
         assert!((ki.fy - k_gt.fy).abs() < 20.0);
         assert!((ki.cx - k_gt.cx).abs() < 20.0);
@@ -266,7 +232,7 @@ mod tests {
     #[test]
     fn input_json_roundtrip() {
         let input = PlanarDataset {
-            views: vec![View::NoMeta::new(
+            views: vec![View::new(
                 CorrespondenceView {
                     points_3d: vec![
                         Pt3::new(0.0, 0.0, 0.0),
@@ -275,10 +241,10 @@ mod tests {
                         Pt3::new(0.0, 1.0, 0.0),
                     ],
                     points_2d: vec![
-                        Vec2::new(100.0, 100.0),
-                        Vec2::new(200.0, 100.0),
-                        Vec2::new(200.0, 200.0),
-                        Vec2::new(100.0, 200.0),
+                        Pt2::new(100.0, 100.0),
+                        Pt2::new(200.0, 100.0),
+                        Pt2::new(200.0, 200.0),
+                        Pt2::new(100.0, 200.0),
                     ],
                     weights: Some(vec![1.0, 1.0, 0.5, 0.5]),
                 },
@@ -307,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn report_json_roundtrip() {
+    fn estimate_json_roundtrip() {
         let cam = make_pinhole_camera(
             FxFyCxCySkew {
                 fx: 800.0,
@@ -325,38 +291,30 @@ mod tests {
                 iters: 8,
             },
         );
-        let report = PlanarIntrinsicsReport {
-            camera: pinhole_camera_params(&cam),
-            final_cost: 1e-8,
+        let estimate = PlanarIntrinsicsEstimate {
+            params: PlanarIntrinsicsParams::new(cam, vec![Iso3::identity()]).unwrap(),
+            report: calib_optim::SolveReport { final_cost: 1e-8 },
             mean_reproj_error: 0.5,
-            poses: None,
         };
 
-        let json = serde_json::to_string_pretty(&report).unwrap();
-        let de: PlanarIntrinsicsReport = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string_pretty(&estimate).unwrap();
+        let de: PlanarIntrinsicsEstimate = serde_json::from_str(&json).unwrap();
 
-        let ki_de = intrinsics_from_params(&de.camera);
-        let ki_report = intrinsics_from_params(&report.camera);
+        assert!((de.report.final_cost - estimate.report.final_cost).abs() < 1e-12);
+        assert!((de.mean_reproj_error - estimate.mean_reproj_error).abs() < 1e-12);
 
-        assert!((ki_de.fx - ki_report.fx).abs() < 1e-12);
-        assert!((ki_de.fy - ki_report.fy).abs() < 1e-12);
-        assert!((ki_de.cx - ki_report.cx).abs() < 1e-12);
-        assert!((ki_de.cy - ki_report.cy).abs() < 1e-12);
+        let ki_de = de.params.intrinsics();
+        let ki_est = estimate.params.intrinsics();
+        assert!((ki_de.fx - ki_est.fx).abs() < 1e-12);
+        assert!((ki_de.fy - ki_est.fy).abs() < 1e-12);
+        assert!((ki_de.cx - ki_est.cx).abs() < 1e-12);
+        assert!((ki_de.cy - ki_est.cy).abs() < 1e-12);
 
-        match (&de.camera.distortion, &report.camera.distortion) {
-            (
-                DistortionParams::BrownConrady5 { params: a },
-                DistortionParams::BrownConrady5 { params: b },
-            ) => {
-                assert!((a.k1 - b.k1).abs() < 1e-12);
-                assert!((a.k2 - b.k2).abs() < 1e-12);
-                assert!((a.p1 - b.p1).abs() < 1e-12);
-                assert!((a.p2 - b.p2).abs() < 1e-12);
-                assert!((a.k3 - b.k3).abs() < 1e-12);
-            }
-            other => panic!("distortion mismatch: {:?}", other),
-        }
-
-        assert!((de.final_cost - report.final_cost).abs() < 1e-12);
+        let (a, b) = (&de.params.camera.dist, &estimate.params.camera.dist);
+        assert!((a.k1 - b.k1).abs() < 1e-12);
+        assert!((a.k2 - b.k2).abs() < 1e-12);
+        assert!((a.p1 - b.p1).abs() < 1e-12);
+        assert!((a.p2 - b.p2).abs() < 1e-12);
+        assert!((a.k3 - b.k3).abs() < 1e-12);
     }
 }
