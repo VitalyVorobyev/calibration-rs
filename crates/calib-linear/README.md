@@ -114,7 +114,7 @@ let camera = /* calibrated camera */;
 // Multi-view fitting breaks single-view collinearity
 let estimate = LinescanPlaneSolver::from_views(&views, &camera)?;
 println!("Plane normal: {:?}", estimate.normal);
-# Ok::<(), calib_linear::linescan::LinescanError>(())
+# Ok::<(), anyhow::Error>(())
 ```
 
 ## Modules

@@ -1,4 +1,4 @@
-use nalgebra::{Point3, RealField, Vector2, Vector3};
+use nalgebra::{Point2, Point3, RealField, Vector3};
 use serde::{Deserialize, Serialize};
 
 use super::{DistortionModel, IntrinsicsModel, ProjectionModel, SensorModel};
@@ -53,7 +53,7 @@ where
     /// Project a 3D point in camera coordinates into pixel coordinates.
     ///
     /// Returns `None` if the point is behind the camera or not projectable.
-    pub fn project_point_c(&self, p_c: &Vector3<S>) -> Option<Vector2<S>> {
+    pub fn project_point_c(&self, p_c: &Vector3<S>) -> Option<Point2<S>> {
         if p_c.z <= S::zero() {
             return None;
         }
@@ -67,12 +67,12 @@ where
     /// Project a 3D point in camera coordinates into pixel coordinates.
     ///
     /// This is a convenience wrapper around `project_point_c`.
-    pub fn project_point(&self, p_c: &Point3<S>) -> Option<Vector2<S>> {
+    pub fn project_point(&self, p_c: &Point3<S>) -> Option<Point2<S>> {
         self.project_point_c(&p_c.coords)
     }
 
     /// Backproject a pixel to a point on the z = 1 plane in camera coordinates.
-    pub fn backproject_pixel(&self, px: &Vector2<S>) -> Ray<S> {
+    pub fn backproject_pixel(&self, px: &Point2<S>) -> Ray<S> {
         let s = self.k.pixel_to_sensor(px);
         let n_d = self.sensor.sensor_to_normalized(&s);
         let n_u = self.dist.undistort(&n_d);

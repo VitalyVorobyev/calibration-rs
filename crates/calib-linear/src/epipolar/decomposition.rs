@@ -4,7 +4,7 @@
 //! decomposition. Returns four possible (R, t) pairs that must be
 //! disambiguated via cheirality checks.
 
-use super::EpipolarError;
+use anyhow::Result;
 use calib_core::{Mat3, Real, Vec3};
 use nalgebra::SMatrix;
 
@@ -13,10 +13,10 @@ use nalgebra::SMatrix;
 /// Projects a 3x3 matrix onto the essential matrix manifold by forcing
 /// the singular values to be (σ, σ, 0) where σ is the mean of the first
 /// two singular values.
-pub(super) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3, EpipolarError> {
+pub(super) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
     let svd = e.svd(true, true);
-    let u = svd.u.ok_or(EpipolarError::SvdFailed)?;
-    let v_t = svd.v_t.ok_or(EpipolarError::SvdFailed)?;
+    let u = svd.u.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
 
     let s1 = svd.singular_values[0];
     let s2 = svd.singular_values[1];
@@ -31,11 +31,11 @@ pub(super) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3, EpipolarEr
 /// Returns four possible `(R, t)` pairs; the correct one can be selected by
 /// cheirality checks on triangulated points. The translation is unit-length
 /// (direction only).
-pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>, EpipolarError> {
+pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>> {
     let e = enforce_essential_constraints(e)?;
     let svd = e.svd(true, true);
-    let mut u = svd.u.ok_or(EpipolarError::SvdFailed)?;
-    let mut v_t = svd.v_t.ok_or(EpipolarError::SvdFailed)?;
+    let mut u = svd.u.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let mut v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
 
     if u.determinant() < 0.0 {
         u.column_mut(2).neg_mut();

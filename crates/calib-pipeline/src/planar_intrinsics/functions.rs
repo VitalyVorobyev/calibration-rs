@@ -1,6 +1,6 @@
 use calib_core::{
-    make_pinhole_camera, pinhole_camera_params, PinholeCamera, BrownConrady5, CorrespondenceView, FxFyCxCySkew,
-    Iso3, Mat3, Pt2, Real,
+    make_pinhole_camera, pinhole_camera_params, BrownConrady5, CorrespondenceView, FxFyCxCySkew,
+    Iso3, Mat3, PinholeCamera, Pt2, Real,
 };
 
 use calib_linear::prelude::*;
@@ -72,7 +72,7 @@ fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso
 
 fn iterative_init_guess(
     views: &[CorrespondenceView],
-) -> Option<(PinholeCamera)> {
+) -> Option<(FxFyCxCySkew<Real>, BrownConrady5<Real>)> {
     if views.len() < 3 {
         return None;
     }
@@ -83,17 +83,12 @@ fn iterative_init_guess(
             let (board_2d, pixel_2d) = board_and_pixel_points(v);
             IterativeCalibView::new(board_2d, pixel_2d)
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()
+        .ok()?;
 
     let opts = IterativeIntrinsicsOptions::default();
     match estimate_intrinsics_iterative(&calib_views, opts) {
-        Ok(res) => Some((
-            res.intrinsics,
-            BrownConrady5 {
-                iters: res.distortion.iters,
-                ..res.distortion
-            },
-        )),
+        Ok(cam) => Some((cam.k, cam.dist)),
         Err(_) => None,
     }
 }

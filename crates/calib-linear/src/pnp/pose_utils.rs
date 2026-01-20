@@ -3,7 +3,7 @@
 //! Provides helper functions for computing camera poses from world-camera
 //! point correspondences, used by minimal solvers like P3P and EPnP.
 
-use super::PnpError;
+use anyhow::Result;
 use calib_core::{Iso3, Mat3, Pt3, Real, Vec3};
 use nalgebra::{Isometry3, Rotation3, Translation3, UnitQuaternion};
 
@@ -12,9 +12,9 @@ use nalgebra::{Isometry3, Rotation3, Translation3, UnitQuaternion};
 /// Uses the Kabsch algorithm (SVD-based rotation alignment followed by
 /// translation computation). Returns `T_C_W`: the transform from world
 /// coordinates to camera coordinates.
-pub(super) fn pose_from_points(world: &[Pt3], camera: &[Vec3]) -> Result<Iso3, PnpError> {
+pub(super) fn pose_from_points(world: &[Pt3], camera: &[Vec3]) -> Result<Iso3> {
     if world.len() != camera.len() || world.len() < 3 {
-        return Err(PnpError::DegeneratePoints);
+        anyhow::bail!("degenerate 3d point configuration for normalization");
     }
 
     let n = world.len() as Real;
@@ -35,8 +35,12 @@ pub(super) fn pose_from_points(world: &[Pt3], camera: &[Vec3]) -> Result<Iso3, P
     }
 
     let svd = h.svd(true, true);
-    let u = svd.u.ok_or(PnpError::SvdFailed)?;
-    let v_t = svd.v_t.ok_or(PnpError::SvdFailed)?;
+    let u = svd
+        .u
+        .ok_or_else(|| anyhow::anyhow!("svd failed in PnP DLT"))?;
+    let v_t = svd
+        .v_t
+        .ok_or_else(|| anyhow::anyhow!("svd failed in PnP DLT"))?;
     let mut r = u * v_t;
     if r.determinant() < 0.0 {
         let mut u_fix = u;

@@ -4,26 +4,9 @@
 //! distortion. This is a classic closed-form initialization used before
 //! non-linear refinement.
 
+use anyhow::Result;
 use calib_core::{FxFyCxCySkew, Mat3, Real};
 use nalgebra::DMatrix;
-use thiserror::Error;
-
-/// Errors that can occur during planar intrinsics initialization.
-#[derive(Debug, Error, Clone, Copy)]
-pub enum PlanarIntrinsicsInitError {
-    /// Not enough homographies were provided.
-    #[error("need at least 3 homographies, got {0}")]
-    NotEnoughHomographies(usize),
-    /// SVD failed when solving for the intrinsic parameters.
-    #[error("svd failed during intrinsics estimation")]
-    SvdFailed,
-    /// The configuration is degenerate for intrinsics estimation.
-    #[error("degenerate configuration for intrinsics estimation")]
-    DegenerateConfiguration,
-    /// The recovered parameters are not physically valid.
-    #[error("invalid sign for lambda; check homographies")]
-    InvalidLambdaSign,
-}
 
 /// Build the 6-vector v_ij(H) as in Zhang's method.
 /// i, j are 0- or 1-based column indices (we'll use 0/1 for (1,2) and (1,1),(2,2)).
@@ -52,9 +35,7 @@ pub struct PlanarIntrinsicsLinearInit;
 ///
 /// Uses Zhang's closed-form solution (no distortion). Requires at least three
 /// homographies with sufficiently diverse viewpoints.
-pub fn estimate_intrinsics_from_homographies(
-    hmtxs: &[Mat3],
-) -> Result<FxFyCxCySkew<Real>, PlanarIntrinsicsInitError> {
+pub fn estimate_intrinsics_from_homographies(hmtxs: &[Mat3]) -> Result<FxFyCxCySkew<Real>> {
     PlanarIntrinsicsLinearInit::from_homographies(hmtxs)
 }
 
@@ -65,13 +46,9 @@ impl PlanarIntrinsicsLinearInit {
     /// on `Z = 0`) into image coordinates.
     ///
     /// At least three views with sufficiently rich geometry are required.
-    pub fn from_homographies(
-        hmtxs: &[Mat3],
-    ) -> Result<FxFyCxCySkew<Real>, PlanarIntrinsicsInitError> {
+    pub fn from_homographies(hmtxs: &[Mat3]) -> Result<FxFyCxCySkew<Real>> {
         if hmtxs.len() < 3 {
-            return Err(PlanarIntrinsicsInitError::NotEnoughHomographies(
-                hmtxs.len(),
-            ));
+            anyhow::bail!("need at least 3 homographies, got {}", hmtxs.len());
         }
 
         let m = hmtxs.len();
@@ -91,7 +68,9 @@ impl PlanarIntrinsicsLinearInit {
         // Solve V b = 0 via SVD: take the singular vector corresponding to the
         // smallest singular value.
         let svd = vmtx.svd(true, true);
-        let v_t = svd.v_t.ok_or(PlanarIntrinsicsInitError::SvdFailed)?;
+        let v_t = svd
+            .v_t
+            .ok_or_else(|| anyhow::anyhow!("svd failed during intrinsics estimation"))?;
         let b = v_t.row(v_t.nrows() - 1); // last row
 
         let b11 = b[0];
@@ -120,14 +99,14 @@ impl PlanarIntrinsicsLinearInit {
             0.0
         };
         if denom_rel <= 1e-6 || b11.abs() <= 1e-12 {
-            return Err(PlanarIntrinsicsInitError::DegenerateConfiguration);
+            anyhow::bail!("degenerate configuration for intrinsics estimation");
         }
 
         let v0 = (b12 * b13 - b11 * b23) / denom;
         let lambda = b33 - (b13 * b13 + v0 * (b12 * b13 - b11 * b23)) / b11;
 
         if lambda.signum() != b11.signum() {
-            return Err(PlanarIntrinsicsInitError::InvalidLambdaSign);
+            anyhow::bail!("invalid sign for lambda; check homographies");
         }
 
         let alpha = (lambda / b11).sqrt();

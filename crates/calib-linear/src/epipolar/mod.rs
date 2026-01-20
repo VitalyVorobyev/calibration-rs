@@ -8,37 +8,16 @@
 //!   `K^{-1}`), or equivalently calibrated rays on the normalized image plane.
 
 use calib_core::{Mat3, Pt2, RansacOptions, Vec3};
-use thiserror::Error;
-
 mod decomposition;
 mod essential;
 mod fundamental;
 mod polynomial;
+use anyhow::Result;
 
 // Re-export public API
 pub use decomposition::decompose_essential;
 pub use essential::essential_5point;
 pub use fundamental::{fundamental_7point, fundamental_8point, fundamental_8point_ransac};
-
-/// Errors that can occur during fundamental / essential matrix estimation.
-#[derive(Debug, Error)]
-pub enum EpipolarError {
-    /// Not enough point correspondences were provided.
-    #[error("need at least 8 point correspondences, got {0}")]
-    NotEnoughPoints(usize),
-    /// Incorrect number of correspondences for a minimal solver.
-    #[error("invalid number of correspondences: expected {expected}, got {got}")]
-    InvalidPointCount { expected: usize, got: usize },
-    /// Linear solve (SVD) failed.
-    #[error("svd failed in epipolar estimation")]
-    SvdFailed,
-    /// Polynomial solve failed or produced no valid roots.
-    #[error("failed to solve the epipolar polynomial system")]
-    PolynomialSolveFailed,
-    /// RANSAC failed to find a consensus model.
-    #[error("ransac failed to find a consensus epipolar model")]
-    RansacFailed,
-}
 
 /// Linear epipolar geometry solvers (fundamental / essential matrices).
 ///
@@ -52,7 +31,7 @@ impl EpipolarSolver {
     /// `pts1` and `pts2` are corresponding pixel points in two images. The
     /// returned matrix is forced to rank-2 and satisfies `x'^T F x = 0`
     /// (up to numerical error).
-    pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3, EpipolarError> {
+    pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
         fundamental::fundamental_8point(pts1, pts2)
     }
 
@@ -60,7 +39,7 @@ impl EpipolarSolver {
     ///
     /// Returns up to three candidate fundamental matrices. Inputs are pixel
     /// coordinates; internal normalization is applied before solving.
-    pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, EpipolarError> {
+    pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
         fundamental::fundamental_7point(pts1, pts2)
     }
 
@@ -70,7 +49,7 @@ impl EpipolarSolver {
     /// Returns up to ten candidate essential matrices that satisfy the cubic
     /// constraints; choose the physically valid one by cheirality or by
     /// reprojection error against additional correspondences.
-    pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, EpipolarError> {
+    pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
         essential::essential_5point(pts1, pts2)
     }
 
@@ -79,7 +58,7 @@ impl EpipolarSolver {
     /// Returns four possible `(R, t)` pairs; the correct one can be selected by
     /// cheirality checks on triangulated points. The translation is unit-length
     /// (direction only).
-    pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>, EpipolarError> {
+    pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>> {
         decomposition::decompose_essential(e)
     }
 
@@ -91,7 +70,7 @@ impl EpipolarSolver {
         pts1: &[Pt2],
         pts2: &[Pt2],
         opts: &RansacOptions,
-    ) -> Result<(Mat3, Vec<usize>), EpipolarError> {
+    ) -> Result<(Mat3, Vec<usize>)> {
         fundamental::fundamental_8point_ransac(pts1, pts2, opts)
     }
 }

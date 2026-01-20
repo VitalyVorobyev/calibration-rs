@@ -4,9 +4,9 @@
 //! homogeneous equations. The rotation matrix is projected onto SO(3)
 //! via SVD decomposition.
 
-use super::PnpError;
 use crate::math::mat34_from_svd_row;
-use calib_core::{FxFyCxCySkew, Iso3, Mat3, Mat4, Pt3, Real, Vec2};
+use anyhow::Result;
+use calib_core::{FxFyCxCySkew, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
 use nalgebra::{DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion};
 
 /// Direct linear PnP on all input points.
@@ -16,14 +16,16 @@ use nalgebra::{DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion};
 /// solve and projects the rotation onto SO(3).
 ///
 /// Returns `T_C_W`: the transform from world to camera coordinates.
-pub fn dlt(world: &[Pt3], image: &[Vec2], k: &FxFyCxCySkew<Real>) -> Result<Iso3, PnpError> {
+pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3> {
     let n = world.len();
     if n < 6 || image.len() != n {
-        return Err(PnpError::NotEnoughPoints(n));
+        anyhow::bail!("need at least 6 point correspondences, got {}", n);
     }
 
     let kmtx: Mat3 = k.k_matrix();
-    let k_inv = kmtx.try_inverse().ok_or(PnpError::SingularIntrinsics)?;
+    let k_inv = kmtx
+        .try_inverse()
+        .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
 
     let mut cx = 0.0;
     let mut cy = 0.0;
@@ -47,7 +49,7 @@ pub fn dlt(world: &[Pt3], image: &[Vec2], k: &FxFyCxCySkew<Real>) -> Result<Iso3
     }
     mean_dist /= n_real;
     if mean_dist <= Real::EPSILON {
-        return Err(PnpError::DegeneratePoints);
+        anyhow::bail!("degenerate 3d point configuration for normalization");
     }
 
     let scale = (3.0_f64).sqrt() / mean_dist;
@@ -109,7 +111,9 @@ pub fn dlt(world: &[Pt3], image: &[Vec2], k: &FxFyCxCySkew<Real>) -> Result<Iso3
 
     // Solve A p = 0 via SVD: take the singular vector for the smallest singular value.
     let svd = a.svd(true, true);
-    let v_t = svd.v_t.ok_or(PnpError::SvdFailed)?;
+    let v_t = svd
+        .v_t
+        .ok_or_else(|| anyhow::anyhow!("svd failed in PnP DLT"))?;
     // Reshape into 3x4 matrix P = [R|t] (up to scale).
     let p_mtx = mat34_from_svd_row(&v_t, v_t.nrows() - 1);
 
@@ -133,8 +137,12 @@ pub fn dlt(world: &[Pt3], image: &[Vec2], k: &FxFyCxCySkew<Real>) -> Result<Iso3
 
     // Project onto SO(3).
     let svd = r_approx.svd(true, true);
-    let u = svd.u.ok_or(PnpError::SvdFailed)?;
-    let v_t = svd.v_t.ok_or(PnpError::SvdFailed)?;
+    let u = svd
+        .u
+        .ok_or_else(|| anyhow::anyhow!("svd failed in PnP DLT"))?;
+    let v_t = svd
+        .v_t
+        .ok_or_else(|| anyhow::anyhow!("svd failed in PnP DLT"))?;
     let mut r_orth = u * v_t;
     if r_orth.determinant() < 0.0 {
         let mut u_flipped = u;

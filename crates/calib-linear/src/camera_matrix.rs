@@ -4,32 +4,12 @@
 //! RQ decomposition to recover intrinsics and rotation.
 
 use crate::math::{mat34_from_svd_row, normalize_points_2d, normalize_points_3d};
+use anyhow::Result;
 use calib_core::{Mat3, Pt2, Pt3, Real, Vec3};
 use nalgebra::{DMatrix, Matrix3x4};
-use thiserror::Error;
 
 /// 3x4 camera projection matrix `P = K [R | t]`.
 pub type Mat34 = Matrix3x4<Real>;
-
-/// Errors that can occur during camera matrix estimation or decomposition.
-#[derive(Debug, Error, Clone, Copy)]
-pub enum CameraMatrixError {
-    /// Not enough point correspondences were provided.
-    #[error("need at least 6 point correspondences, got {0}")]
-    NotEnoughPoints(usize),
-    /// Mismatched numbers of 3D points and image points.
-    #[error("mismatched number of world points ({world}) and image points ({image})")]
-    MismatchedInputs { world: usize, image: usize },
-    /// Degenerate point configuration for normalization.
-    #[error("degenerate point configuration for normalization")]
-    DegeneratePoints,
-    /// SVD failed while solving the linear system.
-    #[error("svd failed while estimating the camera matrix")]
-    SvdFailed,
-    /// Camera intrinsics matrix is not invertible.
-    #[error("camera matrix decomposition produced a singular intrinsics matrix")]
-    SingularIntrinsics,
-}
 
 /// Camera matrix decomposition into `K`, `R`, `t` with `K` upper-triangular.
 #[derive(Debug, Clone)]
@@ -46,20 +26,25 @@ pub struct CameraMatrixDecomposition {
 ///
 /// `world` are 3D points and `image` are their pixel projections. The output is
 /// defined up to a global scale.
-pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34, CameraMatrixError> {
+pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
     let n = world.len();
     if n < 6 {
-        return Err(CameraMatrixError::NotEnoughPoints(n));
+        anyhow::bail!("need at least 6 point correspondences, got {}", n);
     }
     if n != image.len() {
-        return Err(CameraMatrixError::MismatchedInputs {
-            world: n,
-            image: image.len(),
-        });
+        anyhow::bail!(
+            "mismatched number of world points ({}) and image points ({})",
+            n,
+            image.len()
+        );
     }
 
-    let (world_n, t_w) = normalize_points_3d(world).ok_or(CameraMatrixError::DegeneratePoints)?;
-    let (image_n, t_i) = normalize_points_2d(image).ok_or(CameraMatrixError::DegeneratePoints)?;
+    let (world_n, t_w) = normalize_points_3d(world).ok_or(anyhow::anyhow!(
+        "degenerate point configuration for normalization"
+    ))?;
+    let (image_n, t_i) = normalize_points_2d(image).ok_or(anyhow::anyhow!(
+        "degenerate point configuration for normalization"
+    ))?;
 
     let mut a = DMatrix::<Real>::zeros(2 * n, 12);
 
@@ -93,10 +78,10 @@ pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34, CameraMa
     }
 
     let svd = a.svd(true, true);
-    let v_t = svd.v_t.ok_or(CameraMatrixError::SvdFailed)?;
+    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
     let p_norm = mat34_from_svd_row(&v_t, v_t.nrows() - 1);
 
-    let t_i_inv = t_i.try_inverse().ok_or(CameraMatrixError::SvdFailed)?;
+    let t_i_inv = t_i.try_inverse().ok_or(anyhow::anyhow!("SVD failed"))?;
     let p = t_i_inv * p_norm * t_w;
 
     Ok(p)
@@ -131,7 +116,7 @@ pub fn rq_decompose(m: &Mat3) -> (Mat3, Mat3) {
 ///
 /// Returns `K`, `R`, and `t` such that `P ~ K [R | t]`. The diagonal of `K` is
 /// forced positive and `R` is projected onto SO(3).
-pub fn decompose_camera_matrix(p: &Mat34) -> Result<CameraMatrixDecomposition, CameraMatrixError> {
+pub fn decompose_camera_matrix(p: &Mat34) -> Result<CameraMatrixDecomposition> {
     let m = p.fixed_view::<3, 3>(0, 0).into_owned();
     let (mut k, mut r) = rq_decompose(&m);
 
@@ -143,7 +128,7 @@ pub fn decompose_camera_matrix(p: &Mat34) -> Result<CameraMatrixDecomposition, C
 
     let k_inv = k
         .try_inverse()
-        .ok_or(CameraMatrixError::SingularIntrinsics)?;
+        .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
     let mut t = k_inv * p.column(3);
 
     if r.determinant() < 0.0 {

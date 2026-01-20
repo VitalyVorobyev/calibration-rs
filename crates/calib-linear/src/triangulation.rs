@@ -2,46 +2,27 @@
 //!
 //! Uses a DLT formulation on the camera projection matrices and image points.
 
+use anyhow::Result;
 use calib_core::{Pt2, Pt3, Real};
 use nalgebra::DMatrix;
-use thiserror::Error;
 
 use crate::camera_matrix::Mat34;
-
-/// Errors that can occur during linear triangulation.
-#[derive(Debug, Error, Clone, Copy)]
-pub enum TriangulationError {
-    /// Not enough views were provided.
-    #[error("need at least 2 views, got {0}")]
-    NotEnoughViews(usize),
-    /// Mismatched numbers of camera matrices and image points.
-    #[error("mismatched number of cameras ({cameras}) and points ({points})")]
-    MismatchedInputs { cameras: usize, points: usize },
-    /// SVD failed while solving the linear system.
-    #[error("svd failed during triangulation")]
-    SvdFailed,
-    /// Degenerate solution (point at infinity or ill-conditioned).
-    #[error("triangulation produced an invalid point")]
-    Degenerate,
-}
 
 /// Linear triangulation from multiple views using DLT.
 ///
 /// `cameras` are projection matrices `P_i`, and `points` are their corresponding
 /// pixel coordinates. The returned 3D point is in the same world frame as the
 /// camera matrices.
-pub fn triangulate_point_linear(
-    cameras: &[Mat34],
-    points: &[Pt2],
-) -> Result<Pt3, TriangulationError> {
+pub fn triangulate_point_linear(cameras: &[Mat34], points: &[Pt2]) -> Result<Pt3> {
     if cameras.len() < 2 {
-        return Err(TriangulationError::NotEnoughViews(cameras.len()));
+        anyhow::bail!("need at least 2 views, got {}", cameras.len());
     }
     if cameras.len() != points.len() {
-        return Err(TriangulationError::MismatchedInputs {
-            cameras: cameras.len(),
-            points: points.len(),
-        });
+        anyhow::bail!(
+            "mismatched number of cameras ({}) and points ({})",
+            cameras.len(),
+            points.len()
+        );
     }
 
     let mut a = DMatrix::<Real>::zeros(2 * cameras.len(), 4);
@@ -61,12 +42,14 @@ pub fn triangulate_point_linear(
     }
 
     let svd = a.svd(true, true);
-    let v_t = svd.v_t.ok_or(TriangulationError::SvdFailed)?;
+    let v_t = svd
+        .v_t
+        .ok_or_else(|| anyhow::anyhow!("svd failed during triangulation"))?;
     let x_h = v_t.row(v_t.nrows() - 1);
 
     let w = x_h[3];
     if w.abs() <= Real::EPSILON {
-        return Err(TriangulationError::Degenerate);
+        anyhow::bail!("triangulation produced an invalid point");
     }
 
     let x = x_h[0] / w;

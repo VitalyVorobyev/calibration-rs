@@ -30,8 +30,8 @@
 
 use anyhow::Result;
 use calib_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3, Mat3, Pinhole,
-    Pt2, Real,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3, Mat3, NoMeta,
+    Pinhole, Pt2, Real, View,
 };
 use calib_linear::iterative_intrinsics::{
     estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
@@ -49,20 +49,25 @@ pub fn initialize_planar_intrinsics(
     let calib_views: Vec<IterativeCalibView> = views
         .iter()
         .map(|v| {
-            let board_2d: Vec<Pt2> = v.points_3d.iter().map(|p3d| Pt2::new(p3d.x, p3d.y)).collect();
-            let pixel_2d: Vec<Pt2> = v.points_2d.iter().map(|v2d| Pt2::new(v2d.x, v2d.y)).collect();
-            IterativeCalibView {
-                board_points: board_2d,
-                pixel_points: pixel_2d,
-            }
+            let board_2d: Vec<Pt2> = v
+                .points_3d
+                .iter()
+                .map(|p3d| Pt2::new(p3d.x, p3d.y))
+                .collect();
+            let pixel_2d: Vec<Pt2> = v
+                .points_2d
+                .iter()
+                .map(|v2d| Pt2::new(v2d.x, v2d.y))
+                .collect();
+            IterativeCalibView::new(board_2d, pixel_2d)
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
-    let result = estimate_intrinsics_iterative(&calib_views, *opts)?;
+    let camera = estimate_intrinsics_iterative(&calib_views, *opts)?;
 
     Ok(PlanarIntrinsicsInitResult {
-        intrinsics: result.intrinsics,
-        distortion: result.distortion,
+        intrinsics: camera.k,
+        distortion: camera.dist,
     })
 }
 
@@ -74,7 +79,10 @@ pub fn optimize_planar_intrinsics_from_init(
     backend_opts: &BackendSolveOptions,
 ) -> Result<PlanarIntrinsicsOptimResult> {
     let dataset = PlanarDataset {
-        views: views.to_vec(),
+        views: views
+            .iter()
+            .map(|v| View::<NoMeta>::without_meta(v))
+            .collect(),
     };
 
     // Optimization packs only [fx, fy, cx, cy]; enforce zero skew.
@@ -137,7 +145,7 @@ fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso
 
     homographies
         .iter()
-        .map(|h| estimate_planar_pose_from_h(kmtx, h).map_err(|e| anyhow::anyhow!("{}", e)))
+        .map(|h| estimate_planar_pose_from_h(kmtx, h))
         .collect()
 }
 

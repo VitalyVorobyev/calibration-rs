@@ -5,7 +5,7 @@ use calib_core::{
     pinhole_camera_params, Camera, CorrespondenceView, IdentitySensor, Pinhole, Real,
 };
 use calib_optim::{
-    PlanarDataset, PlanarIntrinsicsParams, PlanarIntrinsicsEstimate, PlanarIntrinsicsSolveOptions,
+    PlanarDataset, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
 };
 
 use crate::session::types::{ExportOptions, FilterOptions};
@@ -61,8 +61,11 @@ impl ProblemType for PlanarIntrinsicsProblem {
             views: obs.views.clone(),
         };
 
-        let params =
-            PlanarIntrinsicsParams::new_from_components(init.intrinsics, init.distortion, init.poses.clone())?;
+        let params = PlanarIntrinsicsParams::new_from_components(
+            init.intrinsics,
+            init.distortion,
+            init.poses.clone(),
+        )?;
 
         let result = optimize_planar_intrinsics(
             &dataset,
@@ -264,7 +267,11 @@ mod tests {
             .expect("optimization should succeed");
 
         let result = session.get_optimized_results(result_id).unwrap();
-        assert!(result.final_cost < 1e-6, "final cost too high: {}", result.final_cost);
+        assert!(
+            result.final_cost < 1e-6,
+            "final cost too high: {}",
+            result.final_cost
+        );
 
         // Export
         let report = session

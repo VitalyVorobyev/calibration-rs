@@ -36,27 +36,10 @@
 //! - Z. Zhang, "A Flexible New Technique for Camera Calibration," PAMI 2000
 //! - OpenCV calibration implementation
 
+use anyhow::Result;
 use calib_core::{BrownConrady5, Mat3, Pt2, Real, Vec2, Vec3};
 use nalgebra::DMatrix;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
-/// Errors that can occur during distortion estimation.
-#[derive(Debug, Error, Clone, Copy)]
-pub enum DistortionFitError {
-    /// Not enough points for the requested parameter fit.
-    #[error("need at least {0} points for distortion estimation, got {1}")]
-    NotEnoughPoints(usize, usize),
-    /// SVD failed during parameter estimation.
-    #[error("svd failed during distortion estimation")]
-    SvdFailed,
-    /// Intrinsics matrix is not invertible.
-    #[error("intrinsics matrix is not invertible")]
-    IntrinsicsNotInvertible,
-    /// Degenerate configuration: insufficient radial diversity.
-    #[error("degenerate configuration: all points near image center")]
-    DegenerateConfiguration,
-}
 
 /// Options controlling distortion parameter estimation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -120,17 +103,14 @@ impl DistortionView {
     ///
     /// # Errors
     ///
-    /// Returns `NotEnoughPoints` if `board_points` and `pixel_points` have different lengths.
-    pub fn new(
-        homography: Mat3,
-        board_points: Vec<Pt2>,
-        pixel_points: Vec<Pt2>,
-    ) -> Result<Self, DistortionFitError> {
+    /// Returns an error if `board_points` and `pixel_points` have different lengths.
+    pub fn new(homography: Mat3, board_points: Vec<Pt2>, pixel_points: Vec<Pt2>) -> Result<Self> {
         if board_points.len() != pixel_points.len() {
-            return Err(DistortionFitError::NotEnoughPoints(
+            anyhow::bail!(
+                "mismatched number of board points ({}) and pixel points ({})",
                 board_points.len(),
-                pixel_points.len(),
-            ));
+                pixel_points.len()
+            );
         }
         Ok(Self {
             homography,
@@ -190,7 +170,7 @@ pub fn estimate_distortion_from_homographies(
     intrinsics: &Mat3,
     views: &[DistortionView],
     opts: DistortionFitOptions,
-) -> Result<BrownConrady5<Real>, DistortionFitError> {
+) -> Result<BrownConrady5<Real>> {
     // Count total points
     let total_points: usize = views.iter().map(|v| v.board_points.len()).sum();
 
@@ -205,16 +185,17 @@ pub fn estimate_distortion_from_homographies(
     #[allow(clippy::manual_div_ceil)] // Type ambiguity with div_ceil on usize
     let min_points = (n_params + 1) / 2 + 2; // Need overdetermined system
     if total_points < min_points {
-        return Err(DistortionFitError::NotEnoughPoints(
-            min_points,
+        anyhow::bail!(
+            "insufficient points: got {}, need at least {}",
             total_points,
-        ));
+            min_points
+        );
     }
 
     // Invert intrinsics once
     let k_inv = intrinsics
         .try_inverse()
-        .ok_or(DistortionFitError::IntrinsicsNotInvertible)?;
+        .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
 
     // Build design matrix A and observation vector b
     // Each point contributes 2 rows (x and y residuals)
@@ -317,14 +298,14 @@ pub fn estimate_distortion_from_homographies(
     }
 
     if max_r2 < 1e-6 {
-        return Err(DistortionFitError::DegenerateConfiguration);
+        anyhow::bail!("degenerate configuration for distortion estimation");
     }
 
     // Solve least-squares: x = A \ b via SVD (handles overdetermined systems)
     let svd = a.svd(true, true);
     let x = svd
         .solve(&b, 1e-10)
-        .map_err(|_| DistortionFitError::SvdFailed)?;
+        .map_err(|_| anyhow::anyhow!("svd failed during distortion estimation"))?;
 
     // Extract parameters
     let mut col_idx = 0;
@@ -372,7 +353,7 @@ impl DistortionSolver {
         intrinsics: &Mat3,
         views: &[DistortionView],
         opts: DistortionFitOptions,
-    ) -> Result<BrownConrady5<Real>, DistortionFitError> {
+    ) -> Result<BrownConrady5<Real>> {
         estimate_distortion_from_homographies(intrinsics, views, opts)
     }
 }
@@ -404,7 +385,7 @@ mod tests {
             if p3d.z <= 0.0 {
                 continue;
             }
-            let n_undist = Vec2::new(p3d.x / p3d.z, p3d.y / p3d.z);
+            let n_undist = Pt2::new(p3d.x / p3d.z, p3d.y / p3d.z);
             let n_dist = dist.distort(&n_undist);
             let pixel_h = kmtx * Vec3::new(n_dist.x, n_dist.y, 1.0);
             pixels.push(Pt2::new(pixel_h.x / pixel_h.z, pixel_h.y / pixel_h.z));

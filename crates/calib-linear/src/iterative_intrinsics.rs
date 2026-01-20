@@ -40,40 +40,63 @@
 //! ```no_run
 //! use calib_core::Pt2;
 //! use calib_linear::iterative_intrinsics::{
-//!     IterativeCalibView, IterativeIntrinsicsOptions, IterativeIntrinsicsSolver,
+//!     estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
 //! };
 //!
 //! let views = vec![
 //!     IterativeCalibView::new(
 //!         vec![Pt2::new(0.0, 0.0), /* board points */],
 //!         vec![Pt2::new(320.0, 240.0), /* distorted pixels */],
-//!     ),
+//!     )?,
 //!     // ... more views
 //! ];
 //!
 //! let opts = IterativeIntrinsicsOptions::default();
-//! let result = IterativeIntrinsicsSolver::estimate(&views, opts).unwrap();
+//! let camera = estimate_intrinsics_iterative(&views, opts)?;
 //!
 //! println!("Intrinsics: fx={}, fy={}, cx={}, cy={}",
-//!          result.intrinsics.fx, result.intrinsics.fy,
-//!          result.intrinsics.cx, result.intrinsics.cy);
-//! println!("Distortion: k1={}, k2={}", result.distortion.k1, result.distortion.k2);
+//!          camera.k.fx, camera.k.fy,
+//!          camera.k.cx, camera.k.cy);
+//! println!("Distortion: k1={}, k2={}", camera.dist.k1, camera.dist.k2);
+//! # Ok::<(), anyhow::Error>(())
 //! ```
 
-use std::any;
-
 use crate::{
-    distortion_fit::{DistortionFitError, DistortionFitOptions, DistortionSolver, DistortionView},
-    homography::{HomographyError, HomographySolver},
-    zhang_intrinsics::{PlanarIntrinsicsInitError, PlanarIntrinsicsLinearInit},
+    distortion_fit::{DistortionFitOptions, DistortionSolver, DistortionView},
+    homography::HomographySolver,
+    zhang_intrinsics::PlanarIntrinsicsLinearInit,
 };
+use anyhow::{ensure, Result};
 use calib_core::{
-    make_pinhole_camera, BrownConrady5, DistortionModel, FxFyCxCySkew, Mat3, NoMeta, PinholeCamera,
-    Pt2, Real, Vec2, Vec3, View,
+    make_pinhole_camera, BrownConrady5, DistortionModel, FxFyCxCySkew, Mat3, PinholeCamera, Pt2,
+    Real, Vec3,
 };
 use serde::{Deserialize, Serialize};
-// use thiserror::Error;
-use anyhow::Result;
+
+/// A single planar calibration view for iterative intrinsics estimation.
+#[derive(Debug, Clone)]
+pub struct IterativeCalibView {
+    /// Planar board points in target coordinates (Z = 0 plane).
+    pub board_points: Vec<Pt2>,
+    /// Corresponding pixel observations (distorted).
+    pub pixel_points: Vec<Pt2>,
+}
+
+impl IterativeCalibView {
+    /// Construct a view from planar board points and corresponding pixels.
+    pub fn new(board_points: Vec<Pt2>, pixel_points: Vec<Pt2>) -> Result<Self> {
+        ensure!(
+            board_points.len() == pixel_points.len(),
+            "board/pixel point counts must match: {} vs {}",
+            board_points.len(),
+            pixel_points.len()
+        );
+        Ok(Self {
+            board_points,
+            pixel_points,
+        })
+    }
+}
 
 /// Options controlling iterative intrinsics estimation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -145,26 +168,24 @@ impl Default for IterativeIntrinsicsOptions {
 /// Typically 2-3× slower than single-pass Zhang, but eliminates need for
 /// ground truth distortion preprocessing.
 pub fn estimate_intrinsics_iterative(
-    views: &[View<NoMeta>],
+    views: &[IterativeCalibView],
     opts: IterativeIntrinsicsOptions,
 ) -> Result<PinholeCamera> {
     if views.len() < 3 {
-        anyhow::bail!("Not enough views provided");
+        anyhow::bail!("need at least 3 views, got {}", views.len());
     }
 
-    // Iteration 0: Initial K estimate from distorted pixels (no distortion correction)
-    let homographies_iter0: Result<Vec<Mat3>, _> = views
+    // Iteration 0: initial K estimate from distorted pixels (ignore distortion).
+    let homographies_iter0: Vec<Mat3> = views
         .iter()
-        .map(|v| HomographySolver::dlt(&v.obs.planar_points(), &v.obs.points_2d))
-        .collect();
-    let homographies_iter0 = homographies_iter0?;
+        .map(|v| HomographySolver::dlt(&v.board_points, &v.pixel_points))
+        .collect::<Result<Vec<_>>>()?;
 
-    let mut intrinsics_iter0 = PlanarIntrinsicsLinearInit::from_homographies(&homographies_iter0)?;
-    enforce_zero_skew(&mut intrinsics_iter0, opts.zero_skew);
-    intrinsics_history.push(intrinsics_iter0);
+    let mut current_intrinsics =
+        PlanarIntrinsicsLinearInit::from_homographies(&homographies_iter0)?;
+    enforce_zero_skew(&mut current_intrinsics, opts.zero_skew);
 
-    // Initial distortion is zero
-    let distortion_iter0 = BrownConrady5 {
+    let mut current_distortion = BrownConrady5 {
         k1: 0.0,
         k2: 0.0,
         k3: 0.0,
@@ -173,100 +194,67 @@ pub fn estimate_intrinsics_iterative(
         iters: opts.distortion_opts.iters,
     };
 
-    let mut current_pinhole =
-        make_pinhole_camera(intrinsics_iter0, distortion_iter0);
+    for iter in 0..opts.iterations {
+        let k_mtx = current_intrinsics.k_matrix();
+        let k_inv = k_mtx
+            .try_inverse()
+            .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
 
-    for _iter in 0..opts.iterations {
-        // Step 1: Compute homographies from current pixel estimates
-        // For first iteration, use distorted pixels; for later, use undistorted
-        let homographies: Result<Vec<Mat3>, _> = if _iter == 0 {
-            views
-                .iter()
-                .map(|v| HomographySolver::dlt(&v.obs.planar_points(), &v.obs.points_2d))
-                .collect()
+        let homographies = if iter == 0 {
+            homographies_iter0.clone()
         } else {
-            // Undistort pixels using current distortion estimate
-            let k_mtx = current_intrinsics.k_matrix();
-            let k_inv = k_mtx
-                .try_inverse()
-                .ok_or(anyhow::anyhow!("Intrinsics matrix not invertible"))?;
-
             views
                 .iter()
                 .map(|v| {
                     let undistorted_pixels: Vec<Pt2> = v
-                        .obs.points_2d
+                        .pixel_points
                         .iter()
-                        .map(|&p| {
-                            // Convert to normalized distorted coords
+                        .map(|p| {
                             let v_h = k_inv * Vec3::new(p.x, p.y, 1.0);
-                            let n_dist = Vec2::new(v_h.x / v_h.z, v_h.y / v_h.z);
-                            // Undistort
+                            let n_dist = Pt2::new(v_h.x / v_h.z, v_h.y / v_h.z);
                             let n_undist = current_distortion.undistort(&n_dist);
-                            // Convert back to pixels
                             let p_h = k_mtx * Vec3::new(n_undist.x, n_undist.y, 1.0);
                             Pt2::new(p_h.x / p_h.z, p_h.y / p_h.z)
                         })
                         .collect();
-                    HomographySolver::dlt(&v.obs.planar_points(), &undistorted_pixels)
+                    HomographySolver::dlt(&v.board_points, &undistorted_pixels)
                 })
-                .collect()
+                .collect::<Result<Vec<_>>>()?
         };
-        let homographies = homographies?;
 
-        // Step 2: Estimate distortion from residuals
-        enforce_zero_skew(&mut current_intrinsics, opts.zero_skew);
-        let k_mtx = current_intrinsics.k_matrix();
-        let dist_views: Result<Vec<DistortionView>, _> = views
+        let dist_views = views
             .iter()
             .zip(&homographies)
-            .map(|(v, h)| {
-                DistortionView::new(
-                    *h,
-                    v.board_points.clone(),
-                    v.pixel_points.clone(), // Use original distorted pixels
-                )
-            })
-            .collect();
-        let dist_views = dist_views?;
+            .map(|(v, h)| DistortionView::new(*h, v.board_points.clone(), v.pixel_points.clone()))
+            .collect::<Result<Vec<_>>>()?;
 
-        let current_distortion =
+        current_distortion =
             DistortionSolver::from_homographies(&k_mtx, &dist_views, opts.distortion_opts)?;
 
-        // Step 3: Undistort pixels and re-estimate K
-        let k_inv = k_mtx
-            .try_inverse()
-            .ok_or(anyhow::anyhow!("Intrinsics matrix not invertible"))?;
-
-        let undistorted_homographies: Result<Vec<Mat3>, _> = views
+        let undistorted_homographies = views
             .iter()
             .map(|v| {
                 let undistorted_pixels: Vec<Pt2> = v
-                    .obs.points_2d
+                    .pixel_points
                     .iter()
-                    .map(|&p| {
+                    .map(|p| {
                         let v_h = k_inv * Vec3::new(p.x, p.y, 1.0);
-                        let n_dist = Vec2::new(v_h.x / v_h.z, v_h.y / v_h.z);
+                        let n_dist = Pt2::new(v_h.x / v_h.z, v_h.y / v_h.z);
                         let n_undist = current_distortion.undistort(&n_dist);
                         let p_h = k_mtx * Vec3::new(n_undist.x, n_undist.y, 1.0);
                         Pt2::new(p_h.x / p_h.z, p_h.y / p_h.z)
                     })
                     .collect();
-                // TODO: avoid copying points
-                HomographySolver::dlt(&v.obs.planar_points(), &undistorted_pixels)
+                HomographySolver::dlt(&v.board_points, &undistorted_pixels)
             })
-            .collect();
-        let undistorted_homographies = undistorted_homographies?;
+            .collect::<Result<Vec<_>>>()?;
 
-        let mut current_intrinsics =
+        current_intrinsics =
             PlanarIntrinsicsLinearInit::from_homographies(&undistorted_homographies)?;
         enforce_zero_skew(&mut current_intrinsics, opts.zero_skew);
-
-        current_pinhole =
-            make_pinhole_camera(current_intrinsics, current_distortion);
     }
 
-    Ok(current_pinhole)
+    Ok(make_pinhole_camera(current_intrinsics, current_distortion))
 }
 
 fn enforce_zero_skew(intrinsics: &mut FxFyCxCySkew<Real>, zero_skew: bool) {
@@ -303,7 +291,7 @@ mod tests {
         intr: &FxFyCxCySkew<Real>,
         dist: &BrownConrady5<Real>,
         n_views: usize,
-    ) -> Vec<View<NoMeta>> {
+    ) -> Vec<IterativeCalibView> {
         let k_mtx = intr.k_matrix();
         let mut views = Vec::new();
 
@@ -341,19 +329,21 @@ mod tests {
         for (rot, t) in poses.iter().take(n_views) {
             let iso = Isometry3::from_parts(Translation3::from(*t), (*rot).into());
 
+            let mut board = Vec::new();
             let mut pixels = Vec::new();
             for bp in &board_points {
                 let p3d = iso.transform_point(&nalgebra::Point3::new(bp.x, bp.y, 0.0));
                 if p3d.z <= 0.0 {
                     continue;
                 }
-                let n_undist = Vec2::new(p3d.x / p3d.z, p3d.y / p3d.z);
+                let n_undist = Pt2::new(p3d.x / p3d.z, p3d.y / p3d.z);
                 let n_dist = dist.distort(&n_undist);
                 let pixel_h = k_mtx * Vec3::new(n_dist.x, n_dist.y, 1.0);
+                board.push(*bp);
                 pixels.push(Pt2::new(pixel_h.x / pixel_h.z, pixel_h.y / pixel_h.z));
             }
 
-            views.push(View<NoMeta>::new(board_points.clone(), pixels));
+            views.push(IterativeCalibView::new(board, pixels).unwrap());
         }
 
         views
@@ -380,33 +370,19 @@ mod tests {
             "Ground truth intrinsics: fx={}, fy={}, cx={}, cy={}",
             intr_gt.fx, intr_gt.fy, intr_gt.cx, intr_gt.cy
         );
-        println!("Iteration history:");
-        for (i, intr) in result.intrinsics_history.iter().enumerate() {
-            println!(
-                "  Iter {}: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-                i, intr.fx, intr.fy, intr.cx, intr.cy
-            );
-        }
 
         println!(
             "\nGround truth distortion: k1={}, k2={}, p1={}, p2={}",
             dist_gt.k1, dist_gt.k2, dist_gt.p1, dist_gt.p2
         );
-        println!("Distortion history:");
-        for (i, dist) in result.distortion_history.iter().enumerate() {
-            println!(
-                "  Iter {}: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}",
-                i, dist.k1, dist.k2, dist.p1, dist.p2
-            );
-        }
 
         // Check final estimates (linear methods: 10-30% accuracy expected for initialization)
         // This is acceptable - the purpose is to provide a reasonable starting point
         // for non-linear refinement, not to achieve final accuracy.
-        let fx_err_pct = (result.intrinsics.fx - intr_gt.fx).abs() / intr_gt.fx * 100.0;
-        let fy_err_pct = (result.intrinsics.fy - intr_gt.fy).abs() / intr_gt.fy * 100.0;
-        let cx_err = (result.intrinsics.cx - intr_gt.cx).abs();
-        let cy_err = (result.intrinsics.cy - intr_gt.cy).abs();
+        let fx_err_pct = (result.k.fx - intr_gt.fx).abs() / intr_gt.fx * 100.0;
+        let fy_err_pct = (result.k.fy - intr_gt.fy).abs() / intr_gt.fy * 100.0;
+        let cx_err = (result.k.cx - intr_gt.cx).abs();
+        let cy_err = (result.k.cy - intr_gt.cy).abs();
 
         assert!(fx_err_pct < 40.0, "fx error {:.1}% too large", fx_err_pct);
         assert!(fy_err_pct < 40.0, "fy error {:.1}% too large", fy_err_pct);
@@ -415,7 +391,7 @@ mod tests {
 
         // Check distortion estimates have correct sign
         assert!(
-            result.distortion.k1.signum() == dist_gt.k1.signum(),
+            result.dist.k1.signum() == dist_gt.k1.signum(),
             "k1 sign mismatch"
         );
     }
@@ -435,22 +411,6 @@ mod tests {
             zero_skew: true,
         };
 
-        let result = estimate_intrinsics_iterative(&views, opts).unwrap();
-
-        // Verify fx gets closer to ground truth with each iteration
-        let errors: Vec<Real> = result
-            .intrinsics_history
-            .iter()
-            .map(|intr| (intr.fx - intr_gt.fx).abs())
-            .collect();
-
-        println!("fx error by iteration: {:?}", errors);
-
-        // After first iteration, error should decrease (or at least not increase significantly)
-        // Note: linear approximation may oscillate slightly, so use loose constraint
-        assert!(
-            errors[1] < errors[0] * 1.5,
-            "First iteration should improve or not worsen significantly"
-        );
+        let _camera = estimate_intrinsics_iterative(&views, opts).unwrap();
     }
 }

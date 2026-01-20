@@ -1,12 +1,12 @@
-use nalgebra::{Matrix3, RealField, Vector2, Vector3};
+use nalgebra::{Matrix3, Point2, Point3, RealField};
 use serde::{Deserialize, Serialize};
 
 /// Sensor model mapping between normalized and sensor-plane coordinates.
 pub trait SensorModel<S: RealField + Copy> {
     /// Map normalized coordinates to the sensor plane.
-    fn normalized_to_sensor(&self, n: &Vector2<S>) -> Vector2<S>;
+    fn normalized_to_sensor(&self, n: &Point2<S>) -> Point2<S>;
     /// Map sensor-plane coordinates back to normalized coordinates.
-    fn sensor_to_normalized(&self, s: &Vector2<S>) -> Vector2<S>;
+    fn sensor_to_normalized(&self, s: &Point2<S>) -> Point2<S>;
 }
 
 /// Identity sensor model.
@@ -14,11 +14,11 @@ pub trait SensorModel<S: RealField + Copy> {
 pub struct IdentitySensor;
 
 impl<S: RealField + Copy> SensorModel<S> for IdentitySensor {
-    fn normalized_to_sensor(&self, n: &Vector2<S>) -> Vector2<S> {
+    fn normalized_to_sensor(&self, n: &Point2<S>) -> Point2<S> {
         *n
     }
 
-    fn sensor_to_normalized(&self, s: &Vector2<S>) -> Vector2<S> {
+    fn sensor_to_normalized(&self, s: &Point2<S>) -> Point2<S> {
         *s
     }
 }
@@ -41,11 +41,11 @@ impl<S: RealField + Copy> HomographySensor<S> {
 }
 
 impl<S: RealField + Copy> SensorModel<S> for HomographySensor<S> {
-    fn normalized_to_sensor(&self, n: &Vector2<S>) -> Vector2<S> {
+    fn normalized_to_sensor(&self, n: &Point2<S>) -> Point2<S> {
         dehomogenize(&(self.h * homogenize(n)))
     }
 
-    fn sensor_to_normalized(&self, s: &Vector2<S>) -> Vector2<S> {
+    fn sensor_to_normalized(&self, s: &Point2<S>) -> Point2<S> {
         dehomogenize(&(self.h_inv * homogenize(s)))
     }
 }
@@ -83,12 +83,12 @@ impl ScheimpflugParams {
     }
 }
 
-fn homogenize<S: RealField + Copy>(p: &Vector2<S>) -> Vector3<S> {
-    Vector3::new(p.x, p.y, S::one())
+fn homogenize<S: RealField + Copy>(p: &Point2<S>) -> Point3<S> {
+    Point3::new(p.x, p.y, S::one())
 }
 
-fn dehomogenize<S: RealField + Copy>(p: &Vector3<S>) -> Vector2<S> {
-    Vector2::new(p.x / p.z, p.y / p.z)
+fn dehomogenize<S: RealField + Copy>(p: &Point3<S>) -> Point2<S> {
+    Point2::new(p.x / p.z, p.y / p.z)
 }
 
 fn tilt_projection_matrix(tau_x: f64, tau_y: f64) -> Matrix3<f64> {

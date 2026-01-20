@@ -394,12 +394,12 @@ dependencies = [
 name = "calib-linear"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "calib-core",
  "log",
  "nalgebra",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
 ]
 
 [[package]]

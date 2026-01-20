@@ -45,8 +45,8 @@ pub use planar_intrinsics::{
 
 // Re-export shared helpers
 pub use helpers::{
-    initialize_planar_intrinsics, optimize_planar_intrinsics_from_init,
-    PlanarIntrinsicsInitResult, PlanarIntrinsicsOptimResult,
+    initialize_planar_intrinsics, optimize_planar_intrinsics_from_init, PlanarIntrinsicsInitResult,
+    PlanarIntrinsicsOptimResult,
 };
 
 // Re-export from calib-core for convenience

@@ -11,6 +11,24 @@ pub struct View<Meta> {
     pub meta: Meta,
 }
 
+impl<Meta> View<Meta> {
+    /// Number of observations in this view.
+    pub fn num_observations(&self) -> usize {
+        self.obs.points_3d.len()
+    }
+
+    pub fn new(obs: CorrespondenceView, meta: Meta) -> Self {
+        Self { obs, meta }
+    }
+}
+
+impl View<NoMeta> {
+    /// Create a view without metadata.
+    pub fn without_meta(obs: CorrespondenceView) -> Self {
+        Self { obs, meta: NoMeta }
+    }
+}
+
 /// Multi-camera observations for one rig view/frame.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigViewObs {

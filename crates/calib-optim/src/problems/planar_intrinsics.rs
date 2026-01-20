@@ -10,7 +10,8 @@ use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_D
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
-    View, NoMeta, BrownConrady5, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, PinholeCamera, Real, compute_mean_reproj_error, make_pinhole_camera
+    compute_mean_reproj_error, make_pinhole_camera, BrownConrady5, DistortionFixMask, FxFyCxCySkew,
+    IntrinsicsFixMask, Iso3, NoMeta, PinholeCamera, Real, View,
 };
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
@@ -28,7 +29,11 @@ impl PlanarDataset {
     pub fn new(views: Vec<View<NoMeta>>) -> Result<Self> {
         ensure!(!views.is_empty(), "need at least one view for calibration");
         for (i, view) in views.iter().enumerate() {
-            ensure!(view.obs.len() >= 4, "view {} has too few points (need >=4)", i);
+            ensure!(
+                view.obs.len() >= 4,
+                "view {} has too few points (need >=4)",
+                i
+            );
         }
         Ok(Self { views })
     }

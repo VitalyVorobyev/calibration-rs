@@ -24,33 +24,11 @@
 //! which is degenerate for plane fitting. Use [`LinescanPlaneSolver::from_views`] with
 //! at least 2 views at different poses to obtain non-collinear points.
 
+use anyhow::Result;
 use calib_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt2, Pt3, Real, Vec2,
+    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt2, Pt3, Real,
 };
 use nalgebra::{Point3, UnitVector3, Vector3};
-use thiserror::Error;
-
-/// Errors that can occur during linescan plane estimation.
-#[derive(Debug, Error)]
-pub enum LinescanError {
-    #[error("insufficient points: got {got}, need at least {min}")]
-    InsufficientPoints { got: usize, min: usize },
-
-    #[error("insufficient views: got {got}, need at least {min}")]
-    InsufficientViews { got: usize, min: usize },
-
-    #[error("numerical failure: {0}")]
-    NumericalFailure(String),
-
-    #[error("ray parallel to target plane (degenerate geometry)")]
-    RayParallelToTargetPlane,
-
-    #[error("collinear points: cannot fit plane to points along a single line")]
-    CollinearPoints,
-}
-
-/// Result type for linescan operations.
-pub type LinescanResult<T> = std::result::Result<T, LinescanError>;
 
 /// Laser line observations for a single view.
 ///
@@ -97,12 +75,13 @@ impl LinescanPlaneSolver {
     /// Requires at least 3 non-collinear points. Collinearity is detected
     /// by checking if the smallest eigenvalue is negligibly small compared
     /// to the second-smallest.
-    pub fn from_points_3d(points_camera: &[Pt3]) -> LinescanResult<LinearPlaneEstimate> {
+    pub fn from_points_3d(points_camera: &[Pt3]) -> Result<LinearPlaneEstimate> {
         if points_camera.len() < 3 {
-            return Err(LinescanError::InsufficientPoints {
-                got: points_camera.len(),
-                min: 3,
-            });
+            anyhow::bail!(
+                "insufficient points: got {}, need at least {}",
+                points_camera.len(),
+                3
+            );
         }
 
         // Use covariance-based approach for numerical stability
@@ -143,11 +122,11 @@ impl LinescanPlaneSolver {
             // Relative threshold: check if points span 2D (plane) or 1D (line)
             let rank1_ratio = second_eigenvalue / max_eigenvalue;
             if rank1_ratio < RANK_THRESHOLD {
-                return Err(LinescanError::CollinearPoints);
+                anyhow::bail!("collinear points: cannot fit plane to points along a single line");
             }
         } else if min_eigenvalue.abs() < RANK_THRESHOLD && second_eigenvalue < RANK_THRESHOLD {
             // All eigenvalues near zero: degenerate (all points at same location)
-            return Err(LinescanError::CollinearPoints);
+            anyhow::bail!("collinear points: cannot fit plane to points along a single line");
         }
 
         let normal_vec = eigen.eigenvectors.column(min_idx);
@@ -197,12 +176,13 @@ impl LinescanPlaneSolver {
     pub fn from_views(
         views: &[LinescanView],
         camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
-    ) -> LinescanResult<LinearPlaneEstimate> {
+    ) -> Result<LinearPlaneEstimate> {
         if views.len() < 2 {
-            return Err(LinescanError::InsufficientViews {
-                got: views.len(),
-                min: 2,
-            });
+            anyhow::bail!(
+                "insufficient views: got {}, need at least {}",
+                views.len(),
+                2
+            );
         }
 
         // Gather all 3D points from all views
@@ -213,10 +193,11 @@ impl LinescanPlaneSolver {
         }
 
         if all_points.len() < 3 {
-            return Err(LinescanError::InsufficientPoints {
-                got: all_points.len(),
-                min: 3,
-            });
+            anyhow::bail!(
+                "insufficient points: got {}, need at least {}",
+                all_points.len(),
+                3
+            );
         }
 
         // Fit plane to 3D points
@@ -227,7 +208,7 @@ impl LinescanPlaneSolver {
     ///
     /// **Warning**: A single view produces collinear 3D points, which is
     /// degenerate for plane fitting. This method will likely fail with
-    /// [`LinescanError::CollinearPoints`].
+    /// an error because a single view produces collinear points.
     ///
     /// Use [`Self::from_views`] with multiple views instead.
     #[deprecated(
@@ -237,9 +218,9 @@ impl LinescanPlaneSolver {
     pub fn from_view(
         view: &LinescanView,
         camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
-    ) -> LinescanResult<LinearPlaneEstimate> {
+    ) -> Result<LinearPlaneEstimate> {
         if view.laser_pixels.is_empty() {
-            return Err(LinescanError::InsufficientPoints { got: 0, min: 1 });
+            anyhow::bail!("insufficient points: got 0, need at least 1");
         }
 
         // Compute 3D points in camera frame
@@ -260,13 +241,13 @@ impl LinescanPlaneSolver {
         laser_pixels: &[Pt2],
         camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
         camera_pose: &Iso3,
-    ) -> LinescanResult<Vec<Pt3>> {
+    ) -> Result<Vec<Pt3>> {
         let mut points_camera = Vec::with_capacity(laser_pixels.len());
 
         for pixel in laser_pixels {
             // 1. Backproject pixel to ray on z=1 plane in camera frame
             // This handles undistortion and normalization internally
-            let ray = camera.backproject_pixel(&Vec2::new(pixel.x, pixel.y));
+            let ray = camera.backproject_pixel(&Pt2::new(pixel.x, pixel.y));
             let ray_dir_camera = ray.point.normalize();
 
             // 2. Transform ray to target frame
@@ -280,7 +261,7 @@ impl LinescanPlaneSolver {
             // Plane: Z = 0
             // Solve: ray_origin_target.z + t * ray_dir_target.z = 0
             if ray_dir_target.z.abs() < 1e-12 {
-                return Err(LinescanError::RayParallelToTargetPlane);
+                anyhow::bail!("ray parallel to target plane (degenerate geometry)");
             }
 
             let t = -ray_origin_target.z / ray_dir_target.z;
@@ -388,10 +369,11 @@ mod tests {
         ];
 
         let result = LinescanPlaneSolver::from_points_3d(&points);
+        let err = result.unwrap_err().to_string();
         assert!(
-            matches!(result, Err(LinescanError::CollinearPoints)),
-            "Expected CollinearPoints error, got {:?}",
-            result
+            err.contains("collinear points"),
+            "unexpected error: {}",
+            err
         );
     }
 
@@ -404,10 +386,12 @@ mod tests {
         };
 
         let result = LinescanPlaneSolver::from_views(&[view], &camera);
-        assert!(matches!(
-            result,
-            Err(LinescanError::InsufficientViews { got: 1, min: 2 })
-        ));
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("insufficient views"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     #[test]

@@ -30,7 +30,7 @@ pub use sensor::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::Vector2;
+    use nalgebra::Point2;
 
     #[test]
     fn roundtrip_backproject_project_no_tilt_no_dist() {
@@ -50,7 +50,7 @@ mod tests {
         };
         let cam = params.build();
 
-        let px = Vector2::new(1000.0, 200.0);
+        let px = Point2::new(1000.0, 200.0);
         let ray = cam.backproject_pixel(&px);
         let p = ray.point * 2.5;
         let px2 = cam.project_point_c(&p).unwrap();
@@ -82,7 +82,7 @@ mod tests {
         };
         let cam = params.build();
 
-        let px = Vector2::new(900.0, 500.0);
+        let px = Point2::new(900.0, 500.0);
         let ray = cam.backproject_pixel(&px);
         let p = ray.point * 3.0;
         let px2 = cam.project_point_c(&p).unwrap();

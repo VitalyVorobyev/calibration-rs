@@ -3,42 +3,9 @@
 //! Estimates per-camera rig transforms and per-view rig-to-target poses from
 //! per-camera target observations.
 
+use anyhow::Result;
 use calib_core::{Iso3, Real};
 use nalgebra::{Quaternion, Translation3, UnitQuaternion, Vector3};
-use thiserror::Error;
-
-/// Errors that can occur during rig extrinsics initialization.
-#[derive(Debug, Error, Clone, Copy)]
-pub enum ExtrinsicsError {
-    /// No views were provided.
-    #[error("need at least one view")]
-    EmptyViews,
-    /// A view contains no cameras.
-    #[error("need at least one camera per view")]
-    EmptyCameras,
-    /// Reference camera index is out of bounds.
-    #[error("invalid ref_cam_idx {ref_cam_idx} for {num_cameras} cameras")]
-    InvalidRefCamIndex {
-        ref_cam_idx: usize,
-        num_cameras: usize,
-    },
-    /// A view has a different camera count than expected.
-    #[error("view {view} has camera count {found}, expected {expected}")]
-    InconsistentCameraCount {
-        view: usize,
-        expected: usize,
-        found: usize,
-    },
-    /// No overlapping views between a camera and the reference camera.
-    #[error("no overlapping views between camera {cam_idx} and reference {ref_cam_idx}")]
-    NoOverlap { cam_idx: usize, ref_cam_idx: usize },
-    /// A view has no valid camera poses.
-    #[error("view {view} has no valid camera poses")]
-    NoValidCameraPoses { view: usize },
-    /// Attempted to average an empty set of poses.
-    #[error("cannot average an empty set of poses")]
-    EmptyPoses,
-}
 
 /// Result of multi-camera extrinsics initialization:
 /// - `cam_to_rig(cam)`: transform from camera frame to rig frame
@@ -59,9 +26,9 @@ pub struct MultiCamExtrinsicsInit;
 ///
 /// Use this only for initialization; it does not preserve full rotation
 /// statistics and should be refined downstream.
-pub fn average_isometries(poses: &[Iso3]) -> Result<Iso3, ExtrinsicsError> {
+pub fn average_isometries(poses: &[Iso3]) -> Result<Iso3> {
     if poses.is_empty() {
-        return Err(ExtrinsicsError::EmptyPoses);
+        anyhow::bail!("cannot average an empty set of poses");
     }
 
     // 1) Average translation
@@ -116,7 +83,7 @@ pub fn average_isometries(poses: &[Iso3]) -> Result<Iso3, ExtrinsicsError> {
 pub fn estimate_extrinsics_from_cam_target_poses(
     cam_se3_target: &[Vec<Option<Iso3>>],
     ref_cam_idx: usize,
-) -> Result<ExtrinsicPoses, ExtrinsicsError> {
+) -> Result<ExtrinsicPoses> {
     MultiCamExtrinsicsInit::from_cam_target_poses(cam_se3_target, ref_cam_idx)
 }
 
@@ -128,30 +95,32 @@ impl MultiCamExtrinsicsInit {
     pub fn from_cam_target_poses(
         cam_se3_target: &[Vec<Option<Iso3>>],
         ref_cam_idx: usize,
-    ) -> Result<ExtrinsicPoses, ExtrinsicsError> {
+    ) -> Result<ExtrinsicPoses> {
         let num_views = cam_se3_target.len();
         if num_views == 0 {
-            return Err(ExtrinsicsError::EmptyViews);
+            anyhow::bail!("need at least one view");
         }
 
         let num_cameras = cam_se3_target[0].len();
         if num_cameras == 0 {
-            return Err(ExtrinsicsError::EmptyCameras);
+            anyhow::bail!("need at least one camera per view");
         }
         if ref_cam_idx >= num_cameras {
-            return Err(ExtrinsicsError::InvalidRefCamIndex {
+            anyhow::bail!(
+                "invalid ref_cam_idx {} for {} cameras",
                 ref_cam_idx,
-                num_cameras,
-            });
+                num_cameras
+            );
         }
 
         for (v_idx, view) in cam_se3_target.iter().enumerate() {
             if view.len() != num_cameras {
-                return Err(ExtrinsicsError::InconsistentCameraCount {
-                    view: v_idx,
-                    expected: num_cameras,
-                    found: view.len(),
-                });
+                anyhow::bail!(
+                    "view {} has camera count {}, expected {}",
+                    v_idx,
+                    view.len(),
+                    num_cameras
+                );
             }
         }
 
@@ -175,10 +144,11 @@ impl MultiCamExtrinsicsInit {
             }
 
             if candidates.is_empty() {
-                return Err(ExtrinsicsError::NoOverlap {
+                anyhow::bail!(
+                    "no overlapping views between camera {} and reference {}",
                     cam_idx,
-                    ref_cam_idx,
-                });
+                    ref_cam_idx
+                );
             }
 
             let avg = average_isometries(&candidates)?;
@@ -200,7 +170,7 @@ impl MultiCamExtrinsicsInit {
             }
 
             if candidates.is_empty() {
-                return Err(ExtrinsicsError::NoValidCameraPoses { view: v_idx });
+                anyhow::bail!("view {} has no valid camera poses", v_idx);
             }
 
             let avg = average_isometries(&candidates)?;

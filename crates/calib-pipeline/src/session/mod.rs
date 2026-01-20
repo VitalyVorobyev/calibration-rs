@@ -51,7 +51,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::time::SystemTime;
 
-pub use types::{ArtifactId, ArtifactKind, ExportOptions, FilterOptions, RunId, RunKind, RunRecord};
+pub use types::{
+    ArtifactId, ArtifactKind, ExportOptions, FilterOptions, RunId, RunKind, RunRecord,
+};
 
 /// Trait defining the interface for a calibration problem.
 ///
@@ -87,8 +89,10 @@ pub trait ProblemType: Sized {
     fn problem_name() -> &'static str;
 
     /// Run linear initialization to compute initial parameter estimates.
-    fn initialize(obs: &Self::Observations, opts: &Self::InitOptions)
-        -> Result<Self::InitialValues>;
+    fn initialize(
+        obs: &Self::Observations,
+        opts: &Self::InitOptions,
+    ) -> Result<Self::InitialValues>;
 
     /// Run non-linear optimization to refine parameters.
     ///
@@ -455,11 +459,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     fn require_observations(&self, id: ArtifactId) -> Result<&P::Observations> {
         match self.artifacts.get(&id) {
             Some(Artifact::Observations(obs)) => Ok(obs),
-            Some(other) => bail!(
-                "artifact {} is {}, expected Observations",
-                id,
-                other.kind()
-            ),
+            Some(other) => bail!("artifact {} is {}, expected Observations", id, other.kind()),
             None => bail!("artifact {} not found", id),
         }
     }
@@ -648,7 +648,9 @@ mod tests {
         };
         let obs_id = session.add_observations(obs);
 
-        let init_id = session.run_init(obs_id, MockInitOptions::default()).unwrap();
+        let init_id = session
+            .run_init(obs_id, MockInitOptions::default())
+            .unwrap();
         assert_eq!(init_id.raw(), 1);
 
         let init = session.get_initial_values(init_id).unwrap();
@@ -662,7 +664,9 @@ mod tests {
             data: vec![1.0, 2.0, 3.0],
         };
         let obs_id = session.add_observations(obs);
-        let init_id = session.run_init(obs_id, MockInitOptions::default()).unwrap();
+        let init_id = session
+            .run_init(obs_id, MockInitOptions::default())
+            .unwrap();
 
         // Try to init from an InitialValues artifact (should fail)
         let result = session.run_init(init_id, MockInitOptions::default());
@@ -685,7 +689,9 @@ mod tests {
             data: vec![1.0, 2.0, 3.0],
         };
         let obs_id = session.add_observations(obs);
-        let init_id = session.run_init(obs_id, MockInitOptions::default()).unwrap();
+        let init_id = session
+            .run_init(obs_id, MockInitOptions::default())
+            .unwrap();
 
         let result_id = session
             .run_optimize(obs_id, init_id, MockOptimOptions::default())
@@ -726,7 +732,9 @@ mod tests {
             data: vec![1.0, 2.0, 3.0],
         };
         let obs_id = session.add_observations(obs);
-        let init_id = session.run_init(obs_id, MockInitOptions::default()).unwrap();
+        let init_id = session
+            .run_init(obs_id, MockInitOptions::default())
+            .unwrap();
 
         // Two optimizations from same init
         let result_a = session
@@ -748,7 +756,9 @@ mod tests {
             data: vec![1.0, 2.0, 100.0],
         }; // 100.0 is outlier
         let obs_id = session.add_observations(obs);
-        let init_id = session.run_init(obs_id, MockInitOptions::default()).unwrap();
+        let init_id = session
+            .run_init(obs_id, MockInitOptions::default())
+            .unwrap();
         let result_id = session
             .run_optimize(obs_id, init_id, MockOptimOptions::default())
             .unwrap();
@@ -775,12 +785,16 @@ mod tests {
             data: vec![1.0, 2.0, 3.0],
         };
         let obs_id = session.add_observations(obs);
-        let init_id = session.run_init(obs_id, MockInitOptions::default()).unwrap();
+        let init_id = session
+            .run_init(obs_id, MockInitOptions::default())
+            .unwrap();
         let result_id = session
             .run_optimize(obs_id, init_id, MockOptimOptions::default())
             .unwrap();
 
-        let report = session.run_export(result_id, ExportOptions::default()).unwrap();
+        let report = session
+            .run_export(result_id, ExportOptions::default())
+            .unwrap();
         assert!((report.final_value - 12.0).abs() < 1e-12);
     }
 
@@ -792,7 +806,9 @@ mod tests {
             data: vec![1.0, 2.0, 3.0],
         };
         let obs_id = session.add_observations(obs);
-        session.run_init(obs_id, MockInitOptions::default()).unwrap();
+        session
+            .run_init(obs_id, MockInitOptions::default())
+            .unwrap();
 
         let json = session.to_json().unwrap();
         let restored: CalibrationSession<MockProblem> =
@@ -814,7 +830,9 @@ mod tests {
         };
         let obs_id = session.add_observations(obs.clone());
         session.add_observations(obs);
-        session.run_init(obs_id, MockInitOptions::default()).unwrap();
+        session
+            .run_init(obs_id, MockInitOptions::default())
+            .unwrap();
 
         let obs_list = session.list_artifacts(ArtifactKind::Observations);
         let init_list = session.list_artifacts(ArtifactKind::InitialValues);
@@ -830,7 +848,9 @@ mod tests {
             data: vec![1.0, 2.0, 3.0],
         };
         let obs_id = session.add_observations(obs);
-        let init_id = session.run_init(obs_id, MockInitOptions::default()).unwrap();
+        let init_id = session
+            .run_init(obs_id, MockInitOptions::default())
+            .unwrap();
 
         // Find run that produced init_id
         let producing_runs = session.runs_producing(init_id);

@@ -3,7 +3,7 @@
 //! This module provides canonical data structures for storing 2D-3D point
 //! correspondences used throughout the calibration pipeline.
 
-use crate::{Pt3, Pt2};
+use crate::{Pt2, Pt3};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 

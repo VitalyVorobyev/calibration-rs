@@ -9,7 +9,7 @@ use crate::params::distortion::{pack_distortion, unpack_distortion, DISTORTION_D
 use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_DIM};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use anyhow::{ensure, Result};
-use calib_core::{make_pinhole_camera, CameraFixMask, Iso3, PinholeCamera, RigDataset, NoMeta};
+use calib_core::{make_pinhole_camera, CameraFixMask, Iso3, NoMeta, PinholeCamera, RigDataset};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

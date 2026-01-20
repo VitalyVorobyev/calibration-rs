@@ -3,8 +3,8 @@
 //! Implements the normalized 8-point algorithm, the minimal 7-point solver,
 //! and RANSAC-based robust estimation for fundamental matrices.
 
-use super::EpipolarError;
 use crate::math::{mat3_from_svd_row, solve_cubic_real};
+use anyhow::Result;
 use calib_core::{ransac_fit, Estimator, Mat3, Pt2, RansacOptions, Real};
 use nalgebra::{DMatrix, SMatrix};
 
@@ -13,10 +13,10 @@ use nalgebra::{DMatrix, SMatrix};
 /// `pts1` and `pts2` are corresponding pixel points in two images. The
 /// returned matrix is forced to rank-2 and satisfies `x'^T F x = 0`
 /// (up to numerical error).
-pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3, EpipolarError> {
+pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     let n = pts1.len();
     if n < 8 || pts2.len() != n {
-        return Err(EpipolarError::NotEnoughPoints(n));
+        return Err(anyhow::anyhow!("Not enough points"));
     }
 
     let pts1_n = pts1.to_vec();
@@ -55,7 +55,7 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3, EpipolarEr
     }
 
     let svd = a_work.svd(true, true);
-    let v_t = svd.v_t.ok_or(EpipolarError::SvdFailed)?;
+    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
     let f_vec = v_t.row(v_t.nrows() - 1);
 
     let mut f = Mat3::zeros();
@@ -67,9 +67,9 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3, EpipolarEr
 
     // Enforce rank-2 constraint on F.
     let svd_f = f.svd(true, true);
-    let u = svd_f.u.ok_or(EpipolarError::SvdFailed)?;
+    let u = svd_f.u.ok_or(anyhow::anyhow!("SVD failed"))?;
     let mut s = svd_f.singular_values;
-    let v_t = svd_f.v_t.ok_or(EpipolarError::SvdFailed)?;
+    let v_t = svd_f.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
     s[2] = 0.0;
     let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&s);
     f = u * s_mat * v_t;
@@ -84,18 +84,16 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3, EpipolarEr
 ///
 /// Returns up to three candidate fundamental matrices. Inputs are pixel
 /// coordinates; internal normalization is applied before solving.
-pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, EpipolarError> {
+pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     if pts1.len() != pts2.len() {
-        return Err(EpipolarError::InvalidPointCount {
-            expected: 7,
-            got: pts1.len().max(pts2.len()),
-        });
+        anyhow::bail!(
+            "Point count mismatch: expected 7, pts1 has {}, pts2 has {}",
+            pts1.len(),
+            pts2.len()
+        );
     }
     if pts1.len() != 7 {
-        return Err(EpipolarError::InvalidPointCount {
-            expected: 7,
-            got: pts1.len(),
-        });
+        anyhow::bail!("Point count mismatch: expected 7, got {}", pts1.len());
     }
 
     let pts1_n = pts1.to_vec();
@@ -131,9 +129,9 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Epipo
     }
 
     let svd = a_work.svd(true, true);
-    let v_t = svd.v_t.ok_or(EpipolarError::SvdFailed)?;
+    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
     if v_t.nrows() < 2 {
-        return Err(EpipolarError::SvdFailed);
+        anyhow::bail!("SVD failed: not enough nullspace vectors");
     }
 
     let f1 = mat3_from_svd_row(&v_t, v_t.nrows() - 2);
@@ -156,7 +154,7 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Epipo
 
     let roots = solve_cubic_real(a, b, c, d);
     if roots.is_empty() {
-        return Err(EpipolarError::PolynomialSolveFailed);
+        anyhow::bail!("Polynomial solve failed");
     }
 
     let mut solutions = Vec::new();
@@ -164,9 +162,9 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Epipo
         let mut f = f2 + lambda * f1;
 
         let svd_f = f.svd(true, true);
-        let u = svd_f.u.ok_or(EpipolarError::SvdFailed)?;
+        let u = svd_f.u.ok_or(anyhow::anyhow!("SVD failed"))?;
         let mut s = svd_f.singular_values;
-        let v_t = svd_f.v_t.ok_or(EpipolarError::SvdFailed)?;
+        let v_t = svd_f.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
         s[2] = 0.0;
         let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&s);
         f = u * s_mat * v_t;
@@ -187,10 +185,10 @@ pub fn fundamental_8point_ransac(
     pts1: &[Pt2],
     pts2: &[Pt2],
     opts: &RansacOptions,
-) -> Result<(Mat3, Vec<usize>), EpipolarError> {
+) -> Result<(Mat3, Vec<usize>)> {
     let n = pts1.len();
     if n < 8 || pts2.len() != n {
-        return Err(EpipolarError::NotEnoughPoints(n));
+        anyhow::bail!(format!("Not enough points: {}", n));
     }
 
     #[derive(Clone)]
@@ -245,7 +243,7 @@ pub fn fundamental_8point_ransac(
 
     let res = ransac_fit::<FundamentalEst>(&data, opts);
     if !res.success {
-        return Err(EpipolarError::RansacFailed);
+        anyhow::bail!("RANSAC failed");
     }
     let f = res.model.expect("success guarantees a model");
     Ok((f, res.inliers))
