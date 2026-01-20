@@ -38,21 +38,16 @@
 //! # Example
 //!
 //! ```no_run
-//! use calib_core::Pt2;
-//! use calib_linear::iterative_intrinsics::{
-//!     estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
-//! };
+//! use calib_core::{CorrespondenceView, PlanarDataset, Pt2, Pt3, View};
+//! use calib_linear::iterative_intrinsics::{estimate_intrinsics_iterative, IterativeIntrinsicsOptions};
 //!
-//! let views = vec![
-//!     IterativeCalibView::new(
-//!         vec![Pt2::new(0.0, 0.0), /* board points */],
-//!         vec![Pt2::new(320.0, 240.0), /* distorted pixels */],
-//!     )?,
-//!     // ... more views
-//! ];
+//! let points_3d = vec![Pt3::new(0.0, 0.0, 0.0) /* ... board points */];
+//! let points_2d = vec![Pt2::new(320.0, 240.0) /* ... distorted pixels */];
+//! let obs = CorrespondenceView::new(points_3d, points_2d)?;
+//! let dataset = PlanarDataset::new(vec![View::without_meta(obs)])?;
 //!
 //! let opts = IterativeIntrinsicsOptions::default();
-//! let camera = estimate_intrinsics_iterative(&views, opts)?;
+//! let camera = estimate_intrinsics_iterative(&dataset, opts)?;
 //!
 //! println!("Intrinsics: fx={}, fy={}, cx={}, cy={}",
 //!          camera.k.fx, camera.k.fy,
@@ -62,7 +57,9 @@
 //! ```
 
 use crate::{
-    distortion_fit::{DistortionFitOptions, DistortionSolver, DistortionView},
+    distortion_fit::{
+        estimate_distortion_from_homographies, DistortionFitOptions, DistortionView, MetaHomography,
+    },
     homography::HomographySolver,
     zhang_intrinsics::PlanarIntrinsicsLinearInit,
 };
@@ -150,23 +147,17 @@ pub fn estimate_intrinsics_iterative(
         anyhow::bail!("need at least 3 views, got {}", dataset.views.len());
     }
 
-    let target_points2d = dataset
+    let target_points_2d: Vec<Vec<Pt2>> = dataset
         .views
         .iter()
-        .map(|v| {
-            v.obs
-                .points_3d
-                .iter()
-                .map(|p| Pt2::new(p.x, p.y))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+        .map(|v| v.obs.planar_points())
+        .collect();
 
     // Iteration 0: initial K estimate from distorted pixels (ignore distortion).
     let homographies_iter0: Vec<Mat3> = dataset
         .views
         .iter()
-        .zip(&target_points2d)
+        .zip(&target_points_2d)
         .map(|(v, target)| HomographySolver::dlt(target, &v.obs.points_2d))
         .collect::<Result<Vec<_>>>()?;
 
@@ -183,59 +174,56 @@ pub fn estimate_intrinsics_iterative(
         iters: opts.distortion_opts.iters,
     };
 
-    for iter in 0..opts.iterations {
+    for _iter in 0..opts.iterations {
         let k_mtx = current_intrinsics.k_matrix();
         let k_inv = k_mtx
             .try_inverse()
             .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
 
-        let homographies = if iter == 0 {
-            homographies_iter0.clone()
-        } else {
-            dataset.views
-                .iter()
-                .zip(&target_points2d)
-                .map(|(v, target)| {
-                    let undistorted_pixels: Vec<Pt2> = v
-                        .obs.points_2d
-                        .iter()
-                        .map(|p| {
-                            let v_h = k_inv * Vec3::new(p.x, p.y, 1.0);
-                            let n_dist = Pt2::new(v_h.x / v_h.z, v_h.y / v_h.z);
-                            let n_undist = current_distortion.undistort(&n_dist);
-                            let p_h = k_mtx * Vec3::new(n_undist.x, n_undist.y, 1.0);
-                            Pt2::new(p_h.x / p_h.z, p_h.y / p_h.z)
-                        })
-                        .collect();
-                    HomographySolver::dlt(&target, &undistorted_pixels)
-                })
-                .collect::<Result<Vec<_>>>()?
-        };
-
-        let dist_views = dataset.views
+        let homographies_for_distortion: Vec<Mat3> = dataset
+            .views
             .iter()
-            .zip(&homographies)
-            .map(|(v, h)| DistortionView::new(*h, v.obs.board_points.clone(), v.obs.points_2d.clone()))
+            .zip(&target_points_2d)
+            .map(|(v, target)| {
+                let undistorted_pixels = undistort_pixels_to_pixels(
+                    &v.obs.points_2d,
+                    &k_mtx,
+                    &k_inv,
+                    &current_distortion,
+                );
+                HomographySolver::dlt(target, &undistorted_pixels)
+            })
             .collect::<Result<Vec<_>>>()?;
 
-        current_distortion =
-            DistortionSolver::from_homographies(&k_mtx, &dist_views, opts.distortion_opts)?;
-
-        let undistorted_homographies = views
+        let dist_views: Vec<DistortionView> = dataset
+            .views
             .iter()
-            .map(|v| {
-                let undistorted_pixels: Vec<Pt2> = v
-                    .pixel_points
-                    .iter()
-                    .map(|p| {
-                        let v_h = k_inv * Vec3::new(p.x, p.y, 1.0);
-                        let n_dist = Pt2::new(v_h.x / v_h.z, v_h.y / v_h.z);
-                        let n_undist = current_distortion.undistort(&n_dist);
-                        let p_h = k_mtx * Vec3::new(n_undist.x, n_undist.y, 1.0);
-                        Pt2::new(p_h.x / p_h.z, p_h.y / p_h.z)
-                    })
-                    .collect();
-                HomographySolver::dlt(&v.board_points, &undistorted_pixels)
+            .zip(&homographies_for_distortion)
+            .map(|(v, h)| {
+                DistortionView::new(
+                    v.obs.clone(),
+                    MetaHomography {
+                        homography: h.clone(),
+                    },
+                )
+            })
+            .collect();
+
+        current_distortion =
+            estimate_distortion_from_homographies(&k_mtx, &dist_views, opts.distortion_opts)?;
+
+        let undistorted_homographies: Vec<Mat3> = dataset
+            .views
+            .iter()
+            .zip(&target_points_2d)
+            .map(|(v, target)| {
+                let undistorted_pixels = undistort_pixels_to_pixels(
+                    &v.obs.points_2d,
+                    &k_mtx,
+                    &k_inv,
+                    &current_distortion,
+                );
+                HomographySolver::dlt(target, &undistorted_pixels)
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -253,12 +241,30 @@ fn enforce_zero_skew(intrinsics: &mut FxFyCxCySkew<Real>, zero_skew: bool) {
     }
 }
 
+fn undistort_pixels_to_pixels(
+    pixels: &[Pt2],
+    k_mtx: &Mat3,
+    k_inv: &Mat3,
+    distortion: &BrownConrady5<Real>,
+) -> Vec<Pt2> {
+    pixels
+        .iter()
+        .map(|p| {
+            let v_h = k_inv * Vec3::new(p.x, p.y, 1.0);
+            let n_dist = Pt2::new(v_h.x / v_h.z, v_h.y / v_h.z);
+            let n_undist = distortion.undistort(&n_dist);
+            let p_h = k_mtx * Vec3::new(n_undist.x, n_undist.y, 1.0);
+            Pt2::new(p_h.x / p_h.z, p_h.y / p_h.z)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use std::pin::Pin;
-
     use super::*;
-    use nalgebra::{Isometry3, Rotation3, Translation3, Vector3};
+    use calib_core::synthetic::planar::{grid_points, project_views_all};
+    use calib_core::{Iso3, View};
+    use nalgebra::{Translation3, UnitQuaternion};
 
     fn make_ground_truth() -> (FxFyCxCySkew<Real>, BrownConrady5<Real>) {
         let intr = FxFyCxCySkew {
@@ -279,68 +285,38 @@ mod tests {
         (intr, dist)
     }
 
-    fn generate_synthetic_views(camera: &PinholeCamera, n_views: usize) -> Vec<IterativeCalibView> {
-        let k_mtx = intr.k_matrix();
-        let mut views = Vec::new();
+    fn make_dataset(camera: &PinholeCamera, n_views: usize) -> PlanarDataset {
+        let board = grid_points(7, 7, 0.03);
 
-        // 7x7 board, 30mm spacing
-        let mut board_points = Vec::new();
-        for i in 0..7 {
-            for j in 0..7 {
-                board_points.push(Pt2::new(i as Real * 30.0, j as Real * 30.0));
-            }
-        }
-
-        let poses = [
-            (
-                Rotation3::from_euler_angles(0.1, 0.0, 0.05),
-                Vector3::new(100.0, -50.0, 1000.0),
-            ),
-            (
-                Rotation3::from_euler_angles(-0.05, 0.15, -0.1),
-                Vector3::new(-50.0, 100.0, 1200.0),
-            ),
-            (
-                Rotation3::from_euler_angles(0.2, -0.1, 0.0),
-                Vector3::new(0.0, 0.0, 900.0),
-            ),
-            (
-                Rotation3::from_euler_angles(0.0, 0.2, 0.1),
-                Vector3::new(80.0, 80.0, 1100.0),
-            ),
-            (
-                Rotation3::from_euler_angles(-0.1, 0.1, -0.05),
-                Vector3::new(-80.0, -80.0, 1050.0),
-            ),
+        let pose_params: &[(Real, Real, Real, Real, Real, Real)] = &[
+            (0.10, 0.00, 0.05, 0.10, -0.05, 1.00),
+            (-0.05, 0.15, -0.10, -0.05, 0.10, 1.20),
+            (0.20, -0.10, 0.00, 0.00, 0.00, 0.90),
+            (0.00, 0.20, 0.10, 0.08, 0.08, 1.10),
+            (-0.10, 0.10, -0.05, -0.08, -0.08, 1.05),
         ];
 
-        for (rot, t) in poses.iter().take(n_views) {
-            let iso = Isometry3::from_parts(Translation3::from(*t), (*rot).into());
+        let poses: Vec<Iso3> = pose_params
+            .iter()
+            .take(n_views)
+            .map(|&(rx, ry, rz, tx, ty, tz)| {
+                Iso3::from_parts(
+                    Translation3::new(tx, ty, tz),
+                    UnitQuaternion::from_euler_angles(rx, ry, rz),
+                )
+            })
+            .collect();
 
-            let mut board = Vec::new();
-            let mut pixels = Vec::new();
-            for bp in &board_points {
-                let p3d = iso.transform_point(&nalgebra::Point3::new(bp.x, bp.y, 0.0));
-                if p3d.z <= 0.0 {
-                    continue;
-                }
-                let n_undist = Pt2::new(p3d.x / p3d.z, p3d.y / p3d.z);
-                let n_dist = dist.distort(&n_undist);
-                let pixel_h = k_mtx * Vec3::new(n_dist.x, n_dist.y, 1.0);
-                board.push(*bp);
-                pixels.push(Pt2::new(pixel_h.x / pixel_h.z, pixel_h.y / pixel_h.z));
-            }
-
-            views.push(IterativeCalibView::new(board, pixels).unwrap());
-        }
-
-        views
+        let views = project_views_all(camera, &board, &poses).unwrap();
+        let views = views.into_iter().map(View::without_meta).collect();
+        PlanarDataset::new(views).unwrap()
     }
 
     #[test]
     fn iterative_refinement_converges() {
         let (intr_gt, dist_gt) = make_ground_truth();
-        let views = generate_synthetic_views(&intr_gt, &dist_gt, 4);
+        let camera_gt = make_pinhole_camera(intr_gt, dist_gt);
+        let dataset = make_dataset(&camera_gt, 4);
 
         let opts = IterativeIntrinsicsOptions {
             iterations: 2,
@@ -352,17 +328,7 @@ mod tests {
             zero_skew: true,
         };
 
-        let result = estimate_intrinsics_iterative(&views, opts).unwrap();
-
-        println!(
-            "Ground truth intrinsics: fx={}, fy={}, cx={}, cy={}",
-            intr_gt.fx, intr_gt.fy, intr_gt.cx, intr_gt.cy
-        );
-
-        println!(
-            "\nGround truth distortion: k1={}, k2={}, p1={}, p2={}",
-            dist_gt.k1, dist_gt.k2, dist_gt.p1, dist_gt.p2
-        );
+        let result = estimate_intrinsics_iterative(&dataset, opts).unwrap();
 
         // Check final estimates (linear methods: 10-30% accuracy expected for initialization)
         // This is acceptable - the purpose is to provide a reasonable starting point
@@ -387,18 +353,59 @@ mod tests {
     #[test]
     fn iteration_improves_estimates() {
         let (intr_gt, dist_gt) = make_ground_truth();
-        let views = generate_synthetic_views(&intr_gt, &dist_gt, 4);
+        let camera_gt = make_pinhole_camera(intr_gt, dist_gt);
+        let dataset = make_dataset(&camera_gt, 4);
 
-        let opts = IterativeIntrinsicsOptions {
-            iterations: 3,
+        let opts0 = IterativeIntrinsicsOptions {
+            iterations: 0,
             distortion_opts: DistortionFitOptions {
                 fix_k3: true,
-                fix_tangential: true,
+                fix_tangential: false,
                 iters: 8,
             },
             zero_skew: true,
         };
 
-        let _camera = estimate_intrinsics_iterative(&views, opts).unwrap();
+        let cam0 = estimate_intrinsics_iterative(&dataset, opts0).unwrap();
+
+        let opts2 = IterativeIntrinsicsOptions {
+            iterations: 2,
+            ..opts0
+        };
+        let cam2 = estimate_intrinsics_iterative(&dataset, opts2).unwrap();
+
+        let rms0 = plane_homography_rms(&cam0, &dataset);
+        let rms2 = plane_homography_rms(&cam2, &dataset);
+        assert!(
+            rms2 < rms0,
+            "expected lower plane residual after iterations: rms0={rms0:.4}, rms2={rms2:.4}"
+        );
+    }
+
+    fn plane_homography_rms(camera: &PinholeCamera, dataset: &PlanarDataset) -> Real {
+        let k_mtx = camera.k.k_matrix();
+        let k_inv = k_mtx.try_inverse().expect("K invertible for tests");
+
+        let mut total_sq = 0.0;
+        let mut total_n = 0usize;
+
+        for view in &dataset.views {
+            let world = view.obs.planar_points();
+            let undistorted_pixels =
+                undistort_pixels_to_pixels(&view.obs.points_2d, &k_mtx, &k_inv, &camera.dist);
+            let h = HomographySolver::dlt(&world, &undistorted_pixels)
+                .expect("homography should solve on synthetic data");
+
+            for (pw, pu) in world.iter().zip(undistorted_pixels.iter()) {
+                let proj_h = h * Vec3::new(pw.x, pw.y, 1.0);
+                let proj = Pt2::new(proj_h.x / proj_h.z, proj_h.y / proj_h.z);
+                let dx = proj.x - pu.x;
+                let dy = proj.y - pu.y;
+                total_sq += dx * dx + dy * dy;
+                total_n += 1;
+            }
+        }
+
+        (total_sq / total_n as Real).sqrt()
     }
 }

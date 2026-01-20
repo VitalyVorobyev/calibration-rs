@@ -308,25 +308,6 @@ pub fn estimate_distortion_from_homographies(
     })
 }
 
-/// High-level solver struct for distortion estimation.
-///
-/// Provides a consistent API with other solvers in `calib-linear`.
-#[derive(Debug, Clone, Copy)]
-pub struct DistortionSolver;
-
-impl DistortionSolver {
-    /// Estimate distortion coefficients from homography residuals.
-    ///
-    /// See [`estimate_distortion_from_homographies`] for details.
-    pub fn from_homographies(
-        intrinsics: &Mat3,
-        views: &[DistortionView],
-        opts: DistortionFitOptions,
-    ) -> Result<BrownConrady5<Real>> {
-        estimate_distortion_from_homographies(intrinsics, views, opts)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
