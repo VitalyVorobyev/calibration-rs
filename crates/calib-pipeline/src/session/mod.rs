@@ -1,49 +1,57 @@
-//! Session-based calibration framework with artifact management.
+//! Calibration session framework.
 //!
-//! This module provides a generic calibration session infrastructure that supports
-//! branching workflows with artifact-based state management. Sessions store observations,
-//! initialization seeds, and optimized results as artifacts, allowing multiple
-//! initialization attempts and optimization paths from the same data.
+//! This module provides two session APIs:
 //!
-//! # Architecture
+//! ## New API (v2): Mutable State Container
 //!
-//! The session system is built around two key abstractions:
-//!
-//! - [`ProblemType`]: A trait defining the interface for a calibration problem,
-//!   including observation types, linear initialization, non-linear optimization,
-//!   and residual-based filtering.
-//! - [`CalibrationSession`]: A generic session container parameterized over a problem type,
-//!   managing artifacts and providing an API for branching calibration workflows.
-//!
-//! # Example
+//! The new session API uses a mutable state container with step functions.
+//! Sessions store configuration, input data, intermediate state, and a single
+//! final output. Step functions mutate the session in-place.
 //!
 //! ```ignore
-//! use calib_pipeline::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
-//! use calib_pipeline::session::{CalibrationSession, ExportOptions, FilterOptions};
+//! use calib_pipeline::session::v2::{CalibrationSession, ProblemType};
+//! use calib_pipeline::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
 //!
 //! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+//! session.set_input(dataset)?;
 //!
-//! // Add observations
+//! step_init(&mut session, None)?;
+//! step_optimize(&mut session, None)?;
+//!
+//! let export = session.export()?;
+//! ```
+//!
+//! ## Legacy API (v1): Artifact-Based DAG
+//!
+//! The original session API uses an artifact-based DAG for branching workflows.
+//! **This API is deprecated and will be removed in a future version.**
+//!
+//! ```ignore
+//! use calib_pipeline::session::{CalibrationSession, ExportOptions, FilterOptions};
+//! use calib_pipeline::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
+//!
+//! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 //! let obs0 = session.add_observations(observations);
-//!
-//! // Try two different initialization strategies
-//! let seed_a = session.run_init(obs0, PlanarIntrinsicsConfig::default())?;
-//! let seed_b = session.run_init(obs0, PlanarIntrinsicsConfig::default())?;
-//!
-//! // Optimize from the better seed
-//! let sol1 = session.run_optimize(obs0, seed_a, optim_opts)?;
-//!
-//! // Filter observations based on residuals
-//! let obs1 = session.run_filter_obs(obs0, sol1, FilterOptions::default())?;
-//!
-//! // Re-initialize and optimize on filtered data
-//! let seed_c = session.run_init(obs1, init_opts)?;
-//! let sol2 = session.run_optimize(obs1, seed_c, optim_opts)?;
-//!
-//! // Export final results
-//! let report = session.run_export(sol2, ExportOptions::default())?;
+//! let seed_a = session.run_init(obs0, config.clone())?;
+//! let sol1 = session.run_optimize(obs0, seed_a, config)?;
+//! let report = session.run_export(sol1, ExportOptions::default())?;
 //! ```
 
+// New session API (v2)
+pub mod problem_type;
+pub mod session_v2;
+pub mod types_v2;
+
+/// New session API with mutable state container.
+///
+/// This is the recommended API for new code.
+pub mod v2 {
+    pub use super::problem_type::{InvalidationPolicy, ProblemType};
+    pub use super::session_v2::CalibrationSession;
+    pub use super::types_v2::{current_timestamp, ExportRecord, LogEntry, SessionMetadata};
+}
+
+// Legacy session API (v1) - deprecated but still available
 pub mod types;
 
 use anyhow::{bail, Result};
