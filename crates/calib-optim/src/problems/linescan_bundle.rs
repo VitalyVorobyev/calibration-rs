@@ -11,7 +11,7 @@ use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_D
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
-use calib_core::{make_pinhole_camera, CorrespondenceView, Iso3, PinholeCamera, Pt3, Vec2};
+use calib_core::{make_pinhole_camera, CorrespondenceView, Iso3, PinholeCamera, Pt2, Pt3};
 use nalgebra::DVector;
 use std::collections::HashMap;
 
@@ -21,7 +21,7 @@ pub struct LinescanViewObs {
     /// A single view containing 2D-3D point correspondences
     pub target_view: CorrespondenceView,
     /// Laser line pixel observations
-    pub laser_pixels: Vec<Vec2>,
+    pub laser_pixels: Vec<Pt2>,
     /// Per-point weights for laser observations
     pub laser_weights: Option<Vec<f64>>,
 }
@@ -30,8 +30,8 @@ impl LinescanViewObs {
     /// Create observations with calibration points and laser pixels.
     pub fn new(
         calib_points_3d: Vec<Pt3>,
-        calib_pixels: Vec<Vec2>,
-        laser_pixels: Vec<Vec2>,
+        calib_pixels: Vec<Pt2>,
+        laser_pixels: Vec<Pt2>,
     ) -> Result<Self> {
         ensure!(
             calib_points_3d.len() == calib_pixels.len(),
@@ -51,8 +51,8 @@ impl LinescanViewObs {
     /// Create observations with per-point weights.
     pub fn new_with_weights(
         calib_points_3d: Vec<Pt3>,
-        calib_pixels: Vec<Vec2>,
-        laser_pixels: Vec<Vec2>,
+        calib_pixels: Vec<Pt2>,
+        laser_pixels: Vec<Pt2>,
         calib_weights: Vec<f64>,
         laser_weights: Vec<f64>,
     ) -> Result<Self> {
@@ -436,10 +436,10 @@ mod tests {
         let dataset = vec![LinescanViewObs {
             target_view: CorrespondenceView::new(
                 vec![Pt3::new(0.0, 0.0, 0.0); 4],
-                vec![Vec2::new(100.0, 100.0); 4],
+                vec![Pt2::new(100.0, 100.0); 4],
             )
             .unwrap(),
-            laser_pixels: vec![Vec2::new(200.0, 200.0); 5],
+            laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
             laser_weights: None,
         }];
 
@@ -483,10 +483,10 @@ mod tests {
         let dataset = vec![LinescanViewObs {
             target_view: CorrespondenceView::new(
                 vec![Pt3::new(0.0, 0.0, 0.0); 4],
-                vec![Vec2::new(100.0, 100.0); 4],
+                vec![Pt2::new(100.0, 100.0); 4],
             )
             .unwrap(),
-            laser_pixels: vec![Vec2::new(200.0, 200.0); 5],
+            laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
             laser_weights: None,
         }];
 

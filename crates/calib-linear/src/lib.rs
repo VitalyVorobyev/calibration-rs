@@ -82,7 +82,7 @@ pub use zhang_intrinsics::*;
 pub mod prelude {
     pub use crate::homography::dlt_homography;
     pub use crate::iterative_intrinsics::{
-        estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
+        estimate_intrinsics_iterative, IterativeIntrinsicsOptions,
     };
     pub use crate::planar_pose::estimate_planar_pose_from_h;
 }

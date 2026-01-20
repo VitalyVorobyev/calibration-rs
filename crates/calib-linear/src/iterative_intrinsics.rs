@@ -66,37 +66,12 @@ use crate::{
     homography::HomographySolver,
     zhang_intrinsics::PlanarIntrinsicsLinearInit,
 };
-use anyhow::{ensure, Result};
+use anyhow::Result;
 use calib_core::{
-    make_pinhole_camera, BrownConrady5, DistortionModel, FxFyCxCySkew, Mat3, PinholeCamera, Pt2,
-    Real, Vec3,
+    make_pinhole_camera, BrownConrady5, DistortionModel, FxFyCxCySkew, Mat3, PinholeCamera,
+    PlanarDataset, Pt2, Real, Vec3,
 };
 use serde::{Deserialize, Serialize};
-
-/// A single planar calibration view for iterative intrinsics estimation.
-#[derive(Debug, Clone)]
-pub struct IterativeCalibView {
-    /// Planar board points in target coordinates (Z = 0 plane).
-    pub board_points: Vec<Pt2>,
-    /// Corresponding pixel observations (distorted).
-    pub pixel_points: Vec<Pt2>,
-}
-
-impl IterativeCalibView {
-    /// Construct a view from planar board points and corresponding pixels.
-    pub fn new(board_points: Vec<Pt2>, pixel_points: Vec<Pt2>) -> Result<Self> {
-        ensure!(
-            board_points.len() == pixel_points.len(),
-            "board/pixel point counts must match: {} vs {}",
-            board_points.len(),
-            pixel_points.len()
-        );
-        Ok(Self {
-            board_points,
-            pixel_points,
-        })
-    }
-}
 
 /// Options controlling iterative intrinsics estimation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -168,17 +143,31 @@ impl Default for IterativeIntrinsicsOptions {
 /// Typically 2-3× slower than single-pass Zhang, but eliminates need for
 /// ground truth distortion preprocessing.
 pub fn estimate_intrinsics_iterative(
-    views: &[IterativeCalibView],
+    dataset: &PlanarDataset,
     opts: IterativeIntrinsicsOptions,
 ) -> Result<PinholeCamera> {
-    if views.len() < 3 {
-        anyhow::bail!("need at least 3 views, got {}", views.len());
+    if dataset.views.len() < 3 {
+        anyhow::bail!("need at least 3 views, got {}", dataset.views.len());
     }
 
-    // Iteration 0: initial K estimate from distorted pixels (ignore distortion).
-    let homographies_iter0: Vec<Mat3> = views
+    let target_points2d = dataset
+        .views
         .iter()
-        .map(|v| HomographySolver::dlt(&v.board_points, &v.pixel_points))
+        .map(|v| {
+            v.obs
+                .points_3d
+                .iter()
+                .map(|p| Pt2::new(p.x, p.y))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    // Iteration 0: initial K estimate from distorted pixels (ignore distortion).
+    let homographies_iter0: Vec<Mat3> = dataset
+        .views
+        .iter()
+        .zip(&target_points2d)
+        .map(|(v, target)| HomographySolver::dlt(target, &v.obs.points_2d))
         .collect::<Result<Vec<_>>>()?;
 
     let mut current_intrinsics =
@@ -203,11 +192,12 @@ pub fn estimate_intrinsics_iterative(
         let homographies = if iter == 0 {
             homographies_iter0.clone()
         } else {
-            views
+            dataset.views
                 .iter()
-                .map(|v| {
+                .zip(&target_points2d)
+                .map(|(v, target)| {
                     let undistorted_pixels: Vec<Pt2> = v
-                        .pixel_points
+                        .obs.points_2d
                         .iter()
                         .map(|p| {
                             let v_h = k_inv * Vec3::new(p.x, p.y, 1.0);
@@ -217,15 +207,15 @@ pub fn estimate_intrinsics_iterative(
                             Pt2::new(p_h.x / p_h.z, p_h.y / p_h.z)
                         })
                         .collect();
-                    HomographySolver::dlt(&v.board_points, &undistorted_pixels)
+                    HomographySolver::dlt(&target, &undistorted_pixels)
                 })
                 .collect::<Result<Vec<_>>>()?
         };
 
-        let dist_views = views
+        let dist_views = dataset.views
             .iter()
             .zip(&homographies)
-            .map(|(v, h)| DistortionView::new(*h, v.board_points.clone(), v.pixel_points.clone()))
+            .map(|(v, h)| DistortionView::new(*h, v.obs.board_points.clone(), v.obs.points_2d.clone()))
             .collect::<Result<Vec<_>>>()?;
 
         current_distortion =
@@ -265,6 +255,8 @@ fn enforce_zero_skew(intrinsics: &mut FxFyCxCySkew<Real>, zero_skew: bool) {
 
 #[cfg(test)]
 mod tests {
+    use std::pin::Pin;
+
     use super::*;
     use nalgebra::{Isometry3, Rotation3, Translation3, Vector3};
 
@@ -287,11 +279,7 @@ mod tests {
         (intr, dist)
     }
 
-    fn generate_synthetic_views(
-        intr: &FxFyCxCySkew<Real>,
-        dist: &BrownConrady5<Real>,
-        n_views: usize,
-    ) -> Vec<IterativeCalibView> {
+    fn generate_synthetic_views(camera: &PinholeCamera, n_views: usize) -> Vec<IterativeCalibView> {
         let k_mtx = intr.k_matrix();
         let mut views = Vec::new();
 

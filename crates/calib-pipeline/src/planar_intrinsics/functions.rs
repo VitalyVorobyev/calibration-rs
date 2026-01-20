@@ -31,9 +31,6 @@ impl PlanarIntrinsicsConfig {
     }
 }
 
-// Note: PlanarIntrinsicsReport is defined in types.rs and re-exported from mod.rs
-use super::types::PlanarIntrinsicsReport;
-
 fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
     let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
     let pixel_2d: Vec<Pt2> = view.points_2d.iter().map(|v| Pt2::new(v.x, v.y)).collect();

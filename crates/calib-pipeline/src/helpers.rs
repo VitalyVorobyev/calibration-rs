@@ -19,108 +19,51 @@
 //! // Step 2: Optimize after inspecting the seed
 //! let optim_opts = PlanarIntrinsicsSolveOptions::default();
 //! let backend_opts = BackendSolveOptions::default();
-//! let final_result = optimize_planar_intrinsics_from_init(
-//!     &views,
-//!     &init_result,
-//!     &optim_opts,
-//!     &backend_opts
-//! )?;
+//! let final_result =
+//!     optimize_planar_intrinsics_from_init(&dataset, &init_result, &optim_opts, &backend_opts)?;
 //! println!("Final reprojection error: {:.2} px", final_result.mean_reproj_error);
 //! ```
 
-use anyhow::Result;
+use anyhow::{ensure, Result};
 use calib_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3, Mat3, NoMeta,
-    Pinhole, Pt2, Real, View,
+    CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, PinholeCamera, Pt2, Real, View, compute_mean_reproj_error, make_pinhole_camera
 };
 use calib_linear::iterative_intrinsics::{
     estimate_intrinsics_iterative, IterativeCalibView, IterativeIntrinsicsOptions,
 };
 use calib_optim::{
     optimize_planar_intrinsics, BackendSolveOptions, PlanarDataset, PlanarIntrinsicsParams,
-    PlanarIntrinsicsSolveOptions,
+    PlanarIntrinsicsSolveOptions, PlanarIntrinsicsEstimate
 };
-
-/// Initialize camera intrinsics using iterative Zhang's method.
-pub fn initialize_planar_intrinsics(
-    views: &[CorrespondenceView],
-    opts: &IterativeIntrinsicsOptions,
-) -> Result<PlanarIntrinsicsInitResult> {
-    let calib_views: Vec<IterativeCalibView> = views
-        .iter()
-        .map(|v| {
-            let board_2d: Vec<Pt2> = v
-                .points_3d
-                .iter()
-                .map(|p3d| Pt2::new(p3d.x, p3d.y))
-                .collect();
-            let pixel_2d: Vec<Pt2> = v
-                .points_2d
-                .iter()
-                .map(|v2d| Pt2::new(v2d.x, v2d.y))
-                .collect();
-            IterativeCalibView::new(board_2d, pixel_2d)
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    let camera = estimate_intrinsics_iterative(&calib_views, *opts)?;
-
-    Ok(PlanarIntrinsicsInitResult {
-        intrinsics: camera.k,
-        distortion: camera.dist,
-    })
-}
 
 /// Optimize camera intrinsics from initial estimates using non-linear refinement.
 pub fn optimize_planar_intrinsics_from_init(
-    views: &[CorrespondenceView],
-    init: &PlanarIntrinsicsInitResult,
+    dataset: &PlanarDataset,
+    init: &PlanarIntrinsicsParams,
     solve_opts: &PlanarIntrinsicsSolveOptions,
     backend_opts: &BackendSolveOptions,
-) -> Result<PlanarIntrinsicsOptimResult> {
-    let dataset = PlanarDataset {
-        views: views
-            .iter()
-            .map(|v| View::<NoMeta>::without_meta(v))
-            .collect(),
-    };
+) -> Result<PlanarIntrinsicsEstimate> {
+    let views: Vec<CorrespondenceView> = dataset.views.iter().map(|v| v.obs.clone()).collect();
 
     // Optimization packs only [fx, fy, cx, cy]; enforce zero skew.
-    let mut intrinsics = init.intrinsics;
+    let mut intrinsics = init.camera.k;
     intrinsics.skew = 0.0;
 
     // Recover pose seeds from homographies using provided intrinsics
-    let homographies = planar_homographies_from_views(views)?;
+    let homographies = planar_homographies_from_views(&views)?;
     let kmtx = k_matrix_from_intrinsics(&intrinsics);
     let poses0 = poses_from_homographies(&kmtx, &homographies)?;
 
     let planar_init =
-        PlanarIntrinsicsParams::new_from_components(intrinsics, init.distortion, poses0)?;
+        PlanarIntrinsicsParams::new_from_components(intrinsics, init.camera.dist, poses0)?;
 
     // Run optimization
-    let optim_result = optimize_planar_intrinsics(
-        &dataset,
+    optimize_planar_intrinsics(
+        dataset,
         planar_init,
         solve_opts.clone(),
         backend_opts.clone(),
-    )?;
-
-    // Extract results
-    let result_intrinsics = optim_result.params.intrinsics();
-    let result_distortion = optim_result.params.distortion();
-    let result_poses = optim_result.params.poses().to_vec();
-
-    // Compute mean reprojection error
-    let mean_reproj_error =
-        compute_mean_reproj_error(views, &result_intrinsics, &result_distortion, &result_poses)?;
-
-    Ok(PlanarIntrinsicsOptimResult {
-        intrinsics: result_intrinsics,
-        distortion: result_distortion,
-        poses: result_poses,
-        final_cost: optim_result.report.final_cost,
-        mean_reproj_error,
-    })
+    )
 }
 
 fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
@@ -152,10 +95,10 @@ fn poses_from_homographies(kmtx: &Mat3, homographies: &[Mat3]) -> Result<Vec<Iso
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::{make_pinhole_camera, synthetic::planar};
+    use calib_core::{make_pinhole_camera, synthetic::planar, BrownConrady5};
     use calib_linear::distortion_fit::DistortionFitOptions;
 
-    fn generate_synthetic_views() -> Vec<CorrespondenceView> {
+    fn generate_synthetic_views() -> PlanarDataset {
         let k_gt = FxFyCxCySkew {
             fx: 800.0,
             fy: 780.0,
@@ -175,12 +118,13 @@ mod tests {
 
         let board_points = planar::grid_points(5, 4, 0.05);
         let poses = planar::poses_yaw_y_z(3, 0.0, 0.1, 0.6, 0.1);
-        planar::project_views_all(&cam_gt, &board_points, &poses).expect("projection")
+        let views = planar::project_views_all(&cam_gt, &board_points, &poses).expect("projection");
+        PlanarDataset::new(views.into_iter().map(View::without_meta).collect()).expect("dataset")
     }
 
     #[test]
     fn initialize_planar_intrinsics_smoke_test() {
-        let views = generate_synthetic_views();
+        let dataset = generate_synthetic_views();
 
         let opts = IterativeIntrinsicsOptions {
             iterations: 2,
@@ -192,16 +136,17 @@ mod tests {
             zero_skew: true,
         };
 
-        let result = initialize_planar_intrinsics(&views, &opts).expect("init should succeed");
+        let result = estimate_intrinsics_iterative(&dataset, &opts).expect("init should succeed");
 
-        assert!(result.intrinsics.fx > 0.0);
-        assert!(result.intrinsics.fy > 0.0);
-        assert!(result.distortion.k1.abs() < 1.0);
+        assert!(result.k.fx > 0.0);
+        assert!(result.k.fy > 0.0);
+        assert!(result.dist.k1.abs() < 1.0);
     }
 
     #[test]
     fn optimize_from_init_improves_error() {
-        let views = generate_synthetic_views();
+        let dataset = generate_synthetic_views();
+        let views: Vec<CorrespondenceView> = dataset.views.iter().map(|v| v.obs.clone()).collect();
 
         let init_opts = IterativeIntrinsicsOptions {
             iterations: 1,
@@ -214,7 +159,7 @@ mod tests {
         };
 
         let init_result =
-            initialize_planar_intrinsics(&views, &init_opts).expect("init should succeed");
+            estimate_intrinsics_iterative(&views, &init_opts).expect("init should succeed");
 
         let solve_opts = PlanarIntrinsicsSolveOptions {
             fix_poses: vec![0],
@@ -226,9 +171,13 @@ mod tests {
             ..Default::default()
         };
 
-        let optim_result =
-            optimize_planar_intrinsics_from_init(&views, &init_result, &solve_opts, &backend_opts)
-                .expect("optimization should succeed");
+        let optim_result = optimize_planar_intrinsics_from_init(
+            &dataset,
+            &init_result,
+            &solve_opts,
+            &backend_opts,
+        )
+        .expect("optimization should succeed");
 
         assert!(
             optim_result.mean_reproj_error < 10.0,

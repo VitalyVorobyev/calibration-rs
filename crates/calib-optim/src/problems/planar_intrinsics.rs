@@ -11,37 +11,11 @@ use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
 use calib_core::{
     compute_mean_reproj_error, make_pinhole_camera, BrownConrady5, DistortionFixMask, FxFyCxCySkew,
-    IntrinsicsFixMask, Iso3, NoMeta, PinholeCamera, Real, View,
+    IntrinsicsFixMask, Iso3, PinholeCamera, Real, View, PlanarDataset
 };
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-/// A planar dataset consisting of multiple views.
-///
-/// Each view observes a planar calibration target in pixel coordinates.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlanarDataset {
-    pub views: Vec<View<NoMeta>>,
-}
-
-impl PlanarDataset {
-    pub fn new(views: Vec<View<NoMeta>>) -> Result<Self> {
-        ensure!(!views.is_empty(), "need at least one view for calibration");
-        for (i, view) in views.iter().enumerate() {
-            ensure!(
-                view.obs.len() >= 4,
-                "view {} has too few points (need >=4)",
-                i
-            );
-        }
-        Ok(Self { views })
-    }
-
-    pub fn num_views(&self) -> usize {
-        self.views.len()
-    }
-}
 
 /// Optimization result for planar intrinsics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,11 +160,17 @@ fn build_planar_intrinsics_ir(
             iso3_to_se3_dvec(&initial.camera_se3_target[view_idx]),
         );
 
-        for (pt_idx, (pw, uv)) in view.points_3d.iter().zip(view.points_2d.iter()).enumerate() {
+        for (pt_idx, (pw, uv)) in view
+            .obs
+            .points_3d
+            .iter()
+            .zip(view.obs.points_2d.iter())
+            .enumerate()
+        {
             let factor = FactorKind::ReprojPointPinhole4Dist5 {
                 pw: [pw.x, pw.y, pw.z],
                 uv: [uv.x, uv.y],
-                w: view.weight(pt_idx),
+                w: view.obs.weight(pt_idx),
             };
             let residual = ResidualBlock {
                 params: vec![cam_id, dist_id, pose_id],
@@ -256,11 +236,18 @@ pub fn optimize_planar_intrinsics_with_backend(
     }
 
     let camera = make_pinhole_camera(intrinsics, distortion);
-    let mean_reproj_error = compute_mean_reproj_error(&camera, &dataset.views)?;
+    let views_with_poses: Vec<View<Iso3>> = dataset
+        .views
+        .iter()
+        .zip(poses.iter().cloned())
+        .map(|(view, pose)| View::new(view.obs.clone(), pose))
+        .collect();
+    let mean_reproj_error = compute_mean_reproj_error(&camera, &views_with_poses)?;
 
     Ok(PlanarIntrinsicsEstimate {
         params: PlanarIntrinsicsParams::new(camera, poses)?,
         report: solution.solve_report,
+        mean_reproj_error,
     })
 }
 

@@ -186,6 +186,7 @@ pub use crate::problems::handeye::{
 };
 
 pub use crate::problems::rig_extrinsics::{
-    optimize_rig_extrinsics, RigDataset, RigExtrinsicsDataset, RigExtrinsicsEstimate,
-    RigExtrinsicsSolveOptions, RigViewObs, View,
+    optimize_rig_extrinsics, RigExtrinsicsDataset, RigExtrinsicsEstimate, RigExtrinsicsSolveOptions,
 };
+
+pub use calib_core::{RigDataset, RigViewObs, View};

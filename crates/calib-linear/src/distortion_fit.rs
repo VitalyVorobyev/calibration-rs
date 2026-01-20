@@ -37,7 +37,7 @@
 //! - OpenCV calibration implementation
 
 use anyhow::Result;
-use calib_core::{BrownConrady5, Mat3, Pt2, Real, Vec2, Vec3};
+use calib_core::{BrownConrady5, Mat3, Pt2, Real, Vec2, Vec3, View};
 use nalgebra::DMatrix;
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +75,10 @@ impl Default for DistortionFitOptions {
     }
 }
 
+pub struct MetaHomography {
+    pub homography: Mat3,
+}
+
 /// A single view's observations for distortion fitting.
 ///
 /// Each view contains:
@@ -83,42 +87,7 @@ impl Default for DistortionFitOptions {
 ///
 /// The homography represents the "ideal" pinhole projection, and residuals
 /// between homography predictions and observations reveal distortion effects.
-#[derive(Debug, Clone)]
-pub struct DistortionView {
-    /// Homography mapping board 2D coordinates to pixels.
-    ///
-    /// This should be computed from the **distorted** pixel observations
-    /// (not pre-undistorted), as we want the residuals to contain distortion.
-    pub homography: Mat3,
-
-    /// 2D board coordinates (Z=0 plane, e.g., grid points in millimeters).
-    pub board_points: Vec<Pt2>,
-
-    /// Observed pixel coordinates (distorted).
-    pub pixel_points: Vec<Pt2>,
-}
-
-impl DistortionView {
-    /// Create a new distortion view.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `board_points` and `pixel_points` have different lengths.
-    pub fn new(homography: Mat3, board_points: Vec<Pt2>, pixel_points: Vec<Pt2>) -> Result<Self> {
-        if board_points.len() != pixel_points.len() {
-            anyhow::bail!(
-                "mismatched number of board points ({}) and pixel points ({})",
-                board_points.len(),
-                pixel_points.len()
-            );
-        }
-        Ok(Self {
-            homography,
-            board_points,
-            pixel_points,
-        })
-    }
-}
+pub type DistortionView = View<MetaHomography>;
 
 /// Estimate Brown-Conrady distortion from multiple views with known intrinsics.
 ///
@@ -172,7 +141,7 @@ pub fn estimate_distortion_from_homographies(
     opts: DistortionFitOptions,
 ) -> Result<BrownConrady5<Real>> {
     // Count total points
-    let total_points: usize = views.iter().map(|v| v.board_points.len()).sum();
+    let total_points: usize = views.iter().map(|v| v.obs.points_2d.len()).sum();
 
     // Determine required parameter count
     let n_params = match (opts.fix_tangential, opts.fix_k3) {
@@ -204,10 +173,10 @@ pub fn estimate_distortion_from_homographies(
 
     let mut row_idx = 0;
     for view in views {
-        for (board_pt, pixel_obs) in view.board_points.iter().zip(&view.pixel_points) {
+        for (board_pt, pixel_obs) in view.obs.points_3d.iter().zip(&view.obs.points_2d) {
             // Compute ideal pixel via homography
             let board_h = Vec3::new(board_pt.x, board_pt.y, 1.0);
-            let pixel_ideal_h = view.homography * board_h;
+            let pixel_ideal_h = view.meta.homography * board_h;
             let pixel_ideal = Pt2::new(
                 pixel_ideal_h.x / pixel_ideal_h.z,
                 pixel_ideal_h.y / pixel_ideal_h.z,
@@ -281,9 +250,9 @@ pub fn estimate_distortion_from_homographies(
     // Check for degenerate configuration (all r² too small)
     let mut max_r2 = 0.0;
     for view in views {
-        for board_pt in &view.board_points {
+        for board_pt in &view.obs.points_2d {
             let board_h = Vec3::new(board_pt.x, board_pt.y, 1.0);
-            let pixel_ideal_h = view.homography * board_h;
+            let pixel_ideal_h = view.meta.homography * board_h;
             let pixel_ideal = Pt2::new(
                 pixel_ideal_h.x / pixel_ideal_h.z,
                 pixel_ideal_h.y / pixel_ideal_h.z,
@@ -361,7 +330,7 @@ impl DistortionSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::DistortionModel;
+    use calib_core::{DistortionModel, Pt3, CorrespondenceView};
     use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, Vector3};
 
     fn make_kmtx() -> Mat3 {
@@ -373,7 +342,7 @@ mod tests {
         dist: &BrownConrady5<Real>,
         rot: Rotation3<Real>,
         t: Vector3<Real>,
-        board_points: &[Pt2],
+        board_points: &[Pt3],
     ) -> (Mat3, Vec<Pt2>) {
         // Construct pose
         let iso = Isometry3::from_parts(Translation3::from(t), rot.into());
@@ -381,7 +350,7 @@ mod tests {
         // Generate distorted pixels
         let mut pixels = Vec::new();
         for bp in board_points {
-            let p3d = iso.transform_point(&nalgebra::Point3::new(bp.x, bp.y, 0.0));
+            let p3d = iso.transform_point(bp);
             if p3d.z <= 0.0 {
                 continue;
             }
@@ -422,7 +391,7 @@ mod tests {
         let mut board_points = Vec::new();
         for i in 0..7 {
             for j in 0..7 {
-                board_points.push(Pt2::new(i as Real * 30.0, j as Real * 30.0));
+                board_points.push(Pt3::new(i as Real * 30.0, j as Real * 30.0, 0.0));
             }
         }
 
@@ -446,7 +415,10 @@ mod tests {
         for (rot, t) in poses {
             let (h, pixels) =
                 synthetic_homography_with_distortion(&kmtx, &dist_gt, rot, t, &board_points);
-            views.push(DistortionView::new(h, board_points.clone(), pixels).unwrap());
+            views.push(DistortionView::new(
+                CorrespondenceView::new(board_points.clone(), pixels.clone()).unwrap(),
+                MetaHomography { homography: h },
+            ));
         }
 
         let opts = DistortionFitOptions {
@@ -486,7 +458,7 @@ mod tests {
         let mut board_points = Vec::new();
         for i in 0..7 {
             for j in 0..7 {
-                board_points.push(Pt2::new(i as Real * 30.0, j as Real * 30.0));
+                board_points.push(Pt3::new(i as Real * 30.0, j as Real * 30.0, 0.0));
             }
         }
 
@@ -513,7 +485,10 @@ mod tests {
         for (rot, t) in poses {
             let (h, pixels) =
                 synthetic_homography_with_distortion(&kmtx, &dist_gt, rot, t, &board_points);
-            views.push(DistortionView::new(h, board_points.clone(), pixels).unwrap());
+            views.push(DistortionView::new(
+                CorrespondenceView::new(board_points.clone(), pixels.clone()).unwrap(),
+                MetaHomography { homography: h },
+            ));
         }
 
         let opts = DistortionFitOptions {

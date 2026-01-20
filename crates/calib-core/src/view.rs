@@ -71,3 +71,29 @@ impl<Meta> RigDataset<Meta> {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NoMeta;
+
+/// A planar dataset consisting of multiple views.
+///
+/// Each view observes a planar calibration target in pixel coordinates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanarDataset {
+    pub views: Vec<View<NoMeta>>,
+}
+
+impl PlanarDataset {
+    pub fn new(views: Vec<View<NoMeta>>) -> Result<Self> {
+        ensure!(!views.is_empty(), "need at least one view for calibration");
+        for (i, view) in views.iter().enumerate() {
+            ensure!(
+                view.obs.len() >= 4,
+                "view {} has too few points (need >=4)",
+                i
+            );
+        }
+        Ok(Self { views })
+    }
+
+    pub fn num_views(&self) -> usize {
+        self.views.len()
+    }
+}
