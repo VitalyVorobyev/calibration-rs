@@ -117,14 +117,25 @@ pub mod session {
 /// ```
 pub mod planar_intrinsics {
     pub use calib_pipeline::planar_intrinsics::{
-        // Problem type and config
-        PlanarConfig, PlanarExport, PlanarIntrinsicsProblem, PlanarState,
         // Step functions
-        run_calibration, run_calibration_with_filtering, step_filter, step_init, step_optimize,
+        run_calibration,
+        run_calibration_with_filtering,
+        step_filter,
+        step_init,
+        step_optimize,
         // Step options
-        FilterOptions, InitOptions, OptimizeOptions,
+        FilterOptions,
+        InitOptions,
+        OptimizeOptions,
+        // Problem type and config
+        PlanarConfig,
+        PlanarExport,
         // Re-exports from calib-optim
-        PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+        PlanarIntrinsicsEstimate,
+        PlanarIntrinsicsParams,
+        PlanarIntrinsicsProblem,
+        PlanarIntrinsicsSolveOptions,
+        PlanarState,
     };
 }
 
@@ -150,14 +161,24 @@ pub mod planar_intrinsics {
 /// ```
 pub mod single_cam_handeye {
     pub use calib_pipeline::single_cam_handeye::{
-        // Problem type and config
-        SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
-        SingleCamHandeyeProblemV2, SingleCamHandeyeState, SingleCamHandeyeView,
         // Step functions
-        run_calibration, step_handeye_init, step_handeye_optimize, step_intrinsics_init,
+        run_calibration,
+        step_handeye_init,
+        step_handeye_optimize,
+        step_intrinsics_init,
         step_intrinsics_optimize,
         // Step options
-        HandeyeInitOptions, HandeyeOptimOptions, IntrinsicsInitOptions, IntrinsicsOptimOptions,
+        HandeyeInitOptions,
+        HandeyeOptimOptions,
+        IntrinsicsInitOptions,
+        IntrinsicsOptimOptions,
+        // Problem type and config
+        SingleCamHandeyeConfig,
+        SingleCamHandeyeExport,
+        SingleCamHandeyeInput,
+        SingleCamHandeyeProblemV2,
+        SingleCamHandeyeState,
+        SingleCamHandeyeView,
     };
 }
 
@@ -184,14 +205,22 @@ pub mod single_cam_handeye {
 /// ```
 pub mod rig_extrinsics {
     pub use calib_pipeline::rig_extrinsics::{
-        // Problem type and config
-        RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblem,
-        RigExtrinsicsState,
         // Step functions
-        run_calibration, step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init,
+        run_calibration,
+        step_intrinsics_init_all,
+        step_intrinsics_optimize_all,
+        step_rig_init,
         step_rig_optimize,
         // Step options
-        IntrinsicsInitOptions, IntrinsicsOptimOptions, RigOptimOptions,
+        IntrinsicsInitOptions,
+        IntrinsicsOptimOptions,
+        // Problem type and config
+        RigExtrinsicsConfig,
+        RigExtrinsicsExport,
+        RigExtrinsicsInput,
+        RigExtrinsicsProblem,
+        RigExtrinsicsState,
+        RigOptimOptions,
     };
 }
 
@@ -220,13 +249,25 @@ pub mod rig_extrinsics {
 /// ```
 pub mod rig_handeye {
     pub use calib_pipeline::rig_handeye::{
-        // Problem type and config
-        RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput, RigHandeyeProblem, RigHandeyeState,
         // Step functions
-        run_calibration, step_handeye_init, step_handeye_optimize, step_intrinsics_init_all,
-        step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+        run_calibration,
+        step_handeye_init,
+        step_handeye_optimize,
+        step_intrinsics_init_all,
+        step_intrinsics_optimize_all,
+        step_rig_init,
+        step_rig_optimize,
         // Step options
-        HandeyeInitOptions, HandeyeOptimOptions, IntrinsicsInitOptions, IntrinsicsOptimOptions,
+        HandeyeInitOptions,
+        HandeyeOptimOptions,
+        IntrinsicsInitOptions,
+        IntrinsicsOptimOptions,
+        // Problem type and config
+        RigHandeyeConfig,
+        RigHandeyeExport,
+        RigHandeyeInput,
+        RigHandeyeProblem,
+        RigHandeyeState,
         RigOptimOptions,
     };
 }

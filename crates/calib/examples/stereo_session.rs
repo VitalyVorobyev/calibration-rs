@@ -46,7 +46,12 @@ fn main() -> Result<()> {
 
     println!("=== Stereo Rig Calibration Session ===\n");
     println!("Dataset: {}", imgs_dir.display());
-    println!("Board: {}x{}, square size {:.1}mm", BOARD_ROWS, BOARD_COLS, SQUARE_SIZE_M * 1000.0);
+    println!(
+        "Board: {}x{}, square size {:.1}mm",
+        BOARD_ROWS,
+        BOARD_COLS,
+        SQUARE_SIZE_M * 1000.0
+    );
     if let Some(n) = max_views {
         println!("Max views: {n}");
     }
@@ -104,14 +109,27 @@ fn main() -> Result<()> {
     println!("--- Step 2: Per-Camera Intrinsics Optimization ---");
     step_intrinsics_optimize_all(&mut session, None)?;
 
-    for (i, (cam, reproj)) in session.state.per_cam_intrinsics.as_ref().unwrap()
+    for (i, (cam, reproj)) in session
+        .state
+        .per_cam_intrinsics
+        .as_ref()
+        .unwrap()
         .iter()
-        .zip(session.state.per_cam_reproj_errors.as_ref().unwrap_or(&vec![0.0, 0.0]).iter())
+        .zip(
+            session
+                .state
+                .per_cam_reproj_errors
+                .as_ref()
+                .unwrap_or(&vec![0.0, 0.0])
+                .iter(),
+        )
         .enumerate()
     {
         let k = &cam.k;
-        println!("  Camera {}: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}, reproj_err={:.3}px",
-                 i, k.fx, k.fy, k.cx, k.cy, reproj);
+        println!(
+            "  Camera {}: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}, reproj_err={:.3}px",
+            i, k.fx, k.fy, k.cx, k.cy, reproj
+        );
     }
     println!();
 
@@ -132,16 +150,30 @@ fn main() -> Result<()> {
 
     // Show final per-camera results from intrinsics optimization
     println!("--- Final Per-Camera Results ---");
-    for (i, cam) in session.state.per_cam_intrinsics.as_ref().unwrap().iter().enumerate() {
+    for (i, cam) in session
+        .state
+        .per_cam_intrinsics
+        .as_ref()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
         let k = &cam.k;
         let d = &cam.dist;
         println!("  Camera {i}:");
-        println!("    Intrinsics: fx={:.2}, fy={:.2}, cx={:.2}, cy={:.2}",
-                 k.fx, k.fy, k.cx, k.cy);
-        println!("    Distortion: k1={:.6}, k2={:.6}, p1={:.6}, p2={:.6}",
-                 d.k1, d.k2, d.p1, d.p2);
+        println!(
+            "    Intrinsics: fx={:.2}, fy={:.2}, cx={:.2}, cy={:.2}",
+            k.fx, k.fy, k.cx, k.cy
+        );
+        println!(
+            "    Distortion: k1={:.6}, k2={:.6}, p1={:.6}, p2={:.6}",
+            d.k1, d.k2, d.p1, d.p2
+        );
     }
-    print_baseline("Rig baseline (from init)", session.state.initial_cam_se3_rig.as_ref().unwrap());
+    print_baseline(
+        "Rig baseline (from init)",
+        session.state.initial_cam_se3_rig.as_ref().unwrap(),
+    );
 
     Ok(())
 }
@@ -151,7 +183,9 @@ fn parse_max_views(args: &[String]) -> Result<Option<usize>> {
         let Some(raw) = arg.strip_prefix("--max-views=") else {
             continue;
         };
-        let n: usize = raw.parse().map_err(|_| anyhow::anyhow!("invalid --max-views value"))?;
+        let n: usize = raw
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid --max-views value"))?;
         ensure!(n > 0, "--max-views must be > 0");
         return Ok(Some(n));
     }
@@ -169,5 +203,8 @@ fn print_baseline(label: &str, cam_to_rig: &[Iso3]) {
     let t0 = cam_to_rig[0].inverse();
     let t1 = cam_to_rig[1].inverse();
     let baseline = (t1.translation.vector - t0.translation.vector).norm();
-    println!("  {label}: |t(cam1->rig)| = {baseline:.4} m ({:.2} mm)", baseline * 1000.0);
+    println!(
+        "  {label}: |t(cam1->rig)| = {baseline:.4} m ({:.2} mm)",
+        baseline * 1000.0
+    );
 }

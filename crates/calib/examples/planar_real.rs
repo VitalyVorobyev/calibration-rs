@@ -12,8 +12,10 @@
 //! Dataset: Uses left camera images from `data/stereo/imgs/leftcamera/`
 
 use anyhow::{Context, Result};
+use calib::planar_intrinsics::{
+    run_calibration_with_filtering, step_init, step_optimize, FilterOptions,
+};
 use calib::prelude::*;
-use calib::planar_intrinsics::{run_calibration_with_filtering, step_init, step_optimize, FilterOptions};
 use calib_targets::chessboard::ChessboardDetectionResult;
 use calib_targets::{detect, ChessboardParams};
 use chess_corners::ChessConfig;
@@ -39,7 +41,12 @@ fn main() -> Result<()> {
     }
 
     println!("Dataset: {}", imgs_dir.display());
-    println!("Board: {}x{}, square size {:.1}mm\n", BOARD_ROWS, BOARD_COLS, SQUARE_SIZE_M * 1000.0);
+    println!(
+        "Board: {}x{}, square size {:.1}mm\n",
+        BOARD_ROWS,
+        BOARD_COLS,
+        SQUARE_SIZE_M * 1000.0
+    );
 
     // Detect chessboard corners in all images
     println!("Detecting chessboard corners...");
@@ -63,10 +70,14 @@ fn main() -> Result<()> {
 
     let init_k = session.state.initial_intrinsics.as_ref().unwrap();
     let init_dist = session.state.initial_distortion.as_ref().unwrap();
-    println!("  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-             init_k.fx, init_k.fy, init_k.cx, init_k.cy);
-    println!("  Distortion: k1={:.4}, k2={:.4}, p1={:.5}, p2={:.5}",
-             init_dist.k1, init_dist.k2, init_dist.p1, init_dist.p2);
+    println!(
+        "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
+        init_k.fx, init_k.fy, init_k.cx, init_k.cy
+    );
+    println!(
+        "  Distortion: k1={:.4}, k2={:.4}, p1={:.5}, p2={:.5}",
+        init_dist.k1, init_dist.k2, init_dist.p1, init_dist.p2
+    );
     println!();
 
     println!("--- Step 2: Optimization ---");
@@ -74,7 +85,10 @@ fn main() -> Result<()> {
 
     let state = &session.state;
     println!("  Final cost: {:.2e}", state.final_cost.unwrap());
-    println!("  Mean reprojection error: {:.4} px", state.mean_reproj_error.unwrap());
+    println!(
+        "  Mean reprojection error: {:.4} px",
+        state.mean_reproj_error.unwrap()
+    );
     println!();
 
     // Export results
@@ -94,7 +108,10 @@ fn main() -> Result<()> {
     println!("    k3 = {:.6}", final_dist.k3);
     println!("    p1 = {:.6}", final_dist.p1);
     println!("    p2 = {:.6}", final_dist.p2);
-    println!("  Mean reprojection error: {:.4} px", export.mean_reproj_error);
+    println!(
+        "  Mean reprojection error: {:.4} px",
+        export.mean_reproj_error
+    );
     println!();
 
     // Alternative: run with filtering for outlier removal
@@ -105,14 +122,20 @@ fn main() -> Result<()> {
     let mut session2 = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session2.set_input(dataset2)?;
 
-    run_calibration_with_filtering(&mut session2, FilterOptions {
-        max_reproj_error: 1.0, // Stricter threshold
-        min_points_per_view: 10,
-        remove_sparse_views: true,
-    })?;
+    run_calibration_with_filtering(
+        &mut session2,
+        FilterOptions {
+            max_reproj_error: 1.0, // Stricter threshold
+            min_points_per_view: 10,
+            remove_sparse_views: true,
+        },
+    )?;
 
     let export2 = session2.export()?;
-    println!("  Mean reprojection error (filtered): {:.4} px", export2.mean_reproj_error);
+    println!(
+        "  Mean reprojection error (filtered): {:.4} px",
+        export2.mean_reproj_error
+    );
 
     Ok(())
 }
@@ -142,7 +165,12 @@ fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> 
     let mut skipped = 0;
 
     for (i, idx) in indices.iter().enumerate() {
-        print!("\r  Processing image {}/{} (Im_L_{}.png)", i + 1, total, idx);
+        print!(
+            "\r  Processing image {}/{} (Im_L_{}.png)",
+            i + 1,
+            total,
+            idx
+        );
         io::stdout().flush()?;
 
         let path = imgs_dir.join(format!("Im_L_{}.png", idx));
@@ -156,7 +184,10 @@ fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> 
         }
     }
 
-    println!("\r  Processed {}/{} images ({} skipped)    ", total, total, skipped);
+    println!(
+        "\r  Processed {}/{} images ({} skipped)    ",
+        total, total, skipped
+    );
 
     Ok(views)
 }
@@ -192,10 +223,7 @@ fn detection_to_view(detection: ChessboardDetectionResult) -> Result<Corresponde
             grid.j as f64 * SQUARE_SIZE_M,
             0.0,
         ));
-        points_2d.push(Pt2::new(
-            corner.position.x as f64,
-            corner.position.y as f64,
-        ));
+        points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
     }
 
     anyhow::ensure!(

@@ -9,8 +9,8 @@
 //! Run with: `cargo run -p calib --example planar_synthetic`
 
 use anyhow::Result;
-use calib::prelude::*;
 use calib::planar_intrinsics::{run_calibration, step_init, step_optimize};
+use calib::prelude::*;
 use calib::synthetic::planar;
 
 fn main() -> Result<()> {
@@ -35,28 +35,34 @@ fn main() -> Result<()> {
     let cam_gt = calib::make_pinhole_camera(k_gt, dist_gt);
 
     println!("Ground truth:");
-    println!("  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-             k_gt.fx, k_gt.fy, k_gt.cx, k_gt.cy);
-    println!("  Distortion: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}\n",
-             dist_gt.k1, dist_gt.k2, dist_gt.p1, dist_gt.p2);
+    println!(
+        "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
+        k_gt.fx, k_gt.fy, k_gt.cx, k_gt.cy
+    );
+    println!(
+        "  Distortion: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}\n",
+        dist_gt.k1, dist_gt.k2, dist_gt.p1, dist_gt.p2
+    );
 
     // Generate synthetic calibration data
     let board_points = planar::grid_points(8, 6, 0.04); // 8x6 grid, 40mm squares
     let poses = planar::poses_yaw_y_z(
-        6,     // 6 views
-        -0.2,  // start yaw
-        0.08,  // yaw step
-        0.5,   // start Z
-        0.05,  // Z step
+        6,    // 6 views
+        -0.2, // start yaw
+        0.08, // yaw step
+        0.5,  // start Z
+        0.05, // Z step
     );
     let views = planar::project_views_all(&cam_gt, &board_points, &poses)?;
 
-    println!("Generated {} views with {} points each\n", views.len(), board_points.len());
+    println!(
+        "Generated {} views with {} points each\n",
+        views.len(),
+        board_points.len()
+    );
 
     // Create dataset from views
-    let dataset = PlanarDataset::new(
-        views.into_iter().map(View::without_meta).collect()
-    )?;
+    let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
 
     // Create calibration session
     let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
@@ -68,13 +74,19 @@ fn main() -> Result<()> {
 
     let init_k = session.state.initial_intrinsics.as_ref().unwrap();
     let init_dist = session.state.initial_distortion.as_ref().unwrap();
-    println!("  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-             init_k.fx, init_k.fy, init_k.cx, init_k.cy);
-    println!("  Distortion: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}",
-             init_dist.k1, init_dist.k2, init_dist.p1, init_dist.p2);
-    println!("  Error vs GT: fx={:.1}%, fy={:.1}%",
-             100.0 * (init_k.fx - k_gt.fx).abs() / k_gt.fx,
-             100.0 * (init_k.fy - k_gt.fy).abs() / k_gt.fy);
+    println!(
+        "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
+        init_k.fx, init_k.fy, init_k.cx, init_k.cy
+    );
+    println!(
+        "  Distortion: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}",
+        init_dist.k1, init_dist.k2, init_dist.p1, init_dist.p2
+    );
+    println!(
+        "  Error vs GT: fx={:.1}%, fy={:.1}%",
+        100.0 * (init_k.fx - k_gt.fx).abs() / k_gt.fx,
+        100.0 * (init_k.fy - k_gt.fy).abs() / k_gt.fy
+    );
     println!();
 
     println!("--- Step 2: Optimization ---");
@@ -82,7 +94,10 @@ fn main() -> Result<()> {
 
     let state = &session.state;
     println!("  Final cost: {:.2e}", state.final_cost.unwrap());
-    println!("  Mean reprojection error: {:.4} px", state.mean_reproj_error.unwrap());
+    println!(
+        "  Mean reprojection error: {:.4} px",
+        state.mean_reproj_error.unwrap()
+    );
     println!();
 
     // Export results
@@ -91,13 +106,19 @@ fn main() -> Result<()> {
     let final_dist = export.params.distortion();
 
     println!("--- Final Results ---");
-    println!("  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-             final_k.fx, final_k.fy, final_k.cx, final_k.cy);
-    println!("  Distortion: k1={:.4}, k2={:.4}, k3={:.4}, p1={:.4}, p2={:.4}",
-             final_dist.k1, final_dist.k2, final_dist.k3, final_dist.p1, final_dist.p2);
-    println!("  Error vs GT: fx={:.2}%, fy={:.2}%",
-             100.0 * (final_k.fx - k_gt.fx).abs() / k_gt.fx,
-             100.0 * (final_k.fy - k_gt.fy).abs() / k_gt.fy);
+    println!(
+        "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
+        final_k.fx, final_k.fy, final_k.cx, final_k.cy
+    );
+    println!(
+        "  Distortion: k1={:.4}, k2={:.4}, k3={:.4}, p1={:.4}, p2={:.4}",
+        final_dist.k1, final_dist.k2, final_dist.k3, final_dist.p1, final_dist.p2
+    );
+    println!(
+        "  Error vs GT: fx={:.2}%, fy={:.2}%",
+        100.0 * (final_k.fx - k_gt.fx).abs() / k_gt.fx,
+        100.0 * (final_k.fy - k_gt.fy).abs() / k_gt.fy
+    );
     println!();
 
     // Option 2: Pipeline function (convenience)
@@ -112,7 +133,10 @@ fn main() -> Result<()> {
     run_calibration(&mut session2)?;
 
     let export2 = session2.export()?;
-    println!("  Mean reprojection error: {:.4} px", export2.mean_reproj_error);
+    println!(
+        "  Mean reprojection error: {:.4} px",
+        export2.mean_reproj_error
+    );
 
     Ok(())
 }
