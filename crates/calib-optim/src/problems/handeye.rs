@@ -34,12 +34,12 @@ use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RobotPoseMeta {
     pub robot_pose: Iso3, // base-to-gripper
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeDataset {
     pub data: RigDataset<RobotPoseMeta>,
     pub mode: HandEyeMode,
@@ -75,7 +75,7 @@ impl HandEyeDataset {
 }
 
 /// Initial values for hand-eye calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeParams {
     pub cameras: Vec<PinholeCamera>,
     /// Per-camera extrinsics (camera-to-rig transforms).
@@ -139,7 +139,7 @@ impl Default for HandEyeSolveOptions {
 }
 
 /// Result of hand-eye calibration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeEstimate {
     pub params: HandEyeParams,
     pub report: SolveReport,

@@ -17,7 +17,7 @@ use std::collections::HashMap;
 pub type RigExtrinsicsDataset = RigDataset<NoMeta>;
 
 /// Result of rig extrinsics optimization.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigExtrinsicsParams {
     /// Per-camera calibrated parameters.
     pub cameras: Vec<PinholeCamera>,
@@ -25,7 +25,7 @@ pub struct RigExtrinsicsParams {
     pub rig_from_target: Vec<Iso3>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RigExtrinsicsEstimate {
     pub params: RigExtrinsicsParams,
     pub report: SolveReport,
