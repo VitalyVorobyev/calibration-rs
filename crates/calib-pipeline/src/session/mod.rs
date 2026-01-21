@@ -22,11 +22,11 @@
 //! ```
 
 // Session API
+pub mod calibsession;
 pub mod problem_type;
-pub mod session;
 pub mod types;
 
+pub use calibsession::CalibrationSession;
 /// Session API with mutable state container.
 pub use problem_type::{InvalidationPolicy, ProblemType};
-pub use session::CalibrationSession;
 pub use types::{current_timestamp, ExportRecord, LogEntry, SessionMetadata};

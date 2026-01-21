@@ -5,8 +5,8 @@
 
 use anyhow::{Context, Result};
 use calib_core::{make_pinhole_camera, CameraFixMask, Iso3, NoMeta, PlanarDataset, View};
-use calib_linear::prelude::*;
 use calib_linear::estimate_extrinsics_from_cam_target_poses;
+use calib_linear::prelude::*;
 use calib_optim::{
     optimize_planar_intrinsics, optimize_rig_extrinsics, BackendSolveOptions,
     PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigExtrinsicsParams,
@@ -141,10 +141,13 @@ pub fn step_intrinsics_init_all(
     let num_views = input.num_views();
 
     let mut per_cam_intrinsics = Vec::with_capacity(num_cameras);
-    let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> =
-        vec![vec![None; num_cameras]; num_views];
+    let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
 
-    for cam_idx in 0..num_cameras {
+    for (cam_idx, item) in per_cam_target_poses
+        .iter_mut()
+        .enumerate()
+        .take(num_cameras)
+    {
         let cam_views = extract_camera_views(input, cam_idx);
         let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views)
             .with_context(|| format!("camera {} has insufficient views", cam_idx))?;
@@ -169,9 +172,13 @@ pub fn step_intrinsics_init_all(
         // Estimate target poses for valid views
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
             let view = &planar_dataset.views[local_idx];
-            let pose = estimate_target_pose(&k_matrix, &view.obs)
-                .with_context(|| format!("pose estimation failed for cam {} view {}", cam_idx, global_idx))?;
-            per_cam_target_poses[global_idx][cam_idx] = Some(pose);
+            let pose = estimate_target_pose(&k_matrix, &view.obs).with_context(|| {
+                format!(
+                    "pose estimation failed for cam {} view {}",
+                    cam_idx, global_idx
+                )
+            })?;
+            item[cam_idx] = Some(pose);
         }
 
         per_cam_intrinsics.push(make_pinhole_camera(camera.k, camera.dist));
@@ -243,8 +250,9 @@ pub fn step_intrinsics_optimize_all(
             .collect::<Result<Vec<_>>>()?;
 
         // Build params
-        let initial_params = PlanarIntrinsicsParams::new(per_cam_intrinsics[cam_idx].clone(), initial_poses)
-            .with_context(|| format!("failed to build params for camera {}", cam_idx))?;
+        let initial_params =
+            PlanarIntrinsicsParams::new(per_cam_intrinsics[cam_idx].clone(), initial_poses)
+                .with_context(|| format!("failed to build params for camera {}", cam_idx))?;
 
         // Optimize
         let solve_opts = PlanarIntrinsicsSolveOptions {
@@ -260,8 +268,9 @@ pub fn step_intrinsics_optimize_all(
             ..Default::default()
         };
 
-        let result = optimize_planar_intrinsics(&planar_dataset, &initial_params, solve_opts, backend_opts)
-            .with_context(|| format!("optimization failed for camera {}", cam_idx))?;
+        let result =
+            optimize_planar_intrinsics(&planar_dataset, &initial_params, solve_opts, backend_opts)
+                .with_context(|| format!("optimization failed for camera {}", cam_idx))?;
 
         // Update target poses for this camera
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
@@ -277,7 +286,8 @@ pub fn step_intrinsics_optimize_all(
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
     session.state.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
 
-    let avg_error: f64 = per_cam_reproj_errors.iter().sum::<f64>() / per_cam_reproj_errors.len() as f64;
+    let avg_error: f64 =
+        per_cam_reproj_errors.iter().sum::<f64>() / per_cam_reproj_errors.len() as f64;
     session.log_success_with_notes(
         "intrinsics_optimize_all",
         format!("avg_reproj_err={:.3}px", avg_error),
@@ -302,7 +312,9 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> 
     let input = session.require_input()?;
 
     if !session.state.has_per_cam_intrinsics() {
-        anyhow::bail!("per-camera intrinsics not computed - call step_intrinsics_optimize_all first");
+        anyhow::bail!(
+            "per-camera intrinsics not computed - call step_intrinsics_optimize_all first"
+        );
     }
 
     // Copy values we need
@@ -499,7 +511,7 @@ mod tests {
             .collect();
 
         // Rig poses
-        let rig_poses = vec![
+        let rig_poses = [
             make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
             make_iso((0.1, 0.0, 0.0), (0.1, 0.0, 1.0)),
             make_iso((0.0, 0.1, 0.0), (0.0, 0.1, 1.0)),

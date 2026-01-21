@@ -20,7 +20,7 @@
 //! ```ignore
 //! use calib_pipeline::session::v2::CalibrationSession;
 //! use calib_pipeline::rig_handeye::{
-//!     RigHandeyeProblemV2, RigHandeyeInput,
+//!     RigHandeyeProblem, RigHandeyeInput,
 //!     step_intrinsics_init_all, step_intrinsics_optimize_all,
 //!     step_rig_init, step_rig_optimize,
 //!     step_handeye_init, step_handeye_optimize, run_calibration,
@@ -30,7 +30,7 @@
 //! let input: RigHandeyeInput = /* load from file or construct */;
 //!
 //! // Create session and run calibration
-//! let mut session = CalibrationSession::<RigHandeyeProblemV2>::new();
+//! let mut session = CalibrationSession::<RigHandeyeProblem>::new();
 //! session.set_input(input)?;
 //!
 //! // Option 1: Step-by-step
@@ -69,9 +69,7 @@ mod state;
 mod steps;
 
 // Re-export types
-pub use problem::{
-    RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput, RigHandeyeProblemV2,
-};
+pub use problem::{RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput, RigHandeyeProblem};
 pub use state::RigHandeyeState;
 pub use steps::{
     run_calibration, step_handeye_init, step_handeye_optimize, step_intrinsics_init_all,

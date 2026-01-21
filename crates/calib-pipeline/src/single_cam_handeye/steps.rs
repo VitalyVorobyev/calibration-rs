@@ -25,8 +25,8 @@
 
 use anyhow::{Context, Result};
 use calib_core::{
-    make_pinhole_camera, CameraFixMask, CorrespondenceView, Iso3, NoMeta, PlanarDataset,
-    RigView, RigViewObs, View,
+    make_pinhole_camera, CameraFixMask, CorrespondenceView, Iso3, NoMeta, PlanarDataset, RigView,
+    RigViewObs, View,
 };
 use calib_linear::estimate_handeye_dlt;
 use calib_linear::prelude::*;
@@ -257,7 +257,12 @@ pub fn step_intrinsics_optimize(
     };
 
     // Run optimization
-    let result = match optimize_planar_intrinsics(&planar_dataset, &initial_params, solve_opts, backend_opts) {
+    let result = match optimize_planar_intrinsics(
+        &planar_dataset,
+        &initial_params,
+        solve_opts,
+        backend_opts,
+    ) {
         Ok(r) => r,
         Err(e) => {
             session.log_failure("intrinsics_optimize", e.to_string());
@@ -348,10 +353,7 @@ pub fn step_handeye_init(
 
     session.log_success_with_notes(
         "handeye_init",
-        format!(
-            "translation_norm={:.4}m",
-            handeye.translation.vector.norm()
-        ),
+        format!("translation_norm={:.4}m", handeye.translation.vector.norm()),
     );
 
     Ok(())
@@ -481,9 +483,7 @@ pub fn step_handeye_optimize(
 /// # Errors
 ///
 /// Any error from the constituent steps.
-pub fn run_calibration(
-    session: &mut CalibrationSession<SingleCamHandeyeProblemV2>,
-) -> Result<()> {
+pub fn run_calibration(session: &mut CalibrationSession<SingleCamHandeyeProblemV2>) -> Result<()> {
     step_intrinsics_init(session, None)?;
     step_intrinsics_optimize(session, None)?;
     step_handeye_init(session, None)?;
@@ -529,7 +529,7 @@ mod tests {
             .collect();
 
         // Generate views with different robot poses
-        let robot_poses = vec![
+        let robot_poses = [
             make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
             make_iso((0.1, 0.0, 0.0), (0.1, 0.0, 0.0)),
             make_iso((0.0, 0.1, 0.0), (0.0, 0.1, 0.0)),
@@ -654,8 +654,7 @@ mod tests {
         session.export().unwrap();
 
         let json = session.to_json().unwrap();
-        let restored =
-            CalibrationSession::<SingleCamHandeyeProblemV2>::from_json(&json).unwrap();
+        let restored = CalibrationSession::<SingleCamHandeyeProblemV2>::from_json(&json).unwrap();
 
         assert_eq!(
             restored.metadata.description,

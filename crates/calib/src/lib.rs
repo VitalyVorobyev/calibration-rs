@@ -72,7 +72,6 @@
 //! ## Module Organization
 //!
 //! - **[`session`]**: Type-safe calibration session framework
-//! - **[`helpers`]**: Granular helper functions for common operations
 //! - **[`planar_intrinsics`]**: Planar intrinsics calibration (Zhang's method)
 //! - **[`core`]**: Math types, camera models, RANSAC primitives
 //! - **[`linear`]**: Closed-form initialization algorithms
@@ -123,9 +122,7 @@ pub use calib_core::{
 
 pub use calib_optim::{BackendSolveOptions, HandEyeMode, PlanarIntrinsicsSolveOptions, RobustLoss};
 
-pub use calib_pipeline::{
-    run_planar_intrinsics, PlanarDataset,
-};
+pub use calib_pipeline::{run_planar_intrinsics, PlanarDataset};
 
 /// Convenient re-exports for common use cases.
 pub mod prelude {
@@ -136,12 +133,10 @@ pub mod prelude {
     };
 
     // Session API
-    pub use crate::session::{
-        CalibrationSession, ProblemType,
-    };
+    pub use crate::session::{CalibrationSession, ProblemType};
 
     // Planar intrinsics
-    pub use crate::planar_intrinsics::{PlanarIntrinsicsProblem};
+    pub use crate::planar_intrinsics::PlanarIntrinsicsProblem;
 
     // Common types
     pub use crate::CorrespondenceView;

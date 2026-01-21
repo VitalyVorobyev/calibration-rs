@@ -315,7 +315,11 @@ mod tests {
 
     fn make_minimal_input() -> SingleCamHandeyeInput {
         SingleCamHandeyeInput {
-            views: vec![make_minimal_view(), make_minimal_view(), make_minimal_view()],
+            views: vec![
+                make_minimal_view(),
+                make_minimal_view(),
+                make_minimal_view(),
+            ],
         }
     }
 

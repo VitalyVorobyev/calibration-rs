@@ -89,7 +89,7 @@ pub use crate::rig_handeye::{
     HandeyeInitOptions as RigHandeyeInitOptions, HandeyeOptimOptions as RigHandeyeOptimOptions,
     IntrinsicsInitOptions as RigHandeyeIntrinsicsInitOptions,
     IntrinsicsOptimOptions as RigHandeyeIntrinsicsOptimOptions, RigHandeyeConfig, RigHandeyeExport,
-    RigHandeyeInput, RigHandeyeProblemV2, RigHandeyeState,
+    RigHandeyeInput, RigHandeyeProblem, RigHandeyeState,
     RigOptimOptions as RigHandeyeRigOptimOptions,
 };
 

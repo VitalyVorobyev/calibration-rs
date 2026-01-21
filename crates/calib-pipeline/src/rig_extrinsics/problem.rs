@@ -188,11 +188,7 @@ impl ProblemType for RigExtrinsicsProblem {
 
             // Check at least one camera has observations in this view
             let has_obs = view.obs.cameras.iter().any(|c| c.is_some());
-            ensure!(
-                has_obs,
-                "view {} has no observations from any camera",
-                i
-            );
+            ensure!(has_obs, "view {} has no observations from any camera", i);
         }
 
         Ok(())
@@ -308,12 +304,17 @@ mod tests {
     #[test]
     fn validate_input_config_checks_reference_camera() {
         let input = make_minimal_input();
-        let mut config = RigExtrinsicsConfig::default();
-        config.reference_camera_idx = 5; // Out of range
+        let config = RigExtrinsicsConfig {
+            reference_camera_idx: 5, // Out of range
+            ..RigExtrinsicsConfig::default()
+        };
 
         let result = RigExtrinsicsProblem::validate_input_config(&input, &config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("reference_camera_idx"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("reference_camera_idx"));
     }
 
     #[test]

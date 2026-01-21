@@ -15,10 +15,10 @@
 //!
 //! # Modules
 //!
-//! - [`math`]: basic type aliases and homogeneous helpers.
-//! - [`models`]: camera model traits and configuration wrappers.
-//! - [`ransac`]: generic robust estimation helpers.
-//! - [`synthetic`]: deterministic synthetic data helpers (tests/examples/benchmarks).
+//! - \[`math`\]: basic type aliases and homogeneous helpers.
+//! - \[`models`\]: camera model traits and configuration wrappers.
+//! - \[`ransac`\]: generic robust estimation helpers.
+//! - \[`synthetic`\]: deterministic synthetic data helpers (tests/examples/benchmarks).
 //!
 //! # Example
 //!

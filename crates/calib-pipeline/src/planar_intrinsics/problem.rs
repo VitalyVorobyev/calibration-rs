@@ -84,7 +84,7 @@ pub struct PlanarConfig {
     /// Mask for fixing distortion parameters during optimization.
     pub fix_distortion: DistortionFixMask,
 
-    /// Indices of poses to fix during optimization (e.g., [0] to fix first pose).
+    /// Indices of poses to fix during optimization (e.g., \[0\] to fix first pose).
     pub fix_poses: Vec<usize>,
 }
 

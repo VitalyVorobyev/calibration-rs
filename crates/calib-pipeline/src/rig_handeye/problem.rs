@@ -1,6 +1,6 @@
 //! [`ProblemType`] implementation for multi-camera rig hand-eye calibration.
 //!
-//! This module provides the `RigHandeyeProblemV2` type that implements
+//! This module provides the `RigHandeyeProblem` type that implements
 //! the v2 session API's `ProblemType` trait.
 
 use anyhow::{ensure, Result};
@@ -180,11 +180,11 @@ pub struct RigHandeyeExport {
 /// ```ignore
 /// use calib_pipeline::session::CalibrationSession;
 /// use calib_pipeline::rig_handeye::{
-///     RigHandeyeProblemV2, step_intrinsics_init_all, step_intrinsics_optimize_all,
+///     RigHandeyeProblem, step_intrinsics_init_all, step_intrinsics_optimize_all,
 ///     step_rig_init, step_rig_optimize, step_handeye_init, step_handeye_optimize,
 /// };
 ///
-/// let mut session = CalibrationSession::<RigHandeyeProblemV2>::new();
+/// let mut session = CalibrationSession::<RigHandeyeProblem>::new();
 /// session.set_input(rig_dataset);
 ///
 /// step_intrinsics_init_all(&mut session, None);
@@ -197,9 +197,9 @@ pub struct RigHandeyeExport {
 /// let export = session.export();
 /// ```
 #[derive(Debug)]
-pub struct RigHandeyeProblemV2;
+pub struct RigHandeyeProblem;
 
-impl ProblemType for RigHandeyeProblemV2 {
+impl ProblemType for RigHandeyeProblem {
     type Config = RigHandeyeConfig;
     type Input = RigHandeyeInput;
     type State = RigHandeyeState;
@@ -239,11 +239,7 @@ impl ProblemType for RigHandeyeProblemV2 {
 
             // Check at least one camera has observations in this view
             let has_obs = view.obs.cameras.iter().any(|c| c.is_some());
-            ensure!(
-                has_obs,
-                "view {} has no observations from any camera",
-                i
-            );
+            ensure!(has_obs, "view {} has no observations from any camera", i);
         }
 
         Ok(())
@@ -352,7 +348,7 @@ mod tests {
     #[test]
     fn validate_input_requires_3_views() {
         let input = make_minimal_input();
-        let result = RigHandeyeProblemV2::validate_input(&input);
+        let result = RigHandeyeProblem::validate_input(&input);
         assert!(result.is_ok());
     }
 
@@ -371,7 +367,7 @@ mod tests {
             .collect();
 
         let input = RigDataset::new(views, 1).unwrap();
-        let result = RigHandeyeProblemV2::validate_input(&input);
+        let result = RigHandeyeProblem::validate_input(&input);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("2 cameras"));
     }
@@ -379,19 +375,24 @@ mod tests {
     #[test]
     fn validate_config_accepts_valid() {
         let config = RigHandeyeConfig::default();
-        let result = RigHandeyeProblemV2::validate_config(&config);
+        let result = RigHandeyeProblem::validate_config(&config);
         assert!(result.is_ok());
     }
 
     #[test]
     fn validate_input_config_checks_reference_camera() {
         let input = make_minimal_input();
-        let mut config = RigHandeyeConfig::default();
-        config.reference_camera_idx = 5; // Out of range
+        let config = RigHandeyeConfig {
+            reference_camera_idx: 5, // Out of range
+            ..RigHandeyeConfig::default()
+        };
 
-        let result = RigHandeyeProblemV2::validate_input_config(&input, &config);
+        let result = RigHandeyeProblem::validate_input_config(&input, &config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("reference_camera_idx"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("reference_camera_idx"));
     }
 
     #[test]
@@ -417,7 +418,7 @@ mod tests {
 
     #[test]
     fn problem_name_and_version() {
-        assert_eq!(RigHandeyeProblemV2::name(), "rig_handeye_v2");
-        assert_eq!(RigHandeyeProblemV2::schema_version(), 1);
+        assert_eq!(RigHandeyeProblem::name(), "rig_handeye_v2");
+        assert_eq!(RigHandeyeProblem::schema_version(), 1);
     }
 }

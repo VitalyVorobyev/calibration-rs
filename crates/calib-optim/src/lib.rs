@@ -8,8 +8,8 @@
 //!
 //! The optimization pipeline has three stages:
 //!
-//! 1. **Problem Definition** - Build a [`ir::ProblemIR`] describing parameters, factors, and constraints
-//! 2. **Backend Compilation** - Translate IR into solver-specific problem (e.g., [`backend::TinySolverBackend`])
+//! 1. **Problem Definition** - Build a \[`ir::ProblemIR`\] describing parameters, factors, and constraints
+//! 2. **Backend Compilation** - Translate IR into solver-specific problem (e.g., \[`backend::TinySolverBackend`\])
 //! 3. **Optimization** - Run solver and extract solution as domain types
 //!
 //! ```text
@@ -18,11 +18,11 @@
 //!
 //! ## Key Components
 //!
-//! - **[`ir`]** - Backend-agnostic intermediate representation for optimization problems
-//! - **[`params`]** - Parameter block definitions (intrinsics, distortion, poses)
-//! - **[`factors`]** - Residual functions with automatic differentiation support
-//! - **[`backend`]** - Solver implementations (currently tiny-solver with Levenberg-Marquardt)
-//! - **[`problems`]** - High-level calibration problem builders (planar intrinsics, etc.)
+//! - **\[`ir`\]** - Backend-agnostic intermediate representation for optimization problems
+//! - **\[`params`\]** - Parameter block definitions (intrinsics, distortion, poses)
+//! - **\[`factors`\]** - Residual functions with automatic differentiation support
+//! - **\[`backend`\]** - Solver implementations (currently tiny-solver with Levenberg-Marquardt)
+//! - **\[`problems`\]** - High-level calibration problem builders (planar intrinsics, etc.)
 //!
 //! # Examples
 //!
@@ -90,17 +90,12 @@
 //!
 //! ## Custom Problem with IR
 //!
-//! ```ignore
-//! // The IR and backend modules are internal and not part of the stable public API.
-//! // See `calib_optim::optimize_planar_intrinsics` and friends for supported entry points.
-//! ```
-//!
 //! # Feature Highlights
 //!
 //! ## Automatic Differentiation
 //!
 //! All residual functions are generic over [`nalgebra::RealField`], enabling automatic
-//! differentiation via dual numbers. The [`factors::reprojection_model`] module provides
+//! differentiation via dual numbers. The \[`factors::reprojection_model`\] module provides
 //! autodiff-compatible implementations of:
 //!
 //! - Pinhole projection with SE3 poses
@@ -109,7 +104,7 @@
 //!
 //! ## Flexible Parameter Fixing
 //!
-//! Use [`ir::FixedMask`] to selectively fix optimization variables:
+//! Use \[`ir::FixedMask`\] to selectively fix optimization variables:
 //!
 //! ```rust
 //! # use calib_optim::PlanarIntrinsicsSolveOptions;

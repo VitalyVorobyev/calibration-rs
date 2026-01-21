@@ -1,7 +1,7 @@
 //! Step functions for multi-camera rig hand-eye calibration.
 //!
 //! This module provides step functions that operate on
-//! `CalibrationSession<RigHandeyeProblemV2>` to perform calibration.
+//! `CalibrationSession<RigHandeyeProblem>` to perform calibration.
 
 use anyhow::{Context, Result};
 use calib_core::{make_pinhole_camera, CameraFixMask, Iso3, NoMeta, PlanarDataset, View};
@@ -16,7 +16,7 @@ use calib_optim::{
 
 use crate::session::CalibrationSession;
 
-use super::problem::{RigHandeyeInput, RigHandeyeProblemV2};
+use super::problem::{RigHandeyeInput, RigHandeyeProblem};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Options
@@ -121,7 +121,6 @@ fn estimate_target_pose(
     estimate_planar_pose_from_h(k_matrix, &h).context("failed to recover pose from homography")
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
@@ -135,7 +134,7 @@ fn estimate_target_pose(
 /// - Input not set
 /// - Any camera has fewer than 3 views with observations
 pub fn step_intrinsics_init_all(
-    session: &mut CalibrationSession<RigHandeyeProblemV2>,
+    session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -159,10 +158,13 @@ pub fn step_intrinsics_init_all(
     let num_views = input.num_views();
 
     let mut per_cam_intrinsics = Vec::with_capacity(num_cameras);
-    let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> =
-        vec![vec![None; num_cameras]; num_views];
+    let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
 
-    for cam_idx in 0..num_cameras {
+    for (cam_idx, item) in per_cam_target_poses
+        .iter_mut()
+        .enumerate()
+        .take(num_cameras)
+    {
         let cam_views = extract_camera_views(input, cam_idx);
         let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views)
             .with_context(|| format!("camera {} has insufficient views", cam_idx))?;
@@ -187,9 +189,13 @@ pub fn step_intrinsics_init_all(
         // Estimate target poses for valid views
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
             let view = &planar_dataset.views[local_idx];
-            let pose = estimate_target_pose(&k_matrix, &view.obs)
-                .with_context(|| format!("pose estimation failed for cam {} view {}", cam_idx, global_idx))?;
-            per_cam_target_poses[global_idx][cam_idx] = Some(pose);
+            let pose = estimate_target_pose(&k_matrix, &view.obs).with_context(|| {
+                format!(
+                    "pose estimation failed for cam {} view {}",
+                    cam_idx, global_idx
+                )
+            })?;
+            item[cam_idx] = Some(pose);
         }
 
         per_cam_intrinsics.push(make_pinhole_camera(camera.k, camera.dist));
@@ -219,7 +225,7 @@ pub fn step_intrinsics_init_all(
 /// - Initialization not run
 /// - Optimization fails for any camera
 pub fn step_intrinsics_optimize_all(
-    session: &mut CalibrationSession<RigHandeyeProblemV2>,
+    session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<IntrinsicsOptimOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -261,8 +267,9 @@ pub fn step_intrinsics_optimize_all(
             .collect::<Result<Vec<_>>>()?;
 
         // Build params
-        let initial_params = PlanarIntrinsicsParams::new(per_cam_intrinsics[cam_idx].clone(), initial_poses)
-            .with_context(|| format!("failed to build params for camera {}", cam_idx))?;
+        let initial_params =
+            PlanarIntrinsicsParams::new(per_cam_intrinsics[cam_idx].clone(), initial_poses)
+                .with_context(|| format!("failed to build params for camera {}", cam_idx))?;
 
         // Optimize
         let solve_opts = PlanarIntrinsicsSolveOptions {
@@ -278,8 +285,9 @@ pub fn step_intrinsics_optimize_all(
             ..Default::default()
         };
 
-        let result = optimize_planar_intrinsics(&planar_dataset, &initial_params, solve_opts, backend_opts)
-            .with_context(|| format!("optimization failed for camera {}", cam_idx))?;
+        let result =
+            optimize_planar_intrinsics(&planar_dataset, &initial_params, solve_opts, backend_opts)
+                .with_context(|| format!("optimization failed for camera {}", cam_idx))?;
 
         // Update target poses for this camera
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
@@ -295,7 +303,8 @@ pub fn step_intrinsics_optimize_all(
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
     session.state.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
 
-    let avg_error: f64 = per_cam_reproj_errors.iter().sum::<f64>() / per_cam_reproj_errors.len() as f64;
+    let avg_error: f64 =
+        per_cam_reproj_errors.iter().sum::<f64>() / per_cam_reproj_errors.len() as f64;
     session.log_success_with_notes(
         "intrinsics_optimize_all",
         format!("avg_reproj_err={:.3}px", avg_error),
@@ -315,12 +324,14 @@ pub fn step_intrinsics_optimize_all(
 /// - Input not set
 /// - Per-camera intrinsics not computed
 /// - Insufficient overlapping views between cameras
-pub fn step_rig_init(session: &mut CalibrationSession<RigHandeyeProblemV2>) -> Result<()> {
+pub fn step_rig_init(session: &mut CalibrationSession<RigHandeyeProblem>) -> Result<()> {
     session.validate()?;
     let input = session.require_input()?;
 
     if !session.state.has_per_cam_intrinsics() {
-        anyhow::bail!("per-camera intrinsics not computed - call step_intrinsics_optimize_all first");
+        anyhow::bail!(
+            "per-camera intrinsics not computed - call step_intrinsics_optimize_all first"
+        );
     }
 
     // Copy values we need before modifying state
@@ -365,7 +376,7 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigHandeyeProblemV2>) -> R
 /// - Rig initialization not run
 /// - Optimization fails
 pub fn step_rig_optimize(
-    session: &mut CalibrationSession<RigHandeyeProblemV2>,
+    session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<RigOptimOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -447,7 +458,8 @@ pub fn step_rig_optimize(
     )?;
 
     // Run optimization
-    let result = match optimize_rig_extrinsics(rig_input_no_meta, initial, solve_opts, backend_opts) {
+    let result = match optimize_rig_extrinsics(rig_input_no_meta, initial, solve_opts, backend_opts)
+    {
         Ok(r) => r,
         Err(e) => {
             session.log_failure("rig_optimize", e.to_string());
@@ -482,7 +494,7 @@ pub fn step_rig_optimize(
 /// - Rig optimization not run
 /// - Linear hand-eye estimation fails
 pub fn step_handeye_init(
-    session: &mut CalibrationSession<RigHandeyeProblemV2>,
+    session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<HandeyeInitOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -543,10 +555,7 @@ pub fn step_handeye_init(
 
     session.log_success_with_notes(
         "handeye_init",
-        format!(
-            "translation_norm={:.4}m",
-            handeye.translation.vector.norm()
-        ),
+        format!("translation_norm={:.4}m", handeye.translation.vector.norm()),
     );
 
     Ok(())
@@ -569,7 +578,7 @@ pub fn step_handeye_init(
 /// - Hand-eye initialization not run
 /// - Optimization fails
 pub fn step_handeye_optimize(
-    session: &mut CalibrationSession<RigHandeyeProblemV2>,
+    session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<HandeyeOptimOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -644,11 +653,8 @@ pub fn step_handeye_optimize(
     };
 
     // Convert input to HandEyeDataset
-    let handeye_dataset = HandEyeDataset::new(
-        input.views.clone(),
-        input.num_cameras,
-        config.handeye_mode,
-    )?;
+    let handeye_dataset =
+        HandEyeDataset::new(input.views.clone(), input.num_cameras, config.handeye_mode)?;
 
     // Run optimization
     let result = match optimize_handeye(handeye_dataset, initial, solve_opts, backend_opts) {
@@ -686,7 +692,7 @@ pub fn step_handeye_optimize(
 /// # Errors
 ///
 /// Any error from the constituent steps.
-pub fn run_calibration(session: &mut CalibrationSession<RigHandeyeProblemV2>) -> Result<()> {
+pub fn run_calibration(session: &mut CalibrationSession<RigHandeyeProblem>) -> Result<()> {
     step_intrinsics_init_all(session, None)?;
     step_intrinsics_optimize_all(session, None)?;
     step_rig_init(session)?;
@@ -742,7 +748,7 @@ mod tests {
             .collect();
 
         // Robot poses
-        let robot_poses = vec![
+        let robot_poses = [
             make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
             make_iso((0.1, 0.0, 0.0), (0.1, 0.0, 0.0)),
             make_iso((0.0, 0.1, 0.0), (0.0, 0.1, 0.0)),
@@ -791,7 +797,7 @@ mod tests {
 
     #[test]
     fn step_intrinsics_init_all_computes_estimate() {
-        let mut session = CalibrationSession::<RigHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
 
         step_intrinsics_init_all(&mut session, None).unwrap();
@@ -803,7 +809,7 @@ mod tests {
 
     #[test]
     fn step_rig_init_requires_intrinsics() {
-        let mut session = CalibrationSession::<RigHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
 
         let result = step_rig_init(&mut session);
@@ -813,7 +819,7 @@ mod tests {
 
     #[test]
     fn step_rig_optimize_requires_init() {
-        let mut session = CalibrationSession::<RigHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init_all(&mut session, None).unwrap();
         step_intrinsics_optimize_all(&mut session, None).unwrap();
@@ -825,7 +831,7 @@ mod tests {
 
     #[test]
     fn step_handeye_init_requires_rig_optimize() {
-        let mut session = CalibrationSession::<RigHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init_all(&mut session, None).unwrap();
         step_intrinsics_optimize_all(&mut session, None).unwrap();
@@ -838,7 +844,7 @@ mod tests {
 
     #[test]
     fn step_handeye_optimize_requires_init() {
-        let mut session = CalibrationSession::<RigHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init_all(&mut session, None).unwrap();
         step_intrinsics_optimize_all(&mut session, None).unwrap();
@@ -852,7 +858,7 @@ mod tests {
 
     #[test]
     fn set_input_clears_state() {
-        let mut session = CalibrationSession::<RigHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init_all(&mut session, None).unwrap();
 
@@ -864,7 +870,7 @@ mod tests {
 
     #[test]
     fn set_config_keeps_output() {
-        let mut session = CalibrationSession::<RigHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
         run_calibration(&mut session).unwrap();
 
@@ -883,13 +889,13 @@ mod tests {
     #[test]
     fn json_roundtrip() {
         let mut session =
-            CalibrationSession::<RigHandeyeProblemV2>::with_description("Test rig hand-eye");
+            CalibrationSession::<RigHandeyeProblem>::with_description("Test rig hand-eye");
         session.set_input(make_test_input()).unwrap();
         run_calibration(&mut session).unwrap();
         session.export().unwrap();
 
         let json = session.to_json().unwrap();
-        let restored = CalibrationSession::<RigHandeyeProblemV2>::from_json(&json).unwrap();
+        let restored = CalibrationSession::<RigHandeyeProblem>::from_json(&json).unwrap();
 
         assert_eq!(
             restored.metadata.description,
