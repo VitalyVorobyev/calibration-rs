@@ -143,11 +143,8 @@ pub fn step_intrinsics_init_all(
     let mut per_cam_intrinsics = Vec::with_capacity(num_cameras);
     let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
 
-    for (cam_idx, item) in per_cam_target_poses
-        .iter_mut()
-        .enumerate()
-        .take(num_cameras)
-    {
+    #[allow(clippy::needless_range_loop)] // cam_idx used for both extract_camera_views and 2D array indexing
+    for cam_idx in 0..num_cameras {
         let cam_views = extract_camera_views(input, cam_idx);
         let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views)
             .with_context(|| format!("camera {} has insufficient views", cam_idx))?;
@@ -178,7 +175,7 @@ pub fn step_intrinsics_init_all(
                     cam_idx, global_idx
                 )
             })?;
-            item[cam_idx] = Some(pose);
+            per_cam_target_poses[global_idx][cam_idx] = Some(pose);
         }
 
         per_cam_intrinsics.push(make_pinhole_camera(camera.k, camera.dist));

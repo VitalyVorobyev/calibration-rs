@@ -343,212 +343,153 @@ Integration tests ([tests/linescan_bundle.rs](crates/calib-optim/tests/linescan_
 
 ## Session Framework (calib-pipeline)
 
-calib-pipeline provides an **artifact-based session API** for calibration workflows supporting branching workflows, automatic state tracking, and JSON checkpointing.
+calib-pipeline provides a **mutable state container session API** for calibration workflows with step functions, automatic state tracking, and JSON checkpointing.
 
 ### Core Abstractions
 
-**ProblemType trait** ([session/mod.rs](crates/calib-pipeline/src/session/mod.rs)):
+**ProblemType trait** ([session/problem_type.rs](crates/calib-pipeline/src/session/problem_type.rs)):
 - Defines interface for calibration problems
-- Parameterizes observation types, initialization, optimization, filtering, and export
-- Currently implemented: `PlanarIntrinsicsProblem`
+- Associated types: `Config`, `Input`, `State`, `Output`, `Export`
+- Minimal by design - behavior implemented via external step functions
 
-**CalibrationSession<P: ProblemType>** ([session/mod.rs](crates/calib-pipeline/src/session/mod.rs)):
-- Generic session container with artifact-based state management
-- Stores observations, initial values, and optimized results as artifacts
-- Supports branching: multiple initializations from same observations, multiple optimizations from same seed
+**CalibrationSession<P: ProblemType>** ([session/calibsession.rs](crates/calib-pipeline/src/session/calibsession.rs)):
+- Generic mutable state container
+- Stores config, input, intermediate state, and output
 - Full JSON serialization for checkpointing
 
-### Artifact-Based Architecture
-
-All data is stored as artifacts identified by `ArtifactId`:
-
-```
-Observations ──┬── run_init() ──► InitialValues ──┬── run_optimize() ──► OptimizedResults
-               │                                   │
-               ├── run_init() ──► InitialValues   ├── run_optimize() ──► OptimizedResults
-               │                                   │
-               └── (branching supported)           └── (branching supported)
-```
-
-Operations:
-- `add_observations(obs) -> ArtifactId` - Add calibration data
-- `run_init(obs_id, opts) -> ArtifactId` - Linear initialization
-- `run_optimize(obs_id, init_id, opts) -> ArtifactId` - Non-linear refinement
-- `run_filter_obs(obs_id, result_id, opts) -> ArtifactId` - Filter outliers based on residuals
-- `run_export(result_id, opts) -> Report` - Generate export report
-
-### Usage Example
+### Session API Pattern
 
 ```rust
-use calib_pipeline::{CalibrationSession, FilterOptions, ExportOptions};
-use calib_pipeline::planar_intrinsics::{
-    PlanarIntrinsicsProblem, PlanarIntrinsicsObservations,
-};
+use calib::prelude::*;
+use calib::planar_intrinsics::{step_init, step_optimize};
 
-// Create session
+// 1. Create session
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
-// Add observations
-let obs_id = session.add_observations(PlanarIntrinsicsObservations { views });
+// 2. Set input
+session.set_input(dataset)?;
 
-// Try two different initialization strategies (branching)
-let seed_a = session.run_init(obs_id, init_opts_a)?;
-let seed_b = session.run_init(obs_id, init_opts_b)?;
+// 3. Configure (optional)
+session.update_config(|c| c.max_iters = 100)?;
 
-// Optimize from the better seed
-let result_id = session.run_optimize(obs_id, seed_a, optim_opts)?;
+// 4. Run step functions (or pipeline function)
+step_init(&mut session, None)?;
+step_optimize(&mut session, None)?;
+// OR: run_planar_intrinsics(&mut session)?;
 
-// Filter outliers and re-optimize
-let filtered_obs = session.run_filter_obs(obs_id, result_id, FilterOptions {
-    max_reproj_error: Some(2.0),
-    min_points_per_view: 8,
-    remove_sparse_views: true,
-})?;
-let seed_c = session.run_init(filtered_obs, init_opts)?;
-let final_result = session.run_optimize(filtered_obs, seed_c, optim_opts)?;
+// 5. Export results
+let export = session.export()?;
 
-// Export results
-let report = session.run_export(final_result, ExportOptions::default())?;
-
-// Checkpoint/restore
+// 6. Checkpoint/restore
 let json = session.to_json()?;
 let restored = CalibrationSession::<PlanarIntrinsicsProblem>::from_json(&json)?;
 ```
 
 ### Available Problem Types
 
-**PlanarIntrinsicsProblem** ([planar_intrinsics/session.rs](crates/calib-pipeline/src/planar_intrinsics/session.rs)):
-- Zhang's method with Brown-Conrady distortion
-- Observations: `PlanarIntrinsicsObservations` (multiple views of planar pattern)
-- Init: Zhang's method for intrinsics + poses
-- Optim: Full non-linear refinement with user-configurable options
-- Filter: Per-point reprojection error threshold
-- Report: `CameraParams` + final cost + mean reprojection error + poses
+| Problem Type | Input | Steps | Pipeline Function |
+|--------------|-------|-------|-------------------|
+| `PlanarIntrinsicsProblem` | `PlanarDataset` | `step_init` → `step_optimize` | `run_planar_intrinsics` |
+| `SingleCamHandeyeProblemV2` | `SingleCamHandeyeInput` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` | `run_single_cam_handeye` |
+| `RigExtrinsicsProblem` | `RigExtrinsicsInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` | `run_rig_extrinsics` |
+| `RigHandeyeProblem` | `RigHandeyeInput` | 6 steps (intrinsics + rig + handeye) | `run_rig_handeye` |
 
-**Hand-eye calibration**: Available via re-exports from calib-optim (`optimize_handeye`, etc.) but not as a session problem type due to complexity.
+### Step Functions vs Pipeline Functions
 
-### Session Metadata & Audit Trail
+**Step Functions** - Granular control with intermediate inspection:
+```rust
+step_init(&mut session, None)?;
+println!("Initial fx: {}", session.state.initial_intrinsics.unwrap().fx);
+step_optimize(&mut session, None)?;
+```
 
-Each session tracks:
-- `problem_type`: Identifier string (e.g., "planar_intrinsics")
-- `created_at` / `last_updated`: Unix timestamps
-- `description`: Optional user-provided description
-- `runs`: Full audit trail of all operations (inputs, outputs, options, timestamps)
+**Pipeline Functions** - Convenience wrappers:
+```rust
+run_planar_intrinsics(&mut session)?;  // Runs all steps
+```
+
+### Session Lifecycle
+
+1. `session.set_input(input)?` - Load observations (clears state per invalidation policy)
+2. `session.update_config(|c| ...)?` - Configure parameters
+3. Step functions mutate `session.state` in place
+4. Final step sets `session.output`
+5. `session.export()?` - Generate export record
 
 ### Design Principles
 
-- **Branching workflows**: Try multiple strategies without losing previous work
-- **Artifact immutability**: Once created, artifacts don't change
-- **Type safety**: Generic over `ProblemType` ensures correct observation/result types
-- **Full checkpointing**: Session state serializable to JSON including all artifacts
-- **Audit trail**: Every operation recorded with inputs, outputs, and options
+- **Mutable state container**: Single session holds config, input, state, output
+- **Step functions**: External functions operating on `&mut CalibrationSession<P>`
+- **Invalidation policy**: Input changes clear state; config changes keep output
+- **Audit trail**: All operations logged with timestamps
+- **Full checkpointing**: Session serializable to JSON
 
 ### Adding New Problem Types
 
-To add a new calibration problem:
+1. Create folder under `calib-pipeline/src/` (e.g., `my_problem/`)
+2. Implement `problem.rs`: Define `MyProblem` implementing `ProblemType` trait
+3. Implement `state.rs`: Define `MyState` for intermediate results
+4. Implement `steps.rs`: Define step functions and pipeline function
+5. Add `mod.rs` with re-exports
+6. Update `lib.rs` to export the new module
 
-1. Create a folder under `calib-pipeline/src/` (e.g., `my_problem/`)
-2. Define types in `types.rs`: `Observations`, `Initial`, `Optimized`, `Report`, options
-3. Implement `ProblemType` trait in `session.rs`:
-   - `initialize()`: Call calib-linear for initial estimates
-   - `optimize()`: Call calib-optim for non-linear refinement
-   - `filter_observations()`: Remove outliers based on residuals
-   - `export()`: Build user-facing report
-4. Add `mod.rs` with re-exports
-5. Update `lib.rs` to export the new module
+## calib Crate (Entry Point)
 
-Example skeleton:
+The `calib` crate provides a unified facade for the entire library.
+
+### Module Organization
+
+- `calib::session` - Session framework (`CalibrationSession`, `ProblemType`)
+- `calib::planar_intrinsics` - Single-camera intrinsics calibration
+- `calib::single_cam_handeye` - Single camera + hand-eye
+- `calib::rig_extrinsics` - Multi-camera rig calibration
+- `calib::rig_handeye` - Multi-camera rig + hand-eye
+- `calib::core` - Math types, camera models (from calib-core)
+- `calib::linear` - Initialization algorithms (from calib-linear)
+- `calib::optim` - Optimization (from calib-optim)
+- `calib::synthetic` - Test data generation
+- `calib::prelude` - Common imports
+
+### Quick Start
 
 ```rust
-pub struct MyProblem;
+use calib::prelude::*;
+use calib::planar_intrinsics::{step_init, step_optimize};
 
-impl ProblemType for MyProblem {
-    type Observations = MyObservations;
-    type InitialValues = MyInitial;
-    type OptimizedResults = MyOptimized;
-    type ExportReport = MyReport;
-    type InitOptions = MyInitOpts;
-    type OptimOptions = MyOptimOpts;
-
-    fn problem_name() -> &'static str { "my_problem" }
-
-    fn initialize(obs: &Self::Observations, opts: &Self::InitOptions) -> Result<Self::InitialValues>;
-    fn optimize(obs: &Self::Observations, init: &Self::InitialValues, opts: &Self::OptimOptions) -> Result<Self::OptimizedResults>;
-    fn filter_observations(obs: &Self::Observations, result: &Self::OptimizedResults, opts: &FilterOptions) -> Result<Self::Observations>;
-    fn export(result: &Self::OptimizedResults, opts: &ExportOptions) -> Result<Self::ExportReport>;
-}
-```
-
-## Dual API: Session vs. Helper Functions
-
-calib-pipeline supports **two complementary APIs** for different use cases:
-
-### Session API (Branching Workflows)
-
-**Use when:**
-- You want artifact-based state management with branching support
-- You need to try multiple initialization/optimization strategies
-- You want automatic checkpointing and audit trails
-- Type safety and reproducibility are important
-
-**Example:**
-```rust
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-let obs_id = session.add_observations(obs);
-let init_id = session.run_init(obs_id, init_opts)?;
-let result_id = session.run_optimize(obs_id, init_id, optim_opts)?;
-let report = session.run_export(result_id, export_opts)?;
+session.set_input(dataset)?;
+step_init(&mut session, None)?;
+step_optimize(&mut session, None)?;
+let result = session.export()?;
 ```
 
-### Helper Function API (Direct Access)
+### Examples
 
-**Use when:**
-- You need to inspect intermediate results step by step
-- You want to compose custom workflows
-- You need maximum flexibility and control
-
-**Example:**
-```rust
-use calib_pipeline::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
-
-// Step 1: Linear initialization with inspection
-let init_result = initialize_planar_intrinsics(&views, &init_opts)?;
-println!("Initial fx: {}, fy: {}", init_result.intrinsics.fx, init_result.intrinsics.fy);
-
-// Step 2: Non-linear optimization
-let optim_result = optimize_planar_intrinsics_from_init(&views, &init_result, &solve_opts, &backend_opts)?;
-println!("Final error: {:.2} px", optim_result.mean_reproj_error);
+Run examples with:
+```bash
+cargo run -p calib --example planar_synthetic  # Synthetic data
+cargo run -p calib --example planar_real       # Real images
+cargo run -p calib --example stereo_session    # Stereo rig
 ```
-
-### API Selection Guidelines
-
-| Scenario | Recommended API |
-|----------|----------------|
-| Standard calibration with checkpointing | Session API |
-| Try multiple strategies (branching) | Session API |
-| Outlier filtering + re-optimization | Session API |
-| Inspect intermediate linear init | Helper Functions |
-| Custom integration into larger system | Helper Functions |
-| Simple one-shot calibration | Helper Functions |
-
-**Note:** Both APIs use the same underlying algorithms. Session API adds artifact management; Helper API provides direct access.
 
 ## Project Status
 
-**Current state**: Early development, APIs may change
+**Current state**: Pre-release, APIs stabilizing
 - calib-core: ✅ Feature-complete and tested
 - calib-linear: ✅ Feature-complete and tested
-- calib-optim: ✅ Planar intrinsics, hand-eye, rig extrinsics working
-- calib-pipeline: ✅ Artifact-based session framework with `PlanarIntrinsicsProblem`
+- calib-optim: ✅ Planar intrinsics, hand-eye working; rig BA under development
+- calib-pipeline: ✅ Session framework with 4 problem types
+- calib: ✅ Unified facade with examples
 - calib-cli: ✅ Basic CLI for planar intrinsics
 
 **Session framework**:
-- ✅ Artifact-based state management with branching support
-- ✅ `PlanarIntrinsicsProblem` with init, optimize, filter, export
+- ✅ Mutable state container with step functions
+- ✅ 4 problem types: PlanarIntrinsics, SingleCamHandeye, RigExtrinsics, RigHandeye
 - ✅ JSON checkpointing for session persistence
-- ✅ 31 tests passing in calib-pipeline
+- ✅ 100+ tests passing in calib-pipeline
 
 **Available calibration types**:
-- Planar intrinsics (session API + helper functions)
-- Hand-eye calibration (re-exported optimization functions)
-- Rig extrinsics (re-exported optimization functions)
+- Planar intrinsics (full session API)
+- Single-camera hand-eye (full session API)
+- Multi-camera rig intrinsics + extrinsics (session API, BA under development)
+- Multi-camera rig hand-eye (session API, BA under development)
