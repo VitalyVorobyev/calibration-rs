@@ -17,7 +17,7 @@
 //! ```ignore
 //! use calib_pipeline::session::v2::CalibrationSession;
 //! use calib_pipeline::rig_extrinsics::{
-//!     RigExtrinsicsProblemV2, RigExtrinsicsInput,
+//!     RigExtrinsicsProblem, RigExtrinsicsInput,
 //!     step_intrinsics_init_all, step_intrinsics_optimize_all,
 //!     step_rig_init, step_rig_optimize, run_calibration,
 //! };
@@ -26,7 +26,7 @@
 //! let input: RigExtrinsicsInput = /* load from file or construct */;
 //!
 //! // Create session and run calibration
-//! let mut session = CalibrationSession::<RigExtrinsicsProblemV2>::new();
+//! let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 //! session.set_input(input)?;
 //!
 //! // Option 1: Step-by-step
@@ -54,13 +54,13 @@
 //! - First rig pose fixed for gauge freedom
 //! - k3 distortion fixed by default
 
-mod problem_v2;
+mod problem;
 mod state;
 mod steps;
 
 // Re-export types
-pub use problem_v2::{
-    RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblemV2,
+pub use problem::{
+    RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblem,
 };
 pub use state::RigExtrinsicsState;
 pub use steps::{

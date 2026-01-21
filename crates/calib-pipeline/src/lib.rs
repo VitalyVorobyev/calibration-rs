@@ -2,7 +2,7 @@
 //!
 //! This crate provides ready-to-use calibration workflows with multiple APIs:
 //!
-//! ## New Session API (v2) - Recommended
+//! ## Session API - Recommended
 //!
 //! The new session API uses a mutable state container with step functions.
 //! This is the recommended approach for new code.
@@ -25,31 +25,6 @@
 //!
 //! let export = session.export()?;
 //! ```
-//!
-//! ## Legacy Session API (v1) - Deprecated
-//!
-//! The original artifact-based DAG session API is still available but deprecated.
-//!
-//! ```ignore
-//! use calib_pipeline::session::CalibrationSession;
-//! use calib_pipeline::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
-//!
-//! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-//! let obs_id = session.add_observations(dataset);
-//! let config = PlanarIntrinsicsConfig::default();
-//! let init_id = session.run_init(obs_id, config.clone())?;
-//! let result_id = session.run_optimize(obs_id, init_id, config)?;
-//! ```
-//!
-//! ## Imperative API
-//!
-//! Direct function calls without session management.
-//!
-//! ```ignore
-//! use calib_pipeline::planar_intrinsics::{run_planar_intrinsics, PlanarIntrinsicsConfig};
-//!
-//! let result = run_planar_intrinsics(&dataset, &PlanarIntrinsicsConfig::default())?;
-//! ```
 
 // Core session framework
 pub mod session;
@@ -61,96 +36,61 @@ pub mod rig_handeye;
 pub mod single_cam_handeye;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// New Session API (v2) Re-exports - Recommended
+// Session API Re-exports - Recommended
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// New session API with mutable state container (v2).
+/// Session API with mutable state container.
 ///
-/// This module re-exports the v2 session infrastructure and calibration problem
+/// This module re-exports the session infrastructure and calibration problem
 /// step functions for convenient access.
-pub mod v2 {
-
-    // Session infrastructure
-    pub use crate::session::v2::{
-        CalibrationSession, ExportRecord, InvalidationPolicy, LogEntry, ProblemType,
-        SessionMetadata,
-    };
-
-    // Planar intrinsics
-    pub use crate::planar_intrinsics::{
-        run_calibration as run_planar_intrinsics, run_calibration_with_filtering, step_filter,
-        step_init, step_optimize, FilterOptions, InitOptions, OptimizeOptions, PlanarConfig,
-        PlanarExport, PlanarIntrinsicsProblemV2, PlanarState,
-    };
-
-    // Single-camera hand-eye
-    pub use crate::single_cam_handeye::{
-        run_calibration as run_single_cam_handeye,
-        step_handeye_init as single_cam_step_handeye_init,
-        step_handeye_optimize as single_cam_step_handeye_optimize,
-        step_intrinsics_init as single_cam_step_intrinsics_init,
-        step_intrinsics_optimize as single_cam_step_intrinsics_optimize,
-        HandeyeInitOptions as SingleCamHandeyeInitOptions,
-        HandeyeOptimOptions as SingleCamHandeyeOptimOptions,
-        IntrinsicsInitOptions as SingleCamIntrinsicsInitOptions,
-        IntrinsicsOptimOptions as SingleCamIntrinsicsOptimOptions, SingleCamHandeyeConfig,
-        SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblemV2,
-        SingleCamHandeyeState, SingleCamHandeyeView,
-    };
-
-    // Rig extrinsics
-    pub use crate::rig_extrinsics::{
-        run_calibration as run_rig_extrinsics,
-        step_intrinsics_init_all as rig_step_intrinsics_init_all,
-        step_intrinsics_optimize_all as rig_step_intrinsics_optimize_all,
-        step_rig_init, step_rig_optimize,
-        IntrinsicsInitOptions as RigIntrinsicsInitOptions,
-        IntrinsicsOptimOptions as RigIntrinsicsOptimOptions, RigExtrinsicsConfig,
-        RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblemV2, RigExtrinsicsState,
-        RigOptimOptions,
-    };
-
-    // Rig hand-eye
-    pub use crate::rig_handeye::{
-        run_calibration as run_rig_handeye,
-        step_handeye_init as rig_handeye_step_handeye_init,
-        step_handeye_optimize as rig_handeye_step_handeye_optimize,
-        step_intrinsics_init_all as rig_handeye_step_intrinsics_init_all,
-        step_intrinsics_optimize_all as rig_handeye_step_intrinsics_optimize_all,
-        step_rig_init as rig_handeye_step_rig_init,
-        step_rig_optimize as rig_handeye_step_rig_optimize,
-        HandeyeInitOptions as RigHandeyeInitOptions,
-        HandeyeOptimOptions as RigHandeyeOptimOptions,
-        IntrinsicsInitOptions as RigHandeyeIntrinsicsInitOptions,
-        IntrinsicsOptimOptions as RigHandeyeIntrinsicsOptimOptions, RigHandeyeConfig,
-        RigHandeyeExport, RigHandeyeInput, RigHandeyeProblemV2, RigHandeyeState,
-        RigOptimOptions as RigHandeyeRigOptimOptions,
-    };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Legacy Session API (v1) Re-exports - Deprecated
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Re-export legacy session types (still available for backwards compatibility)
-pub use session::{
-    Artifact, ArtifactId, ArtifactKind, CalibrationSession, ExportOptions, FilterOptions,
-    ProblemType, RunId, RunKind, RunRecord, SessionMetadata,
+// Session infrastructure
+pub use crate::session::{
+    CalibrationSession, ExportRecord, InvalidationPolicy, LogEntry, ProblemType, SessionMetadata,
 };
 
-// Re-export planar intrinsics (including both old and new APIs)
-pub use planar_intrinsics::{
-    planar_init_seed_from_views,
-    run_planar_intrinsics,
-    // New v2 types also at top level for convenience
-    PlanarConfig,
-    PlanarIntrinsicsConfig,
-    PlanarIntrinsicsEstimate,
-    PlanarIntrinsicsParams,
-    PlanarIntrinsicsProblem,
-    PlanarIntrinsicsProblemV2,
-    PlanarIntrinsicsSolveOptions,
-    PlanarState,
+// Planar intrinsics
+pub use crate::planar_intrinsics::{
+    run_calibration as run_planar_intrinsics, run_calibration_with_filtering, step_filter,
+    step_init, step_optimize, FilterOptions, InitOptions, OptimizeOptions, PlanarConfig,
+    PlanarExport, PlanarIntrinsicsProblem, PlanarState,
+};
+
+// Single-camera hand-eye
+pub use crate::single_cam_handeye::{
+    run_calibration as run_single_cam_handeye, step_handeye_init as single_cam_step_handeye_init,
+    step_handeye_optimize as single_cam_step_handeye_optimize,
+    step_intrinsics_init as single_cam_step_intrinsics_init,
+    step_intrinsics_optimize as single_cam_step_intrinsics_optimize,
+    HandeyeInitOptions as SingleCamHandeyeInitOptions,
+    HandeyeOptimOptions as SingleCamHandeyeOptimOptions,
+    IntrinsicsInitOptions as SingleCamIntrinsicsInitOptions,
+    IntrinsicsOptimOptions as SingleCamIntrinsicsOptimOptions, SingleCamHandeyeConfig,
+    SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblemV2,
+    SingleCamHandeyeState, SingleCamHandeyeView,
+};
+
+// Rig extrinsics
+pub use crate::rig_extrinsics::{
+    run_calibration as run_rig_extrinsics,
+    step_intrinsics_init_all as rig_step_intrinsics_init_all,
+    step_intrinsics_optimize_all as rig_step_intrinsics_optimize_all, step_rig_init,
+    step_rig_optimize, IntrinsicsInitOptions as RigIntrinsicsInitOptions,
+    IntrinsicsOptimOptions as RigIntrinsicsOptimOptions, RigExtrinsicsConfig, RigExtrinsicsExport,
+    RigExtrinsicsInput, RigExtrinsicsProblem, RigExtrinsicsState, RigOptimOptions,
+};
+
+// Rig hand-eye
+pub use crate::rig_handeye::{
+    run_calibration as run_rig_handeye, step_handeye_init as rig_handeye_step_handeye_init,
+    step_handeye_optimize as rig_handeye_step_handeye_optimize,
+    step_intrinsics_init_all as rig_handeye_step_intrinsics_init_all,
+    step_intrinsics_optimize_all as rig_handeye_step_intrinsics_optimize_all,
+    step_rig_init as rig_handeye_step_rig_init, step_rig_optimize as rig_handeye_step_rig_optimize,
+    HandeyeInitOptions as RigHandeyeInitOptions, HandeyeOptimOptions as RigHandeyeOptimOptions,
+    IntrinsicsInitOptions as RigHandeyeIntrinsicsInitOptions,
+    IntrinsicsOptimOptions as RigHandeyeIntrinsicsOptimOptions, RigHandeyeConfig, RigHandeyeExport,
+    RigHandeyeInput, RigHandeyeProblemV2, RigHandeyeState,
+    RigOptimOptions as RigHandeyeRigOptimOptions,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

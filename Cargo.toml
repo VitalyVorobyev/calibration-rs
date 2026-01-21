@@ -4,10 +4,7 @@ members = [
     "crates/calib-core",
     "crates/calib-linear",
     "crates/calib-optim",
-#    "crates/calib-io",
     "crates/calib-pipeline",
-#    "crates/calib-reports",
-    "crates/calib-cli",
 ]
 
 resolver = "2"

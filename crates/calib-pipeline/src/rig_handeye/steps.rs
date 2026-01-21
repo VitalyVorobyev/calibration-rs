@@ -14,9 +14,9 @@ use calib_optim::{
     PlanarIntrinsicsSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
 };
 
-use crate::session::v2::CalibrationSession;
+use crate::session::CalibrationSession;
 
-use super::problem_v2::{RigHandeyeInput, RigHandeyeProblemV2};
+use super::problem::{RigHandeyeInput, RigHandeyeProblemV2};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Options
@@ -871,7 +871,7 @@ mod tests {
         assert!(session.has_output());
 
         session
-            .set_config(super::super::problem_v2::RigHandeyeConfig {
+            .set_config(super::super::problem::RigHandeyeConfig {
                 max_iters: 100,
                 ..Default::default()
             })

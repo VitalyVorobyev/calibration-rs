@@ -15,9 +15,9 @@
 //! # Example
 //!
 //! ```ignore
-//! use calib_pipeline::session::v2::CalibrationSession;
+//! use calib_pipeline::session::CalibrationSession;
 //! use calib_pipeline::single_cam_handeye::{
-//!     SingleCamHandeyeProblemV2, SingleCamHandeyeInput, SingleCamHandeyeView,
+//!     SingleCamHandeyeProblem, SingleCamHandeyeInput, SingleCamHandeyeView,
 //!     step_intrinsics_init, step_intrinsics_optimize,
 //!     step_handeye_init, step_handeye_optimize, run_calibration,
 //! };
@@ -27,22 +27,22 @@
 //!     SingleCamHandeyeView { robot_pose, obs },
 //!     // ... more views
 //! ];
-//! let input = SingleCamHandeyeInput::new(views)?;
+//! let input = SingleCamHandeyeInput::new(views);
 //!
 //! // Create session and run calibration
 //! let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
-//! session.set_input(input)?;
+//! session.set_input(input);
 //!
 //! // Option 1: Step-by-step
-//! step_intrinsics_init(&mut session, None)?;
-//! step_intrinsics_optimize(&mut session, None)?;
-//! step_handeye_init(&mut session, None)?;
-//! step_handeye_optimize(&mut session, None)?;
+//! step_intrinsics_init(&mut session, None);
+//! step_intrinsics_optimize(&mut session, None);
+//! step_handeye_init(&mut session, None);
+//! step_handeye_optimize(&mut session, None);
 //!
 //! // Option 2: Full pipeline
 //! // run_calibration(&mut session)?;
 //!
-//! let export = session.export()?;
+//! let export = session.export();
 //! ```
 //!
 //! # Conventions
@@ -58,12 +58,12 @@
 //! - Single fixed target pose (not per-view)
 //! - k3 distortion fixed by default
 
-mod problem_v2;
+mod problem;
 mod state;
 mod steps;
 
 // Re-export types
-pub use problem_v2::{
+pub use problem::{
     SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
     SingleCamHandeyeProblemV2, SingleCamHandeyeView,
 };

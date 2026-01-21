@@ -8,7 +8,7 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 use super::problem_type::ProblemType;
-use super::types_v2::{ExportRecord, LogEntry, SessionMetadata};
+use super::types::{ExportRecord, LogEntry, SessionMetadata};
 
 /// A calibration session container with mutable state.
 ///

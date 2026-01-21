@@ -1,6 +1,6 @@
 //! Multi-camera rig hand-eye calibration.
 //!
-//! This module provides a v2 session API for calibrating a multi-camera rig
+//! This module provides a session API for calibrating a multi-camera rig
 //! mounted on a robot arm, including per-camera intrinsics, rig extrinsics,
 //! and hand-eye transform.
 //!
@@ -64,12 +64,12 @@
 //! - Single fixed target pose (not per-view)
 //! - k3 distortion fixed by default
 
-mod problem_v2;
+mod problem;
 mod state;
 mod steps;
 
 // Re-export types
-pub use problem_v2::{
+pub use problem::{
     RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput, RigHandeyeProblemV2,
 };
 pub use state::RigHandeyeState;

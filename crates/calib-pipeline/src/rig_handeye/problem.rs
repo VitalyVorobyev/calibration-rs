@@ -8,7 +8,7 @@ use calib_core::{Iso3, PinholeCamera};
 use calib_optim::{HandEyeEstimate, HandEyeMode, RigDataset, RobotPoseMeta, RobustLoss};
 use serde::{Deserialize, Serialize};
 
-use crate::session::v2::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemType};
 
 use super::state::RigHandeyeState;
 
@@ -178,23 +178,23 @@ pub struct RigHandeyeExport {
 /// # Example
 ///
 /// ```ignore
-/// use calib_pipeline::session::v2::CalibrationSession;
+/// use calib_pipeline::session::CalibrationSession;
 /// use calib_pipeline::rig_handeye::{
 ///     RigHandeyeProblemV2, step_intrinsics_init_all, step_intrinsics_optimize_all,
 ///     step_rig_init, step_rig_optimize, step_handeye_init, step_handeye_optimize,
 /// };
 ///
 /// let mut session = CalibrationSession::<RigHandeyeProblemV2>::new();
-/// session.set_input(rig_dataset)?;
+/// session.set_input(rig_dataset);
 ///
-/// step_intrinsics_init_all(&mut session, None)?;
-/// step_intrinsics_optimize_all(&mut session, None)?;
-/// step_rig_init(&mut session)?;
-/// step_rig_optimize(&mut session, None)?;
-/// step_handeye_init(&mut session, None)?;
-/// step_handeye_optimize(&mut session, None)?;
+/// step_intrinsics_init_all(&mut session, None);
+/// step_intrinsics_optimize_all(&mut session, None);
+/// step_rig_init(&mut session);
+/// step_rig_optimize(&mut session, None);
+/// step_handeye_init(&mut session, None);
+/// step_handeye_optimize(&mut session, None);
 ///
-/// let export = session.export()?;
+/// let export = session.export();
 /// ```
 #[derive(Debug)]
 pub struct RigHandeyeProblemV2;

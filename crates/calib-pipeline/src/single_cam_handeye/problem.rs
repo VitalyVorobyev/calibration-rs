@@ -8,7 +8,7 @@ use calib_core::{CorrespondenceView, Iso3, PinholeCamera};
 use calib_optim::{HandEyeEstimate, HandEyeMode, RobustLoss};
 use serde::{Deserialize, Serialize};
 
-use crate::session::v2::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemType};
 
 use super::state::SingleCamHandeyeState;
 

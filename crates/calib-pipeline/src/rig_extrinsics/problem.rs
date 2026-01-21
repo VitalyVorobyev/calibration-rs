@@ -1,14 +1,14 @@
 //! [`ProblemType`] implementation for multi-camera rig extrinsics calibration.
 //!
-//! This module provides the `RigExtrinsicsProblemV2` type that implements
-//! the v2 session API's `ProblemType` trait.
+//! This module provides the `RigExtrinsicsProblem` type that implements
+//! the session API's `ProblemType` trait.
 
 use anyhow::{ensure, Result};
 use calib_core::{Iso3, NoMeta, PinholeCamera, RigDataset};
 use calib_optim::{RigExtrinsicsEstimate, RobustLoss};
 use serde::{Deserialize, Serialize};
 
-use crate::session::v2::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemType};
 
 use super::state::RigExtrinsicsState;
 
@@ -131,11 +131,11 @@ pub struct RigExtrinsicsExport {
 /// ```ignore
 /// use calib_pipeline::session::v2::CalibrationSession;
 /// use calib_pipeline::rig_extrinsics::{
-///     RigExtrinsicsProblemV2, step_intrinsics_init_all, step_intrinsics_optimize_all,
+///     RigExtrinsicsProblem, step_intrinsics_init_all, step_intrinsics_optimize_all,
 ///     step_rig_init, step_rig_optimize,
 /// };
 ///
-/// let mut session = CalibrationSession::<RigExtrinsicsProblemV2>::new();
+/// let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 /// session.set_input(rig_dataset)?;
 ///
 /// step_intrinsics_init_all(&mut session, None)?;
@@ -146,9 +146,9 @@ pub struct RigExtrinsicsExport {
 /// let export = session.export()?;
 /// ```
 #[derive(Debug)]
-pub struct RigExtrinsicsProblemV2;
+pub struct RigExtrinsicsProblem;
 
-impl ProblemType for RigExtrinsicsProblemV2 {
+impl ProblemType for RigExtrinsicsProblem {
     type Config = RigExtrinsicsConfig;
     type Input = RigExtrinsicsInput;
     type State = RigExtrinsicsState;
@@ -276,7 +276,7 @@ mod tests {
     #[test]
     fn validate_input_requires_3_views() {
         let input = make_minimal_input();
-        let result = RigExtrinsicsProblemV2::validate_input(&input);
+        let result = RigExtrinsicsProblem::validate_input(&input);
         assert!(result.is_ok());
     }
 
@@ -293,7 +293,7 @@ mod tests {
             .collect();
 
         let input = RigDataset::new(views, 1).unwrap();
-        let result = RigExtrinsicsProblemV2::validate_input(&input);
+        let result = RigExtrinsicsProblem::validate_input(&input);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("2 cameras"));
     }
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn validate_config_accepts_valid() {
         let config = RigExtrinsicsConfig::default();
-        let result = RigExtrinsicsProblemV2::validate_config(&config);
+        let result = RigExtrinsicsProblem::validate_config(&config);
         assert!(result.is_ok());
     }
 
@@ -311,7 +311,7 @@ mod tests {
         let mut config = RigExtrinsicsConfig::default();
         config.reference_camera_idx = 5; // Out of range
 
-        let result = RigExtrinsicsProblemV2::validate_input_config(&input, &config);
+        let result = RigExtrinsicsProblem::validate_input_config(&input, &config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("reference_camera_idx"));
     }
@@ -336,7 +336,7 @@ mod tests {
 
     #[test]
     fn problem_name_and_version() {
-        assert_eq!(RigExtrinsicsProblemV2::name(), "rig_extrinsics_v2");
-        assert_eq!(RigExtrinsicsProblemV2::schema_version(), 1);
+        assert_eq!(RigExtrinsicsProblem::name(), "rig_extrinsics_v2");
+        assert_eq!(RigExtrinsicsProblem::schema_version(), 1);
     }
 }

@@ -1,7 +1,7 @@
 //! Step functions for multi-camera rig extrinsics calibration.
 //!
 //! This module provides step functions that operate on
-//! `CalibrationSession<RigExtrinsicsProblemV2>` to perform calibration.
+//! `CalibrationSession<RigExtrinsicsProblem>` to perform calibration.
 
 use anyhow::{Context, Result};
 use calib_core::{make_pinhole_camera, CameraFixMask, Iso3, NoMeta, PlanarDataset, View};
@@ -13,9 +13,9 @@ use calib_optim::{
     RigExtrinsicsSolveOptions,
 };
 
-use crate::session::v2::CalibrationSession;
+use crate::session::CalibrationSession;
 
-use super::problem_v2::{RigExtrinsicsInput, RigExtrinsicsProblemV2};
+use super::problem::{RigExtrinsicsInput, RigExtrinsicsProblem};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Options
@@ -117,7 +117,7 @@ fn estimate_target_pose(
 /// - Input not set
 /// - Any camera has fewer than 3 views with observations
 pub fn step_intrinsics_init_all(
-    session: &mut CalibrationSession<RigExtrinsicsProblemV2>,
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -201,7 +201,7 @@ pub fn step_intrinsics_init_all(
 /// - Initialization not run
 /// - Optimization fails for any camera
 pub fn step_intrinsics_optimize_all(
-    session: &mut CalibrationSession<RigExtrinsicsProblemV2>,
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsOptimOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -297,7 +297,7 @@ pub fn step_intrinsics_optimize_all(
 /// - Input not set
 /// - Per-camera intrinsics not computed
 /// - Insufficient overlapping views between cameras
-pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblemV2>) -> Result<()> {
+pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> Result<()> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -347,7 +347,7 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblemV2>) -
 /// - Rig initialization not run
 /// - Optimization fails
 pub fn step_rig_optimize(
-    session: &mut CalibrationSession<RigExtrinsicsProblemV2>,
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<RigOptimOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -450,7 +450,7 @@ pub fn step_rig_optimize(
 /// # Errors
 ///
 /// Any error from the constituent steps.
-pub fn run_calibration(session: &mut CalibrationSession<RigExtrinsicsProblemV2>) -> Result<()> {
+pub fn run_calibration(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> Result<()> {
     step_intrinsics_init_all(session, None)?;
     step_intrinsics_optimize_all(session, None)?;
     step_rig_init(session)?;
@@ -543,7 +543,7 @@ mod tests {
 
     #[test]
     fn step_intrinsics_init_all_computes_estimate() {
-        let mut session = CalibrationSession::<RigExtrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
         session.set_input(make_test_input()).unwrap();
 
         step_intrinsics_init_all(&mut session, None).unwrap();
@@ -555,7 +555,7 @@ mod tests {
 
     #[test]
     fn step_rig_init_requires_intrinsics() {
-        let mut session = CalibrationSession::<RigExtrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
         session.set_input(make_test_input()).unwrap();
 
         let result = step_rig_init(&mut session);
@@ -565,7 +565,7 @@ mod tests {
 
     #[test]
     fn step_rig_optimize_requires_init() {
-        let mut session = CalibrationSession::<RigExtrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init_all(&mut session, None).unwrap();
         step_intrinsics_optimize_all(&mut session, None).unwrap();
@@ -577,7 +577,7 @@ mod tests {
 
     #[test]
     fn set_input_clears_state() {
-        let mut session = CalibrationSession::<RigExtrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init_all(&mut session, None).unwrap();
 
@@ -589,14 +589,14 @@ mod tests {
 
     #[test]
     fn set_config_keeps_output() {
-        let mut session = CalibrationSession::<RigExtrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
         session.set_input(make_test_input()).unwrap();
         run_calibration(&mut session).unwrap();
 
         assert!(session.has_output());
 
         session
-            .set_config(super::super::problem_v2::RigExtrinsicsConfig {
+            .set_config(super::super::problem::RigExtrinsicsConfig {
                 max_iters: 100,
                 ..Default::default()
             })
@@ -608,13 +608,13 @@ mod tests {
     #[test]
     fn json_roundtrip() {
         let mut session =
-            CalibrationSession::<RigExtrinsicsProblemV2>::with_description("Test rig extrinsics");
+            CalibrationSession::<RigExtrinsicsProblem>::with_description("Test rig extrinsics");
         session.set_input(make_test_input()).unwrap();
         run_calibration(&mut session).unwrap();
         session.export().unwrap();
 
         let json = session.to_json().unwrap();
-        let restored = CalibrationSession::<RigExtrinsicsProblemV2>::from_json(&json).unwrap();
+        let restored = CalibrationSession::<RigExtrinsicsProblem>::from_json(&json).unwrap();
 
         assert_eq!(
             restored.metadata.description,

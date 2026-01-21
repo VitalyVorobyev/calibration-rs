@@ -9,7 +9,7 @@ use calib_linear::prelude::*;
 use calib_optim::{BackendSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsSolveOptions};
 use serde::{Deserialize, Serialize};
 
-use crate::session::v2::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemType};
 
 use super::state::PlanarState;
 
@@ -31,11 +31,11 @@ use super::state::PlanarState;
 /// ```ignore
 /// use calib_pipeline::session::v2::CalibrationSession;
 /// use calib_pipeline::planar_intrinsics::{
-///     PlanarIntrinsicsProblemV2, PlanarConfig,
+///     PlanarIntrinsicsProblem, PlanarConfig,
 ///     step_init, step_optimize,
 /// };
 ///
-/// let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::new();
+/// let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 /// session.set_input(dataset)?;
 ///
 /// step_init(&mut session, None)?;
@@ -44,7 +44,7 @@ use super::state::PlanarState;
 /// let export = session.export()?;
 /// ```
 #[derive(Debug)]
-pub struct PlanarIntrinsicsProblemV2;
+pub struct PlanarIntrinsicsProblem;
 
 /// Configuration for planar intrinsics calibration.
 ///
@@ -147,7 +147,7 @@ impl PlanarConfig {
 /// type alias for flexibility in future changes.
 pub type PlanarExport = PlanarIntrinsicsEstimate;
 
-impl ProblemType for PlanarIntrinsicsProblemV2 {
+impl ProblemType for PlanarIntrinsicsProblem {
     type Config = PlanarConfig;
     type Input = PlanarDataset;
     type State = PlanarState;
@@ -242,7 +242,7 @@ mod tests {
         // by checking the error message content
         let dataset = make_minimal_dataset();
         // With 3 views it should pass
-        let result = PlanarIntrinsicsProblemV2::validate_input(&dataset);
+        let result = PlanarIntrinsicsProblem::validate_input(&dataset);
         assert!(result.is_ok());
     }
 
@@ -252,13 +252,13 @@ mod tests {
         // We can't create invalid PlanarDataset, but we verify the validation logic
         // by checking that the valid dataset passes
         let dataset = make_minimal_dataset();
-        assert!(PlanarIntrinsicsProblemV2::validate_input(&dataset).is_ok());
+        assert!(PlanarIntrinsicsProblem::validate_input(&dataset).is_ok());
     }
 
     #[test]
     fn validate_input_accepts_valid() {
         let dataset = make_minimal_dataset();
-        let result = PlanarIntrinsicsProblemV2::validate_input(&dataset);
+        let result = PlanarIntrinsicsProblem::validate_input(&dataset);
         assert!(result.is_ok());
     }
 
@@ -268,7 +268,7 @@ mod tests {
             max_iters: 0,
             ..Default::default()
         };
-        let result = PlanarIntrinsicsProblemV2::validate_config(&config);
+        let result = PlanarIntrinsicsProblem::validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("max_iters"));
     }
@@ -276,7 +276,7 @@ mod tests {
     #[test]
     fn validate_config_accepts_valid() {
         let config = PlanarConfig::default();
-        let result = PlanarIntrinsicsProblemV2::validate_config(&config);
+        let result = PlanarIntrinsicsProblem::validate_config(&config);
         assert!(result.is_ok());
     }
 
@@ -304,8 +304,8 @@ mod tests {
 
     #[test]
     fn problem_name_and_version() {
-        assert_eq!(PlanarIntrinsicsProblemV2::name(), "planar_intrinsics_v2");
-        assert_eq!(PlanarIntrinsicsProblemV2::schema_version(), 1);
+        assert_eq!(PlanarIntrinsicsProblem::name(), "planar_intrinsics_v2");
+        assert_eq!(PlanarIntrinsicsProblem::schema_version(), 1);
     }
 
     #[test]

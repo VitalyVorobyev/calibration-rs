@@ -82,47 +82,12 @@
 ///
 /// Provides artifact-based state management, branching workflows, and checkpointing.
 pub mod session {
-    pub use calib_pipeline::session::{
-        ArtifactId, ArtifactKind, CalibrationSession, ExportOptions, FilterOptions, ProblemType,
-        RunId, RunKind, RunRecord, SessionMetadata,
-    };
+    pub use calib_pipeline::session::{CalibrationSession, ProblemType, SessionMetadata};
 }
 
 /// Planar intrinsics calibration (Zhang's method with distortion).
 pub mod planar_intrinsics {
     pub use calib_pipeline::planar_intrinsics::*;
-}
-
-/// Granular helper functions for custom calibration workflows.
-pub mod helpers {
-    use anyhow::Result;
-    use calib_core::{CorrespondenceView, PlanarDataset, View};
-    use calib_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
-    use calib_optim::{
-        optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsEstimate,
-        PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
-    };
-
-    pub type PlanarIntrinsicsInitResult = PlanarIntrinsicsParams;
-    pub type PlanarIntrinsicsOptimResult = PlanarIntrinsicsEstimate;
-
-    pub fn initialize_planar_intrinsics(
-        views: &[CorrespondenceView],
-        opts: &IterativeIntrinsicsOptions,
-    ) -> Result<PlanarIntrinsicsInitResult> {
-        let dataset = PlanarDataset::new(views.iter().cloned().map(View::without_meta).collect())?;
-        calib_pipeline::planar_init_seed_from_views(&dataset, *opts)
-    }
-
-    pub fn optimize_planar_intrinsics_from_init(
-        views: &[CorrespondenceView],
-        init: &PlanarIntrinsicsParams,
-        solve_opts: &PlanarIntrinsicsSolveOptions,
-        backend_opts: &BackendSolveOptions,
-    ) -> Result<PlanarIntrinsicsOptimResult> {
-        let dataset = PlanarDataset::new(views.iter().cloned().map(View::without_meta).collect())?;
-        optimize_planar_intrinsics(&dataset, init, solve_opts.clone(), backend_opts.clone())
-    }
 }
 
 /// Hand-eye calibration types.
@@ -159,8 +124,7 @@ pub use calib_core::{
 pub use calib_optim::{BackendSolveOptions, HandEyeMode, PlanarIntrinsicsSolveOptions, RobustLoss};
 
 pub use calib_pipeline::{
-    planar_init_seed_from_views, run_planar_intrinsics, PlanarDataset, PlanarIntrinsicsConfig,
-    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
+    run_planar_intrinsics, PlanarDataset,
 };
 
 /// Convenient re-exports for common use cases.
@@ -173,17 +137,11 @@ pub mod prelude {
 
     // Session API
     pub use crate::session::{
-        ArtifactId, CalibrationSession, ExportOptions, FilterOptions, ProblemType,
+        CalibrationSession, ProblemType,
     };
 
     // Planar intrinsics
-    pub use crate::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
-
-    // Helper functions
-    pub use crate::helpers::{
-        initialize_planar_intrinsics, optimize_planar_intrinsics_from_init,
-        PlanarIntrinsicsInitResult, PlanarIntrinsicsOptimResult,
-    };
+    pub use crate::planar_intrinsics::{PlanarIntrinsicsProblem};
 
     // Common types
     pub use crate::CorrespondenceView;

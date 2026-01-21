@@ -36,9 +36,9 @@ use calib_optim::{
     RobotPoseMeta,
 };
 
-use crate::session::v2::CalibrationSession;
+use crate::session::CalibrationSession;
 
-use super::problem_v2::{SingleCamHandeyeInput, SingleCamHandeyeProblemV2};
+use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblemV2};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Options
@@ -551,7 +551,7 @@ mod tests {
                     })
                     .collect();
 
-                super::super::problem_v2::SingleCamHandeyeView {
+                super::super::problem::SingleCamHandeyeView {
                     robot_pose: *robot_pose,
                     obs: CorrespondenceView::new(board_pts.clone(), points_2d).unwrap(),
                 }
@@ -633,7 +633,7 @@ mod tests {
 
         // Change config
         session
-            .set_config(super::super::problem_v2::SingleCamHandeyeConfig {
+            .set_config(super::super::problem::SingleCamHandeyeConfig {
                 max_iters: 100,
                 handeye_mode: HandEyeMode::EyeToHand,
                 ..Default::default()

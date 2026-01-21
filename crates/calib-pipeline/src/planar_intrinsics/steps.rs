@@ -1,18 +1,18 @@
 //! Step functions for planar intrinsics calibration.
 //!
 //! This module provides step functions that operate on
-//! `CalibrationSession<PlanarIntrinsicsProblemV2>` to perform calibration.
+//! `CalibrationSession<PlanarIntrinsicsProblem>` to perform calibration.
 //!
 //! # Example
 //!
 //! ```ignore
 //! use calib_pipeline::session::v2::CalibrationSession;
 //! use calib_pipeline::planar_intrinsics::{
-//!     PlanarIntrinsicsProblemV2, step_init, step_optimize, step_filter,
+//!     PlanarIntrinsicsProblem, step_init, step_optimize, step_filter,
 //!     FilterOptions,
 //! };
 //!
-//! let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::new();
+//! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 //! session.set_input(dataset)?;
 //!
 //! // Run initialization
@@ -36,9 +36,9 @@ use calib_linear::prelude::*;
 use calib_optim::optimize_planar_intrinsics;
 use serde::{Deserialize, Serialize};
 
-use crate::session::v2::CalibrationSession;
+use crate::session::CalibrationSession;
 
-use super::problem_v2::PlanarIntrinsicsProblemV2;
+use super::problem::PlanarIntrinsicsProblem;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Options
@@ -127,7 +127,7 @@ fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
 /// - Homography computation fails
 /// - Intrinsics estimation fails
 pub fn step_init(
-    session: &mut CalibrationSession<PlanarIntrinsicsProblemV2>,
+    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<InitOptions>,
 ) -> Result<()> {
     // Validate preconditions
@@ -215,7 +215,7 @@ pub fn step_init(
 /// - Initialization not run (state.initial_intrinsics is None)
 /// - Optimization fails
 pub fn step_optimize(
-    session: &mut CalibrationSession<PlanarIntrinsicsProblemV2>,
+    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<OptimizeOptions>,
 ) -> Result<()> {
     // Validate preconditions
@@ -288,7 +288,7 @@ pub fn step_optimize(
 /// - Filtering would remove all observations
 /// - Not enough points remaining per view
 pub fn step_filter(
-    session: &mut CalibrationSession<PlanarIntrinsicsProblemV2>,
+    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: FilterOptions,
 ) -> Result<()> {
     ensure!(
@@ -387,7 +387,7 @@ pub fn step_filter(
 /// # Errors
 ///
 /// Any error from [`step_init`] or [`step_optimize`].
-pub fn run_calibration(session: &mut CalibrationSession<PlanarIntrinsicsProblemV2>) -> Result<()> {
+pub fn run_calibration(session: &mut CalibrationSession<PlanarIntrinsicsProblem>) -> Result<()> {
     step_init(session, None)?;
     step_optimize(session, None)?;
     Ok(())
@@ -407,7 +407,7 @@ pub fn run_calibration(session: &mut CalibrationSession<PlanarIntrinsicsProblemV
 ///
 /// Any error from the constituent steps.
 pub fn run_calibration_with_filtering(
-    session: &mut CalibrationSession<PlanarIntrinsicsProblemV2>,
+    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     filter_opts: FilterOptions,
 ) -> Result<()> {
     // First pass
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn step_init_computes_initial_estimate() {
-        let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(make_test_dataset()).unwrap();
 
         step_init(&mut session, None).unwrap();
@@ -476,7 +476,7 @@ mod tests {
 
     #[test]
     fn step_optimize_requires_init() {
-        let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(make_test_dataset()).unwrap();
 
         let result = step_optimize(&mut session, None);
@@ -486,7 +486,7 @@ mod tests {
 
     #[test]
     fn step_optimize_sets_output() {
-        let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(make_test_dataset()).unwrap();
 
         step_init(&mut session, None).unwrap();
@@ -519,7 +519,7 @@ mod tests {
                 .unwrap();
         let original_points: usize = dataset.views.iter().map(|v| v.obs.len()).sum();
 
-        let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(dataset).unwrap();
 
         step_init(&mut session, None).unwrap();
@@ -544,7 +544,7 @@ mod tests {
 
     #[test]
     fn run_calibration_full_pipeline() {
-        let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(make_test_dataset()).unwrap();
 
         run_calibration(&mut session).unwrap();
@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn session_json_checkpoint() {
         let mut session =
-            CalibrationSession::<PlanarIntrinsicsProblemV2>::with_description("Test calibration");
+            CalibrationSession::<PlanarIntrinsicsProblem>::with_description("Test calibration");
         session.set_input(make_test_dataset()).unwrap();
         run_calibration(&mut session).unwrap();
         session.export().unwrap();
@@ -572,7 +572,7 @@ mod tests {
         let json = session.to_json().unwrap();
 
         // Restore
-        let restored = CalibrationSession::<PlanarIntrinsicsProblemV2>::from_json(&json).unwrap();
+        let restored = CalibrationSession::<PlanarIntrinsicsProblem>::from_json(&json).unwrap();
 
         assert_eq!(
             restored.metadata.description,
@@ -587,7 +587,7 @@ mod tests {
 
     #[test]
     fn log_entries_recorded_through_pipeline() {
-        let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::new();
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(make_test_dataset()).unwrap();
 
         run_calibration(&mut session).unwrap();
