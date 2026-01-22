@@ -172,10 +172,7 @@ fn detection_to_view_data(
             grid.j as f64 * square_size_m,
             0.0,
         ));
-        points_2d.push(Pt2::new(
-            corner.position.x as f64,
-            corner.position.y as f64,
-        ));
+        points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
     }
 
     ensure!(

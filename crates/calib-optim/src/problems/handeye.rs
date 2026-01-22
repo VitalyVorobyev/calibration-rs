@@ -272,7 +272,11 @@ fn compute_handeye_reproj_error(
     let handeye_inv = params.handeye.inverse();
 
     // target_pose is assumed to be the first (and only) target pose for fixed-target mode
-    let target_pose = params.target_poses.first().cloned().unwrap_or(Iso3::identity());
+    let target_pose = params
+        .target_poses
+        .first()
+        .cloned()
+        .unwrap_or(Iso3::identity());
 
     for (view_idx, view) in dataset.data.views.iter().enumerate() {
         let robot_pose = view.meta.robot_pose;
@@ -288,10 +292,7 @@ fn compute_handeye_reproj_error(
             } else {
                 UnitQuaternion::identity()
             };
-            let delta_iso = Iso3::from_parts(
-                nalgebra::Translation3::from(trans_vec),
-                delta_rot,
-            );
+            let delta_iso = Iso3::from_parts(nalgebra::Translation3::from(trans_vec), delta_rot);
             delta_iso * robot_pose
         } else {
             robot_pose

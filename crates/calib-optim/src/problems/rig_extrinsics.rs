@@ -256,10 +256,7 @@ pub fn optimize_rig_extrinsics(
     let per_cam_reproj_errors: Vec<f64> = per_cam_stats.iter().map(|s| s.mean).collect();
 
     // Compute overall mean
-    let total_sum: f64 = per_cam_stats
-        .iter()
-        .map(|s| s.mean * s.count as f64)
-        .sum();
+    let total_sum: f64 = per_cam_stats.iter().map(|s| s.mean * s.count as f64).sum();
     let total_count: usize = per_cam_stats.iter().map(|s| s.count).sum();
     let mean_reproj_error = if total_count > 0 {
         total_sum / total_count as f64

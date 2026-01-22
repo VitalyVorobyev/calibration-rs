@@ -59,9 +59,18 @@ fn main() -> Result<()> {
         },
     )?;
 
-    println!("\r  Processed {} images                ", summary.total_images);
-    println!("  Board: 17x28, square size {:.1}mm", summary.square_size_m * 1000.0);
-    println!("  Valid views: {} (skipped: {})", summary.used_views, summary.skipped_views);
+    println!(
+        "\r  Processed {} images                ",
+        summary.total_images
+    );
+    println!(
+        "  Board: 17x28, square size {:.1}mm",
+        summary.square_size_m * 1000.0
+    );
+    println!(
+        "  Valid views: {} (skipped: {})",
+        summary.used_views, summary.skipped_views
+    );
     println!("  Total corners: {}", summary.total_corners);
     println!();
 
@@ -124,10 +133,7 @@ fn main() -> Result<()> {
 
     let init_he = session.state.initial_handeye.as_ref().unwrap();
     let init_target = session.state.initial_target_se3_base.as_ref().unwrap();
-    println!(
-        "  Hand-eye |t|: {:.4}m",
-        init_he.translation.vector.norm()
-    );
+    println!("  Hand-eye |t|: {:.4}m", init_he.translation.vector.norm());
     println!(
         "  Target in base |t|: {:.4}m",
         init_target.translation.vector.norm()
@@ -162,13 +168,21 @@ fn main() -> Result<()> {
     println!("Hand-eye transform (gripper → camera):");
     let he_t = export.handeye.translation.vector;
     let he_q = export.handeye.rotation;
-    println!("  Translation: [{:.4}, {:.4}, {:.4}]m", he_t.x, he_t.y, he_t.z);
-    println!("  Rotation (quat): [{:.4}, {:.4}, {:.4}, {:.4}]",
-             he_q.i, he_q.j, he_q.k, he_q.w);
+    println!(
+        "  Translation: [{:.4}, {:.4}, {:.4}]m",
+        he_t.x, he_t.y, he_t.z
+    );
+    println!(
+        "  Rotation (quat): [{:.4}, {:.4}, {:.4}, {:.4}]",
+        he_q.i, he_q.j, he_q.k, he_q.w
+    );
 
     println!("Target pose in base frame:");
     let target_t = export.target_se3_base.translation.vector;
-    println!("  Translation: [{:.4}, {:.4}, {:.4}]m", target_t.x, target_t.y, target_t.z);
+    println!(
+        "  Translation: [{:.4}, {:.4}, {:.4}]m",
+        target_t.x, target_t.y, target_t.z
+    );
 
     println!("Reprojection error:");
     println!("  Mean: {:.4} px", export.mean_reproj_error);
@@ -186,8 +200,16 @@ fn main() -> Result<()> {
             .map(|d| (d[3] * d[3] + d[4] * d[4] + d[5] * d[5]).sqrt())
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap_or(0.0);
-        println!("  Max rotation delta: {:.4} rad ({:.2}°)", max_rot, max_rot.to_degrees());
-        println!("  Max translation delta: {:.4}m ({:.2}mm)", max_trans, max_trans * 1000.0);
+        println!(
+            "  Max rotation delta: {:.4} rad ({:.2}°)",
+            max_rot,
+            max_rot.to_degrees()
+        );
+        println!(
+            "  Max translation delta: {:.4}m ({:.2}mm)",
+            max_trans,
+            max_trans * 1000.0
+        );
     }
 
     Ok(())

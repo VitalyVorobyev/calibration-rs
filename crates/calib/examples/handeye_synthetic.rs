@@ -48,9 +48,15 @@ fn main() -> Result<()> {
     let target_in_base_gt = make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 1.0));
 
     println!("Ground truth:");
-    println!("  Camera: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}", k_gt.fx, k_gt.fy, k_gt.cx, k_gt.cy);
+    println!(
+        "  Camera: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
+        k_gt.fx, k_gt.fy, k_gt.cx, k_gt.cy
+    );
     println!("  Distortion: zero (default)");
-    println!("  Hand-eye translation: |t|={:.3}m", handeye_gt.translation.vector.norm());
+    println!(
+        "  Hand-eye translation: |t|={:.3}m",
+        handeye_gt.translation.vector.norm()
+    );
     println!();
 
     // Generate calibration board points (6x5 grid, 50mm squares)
@@ -62,11 +68,11 @@ fn main() -> Result<()> {
     // Key: diverse rotation axes are important for hand-eye calibration
     let robot_poses = [
         make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
-        make_iso((0.3, 0.0, 0.0), (0.1, 0.0, 0.0)),       // Roll rotation
-        make_iso((0.0, 0.3, 0.0), (0.0, 0.1, 0.0)),       // Pitch rotation
-        make_iso((0.0, 0.0, 0.3), (0.0, 0.0, 0.1)),       // Yaw rotation
-        make_iso((0.2, 0.2, 0.0), (0.05, -0.05, 0.0)),    // Combined
-        make_iso((-0.2, 0.0, 0.2), (-0.05, 0.05, 0.0)),   // Different axis
+        make_iso((0.3, 0.0, 0.0), (0.1, 0.0, 0.0)), // Roll rotation
+        make_iso((0.0, 0.3, 0.0), (0.0, 0.1, 0.0)), // Pitch rotation
+        make_iso((0.0, 0.0, 0.3), (0.0, 0.0, 0.1)), // Yaw rotation
+        make_iso((0.2, 0.2, 0.0), (0.05, -0.05, 0.0)), // Combined
+        make_iso((-0.2, 0.0, 0.2), (-0.05, 0.05, 0.0)), // Different axis
         make_iso((0.15, -0.15, 0.1), (0.0, -0.05, 0.05)), // More variation
     ];
 
@@ -85,7 +91,9 @@ fn main() -> Result<()> {
                 .iter()
                 .map(|p| {
                     let p_cam = cam_pose.transform_point(p);
-                    camera_gt.project_point_c(&p_cam.coords).expect("projection failed")
+                    camera_gt
+                        .project_point_c(&p_cam.coords)
+                        .expect("projection failed")
                 })
                 .collect();
 
@@ -109,18 +117,28 @@ fn main() -> Result<()> {
     println!("--- Step 1: Intrinsics Initialization ---");
     step_intrinsics_init(&mut session, None)?;
     let init_k = session.state.initial_intrinsics.as_ref().unwrap();
-    println!("  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-             init_k.fx, init_k.fy, init_k.cx, init_k.cy);
-    println!("  fx error: {:.1}%", 100.0 * (init_k.fx - k_gt.fx).abs() / k_gt.fx);
+    println!(
+        "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
+        init_k.fx, init_k.fy, init_k.cx, init_k.cy
+    );
+    println!(
+        "  fx error: {:.1}%",
+        100.0 * (init_k.fx - k_gt.fx).abs() / k_gt.fx
+    );
     println!();
 
     // Step 2: Intrinsics optimization
     println!("--- Step 2: Intrinsics Optimization ---");
     step_intrinsics_optimize(&mut session, None)?;
     let opt_cam = session.state.optimized_camera.as_ref().unwrap();
-    println!("  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-             opt_cam.k.fx, opt_cam.k.fy, opt_cam.k.cx, opt_cam.k.cy);
-    println!("  Distortion: k1={:.4}, k2={:.4}", opt_cam.dist.k1, opt_cam.dist.k2);
+    println!(
+        "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
+        opt_cam.k.fx, opt_cam.k.fy, opt_cam.k.cx, opt_cam.k.cy
+    );
+    println!(
+        "  Distortion: k1={:.4}, k2={:.4}",
+        opt_cam.dist.k1, opt_cam.dist.k2
+    );
     let reproj_err = session.state.intrinsics_reproj_error.unwrap_or(f64::NAN);
     println!("  Reprojection error: {:.4} px", reproj_err);
     println!();
@@ -132,7 +150,11 @@ fn main() -> Result<()> {
     step_handeye_init(&mut session, None)?;
     let init_he = session.state.initial_handeye.as_ref().unwrap();
     let init_he_t = init_he.translation.vector.norm();
-    println!("  Hand-eye |t|: {:.4}m (GT: {:.4}m)", init_he_t, handeye_gt.translation.vector.norm());
+    println!(
+        "  Hand-eye |t|: {:.4}m (GT: {:.4}m)",
+        init_he_t,
+        handeye_gt.translation.vector.norm()
+    );
     if (init_he_t - handeye_gt.translation.vector.norm()).abs() > 0.1 {
         println!("  Warning: Large initialization error - may need more diverse poses");
     }
@@ -152,14 +174,30 @@ fn main() -> Result<()> {
     let final_d = &export.camera.dist;
 
     println!("Camera intrinsics:");
-    println!("  fx: {:.2} (GT: {:.2}, err: {:.2}%)", final_k.fx, k_gt.fx,
-             100.0 * (final_k.fx - k_gt.fx).abs() / k_gt.fx);
-    println!("  fy: {:.2} (GT: {:.2}, err: {:.2}%)", final_k.fy, k_gt.fy,
-             100.0 * (final_k.fy - k_gt.fy).abs() / k_gt.fy);
-    println!("  cx: {:.2} (GT: {:.2}, err: {:.2}px)", final_k.cx, k_gt.cx,
-             (final_k.cx - k_gt.cx).abs());
-    println!("  cy: {:.2} (GT: {:.2}, err: {:.2}px)", final_k.cy, k_gt.cy,
-             (final_k.cy - k_gt.cy).abs());
+    println!(
+        "  fx: {:.2} (GT: {:.2}, err: {:.2}%)",
+        final_k.fx,
+        k_gt.fx,
+        100.0 * (final_k.fx - k_gt.fx).abs() / k_gt.fx
+    );
+    println!(
+        "  fy: {:.2} (GT: {:.2}, err: {:.2}%)",
+        final_k.fy,
+        k_gt.fy,
+        100.0 * (final_k.fy - k_gt.fy).abs() / k_gt.fy
+    );
+    println!(
+        "  cx: {:.2} (GT: {:.2}, err: {:.2}px)",
+        final_k.cx,
+        k_gt.cx,
+        (final_k.cx - k_gt.cx).abs()
+    );
+    println!(
+        "  cy: {:.2} (GT: {:.2}, err: {:.2}px)",
+        final_k.cy,
+        k_gt.cy,
+        (final_k.cy - k_gt.cy).abs()
+    );
 
     println!("Distortion:");
     println!("  k1: {:.5} (GT: 0)", final_d.k1);
@@ -168,8 +206,12 @@ fn main() -> Result<()> {
     println!("Hand-eye transform:");
     let he_t = export.handeye.translation.vector.norm();
     let he_gt_t = handeye_gt.translation.vector.norm();
-    println!("  |t|: {:.4}m (GT: {:.4}m, err: {:.2}%)", he_t, he_gt_t,
-             100.0 * (he_t - he_gt_t).abs() / he_gt_t);
+    println!(
+        "  |t|: {:.4}m (GT: {:.4}m, err: {:.2}%)",
+        he_t,
+        he_gt_t,
+        100.0 * (he_t - he_gt_t).abs() / he_gt_t
+    );
 
     println!("Reprojection error:");
     println!("  Mean: {:.4} px", export.mean_reproj_error);

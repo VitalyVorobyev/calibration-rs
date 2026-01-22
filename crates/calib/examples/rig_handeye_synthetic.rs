@@ -20,8 +20,9 @@ use calib::core::{
 use calib::handeye::RobotPoseMeta;
 use calib::prelude::*;
 use calib::rig_handeye::{
-    step_handeye_init, step_handeye_optimize, step_intrinsics_init_all, step_intrinsics_optimize_all,
-    step_rig_init, step_rig_optimize, RigHandeyeInput, RigHandeyeProblem,
+    step_handeye_init, step_handeye_optimize, step_intrinsics_init_all,
+    step_intrinsics_optimize_all, step_rig_init, step_rig_optimize, RigHandeyeInput,
+    RigHandeyeProblem,
 };
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 
@@ -90,11 +91,11 @@ fn main() -> Result<()> {
     // Important: diverse rotation axes are critical for hand-eye calibration
     let robot_poses = [
         make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
-        make_iso((0.3, 0.0, 0.0), (0.1, 0.0, 0.0)),       // Roll rotation
-        make_iso((0.0, 0.3, 0.0), (0.0, 0.1, 0.0)),       // Pitch rotation
-        make_iso((0.0, 0.0, 0.3), (0.0, 0.0, 0.1)),       // Yaw rotation
-        make_iso((0.2, 0.2, 0.0), (0.05, -0.05, 0.0)),    // Combined
-        make_iso((-0.2, 0.0, 0.2), (-0.05, 0.05, 0.0)),   // Different axis
+        make_iso((0.3, 0.0, 0.0), (0.1, 0.0, 0.0)), // Roll rotation
+        make_iso((0.0, 0.3, 0.0), (0.0, 0.1, 0.0)), // Pitch rotation
+        make_iso((0.0, 0.0, 0.3), (0.0, 0.0, 0.1)), // Yaw rotation
+        make_iso((0.2, 0.2, 0.0), (0.05, -0.05, 0.0)), // Combined
+        make_iso((-0.2, 0.0, 0.2), (-0.05, 0.05, 0.0)), // Different axis
         make_iso((0.15, -0.15, 0.1), (0.0, -0.05, 0.05)), // More variation
     ];
 
@@ -136,7 +137,11 @@ fn main() -> Result<()> {
 
     // Create input dataset
     let input: RigHandeyeInput = RigDataset::new(views, 2)?;
-    println!("Created dataset with {} views, {} cameras\n", input.num_views(), input.num_cameras);
+    println!(
+        "Created dataset with {} views, {} cameras\n",
+        input.num_views(),
+        input.num_cameras
+    );
 
     // Create calibration session
     let mut session = CalibrationSession::<RigHandeyeProblem>::new();
@@ -263,8 +268,9 @@ fn main() -> Result<()> {
     );
 
     println!("Rig extrinsics:");
-    let baseline_final =
-        (export.cam_se3_rig[1].translation.vector - export.cam_se3_rig[0].translation.vector).norm();
+    let baseline_final = (export.cam_se3_rig[1].translation.vector
+        - export.cam_se3_rig[0].translation.vector)
+        .norm();
     let baseline_gt = cam1_se3_rig_gt.translation.vector.norm();
     println!(
         "  Baseline: {:.4}m (GT: {:.4}m, err: {:.2}%)",
