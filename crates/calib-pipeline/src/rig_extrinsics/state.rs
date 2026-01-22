@@ -46,6 +46,9 @@ pub struct RigExtrinsicsState {
 
     /// Mean reprojection error after rig BA.
     pub rig_ba_reproj_error: Option<f64>,
+
+    /// Mean reprojection error after rig BA, per camera.
+    pub rig_ba_per_cam_reproj_errors: Option<Vec<f64>>,
 }
 
 impl RigExtrinsicsState {
@@ -70,6 +73,7 @@ impl RigExtrinsicsState {
         self.initial_rig_se3_target = None;
         self.rig_ba_final_cost = None;
         self.rig_ba_reproj_error = None;
+        self.rig_ba_per_cam_reproj_errors = None;
     }
 
     /// Clear everything.

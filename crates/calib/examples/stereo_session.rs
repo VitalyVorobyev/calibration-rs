@@ -20,7 +20,7 @@ use anyhow::{ensure, Result};
 use calib::prelude::*;
 use calib::rig_extrinsics::{
     run_calibration, step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init,
-    RigExtrinsicsProblem,
+    step_rig_optimize, RigExtrinsicsProblem,
 };
 use calib_targets::ChessboardParams;
 use chess_corners::ChessConfig;
@@ -143,10 +143,18 @@ fn main() -> Result<()> {
     println!();
 
     // Step 4: Rig optimization
-    // Note: Rig BA is currently under development and may diverge in some cases.
-    // For now, we demonstrate the calibration up to initialization.
     println!("--- Step 4: Rig Bundle Adjustment ---");
-    println!("  (Rig BA optimization is under development - using initial estimates)");
+    step_rig_optimize(&mut session, None)?;
+    let mean_reproj_error = session.state.rig_ba_reproj_error.unwrap_or(f64::NAN);
+    println!(
+        "  Rig BA mean reprojection error: {:.4} px",
+        mean_reproj_error
+    );
+    if let Some(per_cam) = session.state.rig_ba_per_cam_reproj_errors.as_ref() {
+        for (i, err) in per_cam.iter().enumerate() {
+            println!("    Camera {}: {:.4} px", i, err);
+        }
+    }
     println!();
 
     // Show final per-camera results from intrinsics optimization
@@ -171,10 +179,14 @@ fn main() -> Result<()> {
             d.k1, d.k2, d.p1, d.p2
         );
     }
-    print_baseline(
-        "Rig baseline (from init)",
-        session.state.initial_cam_se3_rig.as_ref().unwrap(),
-    );
+    let output = session.require_output()?;
+    let cam_se3_rig: Vec<Iso3> = output
+        .params
+        .cam_to_rig
+        .iter()
+        .map(|t| t.inverse())
+        .collect();
+    print_baseline("Rig baseline (after BA)", &cam_se3_rig);
 
     // Alternative: run with filtering for outlier removal
     println!("--- Alternative: single facade function ---");
@@ -196,10 +208,19 @@ fn main() -> Result<()> {
     run_calibration(&mut session2)?;
 
     let export2 = session2.export()?;
+    let mean_reproj_error = session2
+        .state
+        .rig_ba_reproj_error
+        .unwrap_or(export2.mean_reproj_error);
     println!(
-        "  Mean reprojection error: {:.4} px",
-        export2.mean_reproj_error
+        "  Rig BA mean reprojection error: {:.4} px",
+        mean_reproj_error
     );
+    if let Some(per_cam) = session2.state.rig_ba_per_cam_reproj_errors.as_ref() {
+        for (i, err) in per_cam.iter().enumerate() {
+            println!("    Camera {}: {:.4} px", i, err);
+        }
+    }
 
     Ok(())
 }

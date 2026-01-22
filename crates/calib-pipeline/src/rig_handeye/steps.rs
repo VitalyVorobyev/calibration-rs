@@ -4,7 +4,10 @@
 //! `CalibrationSession<RigHandeyeProblem>` to perform calibration.
 
 use anyhow::{Context, Result};
-use calib_core::{make_pinhole_camera, CameraFixMask, Iso3, NoMeta, PlanarDataset, View};
+use calib_core::{
+    compute_rig_reprojection_stats_per_camera, make_pinhole_camera, CameraFixMask, Iso3, NoMeta,
+    PlanarDataset, View,
+};
 use calib_linear::estimate_extrinsics_from_cam_target_poses;
 use calib_linear::estimate_handeye_dlt;
 use calib_linear::prelude::*;
@@ -478,15 +481,33 @@ pub fn step_rig_optimize(
         .iter()
         .map(|t| t.inverse())
         .collect();
+    let per_cam_stats = compute_rig_reprojection_stats_per_camera(
+        &result.params.cameras,
+        input,
+        &cam_se3_rig,
+        &result.params.rig_from_target,
+    )
+    .context("failed to compute per-camera rig BA reprojection error")?;
+    let total_count: usize = per_cam_stats.iter().map(|s| s.count).sum();
+    let total_error: f64 = per_cam_stats
+        .iter()
+        .map(|s| s.mean * (s.count as f64))
+        .sum();
+    let mean_reproj_error = total_error / (total_count as f64);
     session.state.rig_ba_cam_se3_rig = Some(cam_se3_rig);
     session.state.rig_ba_rig_se3_target = Some(result.params.rig_from_target.clone());
-    session.state.rig_ba_reproj_error = Some(result.report.final_cost.sqrt());
+    session.state.rig_ba_reproj_error = Some(mean_reproj_error);
+    session.state.rig_ba_per_cam_reproj_errors =
+        Some(per_cam_stats.iter().map(|s| s.mean).collect());
     // Also update cameras in case intrinsics were refined
     session.state.per_cam_intrinsics = Some(result.params.cameras);
 
     session.log_success_with_notes(
         "rig_optimize",
-        format!("reproj_err={:.3}px", result.report.final_cost.sqrt()),
+        format!(
+            "final_cost={:.2e}, mean_reproj_err={:.3}px",
+            result.report.final_cost, mean_reproj_error
+        ),
     );
 
     Ok(())

@@ -51,6 +51,9 @@ pub struct RigHandeyeState {
     /// Mean reprojection error after rig BA.
     pub rig_ba_reproj_error: Option<f64>,
 
+    /// Mean reprojection error after rig BA, per camera.
+    pub rig_ba_per_cam_reproj_errors: Option<Vec<f64>>,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Hand-eye initialization
     // ─────────────────────────────────────────────────────────────────────────
@@ -105,6 +108,7 @@ impl RigHandeyeState {
         self.rig_ba_cam_se3_rig = None;
         self.rig_ba_rig_se3_target = None;
         self.rig_ba_reproj_error = None;
+        self.rig_ba_per_cam_reproj_errors = None;
     }
 
     /// Clear hand-eye and final BA results.

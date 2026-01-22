@@ -4,7 +4,10 @@
 //! `CalibrationSession<RigExtrinsicsProblem>` to perform calibration.
 
 use anyhow::{Context, Result};
-use calib_core::{make_pinhole_camera, CameraFixMask, Iso3, NoMeta, PlanarDataset, View};
+use calib_core::{
+    compute_rig_reprojection_stats_per_camera, make_pinhole_camera, CameraFixMask, Iso3, NoMeta,
+    PlanarDataset, View,
+};
 use calib_linear::estimate_extrinsics_from_cam_target_poses;
 use calib_linear::prelude::*;
 use calib_optim::{
@@ -442,15 +445,39 @@ pub fn step_rig_optimize(
     };
 
     // Update state metrics
+    let cam_se3_rig: Vec<Iso3> = result
+        .params
+        .cam_to_rig
+        .iter()
+        .map(|t| t.inverse())
+        .collect();
+    let per_cam_stats = compute_rig_reprojection_stats_per_camera(
+        &result.params.cameras,
+        session.require_input()?,
+        &cam_se3_rig,
+        &result.params.rig_from_target,
+    )
+    .context("failed to compute per-camera rig BA reprojection error")?;
+    let total_count: usize = per_cam_stats.iter().map(|s| s.count).sum();
+    let total_error: f64 = per_cam_stats
+        .iter()
+        .map(|s| s.mean * (s.count as f64))
+        .sum();
+    let mean_reproj_error = total_error / (total_count as f64);
     session.state.rig_ba_final_cost = Some(result.report.final_cost);
-    session.state.rig_ba_reproj_error = Some(result.report.final_cost.sqrt());
+    session.state.rig_ba_reproj_error = Some(mean_reproj_error);
+    session.state.rig_ba_per_cam_reproj_errors =
+        Some(per_cam_stats.iter().map(|s| s.mean).collect());
 
     // Set output
     session.set_output(result.clone());
 
     session.log_success_with_notes(
         "rig_optimize",
-        format!("final_cost={:.2e}", result.report.final_cost),
+        format!(
+            "final_cost={:.2e}, mean_reproj_err={:.3}px",
+            result.report.final_cost, mean_reproj_error
+        ),
     );
 
     Ok(())
@@ -657,34 +684,50 @@ mod tests {
             .iter()
             .map(|t| t.inverse())
             .collect();
-        let rig_se3_target = &output.params.rig_from_target;
-
-        // Compute mean reprojection error across all cameras/views/points.
-        let mut total_error = 0.0;
-        let mut total_points = 0usize;
-        for (view_idx, view) in input.views.iter().enumerate() {
-            for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
-                let Some(obs) = cam_obs else { continue };
-                let cam_se3_target = cam_se3_rig[cam_idx] * rig_se3_target[view_idx];
-                let cam = &output.params.cameras[cam_idx];
-                for (pw, uv) in obs.points_3d.iter().zip(obs.points_2d.iter()) {
-                    let p_cam = cam_se3_target * pw;
-                    let Some(proj) = cam.project_point_c(&p_cam.coords) else {
-                        continue;
-                    };
-                    total_error += (proj - *uv).norm();
-                    total_points += 1;
-                }
-            }
-        }
-
-        assert!(total_points > 0);
-        let mean_err = total_error / total_points as f64;
+        let reproj_stats = calib_core::compute_rig_reprojection_stats(
+            &output.params.cameras,
+            &input,
+            &cam_se3_rig,
+            &output.params.rig_from_target,
+        )
+        .unwrap();
+        let per_cam_stats = compute_rig_reprojection_stats_per_camera(
+            &output.params.cameras,
+            &input,
+            &cam_se3_rig,
+            &output.params.rig_from_target,
+        )
+        .unwrap();
+        let mean_err = reproj_stats.mean;
         assert!(
             mean_err.is_finite() && mean_err < 1.0e-3,
             "mean reprojection error too large: {} px",
             mean_err
         );
+
+        let state_mean = session.state.rig_ba_reproj_error.unwrap();
+        assert!(
+            (state_mean - mean_err).abs() < 1e-12,
+            "state reprojection error mismatch: state={}, computed={}",
+            state_mean,
+            mean_err
+        );
+
+        let state_per_cam = session.state.rig_ba_per_cam_reproj_errors.as_ref().unwrap();
+        assert_eq!(state_per_cam.len(), per_cam_stats.len());
+        for (i, (state_mean, computed)) in state_per_cam
+            .iter()
+            .zip(per_cam_stats.iter().map(|s| s.mean))
+            .enumerate()
+        {
+            assert!(
+                (state_mean - computed).abs() < 1e-12,
+                "camera {} error mismatch: state={}, computed={}",
+                i,
+                state_mean,
+                computed
+            );
+        }
 
         // Export should use `cam_se3_rig` convention.
         let export = session.export().unwrap();
