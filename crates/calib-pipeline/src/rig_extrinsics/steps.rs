@@ -332,7 +332,12 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> 
             .context("rig extrinsics initialization failed")?;
 
     // Update state
-    session.state.initial_cam_se3_rig = Some(extrinsic_result.cam_to_rig);
+    let cam_se3_rig: Vec<Iso3> = extrinsic_result
+        .cam_to_rig
+        .iter()
+        .map(|t| t.inverse())
+        .collect();
+    session.state.initial_cam_se3_rig = Some(cam_se3_rig);
     session.state.initial_rig_se3_target = Some(extrinsic_result.rig_from_target);
 
     session.log_success_with_notes(
@@ -376,11 +381,12 @@ pub fn step_rig_optimize(
         .per_cam_intrinsics
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no per-camera intrinsics"))?;
-    let cam_to_rig = session
+    let cam_se3_rig = session
         .state
         .initial_cam_se3_rig
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no initial cam_se3_rig"))?;
+    let cam_to_rig: Vec<Iso3> = cam_se3_rig.iter().map(|t| t.inverse()).collect();
     let rig_from_target = session
         .state
         .initial_rig_se3_target
@@ -634,5 +640,58 @@ mod tests {
         assert!(restored.has_input());
         assert!(restored.has_output());
         assert_eq!(restored.exports.len(), 1);
+    }
+
+    #[test]
+    fn rig_optimize_keeps_reprojection_error_reasonable() {
+        let input = make_test_input();
+        let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+        session.set_input(input.clone()).unwrap();
+
+        run_calibration(&mut session).unwrap();
+        let output = session.require_output().unwrap().clone();
+
+        let cam_se3_rig: Vec<Iso3> = output
+            .params
+            .cam_to_rig
+            .iter()
+            .map(|t| t.inverse())
+            .collect();
+        let rig_se3_target = &output.params.rig_from_target;
+
+        // Compute mean reprojection error across all cameras/views/points.
+        let mut total_error = 0.0;
+        let mut total_points = 0usize;
+        for (view_idx, view) in input.views.iter().enumerate() {
+            for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
+                let Some(obs) = cam_obs else { continue };
+                let cam_se3_target = cam_se3_rig[cam_idx] * rig_se3_target[view_idx];
+                let cam = &output.params.cameras[cam_idx];
+                for (pw, uv) in obs.points_3d.iter().zip(obs.points_2d.iter()) {
+                    let p_cam = cam_se3_target * pw;
+                    let Some(proj) = cam.project_point_c(&p_cam.coords) else {
+                        continue;
+                    };
+                    total_error += (proj - *uv).norm();
+                    total_points += 1;
+                }
+            }
+        }
+
+        assert!(total_points > 0);
+        let mean_err = total_error / total_points as f64;
+        assert!(
+            mean_err.is_finite() && mean_err < 1.0e-3,
+            "mean reprojection error too large: {} px",
+            mean_err
+        );
+
+        // Export should use `cam_se3_rig` convention.
+        let export = session.export().unwrap();
+        assert_eq!(export.cam_se3_rig.len(), cam_se3_rig.len());
+        for (a, b) in export.cam_se3_rig.iter().zip(cam_se3_rig.iter()) {
+            let dt = (a.translation.vector - b.translation.vector).norm();
+            assert!(dt < 1e-10, "export translation error {}", dt);
+        }
     }
 }

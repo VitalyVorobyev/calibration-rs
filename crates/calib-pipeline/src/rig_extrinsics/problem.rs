@@ -156,7 +156,7 @@ impl ProblemType for RigExtrinsicsProblem {
     type Export = RigExtrinsicsExport;
 
     fn name() -> &'static str {
-        "rig_extrinsics"
+        "rig_extrinsics_v2"
     }
 
     fn schema_version() -> u32 {
@@ -225,9 +225,16 @@ impl ProblemType for RigExtrinsicsProblem {
         // Compute mean reprojection error from final cost
         let mean_reproj_error = output.report.final_cost.sqrt();
 
+        let cam_se3_rig: Vec<Iso3> = output
+            .params
+            .cam_to_rig
+            .iter()
+            .map(|t| t.inverse())
+            .collect();
+
         Ok(RigExtrinsicsExport {
             cameras: output.params.cameras.clone(),
-            cam_se3_rig: output.params.cam_to_rig.clone(),
+            cam_se3_rig,
             mean_reproj_error,
         })
     }

@@ -348,7 +348,12 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigHandeyeProblem>) -> Res
             .context("rig extrinsics initialization failed")?;
 
     // Update state
-    session.state.initial_cam_se3_rig = Some(extrinsic_result.cam_to_rig);
+    let cam_se3_rig: Vec<Iso3> = extrinsic_result
+        .cam_to_rig
+        .iter()
+        .map(|t| t.inverse())
+        .collect();
+    session.state.initial_cam_se3_rig = Some(cam_se3_rig);
     session.state.initial_rig_se3_target = Some(extrinsic_result.rig_from_target);
 
     session.log_success_with_notes(
@@ -392,11 +397,12 @@ pub fn step_rig_optimize(
         .per_cam_intrinsics
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no per-camera intrinsics"))?;
-    let cam_to_rig = session
+    let cam_se3_rig = session
         .state
         .initial_cam_se3_rig
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no initial cam_se3_rig"))?;
+    let cam_to_rig: Vec<Iso3> = cam_se3_rig.iter().map(|t| t.inverse()).collect();
     let rig_from_target = session
         .state
         .initial_rig_se3_target
@@ -466,7 +472,13 @@ pub fn step_rig_optimize(
     };
 
     // Update state with refined rig extrinsics
-    session.state.rig_ba_cam_se3_rig = Some(result.params.cam_to_rig.clone());
+    let cam_se3_rig: Vec<Iso3> = result
+        .params
+        .cam_to_rig
+        .iter()
+        .map(|t| t.inverse())
+        .collect();
+    session.state.rig_ba_cam_se3_rig = Some(cam_se3_rig);
     session.state.rig_ba_rig_se3_target = Some(result.params.rig_from_target.clone());
     session.state.rig_ba_reproj_error = Some(result.report.final_cost.sqrt());
     // Also update cameras in case intrinsics were refined
@@ -595,11 +607,12 @@ pub fn step_handeye_optimize(
         .per_cam_intrinsics
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no per-camera intrinsics"))?;
-    let cam_to_rig = session
+    let cam_se3_rig = session
         .state
         .rig_ba_cam_se3_rig
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no cam_se3_rig from rig BA"))?;
+    let cam_to_rig: Vec<Iso3> = cam_se3_rig.iter().map(|t| t.inverse()).collect();
     let handeye = session
         .state
         .initial_handeye
@@ -612,7 +625,7 @@ pub fn step_handeye_optimize(
     // Build initial params for hand-eye optimization
     let initial = HandEyeParams {
         cameras,
-        cam_to_rig: cam_to_rig.clone(),
+        cam_to_rig,
         handeye,
         target_poses: vec![target_se3_base], // Single static target
     };

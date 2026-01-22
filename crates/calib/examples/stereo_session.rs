@@ -19,7 +19,7 @@ mod stereo_io;
 use anyhow::{ensure, Result};
 use calib::prelude::*;
 use calib::rig_extrinsics::{
-    step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+    run_calibration, step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init,
     RigExtrinsicsProblem,
 };
 use calib_targets::ChessboardParams;
@@ -174,6 +174,31 @@ fn main() -> Result<()> {
     print_baseline(
         "Rig baseline (from init)",
         session.state.initial_cam_se3_rig.as_ref().unwrap(),
+    );
+
+    // Alternative: run with filtering for outlier removal
+    println!("--- Alternative: single facade function ---");
+    let (input2, _summary2) = load_stereo_input_with_progress(
+        &imgs_dir,
+        &chess_config,
+        &board_params,
+        SQUARE_SIZE_M,
+        max_views,
+        |idx, total, image_index| {
+            print!("\r  Processing pair {idx}/{total} (index {image_index})");
+            let _ = io::stdout().flush();
+        },
+    )?;
+
+    let mut session2 = CalibrationSession::<RigExtrinsicsProblem>::new();
+    session2.set_input(input2)?;
+
+    run_calibration(&mut session2)?;
+
+    let export2 = session2.export()?;
+    println!(
+        "  Mean reprojection error: {:.4} px",
+        export2.mean_reproj_error
     );
 
     Ok(())

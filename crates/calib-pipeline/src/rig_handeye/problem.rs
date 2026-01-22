@@ -291,9 +291,16 @@ impl ProblemType for RigHandeyeProblem {
         // Extract robot deltas if present
         let robot_deltas = output.robot_deltas.clone();
 
+        let cam_se3_rig: Vec<Iso3> = output
+            .params
+            .cam_to_rig
+            .iter()
+            .map(|t| t.inverse())
+            .collect();
+
         Ok(RigHandeyeExport {
             cameras: output.params.cameras.clone(),
-            cam_se3_rig: output.params.cam_to_rig.clone(),
+            cam_se3_rig,
             handeye: output.params.handeye,
             target_se3_base: output
                 .params
