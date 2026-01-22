@@ -296,7 +296,7 @@ pub fn step_intrinsics_optimize_all(
 
 /// Initialize rig extrinsics from per-camera target poses.
 ///
-/// Uses linear initialization to estimate camera-to-rig transforms.
+/// Uses linear initialization to estimate rig-to-camera transforms.
 ///
 /// Requires [`step_intrinsics_optimize_all`] to be run first.
 ///
@@ -319,6 +319,7 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> 
     let num_views = input.num_views();
     let reference_camera_idx = session.config.reference_camera_idx;
 
+    // TODO: use ref instead of clone?
     let per_cam_target_poses = session
         .state
         .per_cam_target_poses

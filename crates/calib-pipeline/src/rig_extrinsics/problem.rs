@@ -156,7 +156,7 @@ impl ProblemType for RigExtrinsicsProblem {
     type Export = RigExtrinsicsExport;
 
     fn name() -> &'static str {
-        "rig_extrinsics_v2"
+        "rig_extrinsics"
     }
 
     fn schema_version() -> u32 {

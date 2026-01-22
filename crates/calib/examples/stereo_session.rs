@@ -19,7 +19,8 @@ mod stereo_io;
 use anyhow::{ensure, Result};
 use calib::prelude::*;
 use calib::rig_extrinsics::{
-    step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init, RigExtrinsicsProblem,
+    step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+    RigExtrinsicsProblem,
 };
 use calib_targets::ChessboardParams;
 use chess_corners::ChessConfig;

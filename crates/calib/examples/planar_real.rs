@@ -75,10 +75,9 @@ fn main() -> Result<()> {
         init_k.fx, init_k.fy, init_k.cx, init_k.cy
     );
     println!(
-        "  Distortion: k1={:.4}, k2={:.4}, p1={:.5}, p2={:.5}",
+        "  Distortion: k1={:.4}, k2={:.4}, p1={:.5}, p2={:.5}\n",
         init_dist.k1, init_dist.k2, init_dist.p1, init_dist.p2
     );
-    println!();
 
     println!("--- Step 2: Optimization ---");
     step_optimize(&mut session, None)?;
@@ -109,10 +108,9 @@ fn main() -> Result<()> {
     println!("    p1 = {:.6}", final_dist.p1);
     println!("    p2 = {:.6}", final_dist.p2);
     println!(
-        "  Mean reprojection error: {:.4} px",
+        "  Mean reprojection error: {:.4} px\n",
         export.mean_reproj_error
     );
-    println!();
 
     // Alternative: run with filtering for outlier removal
     println!("--- Alternative: With Outlier Filtering ---");

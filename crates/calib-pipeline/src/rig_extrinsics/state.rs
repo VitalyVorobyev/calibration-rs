@@ -31,11 +31,11 @@ pub struct RigExtrinsicsState {
     // ─────────────────────────────────────────────────────────────────────────
     // Rig extrinsics initialization
     // ─────────────────────────────────────────────────────────────────────────
-    /// Initial camera-to-rig transforms: `cam_se3_rig` (T_C_R) per camera.
+    /// Initial rig-to-camera transforms: `cam_se3_rig` (T_C_R) per camera.
     /// Reference camera has identity.
     pub initial_cam_se3_rig: Option<Vec<Iso3>>,
 
-    /// Initial rig-to-target poses: `rig_se3_target` (T_R_T) per view.
+    /// Initial target-to-rig poses: `rig_se3_target` (T_R_T) per view.
     pub initial_rig_se3_target: Option<Vec<Iso3>>,
 
     // ─────────────────────────────────────────────────────────────────────────
