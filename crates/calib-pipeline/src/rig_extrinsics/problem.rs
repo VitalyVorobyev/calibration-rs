@@ -108,6 +108,9 @@ pub struct RigExtrinsicsExport {
 
     /// Mean reprojection error (pixels).
     pub mean_reproj_error: f64,
+
+    /// Per-camera reprojection errors (pixels).
+    pub per_cam_reproj_errors: Vec<f64>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -222,9 +225,6 @@ impl ProblemType for RigExtrinsicsProblem {
     }
 
     fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
-        // Compute mean reprojection error from final cost
-        let mean_reproj_error = output.report.final_cost.sqrt();
-
         let cam_se3_rig: Vec<Iso3> = output
             .params
             .cam_to_rig
@@ -235,7 +235,8 @@ impl ProblemType for RigExtrinsicsProblem {
         Ok(RigExtrinsicsExport {
             cameras: output.params.cameras.clone(),
             cam_se3_rig,
-            mean_reproj_error,
+            mean_reproj_error: output.mean_reproj_error,
+            per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
         })
     }
 }

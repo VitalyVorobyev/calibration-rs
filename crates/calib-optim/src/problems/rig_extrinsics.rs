@@ -29,6 +29,10 @@ pub struct RigExtrinsicsParams {
 pub struct RigExtrinsicsEstimate {
     pub params: RigExtrinsicsParams,
     pub report: SolveReport,
+    /// Mean reprojection error in pixels (computed post-optimization).
+    pub mean_reproj_error: f64,
+    /// Per-camera reprojection errors in pixels.
+    pub per_cam_reproj_errors: Vec<f64>,
 }
 
 /// Solve options for rig extrinsics.
@@ -239,6 +243,30 @@ pub fn optimize_rig_extrinsics(
         })
         .collect::<Result<Vec<_>>>()?;
 
+    // Compute per-camera reprojection error
+    // cam_se3_rig = cam_to_rig^-1 (converts T_R_C to T_C_R)
+    let cam_se3_rig: Vec<Iso3> = cam_to_rig.iter().map(|t| t.inverse()).collect();
+    // rig_from_target is already T_R_T (target-to-rig), which is rig_se3_target
+    let per_cam_stats = calib_core::compute_rig_reprojection_stats_per_camera(
+        &cameras,
+        &dataset,
+        &cam_se3_rig,
+        &rig_from_target,
+    )?;
+    let per_cam_reproj_errors: Vec<f64> = per_cam_stats.iter().map(|s| s.mean).collect();
+
+    // Compute overall mean
+    let total_sum: f64 = per_cam_stats
+        .iter()
+        .map(|s| s.mean * s.count as f64)
+        .sum();
+    let total_count: usize = per_cam_stats.iter().map(|s| s.count).sum();
+    let mean_reproj_error = if total_count > 0 {
+        total_sum / total_count as f64
+    } else {
+        0.0
+    };
+
     Ok(RigExtrinsicsEstimate {
         params: RigExtrinsicsParams {
             cameras,
@@ -246,5 +274,7 @@ pub fn optimize_rig_extrinsics(
             rig_from_target,
         },
         report: solution.solve_report,
+        mean_reproj_error,
+        per_cam_reproj_errors,
     })
 }

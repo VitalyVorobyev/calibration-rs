@@ -154,6 +154,9 @@ pub struct RigHandeyeExport {
 
     /// Mean reprojection error (pixels).
     pub mean_reproj_error: f64,
+
+    /// Per-camera reprojection errors (pixels).
+    pub per_cam_reproj_errors: Vec<f64>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -285,12 +288,6 @@ impl ProblemType for RigHandeyeProblem {
     }
 
     fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
-        // Compute mean reprojection error from final cost
-        let mean_reproj_error = output.report.final_cost.sqrt();
-
-        // Extract robot deltas if present
-        let robot_deltas = output.robot_deltas.clone();
-
         let cam_se3_rig: Vec<Iso3> = output
             .params
             .cam_to_rig
@@ -308,8 +305,9 @@ impl ProblemType for RigHandeyeProblem {
                 .first()
                 .copied()
                 .unwrap_or(Iso3::identity()),
-            robot_deltas,
-            mean_reproj_error,
+            robot_deltas: output.robot_deltas.clone(),
+            mean_reproj_error: output.mean_reproj_error,
+            per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
         })
     }
 }

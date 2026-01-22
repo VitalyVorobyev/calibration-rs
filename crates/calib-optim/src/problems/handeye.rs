@@ -145,6 +145,10 @@ pub struct HandEyeEstimate {
     pub report: SolveReport,
     /// Optional per-view robot pose deltas (se(3) tangent, `[rx, ry, rz, tx, ty, tz]`).
     pub robot_deltas: Option<Vec<[Real; 6]>>,
+    /// Mean reprojection error in pixels (computed post-optimization).
+    pub mean_reproj_error: f64,
+    /// Per-camera reprojection errors in pixels.
+    pub per_cam_reproj_errors: Vec<f64>,
 }
 
 /// Optimize hand-eye calibration using specified backend.
@@ -226,16 +230,125 @@ pub fn optimize_handeye(
     } else {
         None
     };
+
+    // Compute reprojection error
+    let params = HandEyeParams {
+        cameras,
+        cam_to_rig,
+        handeye,
+        target_poses,
+    };
+    let (mean_reproj_error, per_cam_reproj_errors) =
+        compute_handeye_reproj_error(&dataset, &params, robot_deltas.as_ref());
+
     Ok(HandEyeEstimate {
-        params: HandEyeParams {
-            cameras,
-            cam_to_rig,
-            handeye,
-            target_poses,
-        },
+        params,
         report: solution.solve_report,
         robot_deltas,
+        mean_reproj_error,
+        per_cam_reproj_errors,
     })
+}
+
+/// Compute per-camera reprojection error for hand-eye calibration result.
+///
+/// Returns (mean_error, per_camera_errors).
+fn compute_handeye_reproj_error(
+    dataset: &HandEyeDataset,
+    params: &HandEyeParams,
+    robot_deltas: Option<&Vec<[Real; 6]>>,
+) -> (f64, Vec<f64>) {
+    use crate::ir::HandEyeMode;
+    use nalgebra::{UnitQuaternion, Vector3};
+
+    let num_cameras = dataset.data.num_cameras;
+    let mut per_cam_sum = vec![0.0f64; num_cameras];
+    let mut per_cam_count = vec![0usize; num_cameras];
+
+    // Precompute cam_se3_rig transforms (inverse of cam_to_rig)
+    let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
+
+    // handeye_inv = handeye^-1
+    let handeye_inv = params.handeye.inverse();
+
+    // target_pose is assumed to be the first (and only) target pose for fixed-target mode
+    let target_pose = params.target_poses.first().cloned().unwrap_or(Iso3::identity());
+
+    for (view_idx, view) in dataset.data.views.iter().enumerate() {
+        let robot_pose = view.meta.robot_pose;
+
+        // Apply robot delta if available
+        let robot_pose = if let Some(deltas) = robot_deltas {
+            let delta = &deltas[view_idx];
+            let rot_vec = Vector3::new(delta[0], delta[1], delta[2]);
+            let trans_vec = Vector3::new(delta[3], delta[4], delta[5]);
+            let angle = rot_vec.norm();
+            let delta_rot = if angle > 1e-12 {
+                UnitQuaternion::from_axis_angle(&nalgebra::Unit::new_normalize(rot_vec), angle)
+            } else {
+                UnitQuaternion::identity()
+            };
+            let delta_iso = Iso3::from_parts(
+                nalgebra::Translation3::from(trans_vec),
+                delta_rot,
+            );
+            delta_iso * robot_pose
+        } else {
+            robot_pose
+        };
+
+        for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
+            let Some(obs) = cam_obs else {
+                continue;
+            };
+            let camera = &params.cameras[cam_idx];
+
+            for (pt3, pt2) in obs.points_3d.iter().zip(obs.points_2d.iter()) {
+                // Compute point in camera frame using hand-eye transform chain
+                let p_camera = match dataset.mode {
+                    HandEyeMode::EyeInHand => {
+                        // target -> base -> gripper -> rig -> camera
+                        let p_base = target_pose.transform_point(pt3);
+                        let p_gripper = robot_pose.inverse_transform_point(&p_base);
+                        let p_rig = handeye_inv.transform_point(&p_gripper);
+                        cam_se3_rig[cam_idx].transform_point(&p_rig)
+                    }
+                    HandEyeMode::EyeToHand => {
+                        // target -> gripper -> base -> rig -> camera
+                        let p_gripper = target_pose.transform_point(pt3);
+                        let p_base = robot_pose.transform_point(&p_gripper);
+                        let p_rig = params.handeye.transform_point(&p_base);
+                        cam_se3_rig[cam_idx].transform_point(&p_rig)
+                    }
+                };
+
+                // Project point
+                if let Some(proj) = camera.project_point_c(&p_camera.coords) {
+                    let err = (proj - *pt2).norm();
+                    per_cam_sum[cam_idx] += err;
+                    per_cam_count[cam_idx] += 1;
+                }
+            }
+        }
+    }
+
+    // Compute per-camera mean errors
+    let per_cam_reproj_errors: Vec<f64> = per_cam_sum
+        .iter()
+        .zip(per_cam_count.iter())
+        .map(|(&s, &c)| if c > 0 { s / c as f64 } else { 0.0 })
+        .collect();
+
+    // Compute overall mean
+    let total_sum: f64 = per_cam_sum.iter().sum();
+    let total_count: usize = per_cam_count.iter().sum();
+    let mean_reproj_error = if total_count > 0 {
+        total_sum / total_count as f64
+    } else {
+        0.0
+    };
+
+    (mean_reproj_error, per_cam_reproj_errors)
 }
 
 /// Build IR for hand-eye calibration.

@@ -156,6 +156,9 @@ pub struct SingleCamHandeyeExport {
 
     /// Mean reprojection error (pixels).
     pub mean_reproj_error: f64,
+
+    /// Per-camera reprojection errors (pixels). Single element for single-camera.
+    pub per_cam_reproj_errors: Vec<f64>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -273,16 +276,13 @@ impl ProblemType for SingleCamHandeyeProblemV2 {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("no target pose in output"))?;
 
-        // Compute mean reprojection error from final cost
-        // This is approximate; in practice we'd compute it properly
-        let mean_reproj_error = output.report.final_cost.sqrt();
-
         Ok(SingleCamHandeyeExport {
             camera,
             handeye: output.params.handeye,
             target_se3_base,
             robot_deltas: output.robot_deltas.clone(),
-            mean_reproj_error,
+            mean_reproj_error: output.mean_reproj_error,
+            per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
         })
     }
 }

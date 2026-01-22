@@ -1,7 +1,7 @@
 //! Shared I/O helpers for the KUKA hand-eye examples.
 
 use anyhow::{ensure, Context, Result};
-use calib::core::{CorrespondenceView, Iso3, Pt3, Vec2};
+use calib::core::{CorrespondenceView, Iso3, Pt2, Pt3};
 use calib_targets::chessboard::ChessboardDetectionResult;
 use calib_targets::{detect, ChessboardParams};
 use chess_corners::ChessConfig;
@@ -172,7 +172,7 @@ fn detection_to_view_data(
             grid.j as f64 * square_size_m,
             0.0,
         ));
-        points_2d.push(Vec2::new(
+        points_2d.push(Pt2::new(
             corner.position.x as f64,
             corner.position.y as f64,
         ));
