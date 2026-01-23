@@ -467,9 +467,146 @@ let result = session.export()?;
 
 Run examples with:
 ```bash
-cargo run -p calib --example planar_synthetic  # Synthetic data
-cargo run -p calib --example planar_real       # Real images
-cargo run -p calib --example stereo_session    # Stereo rig
+# Planar intrinsics calibration
+cargo run -p calib --example planar_synthetic   # Synthetic data
+cargo run -p calib --example planar_real        # Real stereo images
+
+# Multi-camera rig calibration
+cargo run -p calib --example stereo_session     # Stereo rig extrinsics
+
+# Hand-eye calibration (camera on robot arm)
+cargo run -p calib --example handeye_synthetic  # Single camera, synthetic
+cargo run -p calib --example handeye_session    # Single camera, KUKA robot data
+cargo run -p calib --example rig_handeye_synthetic  # Multi-camera rig, synthetic
+```
+
+| Example | Problem Type | Data | Description |
+|---------|--------------|------|-------------|
+| planar_synthetic | PlanarIntrinsics | Synthetic | Basic Zhang calibration |
+| planar_real | PlanarIntrinsics | data/stereo/ | Real chessboard images |
+| stereo_session | RigExtrinsics | data/stereo/ | Stereo rig calibration |
+| handeye_synthetic | SingleCamHandeye | Synthetic | Single camera hand-eye |
+| handeye_session | SingleCamHandeye | data/kuka_1/ | KUKA robot dataset |
+| rig_handeye_synthetic | RigHandeye | Synthetic | Multi-camera rig hand-eye |
+
+## Hand-Eye Calibration
+
+The library supports hand-eye calibration for cameras mounted on robot arms, both single-camera and multi-camera rig configurations.
+
+### Transformation Chain (EyeInHand Mode)
+
+For a camera mounted on the robot gripper (eye-in-hand), the transformation chain is:
+
+```
+target → T_B_T → base → robot_pose^-1 → gripper → handeye^-1 → camera → pixel
+
+Where:
+- T_B_T = base_se3_target (target pose in base frame, fixed)
+- robot_pose = base_se3_gripper (from robot kinematics)
+- handeye = gripper_se3_camera (what we calibrate)
+
+Combined: cam_se3_target = (robot_pose * handeye)^-1 * target_in_base
+```
+
+For a **multi-camera rig** (eye-in-hand):
+```
+target → T_B_T → base → robot_pose^-1 → gripper → handeye^-1 → rig → cam_se3_rig → camera
+
+Where:
+- handeye = gripper_se3_rig (gripper to rig frame)
+- cam_se3_rig[i] = T_C_R (camera i to rig transform)
+```
+
+### Single-Camera Hand-Eye API
+
+```rust
+use calib::prelude::*;
+use calib::single_cam_handeye::{
+    SingleCamHandeyeInput, SingleCamHandeyeView, SingleCamHandeyeProblemV2,
+    step_intrinsics_init, step_intrinsics_optimize,
+    step_handeye_init, step_handeye_optimize,
+};
+
+// Create input from robot poses and corner detections
+let views: Vec<SingleCamHandeyeView> = samples
+    .into_iter()
+    .map(|s| SingleCamHandeyeView {
+        robot_pose: s.robot_pose,  // base_se3_gripper from robot
+        obs: s.corners,            // 2D-3D correspondences
+    })
+    .collect();
+let input = SingleCamHandeyeInput::new(views)?;
+
+// Run 4-step calibration
+let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+session.set_input(input)?;
+
+step_intrinsics_init(&mut session, None)?;     // Zhang's method
+step_intrinsics_optimize(&mut session, None)?; // Bundle adjustment
+step_handeye_init(&mut session, None)?;        // Tsai-Lenz linear
+step_handeye_optimize(&mut session, None)?;    // Hand-eye BA
+
+let export = session.export()?;
+println!("Hand-eye: {:?}", export.handeye);
+println!("Reprojection error: {:.4} px", export.mean_reproj_error);
+```
+
+### Multi-Camera Rig Hand-Eye API
+
+```rust
+use calib::prelude::*;
+use calib::rig_handeye::{
+    RigHandeyeInput, RigHandeyeProblem,
+    step_intrinsics_init_all, step_intrinsics_optimize_all,
+    step_rig_init, step_rig_optimize,
+    step_handeye_init, step_handeye_optimize,
+};
+use calib::handeye::RobotPoseMeta;
+
+// Create input from robot poses and per-camera observations
+let views: Vec<RigView<RobotPoseMeta>> = /* ... */;
+let input: RigHandeyeInput = RigDataset::new(views, num_cameras)?;
+
+// Run 6-step calibration
+let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+session.set_input(input)?;
+
+step_intrinsics_init_all(&mut session, None)?;     // Per-camera Zhang
+step_intrinsics_optimize_all(&mut session, None)?; // Per-camera BA
+step_rig_init(&mut session)?;                      // Linear rig extrinsics
+step_rig_optimize(&mut session, None)?;            // Rig BA
+step_handeye_init(&mut session, None)?;            // Tsai-Lenz
+step_handeye_optimize(&mut session, None)?;        // Hand-eye BA
+
+let export = session.export()?;
+```
+
+### Hand-Eye Initialization (Tsai-Lenz)
+
+The linear Tsai-Lenz method requires **diverse rotation axes** across views. Recommendations:
+
+- Use at least 3-5 views with significantly different orientations
+- Ensure rotations span multiple axes (not just pure Z-axis rotations)
+- Small rotation diversity leads to ill-conditioned systems and divergent initialization
+
+If initialization produces poor results, the non-linear optimization may still converge if given a reasonable manual initial guess, or more diverse poses are needed.
+
+### Reprojection Error Metrics
+
+All calibration exports include actual pixel reprojection error (not derived from optimizer cost):
+
+```rust
+pub struct SingleCamHandeyeExport {
+    // ...
+    pub mean_reproj_error: f64,           // Overall mean in pixels
+    pub per_cam_reproj_errors: Vec<f64>,  // Per-camera mean (single element for single-cam)
+}
+
+pub struct RigHandeyeExport {
+    // ...
+    pub mean_reproj_error: f64,
+    pub per_cam_reproj_errors: Vec<f64>,  // One per camera
+}
 ```
 
 ## Project Status
@@ -477,19 +614,19 @@ cargo run -p calib --example stereo_session    # Stereo rig
 **Current state**: Pre-release, APIs stabilizing
 - calib-core: ✅ Feature-complete and tested
 - calib-linear: ✅ Feature-complete and tested
-- calib-optim: ✅ Planar intrinsics, hand-eye working; rig BA under development
+- calib-optim: ✅ All problem types working (planar, hand-eye, rig extrinsics, rig hand-eye)
 - calib-pipeline: ✅ Session framework with 4 problem types
-- calib: ✅ Unified facade with examples
+- calib: ✅ Unified facade with 6 examples
 - calib-cli: ✅ Basic CLI for planar intrinsics
 
 **Session framework**:
 - ✅ Mutable state container with step functions
 - ✅ 4 problem types: PlanarIntrinsics, SingleCamHandeye, RigExtrinsics, RigHandeye
 - ✅ JSON checkpointing for session persistence
-- ✅ 100+ tests passing in calib-pipeline
+- ✅ Universal per-camera reprojection error metrics
 
 **Available calibration types**:
-- Planar intrinsics (full session API)
-- Single-camera hand-eye (full session API)
-- Multi-camera rig intrinsics + extrinsics (session API, BA under development)
-- Multi-camera rig hand-eye (session API, BA under development)
+- Planar intrinsics (full session API, examples: planar_synthetic, planar_real)
+- Single-camera hand-eye (full session API, examples: handeye_synthetic, handeye_session)
+- Multi-camera rig extrinsics (full session API, example: stereo_session)
+- Multi-camera rig hand-eye (full session API, example: rig_handeye_synthetic)

@@ -14,8 +14,8 @@
 
 use anyhow::Result;
 use calib::core::{
-    make_pinhole_camera, BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Pt2, Pt3,
-    RigDataset, RigView, RigViewObs,
+    make_pinhole_camera, BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Pt3, RigDataset,
+    RigView, RigViewObs,
 };
 use calib::handeye::RobotPoseMeta;
 use calib::prelude::*;
@@ -89,14 +89,15 @@ fn main() -> Result<()> {
 
     // Generate robot poses with diverse rotations and translations
     // Important: diverse rotation axes are critical for hand-eye calibration
+    // Using smaller rotations to keep board fully in view
     let robot_poses = [
         make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
-        make_iso((0.3, 0.0, 0.0), (0.1, 0.0, 0.0)), // Roll rotation
-        make_iso((0.0, 0.3, 0.0), (0.0, 0.1, 0.0)), // Pitch rotation
-        make_iso((0.0, 0.0, 0.3), (0.0, 0.0, 0.1)), // Yaw rotation
-        make_iso((0.2, 0.2, 0.0), (0.05, -0.05, 0.0)), // Combined
-        make_iso((-0.2, 0.0, 0.2), (-0.05, 0.05, 0.0)), // Different axis
-        make_iso((0.15, -0.15, 0.1), (0.0, -0.05, 0.05)), // More variation
+        make_iso((0.15, 0.0, 0.0), (0.05, 0.0, 0.0)),     // Roll rotation
+        make_iso((0.0, 0.15, 0.0), (0.0, 0.05, 0.0)),     // Pitch rotation
+        make_iso((0.0, 0.0, 0.15), (0.0, 0.0, 0.05)),     // Yaw rotation
+        make_iso((0.1, 0.1, 0.0), (0.03, -0.03, 0.0)),    // Combined
+        make_iso((-0.1, 0.0, 0.1), (-0.03, 0.03, 0.0)),   // Different axis
+        make_iso((0.08, -0.08, 0.05), (0.0, -0.03, 0.02)), // More variation
     ];
 
     // Project observations through the transformation chain
@@ -229,7 +230,7 @@ fn main() -> Result<()> {
     // Step 6: Hand-eye optimization
     println!("--- Step 6: Hand-Eye Bundle Adjustment ---");
     step_handeye_optimize(&mut session, None)?;
-    let he_reproj = session.state.handeye_reproj_error.unwrap_or(f64::NAN);
+    let he_reproj = session.state.final_reproj_error.unwrap_or(f64::NAN);
     println!("  Final reprojection error: {:.4} px", he_reproj);
     println!();
 
