@@ -17,20 +17,20 @@
 //! ```ignore
 //! use calib_pipeline::session::CalibrationSession;
 //! use calib_pipeline::single_cam_handeye::{
-//!     SingleCamHandeyeProblem, SingleCamHandeyeInput, SingleCamHandeyeView,
+//!     HandeyeMeta, SingleCamHandeyeProblem, SingleCamHandeyeInput, SingleCamHandeyeView,
 //!     step_intrinsics_init, step_intrinsics_optimize,
 //!     step_handeye_init, step_handeye_optimize, run_calibration,
 //! };
 //!
 //! // Create input from robot poses and observations
 //! let views = vec![
-//!     SingleCamHandeyeView { robot_pose, obs },
+//!     SingleCamHandeyeView { obs, meta: HandeyeMeta { base_se3_gripper } },
 //!     // ... more views
 //! ];
 //! let input = SingleCamHandeyeInput::new(views);
 //!
 //! // Create session and run calibration
-//! let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+//! let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 //! session.set_input(input);
 //!
 //! // Option 1: Step-by-step
@@ -64,8 +64,8 @@ mod steps;
 
 // Re-export types
 pub use problem::{
-    SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
-    SingleCamHandeyeProblemV2, SingleCamHandeyeView,
+    HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
+    SingleCamHandeyeProblem, SingleCamHandeyeView,
 };
 pub use state::SingleCamHandeyeState;
 pub use steps::{

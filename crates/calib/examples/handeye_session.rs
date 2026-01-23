@@ -22,7 +22,7 @@ use anyhow::Result;
 use calib::prelude::*;
 use calib::single_cam_handeye::{
     step_handeye_init, step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,
-    SingleCamHandeyeInput, SingleCamHandeyeProblemV2, SingleCamHandeyeView,
+    HandeyeMeta, SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
 };
 use chess_corners::ChessConfig;
 use std::io::{self, Write};
@@ -82,8 +82,10 @@ fn main() -> Result<()> {
     let views: Vec<SingleCamHandeyeView> = samples
         .into_iter()
         .map(|s| SingleCamHandeyeView {
-            robot_pose: s.robot_pose,
             obs: s.view,
+            meta: HandeyeMeta {
+                base_se3_gripper: s.robot_pose,
+            },
         })
         .collect();
 
@@ -91,7 +93,7 @@ fn main() -> Result<()> {
     println!("Created input with {} views\n", input.num_views());
 
     // Create calibration session
-    let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+    let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
     session.set_input(input)?;
 
     // Step 1: Intrinsics initialization

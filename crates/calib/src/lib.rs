@@ -76,7 +76,7 @@
 //! | Problem Type | Input | Steps |
 //! |--------------|-------|-------|
 //! | `PlanarIntrinsicsProblem` | `PlanarDataset` | init → optimize |
-//! | `SingleCamHandeyeProblemV2` | `SingleCamHandeyeInput` | intrinsics_init → intrinsics_optim → handeye_init → handeye_optim |
+//! | `SingleCamHandeyeProblem` | `SingleCamHandeyeInput` | intrinsics_init → intrinsics_optim → handeye_init → handeye_optim |
 //! | `RigExtrinsicsProblem` | `RigExtrinsicsInput` | intrinsics_init_all → intrinsics_optim_all → rig_init → rig_optim |
 //! | `RigHandeyeProblem` | `RigHandeyeInput` | (all 6 steps) |
 
@@ -154,7 +154,7 @@ pub mod planar_intrinsics {
 /// use calib::prelude::*;
 /// use calib::single_cam_handeye::{run_calibration, SingleCamHandeyeInput};
 ///
-/// let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+/// let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 /// session.set_input(input)?;
 /// run_calibration(&mut session)?;
 /// let result = session.export()?;
@@ -169,14 +169,15 @@ pub mod single_cam_handeye {
         step_intrinsics_optimize,
         // Step options
         HandeyeInitOptions,
+        // Problem type and config
+        HandeyeMeta,
         HandeyeOptimOptions,
         IntrinsicsInitOptions,
         IntrinsicsOptimOptions,
-        // Problem type and config
         SingleCamHandeyeConfig,
         SingleCamHandeyeExport,
         SingleCamHandeyeInput,
-        SingleCamHandeyeProblemV2,
+        SingleCamHandeyeProblem,
         SingleCamHandeyeState,
         SingleCamHandeyeView,
     };
@@ -333,7 +334,7 @@ pub use calib_pipeline::{CalibrationSession, ProblemType};
 
 // Problem types
 pub use calib_pipeline::{
-    PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem, SingleCamHandeyeProblemV2,
+    PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem, SingleCamHandeyeProblem,
 };
 
 // Pipeline functions
@@ -366,7 +367,7 @@ pub mod prelude {
 
     // Problem types
     pub use crate::{
-        PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem, SingleCamHandeyeProblemV2,
+        PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem, SingleCamHandeyeProblem,
     };
 
     // Pipeline functions

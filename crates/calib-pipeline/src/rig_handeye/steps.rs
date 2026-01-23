@@ -542,7 +542,11 @@ pub fn step_handeye_init(
         .unwrap_or(config.min_motion_angle_deg);
 
     // Get robot poses and rig-to-target poses
-    let robot_poses: Vec<Iso3> = input.views.iter().map(|v| v.meta.robot_pose).collect();
+    let robot_poses: Vec<Iso3> = input
+        .views
+        .iter()
+        .map(|v| v.meta.base_se3_gripper)
+        .collect();
     let rig_se3_target = session
         .state
         .rig_ba_rig_se3_target
@@ -567,7 +571,7 @@ pub fn step_handeye_init(
     };
 
     // Estimate initial target pose in base frame
-    // For EyeInHand: T_B_T = T_B_G * T_G_R * T_R_T = robot_pose * handeye * rig_se3_target
+    // For EyeInHand: T_B_T = T_B_G * T_G_R * T_R_T = base_se3_gripper * handeye * rig_se3_target
     let target_se3_base = match config.handeye_mode {
         calib_optim::HandEyeMode::EyeInHand => {
             // handeye = T_G_R, we need T_B_T = T_B_G * T_G_R * T_R_T
@@ -812,7 +816,7 @@ mod tests {
 
                 RigView {
                     meta: RobotPoseMeta {
-                        robot_pose: *robot_pose,
+                        base_se3_gripper: *robot_pose,
                     },
                     obs: RigViewObs {
                         cameras: vec![

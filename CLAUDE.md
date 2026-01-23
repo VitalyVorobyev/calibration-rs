@@ -390,7 +390,7 @@ let restored = CalibrationSession::<PlanarIntrinsicsProblem>::from_json(&json)?;
 | Problem Type | Input | Steps | Pipeline Function |
 |--------------|-------|-------|-------------------|
 | `PlanarIntrinsicsProblem` | `PlanarDataset` | `step_init` → `step_optimize` | `run_planar_intrinsics` |
-| `SingleCamHandeyeProblemV2` | `SingleCamHandeyeInput` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` | `run_single_cam_handeye` |
+| `SingleCamHandeyeProblem` | `SingleCamHandeyeInput` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` | `run_single_cam_handeye` |
 | `RigExtrinsicsProblem` | `RigExtrinsicsInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` | `run_rig_extrinsics` |
 | `RigHandeyeProblem` | `RigHandeyeInput` | 6 steps (intrinsics + rig + handeye) | `run_rig_handeye` |
 
@@ -522,7 +522,7 @@ Where:
 ```rust
 use calib::prelude::*;
 use calib::single_cam_handeye::{
-    SingleCamHandeyeInput, SingleCamHandeyeView, SingleCamHandeyeProblemV2,
+    HandeyeMeta, SingleCamHandeyeInput, SingleCamHandeyeView, SingleCamHandeyeProblem,
     step_intrinsics_init, step_intrinsics_optimize,
     step_handeye_init, step_handeye_optimize,
 };
@@ -531,14 +531,14 @@ use calib::single_cam_handeye::{
 let views: Vec<SingleCamHandeyeView> = samples
     .into_iter()
     .map(|s| SingleCamHandeyeView {
-        robot_pose: s.robot_pose,  // base_se3_gripper from robot
         obs: s.corners,            // 2D-3D correspondences
+        meta: HandeyeMeta { base_se3_gripper: s.robot_pose },
     })
     .collect();
 let input = SingleCamHandeyeInput::new(views)?;
 
 // Run 4-step calibration
-let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 session.set_input(input)?;
 
 step_intrinsics_init(&mut session, None)?;     // Zhang's method

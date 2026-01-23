@@ -1,10 +1,10 @@
 //! [`ProblemType`] implementation for single-camera hand-eye calibration.
 //!
-//! This module provides the `SingleCamHandeyeProblemV2` type that implements
-//! the v2 session API's `ProblemType` trait.
+//! This module provides the `SingleCamHandeyeProblem` type that implements
+//! the session API's `ProblemType` trait.
 
 use anyhow::{ensure, Result};
-use calib_core::{CorrespondenceView, Iso3, PinholeCamera};
+use calib_core::{CorrespondenceView, Iso3, PinholeCamera, View};
 use calib_optim::{HandEyeEstimate, HandEyeMode, RobustLoss};
 use serde::{Deserialize, Serialize};
 
@@ -16,20 +16,68 @@ use super::state::SingleCamHandeyeState;
 // Input Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A single view with robot pose and 2D-3D correspondences.
+/// Metadata for a single hand-eye view.
+///
+/// `base_se3_gripper` is the gripper pose expressed in the base frame (T_B_G).
+/// The `robot_pose` alias is kept for backwards-compatible JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SingleCamHandeyeView {
-    /// Robot pose: base_se3_gripper (T_B_G).
-    pub robot_pose: Iso3,
-    /// 2D-3D correspondences for this view.
-    pub obs: CorrespondenceView,
+pub struct HandeyeMeta {
+    #[serde(alias = "robot_pose")]
+    pub base_se3_gripper: Iso3,
 }
 
+/// A single view with robot pose and 2D-3D correspondences.
+pub type SingleCamHandeyeView = View<HandeyeMeta>;
+
 /// Input for single-camera hand-eye calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SingleCamHandeyeInput {
     /// Per-view observations with robot poses.
     pub views: Vec<SingleCamHandeyeView>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum SingleCamHandeyeViewCompat {
+    Current(SingleCamHandeyeView),
+    Legacy {
+        robot_pose: Iso3,
+        obs: CorrespondenceView,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SingleCamHandeyeInputCompat {
+    views: Vec<SingleCamHandeyeViewCompat>,
+}
+
+impl From<SingleCamHandeyeInputCompat> for SingleCamHandeyeInput {
+    fn from(value: SingleCamHandeyeInputCompat) -> Self {
+        let views = value
+            .views
+            .into_iter()
+            .map(|v| match v {
+                SingleCamHandeyeViewCompat::Current(v) => v,
+                SingleCamHandeyeViewCompat::Legacy { robot_pose, obs } => View::new(
+                    obs,
+                    HandeyeMeta {
+                        base_se3_gripper: robot_pose,
+                    },
+                ),
+            })
+            .collect();
+        Self { views }
+    }
+}
+
+impl<'de> Deserialize<'de> for SingleCamHandeyeInput {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let compat = SingleCamHandeyeInputCompat::deserialize(deserializer)?;
+        Ok(compat.into())
+    }
 }
 
 impl SingleCamHandeyeInput {
@@ -177,11 +225,11 @@ pub struct SingleCamHandeyeExport {
 /// ```ignore
 /// use calib_pipeline::session::v2::CalibrationSession;
 /// use calib_pipeline::single_cam_handeye::{
-///     SingleCamHandeyeProblemV2, step_intrinsics_init, step_intrinsics_optimize,
+///     SingleCamHandeyeProblem, step_intrinsics_init, step_intrinsics_optimize,
 ///     step_handeye_init, step_handeye_optimize,
 /// };
 ///
-/// let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+/// let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 /// session.set_input(input)?;
 ///
 /// step_intrinsics_init(&mut session, None)?;
@@ -192,9 +240,9 @@ pub struct SingleCamHandeyeExport {
 /// let export = session.export()?;
 /// ```
 #[derive(Debug)]
-pub struct SingleCamHandeyeProblemV2;
+pub struct SingleCamHandeyeProblem;
 
-impl ProblemType for SingleCamHandeyeProblemV2 {
+impl ProblemType for SingleCamHandeyeProblem {
     type Config = SingleCamHandeyeConfig;
     type Input = SingleCamHandeyeInput;
     type State = SingleCamHandeyeState;
@@ -293,9 +341,8 @@ mod tests {
     use calib_core::{CorrespondenceView, Pt2, Pt3};
 
     fn make_minimal_view() -> SingleCamHandeyeView {
-        SingleCamHandeyeView {
-            robot_pose: Iso3::identity(),
-            obs: CorrespondenceView::new(
+        View::new(
+            CorrespondenceView::new(
                 vec![
                     Pt3::new(0.0, 0.0, 0.0),
                     Pt3::new(0.05, 0.0, 0.0),
@@ -310,7 +357,10 @@ mod tests {
                 ],
             )
             .unwrap(),
-        }
+            HandeyeMeta {
+                base_se3_gripper: Iso3::identity(),
+            },
+        )
     }
 
     fn make_minimal_input() -> SingleCamHandeyeInput {
@@ -326,7 +376,7 @@ mod tests {
     #[test]
     fn validate_input_requires_3_views() {
         let input = make_minimal_input();
-        let result = SingleCamHandeyeProblemV2::validate_input(&input);
+        let result = SingleCamHandeyeProblem::validate_input(&input);
         assert!(result.is_ok());
     }
 
@@ -335,7 +385,7 @@ mod tests {
         let input = SingleCamHandeyeInput {
             views: vec![make_minimal_view(), make_minimal_view()],
         };
-        let result = SingleCamHandeyeProblemV2::validate_input(&input);
+        let result = SingleCamHandeyeProblem::validate_input(&input);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("3 views"));
     }
@@ -346,7 +396,7 @@ mod tests {
             max_iters: 0,
             ..Default::default()
         };
-        let result = SingleCamHandeyeProblemV2::validate_config(&config);
+        let result = SingleCamHandeyeProblem::validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("max_iters"));
     }
@@ -354,7 +404,7 @@ mod tests {
     #[test]
     fn validate_config_accepts_valid() {
         let config = SingleCamHandeyeConfig::default();
-        let result = SingleCamHandeyeProblemV2::validate_config(&config);
+        let result = SingleCamHandeyeProblem::validate_config(&config);
         assert!(result.is_ok());
     }
 
@@ -378,7 +428,7 @@ mod tests {
 
     #[test]
     fn problem_name_and_version() {
-        assert_eq!(SingleCamHandeyeProblemV2::name(), "single_cam_handeye_v2");
-        assert_eq!(SingleCamHandeyeProblemV2::schema_version(), 1);
+        assert_eq!(SingleCamHandeyeProblem::name(), "single_cam_handeye_v2");
+        assert_eq!(SingleCamHandeyeProblem::schema_version(), 1);
     }
 }

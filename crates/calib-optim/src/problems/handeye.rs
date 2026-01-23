@@ -36,7 +36,9 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RobotPoseMeta {
-    pub robot_pose: Iso3, // base-to-gripper
+    /// Gripper pose expressed in the robot base frame (T_B_G).
+    #[serde(alias = "robot_pose")]
+    pub base_se3_gripper: Iso3,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +77,12 @@ impl HandEyeDataset {
 }
 
 /// Initial values for hand-eye calibration.
+///
+/// - `cam_to_rig`: camera pose in the rig frame (`T_C_R`)
+/// - `handeye`:
+///   - `EyeInHand`: gripper pose in the rig frame (`T_G_R`)
+///   - `EyeToHand`: rig pose in the base frame (`T_R_B`)
+/// - `target_poses`: fixed target pose(s) depending on the selected mode
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeParams {
     pub cameras: Vec<PinholeCamera>,
@@ -279,7 +287,7 @@ fn compute_handeye_reproj_error(
         .unwrap_or(Iso3::identity());
 
     for (view_idx, view) in dataset.data.views.iter().enumerate() {
-        let robot_pose = view.meta.robot_pose;
+        let robot_pose = view.meta.base_se3_gripper;
 
         // Apply robot delta if available
         let robot_pose = if let Some(deltas) = robot_deltas {
@@ -537,7 +545,7 @@ fn build_handeye_ir(
         };
 
         // Convert robot pose to SE3 array for factor
-        let robot_se3 = iso3_to_se3_dvec(&view.meta.robot_pose);
+        let robot_se3 = iso3_to_se3_dvec(&view.meta.base_se3_gripper);
         let robot_se3_array: [f64; 7] = [
             robot_se3[0],
             robot_se3[1],
@@ -600,4 +608,99 @@ fn build_handeye_ir(
 
     ir.validate()?;
     Ok((ir, initial_map))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use calib_core::{
+        make_pinhole_camera, BrownConrady5, CorrespondenceView, FxFyCxCySkew, Pt2, Pt3, RigView,
+        RigViewObs,
+    };
+    use nalgebra::{Translation3, UnitQuaternion};
+
+    fn make_test_camera() -> PinholeCamera {
+        make_pinhole_camera(
+            FxFyCxCySkew {
+                fx: 600.0,
+                fy: 590.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            },
+            BrownConrady5::default(),
+        )
+    }
+
+    fn project_view(
+        camera: &PinholeCamera,
+        cam_se3_target: &Iso3,
+        board_pts: &[Pt3],
+    ) -> CorrespondenceView {
+        let pixels: Vec<Pt2> = board_pts
+            .iter()
+            .map(|p| {
+                let p_cam = cam_se3_target.transform_point(p);
+                camera
+                    .project_point_c(&p_cam.coords)
+                    .expect("point should be in front of camera")
+            })
+            .collect();
+
+        CorrespondenceView::new(board_pts.to_vec(), pixels).unwrap()
+    }
+
+    #[test]
+    fn compute_reproj_error_matches_ground_truth_chain() {
+        let camera = make_test_camera();
+        let handeye = Iso3::identity(); // gripper and camera frames coincide
+        let target_in_base = Iso3::from_parts(Translation3::new(0.0, 0.0, 1.0), UnitQuaternion::identity());
+
+        // Simple square target
+        let board_pts = vec![
+            Pt3::new(0.0, 0.0, 0.0),
+            Pt3::new(0.1, 0.0, 0.0),
+            Pt3::new(0.1, 0.1, 0.0),
+            Pt3::new(0.0, 0.1, 0.0),
+        ];
+
+        let robot_poses = [
+            Iso3::identity(),
+            Iso3::from_parts(Translation3::new(0.05, 0.0, 0.0), UnitQuaternion::identity()),
+        ];
+
+        let views: Vec<RigView<RobotPoseMeta>> = robot_poses
+            .iter()
+            .map(|robot_pose| {
+                // Camera pose: T_C_T = (T_B_G * T_G_C)^-1 * T_B_T
+                let cam_se3_target = (robot_pose * handeye).inverse() * target_in_base;
+                let obs = project_view(&camera, &cam_se3_target, &board_pts);
+
+                RigView {
+                    meta: RobotPoseMeta {
+                        base_se3_gripper: *robot_pose,
+                    },
+                    obs: RigViewObs {
+                        cameras: vec![Some(obs)],
+                    },
+                }
+            })
+            .collect();
+
+        let dataset = HandEyeDataset::new(views, 1, HandEyeMode::EyeInHand).unwrap();
+        let params = HandEyeParams {
+            cameras: vec![camera],
+            cam_to_rig: vec![Iso3::identity()],
+            handeye,
+            target_poses: vec![target_in_base],
+        };
+
+        let (mean, per_cam) = compute_handeye_reproj_error(&dataset, &params, None);
+        assert!(mean < 1e-9, "mean reproj err too large: {}", mean);
+        assert!(
+            per_cam[0] < 1e-9,
+            "per-cam reproj err too large: {}",
+            per_cam[0]
+        );
+    }
 }

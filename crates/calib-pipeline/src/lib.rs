@@ -61,12 +61,12 @@ pub use crate::single_cam_handeye::{
     step_handeye_optimize as single_cam_step_handeye_optimize,
     step_intrinsics_init as single_cam_step_intrinsics_init,
     step_intrinsics_optimize as single_cam_step_intrinsics_optimize,
-    HandeyeInitOptions as SingleCamHandeyeInitOptions,
+    HandeyeInitOptions as SingleCamHandeyeInitOptions, HandeyeMeta,
     HandeyeOptimOptions as SingleCamHandeyeOptimOptions,
     IntrinsicsInitOptions as SingleCamIntrinsicsInitOptions,
     IntrinsicsOptimOptions as SingleCamIntrinsicsOptimOptions, SingleCamHandeyeConfig,
-    SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblemV2,
-    SingleCamHandeyeState, SingleCamHandeyeView,
+    SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeState,
+    SingleCamHandeyeView,
 };
 
 // Rig extrinsics

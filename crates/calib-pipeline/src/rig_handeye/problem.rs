@@ -339,7 +339,7 @@ mod tests {
         let views = (0..3)
             .map(|_| RigView {
                 meta: RobotPoseMeta {
-                    robot_pose: Iso3::identity(),
+                    base_se3_gripper: Iso3::identity(),
                 },
                 obs: RigViewObs {
                     cameras: vec![Some(make_minimal_obs()), Some(make_minimal_obs())],
@@ -363,7 +363,7 @@ mod tests {
         let views = (0..3)
             .map(|_| RigView {
                 meta: RobotPoseMeta {
-                    robot_pose: Iso3::identity(),
+                    base_se3_gripper: Iso3::identity(),
                 },
                 obs: RigViewObs {
                     cameras: vec![Some(make_minimal_obs())],

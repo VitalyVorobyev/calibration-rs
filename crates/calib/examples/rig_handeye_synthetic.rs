@@ -92,11 +92,11 @@ fn main() -> Result<()> {
     // Using smaller rotations to keep board fully in view
     let robot_poses = [
         make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
-        make_iso((0.15, 0.0, 0.0), (0.05, 0.0, 0.0)),     // Roll rotation
-        make_iso((0.0, 0.15, 0.0), (0.0, 0.05, 0.0)),     // Pitch rotation
-        make_iso((0.0, 0.0, 0.15), (0.0, 0.0, 0.05)),     // Yaw rotation
-        make_iso((0.1, 0.1, 0.0), (0.03, -0.03, 0.0)),    // Combined
-        make_iso((-0.1, 0.0, 0.1), (-0.03, 0.03, 0.0)),   // Different axis
+        make_iso((0.15, 0.0, 0.0), (0.05, 0.0, 0.0)), // Roll rotation
+        make_iso((0.0, 0.15, 0.0), (0.0, 0.05, 0.0)), // Pitch rotation
+        make_iso((0.0, 0.0, 0.15), (0.0, 0.0, 0.05)), // Yaw rotation
+        make_iso((0.1, 0.1, 0.0), (0.03, -0.03, 0.0)), // Combined
+        make_iso((-0.1, 0.0, 0.1), (-0.03, 0.03, 0.0)), // Different axis
         make_iso((0.08, -0.08, 0.05), (0.0, -0.03, 0.02)), // More variation
     ];
 
@@ -125,7 +125,7 @@ fn main() -> Result<()> {
 
             RigView {
                 meta: RobotPoseMeta {
-                    robot_pose: *robot_pose,
+                    base_se3_gripper: *robot_pose,
                 },
                 obs: RigViewObs {
                     cameras: vec![obs0, obs1],

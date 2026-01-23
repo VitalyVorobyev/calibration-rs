@@ -150,7 +150,7 @@ pub enum FactorKind {
     /// Reprojection for hand-eye calibration with robot pose as measurement.
     ///
     /// Parameters: [intrinsics, distortion, extr, handeye, target]
-    /// Robot pose (base-to-gripper) is stored in the factor as known data.
+    /// Robot pose (`base_se3_gripper`, gripper in base frame) is stored in the factor as known data.
     ReprojPointPinhole4Dist5HandEye {
         pw: [f64; 3],
         uv: [f64; 2],
@@ -161,7 +161,7 @@ pub enum FactorKind {
     /// Reprojection for hand-eye calibration with per-view robot pose correction.
     ///
     /// Parameters: [intrinsics, distortion, extr, handeye, target, robot_delta]
-    /// Robot pose (base-to-gripper) is stored in the factor as known data.
+    /// Robot pose (`base_se3_gripper`) is stored in the factor as known data.
     /// `robot_delta` is a 6D se(3) tangent correction applied via exp(delta) * T_B_E.
     ReprojPointPinhole4Dist5HandEyeRobotDelta {
         pw: [f64; 3],

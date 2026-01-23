@@ -1,18 +1,18 @@
 //! Step functions for single-camera hand-eye calibration.
 //!
 //! This module provides step functions that operate on
-//! `CalibrationSession<SingleCamHandeyeProblemV2>` to perform calibration.
+//! `CalibrationSession<SingleCamHandeyeProblem>` to perform calibration.
 //!
 //! # Example
 //!
 //! ```ignore
 //! use calib_pipeline::session::v2::CalibrationSession;
 //! use calib_pipeline::single_cam_handeye::{
-//!     SingleCamHandeyeProblemV2, step_intrinsics_init, step_intrinsics_optimize,
+//!     SingleCamHandeyeProblem, step_intrinsics_init, step_intrinsics_optimize,
 //!     step_handeye_init, step_handeye_optimize,
 //! };
 //!
-//! let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+//! let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 //! session.set_input(input)?;
 //!
 //! step_intrinsics_init(&mut session, None)?;
@@ -38,7 +38,7 @@ use calib_optim::{
 
 use crate::session::CalibrationSession;
 
-use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblemV2};
+use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblem};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Options
@@ -128,7 +128,7 @@ fn estimate_target_pose(k_matrix: &calib_core::Mat3, view: &CorrespondenceView) 
 /// - Fewer than 3 views
 /// - Intrinsics estimation fails
 pub fn step_intrinsics_init(
-    session: &mut CalibrationSession<SingleCamHandeyeProblemV2>,
+    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -212,7 +212,7 @@ pub fn step_intrinsics_init(
 /// - Initialization not run
 /// - Optimization fails
 pub fn step_intrinsics_optimize(
-    session: &mut CalibrationSession<SingleCamHandeyeProblemV2>,
+    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<IntrinsicsOptimOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -298,7 +298,7 @@ pub fn step_intrinsics_optimize(
 /// - Intrinsics optimization not run
 /// - Linear hand-eye estimation fails
 pub fn step_handeye_init(
-    session: &mut CalibrationSession<SingleCamHandeyeProblemV2>,
+    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<HandeyeInitOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -315,7 +315,11 @@ pub fn step_handeye_init(
         .unwrap_or(config.min_motion_angle_deg);
 
     // Get robot poses and camera-target poses
-    let robot_poses: Vec<Iso3> = input.views.iter().map(|v| v.robot_pose).collect();
+    let robot_poses: Vec<Iso3> = input
+        .views
+        .iter()
+        .map(|v| v.meta.base_se3_gripper)
+        .collect();
     let cam_target_poses = session
         .state
         .optimized_target_poses
@@ -332,7 +336,7 @@ pub fn step_handeye_init(
     };
 
     // Estimate initial target pose in base frame
-    // For EyeInHand: T_B_T = T_B_G * T_G_C * T_C_T = robot_pose * handeye * cam_target_pose
+    // For EyeInHand: T_B_T = T_B_G * T_G_C * T_C_T = base_se3_gripper * handeye * cam_target_pose
     // Take the first view as reference
     let target_se3_base = match config.handeye_mode {
         calib_optim::HandEyeMode::EyeInHand => {
@@ -375,7 +379,7 @@ pub fn step_handeye_init(
 /// - Hand-eye initialization not run
 /// - Optimization fails
 pub fn step_handeye_optimize(
-    session: &mut CalibrationSession<SingleCamHandeyeProblemV2>,
+    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<HandeyeOptimOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -410,7 +414,7 @@ pub fn step_handeye_optimize(
         .iter()
         .map(|v| RigView {
             meta: RobotPoseMeta {
-                robot_pose: v.robot_pose,
+                base_se3_gripper: v.meta.base_se3_gripper,
             },
             obs: RigViewObs {
                 cameras: vec![Some(v.obs.clone())],
@@ -459,7 +463,7 @@ pub fn step_handeye_optimize(
 
     // Update state metrics
     session.state.handeye_final_cost = Some(result.report.final_cost);
-    session.state.handeye_reproj_error = Some(result.report.final_cost.sqrt());
+    session.state.handeye_reproj_error = Some(result.mean_reproj_error);
 
     // Set output
     session.set_output(result.clone());
@@ -483,7 +487,7 @@ pub fn step_handeye_optimize(
 /// # Errors
 ///
 /// Any error from the constituent steps.
-pub fn run_calibration(session: &mut CalibrationSession<SingleCamHandeyeProblemV2>) -> Result<()> {
+pub fn run_calibration(session: &mut CalibrationSession<SingleCamHandeyeProblem>) -> Result<()> {
     step_intrinsics_init(session, None)?;
     step_intrinsics_optimize(session, None)?;
     step_handeye_init(session, None)?;
@@ -552,8 +556,10 @@ mod tests {
                     .collect();
 
                 super::super::problem::SingleCamHandeyeView {
-                    robot_pose: *robot_pose,
                     obs: CorrespondenceView::new(board_pts.clone(), points_2d).unwrap(),
+                    meta: super::super::problem::HandeyeMeta {
+                        base_se3_gripper: *robot_pose,
+                    },
                 }
             })
             .collect();
@@ -563,7 +569,7 @@ mod tests {
 
     #[test]
     fn step_intrinsics_init_computes_estimate() {
-        let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
 
         step_intrinsics_init(&mut session, None).unwrap();
@@ -577,7 +583,7 @@ mod tests {
 
     #[test]
     fn step_intrinsics_optimize_requires_init() {
-        let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
 
         let result = step_intrinsics_optimize(&mut session, None);
@@ -587,7 +593,7 @@ mod tests {
 
     #[test]
     fn step_handeye_init_requires_intrinsics() {
-        let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
 
         let result = step_handeye_init(&mut session, None);
@@ -600,7 +606,7 @@ mod tests {
 
     #[test]
     fn step_handeye_optimize_requires_init() {
-        let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init(&mut session, None).unwrap();
         step_intrinsics_optimize(&mut session, None).unwrap();
@@ -612,7 +618,7 @@ mod tests {
 
     #[test]
     fn set_input_clears_state() {
-        let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init(&mut session, None).unwrap();
 
@@ -625,7 +631,7 @@ mod tests {
 
     #[test]
     fn set_config_keeps_output() {
-        let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::new();
+        let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
         run_calibration(&mut session).unwrap();
 
@@ -646,7 +652,7 @@ mod tests {
 
     #[test]
     fn json_roundtrip() {
-        let mut session = CalibrationSession::<SingleCamHandeyeProblemV2>::with_description(
+        let mut session = CalibrationSession::<SingleCamHandeyeProblem>::with_description(
             "Test single-cam hand-eye",
         );
         session.set_input(make_test_input()).unwrap();
@@ -654,7 +660,7 @@ mod tests {
         session.export().unwrap();
 
         let json = session.to_json().unwrap();
-        let restored = CalibrationSession::<SingleCamHandeyeProblemV2>::from_json(&json).unwrap();
+        let restored = CalibrationSession::<SingleCamHandeyeProblem>::from_json(&json).unwrap();
 
         assert_eq!(
             restored.metadata.description,
