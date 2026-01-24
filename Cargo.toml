@@ -4,10 +4,7 @@ members = [
     "crates/calib-core",
     "crates/calib-linear",
     "crates/calib-optim",
-#    "crates/calib-io",
     "crates/calib-pipeline",
-#    "crates/calib-reports",
-    "crates/calib-cli",
 ]
 
 resolver = "2"
@@ -24,6 +21,5 @@ nalgebra = { version = "0.34", features = ["serde-serialize"] }
 num-dual = "0.13.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "1"
 clap = { version = "4", features = ["derive"] }
 # or: argmin = "0.11"

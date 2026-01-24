@@ -113,13 +113,13 @@ pub enum AnyProjection {
 }
 
 impl ProjectionModel<Real> for AnyProjection {
-    fn project_dir(&self, dir_c: &nalgebra::Vector3<Real>) -> Option<nalgebra::Vector2<Real>> {
+    fn project_dir(&self, dir_c: &nalgebra::Vector3<Real>) -> Option<nalgebra::Point2<Real>> {
         match self {
             AnyProjection::Pinhole(m) => m.project_dir(dir_c),
         }
     }
 
-    fn unproject_dir(&self, n: &nalgebra::Vector2<Real>) -> nalgebra::Vector3<Real> {
+    fn unproject_dir(&self, n: &nalgebra::Point2<Real>) -> nalgebra::Vector3<Real> {
         match self {
             AnyProjection::Pinhole(m) => m.unproject_dir(n),
         }
@@ -134,14 +134,14 @@ pub enum AnyDistortion {
 }
 
 impl super::DistortionModel<Real> for AnyDistortion {
-    fn distort(&self, n: &nalgebra::Vector2<Real>) -> nalgebra::Vector2<Real> {
+    fn distort(&self, n: &nalgebra::Point2<Real>) -> nalgebra::Point2<Real> {
         match self {
             AnyDistortion::None(m) => m.distort(n),
             AnyDistortion::BrownConrady5(m) => m.distort(n),
         }
     }
 
-    fn undistort(&self, n: &nalgebra::Vector2<Real>) -> nalgebra::Vector2<Real> {
+    fn undistort(&self, n: &nalgebra::Point2<Real>) -> nalgebra::Point2<Real> {
         match self {
             AnyDistortion::None(m) => m.undistort(n),
             AnyDistortion::BrownConrady5(m) => m.undistort(n),
@@ -157,14 +157,14 @@ pub enum AnySensor {
 }
 
 impl SensorModel<Real> for AnySensor {
-    fn normalized_to_sensor(&self, n: &nalgebra::Vector2<Real>) -> nalgebra::Vector2<Real> {
+    fn normalized_to_sensor(&self, n: &nalgebra::Point2<Real>) -> nalgebra::Point2<Real> {
         match self {
             AnySensor::Identity(m) => m.normalized_to_sensor(n),
             AnySensor::Homography(m) => m.normalized_to_sensor(n),
         }
     }
 
-    fn sensor_to_normalized(&self, s: &nalgebra::Vector2<Real>) -> nalgebra::Vector2<Real> {
+    fn sensor_to_normalized(&self, s: &nalgebra::Point2<Real>) -> nalgebra::Point2<Real> {
         match self {
             AnySensor::Identity(m) => m.sensor_to_normalized(s),
             AnySensor::Homography(m) => m.sensor_to_normalized(s),
@@ -179,13 +179,13 @@ pub enum AnyIntrinsics {
 }
 
 impl super::IntrinsicsModel<Real> for AnyIntrinsics {
-    fn sensor_to_pixel(&self, sensor: &nalgebra::Vector2<Real>) -> nalgebra::Vector2<Real> {
+    fn sensor_to_pixel(&self, sensor: &nalgebra::Point2<Real>) -> nalgebra::Point2<Real> {
         match self {
             AnyIntrinsics::FxFyCxCySkew(m) => m.sensor_to_pixel(sensor),
         }
     }
 
-    fn pixel_to_sensor(&self, pixel: &nalgebra::Vector2<Real>) -> nalgebra::Vector2<Real> {
+    fn pixel_to_sensor(&self, pixel: &nalgebra::Point2<Real>) -> nalgebra::Point2<Real> {
         match self {
             AnyIntrinsics::FxFyCxCySkew(m) => m.pixel_to_sensor(pixel),
         }

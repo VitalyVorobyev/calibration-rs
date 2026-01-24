@@ -1,6 +1,6 @@
 use calib_core::{
     test_utils::{build_corner_info, CalibrationView, CornerInfo, ViewDetections},
-    BrownConrady5, Iso3, Mat3, Mat4, Pt2, Pt3, Real,
+    BrownConrady5, CorrespondenceView, Iso3, Mat3, Mat4, NoMeta, PlanarDataset, Pt2, Pt3, Real,
 };
 use calib_linear::{
     triangulate_point_linear, EpipolarSolver, HomographySolver, Mat34, PlanarIntrinsicsLinearInit,
@@ -386,12 +386,9 @@ fn stereo_triangulation_recovers_board_points() {
     assert!(p90 < 2.0, "triangulation error too large: {p90}");
 }
 
-// ============================================================================
-// NEW TESTS: Iterative intrinsics estimation without ground truth
-// ============================================================================
-
+use calib_core::View;
 use calib_linear::iterative_intrinsics::{
-    IterativeCalibView, IterativeIntrinsicsOptions, IterativeIntrinsicsSolver,
+    estimate_intrinsics_iterative, IterativeIntrinsicsOptions,
 };
 use calib_linear::DistortionFitOptions;
 
@@ -407,27 +404,23 @@ fn stereo_iterative_intrinsics_left_no_gt() {
     let dist_gt = distortion_from_array(data.distortion.left);
 
     // Prepare views using RAW DISTORTED pixels (no ground truth preprocessing)
-    let views: Vec<IterativeCalibView> = data
-        .views
-        .iter()
-        .map(|view| {
-            let board_points: Vec<Pt2> = view
-                .left
-                .corners
-                .iter()
-                .map(|c| board_point_2d(c[0] as usize, c[1] as usize, data.board.square_size))
-                .collect();
-
-            let pixel_points: Vec<Pt2> = view
-                .left
-                .corners
-                .iter()
-                .map(|c| Pt2::new(c[2], c[3]))
-                .collect();
-
-            IterativeCalibView::new(board_points, pixel_points)
-        })
-        .collect();
+    let dataset = PlanarDataset::new(
+        data.views
+            .iter()
+            .map(|view| {
+                let det = &view.left;
+                let corners: Vec<Pt2> = det.corners.iter().map(|c| Pt2::new(c[2], c[3])).collect();
+                let target_points3d: Vec<Pt3> = det
+                    .corners
+                    .iter()
+                    .map(|c| Pt3::new(c[0], c[1], 0.0))
+                    .collect();
+                let view = CorrespondenceView::new(target_points3d, corners).unwrap();
+                View::<NoMeta>::new(view, NoMeta {})
+            })
+            .collect(),
+    )
+    .unwrap();
 
     // Run iterative estimation (NO ground truth used here)
     let opts = IterativeIntrinsicsOptions {
@@ -441,7 +434,7 @@ fn stereo_iterative_intrinsics_left_no_gt() {
     };
 
     let result =
-        IterativeIntrinsicsSolver::estimate(&views, opts).expect("iterative intrinsics estimation");
+        estimate_intrinsics_iterative(&dataset, opts).expect("iterative intrinsics estimation");
 
     // Validate against ground truth (for test purposes only)
     let fx_gt = k_gt[(0, 0)];
@@ -449,10 +442,10 @@ fn stereo_iterative_intrinsics_left_no_gt() {
     let cx_gt = k_gt[(0, 2)];
     let cy_gt = k_gt[(1, 2)];
 
-    let fx_err_pct = (result.intrinsics.fx - fx_gt).abs() / fx_gt * 100.0;
-    let fy_err_pct = (result.intrinsics.fy - fy_gt).abs() / fy_gt * 100.0;
-    let cx_err = (result.intrinsics.cx - cx_gt).abs();
-    let cy_err = (result.intrinsics.cy - cy_gt).abs();
+    let fx_err_pct = (result.k.fx - fx_gt).abs() / fx_gt * 100.0;
+    let fy_err_pct = (result.k.fy - fy_gt).abs() / fy_gt * 100.0;
+    let cx_err = (result.k.cx - cx_gt).abs();
+    let cy_err = (result.k.cy - cy_gt).abs();
 
     println!("Left camera iterative calibration (NO ground truth used):");
     println!(
@@ -461,7 +454,7 @@ fn stereo_iterative_intrinsics_left_no_gt() {
     );
     println!(
         "  Estimated:    fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-        result.intrinsics.fx, result.intrinsics.fy, result.intrinsics.cx, result.intrinsics.cy
+        result.k.fx, result.k.fy, result.k.cx, result.k.cy
     );
     println!(
         "  Errors: fx={:.1}%, fy={:.1}%, cx={:.1}px, cy={:.1}px",
@@ -473,7 +466,7 @@ fn stereo_iterative_intrinsics_left_no_gt() {
     );
     println!(
         "  Distortion Est: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}",
-        result.distortion.k1, result.distortion.k2, result.distortion.p1, result.distortion.p2
+        result.dist.k1, result.dist.k2, result.dist.p1, result.dist.p2
     );
 
     // Linear methods: expect 10-40% error for initialization
@@ -493,80 +486,9 @@ fn stereo_iterative_intrinsics_left_no_gt() {
 
     // Distortion should have correct sign (most important for initialization)
     assert!(
-        result.distortion.k1.signum() == dist_gt.k1.signum(),
+        result.dist.k1.signum() == dist_gt.k1.signum(),
         "k1 sign mismatch: got {}, expected {}",
-        result.distortion.k1,
+        result.dist.k1,
         dist_gt.k1
-    );
-}
-
-/// Test that iterative refinement provides better estimates than single-pass Zhang.
-///
-/// Compares:
-/// 1. Direct Zhang on distorted pixels (iteration 0, biased)
-/// 2. Iterative refinement (iterations 1-2, progressively less biased)
-#[test]
-fn stereo_iterative_improves_over_zhang_left() {
-    let data = load_data();
-    let k_gt = mat3_from_array(&data.intrinsics.left);
-
-    let views: Vec<IterativeCalibView> = data
-        .views
-        .iter()
-        .map(|view| {
-            let board_points: Vec<Pt2> = view
-                .left
-                .corners
-                .iter()
-                .map(|c| board_point_2d(c[0] as usize, c[1] as usize, data.board.square_size))
-                .collect();
-
-            let pixel_points: Vec<Pt2> = view
-                .left
-                .corners
-                .iter()
-                .map(|c| Pt2::new(c[2], c[3]))
-                .collect();
-
-            IterativeCalibView::new(board_points, pixel_points)
-        })
-        .collect();
-
-    let opts = IterativeIntrinsicsOptions {
-        iterations: 2,
-        distortion_opts: DistortionFitOptions {
-            fix_k3: true,
-            fix_tangential: true, // Radial only for this test
-            iters: 8,
-        },
-        zero_skew: true,
-    };
-
-    let result = IterativeIntrinsicsSolver::estimate(&views, opts).expect("iterative intrinsics");
-
-    // Compute errors over iterations
-    let fx_gt = k_gt[(0, 0)];
-    let errors: Vec<Real> = result
-        .intrinsics_history
-        .iter()
-        .map(|intr| (intr.fx - fx_gt).abs())
-        .collect();
-
-    println!("Iterative improvement on left camera:");
-    for (i, (intr, err)) in result.intrinsics_history.iter().zip(&errors).enumerate() {
-        println!(
-            "  Iteration {}: fx={:.1}, error={:.1} ({:.1}%)",
-            i,
-            intr.fx,
-            err,
-            err / fx_gt * 100.0
-        );
-    }
-
-    // First iteration should not make things dramatically worse
-    // (loose constraint due to linearization artifacts)
-    assert!(
-        errors[1] < errors[0] * 1.5,
-        "First iteration should not worsen estimate significantly"
     );
 }

@@ -3,7 +3,7 @@
 //! Validates that the Scheimpflug sensor model correctly combines with
 //! Brown-Conrady distortion for forward and inverse projection.
 
-use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, Pinhole, Pt3, ScheimpflugParams, Vec2};
+use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, Pinhole, Pt2, Pt3, ScheimpflugParams};
 
 #[test]
 fn scheimpflug_with_brown_conrady_roundtrip() {
@@ -222,11 +222,11 @@ fn combined_scheimpflug_distortion_unproject() {
 
     // Test various pixel locations
     let test_pixels = vec![
-        Vec2::new(640.0, 360.0), // Principal point
-        Vec2::new(400.0, 200.0), // Upper left
-        Vec2::new(880.0, 520.0), // Lower right
-        Vec2::new(640.0, 200.0), // Top center
-        Vec2::new(400.0, 360.0), // Left center
+        Pt2::new(640.0, 360.0), // Principal point
+        Pt2::new(400.0, 200.0), // Upper left
+        Pt2::new(880.0, 520.0), // Lower right
+        Pt2::new(640.0, 200.0), // Top center
+        Pt2::new(400.0, 360.0), // Left center
     ];
 
     for pixel in test_pixels {

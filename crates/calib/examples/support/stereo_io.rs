@@ -1,15 +1,15 @@
-//! Shared I/O helpers for the stereo rig calibration example.
+//! Shared I/O helpers for the stereo rig calibration examples.
 
 use anyhow::{ensure, Context, Result};
-use calib::core::{CorrespondenceView, Pt3, Real, Vec2};
-use calib::rig::{RigExtrinsicsInput, RigViewData};
+use calib::prelude::*;
+use calib::rig_extrinsics::RigExtrinsicsInput;
 use calib_targets::chessboard::ChessboardDetectionResult;
 use calib_targets::{detect, ChessboardParams};
 use chess_corners::ChessConfig;
-use image::ImageReader;
 use std::collections::BTreeSet;
 use std::path::Path;
 
+/// Summary of dataset loading.
 #[derive(Debug, Clone)]
 pub struct StereoDatasetSummary {
     pub total_pairs: usize,
@@ -19,11 +19,15 @@ pub struct StereoDatasetSummary {
     pub usable_right: usize,
 }
 
+/// Load stereo dataset from images directory.
+///
+/// Expects `imgs_dir/leftcamera/Im_L_N.png` and `imgs_dir/rightcamera/Im_R_N.png`
+/// pairs.
 pub fn load_stereo_input_with_progress<F>(
     imgs_dir: &Path,
     chess_config: &ChessConfig,
     board_params: &ChessboardParams,
-    square_size_m: Real,
+    square_size_m: f64,
     max_views: Option<usize>,
     mut progress: F,
 ) -> Result<(RigExtrinsicsInput, StereoDatasetSummary)>
@@ -98,8 +102,13 @@ where
             usable_right += 1;
         }
 
-        views.push(RigViewData {
-            cameras: vec![left, right],
+        // Create RigViewObs with cameras = [left, right]
+        use calib::core::{NoMeta, RigView, RigViewObs};
+        views.push(RigView {
+            meta: NoMeta,
+            obs: RigViewObs {
+                cameras: vec![left, right],
+            },
         });
     }
 
@@ -118,13 +127,10 @@ where
         usable_right,
     };
 
-    Ok((
-        RigExtrinsicsInput {
-            views,
-            num_cameras: 2,
-        },
-        summary,
-    ))
+    use calib::core::RigDataset;
+    let input = RigDataset::new(views, 2).context("failed to create rig dataset")?;
+
+    Ok((input, summary))
 }
 
 fn list_stereo_pair_indices(left_dir: &Path, right_dir: &Path) -> Result<Vec<usize>> {
@@ -176,9 +182,9 @@ fn detect_view(
     path: &Path,
     chess_config: &ChessConfig,
     board_params: ChessboardParams,
-    square_size_m: Real,
+    square_size_m: f64,
 ) -> Result<Option<CorrespondenceView>> {
-    let img = ImageReader::open(path)
+    let img = image::ImageReader::open(path)
         .with_context(|| format!("failed to read image {}", path.display()))?
         .decode()
         .with_context(|| format!("failed to decode {}", path.display()))?
@@ -193,7 +199,7 @@ fn detect_view(
 
 fn detection_to_view_data(
     detection: ChessboardDetectionResult,
-    square_size_m: Real,
+    square_size_m: f64,
 ) -> Result<CorrespondenceView> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();
@@ -202,14 +208,11 @@ fn detection_to_view_data(
             continue;
         };
         points_3d.push(Pt3::new(
-            grid.i as Real * square_size_m,
-            grid.j as Real * square_size_m,
+            grid.i as f64 * square_size_m,
+            grid.j as f64 * square_size_m,
             0.0,
         ));
-        points_2d.push(Vec2::new(
-            corner.position.x as Real,
-            corner.position.y as Real,
-        ));
+        points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
     }
 
     ensure!(
@@ -217,9 +220,5 @@ fn detection_to_view_data(
         "insufficient corners after grid filtering"
     );
 
-    Ok(CorrespondenceView {
-        points_3d,
-        points_2d,
-        weights: None,
-    })
+    CorrespondenceView::new(points_3d, points_2d)
 }

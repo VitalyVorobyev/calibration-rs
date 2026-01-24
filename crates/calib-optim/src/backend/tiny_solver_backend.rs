@@ -1,5 +1,7 @@
 use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
-use crate::backend::{BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend};
+use crate::backend::{
+    BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend, SolveReport,
+};
 use crate::factors::linescan::{
     laser_line_dist_normalized_generic, laser_plane_pixel_residual_generic,
 };
@@ -150,7 +152,7 @@ impl OptimBackend for TinySolverBackend {
 
         Ok(BackendSolution {
             params: solution,
-            final_cost,
+            solve_report: SolveReport { final_cost },
         })
     }
 }

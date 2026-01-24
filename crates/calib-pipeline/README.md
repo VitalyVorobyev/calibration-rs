@@ -1,49 +1,49 @@
 # calib-pipeline
 
-End-to-end calibration workflows and session APIs for `calibration-rs`.
+End-to-end calibration workflows and a session API for `calibration-rs`.
 
 This crate provides two complementary approaches for camera calibration:
-1. **Session API**: Structured workflows with state tracking and JSON checkpointing
-2. **Imperative Functions**: Direct access to building blocks for custom workflows
+1. **Session API**: Structured workflows with artifact management + JSON checkpointing
+2. **Imperative Functions**: Direct access to pipeline functions for custom workflows
 
 ## Features
 
 - **Planar intrinsics calibration**: Zhang's method with Brown-Conrady distortion
-- **Hand-eye calibration**: Single-camera and multi-camera rig setups
-- **Rig extrinsics**: Multi-camera rig calibration
-- **Linescan calibration**: Laser plane + camera intrinsics joint optimization
-- **JSON I/O**: Serialize/deserialize all inputs, configs, and reports
-- **Checkpointing**: Save and resume calibration sessions
+- **JSON I/O**: Serialize/deserialize inputs, configs, and results
+- **Checkpointing**: Save and resume session state
 
 ## Dual API Design
 
 ### Session API
 
-Best for standard calibration workflows with automatic state management:
+Best for standard workflows with branching, artifact tracking, and checkpointing:
 
 ```rust
-use calib_pipeline::session::{CalibrationSession, PlanarIntrinsicsProblem};
-use calib_pipeline::session::problem_types::{
-    PlanarIntrinsicsObservations, PlanarIntrinsicsInitOptions, PlanarIntrinsicsOptimOptions
-};
+use calib_pipeline::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
+use calib_pipeline::session::{CalibrationSession, ExportOptions, FilterOptions};
+use calib_pipeline::PlanarDataset;
 
 // Create session
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
-// Set observations
-session.set_observations(PlanarIntrinsicsObservations { views });
+// Add observations (a PlanarDataset: Vec<View<NoMeta>>)
+let obs_id = session.add_observations(dataset);
 
 // Initialize (linear solver)
-session.initialize(PlanarIntrinsicsInitOptions::default())?;
+let config = PlanarIntrinsicsConfig::default();
+let init_id = session.run_init(obs_id, config.clone())?;
 
 // Save checkpoint
 let checkpoint = session.to_json()?;
 
 // Optimize (non-linear refinement)
-session.optimize(PlanarIntrinsicsOptimOptions::default())?;
+let result_id = session.run_optimize(obs_id, init_id, config)?;
+
+// Filter outliers and re-optimize (optional)
+let obs_filtered = session.run_filter_obs(obs_id, result_id, FilterOptions::default())?;
 
 // Export results
-let report = session.export()?;
+let estimate = session.run_export(result_id, ExportOptions::default())?;
 ```
 
 ### Imperative Functions API
@@ -51,69 +51,30 @@ let report = session.export()?;
 Best for custom workflows requiring intermediate inspection:
 
 ```rust
-use calib_pipeline::{
-    homography, zhang_intrinsics, planar_init_seed_from_views,
-    optimize_planar_intrinsics_raw, PlanarDataset, BackendSolveOptions,
+use calib_pipeline::planar_intrinsics::{
+    planar_init_seed_from_views, run_planar_intrinsics, PlanarIntrinsicsConfig,
 };
+use calib_pipeline::PlanarDataset;
 
-// Compute homographies directly
-let H = homography::dlt_homography(&board_2d, &pixel_2d)?;
-
-// Initialize intrinsics
-let (init, camera) = planar_init_seed_from_views(&views)?;
-
-// Inspect linear initialization
-println!("Initial fx: {}", init.intrinsics.fx);
-
-// Decide whether to continue based on quality
-if init.intrinsics.fx > 500.0 && init.intrinsics.fx < 2000.0 {
-    let dataset = PlanarDataset::new(views)?;
-    let result = optimize_planar_intrinsics_raw(dataset, init, opts, backend_opts)?;
-}
+let config = PlanarIntrinsicsConfig::default();
+let seed = planar_init_seed_from_views(&dataset, config.init_opts.clone())?;
+let estimate = run_planar_intrinsics(&dataset, &config)?;
 ```
-
-## Available Problem Types
-
-| Problem | Session Type | Use Case |
-|---------|--------------|----------|
-| Planar intrinsics | `PlanarIntrinsicsProblem` | Single camera calibration |
-| Hand-eye single | `HandEyeSingleProblem` | Robot + camera calibration |
-| Rig extrinsics | `RigExtrinsicsProblem` | Multi-camera rig |
-| Rig hand-eye | `RigHandEyeProblem` | Robot + multi-camera rig |
-| Linescan | `LinescanProblem` | Laser line + camera |
-
-## Re-exported Modules
-
-For custom workflows, access building blocks directly:
-
-**From calib-linear:**
-- `homography` - DLT homography estimation + RANSAC
-- `zhang_intrinsics` - Intrinsics from homographies
-- `pnp` - Perspective-n-Point solvers (DLT, P3P, EPnP)
-- `epipolar` - Fundamental/essential matrices
-- `triangulation` - Linear triangulation
-- `handeye_linear` - Hand-eye initialization
-- `linescan` - Laser plane estimation
-
-**From calib-optim:**
-- `BackendSolveOptions` - Solver configuration
-- `PlanarDataset`, `PlanarIntrinsicsInit` - Optimization inputs
-- `RobustLoss` - Huber, Cauchy, Arctan
 
 ## JSON I/O Example
 
 ```rust
-use calib_pipeline::{PlanarIntrinsicsInput, PlanarIntrinsicsConfig, run_planar_intrinsics};
+use calib_pipeline::{PlanarDataset, PlanarIntrinsicsConfig, run_planar_intrinsics};
 
 // Load from JSON
-let input: PlanarIntrinsicsInput = serde_json::from_str(&input_json)?;
+let input: PlanarDataset = serde_json::from_str(&input_json)?;
 let config: PlanarIntrinsicsConfig = serde_json::from_str(&config_json)?;
 
 // Run calibration
-let report = run_planar_intrinsics(&input, &config)?;
+let estimate = run_planar_intrinsics(&input, &config)?;
 
 // Save results
-let output_json = serde_json::to_string_pretty(&report)?;
+let output_json = serde_json::to_string_pretty(&estimate)?;
 ```
 
 ## When to Use Each API
@@ -126,13 +87,6 @@ let output_json = serde_json::to_string_pretty(&report)?;
 | Custom multi-step workflow | Imperative |
 | Integration into larger system | Imperative |
 | Research and experimentation | Imperative |
-
-## Examples
-
-See `examples/` directory:
-- `session_basic.rs` - Session API lifecycle
-- `custom_workflow.rs` - Imperative functions API
-- `compare_apis.rs` - Side-by-side comparison
 
 ## See Also
 

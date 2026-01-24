@@ -4,7 +4,7 @@
 //! but is not intended for production use. It provides shared data structures
 //! and helper functions for working with calibration test data.
 
-use crate::{BrownConrady5, Mat3, Pt2, Real, Vec2};
+use crate::{BrownConrady5, Mat3, Pt2, Real};
 use serde::Deserialize;
 
 /// A calibration board view with detections for multiple cameras.
@@ -42,7 +42,7 @@ pub struct CornerInfo {
     /// Board row index.
     pub j: usize,
     /// Undistorted normalized coordinates (after K^-1 and undistortion).
-    pub undist_norm: Vec2,
+    pub undist_norm: Pt2,
     /// Undistorted pixel coordinates.
     pub undist_pixel: Pt2,
 }
@@ -65,7 +65,7 @@ pub fn undistort_pixel_normalized(
     pixel: Pt2,
     intrinsics: &Mat3,
     distortion: &BrownConrady5<Real>,
-) -> Vec2 {
+) -> Pt2 {
     crate::math::undistort_pixel(pixel, intrinsics, distortion)
 }
 
@@ -81,7 +81,7 @@ pub fn undistort_pixel_normalized(
 ///
 /// # Returns
 /// Pixel coordinates computed as `K * [x, y, 1]^T` (homogeneous division applied).
-pub fn pixel_from_normalized(normalized: Vec2, intrinsics: &Mat3) -> Pt2 {
+pub fn pixel_from_normalized(normalized: Pt2, intrinsics: &Mat3) -> Pt2 {
     crate::math::normalized_to_pixel(normalized, intrinsics)
 }
 

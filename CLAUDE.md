@@ -343,239 +343,311 @@ Integration tests ([tests/linescan_bundle.rs](crates/calib-optim/tests/linescan_
 
 ## Session Framework (calib-pipeline)
 
-calib-pipeline provides a **stateful session API** for calibration workflows with automatic state tracking and JSON checkpointing.
+calib-pipeline provides a **mutable state container session API** for calibration workflows with step functions, automatic state tracking, and JSON checkpointing.
 
 ### Core Abstractions
 
-**ProblemType trait** ([session/mod.rs](crates/calib-pipeline/src/session/mod.rs)):
+**ProblemType trait** ([session/problem_type.rs](crates/calib-pipeline/src/session/problem_type.rs)):
 - Defines interface for calibration problems
-- Parameterizes observation types, initialization, and optimization
-- Each problem (planar intrinsics, hand-eye, linescan) implements this trait
+- Associated types: `Config`, `Input`, `State`, `Output`, `Export`
+- Minimal by design - behavior implemented via external step functions
 
-**CalibrationSession<P: ProblemType>** ([session/mod.rs](crates/calib-pipeline/src/session/mod.rs)):
-- Generic session container with state machine
-- Tracks progress: Uninitialized → Initialized → Optimized → Exported
-- Supports JSON serialization for checkpointing
+**CalibrationSession<P: ProblemType>** ([session/calibsession.rs](crates/calib-pipeline/src/session/calibsession.rs)):
+- Generic mutable state container
+- Stores config, input, intermediate state, and output
+- Full JSON serialization for checkpointing
 
-### State Machine
-
-```
-Uninitialized  ---[initialize()]--->  Initialized  ---[optimize()]--->  Optimized  ---[export()]--->  Exported
-     ↑                                                                                                      |
-     |                                                                                                      |
-     +------------------------------------[set_observations()]--------------------------------------------+
-```
-
-- **Uninitialized**: Session created, observations set (or replaced)
-- **Initialized**: Linear initialization complete
-- **Optimized**: Non-linear optimization complete
-- **Exported**: Results exported (terminal state)
-
-Setting new observations resets the session to Uninitialized (clearing init/optim results).
-
-### Usage Example
+### Session API Pattern
 
 ```rust
-use calib_pipeline::session::{CalibrationSession, PlanarIntrinsicsProblem};
-use calib_pipeline::session::problem_types::{
-    PlanarIntrinsicsObservations, PlanarIntrinsicsInitOptions, PlanarIntrinsicsOptimOptions
-};
+use calib::prelude::*;
+use calib::planar_intrinsics::{step_init, step_optimize};
 
-// Create session
-let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new_with_description(
-    "My calibration session".to_string()
-);
+// 1. Create session
+let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 
-// Add observations
-let obs = PlanarIntrinsicsObservations { views: /* ... */ };
-session.set_observations(obs);
+// 2. Set input
+session.set_input(dataset)?;
 
-// Initialize (linear solver)
-session.initialize(PlanarIntrinsicsInitOptions::default())?;
+// 3. Configure (optional)
+session.update_config(|c| c.max_iters = 100)?;
 
-// Optimize (non-linear refinement)
-session.optimize(PlanarIntrinsicsOptimOptions::default())?;
+// 4. Run step functions (or pipeline function)
+step_init(&mut session, None)?;
+step_optimize(&mut session, None)?;
+// OR: run_planar_intrinsics(&mut session)?;
 
-// Export results
-let report = session.export()?;
+// 5. Export results
+let export = session.export()?;
 
-// Save checkpoint
+// 6. Checkpoint/restore
 let json = session.to_json()?;
-std::fs::write("session.json", json)?;
-
-// Resume later
 let restored = CalibrationSession::<PlanarIntrinsicsProblem>::from_json(&json)?;
 ```
 
 ### Available Problem Types
 
-**PlanarIntrinsicsProblem** ([session/problem_types.rs](crates/calib-pipeline/src/session/problem_types.rs)):
-- Zhang's method with Brown-Conrady distortion
-- Observations: `PlanarIntrinsicsObservations` (multiple views of planar pattern)
-- Init: Quick initialization with 10 iterations
-- Optim: Full refinement with user-configurable options (robust loss, fixed params, etc.)
-- Report: `CameraConfig` + final cost
+| Problem Type | Input | Steps | Pipeline Function |
+|--------------|-------|-------|-------------------|
+| `PlanarIntrinsicsProblem` | `PlanarDataset` | `step_init` → `step_optimize` | `run_planar_intrinsics` |
+| `SingleCamHandeyeProblem` | `SingleCamHandeyeInput` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` | `run_single_cam_handeye` |
+| `RigExtrinsicsProblem` | `RigExtrinsicsInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` | `run_rig_extrinsics` |
+| `RigHandeyeProblem` | `RigHandeyeInput` | 6 steps (intrinsics + rig + handeye) | `run_rig_handeye` |
 
-### Session Metadata
+### Step Functions vs Pipeline Functions
 
-Each session tracks:
-- `problem_type`: Identifier string (e.g., "planar_intrinsics")
-- `created_at`: Unix timestamp when session was created
-- `last_updated`: Unix timestamp of last stage change
-- `description`: Optional user-provided description
+**Step Functions** - Granular control with intermediate inspection:
+```rust
+step_init(&mut session, None)?;
+println!("Initial fx: {}", session.state.initial_intrinsics.unwrap().fx);
+step_optimize(&mut session, None)?;
+```
+
+**Pipeline Functions** - Convenience wrappers:
+```rust
+run_planar_intrinsics(&mut session)?;  // Runs all steps
+```
+
+### Session Lifecycle
+
+1. `session.set_input(input)?` - Load observations (clears state per invalidation policy)
+2. `session.update_config(|c| ...)?` - Configure parameters
+3. Step functions mutate `session.state` in place
+4. Final step sets `session.output`
+5. `session.export()?` - Generate export record
 
 ### Design Principles
 
-- **Fail-fast validation**: Stage transitions enforce preconditions (e.g., can't optimize without initialization)
-- **Type safety**: Generic over `ProblemType` ensures correct observation/result types
-- **Checkpointing**: Full session state serializable to JSON for resumption
-- **Immutable history**: Once exported, session is in terminal state (no further modifications)
+- **Mutable state container**: Single session holds config, input, state, output
+- **Step functions**: External functions operating on `&mut CalibrationSession<P>`
+- **Invalidation policy**: Input changes clear state; config changes keep output
+- **Audit trail**: All operations logged with timestamps
+- **Full checkpointing**: Session serializable to JSON
 
 ### Adding New Problem Types
 
-To add a new calibration problem:
+1. Create folder under `calib-pipeline/src/` (e.g., `my_problem/`)
+2. Implement `problem.rs`: Define `MyProblem` implementing `ProblemType` trait
+3. Implement `state.rs`: Define `MyState` for intermediate results
+4. Implement `steps.rs`: Define step functions and pipeline function
+5. Add `mod.rs` with re-exports
+6. Update `lib.rs` to export the new module
 
-1. Define observation/result types (must implement `Clone + Serialize + Deserialize`)
-2. Implement `ProblemType` trait with `initialize()` and `optimize()` methods
-3. Add to `session::problem_types` module
-4. Sessions automatically inherit state management and checkpointing
+## calib Crate (Entry Point)
 
-Example skeleton:
+The `calib` crate provides a unified facade for the entire library.
+
+### Module Organization
+
+- `calib::session` - Session framework (`CalibrationSession`, `ProblemType`)
+- `calib::planar_intrinsics` - Single-camera intrinsics calibration
+- `calib::single_cam_handeye` - Single camera + hand-eye
+- `calib::rig_extrinsics` - Multi-camera rig calibration
+- `calib::rig_handeye` - Multi-camera rig + hand-eye
+- `calib::core` - Math types, camera models (from calib-core)
+- `calib::linear` - Initialization algorithms (from calib-linear)
+- `calib::optim` - Optimization (from calib-optim)
+- `calib::synthetic` - Test data generation
+- `calib::prelude` - Common imports
+
+### Quick Start
 
 ```rust
-pub struct MyProblem;
+use calib::prelude::*;
+use calib::planar_intrinsics::{step_init, step_optimize};
 
-impl ProblemType for MyProblem {
-    type Observations = MyObservations;
-    type InitialValues = MyInitial;
-    type OptimizedResults = MyResults;
-    type InitOptions = MyInitOpts;
-    type OptimOptions = MyOptimOpts;
+let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+session.set_input(dataset)?;
+step_init(&mut session, None)?;
+step_optimize(&mut session, None)?;
+let result = session.export()?;
+```
 
-    fn problem_name() -> &'static str { "my_problem" }
+### Examples
 
-    fn initialize(obs: &Self::Observations, opts: &Self::InitOptions) -> Result<Self::InitialValues> {
-        // Call calib-linear solver
+Run examples with:
+```bash
+# Planar intrinsics calibration
+cargo run -p calib --example planar_synthetic   # Synthetic data
+cargo run -p calib --example planar_real        # Real stereo images
+
+# Multi-camera rig calibration
+cargo run -p calib --example stereo_session     # Stereo rig extrinsics
+
+# Hand-eye calibration (camera on robot arm)
+cargo run -p calib --example handeye_synthetic  # Single camera, synthetic
+cargo run -p calib --example handeye_session    # Single camera, KUKA robot data
+cargo run -p calib --example rig_handeye_synthetic  # Multi-camera rig, synthetic
+```
+
+| Example | Problem Type | Data | Description |
+|---------|--------------|------|-------------|
+| planar_synthetic | PlanarIntrinsics | Synthetic | Basic Zhang calibration |
+| planar_real | PlanarIntrinsics | data/stereo/ | Real chessboard images |
+| stereo_session | RigExtrinsics | data/stereo/ | Stereo rig calibration |
+| handeye_synthetic | SingleCamHandeye | Synthetic | Single camera hand-eye |
+| handeye_session | SingleCamHandeye | data/kuka_1/ | KUKA robot dataset |
+| rig_handeye_synthetic | RigHandeye | Synthetic | Multi-camera rig hand-eye |
+
+## Hand-Eye Calibration
+
+The library supports hand-eye calibration for cameras mounted on robot arms, both single-camera and multi-camera rig configurations.
+
+### Transformation Chain (EyeInHand Mode)
+
+For a camera mounted on the robot gripper (eye-in-hand), the transformation chain is:
+
+```
+target → T_B_T → base → robot_pose^-1 → gripper → handeye^-1 → camera → pixel
+
+Where:
+- T_B_T = base_se3_target (target pose in base frame, fixed)
+- robot_pose = base_se3_gripper (from robot kinematics)
+- handeye = gripper_se3_camera (what we calibrate)
+
+Combined: cam_se3_target = (robot_pose * handeye)^-1 * target_in_base
+```
+
+For a **multi-camera rig** (eye-in-hand):
+```
+target → T_B_T → base → robot_pose^-1 → gripper → handeye^-1 → rig → cam_se3_rig → camera
+
+Where:
+- handeye = gripper_se3_rig (gripper to rig frame)
+- cam_se3_rig[i] = T_C_R (camera i to rig transform)
+```
+
+### Single-Camera Hand-Eye API
+
+```rust
+use calib::prelude::*;
+use calib::single_cam_handeye::{
+    HandeyeMeta, SingleCamHandeyeInput, SingleCamHandeyeView, SingleCamHandeyeProblem,
+    step_intrinsics_init, step_intrinsics_optimize,
+    step_handeye_init, step_handeye_optimize,
+};
+
+// Create input from robot poses and corner detections
+let views: Vec<SingleCamHandeyeView> = samples
+    .into_iter()
+    .map(|s| SingleCamHandeyeView {
+        obs: s.corners,            // 2D-3D correspondences
+        meta: HandeyeMeta { base_se3_gripper: s.robot_pose },
+    })
+    .collect();
+let input = SingleCamHandeyeInput::new(views)?;
+
+// Run 4-step calibration
+let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
+session.set_input(input)?;
+
+step_intrinsics_init(&mut session, None)?;     // Zhang's method
+step_intrinsics_optimize(&mut session, None)?; // Bundle adjustment
+step_handeye_init(&mut session, None)?;        // Tsai-Lenz linear
+step_handeye_optimize(&mut session, None)?;    // Hand-eye BA
+
+let export = session.export()?;
+match export.handeye_mode {
+    HandEyeMode::EyeInHand => {
+        println!(
+            "gripper_se3_camera: {:?}",
+            export.gripper_se3_camera.expect("missing gripper_se3_camera")
+        );
+        println!(
+            "base_se3_target: {:?}",
+            export.base_se3_target.expect("missing base_se3_target")
+        );
     }
-
-    fn optimize(obs: &Self::Observations, init: &Self::InitialValues, opts: &Self::OptimOptions) -> Result<Self::OptimizedResults> {
-        // Call calib-optim solver
+    HandEyeMode::EyeToHand => {
+        println!(
+            "camera_se3_base: {:?}",
+            export.camera_se3_base.expect("missing camera_se3_base")
+        );
+        println!(
+            "gripper_se3_target: {:?}",
+            export.gripper_se3_target.expect("missing gripper_se3_target")
+        );
     }
+}
+println!("Reprojection error: {:.4} px", export.mean_reproj_error);
+```
+
+### Multi-Camera Rig Hand-Eye API
+
+```rust
+use calib::prelude::*;
+use calib::rig_handeye::{
+    RigHandeyeInput, RigHandeyeProblem,
+    step_intrinsics_init_all, step_intrinsics_optimize_all,
+    step_rig_init, step_rig_optimize,
+    step_handeye_init, step_handeye_optimize,
+};
+use calib::handeye::RobotPoseMeta;
+
+// Create input from robot poses and per-camera observations
+let views: Vec<RigView<RobotPoseMeta>> = /* ... */;
+let input: RigHandeyeInput = RigDataset::new(views, num_cameras)?;
+
+// Run 6-step calibration
+let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+session.set_input(input)?;
+
+step_intrinsics_init_all(&mut session, None)?;     // Per-camera Zhang
+step_intrinsics_optimize_all(&mut session, None)?; // Per-camera BA
+step_rig_init(&mut session)?;                      // Linear rig extrinsics
+step_rig_optimize(&mut session, None)?;            // Rig BA
+step_handeye_init(&mut session, None)?;            // Tsai-Lenz
+step_handeye_optimize(&mut session, None)?;        // Hand-eye BA
+
+let export = session.export()?;
+```
+
+### Hand-Eye Initialization (Tsai-Lenz)
+
+The linear Tsai-Lenz method requires **diverse rotation axes** across views. Recommendations:
+
+- Use at least 3-5 views with significantly different orientations
+- Ensure rotations span multiple axes (not just pure Z-axis rotations)
+- Small rotation diversity leads to ill-conditioned systems and divergent initialization
+
+If initialization produces poor results, the non-linear optimization may still converge if given a reasonable manual initial guess, or more diverse poses are needed.
+
+### Reprojection Error Metrics
+
+All calibration exports include actual pixel reprojection error (not derived from optimizer cost):
+
+```rust
+pub struct SingleCamHandeyeExport {
+    // ...
+    pub mean_reproj_error: f64,           // Overall mean in pixels
+    pub per_cam_reproj_errors: Vec<f64>,  // Per-camera mean (single element for single-cam)
+}
+
+pub struct RigHandeyeExport {
+    // ...
+    pub mean_reproj_error: f64,
+    pub per_cam_reproj_errors: Vec<f64>,  // One per camera
 }
 ```
 
-## Dual API: Session vs. Imperative Functions
-
-calib-pipeline supports **two complementary APIs** for different use cases:
-
-### Session API (Structured Workflows)
-
-**Use when:**
-- You have a standard calibration workflow
-- You want automatic state management and checkpointing
-- Type safety and enforced stage transitions are valuable
-
-**Example:**
-```rust
-let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-session.set_observations(obs);
-session.initialize(init_opts)?;  // Can checkpoint here
-session.optimize(optim_opts)?;   // Can checkpoint here
-let report = session.export()?;
-```
-
-**Characteristics:**
-- Opinionated, type-safe, stage-based
-- Automatic state tracking
-- JSON serialization
-- Enforced transitions
-- ~80% use case
-
-### Imperative Function API (Custom Workflows)
-
-**Use when:**
-- You need to inspect intermediate results
-- You want to compose custom workflows
-- You need to integrate calibration into a larger system
-- You want maximum flexibility and control
-
-**Example:**
-```rust
-// Direct access to building blocks
-use calib_pipeline::{homography, iterative_intrinsics, zhang_intrinsics};
-
-// Compute homographies
-let H = homography::dlt_homography_ransac(&p3d, &p2d, opts)?;
-
-// Initialize intrinsics
-let linear_result = iterative_intrinsics::IterativeIntrinsicsSolver::estimate(&views, opts)?;
-
-// Inspect before committing
-println!("Initial K: {:?}", linear_result.intrinsics);
-
-// Then optimize
-let dataset = PlanarDataset::new(observations)?;
-let init = PlanarIntrinsicsInit::from_linear_result(&linear_result)?;
-let final_result = optimize_planar_intrinsics_raw(dataset, init, optim_opts, backend_opts)?;
-```
-
-**Characteristics:**
-- Flexible, composable, explicit
-- User manages state
-- Access to intermediate results
-- ~20% use case for custom needs
-
-### Re-exported Modules
-
-calib-pipeline re-exports all building blocks from calib-linear and calib-optim:
-
-**From calib-linear:**
-- `homography` - DLT homography estimation (+ RANSAC)
-- `zhang_intrinsics` - Intrinsics from homographies
-- `distortion_fit` - Distortion estimation from residuals
-- `iterative_intrinsics` - Alternating K + distortion refinement
-- `planar_pose` - Pose from homography + K
-- `pnp` - Perspective-n-Point solvers (DLT, P3P, EPnP, RANSAC)
-- `epipolar` - Fundamental/essential matrices + decomposition
-- `triangulation` - Linear triangulation from two views
-- `extrinsics` - Multi-camera rig extrinsics
-- `handeye` - Hand-eye calibration (AX=XB)
-- `linescan` - Laser plane estimation
-
-**From calib-optim:**
-- `BackendSolveOptions` - Non-linear solver configuration
-- `PlanarDataset`, `PlanarIntrinsicsInit`, `PlanarIntrinsicsSolveOptions`
-- `optimize_planar_intrinsics_raw` - Direct access to planar intrinsics optimization
-- `RobustLoss` - Outlier handling (Huber, Cauchy, Arctan)
-
-**Documentation:** See [functions.md](crates/calib-pipeline/src/functions.md) for comprehensive examples and best practices.
-
-### API Selection Guidelines
-
-| Scenario | Recommended API |
-|----------|----------------|
-| Standard single-camera calibration | Session API |
-| Need to checkpoint between init/optimize | Session API |
-| Custom stereo rig workflow | Imperative Functions |
-| Inspect linear initialization quality | Imperative Functions |
-| Integrate calibration into larger system | Imperative Functions |
-| Research/experimentation | Imperative Functions |
-| Production deployment (standard case) | Session API |
-
-**Note:** The two APIs complement each other - use session for common cases, functions for custom needs. They are not redundant but serve different purposes.
-
 ## Project Status
 
-**Current state**: Early development, APIs may change
+**Current state**: Pre-release, APIs stabilizing
+- calib-core: ✅ Feature-complete and tested
 - calib-linear: ✅ Feature-complete and tested
-- calib-optim: ✅ Planar intrinsics with distortion working (just implemented)
-- calib-pipeline: ✅ Session framework with state management implemented (PlanarIntrinsicsProblem ready)
-- Multi-camera, bundle adjustment: ❌ Not yet implemented
+- calib-optim: ✅ All problem types working (planar, hand-eye, rig extrinsics, rig hand-eye)
+- calib-pipeline: ✅ Session framework with 4 problem types
+- calib: ✅ Unified facade with 6 examples
+- calib-cli: ✅ Basic CLI for planar intrinsics
 
-**Recent work**:
-- ✅ Implemented session framework with generic `CalibrationSession<P: ProblemType>` in calib-pipeline
-- ✅ Added state machine tracking (Uninitialized → Initialized → Optimized → Exported)
-- ✅ JSON checkpointing support for session state
-- ✅ Implemented `PlanarIntrinsicsProblem` as first problem type
-- ✅ Full test coverage for session infrastructure (17 tests passing)
-- All 43+ workspace tests passing
+**Session framework**:
+- ✅ Mutable state container with step functions
+- ✅ 4 problem types: PlanarIntrinsics, SingleCamHandeye, RigExtrinsics, RigHandeye
+- ✅ JSON checkpointing for session persistence
+- ✅ Universal per-camera reprojection error metrics
+
+**Available calibration types**:
+- Planar intrinsics (full session API, examples: planar_synthetic, planar_real)
+- Single-camera hand-eye (full session API, examples: handeye_synthetic, handeye_session)
+- Multi-camera rig extrinsics (full session API, example: stereo_session)
+- Multi-camera rig hand-eye (full session API, example: rig_handeye_synthetic)

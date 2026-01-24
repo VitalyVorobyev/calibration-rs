@@ -10,12 +10,11 @@ use calib_core::{
     BrownConrady5, Camera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, IdentitySensor,
     Pinhole, Pt3, Real, Vec2,
 };
-use calib_optim::backend::{
-    solve_with_backend, BackendKind, BackendSolveOptions, LinearSolverKind,
+use calib_optim::{
+    solve_with_backend, optimize_handeye, se3_dvec_to_iso3, BackendKind, BackendSolveOptions, LinearSolverKind,
+    HandEyeMode, 
 };
-use calib_optim::ir::HandEyeMode;
-use calib_optim::params::pose_se3::se3_dvec_to_iso3;
-use calib_optim::problems::handeye::*;
+
 use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
 
 #[test]
@@ -328,7 +327,7 @@ fn lcg(seed: &mut u64) -> Real {
 }
 
 fn mean_reproj_error_eye_in_hand(
-    views: &[RigViewObservations],
+    views: &[RigViewObs],
     intrinsics: FxFyCxCySkew<Real>,
     distortion: BrownConrady5<Real>,
     cam_to_rig: &Isometry3<Real>,
@@ -363,6 +362,7 @@ fn mean_reproj_error_eye_in_hand(
     total_error / total_points as Real
 }
 
+/// TODO: do not use build_handeye_ir here
 #[test]
 fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     let intrinsics_gt = FxFyCxCySkew {

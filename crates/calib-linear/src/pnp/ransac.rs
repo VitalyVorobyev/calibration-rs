@@ -4,10 +4,10 @@
 //! pixel reprojection error as the residual metric.
 
 use super::dlt;
-use super::PnpError;
+use anyhow::Result;
 use calib_core::{
-    ransac_fit, Camera, Estimator, FxFyCxCySkew, IdentitySensor, Iso3, NoDistortion, Pinhole, Pt3,
-    RansacOptions, Real, Vec2,
+    ransac_fit, Camera, Estimator, FxFyCxCySkew, IdentitySensor, Iso3, NoDistortion, Pinhole, Pt2,
+    Pt3, RansacOptions, Real,
 };
 
 /// Robust PnP using DLT inside a RANSAC loop.
@@ -16,19 +16,19 @@ use calib_core::{
 /// reprojection error using the provided intrinsics.
 pub fn dlt_ransac(
     world: &[Pt3],
-    image: &[Vec2],
+    image: &[Pt2],
     k: &FxFyCxCySkew<Real>,
     opts: &RansacOptions,
-) -> Result<(Iso3, Vec<usize>), PnpError> {
+) -> Result<(Iso3, Vec<usize>)> {
     let n = world.len();
     if n < 6 || image.len() != n {
-        return Err(PnpError::NotEnoughPoints(n));
+        anyhow::bail!("need at least 6 point correspondences, got {}", n);
     }
 
     #[derive(Clone)]
     struct PnpDatum {
         pw: Pt3,
-        pi: Vec2,
+        pi: Pt2,
         k: FxFyCxCySkew<Real>,
     }
 
@@ -77,7 +77,7 @@ pub fn dlt_ransac(
 
     let res = ransac_fit::<PnpEst>(&data, opts);
     if !res.success {
-        return Err(PnpError::RansacFailed);
+        anyhow::bail!("ransac failed to find a consensus PnP solution");
     }
     let pose = res.model.expect("success guarantees a model");
     Ok((pose, res.inliers))
@@ -123,7 +123,7 @@ mod tests {
         // Add a few mismatched correspondences as outliers.
         for i in 0..4 {
             world.push(Pt3::new(0.5 + i as Real * 0.2, -0.3, 1.2));
-            image.push(Vec2::new(
+            image.push(Pt2::new(
                 1200.0 + i as Real * 50.0,
                 -100.0 - i as Real * 25.0,
             ));

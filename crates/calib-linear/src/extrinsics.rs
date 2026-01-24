@@ -3,46 +3,13 @@
 //! Estimates per-camera rig transforms and per-view rig-to-target poses from
 //! per-camera target observations.
 
-use calib_core::{Iso3, Real};
-use nalgebra::{Quaternion, Translation3, UnitQuaternion, Vector3};
-use thiserror::Error;
-
-/// Errors that can occur during rig extrinsics initialization.
-#[derive(Debug, Error, Clone, Copy)]
-pub enum ExtrinsicsError {
-    /// No views were provided.
-    #[error("need at least one view")]
-    EmptyViews,
-    /// A view contains no cameras.
-    #[error("need at least one camera per view")]
-    EmptyCameras,
-    /// Reference camera index is out of bounds.
-    #[error("invalid ref_cam_idx {ref_cam_idx} for {num_cameras} cameras")]
-    InvalidRefCamIndex {
-        ref_cam_idx: usize,
-        num_cameras: usize,
-    },
-    /// A view has a different camera count than expected.
-    #[error("view {view} has camera count {found}, expected {expected}")]
-    InconsistentCameraCount {
-        view: usize,
-        expected: usize,
-        found: usize,
-    },
-    /// No overlapping views between a camera and the reference camera.
-    #[error("no overlapping views between camera {cam_idx} and reference {ref_cam_idx}")]
-    NoOverlap { cam_idx: usize, ref_cam_idx: usize },
-    /// A view has no valid camera poses.
-    #[error("view {view} has no valid camera poses")]
-    NoValidCameraPoses { view: usize },
-    /// Attempted to average an empty set of poses.
-    #[error("cannot average an empty set of poses")]
-    EmptyPoses,
-}
+use anyhow::Result;
+use calib_core::{Iso3, Real, Vec3};
+use nalgebra::{Quaternion, Translation3, UnitQuaternion};
 
 /// Result of multi-camera extrinsics initialization:
-/// - `cam_to_rig(cam)`: transform from camera frame to rig frame
-/// - `rig_from_target(view)`: transform from target frame to rig frame
+/// - `cam_to_rig[cam] = T_R_C`: transform from camera frame to rig frame.
+/// - `rig_from_target[view] = T_R_T`: transform from target frame to rig frame.
 #[derive(Debug, Clone)]
 pub struct ExtrinsicPoses {
     pub cam_to_rig: Vec<Iso3>,
@@ -59,13 +26,13 @@ pub struct MultiCamExtrinsicsInit;
 ///
 /// Use this only for initialization; it does not preserve full rotation
 /// statistics and should be refined downstream.
-pub fn average_isometries(poses: &[Iso3]) -> Result<Iso3, ExtrinsicsError> {
+fn average_isometries(poses: &[Iso3]) -> Result<Iso3> {
     if poses.is_empty() {
-        return Err(ExtrinsicsError::EmptyPoses);
+        anyhow::bail!("cannot average an empty set of poses");
     }
 
     // 1) Average translation
-    let mut t_sum = Vector3::<Real>::zeros();
+    let mut t_sum = Vec3::zeros();
     for iso in poses {
         t_sum += iso.translation.vector;
     }
@@ -104,10 +71,11 @@ pub fn average_isometries(poses: &[Iso3]) -> Result<Iso3, ExtrinsicsError> {
 
 /// Estimate rig extrinsics from per-view camera-to-target poses.
 ///
-/// `cam_se3_target[view][cam] = Some(T_CT)` where `T_CT` is camera -> target.
+/// `cam_se3_target[view][cam] = Some(T_C_T)` where `T_C_T` maps points from the
+/// target frame into the camera frame (i.e., target pose in the camera frame).
 ///
 /// `ref_cam_idx` defines the rig frame by enforcing
-/// `cam_to_rig[ref_cam_idx] = Identity`.
+/// `cam_to_rig[ref_cam_idx] = Identity` (rig frame = reference camera frame).
 ///
 /// Returns `ExtrinsicPoses { cam_to_rig, rig_from_target }`.
 ///
@@ -116,102 +84,101 @@ pub fn average_isometries(poses: &[Iso3]) -> Result<Iso3, ExtrinsicsError> {
 pub fn estimate_extrinsics_from_cam_target_poses(
     cam_se3_target: &[Vec<Option<Iso3>>],
     ref_cam_idx: usize,
-) -> Result<ExtrinsicPoses, ExtrinsicsError> {
-    MultiCamExtrinsicsInit::from_cam_target_poses(cam_se3_target, ref_cam_idx)
-}
-
-impl MultiCamExtrinsicsInit {
-    /// Estimate rig and camera poses from per-camera target observations.
-    ///
-    /// Each camera must share at least one overlapping view with the reference
-    /// camera; otherwise the rig transform is underconstrained.
-    pub fn from_cam_target_poses(
-        cam_se3_target: &[Vec<Option<Iso3>>],
-        ref_cam_idx: usize,
-    ) -> Result<ExtrinsicPoses, ExtrinsicsError> {
-        let num_views = cam_se3_target.len();
-        if num_views == 0 {
-            return Err(ExtrinsicsError::EmptyViews);
-        }
-
-        let num_cameras = cam_se3_target[0].len();
-        if num_cameras == 0 {
-            return Err(ExtrinsicsError::EmptyCameras);
-        }
-        if ref_cam_idx >= num_cameras {
-            return Err(ExtrinsicsError::InvalidRefCamIndex {
-                ref_cam_idx,
-                num_cameras,
-            });
-        }
-
-        for (v_idx, view) in cam_se3_target.iter().enumerate() {
-            if view.len() != num_cameras {
-                return Err(ExtrinsicsError::InconsistentCameraCount {
-                    view: v_idx,
-                    expected: num_cameras,
-                    found: view.len(),
-                });
-            }
-        }
-
-        // 1) Estimate cam_to_rig (camera -> rig), with rig = ref camera frame
-        let mut cam_to_rig: Vec<Iso3> = Vec::with_capacity(num_cameras);
-
-        for cam_idx in 0..num_cameras {
-            if cam_idx == ref_cam_idx {
-                cam_to_rig.push(Iso3::identity());
-                continue;
-            }
-
-            let mut candidates: Vec<Iso3> = Vec::new();
-
-            for view in cam_se3_target {
-                if let (Some(ct_cam), Some(ct_ref)) = (&view[cam_idx], &view[ref_cam_idx]) {
-                    // X = C_i->T * (C_ref->T)^(-1)
-                    let x = ct_cam * ct_ref.inverse();
-                    candidates.push(x);
-                }
-            }
-
-            if candidates.is_empty() {
-                return Err(ExtrinsicsError::NoOverlap {
-                    cam_idx,
-                    ref_cam_idx,
-                });
-            }
-
-            let avg = average_isometries(&candidates)?;
-            cam_to_rig.push(avg);
-        }
-
-        // 2) Estimate rig_from_target (target -> rig) for each view by averaging over cameras
-        let mut rig_from_target: Vec<Iso3> = Vec::with_capacity(num_views);
-
-        for (v_idx, view) in cam_se3_target.iter().enumerate() {
-            let mut candidates: Vec<Iso3> = Vec::new();
-
-            for (cam_idx, opt_ct) in view.iter().enumerate() {
-                if let Some(ct) = opt_ct {
-                    // target->rig = (cam->target)^(-1) * (cam->rig)
-                    let tr = ct.inverse() * cam_to_rig[cam_idx];
-                    candidates.push(tr);
-                }
-            }
-
-            if candidates.is_empty() {
-                return Err(ExtrinsicsError::NoValidCameraPoses { view: v_idx });
-            }
-
-            let avg = average_isometries(&candidates)?;
-            rig_from_target.push(avg);
-        }
-
-        Ok(ExtrinsicPoses {
-            cam_to_rig,
-            rig_from_target,
-        })
+) -> Result<ExtrinsicPoses> {
+    let num_views = cam_se3_target.len();
+    if num_views == 0 {
+        anyhow::bail!("need at least one view");
     }
+
+    let num_cameras = cam_se3_target[0].len();
+    if num_cameras == 0 {
+        anyhow::bail!("need at least one camera per view");
+    }
+    if ref_cam_idx >= num_cameras {
+        anyhow::bail!(
+            "invalid ref_cam_idx {} for {} cameras",
+            ref_cam_idx,
+            num_cameras
+        );
+    }
+
+    for (v_idx, view) in cam_se3_target.iter().enumerate() {
+        if view.len() != num_cameras {
+            anyhow::bail!(
+                "view {} has camera count {}, expected {}",
+                v_idx,
+                view.len(),
+                num_cameras
+            );
+        }
+    }
+
+    // 1) Estimate cam_to_rig (camera -> rig), with rig = reference camera frame.
+    //
+    // For overlapping views:
+    //   T_R_Ci = T_R_T * T_T_Ci
+    //         = T_R_T * (T_Ci_T)^(-1)
+    //         = T_R_Cref * T_Cref_T * (T_Ci_T)^(-1)
+    //         = T_Cref_T * (T_Ci_T)^(-1)         (since rig = Cref and T_R_Cref = I)
+    //         = T_Cref_Ci
+    let mut cam_to_rig: Vec<Iso3> = Vec::with_capacity(num_cameras);
+
+    for cam_idx in 0..num_cameras {
+        if cam_idx == ref_cam_idx {
+            cam_to_rig.push(Iso3::identity());
+            continue;
+        }
+
+        let mut candidates: Vec<Iso3> = Vec::new();
+
+        for view in cam_se3_target {
+            if let (Some(ct_cam), Some(ct_ref)) = (&view[cam_idx], &view[ref_cam_idx]) {
+                // T_R_Ci = T_Cref_Ci = T_Cref_T * (T_Ci_T)^(-1)
+                let x = ct_ref * ct_cam.inverse();
+                candidates.push(x);
+            }
+        }
+
+        if candidates.is_empty() {
+            anyhow::bail!(
+                "no overlapping views between camera {} and reference {}",
+                cam_idx,
+                ref_cam_idx
+            );
+        }
+
+        let avg = average_isometries(&candidates)?;
+        cam_to_rig.push(avg);
+    }
+
+    // 2) Estimate rig_from_target (target -> rig) for each view by averaging over cameras.
+    //
+    // From T_Ci_T and T_R_Ci:
+    //   T_R_T = T_R_Ci * T_Ci_T
+    let mut rig_from_target: Vec<Iso3> = Vec::with_capacity(num_views);
+
+    for (v_idx, view) in cam_se3_target.iter().enumerate() {
+        let mut candidates: Vec<Iso3> = Vec::new();
+
+        for (cam_idx, opt_ct) in view.iter().enumerate() {
+            if let Some(ct) = opt_ct {
+                let tr = cam_to_rig[cam_idx] * ct;
+                candidates.push(tr);
+            }
+        }
+
+        if candidates.is_empty() {
+            anyhow::bail!("view {} has no valid camera poses", v_idx);
+        }
+
+        let avg = average_isometries(&candidates)?;
+        rig_from_target.push(avg);
+    }
+
+    Ok(ExtrinsicPoses {
+        cam_to_rig,
+        rig_from_target,
+    })
 }
 
 #[cfg(test)]
@@ -232,27 +199,28 @@ mod tests {
 
         // --- Ground-truth extrinsics ---
 
-        // camera -> rig
+        // camera -> rig (T_R_C)
         let cam0_to_rig_gt = Iso3::identity();
         let cam1_to_rig_gt = make_iso((0.1, -0.05, 0.2), (0.2, -0.1, 0.0));
 
-        // rig -> target per view
-        let rig_from_target_gt: Vec<Iso3> = vec![
+        // target -> rig per view (T_R_T)
+        let rig_from_target_gt = [
             make_iso((0.2, 0.1, 0.0), (0.0, 0.0, 1.0)),
             make_iso((-0.1, 0.0, 0.15), (0.1, -0.05, 1.2)),
             make_iso((0.05, -0.2, 0.1), (-0.2, 0.05, 1.1)),
             make_iso((0.0, 0.1, -0.1), (0.05, 0.1, 0.9)),
         ];
 
-        // --- Build cam->target poses: C->T = (C->R) * (R->T) ---
+        // --- Build cam<-target poses: T_C_T = (T_R_C)^(-1) * T_R_T ---
 
         let mut cam_se3_target: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cams]; num_views];
 
-        for (v_idx, tr) in rig_from_target_gt.iter().enumerate() {
-            let ct0 = cam0_to_rig_gt * tr.inverse();
-            let ct1 = cam1_to_rig_gt * tr.inverse();
-            cam_se3_target[v_idx][0] = Some(ct0);
-            cam_se3_target[v_idx][1] = Some(ct1);
+        let cam_to_rig_gt = [cam0_to_rig_gt, cam1_to_rig_gt];
+        for (v_idx, rig_from_target) in rig_from_target_gt.iter().enumerate() {
+            for cam_idx in 0..num_cams {
+                let cam_se3_target_pose = cam_to_rig_gt[cam_idx].inverse() * rig_from_target;
+                cam_se3_target[v_idx][cam_idx] = Some(cam_se3_target_pose);
+            }
         }
 
         // --- Run extrinsics estimation ---
@@ -287,10 +255,54 @@ mod tests {
         assert!(ang1 < 1e-10, "cam1 rotation error {}", ang1);
 
         // target->rig per view
-        for (v, item) in rig_from_target_gt.iter().enumerate().take(num_views) {
-            let (dt, ang) = pose_error(&est.rig_from_target[v], item);
+        for (v, rig_from_target) in rig_from_target_gt.iter().enumerate().take(num_views) {
+            let (dt, ang) = pose_error(&est.rig_from_target[v], rig_from_target);
             assert!(dt < 1e-10, "view {} translation error {}", v, dt);
             assert!(ang < 1e-10, "view {} rotation error {}", v, ang);
         }
+    }
+
+    #[test]
+    fn extrinsics_allow_missing_ref_camera_in_view() {
+        let num_cams = 2;
+        let num_views = 3;
+
+        let cam0_to_rig_gt = Iso3::identity();
+        let cam1_to_rig_gt = make_iso((0.0, 0.0, 0.2), (0.2, 0.0, 0.0));
+        let rig_from_target_gt = [
+            make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+            make_iso((0.1, 0.0, 0.0), (0.1, 0.0, 1.1)),
+            make_iso((0.0, 0.1, 0.0), (0.0, 0.1, 0.9)),
+        ];
+
+        let cam_to_rig_gt = [cam0_to_rig_gt, cam1_to_rig_gt];
+        let mut cam_se3_target: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cams]; num_views];
+        for (v_idx, rig_from_target) in rig_from_target_gt.iter().enumerate() {
+            for cam_idx in 0..num_cams {
+                cam_se3_target[v_idx][cam_idx] =
+                    Some(cam_to_rig_gt[cam_idx].inverse() * rig_from_target);
+            }
+        }
+
+        // Hide reference camera (0) in the middle view. Rig pose should still be estimable.
+        cam_se3_target[1][0] = None;
+
+        let est = estimate_extrinsics_from_cam_target_poses(&cam_se3_target, 0).unwrap();
+        assert_eq!(est.cam_to_rig.len(), num_cams);
+        assert_eq!(est.rig_from_target.len(), num_views);
+
+        // View 1 rig pose still should be close.
+        let dt = (est.rig_from_target[1].translation.vector
+            - rig_from_target_gt[1].translation.vector)
+            .norm();
+        assert!(dt < 1e-10, "translation error {}", dt);
+
+        let r_est = est.rig_from_target[1].rotation.to_rotation_matrix();
+        let r_gt = rig_from_target_gt[1].rotation.to_rotation_matrix();
+        let r_diff = r_est.transpose() * r_gt;
+        let trace = r_diff.matrix().trace();
+        let cos_theta = ((trace - 1.0) * 0.5).clamp(-1.0, 1.0);
+        let angle = cos_theta.acos();
+        assert!(angle < 1e-10, "rotation error {}", angle);
     }
 }

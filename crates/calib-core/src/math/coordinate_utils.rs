@@ -3,7 +3,7 @@
 //! This module provides functions for converting between pixel coordinates,
 //! normalized camera coordinates, and for applying/reversing distortion models.
 
-use crate::{DistortionModel, Mat3, Pt2, Real, Vec2, Vec3};
+use crate::{DistortionModel, Mat3, Pt2, Real, Vec3};
 
 /// Convert pixel coordinates to normalized coordinates using intrinsics.
 ///
@@ -23,19 +23,19 @@ use crate::{DistortionModel, Mat3, Pt2, Real, Vec2, Vec3};
 /// # Example
 /// ```no_run
 /// use calib_core::{Mat3, Pt2};
-/// use calib_core::math::pixel_to_normalized;
+/// use calib_core::pixel_to_normalized;
 ///
 /// let k = Mat3::new(800.0, 0.0, 640.0, 0.0, 800.0, 480.0, 0.0, 0.0, 1.0);
 /// let pixel = Pt2::new(640.0, 480.0);
 /// let normalized = pixel_to_normalized(pixel, &k);
 /// // normalized ≈ (0.0, 0.0) for a pixel at the principal point
 /// ```
-pub fn pixel_to_normalized(pixel: Pt2, intrinsics: &Mat3) -> Vec2 {
+pub fn pixel_to_normalized(pixel: Pt2, intrinsics: &Mat3) -> Pt2 {
     let k_inv = intrinsics
         .try_inverse()
         .expect("intrinsics matrix should be invertible");
     let v = k_inv * Vec3::new(pixel.x, pixel.y, 1.0);
-    Vec2::new(v.x / v.z, v.y / v.z)
+    Pt2::new(v.x / v.z, v.y / v.z)
 }
 
 /// Convert normalized coordinates to pixel coordinates using intrinsics.
@@ -51,15 +51,15 @@ pub fn pixel_to_normalized(pixel: Pt2, intrinsics: &Mat3) -> Vec2 {
 ///
 /// # Example
 /// ```no_run
-/// use calib_core::{Mat3, Vec2};
-/// use calib_core::math::normalized_to_pixel;
+/// use calib_core::{Mat3, Pt2};
+/// use calib_core::normalized_to_pixel;
 ///
 /// let k = Mat3::new(800.0, 0.0, 640.0, 0.0, 800.0, 480.0, 0.0, 0.0, 1.0);
-/// let normalized = Vec2::new(0.0, 0.0);
+/// let normalized = Pt2::new(0.0, 0.0);
 /// let pixel = normalized_to_pixel(normalized, &k);
 /// // pixel ≈ (640.0, 480.0) at the principal point
 /// ```
-pub fn normalized_to_pixel(normalized: Vec2, intrinsics: &Mat3) -> Pt2 {
+pub fn normalized_to_pixel(normalized: Pt2, intrinsics: &Mat3) -> Pt2 {
     let v = intrinsics * Vec3::new(normalized.x, normalized.y, 1.0);
     Pt2::new(v.x / v.z, v.y / v.z)
 }
@@ -85,7 +85,7 @@ pub fn normalized_to_pixel(normalized: Vec2, intrinsics: &Mat3) -> Pt2 {
 /// # Example
 /// ```no_run
 /// use calib_core::{BrownConrady5, Mat3, Pt2};
-/// use calib_core::math::undistort_pixel;
+/// use calib_core::undistort_pixel;
 ///
 /// let k = Mat3::new(800.0, 0.0, 640.0, 0.0, 800.0, 480.0, 0.0, 0.0, 1.0);
 /// let distortion = BrownConrady5 { k1: -0.3, k2: 0.1, k3: 0.0, p1: 0.0, p2: 0.0, iters: 5 };
@@ -96,7 +96,7 @@ pub fn undistort_pixel<D: DistortionModel<Real>>(
     pixel: Pt2,
     intrinsics: &Mat3,
     distortion: &D,
-) -> Vec2 {
+) -> Pt2 {
     let normalized = pixel_to_normalized(pixel, intrinsics);
     distortion.undistort(&normalized)
 }
@@ -121,16 +121,16 @@ pub fn undistort_pixel<D: DistortionModel<Real>>(
 ///
 /// # Example
 /// ```no_run
-/// use calib_core::{BrownConrady5, Mat3, Vec2};
-/// use calib_core::math::distort_to_pixel;
+/// use calib_core::{BrownConrady5, Mat3, Pt2};
+/// use calib_core::distort_to_pixel;
 ///
 /// let k = Mat3::new(800.0, 0.0, 640.0, 0.0, 800.0, 480.0, 0.0, 0.0, 1.0);
 /// let distortion = BrownConrady5 { k1: -0.3, k2: 0.1, k3: 0.0, p1: 0.0, p2: 0.0, iters: 5 };
-/// let normalized = Vec2::new(-0.1, 0.05);
+/// let normalized = Pt2::new(-0.1, 0.05);
 /// let pixel = distort_to_pixel(normalized, &k, &distortion);
 /// ```
 pub fn distort_to_pixel<D: DistortionModel<Real>>(
-    normalized: Vec2,
+    normalized: Pt2,
     intrinsics: &Mat3,
     distortion: &D,
 ) -> Pt2 {
@@ -198,7 +198,7 @@ mod tests {
             iters: 5,
         };
 
-        let normalized_orig = Vec2::new(-0.1, 0.05);
+        let normalized_orig = Pt2::new(-0.1, 0.05);
         let pixel_dist = distort_to_pixel(normalized_orig, &k, &distortion);
         let normalized_undist = undistort_pixel(pixel_dist, &k, &distortion);
 

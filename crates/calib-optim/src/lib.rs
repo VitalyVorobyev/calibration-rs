@@ -8,8 +8,8 @@
 //!
 //! The optimization pipeline has three stages:
 //!
-//! 1. **Problem Definition** - Build a [`ir::ProblemIR`] describing parameters, factors, and constraints
-//! 2. **Backend Compilation** - Translate IR into solver-specific problem (e.g., [`backend::TinySolverBackend`])
+//! 1. **Problem Definition** - Build a \[`ir::ProblemIR`\] describing parameters, factors, and constraints
+//! 2. **Backend Compilation** - Translate IR into solver-specific problem (e.g., \[`backend::TinySolverBackend`\])
 //! 3. **Optimization** - Run solver and extract solution as domain types
 //!
 //! ```text
@@ -18,37 +18,51 @@
 //!
 //! ## Key Components
 //!
-//! - **[`ir`]** - Backend-agnostic intermediate representation for optimization problems
-//! - **[`params`]** - Parameter block definitions (intrinsics, distortion, poses)
-//! - **[`factors`]** - Residual functions with automatic differentiation support
-//! - **[`backend`]** - Solver implementations (currently tiny-solver with Levenberg-Marquardt)
-//! - **[`problems`]** - High-level calibration problem builders (planar intrinsics, etc.)
+//! - **\[`ir`\]** - Backend-agnostic intermediate representation for optimization problems
+//! - **\[`params`\]** - Parameter block definitions (intrinsics, distortion, poses)
+//! - **\[`factors`\]** - Residual functions with automatic differentiation support
+//! - **\[`backend`\]** - Solver implementations (currently tiny-solver with Levenberg-Marquardt)
+//! - **\[`problems`\]** - High-level calibration problem builders (planar intrinsics, etc.)
 //!
 //! # Examples
 //!
 //! ## Basic Planar Intrinsics Calibration
 //!
 //! ```rust,no_run
-//! use calib_optim::problems::planar_intrinsics::*;
-//! use calib_core::{BrownConrady5, DistortionFixMask, FxFyCxCySkew};
-//! use calib_optim::{BackendSolveOptions, ir::RobustLoss};
-//! use nalgebra::{Isometry3, Vector3};
+//! use calib_core::{BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Iso3, PlanarDataset, Pt2, Pt3, View};
+//! use calib_optim::{
+//!     optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsParams,
+//!     PlanarIntrinsicsSolveOptions, RobustLoss,
+//! };
 //!
 //! # fn example() -> anyhow::Result<()> {
 //! // 1. Prepare observations (world points + image detections)
-//! let views = vec![/* CorrespondenceView */];
-//! let dataset = PlanarDataset::new(views)?;
+//! let view = View::without_meta(CorrespondenceView::new(
+//!     vec![
+//!         Pt3::new(0.0, 0.0, 0.0),
+//!         Pt3::new(1.0, 0.0, 0.0),
+//!         Pt3::new(1.0, 1.0, 0.0),
+//!         Pt3::new(0.0, 1.0, 0.0),
+//!     ],
+//!     vec![
+//!         Pt2::new(100.0, 100.0),
+//!         Pt2::new(200.0, 100.0),
+//!         Pt2::new(200.0, 200.0),
+//!         Pt2::new(100.0, 200.0),
+//!     ],
+//! )?);
+//! let dataset = PlanarDataset::new(vec![view])?;
 //!
 //! // 2. Initialize with linear method or prior calibration
-//! let init = PlanarIntrinsicsInit {
-//!     intrinsics: FxFyCxCySkew {
+//! let init = PlanarIntrinsicsParams::new_from_components(
+//!     FxFyCxCySkew {
 //!         fx: 800.0,
 //!         fy: 800.0,
 //!         cx: 640.0,
 //!         cy: 360.0,
 //!         skew: 0.0,
 //!     },
-//!     distortion: BrownConrady5 {
+//!     BrownConrady5 {
 //!         k1: 0.0,
 //!         k2: 0.0,
 //!         k3: 0.0,
@@ -56,8 +70,8 @@
 //!         p2: 0.0,
 //!         iters: 8,
 //!     },
-//!     poses: vec![/* initial poses */],
-//! };
+//!     vec![Iso3::identity()],
+//! )?;
 //!
 //! // 3. Configure optimization
 //! let opts = PlanarIntrinsicsSolveOptions {
@@ -67,53 +81,21 @@
 //! };
 //!
 //! // 4. Run optimization
-//! let result = optimize_planar_intrinsics(dataset, init, opts, BackendSolveOptions::default())?;
+//! let result = optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default())?;
 //!
-//! println!("Calibrated camera: {:?}", result.camera);
+//! println!("Calibrated camera: {:?}", result.params.camera);
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! ## Custom Problem with IR
 //!
-//! ```rust,no_run
-//! use calib_optim::ir::*;
-//! use calib_optim::backend::{TinySolverBackend, OptimBackend};
-//! use nalgebra::DVector;
-//! use std::collections::HashMap;
-//!
-//! # fn example() -> anyhow::Result<()> {
-//! // Build problem IR
-//! let mut ir = ProblemIR::new();
-//!
-//! // Add parameter block (4D intrinsics)
-//! let cam_id = ir.add_param_block(
-//!     "camera",
-//!     4,
-//!     ManifoldKind::Euclidean,
-//!     FixedMask::all_free(),
-//!     None,
-//! );
-//!
-//! // Add residual blocks (factors) referencing parameters
-//! // ... (see ir::ResidualBlock documentation)
-//!
-//! // Compile and solve
-//! let mut initial = HashMap::new();
-//! initial.insert("camera".to_string(), DVector::from_row_slice(&[800.0, 800.0, 640.0, 360.0]));
-//!
-//! let backend = TinySolverBackend;
-//! let solution = backend.solve(&ir, &initial, &Default::default())?;
-//! # Ok(())
-//! # }
-//! ```
-//!
 //! # Feature Highlights
 //!
 //! ## Automatic Differentiation
 //!
 //! All residual functions are generic over [`nalgebra::RealField`], enabling automatic
-//! differentiation via dual numbers. The [`factors::reprojection_model`] module provides
+//! differentiation via dual numbers. The \[`factors::reprojection_model`\] module provides
 //! autodiff-compatible implementations of:
 //!
 //! - Pinhole projection with SE3 poses
@@ -122,10 +104,10 @@
 //!
 //! ## Flexible Parameter Fixing
 //!
-//! Use [`ir::FixedMask`] to selectively fix optimization variables:
+//! Use \[`ir::FixedMask`\] to selectively fix optimization variables:
 //!
 //! ```rust
-//! # use calib_optim::problems::planar_intrinsics::PlanarIntrinsicsSolveOptions;
+//! # use calib_optim::PlanarIntrinsicsSolveOptions;
 //! # use calib_core::{DistortionFixMask, IntrinsicsFixMask};
 //! let opts = PlanarIntrinsicsSolveOptions {
 //!     fix_intrinsics: IntrinsicsFixMask { fx: true, ..Default::default() }, // Fix focal length
@@ -158,13 +140,36 @@
 //! - Manifold-aware parameter updates for rotations
 //! - Sparse linear solvers for large problems
 
-pub mod backend;
-pub mod factors;
-pub mod ir;
-pub mod math;
-pub mod params;
-pub mod problems;
+mod backend;
+mod factors;
+mod ir;
+mod math;
+mod params;
+mod problems;
 
-pub use crate::backend::{BackendKind, BackendSolution, BackendSolveOptions};
-pub use crate::problems::handeye;
-pub use crate::problems::planar_intrinsics;
+pub use math::*;
+
+pub use crate::backend::{
+    solve_with_backend, BackendKind, BackendSolution, BackendSolveOptions, SolveReport,
+};
+
+pub use crate::ir::{HandEyeMode, RobustLoss};
+
+pub use crate::params::pose_se3::se3_dvec_to_iso3;
+
+pub use crate::problems::planar_intrinsics::{
+    optimize_planar_intrinsics, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
+    PlanarIntrinsicsSolveOptions,
+};
+
+pub use crate::problems::handeye::{
+    optimize_handeye, HandEyeDataset, HandEyeEstimate, HandEyeParams, HandEyeSolveOptions,
+    RobotPoseMeta,
+};
+
+pub use crate::problems::rig_extrinsics::{
+    optimize_rig_extrinsics, RigExtrinsicsDataset, RigExtrinsicsEstimate, RigExtrinsicsParams,
+    RigExtrinsicsSolveOptions,
+};
+
+pub use calib_core::{RigDataset, RigViewObs, View};

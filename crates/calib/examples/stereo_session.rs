@@ -1,31 +1,40 @@
-//! Stereo (two-camera) calibration session on real images in `data/stereo/imgs`.
+//! Stereo rig calibration session on real images.
 //!
-//! This example demonstrates:
-//! - chessboard corner detection on real images,
-//! - multi-camera rig calibration (per-camera intrinsics + camera-to-rig extrinsics),
-//! - per-step reprojection error reporting,
-//! - optionally fixing intrinsics during rig BA (`--fix-intrinsics`).
+//! This example demonstrates multi-camera rig extrinsics calibration:
+//! 1. Load stereo image pairs from disk
+//! 2. Detect chessboard corners in both cameras
+//! 3. Initialize per-camera intrinsics (Zhang's method)
+//! 4. Optimize per-camera intrinsics (bundle adjustment)
+//! 5. Initialize rig extrinsics (camera-to-rig transforms)
+//! 6. Optimize rig jointly (bundle adjustment)
+//! 7. Export results including baseline measurement
+//!
+//! Run with: `cargo run -p calib --example stereo_session`
+//!
+//! Dataset: Uses `data/stereo/imgs/` (left/right camera pairs)
 
 #[path = "support/stereo_io.rs"]
 mod stereo_io;
 
-use anyhow::{ensure, Context, Result};
-use calib::core::{CameraFixMask, CameraParams, Iso3};
-use calib::optim::ir::RobustLoss;
-use calib::rig::{
-    rig_reprojection_errors, rig_reprojection_errors_from_report, RigExtrinsicsInitOptions,
-    RigExtrinsicsOptimOptions, RigReprojectionErrors,
+use anyhow::{ensure, Result};
+use calib::prelude::*;
+use calib::rig_extrinsics::{
+    run_calibration, step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init,
+    step_rig_optimize, RigExtrinsicsProblem,
 };
-use calib::session::{CalibrationSession, RigExtrinsicsProblem};
 use calib_targets::ChessboardParams;
 use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use stereo_io::load_stereo_input_with_progress;
 
+// Board parameters (matches stereo_linear.json)
+const BOARD_ROWS: u32 = 7;
+const BOARD_COLS: u32 = 11;
+const SQUARE_SIZE_M: f64 = 0.03; // 30mm squares
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let fix_intrinsics = args.iter().any(|a| a == "--fix-intrinsics");
     let max_views = parse_max_views(&args)?;
 
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -36,50 +45,41 @@ fn main() -> Result<()> {
         imgs_dir.display()
     );
 
-    // Dataset settings (matches `crates/calib-linear/tests/data/stereo_linear.json`).
-    let board_rows = 7;
-    let board_cols = 11;
-    let square_size_m = 0.03;
-
-    let chess_config = ChessConfig::default();
-    let board_params = ChessboardParams {
-        expected_rows: Some(board_rows),
-        expected_cols: Some(board_cols),
-        ..ChessboardParams::default()
-    };
-
-    println!("=== Stereo rig calibration session ===");
+    println!("=== Stereo Rig Calibration Session ===\n");
+    println!("Dataset: {}", imgs_dir.display());
     println!(
-        "Dataset: {}, board {}x{}, square {:.3} m",
-        imgs_dir.display(),
-        board_rows,
-        board_cols,
-        square_size_m
-    );
-    println!(
-        "BA intrinsics refinement: {}",
-        if fix_intrinsics { "OFF" } else { "ON" }
+        "Board: {}x{}, square size {:.1}mm",
+        BOARD_ROWS,
+        BOARD_COLS,
+        SQUARE_SIZE_M * 1000.0
     );
     if let Some(n) = max_views {
         println!("Max views: {n}");
     }
     println!();
 
-    println!("Extracting calibration features (chessboard corners)...");
+    let chess_config = ChessConfig::default();
+    let board_params = ChessboardParams {
+        expected_rows: Some(BOARD_ROWS),
+        expected_cols: Some(BOARD_COLS),
+        ..ChessboardParams::default()
+    };
+
+    println!("Detecting chessboard corners...");
     let (input, summary) = load_stereo_input_with_progress(
         &imgs_dir,
         &chess_config,
         &board_params,
-        square_size_m,
+        SQUARE_SIZE_M,
         max_views,
         |idx, total, image_index| {
-            print!("\r  processing pair {idx}/{total} (index {image_index})");
+            print!("\r  Processing pair {idx}/{total} (index {image_index})");
             let _ = io::stdout().flush();
         },
     )?;
     println!();
     println!(
-        "Loaded {} views from {} pairs ({} skipped empty), usable left={}, right={}",
+        "Loaded {} views from {} pairs ({} skipped), usable: left={}, right={}",
         summary.used_views,
         summary.total_pairs,
         summary.skipped_views,
@@ -87,48 +87,140 @@ fn main() -> Result<()> {
         summary.usable_right
     );
     ensure!(
-        input.views.len() >= 3,
+        input.num_views() >= 3,
         "need at least 3 usable views, got {}",
-        input.views.len()
+        input.num_views()
     );
-
-    let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
-    session.set_observations(input.clone());
-
-    // --- Init ---
-    session.initialize(RigExtrinsicsInitOptions {
-        ref_cam_idx: 0,
-        ..Default::default()
-    })?;
-    let init = session.initial_values().context("missing init values")?;
-    println!("--- Init ---");
-    print_cameras("Per-camera init", &init.cameras);
-    print_baseline("Init baseline", &init.cam_to_rig);
-    let init_reproj = rig_reprojection_errors(
-        &input,
-        &init.cameras,
-        &init.cam_to_rig,
-        &init.rig_from_target,
-    )?;
-    print_reprojection("Init reprojection", &init_reproj);
     println!();
 
-    // --- Optimize ---
-    let mut optim_opts = RigExtrinsicsOptimOptions::default();
-    optim_opts.solve_opts.robust_loss = RobustLoss::Huber { scale: 2.0 };
-    optim_opts.backend_opts.max_iters = 200;
-    if fix_intrinsics {
-        optim_opts.solve_opts.default_fix = CameraFixMask::all_fixed();
+    // Create calibration session
+    let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+    session.set_input(input)?;
+
+    // Step 1: Per-camera intrinsics initialization
+    println!("--- Step 1: Per-Camera Intrinsics Initialization ---");
+    step_intrinsics_init_all(&mut session, None)?;
+
+    // After init_all, per_cam_intrinsics contains the initialized cameras
+    // (the init step sets state.per_cam_intrinsics with initialized values)
+    println!("  Initialization complete");
+    println!();
+
+    // Step 2: Per-camera intrinsics optimization
+    println!("--- Step 2: Per-Camera Intrinsics Optimization ---");
+    step_intrinsics_optimize_all(&mut session, None)?;
+
+    for (i, (cam, reproj)) in session
+        .state
+        .per_cam_intrinsics
+        .as_ref()
+        .unwrap()
+        .iter()
+        .zip(
+            session
+                .state
+                .per_cam_reproj_errors
+                .as_ref()
+                .unwrap_or(&vec![0.0, 0.0])
+                .iter(),
+        )
+        .enumerate()
+    {
+        let k = &cam.k;
+        println!(
+            "  Camera {}: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}, reproj_err={:.3}px",
+            i, k.fx, k.fy, k.cx, k.cy, reproj
+        );
     }
+    println!();
 
-    session.optimize(optim_opts)?;
-    let report = session.export()?;
+    // Step 3: Rig initialization
+    println!("--- Step 3: Rig Extrinsics Initialization ---");
+    step_rig_init(&mut session)?;
 
-    println!("--- Optimized ---");
-    print_cameras("Per-camera optimized", &report.cameras);
-    print_baseline("Optimized baseline", &report.cam_to_rig);
-    let final_reproj = rig_reprojection_errors_from_report(&input, &report)?;
-    print_reprojection("Optimized reprojection", &final_reproj);
+    let init_extr = session.state.initial_cam_se3_rig.as_ref().unwrap();
+    print_baseline("Initial baseline", init_extr);
+    println!();
+
+    // Step 4: Rig optimization
+    println!("--- Step 4: Rig Bundle Adjustment ---");
+    step_rig_optimize(&mut session, None)?;
+    let mean_reproj_error = session.state.rig_ba_reproj_error.unwrap_or(f64::NAN);
+    println!(
+        "  Rig BA mean reprojection error: {:.4} px",
+        mean_reproj_error
+    );
+    if let Some(per_cam) = session.state.rig_ba_per_cam_reproj_errors.as_ref() {
+        for (i, err) in per_cam.iter().enumerate() {
+            println!("    Camera {}: {:.4} px", i, err);
+        }
+    }
+    println!();
+
+    // Show final per-camera results from intrinsics optimization
+    println!("--- Final Per-Camera Results ---");
+    for (i, cam) in session
+        .state
+        .per_cam_intrinsics
+        .as_ref()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        let k = &cam.k;
+        let d = &cam.dist;
+        println!("  Camera {i}:");
+        println!(
+            "    Intrinsics: fx={:.2}, fy={:.2}, cx={:.2}, cy={:.2}",
+            k.fx, k.fy, k.cx, k.cy
+        );
+        println!(
+            "    Distortion: k1={:.6}, k2={:.6}, p1={:.6}, p2={:.6}",
+            d.k1, d.k2, d.p1, d.p2
+        );
+    }
+    let output = session.require_output()?;
+    let cam_se3_rig: Vec<Iso3> = output
+        .params
+        .cam_to_rig
+        .iter()
+        .map(|t| t.inverse())
+        .collect();
+    print_baseline("Rig baseline (after BA)", &cam_se3_rig);
+
+    // Alternative: run with filtering for outlier removal
+    println!("--- Alternative: single facade function ---");
+    let (input2, _summary2) = load_stereo_input_with_progress(
+        &imgs_dir,
+        &chess_config,
+        &board_params,
+        SQUARE_SIZE_M,
+        max_views,
+        |idx, total, image_index| {
+            print!("\r  Processing pair {idx}/{total} (index {image_index})");
+            let _ = io::stdout().flush();
+        },
+    )?;
+
+    let mut session2 = CalibrationSession::<RigExtrinsicsProblem>::new();
+    session2.set_input(input2)?;
+
+    run_calibration(&mut session2)?;
+
+    let export2 = session2.export()?;
+    let mean_reproj_error = session2
+        .state
+        .rig_ba_reproj_error
+        .unwrap_or(export2.mean_reproj_error);
+    println!(
+        "  Rig BA mean reprojection error: {:.4} px",
+        mean_reproj_error
+    );
+    if let Some(per_cam) = session2.state.rig_ba_per_cam_reproj_errors.as_ref() {
+        for (i, err) in per_cam.iter().enumerate() {
+            println!("    Camera {}: {:.4} px", i, err);
+        }
+    }
 
     Ok(())
 }
@@ -138,69 +230,28 @@ fn parse_max_views(args: &[String]) -> Result<Option<usize>> {
         let Some(raw) = arg.strip_prefix("--max-views=") else {
             continue;
         };
-        let n: usize = raw.parse().context("invalid --max-views value")?;
+        let n: usize = raw
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid --max-views value"))?;
         ensure!(n > 0, "--max-views must be > 0");
         return Ok(Some(n));
     }
     Ok(None)
 }
 
-fn print_cameras(label: &str, cams: &[CameraParams]) {
-    println!("{label}:");
-    for (idx, cam) in cams.iter().enumerate() {
-        let k = match cam.intrinsics {
-            calib::core::IntrinsicsParams::FxFyCxCySkew { params } => params,
-        };
-        let dist = match cam.distortion {
-            calib::core::DistortionParams::BrownConrady5 { params } => Some(params),
-            calib::core::DistortionParams::None => None,
-        };
-
-        print!(
-            "  cam{idx}: fx={:.3} fy={:.3} cx={:.3} cy={:.3}",
-            k.fx, k.fy, k.cx, k.cy
-        );
-        if let Some(d) = dist {
-            print!(
-                " | k1={:.3e} k2={:.3e} k3={:.3e} p1={:.3e} p2={:.3e}",
-                d.k1, d.k2, d.k3, d.p1, d.p2
-            );
-        } else {
-            print!(" | dist=None");
-        }
-        println!();
-    }
-}
-
 fn print_baseline(label: &str, cam_to_rig: &[Iso3]) {
     if cam_to_rig.len() < 2 {
         return;
     }
-    let baseline = cam_to_rig[1].translation.vector.norm();
-    println!("{label}: |t(cam1->rig)| = {baseline:.6} m");
-}
-
-fn print_reprojection(label: &str, err: &RigReprojectionErrors) {
-    println!("{label}:");
-    if let (Some(mean), Some(rmse)) = (err.mean_px, err.rmse_px) {
-        println!("  overall: mean={mean:.4} px, rmse={rmse:.4} px");
-    } else {
-        println!("  overall: (no projectable points)");
-    }
-
-    for (idx, (m, r)) in err
-        .per_camera_mean_px
-        .iter()
-        .zip(err.per_camera_rmse_px.iter())
-        .enumerate()
-    {
-        match (m, r) {
-            (Some(m), Some(r)) => println!("  cam{idx}: mean={m:.4} px, rmse={r:.4} px"),
-            _ => println!("  cam{idx}: (no projectable points)"),
-        }
-    }
+    // Baseline is distance between camera 0 origin and camera 1 origin in rig frame
+    // cam_to_rig[i] = T_C_R, so cam origin in rig frame = T_C_R^-1 * [0,0,0]
+    // Actually, translation of T_C_R is position of rig origin in camera frame
+    // For baseline: |T_1 * T_0^-1|
+    let t0 = cam_to_rig[0].inverse();
+    let t1 = cam_to_rig[1].inverse();
+    let baseline = (t1.translation.vector - t0.translation.vector).norm();
     println!(
-        "  points: used={}, skipped={}",
-        err.num_points_used, err.num_points_skipped
+        "  {label}: |t(cam1->rig)| = {baseline:.4} m ({:.2} mm)",
+        baseline * 1000.0
     );
 }

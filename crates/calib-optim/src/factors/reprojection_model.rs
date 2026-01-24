@@ -1,9 +1,7 @@
 //! Backend-independent reprojection residual models.
 
 use crate::math::projection::project_pinhole;
-use nalgebra::{
-    DVector, DVectorView, Matrix3, Quaternion, RealField, SVector, UnitQuaternion, Vector3,
-};
+use nalgebra::{DVectorView, Matrix3, Quaternion, RealField, SVector, UnitQuaternion, Vector3};
 
 /// Observation data for reprojection residuals.
 ///
@@ -34,19 +32,6 @@ pub(crate) struct RobotPoseData {
 pub(crate) struct HandEyeRobotDeltaData {
     pub robot: RobotPoseData,
     pub obs: ObservationData,
-}
-
-/// Compute a 2D reprojection residual for pinhole intrinsics and SE3 pose.
-///
-/// The residual is scaled by `sqrt(w)` and ordered `[u_residual, v_residual]`.
-pub fn reproj_residual_pinhole4_se3(
-    intr: &DVector<f64>,
-    pose: &DVector<f64>,
-    pw: [f64; 3],
-    uv: [f64; 2],
-    w: f64,
-) -> SVector<f64, 2> {
-    reproj_residual_pinhole4_se3_generic(intr.as_view(), pose.as_view(), pw, uv, w)
 }
 
 /// Generic reprojection residual evaluator for backend adapters.
@@ -756,6 +741,7 @@ pub(crate) fn reproj_residual_pinhole4_dist5_handeye_robot_delta_generic<T: Real
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nalgebra::DVector;
 
     #[test]
     fn distortion_changes_projection() {

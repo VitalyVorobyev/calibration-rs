@@ -3,6 +3,8 @@
 mod types;
 
 pub use types::{
-    Bound, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ParamBlock, ParamId, ProblemIR,
-    ResidualBlock, RobustLoss,
+    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
 };
+
+#[cfg(test)]
+pub use types::ParamId;

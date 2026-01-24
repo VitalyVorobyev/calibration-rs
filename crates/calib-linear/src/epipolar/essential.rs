@@ -4,8 +4,8 @@
 //! point correspondences in normalized coordinates.
 
 use super::polynomial::build_polynomial_system;
-use super::EpipolarError;
 use crate::math::{mat3_from_svd_row, normalize_points_2d};
+use anyhow::Result;
 use calib_core::{Mat3, Pt2, Real};
 use nalgebra::{linalg::Schur, DMatrix};
 
@@ -15,22 +15,22 @@ use nalgebra::{linalg::Schur, DMatrix};
 /// Returns up to ten candidate essential matrices that satisfy the cubic
 /// constraints; choose the physically valid one by cheirality or by
 /// reprojection error against additional correspondences.
-pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, EpipolarError> {
+pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     if pts1.len() != pts2.len() {
-        return Err(EpipolarError::InvalidPointCount {
-            expected: 5,
-            got: pts1.len().max(pts2.len()),
-        });
+        anyhow::bail!(
+            "Point count mismatch: expected {}, got {}",
+            pts1.len(),
+            pts2.len()
+        );
     }
     if pts1.len() != 5 {
-        return Err(EpipolarError::InvalidPointCount {
-            expected: 5,
-            got: pts1.len(),
-        });
+        anyhow::bail!("Point count mismatch: expected 5, got {}", pts1.len());
     }
 
-    let (pts1_n, t1) = normalize_points_2d(pts1).ok_or(EpipolarError::SvdFailed)?;
-    let (pts2_n, t2) = normalize_points_2d(pts2).ok_or(EpipolarError::SvdFailed)?;
+    let (pts1_n, t1) = normalize_points_2d(pts1)
+        .ok_or(anyhow::anyhow!("SVD failed during point normalization"))?;
+    let (pts2_n, t2) = normalize_points_2d(pts2)
+        .ok_or(anyhow::anyhow!("SVD failed during point normalization"))?;
 
     let mut a = DMatrix::<Real>::zeros(5, 9);
     for (i, (p1, p2)) in pts1_n.iter().zip(pts2_n.iter()).enumerate() {
@@ -60,9 +60,9 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Epipola
     }
 
     let svd = a_work.svd(true, true);
-    let v_t = svd.v_t.ok_or(EpipolarError::SvdFailed)?;
+    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
     if v_t.nrows() < 4 {
-        return Err(EpipolarError::SvdFailed);
+        anyhow::bail!("SVD failed");
     }
 
     let e1 = mat3_from_svd_row(&v_t, v_t.nrows() - 4);
@@ -85,7 +85,7 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Epipola
     let m1_lu = m1.lu();
     let c = m1_lu
         .solve(&(-m2))
-        .ok_or(EpipolarError::PolynomialSolveFailed)?;
+        .ok_or(anyhow::anyhow!("Polynomial solve failed"))?;
 
     let mut action = DMatrix::<Real>::zeros(10, 10);
     let deg3_rows = [2, 4, 5, 7, 8, 9];
@@ -115,7 +115,7 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Epipola
             a_eval[(i, i)] -= z;
         }
         let svd = a_eval.svd(true, true);
-        let v_t = svd.v_t.ok_or(EpipolarError::SvdFailed)?;
+        let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
         let vec = v_t.row(v_t.nrows() - 1);
 
         let v9 = vec[9];
@@ -134,7 +134,7 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Epipola
     }
 
     if solutions.is_empty() {
-        return Err(EpipolarError::PolynomialSolveFailed);
+        anyhow::bail!("Polynomial solve failed");
     }
 
     solutions.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));

@@ -1,12 +1,12 @@
-use nalgebra::{RealField, Vector2};
+use nalgebra::{Point2, RealField};
 use serde::{Deserialize, Serialize};
 
 /// Distortion model mapping between ideal and distorted normalized coordinates.
 pub trait DistortionModel<S: RealField + Copy> {
     /// Apply distortion to undistorted normalized coordinates.
-    fn distort(&self, n_undist: &Vector2<S>) -> Vector2<S>;
+    fn distort(&self, n_undist: &Point2<S>) -> Point2<S>;
     /// Remove distortion from distorted normalized coordinates.
-    fn undistort(&self, n_dist: &Vector2<S>) -> Vector2<S>;
+    fn undistort(&self, n_dist: &Point2<S>) -> Point2<S>;
 }
 
 /// No distortion (identity mapping).
@@ -14,11 +14,11 @@ pub trait DistortionModel<S: RealField + Copy> {
 pub struct NoDistortion;
 
 impl<S: RealField + Copy> DistortionModel<S> for NoDistortion {
-    fn distort(&self, n_undist: &Vector2<S>) -> Vector2<S> {
+    fn distort(&self, n_undist: &Point2<S>) -> Point2<S> {
         *n_undist
     }
 
-    fn undistort(&self, n_dist: &Vector2<S>) -> Vector2<S> {
+    fn undistort(&self, n_dist: &Point2<S>) -> Point2<S> {
         *n_dist
     }
 }
@@ -61,12 +61,12 @@ impl<S: RealField + Copy> BrownConrady5<S> {
 }
 
 impl<S: RealField + Copy> DistortionModel<S> for BrownConrady5<S> {
-    fn distort(&self, n_undist: &Vector2<S>) -> Vector2<S> {
+    fn distort(&self, n_undist: &Point2<S>) -> Point2<S> {
         let (xd, yd) = self.distort_impl(n_undist.x, n_undist.y);
-        Vector2::new(xd, yd)
+        Point2::new(xd, yd)
     }
 
-    fn undistort(&self, n_dist: &Vector2<S>) -> Vector2<S> {
+    fn undistort(&self, n_dist: &Point2<S>) -> Point2<S> {
         let mut x = n_dist.x;
         let mut y = n_dist.y;
 
@@ -78,6 +78,6 @@ impl<S: RealField + Copy> DistortionModel<S> for BrownConrady5<S> {
             x -= ex;
             y -= ey;
         }
-        Vector2::new(x, y)
+        Point2::new(x, y)
     }
 }

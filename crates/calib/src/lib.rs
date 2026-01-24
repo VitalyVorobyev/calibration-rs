@@ -1,268 +1,387 @@
-//! High-level entry crate for the `calibration-rs` toolbox.
+//! High-level entry crate for the `calibration-rs` camera calibration library.
 //!
-//! This crate provides **two complementary APIs** for camera calibration:
+//! This crate provides a unified API for camera calibration workflows:
+//! - Single-camera intrinsics calibration (Zhang's method with distortion)
+//! - Single-camera hand-eye calibration (camera on robot arm)
+//! - Multi-camera rig extrinsics calibration
+//! - Multi-camera rig + hand-eye calibration
 //!
-//! ## 1. Session API (Structured Workflows)
+//! # Quick Start
 //!
-//! Use when you want:
-//! - Type-safe, structured calibration workflows
-//! - Automatic state management and checkpointing
-//! - Enforced stage transitions (Uninitialized → Initialized → Optimized → Exported)
+//! ```ignore
+//! use calib::prelude::*;
+//! use calib::planar_intrinsics::{step_init, step_optimize};
 //!
-//! ```no_run
-//! use calib::session::{CalibrationSession, PlanarIntrinsicsProblem, PlanarIntrinsicsObservations};
-//! use calib::pipeline::CorrespondenceView;
-//!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let views: Vec<CorrespondenceView> = /* load calibration data */
-//! # vec![];
-//!
+//! // Create calibration session
 //! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-//! session.set_observations(PlanarIntrinsicsObservations { views });
+//! session.set_input(dataset)?;
 //!
-//! // Initialize with linear solver
-//! session.initialize(Default::default())?;
+//! // Option 1: Step-by-step (recommended for inspection)
+//! step_init(&mut session, None)?;
+//! println!("Initial fx: {}", session.state.initial_intrinsics.unwrap().fx);
+//! step_optimize(&mut session, None)?;
 //!
-//! // Can checkpoint here
+//! // Option 2: Pipeline function (convenience)
+//! // run_planar_intrinsics(&mut session)?;
+//!
+//! // Export results
+//! let result = session.export()?;
+//! ```
+//!
+//! # Module Organization
+//!
+//! ## High-Level Calibration Workflows
+//!
+//! - [`session`] - Session framework (`CalibrationSession`, `ProblemType`)
+//! - [`planar_intrinsics`] - Single-camera intrinsics (Zhang's method)
+//! - [`single_cam_handeye`] - Single camera + hand-eye calibration
+//! - [`rig_extrinsics`] - Multi-camera rig extrinsics
+//! - [`rig_handeye`] - Multi-camera rig + hand-eye
+//!
+//! ## Foundation Crates (Advanced Users)
+//!
+//! - [`core`] - Math types, camera models, RANSAC primitives
+//! - [`linear`] - Closed-form initialization algorithms
+//! - [`optim`] - Non-linear least-squares optimization
+//! - [`synthetic`] - Synthetic data generation for testing
+//!
+//! # Session API
+//!
+//! All calibration workflows use the session API with this pattern:
+//!
+//! ```ignore
+//! // 1. Create session for problem type
+//! let mut session = CalibrationSession::<ProblemType>::new();
+//!
+//! // 2. Set input data
+//! session.set_input(input)?;
+//!
+//! // 3. Optionally configure
+//! session.update_config(|c| c.max_iters = 100)?;
+//!
+//! // 4. Run steps or pipeline
+//! step_init(&mut session, None)?;
+//! step_optimize(&mut session, None)?;
+//! // OR: run_calibration(&mut session)?;
+//!
+//! // 5. Export results
+//! let export = session.export()?;
+//!
+//! // 6. Optionally checkpoint
 //! let json = session.to_json()?;
-//! std::fs::write("checkpoint.json", json)?;
-//!
-//! // Optimize with non-linear refinement
-//! session.optimize(Default::default())?;
-//!
-//! // Export final results
-//! let report = session.export()?;
-//! println!("Final cost: {}", report.report.final_cost);
-//! # Ok(())
-//! # }
 //! ```
 //!
-//! ## 2. Imperative Function API (Custom Workflows)
+//! # Available Problem Types
 //!
-//! Use when you need:
-//! - Full control over calibration workflow
-//! - Ability to inspect intermediate results
-//! - Custom composition of calibration steps
-//! - Integration into larger systems
-//!
-//! ### Using High-Level Helper Functions
-//!
-//! ```no_run
-//! use calib::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
-//! use calib::linear::iterative_intrinsics::IterativeIntrinsicsOptions;
-//! use calib::linear::distortion_fit::DistortionFitOptions;
-//! use calib::optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
-//! use calib::optim::backend::BackendSolveOptions;
-//! use calib::pipeline::CorrespondenceView;
-//!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let views: Vec<CorrespondenceView> = /* load calibration data */
-//! # vec![];
-//!
-//! // Step 1: Linear initialization
-//! let init_opts = IterativeIntrinsicsOptions {
-//!     iterations: 2,
-//!     distortion_opts: DistortionFitOptions {
-//!         fix_k3: true,
-//!         fix_tangential: false,
-//!         iters: 8,
-//!     },
-//!     zero_skew: true,
-//! };
-//! let init_result = initialize_planar_intrinsics(&views, &init_opts)?;
-//!
-//! // Inspect before committing to optimization
-//! println!("Initial fx: {}, fy: {}", init_result.intrinsics.fx, init_result.intrinsics.fy);
-//!
-//! // Step 2: Non-linear optimization (if init looks good)
-//! let solve_opts = PlanarIntrinsicsSolveOptions::default();
-//! let backend_opts = BackendSolveOptions::default();
-//! let optim_result = optimize_planar_intrinsics_from_init(
-//!     &views,
-//!     &init_result,
-//!     &solve_opts,
-//!     &backend_opts
-//! )?;
-//!
-//! println!("Final reprojection error: {:.2} px", optim_result.mean_reproj_error);
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ### Using Low-Level Building Blocks
-//!
-//! For maximum control, directly access linear and optimization modules:
-//!
-//! ```no_run
-//! use calib::linear::{homography, zhang_intrinsics};
-//! use calib::optim::planar_intrinsics::optimize_planar_intrinsics;
-//! use calib::core::{Pt2, Pt3};
-//!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let world_points: Vec<Pt2> = /* 2D points on planar pattern */
-//! # vec![];
-//! let image_points: Vec<Pt2> = /* corresponding 2D pixel coordinates */
-//! # vec![];
-//!
-//! // Compute homography (planar pattern uses 2D coordinates)
-//! let H = homography::dlt_homography(&world_points, &image_points)?;
-//!
-//! // Estimate intrinsics from multiple homographies
-//! let homographies = vec![H];
-//! let K = zhang_intrinsics::estimate_intrinsics_from_homographies(&homographies)?;
-//!
-//! println!("Estimated K: {:?}", K);
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## Module Organization
-//!
-//! - **[`session`]**: Type-safe calibration session framework
-//! - **[`helpers`]**: Granular helper functions for common operations
-//! - **[`pipeline`]**: All-in-one convenience functions (original API)
-//! - **[`core`]**: Math types, camera models, RANSAC primitives
-//! - **[`linear`]**: Closed-form initialization algorithms
-//! - **[`optim`]**: Non-linear least-squares optimization
-//! - **[`synthetic`]**: Deterministic synthetic data helpers
-//! - **[`prelude`]**: Convenient re-exports for common use cases
-//!
-//! ## Stability
-//!
-//! The `calib` crate is the public compatibility boundary. Lower-level crates are
-//! intended for advanced usage and may evolve more quickly.
+//! | Problem Type | Input | Steps |
+//! |--------------|-------|-------|
+//! | `PlanarIntrinsicsProblem` | `PlanarDataset` | init → optimize |
+//! | `SingleCamHandeyeProblem` | `SingleCamHandeyeInput` | intrinsics_init → intrinsics_optim → handeye_init → handeye_optim |
+//! | `RigExtrinsicsProblem` | `RigExtrinsicsInput` | intrinsics_init_all → intrinsics_optim_all → rig_init → rig_optim |
+//! | `RigHandeyeProblem` | `RigHandeyeInput` | (all 6 steps) |
 
-/// Type-safe calibration session framework for structured workflows.
+// ═══════════════════════════════════════════════════════════════════════════════
+// Session Framework
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Session framework for structured calibration workflows.
 ///
-/// Provides state management, checkpointing, and enforced stage transitions.
+/// Provides mutable state containers, step functions, and JSON checkpointing.
 pub mod session {
     pub use calib_pipeline::session::{
-        CalibrationSession, ProblemType, SessionMetadata, SessionStage,
-    };
-
-    // Problem types
-    pub mod problem_types {
-        pub use calib_pipeline::session::problem_types::*;
-    }
-
-    // Re-export common problem types at top level for convenience
-    pub use calib_pipeline::session::problem_types::{
-        HandEyeModeConfig, HandEyeSingleInitOptions, HandEyeSingleObservations,
-        HandEyeSingleOptimOptions, HandEyeSingleProblem, PlanarIntrinsicsInitOptions,
-        PlanarIntrinsicsObservations, PlanarIntrinsicsOptimOptions, PlanarIntrinsicsProblem,
-        RigExtrinsicsInitOptions, RigExtrinsicsObservations, RigExtrinsicsOptimOptions,
-        RigExtrinsicsProblem, RigHandEyeInitOptions, RigHandEyeObservations,
-        RigHandEyeOptimOptions, RigHandEyeProblem,
+        CalibrationSession, ExportRecord, InvalidationPolicy, LogEntry, ProblemType,
+        SessionMetadata,
     };
 }
 
-/// Granular helper functions for custom calibration workflows.
+// ═══════════════════════════════════════════════════════════════════════════════
+// Problem-Specific Modules
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Planar intrinsics calibration (Zhang's method with Brown-Conrady distortion).
 ///
-/// These functions bridge between linear initialization and non-linear optimization,
-/// allowing you to inspect intermediate results and compose custom workflows.
-pub mod helpers {
-    pub use calib_pipeline::helpers::*;
-}
-
-/// All-in-one convenience functions for standard calibration tasks.
+/// # Steps
+/// 1. `step_init` - Zhang's method with iterative distortion estimation
+/// 2. `step_optimize` - Non-linear refinement
+/// 3. `step_filter` (optional) - Remove outliers by reprojection error
 ///
-/// Use these when you want a simple, single-call solution without managing state.
-pub mod pipeline {
-    pub use calib_pipeline::{
-        handeye, handeye_single, rig_reprojection_errors, rig_reprojection_errors_from_report,
-        run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, CorrespondenceView,
-        HandEyeMode, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
-        RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
-        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigHandEyeConfig, RigHandEyeInitOptions,
-        RigHandEyeInput, RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
-        RigReprojectionErrors, RigViewData,
+/// # Example
+/// ```ignore
+/// use calib::prelude::*;
+/// use calib::planar_intrinsics::{step_init, step_optimize, run_calibration};
+///
+/// let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+/// session.set_input(dataset)?;
+/// run_calibration(&mut session)?;
+/// let result = session.export()?;
+/// ```
+pub mod planar_intrinsics {
+    pub use calib_pipeline::planar_intrinsics::{
+        // Step functions
+        run_calibration,
+        run_calibration_with_filtering,
+        step_filter,
+        step_init,
+        step_optimize,
+        // Step options
+        FilterOptions,
+        InitOptions,
+        OptimizeOptions,
+        // Problem type and config
+        PlanarConfig,
+        PlanarExport,
+        // Re-exports from calib-optim
+        PlanarIntrinsicsEstimate,
+        PlanarIntrinsicsParams,
+        PlanarIntrinsicsProblem,
+        PlanarIntrinsicsSolveOptions,
+        PlanarState,
     };
 }
 
-/// Multi-camera rig calibration (intrinsics + camera-to-rig extrinsics).
+/// Single-camera hand-eye calibration (intrinsics + hand-eye transform).
 ///
-/// This module is a curated entry-point for the rig pipeline and its common utilities.
-pub mod rig {
-    pub use calib_pipeline::{
-        rig_reprojection_errors, rig_reprojection_errors_from_report, run_rig_extrinsics,
-        RigExtrinsicsConfig, RigExtrinsicsInitOptions, RigExtrinsicsInput,
-        RigExtrinsicsOptimOptions, RigExtrinsicsReport, RigReprojectionErrors, RigViewData,
+/// For calibrating a camera mounted on a robot arm.
+///
+/// # Steps
+/// 1. `step_intrinsics_init` - Zhang's method
+/// 2. `step_intrinsics_optimize` - Non-linear intrinsics refinement
+/// 3. `step_handeye_init` - Tsai-Lenz linear estimation
+/// 4. `step_handeye_optimize` - Bundle adjustment
+///
+/// # Example
+/// ```ignore
+/// use calib::prelude::*;
+/// use calib::single_cam_handeye::{run_calibration, SingleCamHandeyeInput};
+///
+/// let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
+/// session.set_input(input)?;
+/// run_calibration(&mut session)?;
+/// let result = session.export()?;
+/// ```
+pub mod single_cam_handeye {
+    pub use calib_pipeline::single_cam_handeye::{
+        // Step functions
+        run_calibration,
+        step_handeye_init,
+        step_handeye_optimize,
+        step_intrinsics_init,
+        step_intrinsics_optimize,
+        // Step options
+        HandeyeInitOptions,
+        // Problem type and config
+        HandeyeMeta,
+        HandeyeOptimOptions,
+        IntrinsicsInitOptions,
+        IntrinsicsOptimOptions,
+        SingleCamHandeyeConfig,
+        SingleCamHandeyeExport,
+        SingleCamHandeyeInput,
+        SingleCamHandeyeProblem,
+        SingleCamHandeyeState,
+        SingleCamHandeyeView,
     };
 }
 
-/// Multi-camera rig + robot hand-eye calibration.
+/// Multi-camera rig extrinsics calibration.
+///
+/// For calibrating a multi-camera rig, estimating per-camera intrinsics
+/// and camera-to-rig transforms.
+///
+/// # Steps
+/// 1. `step_intrinsics_init_all` - Per-camera Zhang's method
+/// 2. `step_intrinsics_optimize_all` - Per-camera non-linear refinement
+/// 3. `step_rig_init` - Linear estimation of camera-to-rig transforms
+/// 4. `step_rig_optimize` - Joint bundle adjustment
+///
+/// # Example
+/// ```ignore
+/// use calib::prelude::*;
+/// use calib::rig_extrinsics::{run_calibration, RigExtrinsicsInput};
+///
+/// let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+/// session.set_input(input)?;
+/// run_calibration(&mut session)?;
+/// let result = session.export()?;
+/// ```
+pub mod rig_extrinsics {
+    pub use calib_pipeline::rig_extrinsics::{
+        // Step functions
+        run_calibration,
+        step_intrinsics_init_all,
+        step_intrinsics_optimize_all,
+        step_rig_init,
+        step_rig_optimize,
+        // Step options
+        IntrinsicsInitOptions,
+        IntrinsicsOptimOptions,
+        // Problem type and config
+        RigExtrinsicsConfig,
+        RigExtrinsicsExport,
+        RigExtrinsicsInput,
+        RigExtrinsicsProblem,
+        RigExtrinsicsState,
+        RigOptimOptions,
+    };
+}
+
+/// Multi-camera rig hand-eye calibration.
+///
+/// For calibrating a multi-camera rig mounted on a robot arm, including
+/// per-camera intrinsics, rig extrinsics, and hand-eye transform.
+///
+/// # Steps (6 total)
+/// 1. `step_intrinsics_init_all` - Per-camera Zhang's method
+/// 2. `step_intrinsics_optimize_all` - Per-camera non-linear refinement
+/// 3. `step_rig_init` - Linear estimation of camera-to-rig transforms
+/// 4. `step_rig_optimize` - Rig bundle adjustment
+/// 5. `step_handeye_init` - Tsai-Lenz linear estimation
+/// 6. `step_handeye_optimize` - Hand-eye bundle adjustment
+///
+/// # Example
+/// ```ignore
+/// use calib::prelude::*;
+/// use calib::rig_handeye::{run_calibration, RigHandeyeInput};
+///
+/// let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+/// session.set_input(input)?;
+/// run_calibration(&mut session)?;
+/// let result = session.export()?;
+/// ```
 pub mod rig_handeye {
-    pub use calib_pipeline::{
-        run_rig_handeye, RigHandEyeConfig, RigHandEyeInitOptions, RigHandEyeInput,
-        RigHandEyeOptimOptions, RigHandEyeReport, RigHandEyeViewData,
+    pub use calib_pipeline::rig_handeye::{
+        // Step functions
+        run_calibration,
+        step_handeye_init,
+        step_handeye_optimize,
+        step_intrinsics_init_all,
+        step_intrinsics_optimize_all,
+        step_rig_init,
+        step_rig_optimize,
+        // Step options
+        HandeyeInitOptions,
+        HandeyeOptimOptions,
+        IntrinsicsInitOptions,
+        IntrinsicsOptimOptions,
+        // Problem type and config
+        RigHandeyeConfig,
+        RigHandeyeExport,
+        RigHandeyeInput,
+        RigHandeyeProblem,
+        RigHandeyeState,
+        RigOptimOptions,
     };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Foundation Crates (Advanced Users)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /// Core math types, camera models, and RANSAC primitives.
 ///
-/// This module contains the fundamental building blocks used throughout the library.
+/// Re-exports everything from `calib_core`.
 pub mod core {
     pub use calib_core::*;
 }
 
-/// Deterministic synthetic data generation helpers.
+/// Closed-form initialization algorithms.
 ///
-/// Useful for tests, examples, and benchmarking (e.g. generating planar targets and projections).
-pub mod synthetic {
-    pub use calib_core::synthetic::*;
-}
-
-/// Closed-form initialization algorithms (Zhang, PnP, homography, etc.).
+/// Includes homography estimation, Zhang's method, PnP solvers,
+/// triangulation, hand-eye solvers, and more.
 ///
-/// Use these for linear initialization before non-linear refinement.
+/// Re-exports everything from `calib_linear`.
 pub mod linear {
     pub use calib_linear::*;
 }
 
-/// Non-linear least-squares optimization problems and backends.
+/// Non-linear optimization with backend-agnostic IR.
 ///
-/// Includes planar intrinsics, hand-eye, rig extrinsics, and linescan bundle refinement.
+/// Includes optimization problems, factors, and solver backends.
+///
+/// Re-exports everything from `calib_optim`.
 pub mod optim {
     pub use calib_optim::*;
 }
 
+/// Deterministic synthetic data generation for testing.
+///
+/// Provides builders for creating synthetic calibration datasets.
+pub mod synthetic {
+    pub use calib_core::synthetic::*;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Hand-Eye Calibration Types (Direct Access)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Hand-eye calibration types re-exported from calib-optim.
+///
+/// Use this module for direct access to hand-eye optimization without
+/// the session framework.
+pub mod handeye {
+    pub use calib_optim::{
+        optimize_handeye, HandEyeDataset, HandEyeEstimate, HandEyeParams, HandEyeSolveOptions,
+        RigViewObs, RobotPoseMeta, View,
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Convenience Re-exports (Top-Level)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Session framework
+pub use calib_pipeline::{CalibrationSession, ProblemType};
+
+// Problem types
+pub use calib_pipeline::{
+    PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem, SingleCamHandeyeProblem,
+};
+
+// Pipeline functions
+pub use calib_pipeline::{
+    run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, run_single_cam_handeye,
+};
+
+// Core types
+pub use calib_core::{
+    make_pinhole_camera, pinhole_camera_params, BrownConrady5, Camera, CameraParams,
+    CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3, NoMeta, Pinhole, PinholeCamera,
+    PlanarDataset, Pt2, Pt3, RigDataset, Vec2, Vec3, View,
+};
+
+// Common options
+pub use calib_optim::{BackendSolveOptions, HandEyeMode, RobustLoss};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Prelude (Quick Start)
+// ═══════════════════════════════════════════════════════════════════════════════
+
 /// Convenient re-exports for common use cases.
 ///
-/// Import with `use calib::prelude::*;` to get started quickly.
+/// ```ignore
+/// use calib::prelude::*;
+/// ```
 pub mod prelude {
-    // Common types
-    pub use crate::core::{
-        BrownConrady5, Camera, CameraParams, FxFyCxCySkew, IdentitySensor, IntrinsicsParams, Iso3,
-        Pinhole, Pt2, Pt3, Vec2, Vec3,
+    // Session framework
+    pub use crate::session::{CalibrationSession, ProblemType};
+
+    // Problem types
+    pub use crate::{
+        PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem, SingleCamHandeyeProblem,
     };
 
-    // Session API
-    pub use crate::session::{
-        CalibrationSession, PlanarIntrinsicsObservations, PlanarIntrinsicsProblem, ProblemType,
-        RigExtrinsicsObservations, RigExtrinsicsProblem, RigHandEyeObservations, RigHandEyeProblem,
-        SessionStage,
+    // Pipeline functions
+    pub use crate::{
+        run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, run_single_cam_handeye,
     };
 
-    // Helper functions
-    pub use crate::helpers::{
-        initialize_planar_intrinsics, optimize_planar_intrinsics_from_init,
-        PlanarIntrinsicsInitResult, PlanarIntrinsicsOptimResult,
-    };
-
-    // Pipeline types
-    pub use crate::pipeline::{
-        CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput, PlanarIntrinsicsReport,
-        RigExtrinsicsConfig, RigExtrinsicsInput, RigExtrinsicsReport, RigViewData,
-    };
-
-    // Rig metrics
-    pub use crate::pipeline::{
-        rig_reprojection_errors, rig_reprojection_errors_from_report, RigReprojectionErrors,
+    // Core types
+    pub use crate::{
+        BrownConrady5, Camera, CameraParams, CorrespondenceView, FxFyCxCySkew, IdentitySensor,
+        Iso3, NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2, Pt3, RigDataset, Vec2, Vec3,
+        View,
     };
 
     // Common options
-    pub use crate::linear::distortion_fit::DistortionFitOptions;
-    pub use crate::linear::iterative_intrinsics::IterativeIntrinsicsOptions;
-    pub use crate::optim::backend::BackendSolveOptions;
-    pub use crate::optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
+    pub use crate::{BackendSolveOptions, HandEyeMode, RobustLoss};
 }
