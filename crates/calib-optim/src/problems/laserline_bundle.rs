@@ -11,8 +11,8 @@ use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_D
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
-use calib_core::{make_pinhole_camera, Iso3, PinholeCamera, Pt2, View};
-use nalgebra::DVector;
+use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt2, Real, ScheimpflugParams, View};
+use nalgebra::{DVector, DVectorView};
 use std::collections::HashMap;
 
 /// Metadata for a laserline view (laser pixels + optional weights).
@@ -57,16 +57,27 @@ pub type LaserlineDataset = Vec<LaserlineView>;
 /// Initial values for laserline bundle adjustment.
 #[derive(Debug, Clone)]
 pub struct LaserlineParams {
-    pub camera: PinholeCamera,
+    pub intrinsics: FxFyCxCySkew<Real>,
+    pub distortion: BrownConrady5<Real>,
+    /// Scheimpflug sensor parameters (use defaults for identity sensor).
+    pub sensor: ScheimpflugParams,
     pub poses: Vec<Iso3>,
     pub plane: LaserPlane,
 }
 
 impl LaserlineParams {
-    pub fn new(camera: PinholeCamera, poses: Vec<Iso3>, plane: LaserPlane) -> Result<Self> {
+    pub fn new(
+        intrinsics: FxFyCxCySkew<Real>,
+        distortion: BrownConrady5<Real>,
+        sensor: ScheimpflugParams,
+        poses: Vec<Iso3>,
+        plane: LaserPlane,
+    ) -> Result<Self> {
         ensure!(!poses.is_empty(), "need at least one pose");
         Ok(Self {
-            camera,
+            intrinsics,
+            distortion,
+            sensor,
             poses,
             plane,
         })
@@ -113,6 +124,8 @@ pub struct LaserlineSolveOptions {
     pub fix_distortion: bool,
     /// Fix k3 distortion parameter (common for typical lenses)
     pub fix_k3: bool,
+    /// Fix Scheimpflug sensor parameters during optimization
+    pub fix_sensor: bool,
     /// Indices of poses to fix (e.g., \[0\] to fix first pose for gauge freedom)
     pub fix_poses: Vec<usize>,
     /// Indices of planes to fix
@@ -129,11 +142,28 @@ impl Default for LaserlineSolveOptions {
             fix_intrinsics: false,
             fix_distortion: false,
             fix_k3: true,
+            fix_sensor: true,
             fix_poses: vec![0], // Fix first pose by default
             fix_plane: false,
             laser_residual_type: LaserlineResidualType::LineDistNormalized, // New default
         }
     }
+}
+
+fn pack_scheimpflug(sensor: &ScheimpflugParams) -> DVector<f64> {
+    DVector::from_vec(vec![sensor.tilt_x, sensor.tilt_y])
+}
+
+fn unpack_scheimpflug(sensor: DVectorView<'_, f64>) -> Result<ScheimpflugParams> {
+    ensure!(
+        sensor.len() == 2,
+        "Scheimpflug sensor params require 2D vector, got {}",
+        sensor.len()
+    );
+    Ok(ScheimpflugParams {
+        tilt_x: sensor[0],
+        tilt_y: sensor[1],
+    })
 }
 
 /// Extract solution from backend result.
@@ -179,10 +209,16 @@ fn extract_solution(
         .ok_or_else(|| anyhow!("missing {} in solution", distance_name))?;
 
     let plane = LaserPlane::from_split_dvec(plane_normal.as_view(), plane_distance.as_view())?;
-    let camera = make_pinhole_camera(intrinsics, distortion);
+    let sensor = unpack_scheimpflug(
+        solution
+            .params
+            .get("sensor")
+            .ok_or_else(|| anyhow!("missing sensor in solution"))?
+            .as_view(),
+    )?;
 
     Ok(LaserlineEstimate {
-        params: LaserlineParams::new(camera, poses, plane)?,
+        params: LaserlineParams::new(intrinsics, distortion, sensor, poses, plane)?,
         report: solution.solve_report,
     })
 }
@@ -197,9 +233,11 @@ fn extract_solution(
 ///
 /// ```ignore
 /// use calib_optim::problems::laserline_bundle::*;
+/// use calib_core::ScheimpflugParams;
 ///
 /// let dataset = views;
-/// let initial = LaserlineParams::new(camera, poses, plane)?;
+/// let sensor = ScheimpflugParams::default(); // identity sensor
+/// let initial = LaserlineParams::new(intrinsics, distortion, sensor, poses, plane)?;
 /// let opts = LaserlineSolveOptions::default();
 /// let backend_opts = BackendSolveOptions::default();
 ///
@@ -258,7 +296,7 @@ fn build_laserline_ir(
     );
     initial_map.insert(
         "intrinsics".to_string(),
-        pack_intrinsics(&initial.camera.k)?,
+        pack_intrinsics(&initial.intrinsics)?,
     );
 
     // Add distortion parameter block
@@ -278,8 +316,18 @@ fn build_laserline_ir(
     );
     initial_map.insert(
         "distortion".to_string(),
-        pack_distortion(&initial.camera.dist),
+        pack_distortion(&initial.distortion),
     );
+
+    // Add sensor parameter block (Scheimpflug)
+    let sensor_fixed = if opts.fix_sensor {
+        FixedMask::all_fixed(2)
+    } else {
+        FixedMask::all_free()
+    };
+    let sensor_id =
+        ir.add_param_block("sensor", 2, ManifoldKind::Euclidean, sensor_fixed, None);
+    initial_map.insert("sensor".to_string(), pack_scheimpflug(&initial.sensor));
 
     // Add pose parameter blocks (one per view)
     let mut pose_ids = Vec::new();
@@ -334,9 +382,9 @@ fn build_laserline_ir(
         {
             let w = view.obs.weights.as_ref().map_or(1.0, |w| w[pt_idx]);
             ir.add_residual_block(ResidualBlock {
-                params: vec![intrinsics_id, distortion_id, pose_id],
+                params: vec![intrinsics_id, distortion_id, sensor_id, pose_id],
                 loss: opts.calib_loss,
-                factor: FactorKind::ReprojPointPinhole4Dist5 {
+                factor: FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 {
                     pw: [pt_3d.x, pt_3d.y, pt_3d.z],
                     uv: [pt_2d.x, pt_2d.y],
                     w,
@@ -365,6 +413,7 @@ fn build_laserline_ir(
                 params: vec![
                     intrinsics_id,
                     distortion_id,
+                    sensor_id,
                     pose_id,
                     normal_id,
                     distance_id,
@@ -382,7 +431,7 @@ fn build_laserline_ir(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::{BrownConrady5, CorrespondenceView, FxFyCxCySkew, Pt3};
+    use calib_core::{BrownConrady5, CorrespondenceView, FxFyCxCySkew, Pt3, ScheimpflugParams};
 
     #[test]
     fn ir_validation_catches_missing_param() {
@@ -413,10 +462,11 @@ mod tests {
             p2: 0.0,
             iters: 8,
         };
-        let camera = make_pinhole_camera(intrinsics, distortion);
         let poses = vec![Iso3::identity()];
         let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
-        let initial = LaserlineParams::new(camera, poses, plane).unwrap();
+        let initial =
+            LaserlineParams::new(intrinsics, distortion, ScheimpflugParams::default(), poses, plane)
+                .unwrap();
 
         let opts = LaserlineSolveOptions::default();
         let (ir, mut initial_map) = build_laserline_ir(&dataset, &initial, &opts).unwrap();
@@ -462,10 +512,11 @@ mod tests {
             p2: 0.0,
             iters: 8,
         };
-        let camera = make_pinhole_camera(intrinsics, distortion);
         let poses = vec![Iso3::identity()];
         let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
-        let initial = LaserlineParams::new(camera, poses, plane).unwrap();
+        let initial =
+            LaserlineParams::new(intrinsics, distortion, ScheimpflugParams::default(), poses, plane)
+                .unwrap();
 
         let opts = LaserlineSolveOptions::default();
         let (ir, _) = build_laserline_ir(&dataset, &initial, &opts).unwrap();

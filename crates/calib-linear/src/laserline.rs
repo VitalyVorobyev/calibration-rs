@@ -27,6 +27,7 @@
 use anyhow::Result;
 use calib_core::{
     BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt2, Pt3, Real,
+    SensorModel,
 };
 use nalgebra::{Point3, UnitVector3, Vector3};
 
@@ -173,10 +174,13 @@ impl LaserlinePlaneSolver {
     /// - At least 2 views with different poses
     /// - Total points across views >= 3
     /// - Views must be at sufficiently different angles to break collinearity
-    pub fn from_views(
+    pub fn from_views<Sm>(
         views: &[LaserlineView],
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
-    ) -> Result<LinearPlaneEstimate> {
+        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
+    ) -> Result<LinearPlaneEstimate>
+    where
+        Sm: SensorModel<Real>,
+    {
         if views.len() < 2 {
             anyhow::bail!(
                 "insufficient views: got {}, need at least {}",
@@ -216,10 +220,13 @@ impl LaserlinePlaneSolver {
         since = "0.2.0",
         note = "Single view produces collinear points. Use from_views() with multiple views."
     )]
-    pub fn from_view(
+    pub fn from_view<Sm>(
         view: &LaserlineView,
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
-    ) -> Result<LinearPlaneEstimate> {
+        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
+    ) -> Result<LinearPlaneEstimate>
+    where
+        Sm: SensorModel<Real>,
+    {
         if view.laser_pixels.is_empty() {
             anyhow::bail!("insufficient points: got 0, need at least 1");
         }
@@ -239,11 +246,14 @@ impl LaserlinePlaneSolver {
     /// 2. Transform ray to target frame (inverse of camera pose)
     /// 3. Intersect ray with target plane (Z=0)
     /// 4. Transform intersection point back to camera frame
-    fn compute_3d_points(
+    fn compute_3d_points<Sm>(
         laser_pixels: &[Pt2],
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
+        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
         camera_se3_target: &Iso3,
-    ) -> Result<Vec<Pt3>> {
+    ) -> Result<Vec<Pt3>>
+    where
+        Sm: SensorModel<Real>,
+    {
         let mut points_camera = Vec::with_capacity(laser_pixels.len());
 
         for pixel in laser_pixels {

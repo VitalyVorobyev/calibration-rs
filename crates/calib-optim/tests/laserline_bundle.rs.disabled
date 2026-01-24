@@ -2,7 +2,10 @@
 //!
 //! These tests verify end-to-end convergence with synthetic ground truth data.
 
-use calib_core::{BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt2, Pt3, View};
+use calib_core::{
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt2,
+    Pt3, ScheimpflugParams, View,
+};
 use calib_optim::backend::BackendSolveOptions;
 use calib_optim::params::laser_plane::LaserPlane;
 use calib_optim::problems::laserline_bundle::*;
@@ -11,6 +14,10 @@ use nalgebra::{Point3, Rotation3, Translation3, Vector3};
 #[test]
 fn synthetic_laserline_calibration_smoke_test() {
     // Ground truth camera (simple pinhole with moderate distortion)
+    let sensor_params_gt = ScheimpflugParams {
+        tilt_x: 0.015,
+        tilt_y: -0.01,
+    };
     let camera = Camera::new(
         Pinhole,
         BrownConrady5 {
@@ -21,7 +28,7 @@ fn synthetic_laserline_calibration_smoke_test() {
             p2: -0.001,
             iters: 8,
         },
-        IdentitySensor,
+        sensor_params_gt.compile(),
         FxFyCxCySkew {
             fx: 800.0,
             fy: 800.0,
@@ -174,12 +181,19 @@ fn synthetic_laserline_calibration_smoke_test() {
         laser_plane.distance * 1.1,
     );
 
-    let camera_init = Camera::new(Pinhole, distortion_init, IdentitySensor, intrinsics_init);
-    let initial = LaserlineParams::new(camera_init, poses_init, plane_init).unwrap();
+    let initial = LaserlineParams::new(
+        intrinsics_init,
+        distortion_init,
+        sensor_params_gt,
+        poses_init,
+        plane_init,
+    )
+    .unwrap();
 
     // Run optimization
     let opts = LaserlineSolveOptions {
         fix_k3: true,
+        fix_sensor: true,
         fix_poses: vec![0],
         ..Default::default()
     };
@@ -193,8 +207,8 @@ fn synthetic_laserline_calibration_smoke_test() {
     let result = optimize_laserline(&dataset, &initial, &opts, &backend_opts).unwrap();
 
     // Basic sanity checks (relaxed tolerances for smoke test)
-    let fx_error = (result.params.camera.k.fx - camera.k.fx).abs() / camera.k.fx;
-    let fy_error = (result.params.camera.k.fy - camera.k.fy).abs() / camera.k.fy;
+    let fx_error = (result.params.intrinsics.fx - camera.k.fx).abs() / camera.k.fx;
+    let fy_error = (result.params.intrinsics.fy - camera.k.fy).abs() / camera.k.fy;
 
     println!(
         "Intrinsics errors: fx={:.3}%, fy={:.3}%",
@@ -378,8 +392,14 @@ fn synthetic_laserline_line_dist_normalized_converges() {
         laser_plane.distance * 1.1,
     );
 
-    let camera_init = Camera::new(Pinhole, distortion_init, IdentitySensor, intrinsics_init);
-    let initial = LaserlineParams::new(camera_init, poses_init, plane_init).unwrap();
+    let initial = LaserlineParams::new(
+        intrinsics_init,
+        distortion_init,
+        ScheimpflugParams::default(),
+        poses_init,
+        plane_init,
+    )
+    .unwrap();
 
     // Use LineDistNormalized residual type
     let opts = LaserlineSolveOptions {
@@ -398,8 +418,8 @@ fn synthetic_laserline_line_dist_normalized_converges() {
     let result = optimize_laserline(&dataset, &initial, &opts, &backend_opts).unwrap();
 
     // Basic sanity checks (should converge as well as point-to-plane)
-    let fx_error = (result.params.camera.k.fx - camera.k.fx).abs() / camera.k.fx;
-    let fy_error = (result.params.camera.k.fy - camera.k.fy).abs() / camera.k.fy;
+    let fx_error = (result.params.intrinsics.fx - camera.k.fx).abs() / camera.k.fx;
+    let fy_error = (result.params.intrinsics.fy - camera.k.fy).abs() / camera.k.fy;
 
     println!(
         "LineDistNormalized - Intrinsics errors: fx={:.3}%, fy={:.3}%",
@@ -582,8 +602,14 @@ fn compare_point_plane_vs_line_dist() {
         laser_plane.distance * 1.1,
     );
 
-    let camera_init = Camera::new(Pinhole, distortion_init, IdentitySensor, intrinsics_init);
-    let initial = LaserlineParams::new(camera_init, poses_init, plane_init).unwrap();
+    let initial = LaserlineParams::new(
+        intrinsics_init,
+        distortion_init,
+        ScheimpflugParams::default(),
+        poses_init,
+        plane_init,
+    )
+    .unwrap();
 
     let backend_opts = BackendSolveOptions {
         max_iters: 50,
@@ -614,8 +640,8 @@ fn compare_point_plane_vs_line_dist() {
     // Compare results
     println!("\n=== Comparison: PointToPlane vs LineDistNormalized ===");
 
-    let fx_err_point = (result_point.params.camera.k.fx - camera.k.fx).abs() / camera.k.fx;
-    let fx_err_line = (result_line.params.camera.k.fx - camera.k.fx).abs() / camera.k.fx;
+    let fx_err_point = (result_point.params.intrinsics.fx - camera.k.fx).abs() / camera.k.fx;
+    let fx_err_line = (result_line.params.intrinsics.fx - camera.k.fx).abs() / camera.k.fx;
 
     println!(
         "fx error: PointToPlane={:.3}%, LineDistNormalized={:.3}%",
@@ -623,8 +649,8 @@ fn compare_point_plane_vs_line_dist() {
         fx_err_line * 100.0
     );
 
-    let fy_err_point = (result_point.params.camera.k.fy - camera.k.fy).abs() / camera.k.fy;
-    let fy_err_line = (result_line.params.camera.k.fy - camera.k.fy).abs() / camera.k.fy;
+    let fy_err_point = (result_point.params.intrinsics.fy - camera.k.fy).abs() / camera.k.fy;
+    let fy_err_line = (result_line.params.intrinsics.fy - camera.k.fy).abs() / camera.k.fy;
 
     println!(
         "fy error: PointToPlane={:.3}%, LineDistNormalized={:.3}%",

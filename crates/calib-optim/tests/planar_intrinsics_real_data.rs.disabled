@@ -9,11 +9,11 @@
 use calib_core::{
     test_utils::{pixel_from_normalized, undistort_pixel_normalized, CalibrationView},
     BrownConrady5, CorrespondenceView, DistortionFixMask, DistortionModel, FxFyCxCySkew,
-    IntrinsicsFixMask, Mat3, Pt2, Pt3, Real, Vec2,
+    IntrinsicsFixMask, Mat3, PlanarDataset, Pt2, Pt3, Real, Vec2,
 };
 use calib_linear::{HomographySolver, PlanarIntrinsicsLinearInit};
-use calib_optim::{optimize_planar_intrinsics, RobustLoss, PlanarDataset,
-    PlanarIntrinsicsInit, PlanarIntrinsicsSolveOptions,
+use calib_optim::{
+    optimize_planar_intrinsics, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RobustLoss,
 };
 use calib_optim::BackendSolveOptions;
 use nalgebra::Isometry3;
@@ -225,15 +225,15 @@ fn planar_intrinsics_real_data_improves_reprojection() {
 
         let dataset = PlanarDataset::new(nl_views.clone()).expect("planar dataset");
 
-        let init = PlanarIntrinsicsInit {
-            intrinsics: FxFyCxCySkew {
+        let init = PlanarIntrinsicsParams::new_from_components(
+            FxFyCxCySkew {
                 fx: linear_init.fx,
                 fy: linear_init.fy,
                 cx: linear_init.cx,
                 cy: linear_init.cy,
                 skew: 0.0,
             },
-            distortion: BrownConrady5 {
+            BrownConrady5 {
                 k1: 0.0,
                 k2: 0.0,
                 k3: 0.0,
@@ -241,12 +241,17 @@ fn planar_intrinsics_real_data_improves_reprojection() {
                 p2: 0.0,
                 iters: 8,
             }, // Start with zero distortion
-            poses: init_poses.clone(),
-        };
+            init_poses.clone(),
+        )
+        .unwrap();
 
         // Compute initial reprojection error
-        let (init_mean, init_max) =
-            compute_reprojection_error(&nl_views, &init.intrinsics, &init.distortion, &init_poses);
+        let (init_mean, init_max) = compute_reprojection_error(
+            &nl_views,
+            &init.camera.k,
+            &init.camera.dist,
+            &init_poses,
+        );
         println!(
             "Initial reprojection error: mean={:.3} px, max={:.3} px",
             init_mean, init_max
@@ -264,25 +269,28 @@ fn planar_intrinsics_real_data_improves_reprojection() {
             ..Default::default()
         };
 
-        let result = optimize_planar_intrinsics(&dataset, init, opts, backend_opts)
+        let result = optimize_planar_intrinsics(&dataset, &init, opts, backend_opts)
             .expect("optimization failed");
 
         println!(
             "Optimized: fx={:.2}, fy={:.2}, cx={:.2}, cy={:.2}",
-            result.camera.k.fx, result.camera.k.fy, result.camera.k.cx, result.camera.k.cy
+            result.params.camera.k.fx,
+            result.params.camera.k.fy,
+            result.params.camera.k.cx,
+            result.params.camera.k.cy
         );
         println!(
             "Distortion: k1={:.6}, k2={:.6}, k3={:.6}, p1={:.6}, p2={:.6}",
-            result.camera.dist.k1,
-            result.camera.dist.k2,
-            result.camera.dist.k3,
-            result.camera.dist.p1,
-            result.camera.dist.p2
+            result.params.camera.dist.k1,
+            result.params.camera.dist.k2,
+            result.params.camera.dist.k3,
+            result.params.camera.dist.p1,
+            result.params.camera.dist.p2
         );
 
         // Compute final reprojection error
-        let opt_intrinsics = result.camera.k;
-        let opt_distortion = result.camera.dist;
+        let opt_intrinsics = result.params.camera.k;
+        let opt_distortion = result.params.camera.dist;
 
         let (final_mean, final_max) =
             compute_reprojection_error(&nl_views, &opt_intrinsics, &opt_distortion, &result.poses);
@@ -389,15 +397,15 @@ fn planar_intrinsics_parameter_fixing_works() {
     // Test 1: Fix tangential distortion (p1, p2)
     println!("\nTest 1: Fixing tangential distortion (p1, p2)");
 
-    let init = PlanarIntrinsicsInit {
-        intrinsics: FxFyCxCySkew {
+    let init = PlanarIntrinsicsParams::new_from_components(
+        FxFyCxCySkew {
             fx: linear_init.fx,
             fy: linear_init.fy,
             cx: linear_init.cx,
             cy: linear_init.cy,
             skew: 0.0,
         },
-        distortion: BrownConrady5 {
+        BrownConrady5 {
             k1: 0.0,
             k2: 0.0,
             k3: 0.0,
@@ -405,8 +413,9 @@ fn planar_intrinsics_parameter_fixing_works() {
             p2: 0.0,
             iters: 8,
         },
-        poses: init_poses.clone(),
-    };
+        init_poses.clone(),
+    )
+    .unwrap();
 
     let opts = PlanarIntrinsicsSolveOptions {
         fix_distortion: DistortionFixMask {
@@ -419,38 +428,44 @@ fn planar_intrinsics_parameter_fixing_works() {
     };
 
     let result =
-        optimize_planar_intrinsics(&dataset, init, opts, BackendSolveOptions::default())
+        optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default())
             .expect("optimization with fixed p1, p2");
 
-    assert_eq!(result.camera.dist.p1, 0.0, "p1 should remain fixed at 0.0");
-    assert_eq!(result.camera.dist.p2, 0.0, "p2 should remain fixed at 0.0");
+    assert_eq!(
+        result.params.camera.dist.p1, 0.0,
+        "p1 should remain fixed at 0.0"
+    );
+    assert_eq!(
+        result.params.camera.dist.p2, 0.0,
+        "p2 should remain fixed at 0.0"
+    );
     println!(
         "✓ Tangential distortion stayed fixed: p1={}, p2={}",
-        result.camera.dist.p1, result.camera.dist.p2
+        result.params.camera.dist.p1, result.params.camera.dist.p2
     );
 
     // Radial should have changed
     assert!(
-        result.camera.dist.k1.abs() > 1e-6 || result.camera.dist.k2.abs() > 1e-6,
+        result.params.camera.dist.k1.abs() > 1e-6 || result.params.camera.dist.k2.abs() > 1e-6,
         "Radial distortion should be optimized"
     );
     println!(
         "✓ Radial distortion optimized: k1={:.6}, k2={:.6}",
-        result.camera.dist.k1, result.camera.dist.k2
+        result.params.camera.dist.k1, result.params.camera.dist.k2
     );
 
     // Test 2: Fix k3 (default behavior)
     println!("\nTest 2: Fixing k3 (default)");
 
-    let init2 = PlanarIntrinsicsInit {
-        intrinsics: FxFyCxCySkew {
+    let init2 = PlanarIntrinsicsParams::new_from_components(
+        FxFyCxCySkew {
             fx: linear_init.fx,
             fy: linear_init.fy,
             cx: linear_init.cx,
             cy: linear_init.cy,
             skew: 0.0,
         },
-        distortion: BrownConrady5 {
+        BrownConrady5 {
             k1: 0.0,
             k2: 0.0,
             k3: 0.0,
@@ -458,37 +473,37 @@ fn planar_intrinsics_parameter_fixing_works() {
             p2: 0.0,
             iters: 8,
         },
-        poses: init_poses.clone(),
-    };
+        init_poses.clone(),
+    )
+    .unwrap();
 
     let opts2 = PlanarIntrinsicsSolveOptions::default(); // fix_k3 is true by default
 
-    let result2 = optimize_planar_intrinsics(
-        &dataset,
-        init2,
-        opts2,
-        BackendSolveOptions::default(),
-    )
+    let result2 =
+        optimize_planar_intrinsics(&dataset, &init2, opts2, BackendSolveOptions::default())
     .expect("optimization with default k3 fixed");
 
-    assert_eq!(result2.camera.dist.k3, 0.0, "k3 should be fixed by default");
+    assert_eq!(
+        result2.params.camera.dist.k3, 0.0,
+        "k3 should be fixed by default"
+    );
     println!(
         "✓ k3 stayed fixed at default: k3={}",
-        result2.camera.dist.k3
+        result2.params.camera.dist.k3
     );
 
     // Test 3: Fix intrinsics, optimize only distortion
     println!("\nTest 3: Fixing intrinsics (fx, fy), optimizing distortion");
 
-    let init3 = PlanarIntrinsicsInit {
-        intrinsics: FxFyCxCySkew {
+    let init3 = PlanarIntrinsicsParams::new_from_components(
+        FxFyCxCySkew {
             fx: linear_init.fx,
             fy: linear_init.fy,
             cx: linear_init.cx,
             cy: linear_init.cy,
             skew: 0.0,
         },
-        distortion: BrownConrady5 {
+        BrownConrady5 {
             k1: 0.0,
             k2: 0.0,
             k3: 0.0,
@@ -496,8 +511,9 @@ fn planar_intrinsics_parameter_fixing_works() {
             p2: 0.0,
             iters: 8,
         },
-        poses: init_poses.clone(),
-    };
+        init_poses.clone(),
+    )
+    .unwrap();
 
     let opts3 = PlanarIntrinsicsSolveOptions {
         fix_intrinsics: IntrinsicsFixMask {
@@ -509,29 +525,25 @@ fn planar_intrinsics_parameter_fixing_works() {
         ..Default::default()
     };
 
-    let result3 = optimize_planar_intrinsics(
-        &dataset,
-        init3.clone(),
-        opts3,
-        BackendSolveOptions::default(),
-    )
+    let result3 =
+        optimize_planar_intrinsics(&dataset, &init3, opts3, BackendSolveOptions::default())
     .expect("optimization with fixed fx, fy");
 
     assert!(
-        (result3.camera.k.fx - init3.intrinsics.fx).abs() < 1e-6,
+        (result3.params.camera.k.fx - init3.camera.k.fx).abs() < 1e-6,
         "fx should remain fixed"
     );
     assert!(
-        (result3.camera.k.fy - init3.intrinsics.fy).abs() < 1e-6,
+        (result3.params.camera.k.fy - init3.camera.k.fy).abs() < 1e-6,
         "fy should remain fixed"
     );
     println!(
         "✓ Intrinsics stayed fixed: fx={:.2}, fy={:.2}",
-        result3.camera.k.fx, result3.camera.k.fy
+        result3.params.camera.k.fx, result3.params.camera.k.fy
     );
     println!(
         "✓ Distortion optimized: k1={:.6}, k2={:.6}",
-        result3.camera.dist.k1, result3.camera.dist.k2
+        result3.params.camera.dist.k1, result3.params.camera.dist.k2
     );
 
     println!("\n✓ All parameter fixing tests passed\n");
@@ -666,17 +678,18 @@ fn planar_intrinsics_with_iterative_linear_init() {
         let dataset = PlanarDataset::new(views_optim.clone()).expect("dataset");
 
         // Initialize from iterative result
-        let init = PlanarIntrinsicsInit {
-            intrinsics: FxFyCxCySkew {
+        let init = PlanarIntrinsicsParams::new_from_components(
+            FxFyCxCySkew {
                 fx: iter_result.intrinsics.fx,
                 fy: iter_result.intrinsics.fy,
                 cx: iter_result.intrinsics.cx,
                 cy: iter_result.intrinsics.cy,
                 skew: 0.0,
             },
-            distortion: iter_result.distortion,
-            poses: init_poses.clone(),
-        };
+            iter_result.distortion,
+            init_poses.clone(),
+        )
+        .unwrap();
 
         let optim_opts = PlanarIntrinsicsSolveOptions {
             robust_loss: RobustLoss::None,
@@ -689,24 +702,27 @@ fn planar_intrinsics_with_iterative_linear_init() {
             ..Default::default()
         };
 
-        let result = optimize_planar_intrinsics(&dataset, init, optim_opts, backend_opts)
+        let result = optimize_planar_intrinsics(&dataset, &init, optim_opts, backend_opts)
             .expect("optimization");
 
         println!(
             "  Final K: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-            result.camera.k.fx, result.camera.k.fy, result.camera.k.cx, result.camera.k.cy
+            result.params.camera.k.fx,
+            result.params.camera.k.fy,
+            result.params.camera.k.cx,
+            result.params.camera.k.cy
         );
         println!(
             "  Final distortion: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}",
-            result.camera.dist.k1,
-            result.camera.dist.k2,
-            result.camera.dist.p1,
-            result.camera.dist.p2
+            result.params.camera.dist.k1,
+            result.params.camera.dist.k2,
+            result.params.camera.dist.p1,
+            result.params.camera.dist.p2
         );
 
         // Step 3: Compute reprojection error
-        let opt_intrinsics = result.camera.k;
-        let opt_distortion_params = result.camera.dist;
+        let opt_intrinsics = result.params.camera.k;
+        let opt_distortion_params = result.params.camera.dist;
         let (mean_err, max_err) = compute_reprojection_error(
             &views_optim,
             &opt_intrinsics,
@@ -725,10 +741,10 @@ fn planar_intrinsics_with_iterative_linear_init() {
         let cx_gt = k_gt[(0, 2)];
         let cy_gt = k_gt[(1, 2)];
 
-        let fx_err_pct = (result.camera.k.fx - fx_gt).abs() / fx_gt * 100.0;
-        let fy_err_pct = (result.camera.k.fy - fy_gt).abs() / fy_gt * 100.0;
-        let cx_err = (result.camera.k.cx - cx_gt).abs();
-        let cy_err = (result.camera.k.cy - cy_gt).abs();
+        let fx_err_pct = (result.params.camera.k.fx - fx_gt).abs() / fx_gt * 100.0;
+        let fy_err_pct = (result.params.camera.k.fy - fy_gt).abs() / fy_gt * 100.0;
+        let cx_err = (result.params.camera.k.cx - cx_gt).abs();
+        let cy_err = (result.params.camera.k.cy - cy_gt).abs();
 
         println!(
             "  Final errors: fx={:.2}%, fy={:.2}%, cx={:.2}px, cy={:.2}px",
@@ -759,7 +775,7 @@ fn planar_intrinsics_with_iterative_linear_init() {
 
         // Distortion signs should match
         assert!(
-            result.camera.dist.k1.signum() == dist_gt.k1.signum(),
+            result.params.camera.dist.k1.signum() == dist_gt.k1.signum(),
             "{side}: k1 sign mismatch"
         );
 

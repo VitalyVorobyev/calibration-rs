@@ -5,6 +5,7 @@
 //! 1. Point-to-plane distance: ray-target intersection then distance to laser plane
 //! 2. Line-distance in normalized plane: projects laser-target line to normalized plane
 
+use crate::factors::reprojection_model::apply_scheimpflug_inverse_generic;
 use nalgebra::{DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector2, Vector3};
 
 /// Undistort a pixel to normalized coordinates using a fixed-point iteration.
@@ -13,13 +14,20 @@ use nalgebra::{DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vect
 fn undistort_pixel_to_normalized<T: RealField>(
     intr: DVectorView<'_, T>,
     dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
     laser_pixel: [f64; 2],
 ) -> (T, T) {
+    debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
+    debug_assert!(dist.len() >= 5, "distortion must have 5 params");
+    debug_assert!(sensor.len() >= 2, "sensor must have 2 params");
     // Extract intrinsics
     let fx = intr[0].clone();
     let fy = intr[1].clone();
     let cx = intr[2].clone();
     let cy = intr[3].clone();
+
+    let tau_x = sensor[0].clone();
+    let tau_y = sensor[1].clone();
 
     // Extract distortion
     let k1 = dist[0].clone();
@@ -31,9 +39,12 @@ fn undistort_pixel_to_normalized<T: RealField>(
     let u_px = T::from_f64(laser_pixel[0]).unwrap();
     let v_px = T::from_f64(laser_pixel[1]).unwrap();
 
-    // Distorted normalized coordinates
-    let x_d = (u_px - cx) / fx;
-    let y_d = (v_px - cy) / fy;
+    // Sensor-plane normalized coordinates
+    let x_s = (u_px - cx) / fx;
+    let y_s = (v_px - cy) / fy;
+
+    // Map back to distorted normalized plane using inverse Scheimpflug transform
+    let (x_d, y_d) = apply_scheimpflug_inverse_generic(x_s, y_s, tau_x, tau_y);
 
     // Fixed-point iteration to invert distortion
     let mut x_u = x_d.clone();
@@ -84,6 +95,7 @@ fn undistort_pixel_to_normalized<T: RealField>(
 pub(crate) fn laser_plane_pixel_residual_generic<T: RealField>(
     intr: DVectorView<'_, T>,
     dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
     pose: DVectorView<'_, T>,
     plane_normal: DVectorView<'_, T>,
     plane_distance: DVectorView<'_, T>,
@@ -92,6 +104,7 @@ pub(crate) fn laser_plane_pixel_residual_generic<T: RealField>(
 ) -> SVector<T, 1> {
     debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
     debug_assert!(dist.len() >= 5, "distortion must have 5 params");
+    debug_assert!(sensor.len() >= 2, "sensor must have 2 params");
     debug_assert!(pose.len() == 7, "pose must have 7 params (SE3)");
     debug_assert!(plane_normal.len() == 3, "plane normal must have 3 params");
     debug_assert!(
@@ -113,7 +126,7 @@ pub(crate) fn laser_plane_pixel_residual_generic<T: RealField>(
     let pose_t = Vector3::new(pose_tx, pose_ty, pose_tz);
 
     // 1. Undistort pixel to normalized coordinates
-    let (x_u, y_u) = undistort_pixel_to_normalized(intr, dist, laser_pixel);
+    let (x_u, y_u) = undistort_pixel_to_normalized(intr, dist, sensor, laser_pixel);
 
     // 2. Back-project to ray in camera frame (ray on z=1 plane)
     let ray_dir_camera = Vector3::new(x_u, y_u, T::one()).normalize();
@@ -279,6 +292,7 @@ fn project_line_to_normalized_plane<T: RealField>(
 pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
     intr: DVectorView<'_, T>,
     dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
     pose: DVectorView<'_, T>,
     plane_normal: DVectorView<'_, T>,
     plane_distance: DVectorView<'_, T>,
@@ -287,6 +301,7 @@ pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
 ) -> SVector<T, 1> {
     debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
     debug_assert!(dist.len() >= 5, "distortion must have 5 params");
+    debug_assert!(sensor.len() >= 2, "sensor must have 2 params");
     debug_assert!(pose.len() == 7, "pose must have 7 params (SE3)");
     debug_assert!(plane_normal.len() == 3, "plane normal must have 3 params");
     debug_assert!(
@@ -357,7 +372,7 @@ pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
     let (p0_norm, v_norm) = project_line_to_normalized_plane(&p0_3d, &v_3d_unit);
 
     // 5. Undistort laser pixel to normalized coordinates
-    let (x_u, y_u) = undistort_pixel_to_normalized(intr, dist, laser_pixel);
+    let (x_u, y_u) = undistort_pixel_to_normalized(intr, dist, sensor, laser_pixel);
 
     // 6. Compute perpendicular distance from pixel to line (2D geometry)
     // Line: p0_norm + t * v_norm
@@ -384,6 +399,7 @@ pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::factors::reprojection_model::apply_scheimpflug_generic;
     use nalgebra::DVector;
 
     #[test]
@@ -391,6 +407,7 @@ mod tests {
         // Simple smoke test: plane parallel to XY at z=0.5, pixel at center
         let intr = DVector::from_vec(vec![800.0, 800.0, 640.0, 360.0]);
         let dist = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 0.0]); // No distortion
+        let sensor = DVector::from_vec(vec![0.0, 0.0]); // Identity sensor
 
         // Identity pose (camera frame = target frame)
         let pose = DVector::from_vec(vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
@@ -406,6 +423,7 @@ mod tests {
         let residual = laser_plane_pixel_residual_generic(
             intr.as_view(),
             dist.as_view(),
+            sensor.as_view(),
             pose.as_view(),
             plane_normal.as_view(),
             plane_distance.as_view(),
@@ -427,6 +445,7 @@ mod tests {
         // Smoke test: laser plane intersecting with target plane
         let intr = DVector::from_vec(vec![800.0, 800.0, 640.0, 360.0]);
         let dist = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 0.0]); // No distortion
+        let sensor = DVector::from_vec(vec![0.0, 0.0]); // Identity sensor
 
         // Non-identity pose: camera looking at target from distance
         // Camera at (0, 0, 0.5), looking down at target at (0, 0, 0)
@@ -446,6 +465,7 @@ mod tests {
         let residual = laser_line_dist_normalized_generic(
             intr.as_view(),
             dist.as_view(),
+            sensor.as_view(),
             pose.as_view(),
             plane_normal.as_view(),
             plane_distance.as_view(),
@@ -473,12 +493,38 @@ mod tests {
     fn undistort_center_pixel_is_zero() {
         let intr = DVector::from_vec(vec![800.0, 800.0, 640.0, 360.0]);
         let dist = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 0.0]);
+        let sensor = DVector::from_vec(vec![0.0, 0.0]);
 
         let (x_u, y_u): (f64, f64) =
-            undistort_pixel_to_normalized(intr.as_view(), dist.as_view(), [640.0, 360.0]);
+            undistort_pixel_to_normalized(intr.as_view(), dist.as_view(), sensor.as_view(), [640.0, 360.0]);
 
         assert!(x_u.abs() < 1e-12_f64, "x_u should be 0 for principal point");
         assert!(y_u.abs() < 1e-12_f64, "y_u should be 0 for principal point");
+    }
+
+    #[test]
+    fn undistort_inverts_scheimpflug_for_zero_distortion() {
+        let intr = DVector::from_vec(vec![800.0, 820.0, 640.0, 360.0]);
+        let dist = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 0.0]);
+        let sensor = DVector::from_vec(vec![0.02, -0.01]);
+
+        let x_norm = 0.1_f64;
+        let y_norm = -0.05_f64;
+        let (x_sensor, y_sensor) = apply_scheimpflug_generic(
+            x_norm,
+            y_norm,
+            sensor[0],
+            sensor[1],
+        );
+
+        let u = intr[0] * x_sensor + intr[2];
+        let v = intr[1] * y_sensor + intr[3];
+
+        let (x_u, y_u): (f64, f64) =
+            undistort_pixel_to_normalized(intr.as_view(), dist.as_view(), sensor.as_view(), [u, v]);
+
+        assert!((x_u - x_norm).abs() < 1e-8, "x_u mismatch: {}", x_u);
+        assert!((y_u - y_norm).abs() < 1e-8, "y_u mismatch: {}", y_u);
     }
 
     #[test]

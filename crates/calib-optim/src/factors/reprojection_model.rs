@@ -241,7 +241,10 @@ pub(crate) fn reproj_residual_pinhole4_dist5_se3_generic<T: RealField>(
 ///
 /// This implements the OpenCV-compatible tilted sensor model using rotations
 /// around X and Y axes followed by z-normalization projection.
-fn tilt_projection_matrix_generic<T: RealField>(tau_x: T, tau_y: T) -> nalgebra::Matrix3<T> {
+pub(crate) fn tilt_projection_matrix_generic<T: RealField>(
+    tau_x: T,
+    tau_y: T,
+) -> nalgebra::Matrix3<T> {
     let s_tx = tau_x.clone().sin();
     let c_tx = tau_x.cos();
     let s_ty = tau_y.clone().sin();
@@ -292,7 +295,12 @@ fn tilt_projection_matrix_generic<T: RealField>(tau_x: T, tau_y: T) -> nalgebra:
 }
 
 /// Apply Scheimpflug sensor homography to normalized coordinates (generic for autodiff).
-fn apply_scheimpflug_generic<T: RealField>(x_norm: T, y_norm: T, tau_x: T, tau_y: T) -> (T, T) {
+pub(crate) fn apply_scheimpflug_generic<T: RealField>(
+    x_norm: T,
+    y_norm: T,
+    tau_x: T,
+    tau_y: T,
+) -> (T, T) {
     let h = tilt_projection_matrix_generic(tau_x, tau_y);
     let p = nalgebra::Vector3::new(x_norm, y_norm, T::one());
     let p_tilted = h * p;
@@ -306,6 +314,30 @@ fn apply_scheimpflug_generic<T: RealField>(x_norm: T, y_norm: T, tau_x: T, tau_y
         p_tilted.x.clone() / z_safe.clone(),
         p_tilted.y.clone() / z_safe,
     )
+}
+
+/// Apply inverse Scheimpflug sensor homography to sensor coordinates (generic for autodiff).
+///
+/// Maps sensor-plane normalized coordinates back to the normalized camera plane.
+pub(crate) fn apply_scheimpflug_inverse_generic<T: RealField>(
+    x_sensor: T,
+    y_sensor: T,
+    tau_x: T,
+    tau_y: T,
+) -> (T, T) {
+    let h = tilt_projection_matrix_generic(tau_x, tau_y);
+    let h_inv = match h.try_inverse() {
+        Some(inv) => inv,
+        None => return (x_sensor, y_sensor),
+    };
+    let p = h_inv * Vector3::new(x_sensor, y_sensor, T::one());
+    let eps = T::from_f64(1e-12).unwrap();
+    let z_safe = if p.z.clone().abs() > eps.clone() {
+        p.z.clone()
+    } else {
+        eps
+    };
+    (p.x / z_safe.clone(), p.y / z_safe)
 }
 
 /// Compute reprojection residual with Scheimpflug sensor, distortion, intrinsics, and SE3 pose.
