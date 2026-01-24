@@ -167,8 +167,8 @@ fn extract_solution(
         poses.push(se3_dvec_to_iso3(pose_vec.as_view())?);
     }
 
-    let normal_name = format!("plane_normal");
-    let distance_name = format!("plane_distance");
+    let normal_name = "plane_normal".to_owned();
+    let distance_name = "plane_distance".to_owned();
     let plane_normal = solution
         .params
         .get(&normal_name)
