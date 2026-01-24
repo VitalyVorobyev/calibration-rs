@@ -22,7 +22,8 @@ use anyhow::Result;
 use calib::prelude::*;
 use calib::single_cam_handeye::{
     step_handeye_init, step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,
-    HandeyeMeta, SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
+    HandeyeMeta, SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem,
+    SingleCamHandeyeView,
 };
 use chess_corners::ChessConfig;
 use std::io::{self, Write};
@@ -153,7 +154,12 @@ fn main() -> Result<()> {
     // Export and display final results
     println!("--- Final Results ---");
     let export = session.export()?;
+    print_final_result(&export);
 
+    Ok(())
+}
+
+fn print_final_result(export: &SingleCamHandeyeExport) {
     println!("Camera intrinsics:");
     println!("  fx = {:.2}", export.camera.k.fx);
     println!("  fy = {:.2}", export.camera.k.fy);
@@ -213,6 +219,4 @@ fn main() -> Result<()> {
             max_trans * 1000.0
         );
     }
-
-    Ok(())
 }

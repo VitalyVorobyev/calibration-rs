@@ -320,14 +320,18 @@ pub fn step_handeye_init(
         .iter()
         .map(|v| v.meta.base_se3_gripper)
         .collect();
-    let cam_target_poses = session
+    let cam_se3_target = session
         .state
         .optimized_target_poses
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no optimized target poses"))?;
 
+    // calib-linear expects `target_se3_camera` (camera -> target), while planar intrinsics
+    // produces `cam_se3_target` (target -> camera).
+    let target_se3_camera: Vec<Iso3> = cam_se3_target.iter().map(|t| t.inverse()).collect();
+
     // Linear hand-eye estimation
-    let handeye = match estimate_handeye_dlt(&robot_poses, &cam_target_poses, min_angle) {
+    let handeye = match estimate_handeye_dlt(&robot_poses, &target_se3_camera, min_angle) {
         Ok(h) => h,
         Err(e) => {
             session.log_failure("handeye_init", e.to_string());
@@ -341,13 +345,13 @@ pub fn step_handeye_init(
     let target_se3_base = match config.handeye_mode {
         calib_optim::HandEyeMode::EyeInHand => {
             // handeye = T_G_C, we need T_B_T = T_B_G * T_G_C * T_C_T
-            robot_poses[0] * handeye * cam_target_poses[0]
+            robot_poses[0] * handeye * cam_se3_target[0]
         }
         calib_optim::HandEyeMode::EyeToHand => {
             // For EyeToHand: handeye = T_C_B
             // T_G_T = T_G_B * T_B_C * T_C_T = robot^-1 * handeye^-1 * cam_target
             // But we want target_se3_gripper for this mode
-            handeye.inverse() * cam_target_poses[0]
+            handeye.inverse() * cam_se3_target[0]
         }
     };
 

@@ -654,7 +654,8 @@ mod tests {
     fn compute_reproj_error_matches_ground_truth_chain() {
         let camera = make_test_camera();
         let handeye = Iso3::identity(); // gripper and camera frames coincide
-        let target_in_base = Iso3::from_parts(Translation3::new(0.0, 0.0, 1.0), UnitQuaternion::identity());
+        let target_in_base =
+            Iso3::from_parts(Translation3::new(0.0, 0.0, 1.0), UnitQuaternion::identity());
 
         // Simple square target
         let board_pts = vec![
@@ -666,7 +667,10 @@ mod tests {
 
         let robot_poses = [
             Iso3::identity(),
-            Iso3::from_parts(Translation3::new(0.05, 0.0, 0.0), UnitQuaternion::identity()),
+            Iso3::from_parts(
+                Translation3::new(0.05, 0.0, 0.0),
+                UnitQuaternion::identity(),
+            ),
         ];
 
         let views: Vec<RigView<RobotPoseMeta>> = robot_poses

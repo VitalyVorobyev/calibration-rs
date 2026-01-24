@@ -553,16 +553,13 @@ pub fn step_handeye_init(
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no rig_se3_target from rig BA"))?;
 
-    // For hand-eye, we need rig poses (not target poses)
-    // rig_se3_target = T_R_T, so target_se3_rig = (T_R_T)^-1
-    // But for linear hand-eye we need "camera poses" which are actually rig poses here
-    // The linear solver expects: robot_poses (T_B_G) and cam_target_poses (T_C_T)
-    // In our case, cam = rig, so we use rig_se3_target directly
+    // calib-linear expects `target_se3_rig` (rig -> target), while the rig BA state
+    // stores `rig_se3_target` (target -> rig).
+    let target_se3_rig: Vec<Iso3> = rig_se3_target.iter().map(|t| t.inverse()).collect();
 
     // Linear hand-eye estimation
-    // Note: estimate_handeye_dlt expects cam_se3_target poses
-    // Since our "camera" is the rig, we use rig_se3_target
-    let handeye = match estimate_handeye_dlt(&robot_poses, &rig_se3_target, min_angle) {
+    // Note: estimate_handeye_dlt expects camera-to-target poses; here "camera" is the rig.
+    let handeye = match estimate_handeye_dlt(&robot_poses, &target_se3_rig, min_angle) {
         Ok(h) => h,
         Err(e) => {
             session.log_failure("handeye_init", e.to_string());
