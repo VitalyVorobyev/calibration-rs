@@ -8,7 +8,7 @@ This is the recommended crate for most users. It re-exports all sub-crates throu
 
 - **Stable API surface**: Public interface designed for compatibility
 - **Dual API design**: Session API for structured workflows, imperative API for custom workflows
-- **All problem types**: Planar intrinsics, hand-eye, rig extrinsics, linescan
+- **All problem types**: Planar intrinsics, hand-eye, rig extrinsics, laserline
 - **Prelude module**: Quick-start imports for common use cases
 
 ## Quick Start

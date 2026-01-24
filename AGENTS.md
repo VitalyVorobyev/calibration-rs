@@ -52,7 +52,7 @@ If you are an automated agent (Codex, etc.), follow these rules strictly.
 
 ### Goals
 
-* Reliable, end-to-end camera calibration for perspective and linescan sensors.
+* Reliable, end-to-end camera calibration for perspective cameras and laserline systems.
 * Clear separation between **initialisation**, **refinement**, and **pipeline orchestration**.
 * Pluggable optimization backends and robust estimation where needed.
 * JSON-serializable configs/inputs/outputs for reproducible runs.

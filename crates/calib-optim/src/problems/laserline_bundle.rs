@@ -1,4 +1,4 @@
-//! Linescan bundle adjustment: joint optimization of camera intrinsics, distortion,
+//! Laserline bundle adjustment: joint optimization of camera intrinsics, distortion,
 //! target poses, and laser plane parameters.
 //!
 //! This problem builder combines standard planar calibration observations (corners)
@@ -11,114 +11,58 @@ use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_D
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
-use calib_core::{make_pinhole_camera, CorrespondenceView, Iso3, PinholeCamera, Pt2, Pt3};
+use calib_core::{make_pinhole_camera, Iso3, PinholeCamera, Pt2, View};
 use nalgebra::DVector;
 use std::collections::HashMap;
 
-/// Observations for a single view with both calibration features and laser line.
+/// Metadata for a laserline view (laser pixels + optional weights).
 #[derive(Debug, Clone)]
-pub struct LinescanViewObs {
-    /// A single view containing 2D-3D point correspondences
-    pub target_view: CorrespondenceView,
-    /// Laser line pixel observations
+pub struct LaserlineMeta {
+    /// Laser line pixel observations.
     pub laser_pixels: Vec<Pt2>,
-    /// Per-point weights for laser observations
+    /// Optional per-pixel weights.
     pub laser_weights: Option<Vec<f64>>,
 }
 
-impl LinescanViewObs {
-    /// Create observations with calibration points and laser pixels.
-    pub fn new(
-        calib_points_3d: Vec<Pt3>,
-        calib_pixels: Vec<Pt2>,
-        laser_pixels: Vec<Pt2>,
-    ) -> Result<Self> {
+impl LaserlineMeta {
+    fn validate(&self) -> Result<()> {
         ensure!(
-            calib_points_3d.len() == calib_pixels.len(),
-            "calibration 3D / 2D point counts must match"
-        );
-        ensure!(
-            !laser_pixels.is_empty(),
+            !self.laser_pixels.is_empty(),
             "need at least one laser pixel observation"
         );
-        Ok(Self {
-            target_view: CorrespondenceView::new(calib_points_3d, calib_pixels)?,
-            laser_pixels,
-            laser_weights: None,
-        })
+        if let Some(weights) = &self.laser_weights {
+            ensure!(
+                weights.len() == self.laser_pixels.len(),
+                "laser weight count must match pixel count"
+            );
+            ensure!(
+                weights.iter().all(|w| *w >= 0.0),
+                "laser weights must be non-negative"
+            );
+        }
+        Ok(())
     }
 
-    /// Create observations with per-point weights.
-    pub fn new_with_weights(
-        calib_points_3d: Vec<Pt3>,
-        calib_pixels: Vec<Pt2>,
-        laser_pixels: Vec<Pt2>,
-        calib_weights: Vec<f64>,
-        laser_weights: Vec<f64>,
-    ) -> Result<Self> {
-        ensure!(
-            calib_points_3d.len() == calib_pixels.len(),
-            "calibration 3D / 2D point counts must match"
-        );
-        ensure!(
-            calib_weights.len() == calib_points_3d.len(),
-            "calibration weight count must match point count"
-        );
-        ensure!(
-            !laser_pixels.is_empty(),
-            "need at least one laser pixel observation"
-        );
-        ensure!(
-            laser_weights.len() == laser_pixels.len(),
-            "laser weight count must match pixel count"
-        );
-        ensure!(
-            calib_weights.iter().all(|w| *w >= 0.0),
-            "calibration weights must be non-negative"
-        );
-        ensure!(
-            laser_weights.iter().all(|w| *w >= 0.0),
-            "laser weights must be non-negative"
-        );
-        Ok(Self {
-            target_view: CorrespondenceView::new_with_weights(
-                calib_points_3d,
-                calib_pixels,
-                calib_weights,
-            )?,
-            laser_pixels,
-            laser_weights: Some(laser_weights),
-        })
-    }
-
-    pub fn num_calib_points(&self) -> usize {
-        self.target_view.points_3d.len()
-    }
-
-    pub fn num_laser_pixels(&self) -> usize {
-        self.laser_pixels.len()
-    }
-
-    pub fn calib_weight(&self, idx: usize) -> f64 {
-        self.target_view.weights.as_ref().map_or(1.0, |w| w[idx])
-    }
-
-    pub fn laser_weight(&self, idx: usize) -> f64 {
+    fn laser_weight(&self, idx: usize) -> f64 {
         self.laser_weights.as_ref().map_or(1.0, |w| w[idx])
     }
 }
 
-type LinescanDataset = Vec<LinescanViewObs>;
+/// A single view with calibration correspondences and laserline pixels.
+pub type LaserlineView = View<LaserlineMeta>;
 
-/// Initial values for linescan bundle adjustment.
+/// Dataset for laserline bundle adjustment.
+pub type LaserlineDataset = Vec<LaserlineView>;
+
+/// Initial values for laserline bundle adjustment.
 #[derive(Debug, Clone)]
-pub struct LinescanParams {
+pub struct LaserlineParams {
     pub camera: PinholeCamera,
     pub poses: Vec<Iso3>,
     pub plane: LaserPlane,
 }
 
-impl LinescanParams {
+impl LaserlineParams {
     pub fn new(camera: PinholeCamera, poses: Vec<Iso3>, plane: LaserPlane) -> Result<Self> {
         ensure!(!poses.is_empty(), "need at least one pose");
         Ok(Self {
@@ -129,16 +73,16 @@ impl LinescanParams {
     }
 }
 
-/// Result of linescan bundle adjustment.
+/// Result of laserline bundle adjustment.
 #[derive(Debug, Clone)]
-pub struct LinescanEstimate {
-    pub params: LinescanParams,
+pub struct LaserlineEstimate {
+    pub params: LaserlineParams,
     pub report: SolveReport,
 }
 
 /// Type of laser plane residual to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub enum LaserResidualType {
+pub enum LaserlineResidualType {
     /// Point-to-plane distance (original approach).
     ///
     /// Undistorts pixel, back-projects to 3D ray, intersects with target plane,
@@ -156,9 +100,9 @@ pub enum LaserResidualType {
     LineDistNormalized,
 }
 
-/// Solve options for linescan bundle adjustment.
+/// Solve options for laserline bundle adjustment.
 #[derive(Debug, Clone)]
-pub struct LinescanSolveOptions {
+pub struct LaserlineSolveOptions {
     /// Robust loss applied to calibration reprojection residuals
     pub calib_loss: RobustLoss,
     /// Robust loss applied to laser plane residuals
@@ -174,10 +118,10 @@ pub struct LinescanSolveOptions {
     /// Indices of planes to fix
     pub fix_plane: bool,
     /// Laser residual type: point-to-plane distance or line-distance in normalized plane
-    pub laser_residual_type: LaserResidualType,
+    pub laser_residual_type: LaserlineResidualType,
 }
 
-impl Default for LinescanSolveOptions {
+impl Default for LaserlineSolveOptions {
     fn default() -> Self {
         Self {
             calib_loss: RobustLoss::Huber { scale: 1.0 },
@@ -187,7 +131,7 @@ impl Default for LinescanSolveOptions {
             fix_k3: true,
             fix_poses: vec![0], // Fix first pose by default
             fix_plane: false,
-            laser_residual_type: LaserResidualType::LineDistNormalized, // New default
+            laser_residual_type: LaserlineResidualType::LineDistNormalized, // New default
         }
     }
 }
@@ -196,7 +140,7 @@ impl Default for LinescanSolveOptions {
 fn extract_solution(
     solution: crate::backend::BackendSolution,
     num_poses: usize,
-) -> Result<LinescanEstimate> {
+) -> Result<LaserlineEstimate> {
     let intrinsics = unpack_intrinsics(
         solution
             .params
@@ -237,13 +181,13 @@ fn extract_solution(
     let plane = LaserPlane::from_split_dvec(plane_normal.as_view(), plane_distance.as_view())?;
     let camera = make_pinhole_camera(intrinsics, distortion);
 
-    Ok(LinescanEstimate {
-        params: LinescanParams::new(camera, poses, plane)?,
+    Ok(LaserlineEstimate {
+        params: LaserlineParams::new(camera, poses, plane)?,
         report: solution.solve_report,
     })
 }
 
-/// Optimize linescan calibration with joint bundle adjustment.
+/// Optimize laserline calibration with joint bundle adjustment.
 ///
 /// This function jointly optimizes camera intrinsics, distortion parameters,
 /// camera-to-target poses, and laser plane parameters using both calibration
@@ -252,40 +196,49 @@ fn extract_solution(
 /// # Example
 ///
 /// ```ignore
-/// use calib_optim::problems::linescan_bundle::*;
+/// use calib_optim::problems::laserline_bundle::*;
 ///
-/// let dataset = LinescanDataset::new_single_plane(views)?;
-/// let initial = LinescanInit::new(intrinsics, distortion, poses, planes)?;
-/// let opts = LinescanSolveOptions::default();
+/// let dataset = views;
+/// let initial = LaserlineParams::new(camera, poses, plane)?;
+/// let opts = LaserlineSolveOptions::default();
 /// let backend_opts = BackendSolveOptions::default();
 ///
-/// let result = optimize_linescan(&dataset, &initial, &opts, &backend_opts)?;
-/// println!("Laser plane: normal={:?}, distance={}",
-///          result.planes[0].normal, result.planes[0].distance);
+/// let result = optimize_laserline(&dataset, &initial, &opts, &backend_opts)?;
+/// println!(
+///     "Laser plane: normal={:?}, distance={}",
+///     result.params.plane.normal,
+///     result.params.plane.distance
+/// );
 /// ```
-pub fn optimize_linescan(
-    dataset: &LinescanDataset,
-    initial: &LinescanParams,
-    opts: &LinescanSolveOptions,
+pub fn optimize_laserline(
+    dataset: &LaserlineDataset,
+    initial: &LaserlineParams,
+    opts: &LaserlineSolveOptions,
     backend_opts: &BackendSolveOptions,
-) -> Result<LinescanEstimate> {
-    let (ir, initial_map) = build_linescan_ir(dataset, initial, opts)?;
+) -> Result<LaserlineEstimate> {
+    let (ir, initial_map) = build_laserline_ir(dataset, initial, opts)?;
     let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, backend_opts)?;
     extract_solution(solution, dataset.len())
 }
 
-/// Build IR for linescan bundle adjustment.
-fn build_linescan_ir(
-    dataset: &LinescanDataset,
-    initial: &LinescanParams,
-    opts: &LinescanSolveOptions,
+/// Build IR for laserline bundle adjustment.
+fn build_laserline_ir(
+    dataset: &LaserlineDataset,
+    initial: &LaserlineParams,
+    opts: &LaserlineSolveOptions,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
+    ensure!(!dataset.is_empty(), "need at least one view");
     ensure!(
         dataset.len() == initial.poses.len(),
         "dataset has {} views but {} initial poses",
         dataset.len(),
         initial.poses.len()
     );
+    for (idx, view) in dataset.iter().enumerate() {
+        view.meta
+            .validate()
+            .map_err(|e| anyhow!("view {}: {}", idx, e))?;
+    }
 
     let mut ir = ProblemIR::new();
     let mut initial_map = HashMap::new();
@@ -373,13 +326,13 @@ fn build_linescan_ir(
 
         // Calibration reprojection residuals
         for (pt_idx, (pt_3d, pt_2d)) in view
-            .target_view
+            .obs
             .points_3d
             .iter()
-            .zip(&view.target_view.points_2d)
+            .zip(&view.obs.points_2d)
             .enumerate()
         {
-            let w = view.calib_weight(pt_idx);
+            let w = view.obs.weights.as_ref().map_or(1.0, |w| w[pt_idx]);
             ir.add_residual_block(ResidualBlock {
                 params: vec![intrinsics_id, distortion_id, pose_id],
                 loss: opts.calib_loss,
@@ -393,16 +346,16 @@ fn build_linescan_ir(
         }
 
         // Laser plane residuals (one per plane, typically just one)
-        for (laser_idx, laser_pixel) in view.laser_pixels.iter().enumerate() {
-            let w = view.laser_weight(laser_idx);
+        for (laser_idx, laser_pixel) in view.meta.laser_pixels.iter().enumerate() {
+            let w = view.meta.laser_weight(laser_idx);
 
             // Select factor type based on options
             let factor = match opts.laser_residual_type {
-                LaserResidualType::PointToPlane => FactorKind::LaserPlanePixel {
+                LaserlineResidualType::PointToPlane => FactorKind::LaserPlanePixel {
                     laser_pixel: [laser_pixel.x, laser_pixel.y],
                     w,
                 },
-                LaserResidualType::LineDistNormalized => FactorKind::LaserLineDist2D {
+                LaserlineResidualType::LineDistNormalized => FactorKind::LaserLineDist2D {
                     laser_pixel: [laser_pixel.x, laser_pixel.y],
                     w,
                 },
@@ -429,19 +382,21 @@ fn build_linescan_ir(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::{BrownConrady5, FxFyCxCySkew};
+    use calib_core::{BrownConrady5, CorrespondenceView, FxFyCxCySkew, Pt3};
 
     #[test]
     fn ir_validation_catches_missing_param() {
-        let dataset = vec![LinescanViewObs {
-            target_view: CorrespondenceView::new(
+        let dataset = vec![View::new(
+            CorrespondenceView::new(
                 vec![Pt3::new(0.0, 0.0, 0.0); 4],
                 vec![Pt2::new(100.0, 100.0); 4],
             )
             .unwrap(),
-            laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
-            laser_weights: None,
-        }];
+            LaserlineMeta {
+                laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
+                laser_weights: None,
+            },
+        )];
 
         let intrinsics = FxFyCxCySkew {
             fx: 800.0,
@@ -461,10 +416,10 @@ mod tests {
         let camera = make_pinhole_camera(intrinsics, distortion);
         let poses = vec![Iso3::identity()];
         let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
-        let initial = LinescanParams::new(camera, poses, plane).unwrap();
+        let initial = LaserlineParams::new(camera, poses, plane).unwrap();
 
-        let opts = LinescanSolveOptions::default();
-        let (ir, mut initial_map) = build_linescan_ir(&dataset, &initial, &opts).unwrap();
+        let opts = LaserlineSolveOptions::default();
+        let (ir, mut initial_map) = build_laserline_ir(&dataset, &initial, &opts).unwrap();
 
         // Remove intrinsics from initial values
         initial_map.remove("intrinsics");
@@ -478,17 +433,19 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: Fix after linescan pipeline integration"]
+    #[ignore = "TODO: Fix after laserline pipeline integration"]
     fn ir_uses_s2_for_plane_normal() {
-        let dataset = vec![LinescanViewObs {
-            target_view: CorrespondenceView::new(
+        let dataset = vec![View::new(
+            CorrespondenceView::new(
                 vec![Pt3::new(0.0, 0.0, 0.0); 4],
                 vec![Pt2::new(100.0, 100.0); 4],
             )
             .unwrap(),
-            laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
-            laser_weights: None,
-        }];
+            LaserlineMeta {
+                laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
+                laser_weights: None,
+            },
+        )];
 
         let intrinsics = FxFyCxCySkew {
             fx: 800.0,
@@ -508,13 +465,13 @@ mod tests {
         let camera = make_pinhole_camera(intrinsics, distortion);
         let poses = vec![Iso3::identity()];
         let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
-        let initial = LinescanParams::new(camera, poses, plane).unwrap();
+        let initial = LaserlineParams::new(camera, poses, plane).unwrap();
 
-        let opts = LinescanSolveOptions::default();
-        let (ir, _) = build_linescan_ir(&dataset, &initial, &opts).unwrap();
+        let opts = LaserlineSolveOptions::default();
+        let (ir, _) = build_laserline_ir(&dataset, &initial, &opts).unwrap();
 
-        let normal_id = ir.param_by_name("plane_0_normal").unwrap();
-        let distance_id = ir.param_by_name("plane_0_distance").unwrap();
+        let normal_id = ir.param_by_name("plane_normal").unwrap();
+        let distance_id = ir.param_by_name("plane_distance").unwrap();
 
         let normal_param = &ir.params[normal_id.0];
         let distance_param = &ir.params[distance_id.0];

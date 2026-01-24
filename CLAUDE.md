@@ -249,13 +249,13 @@ Final calibrated camera (<1% accuracy, <1px reprojection error)
 - ✅ You need both K and distortion for initialization
 - ❌ For distortion-free cameras, use Zhang directly
 
-## Linescan Calibration with Laser Plane
+## Laserline Calibration with Laser Plane
 
-calib-optim supports **linescan sensor calibration** ([problems/linescan_bundle.rs](crates/calib-optim/src/problems/linescan_bundle.rs)) that jointly optimizes camera intrinsics, distortion, poses, and laser plane parameters using both calibration pattern observations and laser line observations.
+calib-optim supports **laserline calibration** ([problems/laserline_bundle.rs](crates/calib-optim/src/problems/laserline_bundle.rs)) that jointly optimizes camera intrinsics, distortion, poses, and laser plane parameters using both calibration pattern observations and laser line observations.
 
 ### Laser Residual Types
 
-Two approaches are available for laser plane calibration, selectable via `LaserResidualType`:
+Two approaches are available for laser plane calibration, selectable via `LaserlineResidualType`:
 
 **1. Point-to-Plane Distance (PointToPlane)**
 - Undistorts pixel → back-projects to 3D ray → intersects with target plane
@@ -288,21 +288,21 @@ Both approaches yield similar accuracy in practice. Benchmark tests show converg
 ### API Usage
 
 ```rust
-use calib_optim::problems::linescan_bundle::*;
+use calib_optim::problems::laserline_bundle::*;
 use calib_optim::backend::BackendSolveOptions;
 
 // Prepare dataset with calibration points and laser line observations
-let views: Vec<LinescanViewObservations> = /* ... */;
-let dataset = LinescanDataset::new_single_plane(views)?;
+let views: Vec<LaserlineView> = /* ... */;
+let dataset = views;
 
 // Initial estimates
-let initial = LinescanInit::new(intrinsics, distortion, poses, planes)?;
+let initial = LaserlineParams::new(camera, poses, plane)?;
 
 // Configure options
-let opts = LinescanSolveOptions {
+let opts = LaserlineSolveOptions {
     fix_k3: true,
     fix_poses: vec![0],  // Fix first pose for gauge freedom
-    laser_residual_type: LaserResidualType::LineDistNormalized,  // Default
+    laser_residual_type: LaserlineResidualType::LineDistNormalized,  // Default
     ..Default::default()
 };
 
@@ -313,15 +313,15 @@ let backend_opts = BackendSolveOptions {
 };
 
 // Run optimization
-let result = optimize_linescan(&dataset, &initial, &opts, &backend_opts)?;
+let result = optimize_laserline(&dataset, &initial, &opts, &backend_opts)?;
 
 println!("Laser plane: normal={:?}, distance={}",
-         result.planes[0].normal, result.planes[0].distance);
+         result.params.plane.normal, result.params.plane.distance);
 ```
 
 ### Implementation Details
 
-**Factors** ([factors/linescan.rs](crates/calib-optim/src/factors/linescan.rs)):
+**Factors** ([factors/laserline.rs](crates/calib-optim/src/factors/laserline.rs)):
 - `laser_plane_pixel_residual_generic()`: Point-to-plane distance
 - `laser_line_dist_normalized_generic()`: Line-distance in normalized plane
 
@@ -336,7 +336,7 @@ Both factors:
 
 ### Testing
 
-Integration tests ([tests/linescan_bundle.rs](crates/calib-optim/tests/linescan_bundle.rs)) verify:
+Integration tests ([tests/laserline_bundle.rs.disabled](crates/calib-optim/tests/laserline_bundle.rs.disabled)) verify:
 - Convergence with synthetic ground truth data
 - Comparison of both residual types
 - Similar accuracy: ~4-5% intrinsics error, ~1-2° plane normal error

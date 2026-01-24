@@ -115,7 +115,7 @@ use calib::optim::planar_intrinsics::optimize_planar_intrinsics;
 | Hand-eye | Robot + camera calibration | `HandEyeSingleProblem` |
 | Rig extrinsics | Multi-camera rig calibration | `RigExtrinsicsProblem` |
 | Rig hand-eye | Robot + multi-camera rig | `RigHandEyeProblem` |
-| Linescan | Laser plane + camera calibration | `LinescanProblem` |
+| Laserline | Laser plane + camera calibration | `LaserlineProblem` |
 
 ## What's Next
 

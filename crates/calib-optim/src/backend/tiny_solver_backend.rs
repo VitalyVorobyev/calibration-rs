@@ -2,7 +2,7 @@ use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
 use crate::backend::{
     BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend, SolveReport,
 };
-use crate::factors::linescan::{
+use crate::factors::laserline::{
     laser_line_dist_normalized_generic, laser_plane_pixel_residual_generic,
 };
 use crate::factors::reprojection_model::{
