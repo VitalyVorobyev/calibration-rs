@@ -25,11 +25,10 @@
 
 use anyhow::{Context, Result};
 use calib_core::{
-    make_pinhole_camera, CameraFixMask, CorrespondenceView, Iso3, NoMeta, PlanarDataset, RigView,
-    RigViewObs, View,
+    CameraFixMask, CorrespondenceView, Iso3, NoMeta, PlanarDataset, RigView, RigViewObs, View,
 };
-use calib_linear::estimate_handeye_dlt;
 use calib_linear::prelude::*;
+use calib_linear::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use calib_optim::{
     optimize_handeye, optimize_planar_intrinsics, BackendSolveOptions, HandEyeDataset,
     HandEyeParams, HandEyeSolveOptions, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
@@ -185,8 +184,7 @@ pub fn step_intrinsics_init(
         .collect::<Result<Vec<_>>>()?;
 
     // Update state
-    session.state.initial_intrinsics = Some(camera.k);
-    session.state.initial_distortion = Some(camera.dist);
+    session.state.initial_camera = Some(camera.clone());
     session.state.initial_target_poses = Some(initial_poses);
 
     session.log_success_with_notes(
@@ -226,8 +224,11 @@ pub fn step_intrinsics_optimize(
     let config = &session.config;
 
     // Get initial estimates
-    let initial_intrinsics = session.state.initial_intrinsics.unwrap();
-    let initial_distortion = session.state.initial_distortion.unwrap_or_default();
+    let initial_camera = session
+        .state
+        .initial_camera
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("no initial camera"))?;
     let initial_poses = session
         .state
         .initial_target_poses
@@ -235,9 +236,8 @@ pub fn step_intrinsics_optimize(
         .ok_or_else(|| anyhow::anyhow!("no initial poses"))?;
 
     // Build initial params
-    let camera = make_pinhole_camera(initial_intrinsics, initial_distortion);
-    let initial_params =
-        PlanarIntrinsicsParams::new(camera, initial_poses).context("failed to build params")?;
+    let initial_params = PlanarIntrinsicsParams::new(initial_camera, initial_poses)
+        .context("failed to build params")?;
 
     // Convert to PlanarDataset
     let planar_dataset = input_to_planar_dataset(input)?;
@@ -326,42 +326,56 @@ pub fn step_handeye_init(
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no optimized target poses"))?;
 
-    // calib-linear expects `target_se3_camera` (camera -> target), while planar intrinsics
-    // produces `cam_se3_target` (target -> camera).
-    let target_se3_camera: Vec<Iso3> = cam_se3_target.iter().map(|t| t.inverse()).collect();
+    // Clear previous init results (allows re-running with a different mode)
+    session.state.initial_gripper_se3_camera = None;
+    session.state.initial_camera_se3_base = None;
+    session.state.initial_base_se3_target = None;
+    session.state.initial_gripper_se3_target = None;
 
-    // Linear hand-eye estimation
-    let handeye = match estimate_handeye_dlt(&robot_poses, &target_se3_camera, min_angle) {
-        Ok(h) => h,
-        Err(e) => {
-            session.log_failure("handeye_init", e.to_string());
-            return Err(e).context("linear hand-eye estimation failed");
-        }
-    };
-
-    // Estimate initial target pose in base frame
-    // For EyeInHand: T_B_T = T_B_G * T_G_C * T_C_T = base_se3_gripper * handeye * cam_target_pose
-    // Take the first view as reference
-    let target_se3_base = match config.handeye_mode {
+    let (log_pose, log_label) = match config.handeye_mode {
         calib_optim::HandEyeMode::EyeInHand => {
-            // handeye = T_G_C, we need T_B_T = T_B_G * T_G_C * T_C_T
-            robot_poses[0] * handeye * cam_se3_target[0]
+            // calib-linear expects `target_se3_camera` (camera -> target), while planar intrinsics
+            // produces `cam_se3_target` (target -> camera).
+            let target_se3_camera: Vec<Iso3> = cam_se3_target.iter().map(|t| t.inverse()).collect();
+
+            let gripper_se3_camera =
+                estimate_handeye_dlt(&robot_poses, &target_se3_camera, min_angle)
+                    .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
+                    .context("linear hand-eye estimation failed")?;
+
+            let base_se3_target = robot_poses[0] * gripper_se3_camera * cam_se3_target[0];
+
+            session.state.initial_gripper_se3_camera = Some(gripper_se3_camera);
+            session.state.initial_base_se3_target = Some(base_se3_target);
+
+            (gripper_se3_camera, "gripper_se3_camera")
         }
         calib_optim::HandEyeMode::EyeToHand => {
-            // For EyeToHand: handeye = T_C_B
-            // T_G_T = T_G_B * T_B_C * T_C_T = robot^-1 * handeye^-1 * cam_target
-            // But we want target_se3_gripper for this mode
-            handeye.inverse() * cam_se3_target[0]
+            // For EyeToHand, the target is attached to the gripper. Solve for the fixed
+            // gripper_se3_target (T_G_T) using relative motions, then recover camera_se3_base.
+            let gripper_se3_target =
+                estimate_gripper_se3_target_dlt(&robot_poses, &cam_se3_target, min_angle)
+                    .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
+                    .context("linear gripper->target estimation failed")?;
+
+            // T_C_T = T_C_B * T_B_G * T_G_T  =>  T_C_B = T_C_T * (T_B_G * T_G_T)^-1
+            let camera_se3_base =
+                cam_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse();
+
+            session.state.initial_camera_se3_base = Some(camera_se3_base);
+            session.state.initial_gripper_se3_target = Some(gripper_se3_target);
+
+            (camera_se3_base, "camera_se3_base")
         }
     };
-
-    // Update state
-    session.state.initial_handeye = Some(handeye);
-    session.state.initial_target_se3_base = Some(target_se3_base);
 
     session.log_success_with_notes(
         "handeye_init",
-        format!("translation_norm={:.4}m", handeye.translation.vector.norm()),
+        format!(
+            "{} |t|={:.4}m",
+            log_label,
+            log_pose.translation.vector.norm()
+        ),
     );
 
     Ok(())
@@ -402,14 +416,30 @@ pub fn step_handeye_optimize(
         .optimized_camera
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no optimized camera"))?;
-    let handeye = session
-        .state
-        .initial_handeye
-        .ok_or_else(|| anyhow::anyhow!("no initial handeye"))?;
-    let target_se3_base = session
-        .state
-        .initial_target_se3_base
-        .ok_or_else(|| anyhow::anyhow!("no initial target pose"))?;
+    let (handeye, target_pose) = match config.handeye_mode {
+        calib_optim::HandEyeMode::EyeInHand => {
+            let handeye = session
+                .state
+                .initial_gripper_se3_camera
+                .ok_or_else(|| anyhow::anyhow!("no initial gripper_se3_camera"))?;
+            let target_pose = session
+                .state
+                .initial_base_se3_target
+                .ok_or_else(|| anyhow::anyhow!("no initial base_se3_target"))?;
+            (handeye, target_pose)
+        }
+        calib_optim::HandEyeMode::EyeToHand => {
+            let handeye = session
+                .state
+                .initial_camera_se3_base
+                .ok_or_else(|| anyhow::anyhow!("no initial camera_se3_base"))?;
+            let target_pose = session
+                .state
+                .initial_gripper_se3_target
+                .ok_or_else(|| anyhow::anyhow!("no initial gripper_se3_target"))?;
+            (handeye, target_pose)
+        }
+    };
 
     // Build HandEyeDataset
     // For single camera: cam_to_rig is identity (camera IS the rig)
@@ -433,7 +463,7 @@ pub fn step_handeye_optimize(
         cameras: vec![camera],
         cam_to_rig: vec![Iso3::identity()], // Single cam = rig frame
         handeye,
-        target_poses: vec![target_se3_base],
+        target_poses: vec![target_pose],
     };
 
     // Configure solve options
@@ -579,7 +609,7 @@ mod tests {
         step_intrinsics_init(&mut session, None).unwrap();
 
         assert!(session.state.has_intrinsics_init());
-        let k = session.state.initial_intrinsics.unwrap();
+        let k = session.state.initial_camera.unwrap().k;
         // Check intrinsics are reasonable (within 20% of ground truth)
         assert!((k.fx - 800.0).abs() < 160.0);
         assert!((k.fy - 780.0).abs() < 160.0);

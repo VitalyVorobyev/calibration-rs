@@ -4,7 +4,7 @@
 //! the session API's `ProblemType` trait.
 
 use anyhow::{ensure, Result};
-use calib_core::{CorrespondenceView, Iso3, PinholeCamera, View};
+use calib_core::{Iso3, PinholeCamera, View};
 use calib_optim::{HandEyeEstimate, HandEyeMode, RobustLoss};
 use serde::{Deserialize, Serialize};
 
@@ -19,10 +19,8 @@ use super::state::SingleCamHandeyeState;
 /// Metadata for a single hand-eye view.
 ///
 /// `base_se3_gripper` is the gripper pose expressed in the base frame (T_B_G).
-/// The `robot_pose` alias is kept for backwards-compatible JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandeyeMeta {
-    #[serde(alias = "robot_pose")]
     pub base_se3_gripper: Iso3,
 }
 
@@ -30,54 +28,10 @@ pub struct HandeyeMeta {
 pub type SingleCamHandeyeView = View<HandeyeMeta>;
 
 /// Input for single-camera hand-eye calibration.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SingleCamHandeyeInput {
     /// Per-view observations with robot poses.
     pub views: Vec<SingleCamHandeyeView>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-enum SingleCamHandeyeViewCompat {
-    Current(SingleCamHandeyeView),
-    Legacy {
-        robot_pose: Iso3,
-        obs: CorrespondenceView,
-    },
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct SingleCamHandeyeInputCompat {
-    views: Vec<SingleCamHandeyeViewCompat>,
-}
-
-impl From<SingleCamHandeyeInputCompat> for SingleCamHandeyeInput {
-    fn from(value: SingleCamHandeyeInputCompat) -> Self {
-        let views = value
-            .views
-            .into_iter()
-            .map(|v| match v {
-                SingleCamHandeyeViewCompat::Current(v) => v,
-                SingleCamHandeyeViewCompat::Legacy { robot_pose, obs } => View::new(
-                    obs,
-                    HandeyeMeta {
-                        base_se3_gripper: robot_pose,
-                    },
-                ),
-            })
-            .collect();
-        Self { views }
-    }
-}
-
-impl<'de> Deserialize<'de> for SingleCamHandeyeInput {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let compat = SingleCamHandeyeInputCompat::deserialize(deserializer)?;
-        Ok(compat.into())
-    }
 }
 
 impl SingleCamHandeyeInput {
@@ -189,14 +143,28 @@ pub struct SingleCamHandeyeExport {
     /// Calibrated camera (intrinsics + distortion).
     pub camera: PinholeCamera,
 
-    /// Hand-eye transform.
-    /// For EyeInHand: gripper_se3_camera (T_G_C).
-    /// For EyeToHand: camera_se3_base (T_C_B).
-    pub handeye: Iso3,
+    /// Hand-eye mode used to interpret the transforms.
+    pub handeye_mode: HandEyeMode,
 
-    /// Target pose in base frame (single static target).
-    /// For EyeInHand: base_se3_target (T_B_T).
-    pub target_se3_base: Iso3,
+    /// Eye-in-hand: gripper_se3_camera (T_G_C).
+    ///
+    /// `None` for EyeToHand mode.
+    pub gripper_se3_camera: Option<Iso3>,
+
+    /// Eye-to-hand: camera_se3_base (T_C_B).
+    ///
+    /// `None` for EyeInHand mode.
+    pub camera_se3_base: Option<Iso3>,
+
+    /// Eye-in-hand: base_se3_target (T_B_T).
+    ///
+    /// `None` for EyeToHand mode.
+    pub base_se3_target: Option<Iso3>,
+
+    /// Eye-to-hand: gripper_se3_target (T_G_T).
+    ///
+    /// `None` for EyeInHand mode.
+    pub gripper_se3_target: Option<Iso3>,
 
     /// Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).
     /// Only present if robot refinement was enabled.
@@ -254,7 +222,7 @@ impl ProblemType for SingleCamHandeyeProblem {
     }
 
     fn schema_version() -> u32 {
-        1
+        2
     }
 
     fn validate_input(input: &Self::Input) -> Result<()> {
@@ -307,7 +275,7 @@ impl ProblemType for SingleCamHandeyeProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
+    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export> {
         // Extract the single camera (index 0 for single-cam setup)
         let camera = output
             .params
@@ -316,18 +284,31 @@ impl ProblemType for SingleCamHandeyeProblem {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("no camera in output"))?;
 
-        // Target pose (single target)
-        let target_se3_base = output
+        // Target pose (single fixed target pose; interpretation depends on mode)
+        let target_pose = output
             .params
             .target_poses
             .first()
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("no target pose in output"))?;
 
+        let (gripper_se3_camera, camera_se3_base, base_se3_target, gripper_se3_target) =
+            match config.handeye_mode {
+                HandEyeMode::EyeInHand => {
+                    (Some(output.params.handeye), None, Some(target_pose), None)
+                }
+                HandEyeMode::EyeToHand => {
+                    (None, Some(output.params.handeye), None, Some(target_pose))
+                }
+            };
+
         Ok(SingleCamHandeyeExport {
             camera,
-            handeye: output.params.handeye,
-            target_se3_base,
+            handeye_mode: config.handeye_mode,
+            gripper_se3_camera,
+            camera_se3_base,
+            base_se3_target,
+            gripper_se3_target,
             robot_deltas: output.robot_deltas.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
@@ -429,6 +410,6 @@ mod tests {
     #[test]
     fn problem_name_and_version() {
         assert_eq!(SingleCamHandeyeProblem::name(), "single_cam_handeye_v2");
-        assert_eq!(SingleCamHandeyeProblem::schema_version(), 1);
+        assert_eq!(SingleCamHandeyeProblem::schema_version(), 2);
     }
 }

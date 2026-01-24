@@ -3,7 +3,7 @@
 //! This module defines `SingleCamHandeyeState`, which holds intermediate results
 //! computed during the calibration pipeline.
 
-use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, PinholeCamera, Real};
+use calib_core::{Iso3, PinholeCamera};
 use serde::{Deserialize, Serialize};
 
 /// Intermediate state for single-camera hand-eye calibration.
@@ -18,11 +18,8 @@ pub struct SingleCamHandeyeState {
     // ─────────────────────────────────────────────────────────────────────────
     // From intrinsics initialization
     // ─────────────────────────────────────────────────────────────────────────
-    /// Initial intrinsics estimate (fx, fy, cx, cy, skew).
-    pub initial_intrinsics: Option<FxFyCxCySkew<Real>>,
-
-    /// Initial distortion estimate.
-    pub initial_distortion: Option<BrownConrady5<Real>>,
+    /// Initial camera estimate (intrinsics + distortion).
+    pub initial_camera: Option<PinholeCamera>,
 
     /// Initial target poses (cam_se3_target) per view from PnP.
     pub initial_target_poses: Option<Vec<Iso3>>,
@@ -42,13 +39,17 @@ pub struct SingleCamHandeyeState {
     // ─────────────────────────────────────────────────────────────────────────
     // From hand-eye initialization
     // ─────────────────────────────────────────────────────────────────────────
-    /// Initial hand-eye transform from linear estimation.
-    /// For EyeInHand: gripper_se3_camera (T_G_C).
-    /// For EyeToHand: camera_se3_base (T_C_B).
-    pub initial_handeye: Option<Iso3>,
+    /// Initial hand-eye transform (EyeInHand): gripper_se3_camera (T_G_C).
+    pub initial_gripper_se3_camera: Option<Iso3>,
 
-    /// Initial target pose in base frame (for EyeInHand: T_B_T).
-    pub initial_target_se3_base: Option<Iso3>,
+    /// Initial hand-eye transform (EyeToHand): camera_se3_base (T_C_B).
+    pub initial_camera_se3_base: Option<Iso3>,
+
+    /// Initial fixed target pose (EyeInHand): base_se3_target (T_B_T).
+    pub initial_base_se3_target: Option<Iso3>,
+
+    /// Initial fixed target pose (EyeToHand): gripper_se3_target (T_G_T).
+    pub initial_gripper_se3_target: Option<Iso3>,
 
     // ─────────────────────────────────────────────────────────────────────────
     // From hand-eye optimization (metrics only; result in output)
@@ -63,7 +64,7 @@ pub struct SingleCamHandeyeState {
 impl SingleCamHandeyeState {
     /// Check if intrinsics initialization has been run.
     pub fn has_intrinsics_init(&self) -> bool {
-        self.initial_intrinsics.is_some() && self.initial_target_poses.is_some()
+        self.initial_camera.is_some() && self.initial_target_poses.is_some()
     }
 
     /// Check if intrinsics optimization has been run.
@@ -73,7 +74,7 @@ impl SingleCamHandeyeState {
 
     /// Check if hand-eye initialization has been run.
     pub fn has_handeye_init(&self) -> bool {
-        self.initial_handeye.is_some()
+        self.initial_gripper_se3_camera.is_some() || self.initial_camera_se3_base.is_some()
     }
 
     /// Check if hand-eye optimization has been run.
@@ -83,8 +84,10 @@ impl SingleCamHandeyeState {
 
     /// Clear hand-eye results, keeping intrinsics.
     pub fn clear_handeye(&mut self) {
-        self.initial_handeye = None;
-        self.initial_target_se3_base = None;
+        self.initial_gripper_se3_camera = None;
+        self.initial_camera_se3_base = None;
+        self.initial_base_se3_target = None;
+        self.initial_gripper_se3_target = None;
         self.handeye_final_cost = None;
         self.handeye_reproj_error = None;
     }
@@ -98,6 +101,7 @@ impl SingleCamHandeyeState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use calib_core::{BrownConrady5, FxFyCxCySkew};
 
     #[test]
     fn default_state_not_initialized() {
@@ -110,22 +114,25 @@ mod tests {
 
     #[test]
     fn has_intrinsics_init_requires_both() {
-        let intrinsics = FxFyCxCySkew {
-            fx: 800.0,
-            fy: 800.0,
-            cx: 320.0,
-            cy: 240.0,
-            skew: 0.0,
-        };
+        let camera = calib_core::make_pinhole_camera(
+            FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            },
+            BrownConrady5::default(),
+        );
 
         let state = SingleCamHandeyeState {
-            initial_intrinsics: Some(intrinsics),
+            initial_camera: Some(camera.clone()),
             ..Default::default()
         };
         assert!(!state.has_intrinsics_init()); // missing poses
 
         let state = SingleCamHandeyeState {
-            initial_intrinsics: Some(intrinsics),
+            initial_camera: Some(camera),
             initial_target_poses: Some(vec![Iso3::identity()]),
             ..Default::default()
         };
@@ -134,18 +141,21 @@ mod tests {
 
     #[test]
     fn clear_handeye_keeps_intrinsics() {
-        let intrinsics = FxFyCxCySkew {
-            fx: 800.0,
-            fy: 800.0,
-            cx: 320.0,
-            cy: 240.0,
-            skew: 0.0,
-        };
+        let camera = calib_core::make_pinhole_camera(
+            FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            },
+            BrownConrady5::default(),
+        );
 
         let mut state = SingleCamHandeyeState {
-            initial_intrinsics: Some(intrinsics),
+            initial_camera: Some(camera),
             initial_target_poses: Some(vec![Iso3::identity()]),
-            initial_handeye: Some(Iso3::identity()),
+            initial_gripper_se3_camera: Some(Iso3::identity()),
             handeye_final_cost: Some(0.001),
             ..Default::default()
         };
@@ -160,24 +170,27 @@ mod tests {
     #[test]
     fn json_roundtrip() {
         let state = SingleCamHandeyeState {
-            initial_intrinsics: Some(FxFyCxCySkew {
-                fx: 800.0,
-                fy: 780.0,
-                cx: 320.0,
-                cy: 240.0,
-                skew: 0.0,
-            }),
-            initial_distortion: Some(BrownConrady5 {
-                k1: -0.1,
-                k2: 0.05,
-                k3: 0.0,
-                p1: 0.001,
-                p2: -0.001,
-                iters: 8,
-            }),
+            initial_camera: Some(calib_core::make_pinhole_camera(
+                FxFyCxCySkew {
+                    fx: 800.0,
+                    fy: 780.0,
+                    cx: 320.0,
+                    cy: 240.0,
+                    skew: 0.0,
+                },
+                BrownConrady5 {
+                    k1: -0.1,
+                    k2: 0.05,
+                    k3: 0.0,
+                    p1: 0.001,
+                    p2: -0.001,
+                    iters: 8,
+                },
+            )),
             initial_target_poses: Some(vec![Iso3::identity()]),
             handeye_final_cost: Some(0.001),
             handeye_reproj_error: Some(0.5),
+            initial_gripper_se3_camera: Some(Iso3::identity()),
             ..Default::default()
         };
 
@@ -186,6 +199,6 @@ mod tests {
 
         assert!(restored.has_intrinsics_init());
         assert!(restored.has_handeye_optimized());
-        assert_eq!(restored.initial_intrinsics.unwrap().fx, 800.0);
+        assert_eq!(restored.initial_camera.unwrap().k.fx, 800.0);
     }
 }

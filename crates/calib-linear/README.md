@@ -92,14 +92,19 @@ println!("Distortion: k1={}, k2={}", result.distortion.k1, result.distortion.k2)
 ### Hand-Eye Calibration
 
 ```rust
-use calib_linear::handeye::estimate_handeye_dlt;
+use calib_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use calib_core::Iso3;
 
-let robot_poses: Vec<Iso3> = /* from robot controller */;
-let camera_poses: Vec<Iso3> = /* from calibration */;
-let distance_weight = 1.0;
+let base_se3_gripper: Vec<Iso3> = /* T_B_G from robot controller */;
 
-let handeye = estimate_handeye_dlt(&robot_poses, &camera_poses, distance_weight)?;
+// EyeInHand: estimate gripper->camera from target->camera poses (T_T_C).
+let target_se3_camera: Vec<Iso3> = /* e.g. invert camera_se3_target (T_C_T) */;
+let min_angle_deg = 5.0;
+let gripper_se3_camera = estimate_handeye_dlt(&base_se3_gripper, &target_se3_camera, min_angle_deg)?;
+
+// EyeToHand: estimate gripper->target from camera->target poses (T_C_T).
+let camera_se3_target: Vec<Iso3> = /* from PnP / planar pose (T_C_T) */;
+let gripper_se3_target = estimate_gripper_se3_target_dlt(&base_se3_gripper, &camera_se3_target, min_angle_deg)?;
 # Ok::<(), anyhow::Error>(())
 ```
 

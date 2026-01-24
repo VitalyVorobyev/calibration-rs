@@ -29,6 +29,8 @@ use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+use crate::handeye_io::DatasetSummary;
+
 fn main() -> Result<()> {
     println!("=== Single-Camera Hand-Eye Calibration (KUKA Dataset) ===\n");
 
@@ -55,25 +57,12 @@ fn main() -> Result<()> {
         &chess_config,
         &board_params,
         |current, total| {
-            print!("\r  Processing image {}/{}...", current, total);
+            print!("\r  Processing image {current}/{total}...");
             io::stdout().flush().ok();
         },
     )?;
 
-    println!(
-        "\r  Processed {} images                ",
-        summary.total_images
-    );
-    println!(
-        "  Board: 17x28, square size {:.1}mm",
-        summary.square_size_m * 1000.0
-    );
-    println!(
-        "  Valid views: {} (skipped: {})",
-        summary.used_views, summary.skipped_views
-    );
-    println!("  Total corners: {}", summary.total_corners);
-    println!();
+    print_dataset_summary(&summary);
 
     if samples.len() < 3 {
         anyhow::bail!("Need at least 3 valid views, got {}", samples.len());
@@ -101,15 +90,14 @@ fn main() -> Result<()> {
     println!("--- Step 1: Intrinsics Initialization ---");
     step_intrinsics_init(&mut session, None)?;
 
-    let init_k = session.state.initial_intrinsics.as_ref().unwrap();
-    let init_dist = session.state.initial_distortion.as_ref().unwrap();
+    let init_cam = session.state.initial_camera.as_ref().unwrap();
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-        init_k.fx, init_k.fy, init_k.cx, init_k.cy
+        init_cam.k.fx, init_cam.k.fy, init_cam.k.cx, init_cam.k.cy
     );
     println!(
         "  Distortion: k1={:.4}, k2={:.4}, p1={:.5}, p2={:.5}",
-        init_dist.k1, init_dist.k2, init_dist.p1, init_dist.p2
+        init_cam.dist.k1, init_cam.dist.k2, init_cam.dist.p1, init_cam.dist.p2
     );
     println!();
 
@@ -134,8 +122,8 @@ fn main() -> Result<()> {
     println!("--- Step 3: Hand-Eye Initialization (Tsai-Lenz) ---");
     step_handeye_init(&mut session, None)?;
 
-    let init_he = session.state.initial_handeye.as_ref().unwrap();
-    let init_target = session.state.initial_target_se3_base.as_ref().unwrap();
+    let init_he = session.state.initial_gripper_se3_camera.as_ref().unwrap();
+    let init_target = session.state.initial_base_se3_target.as_ref().unwrap();
     println!("  Hand-eye |t|: {:.4}m", init_he.translation.vector.norm());
     println!(
         "  Target in base |t|: {:.4}m",
@@ -173,24 +161,56 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
     println!("  p1 = {:.6}", export.camera.dist.p1);
     println!("  p2 = {:.6}", export.camera.dist.p2);
 
-    println!("Hand-eye transform (gripper → camera):");
-    let he_t = export.handeye.translation.vector;
-    let he_q = export.handeye.rotation;
-    println!(
-        "  Translation: [{:.4}, {:.4}, {:.4}]m",
-        he_t.x, he_t.y, he_t.z
-    );
-    println!(
-        "  Rotation (quat): [{:.4}, {:.4}, {:.4}, {:.4}]",
-        he_q.i, he_q.j, he_q.k, he_q.w
-    );
+    match export.handeye_mode {
+        HandEyeMode::EyeInHand => {
+            let he = export
+                .gripper_se3_camera
+                .expect("missing gripper_se3_camera");
+            println!("Hand-eye transform (gripper → camera):");
+            let he_t = he.translation.vector;
+            let he_q = he.rotation;
+            println!(
+                "  Translation: [{:.4}, {:.4}, {:.4}]m",
+                he_t.x, he_t.y, he_t.z
+            );
+            println!(
+                "  Rotation (quat): [{:.4}, {:.4}, {:.4}, {:.4}]",
+                he_q.i, he_q.j, he_q.k, he_q.w
+            );
 
-    println!("Target pose in base frame:");
-    let target_t = export.target_se3_base.translation.vector;
-    println!(
-        "  Translation: [{:.4}, {:.4}, {:.4}]m",
-        target_t.x, target_t.y, target_t.z
-    );
+            let target = export.base_se3_target.expect("missing base_se3_target");
+            println!("Target pose in base frame:");
+            let target_t = target.translation.vector;
+            println!(
+                "  Translation: [{:.4}, {:.4}, {:.4}]m",
+                target_t.x, target_t.y, target_t.z
+            );
+        }
+        HandEyeMode::EyeToHand => {
+            let he = export.camera_se3_base.expect("missing camera_se3_base");
+            println!("Hand-eye transform (camera → base):");
+            let he_t = he.translation.vector;
+            let he_q = he.rotation;
+            println!(
+                "  Translation: [{:.4}, {:.4}, {:.4}]m",
+                he_t.x, he_t.y, he_t.z
+            );
+            println!(
+                "  Rotation (quat): [{:.4}, {:.4}, {:.4}, {:.4}]",
+                he_q.i, he_q.j, he_q.k, he_q.w
+            );
+
+            let target = export
+                .gripper_se3_target
+                .expect("missing gripper_se3_target");
+            println!("Target pose in gripper frame:");
+            let target_t = target.translation.vector;
+            println!(
+                "  Translation: [{:.4}, {:.4}, {:.4}]m",
+                target_t.x, target_t.y, target_t.z
+            );
+        }
+    }
 
     println!("Reprojection error:");
     println!("  Mean: {:.4} px", export.mean_reproj_error);
@@ -219,4 +239,21 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
             max_trans * 1000.0
         );
     }
+}
+
+fn print_dataset_summary(summary: &DatasetSummary) {
+    println!(
+        "\r  Processed {} images                ",
+        summary.total_images
+    );
+    println!(
+        "  Board: 17x28, square size {:.1}mm",
+        summary.square_size_m * 1000.0
+    );
+    println!(
+        "  Valid views: {} (skipped: {})",
+        summary.used_views, summary.skipped_views
+    );
+    println!("  Total corners: {}", summary.total_corners);
+    println!();
 }

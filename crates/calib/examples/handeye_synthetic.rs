@@ -118,7 +118,7 @@ fn main() -> Result<()> {
     // Step 1: Intrinsics initialization
     println!("--- Step 1: Intrinsics Initialization ---");
     step_intrinsics_init(&mut session, None)?;
-    let init_k = session.state.initial_intrinsics.as_ref().unwrap();
+    let init_k = &session.state.initial_camera.as_ref().unwrap().k;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         init_k.fx, init_k.fy, init_k.cx, init_k.cy
@@ -150,7 +150,7 @@ fn main() -> Result<()> {
     // If results diverge, try adding more poses with varied rotation axes.
     println!("--- Step 3: Hand-Eye Initialization ---");
     step_handeye_init(&mut session, None)?;
-    let init_he = session.state.initial_handeye.as_ref().unwrap();
+    let init_he = session.state.initial_gripper_se3_camera.as_ref().unwrap();
     let init_he_t = init_he.translation.vector.norm();
     println!(
         "  Hand-eye |t|: {:.4}m (GT: {:.4}m)",
@@ -206,7 +206,7 @@ fn main() -> Result<()> {
     println!("  k2: {:.5} (GT: 0)", final_d.k2);
 
     println!("Hand-eye transform:");
-    let he_t = export.handeye.translation.vector.norm();
+    let he_t = export.gripper_se3_camera.unwrap().translation.vector.norm();
     let he_gt_t = handeye_gt.translation.vector.norm();
     println!(
         "  |t|: {:.4}m (GT: {:.4}m, err: {:.2}%)",

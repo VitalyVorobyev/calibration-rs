@@ -547,7 +547,28 @@ step_handeye_init(&mut session, None)?;        // Tsai-Lenz linear
 step_handeye_optimize(&mut session, None)?;    // Hand-eye BA
 
 let export = session.export()?;
-println!("Hand-eye: {:?}", export.handeye);
+match export.handeye_mode {
+    HandEyeMode::EyeInHand => {
+        println!(
+            "gripper_se3_camera: {:?}",
+            export.gripper_se3_camera.expect("missing gripper_se3_camera")
+        );
+        println!(
+            "base_se3_target: {:?}",
+            export.base_se3_target.expect("missing base_se3_target")
+        );
+    }
+    HandEyeMode::EyeToHand => {
+        println!(
+            "camera_se3_base: {:?}",
+            export.camera_se3_base.expect("missing camera_se3_base")
+        );
+        println!(
+            "gripper_se3_target: {:?}",
+            export.gripper_se3_target.expect("missing gripper_se3_target")
+        );
+    }
+}
 println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 ```
 

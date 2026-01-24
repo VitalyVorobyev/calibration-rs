@@ -9,8 +9,8 @@ use calib_core::{
     PlanarDataset, View,
 };
 use calib_linear::estimate_extrinsics_from_cam_target_poses;
-use calib_linear::estimate_handeye_dlt;
 use calib_linear::prelude::*;
+use calib_linear::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use calib_optim::{
     optimize_handeye, optimize_planar_intrinsics, optimize_rig_extrinsics, BackendSolveOptions,
     HandEyeDataset, HandEyeParams, HandEyeSolveOptions, PlanarIntrinsicsParams,
@@ -553,35 +553,38 @@ pub fn step_handeye_init(
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no rig_se3_target from rig BA"))?;
 
-    // calib-linear expects `target_se3_rig` (rig -> target), while the rig BA state
-    // stores `rig_se3_target` (target -> rig).
-    let target_se3_rig: Vec<Iso3> = rig_se3_target.iter().map(|t| t.inverse()).collect();
-
-    // Linear hand-eye estimation
-    // Note: estimate_handeye_dlt expects camera-to-target poses; here "camera" is the rig.
-    let handeye = match estimate_handeye_dlt(&robot_poses, &target_se3_rig, min_angle) {
-        Ok(h) => h,
-        Err(e) => {
-            session.log_failure("handeye_init", e.to_string());
-            return Err(e).context("linear hand-eye estimation failed");
-        }
-    };
-
-    // Estimate initial target pose in base frame
-    // For EyeInHand: T_B_T = T_B_G * T_G_R * T_R_T = base_se3_gripper * handeye * rig_se3_target
-    let target_se3_base = match config.handeye_mode {
+    let (handeye, target_se3_base) = match config.handeye_mode {
         calib_optim::HandEyeMode::EyeInHand => {
-            // handeye = T_G_R, we need T_B_T = T_B_G * T_G_R * T_R_T
-            robot_poses[0] * handeye * rig_se3_target[0]
+            // calib-linear expects `target_se3_rig` (rig -> target), while the rig BA state
+            // stores `rig_se3_target` (target -> rig).
+            let target_se3_rig: Vec<Iso3> = rig_se3_target.iter().map(|t| t.inverse()).collect();
+
+            // Note: estimate_handeye_dlt expects `target_se3_camera`; here "camera" is the rig.
+            let gripper_se3_rig = estimate_handeye_dlt(&robot_poses, &target_se3_rig, min_angle)
+                .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
+                .context("linear hand-eye estimation failed")?;
+
+            // base_se3_target = base_se3_gripper * gripper_se3_rig * rig_se3_target
+            let base_se3_target = robot_poses[0] * gripper_se3_rig * rig_se3_target[0];
+
+            (gripper_se3_rig, base_se3_target)
         }
         calib_optim::HandEyeMode::EyeToHand => {
-            // For EyeToHand: handeye = T_R_B (rig in base frame, camera is fixed)
-            // T_B_T = T_B_R * T_R_T = handeye^-1 * rig_se3_target
-            handeye.inverse() * rig_se3_target[0]
+            // For EyeToHand, the target is attached to the gripper. Solve for the fixed
+            // gripper_se3_target (T_G_T) using relative motions, then recover rig_se3_base.
+            let gripper_se3_target =
+                estimate_gripper_se3_target_dlt(&robot_poses, &rig_se3_target, min_angle)
+                    .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
+                    .context("linear gripper->target estimation failed")?;
+
+            // T_R_T = T_R_B * T_B_G * T_G_T  =>  T_R_B = T_R_T * (T_B_G * T_G_T)^-1
+            let rig_se3_base = rig_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse();
+
+            // Legacy field name: `initial_target_se3_base` stores `gripper_se3_target` for EyeToHand.
+            (rig_se3_base, gripper_se3_target)
         }
     };
 
-    // Update state
     session.state.initial_handeye = Some(handeye);
     session.state.initial_target_se3_base = Some(target_se3_base);
 
