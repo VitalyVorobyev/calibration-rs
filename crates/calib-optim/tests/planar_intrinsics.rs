@@ -1,6 +1,6 @@
 use calib_core::{
     make_pinhole_camera, BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew,
-    IntrinsicsFixMask, Iso3, PinholeCamera, PlanarDataset, Pt2, Pt3, Real, Vec2,
+    IntrinsicsFixMask, Iso3, PinholeCamera, PlanarDataset, Pt2, Pt3, Real, View,
 };
 use calib_optim::{
     optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsParams,
@@ -62,7 +62,7 @@ fn build_synthetic_scenario(noise_amplitude: f64) -> SyntheticScenario {
         for (pt_idx, pw) in board_points.iter().enumerate() {
             let p_cam = pose.transform_point(pw);
             let proj = cam_gt.project_point(&p_cam).unwrap();
-            let mut coords = Pt2::new(proj.x, proj.y).coords;
+            let mut coords = Pt2::new(proj.x, proj.y);
 
             if noise_amplitude > 0.0 {
                 let sign = if (view_idx + pt_idx) % 2 == 0 {
@@ -78,7 +78,9 @@ fn build_synthetic_scenario(noise_amplitude: f64) -> SyntheticScenario {
             img_points.push(coords);
         }
 
-        views.push(CorrespondenceView::new(board_points.clone(), img_points).unwrap());
+        views.push(View::without_meta(
+            CorrespondenceView::new(board_points.clone(), img_points).unwrap(),
+        ));
     }
 
     let dataset = PlanarDataset::new(views).unwrap();
@@ -177,7 +179,7 @@ fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
         for (pt_idx, pw) in board_points.iter().enumerate() {
             let p_cam = pose.transform_point(pw);
             let proj = cam_gt.project_point(&p_cam).unwrap();
-            let mut coords = Pt2::new(proj.x, proj.y).coords;
+            let mut coords = Pt2::new(proj.x, proj.y);
 
             if pt_idx % outlier_stride == 0 {
                 coords.x += outlier_offset;
@@ -187,7 +189,9 @@ fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
             img_points.push(coords);
         }
 
-        views.push(CorrespondenceView::new(board_points.clone(), img_points).unwrap());
+        views.push(View::without_meta(
+            CorrespondenceView::new(board_points.clone(), img_points).unwrap(),
+        ));
     }
 
     let dataset = PlanarDataset::new(views).unwrap();
@@ -316,13 +320,15 @@ fn synthetic_planar_with_distortion_converges() {
             let pc = pose.transform_point(pw).coords;
             if pc.z > 0.1 {
                 if let Some(uv) = cam_gt.project_point_c(&pc) {
-                    points_2d.push(Vec2::new(uv.x, uv.y));
+                    points_2d.push(Pt2::new(uv.x, uv.y));
                     points_3d.push(*pw);
                 }
             }
         }
 
-        views.push(CorrespondenceView::new(points_3d, points_2d).unwrap());
+        views.push(View::without_meta(
+            CorrespondenceView::new(points_3d, points_2d).unwrap(),
+        ));
     }
 
     let dataset = PlanarDataset::new(views).unwrap();
@@ -457,13 +463,15 @@ fn distortion_parameter_masking_works() {
             let pc = pose.transform_point(pw).coords;
             if pc.z > 0.1 {
                 if let Some(uv) = cam_gt.project_point_c(&pc) {
-                    points_2d.push(Vec2::new(uv.x, uv.y));
+                    points_2d.push(Pt2::new(uv.x, uv.y));
                     points_3d.push(*pw);
                 }
             }
         }
 
-        views.push(CorrespondenceView::new(points_3d, points_2d).unwrap());
+        views.push(View::without_meta(
+            CorrespondenceView::new(points_3d, points_2d).unwrap(),
+        ));
     }
 
     let dataset = PlanarDataset::new(views).unwrap();

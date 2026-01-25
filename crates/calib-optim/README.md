@@ -144,7 +144,7 @@ cargo test --package calib-optim --test planar_intrinsics_real_data
 Other useful tests:
 - `cargo test --package calib-optim --test rig_extrinsics`
 - `cargo test --package calib-optim --test handeye`
-- `tests/laserline_bundle.rs.disabled` (synthetic laserline bundle integration test; rename to `.rs` to enable)
+- `cargo test --package calib-optim --test laserline_bundle`
 
 ## Implementation Status
 
@@ -186,7 +186,7 @@ Integration tests with full examples:
 - [`tests/planar_intrinsics_real_data.rs`](tests/planar_intrinsics_real_data.rs)
 - [`tests/rig_extrinsics.rs`](tests/rig_extrinsics.rs)
 - [`tests/handeye.rs`](tests/handeye.rs)
-- [`tests/laserline_bundle.rs.disabled`](tests/laserline_bundle.rs.disabled)
+- [`tests/laserline_bundle.rs`](tests/laserline_bundle.rs)
 
 ## See Also
 

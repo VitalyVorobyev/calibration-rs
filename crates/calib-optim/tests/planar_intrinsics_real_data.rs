@@ -9,13 +9,16 @@
 use calib_core::{
     test_utils::{pixel_from_normalized, undistort_pixel_normalized, CalibrationView},
     BrownConrady5, CorrespondenceView, DistortionFixMask, DistortionModel, FxFyCxCySkew,
-    IntrinsicsFixMask, Mat3, PlanarDataset, Pt2, Pt3, Real, Vec2,
+    IntrinsicsFixMask, Mat3, NoMeta, PlanarDataset, Pt2, Pt3, Real, View,
 };
-use calib_linear::{HomographySolver, PlanarIntrinsicsLinearInit};
+use calib_linear::{
+    estimate_intrinsics_iterative, DistortionFitOptions, HomographySolver,
+    IterativeIntrinsicsOptions, PlanarIntrinsicsLinearInit,
+};
+use calib_optim::BackendSolveOptions;
 use calib_optim::{
     optimize_planar_intrinsics, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RobustLoss,
 };
-use calib_optim::BackendSolveOptions;
 use nalgebra::Isometry3;
 use serde::Deserialize;
 use std::fs;
@@ -88,7 +91,7 @@ fn board_point_3d(i: usize, j: usize, square: Real) -> Pt3 {
 
 /// Compute reprojection error for a set of observations.
 fn compute_reprojection_error(
-    views: &[CorrespondenceView],
+    views: &[View<NoMeta>],
     intrinsics: &FxFyCxCySkew<Real>,
     distortion: &BrownConrady5<Real>,
     poses: &[Isometry3<Real>],
@@ -96,7 +99,8 @@ fn compute_reprojection_error(
     let mut errors = Vec::new();
 
     for (view, pose) in views.iter().zip(poses.iter()) {
-        for (pw, uv) in view.points_3d.iter().zip(&view.points_2d) {
+        let obs = &view.obs;
+        for (pw, uv) in obs.points_3d.iter().zip(&obs.points_2d) {
             // Transform to camera frame
             let pc = pose.transform_point(&nalgebra::Point3::new(pw.x, pw.y, pw.z));
 
@@ -108,7 +112,7 @@ fn compute_reprojection_error(
             let y_norm = pc.y / pc.z;
 
             // Apply distortion
-            let distorted = distortion.distort(&Vec2::new(x_norm, y_norm));
+            let distorted = distortion.distort(&Pt2::new(x_norm, y_norm));
 
             // Apply intrinsics
             let u_proj =
@@ -217,9 +221,11 @@ fn planar_intrinsics_real_data_improves_reprojection() {
                 })
                 .collect();
 
-            let points_2d: Vec<Vec2> = undist_pixels.iter().map(|p| Vec2::new(p.x, p.y)).collect();
+            let points_2d: Vec<Pt2> = undist_pixels.iter().map(|p| Pt2::new(p.x, p.y)).collect();
 
-            nl_views.push(CorrespondenceView::new(points_3d, points_2d).expect("view"));
+            nl_views.push(View::without_meta(
+                CorrespondenceView::new(points_3d, points_2d).expect("view"),
+            ));
             init_poses.push(pose);
         }
 
@@ -246,12 +252,8 @@ fn planar_intrinsics_real_data_improves_reprojection() {
         .unwrap();
 
         // Compute initial reprojection error
-        let (init_mean, init_max) = compute_reprojection_error(
-            &nl_views,
-            &init.camera.k,
-            &init.camera.dist,
-            &init_poses,
-        );
+        let (init_mean, init_max) =
+            compute_reprojection_error(&nl_views, &init.camera.k, &init.camera.dist, &init_poses);
         println!(
             "Initial reprojection error: mean={:.3} px, max={:.3} px",
             init_mean, init_max
@@ -292,8 +294,12 @@ fn planar_intrinsics_real_data_improves_reprojection() {
         let opt_intrinsics = result.params.camera.k;
         let opt_distortion = result.params.camera.dist;
 
-        let (final_mean, final_max) =
-            compute_reprojection_error(&nl_views, &opt_intrinsics, &opt_distortion, &result.poses);
+        let (final_mean, final_max) = compute_reprojection_error(
+            &nl_views,
+            &opt_intrinsics,
+            &opt_distortion,
+            &result.params.camera_se3_target,
+        );
         println!(
             "Final reprojection error: mean={:.3} px, max={:.3} px",
             final_mean, final_max
@@ -362,13 +368,15 @@ fn planar_intrinsics_parameter_fixing_works() {
             world.push(board_point_2d(i, j, board.square_size));
             undist_pixels.push(undist_pixel);
             points_3d.push(board_point_3d(i, j, board.square_size));
-            points_2d.push(Vec2::new(undist_pixel.x, undist_pixel.y));
+            points_2d.push(Pt2::new(undist_pixel.x, undist_pixel.y));
         }
 
         let h = HomographySolver::dlt(&world, &undist_pixels).expect("homography");
         homographies.push(h);
 
-        nl_views.push(CorrespondenceView::new(points_3d, points_2d).expect("view"));
+        nl_views.push(View::without_meta(
+            CorrespondenceView::new(points_3d, points_2d).expect("view"),
+        ));
     }
 
     let linear_init =
@@ -427,9 +435,8 @@ fn planar_intrinsics_parameter_fixing_works() {
         ..Default::default()
     };
 
-    let result =
-        optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default())
-            .expect("optimization with fixed p1, p2");
+    let result = optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default())
+        .expect("optimization with fixed p1, p2");
 
     assert_eq!(
         result.params.camera.dist.p1, 0.0,
@@ -481,7 +488,7 @@ fn planar_intrinsics_parameter_fixing_works() {
 
     let result2 =
         optimize_planar_intrinsics(&dataset, &init2, opts2, BackendSolveOptions::default())
-    .expect("optimization with default k3 fixed");
+            .expect("optimization with default k3 fixed");
 
     assert_eq!(
         result2.params.camera.dist.k3, 0.0,
@@ -527,7 +534,7 @@ fn planar_intrinsics_parameter_fixing_works() {
 
     let result3 =
         optimize_planar_intrinsics(&dataset, &init3, opts3, BackendSolveOptions::default())
-    .expect("optimization with fixed fx, fy");
+            .expect("optimization with fixed fx, fy");
 
     assert!(
         (result3.params.camera.k.fx - init3.camera.k.fx).abs() < 1e-6,
@@ -552,11 +559,6 @@ fn planar_intrinsics_parameter_fixing_works() {
 // ============================================================================
 // NEW TEST: Full calibration pipeline with iterative linear initialization
 // ============================================================================
-
-use calib_linear::iterative_intrinsics::{
-    IterativeCalibView, IterativeIntrinsicsOptions, IterativeIntrinsicsSolver,
-};
-use calib_linear::DistortionFitOptions;
 
 /// Test the complete calibration pipeline WITHOUT using ground truth distortion.
 ///
@@ -584,7 +586,7 @@ fn planar_intrinsics_with_iterative_linear_init() {
         // Step 1: Iterative linear initialization (NO ground truth used)
         println!("Step 1: Iterative linear initialization...");
 
-        let views_iter: Vec<IterativeCalibView> = data
+        let views_iter: Vec<View<NoMeta>> = data
             .views
             .iter()
             .map(|view| {
@@ -594,18 +596,20 @@ fn planar_intrinsics_with_iterative_linear_init() {
                     &view.right
                 };
 
-                let board_points: Vec<Pt2> = det
+                let board_points: Vec<Pt3> = det
                     .corners
                     .iter()
-                    .map(|c| board_point_2d(c[0] as usize, c[1] as usize, board.square_size))
+                    .map(|c| board_point_3d(c[0] as usize, c[1] as usize, board.square_size))
                     .collect();
 
                 let pixel_points: Vec<Pt2> =
                     det.corners.iter().map(|c| Pt2::new(c[2], c[3])).collect();
 
-                IterativeCalibView::new(board_points, pixel_points)
+                View::without_meta(CorrespondenceView::new(board_points, pixel_points).unwrap())
             })
             .collect();
+
+        let dataset_iter = PlanarDataset::new(views_iter).expect("iter dataset");
 
         let iter_opts = IterativeIntrinsicsOptions {
             iterations: 2,
@@ -617,28 +621,22 @@ fn planar_intrinsics_with_iterative_linear_init() {
             zero_skew: true,
         };
 
-        let iter_result = IterativeIntrinsicsSolver::estimate(&views_iter, iter_opts)
-            .expect("iterative linear init");
+        let iter_result =
+            estimate_intrinsics_iterative(&dataset_iter, iter_opts).expect("iterative linear init");
 
         println!(
             "  Initial K: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-            iter_result.intrinsics.fx,
-            iter_result.intrinsics.fy,
-            iter_result.intrinsics.cx,
-            iter_result.intrinsics.cy
+            iter_result.k.fx, iter_result.k.fy, iter_result.k.cx, iter_result.k.cy
         );
         println!(
             "  Initial distortion: k1={:.4}, k2={:.4}, p1={:.4}, p2={:.4}",
-            iter_result.distortion.k1,
-            iter_result.distortion.k2,
-            iter_result.distortion.p1,
-            iter_result.distortion.p2
+            iter_result.dist.k1, iter_result.dist.k2, iter_result.dist.p1, iter_result.dist.p2
         );
 
         // Step 2: Prepare optimization dataset
         println!("Step 2: Non-linear refinement...");
 
-        let k_iter = iter_result.intrinsics.k_matrix();
+        let k_iter = iter_result.k.k_matrix();
 
         let mut views_optim = Vec::new();
         let mut init_poses = Vec::new();
@@ -670,9 +668,11 @@ fn planar_intrinsics_with_iterative_linear_init() {
                 .map(|c| board_point_3d(c[0] as usize, c[1] as usize, board.square_size))
                 .collect();
 
-            let points_2d: Vec<Vec2> = det.corners.iter().map(|c| Vec2::new(c[2], c[3])).collect();
+            let points_2d: Vec<Pt2> = det.corners.iter().map(|c| Pt2::new(c[2], c[3])).collect();
 
-            views_optim.push(CorrespondenceView::new(points_3d, points_2d).expect("view"));
+            views_optim.push(View::without_meta(
+                CorrespondenceView::new(points_3d, points_2d).expect("view"),
+            ));
         }
 
         let dataset = PlanarDataset::new(views_optim.clone()).expect("dataset");
@@ -680,13 +680,13 @@ fn planar_intrinsics_with_iterative_linear_init() {
         // Initialize from iterative result
         let init = PlanarIntrinsicsParams::new_from_components(
             FxFyCxCySkew {
-                fx: iter_result.intrinsics.fx,
-                fy: iter_result.intrinsics.fy,
-                cx: iter_result.intrinsics.cx,
-                cy: iter_result.intrinsics.cy,
+                fx: iter_result.k.fx,
+                fy: iter_result.k.fy,
+                cx: iter_result.k.cx,
+                cy: iter_result.k.cy,
                 skew: 0.0,
             },
-            iter_result.distortion,
+            iter_result.dist,
             init_poses.clone(),
         )
         .unwrap();
@@ -727,7 +727,7 @@ fn planar_intrinsics_with_iterative_linear_init() {
             &views_optim,
             &opt_intrinsics,
             &opt_distortion_params,
-            &result.poses,
+            &result.params.camera_se3_target,
         );
 
         println!(

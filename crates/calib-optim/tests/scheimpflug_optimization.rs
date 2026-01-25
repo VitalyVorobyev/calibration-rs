@@ -6,11 +6,11 @@
 //! 3. Optimization converges to ground truth values for synthetic data
 
 use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, Pinhole, Pt3, Real, ScheimpflugParams};
-use calib_optim::backend::{BackendKind, BackendSolveOptions, LinearSolverKind};
-use calib_optim::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
-use calib_optim::params::distortion::{pack_distortion, DISTORTION_DIM};
-use calib_optim::params::intrinsics::{pack_intrinsics, INTRINSICS_DIM};
-use calib_optim::params::pose_se3::iso3_to_se3_dvec;
+use calib_optim::{
+    iso3_to_se3_dvec, pack_distortion, pack_intrinsics, solve_with_backend, BackendKind,
+    BackendSolveOptions, FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
+    DISTORTION_DIM, INTRINSICS_DIM,
+};
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
 use std::collections::HashMap;
 
@@ -175,19 +175,14 @@ fn scheimpflug_optimization_synthetic() {
     let backend_opts = BackendSolveOptions {
         max_iters: 50,
         verbosity: 0,
-        linear_solver: Some(LinearSolverKind::SparseCholesky),
         min_abs_decrease: Some(1e-10),
         min_rel_decrease: Some(1e-10),
         min_error: Some(1e-12),
+        ..Default::default()
     };
 
-    let solution = calib_optim::backend::solve_with_backend(
-        BackendKind::TinySolver,
-        &ir,
-        &initial_map,
-        &backend_opts,
-    )
-    .expect("optimization failed");
+    let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)
+        .expect("optimization failed");
 
     // Extract results
     let cam_final = solution.params.get("cam").unwrap();
@@ -245,5 +240,5 @@ fn scheimpflug_optimization_synthetic() {
     );
 
     println!("✓ Scheimpflug optimization converged to ground truth");
-    println!("  Final cost: {:.6e}", solution.final_cost);
+    println!("  Final cost: {:.6e}", solution.solve_report.final_cost);
 }

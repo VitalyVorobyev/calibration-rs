@@ -7,12 +7,12 @@
 //! 4. Hand-eye transform estimation
 
 use calib_core::{
-    BrownConrady5, Camera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, IdentitySensor,
-    Pinhole, Pt3, Real, Vec2,
+    make_pinhole_camera, BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCySkew,
+    PinholeCamera, Pt2, Pt3, Real, RigView, RigViewObs,
 };
 use calib_optim::{
-    solve_with_backend, optimize_handeye, se3_dvec_to_iso3, BackendKind, BackendSolveOptions, LinearSolverKind,
-    HandEyeMode, 
+    optimize_handeye, BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams,
+    HandEyeSolveOptions, RobotPoseMeta,
 };
 
 use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
@@ -37,7 +37,7 @@ fn eye_in_hand_calibration_converges() {
         iters: 5,
     };
 
-    let camera_gt = Camera::new(Pinhole, distortion_gt, IdentitySensor, intrinsics_gt);
+    let camera_gt = make_pinhole_camera(intrinsics_gt, distortion_gt);
 
     // Ground truth extrinsics: 2-camera stereo rig
     // Camera 0 at rig origin
@@ -85,7 +85,7 @@ fn eye_in_hand_calibration_converges() {
     let target_pose_gt = Isometry3::identity();
 
     // Generate synthetic observations
-    let mut views = Vec::new();
+    let mut views: Vec<RigView<RobotPoseMeta>> = Vec::new();
     for robot_pose in &robot_poses_gt {
         let mut cameras_obs = Vec::new();
 
@@ -115,9 +115,13 @@ fn eye_in_hand_calibration_converges() {
 
         cameras_obs.push(Some(CorrespondenceView::new(points_3d, points_2d).unwrap()));
 
-        views.push(RigViewObservations {
-            cameras: cameras_obs,
-            robot_pose: *robot_pose,
+        views.push(RigView {
+            obs: RigViewObs {
+                cameras: cameras_obs,
+            },
+            meta: RobotPoseMeta {
+                base_se3_gripper: *robot_pose,
+            },
         });
     }
 
@@ -153,9 +157,14 @@ fn eye_in_hand_calibration_converges() {
 
     let target_poses_init = vec![Isometry3::identity()];
 
-    let initial = HandEyeInit {
-        intrinsics: intrinsics_init,
-        distortion: distortion_init,
+    let cameras_init: Vec<PinholeCamera> = intrinsics_init
+        .iter()
+        .zip(distortion_init.iter())
+        .map(|(k, d)| make_pinhole_camera(*k, d.clone()))
+        .collect();
+
+    let initial = HandEyeParams {
+        cameras: cameras_init,
         cam_to_rig: vec![cam0_to_rig_init],
         handeye: handeye_init,
         target_poses: target_poses_init,
@@ -170,17 +179,17 @@ fn eye_in_hand_calibration_converges() {
     let backend_opts = BackendSolveOptions {
         max_iters: 50,
         verbosity: 0,
-        linear_solver: Some(LinearSolverKind::SparseCholesky),
         min_abs_decrease: Some(1e-10),
         min_rel_decrease: Some(1e-10),
         min_error: Some(1e-12),
+        ..Default::default()
     };
 
     // Optimize
     let result = optimize_handeye(dataset, initial, opts, backend_opts).unwrap();
 
     // Verify per-camera intrinsics and distortion convergence
-    for (cam_idx, camera) in result.cameras.iter().enumerate() {
+    for (cam_idx, camera) in result.params.cameras.iter().enumerate() {
         let intr_final = camera.k;
         let fx_error = (intr_final.fx - intrinsics_gt.fx).abs();
         let fy_error = (intr_final.fy - intrinsics_gt.fy).abs();
@@ -256,7 +265,7 @@ fn eye_in_hand_calibration_converges() {
     }
 
     // Verify hand-eye transform convergence
-    let handeye_final = &result.handeye;
+    let handeye_final = &result.params.handeye;
     let handeye_dt = (handeye_final.translation.vector - handeye_gt.translation.vector).norm();
     let handeye_r_final = handeye_final.rotation.to_rotation_matrix();
     let handeye_r_gt = handeye_gt.rotation.to_rotation_matrix();
@@ -282,7 +291,7 @@ fn eye_in_hand_calibration_converges() {
     );
 
     println!("✓ Eye-in-hand calibration converged to ground truth");
-    println!("  Final cost: {:.6e}", result.final_cost);
+    println!("  Final cost: {:.6e}", result.report.final_cost);
 }
 
 fn rotation_angle(a: &Isometry3<Real>, b: &Isometry3<Real>) -> Real {
@@ -327,7 +336,7 @@ fn lcg(seed: &mut u64) -> Real {
 }
 
 fn mean_reproj_error_eye_in_hand(
-    views: &[RigViewObs],
+    views: &[RigView<RobotPoseMeta>],
     intrinsics: FxFyCxCySkew<Real>,
     distortion: BrownConrady5<Real>,
     cam_to_rig: &Isometry3<Real>,
@@ -335,18 +344,18 @@ fn mean_reproj_error_eye_in_hand(
     target_pose: &Isometry3<Real>,
     robot_deltas: Option<&Vec<Isometry3<Real>>>,
 ) -> Real {
-    let camera = Camera::new(Pinhole, distortion, IdentitySensor, intrinsics);
+    let camera = make_pinhole_camera(intrinsics, distortion);
     let mut total_error = 0.0;
     let mut total_points = 0usize;
 
     for (view_idx, view) in views.iter().enumerate() {
         let robot_pose = if let Some(deltas) = robot_deltas {
-            deltas[view_idx] * view.robot_pose
+            deltas[view_idx] * view.meta.base_se3_gripper
         } else {
-            view.robot_pose
+            view.meta.base_se3_gripper
         };
 
-        let obs = view.cameras[0].as_ref().unwrap();
+        let obs = view.obs.cameras[0].as_ref().unwrap();
         for (pw, uv) in obs.points_3d.iter().zip(&obs.points_2d) {
             let p_base = target_pose.transform_point(pw);
             let p_gripper = robot_pose.inverse_transform_point(&p_base);
@@ -380,7 +389,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         p2: 0.0,
         iters: 8,
     };
-    let camera_gt = Camera::new(Pinhole, distortion_gt, IdentitySensor, intrinsics_gt);
+    let camera_gt = make_pinhole_camera(intrinsics_gt, distortion_gt);
 
     let cam_to_rig_gt = Isometry3::identity();
     let handeye_gt = Isometry3::from_parts(
@@ -441,7 +450,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         }
     }
 
-    let mut views = Vec::new();
+    let mut views: Vec<RigView<RobotPoseMeta>> = Vec::new();
     let mut pixel_seed = 7_u64;
     for (robot_pose_gt, robot_pose_meas) in robot_poses_gt.iter().zip(&robot_poses_meas) {
         let mut points_3d = Vec::new();
@@ -457,21 +466,25 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
                 let noise_u = (lcg(&mut pixel_seed) - 0.5) * 0.4;
                 let noise_v = (lcg(&mut pixel_seed) - 0.5) * 0.4;
                 points_3d.push(*pw);
-                points_2d.push(Vec2::new(pixel.x + noise_u, pixel.y + noise_v));
+                points_2d.push(Pt2::new(pixel.x + noise_u, pixel.y + noise_v));
             }
         }
 
         let obs = CorrespondenceView::new(points_3d, points_2d).unwrap();
-        views.push(RigViewObservations {
-            cameras: vec![Some(obs)],
-            robot_pose: *robot_pose_meas,
+        views.push(RigView {
+            obs: RigViewObs {
+                cameras: vec![Some(obs)],
+            },
+            meta: RobotPoseMeta {
+                base_se3_gripper: *robot_pose_meas,
+            },
         });
     }
 
     let dataset = HandEyeDataset::new(views.clone(), 1, HandEyeMode::EyeInHand).unwrap();
-    let init = HandEyeInit {
-        intrinsics: vec![intrinsics_gt],
-        distortion: vec![distortion_gt],
+    let num_views = dataset.num_views();
+    let init = HandEyeParams {
+        cameras: vec![make_pinhole_camera(intrinsics_gt, distortion_gt)],
         cam_to_rig: vec![cam_to_rig_gt],
         handeye: Isometry3::from_parts(
             Translation3::new(0.038, -0.021, 0.118),
@@ -500,15 +513,15 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     .unwrap();
 
     let dt_no =
-        (result_no_refine.handeye.translation.vector - handeye_gt.translation.vector).norm();
-    let ang_no = rotation_angle(&result_no_refine.handeye, &handeye_gt);
+        (result_no_refine.params.handeye.translation.vector - handeye_gt.translation.vector).norm();
+    let ang_no = rotation_angle(&result_no_refine.params.handeye, &handeye_gt);
     let reproj_no = mean_reproj_error_eye_in_hand(
         &views,
         intrinsics_gt,
         distortion_gt,
         &cam_to_rig_gt,
-        &result_no_refine.handeye,
-        &result_no_refine.target_poses[0],
+        &result_no_refine.params.handeye,
+        &result_no_refine.params.target_poses[0],
         None,
     );
 
@@ -517,41 +530,35 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     opts_refine.robot_rot_sigma = rot_amp;
     opts_refine.robot_trans_sigma = trans_amp;
 
-    let (ir, initial_map) = build_handeye_ir(&dataset, &init, &opts_refine).unwrap();
-    let solution =
-        solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts).unwrap();
+    let robot_rot_sigma = opts_refine.robot_rot_sigma;
+    let robot_trans_sigma = opts_refine.robot_trans_sigma;
 
-    let handeye_ref = se3_dvec_to_iso3(solution.params.get("handeye").unwrap().as_view()).unwrap();
-    let target_ref = se3_dvec_to_iso3(solution.params.get("target").unwrap().as_view()).unwrap();
+    let result_refine = optimize_handeye(dataset, init, opts_refine, backend_opts).unwrap();
 
-    let mut deltas = Vec::with_capacity(dataset.num_views());
+    let mut deltas = Vec::with_capacity(num_views);
     let mut max_rot: f64 = 0.0;
     let mut max_trans: f64 = 0.0;
-    for i in 0..dataset.num_views() {
-        let key = format!("robot_delta/{}", i);
-        let delta_vec = solution.params.get(&key).unwrap();
-        let xi = [
-            delta_vec[0],
-            delta_vec[1],
-            delta_vec[2],
-            delta_vec[3],
-            delta_vec[4],
-            delta_vec[5],
-        ];
-        max_rot = max_rot.max(Vector3::new(xi[0], xi[1], xi[2]).norm());
-        max_trans = max_trans.max(Vector3::new(xi[3], xi[4], xi[5]).norm());
-        deltas.push(se3_exp_isometry(xi));
+    if let Some(robot_deltas) = &result_refine.robot_deltas {
+        for delta in robot_deltas {
+            let xi = *delta;
+            max_rot = max_rot.max(Vector3::new(xi[0], xi[1], xi[2]).norm());
+            max_trans = max_trans.max(Vector3::new(xi[3], xi[4], xi[5]).norm());
+            deltas.push(se3_exp_isometry(xi));
+        }
+    } else {
+        deltas.extend(std::iter::repeat(Isometry3::identity()).take(num_views));
     }
 
-    let dt_ref = (handeye_ref.translation.vector - handeye_gt.translation.vector).norm();
-    let ang_ref = rotation_angle(&handeye_ref, &handeye_gt);
+    let dt_ref =
+        (result_refine.params.handeye.translation.vector - handeye_gt.translation.vector).norm();
+    let ang_ref = rotation_angle(&result_refine.params.handeye, &handeye_gt);
     let reproj_ref = mean_reproj_error_eye_in_hand(
         &views,
         intrinsics_gt,
         distortion_gt,
         &cam_to_rig_gt,
-        &handeye_ref,
-        &target_ref,
+        &result_refine.params.handeye,
+        &result_refine.params.target_poses[0],
         Some(&deltas),
     );
 
@@ -570,12 +577,12 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         reproj_ref
     );
     assert!(
-        max_rot < opts_refine.robot_rot_sigma * 5.0,
+        max_rot < robot_rot_sigma * 5.0,
         "robot rotation deltas too large: {:.4} rad",
         max_rot
     );
     assert!(
-        max_trans < opts_refine.robot_trans_sigma * 5.0,
+        max_trans < robot_trans_sigma * 5.0,
         "robot translation deltas too large: {:.4} m",
         max_trans
     );

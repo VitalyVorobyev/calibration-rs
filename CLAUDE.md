@@ -290,13 +290,15 @@ Both approaches yield similar accuracy in practice. Benchmark tests show converg
 ```rust
 use calib_optim::problems::laserline_bundle::*;
 use calib_optim::backend::BackendSolveOptions;
+use calib_core::ScheimpflugParams;
 
 // Prepare dataset with calibration points and laser line observations
 let views: Vec<LaserlineView> = /* ... */;
 let dataset = views;
 
 // Initial estimates
-let initial = LaserlineParams::new(camera, poses, plane)?;
+let sensor = ScheimpflugParams::default(); // identity sensor
+let initial = LaserlineParams::new(intrinsics, distortion, sensor, poses, plane)?;
 
 // Configure options
 let opts = LaserlineSolveOptions {
@@ -336,7 +338,7 @@ Both factors:
 
 ### Testing
 
-Integration tests ([tests/laserline_bundle.rs.disabled](crates/calib-optim/tests/laserline_bundle.rs.disabled)) verify:
+Integration tests ([tests/laserline_bundle.rs](crates/calib-optim/tests/laserline_bundle.rs)) verify:
 - Convergence with synthetic ground truth data
 - Comparison of both residual types
 - Similar accuracy: ~4-5% intrinsics error, ~1-2° plane normal error

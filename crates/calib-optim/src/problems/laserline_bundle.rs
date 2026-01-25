@@ -325,8 +325,7 @@ fn build_laserline_ir(
     } else {
         FixedMask::all_free()
     };
-    let sensor_id =
-        ir.add_param_block("sensor", 2, ManifoldKind::Euclidean, sensor_fixed, None);
+    let sensor_id = ir.add_param_block("sensor", 2, ManifoldKind::Euclidean, sensor_fixed, None);
     initial_map.insert("sensor".to_string(), pack_scheimpflug(&initial.sensor));
 
     // Add pose parameter blocks (one per view)
@@ -464,9 +463,14 @@ mod tests {
         };
         let poses = vec![Iso3::identity()];
         let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
-        let initial =
-            LaserlineParams::new(intrinsics, distortion, ScheimpflugParams::default(), poses, plane)
-                .unwrap();
+        let initial = LaserlineParams::new(
+            intrinsics,
+            distortion,
+            ScheimpflugParams::default(),
+            poses,
+            plane,
+        )
+        .unwrap();
 
         let opts = LaserlineSolveOptions::default();
         let (ir, mut initial_map) = build_laserline_ir(&dataset, &initial, &opts).unwrap();
@@ -514,9 +518,14 @@ mod tests {
         };
         let poses = vec![Iso3::identity()];
         let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5);
-        let initial =
-            LaserlineParams::new(intrinsics, distortion, ScheimpflugParams::default(), poses, plane)
-                .unwrap();
+        let initial = LaserlineParams::new(
+            intrinsics,
+            distortion,
+            ScheimpflugParams::default(),
+            poses,
+            plane,
+        )
+        .unwrap();
 
         let opts = LaserlineSolveOptions::default();
         let (ir, _) = build_laserline_ir(&dataset, &initial, &opts).unwrap();

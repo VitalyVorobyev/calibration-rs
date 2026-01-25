@@ -495,8 +495,12 @@ mod tests {
         let dist = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 0.0]);
         let sensor = DVector::from_vec(vec![0.0, 0.0]);
 
-        let (x_u, y_u): (f64, f64) =
-            undistort_pixel_to_normalized(intr.as_view(), dist.as_view(), sensor.as_view(), [640.0, 360.0]);
+        let (x_u, y_u): (f64, f64) = undistort_pixel_to_normalized(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            [640.0, 360.0],
+        );
 
         assert!(x_u.abs() < 1e-12_f64, "x_u should be 0 for principal point");
         assert!(y_u.abs() < 1e-12_f64, "y_u should be 0 for principal point");
@@ -510,12 +514,7 @@ mod tests {
 
         let x_norm = 0.1_f64;
         let y_norm = -0.05_f64;
-        let (x_sensor, y_sensor) = apply_scheimpflug_generic(
-            x_norm,
-            y_norm,
-            sensor[0],
-            sensor[1],
-        );
+        let (x_sensor, y_sensor) = apply_scheimpflug_generic(x_norm, y_norm, sensor[0], sensor[1]);
 
         let u = intr[0] * x_sensor + intr[2];
         let v = intr[1] * y_sensor + intr[3];

@@ -153,9 +153,14 @@ pub use crate::backend::{
     solve_with_backend, BackendKind, BackendSolution, BackendSolveOptions, SolveReport,
 };
 
-pub use crate::ir::{HandEyeMode, RobustLoss};
+pub use crate::ir::{
+    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
+};
 
-pub use crate::params::pose_se3::se3_dvec_to_iso3;
+pub use crate::params::distortion::{pack_distortion, DISTORTION_DIM};
+pub use crate::params::intrinsics::{pack_intrinsics, INTRINSICS_DIM};
+pub use crate::params::laser_plane::LaserPlane;
+pub use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 
 pub use crate::problems::planar_intrinsics::{
     optimize_planar_intrinsics, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,

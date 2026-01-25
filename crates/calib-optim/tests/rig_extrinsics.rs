@@ -10,8 +10,9 @@ use calib_core::{
     make_pinhole_camera, BrownConrady5, CorrespondenceView, FxFyCxCySkew, NoMeta, Pt3, Real,
     RigDataset, RigView, RigViewObs,
 };
-use calib_optim::backend::{BackendSolveOptions, LinearSolverKind};
-use calib_optim::problems::rig_extrinsics::*;
+use calib_optim::{
+    optimize_rig_extrinsics, BackendSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
+};
 use nalgebra::{Isometry3, Rotation3, Translation3};
 
 #[test]
@@ -182,10 +183,10 @@ fn stereo_rig_extrinsics_converges() {
     let backend_opts = BackendSolveOptions {
         max_iters: 50,
         verbosity: 0,
-        linear_solver: Some(LinearSolverKind::SparseCholesky),
         min_abs_decrease: Some(1e-10),
         min_rel_decrease: Some(1e-10),
         min_error: Some(1e-12),
+        ..Default::default()
     };
 
     // Optimize
@@ -268,7 +269,7 @@ fn stereo_rig_extrinsics_converges() {
     }
 
     // Verify camera 1 extrinsics (camera 0 is fixed)
-    let cam1_extr_final = &result.cam_to_rig[1];
+    let cam1_extr_final = &result.params.cam_to_rig[1];
     let cam1_extr_gt = &cam1_to_rig_gt;
 
     let dt = (cam1_extr_final.translation.vector - cam1_extr_gt.translation.vector).norm();
@@ -288,5 +289,5 @@ fn stereo_rig_extrinsics_converges() {
     assert!(ang < 1e-3, "camera 1 rotation error too large: {}", ang);
 
     println!("✓ Stereo rig extrinsics converged to ground truth");
-    println!("  Final cost: {:.6e}", result.final_cost);
+    println!("  Final cost: {:.6e}", result.report.final_cost);
 }

@@ -25,10 +25,7 @@
 //! at least 2 views at different poses to obtain non-collinear points.
 
 use anyhow::Result;
-use calib_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt2, Pt3, Real,
-    SensorModel,
-};
+use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, Iso3, Pinhole, Pt2, Pt3, Real, SensorModel};
 use nalgebra::{Point3, UnitVector3, Vector3};
 
 /// Laser line observations for a single view.

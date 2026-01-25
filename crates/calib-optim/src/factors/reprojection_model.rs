@@ -337,7 +337,7 @@ pub(crate) fn apply_scheimpflug_inverse_generic<T: RealField>(
     } else {
         eps
     };
-    (p.x / z_safe.clone(), p.y / z_safe)
+    (p.x.clone() / z_safe.clone(), p.y.clone() / z_safe)
 }
 
 /// Compute reprojection residual with Scheimpflug sensor, distortion, intrinsics, and SE3 pose.

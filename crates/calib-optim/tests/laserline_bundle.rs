@@ -6,9 +6,10 @@ use calib_core::{
     BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt2,
     Pt3, ScheimpflugParams, View,
 };
-use calib_optim::backend::BackendSolveOptions;
-use calib_optim::params::laser_plane::LaserPlane;
-use calib_optim::problems::laserline_bundle::*;
+use calib_optim::{
+    optimize_laserline, BackendSolveOptions, LaserPlane, LaserlineMeta, LaserlineParams,
+    LaserlineResidualType, LaserlineSolveOptions,
+};
 use nalgebra::{Point3, Rotation3, Translation3, Vector3};
 
 #[test]
@@ -444,7 +445,10 @@ fn synthetic_laserline_line_dist_normalized_converges() {
         normal_angle_deg
     );
 
-    println!("LineDistNormalized - Final cost: {:.6}", result.report.final_cost);
+    println!(
+        "LineDistNormalized - Final cost: {:.6}",
+        result.report.final_cost
+    );
     println!("✓ LineDistNormalized laserline calibration converged");
 }
 
@@ -682,8 +686,7 @@ fn compare_point_plane_vs_line_dist() {
 
     println!(
         "Final cost: PointToPlane={:.6}, LineDistNormalized={:.6}",
-        result_point.report.final_cost,
-        result_line.report.final_cost
+        result_point.report.final_cost, result_line.report.final_cost
     );
 
     // Both should converge to acceptable accuracy
