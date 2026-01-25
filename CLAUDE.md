@@ -41,23 +41,12 @@ cargo doc --workspace --no-deps
 cargo doc --workspace --no-deps --open
 ```
 
-### CLI Usage
-```bash
-# Run CLI
-cargo run -p calib-cli -- --help
-
-# Example calibration run
-cargo run -p calib-cli -- --input views.json --config config.json > report.json
-```
-
 ## Architecture Overview
 
 ### Workspace Structure
-This is a **6-crate Rust workspace** (~7,200 lines of code) for camera calibration with a clean layered architecture:
+This is a **5-crate Rust workspace** (~7,200 lines of code) for camera calibration with a clean layered architecture:
 
 ```
-calib-cli (CLI wrapper)
-    ↓
 calib (facade) → calib-pipeline (high-level pipelines)
                       ↓
                  calib-optim (non-linear refinement) + calib-linear (initialization)
@@ -73,7 +62,6 @@ calib (facade) → calib-pipeline (high-level pipelines)
 - **calib-linear**: Closed-form initialization solvers (Zhang, homography, PnP, epipolar, hand-eye, **iterative intrinsics + distortion**) for bootstrapping optimization
 - **calib-optim**: Non-linear least-squares with backend-agnostic IR, autodiff-compatible factors, pluggable solvers (currently tiny-solver)
 - **calib-pipeline**: Ready-to-use end-to-end calibration workflows with JSON I/O, **session management with state tracking**
-- **calib-cli**: Command-line interface for batch processing
 - **calib**: Convenience re-export facade
 
 ### Camera Model Composition
@@ -640,7 +628,6 @@ pub struct RigHandeyeExport {
 - calib-optim: ✅ All problem types working (planar, hand-eye, rig extrinsics, rig hand-eye)
 - calib-pipeline: ✅ Session framework with 4 problem types
 - calib: ✅ Unified facade with 6 examples
-- calib-cli: ✅ Basic CLI for planar intrinsics
 
 **Session framework**:
 - ✅ Mutable state container with step functions

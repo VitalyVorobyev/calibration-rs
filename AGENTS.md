@@ -10,7 +10,6 @@ Crates:
 * **`calib-optim`** — non-linear least squares traits, robust kernels, and solver backends (LM today).
 * **`calib-pipeline`** — end-to-end calibration pipelines (currently planar intrinsics).
 * **`calib`** — facade crate re-exporting the above for a stable, ergonomic API.
-* **`calib-cli`** — CLI wrapper for batch calibration workflows.
 
 The codebase prioritizes:
 
@@ -30,7 +29,7 @@ If you are an automated agent (Codex, etc.), follow these rules strictly.
 * `calib-core` **must not depend on** any other workspace crate.
 * `calib-linear` and `calib-optim` **may depend on** `calib-core`.
 * `calib-pipeline` **may depend on** `calib-core`, `calib-linear`, and `calib-optim`.
-* `calib` and `calib-cli` are top-level entry points.
+* `calib` is top-level entry points.
 
 ### Where code goes
 
@@ -39,7 +38,6 @@ If you are an automated agent (Codex, etc.), follow these rules strictly.
 * **NLLS traits, robust kernels, solver backends** → `calib-optim`
 * **Full pipelines and reports** → `calib-pipeline`
 * **Public re-exports/docs** → `calib`
-* **CLI I/O and JSON plumbing** → `calib-cli`
 
 ### API exposure
 

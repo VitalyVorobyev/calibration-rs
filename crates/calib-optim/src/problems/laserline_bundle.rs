@@ -5,18 +5,24 @@
 //! with laser line observations to estimate laser plane parameters in camera frame.
 
 use crate::backend::{solve_with_backend, BackendKind, BackendSolveOptions, SolveReport};
+use crate::factors::laserline::{
+    laser_line_dist_normalized_generic, laser_plane_pixel_residual_generic,
+};
 use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
 use crate::params::distortion::{pack_distortion, unpack_distortion, DISTORTION_DIM};
 use crate::params::intrinsics::{pack_intrinsics, unpack_intrinsics, INTRINSICS_DIM};
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use anyhow::{anyhow, ensure, Result};
-use calib_core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt2, Real, ScheimpflugParams, View};
+use calib_core::{
+    BrownConrady5, Camera, FxFyCxCySkew, Iso3, Pinhole, Pt2, Real, ScheimpflugParams, View,
+};
 use nalgebra::{DVector, DVectorView};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Metadata for a laserline view (laser pixels + optional weights).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserlineMeta {
     /// Laser line pixel observations.
     pub laser_pixels: Vec<Pt2>,
@@ -25,7 +31,7 @@ pub struct LaserlineMeta {
 }
 
 impl LaserlineMeta {
-    fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         ensure!(
             !self.laser_pixels.is_empty(),
             "need at least one laser pixel observation"
@@ -43,7 +49,7 @@ impl LaserlineMeta {
         Ok(())
     }
 
-    fn laser_weight(&self, idx: usize) -> f64 {
+    pub fn laser_weight(&self, idx: usize) -> f64 {
         self.laser_weights.as_ref().map_or(1.0, |w| w[idx])
     }
 }
@@ -55,7 +61,7 @@ pub type LaserlineView = View<LaserlineMeta>;
 pub type LaserlineDataset = Vec<LaserlineView>;
 
 /// Initial values for laserline bundle adjustment.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserlineParams {
     pub intrinsics: FxFyCxCySkew<Real>,
     pub distortion: BrownConrady5<Real>,
@@ -85,10 +91,23 @@ impl LaserlineParams {
 }
 
 /// Result of laserline bundle adjustment.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserlineEstimate {
     pub params: LaserlineParams,
     pub report: SolveReport,
+}
+
+/// Summary statistics for a laserline calibration result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaserlineStats {
+    /// Mean reprojection error for calibration points (pixels).
+    pub mean_reproj_error: f64,
+    /// Mean laser residual (units depend on residual type).
+    pub mean_laser_error: f64,
+    /// Per-view mean reprojection error (pixels).
+    pub per_view_reproj_errors: Vec<f64>,
+    /// Per-view mean laser residual (same units as `mean_laser_error`).
+    pub per_view_laser_errors: Vec<f64>,
 }
 
 /// Type of laser plane residual to use.
@@ -116,8 +135,12 @@ pub enum LaserlineResidualType {
 pub struct LaserlineSolveOptions {
     /// Robust loss applied to calibration reprojection residuals
     pub calib_loss: RobustLoss,
+    /// Global weight multiplier for calibration reprojection residuals.
+    pub calib_weight: f64,
     /// Robust loss applied to laser plane residuals
     pub laser_loss: RobustLoss,
+    /// Global weight multiplier for laser plane residuals.
+    pub laser_weight: f64,
     /// Fix camera intrinsics during optimization
     pub fix_intrinsics: bool,
     /// Fix distortion parameters during optimization
@@ -138,7 +161,9 @@ impl Default for LaserlineSolveOptions {
     fn default() -> Self {
         Self {
             calib_loss: RobustLoss::Huber { scale: 1.0 },
+            calib_weight: 1.0,
             laser_loss: RobustLoss::Huber { scale: 0.01 }, // Smaller scale for plane residuals
+            laser_weight: 1.0,
             fix_intrinsics: false,
             fix_distortion: false,
             fix_k3: true,
@@ -163,6 +188,122 @@ fn unpack_scheimpflug(sensor: DVectorView<'_, f64>) -> Result<ScheimpflugParams>
     Ok(ScheimpflugParams {
         tilt_x: sensor[0],
         tilt_y: sensor[1],
+    })
+}
+
+/// Compute reprojection and laser residual statistics for a solution.
+///
+/// - Reprojection errors are reported in pixels (mean Euclidean error).
+/// - Laser residual units depend on `residual_type`:
+///   - `PointToPlane`: meters (signed distance to plane)
+///   - `LineDistNormalized`: pixels (normalized line distance scaled by sqrt(fx*fy))
+pub fn compute_laserline_stats(
+    dataset: &LaserlineDataset,
+    params: &LaserlineParams,
+    residual_type: LaserlineResidualType,
+) -> Result<LaserlineStats> {
+    ensure!(
+        dataset.len() == params.poses.len(),
+        "dataset has {} views but {} poses",
+        dataset.len(),
+        params.poses.len()
+    );
+
+    let camera = Camera::new(
+        Pinhole,
+        params.distortion,
+        params.sensor.compile(),
+        params.intrinsics,
+    );
+
+    let intr_vec = pack_intrinsics(&params.intrinsics)?;
+    let dist_vec = pack_distortion(&params.distortion);
+    let sensor_vec = pack_scheimpflug(&params.sensor);
+    let plane_normal = params.plane.normal_to_dvec();
+    let plane_distance = params.plane.distance_to_dvec();
+
+    let mut per_view_reproj_errors = Vec::with_capacity(dataset.len());
+    let mut per_view_laser_errors = Vec::with_capacity(dataset.len());
+
+    let mut total_reproj_sum = 0.0;
+    let mut total_reproj_count = 0usize;
+    let mut total_laser_sum = 0.0;
+    let mut total_laser_count = 0usize;
+
+    for (view_idx, view) in dataset.iter().enumerate() {
+        let pose = &params.poses[view_idx];
+        let pose_vec = iso3_to_se3_dvec(pose);
+
+        let mut view_reproj_sum = 0.0;
+        let mut view_reproj_count = 0usize;
+        for (p3d, p2d) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
+            let p_cam = pose.transform_point(p3d);
+            if let Some(projected) = camera.project_point(&p_cam) {
+                let err = (projected - *p2d).norm();
+                view_reproj_sum += err;
+                view_reproj_count += 1;
+            }
+        }
+
+        let view_reproj_mean = if view_reproj_count > 0 {
+            view_reproj_sum / view_reproj_count as f64
+        } else {
+            0.0
+        };
+        per_view_reproj_errors.push(view_reproj_mean);
+        total_reproj_sum += view_reproj_sum;
+        total_reproj_count += view_reproj_count;
+
+        let mut view_laser_sum = 0.0;
+        let mut view_laser_count = 0usize;
+        for laser_pixel in &view.meta.laser_pixels {
+            let residual = match residual_type {
+                LaserlineResidualType::PointToPlane => laser_plane_pixel_residual_generic(
+                    intr_vec.as_view(),
+                    dist_vec.as_view(),
+                    sensor_vec.as_view(),
+                    pose_vec.as_view(),
+                    plane_normal.as_view(),
+                    plane_distance.as_view(),
+                    [laser_pixel.x, laser_pixel.y],
+                    1.0,
+                )[0],
+                LaserlineResidualType::LineDistNormalized => laser_line_dist_normalized_generic(
+                    intr_vec.as_view(),
+                    dist_vec.as_view(),
+                    sensor_vec.as_view(),
+                    pose_vec.as_view(),
+                    plane_normal.as_view(),
+                    plane_distance.as_view(),
+                    [laser_pixel.x, laser_pixel.y],
+                    1.0,
+                )[0],
+            };
+            view_laser_sum += residual.abs();
+            view_laser_count += 1;
+        }
+
+        let view_laser_mean = if view_laser_count > 0 {
+            view_laser_sum / view_laser_count as f64
+        } else {
+            0.0
+        };
+        per_view_laser_errors.push(view_laser_mean);
+        total_laser_sum += view_laser_sum;
+        total_laser_count += view_laser_count;
+    }
+
+    ensure!(
+        total_reproj_count > 0,
+        "no valid reprojection errors for stats"
+    );
+    ensure!(total_laser_count > 0, "no laser pixels for stats");
+
+    Ok(LaserlineStats {
+        mean_reproj_error: total_reproj_sum / total_reproj_count as f64,
+        mean_laser_error: total_laser_sum / total_laser_count as f64,
+        per_view_reproj_errors,
+        per_view_laser_errors,
     })
 }
 
@@ -379,7 +520,7 @@ fn build_laserline_ir(
             .zip(&view.obs.points_2d)
             .enumerate()
         {
-            let w = view.obs.weights.as_ref().map_or(1.0, |w| w[pt_idx]);
+            let w = view.obs.weights.as_ref().map_or(1.0, |w| w[pt_idx]) * opts.calib_weight;
             ir.add_residual_block(ResidualBlock {
                 params: vec![intrinsics_id, distortion_id, sensor_id, pose_id],
                 loss: opts.calib_loss,
@@ -394,7 +535,7 @@ fn build_laserline_ir(
 
         // Laser plane residuals (one per plane, typically just one)
         for (laser_idx, laser_pixel) in view.meta.laser_pixels.iter().enumerate() {
-            let w = view.meta.laser_weight(laser_idx);
+            let w = view.meta.laser_weight(laser_idx) * opts.laser_weight;
 
             // Select factor type based on options
             let factor = match opts.laser_residual_type {

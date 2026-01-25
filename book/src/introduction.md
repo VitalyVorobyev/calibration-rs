@@ -60,7 +60,6 @@ The library is organized as a workspace of six crates:
 | **calib-linear** | Initialization | Building custom pipelines |
 | **calib-optim** | Optimization | Custom non-linear problems |
 | **calib-pipeline** | Workflows | Session API or JSON I/O |
-| **calib-cli** | Batch processing | Command-line usage |
 
 ## Choosing Your Entry Point
 
@@ -115,7 +114,7 @@ use calib::optim::planar_intrinsics::optimize_planar_intrinsics;
 | Hand-eye | Robot + camera calibration | `HandEyeSingleProblem` |
 | Rig extrinsics | Multi-camera rig calibration | `RigExtrinsicsProblem` |
 | Rig hand-eye | Robot + multi-camera rig | `RigHandEyeProblem` |
-| Laserline | Laser plane + camera calibration | `LaserlineProblem` |
+| Laserline device | Laser plane + single camera | `LaserlineDeviceProblem` |
 
 ## What's Next
 

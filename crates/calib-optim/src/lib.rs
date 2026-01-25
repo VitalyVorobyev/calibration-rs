@@ -178,8 +178,9 @@ pub use crate::problems::rig_extrinsics::{
 };
 
 pub use crate::problems::laserline_bundle::{
-    optimize_laserline, LaserlineDataset, LaserlineEstimate, LaserlineMeta, LaserlineParams,
-    LaserlineResidualType, LaserlineSolveOptions, LaserlineView,
+    compute_laserline_stats, optimize_laserline, LaserlineDataset, LaserlineEstimate,
+    LaserlineMeta, LaserlineParams, LaserlineResidualType, LaserlineSolveOptions, LaserlineStats,
+    LaserlineView,
 };
 
 pub use calib_core::{RigDataset, RigViewObs, View};
