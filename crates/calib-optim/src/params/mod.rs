@@ -14,4 +14,5 @@
 
 pub mod distortion;
 pub mod intrinsics;
+pub mod laser_plane;
 pub mod pose_se3;

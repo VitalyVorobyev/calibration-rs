@@ -52,7 +52,7 @@ impl Default for InvalidationPolicy {
 
 /// Trait defining the interface for a calibration problem.
 ///
-/// Each problem type (e.g., planar intrinsics, hand-eye, linescan) implements
+/// Each problem type (e.g., planar intrinsics, hand-eye, laserline) implements
 /// this trait to specify its configuration, input data, internal state,
 /// output, and export formats.
 ///
@@ -102,7 +102,7 @@ pub trait ProblemType: Sized + 'static {
 
     /// Input observations (embedded in session).
     ///
-    /// Examples: `PlanarDataset`, `HandEyeDataset`, `LinescanDataset`.
+    /// Examples: `PlanarDataset`, `HandEyeDataset`, `LaserlineDataset`.
     type Input: Clone + Serialize + DeserializeOwned + Debug;
 
     /// Problem-specific workspace for intermediate results.
@@ -131,7 +131,7 @@ pub trait ProblemType: Sized + 'static {
     /// Used for serialization, logging, and identifying session files.
     /// Should be a stable, lowercase, snake_case string.
     ///
-    /// Examples: `"planar_intrinsics"`, `"hand_eye"`, `"linescan_bundle"`.
+    /// Examples: `"planar_intrinsics"`, `"hand_eye"`, `"laserline_bundle"`.
     fn name() -> &'static str;
 
     /// Schema version for forward compatibility.

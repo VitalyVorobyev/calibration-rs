@@ -37,6 +37,7 @@
 //! - [`single_cam_handeye`] - Single camera + hand-eye calibration
 //! - [`rig_extrinsics`] - Multi-camera rig extrinsics
 //! - [`rig_handeye`] - Multi-camera rig + hand-eye
+//! - [`laserline_device`] - Single camera + laser plane device
 //!
 //! ## Foundation Crates (Advanced Users)
 //!
@@ -79,6 +80,7 @@
 //! | `SingleCamHandeyeProblem` | `SingleCamHandeyeInput` | intrinsics_init → intrinsics_optim → handeye_init → handeye_optim |
 //! | `RigExtrinsicsProblem` | `RigExtrinsicsInput` | intrinsics_init_all → intrinsics_optim_all → rig_init → rig_optim |
 //! | `RigHandeyeProblem` | `RigHandeyeInput` | (all 6 steps) |
+//! | `LaserlineDeviceProblem` | `LaserlineDeviceInput` | init → optimize |
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Session Framework
@@ -180,6 +182,30 @@ pub mod single_cam_handeye {
         SingleCamHandeyeProblem,
         SingleCamHandeyeState,
         SingleCamHandeyeView,
+    };
+}
+
+/// Single laserline device calibration (camera + laser plane).
+///
+/// # Steps
+/// 1. `step_init` - Iterative intrinsics + linear laser plane init
+/// 2. `step_optimize` - Joint bundle adjustment
+///
+/// # Example
+/// ```ignore
+/// use calib::prelude::*;
+/// use calib::laserline_device::{run_calibration, LaserlineDeviceInput};
+///
+/// let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+/// session.set_input(input)?;
+/// run_calibration(&mut session)?;
+/// let result = session.export()?;
+/// ```
+pub mod laserline_device {
+    pub use calib_pipeline::laserline_device::{
+        run_calibration, step_init, step_optimize, InitOptions, LaserlineDeviceConfig,
+        LaserlineDeviceExport, LaserlineDeviceInput, LaserlineDeviceOutput, LaserlineDeviceProblem,
+        LaserlineDeviceState, OptimizeOptions,
     };
 }
 
@@ -334,12 +360,14 @@ pub use calib_pipeline::{CalibrationSession, ProblemType};
 
 // Problem types
 pub use calib_pipeline::{
-    PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem, SingleCamHandeyeProblem,
+    LaserlineDeviceProblem, PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem,
+    SingleCamHandeyeProblem,
 };
 
 // Pipeline functions
 pub use calib_pipeline::{
-    run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, run_single_cam_handeye,
+    run_laserline_device, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
+    run_single_cam_handeye,
 };
 
 // Core types
@@ -367,12 +395,14 @@ pub mod prelude {
 
     // Problem types
     pub use crate::{
-        PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem, SingleCamHandeyeProblem,
+        LaserlineDeviceProblem, PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem,
+        SingleCamHandeyeProblem,
     };
 
     // Pipeline functions
     pub use crate::{
-        run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, run_single_cam_handeye,
+        run_laserline_device, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
+        run_single_cam_handeye,
     };
 
     // Core types

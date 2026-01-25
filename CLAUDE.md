@@ -41,23 +41,12 @@ cargo doc --workspace --no-deps
 cargo doc --workspace --no-deps --open
 ```
 
-### CLI Usage
-```bash
-# Run CLI
-cargo run -p calib-cli -- --help
-
-# Example calibration run
-cargo run -p calib-cli -- --input views.json --config config.json > report.json
-```
-
 ## Architecture Overview
 
 ### Workspace Structure
-This is a **6-crate Rust workspace** (~7,200 lines of code) for camera calibration with a clean layered architecture:
+This is a **5-crate Rust workspace** (~7,200 lines of code) for camera calibration with a clean layered architecture:
 
 ```
-calib-cli (CLI wrapper)
-    ↓
 calib (facade) → calib-pipeline (high-level pipelines)
                       ↓
                  calib-optim (non-linear refinement) + calib-linear (initialization)
@@ -73,7 +62,6 @@ calib (facade) → calib-pipeline (high-level pipelines)
 - **calib-linear**: Closed-form initialization solvers (Zhang, homography, PnP, epipolar, hand-eye, **iterative intrinsics + distortion**) for bootstrapping optimization
 - **calib-optim**: Non-linear least-squares with backend-agnostic IR, autodiff-compatible factors, pluggable solvers (currently tiny-solver)
 - **calib-pipeline**: Ready-to-use end-to-end calibration workflows with JSON I/O, **session management with state tracking**
-- **calib-cli**: Command-line interface for batch processing
 - **calib**: Convenience re-export facade
 
 ### Camera Model Composition
@@ -249,13 +237,13 @@ Final calibrated camera (<1% accuracy, <1px reprojection error)
 - ✅ You need both K and distortion for initialization
 - ❌ For distortion-free cameras, use Zhang directly
 
-## Linescan Calibration with Laser Plane
+## Laserline Calibration with Laser Plane
 
-calib-optim supports **linescan sensor calibration** ([problems/linescan_bundle.rs](crates/calib-optim/src/problems/linescan_bundle.rs)) that jointly optimizes camera intrinsics, distortion, poses, and laser plane parameters using both calibration pattern observations and laser line observations.
+calib-optim supports **laserline calibration** ([problems/laserline_bundle.rs](crates/calib-optim/src/problems/laserline_bundle.rs)) that jointly optimizes camera intrinsics, distortion, poses, and laser plane parameters using both calibration pattern observations and laser line observations.
 
 ### Laser Residual Types
 
-Two approaches are available for laser plane calibration, selectable via `LaserResidualType`:
+Two approaches are available for laser plane calibration, selectable via `LaserlineResidualType`:
 
 **1. Point-to-Plane Distance (PointToPlane)**
 - Undistorts pixel → back-projects to 3D ray → intersects with target plane
@@ -288,21 +276,23 @@ Both approaches yield similar accuracy in practice. Benchmark tests show converg
 ### API Usage
 
 ```rust
-use calib_optim::problems::linescan_bundle::*;
+use calib_optim::problems::laserline_bundle::*;
 use calib_optim::backend::BackendSolveOptions;
+use calib_core::ScheimpflugParams;
 
 // Prepare dataset with calibration points and laser line observations
-let views: Vec<LinescanViewObservations> = /* ... */;
-let dataset = LinescanDataset::new_single_plane(views)?;
+let views: Vec<LaserlineView> = /* ... */;
+let dataset = views;
 
 // Initial estimates
-let initial = LinescanInit::new(intrinsics, distortion, poses, planes)?;
+let sensor = ScheimpflugParams::default(); // identity sensor
+let initial = LaserlineParams::new(intrinsics, distortion, sensor, poses, plane)?;
 
 // Configure options
-let opts = LinescanSolveOptions {
+let opts = LaserlineSolveOptions {
     fix_k3: true,
     fix_poses: vec![0],  // Fix first pose for gauge freedom
-    laser_residual_type: LaserResidualType::LineDistNormalized,  // Default
+    laser_residual_type: LaserlineResidualType::LineDistNormalized,  // Default
     ..Default::default()
 };
 
@@ -313,15 +303,15 @@ let backend_opts = BackendSolveOptions {
 };
 
 // Run optimization
-let result = optimize_linescan(&dataset, &initial, &opts, &backend_opts)?;
+let result = optimize_laserline(&dataset, &initial, &opts, &backend_opts)?;
 
 println!("Laser plane: normal={:?}, distance={}",
-         result.planes[0].normal, result.planes[0].distance);
+         result.params.plane.normal, result.params.plane.distance);
 ```
 
 ### Implementation Details
 
-**Factors** ([factors/linescan.rs](crates/calib-optim/src/factors/linescan.rs)):
+**Factors** ([factors/laserline.rs](crates/calib-optim/src/factors/laserline.rs)):
 - `laser_plane_pixel_residual_generic()`: Point-to-plane distance
 - `laser_line_dist_normalized_generic()`: Line-distance in normalized plane
 
@@ -336,7 +326,7 @@ Both factors:
 
 ### Testing
 
-Integration tests ([tests/linescan_bundle.rs](crates/calib-optim/tests/linescan_bundle.rs)) verify:
+Integration tests ([tests/laserline_bundle.rs](crates/calib-optim/tests/laserline_bundle.rs)) verify:
 - Convergence with synthetic ground truth data
 - Comparison of both residual types
 - Similar accuracy: ~4-5% intrinsics error, ~1-2° plane normal error
@@ -638,7 +628,6 @@ pub struct RigHandeyeExport {
 - calib-optim: ✅ All problem types working (planar, hand-eye, rig extrinsics, rig hand-eye)
 - calib-pipeline: ✅ Session framework with 4 problem types
 - calib: ✅ Unified facade with 6 examples
-- calib-cli: ✅ Basic CLI for planar intrinsics
 
 **Session framework**:
 - ✅ Mutable state container with step functions

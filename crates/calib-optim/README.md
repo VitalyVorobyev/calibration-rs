@@ -15,7 +15,7 @@ design separates problem definition from solver implementation using an intermed
   - `planar_intrinsics`: pinhole intrinsics + Brown-Conrady5 + per-view poses
   - `rig_extrinsics`: multi-camera rig BA (supports missing observations)
   - `handeye`: multi-camera rig + robot hand-eye BA (EyeInHand / EyeToHand) with optional robot pose refinement
-  - `linescan_bundle`: linescan bundle refinement
+  - `laserline_bundle`: laserline bundle refinement
 - ✅ **Structured parameter fixing** via `IntrinsicsFixMask` / `DistortionFixMask` / `CameraFixMask` (+ per-camera overrides)
 - ✅ **Robust loss functions** (`None`, `Huber`, `Cauchy`, `Arctan`)
 - ✅ **Manifold-aware optimization** for SE(3) parameters
@@ -38,7 +38,7 @@ Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Doma
 - **`params`** - Parameter block definitions (intrinsics, distortion, poses)
 - **`factors`** - Residual functions with autodiff support
 - **`backend`** - Solver implementations (currently tiny-solver with Levenberg-Marquardt)
-- **`problems`** - High-level problem builders (planar intrinsics, rig extrinsics, hand-eye, linescan)
+- **`problems`** - High-level problem builders (planar intrinsics, rig extrinsics, hand-eye, laserline)
 
 ## Quick Start
 
@@ -81,7 +81,7 @@ println!("Final cost: {}", result.final_cost);
 
 - Rig extrinsics (multi-camera BA): `calib_optim::problems::rig_extrinsics`
 - Hand-eye (rig + robot BA): `calib_optim::handeye`
-- Linescan bundle refinement: `calib_optim::problems::linescan_bundle`
+- Laserline bundle refinement: `calib_optim::problems::laserline_bundle`
 
 For end-to-end examples, see the integration tests linked below.
 
@@ -144,7 +144,7 @@ cargo test --package calib-optim --test planar_intrinsics_real_data
 Other useful tests:
 - `cargo test --package calib-optim --test rig_extrinsics`
 - `cargo test --package calib-optim --test handeye`
-- `cargo test --package calib-optim --test linescan_bundle`
+- `cargo test --package calib-optim --test laserline_bundle`
 
 ## Implementation Status
 
@@ -156,7 +156,7 @@ Other useful tests:
 | Rig extrinsics problem | ✅ Complete |
 | Hand-eye problem | ✅ Complete |
 | Robot pose refinement (hand-eye) | ✅ Complete |
-| Linescan bundle problem | ✅ Complete |
+| Laserline bundle problem | ✅ Complete |
 | Pinhole reprojection | ✅ Complete |
 | Brown-Conrady distortion | ✅ Complete (k1, k2, k3, p1, p2) |
 | Parameter fixing | ✅ Complete |
@@ -186,7 +186,7 @@ Integration tests with full examples:
 - [`tests/planar_intrinsics_real_data.rs`](tests/planar_intrinsics_real_data.rs)
 - [`tests/rig_extrinsics.rs`](tests/rig_extrinsics.rs)
 - [`tests/handeye.rs`](tests/handeye.rs)
-- [`tests/linescan_bundle.rs`](tests/linescan_bundle.rs)
+- [`tests/laserline_bundle.rs`](tests/laserline_bundle.rs)
 
 ## See Also
 

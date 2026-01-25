@@ -18,7 +18,7 @@ Planned evolution of the project. We will update this as features land.
 - Calibration report generation (metrics, plots, HTML/PDF-friendly data).
 
 ## Phase 4: advanced models
-- Linescan camera models, rolling shutter support, and timing calibration.
+- Laserline calibration models, rolling shutter support, and timing calibration.
 - Cross-sensor calibration: stereo, LiDAR-camera, IMU-camera, projector-camera.
 - Robustness: outlier rejection, temporal filtering, and uncertainty estimates.
 

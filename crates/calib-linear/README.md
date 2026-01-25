@@ -17,7 +17,7 @@ non-linear refinement in `calib-optim` or `calib-pipeline`.
 | **Triangulation** | Linear DLT |
 | **Rig** | Multi-camera extrinsics initialization |
 | **Hand-eye** | Tsai-Lenz (AX=XB) |
-| **Linescan** | Multi-view laser plane fitting |
+| **Laserline** | Multi-view laser plane fitting |
 
 ## Expected Accuracy
 
@@ -108,16 +108,16 @@ let gripper_se3_target = estimate_gripper_se3_target_dlt(&base_se3_gripper, &cam
 # Ok::<(), anyhow::Error>(())
 ```
 
-### Linescan Plane Fitting
+### Laserline Plane Fitting
 
 ```rust
-use calib_linear::linescan::{LinescanPlaneSolver, LinescanView};
+use calib_linear::laserline::{LaserlinePlaneSolver, LaserlineView};
 
-let views: Vec<LinescanView> = /* views with laser pixels */;
+let views: Vec<LaserlineView> = /* views with laser pixels */;
 let camera = /* calibrated camera */;
 
 // Multi-view fitting breaks single-view collinearity
-let estimate = LinescanPlaneSolver::from_views(&views, &camera)?;
+let estimate = LaserlinePlaneSolver::from_views(&views, &camera)?;
 println!("Plane normal: {:?}", estimate.normal);
 # Ok::<(), anyhow::Error>(())
 ```
@@ -136,7 +136,7 @@ println!("Plane normal: {:?}", estimate.normal);
 | `triangulation` | Linear triangulation |
 | `extrinsics` | Multi-camera rig initialization |
 | `handeye` | Tsai-Lenz hand-eye |
-| `linescan` | Laser plane estimation |
+| `laserline` | Laser plane estimation |
 
 ## See Also
 

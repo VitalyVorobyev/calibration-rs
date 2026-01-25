@@ -172,13 +172,13 @@ pub enum FactorKind {
     },
     /// Laser line pixel constrained to lie on laser plane.
     ///
-    /// Parameters: [intrinsics, distortion, pose_cam_to_target, plane_normal, plane_distance]
+    /// Parameters: [intrinsics, distortion, sensor, pose_cam_to_target, plane_normal, plane_distance]
     /// Residual: point-to-plane distance for ray-target intersection point.
     /// Note: Target is always planar (Z=0), so 3D point is computed as ray intersection.
     LaserPlanePixel { laser_pixel: [f64; 2], w: f64 },
     /// Laser line pixel constrained by line-distance in normalized plane.
     ///
-    /// Parameters: [intrinsics, distortion, pose_cam_to_target, plane_normal, plane_distance]
+    /// Parameters: [intrinsics, distortion, sensor, pose_cam_to_target, plane_normal, plane_distance]
     /// Residual: perpendicular distance from normalized pixel to projected
     ///           laser-target intersection line, scaled by sqrt(fx*fy).
     /// Note: Alternative to LaserPlanePixel using normalized plane geometry.
@@ -545,14 +545,15 @@ impl ProblemIR {
                 }
                 FactorKind::LaserPlanePixel { .. } => {
                     ensure!(
-                        residual.params.len() == 5,
-                        "LaserPlanePixel factor requires 5 params [cam, dist, pose, plane_normal, plane_distance]"
+                        residual.params.len() == 6,
+                        "LaserPlanePixel factor requires 6 params [cam, dist, sensor, pose, plane_normal, plane_distance]"
                     );
                     let cam = &self.params[residual.params[0].0];
                     let dist = &self.params[residual.params[1].0];
-                    let pose = &self.params[residual.params[2].0];
-                    let plane_normal = &self.params[residual.params[3].0];
-                    let plane_distance = &self.params[residual.params[4].0];
+                    let sensor = &self.params[residual.params[2].0];
+                    let pose = &self.params[residual.params[3].0];
+                    let plane_normal = &self.params[residual.params[4].0];
+                    let plane_distance = &self.params[residual.params[5].0];
                     ensure!(
                         cam.dim == 4 && cam.manifold == ManifoldKind::Euclidean,
                         "LaserPlanePixel factor expects 4D Euclidean intrinsics, got dim={} manifold={:?}",
@@ -564,6 +565,12 @@ impl ProblemIR {
                         "LaserPlanePixel factor expects 5D Euclidean distortion, got dim={} manifold={:?}",
                         dist.dim,
                         dist.manifold
+                    );
+                    ensure!(
+                        sensor.dim == 2 && sensor.manifold == ManifoldKind::Euclidean,
+                        "LaserPlanePixel factor expects 2D Euclidean sensor params, got dim={} manifold={:?}",
+                        sensor.dim,
+                        sensor.manifold
                     );
                     ensure!(
                         pose.dim == 7 && pose.manifold == ManifoldKind::SE3,
@@ -586,14 +593,15 @@ impl ProblemIR {
                 }
                 FactorKind::LaserLineDist2D { .. } => {
                     ensure!(
-                        residual.params.len() == 5,
-                        "LaserLineDist2D factor requires 5 params [cam, dist, pose, plane_normal, plane_distance]"
+                        residual.params.len() == 6,
+                        "LaserLineDist2D factor requires 6 params [cam, dist, sensor, pose, plane_normal, plane_distance]"
                     );
                     let cam = &self.params[residual.params[0].0];
                     let dist = &self.params[residual.params[1].0];
-                    let pose = &self.params[residual.params[2].0];
-                    let plane_normal = &self.params[residual.params[3].0];
-                    let plane_distance = &self.params[residual.params[4].0];
+                    let sensor = &self.params[residual.params[2].0];
+                    let pose = &self.params[residual.params[3].0];
+                    let plane_normal = &self.params[residual.params[4].0];
+                    let plane_distance = &self.params[residual.params[5].0];
                     ensure!(
                         cam.dim == 4 && cam.manifold == ManifoldKind::Euclidean,
                         "LaserLineDist2D factor expects 4D Euclidean intrinsics, got dim={} manifold={:?}",
@@ -605,6 +613,12 @@ impl ProblemIR {
                         "LaserLineDist2D factor expects 5D Euclidean distortion, got dim={} manifold={:?}",
                         dist.dim,
                         dist.manifold
+                    );
+                    ensure!(
+                        sensor.dim == 2 && sensor.manifold == ManifoldKind::Euclidean,
+                        "LaserLineDist2D factor expects 2D Euclidean sensor params, got dim={} manifold={:?}",
+                        sensor.dim,
+                        sensor.manifold
                     );
                     ensure!(
                         pose.dim == 7 && pose.manifold == ManifoldKind::SE3,

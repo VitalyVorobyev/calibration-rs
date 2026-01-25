@@ -30,6 +30,7 @@
 pub mod session;
 
 // Problem-specific modules
+pub mod laserline_device;
 pub mod planar_intrinsics;
 pub mod rig_extrinsics;
 pub mod rig_handeye;
@@ -91,6 +92,14 @@ pub use crate::rig_handeye::{
     IntrinsicsOptimOptions as RigHandeyeIntrinsicsOptimOptions, RigHandeyeConfig, RigHandeyeExport,
     RigHandeyeInput, RigHandeyeProblem, RigHandeyeState,
     RigOptimOptions as RigHandeyeRigOptimOptions,
+};
+
+// Laserline device
+pub use crate::laserline_device::{
+    run_calibration as run_laserline_device, step_init as laserline_step_init,
+    step_optimize as laserline_step_optimize, InitOptions as LaserlineInitOptions,
+    LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput, LaserlineDeviceOutput,
+    LaserlineDeviceProblem, LaserlineDeviceState, OptimizeOptions as LaserlineOptimizeOptions,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

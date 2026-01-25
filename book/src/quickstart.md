@@ -212,21 +212,6 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-## CLI Usage
-
-For batch processing without writing code:
-
-```bash
-# Create input JSON (see CLI chapter for format)
-echo '{"views": [...]}' > views.json
-
-# Run calibration
-cargo run -p calib-cli -- --input views.json > report.json
-
-# With custom config
-cargo run -p calib-cli -- --input views.json --config config.json > report.json
-```
-
 ## Next Steps
 
 - **[Core Concepts](concepts.md)**: Understand coordinate conventions and camera models
