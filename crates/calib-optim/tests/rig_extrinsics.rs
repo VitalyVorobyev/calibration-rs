@@ -105,7 +105,7 @@ fn stereo_rig_extrinsics_converges() {
 
     // Initial values (perturbed from ground truth)
     // Per-camera initialization (same values for homogeneous rig)
-    let intrinsics_init = vec![
+    let intrinsics_init = [
         FxFyCxCySkew {
             fx: 810.0, // Perturbed
             fy: 790.0, // Perturbed
@@ -122,7 +122,7 @@ fn stereo_rig_extrinsics_converges() {
         },
     ];
 
-    let distortion_init = vec![
+    let distortion_init = [
         BrownConrady5 {
             k1: -0.22, // Perturbed
             k2: 0.06,  // Perturbed
@@ -164,7 +164,7 @@ fn stereo_rig_extrinsics_converges() {
     let cameras_init = intrinsics_init
         .iter()
         .zip(&distortion_init)
-        .map(|(k, d)| make_pinhole_camera(*k, d.clone()))
+        .map(|(k, d)| make_pinhole_camera(*k, *d))
         .collect::<Vec<_>>();
 
     let initial = RigExtrinsicsParams {

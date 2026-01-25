@@ -288,11 +288,10 @@ impl LaserlinePlaneSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::Camera;
+    use calib_core::{make_pinhole_camera, PinholeCamera};
     use nalgebra::UnitQuaternion;
 
-    fn make_test_camera(
-    ) -> Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>> {
+    fn make_test_camera() -> PinholeCamera {
         let intrinsics = FxFyCxCySkew {
             fx: 800.0,
             fy: 800.0,
@@ -308,7 +307,7 @@ mod tests {
             p2: 0.0,
             iters: 8,
         };
-        Camera::new(Pinhole, distortion, IdentitySensor, intrinsics)
+        make_pinhole_camera(intrinsics, distortion)
     }
 
     #[test]

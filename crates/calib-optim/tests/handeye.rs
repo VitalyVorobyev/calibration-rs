@@ -129,7 +129,7 @@ fn eye_in_hand_calibration_converges() {
 
     // Initial values (perturbed from ground truth)
     // Single camera initialization
-    let intrinsics_init = vec![FxFyCxCySkew {
+    let intrinsics_init = [FxFyCxCySkew {
         fx: 810.0, // Perturbed
         fy: 790.0,
         cx: 645.0,
@@ -137,7 +137,7 @@ fn eye_in_hand_calibration_converges() {
         skew: 0.0,
     }];
 
-    let distortion_init = vec![BrownConrady5 {
+    let distortion_init = [BrownConrady5 {
         k1: -0.22, // Perturbed
         k2: 0.06,
         k3: 0.0,
@@ -160,7 +160,7 @@ fn eye_in_hand_calibration_converges() {
     let cameras_init: Vec<PinholeCamera> = intrinsics_init
         .iter()
         .zip(distortion_init.iter())
-        .map(|(k, d)| make_pinhole_camera(*k, d.clone()))
+        .map(|(k, d)| make_pinhole_camera(*k, *d))
         .collect();
 
     let initial = HandEyeParams {
@@ -546,7 +546,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
             deltas.push(se3_exp_isometry(xi));
         }
     } else {
-        deltas.extend(std::iter::repeat(Isometry3::identity()).take(num_views));
+        deltas.extend(std::iter::repeat_n(Isometry3::identity(), num_views));
     }
 
     let dt_ref =

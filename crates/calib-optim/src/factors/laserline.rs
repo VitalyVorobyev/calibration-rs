@@ -92,6 +92,7 @@ fn undistort_pixel_to_normalized<T: RealField>(
 /// # Returns
 ///
 /// 1D residual scaled by sqrt(w): [distance * sqrt(w)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn laser_plane_pixel_residual_generic<T: RealField>(
     intr: DVectorView<'_, T>,
     dist: DVectorView<'_, T>,
@@ -289,6 +290,7 @@ fn project_line_to_normalized_plane<T: RealField>(
 /// # Returns
 ///
 /// 1D residual scaled by sqrt(w): [distance_pixels * sqrt(w)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
     intr: DVectorView<'_, T>,
     dist: DVectorView<'_, T>,
