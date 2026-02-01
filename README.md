@@ -1,4 +1,4 @@
-# calibration-rs
+# vision-calibration
 
 [![CI](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/ci.yml)
 [![Docs](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/publish-docs.yml/badge.svg)](https://vitalyvorobyev.github.io/calibration/)
@@ -22,7 +22,7 @@ refinement, pipelines, and a CLI. Supports perspective cameras, laserline calibr
 
 ```
                            ┌─────────────────────────┐
-                           │         vision-calibration           │  ◄── Stable API facade
+                           │    vision-calibration   │  ◄── Stable API facade
                            │    (public interface)   │
                            └───────────┬─────────────┘
                                        │
@@ -30,7 +30,7 @@ refinement, pipelines, and a CLI. Supports perspective cameras, laserline calibr
               │                        │                        │
               ▼                        ▼                        ▼
 ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
-│   vision-calibration-pipeline    │  │    vision-calibration-optim      │  │    vision-calibration-linear     │
+│     vc-pipeline     │  │      vc-optim       │  │      vc-linear      │
 │  Session API, JSON  │  │   Non-linear BA     │  │   Linear solvers    │
 │   I/O, workflows    │  │   LM optimization   │  │   Initialization    │
 └─────────┬───────────┘  └─────────┬───────────┘  └─────────┬───────────┘
@@ -39,7 +39,7 @@ refinement, pipelines, and a CLI. Supports perspective cameras, laserline calibr
                                    │
                                    ▼
                        ┌─────────────────────┐
-                       │     vision-calibration-core      │  ◄── Math types, camera
+                       │       vc-core       │  ◄── Math types, camera
                        │   Types, models,    │      models, RANSAC
                        │       RANSAC        │
                        └─────────────────────┘

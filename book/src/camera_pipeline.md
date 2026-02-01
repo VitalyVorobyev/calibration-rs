@@ -93,6 +93,8 @@ Each stage is an independent trait. This design allows mixing and matching:
 |-----------|-----------|--------|-----------|
 | `Pinhole` | `NoDistortion` | `IdentitySensor` | `FxFyCxCySkew` |
 | `Pinhole` | `BrownConrady5` | `IdentitySensor` | `FxFyCxCySkew` |
-| `Pinhole` | `BrownConrady5` | `ScheimpflugParams` | `FxFyCxCySkew` |
+| `Pinhole` | `BrownConrady5` | `HomographySensor` | `FxFyCxCySkew` |
+
+Note: `ScheimpflugParams` stores the tilt angles and has a `compile()` method that produces a `HomographySensor` suitable for the `Camera` struct. See the [Sensor Models](sensor.md) chapter.
 
 The subsequent sections detail each stage.

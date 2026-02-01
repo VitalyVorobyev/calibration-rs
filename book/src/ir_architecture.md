@@ -37,7 +37,7 @@ pub struct ParamBlock {
     pub dim: usize,
     pub manifold: ManifoldKind,
     pub fixed: FixedMask,
-    pub bounds: Option<(DVector<f64>, DVector<f64>)>,
+    pub bounds: Option<Vec<Bound>>,  // per-index box constraints
 }
 ```
 
@@ -54,12 +54,13 @@ pub struct ParamBlock {
 
 Problem builders use consistent naming:
 
-- `"cam"` — intrinsics ($f_x, f_y, c_x, c_y$), dimension 4
-- `"dist"` — distortion ($k_1, k_2, k_3, p_1, p_2$), dimension 5
+- `"intrinsics"` or `"cam"` — intrinsics ($f_x, f_y, c_x, c_y$), dimension 4
+- `"distortion"` or `"dist"` — distortion ($k_1, k_2, k_3, p_1, p_2$), dimension 5
 - `"sensor"` — Scheimpflug tilt ($\tau_x, \tau_y$), dimension 2
-- `"pose/0"`, `"pose/1"`, ... — per-view SE(3) poses, dimension 7
-- `"plane"` — laser plane ($\hat{n}_x, \hat{n}_y, \hat{n}_z$), dimension 3, $S^2$ manifold
-- `"plane_d"` — laser plane distance, dimension 1
+- `"pose/0"`, `"pose/1"`, ... — per-view SE(3) poses (planar, rig), dimension 7
+- `"pose_0"`, `"pose_1"`, ... — per-view SE(3) poses (laserline), dimension 7
+- `"plane_normal"` — laser plane unit normal, dimension 3, $S^2$ manifold
+- `"plane_distance"` — laser plane distance, dimension 1
 - `"handeye"` — hand-eye SE(3), dimension 7
 - `"extrinsics/0"`, ... — per-camera SE(3) extrinsics, dimension 7
 
@@ -68,12 +69,13 @@ Problem builders use consistent naming:
 Controls which parameters are held constant during optimization:
 
 ```rust
-pub struct FixedMask {
-    pub fixed_indices: HashSet<usize>,
-}
+// Construct via factory methods:
+FixedMask::all_free()              // nothing fixed
+FixedMask::all_fixed(dim)          // everything fixed
+FixedMask::fix_indices(&[2])       // fix specific indices
 ```
 
-- **Euclidean parameters**: Individual indices can be fixed. For example, fixing index 2 of intrinsics fixes $c_x$ while allowing $f_x, f_y, c_y$ to vary.
+- **Euclidean parameters**: Individual indices can be fixed. For example, `FixedMask::fix_indices(&[2])` on intrinsics fixes $c_x$ while allowing $f_x, f_y, c_y$ to vary.
 - **Manifold parameters**: All-or-nothing. If any index is fixed, the entire block is fixed. (The tangent space does not support partial fixing.)
 
 ## ResidualBlock
@@ -97,20 +99,26 @@ An enum of all supported residual computations:
 
 ```rust
 pub enum FactorKind {
-    // Reprojection factors
-    ReprojPointPinhole4 { pw, uv, w },
-    ReprojPointPinhole4Dist5 { pw, uv, w },
-    ReprojPointPinhole4Dist5Scheimpflug2 { pw, uv, w },
-    ReprojPointPinhole4Dist5TwoSE3 { pw, uv, w },
-    ReprojPointPinhole4Dist5HandEye { pw, uv, w, robot_pose },
-    ReprojPointPinhole4Dist5HandEyeRobotDelta { pw, uv, w, robot_pose },
+    // Reprojection factors — all carry per-observation data
+    ReprojPointPinhole4 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    ReprojPointPinhole4Dist5 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    ReprojPointPinhole4Dist5Scheimpflug2 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    ReprojPointPinhole4Dist5TwoSE3 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    ReprojPointPinhole4Dist5HandEye {
+        pw: [f64; 3], uv: [f64; 2], w: f64,
+        base_to_gripper_se3: [f64; 7], mode: HandEyeMode,
+    },
+    ReprojPointPinhole4Dist5HandEyeRobotDelta {
+        pw: [f64; 3], uv: [f64; 2], w: f64,
+        base_to_gripper_se3: [f64; 7], mode: HandEyeMode,
+    },
 
     // Laser factors
-    LaserPlanePixel { uv, target_se3, w },
-    LaserLineDist2D { uv, target_se3, w },
+    LaserPlanePixel { laser_pixel: [f64; 2], w: f64 },
+    LaserLineDist2D { laser_pixel: [f64; 2], w: f64 },
 
     // Prior factors
-    Se3TangentPrior { sigma_rot, sigma_trans },
+    Se3TangentPrior { sqrt_info: [f64; 6] },
 }
 ```
 
@@ -157,7 +165,7 @@ The variants differ in which parameters are involved:
 
 ## Initial Values
 
-Parameter blocks carry only their structural definition (dimension, manifold, fixing). The **initial values** are passed separately as a `HashMap<ParamId, DVector<f64>>` to the backend's `solve()` method.
+Parameter blocks carry only their structural definition (dimension, manifold, fixing). The **initial values** are passed separately as a `HashMap<String, DVector<f64>>` (keyed by parameter block **name**) to the backend's `solve()` method.
 
 ## Example: Planar Intrinsics IR
 

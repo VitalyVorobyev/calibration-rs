@@ -2,6 +2,8 @@
 
 **calibration-rs** is a Rust library for camera calibration — the process of estimating the internal parameters (intrinsics, lens distortion) and external parameters (pose, rig geometry, hand-eye transforms) of camera systems from observed correspondences between known 3D points and their 2D projections.
 
+[API reference](https://vitalyvorobyev.github.io/calibration-rs/api)
+
 ## Who This Book Is For
 
 This book targets engineers and researchers working in machine vision, robotics, and 3D reconstruction who want to:

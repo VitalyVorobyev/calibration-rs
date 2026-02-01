@@ -2,7 +2,7 @@
 authors = ["Vitaly Vorobyev"]
 language = "en"
 src = "src"
-title = "calibration-rs Book"
+title = "vision-calibration Book"
 
 [preprocessor.katex]
 
@@ -11,4 +11,3 @@ default-theme = "light"
 preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/VitalyVorobyev/calibration-rs"
 mathjax-support = false
-
