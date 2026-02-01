@@ -7,10 +7,12 @@
 //! 4. Per-camera extrinsics parameters
 
 use calib_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, Real,
+    make_pinhole_camera, BrownConrady5, CorrespondenceView, FxFyCxCySkew, NoMeta, Pt3, Real,
+    RigDataset, RigView, RigViewObs,
 };
-use calib_optim::backend::{BackendSolveOptions, LinearSolverKind};
-use calib_optim::problems::rig_extrinsics::*;
+use calib_optim::{
+    optimize_rig_extrinsics, BackendSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
+};
 use nalgebra::{Isometry3, Rotation3, Translation3};
 
 #[test]
@@ -33,7 +35,7 @@ fn stereo_rig_extrinsics_converges() {
         iters: 5,
     };
 
-    let camera_gt = Camera::new(Pinhole, distortion_gt, IdentitySensor, intrinsics_gt);
+    let camera_gt = make_pinhole_camera(intrinsics_gt, distortion_gt);
 
     // Ground truth extrinsics: 2-camera stereo rig
     // Camera 0 is at rig origin (identity)
@@ -91,16 +93,19 @@ fn stereo_rig_extrinsics_converges() {
             cameras_obs.push(Some(CorrespondenceView::new(points_3d, points_2d).unwrap()));
         }
 
-        views.push(RigViewObservations {
-            cameras: cameras_obs,
+        views.push(RigView {
+            obs: RigViewObs {
+                cameras: cameras_obs,
+            },
+            meta: NoMeta,
         });
     }
 
-    let dataset = RigExtrinsicsDataset::new(views, 2).unwrap();
+    let dataset = RigDataset::new(views, 2).unwrap();
 
     // Initial values (perturbed from ground truth)
     // Per-camera initialization (same values for homogeneous rig)
-    let intrinsics_init = vec![
+    let intrinsics_init = [
         FxFyCxCySkew {
             fx: 810.0, // Perturbed
             fy: 790.0, // Perturbed
@@ -117,7 +122,7 @@ fn stereo_rig_extrinsics_converges() {
         },
     ];
 
-    let distortion_init = vec![
+    let distortion_init = [
         BrownConrady5 {
             k1: -0.22, // Perturbed
             k2: 0.06,  // Perturbed
@@ -156,9 +161,14 @@ fn stereo_rig_extrinsics_converges() {
         })
         .collect::<Vec<_>>();
 
-    let initial = RigExtrinsicsInit {
-        intrinsics: intrinsics_init,
-        distortion: distortion_init,
+    let cameras_init = intrinsics_init
+        .iter()
+        .zip(&distortion_init)
+        .map(|(k, d)| make_pinhole_camera(*k, *d))
+        .collect::<Vec<_>>();
+
+    let initial = RigExtrinsicsParams {
+        cameras: cameras_init,
         cam_to_rig: vec![cam0_to_rig_init, cam1_to_rig_init],
         rig_from_target: rig_from_target_init,
     };
@@ -173,17 +183,17 @@ fn stereo_rig_extrinsics_converges() {
     let backend_opts = BackendSolveOptions {
         max_iters: 50,
         verbosity: 0,
-        linear_solver: Some(LinearSolverKind::SparseCholesky),
         min_abs_decrease: Some(1e-10),
         min_rel_decrease: Some(1e-10),
         min_error: Some(1e-12),
+        ..Default::default()
     };
 
     // Optimize
     let result = optimize_rig_extrinsics(dataset, initial, opts, backend_opts).unwrap();
 
     // Verify per-camera intrinsics and distortion convergence
-    for (cam_idx, camera) in result.cameras.iter().enumerate() {
+    for (cam_idx, camera) in result.params.cameras.iter().enumerate() {
         let intr_final = camera.k;
         let fx_error = (intr_final.fx - intrinsics_gt.fx).abs();
         let fy_error = (intr_final.fy - intrinsics_gt.fy).abs();
@@ -259,7 +269,7 @@ fn stereo_rig_extrinsics_converges() {
     }
 
     // Verify camera 1 extrinsics (camera 0 is fixed)
-    let cam1_extr_final = &result.cam_to_rig[1];
+    let cam1_extr_final = &result.params.cam_to_rig[1];
     let cam1_extr_gt = &cam1_to_rig_gt;
 
     let dt = (cam1_extr_final.translation.vector - cam1_extr_gt.translation.vector).norm();
@@ -279,5 +289,5 @@ fn stereo_rig_extrinsics_converges() {
     assert!(ang < 1e-3, "camera 1 rotation error too large: {}", ang);
 
     println!("✓ Stereo rig extrinsics converged to ground truth");
-    println!("  Final cost: {:.6e}", result.final_cost);
+    println!("  Final cost: {:.6e}", result.report.final_cost);
 }

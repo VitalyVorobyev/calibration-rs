@@ -5,16 +5,16 @@
 [![Audit](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml)
 
 A Rust workspace for end-to-end camera calibration: math primitives, linear solvers, non-linear
-refinement, pipelines, and a CLI. Supports perspective and linescan sensors and multi-camera rigs.
+refinement, pipelines, and a CLI. Supports perspective cameras, laserline calibration, and multi-camera rigs.
 
 ## Status
 
 - Stable foundation: core math types, camera models, deterministic RANSAC, and linear solvers.
-- Working pipelines: planar intrinsics with Brown-Conrady distortion and stepwise hand-eye for
-  single-camera setups.
-- Optimization: planar intrinsics, hand-eye, rig extrinsics, and linescan bundle problems with a
+- Working pipelines: planar intrinsics with Brown-Conrady distortion, stepwise hand-eye for
+  single-camera setups, and single laserline device (camera + laser plane).
+- Optimization: planar intrinsics, hand-eye, rig extrinsics, and laserline bundle problems with a
   Levenberg-Marquardt backend.
-- In progress: broader pipeline coverage (rig and linescan), more CLI commands, and additional
+- In progress: broader pipeline coverage (rig), more CLI commands, and additional
   real-data validation.
 - API stability: `calib` is the compatibility boundary; lower crates may evolve.
 
@@ -51,10 +51,9 @@ refinement, pipelines, and a CLI. Supports perspective and linescan sensors and 
 |-------|-------------|
 | **calib** | Facade re-exporting all sub-crates for a stable API surface |
 | **calib-core** | Math types (nalgebra), composable camera models, RANSAC, synthetic data |
-| **calib-linear** | Closed-form solvers: homography, Zhang, PnP, epipolar, hand-eye, linescan |
-| **calib-optim** | Non-linear LM refinement: planar intrinsics, rig, hand-eye, linescan |
+| **calib-linear** | Closed-form solvers: homography, Zhang, PnP, epipolar, hand-eye, laserline |
+| **calib-optim** | Non-linear LM refinement: planar intrinsics, rig, hand-eye, laserline |
 | **calib-pipeline** | End-to-end workflows, session API, JSON I/O |
-| **calib-cli** | Command-line interface for batch processing |
 
 ## Quickstart
 
@@ -104,6 +103,19 @@ fn main() {
 ```
 
 For checkpointed workflows, see `calib::session` and `calib::pipeline::session`.
+
+### Laserline device pipeline (camera + laser plane)
+
+```rust
+use calib::prelude::*;
+use calib::laserline_device::{run_calibration, LaserlineDeviceProblem};
+
+let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+session.set_input(views)?;
+run_calibration(&mut session, None)?;
+let export = session.export()?;
+println!("Mean reproj error: {:.3}px", export.stats.mean_reproj_error);
+```
 
 ### Synthetic data generation
 
@@ -198,12 +210,6 @@ Where:
 `SensorConfig::Scheimpflug` follows OpenCV's tilted sensor model (`tau_x`, `tau_y`), implemented as
 the same homography computed by OpenCV's `computeTiltProjectionMatrix`.
 
-## CLI usage
-
-```bash
-cargo run -p calib-cli -- --input views.json --config config.json > report.json
-```
-
 ## Docs
 
 - API docs and book: https://vitalyvorobyev.github.io/calibration/
@@ -219,7 +225,7 @@ cargo run -p calib-cli -- --input views.json --config config.json > report.json
 
 ## Roadmap (near term)
 
-- Expand pipeline coverage for rig extrinsics and linescan bundle.
+- Expand pipeline coverage for rig extrinsics and laserline bundle.
 - Add JSON schemas and CLI flows for additional pipelines.
 - Extend validation on real datasets and regression fixtures.
 

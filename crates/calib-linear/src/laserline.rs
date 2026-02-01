@@ -1,4 +1,4 @@
-//! Linescan laser plane estimation from planar target observations.
+//! Laserline plane estimation from planar target observations.
 //!
 //! This module provides linear closed-form estimation of laser plane parameters
 //! from pixel observations of a laser line projected onto a planar calibration target.
@@ -21,13 +21,11 @@
 //! # Note on View Requirements
 //!
 //! A single view with a laser line produces **collinear** 3D points (all on one line),
-//! which is degenerate for plane fitting. Use [`LinescanPlaneSolver::from_views`] with
+//! which is degenerate for plane fitting. Use [`LaserlinePlaneSolver::from_views`] with
 //! at least 2 views at different poses to obtain non-collinear points.
 
 use anyhow::Result;
-use calib_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt2, Pt3, Real,
-};
+use calib_core::{BrownConrady5, Camera, FxFyCxCySkew, Iso3, Pinhole, Pt2, Pt3, Real, SensorModel};
 use nalgebra::{Point3, UnitVector3, Vector3};
 
 /// Laser line observations for a single view.
@@ -35,11 +33,11 @@ use nalgebra::{Point3, UnitVector3, Vector3};
 /// The camera pose must be known (typically from PnP solution using
 /// calibration features in the same view).
 #[derive(Debug, Clone)]
-pub struct LinescanView {
+pub struct LaserlineView {
     /// 2D pixel observations along the laser line
     pub laser_pixels: Vec<Pt2>,
     /// Camera-to-target transform (T_C_T) from calibration features
-    pub camera_pose: Iso3,
+    pub camera_se3_target: Iso3,
 }
 
 /// Result of linear laser plane estimation.
@@ -56,9 +54,9 @@ pub struct LinearPlaneEstimate {
 }
 
 /// Solver for laser plane estimation via closed-form methods.
-pub struct LinescanPlaneSolver;
+pub struct LaserlinePlaneSolver;
 
-impl LinescanPlaneSolver {
+impl LaserlinePlaneSolver {
     /// Estimate laser plane from 3D points in camera frame via SVD.
     ///
     /// Fits a plane ax + by + cz + d = 0 to the given 3D points using
@@ -173,10 +171,13 @@ impl LinescanPlaneSolver {
     /// - At least 2 views with different poses
     /// - Total points across views >= 3
     /// - Views must be at sufficiently different angles to break collinearity
-    pub fn from_views(
-        views: &[LinescanView],
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
-    ) -> Result<LinearPlaneEstimate> {
+    pub fn from_views<Sm>(
+        views: &[LaserlineView],
+        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
+    ) -> Result<LinearPlaneEstimate>
+    where
+        Sm: SensorModel<Real>,
+    {
         if views.len() < 2 {
             anyhow::bail!(
                 "insufficient views: got {}, need at least {}",
@@ -188,7 +189,8 @@ impl LinescanPlaneSolver {
         // Gather all 3D points from all views
         let mut all_points = Vec::new();
         for view in views {
-            let points = Self::compute_3d_points(&view.laser_pixels, camera, &view.camera_pose)?;
+            let points =
+                Self::compute_3d_points(&view.laser_pixels, camera, &view.camera_se3_target)?;
             all_points.extend(points);
         }
 
@@ -215,16 +217,20 @@ impl LinescanPlaneSolver {
         since = "0.2.0",
         note = "Single view produces collinear points. Use from_views() with multiple views."
     )]
-    pub fn from_view(
-        view: &LinescanView,
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
-    ) -> Result<LinearPlaneEstimate> {
+    pub fn from_view<Sm>(
+        view: &LaserlineView,
+        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
+    ) -> Result<LinearPlaneEstimate>
+    where
+        Sm: SensorModel<Real>,
+    {
         if view.laser_pixels.is_empty() {
             anyhow::bail!("insufficient points: got 0, need at least 1");
         }
 
         // Compute 3D points in camera frame
-        let points_camera = Self::compute_3d_points(&view.laser_pixels, camera, &view.camera_pose)?;
+        let points_camera =
+            Self::compute_3d_points(&view.laser_pixels, camera, &view.camera_se3_target)?;
 
         // Fit plane to 3D points
         Self::from_points_3d(&points_camera)
@@ -237,11 +243,14 @@ impl LinescanPlaneSolver {
     /// 2. Transform ray to target frame (inverse of camera pose)
     /// 3. Intersect ray with target plane (Z=0)
     /// 4. Transform intersection point back to camera frame
-    fn compute_3d_points(
+    fn compute_3d_points<Sm>(
         laser_pixels: &[Pt2],
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>,
-        camera_pose: &Iso3,
-    ) -> Result<Vec<Pt3>> {
+        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
+        camera_se3_target: &Iso3,
+    ) -> Result<Vec<Pt3>>
+    where
+        Sm: SensorModel<Real>,
+    {
         let mut points_camera = Vec::with_capacity(laser_pixels.len());
 
         for pixel in laser_pixels {
@@ -253,8 +262,8 @@ impl LinescanPlaneSolver {
             // 2. Transform ray to target frame
             // T_T_C = T_C_T^-1
             let ray_origin_camera = Point3::origin();
-            let ray_origin_target = camera_pose.inverse_transform_point(&ray_origin_camera);
-            let ray_dir_target = camera_pose.inverse_transform_vector(&ray_dir_camera);
+            let ray_origin_target = camera_se3_target.inverse_transform_point(&ray_origin_camera);
+            let ray_dir_target = camera_se3_target.inverse_transform_vector(&ray_dir_camera);
 
             // 3. Intersect ray with target plane (Z=0)
             // Ray: p(t) = ray_origin_target + t * ray_dir_target
@@ -268,7 +277,7 @@ impl LinescanPlaneSolver {
             let pt_target = ray_origin_target + ray_dir_target * t;
 
             // 4. Transform back to camera frame
-            let pt_camera = camera_pose.transform_point(&pt_target);
+            let pt_camera = camera_se3_target.transform_point(&pt_target);
             points_camera.push(pt_camera);
         }
 
@@ -279,11 +288,10 @@ impl LinescanPlaneSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calib_core::Camera;
+    use calib_core::{make_pinhole_camera, PinholeCamera};
     use nalgebra::UnitQuaternion;
 
-    fn make_test_camera(
-    ) -> Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>> {
+    fn make_test_camera() -> PinholeCamera {
         let intrinsics = FxFyCxCySkew {
             fx: 800.0,
             fy: 800.0,
@@ -299,7 +307,7 @@ mod tests {
             p2: 0.0,
             iters: 8,
         };
-        Camera::new(Pinhole, distortion, IdentitySensor, intrinsics)
+        make_pinhole_camera(intrinsics, distortion)
     }
 
     #[test]
@@ -314,7 +322,7 @@ mod tests {
             Pt3::new(0.5, 0.5, 0.5),
         ];
 
-        let result = LinescanPlaneSolver::from_points_3d(&points).unwrap();
+        let result = LaserlinePlaneSolver::from_points_3d(&points).unwrap();
 
         // Check normal (should be close to [0, 0, 1])
         assert!((result.normal.z.abs() - 1.0).abs() < 1e-6);
@@ -341,7 +349,7 @@ mod tests {
             Pt3::new(0.5, 0.5, 0.55),
         ];
 
-        let result = LinescanPlaneSolver::from_points_3d(&points).unwrap();
+        let result = LaserlinePlaneSolver::from_points_3d(&points).unwrap();
 
         // Normal should be close to [-0.447, 0, 0.894]
         let expected_normal = Vector3::new(-0.5, 0.0, 1.0).normalize();
@@ -355,7 +363,7 @@ mod tests {
     #[test]
     fn plane_insufficient_points() {
         let points = vec![Pt3::new(0.0, 0.0, 0.5), Pt3::new(1.0, 0.0, 0.5)];
-        assert!(LinescanPlaneSolver::from_points_3d(&points).is_err());
+        assert!(LaserlinePlaneSolver::from_points_3d(&points).is_err());
     }
 
     #[test]
@@ -368,7 +376,7 @@ mod tests {
             Pt3::new(3.0, 0.0, 0.5),
         ];
 
-        let result = LinescanPlaneSolver::from_points_3d(&points);
+        let result = LaserlinePlaneSolver::from_points_3d(&points);
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("collinear points"),
@@ -380,12 +388,12 @@ mod tests {
     #[test]
     fn from_views_insufficient_views() {
         let camera = make_test_camera();
-        let view = LinescanView {
+        let view = LaserlineView {
             laser_pixels: vec![Pt2::new(100.0, 100.0), Pt2::new(200.0, 100.0)],
-            camera_pose: Iso3::identity(),
+            camera_se3_target: Iso3::identity(),
         };
 
-        let result = LinescanPlaneSolver::from_views(&[view], &camera);
+        let result = LaserlinePlaneSolver::from_views(&[view], &camera);
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("insufficient views"),
@@ -416,25 +424,25 @@ mod tests {
         // Generate laser pixels that project to the laser plane
         // For a horizontal laser line at z=-0.5 in camera frame,
         // we simulate pixels along the laser line
-        let view1 = LinescanView {
+        let view1 = LaserlineView {
             laser_pixels: vec![
                 Pt2::new(400.0, 480.0),
                 Pt2::new(640.0, 480.0),
                 Pt2::new(880.0, 480.0),
             ],
-            camera_pose: pose1,
+            camera_se3_target: pose1,
         };
 
-        let view2 = LinescanView {
+        let view2 = LaserlineView {
             laser_pixels: vec![
                 Pt2::new(400.0, 520.0),
                 Pt2::new(640.0, 520.0),
                 Pt2::new(880.0, 520.0),
             ],
-            camera_pose: pose2,
+            camera_se3_target: pose2,
         };
 
-        let result = LinescanPlaneSolver::from_views(&[view1, view2], &camera);
+        let result = LaserlinePlaneSolver::from_views(&[view1, view2], &camera);
         // This should succeed (may not match ground truth due to simplified setup)
         assert!(result.is_ok(), "from_views should succeed: {:?}", result);
     }

@@ -153,9 +153,14 @@ pub use crate::backend::{
     solve_with_backend, BackendKind, BackendSolution, BackendSolveOptions, SolveReport,
 };
 
-pub use crate::ir::{HandEyeMode, RobustLoss};
+pub use crate::ir::{
+    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
+};
 
-pub use crate::params::pose_se3::se3_dvec_to_iso3;
+pub use crate::params::distortion::{pack_distortion, DISTORTION_DIM};
+pub use crate::params::intrinsics::{pack_intrinsics, INTRINSICS_DIM};
+pub use crate::params::laser_plane::LaserPlane;
+pub use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 
 pub use crate::problems::planar_intrinsics::{
     optimize_planar_intrinsics, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
@@ -170,6 +175,12 @@ pub use crate::problems::handeye::{
 pub use crate::problems::rig_extrinsics::{
     optimize_rig_extrinsics, RigExtrinsicsDataset, RigExtrinsicsEstimate, RigExtrinsicsParams,
     RigExtrinsicsSolveOptions,
+};
+
+pub use crate::problems::laserline_bundle::{
+    compute_laserline_stats, optimize_laserline, LaserlineDataset, LaserlineEstimate,
+    LaserlineMeta, LaserlineParams, LaserlineResidualType, LaserlineSolveOptions, LaserlineStats,
+    LaserlineView,
 };
 
 pub use calib_core::{RigDataset, RigViewObs, View};

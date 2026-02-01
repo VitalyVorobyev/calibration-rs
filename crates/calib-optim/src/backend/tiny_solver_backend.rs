@@ -2,7 +2,7 @@ use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
 use crate::backend::{
     BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend, SolveReport,
 };
-use crate::factors::linescan::{
+use crate::factors::laserline::{
     laser_line_dist_normalized_generic, laser_plane_pixel_residual_generic,
 };
 use crate::factors::reprojection_model::{
@@ -502,15 +502,16 @@ impl<T: nalgebra::RealField> Factor<T> for TinyLaserPlanePixelFactor {
     fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
         debug_assert_eq!(
             params.len(),
-            5,
-            "expected [cam, dist, pose, plane_normal, plane_distance] parameter blocks"
+            6,
+            "expected [cam, dist, sensor, pose, plane_normal, plane_distance] parameter blocks"
         );
         let r = laser_plane_pixel_residual_generic(
             params[0].as_view(), // intrinsics
             params[1].as_view(), // distortion
-            params[2].as_view(), // pose (camera-to-target)
-            params[3].as_view(), // plane normal
-            params[4].as_view(), // plane distance
+            params[2].as_view(), // sensor (Scheimpflug)
+            params[3].as_view(), // pose (camera-to-target)
+            params[4].as_view(), // plane normal
+            params[5].as_view(), // plane distance
             self.laser_pixel,
             self.w,
         );
@@ -528,15 +529,16 @@ impl<T: nalgebra::RealField> Factor<T> for TinyLaserLineDist2DFactor {
     fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
         debug_assert_eq!(
             params.len(),
-            5,
-            "expected [cam, dist, pose, plane_normal, plane_distance] parameter blocks"
+            6,
+            "expected [cam, dist, sensor, pose, plane_normal, plane_distance] parameter blocks"
         );
         let r = laser_line_dist_normalized_generic(
             params[0].as_view(), // intrinsics
             params[1].as_view(), // distortion
-            params[2].as_view(), // pose (camera-to-target)
-            params[3].as_view(), // plane normal
-            params[4].as_view(), // plane distance
+            params[2].as_view(), // sensor (Scheimpflug)
+            params[3].as_view(), // pose (camera-to-target)
+            params[4].as_view(), // plane normal
+            params[5].as_view(), // plane distance
             self.laser_pixel,
             self.w,
         );

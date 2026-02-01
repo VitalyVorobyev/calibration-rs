@@ -37,7 +37,7 @@
 //! # Available Factors
 //!
 //! - [`reprojection_model`] - Pinhole camera reprojection with optional Brown-Conrady distortion
-//! - [`linescan`] - Laser plane residuals for linescan calibration
+//! - [`laserline`] - Laser plane residuals for laserline calibration
 
-pub mod linescan;
+pub mod laserline;
 pub mod reprojection_model;
