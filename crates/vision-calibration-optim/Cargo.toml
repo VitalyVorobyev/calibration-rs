@@ -2,6 +2,8 @@
 name = "vision-calibration-optim"
 description = "Non-linear optimization problems and solvers for calibration-rs"
 readme = "README.md"
+keywords = ["camera", "calibration", "computer-vision", "robotics", "hand-eye"]  # max 5
+categories = ["computer-vision"]  # pick from crates.io list
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,14 +12,14 @@ homepage.workspace = true
 repository.workspace = true
 
 [dependencies]
-vision-calibration-core = { path = "../vision-calibration-core", version = "0.1.0" }
+vision-calibration-core = { workspace = true }
 nalgebra = { workspace = true }
-anyhow = "1"
-tiny-solver = "0.18"
-serde = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+tiny-solver = { workspace = true }
+serde = { workspace = true }
 
 [dev-dependencies]
-vision-calibration-linear = { path = "../vision-calibration-linear", version = "0.1.0" }
+vision-calibration-linear = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

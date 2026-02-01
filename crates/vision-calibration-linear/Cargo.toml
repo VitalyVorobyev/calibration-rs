@@ -2,6 +2,8 @@
 name = "vision-calibration-linear"
 readme = "README.md"
 description = "Closed-form and linear initialization solvers for calibration-rs"
+keywords = ["camera", "calibration", "computer-vision", "robotics", "hand-eye"]  # max 5
+categories = ["computer-vision"]  # pick from crates.io list
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,11 +12,11 @@ homepage.workspace = true
 repository.workspace = true
 
 [dependencies]
-vision-calibration-core = { path = "../vision-calibration-core", version = "0.1.0" }
+vision-calibration-core = { workspace = true }
 nalgebra = { workspace = true }
-log = "0.4"
-serde = { workspace = true, features = ["derive"] }
-anyhow = "1"
+log = { workspace = true }
+serde = { workspace = true }
+anyhow = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

@@ -14,12 +14,25 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
-homepage = "https://vitalyvorobyev.github.io/calibration"
+homepage = "https://vitalyvorobyev.github.io/calibration-rs"
 repository = "https://github.com/VitalyVorobyev/calibration-rs"
 
 [workspace.dependencies]
+vision-calibration-core = { path = "./crates/vision-calibration-core", version = "0.1.0" }
+vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.1.0" }
+vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.1.0" }
+vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.1.0" }
+
+anyhow = "1"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 num-dual = "0.13.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }
+log = "0.4"
+image = { version = "0.25" }
+chess-corners = { version = "0.3", features = ["rayon", "ml-refiner"] }
+calib-targets = "0.2"
+rand = { version = "0.9" }
+tracing = { version = "0.1" }
+tiny-solver = "0.18"
