@@ -1,0 +1,186 @@
+//! Non-linear optimization for camera calibration with automatic differentiation.
+//!
+//! This crate provides a backend-agnostic optimization framework for camera calibration
+//! problems. The core design separates problem definition from solver implementation using
+//! an intermediate representation (IR) that can be compiled to different optimization backends.
+//!
+//! # Architecture
+//!
+//! The optimization pipeline has three stages:
+//!
+//! 1. **Problem Definition** - Build a \[`ir::ProblemIR`\] describing parameters, factors, and constraints
+//! 2. **Backend Compilation** - Translate IR into solver-specific problem (e.g., \[`backend::TinySolverBackend`\])
+//! 3. **Optimization** - Run solver and extract solution as domain types
+//!
+//! ```text
+//! Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Domain Result
+//! ```
+//!
+//! ## Key Components
+//!
+//! - **\[`ir`\]** - Backend-agnostic intermediate representation for optimization problems
+//! - **\[`params`\]** - Parameter block definitions (intrinsics, distortion, poses)
+//! - **\[`factors`\]** - Residual functions with automatic differentiation support
+//! - **\[`backend`\]** - Solver implementations (currently tiny-solver with Levenberg-Marquardt)
+//! - **\[`problems`\]** - High-level calibration problem builders (planar intrinsics, etc.)
+//!
+//! # Examples
+//!
+//! ## Basic Planar Intrinsics Calibration
+//!
+//! ```rust,no_run
+//! use vision_calibration_core::{BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Iso3, PlanarDataset, Pt2, Pt3, View};
+//! use vision_calibration_optim::{
+//!     optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsParams,
+//!     PlanarIntrinsicsSolveOptions, RobustLoss,
+//! };
+//!
+//! # fn example() -> anyhow::Result<()> {
+//! // 1. Prepare observations (world points + image detections)
+//! let view = View::without_meta(CorrespondenceView::new(
+//!     vec![
+//!         Pt3::new(0.0, 0.0, 0.0),
+//!         Pt3::new(1.0, 0.0, 0.0),
+//!         Pt3::new(1.0, 1.0, 0.0),
+//!         Pt3::new(0.0, 1.0, 0.0),
+//!     ],
+//!     vec![
+//!         Pt2::new(100.0, 100.0),
+//!         Pt2::new(200.0, 100.0),
+//!         Pt2::new(200.0, 200.0),
+//!         Pt2::new(100.0, 200.0),
+//!     ],
+//! )?);
+//! let dataset = PlanarDataset::new(vec![view])?;
+//!
+//! // 2. Initialize with linear method or prior calibration
+//! let init = PlanarIntrinsicsParams::new_from_components(
+//!     FxFyCxCySkew {
+//!         fx: 800.0,
+//!         fy: 800.0,
+//!         cx: 640.0,
+//!         cy: 360.0,
+//!         skew: 0.0,
+//!     },
+//!     BrownConrady5 {
+//!         k1: 0.0,
+//!         k2: 0.0,
+//!         k3: 0.0,
+//!         p1: 0.0,
+//!         p2: 0.0,
+//!         iters: 8,
+//!     },
+//!     vec![Iso3::identity()],
+//! )?;
+//!
+//! // 3. Configure optimization
+//! let opts = PlanarIntrinsicsSolveOptions {
+//!     robust_loss: RobustLoss::Huber { scale: 2.0 },
+//!     fix_distortion: DistortionFixMask { k3: true, ..Default::default() }, // Fix k3 to prevent overfitting
+//!     ..Default::default()
+//! };
+//!
+//! // 4. Run optimization
+//! let result = optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default())?;
+//!
+//! println!("Calibrated camera: {:?}", result.params.camera);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Custom Problem with IR
+//!
+//! # Feature Highlights
+//!
+//! ## Automatic Differentiation
+//!
+//! All residual functions are generic over [`nalgebra::RealField`], enabling automatic
+//! differentiation via dual numbers. The \[`factors::reprojection_model`\] module provides
+//! autodiff-compatible implementations of:
+//!
+//! - Pinhole projection with SE3 poses
+//! - Brown-Conrady distortion (k1, k2, k3, p1, p2)
+//! - Weighted reprojection residuals
+//!
+//! ## Flexible Parameter Fixing
+//!
+//! Use \[`ir::FixedMask`\] to selectively fix optimization variables:
+//!
+//! ```rust
+//! # use vision_calibration_optim::PlanarIntrinsicsSolveOptions;
+//! # use vision_calibration_core::{DistortionFixMask, IntrinsicsFixMask};
+//! let opts = PlanarIntrinsicsSolveOptions {
+//!     fix_intrinsics: IntrinsicsFixMask { fx: true, ..Default::default() }, // Fix focal length
+//!     fix_distortion: DistortionFixMask { p1: true, p2: true, ..Default::default() }, // Fix tangential distortion
+//!     ..Default::default()
+//! };
+//! ```
+//!
+//! ## Robust Loss Functions
+//!
+//! Handle outliers with M-estimators ([`ir::RobustLoss`]):
+//!
+//! - `Huber` - L2 near zero, L1 for outliers
+//! - `Cauchy` - Gradual outlier suppression
+//! - `Arctan` - Bounded influence
+//!
+//! # Performance Considerations
+//!
+//! - **Initialization**: Always initialize with linear methods (the `vision-calibration-linear` crate) for faster convergence
+//! - **Robust Loss**: Use Huber with `scale ≈ 2.0` for real data with corner detection noise
+//! - **Distortion**: Fix `k3` by default unless calibrating wide-angle lenses
+//! - **Manifolds**: SE3/SO3 parameters use proper Lie group updates for stability
+//!
+//! # Numerical Stability
+//!
+//! The implementation uses several techniques for numerical robustness:
+//!
+//! - Safe division with epsilon thresholds in projection
+//! - Hartley normalization in linear initialization (via vision-calibration-linear)
+//! - Manifold-aware parameter updates for rotations
+//! - Sparse linear solvers for large problems
+
+mod backend;
+mod factors;
+mod ir;
+mod math;
+mod params;
+mod problems;
+
+pub use math::*;
+
+pub use crate::backend::{
+    BackendKind, BackendSolution, BackendSolveOptions, SolveReport, solve_with_backend,
+};
+
+pub use crate::ir::{
+    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
+};
+
+pub use crate::params::distortion::{DISTORTION_DIM, pack_distortion};
+pub use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
+pub use crate::params::laser_plane::LaserPlane;
+pub use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
+
+pub use crate::problems::planar_intrinsics::{
+    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+    optimize_planar_intrinsics,
+};
+
+pub use crate::problems::handeye::{
+    HandEyeDataset, HandEyeEstimate, HandEyeParams, HandEyeSolveOptions, RobotPoseMeta,
+    optimize_handeye,
+};
+
+pub use crate::problems::rig_extrinsics::{
+    RigExtrinsicsDataset, RigExtrinsicsEstimate, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
+    optimize_rig_extrinsics,
+};
+
+pub use crate::problems::laserline_bundle::{
+    LaserlineDataset, LaserlineEstimate, LaserlineMeta, LaserlineParams, LaserlineResidualType,
+    LaserlineSolveOptions, LaserlineStats, LaserlineView, compute_laserline_stats,
+    optimize_laserline,
+};
+
+pub use vision_calibration_core::{RigDataset, RigViewObs, View};

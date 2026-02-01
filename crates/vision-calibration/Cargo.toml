@@ -1,0 +1,24 @@
+[package]
+name = "vision-calibration"
+description = "High-level entry crate for the calibration-rs toolbox"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = "1"
+vision-calibration-core = { path = "../vision-calibration-core", version = "0.1.0" }
+vision-calibration-linear = { path = "../vision-calibration-linear", version = "0.1.0" }
+vision-calibration-optim = { path = "../vision-calibration-optim", version = "0.1.0" }
+vision-calibration-pipeline = { path = "../vision-calibration-pipeline", version = "0.1.0" }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+chess-corners = { version = "0.3", features = ["rayon", "ml-refiner"] }
+calib-targets = "0.2"
+image = { version = "0.25" }
+nalgebra = { workspace = true }

@@ -1,0 +1,22 @@
+[package]
+name = "vision-calibration-pipeline"
+description = "End-to-end calibration workflows and session APIs for calibration-rs"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+vision-calibration-core = { path = "../vision-calibration-core", version = "0.1.0" }
+vision-calibration-linear = { path = "../vision-calibration-linear", version = "0.1.0" }
+vision-calibration-optim = { path = "../vision-calibration-optim", version = "0.1.0" }
+anyhow = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+nalgebra = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -1,0 +1,25 @@
+[package]
+name = "vision-calibration-optim"
+description = "Non-linear optimization problems and solvers for calibration-rs"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+vision-calibration-core = { path = "../vision-calibration-core", version = "0.1.0" }
+nalgebra = { workspace = true }
+anyhow = "1"
+tiny-solver = "0.18"
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+vision-calibration-linear = { path = "../vision-calibration-linear", version = "0.1.0" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[features]
+default = []

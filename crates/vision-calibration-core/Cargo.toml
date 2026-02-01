@@ -1,0 +1,23 @@
+[package]
+name = "vision-calibration-core"
+description = "Core math types, camera models, and RANSAC primitives for vision-calibration"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[features]
+tracing = ["dep:tracing"]
+
+[dependencies]
+nalgebra = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+rand = { version = "0.9" }
+anyhow = "1"
+tracing = { version = "0.1", optional=true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

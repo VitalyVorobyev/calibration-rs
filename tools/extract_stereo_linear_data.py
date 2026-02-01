@@ -64,7 +64,7 @@ def main() -> None:
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path("crates/calib-linear/tests/data/stereo_linear.json"),
+        default=Path("crates/vision-calibration-linear/tests/data/stereo_linear.json"),
         help="Output JSON path.",
     )
     args = parser.parse_args()
