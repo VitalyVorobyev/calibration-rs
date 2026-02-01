@@ -17,11 +17,6 @@ use vision_calibration_core::Pt3;
 /// The plane equation is: n̂ · p + d = 0
 /// where p is a point in camera coordinates.
 ///
-/// # Example
-///
-/// ```ignore
-/// // Internal module: not part of the stable public API.
-/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserPlane {
     /// Unit normal vector in camera frame

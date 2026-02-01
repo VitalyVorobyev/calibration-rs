@@ -60,7 +60,7 @@ pub struct LaserlineDeviceConfig {
     pub fix_k3: bool,
     /// Fix Scheimpflug sensor parameters during optimization.
     pub fix_sensor: bool,
-    /// Indices of poses to fix (e.g., [0] to fix first pose).
+    /// Indices of poses to fix (e.g., \[0\] to fix first pose).
     pub fix_poses: Vec<usize>,
     /// Fix laser plane parameters during optimization.
     pub fix_plane: bool,
