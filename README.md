@@ -1,4 +1,4 @@
-# calibration-rs
+# vision-calibration
 
 [![CI](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/ci.yml)
 [![Docs](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/publish-docs.yml/badge.svg)](https://vitalyvorobyev.github.io/calibration/)
@@ -16,13 +16,13 @@ refinement, pipelines, and a CLI. Supports perspective cameras, laserline calibr
   Levenberg-Marquardt backend.
 - In progress: broader pipeline coverage (rig), more CLI commands, and additional
   real-data validation.
-- API stability: `calib` is the compatibility boundary; lower crates may evolve.
+- API stability: `vision-calibration` is the compatibility boundary; lower crates may evolve.
 
 ## Architecture
 
 ```
                            ┌─────────────────────────┐
-                           │         calib           │  ◄── Stable API facade
+                           │    vision-calibration   │  ◄── Stable API facade
                            │    (public interface)   │
                            └───────────┬─────────────┘
                                        │
@@ -30,7 +30,7 @@ refinement, pipelines, and a CLI. Supports perspective cameras, laserline calibr
               │                        │                        │
               ▼                        ▼                        ▼
 ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
-│   calib-pipeline    │  │    calib-optim      │  │    calib-linear     │
+│     vc-pipeline     │  │      vc-optim       │  │      vc-linear      │
 │  Session API, JSON  │  │   Non-linear BA     │  │   Linear solvers    │
 │   I/O, workflows    │  │   LM optimization   │  │   Initialization    │
 └─────────┬───────────┘  └─────────┬───────────┘  └─────────┬───────────┘
@@ -39,7 +39,7 @@ refinement, pipelines, and a CLI. Supports perspective cameras, laserline calibr
                                    │
                                    ▼
                        ┌─────────────────────┐
-                       │     calib-core      │  ◄── Math types, camera
+                       │       vc-core       │  ◄── Math types, camera
                        │   Types, models,    │      models, RANSAC
                        │       RANSAC        │
                        └─────────────────────┘
@@ -49,25 +49,25 @@ refinement, pipelines, and a CLI. Supports perspective cameras, laserline calibr
 
 | Crate | Description |
 |-------|-------------|
-| **calib** | Facade re-exporting all sub-crates for a stable API surface |
-| **calib-core** | Math types (nalgebra), composable camera models, RANSAC, synthetic data |
-| **calib-linear** | Closed-form solvers: homography, Zhang, PnP, epipolar, hand-eye, laserline |
-| **calib-optim** | Non-linear LM refinement: planar intrinsics, rig, hand-eye, laserline |
-| **calib-pipeline** | End-to-end workflows, session API, JSON I/O |
+| **vision-calibration** | Facade re-exporting all sub-crates for a stable API surface |
+| **vision-calibration-core** | Math types (nalgebra), composable camera models, RANSAC, synthetic data |
+| **vision-calibration-linear** | Closed-form solvers: homography, Zhang, PnP, epipolar, hand-eye, laserline |
+| **vision-calibration-optim** | Non-linear LM refinement: planar intrinsics, rig, hand-eye, laserline |
+| **vision-calibration-pipeline** | End-to-end workflows, session API, JSON I/O |
 
 ## Quickstart
 
 Add the facade crate to your `Cargo.toml`:
 
 ```toml
-calib = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
+vision-calibration = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
 ```
 
 Use the high-level pipeline API:
 
 ```rust
-use calib::pipeline::{run_planar_intrinsics, CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
-use calib::core::{IntrinsicsParams, Pt3, Vec2};
+use vision_calibration::pipeline::{run_planar_intrinsics, CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
+use vision_calibration::core::{IntrinsicsParams, Pt3, Vec2};
 
 fn main() {
     // Populate per-view correspondences (normally from a detector)
@@ -102,13 +102,13 @@ fn main() {
 }
 ```
 
-For checkpointed workflows, see `calib::session` and `calib::pipeline::session`.
+For checkpointed workflows, see `vision-calibration::session` and `vision-calibration::pipeline::session`.
 
 ### Laserline device pipeline (camera + laser plane)
 
 ```rust
-use calib::prelude::*;
-use calib::laserline_device::{run_calibration, LaserlineDeviceProblem};
+use vision_calibration::prelude::*;
+use vision_calibration::laserline_device::{run_calibration, LaserlineDeviceProblem};
 
 let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
 session.set_input(views)?;
@@ -122,8 +122,8 @@ println!("Mean reproj error: {:.3}px", export.stats.mean_reproj_error);
 For examples, tests, and benchmarking you can generate deterministic synthetic correspondences:
 
 ```rust
-use calib::synthetic::planar;
-use calib::core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole};
+use vision_calibration::synthetic::planar;
+use vision_calibration::core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole};
 
 fn main() -> anyhow::Result<()> {
     let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
@@ -140,11 +140,11 @@ fn main() -> anyhow::Result<()> {
 
 ### Hand-eye calibration (stepwise)
 
-Use the stepwise helpers in `calib::pipeline::handeye_single` (see
-`crates/calib/examples/handeyesingle.rs` and `crates/calib/examples/handeye_session.rs`):
+Use the stepwise helpers in `vision-calibration::pipeline::handeye_single` (see
+`crates/vision-calibration/examples/handeyesingle.rs` and `crates/vision-calibration/examples/handeye_session.rs`):
 
 ```rust
-use calib::pipeline::handeye_single::{run_handeye_single, HandEyeSingleOptions, HandEyeView};
+use vision_calibration::pipeline::handeye_single::{run_handeye_single, HandEyeSingleOptions, HandEyeView};
 
 fn main() {
     let views: Vec<HandEyeView> = /* load 2D/3D views + robot poses */;
@@ -158,19 +158,19 @@ fn main() {
 }
 ```
 
-For a linear-algorithm overview and usage notes, see `crates/calib-linear/README.md`.
+For a linear-algorithm overview and usage notes, see `crates/vision-calibration-linear/README.md`.
 
 ### Hand-eye calibration (session)
 
 Use the dedicated session problem for a compact workflow (see
-`crates/calib/examples/handeye_session.rs`):
+`crates/vision-calibration/examples/handeye_session.rs`):
 
 ```rust
-use calib::session::{
+use vision_calibration::session::{
     CalibrationSession, HandEyeModeConfig, HandEyeSingleInitOptions, HandEyeSingleObservations,
     HandEyeSingleOptimOptions, HandEyeSingleProblem,
 };
-use calib::pipeline::handeye_single::HandEyeView;
+use vision_calibration::pipeline::handeye_single::HandEyeView;
 
 fn main() -> anyhow::Result<()> {
     let views: Vec<HandEyeView> = /* load 2D/3D views + robot poses */;
@@ -195,7 +195,7 @@ fn main() -> anyhow::Result<()> {
 
 ## Camera model
 
-`calib-core` models cameras as a composable pipeline:
+`vision-calibration-core` models cameras as a composable pipeline:
 
 ```
 pixel = K(sensor(distortion(projection(dir))))
@@ -214,14 +214,14 @@ the same homography computed by OpenCV's `computeTiltProjectionMatrix`.
 
 - API docs and book: https://vitalyvorobyev.github.io/calibration/
 - Book sources: `book/`
-- Examples: `crates/calib/examples/` and `crates/calib-pipeline/examples/`
+- Examples: `crates/vision-calibration/examples/` and `crates/vision-calibration-pipeline/examples/`
 
 ## Design principles
 
 - Correctness and numerical stability with explicit failure modes.
 - Deterministic outputs (seeded RNGs, stable ordering).
 - Performance-aware implementations (fixed-size math, minimal allocations).
-- API stability at the `calib` crate boundary and JSON schemas.
+- API stability at the `vision-calibration` crate boundary and JSON schemas.
 
 ## Roadmap (near term)
 

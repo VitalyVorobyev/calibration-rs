@@ -1,0 +1,26 @@
+[package]
+name = "vision-calibration"
+description = "High-level entry crate for the vision-calibration toolbox"
+readme = "README.md"
+keywords = ["camera", "calibration", "computer-vision", "robotics", "hand-eye"]  # max 5
+categories = ["computer-vision"]  # pick from crates.io list
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+vision-calibration-core.workspace = true
+vision-calibration-linear.workspace = true
+vision-calibration-optim.workspace = true
+vision-calibration-pipeline.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+serde_json = { workspace = true }
+chess-corners = { workspace = true }
+calib-targets = { workspace = true }
+image = { workspace = true }
+nalgebra = { workspace = true }

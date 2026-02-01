@@ -37,7 +37,7 @@ jobs:
 
       - name: Package crates
         run: |
-          for crate in calib calib-core calib-linear calib-optim calib-pipeline; do
+          for crate in vision-calibration vision-calibration-core vision-calibration-linear vision-calibration-optim vision-calibration-pipeline; do
             cargo package -p "$crate" --locked
           done
 

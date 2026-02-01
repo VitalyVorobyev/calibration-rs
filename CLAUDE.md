@@ -13,11 +13,11 @@ cargo build --workspace
 cargo test --workspace
 
 # Run tests for a specific crate
-cargo test --package calib-optim
-cargo test --package calib-linear
+cargo test --package vision-calibration-optim
+cargo test --package vision-calibration-linear
 
 # Run a single test
-cargo test --package calib-optim --lib synthetic_planar_with_distortion_converges
+cargo test --package vision-calibration-optim --lib synthetic_planar_with_distortion_converges
 
 # Check compilation without building
 cargo check --workspace
@@ -47,26 +47,26 @@ cargo doc --workspace --no-deps --open
 This is a **5-crate Rust workspace** (~7,200 lines of code) for camera calibration with a clean layered architecture:
 
 ```
-calib (facade) → calib-pipeline (high-level pipelines)
+vision-calibration (facade) → vision-calibration-pipeline (high-level pipelines)
                       ↓
-                 calib-optim (non-linear refinement) + calib-linear (initialization)
+                 vision-calibration-optim (non-linear refinement) + vision-calibration-linear (initialization)
                       ↓
-                 calib-core (primitives, models, RANSAC)
+                 vision-calibration-core (primitives, models, RANSAC)
 ```
 
-**Key dependency rule**: Linear and non-linear layers are peers; they both depend on calib-core but not each other.
+**Key dependency rule**: Linear and non-linear layers are peers; they both depend on vision-calibration-core but not each other.
 
 ### Crate Responsibilities
 
-- **calib-core**: Math types (nalgebra-based), composable camera models (projection → distortion → sensor → intrinsics), generic RANSAC engine, shared test utilities
-- **calib-linear**: Closed-form initialization solvers (Zhang, homography, PnP, epipolar, hand-eye, **iterative intrinsics + distortion**) for bootstrapping optimization
-- **calib-optim**: Non-linear least-squares with backend-agnostic IR, autodiff-compatible factors, pluggable solvers (currently tiny-solver)
-- **calib-pipeline**: Ready-to-use end-to-end calibration workflows with JSON I/O, **session management with state tracking**
-- **calib**: Convenience re-export facade
+- **vision-calibration-core**: Math types (nalgebra-based), composable camera models (projection → distortion → sensor → intrinsics), generic RANSAC engine, shared test utilities
+- **vision-calibration-linear**: Closed-form initialization solvers (Zhang, homography, PnP, epipolar, hand-eye, **iterative intrinsics + distortion**) for bootstrapping optimization
+- **vision-calibration-optim**: Non-linear least-squares with backend-agnostic IR, autodiff-compatible factors, pluggable solvers (currently tiny-solver)
+- **vision-calibration-pipeline**: Ready-to-use end-to-end calibration workflows with JSON I/O, **session management with state tracking**
+- **vision-calibration**: Convenience re-export facade
 
 ### Camera Model Composition
 
-The camera model in `calib-core` is a composable pipeline:
+The camera model in `vision-calibration-core` is a composable pipeline:
 
 ```
 pixel = K ∘ sensor ∘ distortion ∘ projection(dir)
@@ -79,31 +79,31 @@ pixel = K ∘ sensor ∘ distortion ∘ projection(dir)
 
 Each stage is a separate type that can be mixed and matched via generics.
 
-### calib-optim Backend-Agnostic IR Architecture
+### vision-calibration-optim Backend-Agnostic IR Architecture
 
 **Core design**: Optimization problems are defined in a solver-independent intermediate representation (IR), then compiled to specific backends.
 
-**Key types** ([ir/types.rs](crates/calib-optim/src/ir/types.rs)):
+**Key types** ([ir/types.rs](crates/vision-calibration-optim/src/ir/types.rs)):
 - `ProblemIR`: Complete problem definition with parameters and residuals
 - `ParamBlock`: Variable definition (name, dimension, manifold, fixed mask, bounds)
 - `ResidualBlock`: Factor connecting parameters (references ParamIds)
 - `FactorKind`: Enum of supported factor types (e.g., `ReprojPointPinhole4Dist5`)
 - `ManifoldKind`: Parameter geometry (Euclidean, SE3, SO3, S2)
 
-**Factor system** ([factors/](crates/calib-optim/src/factors/)):
+**Factor system** ([factors/](crates/vision-calibration-optim/src/factors/)):
 - Generic residual functions parameterized over `RealField` trait for autodiff compatibility
 - Example: `reproj_residual_pinhole4_dist5_se3_generic<T: RealField>()` works with both f64 and dual numbers
 - Backend adapters wrap these generic functions in solver-specific factor structs
 
-**Backend pattern** ([backend/](crates/calib-optim/src/backend/)):
+**Backend pattern** ([backend/](crates/vision-calibration-optim/src/backend/)):
 1. Problem builder creates `ProblemIR` + initial values map
 2. Backend's `compile()` method translates IR → solver-specific problem
 3. Backend's `solve()` runs optimization and returns `BackendSolution`
 4. Problem-specific code extracts solution into domain types (e.g., `Camera`)
 
 **Currently implemented**:
-- **Planar intrinsics problem** ([problems/planar_intrinsics.rs](crates/calib-optim/src/problems/planar_intrinsics.rs)): Zhang-style calibration optimizing intrinsics (fx, fy, cx, cy) + distortion (k1, k2, k3, p1, p2) + poses
-- **tiny-solver backend** ([backend/tiny_solver_backend.rs](crates/calib-optim/src/backend/tiny_solver_backend.rs)): Levenberg-Marquardt with sparse linear solvers
+- **Planar intrinsics problem** ([problems/planar_intrinsics.rs](crates/vision-calibration-optim/src/problems/planar_intrinsics.rs)): Zhang-style calibration optimizing intrinsics (fx, fy, cx, cy) + distortion (k1, k2, k3, p1, p2) + poses
+- **tiny-solver backend** ([backend/tiny_solver_backend.rs](crates/vision-calibration-optim/src/backend/tiny_solver_backend.rs)): Levenberg-Marquardt with sparse linear solvers
 
 ### Coordinate Conventions
 
@@ -115,7 +115,7 @@ Each stage is a separate type that can be mixed and matched via generics.
 
 ### Adding New Optimization Problems
 
-To add a new calibration problem to calib-optim:
+To add a new calibration problem to vision-calibration-optim:
 
 1. **Define parameter blocks** in `params/` (e.g., intrinsics, poses, distortion)
 2. **Implement generic residual function** in `factors/` using `RealField` trait
@@ -128,7 +128,7 @@ Example workflow is demonstrated in the planar intrinsics implementation.
 
 ### Numerical Considerations
 
-- **Hartley normalization**: Used throughout calib-linear for numerical stability
+- **Hartley normalization**: Used throughout vision-calibration-linear for numerical stability
 - **Robust loss functions**: Huber, Cauchy, Arctan available for handling outliers
 - **Parameter masking**: Selective fixing of optimization variables (e.g., fix k3 to prevent overfitting)
 - **Manifold constraints**: SE3/SO3 parameters use proper Lie group updates via tiny-solver
@@ -136,7 +136,7 @@ Example workflow is demonstrated in the planar intrinsics implementation.
 ### Testing Philosophy
 
 - **Synthetic ground truth tests**: Generate data from known parameters, verify convergence
-- **Real data regression tests**: calib-linear uses stereo chessboard dataset for coarse validation
+- **Real data regression tests**: vision-calibration-linear uses stereo chessboard dataset for coarse validation
 - **Loose tolerances for initialization**: Linear solvers aim for ~5% accuracy (sufficient for non-linear refinement)
 - **Tight tolerances for optimization**: Non-linear tests verify convergence to <1% error
 
@@ -156,7 +156,7 @@ Example workflow is demonstrated in the planar intrinsics implementation.
 
 ## Iterative Intrinsics Estimation (NEW)
 
-calib-linear now supports **iterative refinement** for jointly estimating camera intrinsics and Brown-Conrady distortion **without requiring ground truth distortion**. This enables realistic calibration workflows.
+vision-calibration-linear now supports **iterative refinement** for jointly estimating camera intrinsics and Brown-Conrady distortion **without requiring ground truth distortion**. This enables realistic calibration workflows.
 
 ### Problem
 
@@ -174,10 +174,10 @@ An alternating optimization scheme:
 ### API Usage
 
 ```rust
-use calib_linear::iterative_intrinsics::{
+use vision_calibration_linear::iterative_intrinsics::{
     IterativeCalibView, IterativeIntrinsicsOptions, IterativeIntrinsicsSolver,
 };
-use calib_linear::DistortionFitOptions;
+use vision_calibration_linear::DistortionFitOptions;
 
 // Prepare views from raw corner detections
 let views: Vec<IterativeCalibView> = /* load from calibration data */;
@@ -216,11 +216,11 @@ println!("Distortion: k1={}, k2={}, p1={}, p2={}",
 ```
 Raw corner detections
     ↓
-IterativeIntrinsicsSolver (calib-linear)
+IterativeIntrinsicsSolver (vision-calibration-linear)
     ↓
 Initial K + distortion estimates (10-40% accuracy)
     ↓
-optimize_planar_intrinsics (calib-optim)
+optimize_planar_intrinsics (vision-calibration-optim)
     ↓
 Final calibrated camera (<1% accuracy, <1px reprojection error)
 ```
@@ -239,7 +239,7 @@ Final calibrated camera (<1% accuracy, <1px reprojection error)
 
 ## Laserline Calibration with Laser Plane
 
-calib-optim supports **laserline calibration** ([problems/laserline_bundle.rs](crates/calib-optim/src/problems/laserline_bundle.rs)) that jointly optimizes camera intrinsics, distortion, poses, and laser plane parameters using both calibration pattern observations and laser line observations.
+vision-calibration-optim supports **laserline calibration** ([problems/laserline_bundle.rs](crates/vision-calibration-optim/src/problems/laserline_bundle.rs)) that jointly optimizes camera intrinsics, distortion, poses, and laser plane parameters using both calibration pattern observations and laser line observations.
 
 ### Laser Residual Types
 
@@ -276,9 +276,9 @@ Both approaches yield similar accuracy in practice. Benchmark tests show converg
 ### API Usage
 
 ```rust
-use calib_optim::problems::laserline_bundle::*;
-use calib_optim::backend::BackendSolveOptions;
-use calib_core::ScheimpflugParams;
+use vision_calibration_optim::problems::laserline_bundle::*;
+use vision_calibration_optim::backend::BackendSolveOptions;
+use vision_calibration_core::ScheimpflugParams;
 
 // Prepare dataset with calibration points and laser line observations
 let views: Vec<LaserlineView> = /* ... */;
@@ -311,11 +311,11 @@ println!("Laser plane: normal={:?}, distance={}",
 
 ### Implementation Details
 
-**Factors** ([factors/laserline.rs](crates/calib-optim/src/factors/laserline.rs)):
+**Factors** ([factors/laserline.rs](crates/vision-calibration-optim/src/factors/laserline.rs)):
 - `laser_plane_pixel_residual_generic()`: Point-to-plane distance
 - `laser_line_dist_normalized_generic()`: Line-distance in normalized plane
 
-**IR types** ([ir/types.rs](crates/calib-optim/src/ir/types.rs)):
+**IR types** ([ir/types.rs](crates/vision-calibration-optim/src/ir/types.rs)):
 - `FactorKind::LaserPlanePixel`: Original point-to-plane factor
 - `FactorKind::LaserLineDist2D`: New line-distance factor
 
@@ -326,23 +326,23 @@ Both factors:
 
 ### Testing
 
-Integration tests ([tests/laserline_bundle.rs](crates/calib-optim/tests/laserline_bundle.rs)) verify:
+Integration tests ([tests/laserline_bundle.rs](crates/vision-calibration-optim/tests/laserline_bundle.rs)) verify:
 - Convergence with synthetic ground truth data
 - Comparison of both residual types
 - Similar accuracy: ~4-5% intrinsics error, ~1-2° plane normal error
 
-## Session Framework (calib-pipeline)
+## Session Framework (vision-calibration-pipeline)
 
-calib-pipeline provides a **mutable state container session API** for calibration workflows with step functions, automatic state tracking, and JSON checkpointing.
+vision-calibration-pipeline provides a **mutable state container session API** for calibration workflows with step functions, automatic state tracking, and JSON checkpointing.
 
 ### Core Abstractions
 
-**ProblemType trait** ([session/problem_type.rs](crates/calib-pipeline/src/session/problem_type.rs)):
+**ProblemType trait** ([session/problem_type.rs](crates/vision-calibration-pipeline/src/session/problem_type.rs)):
 - Defines interface for calibration problems
 - Associated types: `Config`, `Input`, `State`, `Output`, `Export`
 - Minimal by design - behavior implemented via external step functions
 
-**CalibrationSession<P: ProblemType>** ([session/calibsession.rs](crates/calib-pipeline/src/session/calibsession.rs)):
+**CalibrationSession<P: ProblemType>** ([session/calibsession.rs](crates/vision-calibration-pipeline/src/session/calibsession.rs)):
 - Generic mutable state container
 - Stores config, input, intermediate state, and output
 - Full JSON serialization for checkpointing
@@ -350,8 +350,8 @@ calib-pipeline provides a **mutable state container session API** for calibratio
 ### Session API Pattern
 
 ```rust
-use calib::prelude::*;
-use calib::planar_intrinsics::{step_init, step_optimize};
+use vision_calibration::prelude::*;
+use vision_calibration::planar_intrinsics::{step_init, step_optimize};
 
 // 1. Create session
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
@@ -416,35 +416,35 @@ run_planar_intrinsics(&mut session)?;  // Runs all steps
 
 ### Adding New Problem Types
 
-1. Create folder under `calib-pipeline/src/` (e.g., `my_problem/`)
+1. Create folder under `vision-calibration-pipeline/src/` (e.g., `my_problem/`)
 2. Implement `problem.rs`: Define `MyProblem` implementing `ProblemType` trait
 3. Implement `state.rs`: Define `MyState` for intermediate results
 4. Implement `steps.rs`: Define step functions and pipeline function
 5. Add `mod.rs` with re-exports
 6. Update `lib.rs` to export the new module
 
-## calib Crate (Entry Point)
+## vision-calibration Crate (Entry Point)
 
-The `calib` crate provides a unified facade for the entire library.
+The `vision-calibration` crate provides a unified facade for the entire library.
 
 ### Module Organization
 
-- `calib::session` - Session framework (`CalibrationSession`, `ProblemType`)
-- `calib::planar_intrinsics` - Single-camera intrinsics calibration
-- `calib::single_cam_handeye` - Single camera + hand-eye
-- `calib::rig_extrinsics` - Multi-camera rig calibration
-- `calib::rig_handeye` - Multi-camera rig + hand-eye
-- `calib::core` - Math types, camera models (from calib-core)
-- `calib::linear` - Initialization algorithms (from calib-linear)
-- `calib::optim` - Optimization (from calib-optim)
-- `calib::synthetic` - Test data generation
-- `calib::prelude` - Common imports
+- `vision-calibration::session` - Session framework (`CalibrationSession`, `ProblemType`)
+- `vision-calibration::planar_intrinsics` - Single-camera intrinsics calibration
+- `vision-calibration::single_cam_handeye` - Single camera + hand-eye
+- `vision-calibration::rig_extrinsics` - Multi-camera rig calibration
+- `vision-calibration::rig_handeye` - Multi-camera rig + hand-eye
+- `vision-calibration::core` - Math types, camera models (from vision-calibration-core)
+- `vision-calibration::linear` - Initialization algorithms (from vision-calibration-linear)
+- `vision-calibration::optim` - Optimization (from vision-calibration-optim)
+- `vision-calibration::synthetic` - Test data generation
+- `vision-calibration::prelude` - Common imports
 
 ### Quick Start
 
 ```rust
-use calib::prelude::*;
-use calib::planar_intrinsics::{step_init, step_optimize};
+use vision_calibration::prelude::*;
+use vision_calibration::planar_intrinsics::{step_init, step_optimize};
 
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 session.set_input(dataset)?;
@@ -458,16 +458,16 @@ let result = session.export()?;
 Run examples with:
 ```bash
 # Planar intrinsics calibration
-cargo run -p calib --example planar_synthetic   # Synthetic data
-cargo run -p calib --example planar_real        # Real stereo images
+cargo run -p vision-calibration --example planar_synthetic   # Synthetic data
+cargo run -p vision-calibration --example planar_real        # Real stereo images
 
 # Multi-camera rig calibration
-cargo run -p calib --example stereo_session     # Stereo rig extrinsics
+cargo run -p vision-calibration --example stereo_session     # Stereo rig extrinsics
 
 # Hand-eye calibration (camera on robot arm)
-cargo run -p calib --example handeye_synthetic  # Single camera, synthetic
-cargo run -p calib --example handeye_session    # Single camera, KUKA robot data
-cargo run -p calib --example rig_handeye_synthetic  # Multi-camera rig, synthetic
+cargo run -p vision-calibration --example handeye_synthetic  # Single camera, synthetic
+cargo run -p vision-calibration --example handeye_session    # Single camera, KUKA robot data
+cargo run -p vision-calibration --example rig_handeye_synthetic  # Multi-camera rig, synthetic
 ```
 
 | Example | Problem Type | Data | Description |
@@ -510,8 +510,8 @@ Where:
 ### Single-Camera Hand-Eye API
 
 ```rust
-use calib::prelude::*;
-use calib::single_cam_handeye::{
+use vision_calibration::prelude::*;
+use vision_calibration::single_cam_handeye::{
     HandeyeMeta, SingleCamHandeyeInput, SingleCamHandeyeView, SingleCamHandeyeProblem,
     step_intrinsics_init, step_intrinsics_optimize,
     step_handeye_init, step_handeye_optimize,
@@ -565,14 +565,14 @@ println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 ### Multi-Camera Rig Hand-Eye API
 
 ```rust
-use calib::prelude::*;
-use calib::rig_handeye::{
+use vision_calibration::prelude::*;
+use vision_calibration::rig_handeye::{
     RigHandeyeInput, RigHandeyeProblem,
     step_intrinsics_init_all, step_intrinsics_optimize_all,
     step_rig_init, step_rig_optimize,
     step_handeye_init, step_handeye_optimize,
 };
-use calib::handeye::RobotPoseMeta;
+use vision_calibration::handeye::RobotPoseMeta;
 
 // Create input from robot poses and per-camera observations
 let views: Vec<RigView<RobotPoseMeta>> = /* ... */;
@@ -623,11 +623,11 @@ pub struct RigHandeyeExport {
 ## Project Status
 
 **Current state**: Pre-release, APIs stabilizing
-- calib-core: ✅ Feature-complete and tested
-- calib-linear: ✅ Feature-complete and tested
-- calib-optim: ✅ All problem types working (planar, hand-eye, rig extrinsics, rig hand-eye)
-- calib-pipeline: ✅ Session framework with 4 problem types
-- calib: ✅ Unified facade with 6 examples
+- vision-calibration-core: ✅ Feature-complete and tested
+- vision-calibration-linear: ✅ Feature-complete and tested
+- vision-calibration-optim: ✅ All problem types working (planar, hand-eye, rig extrinsics, rig hand-eye)
+- vision-calibration-pipeline: ✅ Session framework with 4 problem types
+- vision-calibration: ✅ Unified facade with 6 examples
 
 **Session framework**:
 - ✅ Mutable state container with step functions

@@ -5,18 +5,18 @@ from math primitives and linear solvers to non-linear refinement, pipelines, and
 
 Crates:
 
-* **`calib-core`** — math aliases, composable camera models, and a generic RANSAC engine.
-* **`calib-linear`** — closed-form / linear initialisation blocks (homography, PnP, epipolar, rig extrinsics, hand–eye).
-* **`calib-optim`** — non-linear least squares traits, robust kernels, and solver backends (LM today).
-* **`calib-pipeline`** — end-to-end calibration pipelines (currently planar intrinsics).
-* **`calib`** — facade crate re-exporting the above for a stable, ergonomic API.
+* **`vision-calibration-core`** — math aliases, composable camera models, and a generic RANSAC engine.
+* **`vision-calibration-linear`** — closed-form / linear initialisation blocks (homography, PnP, epipolar, rig extrinsics, hand–eye).
+* **`vision-calibration-optim`** — non-linear least squares traits, robust kernels, and solver backends (LM today).
+* **`vision-calibration-pipeline`** — end-to-end calibration pipelines (currently planar intrinsics).
+* **`vision-calibration`** — facade crate re-exporting the above for a stable, ergonomic API.
 
 The codebase prioritizes:
 
 * **Correctness & numerical stability**
 * **Determinism** (same inputs + seed → same outputs)
 * **Performance** (avoid unnecessary allocations; efficient linear algebra)
-* **API stability** in the top-level `calib` crate and JSON schemas
+* **API stability** in the top-level `vision-calibration` crate and JSON schemas
 
 If you are an automated agent (Codex, etc.), follow these rules strictly.
 
@@ -26,22 +26,22 @@ If you are an automated agent (Codex, etc.), follow these rules strictly.
 
 ### Dependency direction
 
-* `calib-core` **must not depend on** any other workspace crate.
-* `calib-linear` and `calib-optim` **may depend on** `calib-core`.
-* `calib-pipeline` **may depend on** `calib-core`, `calib-linear`, and `calib-optim`.
-* `calib` is top-level entry points.
+* `vision-calibration-core` **must not depend on** any other workspace crate.
+* `vision-calibration-linear` and `vision-calibration-optim` **may depend on** `vision-calibration-core`.
+* `vision-calibration-pipeline` **may depend on** `vision-calibration-core`, `vision-calibration-linear`, and `vision-calibration-optim`.
+* `vision-calibration` is top-level entry points.
 
 ### Where code goes
 
-* **Math types, camera models, RANSAC** → `calib-core`
-* **Closed-form/linear solvers** → `calib-linear`
-* **NLLS traits, robust kernels, solver backends** → `calib-optim`
-* **Full pipelines and reports** → `calib-pipeline`
-* **Public re-exports/docs** → `calib`
+* **Math types, camera models, RANSAC** → `vision-calibration-core`
+* **Closed-form/linear solvers** → `vision-calibration-linear`
+* **NLLS traits, robust kernels, solver backends** → `vision-calibration-optim`
+* **Full pipelines and reports** → `vision-calibration-pipeline`
+* **Public re-exports/docs** → `vision-calibration`
 
 ### API exposure
 
-* `calib` is the compatibility boundary. Keep its public surface stable.
+* `vision-calibration` is the compatibility boundary. Keep its public surface stable.
 * Lower crates are “sharp tools”: keep APIs small and documented; avoid breaking changes without semver notes.
 
 ---
@@ -59,7 +59,7 @@ If you are an automated agent (Codex, etc.), follow these rules strictly.
 
 * Heavy ML dependencies in default builds.
 * Non-deterministic outputs.
-* Bulky dependencies in `calib-core`.
+* Bulky dependencies in `vision-calibration-core`.
 
 ---
 
@@ -73,8 +73,8 @@ Before opening a PR, run:
 
 Also check minimal builds where relevant:
 
-* `cargo test -p calib-core`
-* `cargo test -p calib`
+* `cargo test -p vision-calibration-core`
+* `cargo test -p vision-calibration`
 
 **Do not** introduce new warnings. Avoid `#[allow(...)]` unless justified.
 
@@ -89,7 +89,7 @@ Also check minimal builds where relevant:
 
 ### Numerics
 
-* Use `calib_core::Real` (`f64`) consistently.
+* Use `vision_calibration_core::Real` (`f64`) consistently.
 * Normalize inputs where algorithms require it (e.g., DLT/8-point).
 * Guard against degenerate configurations and report errors explicitly.
 
@@ -152,7 +152,7 @@ You must update:
 
 ## 8) Dependency policy
 
-* `calib-core`: keep dependencies minimal and lightweight.
+* `vision-calibration-core`: keep dependencies minimal and lightweight.
 * Other crates may add ergonomic dependencies, but prefer feature flags for heavy deps.
 * Any new dependency must be justified and license-compatible.
 

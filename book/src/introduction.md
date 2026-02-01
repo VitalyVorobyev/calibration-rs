@@ -1,125 +1,67 @@
 # Introduction
 
-`calibration-rs` is a Rust toolbox for calibrating vision sensors and multi-camera rigs. It provides correct, modern algorithms with a clean separation between math primitives, linear initialization, non-linear refinement, and ready-to-use pipelines.
+**calibration-rs** is a Rust library for camera calibration — the process of estimating the internal parameters (intrinsics, lens distortion) and external parameters (pose, rig geometry, hand-eye transforms) of camera systems from observed correspondences between known 3D points and their 2D projections.
 
-## What is Camera Calibration?
+[API reference](https://vitalyvorobyev.github.io/calibration-rs/api)
 
-Camera calibration is the process of determining a camera's internal parameters (intrinsics like focal length and principal point) and lens distortion coefficients. These parameters are essential for:
+## Who This Book Is For
 
-- **3D reconstruction**: Converting pixel coordinates to real-world measurements
-- **Visual odometry**: Tracking camera motion through space
-- **Augmented reality**: Overlaying virtual objects on real scenes
-- **Robot vision**: Enabling robots to interact with their environment
-- **Multi-camera systems**: Relating measurements across multiple viewpoints
+This book targets engineers and researchers working in machine vision, robotics, and 3D reconstruction who want to:
 
-## Why Rust?
+- Calibrate single cameras, stereo rigs, or multi-camera systems
+- Perform hand-eye calibration for cameras mounted on robot arms
+- Calibrate laser triangulation devices (camera + laser plane)
+- Understand the mathematical foundations behind calibration algorithms
 
-Rust offers compelling advantages for calibration software:
+We assume familiarity with linear algebra (SVD, eigendecomposition, least squares) and basic projective geometry (homogeneous coordinates, projection matrices). Lie group theory (SO(3), SE(3)) is introduced when needed.
 
-- **Performance**: Zero-cost abstractions and no garbage collection enable real-time applications
-- **Correctness**: Strong type system catches errors at compile time
-- **Composability**: Traits and generics allow flexible camera model composition
-- **Determinism**: No hidden allocations or unpredictable pauses
-- **Safety**: Memory safety without sacrificing performance
+## What calibration-rs Provides
 
-## Architecture Overview
+The library covers the full calibration pipeline:
 
-The library is organized as a workspace of six crates:
+1. **Linear initialization** — closed-form solvers (Zhang's method, DLT, PnP, Tsai-Lenz hand-eye, epipolar geometry) that produce approximate parameter estimates
+2. **Non-linear refinement** — Levenberg-Marquardt bundle adjustment that minimizes reprojection error to sub-pixel accuracy
+3. **Session framework** — a high-level API with step functions, configuration, and JSON checkpointing
+
+## Workspace Structure
+
+calibration-rs is organized as a 5-crate Rust workspace with a layered architecture:
 
 ```
-                           ┌─────────────────────────┐
-                           │         calib           │  ◄── Stable API facade
-                           │    (public interface)   │
-                           └───────────┬─────────────┘
-                                       │
-              ┌────────────────────────┼────────────────────────┐
-              │                        │                        │
-              ▼                        ▼                        ▼
-┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
-│   calib-pipeline    │  │    calib-optim      │  │    calib-linear     │
-│  Session API, JSON  │  │   Non-linear BA     │  │   Linear solvers    │
-│   I/O, workflows    │  │   LM optimization   │  │   Initialization    │
-└─────────┬───────────┘  └─────────┬───────────┘  └─────────┬───────────┘
-          │                        │                        │
-          └────────────────────────┼────────────────────────┘
-                                   │
-                                   ▼
-                       ┌─────────────────────┐
-                       │     calib-core      │  ◄── Math types, camera
-                       │   Types, models,    │      models, RANSAC
-                       │       RANSAC        │
-                       └─────────────────────┘
+vision-calibration (facade)
+    → vision-calibration-pipeline (sessions, workflows)
+        → vision-calibration-optim (non-linear refinement)
+        → vision-calibration-linear (initialization)
+            → vision-calibration-core (primitives, camera models, RANSAC)
 ```
 
-### Crate Responsibilities
+The **key dependency rule**: the linear and optimization crates are peers — they both depend on `vision-calibration-core` but not on each other. This separation keeps initialization algorithms independent of the optimization backend.
 
-| Crate | Purpose | When to Use |
-|-------|---------|-------------|
-| **calib** | Stable facade | Default choice for most users |
-| **calib-core** | Types and models | Need camera models or RANSAC only |
-| **calib-linear** | Initialization | Building custom pipelines |
-| **calib-optim** | Optimization | Custom non-linear problems |
-| **calib-pipeline** | Workflows | Session API or JSON I/O |
+## Relation to OpenCV
 
-## Choosing Your Entry Point
+Readers familiar with OpenCV's calibration module will find analogous functionality throughout:
 
-### Session API (Recommended for Standard Workflows)
+| OpenCV | calibration-rs |
+|--------|---------------|
+| `cv::calibrateCamera` | Planar intrinsics pipeline (Zhang init + bundle adjustment) |
+| `cv::solvePnP` | `PnpSolver::p3p()`, `PnpSolver::dlt()` |
+| `cv::findHomography` | `HomographySolver::dlt()`, `dlt_homography_ransac()` |
+| `cv::findFundamentalMat` | `EpipolarSolver::fundamental_8point()` |
+| `cv::findEssentialMat` | `EpipolarSolver::essential_5point()` |
+| `cv::stereoCalibrate` | Rig extrinsics pipeline |
 
-Use the session API when you want:
-- Automatic state management
-- JSON checkpointing for long-running calibrations
-- Type-safe stage transitions
+calibration-rs differs from OpenCV in several ways: it is written in pure Rust, uses a composable camera model with generic type parameters, provides a backend-agnostic optimization IR, and offers a session framework with JSON checkpointing for production workflows.
 
-```rust
-use calib::session::{CalibrationSession, PlanarIntrinsicsProblem};
+## Book Organization
 
-let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-session.set_observations(observations);
-session.initialize(Default::default())?;
-session.optimize(Default::default())?;
-let report = session.export()?;
-```
+The book is structured in seven parts:
 
-### Imperative Functions (For Custom Workflows)
+- **Part I: Camera Model** — the composable projection pipeline (pinhole, distortion, sensor tilt, intrinsics)
+- **Part II: Geometric Primitives** — rigid transforms, RANSAC, robust loss functions
+- **Part III: Linear Initialization** — all closed-form solvers with full mathematical derivations
+- **Part IV: Non-Linear Optimization** — Levenberg-Marquardt, manifold constraints, autodiff, the IR architecture
+- **Part V: Calibration Workflows** — end-to-end pipelines for each problem type, with both synthetic and real data examples
+- **Part VI: Session Framework** — the high-level `CalibrationSession` API
+- **Part VII: Extending the Library** — adding new problems, backends, and pipeline types
 
-Use imperative functions when you need:
-- Full control over each step
-- Inspection of intermediate results
-- Custom composition of algorithms
-
-```rust
-use calib::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
-
-let init = initialize_planar_intrinsics(&views, &opts)?;
-println!("Initial estimate: fx={}", init.intrinsics.fx);
-
-// Decide whether to proceed based on initialization quality
-let result = optimize_planar_intrinsics_from_init(&views, &init, &solve_opts, &backend_opts)?;
-```
-
-### Direct Access (For Advanced Users)
-
-Access individual algorithms directly:
-
-```rust
-use calib::linear::homography::dlt_homography;
-use calib::optim::planar_intrinsics::optimize_planar_intrinsics;
-```
-
-## Supported Problems
-
-| Problem | Description | Session Type |
-|---------|-------------|--------------|
-| Planar intrinsics | Single camera calibration from planar target | `PlanarIntrinsicsProblem` |
-| Hand-eye | Robot + camera calibration | `HandEyeSingleProblem` |
-| Rig extrinsics | Multi-camera rig calibration | `RigExtrinsicsProblem` |
-| Rig hand-eye | Robot + multi-camera rig | `RigHandEyeProblem` |
-| Laserline device | Laser plane + single camera | `LaserlineDeviceProblem` |
-
-## What's Next
-
-- **[Quickstart](quickstart.md)**: Get running with copy-paste examples
-- **[Core Concepts](concepts.md)**: Understand coordinate conventions and camera models
-- **[Linear Calibration](linear.md)**: Learn about initialization algorithms
-- **[Non-linear Optimization](nonlinear.md)**: Configure the optimization backend
-- **[Pipelines](pipeline.md)**: Use the session API for structured workflows
+Each algorithm chapter includes a formal **problem statement**, **objective function**, **assumptions**, and a **full derivation** leading to the implementation.

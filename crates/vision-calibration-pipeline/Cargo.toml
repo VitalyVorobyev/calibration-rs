@@ -1,0 +1,24 @@
+[package]
+name = "vision-calibration-pipeline"
+description = "End-to-end calibration workflows and session APIs for calibration-rs"
+readme = "README.md"
+keywords = ["camera", "calibration", "computer-vision", "robotics", "hand-eye"]  # max 5
+categories = ["computer-vision"]  # pick from crates.io list
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+vision-calibration-core = { workspace = true }
+vision-calibration-linear = { workspace = true }
+vision-calibration-optim = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+nalgebra = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
