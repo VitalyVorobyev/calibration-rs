@@ -1,7 +1,7 @@
-//! [`ProblemType`] implementation for planar intrinsics calibration (new API).
+//! [`ProblemType`] implementation for planar intrinsics calibration.
 //!
 //! This module provides the `PlanarIntrinsicsProblem` type that implements
-//! the new session API's `ProblemType` trait.
+//! the session API's `ProblemType` trait.
 
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -30,12 +30,14 @@ use super::state::PlanarState;
 ///
 /// # Example
 ///
-/// ```ignore
-/// use vision_calibration_pipeline::session::v2::CalibrationSession;
+/// ```no_run
+/// use vision_calibration_pipeline::session::CalibrationSession;
 /// use vision_calibration_pipeline::planar_intrinsics::{
 ///     PlanarIntrinsicsProblem, PlanarConfig,
 ///     step_init, step_optimize,
 /// };
+/// # fn main() -> anyhow::Result<()> {
+/// # let dataset = unimplemented!();
 ///
 /// let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 /// session.set_input(dataset)?;
@@ -44,6 +46,8 @@ use super::state::PlanarState;
 /// step_optimize(&mut session, None)?;
 ///
 /// let export = session.export()?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug)]
 pub struct PlanarIntrinsicsProblem;

@@ -1,6 +1,6 @@
 //! Single-camera hand-eye calibration (intrinsics + hand-eye).
 //!
-//! This module provides a v2 session API for calibrating a single camera
+//! This module provides a session API for calibrating a single camera
 //! mounted on a robot arm, including both camera intrinsics and hand-eye transform.
 //!
 //! # Pipeline
@@ -14,35 +14,39 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```no_run
 //! use vision_calibration_pipeline::session::CalibrationSession;
 //! use vision_calibration_pipeline::single_cam_handeye::{
 //!     HandeyeMeta, SingleCamHandeyeProblem, SingleCamHandeyeInput, SingleCamHandeyeView,
 //!     step_intrinsics_init, step_intrinsics_optimize,
 //!     step_handeye_init, step_handeye_optimize, run_calibration,
 //! };
+//! # fn main() -> anyhow::Result<()> {
+//! # let (obs, base_se3_gripper) = unimplemented!();
 //!
 //! // Create input from robot poses and observations
 //! let views = vec![
-//!     SingleCamHandeyeView { obs, meta: HandeyeMeta { base_se3_gripper } },
+//!     SingleCamHandeyeView::new(obs, HandeyeMeta { base_se3_gripper }),
 //!     // ... more views
 //! ];
-//! let input = SingleCamHandeyeInput::new(views);
+//! let input = SingleCamHandeyeInput::new(views)?;
 //!
 //! // Create session and run calibration
 //! let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
-//! session.set_input(input);
+//! session.set_input(input)?;
 //!
 //! // Option 1: Step-by-step
-//! step_intrinsics_init(&mut session, None);
-//! step_intrinsics_optimize(&mut session, None);
-//! step_handeye_init(&mut session, None);
-//! step_handeye_optimize(&mut session, None);
+//! step_intrinsics_init(&mut session, None)?;
+//! step_intrinsics_optimize(&mut session, None)?;
+//! step_handeye_init(&mut session, None)?;
+//! step_handeye_optimize(&mut session, None)?;
 //!
 //! // Option 2: Full pipeline
 //! // run_calibration(&mut session)?;
 //!
-//! let export = session.export();
+//! let export = session.export()?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Conventions

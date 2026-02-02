@@ -6,14 +6,16 @@
 //!
 //! The session API uses a mutable state container with step functions.
 //!
-//! ```ignore
+//! ```no_run
 //! use vision_calibration_pipeline::session::CalibrationSession;
 //! use vision_calibration_pipeline::planar_intrinsics::{
-//!     PlanarIntrinsicsProblemV2, PlanarConfig,
+//!     PlanarIntrinsicsProblem, PlanarConfig,
 //!     step_init, step_optimize, run_calibration,
 //! };
+//! # fn main() -> anyhow::Result<()> {
+//! # let dataset = unimplemented!();
 //!
-//! let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::new();
+//! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 //! session.set_input(dataset)?;
 //!
 //! // Option 1: Step-by-step
@@ -24,6 +26,8 @@
 //! // run_calibration(&mut session)?;
 //!
 //! let export = session.export()?;
+//! # Ok(())
+//! # }
 //! ```
 
 // Session API

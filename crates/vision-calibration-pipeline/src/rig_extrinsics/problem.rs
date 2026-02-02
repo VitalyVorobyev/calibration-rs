@@ -131,12 +131,14 @@ pub struct RigExtrinsicsExport {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use vision_calibration_pipeline::session::v2::CalibrationSession;
+/// ```no_run
+/// use vision_calibration_pipeline::session::CalibrationSession;
 /// use vision_calibration_pipeline::rig_extrinsics::{
 ///     RigExtrinsicsProblem, step_intrinsics_init_all, step_intrinsics_optimize_all,
 ///     step_rig_init, step_rig_optimize,
 /// };
+/// # fn main() -> anyhow::Result<()> {
+/// # let rig_dataset = unimplemented!();
 ///
 /// let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 /// session.set_input(rig_dataset)?;
@@ -147,6 +149,8 @@ pub struct RigExtrinsicsExport {
 /// step_rig_optimize(&mut session, None)?;
 ///
 /// let export = session.export()?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug)]
 pub struct RigExtrinsicsProblem;

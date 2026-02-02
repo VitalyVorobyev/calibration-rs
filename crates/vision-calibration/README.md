@@ -2,14 +2,14 @@
 
 High-level entry crate and facade for the `calibration-rs` toolbox.
 
-This is the recommended crate for most users. It re-exports all sub-crates through a stable, unified API while hiding internal implementation details.
+This is the recommended crate for most users. It re-exports all sub-crates through a unified API.
 
 ## Features
 
-- **Stable API surface**: Public interface designed for compatibility
-- **Dual API design**: Session API for structured workflows, imperative API for custom workflows
-- **All problem types**: Planar intrinsics, hand-eye, rig extrinsics, laserline
+- **Session API**: Structured calibration workflows with step functions, state tracking, and JSON checkpointing
+- **5 problem types**: Planar intrinsics, single-camera hand-eye, rig extrinsics, rig hand-eye, laserline device
 - **Prelude module**: Quick-start imports for common use cases
+- **Foundation access**: Direct access to core types, linear solvers, and optimization when needed
 
 ## Quick Start
 
@@ -20,57 +20,77 @@ Add to your `Cargo.toml`:
 vision-calibration = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
 ```
 
-### Session API (Recommended for Standard Workflows)
+### Planar Intrinsics Calibration
 
-```rust
-use vision_calibration::session::{CalibrationSession, PlanarIntrinsicsProblem, PlanarIntrinsicsObservations};
-use vision_calibration::pipeline::CorrespondenceView;
-
-let views: Vec<CorrespondenceView> = /* load calibration data */;
+```rust,no_run
+use vision_calibration::prelude::*;
+use vision_calibration::planar_intrinsics::{step_init, step_optimize};
 
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-session.set_observations(PlanarIntrinsicsObservations { views });
+# let dataset: PlanarDataset = unimplemented!();
+session.set_input(dataset)?;
 
-session.initialize(Default::default())?;
-session.optimize(Default::default())?;
-let report = session.export()?;
+step_init(&mut session, None)?;
+step_optimize(&mut session, None)?;
+
+let result = session.export()?;
 ```
 
-### Imperative API (For Custom Workflows)
+### Single-Camera Hand-Eye Calibration
 
-```rust
-use vision_calibration::helpers::{initialize_planar_intrinsics, optimize_planar_intrinsics_from_init};
-use vision_calibration::linear::iterative_intrinsics::IterativeIntrinsicsOptions;
+```rust,no_run
+use vision_calibration::prelude::*;
+use vision_calibration::single_cam_handeye::{
+    step_intrinsics_init, step_intrinsics_optimize,
+    step_handeye_init, step_handeye_optimize,
+};
 
-let views: Vec<CorrespondenceView> = /* load data */;
+let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
+# let input = unimplemented!();
+session.set_input(input)?;
 
-// Linear initialization
-let init = initialize_planar_intrinsics(&views, &IterativeIntrinsicsOptions::default())?;
-println!("Initial fx: {}", init.intrinsics.fx);
+step_intrinsics_init(&mut session, None)?;
+step_intrinsics_optimize(&mut session, None)?;
+step_handeye_init(&mut session, None)?;
+step_handeye_optimize(&mut session, None)?;
 
-// Non-linear refinement
-let result = optimize_planar_intrinsics_from_init(&views, &init, &Default::default(), &Default::default())?;
+let result = session.export()?;
 ```
 
 ### Using the Prelude
 
-```rust
+```rust,no_run
 use vision_calibration::prelude::*;
 
-// Now you have access to common types:
-// Camera, Pt3, Vec2, CalibrationSession, PlanarIntrinsicsProblem, etc.
+// Gives you CalibrationSession, all problem types,
+// pipeline functions, core types, and common options.
 ```
+
+## Available Problem Types
+
+| Problem Type | Steps |
+|---|---|
+| `PlanarIntrinsicsProblem` | `step_init` → `step_optimize` |
+| `SingleCamHandeyeProblem` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
+| `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
+| `RigHandeyeProblem` | All 6 steps (intrinsics + rig + hand-eye) |
+| `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
+
+Each problem type also provides a `run_calibration` convenience function that runs all steps.
 
 ## Module Organization
 
 | Module | Description |
 |--------|-------------|
-| `session` | Type-safe calibration session framework |
-| `helpers` | Granular helper functions for custom workflows |
-| `pipeline` | All-in-one convenience functions |
+| `session` | Calibration session framework (`CalibrationSession`, `ProblemType`) |
+| `planar_intrinsics` | Single-camera intrinsics (Zhang's method) |
+| `single_cam_handeye` | Single camera + hand-eye calibration |
+| `rig_extrinsics` | Multi-camera rig extrinsics |
+| `rig_handeye` | Multi-camera rig + hand-eye |
+| `laserline_device` | Camera + laser plane device |
 | `core` | Math types, camera models, RANSAC |
 | `linear` | Closed-form initialization algorithms |
-| `optim` | Non-linear optimization problems |
+| `optim` | Non-linear optimization |
 | `synthetic` | Deterministic synthetic data generation |
 | `prelude` | Convenient re-exports |
 
@@ -87,15 +107,19 @@ use vision_calibration::prelude::*;
 ## Examples
 
 See `examples/` directory:
-- `handeyesingle.rs` - Hand-eye calibration workflow
-- `handeye_session.rs` - Hand-eye using session API
-- `stereo_session.rs` - Stereo rig calibration
-- `rig_handeye_session.rs` - Multi-camera rig + hand-eye
-- `rig_extrinsics_session.rs` - Rig extrinsics calibration
+
+| Example | Problem Type | Data |
+|---------|---|---|
+| `planar_synthetic` | Planar intrinsics | Synthetic |
+| `planar_real` | Planar intrinsics | Real stereo images |
+| `stereo_session` | Rig extrinsics | Real stereo images |
+| `handeye_synthetic` | Single-camera hand-eye | Synthetic |
+| `handeye_session` | Single-camera hand-eye | KUKA robot data |
+| `rig_handeye_synthetic` | Rig hand-eye | Synthetic |
+| `laserline_device_session` | Laserline device | Session API demo |
 
 ## See Also
 
-- [Book](../../book/src/SUMMARY.md): Full documentation and tutorials
 - [vision-calibration-core](../vision-calibration-core): Core primitives
 - [vision-calibration-linear](../vision-calibration-linear): Linear solvers
 - [vision-calibration-optim](../vision-calibration-optim): Non-linear optimization
