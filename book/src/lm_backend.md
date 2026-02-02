@@ -11,7 +11,7 @@ pub trait OptimBackend {
     fn solve(
         &self,
         ir: &ProblemIR,
-        initial_params: &HashMap<ParamId, DVector<f64>>,
+        initial_params: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
     ) -> Result<BackendSolution>;
 }
@@ -54,11 +54,11 @@ Each `FactorKind` maps to a specific generic function call:
 FactorKind::ReprojPointPinhole4Dist5 { pw, uv, w }
     → reproj_residual_pinhole4_dist5_se3_generic(intr, dist, pose, pw, uv, w)
 
-FactorKind::LaserLineDist2D { uv, target_se3, w }
-    → laser_line_dist_normalized_generic(intr, dist, pose, plane, uv, target_se3, w)
+FactorKind::LaserLineDist2D { laser_pixel, w }
+    → laser_line_dist_normalized_generic(intr, dist, pose, plane_normal, plane_distance, laser_pixel, w)
 
-FactorKind::Se3TangentPrior { sigma_rot, sigma_trans }
-    → se3_tangent_prior_generic(pose, sigma_rot, sigma_trans)
+FactorKind::Se3TangentPrior { sqrt_info }
+    → se3_tangent_prior_generic(pose, sqrt_info)
 ```
 
 ## Solver Options

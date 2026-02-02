@@ -44,7 +44,7 @@ All based on `nalgebra` with `f64` precision:
 | `IntrinsicsFixMask` | `fx, fy, cx, cy` (bool each) | Fix individual intrinsics |
 | `DistortionFixMask` | `k1, k2, k3, p1, p2` (bool each) | Fix individual distortion params |
 | `CameraFixMask` | `intrinsics, distortion` | Combined camera fix mask |
-| `FixedMask` | `fixed_indices: HashSet<usize>` | IR-level parameter fixing |
+| `FixedMask` | opaque (`all_free()`, `all_fixed(dim)`, `fix_indices(&[usize])`) | IR-level parameter fixing |
 
 ## Optimization IR Types
 

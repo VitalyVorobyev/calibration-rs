@@ -110,9 +110,9 @@ Alternatively, $T_{B,T}$ is included in the non-linear optimization.
 ## API
 
 ```rust
-let X = tsai_lenz_allpairs(
-    &base_se3_gripper,      // Vec<Iso3>: robot poses
-    &target_se3_camera,     // Vec<Iso3>: camera-to-target poses
+let X = estimate_handeye_dlt(
+    &base_se3_gripper,      // &[Iso3]: robot poses (base to gripper)
+    &target_se3_camera,     // &[Iso3]: camera-to-target poses (inverted)
     min_angle_deg,          // f64: minimum rotation angle filter
 )?;
 ```

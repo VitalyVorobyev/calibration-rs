@@ -107,10 +107,9 @@ Both solvers have RANSAC wrappers for outlier rejection:
 
 ```rust
 let (F, inliers) = fundamental_8point_ransac(&pts1, &pts2, &opts)?;
-let (E, inliers) = essential_5point_ransac(&pts1_norm, &pts2_norm, &opts)?;
 ```
 
-The 5-point solver is preferred with RANSAC because its minimal sample size (5 vs. 8) gives better inlier efficiency.
+Currently, only the 8-point fundamental matrix solver has a RANSAC wrapper. The 5-point essential matrix solver (`essential_5point`) returns multiple candidates and is used directly.
 
 > **OpenCV equivalence**: `cv::findFundamentalMat` (8-point and 7-point), `cv::findEssentialMat` (5-point with RANSAC).
 

@@ -80,7 +80,7 @@ Each problem type exposes the loss function as a configuration option:
 
 ```rust
 session.update_config(|c| {
-    c.robust_loss = Some(RobustLoss::Huber { scale: 2.0 });
+    c.robust_loss = RobustLoss::Huber { scale: 2.0 };
 })?;
 ```
 
