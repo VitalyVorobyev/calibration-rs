@@ -5,12 +5,14 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use vision_calibration_pipeline::session::v2::CalibrationSession;
+//! ```no_run
+//! use vision_calibration_pipeline::session::CalibrationSession;
 //! use vision_calibration_pipeline::planar_intrinsics::{
 //!     PlanarIntrinsicsProblem, step_init, step_optimize, step_filter,
 //!     FilterOptions,
 //! };
+//! # fn main() -> anyhow::Result<()> {
+//! # let dataset = unimplemented!();
 //!
 //! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 //! session.set_input(dataset)?;
@@ -28,6 +30,8 @@
 //!
 //! // Export result
 //! let export = session.export()?;
+//! # Ok(())
+//! # }
 //! ```
 
 use anyhow::{Context, Result, ensure};

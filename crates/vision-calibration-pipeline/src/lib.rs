@@ -2,18 +2,19 @@
 //!
 //! This crate provides ready-to-use calibration workflows with multiple APIs:
 //!
-//! ## Session API - Recommended
+//! ## Session API
 //!
-//! The new session API uses a mutable state container with step functions.
-//! This is the recommended approach for new code.
+//! The session API uses a mutable state container with step functions.
 //!
-//! ```ignore
-//! use vision_calibration_pipeline::session::v2::CalibrationSession;
+//! ```no_run
+//! use vision_calibration_pipeline::session::CalibrationSession;
 //! use vision_calibration_pipeline::planar_intrinsics::{
-//!     PlanarIntrinsicsProblemV2, step_init, step_optimize, run_calibration,
+//!     PlanarIntrinsicsProblem, step_init, step_optimize, run_calibration,
 //! };
+//! # fn main() -> anyhow::Result<()> {
+//! # let dataset = unimplemented!();
 //!
-//! let mut session = CalibrationSession::<PlanarIntrinsicsProblemV2>::new();
+//! let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 //! session.set_input(dataset)?;
 //!
 //! // Option 1: Step-by-step control
@@ -24,6 +25,8 @@
 //! // run_calibration(&mut session)?;
 //!
 //! let export = session.export()?;
+//! # Ok(())
+//! # }
 //! ```
 
 // Core session framework

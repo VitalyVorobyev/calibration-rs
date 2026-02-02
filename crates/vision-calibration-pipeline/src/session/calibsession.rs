@@ -24,9 +24,11 @@ use super::types::{ExportRecord, LogEntry, SessionMetadata};
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
 /// use vision_calibration_pipeline::session::CalibrationSession;
 /// use vision_calibration_pipeline::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+/// # fn main() -> anyhow::Result<()> {
+/// # let dataset = unimplemented!();
 ///
 /// let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 /// session.set_input(dataset)?;
@@ -35,6 +37,8 @@ use super::types::{ExportRecord, LogEntry, SessionMetadata};
 /// step_optimize(&mut session, None)?;
 ///
 /// let export = session.export()?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "P: ProblemType")]

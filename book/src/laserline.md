@@ -95,22 +95,27 @@ $$d_\perp = \frac{|(\mathbf{q} - \mathbf{p}_0) \times \hat{\mathbf{d}}_{\text{2D
 
 ```rust
 pub struct LaserlineDeviceConfig {
-    // Camera
-    pub fix_k3: bool,
-    pub fix_sensor: bool,
-    pub fix_poses: Vec<usize>,
-
-    // Residual weighting
-    pub calib_weight: f64,           // Weight for calibration residuals
-    pub laser_weight: f64,           // Weight for laser residuals
-    pub calib_loss: Option<RobustLoss>,
-    pub laser_loss: Option<RobustLoss>,
-
-    // Laser residual type
-    pub laser_residual_type: LaserlineResidualType, // Default: LineDistNormalized
+    // Initialization
+    pub init_iterations: usize,        // Iterative intrinsics iterations (default: 2)
+    pub fix_k3_in_init: bool,          // Fix k3 during init (default: true)
+    pub fix_tangential_in_init: bool,  // Fix p1, p2 during init (default: false)
+    pub zero_skew: bool,               // Enforce zero skew (default: true)
+    pub sensor_init: ScheimpflugParams, // Initial sensor tilt (default: identity)
 
     // Optimization
-    pub max_iters: usize,
+    pub max_iters: usize,              // LM iterations (default: 50)
+    pub verbosity: usize,
+    pub calib_loss: RobustLoss,        // Default: Huber { scale: 1.0 }
+    pub laser_loss: RobustLoss,        // Default: Huber { scale: 0.01 }
+    pub calib_weight: f64,             // Weight for calibration residuals (default: 1.0)
+    pub laser_weight: f64,             // Weight for laser residuals (default: 1.0)
+    pub fix_intrinsics: bool,
+    pub fix_distortion: bool,
+    pub fix_k3: bool,                  // Default: true
+    pub fix_sensor: bool,              // Default: true
+    pub fix_poses: Vec<usize>,         // Default: vec![0]
+    pub fix_plane: bool,
+    pub laser_residual_type: LaserlineResidualType, // Default: LineDistNormalized
 }
 ```
 
@@ -127,13 +132,13 @@ use vision_calibration::laserline_device::*;
 let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
 session.set_input(laserline_input)?;
 
-run_calibration(&mut session)?;
+run_calibration(&mut session, None)?;
 
 let export = session.export()?;
-println!("Plane normal: {:?}", export.plane_normal);
-println!("Plane distance: {:.4}", export.plane_distance);
-println!("Reprojection error: {:.4} px", export.mean_reproj_error);
-println!("Laser error: {:.4}", export.mean_laser_error);
+println!("Plane normal: {:?}", export.estimate.params.plane.normal);
+println!("Plane distance: {:.4}", export.estimate.params.plane.distance);
+println!("Reprojection error: {:.4} px", export.stats.mean_reproj_error);
+println!("Laser error: {:.4}", export.stats.mean_laser_error);
 ```
 
 ## Scheimpflug Support

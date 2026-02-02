@@ -8,7 +8,9 @@
 //!
 //! # Quick Start
 //!
-//! ```ignore
+//! ```no_run
+//! # fn main() -> anyhow::Result<()> {
+//! # let dataset = unimplemented!();
 //! use vision_calibration::prelude::*;
 //! use vision_calibration::planar_intrinsics::{step_init, step_optimize};
 //!
@@ -18,7 +20,6 @@
 //!
 //! // Option 1: Step-by-step (recommended for inspection)
 //! step_init(&mut session, None)?;
-//! println!("Initial fx: {}", session.state.initial_intrinsics.unwrap().fx);
 //! step_optimize(&mut session, None)?;
 //!
 //! // Option 2: Pipeline function (convenience)
@@ -26,6 +27,8 @@
 //!
 //! // Export results
 //! let result = session.export()?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Module Organization
@@ -48,39 +51,26 @@
 //!
 //! # Session API
 //!
-//! All calibration workflows use the session API with this pattern:
+//! All calibration workflows use the [`CalibrationSession`] state container.
+//! Each problem type has its own set of step functions — see the table below
+//! and the per-module documentation for details.
 //!
-//! ```ignore
-//! // 1. Create session for problem type
-//! let mut session = CalibrationSession::<ProblemType>::new();
-//!
-//! // 2. Set input data
-//! session.set_input(input)?;
-//!
-//! // 3. Optionally configure
-//! session.update_config(|c| c.max_iters = 100)?;
-//!
-//! // 4. Run steps or pipeline
-//! step_init(&mut session, None)?;
-//! step_optimize(&mut session, None)?;
-//! // OR: run_calibration(&mut session)?;
-//!
-//! // 5. Export results
-//! let export = session.export()?;
-//!
-//! // 6. Optionally checkpoint
-//! let json = session.to_json()?;
-//! ```
+//! The common pattern is:
+//! 1. Create a session for the problem type
+//! 2. Set input data with `set_input`
+//! 3. Optionally configure with `update_config`
+//! 4. Run the problem-specific step functions (or a convenience `run_calibration`)
+//! 5. Export results with `export`
 //!
 //! # Available Problem Types
 //!
 //! | Problem Type | Input | Steps |
 //! |--------------|-------|-------|
-//! | `PlanarIntrinsicsProblem` | `PlanarDataset` | init → optimize |
-//! | `SingleCamHandeyeProblem` | `SingleCamHandeyeInput` | intrinsics_init → intrinsics_optim → handeye_init → handeye_optim |
-//! | `RigExtrinsicsProblem` | `RigExtrinsicsInput` | intrinsics_init_all → intrinsics_optim_all → rig_init → rig_optim |
-//! | `RigHandeyeProblem` | `RigHandeyeInput` | (all 6 steps) |
-//! | `LaserlineDeviceProblem` | `LaserlineDeviceInput` | init → optimize |
+//! | [`PlanarIntrinsicsProblem`](planar_intrinsics) | `PlanarDataset` | `step_init` → `step_optimize` |
+//! | [`SingleCamHandeyeProblem`](single_cam_handeye) | `SingleCamHandeyeInput` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
+//! | [`RigExtrinsicsProblem`](rig_extrinsics) | `RigExtrinsicsInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
+//! | [`RigHandeyeProblem`](rig_handeye) | `RigHandeyeInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` → `step_handeye_init` → `step_handeye_optimize` |
+//! | [`LaserlineDeviceProblem`](laserline_device) | `LaserlineDeviceInput` | `step_init` → `step_optimize` |
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Session Framework
@@ -108,7 +98,9 @@ pub mod session {
 /// 3. `step_filter` (optional) - Remove outliers by reprojection error
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
+/// # fn main() -> anyhow::Result<()> {
+/// # let dataset = unimplemented!();
 /// use vision_calibration::prelude::*;
 /// use vision_calibration::planar_intrinsics::{step_init, step_optimize, run_calibration};
 ///
@@ -116,6 +108,8 @@ pub mod session {
 /// session.set_input(dataset)?;
 /// run_calibration(&mut session)?;
 /// let result = session.export()?;
+/// # Ok(())
+/// # }
 /// ```
 pub mod planar_intrinsics {
     pub use vision_calibration_pipeline::planar_intrinsics::{
@@ -152,7 +146,9 @@ pub mod planar_intrinsics {
 /// 4. `step_handeye_optimize` - Bundle adjustment
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
+/// # fn main() -> anyhow::Result<()> {
+/// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
 /// use vision_calibration::single_cam_handeye::{run_calibration, SingleCamHandeyeInput};
 ///
@@ -160,6 +156,8 @@ pub mod planar_intrinsics {
 /// session.set_input(input)?;
 /// run_calibration(&mut session)?;
 /// let result = session.export()?;
+/// # Ok(())
+/// # }
 /// ```
 pub mod single_cam_handeye {
     pub use vision_calibration_pipeline::single_cam_handeye::{
@@ -192,14 +190,18 @@ pub mod single_cam_handeye {
 /// 2. `step_optimize` - Joint bundle adjustment
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
+/// # fn main() -> anyhow::Result<()> {
+/// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
 /// use vision_calibration::laserline_device::{run_calibration, LaserlineDeviceInput};
 ///
 /// let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
 /// session.set_input(input)?;
-/// run_calibration(&mut session)?;
+/// run_calibration(&mut session, None)?;
 /// let result = session.export()?;
+/// # Ok(())
+/// # }
 /// ```
 pub mod laserline_device {
     pub use vision_calibration_pipeline::laserline_device::{
@@ -221,7 +223,9 @@ pub mod laserline_device {
 /// 4. `step_rig_optimize` - Joint bundle adjustment
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
+/// # fn main() -> anyhow::Result<()> {
+/// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
 /// use vision_calibration::rig_extrinsics::{run_calibration, RigExtrinsicsInput};
 ///
@@ -229,6 +233,8 @@ pub mod laserline_device {
 /// session.set_input(input)?;
 /// run_calibration(&mut session)?;
 /// let result = session.export()?;
+/// # Ok(())
+/// # }
 /// ```
 pub mod rig_extrinsics {
     pub use vision_calibration_pipeline::rig_extrinsics::{
@@ -265,7 +271,9 @@ pub mod rig_extrinsics {
 /// 6. `step_handeye_optimize` - Hand-eye bundle adjustment
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
+/// # fn main() -> anyhow::Result<()> {
+/// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
 /// use vision_calibration::rig_handeye::{run_calibration, RigHandeyeInput};
 ///
@@ -273,6 +281,8 @@ pub mod rig_extrinsics {
 /// session.set_input(input)?;
 /// run_calibration(&mut session)?;
 /// let result = session.export()?;
+/// # Ok(())
+/// # }
 /// ```
 pub mod rig_handeye {
     pub use vision_calibration_pipeline::rig_handeye::{
@@ -386,7 +396,7 @@ pub use vision_calibration_optim::{BackendSolveOptions, HandEyeMode, RobustLoss}
 
 /// Convenient re-exports for common use cases.
 ///
-/// ```ignore
+/// ```no_run
 /// use vision_calibration::prelude::*;
 /// ```
 pub mod prelude {

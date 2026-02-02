@@ -5,24 +5,14 @@
 [![Audit](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml)
 
 A Rust workspace for end-to-end camera calibration: math primitives, linear solvers, non-linear
-refinement, pipelines, and a CLI. Supports perspective cameras, laserline calibration, and multi-camera rigs.
-
-## Status
-
-- Stable foundation: core math types, camera models, deterministic RANSAC, and linear solvers.
-- Working pipelines: planar intrinsics with Brown-Conrady distortion, stepwise hand-eye for
-  single-camera setups, and single laserline device (camera + laser plane).
-- Optimization: planar intrinsics, hand-eye, rig extrinsics, and laserline bundle problems with a
-  Levenberg-Marquardt backend.
-- In progress: broader pipeline coverage (rig), more CLI commands, and additional
-  real-data validation.
-- API stability: `vision-calibration` is the compatibility boundary; lower crates may evolve.
+refinement, and session-based pipelines. Supports perspective cameras, laserline calibration,
+multi-camera rigs, and hand-eye calibration.
 
 ## Architecture
 
 ```
                            ┌─────────────────────────┐
-                           │    vision-calibration   │  ◄── Stable API facade
+                           │    vision-calibration   │  ◄── Unified API facade
                            │    (public interface)   │
                            └───────────┬─────────────┘
                                        │
@@ -49,13 +39,13 @@ refinement, pipelines, and a CLI. Supports perspective cameras, laserline calibr
 
 | Crate | Description |
 |-------|-------------|
-| **vision-calibration** | Facade re-exporting all sub-crates for a stable API surface |
+| **vision-calibration** | Facade re-exporting all sub-crates for a unified API surface |
 | **vision-calibration-core** | Math types (nalgebra), composable camera models, RANSAC, synthetic data |
 | **vision-calibration-linear** | Closed-form solvers: homography, Zhang, PnP, epipolar, hand-eye, laserline |
 | **vision-calibration-optim** | Non-linear LM refinement: planar intrinsics, rig, hand-eye, laserline |
-| **vision-calibration-pipeline** | End-to-end workflows, session API, JSON I/O |
+| **vision-calibration-pipeline** | Session API, step functions, JSON checkpointing |
 
-## Quickstart
+## Quick Start
 
 Add the facade crate to your `Cargo.toml`:
 
@@ -63,65 +53,78 @@ Add the facade crate to your `Cargo.toml`:
 vision-calibration = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
 ```
 
-Use the high-level pipeline API:
+### Planar Intrinsics Calibration
 
-```rust
-use vision_calibration::pipeline::{run_planar_intrinsics, CorrespondenceView, PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
-use vision_calibration::core::{IntrinsicsParams, Pt3, Vec2};
+```rust,no_run
+use vision_calibration::prelude::*;
+use vision_calibration::planar_intrinsics::{step_init, step_optimize};
 
-fn main() {
-    // Populate per-view correspondences (normally from a detector)
-    let board = vec![
-        Pt3::new(0.0, 0.0, 0.0),
-        Pt3::new(0.1, 0.0, 0.0),
-        Pt3::new(0.1, 0.1, 0.0),
-        Pt3::new(0.0, 0.1, 0.0),
-    ];
-    let view = CorrespondenceView {
-        points_3d: board.clone(),
-        points_2d: vec![
-            Vec2::new(100.0, 120.0),
-            Vec2::new(180.0, 118.0),
-            Vec2::new(182.0, 192.0),
-            Vec2::new(98.0, 196.0),
-        ],
-        weights: None,
-    };
-    let input = PlanarIntrinsicsInput { views: vec![view] };
-    let config = PlanarIntrinsicsConfig::default();
+fn main() -> anyhow::Result<()> {
+    let dataset: PlanarDataset = todo!("load calibration data");
 
-    let report = run_planar_intrinsics(&input, &config).expect("planar intrinsics failed");
-    println!("Estimated camera config: {:?}", report.camera);
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    session.set_input(dataset)?;
 
-    if let IntrinsicsParams::FxFyCxCySkew { params } = &report.camera.intrinsics {
-        println!(
-            "Estimated intrinsics: fx={} fy={} cx={} cy={} skew={}",
-            params.fx, params.fy, params.cx, params.cy, params.skew
-        );
-    }
+    step_init(&mut session, None)?;
+    step_optimize(&mut session, None)?;
+
+    let result = session.export()?;
+    println!("Camera: {:?}", result.record.camera);
+    Ok(())
 }
 ```
 
-For checkpointed workflows, see `vision-calibration::session` and `vision-calibration::pipeline::session`.
+### Laserline Device Calibration
 
-### Laserline device pipeline (camera + laser plane)
-
-```rust
+```rust,no_run
 use vision_calibration::prelude::*;
-use vision_calibration::laserline_device::{run_calibration, LaserlineDeviceProblem};
+use vision_calibration::laserline_device::run_calibration;
 
-let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
-session.set_input(views)?;
-run_calibration(&mut session, None)?;
-let export = session.export()?;
-println!("Mean reproj error: {:.3}px", export.stats.mean_reproj_error);
+fn main() -> anyhow::Result<()> {
+    let input = todo!("load laserline calibration data");
+
+    let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+    session.set_input(input)?;
+    run_calibration(&mut session, None)?;
+
+    let export = session.export()?;
+    Ok(())
+}
 ```
 
-### Synthetic data generation
+### Single-Camera Hand-Eye Calibration
 
-For examples, tests, and benchmarking you can generate deterministic synthetic correspondences:
+```rust,no_run
+use vision_calibration::prelude::*;
+use vision_calibration::single_cam_handeye::{
+    SingleCamHandeyeInput, SingleCamHandeyeView, HandeyeMeta,
+    step_intrinsics_init, step_intrinsics_optimize,
+    step_handeye_init, step_handeye_optimize,
+};
 
-```rust
+fn main() -> anyhow::Result<()> {
+    let input: SingleCamHandeyeInput = todo!("load hand-eye data");
+
+    let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
+    session.set_input(input)?;
+
+    // 4-step calibration: intrinsics init/optimize, then hand-eye init/optimize
+    step_intrinsics_init(&mut session, None)?;
+    step_intrinsics_optimize(&mut session, None)?;
+    step_handeye_init(&mut session, None)?;
+    step_handeye_optimize(&mut session, None)?;
+
+    let export = session.export()?;
+    println!("Reprojection error: {:.4} px", export.record.mean_reproj_error);
+    Ok(())
+}
+```
+
+### Synthetic Data Generation
+
+For tests and benchmarking you can generate deterministic synthetic correspondences:
+
+```rust,no_run
 use vision_calibration::synthetic::planar;
 use vision_calibration::core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole};
 
@@ -138,62 +141,36 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-### Hand-eye calibration (stepwise)
+## Session API
 
-Use the stepwise helpers in `vision-calibration::pipeline::handeye_single` (see
-`crates/vision-calibration/examples/handeyesingle.rs` and `crates/vision-calibration/examples/handeye_session.rs`):
+All calibration workflows use the `CalibrationSession` state container with problem-specific
+step functions. Each problem type defines its own sequence of steps:
 
-```rust
-use vision_calibration::pipeline::handeye_single::{run_handeye_single, HandEyeSingleOptions, HandEyeView};
+| Problem Type | Steps |
+|---|---|
+| `PlanarIntrinsicsProblem` | `step_init` → `step_optimize` |
+| `SingleCamHandeyeProblem` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
+| `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
+| `RigHandeyeProblem` | 6 steps: intrinsics (×2) → rig (×2) → hand-eye (×2) |
+| `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
 
-fn main() {
-    let views: Vec<HandEyeView> = /* load 2D/3D views + robot poses */;
-    let report = run_handeye_single(&views, &HandEyeSingleOptions::default())
-        .expect("hand-eye failed");
+Each problem type also provides a `run_calibration` convenience function that runs all steps.
+Sessions support JSON serialization for checkpointing and resuming.
 
-    println!(
-        "final reproj error: {:.3} px",
-        report.handeye_optimized.mean_reproj_error
-    );
-}
+## Examples
+
+Run examples with:
+
+```bash
+cargo run -p vision-calibration --example planar_synthetic    # Synthetic planar intrinsics
+cargo run -p vision-calibration --example planar_real         # Real stereo images
+cargo run -p vision-calibration --example stereo_session      # Stereo rig extrinsics
+cargo run -p vision-calibration --example handeye_synthetic   # Single-camera hand-eye
+cargo run -p vision-calibration --example handeye_session     # KUKA robot data
+cargo run -p vision-calibration --example rig_handeye_synthetic  # Multi-camera rig hand-eye
 ```
 
-For a linear-algorithm overview and usage notes, see `crates/vision-calibration-linear/README.md`.
-
-### Hand-eye calibration (session)
-
-Use the dedicated session problem for a compact workflow (see
-`crates/vision-calibration/examples/handeye_session.rs`):
-
-```rust
-use vision_calibration::session::{
-    CalibrationSession, HandEyeModeConfig, HandEyeSingleInitOptions, HandEyeSingleObservations,
-    HandEyeSingleOptimOptions, HandEyeSingleProblem,
-};
-use vision_calibration::pipeline::handeye_single::HandEyeView;
-
-fn main() -> anyhow::Result<()> {
-    let views: Vec<HandEyeView> = /* load 2D/3D views + robot poses */;
-
-    let mut session = CalibrationSession::<HandEyeSingleProblem>::new();
-    session.set_observations(HandEyeSingleObservations {
-        views,
-        mode: HandEyeModeConfig::EyeInHand,
-    });
-
-    session.initialize(HandEyeSingleInitOptions::default())?;
-    session.optimize(HandEyeSingleOptimOptions::default())?;
-    let report = session.export()?;
-
-    println!(
-        "final reproj error: {:.3} px",
-        report.handeye_optimized.mean_reproj_error
-    );
-    Ok(())
-}
-```
-
-## Camera model
+## Camera Model
 
 `vision-calibration-core` models cameras as a composable pipeline:
 
@@ -207,33 +184,24 @@ Where:
 - `sensor` applies a homography (identity or Scheimpflug/tilt).
 - `K` maps sensor coordinates to pixels (`fx`, `fy`, `cx`, `cy`, `skew`).
 
-`SensorConfig::Scheimpflug` follows OpenCV's tilted sensor model (`tau_x`, `tau_y`), implemented as
-the same homography computed by OpenCV's `computeTiltProjectionMatrix`.
-
 ## Docs
 
 - API docs and book: https://vitalyvorobyev.github.io/calibration/
 - Book sources: `book/`
-- Examples: `crates/vision-calibration/examples/` and `crates/vision-calibration-pipeline/examples/`
+- Examples: `crates/vision-calibration/examples/`
 
-## Design principles
+## Design Principles
 
 - Correctness and numerical stability with explicit failure modes.
 - Deterministic outputs (seeded RNGs, stable ordering).
 - Performance-aware implementations (fixed-size math, minimal allocations).
 - API stability at the `vision-calibration` crate boundary and JSON schemas.
 
-## Roadmap (near term)
-
-- Expand pipeline coverage for rig extrinsics and laserline bundle.
-- Add JSON schemas and CLI flows for additional pipelines.
-- Extend validation on real datasets and regression fixtures.
-
 ## Development
 
-- Format: `cargo fmt --all`
-- Lint: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- Test: `cargo test --workspace --all-features`
-- Docs: `cargo doc --workspace --no-deps`
-
-The project is in active development. Contributions welcome; see `book/` for the evolving guide.
+```bash
+cargo fmt --all                                              # Format
+cargo clippy --workspace --all-targets --all-features        # Lint
+cargo test --workspace --all-features                        # Test
+cargo doc --workspace --no-deps                              # Build docs
+```

@@ -90,20 +90,14 @@ The 3D world points are normalized before building the system (center at origin,
 Both solvers have RANSAC variants for handling outliers:
 
 ```rust
-// P3P + RANSAC (preferred: minimal solver)
-let (pose, inliers) = pnp_ransac(
-    &world_pts, &image_pts, &K,
-    &RansacOptions { thresh: 5.0, ..Default::default() }
-)?;
-
-// DLT + RANSAC (less common)
+// DLT PnP + RANSAC
 let (pose, inliers) = dlt_ransac(
     &world_pts, &image_pts, &K,
     &RansacOptions { thresh: 5.0, ..Default::default() }
 )?;
 ```
 
-P3P with RANSAC is preferred because the minimal 3-point sample gives the highest inlier efficiency per iteration.
+The DLT PnP solver uses `MIN_SAMPLES = 6` with RANSAC. P3P (`p3p()`) returns up to 4 candidates and is intended for manual disambiguation (e.g., using a 4th point), not as a RANSAC estimator.
 
 ## Comparison
 

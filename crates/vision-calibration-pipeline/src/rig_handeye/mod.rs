@@ -17,17 +17,16 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use vision_calibration_pipeline::session::v2::CalibrationSession;
+//! ```no_run
+//! use vision_calibration_pipeline::session::CalibrationSession;
 //! use vision_calibration_pipeline::rig_handeye::{
 //!     RigHandeyeProblem, RigHandeyeInput,
 //!     step_intrinsics_init_all, step_intrinsics_optimize_all,
 //!     step_rig_init, step_rig_optimize,
 //!     step_handeye_init, step_handeye_optimize, run_calibration,
 //! };
-//!
-//! // Load rig dataset with robot poses
-//! let input: RigHandeyeInput = /* load from file or construct */;
+//! # fn main() -> anyhow::Result<()> {
+//! # let input: RigHandeyeInput = unimplemented!();
 //!
 //! // Create session and run calibration
 //! let mut session = CalibrationSession::<RigHandeyeProblem>::new();
@@ -45,6 +44,8 @@
 //! // run_calibration(&mut session)?;
 //!
 //! let export = session.export()?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Conventions

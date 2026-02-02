@@ -182,24 +182,28 @@ pub struct RigHandeyeExport {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
 /// use vision_calibration_pipeline::session::CalibrationSession;
 /// use vision_calibration_pipeline::rig_handeye::{
 ///     RigHandeyeProblem, step_intrinsics_init_all, step_intrinsics_optimize_all,
 ///     step_rig_init, step_rig_optimize, step_handeye_init, step_handeye_optimize,
 /// };
+/// # fn main() -> anyhow::Result<()> {
+/// # let rig_dataset = unimplemented!();
 ///
 /// let mut session = CalibrationSession::<RigHandeyeProblem>::new();
-/// session.set_input(rig_dataset);
+/// session.set_input(rig_dataset)?;
 ///
-/// step_intrinsics_init_all(&mut session, None);
-/// step_intrinsics_optimize_all(&mut session, None);
-/// step_rig_init(&mut session);
-/// step_rig_optimize(&mut session, None);
-/// step_handeye_init(&mut session, None);
-/// step_handeye_optimize(&mut session, None);
+/// step_intrinsics_init_all(&mut session, None)?;
+/// step_intrinsics_optimize_all(&mut session, None)?;
+/// step_rig_init(&mut session)?;
+/// step_rig_optimize(&mut session, None)?;
+/// step_handeye_init(&mut session, None)?;
+/// step_handeye_optimize(&mut session, None)?;
 ///
-/// let export = session.export();
+/// let export = session.export()?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug)]
 pub struct RigHandeyeProblem;

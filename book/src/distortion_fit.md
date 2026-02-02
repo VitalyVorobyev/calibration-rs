@@ -92,7 +92,7 @@ This accuracy is sufficient for initializing non-linear refinement.
 
 ```rust
 let dist = estimate_distortion_from_homographies(
-    &K, &views, &opts
+    &k_matrix, &views, opts
 )?;
 ```
 

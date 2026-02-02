@@ -95,7 +95,7 @@ RANSAC is used with several models in calibration-rs:
 |-------|--------------|----------|-------|
 | Homography | 4 | Reprojection error (pixels) | `dlt_homography_ransac` |
 | Fundamental matrix | 8 | Epipolar distance | `fundamental_8point_ransac` |
-| PnP (P3P) | 3 | Reprojection error (pixels) | `pnp_ransac` |
+| PnP (DLT) | 6 | Reprojection error (pixels) | `dlt_ransac` |
 
 ## Deterministic Seeding
 

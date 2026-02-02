@@ -1,6 +1,6 @@
 //! Multi-camera rig extrinsics calibration.
 //!
-//! This module provides a v2 session API for calibrating a multi-camera rig,
+//! This module provides a session API for calibrating a multi-camera rig,
 //! estimating per-camera intrinsics and camera-to-rig transforms.
 //!
 //! # Pipeline
@@ -14,16 +14,15 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use vision_calibration_pipeline::session::v2::CalibrationSession;
+//! ```no_run
+//! use vision_calibration_pipeline::session::CalibrationSession;
 //! use vision_calibration_pipeline::rig_extrinsics::{
 //!     RigExtrinsicsProblem, RigExtrinsicsInput,
 //!     step_intrinsics_init_all, step_intrinsics_optimize_all,
 //!     step_rig_init, step_rig_optimize, run_calibration,
 //! };
-//!
-//! // Load rig dataset (multiple views with multiple cameras)
-//! let input: RigExtrinsicsInput = /* load from file or construct */;
+//! # fn main() -> anyhow::Result<()> {
+//! # let input: RigExtrinsicsInput = unimplemented!();
 //!
 //! // Create session and run calibration
 //! let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
@@ -39,6 +38,8 @@
 //! // run_calibration(&mut session)?;
 //!
 //! let export = session.export()?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Conventions

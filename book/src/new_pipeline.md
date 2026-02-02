@@ -17,7 +17,7 @@ my_problem/
 ## Step 1: Define the Problem Type (`problem.rs`)
 
 ```rust
-use crate::session::{ProblemType, InvalidationPolicy, CLEAR_COMPUTED, KEEP_ALL};
+use crate::session::{ProblemType, InvalidationPolicy};
 
 pub struct MyProblem;
 
@@ -59,8 +59,8 @@ impl ProblemType for MyProblem {
         Ok(())
     }
 
-    fn on_input_change() -> InvalidationPolicy { CLEAR_COMPUTED }
-    fn on_config_change() -> InvalidationPolicy { KEEP_ALL }
+    fn on_input_change() -> InvalidationPolicy { InvalidationPolicy::CLEAR_COMPUTED }
+    fn on_config_change() -> InvalidationPolicy { InvalidationPolicy::KEEP_ALL }
 
     fn export(output: &MyOutput, _config: &MyConfig) -> Result<MyExport> {
         Ok(MyExport {
@@ -199,7 +199,7 @@ fn my_problem_session_workflow() -> Result<()> {
     assert!(session.state.initial_intrinsics.is_some());
 
     step_optimize(&mut session, None)?;
-    assert!(session.output.is_some());
+    assert!(session.output().is_some());
 
     // Test JSON round-trip
     let json = session.to_json()?;

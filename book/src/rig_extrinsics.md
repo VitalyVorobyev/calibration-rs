@@ -65,17 +65,23 @@ Joint optimization of all parameters:
 
 ```rust
 pub struct RigExtrinsicsConfig {
-    // Per-camera settings
-    pub fix_intrinsics: Vec<IntrinsicsFixMask>,
-    pub fix_distortion: Vec<DistortionFixMask>,
+    // Per-camera intrinsics options
+    pub intrinsics_init_iterations: usize,
+    pub fix_k3: bool,
+    pub fix_tangential: bool,
+    pub zero_skew: bool,
 
     // Rig settings
-    pub fix_extrinsics: Vec<bool>,  // Per-camera (reference always fixed)
-    pub fix_rig_poses: Vec<usize>,  // Fix specific view poses
+    pub reference_camera_idx: usize,
 
     // Optimization
     pub max_iters: usize,
-    pub robust_loss: Option<RobustLoss>,
+    pub verbosity: usize,
+    pub robust_loss: RobustLoss,
+
+    // Rig BA options
+    pub refine_intrinsics_in_rig_ba: bool,
+    pub fix_first_rig_pose: bool,
 }
 ```
 
@@ -130,7 +136,7 @@ step_rig_init(&mut session)?;
 step_rig_optimize(&mut session, None)?;
 
 let export = session.export()?;
-let baseline = export.extrinsics[1].translation.vector.norm();
+let baseline = export.cam_se3_rig[1].translation.vector.norm();
 println!("Stereo baseline: {:.1} mm", baseline * 1000.0);
 ```
 

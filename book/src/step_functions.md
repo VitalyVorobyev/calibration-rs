@@ -48,7 +48,7 @@ step_optimize(&mut session, Some(&opts))?;
 
 ```rust
 // Re-run optimization with different settings (without re-initializing)
-session.update_config(|c| c.robust_loss = Some(RobustLoss::Cauchy { scale: 3.0 }))?;
+session.update_config(|c| c.robust_loss = RobustLoss::Cauchy { scale: 3.0 })?;
 step_optimize(&mut session, None)?;
 ```
 
@@ -97,7 +97,7 @@ let export = session.export()?;
 | `SingleCamHandeyeProblem` | `run_single_cam_handeye()` | 4 steps |
 | `RigExtrinsicsProblem` | `run_rig_extrinsics()` | 4 steps |
 | `RigHandeyeProblem` | `run_rig_handeye()` | 6 steps |
-| `LaserlineDeviceProblem` | `run_calibration()` | init → optimize |
+| `LaserlineDeviceProblem` | `run_calibration(session, config)` | init → optimize |
 
 ## Recommendation
 

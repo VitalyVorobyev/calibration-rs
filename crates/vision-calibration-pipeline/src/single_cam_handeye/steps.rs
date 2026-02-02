@@ -5,12 +5,14 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use vision_calibration_pipeline::session::v2::CalibrationSession;
+//! ```no_run
+//! use vision_calibration_pipeline::session::CalibrationSession;
 //! use vision_calibration_pipeline::single_cam_handeye::{
 //!     SingleCamHandeyeProblem, step_intrinsics_init, step_intrinsics_optimize,
 //!     step_handeye_init, step_handeye_optimize,
 //! };
+//! # fn main() -> anyhow::Result<()> {
+//! # let input = unimplemented!();
 //!
 //! let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 //! session.set_input(input)?;
@@ -21,6 +23,8 @@
 //! step_handeye_optimize(&mut session, None)?;
 //!
 //! let export = session.export()?;
+//! # Ok(())
+//! # }
 //! ```
 
 use anyhow::{Context, Result};
