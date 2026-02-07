@@ -32,8 +32,8 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: |
-            mdbook
-            mdbook-katex
+            mdbook@0.4.48
+            mdbook-katex@0.9.4
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
