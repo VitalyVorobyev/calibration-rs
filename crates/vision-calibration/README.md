@@ -113,6 +113,7 @@ See `examples/` directory:
 | `planar_synthetic` | Planar intrinsics | Synthetic |
 | `planar_real` | Planar intrinsics | Real stereo images |
 | `stereo_session` | Rig extrinsics | Real stereo images |
+| `stereo_charuco_session` | Rig extrinsics | Real stereo ChArUco images |
 | `handeye_synthetic` | Single-camera hand-eye | Synthetic |
 | `handeye_session` | Single-camera hand-eye | KUKA robot data |
 | `rig_handeye_synthetic` | Rig hand-eye | Synthetic |
