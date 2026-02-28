@@ -46,11 +46,7 @@ fn main() -> Result<()> {
     println!("Dataset: {}", data_dir.display());
     println!(
         "Board: {}x{}, cell size {:.2}mm, marker scale {:.2}, dict {}",
-        BOARD_ROWS,
-        BOARD_COLS,
-        BOARD_CELL_SIZE_MM,
-        BOARD_MARKER_SIZE_REL,
-        BOARD_DICTIONARY_NAME
+        BOARD_ROWS, BOARD_COLS, BOARD_CELL_SIZE_MM, BOARD_MARKER_SIZE_REL, BOARD_DICTIONARY_NAME
     );
     if let Some(n) = max_views {
         println!("Max views: {n}");
