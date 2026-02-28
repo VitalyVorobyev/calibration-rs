@@ -4,6 +4,7 @@ description = "Python bindings for the vision-calibration camera calibration too
 readme = "README.md"
 keywords = ["camera", "calibration", "python", "computer-vision", "robotics"]
 categories = ["computer-vision"]
+publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true
