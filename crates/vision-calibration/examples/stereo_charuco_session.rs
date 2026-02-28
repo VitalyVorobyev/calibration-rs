@@ -21,7 +21,7 @@ use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use stereo_charuco_io::{
-    BOARD_CELL_SIZE_M, BOARD_COLS, BOARD_DICTIONARY_NAME, BOARD_MARKER_SIZE_REL, BOARD_ROWS,
+    BOARD_CELL_SIZE_MM, BOARD_COLS, BOARD_DICTIONARY_NAME, BOARD_MARKER_SIZE_REL, BOARD_ROWS,
     load_stereo_charuco_input_with_progress, make_charuco_detector_params,
 };
 use vision_calibration::prelude::*;
@@ -48,7 +48,7 @@ fn main() -> Result<()> {
         "Board: {}x{}, cell size {:.2}mm, marker scale {:.2}, dict {}",
         BOARD_ROWS,
         BOARD_COLS,
-        BOARD_CELL_SIZE_M * 1000.0,
+        BOARD_CELL_SIZE_MM,
         BOARD_MARKER_SIZE_REL,
         BOARD_DICTIONARY_NAME
     );

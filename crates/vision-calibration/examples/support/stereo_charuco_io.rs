@@ -12,7 +12,7 @@ use vision_calibration::rig_extrinsics::RigExtrinsicsInput;
 
 pub const BOARD_ROWS: u32 = 22;
 pub const BOARD_COLS: u32 = 22;
-pub const BOARD_CELL_SIZE_M: f64 = 0.00045;
+pub const BOARD_CELL_SIZE_MM: f64 = 0.00135;
 pub const BOARD_MARKER_SIZE_REL: f32 = 0.75;
 pub const BOARD_DICTIONARY_NAME: &str = "DICT_4X4_1000";
 
@@ -33,7 +33,7 @@ pub fn make_charuco_detector_params() -> CharucoDetectorParams {
     let board = CharucoBoardSpec {
         rows: BOARD_ROWS,
         cols: BOARD_COLS,
-        cell_size: BOARD_CELL_SIZE_M as f32,
+        cell_size: BOARD_CELL_SIZE_MM as f32,
         marker_size_rel: BOARD_MARKER_SIZE_REL,
         dictionary: builtins::DICT_4X4_1000,
         marker_layout: MarkerLayout::OpenCvCharuco,
