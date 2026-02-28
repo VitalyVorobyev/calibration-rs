@@ -3254,6 +3254,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "pyo3",
+ "pyo3-build-config",
  "pythonize",
  "serde",
  "vision-calibration",

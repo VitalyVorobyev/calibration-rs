@@ -22,5 +22,8 @@ vision-calibration.workspace = true
 pyo3 = { version = "0.28", features = ["extension-module", "abi3-py310"] }
 pythonize = "0.28"
 
+[build-dependencies]
+pyo3-build-config = "0.28"
+
 [package.metadata.maturin]
 name = "vision_calibration._vision_calibration"
