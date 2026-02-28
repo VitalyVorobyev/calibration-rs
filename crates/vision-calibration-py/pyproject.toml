@@ -1,0 +1,34 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "vision-calibration"
+version = "0.1.1"
+description = "Python bindings for calibration-rs end-to-end camera calibration"
+readme = "README.md"
+authors = [{ name = "Vitaly Vorobyev", email = "vit.vorobiev@gmail.com" }]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Rust",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+[project.urls]
+Homepage = "https://vitalyvorobyev.github.io/calibration-rs"
+Repository = "https://github.com/VitalyVorobyev/calibration-rs"
+
+[tool.maturin]
+bindings = "pyo3"
+manifest-path = "Cargo.toml"
+python-source = "python"
+module-name = "vision_calibration._vision_calibration"

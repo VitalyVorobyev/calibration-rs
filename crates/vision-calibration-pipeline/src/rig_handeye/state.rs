@@ -61,9 +61,11 @@ pub struct RigHandeyeState {
     /// `gripper_se3_rig` (T_G_R) for EyeInHand mode.
     pub initial_handeye: Option<Iso3>,
 
-    /// Initial target pose in base frame: `target_se3_base` (T_T_B).
-    /// Single static target.
-    pub initial_target_se3_base: Option<Iso3>,
+    /// Initial mode-dependent fixed target pose.
+    ///
+    /// - EyeInHand: `base_se3_target` (T_B_T)
+    /// - EyeToHand: `gripper_se3_target` (T_G_T)
+    pub initial_mode_target_pose: Option<Iso3>,
 
     // ─────────────────────────────────────────────────────────────────────────
     // Final BA metrics (result in output)
@@ -93,7 +95,7 @@ impl RigHandeyeState {
 
     /// Check if hand-eye initialization has been run.
     pub fn has_handeye_init(&self) -> bool {
-        self.initial_handeye.is_some() && self.initial_target_se3_base.is_some()
+        self.initial_handeye.is_some() && self.initial_mode_target_pose.is_some()
     }
 
     /// Check if final BA has been run.
@@ -114,7 +116,7 @@ impl RigHandeyeState {
     /// Clear hand-eye and final BA results.
     pub fn clear_handeye(&mut self) {
         self.initial_handeye = None;
-        self.initial_target_se3_base = None;
+        self.initial_mode_target_pose = None;
         self.final_cost = None;
         self.final_reproj_error = None;
     }
@@ -175,11 +177,11 @@ mod tests {
             initial_handeye: Some(Iso3::identity()),
             ..Default::default()
         };
-        assert!(!state.has_handeye_init()); // missing target_se3_base
+        assert!(!state.has_handeye_init()); // missing mode_target_pose
 
         let state = RigHandeyeState {
             initial_handeye: Some(Iso3::identity()),
-            initial_target_se3_base: Some(Iso3::identity()),
+            initial_mode_target_pose: Some(Iso3::identity()),
             ..Default::default()
         };
         assert!(state.has_handeye_init());
@@ -213,7 +215,7 @@ mod tests {
             rig_ba_cam_se3_rig: Some(vec![Iso3::identity(), Iso3::identity()]),
             rig_ba_reproj_error: Some(0.3),
             initial_handeye: Some(Iso3::identity()),
-            initial_target_se3_base: Some(Iso3::identity()),
+            initial_mode_target_pose: Some(Iso3::identity()),
             final_cost: Some(0.001),
             final_reproj_error: Some(0.3),
             ..Default::default()

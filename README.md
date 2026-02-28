@@ -44,6 +44,7 @@ multi-camera rigs, and hand-eye calibration.
 | **vision-calibration-linear** | Closed-form solvers: homography, Zhang, PnP, epipolar, hand-eye, laserline |
 | **vision-calibration-optim** | Non-linear LM refinement: planar intrinsics, rig, hand-eye, laserline |
 | **vision-calibration-pipeline** | Session API, step functions, JSON checkpointing |
+| **vision-calibration-py** | Python bindings (PyO3/maturin) for all high-level workflows |
 
 ## Quick Start
 
@@ -51,6 +52,34 @@ Add the facade crate to your `Cargo.toml`:
 
 ```toml
 vision-calibration = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
+```
+
+The facade is module-first: prefer `vision_calibration::<workflow>::...` namespaces
+or `vision_calibration::prelude::*` rather than relying on broad top-level symbols.
+
+### Python Package
+
+Build and install the local Python package:
+
+```bash
+maturin develop -m crates/vision-calibration-py/Cargo.toml
+```
+
+Use the Python API:
+
+```python
+import vision_calibration as vc
+
+print(vc.__version__)
+
+config: vc.PlanarConfig = {
+    "max_iters": 80,
+    "robust_loss": vc.robust_huber(1.0),
+}
+
+# All workflows are available:
+# run_planar_intrinsics / run_single_cam_handeye / run_rig_extrinsics /
+# run_rig_handeye / run_laserline_device
 ```
 
 ### Planar Intrinsics Calibration
@@ -69,7 +98,7 @@ fn main() -> anyhow::Result<()> {
     step_optimize(&mut session, None)?;
 
     let result = session.export()?;
-    println!("Camera: {:?}", result.record.camera);
+    println!("Camera: {:?}", result.params.camera);
     Ok(())
 }
 ```
@@ -115,7 +144,7 @@ fn main() -> anyhow::Result<()> {
     step_handeye_optimize(&mut session, None)?;
 
     let export = session.export()?;
-    println!("Reprojection error: {:.4} px", export.record.mean_reproj_error);
+    println!("Reprojection error: {:.4} px", export.mean_reproj_error);
     Ok(())
 }
 ```
@@ -156,6 +185,9 @@ step functions. Each problem type defines its own sequence of steps:
 
 Each problem type also provides a `run_calibration` convenience function that runs all steps.
 Sessions support JSON serialization for checkpointing and resuming.
+
+For larger workflows, configs are grouped by responsibility (e.g. `init`, `solver`,
+`optimize`, `handeye_ba`) instead of large flat option bags.
 
 ## Examples
 
@@ -205,4 +237,5 @@ cargo fmt --all                                              # Format
 cargo clippy --workspace --all-targets --all-features        # Lint
 cargo test --workspace --all-features                        # Test
 cargo doc --workspace --no-deps                              # Build docs
+python -m compileall crates/vision-calibration-py/python/vision_calibration
 ```

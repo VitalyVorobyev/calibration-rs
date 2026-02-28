@@ -51,8 +51,9 @@
 //! # Conventions
 //!
 //! - `cam_se3_rig` = T_C_R (transform from rig frame to camera frame)
-//! - `handeye` = T_G_R (gripper to rig, for EyeInHand mode)
-//! - `target_se3_base` = T_T_B (single static target in base frame)
+//! - mode-specific export fields are explicit:
+//!   - EyeInHand: `gripper_se3_rig` (T_G_R), `base_se3_target` (T_B_T)
+//!   - EyeToHand: `rig_se3_base` (T_R_B), `gripper_se3_target` (T_G_T)
 //! - Reference camera (index configurable) has identity extrinsics
 //!
 //! # Default Behavior
@@ -70,7 +71,10 @@ mod state;
 mod steps;
 
 // Re-export types
-pub use problem::{RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput, RigHandeyeProblem};
+pub use problem::{
+    RigHandeyeBaConfig, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInitConfig, RigHandeyeInput,
+    RigHandeyeIntrinsicsConfig, RigHandeyeProblem, RigHandeyeRigConfig, RigHandeyeSolverConfig,
+};
 pub use state::RigHandeyeState;
 pub use steps::{
     HandeyeInitOptions, HandeyeOptimOptions, IntrinsicsInitOptions, IntrinsicsOptimOptions,

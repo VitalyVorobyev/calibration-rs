@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/vision-calibration",
+    "crates/vision-calibration-py",
     "crates/vision-calibration-core",
     "crates/vision-calibration-linear",
     "crates/vision-calibration-optim",
@@ -18,6 +19,7 @@ homepage = "https://vitalyvorobyev.github.io/calibration-rs"
 repository = "https://github.com/VitalyVorobyev/calibration-rs"
 
 [workspace.dependencies]
+vision-calibration = { path = "./crates/vision-calibration", version = "0.1.1" }
 vision-calibration-core = { path = "./crates/vision-calibration-core", version = "0.1.0" }
 vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.1.0" }
 vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.1.0" }

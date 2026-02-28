@@ -1,0 +1,26 @@
+[package]
+name = "vision-calibration-py"
+description = "Python bindings for the vision-calibration camera calibration toolbox"
+readme = "README.md"
+keywords = ["camera", "calibration", "python", "computer-vision", "robotics"]
+categories = ["computer-vision"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lib]
+name = "_vision_calibration"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+vision-calibration.workspace = true
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py310"] }
+pythonize = "0.28"
+
+[package.metadata.maturin]
+name = "vision_calibration._vision_calibration"
