@@ -3,3 +3,4 @@ stereo
 Cargo.lock
 DS8
 *.pyc
+data/stereo_charuco

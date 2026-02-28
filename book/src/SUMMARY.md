@@ -64,6 +64,7 @@
 - [Hand-Eye with KUKA Robot](handeye_real_data.md)
 - [Multi-Camera Rig Extrinsics](rig_extrinsics.md)
 - [Stereo Rig with Real Data](stereo_real_data.md)
+- [Stereo Rig with Real ChArUco Data](stereo_charuco_real_data.md)
 - [Multi-Camera Rig Hand-Eye](rig_handeye.md)
 - [Laserline Device Calibration](laserline.md)
 - [Laserline with Industrial Data](laserline_real_data.md)

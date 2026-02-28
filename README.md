@@ -165,6 +165,7 @@ Run examples with:
 cargo run -p vision-calibration --example planar_synthetic    # Synthetic planar intrinsics
 cargo run -p vision-calibration --example planar_real         # Real stereo images
 cargo run -p vision-calibration --example stereo_session      # Stereo rig extrinsics
+cargo run -p vision-calibration --example stereo_charuco_session  # Stereo ChArUco rig extrinsics
 cargo run -p vision-calibration --example handeye_synthetic   # Single-camera hand-eye
 cargo run -p vision-calibration --example handeye_session     # KUKA robot data
 cargo run -p vision-calibration --example rig_handeye_synthetic  # Multi-camera rig hand-eye
