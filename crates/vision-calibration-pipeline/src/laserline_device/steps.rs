@@ -144,7 +144,7 @@ pub fn step_init(
 
     let poses = estimate_poses(input, &camera_init.k).context("pose initialization failed")?;
 
-    let sensor = session.config.sensor_init;
+    let sensor = session.config.init.sensor_init;
     let camera = Camera::new(Pinhole, camera_init.dist, sensor.compile(), camera_init.k);
 
     let (plane, plane_rmse) = linear_plane_init(input, &camera, &poses)?;

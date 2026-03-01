@@ -148,13 +148,13 @@ pub fn step_intrinsics_init_all(
     let config = &session.config;
 
     let init_opts = IterativeIntrinsicsOptions {
-        iterations: opts.iterations.unwrap_or(config.intrinsics_init_iterations),
+        iterations: opts.iterations.unwrap_or(config.intrinsics.init_iterations),
         distortion_opts: DistortionFitOptions {
-            fix_k3: config.fix_k3,
-            fix_tangential: config.fix_tangential,
+            fix_k3: config.intrinsics.fix_k3,
+            fix_tangential: config.intrinsics.fix_tangential,
             iters: 8,
         },
-        zero_skew: config.zero_skew,
+        zero_skew: config.intrinsics.zero_skew,
     };
 
     // Copy values we need to avoid borrow conflicts
@@ -275,15 +275,15 @@ pub fn step_intrinsics_optimize_all(
 
         // Optimize
         let solve_opts = PlanarIntrinsicsSolveOptions {
-            robust_loss: config.robust_loss,
+            robust_loss: config.solver.robust_loss,
             fix_intrinsics: Default::default(),
             fix_distortion: Default::default(),
             fix_poses: Vec::new(),
         };
 
         let backend_opts = BackendSolveOptions {
-            max_iters: opts.max_iters.unwrap_or(config.max_iters),
-            verbosity: opts.verbosity.unwrap_or(config.verbosity),
+            max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
+            verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
             ..Default::default()
         };
 
@@ -338,7 +338,7 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigHandeyeProblem>) -> Res
 
     // Copy values we need before modifying state
     let num_views = input.num_views();
-    let reference_camera_idx = session.config.reference_camera_idx;
+    let reference_camera_idx = session.config.rig.reference_camera_idx;
 
     let per_cam_target_poses = session
         .state
@@ -421,7 +421,7 @@ pub fn step_rig_optimize(
     };
 
     // Configure solve options
-    let fix_intrinsics = if config.refine_intrinsics_in_rig_ba {
+    let fix_intrinsics = if config.rig.refine_intrinsics_in_rig_ba {
         CameraFixMask::default()
     } else {
         CameraFixMask::all_fixed()
@@ -429,17 +429,17 @@ pub fn step_rig_optimize(
 
     // Reference camera has fixed extrinsics (identity)
     let fix_extrinsics: Vec<bool> = (0..input.num_cameras)
-        .map(|i| i == config.reference_camera_idx)
+        .map(|i| i == config.rig.reference_camera_idx)
         .collect();
 
-    let fix_rig_poses = if config.fix_first_rig_pose {
+    let fix_rig_poses = if config.rig.fix_first_rig_pose {
         vec![0]
     } else {
         Vec::new()
     };
 
     let solve_opts = RigExtrinsicsSolveOptions {
-        robust_loss: config.robust_loss,
+        robust_loss: config.solver.robust_loss,
         default_fix: fix_intrinsics,
         camera_overrides: Vec::new(),
         fix_extrinsics,
@@ -447,8 +447,8 @@ pub fn step_rig_optimize(
     };
 
     let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.unwrap_or(config.max_iters),
-        verbosity: opts.verbosity.unwrap_or(config.verbosity),
+        max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
+        verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
         ..Default::default()
     };
 
@@ -541,7 +541,7 @@ pub fn step_handeye_init(
     let config = &session.config;
     let min_angle = opts
         .min_motion_angle_deg
-        .unwrap_or(config.min_motion_angle_deg);
+        .unwrap_or(config.handeye_init.min_motion_angle_deg);
 
     // Get robot poses and rig-to-target poses
     let robot_poses: Vec<Iso3> = input
@@ -555,7 +555,7 @@ pub fn step_handeye_init(
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no rig_se3_target from rig BA"))?;
 
-    let (handeye, target_se3_base) = match config.handeye_mode {
+    let (handeye, mode_target_pose) = match config.handeye_init.handeye_mode {
         vision_calibration_optim::HandEyeMode::EyeInHand => {
             // vision-calibration-linear expects `target_se3_rig` (rig -> target), while the rig BA state
             // stores `rig_se3_target` (target -> rig).
@@ -582,13 +582,13 @@ pub fn step_handeye_init(
             // T_R_T = T_R_B * T_B_G * T_G_T  =>  T_R_B = T_R_T * (T_B_G * T_G_T)^-1
             let rig_se3_base = rig_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse();
 
-            // Legacy field name: `initial_target_se3_base` stores `gripper_se3_target` for EyeToHand.
+            // In EyeToHand mode the mode-target pose is `gripper_se3_target` (T_G_T).
             (rig_se3_base, gripper_se3_target)
         }
     };
 
     session.state.initial_handeye = Some(handeye);
-    session.state.initial_target_se3_base = Some(target_se3_base);
+    session.state.initial_mode_target_pose = Some(mode_target_pose);
 
     session.log_success_with_notes(
         "handeye_init",
@@ -603,8 +603,8 @@ pub fn step_handeye_init(
 /// This step jointly optimizes:
 /// - Per-camera intrinsics
 /// - Per-camera extrinsics (cam_se3_rig) - optionally
-/// - Hand-eye transform (gripper_se3_rig)
-/// - Target pose in base frame
+/// - Hand-eye transform (mode-dependent)
+/// - Fixed target pose (mode-dependent)
 /// - Optionally: per-view robot pose corrections
 ///
 /// Requires [`step_handeye_init`] to be run first.
@@ -644,9 +644,9 @@ pub fn step_handeye_optimize(
         .state
         .initial_handeye
         .ok_or_else(|| anyhow::anyhow!("no initial handeye"))?;
-    let target_se3_base = session
+    let mode_target_pose = session
         .state
-        .initial_target_se3_base
+        .initial_mode_target_pose
         .ok_or_else(|| anyhow::anyhow!("no initial target pose"))?;
 
     // Build initial params for hand-eye optimization
@@ -654,17 +654,17 @@ pub fn step_handeye_optimize(
         cameras,
         cam_to_rig,
         handeye,
-        target_poses: vec![target_se3_base], // Single static target
+        target_poses: vec![mode_target_pose], // Single fixed target (mode-dependent semantics)
     };
 
     // Configure solve options
     let fix_intrinsics = CameraFixMask::all_fixed(); // Don't refine intrinsics in final BA
 
     // Fix cam_se3_rig unless explicitly enabled
-    let fix_extrinsics: Vec<bool> = if config.refine_cam_se3_rig_in_handeye_ba {
+    let fix_extrinsics: Vec<bool> = if config.handeye_ba.refine_cam_se3_rig_in_handeye_ba {
         // Only fix reference camera
         (0..input.num_cameras)
-            .map(|i| i == config.reference_camera_idx)
+            .map(|i| i == config.rig.reference_camera_idx)
             .collect()
     } else {
         // Fix all extrinsics
@@ -672,27 +672,30 @@ pub fn step_handeye_optimize(
     };
 
     let solve_opts = HandEyeSolveOptions {
-        robust_loss: config.robust_loss,
+        robust_loss: config.solver.robust_loss,
         default_fix: fix_intrinsics,
         camera_overrides: Vec::new(),
         fix_extrinsics,
         fix_handeye: false,
         fix_target_poses: Vec::new(),
         relax_target_poses: false, // Single fixed target
-        refine_robot_poses: config.refine_robot_poses,
-        robot_rot_sigma: config.robot_rot_sigma,
-        robot_trans_sigma: config.robot_trans_sigma,
+        refine_robot_poses: config.handeye_ba.refine_robot_poses,
+        robot_rot_sigma: config.handeye_ba.robot_rot_sigma,
+        robot_trans_sigma: config.handeye_ba.robot_trans_sigma,
     };
 
     let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.unwrap_or(config.max_iters),
-        verbosity: opts.verbosity.unwrap_or(config.verbosity),
+        max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
+        verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
         ..Default::default()
     };
 
     // Convert input to HandEyeDataset
-    let handeye_dataset =
-        HandEyeDataset::new(input.views.clone(), input.num_cameras, config.handeye_mode)?;
+    let handeye_dataset = HandEyeDataset::new(
+        input.views.clone(),
+        input.num_cameras,
+        config.handeye_init.handeye_mode,
+    )?;
 
     // Run optimization
     let result = match optimize_handeye(handeye_dataset, initial, solve_opts, backend_opts) {
@@ -916,7 +919,10 @@ mod tests {
 
         session
             .set_config(super::super::problem::RigHandeyeConfig {
-                max_iters: 100,
+                solver: super::super::problem::RigHandeyeSolverConfig {
+                    max_iters: 100,
+                    ..Default::default()
+                },
                 ..Default::default()
             })
             .unwrap();

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.2]
 
 ### Added
 - **Iterative intrinsics estimation** in `vision-calibration-linear`: New `IterativeIntrinsicsSolver` for jointly estimating camera intrinsics (K) and Brown-Conrady distortion without requiring ground truth distortion preprocessing
@@ -21,11 +21,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactored test files to use shared utilities from `vision-calibration-core::test_utils`, eliminating code duplication
 - Updated CLAUDE.md with detailed documentation of iterative intrinsics feature and typical workflow
 - Expanded rustdoc across `vision-calibration-linear` algorithms and updated top-level README to reflect new solver coverage
-
-### Deprecated
-
-### Removed
-
-### Fixed
-
-### Security

@@ -9,6 +9,7 @@
 //! Run with: `cargo run -p vision-calibration --example planar_synthetic`
 
 use anyhow::Result;
+use vision_calibration::core::make_pinhole_camera;
 use vision_calibration::planar_intrinsics::{run_calibration, step_init, step_optimize};
 use vision_calibration::prelude::*;
 use vision_calibration::synthetic::planar;
@@ -32,7 +33,7 @@ fn main() -> Result<()> {
         p2: -0.001,
         iters: 8,
     };
-    let cam_gt = vision_calibration::make_pinhole_camera(k_gt, dist_gt);
+    let cam_gt = make_pinhole_camera(k_gt, dist_gt);
 
     println!("Ground truth:");
     println!(

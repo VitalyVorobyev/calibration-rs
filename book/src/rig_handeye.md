@@ -78,7 +78,10 @@ step_handeye_init(&mut session, None)?;
 step_handeye_optimize(&mut session, None)?;
 
 let export = session.export()?;
-println!("Hand-eye: {:?}", export.handeye);
+println!("Mode: {:?}", export.handeye_mode);
+if let Some(gripper_se3_rig) = export.gripper_se3_rig {
+    println!("gripper_se3_rig: {:?}", gripper_se3_rig);
+}
 println!("Baseline: {:.1} mm",
     export.cam_se3_rig[1].translation.vector.norm() * 1000.0);
 println!("Per-camera errors: {:?}", export.per_cam_reproj_errors);

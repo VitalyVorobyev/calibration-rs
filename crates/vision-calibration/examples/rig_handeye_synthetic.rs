@@ -217,7 +217,7 @@ fn main() -> Result<()> {
         init_he.translation.vector.norm(),
         handeye_gt.translation.vector.norm()
     );
-    if let Some(init_target) = session.state.initial_target_se3_base.as_ref() {
+    if let Some(init_target) = session.state.initial_mode_target_pose.as_ref() {
         println!(
             "  Target in base |t|: {:.4}m (GT: {:.4}m)",
             init_target.translation.vector.norm(),
@@ -280,24 +280,50 @@ fn main() -> Result<()> {
     );
 
     println!("Hand-eye transform:");
-    let he_t = export.handeye.translation.vector.norm();
-    let he_gt_t = handeye_gt.translation.vector.norm();
-    println!(
-        "  |t|: {:.4}m (GT: {:.4}m, err: {:.2}%)",
-        he_t,
-        he_gt_t,
-        100.0 * (he_t - he_gt_t).abs() / he_gt_t
-    );
+    match export.handeye_mode {
+        HandEyeMode::EyeInHand => {
+            let handeye = export
+                .gripper_se3_rig
+                .expect("missing gripper_se3_rig for EyeInHand");
+            let he_t = handeye.translation.vector.norm();
+            let he_gt_t = handeye_gt.translation.vector.norm();
+            println!(
+                "  |t|: {:.4}m (GT: {:.4}m, err: {:.2}%)",
+                he_t,
+                he_gt_t,
+                100.0 * (he_t - he_gt_t).abs() / he_gt_t
+            );
 
-    println!("Target pose:");
-    let target_t = export.target_se3_base.translation.vector.norm();
-    let target_gt_t = target_in_base_gt.translation.vector.norm();
-    println!(
-        "  |t|: {:.4}m (GT: {:.4}m, err: {:.2}%)",
-        target_t,
-        target_gt_t,
-        100.0 * (target_t - target_gt_t).abs() / target_gt_t
-    );
+            println!("Target pose:");
+            let base_se3_target = export
+                .base_se3_target
+                .expect("missing base_se3_target for EyeInHand");
+            let target_t = base_se3_target.translation.vector.norm();
+            let target_gt_t = target_in_base_gt.translation.vector.norm();
+            println!(
+                "  |t|: {:.4}m (GT: {:.4}m, err: {:.2}%)",
+                target_t,
+                target_gt_t,
+                100.0 * (target_t - target_gt_t).abs() / target_gt_t
+            );
+        }
+        HandEyeMode::EyeToHand => {
+            let handeye = export
+                .rig_se3_base
+                .expect("missing rig_se3_base for EyeToHand");
+            println!(
+                "  EyeToHand rig_se3_base |t|: {:.4}m",
+                handeye.translation.vector.norm()
+            );
+            let gripper_se3_target = export
+                .gripper_se3_target
+                .expect("missing gripper_se3_target for EyeToHand");
+            println!(
+                "  EyeToHand gripper_se3_target |t|: {:.4}m",
+                gripper_se3_target.translation.vector.norm()
+            );
+        }
+    }
 
     println!("Reprojection error:");
     println!("  Mean: {:.4} px", export.mean_reproj_error);

@@ -1,0 +1,196 @@
+name: Release Python Package to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  verify-version:
+    name: Verify tag/version sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify versions match tag (vX.Y.Z)
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          root = pathlib.Path('.')
+          tag = os.environ['GITHUB_REF_NAME']
+          tag_version = tag[1:] if tag.startswith('v') else tag
+
+          workspace = tomllib.loads((root / 'Cargo.toml').read_text())
+          workspace_version = workspace['workspace']['package']['version']
+
+          py_cargo_doc = tomllib.loads((root / 'crates/vision-calibration-py/Cargo.toml').read_text())
+          py_pkg = py_cargo_doc['package']
+
+          def resolve_cargo_version(pkg: dict, workspace_ver: str) -> str:
+              raw = pkg.get('version')
+              if isinstance(raw, str):
+                  return raw
+              # Handles `version.workspace = true` parsed as nested table.
+              if isinstance(raw, dict) and raw.get('workspace') is True:
+                  return workspace_ver
+              # Fallback for parsers that expose dotted key directly.
+              if pkg.get('version.workspace') is True:
+                  return workspace_ver
+              raise SystemExit('Cargo package has no resolvable version')
+
+          try:
+              py_cargo_version = resolve_cargo_version(py_pkg, workspace_version)
+          except SystemExit:
+              raise
+          except Exception as exc:
+              raise SystemExit(f'failed to resolve vision-calibration-py Cargo version: {exc}')
+
+          if not py_cargo_version:
+              py_cargo_version = workspace_version
+
+          py_project_version = tomllib.loads(
+              (root / 'crates/vision-calibration-py/pyproject.toml').read_text()
+          )['project']['version']
+
+          print(f'tag version:              {tag_version}')
+          print(f'workspace version:        {workspace_version}')
+          print(f'vision-calibration-py:    {py_cargo_version}')
+          print(f'python package version:   {py_project_version}')
+
+          versions = {tag_version, workspace_version, py_cargo_version, py_project_version}
+          if len(versions) != 1:
+              raise SystemExit('version mismatch between tag and project files')
+          PY
+
+      - name: Validate typed Python package files
+        run: |
+          test -f crates/vision-calibration-py/python/vision_calibration/__init__.py
+          test -f crates/vision-calibration-py/python/vision_calibration/__init__.pyi
+          test -f crates/vision-calibration-py/python/vision_calibration/py.typed
+          python -m compileall crates/vision-calibration-py/python/vision_calibration
+
+  build-wheels:
+    name: Build wheels (${{ matrix.os }}, py${{ matrix.python-version }})
+    needs: verify-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Validate Python package
+        run: python -m compileall crates/vision-calibration-py/python/vision_calibration
+
+      - name: Resolve manylinux Python interpreter
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          py_nodot="${{ matrix.python-version }}"
+          py_nodot="${py_nodot/./}"
+          manylinux_py="/opt/python/cp${py_nodot}-cp${py_nodot}/bin/python"
+          if [[ ! -x "$manylinux_py" ]]; then
+            echo "Python ${{ matrix.python-version }} is not available in the manylinux image: $manylinux_py" >&2
+            exit 1
+          fi
+          echo "MANYLINUX_PY=$manylinux_py" >> "$GITHUB_ENV"
+
+      - name: Build wheels (Linux manylinux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: >-
+            --release
+            -m crates/vision-calibration-py/Cargo.toml
+            --out dist
+            -i ${{ env.MANYLINUX_PY }}
+          manylinux: auto
+
+      - name: Build wheels (macOS/Windows)
+        if: matrix.os != 'ubuntu-latest'
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: >-
+            --release
+            -m crates/vision-calibration-py/Cargo.toml
+            --out dist
+            -i python
+          manylinux: auto
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: dist/*
+
+  build-sdist:
+    name: Build sdist
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: >-
+            -m crates/vision-calibration-py/Cargo.toml
+            --out dist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist/*
+
+  publish:
+    name: Publish to PyPI
+    needs: [build-wheels, build-sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

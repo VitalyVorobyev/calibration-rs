@@ -21,29 +21,64 @@ pub struct LaserlineDeviceProblem;
 pub type LaserlineDeviceInput = LaserlineDataset;
 
 /// Configuration for laserline device calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LaserlineDeviceConfig {
-    // ─────────────────────────────────────────────────────────────────────────
-    // Initialization options
-    // ─────────────────────────────────────────────────────────────────────────
+    /// Initialization options.
+    pub init: LaserlineDeviceInitConfig,
+    /// Shared solver options.
+    pub solver: LaserlineDeviceSolverConfig,
+    /// Bundle-adjustment options.
+    pub optimize: LaserlineDeviceOptimizeConfig,
+}
+
+/// Initialization options for laserline device calibration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaserlineDeviceInitConfig {
     /// Number of iterations for iterative intrinsics estimation.
-    pub init_iterations: usize,
+    pub iterations: usize,
     /// Fix k3 during initialization (recommended for typical lenses).
-    pub fix_k3_in_init: bool,
+    pub fix_k3: bool,
     /// Fix tangential distortion during initialization.
-    pub fix_tangential_in_init: bool,
+    pub fix_tangential: bool,
     /// Enforce zero skew during initialization.
     pub zero_skew: bool,
     /// Initial Scheimpflug sensor parameters (use zeros for pinhole/identity).
     pub sensor_init: ScheimpflugParams,
+}
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Optimization options
-    // ─────────────────────────────────────────────────────────────────────────
+impl Default for LaserlineDeviceInitConfig {
+    fn default() -> Self {
+        Self {
+            iterations: 2,
+            fix_k3: true,
+            fix_tangential: false,
+            zero_skew: true,
+            sensor_init: ScheimpflugParams::default(),
+        }
+    }
+}
+
+/// Shared solver options for laserline device calibration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaserlineDeviceSolverConfig {
     /// Maximum iterations for the optimizer.
     pub max_iters: usize,
     /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
     pub verbosity: usize,
+}
+
+impl Default for LaserlineDeviceSolverConfig {
+    fn default() -> Self {
+        Self {
+            max_iters: 50,
+            verbosity: 0,
+        }
+    }
+}
+
+/// Bundle-adjustment options for laserline device calibration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaserlineDeviceOptimizeConfig {
     /// Robust loss for calibration reprojection residuals.
     pub calib_loss: vision_calibration_optim::RobustLoss,
     /// Robust loss for laser residuals.
@@ -68,18 +103,9 @@ pub struct LaserlineDeviceConfig {
     pub laser_residual_type: LaserlineResidualType,
 }
 
-impl Default for LaserlineDeviceConfig {
+impl Default for LaserlineDeviceOptimizeConfig {
     fn default() -> Self {
         Self {
-            // Init
-            init_iterations: 2,
-            fix_k3_in_init: true,
-            fix_tangential_in_init: false,
-            zero_skew: true,
-            sensor_init: ScheimpflugParams::default(),
-            // Optimize
-            max_iters: 50,
-            verbosity: 0,
             calib_loss: vision_calibration_optim::RobustLoss::Huber { scale: 1.0 },
             laser_loss: vision_calibration_optim::RobustLoss::Huber { scale: 0.01 },
             calib_weight: 1.0,
@@ -99,38 +125,38 @@ impl LaserlineDeviceConfig {
     /// Convert to vision-calibration-linear initialization options.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
         IterativeIntrinsicsOptions {
-            iterations: self.init_iterations,
+            iterations: self.init.iterations,
             distortion_opts: DistortionFitOptions {
-                fix_k3: self.fix_k3_in_init,
-                fix_tangential: self.fix_tangential_in_init,
+                fix_k3: self.init.fix_k3,
+                fix_tangential: self.init.fix_tangential,
                 iters: 8,
             },
-            zero_skew: self.zero_skew,
+            zero_skew: self.init.zero_skew,
         }
     }
 
     /// Convert to vision-calibration-optim solve options.
     pub fn solve_opts(&self) -> LaserlineSolveOptions {
         LaserlineSolveOptions {
-            calib_loss: self.calib_loss,
-            calib_weight: self.calib_weight,
-            laser_loss: self.laser_loss,
-            laser_weight: self.laser_weight,
-            fix_intrinsics: self.fix_intrinsics,
-            fix_distortion: self.fix_distortion,
-            fix_k3: self.fix_k3,
-            fix_sensor: self.fix_sensor,
-            fix_poses: self.fix_poses.clone(),
-            fix_plane: self.fix_plane,
-            laser_residual_type: self.laser_residual_type,
+            calib_loss: self.optimize.calib_loss,
+            calib_weight: self.optimize.calib_weight,
+            laser_loss: self.optimize.laser_loss,
+            laser_weight: self.optimize.laser_weight,
+            fix_intrinsics: self.optimize.fix_intrinsics,
+            fix_distortion: self.optimize.fix_distortion,
+            fix_k3: self.optimize.fix_k3,
+            fix_sensor: self.optimize.fix_sensor,
+            fix_poses: self.optimize.fix_poses.clone(),
+            fix_plane: self.optimize.fix_plane,
+            laser_residual_type: self.optimize.laser_residual_type,
         }
     }
 
     /// Convert to backend solver options.
     pub fn backend_opts(&self) -> BackendSolveOptions {
         BackendSolveOptions {
-            max_iters: self.max_iters,
-            verbosity: self.verbosity,
+            max_iters: self.solver.max_iters,
+            verbosity: self.solver.verbosity,
             ..Default::default()
         }
     }
@@ -180,13 +206,19 @@ impl ProblemType for LaserlineDeviceProblem {
     }
 
     fn validate_config(config: &Self::Config) -> Result<()> {
-        ensure!(config.max_iters > 0, "max_iters must be positive");
+        ensure!(config.solver.max_iters > 0, "max_iters must be positive");
         ensure!(
-            config.init_iterations > 0,
+            config.init.iterations > 0,
             "init_iterations must be positive"
         );
-        ensure!(config.calib_weight > 0.0, "calib_weight must be positive");
-        ensure!(config.laser_weight > 0.0, "laser_weight must be positive");
+        ensure!(
+            config.optimize.calib_weight > 0.0,
+            "calib_weight must be positive"
+        );
+        ensure!(
+            config.optimize.laser_weight > 0.0,
+            "laser_weight must be positive"
+        );
         Ok(())
     }
 

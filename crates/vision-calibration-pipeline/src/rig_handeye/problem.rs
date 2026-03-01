@@ -9,6 +9,8 @@ use vision_calibration_core::{Iso3, PinholeCamera};
 use vision_calibration_optim::{
     HandEyeEstimate, HandEyeMode, RigDataset, RobotPoseMeta, RobustLoss,
 };
+#[cfg(test)]
+use vision_calibration_optim::{HandEyeParams, SolveReport};
 
 use crate::session::{InvalidationPolicy, ProblemType};
 
@@ -29,97 +31,121 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Configuration for multi-camera rig hand-eye calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RigHandeyeConfig {
-    // ─────────────────────────────────────────────────────────────────────────
-    // Per-camera intrinsics options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Number of iterations for iterative intrinsics estimation.
-    pub intrinsics_init_iterations: usize,
+    /// Per-camera intrinsics initialization options.
+    pub intrinsics: RigHandeyeIntrinsicsConfig,
+    /// Rig and gauge options.
+    pub rig: RigHandeyeRigConfig,
+    /// Hand-eye linear initialization options.
+    pub handeye_init: RigHandeyeInitConfig,
+    /// Shared solver settings for optimization stages.
+    pub solver: RigHandeyeSolverConfig,
+    /// Final hand-eye bundle-adjustment options.
+    pub handeye_ba: RigHandeyeBaConfig,
+}
 
+/// Per-camera intrinsics initialization options for rig hand-eye calibration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RigHandeyeIntrinsicsConfig {
+    /// Number of iterations for iterative intrinsics estimation.
+    pub init_iterations: usize,
     /// Fix k3 during intrinsics calibration.
     pub fix_k3: bool,
-
     /// Fix tangential distortion (p1, p2).
     pub fix_tangential: bool,
-
     /// Enforce zero skew.
     pub zero_skew: bool,
+}
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Rig options
-    // ─────────────────────────────────────────────────────────────────────────
+impl Default for RigHandeyeIntrinsicsConfig {
+    fn default() -> Self {
+        Self {
+            init_iterations: 2,
+            fix_k3: true,
+            fix_tangential: false,
+            zero_skew: true,
+        }
+    }
+}
+
+/// Rig-specific options for rig hand-eye calibration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RigHandeyeRigConfig {
     /// Reference camera index for rig frame (identity extrinsics).
     pub reference_camera_idx: usize,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Hand-eye options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Hand-eye mode: EyeInHand or EyeToHand.
-    pub handeye_mode: HandEyeMode,
-
-    /// Minimum motion angle (degrees) for linear hand-eye initialization.
-    pub min_motion_angle_deg: f64,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Optimization options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Maximum iterations for optimization.
-    pub max_iters: usize,
-
-    /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
-    pub verbosity: usize,
-
-    /// Robust loss function for outlier handling.
-    pub robust_loss: RobustLoss,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Rig BA options
-    // ─────────────────────────────────────────────────────────────────────────
     /// Re-refine intrinsics in rig BA (default: false).
     pub refine_intrinsics_in_rig_ba: bool,
-
     /// Fix first rig pose for gauge freedom (default: true, fixes view 0).
     pub fix_first_rig_pose: bool,
+}
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Hand-eye BA options
-    // ─────────────────────────────────────────────────────────────────────────
+impl Default for RigHandeyeRigConfig {
+    fn default() -> Self {
+        Self {
+            reference_camera_idx: 0,
+            refine_intrinsics_in_rig_ba: false,
+            fix_first_rig_pose: true,
+        }
+    }
+}
+
+/// Hand-eye linear initialization options for rig hand-eye calibration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RigHandeyeInitConfig {
+    /// Hand-eye mode: EyeInHand or EyeToHand.
+    pub handeye_mode: HandEyeMode,
+    /// Minimum motion angle (degrees) for linear hand-eye initialization.
+    pub min_motion_angle_deg: f64,
+}
+
+impl Default for RigHandeyeInitConfig {
+    fn default() -> Self {
+        Self {
+            handeye_mode: HandEyeMode::EyeInHand,
+            min_motion_angle_deg: 5.0,
+        }
+    }
+}
+
+/// Solver options shared across rig and hand-eye optimization stages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RigHandeyeSolverConfig {
+    /// Maximum iterations for optimization.
+    pub max_iters: usize,
+    /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
+    pub verbosity: usize,
+    /// Robust loss function for outlier handling.
+    pub robust_loss: RobustLoss,
+}
+
+impl Default for RigHandeyeSolverConfig {
+    fn default() -> Self {
+        Self {
+            max_iters: 50,
+            verbosity: 0,
+            robust_loss: RobustLoss::None,
+        }
+    }
+}
+
+/// Hand-eye bundle-adjustment options.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RigHandeyeBaConfig {
     /// Refine robot poses in hand-eye BA (default: true).
     pub refine_robot_poses: bool,
-
     /// Robot rotation sigma for prior (radians). Default: 0.5° ≈ 0.0087 rad.
     pub robot_rot_sigma: f64,
-
     /// Robot translation sigma for prior (meters). Default: 1mm = 0.001.
     pub robot_trans_sigma: f64,
-
     /// Refine cam_se3_rig in hand-eye BA (default: false).
     /// When true, rig extrinsics are further refined during hand-eye optimization.
     pub refine_cam_se3_rig_in_handeye_ba: bool,
 }
 
-impl Default for RigHandeyeConfig {
+impl Default for RigHandeyeBaConfig {
     fn default() -> Self {
         Self {
-            // Intrinsics
-            intrinsics_init_iterations: 2,
-            fix_k3: true,
-            fix_tangential: false,
-            zero_skew: true,
-            // Rig
-            reference_camera_idx: 0,
-            // Hand-eye
-            handeye_mode: HandEyeMode::EyeInHand,
-            min_motion_angle_deg: 5.0,
-            // Optimization
-            max_iters: 50,
-            verbosity: 0,
-            robust_loss: RobustLoss::None,
-            // Rig BA
-            refine_intrinsics_in_rig_ba: false,
-            fix_first_rig_pose: true,
-            // Hand-eye BA
             refine_robot_poses: true,
             robot_rot_sigma: 0.5_f64.to_radians(), // 0.5 degrees
             robot_trans_sigma: 0.001,              // 1 mm
@@ -142,13 +168,28 @@ pub struct RigHandeyeExport {
     /// Transform from rig frame to camera frame.
     pub cam_se3_rig: Vec<Iso3>,
 
-    /// Rig hand-eye transform.
-    /// For EyeInHand: `gripper_se3_rig` (T_G_R).
-    pub handeye: Iso3,
+    /// Hand-eye mode used to interpret mode-dependent transforms.
+    pub handeye_mode: HandEyeMode,
 
-    /// Target pose in base frame: `target_se3_base` (T_T_B).
-    /// Single static target.
-    pub target_se3_base: Iso3,
+    /// Eye-in-hand: gripper-to-rig transform `gripper_se3_rig` (T_G_R).
+    ///
+    /// `None` for EyeToHand mode.
+    pub gripper_se3_rig: Option<Iso3>,
+
+    /// Eye-to-hand: rig-to-base transform `rig_se3_base` (T_R_B).
+    ///
+    /// `None` for EyeInHand mode.
+    pub rig_se3_base: Option<Iso3>,
+
+    /// Eye-in-hand: base-to-target transform `base_se3_target` (T_B_T).
+    ///
+    /// `None` for EyeToHand mode.
+    pub base_se3_target: Option<Iso3>,
+
+    /// Eye-to-hand: gripper-to-target transform `gripper_se3_target` (T_G_T).
+    ///
+    /// `None` for EyeInHand mode.
+    pub gripper_se3_target: Option<Iso3>,
 
     /// Per-view robot pose corrections (if refinement enabled).
     /// Each element is [rx, ry, rz, tx, ty, tz] in se(3).
@@ -176,8 +217,8 @@ pub struct RigHandeyeExport {
 /// # Conventions
 ///
 /// - `cam_se3_rig` = T_C_R (transform from rig to camera frame)
-/// - `handeye` = T_G_R (gripper to rig, for EyeInHand mode)
-/// - `target_se3_base` = T_T_B (single static target in base frame)
+/// - EyeInHand export: `gripper_se3_rig` (T_G_R), `base_se3_target` (T_B_T)
+/// - EyeToHand export: `rig_se3_base` (T_R_B), `gripper_se3_target` (T_G_T)
 /// - Reference camera has identity extrinsics (defines rig frame)
 ///
 /// # Example
@@ -255,21 +296,21 @@ impl ProblemType for RigHandeyeProblem {
     }
 
     fn validate_config(config: &Self::Config) -> Result<()> {
-        ensure!(config.max_iters > 0, "max_iters must be positive");
+        ensure!(config.solver.max_iters > 0, "max_iters must be positive");
         ensure!(
-            config.intrinsics_init_iterations > 0,
+            config.intrinsics.init_iterations > 0,
             "intrinsics_init_iterations must be positive"
         );
         ensure!(
-            config.min_motion_angle_deg > 0.0,
+            config.handeye_init.min_motion_angle_deg > 0.0,
             "min_motion_angle_deg must be positive"
         );
         ensure!(
-            config.robot_rot_sigma > 0.0,
+            config.handeye_ba.robot_rot_sigma > 0.0,
             "robot_rot_sigma must be positive"
         );
         ensure!(
-            config.robot_trans_sigma > 0.0,
+            config.handeye_ba.robot_trans_sigma > 0.0,
             "robot_trans_sigma must be positive"
         );
         Ok(())
@@ -277,9 +318,9 @@ impl ProblemType for RigHandeyeProblem {
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<()> {
         ensure!(
-            config.reference_camera_idx < input.num_cameras,
+            config.rig.reference_camera_idx < input.num_cameras,
             "reference_camera_idx {} is out of range (num_cameras = {})",
-            config.reference_camera_idx,
+            config.rig.reference_camera_idx,
             input.num_cameras
         );
         Ok(())
@@ -293,7 +334,7 @@ impl ProblemType for RigHandeyeProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
+    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export> {
         let cam_se3_rig: Vec<Iso3> = output
             .params
             .cam_to_rig
@@ -301,16 +342,29 @@ impl ProblemType for RigHandeyeProblem {
             .map(|t| t.inverse())
             .collect();
 
+        let target_pose = output
+            .params
+            .target_poses
+            .first()
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("no target pose in output"))?;
+
+        let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) = match config
+            .handeye_init
+            .handeye_mode
+        {
+            HandEyeMode::EyeInHand => (Some(output.params.handeye), None, Some(target_pose), None),
+            HandEyeMode::EyeToHand => (None, Some(output.params.handeye), None, Some(target_pose)),
+        };
+
         Ok(RigHandeyeExport {
             cameras: output.params.cameras.clone(),
             cam_se3_rig,
-            handeye: output.params.handeye,
-            target_se3_base: output
-                .params
-                .target_poses
-                .first()
-                .copied()
-                .unwrap_or(Iso3::identity()),
+            handeye_mode: config.handeye_init.handeye_mode,
+            gripper_se3_rig,
+            rig_se3_base,
+            base_se3_target,
+            gripper_se3_target,
             robot_deltas: output.robot_deltas.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
@@ -394,7 +448,10 @@ mod tests {
     fn validate_input_config_checks_reference_camera() {
         let input = make_minimal_input();
         let config = RigHandeyeConfig {
-            reference_camera_idx: 5, // Out of range
+            rig: RigHandeyeRigConfig {
+                reference_camera_idx: 5, // Out of range
+                ..RigHandeyeRigConfig::default()
+            },
             ..RigHandeyeConfig::default()
         };
 
@@ -411,27 +468,103 @@ mod tests {
     #[test]
     fn config_json_roundtrip() {
         let config = RigHandeyeConfig {
-            max_iters: 100,
-            reference_camera_idx: 1,
-            refine_intrinsics_in_rig_ba: true,
-            handeye_mode: HandEyeMode::EyeToHand,
-            refine_robot_poses: false,
-            robust_loss: RobustLoss::Huber { scale: 2.5 },
+            solver: RigHandeyeSolverConfig {
+                max_iters: 100,
+                robust_loss: RobustLoss::Huber { scale: 2.5 },
+                ..RigHandeyeSolverConfig::default()
+            },
+            rig: RigHandeyeRigConfig {
+                reference_camera_idx: 1,
+                refine_intrinsics_in_rig_ba: true,
+                ..RigHandeyeRigConfig::default()
+            },
+            handeye_init: RigHandeyeInitConfig {
+                handeye_mode: HandEyeMode::EyeToHand,
+                ..RigHandeyeInitConfig::default()
+            },
+            handeye_ba: RigHandeyeBaConfig {
+                refine_robot_poses: false,
+                ..RigHandeyeBaConfig::default()
+            },
             ..Default::default()
         };
 
         let json = serde_json::to_string_pretty(&config).unwrap();
         let restored: RigHandeyeConfig = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(restored.max_iters, 100);
-        assert_eq!(restored.reference_camera_idx, 1);
-        assert!(restored.refine_intrinsics_in_rig_ba);
-        assert!(!restored.refine_robot_poses);
+        assert_eq!(restored.solver.max_iters, 100);
+        assert_eq!(restored.rig.reference_camera_idx, 1);
+        assert!(restored.rig.refine_intrinsics_in_rig_ba);
+        assert!(!restored.handeye_ba.refine_robot_poses);
     }
 
     #[test]
     fn problem_name_and_version() {
         assert_eq!(RigHandeyeProblem::name(), "rig_handeye_v2");
         assert_eq!(RigHandeyeProblem::schema_version(), 1);
+    }
+
+    fn make_dummy_output() -> HandEyeEstimate {
+        let camera = vision_calibration_core::make_pinhole_camera(
+            vision_calibration_core::FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 640.0,
+                cy: 360.0,
+                skew: 0.0,
+            },
+            vision_calibration_core::BrownConrady5::default(),
+        );
+
+        HandEyeEstimate {
+            params: HandEyeParams {
+                cameras: vec![camera],
+                cam_to_rig: vec![Iso3::identity()],
+                handeye: Iso3::identity(),
+                target_poses: vec![Iso3::identity()],
+            },
+            report: SolveReport { final_cost: 0.0 },
+            robot_deltas: None,
+            mean_reproj_error: 0.0,
+            per_cam_reproj_errors: vec![0.0],
+        }
+    }
+
+    #[test]
+    fn export_eye_in_hand_is_explicit() {
+        let output = make_dummy_output();
+        let config = RigHandeyeConfig {
+            handeye_init: RigHandeyeInitConfig {
+                handeye_mode: HandEyeMode::EyeInHand,
+                ..RigHandeyeInitConfig::default()
+            },
+            ..Default::default()
+        };
+        let export = RigHandeyeProblem::export(&output, &config).unwrap();
+
+        assert!(matches!(export.handeye_mode, HandEyeMode::EyeInHand));
+        assert!(export.gripper_se3_rig.is_some());
+        assert!(export.base_se3_target.is_some());
+        assert!(export.rig_se3_base.is_none());
+        assert!(export.gripper_se3_target.is_none());
+    }
+
+    #[test]
+    fn export_eye_to_hand_is_explicit() {
+        let output = make_dummy_output();
+        let config = RigHandeyeConfig {
+            handeye_init: RigHandeyeInitConfig {
+                handeye_mode: HandEyeMode::EyeToHand,
+                ..RigHandeyeInitConfig::default()
+            },
+            ..Default::default()
+        };
+        let export = RigHandeyeProblem::export(&output, &config).unwrap();
+
+        assert!(matches!(export.handeye_mode, HandEyeMode::EyeToHand));
+        assert!(export.rig_se3_base.is_some());
+        assert!(export.gripper_se3_target.is_some());
+        assert!(export.gripper_se3_rig.is_none());
+        assert!(export.base_se3_target.is_none());
     }
 }

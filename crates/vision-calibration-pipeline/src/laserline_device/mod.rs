@@ -9,8 +9,9 @@ mod steps;
 
 // Public API
 pub use problem::{
-    LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput, LaserlineDeviceOutput,
-    LaserlineDeviceProblem,
+    LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInitConfig, LaserlineDeviceInput,
+    LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput, LaserlineDeviceProblem,
+    LaserlineDeviceSolverConfig,
 };
 pub use state::LaserlineDeviceState;
 pub use steps::{InitOptions, OptimizeOptions, run_calibration, step_init, step_optimize};

@@ -205,8 +205,9 @@ pub mod single_cam_handeye {
 /// ```
 pub mod laserline_device {
     pub use vision_calibration_pipeline::laserline_device::{
-        InitOptions, LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput,
-        LaserlineDeviceOutput, LaserlineDeviceProblem, LaserlineDeviceState, OptimizeOptions,
+        InitOptions, LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInitConfig,
+        LaserlineDeviceInput, LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput,
+        LaserlineDeviceProblem, LaserlineDeviceSolverConfig, LaserlineDeviceState, OptimizeOptions,
         run_calibration, step_init, step_optimize,
     };
 }
@@ -292,10 +293,15 @@ pub mod rig_handeye {
         IntrinsicsInitOptions,
         IntrinsicsOptimOptions,
         // Problem type and config
+        RigHandeyeBaConfig,
         RigHandeyeConfig,
         RigHandeyeExport,
+        RigHandeyeInitConfig,
         RigHandeyeInput,
+        RigHandeyeIntrinsicsConfig,
         RigHandeyeProblem,
+        RigHandeyeRigConfig,
+        RigHandeyeSolverConfig,
         RigHandeyeState,
         RigOptimOptions,
         // Step functions
@@ -362,35 +368,6 @@ pub mod handeye {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Convenience Re-exports (Top-Level)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// Session framework
-pub use vision_calibration_pipeline::{CalibrationSession, ProblemType};
-
-// Problem types
-pub use vision_calibration_pipeline::{
-    LaserlineDeviceProblem, PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem,
-    SingleCamHandeyeProblem,
-};
-
-// Pipeline functions
-pub use vision_calibration_pipeline::{
-    run_laserline_device, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
-    run_single_cam_handeye,
-};
-
-// Core types
-pub use vision_calibration_core::{
-    BrownConrady5, Camera, CameraParams, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3,
-    NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2, Pt3, RigDataset, Vec2, Vec3, View,
-    make_pinhole_camera, pinhole_camera_params,
-};
-
-// Common options
-pub use vision_calibration_optim::{BackendSolveOptions, HandEyeMode, RobustLoss};
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // Prelude (Quick Start)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -401,27 +378,27 @@ pub use vision_calibration_optim::{BackendSolveOptions, HandEyeMode, RobustLoss}
 /// ```
 pub mod prelude {
     // Session framework
-    pub use crate::session::{CalibrationSession, ProblemType};
+    pub use vision_calibration_pipeline::{CalibrationSession, ProblemType};
 
     // Problem types
-    pub use crate::{
+    pub use vision_calibration_pipeline::{
         LaserlineDeviceProblem, PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem,
         SingleCamHandeyeProblem,
     };
 
     // Pipeline functions
-    pub use crate::{
+    pub use vision_calibration_pipeline::{
         run_laserline_device, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
         run_single_cam_handeye,
     };
 
     // Core types
-    pub use crate::{
+    pub use vision_calibration_core::{
         BrownConrady5, Camera, CameraParams, CorrespondenceView, FxFyCxCySkew, IdentitySensor,
         Iso3, NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2, Pt3, RigDataset, Vec2, Vec3,
         View,
     };
 
     // Common options
-    pub use crate::{BackendSolveOptions, HandEyeMode, RobustLoss};
+    pub use vision_calibration_optim::{BackendSolveOptions, HandEyeMode, RobustLoss};
 }
