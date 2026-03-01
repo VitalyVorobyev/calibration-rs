@@ -40,15 +40,22 @@ jobs:
     needs: prepare-release
     runs-on: ubuntu-latest
     environment: crates-io
-    env:
-      CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Authenticate with crates.io (trusted publishing)
+        id: crates_io_auth
+        uses: rust-lang/crates-io-auth-action@v1
+
       - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
         run: |
           set -euo pipefail
           crates=(
