@@ -13,7 +13,7 @@ env:
 
 jobs:
   prepare-release:
-    name: Prepare release assets
+    name: Release quality gates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,26 +34,6 @@ jobs:
 
       - name: Tests (release)
         run: cargo test --workspace --all-targets --all-features --release
-
-      - name: Package crates
-        run: |
-          for crate in vision-calibration vision-calibration-core vision-calibration-linear vision-calibration-optim vision-calibration-pipeline; do
-            cargo package -p "$crate" --locked
-          done
-          mkdir -p dist
-          cp target/package/*.crate dist/
-          (
-            cd dist
-            shasum -a 256 *.crate > SHA256SUMS.txt
-          )
-
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v1
-        with:
-          generate_release_notes: true
-          files: |
-            dist/*.crate
-            dist/SHA256SUMS.txt
 
   publish-crates:
     name: Publish crates.io
@@ -84,3 +64,8 @@ jobs:
             # Wait for index propagation before publishing dependents.
             sleep 20
           done
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
