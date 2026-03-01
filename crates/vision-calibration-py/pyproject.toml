@@ -27,6 +27,12 @@ classifiers = [
 Homepage = "https://vitalyvorobyev.github.io/calibration-rs"
 Repository = "https://github.com/VitalyVorobyev/calibration-rs"
 
+[project.optional-dependencies]
+examples = [
+  "calib-targets",
+  "Pillow",
+]
+
 [tool.maturin]
 bindings = "pyo3"
 manifest-path = "Cargo.toml"

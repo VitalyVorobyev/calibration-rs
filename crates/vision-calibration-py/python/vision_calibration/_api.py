@@ -1,27 +1,35 @@
-"""High-level typed Python wrappers around the Rust extension."""
+"""High-level Python wrappers around the Rust extension.
+
+The public API accepts Python dataclasses from :mod:`vision_calibration.models`
+and returns result dataclasses. Raw serde mappings are still accepted for
+advanced/interop use.
+"""
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, Mapping, cast
 
 from . import _vision_calibration as _native
+from .models import (
+    LaserlineDataset,
+    LaserlineDeviceCalibrationConfig,
+    LaserlineDeviceResult,
+    PlanarCalibrationConfig,
+    PlanarCalibrationResult,
+    PlanarDataset,
+    RigExtrinsicsCalibrationConfig,
+    RigExtrinsicsDataset,
+    RigExtrinsicsResult,
+    RigHandeyeCalibrationConfig,
+    RigHandeyeDataset,
+    RigHandeyeResult,
+    SingleCamHandeyeCalibrationConfig,
+    SingleCamHandeyeDataset,
+    SingleCamHandeyeResult,
+    normalize_input_payload,
+)
 from .types import (
-    LaserlineDeviceConfig,
-    LaserlineDeviceExport,
-    LaserlineDeviceInput,
-    PlanarConfig,
-    PlanarExport,
-    PlanarInput,
-    RigExtrinsicsConfig,
-    RigExtrinsicsExport,
-    RigExtrinsicsInput,
-    RigHandeyeConfig,
-    RigHandeyeExport,
-    RigHandeyeInput,
     RobustLoss,
-    SingleCamHandeyeConfig,
-    SingleCamHandeyeExport,
-    SingleCamHandeyeInput,
 )
 
 
@@ -69,78 +77,193 @@ def robust_arctan(scale: float) -> RobustLoss:
     return {"Arctan": {"scale": float(scale)}}
 
 
+def _normalize_planar_config(
+    config: PlanarCalibrationConfig | Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if config is None:
+        return None
+    if isinstance(config, PlanarCalibrationConfig):
+        return config.to_payload()
+    return PlanarCalibrationConfig.from_mapping(config).to_payload()
+
+
+def _normalize_single_handeye_config(
+    config: SingleCamHandeyeCalibrationConfig | Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if config is None:
+        return None
+    if isinstance(config, SingleCamHandeyeCalibrationConfig):
+        return config.to_payload()
+    return SingleCamHandeyeCalibrationConfig.from_mapping(config).to_payload()
+
+
+def _normalize_rig_extrinsics_config(
+    config: RigExtrinsicsCalibrationConfig | Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if config is None:
+        return None
+    if isinstance(config, RigExtrinsicsCalibrationConfig):
+        return config.to_payload()
+    return RigExtrinsicsCalibrationConfig.from_mapping(config).to_payload()
+
+
+def _normalize_rig_handeye_config(
+    config: RigHandeyeCalibrationConfig | Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if config is None:
+        return None
+    if isinstance(config, RigHandeyeCalibrationConfig):
+        return config.to_payload()
+    return RigHandeyeCalibrationConfig.from_mapping(config).to_payload()
+
+
+def _normalize_laserline_config(
+    config: LaserlineDeviceCalibrationConfig | Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if config is None:
+        return None
+    if isinstance(config, LaserlineDeviceCalibrationConfig):
+        return config.to_payload()
+    return LaserlineDeviceCalibrationConfig.from_mapping(config).to_payload()
+
+
 def run_planar_intrinsics(
-    input: PlanarInput,
-    config: PlanarConfig | None = None,
-) -> PlanarExport:
+    input: PlanarDataset | Mapping[str, Any],
+    config: PlanarCalibrationConfig | Mapping[str, Any] | None = None,
+) -> PlanarCalibrationResult:
     """Run planar intrinsics calibration.
 
     Parameters
     ----------
     input:
-        Serde-compatible payload for Rust `PlanarDataset`.
+        Planar dataset.
+        Preferred type: :class:`vision_calibration.models.PlanarDataset`.
+        Raw serde mapping is also accepted.
     config:
-        Optional serde-compatible payload for Rust `PlanarConfig`.
+        Calibration config.
+        Preferred type: :class:`vision_calibration.models.PlanarCalibrationConfig`.
+        If omitted, Rust defaults are used.
+        Raw serde mapping is also accepted.
 
     Returns
     -------
-    PlanarExport
-        Dictionary containing refined camera parameters and summary metrics.
+    PlanarCalibrationResult
+        Python result object with `camera`, `camera_se3_target`, cost, and
+        reprojection metrics.
     """
-    return cast(PlanarExport, _native.run_planar_intrinsics(input, config))
+    payload = normalize_input_payload(input)
+    cfg = _normalize_planar_config(config)
+    raw = cast(dict[str, Any], _native.run_planar_intrinsics(payload, cfg))
+    return PlanarCalibrationResult.from_payload(raw)
 
 
 def run_single_cam_handeye(
-    input: SingleCamHandeyeInput,
-    config: SingleCamHandeyeConfig | None = None,
-) -> SingleCamHandeyeExport:
+    input: SingleCamHandeyeDataset | Mapping[str, Any],
+    config: SingleCamHandeyeCalibrationConfig | Mapping[str, Any] | None = None,
+) -> SingleCamHandeyeResult:
     """Run single-camera hand-eye calibration.
+
+    Parameters
+    ----------
+    input:
+        Single-camera hand-eye dataset.
+        Preferred type: :class:`vision_calibration.models.SingleCamHandeyeDataset`.
+        Raw serde mapping is also accepted.
+    config:
+        Calibration config.
+        Preferred type: :class:`vision_calibration.models.SingleCamHandeyeCalibrationConfig`.
+        If omitted, Rust defaults are used.
 
     Returns
     -------
-    SingleCamHandeyeExport
+    SingleCamHandeyeResult
         Mode-explicit hand-eye transforms and reprojection statistics.
     """
-    return cast(SingleCamHandeyeExport, _native.run_single_cam_handeye(input, config))
+    payload = normalize_input_payload(input)
+    cfg = _normalize_single_handeye_config(config)
+    raw = cast(dict[str, Any], _native.run_single_cam_handeye(payload, cfg))
+    return SingleCamHandeyeResult.from_payload(raw)
 
 
 def run_rig_extrinsics(
-    input: RigExtrinsicsInput,
-    config: RigExtrinsicsConfig | None = None,
-) -> RigExtrinsicsExport:
+    input: RigExtrinsicsDataset | Mapping[str, Any],
+    config: RigExtrinsicsCalibrationConfig | Mapping[str, Any] | None = None,
+) -> RigExtrinsicsResult:
     """Run multi-camera rig extrinsics calibration.
+
+    Parameters
+    ----------
+    input:
+        Rig extrinsics dataset.
+        Preferred type: :class:`vision_calibration.models.RigExtrinsicsDataset`.
+        Raw serde mapping is also accepted.
+    config:
+        Calibration config.
+        Preferred type: :class:`vision_calibration.models.RigExtrinsicsCalibrationConfig`.
+        If omitted, Rust defaults are used.
 
     Returns
     -------
-    RigExtrinsicsExport
+    RigExtrinsicsResult
         Per-camera intrinsics/extrinsics and reprojection statistics.
     """
-    return cast(RigExtrinsicsExport, _native.run_rig_extrinsics(input, config))
+    payload = normalize_input_payload(input)
+    cfg = _normalize_rig_extrinsics_config(config)
+    raw = cast(dict[str, Any], _native.run_rig_extrinsics(payload, cfg))
+    return RigExtrinsicsResult.from_payload(raw)
 
 
 def run_rig_handeye(
-    input: RigHandeyeInput,
-    config: RigHandeyeConfig | None = None,
-) -> RigHandeyeExport:
+    input: RigHandeyeDataset | Mapping[str, Any],
+    config: RigHandeyeCalibrationConfig | Mapping[str, Any] | None = None,
+) -> RigHandeyeResult:
     """Run multi-camera rig hand-eye calibration.
+
+    Parameters
+    ----------
+    input:
+        Rig hand-eye dataset.
+        Preferred type: :class:`vision_calibration.models.RigHandeyeDataset`.
+        Raw serde mapping is also accepted.
+    config:
+        Calibration config.
+        Preferred type: :class:`vision_calibration.models.RigHandeyeCalibrationConfig`.
+        If omitted, Rust defaults are used.
 
     Returns
     -------
-    RigHandeyeExport
+    RigHandeyeResult
         Mode-explicit hand-eye transforms plus rig and reprojection outputs.
     """
-    return cast(RigHandeyeExport, _native.run_rig_handeye(input, config))
+    payload = normalize_input_payload(input)
+    cfg = _normalize_rig_handeye_config(config)
+    raw = cast(dict[str, Any], _native.run_rig_handeye(payload, cfg))
+    return RigHandeyeResult.from_payload(raw)
 
 
 def run_laserline_device(
-    input: LaserlineDeviceInput,
-    config: LaserlineDeviceConfig | None = None,
-) -> LaserlineDeviceExport:
+    input: LaserlineDataset | list[dict[str, Any]],
+    config: LaserlineDeviceCalibrationConfig | Mapping[str, Any] | None = None,
+) -> LaserlineDeviceResult:
     """Run single-camera laserline-device calibration.
+
+    Parameters
+    ----------
+    input:
+        Laserline dataset.
+        Preferred type: :class:`vision_calibration.models.LaserlineDataset`.
+        Raw serde list is also accepted.
+    config:
+        Calibration config.
+        Preferred type: :class:`vision_calibration.models.LaserlineDeviceCalibrationConfig`.
+        If omitted, Rust defaults are used.
 
     Returns
     -------
-    LaserlineDeviceExport
+    LaserlineDeviceResult
         Joint camera+laser estimate and residual statistics.
     """
-    return cast(LaserlineDeviceExport, _native.run_laserline_device(input, config))
+    payload = normalize_input_payload(input)
+    cfg = _normalize_laserline_config(config)
+    raw = cast(dict[str, Any], _native.run_laserline_device(payload, cfg))
+    return LaserlineDeviceResult.from_payload(raw)

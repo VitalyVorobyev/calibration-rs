@@ -1,30 +1,41 @@
+from typing import Any, Mapping
+
+from .models import (
+    LaserlineDataset,
+    LaserlineDeviceCalibrationConfig,
+    LaserlineDeviceInitConfig,
+    LaserlineDeviceOptimizeConfig,
+    LaserlineDeviceResult,
+    LaserlineDeviceSolverConfig,
+    LaserlineView,
+    Observation,
+    PlanarCalibrationConfig,
+    PlanarCalibrationResult,
+    PlanarDataset,
+    PlanarView,
+    Pose,
+    RigExtrinsicsCalibrationConfig,
+    RigExtrinsicsDataset,
+    RigExtrinsicsResult,
+    RigExtrinsicsView,
+    RigHandeyeBaConfig,
+    RigHandeyeCalibrationConfig,
+    RigHandeyeDataset,
+    RigHandeyeInitConfig,
+    RigHandeyeIntrinsicsConfig,
+    RigHandeyeResult,
+    RigHandeyeRigConfig,
+    RigHandeyeSolverConfig,
+    RigHandeyeView,
+    SingleCamHandeyeCalibrationConfig,
+    SingleCamHandeyeDataset,
+    SingleCamHandeyeResult,
+    SingleCamHandeyeView,
+)
 from .types import (
     HandEyeMode,
     LaserlineResidualType,
-    LaserlineDeviceConfig,
-    LaserlineDeviceInitConfig,
-    LaserlineDeviceOptimizeConfig,
-    LaserlineDeviceSolverConfig,
-    LaserlineDeviceExport,
-    LaserlineDeviceInput,
-    PlanarConfig,
-    PlanarExport,
-    PlanarInput,
-    RigExtrinsicsConfig,
-    RigExtrinsicsExport,
-    RigExtrinsicsInput,
-    RigHandeyeBaConfig,
-    RigHandeyeConfig,
-    RigHandeyeExport,
-    RigHandeyeInitConfig,
-    RigHandeyeInput,
-    RigHandeyeIntrinsicsConfig,
-    RigHandeyeRigConfig,
-    RigHandeyeSolverConfig,
     RobustLoss,
-    SingleCamHandeyeConfig,
-    SingleCamHandeyeExport,
-    SingleCamHandeyeInput,
 )
 
 __version__: str
@@ -37,33 +48,33 @@ def robust_arctan(scale: float) -> RobustLoss: ...
 
 
 def run_planar_intrinsics(
-    input: PlanarInput,
-    config: PlanarConfig | None = None,
-) -> PlanarExport: ...
+    input: PlanarDataset | Mapping[str, Any],
+    config: PlanarCalibrationConfig | Mapping[str, Any] | None = None,
+) -> PlanarCalibrationResult: ...
 
 
 def run_single_cam_handeye(
-    input: SingleCamHandeyeInput,
-    config: SingleCamHandeyeConfig | None = None,
-) -> SingleCamHandeyeExport: ...
+    input: SingleCamHandeyeDataset | Mapping[str, Any],
+    config: SingleCamHandeyeCalibrationConfig | Mapping[str, Any] | None = None,
+) -> SingleCamHandeyeResult: ...
 
 
 def run_rig_extrinsics(
-    input: RigExtrinsicsInput,
-    config: RigExtrinsicsConfig | None = None,
-) -> RigExtrinsicsExport: ...
+    input: RigExtrinsicsDataset | Mapping[str, Any],
+    config: RigExtrinsicsCalibrationConfig | Mapping[str, Any] | None = None,
+) -> RigExtrinsicsResult: ...
 
 
 def run_rig_handeye(
-    input: RigHandeyeInput,
-    config: RigHandeyeConfig | None = None,
-) -> RigHandeyeExport: ...
+    input: RigHandeyeDataset | Mapping[str, Any],
+    config: RigHandeyeCalibrationConfig | Mapping[str, Any] | None = None,
+) -> RigHandeyeResult: ...
 
 
 def run_laserline_device(
-    input: LaserlineDeviceInput,
-    config: LaserlineDeviceConfig | None = None,
-) -> LaserlineDeviceExport: ...
+    input: LaserlineDataset | list[dict[str, Any]],
+    config: LaserlineDeviceCalibrationConfig | Mapping[str, Any] | None = None,
+) -> LaserlineDeviceResult: ...
 
 
 __all__: list[str]

@@ -25,22 +25,55 @@ import vision_calibration as vc
 
 print(vc.__version__)
 
-# Typed config dictionaries are available via vision_calibration.types.
-cfg: vc.RigHandeyeConfig = {
-    "handeye_init": {
-        "handeye_mode": "EyeInHand",
-        "min_motion_angle_deg": 5.0,
-    },
-    "solver": {
-        "max_iters": 80,
-        "robust_loss": vc.robust_huber(1.0),
-    },
-}
+# Build Python-native dataset/config objects with docstrings:
+obs = vc.Observation(
+    points_3d=[(0.0, 0.0, 0.0), (0.1, 0.0, 0.0), (0.1, 0.1, 0.0), (0.0, 0.1, 0.0)],
+    points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
+)
+dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
+config = vc.PlanarCalibrationConfig(
+    max_iters=80,
+    robust_loss=vc.robust_huber(1.0),
+)
 
-# High-level workflow entry points:
-# - run_planar_intrinsics
-# - run_single_cam_handeye
-# - run_rig_extrinsics
-# - run_rig_handeye
-# - run_laserline_device
+result = vc.run_planar_intrinsics(dataset, config)
+print(result.mean_reproj_error)
 ```
+
+## Runnable Python examples
+
+Python workflow examples live in `crates/vision-calibration-py/examples/` and
+mirror the Rust examples from `crates/vision-calibration/examples/`.
+
+Install detector dependencies for real-image examples:
+
+```bash
+./.venv/bin/python -m pip install "vision-calibration[examples]"
+```
+
+Run all:
+
+```bash
+for f in crates/vision-calibration-py/examples/*.py; do ./.venv/bin/python "$f"; done
+```
+
+Run individual examples:
+
+```bash
+./.venv/bin/python crates/vision-calibration-py/examples/planar_synthetic.py
+./.venv/bin/python crates/vision-calibration-py/examples/planar_real.py
+./.venv/bin/python crates/vision-calibration-py/examples/stereo_session.py
+./.venv/bin/python crates/vision-calibration-py/examples/stereo_charuco_session.py
+./.venv/bin/python crates/vision-calibration-py/examples/handeye_synthetic.py
+./.venv/bin/python crates/vision-calibration-py/examples/handeye_session.py
+./.venv/bin/python crates/vision-calibration-py/examples/rig_handeye_synthetic.py
+./.venv/bin/python crates/vision-calibration-py/examples/laserline_device_session.py
+```
+
+Notes:
+
+- `planar_real.py`, `stereo_session.py`, `stereo_charuco_session.py`, and
+  `handeye_session.py` run detector-based corner extraction from real images
+  using `calib-targets`.
+- Low-level serde payload schemas remain available in
+  `vision_calibration.types` for advanced interop.

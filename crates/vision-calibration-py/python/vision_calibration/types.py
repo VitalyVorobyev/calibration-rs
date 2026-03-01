@@ -1,8 +1,7 @@
-"""Typed payload contracts for :mod:`vision_calibration`.
+"""Low-level serde payload contracts for :mod:`vision_calibration`.
 
-The Rust extension consumes and produces serde-compatible dictionaries.
-These types model public config and export payloads so IDEs and type checkers
-can reason about the API without requiring Rust internals.
+These aliases/TypedDicts model the raw Rust JSON payload schema. Most users
+should use dataclasses from :mod:`vision_calibration.models` instead.
 """
 
 from __future__ import annotations
