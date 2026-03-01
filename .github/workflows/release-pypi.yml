@@ -80,14 +80,13 @@ jobs:
           python -m compileall crates/vision-calibration-py/python/vision_calibration
 
   build-wheels:
-    name: Build wheels (${{ matrix.os }}, py${{ matrix.python-version }})
+    name: Build wheels (${{ matrix.os }})
     needs: verify-version
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v4
@@ -101,7 +100,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          # Wheels use abi3-py310, so one build per platform is sufficient.
+          python-version: "3.10"
 
       - name: Validate Python package
         run: python -m compileall crates/vision-calibration-py/python/vision_calibration
@@ -115,7 +115,7 @@ jobs:
             --release
             -m crates/vision-calibration-py/Cargo.toml
             --out dist
-            -i python${{ matrix.python-version }}
+            -i python3.10
           manylinux: auto
 
       - name: Build wheels (macOS/Windows)
@@ -133,7 +133,7 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.os }}-py${{ matrix.python-version }}
+          name: dist-${{ matrix.os }}
           path: dist/*
 
   build-sdist:
