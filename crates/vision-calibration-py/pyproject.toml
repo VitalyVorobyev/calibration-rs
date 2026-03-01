@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "vision-calibration"
-version = "0.1.2"
+version = "0.1.3"
 description = "Python bindings for calibration-rs end-to-end camera calibration"
 readme = "README.md"
 authors = [{ name = "Vitaly Vorobyev", email = "vit.vorobiev@gmail.com" }]
@@ -19,6 +19,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: Rust",
   "Topic :: Scientific/Engineering :: Image Recognition",
 ]

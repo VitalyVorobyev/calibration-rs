@@ -87,7 +87,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v4
@@ -111,16 +111,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          case "${{ matrix.python-version }}" in
-            "3.10") echo "MANYLINUX_PY=/opt/python/cp310-cp310/bin/python" >> "$GITHUB_ENV" ;;
-            "3.11") echo "MANYLINUX_PY=/opt/python/cp311-cp311/bin/python" >> "$GITHUB_ENV" ;;
-            "3.12") echo "MANYLINUX_PY=/opt/python/cp312-cp312/bin/python" >> "$GITHUB_ENV" ;;
-            "3.13") echo "MANYLINUX_PY=/opt/python/cp313-cp313/bin/python" >> "$GITHUB_ENV" ;;
-            *)
-              echo "Unsupported python-version: ${{ matrix.python-version }}" >&2
-              exit 1
-              ;;
-          esac
+          py_nodot="${{ matrix.python-version }}"
+          py_nodot="${py_nodot/./}"
+          manylinux_py="/opt/python/cp${py_nodot}-cp${py_nodot}/bin/python"
+          if [[ ! -x "$manylinux_py" ]]; then
+            echo "Python ${{ matrix.python-version }} is not available in the manylinux image: $manylinux_py" >&2
+            exit 1
+          fi
+          echo "MANYLINUX_PY=$manylinux_py" >> "$GITHUB_ENV"
 
       - name: Build wheels (Linux manylinux)
         if: matrix.os == 'ubuntu-latest'

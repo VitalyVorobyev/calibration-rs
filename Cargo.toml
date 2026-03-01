@@ -11,7 +11,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 license = "MIT"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
@@ -19,11 +19,11 @@ homepage = "https://vitalyvorobyev.github.io/calibration-rs"
 repository = "https://github.com/VitalyVorobyev/calibration-rs"
 
 [workspace.dependencies]
-vision-calibration = { path = "./crates/vision-calibration", version = "0.1.2" }
-vision-calibration-core = { path = "./crates/vision-calibration-core", version = "0.1.2" }
-vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.1.2" }
-vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.1.2" }
-vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.1.2" }
+vision-calibration = { path = "./crates/vision-calibration", version = "0.1.3" }
+vision-calibration-core = { path = "./crates/vision-calibration-core", version = "0.1.3" }
+vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.1.3" }
+vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.1.3" }
+vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.1.3" }
 
 anyhow = "1"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
