@@ -106,20 +106,6 @@ jobs:
       - name: Validate Python package
         run: python -m compileall crates/vision-calibration-py/python/vision_calibration
 
-      - name: Resolve manylinux Python interpreter
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -euo pipefail
-          py_nodot="${{ matrix.python-version }}"
-          py_nodot="${py_nodot/./}"
-          manylinux_py="/opt/python/cp${py_nodot}-cp${py_nodot}/bin/python"
-          if [[ ! -x "$manylinux_py" ]]; then
-            echo "Python ${{ matrix.python-version }} is not available in the manylinux image: $manylinux_py" >&2
-            exit 1
-          fi
-          echo "MANYLINUX_PY=$manylinux_py" >> "$GITHUB_ENV"
-
       - name: Build wheels (Linux manylinux)
         if: matrix.os == 'ubuntu-latest'
         uses: PyO3/maturin-action@v1
@@ -129,7 +115,7 @@ jobs:
             --release
             -m crates/vision-calibration-py/Cargo.toml
             --out dist
-            -i ${{ env.MANYLINUX_PY }}
+            -i python${{ matrix.python-version }}
           manylinux: auto
 
       - name: Build wheels (macOS/Windows)

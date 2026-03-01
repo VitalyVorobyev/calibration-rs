@@ -51,7 +51,7 @@
 //!
 //! # Session API
 //!
-//! All calibration workflows use the [`CalibrationSession`] state container.
+//! All calibration workflows use the [`session::CalibrationSession`] state container.
 //! Each problem type has its own set of step functions — see the table below
 //! and the per-module documentation for details.
 //!
