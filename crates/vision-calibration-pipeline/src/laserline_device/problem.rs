@@ -165,7 +165,9 @@ impl LaserlineDeviceConfig {
 /// Pipeline output including optimized parameters and summary statistics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserlineDeviceOutput {
+    /// Optimized camera/laser parameters and backend report.
     pub estimate: LaserlineEstimate,
+    /// Aggregated reprojection and laser residual statistics.
     pub stats: LaserlineStats,
 }
 

@@ -13,10 +13,15 @@ pub struct LaserlineDeviceState {
     pub initial_plane_rmse: Option<f64>,
 
     // Optimization metrics
+    /// Final objective value after non-linear optimization.
     pub final_cost: Option<f64>,
+    /// Mean reprojection error in pixels.
     pub mean_reproj_error: Option<f64>,
+    /// Mean laser residual (units depend on selected residual type).
     pub mean_laser_error: Option<f64>,
+    /// Per-view mean reprojection errors in pixels.
     pub per_view_reproj_errors: Option<Vec<f64>>,
+    /// Per-view mean laser residuals.
     pub per_view_laser_errors: Option<Vec<f64>>,
 }
 
