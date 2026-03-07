@@ -2,6 +2,7 @@
 //!
 //! This crate provides a unified API for camera calibration workflows:
 //! - Single-camera intrinsics calibration (Zhang's method with distortion)
+//! - Single-camera intrinsics calibration with Scheimpflug tilt
 //! - Single-camera hand-eye calibration (camera on robot arm)
 //! - Multi-camera rig extrinsics calibration
 //! - Multi-camera rig + hand-eye calibration
@@ -41,6 +42,7 @@
 //! - [`rig_extrinsics`] - Multi-camera rig extrinsics
 //! - [`rig_handeye`] - Multi-camera rig + hand-eye
 //! - [`laserline_device`] - Single camera + laser plane device
+//! - [`scheimpflug_intrinsics`] - Single-camera planar intrinsics with Scheimpflug tilt
 //!
 //! ## Foundation Crates (Advanced Users)
 //!
@@ -71,6 +73,21 @@
 //! | [`RigExtrinsicsProblem`](rig_extrinsics) | `RigExtrinsicsInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
 //! | [`RigHandeyeProblem`](rig_handeye) | `RigHandeyeInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` → `step_handeye_init` → `step_handeye_optimize` |
 //! | [`LaserlineDeviceProblem`](laserline_device) | `LaserlineDeviceInput` | `step_init` → `step_optimize` |
+//! | [`scheimpflug_intrinsics::run_calibration`](scheimpflug_intrinsics) | `PlanarDataset` | Direct function (`run_calibration`) |
+
+/// Single-camera planar intrinsics with Scheimpflug/tilted sensor refinement.
+///
+/// This high-level helper mirrors planar intrinsics calibration, but optimizes a
+/// Brown-Conrady camera together with two Scheimpflug tilt parameters.
+pub mod scheimpflug_intrinsics {
+    pub use vision_calibration_pipeline::scheimpflug_intrinsics::{
+        InitOptions, OptimizeOptions, ScheimpflugFixMask, ScheimpflugIntrinsicsCalibrationConfig,
+        ScheimpflugIntrinsicsInput, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem,
+        ScheimpflugIntrinsicsResult, ScheimpflugIntrinsicsState,
+        run_calibration as run_calibration_session, run_calibration_direct as run_calibration,
+        step_init, step_optimize,
+    };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Session Framework
@@ -389,7 +406,7 @@ pub mod prelude {
     // Pipeline functions
     pub use vision_calibration_pipeline::{
         run_laserline_device, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
-        run_single_cam_handeye,
+        run_scheimpflug_intrinsics, run_single_cam_handeye,
     };
 
     // Core types

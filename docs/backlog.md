@@ -39,12 +39,12 @@ ADR links: 0004
 
 ADR links: 0001, 0002, 0003
 
-- [ ] `M1-T01` Create `crates/vision-calibration-pipeline/src/scheimpflug_intrinsics/` directory with `mod.rs`, `problem.rs`, `state.rs`, `steps.rs`.
-- [ ] `M1-T02` Introduce `ScheimpflugIntrinsicsProblem` implementing `ProblemType` with explicit `name`, `schema_version`, input/config validation, export contract.
-- [ ] `M1-T03` Move current direct-function implementation into step functions (`step_init`, `step_optimize`, optional convenience `run_calibration`).
-- [ ] `M1-T04` Add `ScheimpflugIntrinsicsState` with initialization/optimization intermediate state and JSON roundtrip tests.
-- [ ] `M1-T05` Add problem-level tests for validation, config roundtrip, and export behavior.
-- [ ] `M1-T06` Keep a compatibility path in `vision-calibration::scheimpflug_intrinsics` so external callers are not broken during migration.
+- [x] `M1-T01` Create `crates/vision-calibration-pipeline/src/scheimpflug_intrinsics/` directory with `mod.rs`, `problem.rs`, `state.rs`, `steps.rs`. (Done: 2026-03-07, bundled with M1-T02..T06)
+- [x] `M1-T02` Introduce `ScheimpflugIntrinsicsProblem` implementing `ProblemType` with explicit `name`, `schema_version`, input/config validation, export contract. (Done: 2026-03-07)
+- [x] `M1-T03` Move current direct-function implementation into step functions (`step_init`, `step_optimize`, optional convenience `run_calibration`). (Done: 2026-03-07)
+- [x] `M1-T04` Add `ScheimpflugIntrinsicsState` with initialization/optimization intermediate state and JSON roundtrip tests. (Done: 2026-03-07)
+- [x] `M1-T05` Add problem-level tests for validation, config roundtrip, and export behavior. (Done: 2026-03-07)
+- [x] `M1-T06` Keep a compatibility path in `vision-calibration::scheimpflug_intrinsics` so external callers are not broken during migration. (Done: 2026-03-07)
 
 Acceptance criteria:
 

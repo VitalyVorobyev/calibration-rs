@@ -37,6 +37,7 @@ pub mod laserline_device;
 pub mod planar_intrinsics;
 pub mod rig_extrinsics;
 pub mod rig_handeye;
+pub mod scheimpflug_intrinsics;
 pub mod single_cam_handeye;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,6 +105,16 @@ pub use crate::laserline_device::{
     LaserlineDeviceInput, LaserlineDeviceOutput, LaserlineDeviceProblem, LaserlineDeviceState,
     OptimizeOptions as LaserlineOptimizeOptions, run_calibration as run_laserline_device,
     step_init as laserline_step_init, step_optimize as laserline_step_optimize,
+};
+
+// Scheimpflug intrinsics
+pub use crate::scheimpflug_intrinsics::{
+    InitOptions as ScheimpflugInitOptions, OptimizeOptions as ScheimpflugOptimizeOptions,
+    ScheimpflugFixMask, ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsInput,
+    ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult,
+    ScheimpflugIntrinsicsState, run_calibration as run_scheimpflug_intrinsics_session,
+    run_calibration_direct as run_scheimpflug_intrinsics, step_init as scheimpflug_step_init,
+    step_optimize as scheimpflug_step_optimize,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
