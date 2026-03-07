@@ -4,14 +4,15 @@
 //! enabling robust loss to operate per point rather than per view.
 
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
-use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
-use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
-use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
-use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
+use crate::ir::RobustLoss;
+use crate::params::distortion::unpack_distortion;
+use crate::params::intrinsics::unpack_intrinsics;
+use crate::params::pose_se3::se3_dvec_to_iso3;
+use crate::problems::planar_family_shared::{
+    PlanarReprojectionFactorModel, PlanarReprojectionIrOptions, build_planar_reprojection_ir,
+};
 use anyhow::{Result, anyhow, ensure};
-use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use vision_calibration_core::{
     BrownConrady5, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, PinholeCamera,
     PlanarDataset, Real, TargetPose, View, compute_mean_reproj_error, make_pinhole_camera,
@@ -109,81 +110,24 @@ fn build_planar_intrinsics_ir(
     dataset: &PlanarDataset,
     initial: &PlanarIntrinsicsParams,
     opts: &PlanarIntrinsicsSolveOptions,
-) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
-    ensure!(
-        dataset.num_views() == initial.camera_se3_target.len(),
-        "pose count ({}) must match number of views ({})",
-        initial.camera_se3_target.len(),
-        dataset.num_views()
-    );
-    for &idx in &opts.fix_poses {
-        ensure!(
-            idx < dataset.num_views(),
-            "fixed pose index {} out of range ({} views)",
-            idx,
-            dataset.num_views()
-        );
-    }
-
-    let mut ir = ProblemIR::new();
-    let mut initial_map: HashMap<String, DVector<f64>> = HashMap::new();
-
-    let cam_id = ir.add_param_block(
-        "cam",
-        INTRINSICS_DIM,
-        ManifoldKind::Euclidean,
-        FixedMask::fix_indices(&opts.fix_intrinsics.to_indices()),
-        None,
-    );
-    initial_map.insert("cam".to_string(), pack_intrinsics(&initial.camera.k)?);
-
-    // Add distortion parameter block
-    let dist_id = ir.add_param_block(
-        "dist",
-        DISTORTION_DIM,
-        ManifoldKind::Euclidean,
-        FixedMask::fix_indices(&opts.fix_distortion.to_indices()),
-        None,
-    );
-    initial_map.insert("dist".to_string(), pack_distortion(&initial.camera.dist));
-
-    for (view_idx, view) in dataset.views.iter().enumerate() {
-        let pose_key = format!("pose/{}", view_idx);
-        let fixed = if opts.fix_poses.contains(&view_idx) {
-            FixedMask::all_fixed(7)
-        } else {
-            FixedMask::all_free()
-        };
-        let pose_id = ir.add_param_block(&pose_key, 7, ManifoldKind::SE3, fixed, None);
-        initial_map.insert(
-            pose_key.clone(),
-            iso3_to_se3_dvec(&initial.camera_se3_target[view_idx]),
-        );
-
-        for (pt_idx, (pw, uv)) in view
-            .obs
-            .points_3d
-            .iter()
-            .zip(view.obs.points_2d.iter())
-            .enumerate()
-        {
-            let factor = FactorKind::ReprojPointPinhole4Dist5 {
-                pw: [pw.x, pw.y, pw.z],
-                uv: [uv.x, uv.y],
-                w: view.obs.weight(pt_idx),
-            };
-            let residual = ResidualBlock {
-                params: vec![cam_id, dist_id, pose_id],
-                loss: opts.robust_loss,
-                factor,
-                residual_dim: 2,
-            };
-            ir.add_residual_block(residual);
-        }
-    }
-
-    ir.validate()?;
-    Ok((ir, initial_map))
+) -> Result<(
+    crate::ir::ProblemIR,
+    std::collections::HashMap<String, nalgebra::DVector<f64>>,
+)> {
+    build_planar_reprojection_ir(
+        dataset,
+        &initial.camera.k,
+        &initial.camera.dist,
+        &initial.camera_se3_target,
+        &PlanarReprojectionIrOptions {
+            robust_loss: opts.robust_loss,
+            fix_intrinsics_indices: opts.fix_intrinsics.to_indices(),
+            fix_distortion_indices: opts.fix_distortion.to_indices(),
+            fix_pose_indices: opts.fix_poses.clone(),
+            sensor: None,
+            factor_model: PlanarReprojectionFactorModel::PinholeDistortion,
+        },
+    )
 }
 
 /// Optimize planar intrinsics using the default tiny-solver backend.
@@ -256,6 +200,8 @@ pub fn optimize_planar_intrinsics_with_backend(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock};
+    use crate::params::intrinsics::INTRINSICS_DIM;
 
     #[test]
     fn ir_validation_catches_missing_param() {

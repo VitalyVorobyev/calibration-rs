@@ -1,17 +1,16 @@
 //! Step functions for Scheimpflug intrinsics calibration.
 
-use std::collections::HashMap;
-
 use anyhow::{Context, Result, anyhow, ensure};
-use nalgebra::DVector;
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, Iso3,
-    Pinhole, PlanarDataset, ProjectionParams, ScheimpflugParams, SensorParams,
+    BrownConrady5, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams,
+    ProjectionParams, ScheimpflugParams, SensorParams,
 };
 use vision_calibration_linear::{DistortionFitOptions, IterativeIntrinsicsOptions};
 use vision_calibration_optim::{
-    BackendKind, BackendSolveOptions, FactorKind, FixedMask, ManifoldKind, ProblemIR,
-    ResidualBlock, iso3_to_se3_dvec, se3_dvec_to_iso3, solve_with_backend,
+    BackendSolveOptions, ScheimpflugFixMask as OptimScheimpflugFixMask,
+    ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,
+    ScheimpflugIntrinsicsSolveOptions as OptimScheimpflugIntrinsicsSolveOptions,
+    optimize_scheimpflug_intrinsics,
 };
 
 use crate::planar_family::bootstrap_planar_intrinsics;
@@ -117,20 +116,29 @@ pub fn step_optimize(
     }
     ensure!(max_iters > 0, "max_iters must be positive");
 
-    let (ir, initial_map) = build_problem_ir(
-        &dataset,
-        &initial_intrinsics,
-        &initial_distortion,
+    let initial = OptimScheimpflugIntrinsicsParams::new(
+        initial_intrinsics,
+        initial_distortion,
         initial_sensor,
-        &initial_poses,
-        &session.config,
+        initial_poses,
     )?;
+    let solve_opts = OptimScheimpflugIntrinsicsSolveOptions {
+        robust_loss: session.config.robust_loss,
+        fix_intrinsics: session.config.fix_intrinsics,
+        fix_distortion: session.config.fix_distortion,
+        fix_scheimpflug: to_optim_scheimpflug_fix_mask(session.config.fix_scheimpflug),
+        fix_poses: if session.config.fix_first_pose {
+            vec![0]
+        } else {
+            Vec::new()
+        },
+    };
 
-    let solution = solve_with_backend(
-        BackendKind::TinySolver,
-        &ir,
-        &initial_map,
-        &BackendSolveOptions {
+    let estimate = optimize_scheimpflug_intrinsics(
+        &dataset,
+        &initial,
+        solve_opts,
+        BackendSolveOptions {
             max_iters,
             verbosity,
             ..Default::default()
@@ -138,48 +146,17 @@ pub fn step_optimize(
     )
     .context("scheimpflug optimization failed")?;
 
-    let intrinsics = unpack_intrinsics(
-        solution
-            .params
-            .get("cam")
-            .ok_or_else(|| anyhow!("missing intrinsics solution block"))?,
-    )?;
-    let distortion = unpack_distortion(
-        solution
-            .params
-            .get("dist")
-            .ok_or_else(|| anyhow!("missing distortion solution block"))?,
-    )?;
-    let sensor = unpack_scheimpflug(
-        solution
-            .params
-            .get("sensor")
-            .ok_or_else(|| anyhow!("missing sensor solution block"))?,
-    )?;
-
-    let mut optimized_poses = Vec::with_capacity(dataset.num_views());
-    for view_idx in 0..dataset.num_views() {
-        let key = format!("pose/{view_idx}");
-        let pose = solution
-            .params
-            .get(&key)
-            .ok_or_else(|| anyhow!("missing {key} solution block"))?;
-        optimized_poses.push(se3_dvec_to_iso3(pose.as_view())?);
-    }
-
     let result = ScheimpflugIntrinsicsResult {
         params: ScheimpflugIntrinsicsParams {
-            camera: scheimpflug_camera_params(intrinsics, distortion, sensor),
-            camera_se3_target: optimized_poses.clone(),
+            camera: scheimpflug_camera_params(
+                estimate.params.intrinsics,
+                estimate.params.distortion,
+                estimate.params.sensor,
+            ),
+            camera_se3_target: estimate.params.camera_se3_target,
         },
-        report: solution.solve_report,
-        mean_reproj_error: compute_mean_reproj_error(
-            &dataset,
-            intrinsics,
-            distortion,
-            sensor,
-            &optimized_poses,
-        ),
+        report: estimate.report,
+        mean_reproj_error: estimate.mean_reproj_error,
     };
 
     session.state.final_cost = Some(result.report.final_cost);
@@ -210,168 +187,13 @@ pub fn run_calibration(
     Ok(())
 }
 
-fn build_problem_ir(
-    dataset: &PlanarDataset,
-    intrinsics: &FxFyCxCySkew<f64>,
-    distortion: &BrownConrady5<f64>,
-    sensor: ScheimpflugParams,
-    poses: &[Iso3],
-    config: &ScheimpflugIntrinsicsConfig,
-) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
-    ensure!(
-        dataset.num_views() == poses.len(),
-        "pose count ({}) must match dataset views ({})",
-        poses.len(),
-        dataset.num_views()
-    );
-
-    let mut ir = ProblemIR::new();
-    let mut initial_map = HashMap::new();
-
-    let cam_id = ir.add_param_block(
-        "cam",
-        4,
-        ManifoldKind::Euclidean,
-        fixed_mask_from_indices(4, &config.fix_intrinsics.to_indices()),
-        None,
-    );
-    initial_map.insert(
-        "cam".to_string(),
-        DVector::from_vec(vec![
-            intrinsics.fx,
-            intrinsics.fy,
-            intrinsics.cx,
-            intrinsics.cy,
-        ]),
-    );
-
-    let dist_id = ir.add_param_block(
-        "dist",
-        5,
-        ManifoldKind::Euclidean,
-        fixed_mask_from_indices(5, &config.fix_distortion.to_indices()),
-        None,
-    );
-    initial_map.insert(
-        "dist".to_string(),
-        DVector::from_vec(vec![
-            distortion.k1,
-            distortion.k2,
-            distortion.k3,
-            distortion.p1,
-            distortion.p2,
-        ]),
-    );
-
-    let sensor_id = ir.add_param_block(
-        "sensor",
-        2,
-        ManifoldKind::Euclidean,
-        fixed_mask_from_indices(2, &config.fix_scheimpflug.to_indices()),
-        None,
-    );
-    initial_map.insert(
-        "sensor".to_string(),
-        DVector::from_vec(vec![sensor.tilt_x, sensor.tilt_y]),
-    );
-
-    let mut pose_ids = Vec::with_capacity(poses.len());
-    for (view_idx, pose) in poses.iter().enumerate() {
-        let fixed = if config.fix_first_pose && view_idx == 0 {
-            FixedMask::all_fixed(7)
-        } else {
-            FixedMask::all_free()
-        };
-        let key = format!("pose/{view_idx}");
-        let pose_id = ir.add_param_block(&key, 7, ManifoldKind::SE3, fixed, None);
-        pose_ids.push(pose_id);
-        initial_map.insert(key, iso3_to_se3_dvec(pose));
+fn to_optim_scheimpflug_fix_mask(
+    mask: super::problem::ScheimpflugFixMask,
+) -> OptimScheimpflugFixMask {
+    OptimScheimpflugFixMask {
+        tilt_x: mask.tilt_x,
+        tilt_y: mask.tilt_y,
     }
-
-    for (view_idx, view) in dataset.views.iter().enumerate() {
-        let pose_id = pose_ids[view_idx];
-        for (point_idx, (pw, uv)) in view
-            .obs
-            .points_3d
-            .iter()
-            .zip(view.obs.points_2d.iter())
-            .enumerate()
-        {
-            ir.add_residual_block(ResidualBlock {
-                params: vec![cam_id, dist_id, sensor_id, pose_id],
-                loss: config.robust_loss,
-                factor: FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 {
-                    pw: [pw.x, pw.y, pw.z],
-                    uv: [uv.x, uv.y],
-                    w: view.obs.weight(point_idx),
-                },
-                residual_dim: 2,
-            });
-        }
-    }
-
-    ir.validate()
-        .context("scheimpflug problem IR validation failed")?;
-    Ok((ir, initial_map))
-}
-
-fn unpack_intrinsics(values: &DVector<f64>) -> Result<FxFyCxCySkew<f64>> {
-    ensure!(values.len() == 4, "intrinsics block must have 4 entries");
-    Ok(FxFyCxCySkew {
-        fx: values[0],
-        fy: values[1],
-        cx: values[2],
-        cy: values[3],
-        skew: 0.0,
-    })
-}
-
-fn unpack_distortion(values: &DVector<f64>) -> Result<BrownConrady5<f64>> {
-    ensure!(values.len() == 5, "distortion block must have 5 entries");
-    Ok(BrownConrady5 {
-        k1: values[0],
-        k2: values[1],
-        k3: values[2],
-        p1: values[3],
-        p2: values[4],
-        iters: 8,
-    })
-}
-
-fn unpack_scheimpflug(values: &DVector<f64>) -> Result<ScheimpflugParams> {
-    ensure!(values.len() == 2, "scheimpflug block must have 2 entries");
-    Ok(ScheimpflugParams {
-        tilt_x: values[0],
-        tilt_y: values[1],
-    })
-}
-
-fn compute_mean_reproj_error(
-    dataset: &PlanarDataset,
-    intrinsics: FxFyCxCySkew<f64>,
-    distortion: BrownConrady5<f64>,
-    sensor: ScheimpflugParams,
-    poses: &[Iso3],
-) -> f64 {
-    let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
-    let mut sum = 0.0;
-    let mut count = 0usize;
-
-    for (view, pose) in dataset.views.iter().zip(poses.iter()) {
-        for (p3d, p2d) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
-            let p_cam = pose.transform_point(p3d);
-            let Some(projected) = camera.project_point(&p_cam) else {
-                continue;
-            };
-            let err = (projected - *p2d).norm();
-            if err.is_finite() {
-                sum += err;
-                count += 1;
-            }
-        }
-    }
-
-    if count == 0 { 0.0 } else { sum / count as f64 }
 }
 
 fn scheimpflug_camera_params(
@@ -384,15 +206,5 @@ fn scheimpflug_camera_params(
         distortion: DistortionParams::BrownConrady5 { params: distortion },
         sensor: SensorParams::Scheimpflug { params: sensor },
         intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
-    }
-}
-
-fn fixed_mask_from_indices(dim: usize, indices: &[usize]) -> FixedMask {
-    if indices.is_empty() {
-        FixedMask::all_free()
-    } else if indices.len() == dim {
-        FixedMask::all_fixed(dim)
-    } else {
-        FixedMask::fix_indices(indices)
     }
 }
