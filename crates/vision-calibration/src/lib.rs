@@ -338,9 +338,15 @@ pub mod rig_handeye {
 
 /// Core math types, camera models, and RANSAC primitives.
 ///
-/// Re-exports everything from `vision_calibration_core`.
+/// Re-exports selected foundational types from `vision_calibration_core`.
 pub mod core {
-    pub use vision_calibration_core::*;
+    pub use vision_calibration_core::{
+        BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionFixMask,
+        DistortionParams, FxFyCxCySkew, IdentitySensor, IntrinsicsFixMask, IntrinsicsParams, Iso3,
+        NoMeta, Pinhole, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3, Real,
+        ReprojectionStats, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorModel,
+        SensorParams, Vec2, Vec3, View, make_pinhole_camera, pinhole_camera_params,
+    };
 }
 
 /// Closed-form initialization algorithms.
@@ -367,21 +373,6 @@ pub mod optim {
 /// Provides builders for creating synthetic calibration datasets.
 pub mod synthetic {
     pub use vision_calibration_core::synthetic::*;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Hand-Eye Calibration Types (Direct Access)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Hand-eye calibration types re-exported from vision-calibration-optim.
-///
-/// Use this module for direct access to hand-eye optimization without
-/// the session framework.
-pub mod handeye {
-    pub use vision_calibration_optim::{
-        HandEyeDataset, HandEyeEstimate, HandEyeParams, HandEyeSolveOptions, RigViewObs,
-        RobotPoseMeta, View, optimize_handeye,
-    };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

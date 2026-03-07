@@ -18,7 +18,7 @@ use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Pt3, RigDataset, RigView, RigViewObs,
     make_pinhole_camera,
 };
-use vision_calibration::handeye::RobotPoseMeta;
+use vision_calibration::optim::RobotPoseMeta;
 use vision_calibration::prelude::*;
 use vision_calibration::rig_handeye::{
     RigHandeyeInput, RigHandeyeProblem, step_handeye_init, step_handeye_optimize,
