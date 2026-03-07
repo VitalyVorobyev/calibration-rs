@@ -104,7 +104,17 @@ pub struct ScheimpflugIntrinsicsResult {
 }
 
 /// Export format for Scheimpflug intrinsics calibration.
-pub type ScheimpflugIntrinsicsExport = ScheimpflugIntrinsicsResult;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheimpflugIntrinsicsExport {
+    /// Estimated parameters.
+    pub params: ScheimpflugIntrinsicsParams,
+    /// Backend solve report.
+    pub report: SolveReport,
+    /// Mean per-point reprojection error in pixels.
+    pub mean_reproj_error: f64,
+    /// Per-camera reprojection errors (single element for single-camera workflows).
+    pub per_cam_reproj_errors: Vec<f64>,
+}
 
 impl ProblemType for ScheimpflugIntrinsicsProblem {
     type Config = ScheimpflugIntrinsicsConfig;
@@ -158,7 +168,12 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
     }
 
     fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
-        Ok(output.clone())
+        Ok(ScheimpflugIntrinsicsExport {
+            params: output.params.clone(),
+            report: output.report.clone(),
+            mean_reproj_error: output.mean_reproj_error,
+            per_cam_reproj_errors: vec![output.mean_reproj_error],
+        })
     }
 }
 
@@ -310,6 +325,10 @@ mod tests {
             .expect("export should succeed");
 
         assert_eq!(exported.mean_reproj_error, output.mean_reproj_error);
+        assert_eq!(
+            exported.per_cam_reproj_errors,
+            vec![output.mean_reproj_error]
+        );
         assert_eq!(exported.params.camera_se3_target.len(), 1);
     }
 }

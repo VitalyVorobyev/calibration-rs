@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::{DistortionFixMask, IntrinsicsFixMask, PlanarDataset};
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    BackendSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsSolveOptions,
+    BackendSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
+    PlanarIntrinsicsSolveOptions, SolveReport,
 };
 
 use crate::session::{InvalidationPolicy, ProblemType};
@@ -26,7 +27,7 @@ use super::state::PlanarState;
 /// - **Input**: [`PlanarDataset`] - views with 2D-3D point correspondences
 /// - **State**: [`PlanarState`] - homographies, initial estimates, metrics
 /// - **Output**: [`PlanarIntrinsicsEstimate`] - final calibrated camera + poses
-/// - **Export**: [`PlanarIntrinsicsEstimate`] - same as output
+/// - **Export**: [`PlanarIntrinsicsExport`] - stable export contract
 ///
 /// # Example
 ///
@@ -147,18 +148,25 @@ impl PlanarIntrinsicsConfig {
     }
 }
 
-/// Export format for planar intrinsics.
-///
-/// Currently identical to `PlanarIntrinsicsEstimate`, but kept as a separate
-/// type alias for flexibility in future changes.
-pub type PlanarExport = PlanarIntrinsicsEstimate;
+/// Export format for planar intrinsics calibration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanarIntrinsicsExport {
+    /// Calibrated parameters.
+    pub params: PlanarIntrinsicsParams,
+    /// Solver report.
+    pub report: SolveReport,
+    /// Mean reprojection error (pixels).
+    pub mean_reproj_error: f64,
+    /// Per-camera reprojection errors (single element for single-camera workflows).
+    pub per_cam_reproj_errors: Vec<f64>,
+}
 
 impl ProblemType for PlanarIntrinsicsProblem {
     type Config = PlanarIntrinsicsConfig;
     type Input = PlanarDataset;
     type State = PlanarState;
     type Output = PlanarIntrinsicsEstimate;
-    type Export = PlanarExport;
+    type Export = PlanarIntrinsicsExport;
 
     fn name() -> &'static str {
         "planar_intrinsics_v2"
@@ -207,7 +215,12 @@ impl ProblemType for PlanarIntrinsicsProblem {
     }
 
     fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
-        Ok(output.clone())
+        Ok(PlanarIntrinsicsExport {
+            params: output.params.clone(),
+            report: output.report.clone(),
+            mean_reproj_error: output.mean_reproj_error,
+            per_cam_reproj_errors: vec![output.mean_reproj_error],
+        })
     }
 }
 
@@ -215,6 +228,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
 mod tests {
     use super::*;
     use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
+    use vision_calibration_optim::RobustLoss;
 
     fn make_minimal_dataset() -> PlanarDataset {
         // Create 3 views with 4 points each (minimum requirements)
@@ -360,5 +374,41 @@ mod tests {
         let opts = config.backend_opts();
         assert_eq!(opts.max_iters, 100);
         assert_eq!(opts.verbosity, 2);
+    }
+
+    #[test]
+    fn export_includes_per_camera_reprojection_errors() {
+        let camera = vision_calibration_core::make_pinhole_camera(
+            vision_calibration_core::FxFyCxCySkew {
+                fx: 800.0,
+                fy: 790.0,
+                cx: 640.0,
+                cy: 360.0,
+                skew: 0.0,
+            },
+            vision_calibration_core::BrownConrady5::default(),
+        );
+        let params =
+            PlanarIntrinsicsParams::new(camera, vec![vision_calibration_core::Iso3::identity()])
+                .expect("valid params");
+        let output = PlanarIntrinsicsEstimate {
+            params,
+            report: SolveReport {
+                final_cost: 1.23e-3,
+            },
+            mean_reproj_error: 0.42,
+        };
+
+        let export = PlanarIntrinsicsProblem::export(
+            &output,
+            &PlanarIntrinsicsConfig {
+                robust_loss: RobustLoss::None,
+                ..Default::default()
+            },
+        )
+        .expect("export");
+
+        assert_eq!(export.mean_reproj_error, 0.42);
+        assert_eq!(export.per_cam_reproj_errors, vec![0.42]);
     }
 }

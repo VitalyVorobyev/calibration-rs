@@ -57,7 +57,7 @@ ADR links: 0003, 0006, 0007, 0010
 - [x] `M5-T02` Clean up facade `vision-calibration/src/lib.rs`: remove `core` glob re-export (`pub use vision_calibration_core::*`), replace with explicit type list. Remove `handeye` escape-hatch module. (Done: 2026-03-07)
 - [x] `M5-T03` Standardize step option naming via ADR 0010: use `<Stage><Action>Options` with explicit stage in every module and full action words (`Optimize`, not `Optim`), with hard renames (no compatibility aliases). (Done: 2026-03-07)
 - [x] `M5-T04` Standardize config type naming to `<ProblemName>Config` for top-level problem configs: `PlanarConfig` -> `PlanarIntrinsicsConfig`, `ScheimpflugIntrinsicsCalibrationConfig` -> `ScheimpflugIntrinsicsConfig`. Nested config audit result: keep existing stage-grouped nested configs where already present (for example `LaserlineDevice*Config`, `RigHandeye*Config`) and keep flat configs where they remain clear. (Done: 2026-03-07)
-- [ ] `M5-T05` Standardize export types: ensure all problem types have distinct `<ProblemName>Export` types with consistent `mean_reproj_error` and `per_cam_reproj_errors` fields.
+- [x] `M5-T05` Standardize export types: all problem modules now expose distinct `<ProblemName>Export` structs and include consistent top-level `mean_reproj_error` + `per_cam_reproj_errors` fields (single-camera problems expose one-element `per_cam_reproj_errors`). (Done: 2026-03-07)
 - [x] `M5-T06` Remove `run_calibration_direct` from Scheimpflug. All problem types should only have session-based API. (Done: 2026-03-07)
 - [ ] `M5-T07` Audit and trim `prelude` — it should contain only the types needed for the "hello world" calibration, not all problem types.
 

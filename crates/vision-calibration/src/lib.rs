@@ -82,9 +82,9 @@
 pub mod scheimpflug_intrinsics {
     pub use vision_calibration_pipeline::scheimpflug_intrinsics::{
         IntrinsicsInitOptions, IntrinsicsOptimizeOptions, ScheimpflugFixMask,
-        ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsInput, ScheimpflugIntrinsicsParams,
-        ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult, ScheimpflugIntrinsicsState,
-        run_calibration, step_init, step_optimize,
+        ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsExport, ScheimpflugIntrinsicsInput,
+        ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult,
+        ScheimpflugIntrinsicsState, run_calibration, step_init, step_optimize,
     };
 }
 
@@ -133,11 +133,11 @@ pub mod planar_intrinsics {
         FilterOptions,
         IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions,
-        PlanarExport,
         // Problem type and config
         PlanarIntrinsicsConfig,
         // Re-exports from vision-calibration-optim
         PlanarIntrinsicsEstimate,
+        PlanarIntrinsicsExport,
         PlanarIntrinsicsParams,
         PlanarIntrinsicsProblem,
         PlanarIntrinsicsSolveOptions,

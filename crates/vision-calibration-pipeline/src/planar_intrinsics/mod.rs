@@ -38,7 +38,7 @@ mod steps;
 // ─────────────────────────────────────────────────────────────────────────────
 // API
 // ─────────────────────────────────────────────────────────────────────────────
-pub use problem::{PlanarExport, PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
+pub use problem::{PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem};
 pub use state::PlanarState;
 pub use steps::{
     FilterOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions, run_calibration,

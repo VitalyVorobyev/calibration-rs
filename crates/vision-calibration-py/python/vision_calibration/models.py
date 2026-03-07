@@ -822,6 +822,7 @@ class PlanarCalibrationResult:
     camera_se3_target: list[Pose]
     final_cost: float
     mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
     raw: dict[str, Any]
 
     @classmethod
@@ -834,6 +835,7 @@ class PlanarCalibrationResult:
             camera_se3_target=poses,
             final_cost=float(report["final_cost"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
+            per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
             raw=dict(payload),
         )
 
@@ -941,12 +943,9 @@ class LaserlineDeviceResult:
 
     estimate: dict[str, Any]
     stats: dict[str, Any]
+    mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
     raw: dict[str, Any]
-
-    @property
-    def mean_reproj_error(self) -> float:
-        """Mean calibration reprojection error in pixels."""
-        return float(self.stats["mean_reproj_error"])
 
     @property
     def mean_laser_error(self) -> float:
@@ -958,6 +957,8 @@ class LaserlineDeviceResult:
         return cls(
             estimate=cast(dict[str, Any], payload["estimate"]),
             stats=cast(dict[str, Any], payload["stats"]),
+            mean_reproj_error=float(payload["mean_reproj_error"]),
+            per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
             raw=dict(payload),
         )
 
@@ -970,6 +971,7 @@ class ScheimpflugIntrinsicsResult:
     camera_se3_target: list[Pose]
     final_cost: float
     mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
     raw: dict[str, Any]
 
     @classmethod
@@ -984,6 +986,7 @@ class ScheimpflugIntrinsicsResult:
             ],
             final_cost=float(report["final_cost"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
+            per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
             raw=dict(payload),
         )
 

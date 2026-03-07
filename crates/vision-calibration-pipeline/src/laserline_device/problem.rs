@@ -170,7 +170,17 @@ pub struct LaserlineDeviceOutput {
 }
 
 /// Export type for laserline device calibration.
-pub type LaserlineDeviceExport = LaserlineDeviceOutput;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaserlineDeviceExport {
+    /// Pipeline output including optimized parameters and summary statistics.
+    pub estimate: LaserlineEstimate,
+    /// Laserline statistics payload.
+    pub stats: LaserlineStats,
+    /// Mean reprojection error (pixels).
+    pub mean_reproj_error: f64,
+    /// Per-camera reprojection errors (single element for single-camera workflows).
+    pub per_cam_reproj_errors: Vec<f64>,
+}
 
 impl ProblemType for LaserlineDeviceProblem {
     type Config = LaserlineDeviceConfig;
@@ -227,6 +237,11 @@ impl ProblemType for LaserlineDeviceProblem {
     }
 
     fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
-        Ok(output.clone())
+        Ok(LaserlineDeviceExport {
+            estimate: output.estimate.clone(),
+            stats: output.stats.clone(),
+            mean_reproj_error: output.stats.mean_reproj_error,
+            per_cam_reproj_errors: vec![output.stats.mean_reproj_error],
+        })
     }
 }

@@ -72,10 +72,11 @@ class PlanarIntrinsicsParams(TypedDict):
     camera_se3_target: list[Transform]
 
 
-class PlanarExport(TypedDict):
+class PlanarIntrinsicsExport(TypedDict):
     params: PlanarIntrinsicsParams
     report: SolveReport
     mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
 
 
 class SingleCamHandeyeExport(TypedDict):
@@ -133,6 +134,8 @@ class LaserlineStats(TypedDict):
 class LaserlineDeviceExport(TypedDict):
     estimate: LaserlineEstimate
     stats: LaserlineStats
+    mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
 
 
 class ScheimpflugIntrinsicsParams(TypedDict):
@@ -144,6 +147,7 @@ class ScheimpflugIntrinsicsExport(TypedDict):
     params: ScheimpflugIntrinsicsParams
     report: SolveReport
     mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
 
 
 class PlanarIntrinsicsConfig(TypedDict, total=False):
