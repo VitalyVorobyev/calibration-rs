@@ -98,11 +98,11 @@ Acceptance criteria:
 
 ## Standard Gate Checklist (Per Milestone Completion)
 
-- [ ] `cargo fmt --all`
-- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- [ ] `cargo test --workspace --all-features`
-- [ ] `cargo test -p vision-calibration-core`
-- [ ] `cargo test -p vision-calibration`
-- [ ] `cargo test -p vision-calibration-py`
-- [ ] `python3 -m compileall crates/vision-calibration-py/python/vision_calibration`
-- [ ] Python runtime tests after extension build (`maturin develop` + unittest/pytest suite)
+- [x] `cargo fmt --all` (2026-03-07)
+- [x] `cargo clippy --workspace --all-targets --all-features -- -D warnings` (2026-03-07)
+- [x] `cargo test --workspace --all-features` (2026-03-07)
+- [x] `cargo test -p vision-calibration-core` (2026-03-07)
+- [x] `cargo test -p vision-calibration` (2026-03-07)
+- [x] `cargo test -p vision-calibration-py` (2026-03-07)
+- [x] `python3 -m compileall crates/vision-calibration-py/python/vision_calibration` (2026-03-07)
+- [x] Python runtime tests after extension build (`maturin develop` + unittest/pytest suite) (2026-03-07)
