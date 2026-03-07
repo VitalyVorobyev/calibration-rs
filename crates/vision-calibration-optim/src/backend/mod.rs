@@ -54,8 +54,10 @@ pub enum LinearSolverKind {
     SparseQR,
 }
 
+/// Summary of backend solve outcome.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SolveReport {
+    /// Final objective value reported by backend.
     pub final_cost: f64,
     // strongly consider adding:
     // pub num_iters: usize,

@@ -34,6 +34,7 @@ use vision_calibration_core::{
     CameraFixMask, Iso3, PinholeCamera, Real, RigDataset, RigView, make_pinhole_camera,
 };
 
+/// Per-view robot metadata required by hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RobotPoseMeta {
     /// Gripper pose expressed in the robot base frame (T_B_G).
@@ -41,9 +42,12 @@ pub struct RobotPoseMeta {
     pub base_se3_gripper: Iso3,
 }
 
+/// Dataset wrapper for hand-eye optimization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeDataset {
+    /// Multi-camera observations with robot metadata.
     pub data: RigDataset<RobotPoseMeta>,
+    /// Hand-eye mode controlling transform chain.
     pub mode: HandEyeMode,
 }
 
@@ -85,6 +89,7 @@ impl HandEyeDataset {
 /// - `target_poses`: fixed target pose(s) depending on the selected mode
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeParams {
+    /// Per-camera intrinsics and distortion.
     pub cameras: Vec<PinholeCamera>,
     /// Per-camera extrinsics (camera-to-rig transforms).
     pub cam_to_rig: Vec<Iso3>,
@@ -105,6 +110,7 @@ pub struct HandEyeParams {
 /// Solve options for hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeSolveOptions {
+    /// Robust loss applied to reprojection residuals.
     pub robust_loss: RobustLoss,
 
     /// Default mask for fixing camera parameters (applied to all cameras).
@@ -149,7 +155,9 @@ impl Default for HandEyeSolveOptions {
 /// Result of hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandEyeEstimate {
+    /// Refined hand-eye parameters.
     pub params: HandEyeParams,
+    /// Backend solve report.
     pub report: SolveReport,
     /// Optional per-view robot pose deltas (se(3) tangent, `[rx, ry, rz, tx, ty, tz]`).
     pub robot_deltas: Option<Vec<[Real; 6]>>,

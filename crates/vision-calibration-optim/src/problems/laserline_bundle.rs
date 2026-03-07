@@ -31,6 +31,7 @@ pub struct LaserlineMeta {
 }
 
 impl LaserlineMeta {
+    /// Validate metadata consistency (non-empty pixels and optional weights).
     pub fn validate(&self) -> Result<()> {
         ensure!(
             !self.laser_pixels.is_empty(),
@@ -49,6 +50,7 @@ impl LaserlineMeta {
         Ok(())
     }
 
+    /// Return per-pixel weight, defaulting to `1.0` when absent.
     pub fn laser_weight(&self, idx: usize) -> f64 {
         self.laser_weights.as_ref().map_or(1.0, |w| w[idx])
     }
@@ -63,15 +65,20 @@ pub type LaserlineDataset = Vec<LaserlineView>;
 /// Initial values for laserline bundle adjustment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserlineParams {
+    /// Camera intrinsics.
     pub intrinsics: FxFyCxCySkew<Real>,
+    /// Brown-Conrady distortion parameters.
     pub distortion: BrownConrady5<Real>,
     /// Scheimpflug sensor parameters (use defaults for identity sensor).
     pub sensor: ScheimpflugParams,
+    /// Per-view target poses (`camera_se3_target`).
     pub poses: Vec<Iso3>,
+    /// Laser plane parameters in camera frame.
     pub plane: LaserPlane,
 }
 
 impl LaserlineParams {
+    /// Construct parameter pack with basic cardinality validation.
     pub fn new(
         intrinsics: FxFyCxCySkew<Real>,
         distortion: BrownConrady5<Real>,
@@ -93,7 +100,9 @@ impl LaserlineParams {
 /// Result of laserline bundle adjustment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserlineEstimate {
+    /// Refined bundle parameters.
     pub params: LaserlineParams,
+    /// Backend solve report.
     pub report: SolveReport,
 }
 

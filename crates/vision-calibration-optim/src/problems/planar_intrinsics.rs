@@ -28,6 +28,7 @@ pub struct PlanarIntrinsicsParams {
 }
 
 impl PlanarIntrinsicsParams {
+    /// Construct parameter pack with non-empty pose validation.
     pub fn new(camera: PinholeCamera, camera_se3_target: Vec<Iso3>) -> Result<Self> {
         ensure!(!camera_se3_target.is_empty(), "need at least one pose");
         Ok(Self {
@@ -72,10 +73,14 @@ impl PlanarIntrinsicsParams {
     }
 }
 
+/// Output of planar intrinsics optimization.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanarIntrinsicsEstimate {
+    /// Refined camera and poses.
     pub params: PlanarIntrinsicsParams,
+    /// Backend solve report.
     pub report: SolveReport,
+    /// Mean reprojection error in pixels.
     pub mean_reproj_error: f64,
 }
 
