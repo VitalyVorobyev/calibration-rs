@@ -33,6 +33,10 @@ _DEFAULT_SENSOR_INIT: dict[str, float] = {
     "tilt_x": 0.0,
     "tilt_y": 0.0,
 }
+_DEFAULT_SCHEIMPFLUG_FIX_MASK: dict[str, bool] = {
+    "tilt_x": False,
+    "tilt_y": False,
+}
 
 
 def _as_floats(values: tuple[Any, ...] | list[Any], expected: int, name: str) -> tuple[float, ...]:
@@ -752,6 +756,65 @@ class LaserlineDeviceCalibrationConfig:
 
 
 @dataclass(slots=True)
+class ScheimpflugIntrinsicsCalibrationConfig:
+    """Configuration for planar Scheimpflug intrinsics calibration."""
+
+    init_iterations: int = 2
+    fix_k3_in_init: bool = True
+    zero_skew: bool = True
+    max_iters: int = 120
+    verbosity: int = 0
+    robust_loss: RobustLoss = field(default_factory=lambda: "None")
+    fix_intrinsics: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_INTRINSICS_FIX_MASK))
+    fix_distortion: dict[str, bool] = field(
+        default_factory=lambda: {
+            "k1": False,
+            "k2": False,
+            "k3": True,
+            "p1": True,
+            "p2": True,
+        }
+    )
+    fix_scheimpflug: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK))
+    fix_first_pose: bool = True
+
+    def to_payload(self) -> dict[str, Any]:
+        fix_intrinsics = dict(_DEFAULT_INTRINSICS_FIX_MASK)
+        fix_intrinsics.update(self.fix_intrinsics)
+        fix_distortion = {
+            "k1": False,
+            "k2": False,
+            "k3": True,
+            "p1": True,
+            "p2": True,
+        }
+        fix_distortion.update(self.fix_distortion)
+        fix_scheimpflug = dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
+        fix_scheimpflug.update(self.fix_scheimpflug)
+        return {
+            "init_iterations": int(self.init_iterations),
+            "fix_k3_in_init": bool(self.fix_k3_in_init),
+            "zero_skew": bool(self.zero_skew),
+            "max_iters": int(self.max_iters),
+            "verbosity": int(self.verbosity),
+            "robust_loss": cast(Any, self.robust_loss),
+            "fix_intrinsics": fix_intrinsics,
+            "fix_distortion": fix_distortion,
+            "fix_scheimpflug": fix_scheimpflug,
+            "fix_first_pose": bool(self.fix_first_pose),
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "ScheimpflugIntrinsicsCalibrationConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if not hasattr(cfg, key):
+                raise ValueError(f"unknown ScheimpflugIntrinsicsCalibrationConfig field: {key}")
+            setattr(cfg, key, value)
+        return cfg
+
+
+@dataclass(slots=True)
 class PlanarCalibrationResult:
     """Result from :func:`vision_calibration.run_planar_intrinsics`."""
 
@@ -895,6 +958,32 @@ class LaserlineDeviceResult:
         return cls(
             estimate=cast(dict[str, Any], payload["estimate"]),
             stats=cast(dict[str, Any], payload["stats"]),
+            raw=dict(payload),
+        )
+
+
+@dataclass(slots=True)
+class ScheimpflugIntrinsicsResult:
+    """Result from :func:`vision_calibration.run_scheimpflug_intrinsics`."""
+
+    camera: dict[str, Any]
+    camera_se3_target: list[Pose]
+    final_cost: float
+    mean_reproj_error: float
+    raw: dict[str, Any]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ScheimpflugIntrinsicsResult":
+        params = cast(Mapping[str, Any], payload["params"])
+        report = cast(Mapping[str, Any], payload["report"])
+        return cls(
+            camera=cast(dict[str, Any], params["camera"]),
+            camera_se3_target=[
+                Pose.from_payload(cast(Mapping[str, Any], pose))
+                for pose in cast(list[Any], params["camera_se3_target"])
+            ],
+            final_cost=float(report["final_cost"]),
+            mean_reproj_error=float(payload["mean_reproj_error"]),
             raw=dict(payload),
         )
 

@@ -14,6 +14,8 @@ from .models import (
     PlanarDataset,
     PlanarView,
     Pose,
+    ScheimpflugIntrinsicsCalibrationConfig,
+    ScheimpflugIntrinsicsResult,
     RigExtrinsicsCalibrationConfig,
     RigExtrinsicsDataset,
     RigExtrinsicsResult,
@@ -51,6 +53,12 @@ def run_planar_intrinsics(
     input: PlanarDataset | Mapping[str, Any],
     config: PlanarCalibrationConfig | Mapping[str, Any] | None = None,
 ) -> PlanarCalibrationResult: ...
+
+
+def run_scheimpflug_intrinsics(
+    input: PlanarDataset | Mapping[str, Any],
+    config: ScheimpflugIntrinsicsCalibrationConfig | Mapping[str, Any] | None = None,
+) -> ScheimpflugIntrinsicsResult: ...
 
 
 def run_single_cam_handeye(

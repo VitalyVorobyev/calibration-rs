@@ -23,6 +23,7 @@ Se3Delta: TypeAlias = tuple[float, float, float, float, float, float] | list[flo
 
 HandEyeMode: TypeAlias = Literal["EyeInHand", "EyeToHand"]
 LaserlineResidualType: TypeAlias = Literal["PointToPlane", "LineDistNormalized"]
+ScheimpflugFixMask: TypeAlias = JsonObject
 
 
 class _RobustLossScale(TypedDict):
@@ -59,6 +60,7 @@ SingleCamHandeyeInput: TypeAlias = JsonObject
 RigExtrinsicsInput: TypeAlias = JsonObject
 RigHandeyeInput: TypeAlias = JsonObject
 LaserlineDeviceInput: TypeAlias = JsonObject
+ScheimpflugIntrinsicsInput: TypeAlias = JsonObject
 
 
 class SolveReport(TypedDict):
@@ -131,6 +133,17 @@ class LaserlineStats(TypedDict):
 class LaserlineDeviceExport(TypedDict):
     estimate: LaserlineEstimate
     stats: LaserlineStats
+
+
+class ScheimpflugIntrinsicsParams(TypedDict):
+    camera: CameraModel
+    camera_se3_target: list[Transform]
+
+
+class ScheimpflugIntrinsicsExport(TypedDict):
+    params: ScheimpflugIntrinsicsParams
+    report: SolveReport
+    mean_reproj_error: float
 
 
 class PlanarConfig(TypedDict, total=False):
@@ -244,3 +257,16 @@ class LaserlineDeviceConfig(TypedDict, total=False):
     init: LaserlineDeviceInitConfig
     solver: LaserlineDeviceSolverConfig
     optimize: LaserlineDeviceOptimizeConfig
+
+
+class ScheimpflugIntrinsicsConfig(TypedDict, total=False):
+    init_iterations: int
+    fix_k3_in_init: bool
+    zero_skew: bool
+    max_iters: int
+    verbosity: int
+    robust_loss: RobustLoss
+    fix_intrinsics: JsonObject
+    fix_distortion: JsonObject
+    fix_scheimpflug: ScheimpflugFixMask
+    fix_first_pose: bool

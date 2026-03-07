@@ -17,6 +17,8 @@ from .models import (
     PlanarCalibrationConfig,
     PlanarCalibrationResult,
     PlanarDataset,
+    ScheimpflugIntrinsicsCalibrationConfig,
+    ScheimpflugIntrinsicsResult,
     RigExtrinsicsCalibrationConfig,
     RigExtrinsicsDataset,
     RigExtrinsicsResult,
@@ -125,6 +127,16 @@ def _normalize_laserline_config(
     if isinstance(config, LaserlineDeviceCalibrationConfig):
         return config.to_payload()
     return LaserlineDeviceCalibrationConfig.from_mapping(config).to_payload()
+
+
+def _normalize_scheimpflug_config(
+    config: ScheimpflugIntrinsicsCalibrationConfig | Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if config is None:
+        return None
+    if isinstance(config, ScheimpflugIntrinsicsCalibrationConfig):
+        return config.to_payload()
+    return ScheimpflugIntrinsicsCalibrationConfig.from_mapping(config).to_payload()
 
 
 def run_planar_intrinsics(
@@ -267,3 +279,31 @@ def run_laserline_device(
     cfg = _normalize_laserline_config(config)
     raw = cast(dict[str, Any], _native.run_laserline_device(payload, cfg))
     return LaserlineDeviceResult.from_payload(raw)
+
+
+def run_scheimpflug_intrinsics(
+    input: PlanarDataset | Mapping[str, Any],
+    config: ScheimpflugIntrinsicsCalibrationConfig | Mapping[str, Any] | None = None,
+) -> ScheimpflugIntrinsicsResult:
+    """Run planar Scheimpflug intrinsics calibration.
+
+    Parameters
+    ----------
+    input:
+        Planar dataset.
+        Preferred type: :class:`vision_calibration.models.PlanarDataset`.
+        Raw serde mapping is also accepted.
+    config:
+        Calibration config.
+        Preferred type: :class:`vision_calibration.models.ScheimpflugIntrinsicsCalibrationConfig`.
+        If omitted, Rust defaults are used.
+
+    Returns
+    -------
+    ScheimpflugIntrinsicsResult
+        Camera payload with Scheimpflug sensor parameters, poses, and summary metrics.
+    """
+    payload = normalize_input_payload(input)
+    cfg = _normalize_scheimpflug_config(config)
+    raw = cast(dict[str, Any], _native.run_scheimpflug_intrinsics(payload, cfg))
+    return ScheimpflugIntrinsicsResult.from_payload(raw)
