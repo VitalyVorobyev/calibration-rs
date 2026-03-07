@@ -112,7 +112,7 @@ class ScheimpflugIntrinsicsTest(unittest.TestCase):
         with self.assertRaises(RuntimeError) as ctx:
             vc.run_scheimpflug_intrinsics(
                 _make_dataset(),
-                {"max_iters": 0},
+                vc.ScheimpflugIntrinsicsCalibrationConfig(max_iters=0),
             )
         message = str(ctx.exception)
         self.assertIn("failed to set config", message)
@@ -129,6 +129,21 @@ class ScheimpflugIntrinsicsTest(unittest.TestCase):
         message = str(ctx.exception)
         self.assertIn("failed to set input", message)
         self.assertIn("at least 3 views", message)
+
+    def test_high_level_api_rejects_mapping_inputs(self) -> None:
+        with self.assertRaises(TypeError) as cfg_ctx:
+            vc.run_scheimpflug_intrinsics(
+                _make_dataset(),
+                {"max_iters": 50},
+            )
+        self.assertIn("config must be ScheimpflugIntrinsicsCalibrationConfig", str(cfg_ctx.exception))
+
+        with self.assertRaises(TypeError) as input_ctx:
+            vc.run_scheimpflug_intrinsics(
+                {"views": []},
+                vc.ScheimpflugIntrinsicsCalibrationConfig(),
+            )
+        self.assertIn("input must be PlanarDataset", str(input_ctx.exception))
 
 
 if __name__ == "__main__":

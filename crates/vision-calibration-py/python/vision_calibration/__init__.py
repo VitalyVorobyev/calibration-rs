@@ -2,7 +2,8 @@
 
 High-level workflow functions accept Python-native dataclasses from
 ``vision_calibration.models`` and return result dataclasses with docstrings.
-Raw serde-style mappings are still accepted for advanced use.
+Raw serde payload access is available only via low-level helpers in
+``vision_calibration._api``.
 """
 
 from __future__ import annotations

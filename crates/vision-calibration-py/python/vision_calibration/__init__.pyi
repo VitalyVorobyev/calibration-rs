@@ -1,5 +1,3 @@
-from typing import Any, Mapping
-
 from .models import (
     BrownConradyDistortion,
     LaserlineDataset,
@@ -59,38 +57,38 @@ def robust_arctan(scale: float) -> RobustLoss: ...
 
 
 def run_planar_intrinsics(
-    input: PlanarDataset | Mapping[str, Any],
-    config: PlanarCalibrationConfig | Mapping[str, Any] | None = None,
+    input: PlanarDataset,
+    config: PlanarCalibrationConfig | None = None,
 ) -> PlanarCalibrationResult: ...
 
 
 def run_scheimpflug_intrinsics(
-    input: PlanarDataset | Mapping[str, Any],
-    config: ScheimpflugIntrinsicsCalibrationConfig | Mapping[str, Any] | None = None,
+    input: PlanarDataset,
+    config: ScheimpflugIntrinsicsCalibrationConfig | None = None,
 ) -> ScheimpflugIntrinsicsResult: ...
 
 
 def run_single_cam_handeye(
-    input: SingleCamHandeyeDataset | Mapping[str, Any],
-    config: SingleCamHandeyeCalibrationConfig | Mapping[str, Any] | None = None,
+    input: SingleCamHandeyeDataset,
+    config: SingleCamHandeyeCalibrationConfig | None = None,
 ) -> SingleCamHandeyeResult: ...
 
 
 def run_rig_extrinsics(
-    input: RigExtrinsicsDataset | Mapping[str, Any],
-    config: RigExtrinsicsCalibrationConfig | Mapping[str, Any] | None = None,
+    input: RigExtrinsicsDataset,
+    config: RigExtrinsicsCalibrationConfig | None = None,
 ) -> RigExtrinsicsResult: ...
 
 
 def run_rig_handeye(
-    input: RigHandeyeDataset | Mapping[str, Any],
-    config: RigHandeyeCalibrationConfig | Mapping[str, Any] | None = None,
+    input: RigHandeyeDataset,
+    config: RigHandeyeCalibrationConfig | None = None,
 ) -> RigHandeyeResult: ...
 
 
 def run_laserline_device(
-    input: LaserlineDataset | list[dict[str, Any]],
-    config: LaserlineDeviceCalibrationConfig | Mapping[str, Any] | None = None,
+    input: LaserlineDataset,
+    config: LaserlineDeviceCalibrationConfig | None = None,
 ) -> LaserlineDeviceResult: ...
 
 
