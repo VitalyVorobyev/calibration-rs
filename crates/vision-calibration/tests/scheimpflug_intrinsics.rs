@@ -5,7 +5,7 @@ use vision_calibration::core::{
 };
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::scheimpflug_intrinsics::{
-    ScheimpflugFixMask, ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsProblem,
+    ScheimpflugFixMask, ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
     ScheimpflugIntrinsicsResult, run_calibration,
 };
 use vision_calibration::session::CalibrationSession;
@@ -132,7 +132,7 @@ fn make_noisy_dataset(sensor: ScheimpflugParams, noise_px: f64) -> PlanarDataset
 
 fn run_pipeline(
     dataset: &PlanarDataset,
-    config: ScheimpflugIntrinsicsCalibrationConfig,
+    config: ScheimpflugIntrinsicsConfig,
 ) -> anyhow::Result<ScheimpflugIntrinsicsResult> {
     let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
     session.set_input(dataset.clone())?;
@@ -150,7 +150,7 @@ fn public_api_converges_on_synthetic_scheimpflug_dataset() {
         tilt_y: -0.008,
     };
     let dataset = make_dataset(sensor_gt);
-    let config = ScheimpflugIntrinsicsCalibrationConfig {
+    let config = ScheimpflugIntrinsicsConfig {
         fix_scheimpflug: vision_calibration::scheimpflug_intrinsics::ScheimpflugFixMask {
             tilt_x: false,
             tilt_y: false,
@@ -183,7 +183,7 @@ fn public_api_converges_with_deterministic_noise() {
         tilt_y: -0.008,
     };
     let dataset = make_noisy_dataset(sensor_gt, 0.15);
-    let config = ScheimpflugIntrinsicsCalibrationConfig {
+    let config = ScheimpflugIntrinsicsConfig {
         robust_loss: RobustLoss::Huber { scale: 1.0 },
         fix_scheimpflug: ScheimpflugFixMask {
             tilt_x: false,
@@ -208,7 +208,7 @@ fn public_api_rejects_too_few_views() {
     let mut views = make_dataset(ScheimpflugParams::default()).views;
     views.truncate(2);
     let dataset = PlanarDataset::new(views).expect("dataset with 2 views");
-    let err = run_pipeline(&dataset, ScheimpflugIntrinsicsCalibrationConfig::default())
+    let err = run_pipeline(&dataset, ScheimpflugIntrinsicsConfig::default())
         .expect_err("expected validation error");
     assert!(err.to_string().contains("need at least 3 views"));
 }
@@ -223,7 +223,7 @@ fn public_api_rejects_view_with_too_few_points() {
     )
     .expect("reduced observation");
     dataset.views[0] = View::without_meta(reduced);
-    let err = run_pipeline(&dataset, ScheimpflugIntrinsicsCalibrationConfig::default())
+    let err = run_pipeline(&dataset, ScheimpflugIntrinsicsConfig::default())
         .expect_err("expected validation error");
     assert!(err.to_string().contains("has too few points"));
 }
@@ -231,7 +231,7 @@ fn public_api_rejects_view_with_too_few_points() {
 #[test]
 fn public_api_rejects_invalid_config() {
     let dataset = make_dataset(ScheimpflugParams::default());
-    let config = ScheimpflugIntrinsicsCalibrationConfig {
+    let config = ScheimpflugIntrinsicsConfig {
         init_iterations: 0,
         ..Default::default()
     };
@@ -241,7 +241,7 @@ fn public_api_rejects_invalid_config() {
 
 #[test]
 fn scheimpflug_config_json_roundtrip() {
-    let config = ScheimpflugIntrinsicsCalibrationConfig {
+    let config = ScheimpflugIntrinsicsConfig {
         init_iterations: 3,
         max_iters: 75,
         robust_loss: RobustLoss::Cauchy { scale: 0.9 },
@@ -252,7 +252,7 @@ fn scheimpflug_config_json_roundtrip() {
         ..Default::default()
     };
     let json = serde_json::to_string(&config).expect("serialize config");
-    let restored: ScheimpflugIntrinsicsCalibrationConfig =
+    let restored: ScheimpflugIntrinsicsConfig =
         serde_json::from_str(&json).expect("deserialize config");
     assert_eq!(restored.init_iterations, 3);
     assert_eq!(restored.max_iters, 75);
@@ -270,7 +270,7 @@ fn scheimpflug_result_json_roundtrip() {
         tilt_x: 0.008,
         tilt_y: -0.006,
     });
-    let result = run_pipeline(&dataset, ScheimpflugIntrinsicsCalibrationConfig::default())
+    let result = run_pipeline(&dataset, ScheimpflugIntrinsicsConfig::default())
         .expect("scheimpflug calibration");
     let json = serde_json::to_string(&result).expect("serialize result");
     let restored: ScheimpflugIntrinsicsResult =

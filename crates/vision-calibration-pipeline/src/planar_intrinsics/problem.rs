@@ -22,7 +22,7 @@ use super::state::PlanarState;
 ///
 /// # Associated Types
 ///
-/// - **Config**: [`PlanarConfig`] - solver settings, fix masks, etc.
+/// - **Config**: [`PlanarIntrinsicsConfig`] - solver settings, fix masks, etc.
 /// - **Input**: [`PlanarDataset`] - views with 2D-3D point correspondences
 /// - **State**: [`PlanarState`] - homographies, initial estimates, metrics
 /// - **Output**: [`PlanarIntrinsicsEstimate`] - final calibrated camera + poses
@@ -33,7 +33,7 @@ use super::state::PlanarState;
 /// ```no_run
 /// use vision_calibration_pipeline::session::CalibrationSession;
 /// use vision_calibration_pipeline::planar_intrinsics::{
-///     PlanarIntrinsicsProblem, PlanarConfig,
+///     PlanarIntrinsicsProblem, PlanarIntrinsicsConfig,
 ///     step_init, step_optimize,
 /// };
 /// # fn main() -> anyhow::Result<()> {
@@ -56,7 +56,7 @@ pub struct PlanarIntrinsicsProblem;
 ///
 /// Contains settings for both initialization and optimization phases.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlanarConfig {
+pub struct PlanarIntrinsicsConfig {
     // ─────────────────────────────────────────────────────────────────────────
     // Initialization options
     // ─────────────────────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ pub struct PlanarConfig {
     pub fix_poses: Vec<usize>,
 }
 
-impl Default for PlanarConfig {
+impl Default for PlanarIntrinsicsConfig {
     fn default() -> Self {
         Self {
             // Initialization
@@ -113,7 +113,7 @@ impl Default for PlanarConfig {
     }
 }
 
-impl PlanarConfig {
+impl PlanarIntrinsicsConfig {
     /// Convert to vision-calibration-linear initialization options.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
         IterativeIntrinsicsOptions {
@@ -154,7 +154,7 @@ impl PlanarConfig {
 pub type PlanarExport = PlanarIntrinsicsEstimate;
 
 impl ProblemType for PlanarIntrinsicsProblem {
-    type Config = PlanarConfig;
+    type Config = PlanarIntrinsicsConfig;
     type Input = PlanarDataset;
     type State = PlanarState;
     type Output = PlanarIntrinsicsEstimate;
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn validate_config_requires_positive_iters() {
-        let config = PlanarConfig {
+        let config = PlanarIntrinsicsConfig {
             max_iters: 0,
             ..Default::default()
         };
@@ -281,14 +281,14 @@ mod tests {
 
     #[test]
     fn validate_config_accepts_valid() {
-        let config = PlanarConfig::default();
+        let config = PlanarIntrinsicsConfig::default();
         let result = PlanarIntrinsicsProblem::validate_config(&config);
         assert!(result.is_ok());
     }
 
     #[test]
     fn config_json_roundtrip() {
-        let config = PlanarConfig {
+        let config = PlanarIntrinsicsConfig {
             max_iters: 100,
             fix_k3_in_init: false,
             robust_loss: vision_calibration_optim::RobustLoss::Huber { scale: 2.5 },
@@ -296,7 +296,7 @@ mod tests {
         };
 
         let json = serde_json::to_string_pretty(&config).unwrap();
-        let restored: PlanarConfig = serde_json::from_str(&json).unwrap();
+        let restored: PlanarIntrinsicsConfig = serde_json::from_str(&json).unwrap();
 
         assert_eq!(restored.max_iters, 100);
         assert!(!restored.fix_k3_in_init);
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn init_opts_conversion() {
-        let config = PlanarConfig {
+        let config = PlanarIntrinsicsConfig {
             init_iterations: 5,
             fix_k3_in_init: true,
             fix_tangential_in_init: true,
@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn solve_opts_conversion() {
-        let config = PlanarConfig {
+        let config = PlanarIntrinsicsConfig {
             robust_loss: vision_calibration_optim::RobustLoss::Cauchy { scale: 1.0 },
             fix_poses: vec![0, 1],
             ..Default::default()
@@ -351,7 +351,7 @@ mod tests {
 
     #[test]
     fn backend_opts_conversion() {
-        let config = PlanarConfig {
+        let config = PlanarIntrinsicsConfig {
             max_iters: 100,
             verbosity: 2,
             ..Default::default()

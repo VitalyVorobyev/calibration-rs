@@ -49,7 +49,7 @@ After optimization, expect <2% intrinsics error and <1 px mean reprojection erro
 ## Configuration
 
 ```rust
-pub struct PlanarConfig {
+pub struct PlanarIntrinsicsConfig {
     // Initialization
     pub init_iterations: usize,        // Iterative intrinsics iterations (default: 2)
     pub fix_k3_in_init: bool,          // Fix k3 during init (default: true)

@@ -43,7 +43,7 @@ impl ScheimpflugFixMask {
 
 /// Configuration for planar Scheimpflug intrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScheimpflugIntrinsicsCalibrationConfig {
+pub struct ScheimpflugIntrinsicsConfig {
     /// Number of iterative linear intrinsics initialization rounds.
     pub init_iterations: usize,
     /// Keep `k3` fixed in the linear initialization stage.
@@ -66,7 +66,7 @@ pub struct ScheimpflugIntrinsicsCalibrationConfig {
     pub fix_first_pose: bool,
 }
 
-impl Default for ScheimpflugIntrinsicsCalibrationConfig {
+impl Default for ScheimpflugIntrinsicsConfig {
     fn default() -> Self {
         Self {
             init_iterations: 2,
@@ -107,7 +107,7 @@ pub struct ScheimpflugIntrinsicsResult {
 pub type ScheimpflugIntrinsicsExport = ScheimpflugIntrinsicsResult;
 
 impl ProblemType for ScheimpflugIntrinsicsProblem {
-    type Config = ScheimpflugIntrinsicsCalibrationConfig;
+    type Config = ScheimpflugIntrinsicsConfig;
     type Input = ScheimpflugIntrinsicsInput;
     type State = ScheimpflugIntrinsicsState;
     type Output = ScheimpflugIntrinsicsResult;
@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     fn validate_config_rejects_zero_iterations() {
-        let config = ScheimpflugIntrinsicsCalibrationConfig {
+        let config = ScheimpflugIntrinsicsConfig {
             init_iterations: 0,
             ..Default::default()
         };
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn config_json_roundtrip() {
-        let config = ScheimpflugIntrinsicsCalibrationConfig {
+        let config = ScheimpflugIntrinsicsConfig {
             init_iterations: 3,
             max_iters: 70,
             robust_loss: RobustLoss::Huber { scale: 1.2 },
@@ -265,7 +265,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&config).expect("serialize config");
-        let restored: ScheimpflugIntrinsicsCalibrationConfig =
+        let restored: ScheimpflugIntrinsicsConfig =
             serde_json::from_str(&json).expect("deserialize config");
 
         assert_eq!(restored.init_iterations, 3);

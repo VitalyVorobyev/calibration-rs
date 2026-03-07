@@ -146,7 +146,7 @@ class ScheimpflugIntrinsicsExport(TypedDict):
     mean_reproj_error: float
 
 
-class PlanarConfig(TypedDict, total=False):
+class PlanarIntrinsicsConfig(TypedDict, total=False):
     init_iterations: int
     fix_k3_in_init: bool
     fix_tangential_in_init: bool

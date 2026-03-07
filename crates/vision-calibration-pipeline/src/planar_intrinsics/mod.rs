@@ -9,7 +9,7 @@
 //! ```no_run
 //! use vision_calibration_pipeline::session::CalibrationSession;
 //! use vision_calibration_pipeline::planar_intrinsics::{
-//!     PlanarIntrinsicsProblem, PlanarConfig,
+//!     PlanarIntrinsicsProblem, PlanarIntrinsicsConfig,
 //!     step_init, step_optimize, run_calibration,
 //! };
 //! # fn main() -> anyhow::Result<()> {
@@ -38,7 +38,7 @@ mod steps;
 // ─────────────────────────────────────────────────────────────────────────────
 // API
 // ─────────────────────────────────────────────────────────────────────────────
-pub use problem::{PlanarConfig, PlanarExport, PlanarIntrinsicsProblem};
+pub use problem::{PlanarExport, PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
 pub use state::PlanarState;
 pub use steps::{
     FilterOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions, run_calibration,

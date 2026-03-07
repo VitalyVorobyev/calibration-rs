@@ -20,8 +20,8 @@ use vision_calibration_optim::{
 use crate::session::CalibrationSession;
 
 use super::problem::{
-    ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsParams,
-    ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult,
+    ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem,
+    ScheimpflugIntrinsicsResult,
 };
 
 /// Options for the initialization step.
@@ -202,7 +202,7 @@ pub fn step_optimize(
 /// Run full Scheimpflug calibration pipeline on a session: init -> optimize.
 pub fn run_calibration(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
-    config: Option<ScheimpflugIntrinsicsCalibrationConfig>,
+    config: Option<ScheimpflugIntrinsicsConfig>,
 ) -> Result<()> {
     if let Some(cfg) = config {
         session.set_config(cfg)?;
@@ -242,7 +242,7 @@ fn build_problem_ir(
     distortion: &BrownConrady5<f64>,
     sensor: ScheimpflugParams,
     poses: &[Iso3],
-    config: &ScheimpflugIntrinsicsCalibrationConfig,
+    config: &ScheimpflugIntrinsicsConfig,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
     ensure!(
         dataset.num_views() == poses.len(),

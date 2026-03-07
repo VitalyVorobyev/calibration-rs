@@ -74,7 +74,7 @@ where
 /// input:
 ///     Planar dataset payload (serde-compatible with `PlanarDataset`).
 /// config:
-///     Optional planar configuration payload (serde-compatible with `PlanarConfig`).
+///     Optional planar configuration payload (serde-compatible with `PlanarIntrinsicsConfig`).
 ///
 /// Returns
 /// -------

@@ -8,7 +8,7 @@ mod state;
 mod steps;
 
 pub use problem::{
-    ScheimpflugFixMask, ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsExport,
+    ScheimpflugFixMask, ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsExport,
     ScheimpflugIntrinsicsInput, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem,
     ScheimpflugIntrinsicsResult,
 };
