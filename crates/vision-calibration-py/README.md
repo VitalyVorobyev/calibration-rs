@@ -9,6 +9,7 @@ This crate exposes high-level calibration workflows from `vision-calibration`:
 - rig extrinsics
 - rig hand-eye
 - laserline device
+- scheimpflug intrinsics
 
 ## Build locally
 
@@ -38,6 +39,23 @@ config = vc.PlanarCalibrationConfig(
 
 result = vc.run_planar_intrinsics(dataset, config)
 print(result.mean_reproj_error)
+```
+
+Scheimpflug workflow:
+
+```python
+import vision_calibration as vc
+
+obs = vc.Observation(
+    points_3d=[(0.0, 0.0, 0.0), (0.1, 0.0, 0.0), (0.1, 0.1, 0.0), (0.0, 0.1, 0.0)],
+    points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
+)
+dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
+config = vc.ScheimpflugIntrinsicsCalibrationConfig(
+    fix_scheimpflug={"tilt_x": False, "tilt_y": False}
+)
+result = vc.run_scheimpflug_intrinsics(dataset, config)
+print(result.camera["sensor"])
 ```
 
 ## Runnable Python examples

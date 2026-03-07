@@ -85,8 +85,8 @@ Acceptance criteria:
 
 ADR links: 0001, 0002, 0003, 0004
 
-- [ ] `M4-T01` Update book/docs for finalized Scheimpflug pipeline shape and usage.
-- [ ] `M4-T02` Add/refresh minimal Rust and Python examples that reflect final contracts.
+- [x] `M4-T01` Update book/docs for finalized Scheimpflug pipeline shape and usage. (Done: 2026-03-07)
+- [x] `M4-T02` Add/refresh minimal Rust and Python examples that reflect final contracts. (Done: 2026-03-07)
 - [x] `M4-T03` Confirm CI and release workflows enforce required gates (fmt, clippy all-features, tests all-features, python compileall, python runtime tests). (Done: 2026-03-07)
 - [ ] `M4-T04` Add release notes/migration notes for any API surface changes.
 

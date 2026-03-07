@@ -103,6 +103,40 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
+### Scheimpflug Intrinsics Calibration
+
+```rust,no_run
+use vision_calibration::core::PlanarDataset;
+use vision_calibration::scheimpflug_intrinsics::{
+    run_calibration, ScheimpflugIntrinsicsCalibrationConfig,
+};
+
+fn main() -> anyhow::Result<()> {
+    let dataset: PlanarDataset = todo!("load planar correspondences");
+    let config = ScheimpflugIntrinsicsCalibrationConfig::default();
+    let result = run_calibration(&dataset, &config)?;
+    println!("scheimpflug reproj error: {:.4}px", result.mean_reproj_error);
+    Ok(())
+}
+```
+
+```python
+import vision_calibration as vc
+
+obs = vc.Observation(
+    points_3d=[(0.0, 0.0, 0.0), (0.1, 0.0, 0.0), (0.1, 0.1, 0.0), (0.0, 0.1, 0.0)],
+    points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
+)
+dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
+result = vc.run_scheimpflug_intrinsics(
+    dataset,
+    vc.ScheimpflugIntrinsicsCalibrationConfig(
+        fix_scheimpflug={"tilt_x": False, "tilt_y": False}
+    ),
+)
+print(result.mean_reproj_error)
+```
+
 ### Laserline Device Calibration
 
 ```rust,no_run
