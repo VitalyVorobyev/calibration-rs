@@ -58,6 +58,43 @@ result = vc.run_scheimpflug_intrinsics(dataset, config)
 print(result.camera.sensor)
 ```
 
+## Migration: hard break to typed high-level API
+
+High-level runner functions now require typed dataset/config objects.
+Raw mapping/list payloads are no longer accepted by:
+
+- `run_planar_intrinsics`
+- `run_scheimpflug_intrinsics`
+- `run_single_cam_handeye`
+- `run_rig_extrinsics`
+- `run_rig_handeye`
+- `run_laserline_device`
+
+Before (no longer supported):
+
+```python
+import vision_calibration as vc
+
+result = vc.run_scheimpflug_intrinsics(
+    {"views": [...]},
+    {"max_iters": 80},
+)
+```
+
+After (typed high-level API):
+
+```python
+import vision_calibration as vc
+
+dataset = vc.PlanarDataset(views=[...])
+config = vc.ScheimpflugIntrinsicsCalibrationConfig(max_iters=80)
+result = vc.run_scheimpflug_intrinsics(dataset, config)
+```
+
+If you still need raw serde payload control for migration/interop, use low-level
+helpers from `vision_calibration._api` (for example
+`_run_scheimpflug_intrinsics_raw`).
+
 ## Runnable Python examples
 
 Python workflow examples live in `crates/vision-calibration-py/examples/` and

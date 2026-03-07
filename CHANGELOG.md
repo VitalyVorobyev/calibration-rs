@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 - Minor release boundary update to `0.2.0` to reflect compatibility boundary changes across recent API work
+- Python bindings high-level runners are now typed-only and no longer accept raw mapping/list payloads; use dataclass models or low-level raw helpers in `vision_calibration._api`
 
 ## [0.1.2]
 

@@ -38,8 +38,8 @@ Eliminate dict-like public result and model APIs from `vision_calibration` Pytho
 - [ ] Add explicit warning in module docs: low-level/internal, not recommended for new code.
 
 ### 5. Add migration and compatibility strategy
-- [ ] Apply hard API break now: remove mapping input acceptance from high-level APIs in this release.
-- [ ] Publish migration notes with before/after snippets and explicit break notice.
+- [x] Apply hard API break now: remove mapping input acceptance from high-level APIs in this release.
+- [x] Publish migration notes with before/after snippets and explicit break notice.
 
 ### 6. Update package exports and stubs
 - [ ] Update `__init__.py` and `__init__.pyi` to export typed camera/result models.
