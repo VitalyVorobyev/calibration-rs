@@ -122,15 +122,15 @@ def main() -> None:
     print("=== Laserline Device Calibration (Synthetic, Python) ===")
     payload = make_input()
     result = vc.run_laserline_device(payload)
-    intr = result.estimate["params"]["intrinsics"]
-    plane = result.estimate["params"]["plane"]
+    intr = result.estimate.params.intrinsics
+    plane = result.estimate.params.plane
 
     print(f"Views: {len(payload.views)}")
-    print(f"Final cost: {result.estimate['report']['final_cost']:.3e}")
+    print(f"Final cost: {result.estimate.final_cost:.3e}")
     print(f"Mean reprojection error: {result.mean_reproj_error:.6f} px")
     print(f"Mean laser error: {result.mean_laser_error:.6f}")
-    print(f"Recovered intrinsics: fx={intr['fx']:.3f}, fy={intr['fy']:.3f}, cx={intr['cx']:.3f}, cy={intr['cy']:.3f}")
-    print(f"Recovered plane: normal={plane['normal']}, distance={plane['distance']:.6f}")
+    print(f"Recovered intrinsics: fx={intr.fx:.3f}, fy={intr.fy:.3f}, cx={intr.cx:.3f}, cy={intr.cy:.3f}")
+    print(f"Recovered plane: normal={plane.normal_xyz}, distance={plane.distance:.6f}")
 
 
 if __name__ == "__main__":

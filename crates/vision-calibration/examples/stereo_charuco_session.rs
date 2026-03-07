@@ -24,6 +24,7 @@ use stereo_charuco_io::{
     BOARD_CELL_SIZE_MM, BOARD_COLS, BOARD_DICTIONARY_NAME, BOARD_MARKER_SIZE_REL, BOARD_ROWS,
     load_stereo_charuco_input_with_progress, make_charuco_detector_params,
 };
+use vision_calibration::core::Iso3;
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsProblem, run_calibration, step_intrinsics_init_all, step_intrinsics_optimize_all,

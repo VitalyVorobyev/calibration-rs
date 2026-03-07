@@ -2,7 +2,8 @@
 
 High-level workflow functions accept Python-native dataclasses from
 ``vision_calibration.models`` and return result dataclasses with docstrings.
-Raw serde-style mappings are still accepted for advanced use.
+Raw serde payload access is available only via low-level helpers in
+``vision_calibration._api``.
 """
 
 from __future__ import annotations
@@ -17,22 +18,34 @@ from ._api import (
     run_planar_intrinsics,
     run_rig_extrinsics,
     run_rig_handeye,
+    run_scheimpflug_intrinsics,
     run_single_cam_handeye,
 )
 from .models import (
+    BrownConradyDistortion,
     LaserlineDataset,
     LaserlineDeviceCalibrationConfig,
+    LaserlineEstimate,
+    LaserlineEstimateParams,
     LaserlineDeviceInitConfig,
     LaserlineDeviceOptimizeConfig,
     LaserlineDeviceResult,
     LaserlineDeviceSolverConfig,
+    LaserlinePlane,
+    LaserlineStats,
     LaserlineView,
     Observation,
+    PinholeBrownConradyCamera,
+    PinholeBrownConradyScheimpflugCamera,
+    PinholeIntrinsics,
     PlanarCalibrationConfig,
     PlanarCalibrationResult,
     PlanarDataset,
     PlanarView,
     Pose,
+    ScheimpflugIntrinsicsCalibrationConfig,
+    ScheimpflugSensor,
+    ScheimpflugIntrinsicsResult,
     RigExtrinsicsCalibrationConfig,
     RigExtrinsicsDataset,
     RigExtrinsicsResult,
@@ -51,12 +64,6 @@ from .models import (
     SingleCamHandeyeResult,
     SingleCamHandeyeView,
 )
-from .types import (
-    HandEyeMode,
-    LaserlineResidualType,
-    RobustLoss,
-)
-
 __version__ = _native.library_version()
 
 __all__ = [
@@ -73,7 +80,17 @@ __all__ = [
     "RigHandeyeDataset",
     "LaserlineView",
     "LaserlineDataset",
+    "PinholeIntrinsics",
+    "BrownConradyDistortion",
+    "ScheimpflugSensor",
+    "PinholeBrownConradyCamera",
+    "PinholeBrownConradyScheimpflugCamera",
+    "LaserlinePlane",
+    "LaserlineEstimateParams",
+    "LaserlineEstimate",
+    "LaserlineStats",
     "PlanarCalibrationConfig",
+    "ScheimpflugIntrinsicsCalibrationConfig",
     "SingleCamHandeyeCalibrationConfig",
     "RigExtrinsicsCalibrationConfig",
     "RigHandeyeIntrinsicsConfig",
@@ -87,18 +104,17 @@ __all__ = [
     "LaserlineDeviceOptimizeConfig",
     "LaserlineDeviceCalibrationConfig",
     "PlanarCalibrationResult",
+    "ScheimpflugIntrinsicsResult",
     "SingleCamHandeyeResult",
     "RigExtrinsicsResult",
     "RigHandeyeResult",
     "LaserlineDeviceResult",
-    "HandEyeMode",
-    "LaserlineResidualType",
-    "RobustLoss",
     "robust_none",
     "robust_huber",
     "robust_cauchy",
     "robust_arctan",
     "run_planar_intrinsics",
+    "run_scheimpflug_intrinsics",
     "run_single_cam_handeye",
     "run_rig_extrinsics",
     "run_rig_handeye",

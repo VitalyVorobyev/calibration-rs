@@ -28,10 +28,44 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Cargo test
-        run: cargo test --workspace
+        run: cargo test --workspace --all-features
 
       - name: Cargo doc
         run: cargo doc --no-deps --workspace
+
+  python-runtime:
+    name: Python Runtime Tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create virtualenv
+        run: |
+          python -m venv .venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+
+      - name: Install maturin
+        run: python -m pip install --upgrade pip maturin
+
+      - name: Build Python extension
+        run: maturin develop -m crates/vision-calibration-py/Cargo.toml
+
+      - name: Validate Python package
+        run: python -m compileall crates/vision-calibration-py/python/vision_calibration
+
+      - name: Run Python runtime tests
+        run: python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"

@@ -1,13 +1,15 @@
 //! View-related structures and functions.
-//!
 
 use crate::CorrespondenceView;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
+/// Single-camera observation view with attached metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct View<Meta> {
+    /// 2D-3D correspondences observed in this view.
     pub obs: CorrespondenceView,
+    /// Arbitrary metadata payload associated with the view.
     pub meta: Meta,
 }
 
@@ -17,6 +19,7 @@ impl<Meta> View<Meta> {
         self.obs.points_3d.len()
     }
 
+    /// Create a view from correspondences and metadata.
     pub fn new(obs: CorrespondenceView, meta: Meta) -> Self {
         Self { obs, meta }
     }
@@ -36,15 +39,21 @@ pub struct RigViewObs {
     pub cameras: Vec<Option<CorrespondenceView>>,
 }
 
+/// One time-synchronized rig frame containing per-camera observations and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigView<Meta> {
+    /// Per-camera observations for this rig frame.
     pub obs: RigViewObs,
+    /// Arbitrary metadata payload associated with the view.
     pub meta: Meta,
 }
 
+/// Multi-view dataset for a camera rig.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigDataset<Meta> {
+    /// Number of cameras in the rig.
     pub num_cameras: usize,
+    /// Sequence of rig views.
     pub views: Vec<RigView<Meta>>,
 }
 
@@ -54,6 +63,7 @@ impl<Meta> RigDataset<Meta> {
         self.views.len()
     }
 
+    /// Construct a rig dataset and validate per-view camera counts.
     pub fn new(views: Vec<RigView<Meta>>, num_cameras: usize) -> Result<Self> {
         ensure!(!views.is_empty(), "need at least one view");
         for (idx, view) in views.iter().enumerate() {
@@ -69,6 +79,7 @@ impl<Meta> RigDataset<Meta> {
     }
 }
 
+/// Empty metadata marker for views that do not need extra metadata.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NoMeta;
 
@@ -77,10 +88,12 @@ pub struct NoMeta;
 /// Each view observes a planar calibration target in pixel coordinates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanarDataset {
+    /// Sequence of planar calibration views.
     pub views: Vec<View<NoMeta>>,
 }
 
 impl PlanarDataset {
+    /// Construct a planar dataset and validate basic cardinality constraints.
     pub fn new(views: Vec<View<NoMeta>>) -> Result<Self> {
         ensure!(!views.is_empty(), "need at least one view for calibration");
         for (i, view) in views.iter().enumerate() {
@@ -93,6 +106,7 @@ impl PlanarDataset {
         Ok(Self { views })
     }
 
+    /// Number of planar views.
     pub fn num_views(&self) -> usize {
         self.views.len()
     }

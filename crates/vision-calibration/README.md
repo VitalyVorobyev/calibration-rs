@@ -7,8 +7,8 @@ This is the recommended crate for most users. It re-exports all sub-crates throu
 ## Features
 
 - **Session API**: Structured calibration workflows with step functions, state tracking, and JSON checkpointing
-- **5 problem types**: Planar intrinsics, single-camera hand-eye, rig extrinsics, rig hand-eye, laserline device
-- **Prelude module**: Quick-start imports for common use cases
+- **6 workflows**: Planar intrinsics, Scheimpflug intrinsics, single-camera hand-eye, rig extrinsics, rig hand-eye, laserline device
+- **Prelude module**: Minimal imports for planar "hello world" calibration
 - **Foundation access**: Direct access to core types, linear solvers, and optimization when needed
 
 ## Quick Start
@@ -39,8 +39,9 @@ let result = session.export()?;
 ### Single-Camera Hand-Eye Calibration
 
 ```rust,no_run
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
+    SingleCamHandeyeProblem,
     step_intrinsics_init, step_intrinsics_optimize,
     step_handeye_init, step_handeye_optimize,
 };
@@ -57,13 +58,35 @@ step_handeye_optimize(&mut session, None)?;
 let result = session.export()?;
 ```
 
+### Scheimpflug Intrinsics Calibration
+
+```rust,no_run
+use vision_calibration::core::PlanarDataset;
+use vision_calibration::session::CalibrationSession;
+use vision_calibration::scheimpflug_intrinsics::{
+    ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem, run_calibration,
+};
+
+# fn main() -> anyhow::Result<()> {
+# let dataset: PlanarDataset = unimplemented!();
+let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+session.set_input(dataset)?;
+
+let config = ScheimpflugIntrinsicsConfig::default();
+run_calibration(&mut session, Some(config))?;
+let result = session.export()?;
+println!("mean reprojection error: {:.4}", result.mean_reproj_error);
+# Ok(())
+# }
+```
+
 ### Using the Prelude
 
 ```rust,no_run
 use vision_calibration::prelude::*;
 
-// Gives you CalibrationSession, all problem types,
-// pipeline functions, core types, and common options.
+// Minimal hello-world imports:
+// CalibrationSession + planar problem + planar runner + core planar types.
 ```
 
 ## Available Problem Types
@@ -75,6 +98,7 @@ use vision_calibration::prelude::*;
 | `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
 | `RigHandeyeProblem` | All 6 steps (intrinsics + rig + hand-eye) |
 | `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
+| `ScheimpflugIntrinsicsProblem` | `step_init` → `step_optimize` |
 
 Each problem type also provides a `run_calibration` convenience function that runs all steps.
 
@@ -88,6 +112,7 @@ Each problem type also provides a `run_calibration` convenience function that ru
 | `rig_extrinsics` | Multi-camera rig extrinsics |
 | `rig_handeye` | Multi-camera rig + hand-eye |
 | `laserline_device` | Camera + laser plane device |
+| `scheimpflug_intrinsics` | Single-camera planar intrinsics with Scheimpflug tilt |
 | `core` | Math types, camera models, RANSAC |
 | `linear` | Closed-form initialization algorithms |
 | `optim` | Non-linear optimization |

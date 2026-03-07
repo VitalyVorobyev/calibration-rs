@@ -27,6 +27,7 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 
 /// Configuration for multi-camera rig extrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigExtrinsicsConfig {
     // ─────────────────────────────────────────────────────────────────────────
     // Per-camera intrinsics options
@@ -98,6 +99,7 @@ impl Default for RigExtrinsicsConfig {
 
 /// Export format for rig extrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigExtrinsicsExport {
     /// Per-camera calibrated intrinsics + distortion.
     pub cameras: Vec<PinholeCamera>,

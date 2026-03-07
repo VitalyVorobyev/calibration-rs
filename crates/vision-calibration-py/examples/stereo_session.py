@@ -103,10 +103,10 @@ def main() -> None:
     print(f"Per-camera reprojection: {result.per_cam_reproj_errors}")
     print(f"Estimated baseline: {base_mm:.3f} mm")
     for idx, cam in enumerate(result.cameras):
-        k = cam["k"]
-        d = cam["dist"]
-        print(f"Camera {idx}: fx={k['fx']:.3f}, fy={k['fy']:.3f}, cx={k['cx']:.3f}, cy={k['cy']:.3f}")
-        print(f"  Distortion: k1={d['k1']:.6f}, k2={d['k2']:.6f}, p1={d['p1']:.6f}, p2={d['p2']:.6f}")
+        k = cam.intrinsics
+        d = cam.distortion
+        print(f"Camera {idx}: fx={k.fx:.3f}, fy={k.fy:.3f}, cx={k.cx:.3f}, cy={k.cy:.3f}")
+        print(f"  Distortion: k1={d.k1:.6f}, k2={d.k2:.6f}, p1={d.p1:.6f}, p2={d.p2:.6f}")
 
 
 if __name__ == "__main__":

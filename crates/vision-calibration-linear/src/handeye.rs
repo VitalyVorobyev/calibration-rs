@@ -15,9 +15,13 @@ use vision_calibration_core::{Iso3, Real};
 /// - `B`: relative motion from the observation pose stream (e.g. target->camera).
 #[derive(Debug, Clone, Copy)]
 pub struct MotionPair {
+    /// Relative rotation from robot motion stream (`A`).
     pub rot_a: Matrix3<Real>,
+    /// Relative rotation from observation motion stream (`B`).
     pub rot_b: Matrix3<Real>,
+    /// Relative translation from robot motion stream (`A`).
     pub tra_a: Vector3<Real>,
+    /// Relative translation from observation motion stream (`B`).
     pub tra_b: Vector3<Real>,
 }
 

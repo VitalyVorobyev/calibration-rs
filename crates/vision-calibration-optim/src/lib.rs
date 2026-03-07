@@ -166,6 +166,10 @@ pub use crate::problems::planar_intrinsics::{
     PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
     optimize_planar_intrinsics,
 };
+pub use crate::problems::scheimpflug_intrinsics::{
+    ScheimpflugFixMask, ScheimpflugIntrinsicsEstimate, ScheimpflugIntrinsicsParams,
+    ScheimpflugIntrinsicsSolveOptions, optimize_scheimpflug_intrinsics,
+};
 
 pub use crate::problems::handeye::{
     HandEyeDataset, HandEyeEstimate, HandEyeParams, HandEyeSolveOptions, RobotPoseMeta,

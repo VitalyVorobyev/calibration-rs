@@ -79,6 +79,7 @@ pub use pnp::*;
 pub use triangulation::*;
 pub use zhang_intrinsics::*;
 
+/// Minimal imports for common planar initialization workflows.
 pub mod prelude {
     pub use crate::distortion_fit::DistortionFitOptions;
     pub use crate::homography::dlt_homography;

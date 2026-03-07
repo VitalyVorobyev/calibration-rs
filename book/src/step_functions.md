@@ -9,7 +9,7 @@ Step functions are free functions that operate on a mutable session reference:
 ```rust
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    opts: Option<&InitOptions>,
+    opts: Option<IntrinsicsInitOptions>,
 ) -> Result<()>
 ```
 
@@ -40,8 +40,11 @@ step_optimize(&mut session, None)?;
 
 ```rust
 // Use more iterations for optimization
-let opts = OptimOptions { max_iters: 200, ..Default::default() };
-step_optimize(&mut session, Some(&opts))?;
+let opts = IntrinsicsOptimizeOptions {
+    max_iters: Some(200),
+    ..Default::default()
+};
+step_optimize(&mut session, Some(opts))?;
 ```
 
 **Selective execution**: Skip steps or re-run specific steps.
@@ -94,10 +97,11 @@ let export = session.export()?;
 | Problem | Pipeline function | Steps |
 |---------|------------------|-------|
 | `PlanarIntrinsicsProblem` | `run_calibration()` | init → optimize |
-| `SingleCamHandeyeProblem` | `run_single_cam_handeye()` | 4 steps |
-| `RigExtrinsicsProblem` | `run_rig_extrinsics()` | 4 steps |
-| `RigHandeyeProblem` | `run_rig_handeye()` | 6 steps |
+| `SingleCamHandeyeProblem` | `single_cam_handeye::run_calibration()` | 4 steps |
+| `RigExtrinsicsProblem` | `rig_extrinsics::run_calibration()` | 4 steps |
+| `RigHandeyeProblem` | `rig_handeye::run_calibration()` | 6 steps |
 | `LaserlineDeviceProblem` | `run_calibration(session, config)` | init → optimize |
+| `ScheimpflugIntrinsicsProblem` | `scheimpflug_intrinsics::run_calibration(session, config)` | init → optimize |
 
 ## Recommendation
 

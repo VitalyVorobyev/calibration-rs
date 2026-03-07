@@ -16,6 +16,7 @@ use vision_calibration_core::{
     CameraFixMask, Iso3, NoMeta, PinholeCamera, RigDataset, make_pinhole_camera,
 };
 
+/// Dataset type for rig extrinsics optimization.
 pub type RigExtrinsicsDataset = RigDataset<NoMeta>;
 
 /// Result of rig extrinsics optimization.
@@ -23,13 +24,18 @@ pub type RigExtrinsicsDataset = RigDataset<NoMeta>;
 pub struct RigExtrinsicsParams {
     /// Per-camera calibrated parameters.
     pub cameras: Vec<PinholeCamera>,
+    /// Per-camera extrinsics (`camera -> rig`, `T_R_C`).
     pub cam_to_rig: Vec<Iso3>,
+    /// Per-view rig poses (`target -> rig`, `T_R_T`).
     pub rig_from_target: Vec<Iso3>,
 }
 
+/// Output of rig extrinsics optimization.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RigExtrinsicsEstimate {
+    /// Refined rig extrinsics parameters.
     pub params: RigExtrinsicsParams,
+    /// Backend solve report.
     pub report: SolveReport,
     /// Mean reprojection error in pixels (computed post-optimization).
     pub mean_reproj_error: f64,

@@ -8,6 +8,14 @@ A Rust workspace for end-to-end camera calibration: math primitives, linear solv
 refinement, and session-based pipelines. Supports perspective cameras, laserline calibration,
 multi-camera rigs, and hand-eye calibration.
 
+## Diligence Statement
+
+This project is developed with AI coding assistants (`Codex` and `Claude Code`) as implementation tools.
+Not every code path is manually line-reviewed by a human before merge. The project author is an expert in
+computer vision, validates algorithmic behavior and numerical results, and enforces quality gates
+(`fmt`/`clippy`/tests/docs/Python checks) before release. This is engineering-assisted development, not
+"vibe coding."
+
 ## Architecture
 
 ```
@@ -103,11 +111,50 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
+### Scheimpflug Intrinsics Calibration
+
+```rust,no_run
+use vision_calibration::core::PlanarDataset;
+use vision_calibration::session::CalibrationSession;
+use vision_calibration::scheimpflug_intrinsics::{
+    ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem, run_calibration,
+};
+
+fn main() -> anyhow::Result<()> {
+    let dataset: PlanarDataset = todo!("load planar correspondences");
+    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    session.set_input(dataset)?;
+
+    let config = ScheimpflugIntrinsicsConfig::default();
+    run_calibration(&mut session, Some(config))?;
+    let result = session.export()?;
+    println!("scheimpflug reproj error: {:.4}px", result.mean_reproj_error);
+    Ok(())
+}
+```
+
+```python
+import vision_calibration as vc
+
+obs = vc.Observation(
+    points_3d=[(0.0, 0.0, 0.0), (0.1, 0.0, 0.0), (0.1, 0.1, 0.0), (0.0, 0.1, 0.0)],
+    points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
+)
+dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
+result = vc.run_scheimpflug_intrinsics(
+    dataset,
+    vc.ScheimpflugIntrinsicsCalibrationConfig(
+        fix_scheimpflug={"tilt_x": False, "tilt_y": False}
+    ),
+)
+print(result.mean_reproj_error)
+```
+
 ### Laserline Device Calibration
 
 ```rust,no_run
-use vision_calibration::prelude::*;
-use vision_calibration::laserline_device::run_calibration;
+use vision_calibration::session::CalibrationSession;
+use vision_calibration::laserline_device::{LaserlineDeviceProblem, run_calibration};
 
 fn main() -> anyhow::Result<()> {
     let input = todo!("load laserline calibration data");
@@ -124,8 +171,9 @@ fn main() -> anyhow::Result<()> {
 ### Single-Camera Hand-Eye Calibration
 
 ```rust,no_run
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
+    SingleCamHandeyeProblem,
     SingleCamHandeyeInput, SingleCamHandeyeView, HandeyeMeta,
     step_intrinsics_init, step_intrinsics_optimize,
     step_handeye_init, step_handeye_optimize,

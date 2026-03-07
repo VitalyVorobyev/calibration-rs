@@ -21,6 +21,7 @@ use super::state::SingleCamHandeyeState;
 /// `base_se3_gripper` is the gripper pose expressed in the base frame (T_B_G).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandeyeMeta {
+    /// Gripper pose expressed in base frame (`T_B_G`) for this view.
     pub base_se3_gripper: Iso3,
 }
 
@@ -60,6 +61,7 @@ impl SingleCamHandeyeInput {
 
 /// Configuration for single-camera hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SingleCamHandeyeConfig {
     // ─────────────────────────────────────────────────────────────────────────
     // Intrinsics initialization options
@@ -139,6 +141,7 @@ impl Default for SingleCamHandeyeConfig {
 
 /// Export format for single-camera hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SingleCamHandeyeExport {
     /// Calibrated camera (intrinsics + distortion).
     pub camera: PinholeCamera,

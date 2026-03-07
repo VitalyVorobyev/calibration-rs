@@ -137,7 +137,7 @@ run_calibration(&mut session, None)?;
 let export = session.export()?;
 println!("Plane normal: {:?}", export.estimate.params.plane.normal);
 println!("Plane distance: {:.4}", export.estimate.params.plane.distance);
-println!("Reprojection error: {:.4} px", export.stats.mean_reproj_error);
+println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 println!("Laser error: {:.4}", export.stats.mean_laser_error);
 ```
 

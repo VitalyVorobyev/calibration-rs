@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-07
+
+### Added
+- New high-level Scheimpflug intrinsics workflow:
+  - Rust API: `vision_calibration::scheimpflug_intrinsics::run_calibration`
+  - Python API: `vision_calibration.run_scheimpflug_intrinsics`
+- Typed Python camera/result payload models for high-level workflows (planar, hand-eye, rig, laserline, Scheimpflug)
+- Synthetic integration tests for Scheimpflug calibration in `vision-calibration`
+- Facade API compile-surface integration tests to catch accidental public API regressions
+- Session schema metadata validation tests for JSON session compatibility checks
+
+### Changed
+- Enforced workspace layering by moving Scheimpflug solver implementation to `vision-calibration-pipeline` and keeping `vision-calibration` as facade re-export
+- Hardened facade/API contracts:
+  - `#[non_exhaustive]` added to public config/export/error structs and enums
+  - `vision-calibration` now enforces `#![deny(missing_docs)]`
+  - Session import now rejects schema metadata mismatches with explicit errors
+- Expanded rustdoc/book/readme coverage with updated workflow usage snippets
+- CI and release hardening:
+  - `cargo clippy` now runs with `--all-features`
+  - `cargo test` now runs with `--all-features`
+  - Python extension build + runtime tests are part of CI/release checks
+- Python high-level bindings are now typed-first end-to-end:
+  - top-level `run_*` APIs require typed dataset/config dataclasses
+  - dict/list compatibility paths moved to explicit low-level raw helpers in `vision_calibration._api`
+  - `vision_calibration.types` reduced to low-level compatibility surface
+
+### Breaking
+- Minor release bump to `0.2.0` due public API contract hardening and Python binding migration
+- Python high-level runners are typed-only and no longer accept raw mapping/list payloads
+- Dict-based high-level result access patterns (`camera`/`cameras`/`estimate`/`stats`/`raw` as mappings) were replaced by typed model fields
+- Several low-level type aliases are no longer re-exported at the top-level Python package; import from `vision_calibration.types` only when using low-level compatibility APIs
+
 ## [0.1.2]
 
 ### Added

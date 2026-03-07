@@ -2,6 +2,11 @@
 
 These aliases/TypedDicts model the raw Rust JSON payload schema. Most users
 should use dataclasses from :mod:`vision_calibration.models` instead.
+
+Warning
+-------
+This module is compatibility-oriented low-level surface. It is not the
+recommended high-level API for new code.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ Se3Delta: TypeAlias = tuple[float, float, float, float, float, float] | list[flo
 
 HandEyeMode: TypeAlias = Literal["EyeInHand", "EyeToHand"]
 LaserlineResidualType: TypeAlias = Literal["PointToPlane", "LineDistNormalized"]
+ScheimpflugFixMask: TypeAlias = JsonObject
 
 
 class _RobustLossScale(TypedDict):
@@ -59,6 +65,7 @@ SingleCamHandeyeInput: TypeAlias = JsonObject
 RigExtrinsicsInput: TypeAlias = JsonObject
 RigHandeyeInput: TypeAlias = JsonObject
 LaserlineDeviceInput: TypeAlias = JsonObject
+ScheimpflugIntrinsicsInput: TypeAlias = JsonObject
 
 
 class SolveReport(TypedDict):
@@ -70,10 +77,11 @@ class PlanarIntrinsicsParams(TypedDict):
     camera_se3_target: list[Transform]
 
 
-class PlanarExport(TypedDict):
+class PlanarIntrinsicsExport(TypedDict):
     params: PlanarIntrinsicsParams
     report: SolveReport
     mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
 
 
 class SingleCamHandeyeExport(TypedDict):
@@ -131,9 +139,23 @@ class LaserlineStats(TypedDict):
 class LaserlineDeviceExport(TypedDict):
     estimate: LaserlineEstimate
     stats: LaserlineStats
+    mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
 
 
-class PlanarConfig(TypedDict, total=False):
+class ScheimpflugIntrinsicsParams(TypedDict):
+    camera: CameraModel
+    camera_se3_target: list[Transform]
+
+
+class ScheimpflugIntrinsicsExport(TypedDict):
+    params: ScheimpflugIntrinsicsParams
+    report: SolveReport
+    mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
+
+
+class PlanarIntrinsicsConfig(TypedDict, total=False):
     init_iterations: int
     fix_k3_in_init: bool
     fix_tangential_in_init: bool
@@ -244,3 +266,16 @@ class LaserlineDeviceConfig(TypedDict, total=False):
     init: LaserlineDeviceInitConfig
     solver: LaserlineDeviceSolverConfig
     optimize: LaserlineDeviceOptimizeConfig
+
+
+class ScheimpflugIntrinsicsConfig(TypedDict, total=False):
+    init_iterations: int
+    fix_k3_in_init: bool
+    zero_skew: bool
+    max_iters: int
+    verbosity: int
+    robust_loss: RobustLoss
+    fix_intrinsics: JsonObject
+    fix_distortion: JsonObject
+    fix_scheimpflug: ScheimpflugFixMask
+    fix_first_pose: bool

@@ -65,6 +65,6 @@ pub use problem::{
 };
 pub use state::RigExtrinsicsState;
 pub use steps::{
-    IntrinsicsInitOptions, IntrinsicsOptimOptions, RigOptimOptions, run_calibration,
+    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigOptimizeOptions, run_calibration,
     step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
 };

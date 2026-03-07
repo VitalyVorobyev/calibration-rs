@@ -2,6 +2,7 @@
 //!
 //! This crate provides a unified API for camera calibration workflows:
 //! - Single-camera intrinsics calibration (Zhang's method with distortion)
+//! - Single-camera intrinsics calibration with Scheimpflug tilt
 //! - Single-camera hand-eye calibration (camera on robot arm)
 //! - Multi-camera rig extrinsics calibration
 //! - Multi-camera rig + hand-eye calibration
@@ -41,6 +42,7 @@
 //! - [`rig_extrinsics`] - Multi-camera rig extrinsics
 //! - [`rig_handeye`] - Multi-camera rig + hand-eye
 //! - [`laserline_device`] - Single camera + laser plane device
+//! - [`scheimpflug_intrinsics`] - Single-camera planar intrinsics with Scheimpflug tilt
 //!
 //! ## Foundation Crates (Advanced Users)
 //!
@@ -71,6 +73,22 @@
 //! | [`RigExtrinsicsProblem`](rig_extrinsics) | `RigExtrinsicsInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
 //! | [`RigHandeyeProblem`](rig_handeye) | `RigHandeyeInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` → `step_handeye_init` → `step_handeye_optimize` |
 //! | [`LaserlineDeviceProblem`](laserline_device) | `LaserlineDeviceInput` | `step_init` → `step_optimize` |
+//! | [`ScheimpflugIntrinsicsProblem`](scheimpflug_intrinsics) | `PlanarDataset` | `step_init` → `step_optimize` |
+
+#![deny(missing_docs)]
+
+/// Single-camera planar intrinsics with Scheimpflug/tilted sensor refinement.
+///
+/// This high-level helper mirrors planar intrinsics calibration, but optimizes a
+/// Brown-Conrady camera together with two Scheimpflug tilt parameters.
+pub mod scheimpflug_intrinsics {
+    pub use vision_calibration_pipeline::scheimpflug_intrinsics::{
+        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, ScheimpflugFixMask,
+        ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsExport, ScheimpflugIntrinsicsInput,
+        ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult,
+        ScheimpflugIntrinsicsState, run_calibration, step_init, step_optimize,
+    };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Session Framework
@@ -115,13 +133,13 @@ pub mod planar_intrinsics {
     pub use vision_calibration_pipeline::planar_intrinsics::{
         // Step options
         FilterOptions,
-        InitOptions,
-        OptimizeOptions,
+        IntrinsicsInitOptions,
+        IntrinsicsOptimizeOptions,
         // Problem type and config
-        PlanarConfig,
-        PlanarExport,
+        PlanarIntrinsicsConfig,
         // Re-exports from vision-calibration-optim
         PlanarIntrinsicsEstimate,
+        PlanarIntrinsicsExport,
         PlanarIntrinsicsParams,
         PlanarIntrinsicsProblem,
         PlanarIntrinsicsSolveOptions,
@@ -150,7 +168,9 @@ pub mod planar_intrinsics {
 /// # fn main() -> anyhow::Result<()> {
 /// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
-/// use vision_calibration::single_cam_handeye::{run_calibration, SingleCamHandeyeInput};
+/// use vision_calibration::single_cam_handeye::{
+///     run_calibration, SingleCamHandeyeInput, SingleCamHandeyeProblem
+/// };
 ///
 /// let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 /// session.set_input(input)?;
@@ -165,9 +185,9 @@ pub mod single_cam_handeye {
         HandeyeInitOptions,
         // Problem type and config
         HandeyeMeta,
-        HandeyeOptimOptions,
+        HandeyeOptimizeOptions,
         IntrinsicsInitOptions,
-        IntrinsicsOptimOptions,
+        IntrinsicsOptimizeOptions,
         SingleCamHandeyeConfig,
         SingleCamHandeyeExport,
         SingleCamHandeyeInput,
@@ -194,7 +214,9 @@ pub mod single_cam_handeye {
 /// # fn main() -> anyhow::Result<()> {
 /// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
-/// use vision_calibration::laserline_device::{run_calibration, LaserlineDeviceInput};
+/// use vision_calibration::laserline_device::{
+///     run_calibration, LaserlineDeviceInput, LaserlineDeviceProblem
+/// };
 ///
 /// let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
 /// session.set_input(input)?;
@@ -205,10 +227,10 @@ pub mod single_cam_handeye {
 /// ```
 pub mod laserline_device {
     pub use vision_calibration_pipeline::laserline_device::{
-        InitOptions, LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInitConfig,
-        LaserlineDeviceInput, LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput,
-        LaserlineDeviceProblem, LaserlineDeviceSolverConfig, LaserlineDeviceState, OptimizeOptions,
-        run_calibration, step_init, step_optimize,
+        DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceConfig, LaserlineDeviceExport,
+        LaserlineDeviceInitConfig, LaserlineDeviceInput, LaserlineDeviceOptimizeConfig,
+        LaserlineDeviceOutput, LaserlineDeviceProblem, LaserlineDeviceSolverConfig,
+        LaserlineDeviceState, run_calibration, step_init, step_optimize,
     };
 }
 
@@ -228,7 +250,9 @@ pub mod laserline_device {
 /// # fn main() -> anyhow::Result<()> {
 /// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
-/// use vision_calibration::rig_extrinsics::{run_calibration, RigExtrinsicsInput};
+/// use vision_calibration::rig_extrinsics::{
+///     run_calibration, RigExtrinsicsInput, RigExtrinsicsProblem
+/// };
 ///
 /// let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 /// session.set_input(input)?;
@@ -241,14 +265,14 @@ pub mod rig_extrinsics {
     pub use vision_calibration_pipeline::rig_extrinsics::{
         // Step options
         IntrinsicsInitOptions,
-        IntrinsicsOptimOptions,
+        IntrinsicsOptimizeOptions,
         // Problem type and config
         RigExtrinsicsConfig,
         RigExtrinsicsExport,
         RigExtrinsicsInput,
         RigExtrinsicsProblem,
         RigExtrinsicsState,
-        RigOptimOptions,
+        RigOptimizeOptions,
         // Step functions
         run_calibration,
         step_intrinsics_init_all,
@@ -276,7 +300,7 @@ pub mod rig_extrinsics {
 /// # fn main() -> anyhow::Result<()> {
 /// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
-/// use vision_calibration::rig_handeye::{run_calibration, RigHandeyeInput};
+/// use vision_calibration::rig_handeye::{run_calibration, RigHandeyeInput, RigHandeyeProblem};
 ///
 /// let mut session = CalibrationSession::<RigHandeyeProblem>::new();
 /// session.set_input(input)?;
@@ -289,9 +313,9 @@ pub mod rig_handeye {
     pub use vision_calibration_pipeline::rig_handeye::{
         // Step options
         HandeyeInitOptions,
-        HandeyeOptimOptions,
+        HandeyeOptimizeOptions,
         IntrinsicsInitOptions,
-        IntrinsicsOptimOptions,
+        IntrinsicsOptimizeOptions,
         // Problem type and config
         RigHandeyeBaConfig,
         RigHandeyeConfig,
@@ -303,7 +327,7 @@ pub mod rig_handeye {
         RigHandeyeRigConfig,
         RigHandeyeSolverConfig,
         RigHandeyeState,
-        RigOptimOptions,
+        RigOptimizeOptions,
         // Step functions
         run_calibration,
         step_handeye_init,
@@ -321,9 +345,15 @@ pub mod rig_handeye {
 
 /// Core math types, camera models, and RANSAC primitives.
 ///
-/// Re-exports everything from `vision_calibration_core`.
+/// Re-exports selected foundational types from `vision_calibration_core`.
 pub mod core {
-    pub use vision_calibration_core::*;
+    pub use vision_calibration_core::{
+        BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionFixMask,
+        DistortionParams, FxFyCxCySkew, IdentitySensor, IntrinsicsFixMask, IntrinsicsParams, Iso3,
+        NoMeta, Pinhole, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3, Real,
+        ReprojectionStats, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorModel,
+        SensorParams, Vec2, Vec3, View, make_pinhole_camera, pinhole_camera_params,
+    };
 }
 
 /// Closed-form initialization algorithms.
@@ -353,52 +383,27 @@ pub mod synthetic {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Hand-Eye Calibration Types (Direct Access)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Hand-eye calibration types re-exported from vision-calibration-optim.
-///
-/// Use this module for direct access to hand-eye optimization without
-/// the session framework.
-pub mod handeye {
-    pub use vision_calibration_optim::{
-        HandEyeDataset, HandEyeEstimate, HandEyeParams, HandEyeSolveOptions, RigViewObs,
-        RobotPoseMeta, View, optimize_handeye,
-    };
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // Prelude (Quick Start)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Convenient re-exports for common use cases.
+/// Minimal re-exports for planar "hello world" calibration.
 ///
 /// ```no_run
 /// use vision_calibration::prelude::*;
 /// ```
 pub mod prelude {
-    // Session framework
-    pub use vision_calibration_pipeline::{CalibrationSession, ProblemType};
+    /// Session framework for calibration workflows.
+    pub use vision_calibration_pipeline::session::CalibrationSession;
 
-    // Problem types
-    pub use vision_calibration_pipeline::{
-        LaserlineDeviceProblem, PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem,
-        SingleCamHandeyeProblem,
-    };
+    /// Planar intrinsics problem type for hello-world calibration.
+    pub use vision_calibration_pipeline::planar_intrinsics::PlanarIntrinsicsProblem;
 
-    // Pipeline functions
-    pub use vision_calibration_pipeline::{
-        run_laserline_device, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
-        run_single_cam_handeye,
-    };
+    /// Convenience planar calibration runner.
+    pub use vision_calibration_pipeline::planar_intrinsics::run_calibration as run_planar_intrinsics;
 
-    // Core types
+    /// Core geometry and dataset types used in minimal planar workflows.
     pub use vision_calibration_core::{
-        BrownConrady5, Camera, CameraParams, CorrespondenceView, FxFyCxCySkew, IdentitySensor,
-        Iso3, NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2, Pt3, RigDataset, Vec2, Vec3,
-        View,
+        BrownConrady5, CorrespondenceView, FxFyCxCySkew, PlanarDataset, Pt2, Pt3, View,
+        make_pinhole_camera,
     };
-
-    // Common options
-    pub use vision_calibration_optim::{BackendSolveOptions, HandEyeMode, RobustLoss};
 }

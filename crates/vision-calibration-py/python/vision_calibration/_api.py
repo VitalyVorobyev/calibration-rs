@@ -1,13 +1,15 @@
 """High-level Python wrappers around the Rust extension.
 
-The public API accepts Python dataclasses from :mod:`vision_calibration.models`
-and returns result dataclasses. Raw serde mappings are still accepted for
-advanced/interop use.
+Public runner functions accept typed dataclasses from :mod:`vision_calibration.models`
+and return typed result dataclasses.
+
+Low-level raw helpers (prefixed with ``_run_*_raw``) are kept for interop paths
+that need direct serde payload control.
 """
 
 from __future__ import annotations
 
-from typing import Any, Mapping, cast
+from typing import Any, Mapping, TypeVar, cast
 
 from . import _vision_calibration as _native
 from .models import (
@@ -23,247 +25,189 @@ from .models import (
     RigHandeyeCalibrationConfig,
     RigHandeyeDataset,
     RigHandeyeResult,
+    ScheimpflugIntrinsicsCalibrationConfig,
+    ScheimpflugIntrinsicsResult,
     SingleCamHandeyeCalibrationConfig,
     SingleCamHandeyeDataset,
     SingleCamHandeyeResult,
-    normalize_input_payload,
 )
-from .types import (
-    RobustLoss,
-)
+from .types import RobustLoss
+
+_T = TypeVar("_T")
 
 
 def robust_none() -> RobustLoss:
-    """Build a serde-compatible "no robust loss" value.
-
-    Returns
-    -------
-    RobustLoss
-        Literal ``"None"`` accepted by Rust `RobustLoss`.
-    """
+    """Build a serde-compatible "no robust loss" value."""
     return "None"
 
 
 def robust_huber(scale: float) -> RobustLoss:
-    """Build a serde-compatible Huber robust loss payload.
-
-    Parameters
-    ----------
-    scale:
-        Positive scale parameter for the Huber kernel.
-    """
+    """Build a serde-compatible Huber robust loss payload."""
     return {"Huber": {"scale": float(scale)}}
 
 
 def robust_cauchy(scale: float) -> RobustLoss:
-    """Build a serde-compatible Cauchy robust loss payload.
-
-    Parameters
-    ----------
-    scale:
-        Positive scale parameter for the Cauchy kernel.
-    """
+    """Build a serde-compatible Cauchy robust loss payload."""
     return {"Cauchy": {"scale": float(scale)}}
 
 
 def robust_arctan(scale: float) -> RobustLoss:
-    """Build a serde-compatible Arctan robust loss payload.
-
-    Parameters
-    ----------
-    scale:
-        Positive scale parameter for the Arctan kernel.
-    """
+    """Build a serde-compatible Arctan robust loss payload."""
     return {"Arctan": {"scale": float(scale)}}
 
 
-def _normalize_planar_config(
-    config: PlanarCalibrationConfig | Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
-    if config is None:
+def _ensure_type(value: Any, expected_type: type[_T], name: str) -> _T:
+    if not isinstance(value, expected_type):
+        raise TypeError(
+            f"{name} must be {expected_type.__name__}, got {type(value).__name__}"
+        )
+    return value
+
+
+def _ensure_optional_type(
+    value: Any,
+    expected_type: type[_T],
+    name: str,
+) -> _T | None:
+    if value is None:
         return None
-    if isinstance(config, PlanarCalibrationConfig):
-        return config.to_payload()
-    return PlanarCalibrationConfig.from_mapping(config).to_payload()
+    return _ensure_type(value, expected_type, name)
 
 
-def _normalize_single_handeye_config(
-    config: SingleCamHandeyeCalibrationConfig | Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
-    if config is None:
-        return None
-    if isinstance(config, SingleCamHandeyeCalibrationConfig):
-        return config.to_payload()
-    return SingleCamHandeyeCalibrationConfig.from_mapping(config).to_payload()
+# ─────────────────────────────────────────────────────────────────────────────
+# Low-level raw helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-def _normalize_rig_extrinsics_config(
-    config: RigExtrinsicsCalibrationConfig | Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
-    if config is None:
-        return None
-    if isinstance(config, RigExtrinsicsCalibrationConfig):
-        return config.to_payload()
-    return RigExtrinsicsCalibrationConfig.from_mapping(config).to_payload()
-
-
-def _normalize_rig_handeye_config(
-    config: RigHandeyeCalibrationConfig | Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
-    if config is None:
-        return None
-    if isinstance(config, RigHandeyeCalibrationConfig):
-        return config.to_payload()
-    return RigHandeyeCalibrationConfig.from_mapping(config).to_payload()
-
-
-def _normalize_laserline_config(
-    config: LaserlineDeviceCalibrationConfig | Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
-    if config is None:
-        return None
-    if isinstance(config, LaserlineDeviceCalibrationConfig):
-        return config.to_payload()
-    return LaserlineDeviceCalibrationConfig.from_mapping(config).to_payload()
-
-
-def run_planar_intrinsics(
-    input: PlanarDataset | Mapping[str, Any],
-    config: PlanarCalibrationConfig | Mapping[str, Any] | None = None,
+def _run_planar_intrinsics_raw(
+    input_payload: Mapping[str, Any],
+    config_payload: Mapping[str, Any] | None = None,
 ) -> PlanarCalibrationResult:
-    """Run planar intrinsics calibration.
-
-    Parameters
-    ----------
-    input:
-        Planar dataset.
-        Preferred type: :class:`vision_calibration.models.PlanarDataset`.
-        Raw serde mapping is also accepted.
-    config:
-        Calibration config.
-        Preferred type: :class:`vision_calibration.models.PlanarCalibrationConfig`.
-        If omitted, Rust defaults are used.
-        Raw serde mapping is also accepted.
-
-    Returns
-    -------
-    PlanarCalibrationResult
-        Python result object with `camera`, `camera_se3_target`, cost, and
-        reprojection metrics.
-    """
-    payload = normalize_input_payload(input)
-    cfg = _normalize_planar_config(config)
-    raw = cast(dict[str, Any], _native.run_planar_intrinsics(payload, cfg))
+    raw = cast(dict[str, Any], _native.run_planar_intrinsics(input_payload, config_payload))
     return PlanarCalibrationResult.from_payload(raw)
 
 
-def run_single_cam_handeye(
-    input: SingleCamHandeyeDataset | Mapping[str, Any],
-    config: SingleCamHandeyeCalibrationConfig | Mapping[str, Any] | None = None,
+def _run_single_cam_handeye_raw(
+    input_payload: Mapping[str, Any],
+    config_payload: Mapping[str, Any] | None = None,
 ) -> SingleCamHandeyeResult:
-    """Run single-camera hand-eye calibration.
-
-    Parameters
-    ----------
-    input:
-        Single-camera hand-eye dataset.
-        Preferred type: :class:`vision_calibration.models.SingleCamHandeyeDataset`.
-        Raw serde mapping is also accepted.
-    config:
-        Calibration config.
-        Preferred type: :class:`vision_calibration.models.SingleCamHandeyeCalibrationConfig`.
-        If omitted, Rust defaults are used.
-
-    Returns
-    -------
-    SingleCamHandeyeResult
-        Mode-explicit hand-eye transforms and reprojection statistics.
-    """
-    payload = normalize_input_payload(input)
-    cfg = _normalize_single_handeye_config(config)
-    raw = cast(dict[str, Any], _native.run_single_cam_handeye(payload, cfg))
+    raw = cast(dict[str, Any], _native.run_single_cam_handeye(input_payload, config_payload))
     return SingleCamHandeyeResult.from_payload(raw)
 
 
-def run_rig_extrinsics(
-    input: RigExtrinsicsDataset | Mapping[str, Any],
-    config: RigExtrinsicsCalibrationConfig | Mapping[str, Any] | None = None,
+def _run_rig_extrinsics_raw(
+    input_payload: Mapping[str, Any],
+    config_payload: Mapping[str, Any] | None = None,
 ) -> RigExtrinsicsResult:
-    """Run multi-camera rig extrinsics calibration.
-
-    Parameters
-    ----------
-    input:
-        Rig extrinsics dataset.
-        Preferred type: :class:`vision_calibration.models.RigExtrinsicsDataset`.
-        Raw serde mapping is also accepted.
-    config:
-        Calibration config.
-        Preferred type: :class:`vision_calibration.models.RigExtrinsicsCalibrationConfig`.
-        If omitted, Rust defaults are used.
-
-    Returns
-    -------
-    RigExtrinsicsResult
-        Per-camera intrinsics/extrinsics and reprojection statistics.
-    """
-    payload = normalize_input_payload(input)
-    cfg = _normalize_rig_extrinsics_config(config)
-    raw = cast(dict[str, Any], _native.run_rig_extrinsics(payload, cfg))
+    raw = cast(dict[str, Any], _native.run_rig_extrinsics(input_payload, config_payload))
     return RigExtrinsicsResult.from_payload(raw)
 
 
-def run_rig_handeye(
-    input: RigHandeyeDataset | Mapping[str, Any],
-    config: RigHandeyeCalibrationConfig | Mapping[str, Any] | None = None,
+def _run_rig_handeye_raw(
+    input_payload: Mapping[str, Any],
+    config_payload: Mapping[str, Any] | None = None,
 ) -> RigHandeyeResult:
-    """Run multi-camera rig hand-eye calibration.
-
-    Parameters
-    ----------
-    input:
-        Rig hand-eye dataset.
-        Preferred type: :class:`vision_calibration.models.RigHandeyeDataset`.
-        Raw serde mapping is also accepted.
-    config:
-        Calibration config.
-        Preferred type: :class:`vision_calibration.models.RigHandeyeCalibrationConfig`.
-        If omitted, Rust defaults are used.
-
-    Returns
-    -------
-    RigHandeyeResult
-        Mode-explicit hand-eye transforms plus rig and reprojection outputs.
-    """
-    payload = normalize_input_payload(input)
-    cfg = _normalize_rig_handeye_config(config)
-    raw = cast(dict[str, Any], _native.run_rig_handeye(payload, cfg))
+    raw = cast(dict[str, Any], _native.run_rig_handeye(input_payload, config_payload))
     return RigHandeyeResult.from_payload(raw)
 
 
-def run_laserline_device(
-    input: LaserlineDataset | list[dict[str, Any]],
-    config: LaserlineDeviceCalibrationConfig | Mapping[str, Any] | None = None,
+def _run_laserline_device_raw(
+    input_payload: list[dict[str, Any]],
+    config_payload: Mapping[str, Any] | None = None,
 ) -> LaserlineDeviceResult:
-    """Run single-camera laserline-device calibration.
-
-    Parameters
-    ----------
-    input:
-        Laserline dataset.
-        Preferred type: :class:`vision_calibration.models.LaserlineDataset`.
-        Raw serde list is also accepted.
-    config:
-        Calibration config.
-        Preferred type: :class:`vision_calibration.models.LaserlineDeviceCalibrationConfig`.
-        If omitted, Rust defaults are used.
-
-    Returns
-    -------
-    LaserlineDeviceResult
-        Joint camera+laser estimate and residual statistics.
-    """
-    payload = normalize_input_payload(input)
-    cfg = _normalize_laserline_config(config)
-    raw = cast(dict[str, Any], _native.run_laserline_device(payload, cfg))
+    raw = cast(dict[str, Any], _native.run_laserline_device(input_payload, config_payload))
     return LaserlineDeviceResult.from_payload(raw)
+
+
+def _run_scheimpflug_intrinsics_raw(
+    input_payload: Mapping[str, Any],
+    config_payload: Mapping[str, Any] | None = None,
+) -> ScheimpflugIntrinsicsResult:
+    raw = cast(
+        dict[str, Any],
+        _native.run_scheimpflug_intrinsics(input_payload, config_payload),
+    )
+    return ScheimpflugIntrinsicsResult.from_payload(raw)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# High-level typed API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def run_planar_intrinsics(
+    input: PlanarDataset,
+    config: PlanarCalibrationConfig | None = None,
+) -> PlanarCalibrationResult:
+    """Run planar intrinsics calibration with typed input/config objects."""
+    dataset = _ensure_type(input, PlanarDataset, "input")
+    cfg = _ensure_optional_type(config, PlanarCalibrationConfig, "config")
+    return _run_planar_intrinsics_raw(
+        dataset.to_payload(),
+        None if cfg is None else cfg.to_payload(),
+    )
+
+
+def run_single_cam_handeye(
+    input: SingleCamHandeyeDataset,
+    config: SingleCamHandeyeCalibrationConfig | None = None,
+) -> SingleCamHandeyeResult:
+    """Run single-camera hand-eye calibration with typed input/config objects."""
+    dataset = _ensure_type(input, SingleCamHandeyeDataset, "input")
+    cfg = _ensure_optional_type(config, SingleCamHandeyeCalibrationConfig, "config")
+    return _run_single_cam_handeye_raw(
+        dataset.to_payload(),
+        None if cfg is None else cfg.to_payload(),
+    )
+
+
+def run_rig_extrinsics(
+    input: RigExtrinsicsDataset,
+    config: RigExtrinsicsCalibrationConfig | None = None,
+) -> RigExtrinsicsResult:
+    """Run rig extrinsics calibration with typed input/config objects."""
+    dataset = _ensure_type(input, RigExtrinsicsDataset, "input")
+    cfg = _ensure_optional_type(config, RigExtrinsicsCalibrationConfig, "config")
+    return _run_rig_extrinsics_raw(
+        dataset.to_payload(),
+        None if cfg is None else cfg.to_payload(),
+    )
+
+
+def run_rig_handeye(
+    input: RigHandeyeDataset,
+    config: RigHandeyeCalibrationConfig | None = None,
+) -> RigHandeyeResult:
+    """Run rig hand-eye calibration with typed input/config objects."""
+    dataset = _ensure_type(input, RigHandeyeDataset, "input")
+    cfg = _ensure_optional_type(config, RigHandeyeCalibrationConfig, "config")
+    return _run_rig_handeye_raw(
+        dataset.to_payload(),
+        None if cfg is None else cfg.to_payload(),
+    )
+
+
+def run_laserline_device(
+    input: LaserlineDataset,
+    config: LaserlineDeviceCalibrationConfig | None = None,
+) -> LaserlineDeviceResult:
+    """Run laserline-device calibration with typed input/config objects."""
+    dataset = _ensure_type(input, LaserlineDataset, "input")
+    cfg = _ensure_optional_type(config, LaserlineDeviceCalibrationConfig, "config")
+    return _run_laserline_device_raw(
+        dataset.to_payload(),
+        None if cfg is None else cfg.to_payload(),
+    )
+
+
+def run_scheimpflug_intrinsics(
+    input: PlanarDataset,
+    config: ScheimpflugIntrinsicsCalibrationConfig | None = None,
+) -> ScheimpflugIntrinsicsResult:
+    """Run Scheimpflug intrinsics calibration with typed input/config objects."""
+    dataset = _ensure_type(input, PlanarDataset, "input")
+    cfg = _ensure_optional_type(config, ScheimpflugIntrinsicsCalibrationConfig, "config")
+    return _run_scheimpflug_intrinsics_raw(
+        dataset.to_payload(),
+        None if cfg is None else cfg.to_payload(),
+    )

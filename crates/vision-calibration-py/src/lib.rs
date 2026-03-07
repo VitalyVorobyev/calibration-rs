@@ -74,7 +74,7 @@ where
 /// input:
 ///     Planar dataset payload (serde-compatible with `PlanarDataset`).
 /// config:
-///     Optional planar configuration payload (serde-compatible with `PlanarConfig`).
+///     Optional planar configuration payload (serde-compatible with `PlanarIntrinsicsConfig`).
 ///
 /// Returns
 /// -------
@@ -202,6 +202,33 @@ fn run_laserline_device(
     )
 }
 
+/// Run planar Scheimpflug intrinsics calibration.
+///
+/// Parameters
+/// ----------
+/// input:
+///     Planar dataset payload (serde-compatible with `PlanarDataset`).
+/// config:
+///     Optional Scheimpflug intrinsics config payload.
+///
+/// Returns
+/// -------
+/// dict
+///     Scheimpflug intrinsics export payload.
+#[pyfunction(signature = (input, config=None))]
+fn run_scheimpflug_intrinsics(
+    py: Python<'_>,
+    input: &Bound<'_, PyAny>,
+    config: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    run_problem::<vision_calibration::scheimpflug_intrinsics::ScheimpflugIntrinsicsProblem, _>(
+        py,
+        input,
+        config,
+        |session| vision_calibration::scheimpflug_intrinsics::run_calibration(session, None),
+    )
+}
+
 /// Return the Rust library version embedded in the extension module.
 #[pyfunction]
 fn library_version() -> &'static str {
@@ -215,6 +242,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_rig_extrinsics, m)?)?;
     m.add_function(wrap_pyfunction!(run_rig_handeye, m)?)?;
     m.add_function(wrap_pyfunction!(run_laserline_device, m)?)?;
+    m.add_function(wrap_pyfunction!(run_scheimpflug_intrinsics, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     Ok(())
 }

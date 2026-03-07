@@ -23,14 +23,14 @@ use super::problem::{LaserlineDeviceConfig, LaserlineDeviceOutput, LaserlineDevi
 
 /// Options for the initialization step.
 #[derive(Debug, Clone, Default)]
-pub struct InitOptions {
+pub struct DeviceInitOptions {
     /// Override the number of iterations for iterative intrinsics estimation.
     pub iterations: Option<usize>,
 }
 
 /// Options for the optimization step.
 #[derive(Debug, Clone, Default)]
-pub struct OptimizeOptions {
+pub struct DeviceOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
     /// Override verbosity level.
@@ -127,7 +127,7 @@ fn update_state_with_stats(
 /// Initialize intrinsics, poses, and laser plane from observations.
 pub fn step_init(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
-    opts: Option<InitOptions>,
+    opts: Option<DeviceInitOptions>,
 ) -> Result<()> {
     session.validate()?;
     let input = session.require_input()?;
@@ -170,7 +170,7 @@ pub fn step_init(
 /// Optimize laserline calibration using non-linear bundle adjustment.
 pub fn step_optimize(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
-    opts: Option<OptimizeOptions>,
+    opts: Option<DeviceOptimizeOptions>,
 ) -> Result<()> {
     session.validate()?;
     let input = session.require_input()?;

@@ -62,6 +62,9 @@ impl CorrespondenceView {
         })
     }
 
+    /// Return planar target coordinates `(x, y)` extracted from `points_3d`.
+    ///
+    /// This is commonly used for planar homography/intrinsics initialization.
     pub fn planar_points(&self) -> Vec<Pt2> {
         self.points_3d
             .iter()

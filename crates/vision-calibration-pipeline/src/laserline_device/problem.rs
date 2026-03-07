@@ -22,6 +22,7 @@ pub type LaserlineDeviceInput = LaserlineDataset;
 
 /// Configuration for laserline device calibration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceConfig {
     /// Initialization options.
     pub init: LaserlineDeviceInitConfig,
@@ -33,6 +34,7 @@ pub struct LaserlineDeviceConfig {
 
 /// Initialization options for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceInitConfig {
     /// Number of iterations for iterative intrinsics estimation.
     pub iterations: usize,
@@ -60,6 +62,7 @@ impl Default for LaserlineDeviceInitConfig {
 
 /// Shared solver options for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceSolverConfig {
     /// Maximum iterations for the optimizer.
     pub max_iters: usize,
@@ -78,6 +81,7 @@ impl Default for LaserlineDeviceSolverConfig {
 
 /// Bundle-adjustment options for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceOptimizeConfig {
     /// Robust loss for calibration reprojection residuals.
     pub calib_loss: vision_calibration_optim::RobustLoss,
@@ -165,12 +169,25 @@ impl LaserlineDeviceConfig {
 /// Pipeline output including optimized parameters and summary statistics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserlineDeviceOutput {
+    /// Optimized camera/laser parameters and backend report.
     pub estimate: LaserlineEstimate,
+    /// Aggregated reprojection and laser residual statistics.
     pub stats: LaserlineStats,
 }
 
 /// Export type for laserline device calibration.
-pub type LaserlineDeviceExport = LaserlineDeviceOutput;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct LaserlineDeviceExport {
+    /// Pipeline output including optimized parameters and summary statistics.
+    pub estimate: LaserlineEstimate,
+    /// Laserline statistics payload.
+    pub stats: LaserlineStats,
+    /// Mean reprojection error (pixels).
+    pub mean_reproj_error: f64,
+    /// Per-camera reprojection errors (single element for single-camera workflows).
+    pub per_cam_reproj_errors: Vec<f64>,
+}
 
 impl ProblemType for LaserlineDeviceProblem {
     type Config = LaserlineDeviceConfig;
@@ -227,6 +244,11 @@ impl ProblemType for LaserlineDeviceProblem {
     }
 
     fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
-        Ok(output.clone())
+        Ok(LaserlineDeviceExport {
+            estimate: output.estimate.clone(),
+            stats: output.stats.clone(),
+            mean_reproj_error: output.stats.mean_reproj_error,
+            per_cam_reproj_errors: vec![output.stats.mean_reproj_error],
+        })
     }
 }

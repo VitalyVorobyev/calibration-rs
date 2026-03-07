@@ -103,15 +103,22 @@ impl FixedMask {
 /// by using one residual block per observation.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum RobustLoss {
+    /// No robustification (plain squared residual).
     #[default]
     None,
+    /// Huber loss with transition scale.
     Huber {
+        /// Scale parameter controlling quadratic-to-linear transition.
         scale: f64,
     },
+    /// Cauchy loss with scale parameter.
     Cauchy {
+        /// Scale parameter controlling outlier down-weighting.
         scale: f64,
     },
+    /// Arctangent loss with bounded influence.
     Arctan {
+        /// Scale parameter controlling curvature.
         scale: f64,
     },
 }
@@ -137,25 +144,58 @@ pub enum HandEyeMode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FactorKind {
     /// Reprojection residual for a pinhole camera with 4 intrinsics and an SE3 pose.
-    ReprojPointPinhole4 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    ReprojPointPinhole4 {
+        /// World/target point coordinates.
+        pw: [f64; 3],
+        /// Observed pixel coordinates.
+        uv: [f64; 2],
+        /// Residual weight.
+        w: f64,
+    },
     /// Reprojection residual with pinhole intrinsics, Brown-Conrady distortion, and SE3 pose.
-    ReprojPointPinhole4Dist5 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    ReprojPointPinhole4Dist5 {
+        /// World/target point coordinates.
+        pw: [f64; 3],
+        /// Observed pixel coordinates.
+        uv: [f64; 2],
+        /// Residual weight.
+        w: f64,
+    },
     /// Reprojection with pinhole, distortion, Scheimpflug sensor, and SE3 pose.
-    ReprojPointPinhole4Dist5Scheimpflug2 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    ReprojPointPinhole4Dist5Scheimpflug2 {
+        /// World/target point coordinates.
+        pw: [f64; 3],
+        /// Observed pixel coordinates.
+        uv: [f64; 2],
+        /// Residual weight.
+        w: f64,
+    },
     /// Reprojection with two composed SE3 transforms for rig extrinsics.
     ///
     /// Parameters: [intrinsics, distortion, extr_camera_to_rig, pose_target_to_rig]
     /// Transform chain: P_camera = extr^-1 * pose * P_world
-    ReprojPointPinhole4Dist5TwoSE3 { pw: [f64; 3], uv: [f64; 2], w: f64 },
+    ReprojPointPinhole4Dist5TwoSE3 {
+        /// World/target point coordinates.
+        pw: [f64; 3],
+        /// Observed pixel coordinates.
+        uv: [f64; 2],
+        /// Residual weight.
+        w: f64,
+    },
     /// Reprojection for hand-eye calibration with robot pose as measurement.
     ///
     /// Parameters: [intrinsics, distortion, extr, handeye, target]
     /// Robot pose (`base_se3_gripper`, gripper in base frame) is stored in the factor as known data.
     ReprojPointPinhole4Dist5HandEye {
+        /// World/target point coordinates.
         pw: [f64; 3],
+        /// Observed pixel coordinates.
         uv: [f64; 2],
+        /// Residual weight.
         w: f64,
+        /// Measured robot pose `T_B_G` packed as `[qx,qy,qz,qw,tx,ty,tz]`.
         base_to_gripper_se3: [f64; 7],
+        /// Hand-eye mode defining transform chain.
         mode: HandEyeMode,
     },
     /// Reprojection for hand-eye calibration with per-view robot pose correction.
@@ -164,10 +204,15 @@ pub enum FactorKind {
     /// Robot pose (`base_se3_gripper`) is stored in the factor as known data.
     /// `robot_delta` is a 6D se(3) tangent correction applied via exp(delta) * T_B_E.
     ReprojPointPinhole4Dist5HandEyeRobotDelta {
+        /// World/target point coordinates.
         pw: [f64; 3],
+        /// Observed pixel coordinates.
         uv: [f64; 2],
+        /// Residual weight.
         w: f64,
+        /// Measured robot pose `T_B_G` packed as `[qx,qy,qz,qw,tx,ty,tz]`.
         base_to_gripper_se3: [f64; 7],
+        /// Hand-eye mode defining transform chain.
         mode: HandEyeMode,
     },
     /// Laser line pixel constrained to lie on laser plane.
@@ -175,20 +220,33 @@ pub enum FactorKind {
     /// Parameters: [intrinsics, distortion, sensor, pose_cam_to_target, plane_normal, plane_distance]
     /// Residual: point-to-plane distance for ray-target intersection point.
     /// Note: Target is always planar (Z=0), so 3D point is computed as ray intersection.
-    LaserPlanePixel { laser_pixel: [f64; 2], w: f64 },
+    LaserPlanePixel {
+        /// Observed laser pixel coordinates.
+        laser_pixel: [f64; 2],
+        /// Residual weight.
+        w: f64,
+    },
     /// Laser line pixel constrained by line-distance in normalized plane.
     ///
     /// Parameters: [intrinsics, distortion, sensor, pose_cam_to_target, plane_normal, plane_distance]
     /// Residual: perpendicular distance from normalized pixel to projected
     ///           laser-target intersection line, scaled by sqrt(fx*fy).
     /// Note: Alternative to LaserPlanePixel using normalized plane geometry.
-    LaserLineDist2D { laser_pixel: [f64; 2], w: f64 },
+    LaserLineDist2D {
+        /// Observed laser pixel coordinates.
+        laser_pixel: [f64; 2],
+        /// Residual weight.
+        w: f64,
+    },
     /// Placeholder for future prior factors.
     Prior,
     /// Zero-mean prior on a 6D se(3) tangent vector.
     ///
     /// Parameters: \[se3_delta\] (6D Euclidean).
-    Se3TangentPrior { sqrt_info: [f64; 6] },
+    Se3TangentPrior {
+        /// Diagonal square-root information for `[rx, ry, rz, tx, ty, tz]`.
+        sqrt_info: [f64; 6],
+    },
     /// Placeholder for future distortion-aware reprojection.
     ReprojPointWithDistortion,
 }
@@ -217,11 +275,17 @@ impl FactorKind {
 /// This describes the storage layout and constraints for a single variable.
 #[derive(Debug, Clone)]
 pub struct ParamBlock {
+    /// Stable parameter block ID within this IR.
     pub id: ParamId,
+    /// Human-readable parameter block name.
     pub name: String,
+    /// Ambient parameter dimension.
     pub dim: usize,
+    /// Manifold type for updates/projection.
     pub manifold: ManifoldKind,
+    /// Per-index fixed mask.
     pub fixed: FixedMask,
+    /// Optional per-index bounds.
     pub bounds: Option<Vec<Bound>>,
 }
 
@@ -230,9 +294,13 @@ pub struct ParamBlock {
 /// The order of `params` must match the factor's expected parameter order.
 #[derive(Debug, Clone)]
 pub struct ResidualBlock {
+    /// Parameter block IDs used by this residual (factor-dependent order).
     pub params: Vec<ParamId>,
+    /// Robust loss applied to this residual block.
     pub loss: RobustLoss,
+    /// Residual factor model.
     pub factor: FactorKind,
+    /// Residual vector dimension.
     pub residual_dim: usize,
 }
 
@@ -241,7 +309,9 @@ pub struct ResidualBlock {
 /// Backends compile this IR into solver-specific problems.
 #[derive(Debug, Default, Clone)]
 pub struct ProblemIR {
+    /// Parameter blocks in this optimization problem.
     pub params: Vec<ParamBlock>,
+    /// Residual blocks in this optimization problem.
     pub residuals: Vec<ResidualBlock>,
 }
 
