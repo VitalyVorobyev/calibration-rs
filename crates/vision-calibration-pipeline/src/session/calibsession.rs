@@ -407,7 +407,21 @@ impl<P: ProblemType> CalibrationSession<P> {
     ///
     /// Returns an error if serialization fails.
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(self).map_err(Into::into)
+        // Pin metadata identity/version to the problem type contract on write.
+        let mut value = serde_json::to_value(self)?;
+        let metadata = value
+            .get_mut("metadata")
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or_else(|| anyhow::anyhow!("session metadata missing during serialization"))?;
+        metadata.insert(
+            "problem_type".to_string(),
+            serde_json::Value::String(P::name().to_string()),
+        );
+        metadata.insert(
+            "schema_version".to_string(),
+            serde_json::Value::Number(P::schema_version().into()),
+        );
+        serde_json::to_string_pretty(&value).map_err(Into::into)
     }
 
     /// Deserialize session from JSON string.
@@ -416,16 +430,26 @@ impl<P: ProblemType> CalibrationSession<P> {
     ///
     /// Returns an error if:
     /// - Deserialization fails
-    /// - Schema version is newer than supported
+    /// - Problem type does not match `P::name()`
+    /// - Schema version does not match `P::schema_version()`
     pub fn from_json(json: &str) -> Result<Self> {
         let session: Self = serde_json::from_str(json)?;
+        let expected_problem_type = P::name();
+        let expected_schema_version = P::schema_version();
 
-        // Verify schema version compatibility
-        if session.metadata.schema_version > P::schema_version() {
+        if session.metadata.problem_type != expected_problem_type {
             bail!(
-                "session schema version {} is newer than supported version {}",
+                "session problem_type '{}' does not match expected '{}'",
+                session.metadata.problem_type,
+                expected_problem_type
+            );
+        }
+
+        if session.metadata.schema_version != expected_schema_version {
+            bail!(
+                "session schema version {} does not match expected version {}",
                 session.metadata.schema_version,
-                P::schema_version()
+                expected_schema_version
             );
         }
 
@@ -763,17 +787,61 @@ mod tests {
 
     #[test]
     fn schema_version_checked() {
-        // Create a session and serialize it
+        // Create a session and serialize it.
         let session = CalibrationSession::<MockProblem>::new();
-        let mut json = session.to_json().unwrap();
+        let json = session.to_json().unwrap();
 
-        // Manually bump the schema version in the JSON
-        json = json.replace("\"schema_version\": 1", "\"schema_version\": 999");
+        // Newer version should fail.
+        let newer = json.replace("\"schema_version\": 1", "\"schema_version\": 999");
+        let newer_result = CalibrationSession::<MockProblem>::from_json(&newer);
+        assert!(newer_result.is_err());
+        assert!(
+            newer_result
+                .unwrap_err()
+                .to_string()
+                .contains("schema version")
+        );
 
-        // Deserializing should fail
+        // Older version should also fail.
+        let older = json.replace("\"schema_version\": 1", "\"schema_version\": 0");
+        let older_result = CalibrationSession::<MockProblem>::from_json(&older);
+        assert!(older_result.is_err());
+        assert!(
+            older_result
+                .unwrap_err()
+                .to_string()
+                .contains("schema version")
+        );
+    }
+
+    #[test]
+    fn problem_type_checked() {
+        let session = CalibrationSession::<MockProblem>::new();
+        let json = session.to_json().unwrap();
+        let json = json.replace(
+            "\"problem_type\": \"mock_problem\"",
+            "\"problem_type\": \"other\"",
+        );
+
         let result = CalibrationSession::<MockProblem>::from_json(&json);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("schema version"));
+        assert!(result.unwrap_err().to_string().contains("problem_type"));
+    }
+
+    #[test]
+    fn to_json_pins_problem_type_and_schema_version() {
+        let mut session = CalibrationSession::<MockProblem>::new();
+        session.metadata.problem_type = "tampered".to_string();
+        session.metadata.schema_version = 42;
+
+        let json = session.to_json().unwrap();
+        let restored: CalibrationSession<MockProblem> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.metadata.problem_type, MockProblem::name());
+        assert_eq!(
+            restored.metadata.schema_version,
+            MockProblem::schema_version()
+        );
     }
 
     #[test]

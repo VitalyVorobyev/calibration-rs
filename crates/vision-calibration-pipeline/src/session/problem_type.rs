@@ -139,8 +139,8 @@ pub trait ProblemType: Sized + 'static {
     /// Bump when the serialization format of any associated type changes
     /// in a way that breaks backward compatibility.
     ///
-    /// The session loader will reject sessions with a schema version
-    /// newer than the current implementation supports.
+    /// The session loader validates this value strictly and rejects sessions
+    /// whose metadata schema version differs from the current implementation.
     fn schema_version() -> u32 {
         1
     }
