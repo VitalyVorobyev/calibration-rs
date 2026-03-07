@@ -6,17 +6,15 @@ use anyhow::{Context, Result, anyhow, ensure};
 use nalgebra::DVector;
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, Iso3,
-    Mat3, Pinhole, PlanarDataset, ProjectionParams, Pt2, ScheimpflugParams, SensorParams,
+    Pinhole, PlanarDataset, ProjectionParams, ScheimpflugParams, SensorParams,
 };
-use vision_calibration_linear::{
-    DistortionFitOptions, IterativeIntrinsicsOptions, dlt_homography,
-    estimate_intrinsics_iterative, estimate_planar_pose_from_h,
-};
+use vision_calibration_linear::{DistortionFitOptions, IterativeIntrinsicsOptions};
 use vision_calibration_optim::{
     BackendKind, BackendSolveOptions, FactorKind, FixedMask, ManifoldKind, ProblemIR,
     ResidualBlock, iso3_to_se3_dvec, se3_dvec_to_iso3, solve_with_backend,
 };
 
+use crate::planar_family::bootstrap_planar_intrinsics;
 use crate::session::CalibrationSession;
 
 use super::problem::{
@@ -55,7 +53,7 @@ pub fn step_init(
     }
     ensure!(init_iterations > 0, "init_iterations must be positive");
 
-    let mut initial_camera = estimate_intrinsics_iterative(
+    let bootstrap = bootstrap_planar_intrinsics(
         &dataset,
         IterativeIntrinsicsOptions {
             iterations: init_iterations,
@@ -68,13 +66,13 @@ pub fn step_init(
         },
     )
     .context("scheimpflug intrinsics initialization failed")?;
+    let mut initial_camera = bootstrap.camera;
 
     // Tangential terms are intentionally fixed for this workflow.
     initial_camera.dist.p1 = 0.0;
     initial_camera.dist.p2 = 0.0;
 
-    let poses = estimate_initial_poses(&dataset, &initial_camera.k)
-        .context("scheimpflug pose initialization failed")?;
+    let poses = bootstrap.poses;
 
     session.state.initial_intrinsics = Some(initial_camera.k);
     session.state.initial_distortion = Some(initial_camera.dist);
@@ -210,30 +208,6 @@ pub fn run_calibration(
     step_init(session, None)?;
     step_optimize(session, None)?;
     Ok(())
-}
-
-fn estimate_initial_poses(
-    dataset: &PlanarDataset,
-    intrinsics: &FxFyCxCySkew<f64>,
-) -> Result<Vec<Iso3>> {
-    let k = intrinsics_k_matrix(intrinsics);
-    let mut poses = Vec::with_capacity(dataset.num_views());
-
-    for (view_idx, view) in dataset.views.iter().enumerate() {
-        let board_xy: Vec<Pt2> = view
-            .obs
-            .points_3d
-            .iter()
-            .map(|p| Pt2::new(p.x, p.y))
-            .collect();
-        let homography = dlt_homography(&board_xy, &view.obs.points_2d)
-            .with_context(|| format!("failed to estimate homography for view {}", view_idx))?;
-        let pose = estimate_planar_pose_from_h(&k, &homography)
-            .with_context(|| format!("failed to estimate pose for view {}", view_idx))?;
-        poses.push(pose);
-    }
-
-    Ok(poses)
 }
 
 fn build_problem_ir(
@@ -421,8 +395,4 @@ fn fixed_mask_from_indices(dim: usize, indices: &[usize]) -> FixedMask {
     } else {
         FixedMask::fix_indices(indices)
     }
-}
-
-fn intrinsics_k_matrix(k: &FxFyCxCySkew<f64>) -> Mat3 {
-    Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
 }

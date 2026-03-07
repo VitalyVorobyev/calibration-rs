@@ -30,6 +30,7 @@
 //! ```
 
 // Core session framework
+mod planar_family;
 pub mod session;
 
 // Problem-specific modules

@@ -36,10 +36,10 @@
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, Pt2, Real, View};
-use vision_calibration_linear::prelude::*;
+use vision_calibration_core::{CorrespondenceView, View};
 use vision_calibration_optim::optimize_planar_intrinsics;
 
+use crate::planar_family::bootstrap_planar_intrinsics;
 use crate::session::CalibrationSession;
 
 use super::problem::PlanarIntrinsicsProblem;
@@ -93,20 +93,6 @@ impl Default for FilterOptions {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper Functions
-// ─────────────────────────────────────────────────────────────────────────────
-
-fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
-    let board_2d: Vec<Pt2> = view.points_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
-    let pixel_2d: Vec<Pt2> = view.points_2d.iter().map(|v| Pt2::new(v.x, v.y)).collect();
-    (board_2d, pixel_2d)
-}
-
-fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
-    Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -145,21 +131,7 @@ pub fn step_init(
         init_opts.iterations = iters;
     }
 
-    // Step 1: Compute homographies
-    let mut homographies = Vec::with_capacity(input.views.len());
-    for (idx, view) in input.views.iter().enumerate() {
-        let (board_2d, pixel_2d) = board_and_pixel_points(&view.obs);
-        let h = dlt_homography(&board_2d, &pixel_2d).with_context(|| {
-            format!(
-                "failed to compute homography for view {} (need >=4 well-conditioned points)",
-                idx
-            )
-        })?;
-        homographies.push(h);
-    }
-
-    // Step 2: Estimate intrinsics with iterative distortion
-    let camera = match estimate_intrinsics_iterative(input, init_opts) {
+    let bootstrap = match bootstrap_planar_intrinsics(input, init_opts) {
         Ok(c) => c,
         Err(e) => {
             session.log_failure("init", e.to_string());
@@ -167,22 +139,13 @@ pub fn step_init(
         }
     };
 
-    // Step 3: Recover poses from homographies
-    let kmtx = k_matrix_from_intrinsics(&camera.k);
-    let poses: Vec<Iso3> = homographies
-        .iter()
-        .enumerate()
-        .map(|(idx, h)| {
-            estimate_planar_pose_from_h(&kmtx, h)
-                .with_context(|| format!("failed to recover pose for view {}", idx))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let camera = bootstrap.camera;
 
     // Update state
-    session.state.homographies = Some(homographies);
+    session.state.homographies = Some(bootstrap.homographies);
     session.state.initial_intrinsics = Some(camera.k);
     session.state.initial_distortion = Some(camera.dist);
-    session.state.initial_poses = Some(poses);
+    session.state.initial_poses = Some(bootstrap.poses);
 
     // Clear any previous optimization results (since we have new init)
     session.state.clear_optimization();
