@@ -193,3 +193,25 @@ When trade-offs conflict (speed vs accuracy, stability vs cleanup):
 * Preserve correctness + backwards compatibility first.
 * Add configuration/feature flags for opt-in behavior.
 * Add tests and (if needed) a benchmark to justify the change.
+
+---
+
+## 11) Backlog implementation workflow (mandatory)
+
+Backlog execution must be traceable task-by-task.
+
+* Source of truth for execution status is `docs/backlog.md`.
+* Implement one backlog task at a time (do not batch multiple tasks into one commit).
+* Every completed task must include all of the following:
+  1. **Backlog update**: mark the task as complete in `docs/backlog.md` and add a short completion note (date, optionally commit id).
+  2. **Task report**: add a concise report in `docs/report/` named `YYYY-MM-DD-<task-id>-<slug>.md`.
+  3. **Dedicated commit**: commit only that task’s code/docs/tests/report updates.
+* Report files should be short and structured with:
+  1. Scope (what changed)
+  2. Files changed
+  3. Validation run (commands + pass/fail)
+  4. Follow-ups / remaining risks
+* Recommended commit message format:
+  * `feat(backlog): <task-id> <short description>`
+  * `fix(backlog): <task-id> <short description>`
+  * `docs(backlog): <task-id> <short description>`
