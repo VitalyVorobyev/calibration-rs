@@ -8,7 +8,7 @@ This is the recommended crate for most users. It re-exports all sub-crates throu
 
 - **Session API**: Structured calibration workflows with step functions, state tracking, and JSON checkpointing
 - **6 workflows**: Planar intrinsics, Scheimpflug intrinsics, single-camera hand-eye, rig extrinsics, rig hand-eye, laserline device
-- **Prelude module**: Quick-start imports for common use cases
+- **Prelude module**: Minimal imports for planar "hello world" calibration
 - **Foundation access**: Direct access to core types, linear solvers, and optimization when needed
 
 ## Quick Start
@@ -39,8 +39,9 @@ let result = session.export()?;
 ### Single-Camera Hand-Eye Calibration
 
 ```rust,no_run
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
+    SingleCamHandeyeProblem,
     step_intrinsics_init, step_intrinsics_optimize,
     step_handeye_init, step_handeye_optimize,
 };
@@ -84,8 +85,8 @@ println!("mean reprojection error: {:.4}", result.mean_reproj_error);
 ```rust,no_run
 use vision_calibration::prelude::*;
 
-// Gives you CalibrationSession, all problem types,
-// pipeline functions, core types, and common options.
+// Minimal hello-world imports:
+// CalibrationSession + planar problem + planar runner + core planar types.
 ```
 
 ## Available Problem Types

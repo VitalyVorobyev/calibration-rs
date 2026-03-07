@@ -22,6 +22,7 @@ use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use stereo_io::load_stereo_input_with_progress;
+use vision_calibration::core::Iso3;
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsProblem, run_calibration, step_intrinsics_init_all, step_intrinsics_optimize_all,

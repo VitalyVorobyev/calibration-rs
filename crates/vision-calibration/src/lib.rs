@@ -166,7 +166,9 @@ pub mod planar_intrinsics {
 /// # fn main() -> anyhow::Result<()> {
 /// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
-/// use vision_calibration::single_cam_handeye::{run_calibration, SingleCamHandeyeInput};
+/// use vision_calibration::single_cam_handeye::{
+///     run_calibration, SingleCamHandeyeInput, SingleCamHandeyeProblem
+/// };
 ///
 /// let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 /// session.set_input(input)?;
@@ -210,7 +212,9 @@ pub mod single_cam_handeye {
 /// # fn main() -> anyhow::Result<()> {
 /// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
-/// use vision_calibration::laserline_device::{run_calibration, LaserlineDeviceInput};
+/// use vision_calibration::laserline_device::{
+///     run_calibration, LaserlineDeviceInput, LaserlineDeviceProblem
+/// };
 ///
 /// let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
 /// session.set_input(input)?;
@@ -244,7 +248,9 @@ pub mod laserline_device {
 /// # fn main() -> anyhow::Result<()> {
 /// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
-/// use vision_calibration::rig_extrinsics::{run_calibration, RigExtrinsicsInput};
+/// use vision_calibration::rig_extrinsics::{
+///     run_calibration, RigExtrinsicsInput, RigExtrinsicsProblem
+/// };
 ///
 /// let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
 /// session.set_input(input)?;
@@ -292,7 +298,7 @@ pub mod rig_extrinsics {
 /// # fn main() -> anyhow::Result<()> {
 /// # let input = unimplemented!();
 /// use vision_calibration::prelude::*;
-/// use vision_calibration::rig_handeye::{run_calibration, RigHandeyeInput};
+/// use vision_calibration::rig_handeye::{run_calibration, RigHandeyeInput, RigHandeyeProblem};
 ///
 /// let mut session = CalibrationSession::<RigHandeyeProblem>::new();
 /// session.set_input(input)?;
@@ -378,37 +384,24 @@ pub mod synthetic {
 // Prelude (Quick Start)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Convenient re-exports for common use cases.
+/// Minimal re-exports for planar "hello world" calibration.
 ///
 /// ```no_run
 /// use vision_calibration::prelude::*;
 /// ```
 pub mod prelude {
-    // Session framework
-    pub use vision_calibration_pipeline::session::{CalibrationSession, ProblemType};
+    /// Session framework for calibration workflows.
+    pub use vision_calibration_pipeline::session::CalibrationSession;
 
-    // Problem types
-    pub use vision_calibration_pipeline::laserline_device::LaserlineDeviceProblem;
+    /// Planar intrinsics problem type for hello-world calibration.
     pub use vision_calibration_pipeline::planar_intrinsics::PlanarIntrinsicsProblem;
-    pub use vision_calibration_pipeline::rig_extrinsics::RigExtrinsicsProblem;
-    pub use vision_calibration_pipeline::rig_handeye::RigHandeyeProblem;
-    pub use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeProblem;
 
-    // Pipeline functions
-    pub use vision_calibration_pipeline::laserline_device::run_calibration as run_laserline_device;
+    /// Convenience planar calibration runner.
     pub use vision_calibration_pipeline::planar_intrinsics::run_calibration as run_planar_intrinsics;
-    pub use vision_calibration_pipeline::rig_extrinsics::run_calibration as run_rig_extrinsics;
-    pub use vision_calibration_pipeline::rig_handeye::run_calibration as run_rig_handeye;
-    pub use vision_calibration_pipeline::scheimpflug_intrinsics::run_calibration as run_scheimpflug_intrinsics;
-    pub use vision_calibration_pipeline::single_cam_handeye::run_calibration as run_single_cam_handeye;
 
-    // Core types
+    /// Core geometry and dataset types used in minimal planar workflows.
     pub use vision_calibration_core::{
-        BrownConrady5, Camera, CameraParams, CorrespondenceView, FxFyCxCySkew, IdentitySensor,
-        Iso3, NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2, Pt3, RigDataset, Vec2, Vec3,
-        View,
+        BrownConrady5, CorrespondenceView, FxFyCxCySkew, PlanarDataset, Pt2, Pt3, View,
+        make_pinhole_camera,
     };
-
-    // Common options
-    pub use vision_calibration_optim::{BackendSolveOptions, HandEyeMode, RobustLoss};
 }

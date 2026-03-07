@@ -145,8 +145,8 @@ print(result.mean_reproj_error)
 ### Laserline Device Calibration
 
 ```rust,no_run
-use vision_calibration::prelude::*;
-use vision_calibration::laserline_device::run_calibration;
+use vision_calibration::session::CalibrationSession;
+use vision_calibration::laserline_device::{LaserlineDeviceProblem, run_calibration};
 
 fn main() -> anyhow::Result<()> {
     let input = todo!("load laserline calibration data");
@@ -163,8 +163,9 @@ fn main() -> anyhow::Result<()> {
 ### Single-Camera Hand-Eye Calibration
 
 ```rust,no_run
-use vision_calibration::prelude::*;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
+    SingleCamHandeyeProblem,
     SingleCamHandeyeInput, SingleCamHandeyeView, HandeyeMeta,
     step_intrinsics_init, step_intrinsics_optimize,
     step_handeye_init, step_handeye_optimize,

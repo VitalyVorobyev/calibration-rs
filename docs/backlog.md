@@ -59,7 +59,7 @@ ADR links: 0003, 0006, 0007, 0010
 - [x] `M5-T04` Standardize config type naming to `<ProblemName>Config` for top-level problem configs: `PlanarConfig` -> `PlanarIntrinsicsConfig`, `ScheimpflugIntrinsicsCalibrationConfig` -> `ScheimpflugIntrinsicsConfig`. Nested config audit result: keep existing stage-grouped nested configs where already present (for example `LaserlineDevice*Config`, `RigHandeye*Config`) and keep flat configs where they remain clear. (Done: 2026-03-07)
 - [x] `M5-T05` Standardize export types: all problem modules now expose distinct `<ProblemName>Export` structs and include consistent top-level `mean_reproj_error` + `per_cam_reproj_errors` fields (single-camera problems expose one-element `per_cam_reproj_errors`). (Done: 2026-03-07)
 - [x] `M5-T06` Remove `run_calibration_direct` from Scheimpflug. All problem types should only have session-based API. (Done: 2026-03-07)
-- [ ] `M5-T07` Audit and trim `prelude` — it should contain only the types needed for the "hello world" calibration, not all problem types.
+- [x] `M5-T07` Audit and trim `prelude` — it should contain only the types needed for the "hello world" calibration, not all problem types. (Done: 2026-03-07)
 
 Acceptance criteria:
 - Pipeline lib.rs has no flat re-exports (only `pub mod` + session re-exports).

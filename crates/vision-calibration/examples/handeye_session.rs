@@ -22,6 +22,7 @@ use anyhow::Result;
 use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use vision_calibration::optim::HandEyeMode;
 use vision_calibration::prelude::*;
 use vision_calibration::single_cam_handeye::{
     HandeyeMeta, SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem,

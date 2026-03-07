@@ -75,7 +75,7 @@ The session framework providing production-ready workflows:
 Unified facade crate that re-exports everything through a clean module hierarchy:
 
 ```rust
-use vision_calibration::prelude::*;           // Common imports
+use vision_calibration::prelude::*;            // Minimal planar hello-world imports
 use vision_calibration::planar_intrinsics::*;  // Planar workflow
 use vision_calibration::core::*;               // Math types
 use vision_calibration::linear::*;             // Linear solvers
