@@ -52,6 +52,7 @@ pub fn step_init(
     }
     ensure!(init_iterations > 0, "init_iterations must be positive");
 
+    // Shared planar-family initialization helper (homographies + intrinsics + poses).
     let bootstrap = bootstrap_planar_intrinsics(
         &dataset,
         IterativeIntrinsicsOptions {
@@ -134,6 +135,7 @@ pub fn step_optimize(
         },
     };
 
+    // Shared planar-family optimization path implemented in `vision-calibration-optim`.
     let estimate = optimize_scheimpflug_intrinsics(
         &dataset,
         &initial,
@@ -206,5 +208,64 @@ fn scheimpflug_camera_params(
         distortion: DistortionParams::BrownConrady5 { params: distortion },
         sensor: SensorParams::Scheimpflug { params: sensor },
         intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vision_calibration_core::{
+        Camera, FxFyCxCySkew, Pinhole, PlanarDataset, View, make_pinhole_camera, synthetic::planar,
+    };
+
+    fn make_dataset(sensor: ScheimpflugParams) -> PlanarDataset {
+        let base = make_pinhole_camera(
+            FxFyCxCySkew {
+                fx: 800.0,
+                fy: 780.0,
+                cx: 640.0,
+                cy: 360.0,
+                skew: 0.0,
+            },
+            BrownConrady5::default(),
+        );
+        let camera = Camera::new(Pinhole, base.dist, sensor.compile(), base.k);
+
+        let board_points = planar::grid_points(6, 5, 0.03);
+        let poses = planar::poses_yaw_y_z(5, 0.0, 0.08, 0.55, 0.03);
+        let views = planar::project_views_all(&camera, &board_points, &poses).expect("views");
+        PlanarDataset::new(views.into_iter().map(View::without_meta).collect()).expect("dataset")
+    }
+
+    #[test]
+    fn step_optimize_requires_initialization() {
+        let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+        session
+            .set_input(make_dataset(ScheimpflugParams::default()))
+            .expect("input");
+
+        let err = step_optimize(&mut session, None).expect_err("init should be required");
+        assert!(err.to_string().contains("step_init"));
+    }
+
+    #[test]
+    fn run_calibration_sets_output_and_state() {
+        let sensor_gt = ScheimpflugParams {
+            tilt_x: 0.01,
+            tilt_y: -0.008,
+        };
+        let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+        session.set_input(make_dataset(sensor_gt)).expect("input");
+
+        run_calibration(&mut session, None).expect("run_calibration");
+
+        assert!(session.has_output());
+        assert!(session.state.is_initialized());
+        assert!(session.state.is_optimized());
+
+        let output = session.output().expect("output");
+        assert!(output.mean_reproj_error.is_finite());
+        assert!(output.mean_reproj_error < 1.0);
+        assert_eq!(output.params.camera_se3_target.len(), 5);
     }
 }

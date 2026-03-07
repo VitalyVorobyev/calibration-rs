@@ -75,7 +75,7 @@ ADR links: 0002, 0005
 
 - [x] `M6-T01` Extract shared planar initialization logic (Zhang's method, pose recovery) into internal helper functions in pipeline. (Done: 2026-03-07)
 - [x] `M6-T02` Extract shared optimization setup (param blocks, residual construction) into shared code in optim. (Done: 2026-03-07)
-- [ ] `M6-T03` Ensure both planar and Scheimpflug step functions call the shared helpers.
+- [x] `M6-T03` Ensure both planar and Scheimpflug step functions call the shared helpers. (Done: 2026-03-07)
 - [ ] `M6-T04` Document the planar family relationship in ADR 0002 update.
 
 Acceptance criteria:
