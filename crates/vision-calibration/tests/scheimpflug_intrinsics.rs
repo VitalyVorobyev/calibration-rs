@@ -5,9 +5,10 @@ use vision_calibration::core::{
 };
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::scheimpflug_intrinsics::{
-    ScheimpflugFixMask, ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsResult,
-    run_calibration,
+    ScheimpflugFixMask, ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsProblem,
+    ScheimpflugIntrinsicsResult, run_calibration,
 };
+use vision_calibration::session::CalibrationSession;
 
 fn make_target_points() -> Vec<Pt3> {
     let spacing = 0.03;
@@ -129,6 +130,19 @@ fn make_noisy_dataset(sensor: ScheimpflugParams, noise_px: f64) -> PlanarDataset
     PlanarDataset::new(views).expect("dataset")
 }
 
+fn run_pipeline(
+    dataset: &PlanarDataset,
+    config: ScheimpflugIntrinsicsCalibrationConfig,
+) -> anyhow::Result<ScheimpflugIntrinsicsResult> {
+    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    session.set_input(dataset.clone())?;
+    run_calibration(&mut session, Some(config))?;
+    session
+        .output()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("missing output after successful calibration"))
+}
+
 #[test]
 fn public_api_converges_on_synthetic_scheimpflug_dataset() {
     let sensor_gt = ScheimpflugParams {
@@ -144,7 +158,7 @@ fn public_api_converges_on_synthetic_scheimpflug_dataset() {
         ..Default::default()
     };
 
-    let result = run_calibration(&dataset, &config).expect("scheimpflug calibration");
+    let result = run_pipeline(&dataset, config).expect("scheimpflug calibration");
     let camera = result.params.camera;
 
     let intrinsics = match camera.intrinsics {
@@ -178,7 +192,7 @@ fn public_api_converges_with_deterministic_noise() {
         ..Default::default()
     };
 
-    let result = run_calibration(&dataset, &config).expect("scheimpflug calibration");
+    let result = run_pipeline(&dataset, config).expect("scheimpflug calibration");
     assert!(result.mean_reproj_error < 2.0);
 
     let sensor = match result.params.camera.sensor {
@@ -194,7 +208,7 @@ fn public_api_rejects_too_few_views() {
     let mut views = make_dataset(ScheimpflugParams::default()).views;
     views.truncate(2);
     let dataset = PlanarDataset::new(views).expect("dataset with 2 views");
-    let err = run_calibration(&dataset, &ScheimpflugIntrinsicsCalibrationConfig::default())
+    let err = run_pipeline(&dataset, ScheimpflugIntrinsicsCalibrationConfig::default())
         .expect_err("expected validation error");
     assert!(err.to_string().contains("need at least 3 views"));
 }
@@ -209,7 +223,7 @@ fn public_api_rejects_view_with_too_few_points() {
     )
     .expect("reduced observation");
     dataset.views[0] = View::without_meta(reduced);
-    let err = run_calibration(&dataset, &ScheimpflugIntrinsicsCalibrationConfig::default())
+    let err = run_pipeline(&dataset, ScheimpflugIntrinsicsCalibrationConfig::default())
         .expect_err("expected validation error");
     assert!(err.to_string().contains("has too few points"));
 }
@@ -221,7 +235,7 @@ fn public_api_rejects_invalid_config() {
         init_iterations: 0,
         ..Default::default()
     };
-    let err = run_calibration(&dataset, &config).expect_err("expected invalid config");
+    let err = run_pipeline(&dataset, config).expect_err("expected invalid config");
     assert!(err.to_string().contains("init_iterations must be positive"));
 }
 
@@ -256,7 +270,7 @@ fn scheimpflug_result_json_roundtrip() {
         tilt_x: 0.008,
         tilt_y: -0.006,
     });
-    let result = run_calibration(&dataset, &ScheimpflugIntrinsicsCalibrationConfig::default())
+    let result = run_pipeline(&dataset, ScheimpflugIntrinsicsCalibrationConfig::default())
         .expect("scheimpflug calibration");
     let json = serde_json::to_string(&result).expect("serialize result");
     let restored: ScheimpflugIntrinsicsResult =

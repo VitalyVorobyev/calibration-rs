@@ -20,8 +20,8 @@ use vision_calibration_optim::{
 use crate::session::CalibrationSession;
 
 use super::problem::{
-    ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsInput,
-    ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult,
+    ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsParams,
+    ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult,
 };
 
 /// Options for the initialization step.
@@ -210,21 +210,6 @@ pub fn run_calibration(
     step_init(session, None)?;
     step_optimize(session, None)?;
     Ok(())
-}
-
-/// Compatibility helper with direct function signature used by facade/Python layers.
-pub fn run_calibration_direct(
-    dataset: &ScheimpflugIntrinsicsInput,
-    config: &ScheimpflugIntrinsicsCalibrationConfig,
-) -> Result<ScheimpflugIntrinsicsResult> {
-    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
-    session.set_input(dataset.clone())?;
-    session.set_config(config.clone())?;
-    run_calibration(&mut session, None)?;
-    session
-        .output()
-        .cloned()
-        .ok_or_else(|| anyhow!("missing calibration output after successful run"))
 }
 
 fn estimate_initial_poses(

@@ -73,7 +73,7 @@
 //! | [`RigExtrinsicsProblem`](rig_extrinsics) | `RigExtrinsicsInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
 //! | [`RigHandeyeProblem`](rig_handeye) | `RigHandeyeInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` → `step_handeye_init` → `step_handeye_optimize` |
 //! | [`LaserlineDeviceProblem`](laserline_device) | `LaserlineDeviceInput` | `step_init` → `step_optimize` |
-//! | [`scheimpflug_intrinsics::run_calibration`](scheimpflug_intrinsics) | `PlanarDataset` | Direct function (`run_calibration`) |
+//! | [`ScheimpflugIntrinsicsProblem`](scheimpflug_intrinsics) | `PlanarDataset` | `step_init` → `step_optimize` |
 
 /// Single-camera planar intrinsics with Scheimpflug/tilted sensor refinement.
 ///
@@ -83,9 +83,8 @@ pub mod scheimpflug_intrinsics {
     pub use vision_calibration_pipeline::scheimpflug_intrinsics::{
         InitOptions, OptimizeOptions, ScheimpflugFixMask, ScheimpflugIntrinsicsCalibrationConfig,
         ScheimpflugIntrinsicsInput, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem,
-        ScheimpflugIntrinsicsResult, ScheimpflugIntrinsicsState,
-        run_calibration as run_calibration_session, run_calibration_direct as run_calibration,
-        step_init, step_optimize,
+        ScheimpflugIntrinsicsResult, ScheimpflugIntrinsicsState, run_calibration, step_init,
+        step_optimize,
     };
 }
 
@@ -400,7 +399,7 @@ pub mod prelude {
     pub use vision_calibration_pipeline::planar_intrinsics::run_calibration as run_planar_intrinsics;
     pub use vision_calibration_pipeline::rig_extrinsics::run_calibration as run_rig_extrinsics;
     pub use vision_calibration_pipeline::rig_handeye::run_calibration as run_rig_handeye;
-    pub use vision_calibration_pipeline::scheimpflug_intrinsics::run_calibration_direct as run_scheimpflug_intrinsics;
+    pub use vision_calibration_pipeline::scheimpflug_intrinsics::run_calibration as run_scheimpflug_intrinsics;
     pub use vision_calibration_pipeline::single_cam_handeye::run_calibration as run_single_cam_handeye;
 
     // Core types

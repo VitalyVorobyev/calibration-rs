@@ -225,9 +225,7 @@ fn run_scheimpflug_intrinsics(
         py,
         input,
         config,
-        |session| {
-            vision_calibration::scheimpflug_intrinsics::run_calibration_session(session, None)
-        },
+        |session| vision_calibration::scheimpflug_intrinsics::run_calibration(session, None),
     )
 }
 

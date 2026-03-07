@@ -61,14 +61,19 @@ let result = session.export()?;
 
 ```rust,no_run
 use vision_calibration::core::PlanarDataset;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::scheimpflug_intrinsics::{
-    run_calibration, ScheimpflugIntrinsicsCalibrationConfig,
+    ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsProblem, run_calibration,
 };
 
 # fn main() -> anyhow::Result<()> {
 # let dataset: PlanarDataset = unimplemented!();
+let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+session.set_input(dataset)?;
+
 let config = ScheimpflugIntrinsicsCalibrationConfig::default();
-let result = run_calibration(&dataset, &config)?;
+run_calibration(&mut session, Some(config))?;
+let result = session.export()?;
 println!("mean reprojection error: {:.4}", result.mean_reproj_error);
 # Ok(())
 # }
@@ -92,7 +97,7 @@ use vision_calibration::prelude::*;
 | `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
 | `RigHandeyeProblem` | All 6 steps (intrinsics + rig + hand-eye) |
 | `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
-| `scheimpflug_intrinsics::run_calibration` | Direct function (planar input + Scheimpflug sensor refinement) |
+| `ScheimpflugIntrinsicsProblem` | `step_init` → `step_optimize` |
 
 Each problem type also provides a `run_calibration` convenience function that runs all steps.
 

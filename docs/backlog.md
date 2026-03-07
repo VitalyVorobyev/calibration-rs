@@ -58,7 +58,7 @@ ADR links: 0003, 0006, 0007
 - [ ] `M5-T03` Standardize option type naming across problem types. Each module should have `InitOptions`, `OptimizeOptions` (local to the module, no disambiguation needed).
 - [ ] `M5-T04` Standardize config type naming: `<ProblemName>Config` everywhere. Audit nested config structure (LaserlineDevice has 3 nested configs vs others with flat).
 - [ ] `M5-T05` Standardize export types: ensure all problem types have distinct `<ProblemName>Export` types with consistent `mean_reproj_error` and `per_cam_reproj_errors` fields.
-- [ ] `M5-T06` Remove `run_calibration_direct` from Scheimpflug. All problem types should only have session-based API.
+- [x] `M5-T06` Remove `run_calibration_direct` from Scheimpflug. All problem types should only have session-based API. (Done: 2026-03-07)
 - [ ] `M5-T07` Audit and trim `prelude` — it should contain only the types needed for the "hello world" calibration, not all problem types.
 
 Acceptance criteria:

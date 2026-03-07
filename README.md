@@ -107,14 +107,19 @@ fn main() -> anyhow::Result<()> {
 
 ```rust,no_run
 use vision_calibration::core::PlanarDataset;
+use vision_calibration::session::CalibrationSession;
 use vision_calibration::scheimpflug_intrinsics::{
-    run_calibration, ScheimpflugIntrinsicsCalibrationConfig,
+    ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsProblem, run_calibration,
 };
 
 fn main() -> anyhow::Result<()> {
     let dataset: PlanarDataset = todo!("load planar correspondences");
+    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    session.set_input(dataset)?;
+
     let config = ScheimpflugIntrinsicsCalibrationConfig::default();
-    let result = run_calibration(&dataset, &config)?;
+    run_calibration(&mut session, Some(config))?;
+    let result = session.export()?;
     println!("scheimpflug reproj error: {:.4}px", result.mean_reproj_error);
     Ok(())
 }
