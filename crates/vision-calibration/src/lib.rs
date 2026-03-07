@@ -395,19 +395,22 @@ pub mod handeye {
 /// ```
 pub mod prelude {
     // Session framework
-    pub use vision_calibration_pipeline::{CalibrationSession, ProblemType};
+    pub use vision_calibration_pipeline::session::{CalibrationSession, ProblemType};
 
     // Problem types
-    pub use vision_calibration_pipeline::{
-        LaserlineDeviceProblem, PlanarIntrinsicsProblem, RigExtrinsicsProblem, RigHandeyeProblem,
-        SingleCamHandeyeProblem,
-    };
+    pub use vision_calibration_pipeline::laserline_device::LaserlineDeviceProblem;
+    pub use vision_calibration_pipeline::planar_intrinsics::PlanarIntrinsicsProblem;
+    pub use vision_calibration_pipeline::rig_extrinsics::RigExtrinsicsProblem;
+    pub use vision_calibration_pipeline::rig_handeye::RigHandeyeProblem;
+    pub use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeProblem;
 
     // Pipeline functions
-    pub use vision_calibration_pipeline::{
-        run_laserline_device, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
-        run_scheimpflug_intrinsics, run_single_cam_handeye,
-    };
+    pub use vision_calibration_pipeline::laserline_device::run_calibration as run_laserline_device;
+    pub use vision_calibration_pipeline::planar_intrinsics::run_calibration as run_planar_intrinsics;
+    pub use vision_calibration_pipeline::rig_extrinsics::run_calibration as run_rig_extrinsics;
+    pub use vision_calibration_pipeline::rig_handeye::run_calibration as run_rig_handeye;
+    pub use vision_calibration_pipeline::scheimpflug_intrinsics::run_calibration_direct as run_scheimpflug_intrinsics;
+    pub use vision_calibration_pipeline::single_cam_handeye::run_calibration as run_single_cam_handeye;
 
     // Core types
     pub use vision_calibration_core::{

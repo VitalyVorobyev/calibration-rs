@@ -4,7 +4,7 @@ Planning model:
 
 - Architecture decisions live in `docs/adrs/`.
 - Execution tracking lives in this backlog.
-- `IMPLEMENTATION_PLAN.md` is removed by ADR 0004 and must not be restored.
+- Automated workflow: `/orchestrate`, `/architect`, `/implement`, `/review`, `/gate-check`.
 
 Execution workflow:
 
@@ -14,95 +14,128 @@ Execution workflow:
   3. A dedicated git commit
 - Task IDs use `M<milestone>-T<nn>` (example: `M1-T03`).
 
-## Review Findings Snapshot
+---
 
-Findings from project-structure review (2026-03-07):
+## Completed Milestones
 
-1. `major` — Scheimpflug workflow in pipeline is not modeled as `ProblemType` with `problem/state/steps`.
-Location: [scheimpflug_intrinsics.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/scheimpflug_intrinsics.rs:1)
-2. `major` — Python binding path for Scheimpflug is special-cased and bypasses generic session wrapper.
-Location: [lib.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-py/src/lib.rs:219)
-3. `major` — Planar and Scheimpflug intrinsics flows duplicate orchestration logic and are not yet unified as a documented workflow family implementation.
-Locations: [planar_intrinsics/mod.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/planar_intrinsics/mod.rs:33), [scheimpflug_intrinsics.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/scheimpflug_intrinsics.rs:122)
-4. `minor` — Facade surface mixes session workflows and one direct workflow path for planar family.
-Location: [lib.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration/src/lib.rs:76)
+<details>
+<summary>M0: Workflow Enablement (Done)</summary>
 
-## Milestones Before Next Release
+- [x] `M0-T01` Define mandatory backlog workflow. (Done: 2026-03-07)
+- [x] `M0-T02` Allow coupled-task bundling. (Done: 2026-03-07)
+</details>
 
-### M0: Workflow Enablement
+<details>
+<summary>M1: Scheimpflug Pipeline Conformance (Done)</summary>
 
-ADR links: 0004
+- [x] `M1-T01`..`M1-T06` Scheimpflug ProblemType migration. (Done: 2026-03-07)
+</details>
 
-- [x] `M0-T01` Define mandatory backlog workflow in `AGENTS.md`, add `docs/report/` template and naming convention. (Done: 2026-03-07)
-- [x] `M0-T02` Allow coupled-task bundling with explicit documentation when independent commits would break build/API continuity. (Done: 2026-03-07)
+<details>
+<summary>M3: Python and Facade Alignment (Done)</summary>
 
-### M1: Scheimpflug Pipeline Conformance (Release-Blocking)
+- [x] `M3-T01`..`M3-T03` Python bindings unified via run_problem. (Done: 2026-03-07)
+</details>
 
-ADR links: 0001, 0002, 0003
+<details>
+<summary>M4: Documentation and Release Readiness (Done)</summary>
 
-- [x] `M1-T01` Create `crates/vision-calibration-pipeline/src/scheimpflug_intrinsics/` directory with `mod.rs`, `problem.rs`, `state.rs`, `steps.rs`. (Done: 2026-03-07, bundled with M1-T02..T06)
-- [x] `M1-T02` Introduce `ScheimpflugIntrinsicsProblem` implementing `ProblemType` with explicit `name`, `schema_version`, input/config validation, export contract. (Done: 2026-03-07)
-- [x] `M1-T03` Move current direct-function implementation into step functions (`step_init`, `step_optimize`, optional convenience `run_calibration`). (Done: 2026-03-07)
-- [x] `M1-T04` Add `ScheimpflugIntrinsicsState` with initialization/optimization intermediate state and JSON roundtrip tests. (Done: 2026-03-07)
-- [x] `M1-T05` Add problem-level tests for validation, config roundtrip, and export behavior. (Done: 2026-03-07; includes facade-level Scheimpflug integration tests)
-- [x] `M1-T06` Keep a compatibility path in `vision-calibration::scheimpflug_intrinsics` so external callers are not broken during migration. (Done: 2026-03-07)
+- [x] `M4-T01`..`M4-T04` Docs, examples, CI gates, release notes. (Done: 2026-03-07)
+</details>
+
+---
+
+## Active Milestones — v1.0 Public API Release
+
+### M5: Facade API Cleanup
+
+Goal: Clean, module-first public API with consistent naming. Breaking changes allowed.
+
+ADR links: 0003, 0006, 0007
+
+- [x] `M5-T01` Remove flat re-exports from `vision-calibration-pipeline/src/lib.rs`. Keep only module declarations and the `session` module re-export. Each problem type accessed via `crate::planar_intrinsics::*`, not top-level. (Done: 2026-03-07)
+- [ ] `M5-T02` Clean up facade `vision-calibration/src/lib.rs`: remove `core` glob re-export (`pub use vision_calibration_core::*`), replace with explicit type list. Remove `handeye` escape-hatch module.
+- [ ] `M5-T03` Standardize option type naming across problem types. Each module should have `InitOptions`, `OptimizeOptions` (local to the module, no disambiguation needed).
+- [ ] `M5-T04` Standardize config type naming: `<ProblemName>Config` everywhere. Audit nested config structure (LaserlineDevice has 3 nested configs vs others with flat).
+- [ ] `M5-T05` Standardize export types: ensure all problem types have distinct `<ProblemName>Export` types with consistent `mean_reproj_error` and `per_cam_reproj_errors` fields.
+- [ ] `M5-T06` Remove `run_calibration_direct` from Scheimpflug. All problem types should only have session-based API.
+- [ ] `M5-T07` Audit and trim `prelude` — it should contain only the types needed for the "hello world" calibration, not all problem types.
 
 Acceptance criteria:
+- Pipeline lib.rs has no flat re-exports (only `pub mod` + session re-exports).
+- Facade uses explicit re-exports, no globs.
+- Each problem module is self-contained — no naming collisions when using multiple modules.
+- `cargo doc` shows clean, navigable module hierarchy.
 
-- Scheimpflug follows same pipeline shape as other workflows.
-- No direct-function-only pipeline module remains.
-- All existing and new Scheimpflug tests pass.
+### M6: Planar Family Consolidation
 
-### M2: Planar Family Consolidation
+Goal: Unify shared logic between standard planar and Scheimpflug intrinsics. (Formerly M2)
 
-ADR links: 0002
+ADR links: 0002, 0005
 
-- [ ] `M2-T01` Extract shared planar initialization/pose helper logic into internal reusable code.
-- [ ] `M2-T02` Remove avoidable duplication between standard planar and Scheimpflug paths.
-- [ ] `M2-T03` Define explicit long-term contract for sensor-model variants (identity vs Scheimpflug) and document migration path.
-- [ ] `M2-T04` Evaluate whether optimizer-level unification is feasible without breaking `PlanarIntrinsicsParams`/`PlanarIntrinsicsEstimate` contracts.
+- [ ] `M6-T01` Extract shared planar initialization logic (Zhang's method, pose recovery) into internal helper functions in pipeline.
+- [ ] `M6-T02` Extract shared optimization setup (param blocks, residual construction) into shared code in optim.
+- [ ] `M6-T03` Ensure both planar and Scheimpflug step functions call the shared helpers.
+- [ ] `M6-T04` Document the planar family relationship in ADR 0002 update.
 
 Acceptance criteria:
-
 - Shared logic exists in one place.
-- Sensor-model behavior differences stay explicit in types/config.
-- No hidden mode branching that obscures API contracts.
+- Both problem types still have separate `ProblemType` implementations.
+- No duplicated algorithm code between the two modules.
 
-### M3: Python and Facade Alignment
+### M7: Rustdoc and API Documentation
 
-ADR links: 0003
+Goal: Every public type and function has rustdoc with examples.
 
-- [x] `M3-T01` Switch Scheimpflug Python entrypoint to generic `run_problem` path once `ScheimpflugIntrinsicsProblem` exists. (Done: 2026-03-07)
-- [x] `M3-T02` Keep `models.py`, `types.py`, and `__init__.pyi` synchronized with final Rust config/export contracts. (Done: 2026-03-07; package contract files updated and synchronized)
-- [x] `M3-T03` Add Python tests for session-style Scheimpflug config handling and error mapping consistency. (Done: 2026-03-07)
-
-Acceptance criteria:
-
-- Python bindings use one workflow wiring pattern across all problem types.
-- Typed contracts remain consistent with Rust serde payloads.
-
-### M4: Documentation and Release Readiness
-
-ADR links: 0001, 0002, 0003, 0004
-
-- [x] `M4-T01` Update book/docs for finalized Scheimpflug pipeline shape and usage. (Done: 2026-03-07)
-- [x] `M4-T02` Add/refresh minimal Rust and Python examples that reflect final contracts. (Done: 2026-03-07)
-- [x] `M4-T03` Confirm CI and release workflows enforce required gates (fmt, clippy all-features, tests all-features, python compileall, python runtime tests). (Done: 2026-03-07; clippy follow-up fixes applied)
-- [x] `M4-T04` Add release notes/migration notes for any API surface changes. (Done: 2026-03-07)
+- [ ] `M7-T01` Audit all public items in `vision-calibration-core` — add missing rustdoc.
+- [ ] `M7-T02` Audit all public items in `vision-calibration-linear` — add missing rustdoc.
+- [ ] `M7-T03` Audit all public items in `vision-calibration-optim` — add missing rustdoc.
+- [ ] `M7-T04` Audit all public items in `vision-calibration-pipeline` — add missing rustdoc.
+- [ ] `M7-T05` Audit facade crate rustdoc — ensure module-level docs guide users to the right starting point.
+- [ ] `M7-T06` Add `#[doc(hidden)]` to internal implementation details that leak through re-exports.
+- [ ] `M7-T07` Update book to match finalized API surface.
 
 Acceptance criteria:
+- `cargo doc --workspace --no-deps` produces no warnings.
+- Every public type has at least a one-line doc comment.
+- Every problem module has a usage example in its module doc.
 
-- Documentation matches actual API shape.
-- Gate commands pass locally and in CI.
-- Release notes clearly describe user-visible changes.
+### M8: API Hardening
+
+Goal: Make the API resilient to accidental breaking changes.
+
+- [ ] `M8-T01` Add `#[non_exhaustive]` to all public config, export, and error enums/structs.
+- [ ] `M8-T02` Review `Serialize`/`Deserialize` derives — ensure all JSON-facing types have them, internal types don't.
+- [ ] `M8-T03` Add integration tests that exercise the facade API as an external user would (compile-only tests with `use vision_calibration::*`).
+- [ ] `M8-T04` Pin JSON schema versions in session metadata and add schema version validation on deserialization.
+- [ ] `M8-T05` Add `deny(missing_docs)` to facade crate.
+
+Acceptance criteria:
+- All public config/export/error types are `#[non_exhaustive]`.
+- Facade crate compiles with `deny(missing_docs)`.
+- Schema version mismatch produces a clear error.
+
+### M9: Python API Parity
+
+Goal: Python bindings match Rust API capabilities.
+
+- [ ] `M9-T01` Audit Python type stubs (`__init__.pyi`) against current Rust exports.
+- [ ] `M9-T02` Add step-by-step Python API (not just `run_all`) for at least `PlanarIntrinsicsProblem`.
+- [ ] `M9-T03` Add Python-side config validation with clear error messages.
+- [ ] `M9-T04` Update Python examples to match finalized API.
+- [ ] `M9-T05` Add Python integration tests covering all 6 problem types.
+
+Acceptance criteria:
+- Python stubs match Rust serde contracts.
+- At least one problem type supports step-by-step Python API.
+- All Python examples run without errors.
+
+---
 
 ## Standard Gate Checklist (Per Milestone Completion)
 
-- [x] `cargo fmt --all` (2026-03-07)
-- [x] `cargo clippy --workspace --all-targets --all-features -- -D warnings` (2026-03-07)
-- [x] `cargo test --workspace --all-features` (2026-03-07)
-- [x] `cargo test -p vision-calibration-core` (2026-03-07)
-- [x] `cargo test -p vision-calibration` (2026-03-07)
-- [x] `cargo test -p vision-calibration-py` (2026-03-07)
-- [x] `python3 -m compileall crates/vision-calibration-py/python/vision_calibration` (2026-03-07)
-- [x] Python runtime tests after extension build (`maturin develop` + unittest/pytest suite) (2026-03-07)
+- [ ] `cargo fmt --all -- --check`
+- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- [ ] `cargo test --workspace --all-features`
+- [ ] `cargo doc --workspace --no-deps` (no warnings)
+- [ ] `python3 -m compileall crates/vision-calibration-py/python/vision_calibration`

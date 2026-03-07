@@ -14,9 +14,17 @@ Status legend:
 - `Superseded`: replaced by a newer ADR.
 - `Proposed`: under discussion and not yet binding.
 
-Current ADRs:
+## Foundational (retroactive)
 
-- [0001 - Pipeline Problem Module Shape](/Users/vitalyvorobyev/vision/calibration-rs/docs/adrs/0001-pipeline-problem-module-shape.md)
-- [0002 - Planar Intrinsics Family and Sensor Modes](/Users/vitalyvorobyev/vision/calibration-rs/docs/adrs/0002-planar-intrinsics-family-and-sensor-modes.md)
-- [0003 - Facade and Python API Consistency](/Users/vitalyvorobyev/vision/calibration-rs/docs/adrs/0003-facade-and-python-api-consistency.md)
-- [0004 - Planning Process: ADR + Backlog](/Users/vitalyvorobyev/vision/calibration-rs/docs/adrs/0004-planning-process-adr-backlog.md)
+- [0005 - Composable Camera Model Pipeline](0005-composable-camera-model.md)
+- [0006 - Layered Crate Architecture](0006-layered-crate-architecture.md)
+- [0007 - Session Framework with External Step Functions](0007-session-framework.md)
+- [0008 - Backend-Agnostic Optimization IR](0008-backend-agnostic-optimization-ir.md)
+- [0009 - Coordinate and Pose Conventions](0009-coordinate-and-pose-conventions.md)
+
+## Process & Migration
+
+- [0001 - Pipeline Problem Module Shape](0001-pipeline-problem-module-shape.md)
+- [0002 - Planar Intrinsics Family and Sensor Modes](0002-planar-intrinsics-family-and-sensor-modes.md)
+- [0003 - Facade and Python API Consistency](0003-facade-and-python-api-consistency.md)
+- [0004 - Planning Process: ADR + Backlog](0004-planning-process-adr-backlog.md)
