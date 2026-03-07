@@ -55,7 +55,7 @@ config = vc.ScheimpflugIntrinsicsCalibrationConfig(
     fix_scheimpflug={"tilt_x": False, "tilt_y": False}
 )
 result = vc.run_scheimpflug_intrinsics(dataset, config)
-print(result.camera["sensor"])
+print(result.camera.sensor)
 ```
 
 ## Runnable Python examples

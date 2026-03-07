@@ -815,28 +815,321 @@ class ScheimpflugIntrinsicsCalibrationConfig:
 
 
 @dataclass(slots=True)
+class PinholeIntrinsics:
+    """Typed pinhole intrinsics model."""
+
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+    skew: float
+
+    def to_payload(self) -> dict[str, float]:
+        """Convert to serde payload shape."""
+        return {
+            "fx": float(self.fx),
+            "fy": float(self.fy),
+            "cx": float(self.cx),
+            "cy": float(self.cy),
+            "skew": float(self.skew),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeIntrinsics":
+        """Parse intrinsics from serde payload shape."""
+        return cls(
+            fx=float(payload["fx"]),
+            fy=float(payload["fy"]),
+            cx=float(payload["cx"]),
+            cy=float(payload["cy"]),
+            skew=float(payload["skew"]),
+        )
+
+
+@dataclass(slots=True)
+class BrownConradyDistortion:
+    """Typed Brown-Conrady distortion model."""
+
+    k1: float
+    k2: float
+    k3: float
+    p1: float
+    p2: float
+    iters: int
+
+    def to_payload(self) -> dict[str, float | int]:
+        """Convert to serde payload shape."""
+        return {
+            "k1": float(self.k1),
+            "k2": float(self.k2),
+            "k3": float(self.k3),
+            "p1": float(self.p1),
+            "p2": float(self.p2),
+            "iters": int(self.iters),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "BrownConradyDistortion":
+        """Parse distortion from serde payload shape."""
+        return cls(
+            k1=float(payload["k1"]),
+            k2=float(payload["k2"]),
+            k3=float(payload["k3"]),
+            p1=float(payload["p1"]),
+            p2=float(payload["p2"]),
+            iters=int(payload["iters"]),
+        )
+
+
+@dataclass(slots=True)
+class ScheimpflugSensor:
+    """Typed Scheimpflug sensor tilt model."""
+
+    tilt_x: float
+    tilt_y: float
+
+    def to_payload(self) -> dict[str, float]:
+        """Convert to serde payload shape."""
+        return {
+            "tilt_x": float(self.tilt_x),
+            "tilt_y": float(self.tilt_y),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ScheimpflugSensor":
+        """Parse Scheimpflug tilt, accepting legacy `tau_x`/`tau_y` aliases."""
+        tilt_x = payload.get("tilt_x", payload.get("tau_x"))
+        tilt_y = payload.get("tilt_y", payload.get("tau_y"))
+        if tilt_x is None:
+            raise ValueError("Scheimpflug sensor payload missing tilt_x/tau_x")
+        if tilt_y is None:
+            raise ValueError("Scheimpflug sensor payload missing tilt_y/tau_y")
+        return cls(tilt_x=float(tilt_x), tilt_y=float(tilt_y))
+
+
+@dataclass(slots=True)
+class PinholeBrownConradyCamera:
+    """Typed pinhole camera model with Brown-Conrady distortion."""
+
+    intrinsics: PinholeIntrinsics
+    distortion: BrownConradyDistortion
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to the `PinholeCamera` serde payload shape."""
+        return {
+            "k": self.intrinsics.to_payload(),
+            "dist": self.distortion.to_payload(),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeBrownConradyCamera":
+        """Parse from either `PinholeCamera` or `CameraParams`-style payload."""
+        if "k" in payload and "dist" in payload:
+            return cls(
+                intrinsics=PinholeIntrinsics.from_payload(cast(Mapping[str, Any], payload["k"])),
+                distortion=BrownConradyDistortion.from_payload(
+                    cast(Mapping[str, Any], payload["dist"])
+                ),
+            )
+
+        if "intrinsics" in payload and "distortion" in payload:
+            intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
+            distortion_payload = cast(Mapping[str, Any], payload["distortion"])
+
+            intrinsics_type = intrinsics_payload.get("type")
+            if intrinsics_type not in (None, "fx_fy_cx_cy_skew"):
+                raise ValueError(
+                    f"unsupported intrinsics payload type for pinhole camera: {intrinsics_type!r}"
+                )
+
+            distortion_type = distortion_payload.get("type")
+            if distortion_type not in (None, "brown_conrady5"):
+                raise ValueError(
+                    f"unsupported distortion payload type for pinhole camera: {distortion_type!r}"
+                )
+
+            return cls(
+                intrinsics=PinholeIntrinsics.from_payload(intrinsics_payload),
+                distortion=BrownConradyDistortion.from_payload(distortion_payload),
+            )
+
+        raise ValueError("camera payload missing expected intrinsics/distortion fields")
+
+
+@dataclass(slots=True)
+class PinholeBrownConradyScheimpflugCamera:
+    """Typed pinhole + Brown-Conrady + Scheimpflug camera model."""
+
+    intrinsics: PinholeIntrinsics
+    distortion: BrownConradyDistortion
+    sensor: ScheimpflugSensor
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to `CameraParams` serde payload shape."""
+        return {
+            "projection": {"type": "pinhole"},
+            "distortion": {"type": "brown_conrady5", **self.distortion.to_payload()},
+            "sensor": {"type": "scheimpflug", **self.sensor.to_payload()},
+            "intrinsics": {"type": "fx_fy_cx_cy_skew", **self.intrinsics.to_payload()},
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeBrownConradyScheimpflugCamera":
+        """Parse from `CameraParams` payload with Scheimpflug sensor."""
+        intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
+        distortion_payload = cast(Mapping[str, Any], payload["distortion"])
+        sensor_payload = cast(Mapping[str, Any], payload["sensor"])
+
+        intrinsics_type = intrinsics_payload.get("type")
+        if intrinsics_type not in (None, "fx_fy_cx_cy_skew"):
+            raise ValueError(
+                f"unsupported intrinsics payload type for Scheimpflug camera: {intrinsics_type!r}"
+            )
+
+        distortion_type = distortion_payload.get("type")
+        if distortion_type not in (None, "brown_conrady5"):
+            raise ValueError(
+                f"unsupported distortion payload type for Scheimpflug camera: {distortion_type!r}"
+            )
+
+        sensor_type = sensor_payload.get("type")
+        if sensor_type not in (None, "scheimpflug"):
+            raise ValueError(
+                f"unsupported sensor payload type for Scheimpflug camera: {sensor_type!r}"
+            )
+
+        return cls(
+            intrinsics=PinholeIntrinsics.from_payload(intrinsics_payload),
+            distortion=BrownConradyDistortion.from_payload(distortion_payload),
+            sensor=ScheimpflugSensor.from_payload(sensor_payload),
+        )
+
+
+@dataclass(slots=True)
+class LaserlinePlane:
+    """Typed laser plane representation."""
+
+    normal_xyz: Vec3
+    distance: float
+
+    def __post_init__(self) -> None:
+        self.normal_xyz = _as_vec3(list(self.normal_xyz))
+        self.distance = float(self.distance)
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlinePlane":
+        """Parse laser plane from serde payload."""
+        normal_value = payload["normal"]
+        if isinstance(normal_value, Mapping):
+            if "coords" in normal_value:
+                normal_value = normal_value["coords"]
+            elif "data" in normal_value:
+                normal_value = normal_value["data"]
+            else:
+                raise ValueError("unsupported laser plane normal payload shape")
+        return cls(
+            normal_xyz=cast(Vec3, tuple(normal_value)),
+            distance=float(payload["distance"]),
+        )
+
+
+@dataclass(slots=True)
+class LaserlineEstimateParams:
+    """Typed parameter payload for laserline optimization results."""
+
+    intrinsics: PinholeIntrinsics
+    distortion: BrownConradyDistortion
+    sensor: ScheimpflugSensor
+    poses: list[Pose]
+    plane: LaserlinePlane
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineEstimateParams":
+        return cls(
+            intrinsics=PinholeIntrinsics.from_payload(
+                cast(Mapping[str, Any], payload["intrinsics"])
+            ),
+            distortion=BrownConradyDistortion.from_payload(
+                cast(Mapping[str, Any], payload["distortion"])
+            ),
+            sensor=ScheimpflugSensor.from_payload(cast(Mapping[str, Any], payload["sensor"])),
+            poses=[
+                Pose.from_payload(cast(Mapping[str, Any], pose))
+                for pose in cast(list[Any], payload["poses"])
+            ],
+            plane=LaserlinePlane.from_payload(cast(Mapping[str, Any], payload["plane"])),
+        )
+
+
+@dataclass(slots=True)
+class LaserlineEstimate:
+    """Typed laserline optimizer estimate payload."""
+
+    params: LaserlineEstimateParams
+    final_cost: float
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineEstimate":
+        report = cast(Mapping[str, Any], payload["report"])
+        return cls(
+            params=LaserlineEstimateParams.from_payload(
+                cast(Mapping[str, Any], payload["params"])
+            ),
+            final_cost=float(report["final_cost"]),
+        )
+
+
+@dataclass(slots=True)
+class LaserlineStats:
+    """Typed summary statistics for laserline results."""
+
+    mean_reproj_error: float
+    mean_laser_error: float
+    per_view_reproj_errors: list[float]
+    per_view_laser_errors: list[float]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineStats":
+        return cls(
+            mean_reproj_error=float(payload["mean_reproj_error"]),
+            mean_laser_error=float(payload["mean_laser_error"]),
+            per_view_reproj_errors=[
+                float(v) for v in cast(list[Any], payload["per_view_reproj_errors"])
+            ],
+            per_view_laser_errors=[
+                float(v) for v in cast(list[Any], payload["per_view_laser_errors"])
+            ],
+        )
+
+
+@dataclass(slots=True)
 class PlanarCalibrationResult:
     """Result from :func:`vision_calibration.run_planar_intrinsics`."""
 
-    camera: dict[str, Any]
+    camera: PinholeBrownConradyCamera
     camera_se3_target: list[Pose]
     final_cost: float
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    raw: dict[str, Any]
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "PlanarCalibrationResult":
         params = cast(Mapping[str, Any], payload["params"])
         report = cast(Mapping[str, Any], payload["report"])
-        poses = [Pose.from_payload(cast(Mapping[str, Any], p)) for p in cast(list[Any], params["camera_se3_target"])]
+        poses = [
+            Pose.from_payload(cast(Mapping[str, Any], p))
+            for p in cast(list[Any], params["camera_se3_target"])
+        ]
         return cls(
-            camera=cast(dict[str, Any], params["camera"]),
+            camera=PinholeBrownConradyCamera.from_payload(
+                cast(Mapping[str, Any], params["camera"])
+            ),
             camera_se3_target=poses,
             final_cost=float(report["final_cost"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
-            per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
-            raw=dict(payload),
+            per_cam_reproj_errors=[
+                float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
+            ],
         )
 
 
@@ -844,7 +1137,7 @@ class PlanarCalibrationResult:
 class SingleCamHandeyeResult:
     """Result from :func:`vision_calibration.run_single_cam_handeye`."""
 
-    camera: dict[str, Any]
+    camera: PinholeBrownConradyCamera
     handeye_mode: HandEyeMode
     gripper_se3_camera: Pose | None
     camera_se3_base: Pose | None
@@ -853,7 +1146,6 @@ class SingleCamHandeyeResult:
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    raw: dict[str, Any]
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "SingleCamHandeyeResult":
@@ -864,7 +1156,9 @@ class SingleCamHandeyeResult:
             return Pose.from_payload(cast(Mapping[str, Any], value))
 
         return cls(
-            camera=cast(dict[str, Any], payload["camera"]),
+            camera=PinholeBrownConradyCamera.from_payload(
+                cast(Mapping[str, Any], payload["camera"])
+            ),
             handeye_mode=cast(HandEyeMode, payload["handeye_mode"]),
             gripper_se3_camera=_pose("gripper_se3_camera"),
             camera_se3_base=_pose("camera_se3_base"),
@@ -873,7 +1167,6 @@ class SingleCamHandeyeResult:
             robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
-            raw=dict(payload),
         )
 
 
@@ -881,20 +1174,21 @@ class SingleCamHandeyeResult:
 class RigExtrinsicsResult:
     """Result from :func:`vision_calibration.run_rig_extrinsics`."""
 
-    cameras: list[dict[str, Any]]
+    cameras: list[PinholeBrownConradyCamera]
     cam_se3_rig: list[Pose]
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    raw: dict[str, Any]
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigExtrinsicsResult":
         return cls(
-            cameras=[cast(dict[str, Any], c) for c in cast(list[Any], payload["cameras"])],
+            cameras=[
+                PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
+                for c in cast(list[Any], payload["cameras"])
+            ],
             cam_se3_rig=[Pose.from_payload(cast(Mapping[str, Any], p)) for p in cast(list[Any], payload["cam_se3_rig"])],
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
-            raw=dict(payload),
         )
 
 
@@ -902,7 +1196,7 @@ class RigExtrinsicsResult:
 class RigHandeyeResult:
     """Result from :func:`vision_calibration.run_rig_handeye`."""
 
-    cameras: list[dict[str, Any]]
+    cameras: list[PinholeBrownConradyCamera]
     cam_se3_rig: list[Pose]
     handeye_mode: HandEyeMode
     gripper_se3_rig: Pose | None
@@ -912,7 +1206,6 @@ class RigHandeyeResult:
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    raw: dict[str, Any]
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeResult":
@@ -923,7 +1216,10 @@ class RigHandeyeResult:
             return Pose.from_payload(cast(Mapping[str, Any], value))
 
         return cls(
-            cameras=[cast(dict[str, Any], c) for c in cast(list[Any], payload["cameras"])],
+            cameras=[
+                PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
+                for c in cast(list[Any], payload["cameras"])
+            ],
             cam_se3_rig=[Pose.from_payload(cast(Mapping[str, Any], p)) for p in cast(list[Any], payload["cam_se3_rig"])],
             handeye_mode=cast(HandEyeMode, payload["handeye_mode"]),
             gripper_se3_rig=_pose("gripper_se3_rig"),
@@ -933,7 +1229,6 @@ class RigHandeyeResult:
             robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
-            raw=dict(payload),
         )
 
 
@@ -941,25 +1236,25 @@ class RigHandeyeResult:
 class LaserlineDeviceResult:
     """Result from :func:`vision_calibration.run_laserline_device`."""
 
-    estimate: dict[str, Any]
-    stats: dict[str, Any]
+    estimate: LaserlineEstimate
+    stats: LaserlineStats
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    raw: dict[str, Any]
 
     @property
     def mean_laser_error(self) -> float:
         """Mean laser residual (units depend on residual type)."""
-        return float(self.stats["mean_laser_error"])
+        return self.stats.mean_laser_error
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineDeviceResult":
         return cls(
-            estimate=cast(dict[str, Any], payload["estimate"]),
-            stats=cast(dict[str, Any], payload["stats"]),
+            estimate=LaserlineEstimate.from_payload(
+                cast(Mapping[str, Any], payload["estimate"])
+            ),
+            stats=LaserlineStats.from_payload(cast(Mapping[str, Any], payload["stats"])),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
-            raw=dict(payload),
         )
 
 
@@ -967,19 +1262,20 @@ class LaserlineDeviceResult:
 class ScheimpflugIntrinsicsResult:
     """Result from :func:`vision_calibration.run_scheimpflug_intrinsics`."""
 
-    camera: dict[str, Any]
+    camera: PinholeBrownConradyScheimpflugCamera
     camera_se3_target: list[Pose]
     final_cost: float
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
-    raw: dict[str, Any]
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ScheimpflugIntrinsicsResult":
         params = cast(Mapping[str, Any], payload["params"])
         report = cast(Mapping[str, Any], payload["report"])
         return cls(
-            camera=cast(dict[str, Any], params["camera"]),
+            camera=PinholeBrownConradyScheimpflugCamera.from_payload(
+                cast(Mapping[str, Any], params["camera"])
+            ),
             camera_se3_target=[
                 Pose.from_payload(cast(Mapping[str, Any], pose))
                 for pose in cast(list[Any], params["camera_se3_target"])
@@ -987,7 +1283,6 @@ class ScheimpflugIntrinsicsResult:
             final_cost=float(report["final_cost"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
-            raw=dict(payload),
         )
 
 
