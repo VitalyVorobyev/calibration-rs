@@ -108,7 +108,7 @@ Goal: Make the API resilient to accidental breaking changes.
 - [x] `M8-T02` Review `Serialize`/`Deserialize` derives — ensure all JSON-facing types have them, internal types don't. (Done: 2026-03-07)
 - [x] `M8-T03` Add integration tests that exercise the facade API as an external user would (compile-only tests with `use vision_calibration::*`). (Done: 2026-03-07)
 - [x] `M8-T04` Pin JSON schema versions in session metadata and add schema version validation on deserialization. (Done: 2026-03-07)
-- [ ] `M8-T05` Add `deny(missing_docs)` to facade crate.
+- [x] `M8-T05` Add `deny(missing_docs)` to facade crate. (Done: 2026-03-07)
 
 Acceptance criteria:
 - All public config/export/error types are `#[non_exhaustive]`.

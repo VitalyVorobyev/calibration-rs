@@ -75,6 +75,8 @@
 //! | [`LaserlineDeviceProblem`](laserline_device) | `LaserlineDeviceInput` | `step_init` → `step_optimize` |
 //! | [`ScheimpflugIntrinsicsProblem`](scheimpflug_intrinsics) | `PlanarDataset` | `step_init` → `step_optimize` |
 
+#![deny(missing_docs)]
+
 /// Single-camera planar intrinsics with Scheimpflug/tilted sensor refinement.
 ///
 /// This high-level helper mirrors planar intrinsics calibration, but optimizes a
