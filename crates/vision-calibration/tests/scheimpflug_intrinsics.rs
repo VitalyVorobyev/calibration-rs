@@ -150,12 +150,10 @@ fn public_api_converges_on_synthetic_scheimpflug_dataset() {
         tilt_y: -0.008,
     };
     let dataset = make_dataset(sensor_gt);
-    let config = ScheimpflugIntrinsicsConfig {
-        fix_scheimpflug: vision_calibration::scheimpflug_intrinsics::ScheimpflugFixMask {
-            tilt_x: false,
-            tilt_y: false,
-        },
-        ..Default::default()
+    let mut config = ScheimpflugIntrinsicsConfig::default();
+    config.fix_scheimpflug = vision_calibration::scheimpflug_intrinsics::ScheimpflugFixMask {
+        tilt_x: false,
+        tilt_y: false,
     };
 
     let result = run_pipeline(&dataset, config).expect("scheimpflug calibration");
@@ -183,13 +181,11 @@ fn public_api_converges_with_deterministic_noise() {
         tilt_y: -0.008,
     };
     let dataset = make_noisy_dataset(sensor_gt, 0.15);
-    let config = ScheimpflugIntrinsicsConfig {
-        robust_loss: RobustLoss::Huber { scale: 1.0 },
-        fix_scheimpflug: ScheimpflugFixMask {
-            tilt_x: false,
-            tilt_y: false,
-        },
-        ..Default::default()
+    let mut config = ScheimpflugIntrinsicsConfig::default();
+    config.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    config.fix_scheimpflug = ScheimpflugFixMask {
+        tilt_x: false,
+        tilt_y: false,
     };
 
     let result = run_pipeline(&dataset, config).expect("scheimpflug calibration");
@@ -231,25 +227,21 @@ fn public_api_rejects_view_with_too_few_points() {
 #[test]
 fn public_api_rejects_invalid_config() {
     let dataset = make_dataset(ScheimpflugParams::default());
-    let config = ScheimpflugIntrinsicsConfig {
-        init_iterations: 0,
-        ..Default::default()
-    };
+    let mut config = ScheimpflugIntrinsicsConfig::default();
+    config.init_iterations = 0;
     let err = run_pipeline(&dataset, config).expect_err("expected invalid config");
     assert!(err.to_string().contains("init_iterations must be positive"));
 }
 
 #[test]
 fn scheimpflug_config_json_roundtrip() {
-    let config = ScheimpflugIntrinsicsConfig {
-        init_iterations: 3,
-        max_iters: 75,
-        robust_loss: RobustLoss::Cauchy { scale: 0.9 },
-        fix_scheimpflug: ScheimpflugFixMask {
-            tilt_x: true,
-            tilt_y: false,
-        },
-        ..Default::default()
+    let mut config = ScheimpflugIntrinsicsConfig::default();
+    config.init_iterations = 3;
+    config.max_iters = 75;
+    config.robust_loss = RobustLoss::Cauchy { scale: 0.9 };
+    config.fix_scheimpflug = ScheimpflugFixMask {
+        tilt_x: true,
+        tilt_y: false,
     };
     let json = serde_json::to_string(&config).expect("serialize config");
     let restored: ScheimpflugIntrinsicsConfig =

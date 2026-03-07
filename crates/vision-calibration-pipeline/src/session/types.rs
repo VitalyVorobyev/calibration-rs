@@ -110,6 +110,7 @@ impl LogEntry {
 /// Each call to [`CalibrationSession::export`](super::CalibrationSession::export)
 /// creates an export record that is stored in the session's exports collection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ExportRecord<E> {
     /// Unix timestamp when the export was created (seconds since epoch).
     pub timestamp: u64,

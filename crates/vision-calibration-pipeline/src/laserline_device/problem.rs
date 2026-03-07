@@ -22,6 +22,7 @@ pub type LaserlineDeviceInput = LaserlineDataset;
 
 /// Configuration for laserline device calibration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceConfig {
     /// Initialization options.
     pub init: LaserlineDeviceInitConfig,
@@ -33,6 +34,7 @@ pub struct LaserlineDeviceConfig {
 
 /// Initialization options for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceInitConfig {
     /// Number of iterations for iterative intrinsics estimation.
     pub iterations: usize,
@@ -60,6 +62,7 @@ impl Default for LaserlineDeviceInitConfig {
 
 /// Shared solver options for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceSolverConfig {
     /// Maximum iterations for the optimizer.
     pub max_iters: usize,
@@ -78,6 +81,7 @@ impl Default for LaserlineDeviceSolverConfig {
 
 /// Bundle-adjustment options for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceOptimizeConfig {
     /// Robust loss for calibration reprojection residuals.
     pub calib_loss: vision_calibration_optim::RobustLoss,
@@ -173,6 +177,7 @@ pub struct LaserlineDeviceOutput {
 
 /// Export type for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceExport {
     /// Pipeline output including optimized parameters and summary statistics.
     pub estimate: LaserlineEstimate,

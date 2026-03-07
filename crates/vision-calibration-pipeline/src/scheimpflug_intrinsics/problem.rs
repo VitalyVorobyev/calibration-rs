@@ -43,6 +43,7 @@ impl ScheimpflugFixMask {
 
 /// Configuration for planar Scheimpflug intrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ScheimpflugIntrinsicsConfig {
     /// Number of iterative linear intrinsics initialization rounds.
     pub init_iterations: usize,
@@ -105,6 +106,7 @@ pub struct ScheimpflugIntrinsicsResult {
 
 /// Export format for Scheimpflug intrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ScheimpflugIntrinsicsExport {
     /// Estimated parameters.
     pub params: ScheimpflugIntrinsicsParams,

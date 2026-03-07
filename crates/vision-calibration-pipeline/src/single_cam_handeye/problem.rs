@@ -61,6 +61,7 @@ impl SingleCamHandeyeInput {
 
 /// Configuration for single-camera hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SingleCamHandeyeConfig {
     // ─────────────────────────────────────────────────────────────────────────
     // Intrinsics initialization options
@@ -140,6 +141,7 @@ impl Default for SingleCamHandeyeConfig {
 
 /// Export format for single-camera hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SingleCamHandeyeExport {
     /// Calibrated camera (intrinsics + distortion).
     pub camera: PinholeCamera,

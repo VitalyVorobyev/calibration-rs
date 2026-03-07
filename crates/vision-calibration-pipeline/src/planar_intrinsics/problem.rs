@@ -57,6 +57,7 @@ pub struct PlanarIntrinsicsProblem;
 ///
 /// Contains settings for both initialization and optimization phases.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PlanarIntrinsicsConfig {
     // ─────────────────────────────────────────────────────────────────────────
     // Initialization options
@@ -150,6 +151,7 @@ impl PlanarIntrinsicsConfig {
 
 /// Export format for planar intrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PlanarIntrinsicsExport {
     /// Calibrated parameters.
     pub params: PlanarIntrinsicsParams,

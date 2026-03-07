@@ -5,8 +5,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{LaserPlane, LaserlineMeta, LaserlineView};
 use vision_calibration_pipeline::laserline_device::{
-    LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInitConfig,
-    LaserlineDeviceOptimizeConfig, LaserlineDeviceProblem, run_calibration,
+    LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceProblem, run_calibration,
 };
 use vision_calibration_pipeline::session::CalibrationSession;
 
@@ -156,13 +155,8 @@ fn pipeline_converges_pinhole() {
     let sensor = ScheimpflugParams::default();
     let (dataset, intrinsics_gt, plane_gt) = make_dataset(sensor);
 
-    let config = LaserlineDeviceConfig {
-        optimize: LaserlineDeviceOptimizeConfig {
-            fix_plane: true,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    let mut config = LaserlineDeviceConfig::default();
+    config.optimize.fix_plane = true;
 
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
     session.set_input(dataset).unwrap();
@@ -201,20 +195,12 @@ fn pipeline_converges_scheimpflug() {
     };
     let (dataset, _intrinsics_gt, _plane_gt) = make_dataset(sensor_gt);
 
-    let config = LaserlineDeviceConfig {
-        init: LaserlineDeviceInitConfig {
-            sensor_init: ScheimpflugParams {
-                tilt_x: 0.005,
-                tilt_y: -0.004,
-            },
-            ..Default::default()
-        },
-        optimize: LaserlineDeviceOptimizeConfig {
-            fix_sensor: false,
-            ..Default::default()
-        },
-        ..Default::default()
+    let mut config = LaserlineDeviceConfig::default();
+    config.init.sensor_init = ScheimpflugParams {
+        tilt_x: 0.005,
+        tilt_y: -0.004,
     };
+    config.optimize.fix_sensor = false;
 
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
     session.set_input(dataset).unwrap();

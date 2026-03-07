@@ -32,6 +32,7 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 
 /// Configuration for multi-camera rig hand-eye calibration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeConfig {
     /// Per-camera intrinsics initialization options.
     pub intrinsics: RigHandeyeIntrinsicsConfig,
@@ -47,6 +48,7 @@ pub struct RigHandeyeConfig {
 
 /// Per-camera intrinsics initialization options for rig hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeIntrinsicsConfig {
     /// Number of iterations for iterative intrinsics estimation.
     pub init_iterations: usize,
@@ -71,6 +73,7 @@ impl Default for RigHandeyeIntrinsicsConfig {
 
 /// Rig-specific options for rig hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeRigConfig {
     /// Reference camera index for rig frame (identity extrinsics).
     pub reference_camera_idx: usize,
@@ -92,6 +95,7 @@ impl Default for RigHandeyeRigConfig {
 
 /// Hand-eye linear initialization options for rig hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeInitConfig {
     /// Hand-eye mode: EyeInHand or EyeToHand.
     pub handeye_mode: HandEyeMode,
@@ -110,6 +114,7 @@ impl Default for RigHandeyeInitConfig {
 
 /// Solver options shared across rig and hand-eye optimization stages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeSolverConfig {
     /// Maximum iterations for optimization.
     pub max_iters: usize,
@@ -131,6 +136,7 @@ impl Default for RigHandeyeSolverConfig {
 
 /// Hand-eye bundle-adjustment options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeBaConfig {
     /// Refine robot poses in hand-eye BA (default: true).
     pub refine_robot_poses: bool,
@@ -160,6 +166,7 @@ impl Default for RigHandeyeBaConfig {
 
 /// Export format for rig hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeExport {
     /// Per-camera calibrated intrinsics + distortion.
     pub cameras: Vec<PinholeCamera>,
