@@ -35,7 +35,6 @@
 //! ```
 
 use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
 use vision_calibration_core::{CorrespondenceView, View};
 use vision_calibration_optim::optimize_planar_intrinsics;
 
@@ -69,7 +68,7 @@ pub struct IntrinsicsOptimizeOptions {
 }
 
 /// Options for filtering observations based on reprojection error.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct FilterOptions {
     /// Maximum reprojection error threshold (pixels).
     /// Points with error above this are removed.
