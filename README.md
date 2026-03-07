@@ -8,6 +8,14 @@ A Rust workspace for end-to-end camera calibration: math primitives, linear solv
 refinement, and session-based pipelines. Supports perspective cameras, laserline calibration,
 multi-camera rigs, and hand-eye calibration.
 
+## Diligence Statement
+
+This project is developed with AI coding assistants (`Codex` and `Claude Code`) as implementation tools.
+Not every code path is manually line-reviewed by a human before merge. The project author is an expert in
+computer vision, validates algorithmic behavior and numerical results, and enforces quality gates
+(`fmt`/`clippy`/tests/docs/Python checks) before release. This is engineering-assisted development, not
+"vibe coding."
+
 ## Architecture
 
 ```

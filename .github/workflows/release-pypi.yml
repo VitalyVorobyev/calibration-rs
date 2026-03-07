@@ -84,6 +84,8 @@ jobs:
 
       - name: Build extension and run Python runtime tests
         run: |
+          python -m venv .venv
+          source .venv/bin/activate
           python -m pip install --upgrade pip maturin
           maturin develop -m crates/vision-calibration-py/Cargo.toml
           python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
