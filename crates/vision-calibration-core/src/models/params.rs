@@ -23,6 +23,7 @@ pub enum DistortionParams {
     None,
     /// Brown-Conrady 5-parameter radial-tangential model.
     BrownConrady5 {
+        /// Flattened Brown-Conrady coefficients.
         #[serde(flatten)]
         params: BrownConrady5<Real>,
     },
@@ -35,9 +36,13 @@ pub enum SensorParams {
     /// Identity sensor model.
     Identity,
     /// Homography applied in the sensor plane.
-    Homography { h: [[Real; 3]; 3] },
+    Homography {
+        /// Row-major homography matrix mapping normalized to sensor coordinates.
+        h: [[Real; 3]; 3],
+    },
     /// Scheimpflug/tilted sensor model.
     Scheimpflug {
+        /// Flattened Scheimpflug tilt parameters.
         #[serde(flatten)]
         params: ScheimpflugParams,
     },
@@ -49,6 +54,7 @@ pub enum SensorParams {
 pub enum IntrinsicsParams {
     /// Pinhole intrinsics with optional skew.
     FxFyCxCySkew {
+        /// Flattened pinhole intrinsics coefficients.
         #[serde(flatten)]
         params: FxFyCxCySkew<Real>,
     },

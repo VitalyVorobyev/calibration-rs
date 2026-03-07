@@ -77,13 +77,22 @@ pub use view::*;
 
 use anyhow::Result;
 
+/// Concrete pinhole camera alias used across single-camera workflows.
+///
+/// Composition:
+/// - projection: [`Pinhole`]
+/// - distortion: [`BrownConrady5`]
+/// - sensor: [`IdentitySensor`]
+/// - intrinsics: [`FxFyCxCySkew`]
 pub type PinholeCamera =
     Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
 
+/// Build a [`PinholeCamera`] from intrinsics and Brown-Conrady distortion.
 pub fn make_pinhole_camera(k: FxFyCxCySkew<Real>, dist: BrownConrady5<Real>) -> PinholeCamera {
     Camera::new(Pinhole, dist, IdentitySensor, k)
 }
 
+/// Convert a concrete [`PinholeCamera`] into serializable [`CameraParams`].
 pub fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
     CameraParams {
         projection: ProjectionParams::Pinhole,
@@ -110,10 +119,15 @@ pub fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
     }
 }
 
+/// Metadata carrying the per-view pose `camera_se3_target`.
 pub struct TargetPose {
+    /// Pose of target frame in camera frame (`T_C_T`).
     pub camera_se3_target: Iso3,
 }
 
+/// Compute mean per-point reprojection error for a calibrated camera and posed views.
+///
+/// The transform chain is `p_cam = T_C_T * p_target`.
 pub fn compute_mean_reproj_error(
     camera: &PinholeCamera,
     views: &[View<TargetPose>],

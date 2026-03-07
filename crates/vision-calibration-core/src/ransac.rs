@@ -74,7 +74,9 @@ impl<M> Default for RansacResult<M> {
 ///
 /// Implement this for your geometric models: lines, planes, homographies, etc.
 pub trait Estimator {
+    /// Input datum type (for example one correspondence or measurement).
     type Datum;
+    /// Estimated model type produced from sampled data.
     type Model;
 
     /// Minimal number of samples needed to estimate a model.
