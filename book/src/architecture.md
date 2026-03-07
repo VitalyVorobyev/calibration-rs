@@ -1,6 +1,6 @@
 # Architecture Overview
 
-calibration-rs is organized as a layered workspace of five Rust crates. This chapter explains the dependency structure, data flow, and key design patterns.
+calibration-rs is organized as a layered workspace of Rust crates plus Python bindings. This chapter explains the dependency structure, data flow, and key design patterns.
 
 ## Crate Dependency Graph
 
@@ -68,7 +68,7 @@ The session framework providing production-ready workflows:
 - **Step functions** — free functions operating on `&mut CalibrationSession<P>` (e.g., `step_init`, `step_optimize`)
 - **Pipeline functions** — convenience wrappers chaining all steps
 - **JSON checkpointing** — full serialization for session persistence
-- Five problem types: `PlanarIntrinsicsProblem`, `SingleCamHandeyeProblem`, `RigExtrinsicsProblem`, `RigHandeyeProblem`, `LaserlineDeviceProblem`
+- Six problem types: `PlanarIntrinsicsProblem`, `ScheimpflugIntrinsicsProblem`, `SingleCamHandeyeProblem`, `RigExtrinsicsProblem`, `RigHandeyeProblem`, `LaserlineDeviceProblem`
 
 ### vision-calibration
 
@@ -81,6 +81,10 @@ use vision_calibration::core::*;               // Math types
 use vision_calibration::linear::*;             // Linear solvers
 use vision_calibration::optim::*;              // Optimization
 ```
+
+### vision-calibration-py
+
+Python bindings crate (`maturin`/PyO3) exposing high-level session workflows.
 
 ## Data Flow
 

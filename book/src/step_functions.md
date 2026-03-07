@@ -97,10 +97,11 @@ let export = session.export()?;
 | Problem | Pipeline function | Steps |
 |---------|------------------|-------|
 | `PlanarIntrinsicsProblem` | `run_calibration()` | init → optimize |
-| `SingleCamHandeyeProblem` | `run_single_cam_handeye()` | 4 steps |
-| `RigExtrinsicsProblem` | `run_rig_extrinsics()` | 4 steps |
-| `RigHandeyeProblem` | `run_rig_handeye()` | 6 steps |
+| `SingleCamHandeyeProblem` | `single_cam_handeye::run_calibration()` | 4 steps |
+| `RigExtrinsicsProblem` | `rig_extrinsics::run_calibration()` | 4 steps |
+| `RigHandeyeProblem` | `rig_handeye::run_calibration()` | 6 steps |
 | `LaserlineDeviceProblem` | `run_calibration(session, config)` | init → optimize |
+| `ScheimpflugIntrinsicsProblem` | `scheimpflug_intrinsics::run_calibration(session, config)` | init → optimize |
 
 ## Recommendation
 

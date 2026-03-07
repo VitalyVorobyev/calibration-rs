@@ -93,7 +93,7 @@ Goal: Every public type and function has rustdoc with examples.
 - [x] `M7-T04` Audit all public items in `vision-calibration-pipeline` — add missing rustdoc. (Done: 2026-03-07)
 - [x] `M7-T05` Audit facade crate rustdoc — ensure module-level docs guide users to the right starting point. (Done: 2026-03-07)
 - [x] `M7-T06` Add `#[doc(hidden)]` to internal implementation details that leak through re-exports. (Done: 2026-03-07)
-- [ ] `M7-T07` Update book to match finalized API surface.
+- [x] `M7-T07` Update book to match finalized API surface. (Done: 2026-03-07)
 
 Acceptance criteria:
 - `cargo doc --workspace --no-deps` produces no warnings.

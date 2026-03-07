@@ -181,7 +181,7 @@ pub mod my_problem {
 }
 ```
 
-And add to the prelude as needed.
+Do not add new workflows to the prelude by default; keep the prelude minimal for planar hello-world usage.
 
 ## Testing
 

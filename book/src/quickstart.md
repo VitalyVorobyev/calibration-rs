@@ -6,7 +6,7 @@ This chapter walks through a minimal camera calibration using synthetic data. By
 
 ```toml
 [dependencies]
-vision-calibration = "0.1"
+vision-calibration = "0.2"
 ```
 
 ## Minimal Example
@@ -28,7 +28,7 @@ fn main() -> Result<()> {
         k1: 0.05, k2: -0.02, k3: 0.0,
         p1: 0.001, p2: -0.001, iters: 8,
     };
-    let camera = vision_calibration::make_pinhole_camera(k_gt, dist_gt);
+    let camera = make_pinhole_camera(k_gt, dist_gt);
 
     // 2. Generate synthetic observations
     let board = planar::grid_points(8, 6, 0.04); // 8×6 grid, 40 mm squares
