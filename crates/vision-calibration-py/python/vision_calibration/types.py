@@ -2,6 +2,11 @@
 
 These aliases/TypedDicts model the raw Rust JSON payload schema. Most users
 should use dataclasses from :mod:`vision_calibration.models` instead.
+
+Warning
+-------
+This module is compatibility-oriented low-level surface. It is not the
+recommended high-level API for new code.
 """
 
 from __future__ import annotations

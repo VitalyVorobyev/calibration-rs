@@ -93,5 +93,5 @@ Notes:
 - `planar_real.py`, `stereo_session.py`, `stereo_charuco_session.py`, and
   `handeye_session.py` run detector-based corner extraction from real images
   using `calib-targets`.
-- Low-level serde payload schemas remain available in
-  `vision_calibration.types` for advanced interop.
+- `vision_calibration.types` is low-level compatibility surface for advanced
+  interop only; prefer typed dataclasses/models for new code.

@@ -123,7 +123,7 @@ Reference: `docs/python-bindings-dictless-todo.md`
 
 - [x] `M9-T01` Introduce typed camera/result payload models and remove public dict result fields (`camera`, `cameras`, `estimate`, `stats`, `raw`) from high-level result dataclasses. (Done: 2026-03-07)
 - [x] `M9-T02` Tighten high-level runner signatures in `_api.py`/`__init__.pyi` to typed dataset/config inputs only; move mapping-based compatibility to clearly named low-level raw helpers. (Done: 2026-03-07)
-- [ ] `M9-T03` Re-scope `types.py` as low-level compatibility-only surface and remove it from recommended docs/examples/import paths.
+- [x] `M9-T03` Re-scope `types.py` as low-level compatibility-only surface and remove it from recommended docs/examples/import paths. (Done: 2026-03-07)
 - [ ] `M9-T04` Document and execute hard API break migration notes (no deprecation bridge): remove mapping-based high-level inputs in this release and publish before/after migration snippets.
 - [ ] `M9-T05` Expand Python tests/examples for typed API usage across all runners and reject dict-style high-level usage.
 
