@@ -115,20 +115,23 @@ Acceptance criteria:
 - Facade crate compiles with `deny(missing_docs)`.
 - Schema version mismatch produces a clear error.
 
-### M9: Python API Parity
+### M9: Python Dictless Typed API Migration
 
-Goal: Python bindings match Rust API capabilities.
+Goal: make typed dataclasses the primary Python high-level API and remove dict-centric workflows from public usage.
 
-- [ ] `M9-T01` Audit Python type stubs (`__init__.pyi`) against current Rust exports.
-- [ ] `M9-T02` Add step-by-step Python API (not just `run_all`) for at least `PlanarIntrinsicsProblem`.
-- [ ] `M9-T03` Add Python-side config validation with clear error messages.
-- [ ] `M9-T04` Update Python examples to match finalized API.
-- [ ] `M9-T05` Add Python integration tests covering all 6 problem types.
+Reference: `docs/python-bindings-dictless-todo.md`
+
+- [ ] `M9-T01` Introduce typed camera/result payload models and remove public dict result fields (`camera`, `cameras`, `estimate`, `stats`, `raw`) from high-level result dataclasses.
+- [ ] `M9-T02` Tighten high-level runner signatures in `_api.py`/`__init__.pyi` to typed dataset/config inputs only; move mapping-based compatibility to clearly named low-level raw helpers.
+- [ ] `M9-T03` Re-scope `types.py` as low-level compatibility-only surface and remove it from recommended docs/examples/import paths.
+- [ ] `M9-T04` Add migration compatibility behavior and notes (transition release with `DeprecationWarning` for mapping-based high-level inputs; removal in next release).
+- [ ] `M9-T05` Expand Python tests/examples for typed API usage across all runners and reject dict-style high-level usage.
 
 Acceptance criteria:
-- Python stubs match Rust serde contracts.
-- At least one problem type supports step-by-step Python API.
-- All Python examples run without errors.
+- No dict-typed camera/result fields in public high-level result dataclasses.
+- High-level APIs are typed-first and no longer advertise mapping input as normal usage.
+- Python stubs reflect typed high-level contracts and keep type-checker experience clean.
+- Python docs/examples use typed fields (attribute access) without dict fallback patterns.
 
 ---
 
