@@ -72,9 +72,9 @@ Acceptance criteria:
 
 ADR links: 0003
 
-- [ ] `M3-T01` Switch Scheimpflug Python entrypoint to generic `run_problem` path once `ScheimpflugIntrinsicsProblem` exists.
+- [x] `M3-T01` Switch Scheimpflug Python entrypoint to generic `run_problem` path once `ScheimpflugIntrinsicsProblem` exists. (Done: 2026-03-07)
 - [ ] `M3-T02` Keep `models.py`, `types.py`, and `__init__.pyi` synchronized with final Rust config/export contracts.
-- [ ] `M3-T03` Add Python tests for session-style Scheimpflug config handling and error mapping consistency.
+- [x] `M3-T03` Add Python tests for session-style Scheimpflug config handling and error mapping consistency. (Done: 2026-03-07)
 
 Acceptance criteria:
 
