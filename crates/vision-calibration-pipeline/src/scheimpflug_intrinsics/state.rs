@@ -3,6 +3,14 @@
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, Iso3, Real, ScheimpflugParams};
 
+/// Initial parameter bundle consumed by the optimization step.
+pub type ScheimpflugInitialValues = (
+    FxFyCxCySkew<Real>,
+    BrownConrady5<Real>,
+    ScheimpflugParams,
+    Vec<Iso3>,
+);
+
 /// Intermediate state for the Scheimpflug intrinsics pipeline.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScheimpflugIntrinsicsState {
@@ -40,14 +48,7 @@ impl ScheimpflugIntrinsicsState {
     }
 
     /// Return initial values required for optimization.
-    pub fn initial_values(
-        &self,
-    ) -> Option<(
-        FxFyCxCySkew<Real>,
-        BrownConrady5<Real>,
-        ScheimpflugParams,
-        Vec<Iso3>,
-    )> {
+    pub fn initial_values(&self) -> Option<ScheimpflugInitialValues> {
         Some((
             self.initial_intrinsics?,
             self.initial_distortion?,

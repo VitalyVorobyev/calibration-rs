@@ -221,10 +221,10 @@ pub fn run_calibration_direct(
     session.set_input(dataset.clone())?;
     session.set_config(config.clone())?;
     run_calibration(&mut session, None)?;
-    Ok(session
+    session
         .output()
         .cloned()
-        .ok_or_else(|| anyhow!("missing calibration output after successful run"))?)
+        .ok_or_else(|| anyhow!("missing calibration output after successful run"))
 }
 
 fn estimate_initial_poses(
