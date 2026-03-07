@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-07
+
+### Added
+- New high-level Scheimpflug intrinsics workflow:
+  - Rust API: `vision_calibration::scheimpflug_intrinsics::run_calibration`
+  - Python API: `vision_calibration.run_scheimpflug_intrinsics`
+  - Typed Python models and stubs for Scheimpflug config/result payloads
+- Synthetic integration tests for Scheimpflug calibration in `vision-calibration`
+- Python runtime test coverage for Scheimpflug bindings
+
+### Changed
+- Enforced workspace layering by moving Scheimpflug solver implementation to `vision-calibration-pipeline` and keeping `vision-calibration` as facade re-export
+- Expanded documentation with Scheimpflug usage snippets for Rust and Python
+- CI hardening:
+  - `cargo clippy` now runs with `--all-features`
+  - `cargo test` now runs with `--all-features`
+  - Added Python extension build + runtime test job in CI
+- PyPI release workflow now validates Python runtime tests before publishing
+
+### Breaking
+- Minor release boundary update to `0.2.0` to reflect compatibility boundary changes across recent API work
+
 ## [0.1.2]
 
 ### Added
