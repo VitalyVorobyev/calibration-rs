@@ -77,7 +77,7 @@ pub use problem::{
 };
 pub use state::RigHandeyeState;
 pub use steps::{
-    HandeyeInitOptions, HandeyeOptimOptions, IntrinsicsInitOptions, IntrinsicsOptimOptions,
-    RigOptimOptions, run_calibration, step_handeye_init, step_handeye_optimize,
+    HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
+    RigOptimizeOptions, run_calibration, step_handeye_init, step_handeye_optimize,
     step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
 };

@@ -26,14 +26,14 @@ use super::problem::{
 
 /// Options for the initialization step.
 #[derive(Debug, Clone, Default)]
-pub struct InitOptions {
+pub struct IntrinsicsInitOptions {
     /// Override the number of iterative initialization rounds.
     pub iterations: Option<usize>,
 }
 
 /// Options for the optimization step.
 #[derive(Debug, Clone, Default)]
-pub struct OptimizeOptions {
+pub struct IntrinsicsOptimizeOptions {
     /// Override the maximum number of optimization iterations.
     pub max_iters: Option<usize>,
     /// Override solver verbosity.
@@ -43,7 +43,7 @@ pub struct OptimizeOptions {
 /// Initialize intrinsics and poses for Scheimpflug refinement.
 pub fn step_init(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
-    opts: Option<InitOptions>,
+    opts: Option<IntrinsicsInitOptions>,
 ) -> Result<()> {
     session.validate()?;
     let dataset = session.require_input()?.clone();
@@ -98,7 +98,7 @@ pub fn step_init(
 /// Optimize Scheimpflug intrinsics, distortion, sensor tilt, and target poses.
 pub fn step_optimize(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
-    opts: Option<OptimizeOptions>,
+    opts: Option<IntrinsicsOptimizeOptions>,
 ) -> Result<()> {
     session.validate()?;
     let dataset = session.require_input()?.clone();

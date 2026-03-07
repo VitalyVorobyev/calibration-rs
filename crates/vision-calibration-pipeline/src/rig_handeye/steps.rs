@@ -35,7 +35,7 @@ pub struct IntrinsicsInitOptions {
 
 /// Options for per-camera intrinsics optimization.
 #[derive(Debug, Clone, Default)]
-pub struct IntrinsicsOptimOptions {
+pub struct IntrinsicsOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
     /// Override verbosity level.
@@ -44,7 +44,7 @@ pub struct IntrinsicsOptimOptions {
 
 /// Options for rig BA optimization.
 #[derive(Debug, Clone, Default)]
-pub struct RigOptimOptions {
+pub struct RigOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
     /// Override verbosity level.
@@ -60,7 +60,7 @@ pub struct HandeyeInitOptions {
 
 /// Options for hand-eye optimization.
 #[derive(Debug, Clone, Default)]
-pub struct HandeyeOptimOptions {
+pub struct HandeyeOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
     /// Override verbosity level.
@@ -228,7 +228,7 @@ pub fn step_intrinsics_init_all(
 /// - Optimization fails for any camera
 pub fn step_intrinsics_optimize_all(
     session: &mut CalibrationSession<RigHandeyeProblem>,
-    opts: Option<IntrinsicsOptimOptions>,
+    opts: Option<IntrinsicsOptimizeOptions>,
 ) -> Result<()> {
     session.validate()?;
     let input = session.require_input()?;
@@ -384,7 +384,7 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigHandeyeProblem>) -> Res
 /// - Optimization fails
 pub fn step_rig_optimize(
     session: &mut CalibrationSession<RigHandeyeProblem>,
-    opts: Option<RigOptimOptions>,
+    opts: Option<RigOptimizeOptions>,
 ) -> Result<()> {
     session.validate()?;
     let input = session.require_input()?;
@@ -616,7 +616,7 @@ pub fn step_handeye_init(
 /// - Optimization fails
 pub fn step_handeye_optimize(
     session: &mut CalibrationSession<RigHandeyeProblem>,
-    opts: Option<HandeyeOptimOptions>,
+    opts: Option<HandeyeOptimizeOptions>,
 ) -> Result<()> {
     session.validate()?;
     let input = session.require_input()?.clone();

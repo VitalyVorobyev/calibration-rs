@@ -56,7 +56,7 @@ pub struct IntrinsicsInitOptions {
 
 /// Options for intrinsics optimization step.
 #[derive(Debug, Clone, Default)]
-pub struct IntrinsicsOptimOptions {
+pub struct IntrinsicsOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
     /// Override verbosity level.
@@ -72,7 +72,7 @@ pub struct HandeyeInitOptions {
 
 /// Options for hand-eye optimization step.
 #[derive(Debug, Clone, Default)]
-pub struct HandeyeOptimOptions {
+pub struct HandeyeOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
     /// Override verbosity level.
@@ -218,7 +218,7 @@ pub fn step_intrinsics_init(
 /// - Optimization fails
 pub fn step_intrinsics_optimize(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
-    opts: Option<IntrinsicsOptimOptions>,
+    opts: Option<IntrinsicsOptimizeOptions>,
 ) -> Result<()> {
     session.validate()?;
     let input = session.require_input()?;
@@ -405,7 +405,7 @@ pub fn step_handeye_init(
 /// - Optimization fails
 pub fn step_handeye_optimize(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
-    opts: Option<HandeyeOptimOptions>,
+    opts: Option<HandeyeOptimizeOptions>,
 ) -> Result<()> {
     session.validate()?;
     let input = session.require_input()?;

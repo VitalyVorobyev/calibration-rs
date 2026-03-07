@@ -51,11 +51,11 @@ Execution workflow:
 
 Goal: Clean, module-first public API with consistent naming. Breaking changes allowed.
 
-ADR links: 0003, 0006, 0007
+ADR links: 0003, 0006, 0007, 0010
 
 - [x] `M5-T01` Remove flat re-exports from `vision-calibration-pipeline/src/lib.rs`. Keep only module declarations and the `session` module re-export. Each problem type accessed via `crate::planar_intrinsics::*`, not top-level. (Done: 2026-03-07)
 - [x] `M5-T02` Clean up facade `vision-calibration/src/lib.rs`: remove `core` glob re-export (`pub use vision_calibration_core::*`), replace with explicit type list. Remove `handeye` escape-hatch module. (Done: 2026-03-07)
-- [ ] `M5-T03` Standardize option type naming across problem types. Each module should have `InitOptions`, `OptimizeOptions` (local to the module, no disambiguation needed).
+- [x] `M5-T03` Standardize step option naming via ADR 0010: use `<Stage><Action>Options` with explicit stage in every module and full action words (`Optimize`, not `Optim`), with hard renames (no compatibility aliases). (Done: 2026-03-07)
 - [ ] `M5-T04` Standardize config type naming: `<ProblemName>Config` everywhere. Audit nested config structure (LaserlineDevice has 3 nested configs vs others with flat).
 - [ ] `M5-T05` Standardize export types: ensure all problem types have distinct `<ProblemName>Export` types with consistent `mean_reproj_error` and `per_cam_reproj_errors` fields.
 - [x] `M5-T06` Remove `run_calibration_direct` from Scheimpflug. All problem types should only have session-based API. (Done: 2026-03-07)

@@ -28,3 +28,4 @@ Status legend:
 - [0002 - Planar Intrinsics Family and Sensor Modes](0002-planar-intrinsics-family-and-sensor-modes.md)
 - [0003 - Facade and Python API Consistency](0003-facade-and-python-api-consistency.md)
 - [0004 - Planning Process: ADR + Backlog](0004-planning-process-adr-backlog.md)
+- [0010 - Step Option Naming Convention](0010-step-option-naming-convention.md)

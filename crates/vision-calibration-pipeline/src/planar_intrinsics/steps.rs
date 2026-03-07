@@ -52,7 +52,7 @@ use super::problem::PlanarIntrinsicsProblem;
 ///
 /// These options override session config for a single step invocation.
 #[derive(Debug, Clone, Default)]
-pub struct InitOptions {
+pub struct IntrinsicsInitOptions {
     /// Override the number of iterations for iterative estimation.
     pub iterations: Option<usize>,
 }
@@ -61,7 +61,7 @@ pub struct InitOptions {
 ///
 /// These options override session config for a single step invocation.
 #[derive(Debug, Clone, Default)]
-pub struct OptimizeOptions {
+pub struct IntrinsicsOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
     /// Override verbosity level.
@@ -132,7 +132,7 @@ fn k_matrix_from_intrinsics(k: &FxFyCxCySkew<Real>) -> Mat3 {
 /// - Intrinsics estimation fails
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    opts: Option<InitOptions>,
+    opts: Option<IntrinsicsInitOptions>,
 ) -> Result<()> {
     // Validate preconditions
     session.validate()?;
@@ -220,7 +220,7 @@ pub fn step_init(
 /// - Optimization fails
 pub fn step_optimize(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    opts: Option<OptimizeOptions>,
+    opts: Option<IntrinsicsOptimizeOptions>,
 ) -> Result<()> {
     // Validate preconditions
     session.validate()?;

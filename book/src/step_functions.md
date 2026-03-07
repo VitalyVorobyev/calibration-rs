@@ -9,7 +9,7 @@ Step functions are free functions that operate on a mutable session reference:
 ```rust
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    opts: Option<&InitOptions>,
+    opts: Option<IntrinsicsInitOptions>,
 ) -> Result<()>
 ```
 
@@ -40,8 +40,11 @@ step_optimize(&mut session, None)?;
 
 ```rust
 // Use more iterations for optimization
-let opts = OptimOptions { max_iters: 200, ..Default::default() };
-step_optimize(&mut session, Some(&opts))?;
+let opts = IntrinsicsOptimizeOptions {
+    max_iters: Some(200),
+    ..Default::default()
+};
+step_optimize(&mut session, Some(opts))?;
 ```
 
 **Selective execution**: Skip steps or re-run specific steps.

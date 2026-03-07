@@ -81,10 +81,10 @@
 /// Brown-Conrady camera together with two Scheimpflug tilt parameters.
 pub mod scheimpflug_intrinsics {
     pub use vision_calibration_pipeline::scheimpflug_intrinsics::{
-        InitOptions, OptimizeOptions, ScheimpflugFixMask, ScheimpflugIntrinsicsCalibrationConfig,
-        ScheimpflugIntrinsicsInput, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem,
-        ScheimpflugIntrinsicsResult, ScheimpflugIntrinsicsState, run_calibration, step_init,
-        step_optimize,
+        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, ScheimpflugFixMask,
+        ScheimpflugIntrinsicsCalibrationConfig, ScheimpflugIntrinsicsInput,
+        ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult,
+        ScheimpflugIntrinsicsState, run_calibration, step_init, step_optimize,
     };
 }
 
@@ -131,8 +131,8 @@ pub mod planar_intrinsics {
     pub use vision_calibration_pipeline::planar_intrinsics::{
         // Step options
         FilterOptions,
-        InitOptions,
-        OptimizeOptions,
+        IntrinsicsInitOptions,
+        IntrinsicsOptimizeOptions,
         // Problem type and config
         PlanarConfig,
         PlanarExport,
@@ -181,9 +181,9 @@ pub mod single_cam_handeye {
         HandeyeInitOptions,
         // Problem type and config
         HandeyeMeta,
-        HandeyeOptimOptions,
+        HandeyeOptimizeOptions,
         IntrinsicsInitOptions,
-        IntrinsicsOptimOptions,
+        IntrinsicsOptimizeOptions,
         SingleCamHandeyeConfig,
         SingleCamHandeyeExport,
         SingleCamHandeyeInput,
@@ -221,10 +221,10 @@ pub mod single_cam_handeye {
 /// ```
 pub mod laserline_device {
     pub use vision_calibration_pipeline::laserline_device::{
-        InitOptions, LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInitConfig,
-        LaserlineDeviceInput, LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput,
-        LaserlineDeviceProblem, LaserlineDeviceSolverConfig, LaserlineDeviceState, OptimizeOptions,
-        run_calibration, step_init, step_optimize,
+        DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceConfig, LaserlineDeviceExport,
+        LaserlineDeviceInitConfig, LaserlineDeviceInput, LaserlineDeviceOptimizeConfig,
+        LaserlineDeviceOutput, LaserlineDeviceProblem, LaserlineDeviceSolverConfig,
+        LaserlineDeviceState, run_calibration, step_init, step_optimize,
     };
 }
 
@@ -257,14 +257,14 @@ pub mod rig_extrinsics {
     pub use vision_calibration_pipeline::rig_extrinsics::{
         // Step options
         IntrinsicsInitOptions,
-        IntrinsicsOptimOptions,
+        IntrinsicsOptimizeOptions,
         // Problem type and config
         RigExtrinsicsConfig,
         RigExtrinsicsExport,
         RigExtrinsicsInput,
         RigExtrinsicsProblem,
         RigExtrinsicsState,
-        RigOptimOptions,
+        RigOptimizeOptions,
         // Step functions
         run_calibration,
         step_intrinsics_init_all,
@@ -305,9 +305,9 @@ pub mod rig_handeye {
     pub use vision_calibration_pipeline::rig_handeye::{
         // Step options
         HandeyeInitOptions,
-        HandeyeOptimOptions,
+        HandeyeOptimizeOptions,
         IntrinsicsInitOptions,
-        IntrinsicsOptimOptions,
+        IntrinsicsOptimizeOptions,
         // Problem type and config
         RigHandeyeBaConfig,
         RigHandeyeConfig,
@@ -319,7 +319,7 @@ pub mod rig_handeye {
         RigHandeyeRigConfig,
         RigHandeyeSolverConfig,
         RigHandeyeState,
-        RigOptimOptions,
+        RigOptimizeOptions,
         // Step functions
         run_calibration,
         step_handeye_init,
