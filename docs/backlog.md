@@ -44,7 +44,7 @@ ADR links: 0001, 0002, 0003
 - [x] `M1-T02` Introduce `ScheimpflugIntrinsicsProblem` implementing `ProblemType` with explicit `name`, `schema_version`, input/config validation, export contract. (Done: 2026-03-07)
 - [x] `M1-T03` Move current direct-function implementation into step functions (`step_init`, `step_optimize`, optional convenience `run_calibration`). (Done: 2026-03-07)
 - [x] `M1-T04` Add `ScheimpflugIntrinsicsState` with initialization/optimization intermediate state and JSON roundtrip tests. (Done: 2026-03-07)
-- [x] `M1-T05` Add problem-level tests for validation, config roundtrip, and export behavior. (Done: 2026-03-07)
+- [x] `M1-T05` Add problem-level tests for validation, config roundtrip, and export behavior. (Done: 2026-03-07; includes facade-level Scheimpflug integration tests)
 - [x] `M1-T06` Keep a compatibility path in `vision-calibration::scheimpflug_intrinsics` so external callers are not broken during migration. (Done: 2026-03-07)
 
 Acceptance criteria:
