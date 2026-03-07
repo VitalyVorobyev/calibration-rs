@@ -88,7 +88,7 @@ Acceptance criteria:
 Goal: Every public type and function has rustdoc with examples.
 
 - [x] `M7-T01` Audit all public items in `vision-calibration-core` — add missing rustdoc. (Done: 2026-03-07)
-- [ ] `M7-T02` Audit all public items in `vision-calibration-linear` — add missing rustdoc.
+- [x] `M7-T02` Audit all public items in `vision-calibration-linear` — add missing rustdoc. (Done: 2026-03-07)
 - [ ] `M7-T03` Audit all public items in `vision-calibration-optim` — add missing rustdoc.
 - [ ] `M7-T04` Audit all public items in `vision-calibration-pipeline` — add missing rustdoc.
 - [ ] `M7-T05` Audit facade crate rustdoc — ensure module-level docs guide users to the right starting point.

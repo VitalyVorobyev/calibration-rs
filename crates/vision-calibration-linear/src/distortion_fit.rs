@@ -75,7 +75,9 @@ impl Default for DistortionFitOptions {
     }
 }
 
+/// View metadata storing the homography used for distortion fitting.
 pub struct MetaHomography {
+    /// Homography mapping planar board coordinates to pixel coordinates.
     pub homography: Mat3,
 }
 

@@ -12,7 +12,9 @@ use vision_calibration_core::{Iso3, Real, Vec3};
 /// - `rig_from_target[view] = T_R_T`: transform from target frame to rig frame.
 #[derive(Debug, Clone)]
 pub struct ExtrinsicPoses {
+    /// Per-camera transform `T_R_C` (camera frame -> rig frame).
     pub cam_to_rig: Vec<Iso3>,
+    /// Per-view transform `T_R_T` (target frame -> rig frame).
     pub rig_from_target: Vec<Iso3>,
 }
 
