@@ -201,7 +201,7 @@ When trade-offs conflict (speed vs accuracy, stability vs cleanup):
 Backlog execution must be traceable task-by-task.
 
 * Source of truth for execution status is `docs/backlog.md`.
-* Implement one backlog task at a time (do not batch multiple tasks into one commit).
+* Implement one backlog task at a time (do not batch multiple tasks into one commit), unless tasks are tightly coupled and cannot be merged independently while keeping the workspace buildable. In that case, document the coupling explicitly in backlog + report.
 * Every completed task must include all of the following:
   1. **Backlog update**: mark the task as complete in `docs/backlog.md` and add a short completion note (date, optionally commit id).
   2. **Task report**: add a concise report in `docs/report/` named `YYYY-MM-DD-<task-id>-<slug>.md`.

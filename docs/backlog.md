@@ -34,6 +34,7 @@ Location: [lib.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-cal
 ADR links: 0004
 
 - [x] `M0-T01` Define mandatory backlog workflow in `AGENTS.md`, add `docs/report/` template and naming convention. (Done: 2026-03-07)
+- [x] `M0-T02` Allow coupled-task bundling with explicit documentation when independent commits would break build/API continuity. (Done: 2026-03-07)
 
 ### M1: Scheimpflug Pipeline Conformance (Release-Blocking)
 
