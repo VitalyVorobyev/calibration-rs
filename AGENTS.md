@@ -190,7 +190,7 @@ Suggested commit prefixes:
 
 When trade-offs conflict (speed vs accuracy, stability vs cleanup):
 
-* Preserve correctness + backwards compatibility first.
+* Preserve correctness.
 * Add configuration/feature flags for opt-in behavior.
 * Add tests and (if needed) a benchmark to justify the change.
 
