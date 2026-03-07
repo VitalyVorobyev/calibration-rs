@@ -2,32 +2,49 @@
 
 - Status: Accepted
 - Date: 2026-03-07
+- Last Updated: 2026-03-07
 
 ## Context
 
-Planar calibration now exists in two parallel paths:
+Planar calibration exists as two sensor-specific workflows:
 
 - Standard planar intrinsics session pipeline:
   [planar_intrinsics](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/planar_intrinsics/mod.rs)
-- Scheimpflug-specific direct function:
-  [scheimpflug_intrinsics.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/scheimpflug_intrinsics.rs)
+- Scheimpflug planar intrinsics session pipeline:
+  [scheimpflug_intrinsics](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/scheimpflug_intrinsics/mod.rs)
 
-Both share core algorithm phases (initialization, pose recovery, non-linear refinement),
-but differ in camera model and optimization parameterization.
+Both workflows share the same high-level phases (initialization, pose recovery, non-linear
+refinement), but they differ in camera model and optimized parameter blocks
+(identity sensor vs Scheimpflug sensor tilt).
+
+By design policy (ADR 0001 + layered crate rules), these workflows must remain `ProblemType`
+modules with session semantics, while shared math/optimizer plumbing should be deduplicated.
 
 ## Decision
 
 Treat planar intrinsics as a workflow family with explicit sensor-model variants.
 
-Near-term:
+Keep separate public workflow modules/contracts:
 
-- Implement a first-class `scheimpflug_intrinsics` `ProblemType` module in pipeline
-  (same structural contract as other workflows).
+- `planar_intrinsics` for pinhole + Brown-Conrady + identity sensor output contract.
+- `scheimpflug_intrinsics` for pinhole + Brown-Conrady + Scheimpflug sensor output contract.
 
-Mid-term:
+Unify shared implementation internals:
 
-- Unify shared logic between standard and Scheimpflug planar flows.
-- Keep sensor-model-specific behavior explicit in type/config contracts.
+- Shared initialization bootstrap in pipeline:
+  [planar_family.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/planar_family.rs)
+  - computes view homographies
+  - runs iterative intrinsics/distortion initialization
+  - recovers per-view planar poses
+- Shared optimization IR setup in optim:
+  [planar_family_shared.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-optim/src/problems/planar_family_shared.rs)
+  - shared parameter-block construction (intrinsics/distortion/poses + optional sensor)
+  - shared residual construction for planar reprojection factors
+
+Step-function routing requirement:
+
+- `planar_intrinsics` and `scheimpflug_intrinsics` steps must call these shared helpers
+  instead of maintaining private duplicated setup code.
 
 ## Consequences
 
@@ -39,8 +56,8 @@ Positive:
 
 Negative:
 
-- Two workflow modules remain in short term.
-- Requires careful API stabilization for eventual unification.
+- Two workflow modules remain long-term at API level.
+- Internal helper contracts now become a maintenance point that must stay aligned across both flows.
 
 ## Rejected Alternative
 
