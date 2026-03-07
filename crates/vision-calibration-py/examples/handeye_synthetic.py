@@ -65,13 +65,13 @@ def main() -> None:
     print("=== Single-Camera Hand-Eye Calibration (Synthetic, Python) ===")
     payload = make_input()
     result = vc.run_single_cam_handeye(payload)
-    k = result.camera["k"]
+    k = result.camera.intrinsics
 
     print(f"Views: {len(payload.views)}")
     print(f"Hand-eye mode: {result.handeye_mode}")
     print(f"Mean reprojection error: {result.mean_reproj_error:.6f} px")
     print(f"Per-camera reprojection: {result.per_cam_reproj_errors}")
-    print(f"Recovered intrinsics: fx={k['fx']:.3f}, fy={k['fy']:.3f}, cx={k['cx']:.3f}, cy={k['cy']:.3f}")
+    print(f"Recovered intrinsics: fx={k.fx:.3f}, fy={k.fy:.3f}, cx={k.cx:.3f}, cy={k.cy:.3f}")
     if result.gripper_se3_camera is not None:
         t = result.gripper_se3_camera.translation_xyz
         print(f"Recovered gripper->camera translation: [{t[0]:.4f}, {t[1]:.4f}, {t[2]:.4f}] m")

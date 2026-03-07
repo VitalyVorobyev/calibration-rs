@@ -47,16 +47,16 @@ def main() -> None:
     print("=== Planar Intrinsics Calibration (Synthetic Data, Python) ===")
     payload = make_input()
     result = vc.run_planar_intrinsics(payload)
-    k = result.camera["k"]
-    d = result.camera["dist"]
+    k = result.camera.intrinsics
+    d = result.camera.distortion
 
     print(f"Views: {len(payload.views)}")
     print(f"Final cost: {result.final_cost:.3e}")
     print(f"Mean reprojection error: {result.mean_reproj_error:.6f} px")
     print("Recovered intrinsics:")
-    print(f"  fx={k['fx']:.3f}, fy={k['fy']:.3f}, cx={k['cx']:.3f}, cy={k['cy']:.3f}")
+    print(f"  fx={k.fx:.3f}, fy={k.fy:.3f}, cx={k.cx:.3f}, cy={k.cy:.3f}")
     print("Recovered distortion:")
-    print(f"  k1={d['k1']:.6f}, k2={d['k2']:.6f}, p1={d['p1']:.6f}, p2={d['p2']:.6f}")
+    print(f"  k1={d.k1:.6f}, k2={d.k2:.6f}, p1={d.p1:.6f}, p2={d.p2:.6f}")
 
 
 if __name__ == "__main__":

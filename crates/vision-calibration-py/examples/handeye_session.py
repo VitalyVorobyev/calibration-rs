@@ -108,11 +108,11 @@ def main() -> None:
     print("=== Single-Camera Hand-Eye Session (Real Images, Python) ===")
     dataset = load_dataset()
     result = vc.run_single_cam_handeye(dataset)
-    cam = result.camera["k"]
+    cam = result.camera.intrinsics
 
     print(f"Hand-eye mode: {result.handeye_mode}")
     print(f"Mean reprojection error: {result.mean_reproj_error:.6f} px")
-    print(f"Recovered camera fx={cam['fx']:.3f}, fy={cam['fy']:.3f}, cx={cam['cx']:.3f}, cy={cam['cy']:.3f}")
+    print(f"Recovered camera fx={cam.fx:.3f}, fy={cam.fy:.3f}, cx={cam.cx:.3f}, cy={cam.cy:.3f}")
     if result.gripper_se3_camera is not None:
         t = result.gripper_se3_camera.translation_xyz
         print(f"Recovered gripper->camera translation: [{t[0]:.4f}, {t[1]:.4f}, {t[2]:.4f}] m")
