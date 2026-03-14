@@ -1,5 +1,5 @@
 ---
-name: quality-officer
+name: rust-qa-officer
 description: >
   Audits calibration-rs code against this project's documented conventions from AGENTS.md,
   CLAUDE.md, and ADRs. Invoke this skill whenever the user asks for a convention compliance
@@ -9,6 +9,8 @@ description: >
   completeness, determinism, and crate layering rules. Also invoke when the user asks
   "does this follow our patterns?", "is this consistent with the rest of the project?",
   or "what conventions am I violating?".
+model: inherit
+color: red
 ---
 
 # Quality Officer: Implementation Style and Conventions
