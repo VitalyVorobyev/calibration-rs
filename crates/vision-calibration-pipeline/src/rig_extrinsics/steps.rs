@@ -3,7 +3,7 @@
 //! This module provides step functions that operate on
 //! `CalibrationSession<RigExtrinsicsProblem>` to perform calibration.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use vision_calibration_core::{
     CameraFixMask, Iso3, NoMeta, PlanarDataset, View, compute_rig_reprojection_stats_per_camera,
     make_pinhole_camera,
@@ -46,6 +46,30 @@ pub struct RigOptimizeOptions {
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
+}
+
+/// Manual initialization seeds for the per-camera intrinsics stage.
+///
+/// Each field is `Option<T>`. A `None` field is auto-initialized.
+/// Elements within `cameras` may individually be `None` to auto-initialize that camera.
+#[derive(Debug, Clone, Default)]
+pub struct PerCamIntrinsicsManualInit {
+    /// Per-camera initial intrinsics. Must have exactly `num_cameras` entries if provided.
+    /// A `None` element auto-initializes that camera via Zhang's method.
+    pub cameras: Option<Vec<Option<vision_calibration_core::PinholeCamera>>>,
+}
+
+/// Manual initialization seeds for the rig extrinsics stage.
+///
+/// `cam_se3_rig` and `rig_se3_target` are geometrically coupled — provide both or neither.
+#[derive(Debug, Clone, Default)]
+pub struct RigExtrinsicsManualInit {
+    /// Per-camera `cam_se3_rig` transforms. Must have exactly `num_cameras` entries.
+    /// Must be provided together with `rig_se3_target`.
+    pub cam_se3_rig: Option<Vec<Iso3>>,
+    /// Per-view `rig_se3_target` poses. Must have exactly `num_views` entries.
+    /// Must be provided together with `cam_se3_rig`.
+    pub rig_se3_target: Option<Vec<Iso3>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,16 +134,19 @@ fn estimate_target_pose(
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Initialize intrinsics for all cameras.
+/// Seed per-camera intrinsics with known values, auto-initializing the rest.
 ///
-/// Runs Zhang's method with iterative distortion estimation on each camera independently.
+/// This step is an expert alternative to [`step_intrinsics_init_all`]. Individual cameras
+/// can be seeded manually while others are auto-initialized.
 ///
 /// # Errors
 ///
 /// - Input not set
-/// - Any camera has fewer than 3 views with observations
-pub fn step_intrinsics_init_all(
+/// - `manual.cameras` length does not match `num_cameras`
+/// - Any auto-initialized camera has fewer than 3 views
+pub fn step_set_intrinsics_init_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
+    manual: PerCamIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -138,25 +165,40 @@ pub fn step_intrinsics_init_all(
         zero_skew: config.zero_skew,
     };
 
-    // Copy values we need to avoid borrow conflicts
     let num_cameras = input.num_cameras;
     let num_views = input.num_views();
+
+    if let Some(ref cams) = manual.cameras {
+        ensure!(
+            cams.len() == num_cameras,
+            "manual cameras length ({}) does not match num_cameras ({})",
+            cams.len(),
+            num_cameras
+        );
+    }
 
     let mut per_cam_intrinsics = Vec::with_capacity(num_cameras);
     let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
 
     #[allow(clippy::needless_range_loop)]
-    // cam_idx used for both extract_camera_views and 2D array indexing
     for cam_idx in 0..num_cameras {
-        let cam_views = extract_camera_views(input, cam_idx);
-        let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views)
-            .with_context(|| format!("camera {} has insufficient views", cam_idx))?;
+        let manual_cam = manual
+            .cameras
+            .as_ref()
+            .and_then(|cams| cams[cam_idx].clone());
 
-        // Estimate intrinsics
-        let camera = estimate_intrinsics_iterative(&planar_dataset, init_opts)
-            .with_context(|| format!("intrinsics estimation failed for camera {}", cam_idx))?;
+        let camera = if let Some(cam) = manual_cam {
+            cam
+        } else {
+            let cam_views = extract_camera_views(input, cam_idx);
+            let (planar_dataset, _) = views_to_planar_dataset(&cam_views)
+                .with_context(|| format!("camera {} has insufficient views", cam_idx))?;
+            let c = estimate_intrinsics_iterative(&planar_dataset, init_opts)
+                .with_context(|| format!("intrinsics estimation failed for camera {}", cam_idx))?;
+            make_pinhole_camera(c.k, c.dist)
+        };
 
-        // Compute K matrix for pose estimation
+        // Estimate target poses for this camera's valid views.
         let k_matrix = vision_calibration_core::Mat3::new(
             camera.k.fx,
             camera.k.skew,
@@ -168,8 +210,14 @@ pub fn step_intrinsics_init_all(
             0.0,
             1.0,
         );
-
-        // Estimate target poses for valid views
+        let cam_views = extract_camera_views(input, cam_idx);
+        let (planar_dataset, valid_indices) =
+            views_to_planar_dataset(&cam_views).with_context(|| {
+                format!(
+                    "camera {} has insufficient views for pose estimation",
+                    cam_idx
+                )
+            })?;
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
             let view = &planar_dataset.views[local_idx];
             let pose = estimate_target_pose(&k_matrix, &view.obs).with_context(|| {
@@ -181,19 +229,44 @@ pub fn step_intrinsics_init_all(
             per_cam_target_poses[global_idx][cam_idx] = Some(pose);
         }
 
-        per_cam_intrinsics.push(make_pinhole_camera(camera.k, camera.dist));
+        per_cam_intrinsics.push(camera);
     }
 
-    // Update state
+    let manual_count = manual
+        .cameras
+        .as_ref()
+        .map(|cams| cams.iter().filter(|c| c.is_some()).count())
+        .unwrap_or(0);
+    let log_note = format!(
+        "initialized {} cameras ({} manual, {} auto)",
+        num_cameras,
+        manual_count,
+        num_cameras - manual_count
+    );
+
     session.state.per_cam_intrinsics = Some(per_cam_intrinsics);
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
 
-    session.log_success_with_notes(
-        "intrinsics_init_all",
-        format!("initialized {} cameras", num_cameras),
-    );
+    session.log_success_with_notes("intrinsics_init_all", log_note);
 
     Ok(())
+}
+
+/// Initialize intrinsics for all cameras.
+///
+/// Runs Zhang's method with iterative distortion estimation on each camera independently.
+///
+/// To provide known intrinsics for any camera, call [`step_set_intrinsics_init_all`] instead.
+///
+/// # Errors
+///
+/// - Input not set
+/// - Any camera has fewer than 3 views with observations
+pub fn step_intrinsics_init_all(
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<()> {
+    step_set_intrinsics_init_all(session, PerCamIntrinsicsManualInit::default(), opts)
 }
 
 /// Optimize intrinsics for all cameras.
@@ -296,18 +369,24 @@ pub fn step_intrinsics_optimize_all(
     Ok(())
 }
 
-/// Initialize rig extrinsics from per-camera target poses.
+/// Seed rig extrinsics with known values, auto-initializing if not provided.
 ///
-/// Uses linear initialization to estimate rig-to-camera transforms.
+/// This step is an expert alternative to [`step_rig_init`]. Both `cam_se3_rig` and
+/// `rig_se3_target` must be provided together (they are geometrically coupled), or both
+/// left as `None` (auto-initialized via linear estimation).
 ///
-/// Requires [`step_intrinsics_optimize_all`] to be run first.
+/// Requires [`step_intrinsics_optimize_all`] to have been run first.
 ///
 /// # Errors
 ///
 /// - Input not set
 /// - Per-camera intrinsics not computed
-/// - Insufficient overlapping views between cameras
-pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> Result<()> {
+/// - Only one of `cam_se3_rig` / `rig_se3_target` is provided (must be both or neither)
+/// - Auto-initialization fails
+pub fn step_set_rig_init(
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
+    manual: RigExtrinsicsManualInit,
+) -> Result<()> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -317,37 +396,89 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> 
         );
     }
 
-    // Copy values we need
+    // Validate coupling: require both or neither.
+    let has_cam_se3_rig = manual.cam_se3_rig.is_some();
+    let has_rig_se3_target = manual.rig_se3_target.is_some();
+    ensure!(
+        has_cam_se3_rig == has_rig_se3_target,
+        "cam_se3_rig and rig_se3_target must both be provided or both be None \
+         (they are geometrically coupled)"
+    );
+
     let num_views = input.num_views();
     let reference_camera_idx = session.config.reference_camera_idx;
 
-    // TODO: use ref instead of clone?
-    let per_cam_target_poses = session
-        .state
-        .per_cam_target_poses
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("no per-camera target poses"))?;
+    let (cam_se3_rig, rig_se3_target, log_note) = if let (Some(c2r), Some(r2t)) =
+        (manual.cam_se3_rig, manual.rig_se3_target)
+    {
+        ensure!(
+            c2r.len() == input.num_cameras,
+            "manual cam_se3_rig length ({}) does not match num_cameras ({})",
+            c2r.len(),
+            input.num_cameras
+        );
+        ensure!(
+            r2t.len() == num_views,
+            "manual rig_se3_target length ({}) does not match num_views ({})",
+            r2t.len(),
+            num_views
+        );
+        (
+            c2r,
+            r2t,
+            format!(
+                "ref_cam={}, {} views (manual)",
+                reference_camera_idx, num_views
+            ),
+        )
+    } else {
+        let per_cam_target_poses = session
+            .state
+            .per_cam_target_poses
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no per-camera target poses"))?;
+        let extrinsic_result =
+            estimate_extrinsics_from_cam_target_poses(&per_cam_target_poses, reference_camera_idx)
+                .context("rig extrinsics initialization failed")?;
+        let c2r: Vec<Iso3> = extrinsic_result
+            .cam_to_rig
+            .iter()
+            .map(|t| t.inverse())
+            .collect();
+        let r2t = extrinsic_result.rig_from_target;
+        (
+            c2r,
+            r2t,
+            format!(
+                "ref_cam={}, {} views (auto)",
+                reference_camera_idx, num_views
+            ),
+        )
+    };
 
-    // Use vision_calibration_linear's rig extrinsics initialization
-    let extrinsic_result =
-        estimate_extrinsics_from_cam_target_poses(&per_cam_target_poses, reference_camera_idx)
-            .context("rig extrinsics initialization failed")?;
-
-    // Update state
-    let cam_se3_rig: Vec<Iso3> = extrinsic_result
-        .cam_to_rig
-        .iter()
-        .map(|t| t.inverse())
-        .collect();
     session.state.initial_cam_se3_rig = Some(cam_se3_rig);
-    session.state.initial_rig_se3_target = Some(extrinsic_result.rig_from_target);
+    session.state.initial_rig_se3_target = Some(rig_se3_target);
 
-    session.log_success_with_notes(
-        "rig_init",
-        format!("ref_cam={}, {} views", reference_camera_idx, num_views),
-    );
+    session.log_success_with_notes("rig_init", log_note);
 
     Ok(())
+}
+
+/// Initialize rig extrinsics from per-camera target poses.
+///
+/// Uses linear initialization to estimate rig-to-camera transforms.
+///
+/// Requires [`step_intrinsics_optimize_all`] to be run first.
+///
+/// To provide known extrinsics, call [`step_set_rig_init`] instead.
+///
+/// # Errors
+///
+/// - Input not set
+/// - Per-camera intrinsics not computed
+/// - Insufficient overlapping views between cameras
+pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> Result<()> {
+    step_set_rig_init(session, RigExtrinsicsManualInit::default())
 }
 
 /// Optimize rig extrinsics using bundle adjustment.

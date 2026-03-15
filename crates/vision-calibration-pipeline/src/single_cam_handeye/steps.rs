@@ -27,7 +27,7 @@
 //! # }
 //! ```
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use vision_calibration_core::{
     CameraFixMask, CorrespondenceView, Iso3, NoMeta, PlanarDataset, RigView, RigViewObs, View,
 };
@@ -44,7 +44,7 @@ use crate::session::CalibrationSession;
 use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblem};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Step Options
+// Step Options and Manual Init
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Options for intrinsics initialization step.
@@ -77,6 +77,38 @@ pub struct HandeyeOptimizeOptions {
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
+}
+
+/// Manual initialization seeds for the intrinsics stage of hand-eye calibration.
+///
+/// Each field is `Option<T>`. A `None` field is auto-initialized.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct IntrinsicsManualInit {
+    /// Manually provided initial camera (intrinsics + distortion). If `None`: auto-initialized
+    /// via Zhang's method.
+    pub camera: Option<vision_calibration_core::PinholeCamera>,
+    /// Manually provided per-view target poses (`cam_se3_target`). If `None`: auto-recovered
+    /// from homographies using the chosen camera's intrinsics.
+    /// Must match the number of views if provided.
+    pub target_poses: Option<Vec<Iso3>>,
+}
+
+/// Manual initialization seeds for the hand-eye stage of hand-eye calibration.
+///
+/// Each field is `Option<T>`. A `None` field is auto-initialized.
+///
+/// The semantics of each field depend on the configured hand-eye mode:
+/// - `EyeInHand`: `handeye` is `gripper_se3_camera`; `mode_target_pose` is `base_se3_target`.
+/// - `EyeToHand`: `handeye` is `camera_se3_base`; `mode_target_pose` is `gripper_se3_target`.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct HandeyeManualInit {
+    /// Manually provided hand-eye transform (mode-dependent). If `None`: auto-initialized
+    /// via Tsai-Lenz linear estimation.
+    pub handeye: Option<Iso3>,
+    /// Manually provided fixed target pose (mode-dependent). If `None`: derived from
+    /// the handeye transform and the first view using the optimized camera poses.
+    /// Requires intrinsics optimization to have been run.
+    pub mode_target_pose: Option<Iso3>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,21 +152,18 @@ fn estimate_target_pose(
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Initialize intrinsics from observations.
+/// Seed intrinsics and/or target poses with known values, auto-initializing the rest.
 ///
-/// This step computes:
-/// 1. Initial intrinsics using Zhang's method with iterative distortion estimation
-/// 2. Initial target poses from homographies and estimated intrinsics
-///
-/// Updates `session.state` with intermediate results.
+/// This step is an expert alternative to [`step_intrinsics_init`].
 ///
 /// # Errors
 ///
 /// - Input not set
-/// - Fewer than 3 views
-/// - Intrinsics estimation fails
-pub fn step_intrinsics_init(
+/// - `manual.target_poses` length does not match the number of views
+/// - Auto-initialization fails
+pub fn step_set_intrinsics_init(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
+    manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -142,8 +171,11 @@ pub fn step_intrinsics_init(
 
     let opts = opts.unwrap_or_default();
     let config = &session.config;
+    let num_views = input.views.len();
+    // Capture before consuming
+    let had_camera = manual.camera.is_some();
+    let had_target_poses = manual.target_poses.is_some();
 
-    // Build init options
     let init_opts = IterativeIntrinsicsOptions {
         iterations: opts.iterations.unwrap_or(config.intrinsics_init_iterations),
         distortion_opts: DistortionFitOptions {
@@ -154,55 +186,117 @@ pub fn step_intrinsics_init(
         zero_skew: config.zero_skew,
     };
 
-    // Convert to PlanarDataset
-    let planar_dataset = input_to_planar_dataset(input)?;
+    let need_camera = manual.camera.is_none();
+    let need_poses = manual.target_poses.is_none();
 
-    // Estimate intrinsics
-    let camera = match estimate_intrinsics_iterative(&planar_dataset, init_opts) {
-        Ok(c) => c,
-        Err(e) => {
-            session.log_failure("intrinsics_init", e.to_string());
-            return Err(e);
-        }
+    let (auto_camera, auto_poses) = if need_camera {
+        let planar_dataset = input_to_planar_dataset(input)?;
+        let camera = match estimate_intrinsics_iterative(&planar_dataset, init_opts) {
+            Ok(c) => c,
+            Err(e) => {
+                session.log_failure("intrinsics_init", e.to_string());
+                return Err(e);
+            }
+        };
+        let k_matrix = vision_calibration_core::Mat3::new(
+            camera.k.fx,
+            camera.k.skew,
+            camera.k.cx,
+            0.0,
+            camera.k.fy,
+            camera.k.cy,
+            0.0,
+            0.0,
+            1.0,
+        );
+        let poses: Vec<Iso3> = input
+            .views
+            .iter()
+            .enumerate()
+            .map(|(idx, view)| {
+                estimate_target_pose(&k_matrix, &view.obs)
+                    .with_context(|| format!("failed to estimate pose for view {}", idx))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        (Some(camera), Some(poses))
+    } else if need_poses {
+        // Manual camera provided but poses needed: recover from homographies.
+        let cam = manual.camera.as_ref().unwrap();
+        let k_matrix = vision_calibration_core::Mat3::new(
+            cam.k.fx, cam.k.skew, cam.k.cx, 0.0, cam.k.fy, cam.k.cy, 0.0, 0.0, 1.0,
+        );
+        let poses: Vec<Iso3> = input
+            .views
+            .iter()
+            .enumerate()
+            .map(|(idx, view)| {
+                estimate_target_pose(&k_matrix, &view.obs)
+                    .with_context(|| format!("failed to estimate pose for view {}", idx))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        (None, Some(poses))
+    } else {
+        (None, None)
     };
 
-    // Compute K matrix for pose estimation
-    let k_matrix = vision_calibration_core::Mat3::new(
-        camera.k.fx,
-        camera.k.skew,
-        camera.k.cx,
-        0.0,
-        camera.k.fy,
-        camera.k.cy,
-        0.0,
-        0.0,
-        1.0,
-    );
+    let camera = manual.camera.or(auto_camera).expect("camera must be Some");
 
-    // Estimate initial target poses
-    let initial_poses: Vec<Iso3> = input
-        .views
-        .iter()
-        .enumerate()
-        .map(|(idx, view)| {
-            estimate_target_pose(&k_matrix, &view.obs)
-                .with_context(|| format!("failed to estimate pose for view {}", idx))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let target_poses = if let Some(p) = manual.target_poses {
+        ensure!(
+            p.len() == num_views,
+            "manual target_poses length ({}) does not match view count ({})",
+            p.len(),
+            num_views
+        );
+        p
+    } else {
+        auto_poses.expect("auto_poses must be Some")
+    };
 
-    // Update state
-    session.state.initial_camera = Some(camera.clone());
-    session.state.initial_target_poses = Some(initial_poses);
-
-    session.log_success_with_notes(
-        "intrinsics_init",
+    let mut manual_fields: Vec<&str> = Vec::new();
+    if had_camera {
+        manual_fields.push("camera");
+    }
+    if had_target_poses {
+        manual_fields.push("target_poses");
+    }
+    let log_note = if manual_fields.is_empty() {
+        format!("fx={:.1}, fy={:.1} (auto)", camera.k.fx, camera.k.fy)
+    } else {
         format!(
-            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-            camera.k.fx, camera.k.fy, camera.k.cx, camera.k.cy
-        ),
-    );
+            "fx={:.1}, fy={:.1} (manual: {})",
+            camera.k.fx,
+            camera.k.fy,
+            manual_fields.join(", ")
+        )
+    };
+
+    session.state.initial_camera = Some(camera);
+    session.state.initial_target_poses = Some(target_poses);
+
+    session.log_success_with_notes("intrinsics_init", log_note);
 
     Ok(())
+}
+
+/// Initialize intrinsics from observations.
+///
+/// This step computes:
+/// 1. Initial intrinsics using Zhang's method with iterative distortion estimation
+/// 2. Initial target poses from homographies and estimated intrinsics
+///
+/// To use prior knowledge about the camera, call [`step_set_intrinsics_init`] instead.
+///
+/// # Errors
+///
+/// - Input not set
+/// - Fewer than 3 views
+/// - Intrinsics estimation fails
+pub fn step_intrinsics_init(
+    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<()> {
+    step_set_intrinsics_init(session, IntrinsicsManualInit::default(), opts)
 }
 
 /// Optimize intrinsics using non-linear least squares.
@@ -293,19 +387,26 @@ pub fn step_intrinsics_optimize(
     Ok(())
 }
 
-/// Initialize hand-eye transform from robot poses and camera-target poses.
+/// Seed hand-eye transform and/or target pose with known values, auto-initializing the rest.
 ///
-/// Uses Tsai-Lenz linear initialization.
+/// This step is an expert alternative to [`step_handeye_init`]. It accepts a
+/// [`HandeyeManualInit`] where each field is `Option<Iso3>`:
+/// - `Some(value)` — use the provided transform directly.
+/// - `None` — auto-initialize via Tsai-Lenz linear estimation.
 ///
-/// Requires [`step_intrinsics_optimize`] to be run first.
+/// When `handeye` is `Some` but `mode_target_pose` is `None`, the target pose is derived
+/// analytically from the first view (an approximation that the optimizer will refine).
+///
+/// Requires [`step_intrinsics_optimize`] to have been run first.
 ///
 /// # Errors
 ///
 /// - Input not set
 /// - Intrinsics optimization not run
-/// - Linear hand-eye estimation fails
-pub fn step_handeye_init(
+/// - Auto hand-eye estimation fails (when `handeye` is `None`)
+pub fn step_set_handeye_init(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
+    manual: HandeyeManualInit,
     opts: Option<HandeyeInitOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -321,7 +422,6 @@ pub fn step_handeye_init(
         .min_motion_angle_deg
         .unwrap_or(config.min_motion_angle_deg);
 
-    // Get robot poses and camera-target poses
     let robot_poses: Vec<Iso3> = input
         .views
         .iter()
@@ -341,16 +441,18 @@ pub fn step_handeye_init(
 
     let (log_pose, log_label) = match config.handeye_mode {
         vision_calibration_optim::HandEyeMode::EyeInHand => {
-            // vision-calibration-linear expects `target_se3_camera` (camera -> target), while planar intrinsics
-            // produces `cam_se3_target` (target -> camera).
-            let target_se3_camera: Vec<Iso3> = cam_se3_target.iter().map(|t| t.inverse()).collect();
-
-            let gripper_se3_camera =
+            let gripper_se3_camera = if let Some(he) = manual.handeye {
+                he
+            } else {
+                let target_se3_camera: Vec<Iso3> =
+                    cam_se3_target.iter().map(|t| t.inverse()).collect();
                 estimate_handeye_dlt(&robot_poses, &target_se3_camera, min_angle)
                     .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
-                    .context("linear hand-eye estimation failed")?;
-
-            let base_se3_target = robot_poses[0] * gripper_se3_camera * cam_se3_target[0];
+                    .context("linear hand-eye estimation failed")?
+            };
+            let base_se3_target = manual
+                .mode_target_pose
+                .unwrap_or_else(|| robot_poses[0] * gripper_se3_camera * cam_se3_target[0]);
 
             session.state.initial_gripper_se3_camera = Some(gripper_se3_camera);
             session.state.initial_base_se3_target = Some(base_se3_target);
@@ -358,16 +460,17 @@ pub fn step_handeye_init(
             (gripper_se3_camera, "gripper_se3_camera")
         }
         vision_calibration_optim::HandEyeMode::EyeToHand => {
-            // For EyeToHand, the target is attached to the gripper. Solve for the fixed
-            // gripper_se3_target (T_G_T) using relative motions, then recover camera_se3_base.
-            let gripper_se3_target =
+            let gripper_se3_target = if let Some(he) = manual.handeye {
+                he
+            } else {
                 estimate_gripper_se3_target_dlt(&robot_poses, &cam_se3_target, min_angle)
                     .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
-                    .context("linear gripper->target estimation failed")?;
-
-            // T_C_T = T_C_B * T_B_G * T_G_T  =>  T_C_B = T_C_T * (T_B_G * T_G_T)^-1
-            let camera_se3_base =
-                cam_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse();
+                    .context("linear gripper->target estimation failed")?
+            };
+            let camera_se3_base = manual.mode_target_pose.unwrap_or_else(|| {
+                // T_C_T = T_C_B * T_B_G * T_G_T  =>  T_C_B = T_C_T * (T_B_G * T_G_T)^-1
+                cam_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse()
+            });
 
             session.state.initial_camera_se3_base = Some(camera_se3_base);
             session.state.initial_gripper_se3_target = Some(gripper_se3_target);
@@ -376,16 +479,44 @@ pub fn step_handeye_init(
         }
     };
 
+    let manual_note = match (manual.handeye.is_some(), manual.mode_target_pose.is_some()) {
+        (true, true) => " (manual: handeye, mode_target_pose)",
+        (true, false) => " (manual: handeye)",
+        (false, true) => " (manual: mode_target_pose)",
+        (false, false) => " (auto)",
+    };
+
     session.log_success_with_notes(
         "handeye_init",
         format!(
-            "{} |t|={:.4}m",
+            "{} |t|={:.4}m{}",
             log_label,
-            log_pose.translation.vector.norm()
+            log_pose.translation.vector.norm(),
+            manual_note
         ),
     );
 
     Ok(())
+}
+
+/// Initialize hand-eye transform from robot poses and camera-target poses.
+///
+/// Uses Tsai-Lenz linear initialization.
+///
+/// Requires [`step_intrinsics_optimize`] to be run first.
+///
+/// To provide a known hand-eye transform, call [`step_set_handeye_init`] instead.
+///
+/// # Errors
+///
+/// - Input not set
+/// - Intrinsics optimization not run
+/// - Linear hand-eye estimation fails
+pub fn step_handeye_init(
+    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
+    opts: Option<HandeyeInitOptions>,
+) -> Result<()> {
+    step_set_handeye_init(session, HandeyeManualInit::default(), opts)
 }
 
 /// Optimize hand-eye calibration using bundle adjustment.

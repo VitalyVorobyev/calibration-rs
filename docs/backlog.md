@@ -135,6 +135,32 @@ Acceptance criteria:
 
 ---
 
+## M10: Manual Parameter Initialization
+
+Goal: Allow users to seed individual parameter groups with prior knowledge (e.g., nominal focal
+length from a datasheet) while auto-initializing the rest, exposed as `step_set_init()` per
+problem type.
+
+ADR links: 0011
+
+- [x] `M10-T01` Write ADR 0011: manual initialization design, naming convention, behavioral contract. (Done: 2026-03-15)
+- [x] `M10-T02` `PlanarIntrinsics`: add `PlanarManualInit` struct + `step_set_init()`, refactor `step_init()` to delegate. (Done: 2026-03-15)
+- [x] `M10-T03` `ScheimpflugIntrinsics`: add `ScheimpflugManualInit` struct + `step_set_init()`, refactor `step_init()` to delegate. (Done: 2026-03-15)
+- [x] `M10-T04` `SingleCamHandeye`: add `IntrinsicsManualInit` + `HandeyeManualInit` structs + `step_set_intrinsics_init()` / `step_set_handeye_init()`, refactor existing inits to delegate. (Done: 2026-03-15)
+- [x] `M10-T05` `RigExtrinsics`: add `PerCamIntrinsicsManualInit` + `RigExtrinsicsManualInit` structs + `step_set_intrinsics_init_all()` / `step_set_rig_init()`, refactor existing inits to delegate. (Done: 2026-03-15)
+- [x] `M10-T06` `RigHandeye`: add `HandeyeManualInit` struct + `step_set_handeye_init()`, refactor `step_handeye_init()` to delegate. (Done: 2026-03-15)
+- [x] `M10-T07` `LaserlineDevice`: add `LaserlineManualInit` struct + `step_set_init()`, refactor `step_init()` to delegate. (Done: 2026-03-15)
+- [x] `M10-T08` Facade re-exports: expose all `ManualInit` types and `step_set_*` functions through `vision-calibration/src/lib.rs`. Add integration test: `step_set_init` with exact seeds on synthetic planar data → tight convergence. (Done: 2026-03-15)
+- [x] `M10-T09` Python bindings: `PlanarManualInit` + `SingleCamHandeyeIntrinsicsManualInit` dataclasses in `models.py`; `run_planar_intrinsics_with_init` / `run_single_cam_handeye_with_init` entry points in `_api.py`. (Done: 2026-03-15)
+
+Acceptance criteria:
+- `step_init()` signatures are unchanged; existing callers compile without modification.
+- `step_set_init()` with `ManualInit::default()` produces identical state to `step_init()`.
+- Providing exact ground-truth seeds on synthetic noise-free data yields reproj error < 1e-3 px after optimization.
+- All `ManualInit` types are re-exported from the facade and appear in `cargo doc`.
+
+---
+
 ## Standard Gate Checklist (Per Milestone Completion)
 
 - [ ] `cargo fmt --all -- --check`
