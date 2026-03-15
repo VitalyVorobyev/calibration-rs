@@ -229,6 +229,83 @@ fn run_scheimpflug_intrinsics(
     )
 }
 
+/// Run planar intrinsics calibration with manual initialization seeds.
+///
+/// Parameters
+/// ----------
+/// input:
+///     Planar dataset payload (serde-compatible with `PlanarDataset`).
+/// init:
+///     Manual initialization payload (serde-compatible with `PlanarManualInit`).
+///     Fields set to `None` are auto-initialized.
+/// config:
+///     Optional planar configuration payload (serde-compatible with `PlanarIntrinsicsConfig`).
+///
+/// Returns
+/// -------
+/// dict
+///     Planar intrinsics export payload.
+#[pyfunction(signature = (input, init, config=None))]
+fn run_planar_intrinsics_with_init(
+    py: Python<'_>,
+    input: &Bound<'_, PyAny>,
+    init: &Bound<'_, PyAny>,
+    config: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    use vision_calibration::planar_intrinsics::{PlanarManualInit, step_optimize, step_set_init};
+    let manual: PlanarManualInit = parse_payload(init, "init")?;
+    run_problem::<vision_calibration::planar_intrinsics::PlanarIntrinsicsProblem, _>(
+        py,
+        input,
+        config,
+        move |session| {
+            step_set_init(session, manual, None)?;
+            step_optimize(session, None)
+        },
+    )
+}
+
+/// Run single-camera hand-eye calibration with manual intrinsics initialization seeds.
+///
+/// Parameters
+/// ----------
+/// input:
+///     Single-camera hand-eye input payload (serde-compatible with `SingleCamHandeyeInput`).
+/// intrinsics_init:
+///     Manual intrinsics initialization payload (serde-compatible with `IntrinsicsManualInit`).
+///     Fields set to `None` are auto-initialized.
+/// config:
+///     Optional single-camera hand-eye config payload.
+///
+/// Returns
+/// -------
+/// dict
+///     Single-camera hand-eye export payload.
+#[pyfunction(signature = (input, intrinsics_init, config=None))]
+fn run_single_cam_handeye_with_init(
+    py: Python<'_>,
+    input: &Bound<'_, PyAny>,
+    intrinsics_init: &Bound<'_, PyAny>,
+    config: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    use vision_calibration::single_cam_handeye::{
+        IntrinsicsManualInit, step_handeye_init, step_handeye_optimize, step_intrinsics_optimize,
+        step_set_intrinsics_init,
+    };
+    let manual: IntrinsicsManualInit = parse_payload(intrinsics_init, "intrinsics_init")?;
+    run_problem::<vision_calibration::single_cam_handeye::SingleCamHandeyeProblem, _>(
+        py,
+        input,
+        config,
+        move |session| {
+            step_set_intrinsics_init(session, manual, None)?;
+            step_intrinsics_optimize(session, None)?;
+            step_handeye_init(session, None)?;
+            step_handeye_optimize(session, None)
+        },
+    )
+}
+
 /// Return the Rust library version embedded in the extension module.
 #[pyfunction]
 fn library_version() -> &'static str {
@@ -238,7 +315,9 @@ fn library_version() -> &'static str {
 #[pymodule]
 fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_planar_intrinsics, m)?)?;
+    m.add_function(wrap_pyfunction!(run_planar_intrinsics_with_init, m)?)?;
     m.add_function(wrap_pyfunction!(run_single_cam_handeye, m)?)?;
+    m.add_function(wrap_pyfunction!(run_single_cam_handeye_with_init, m)?)?;
     m.add_function(wrap_pyfunction!(run_rig_extrinsics, m)?)?;
     m.add_function(wrap_pyfunction!(run_rig_handeye, m)?)?;
     m.add_function(wrap_pyfunction!(run_laserline_device, m)?)?;

@@ -1286,6 +1286,83 @@ class ScheimpflugIntrinsicsResult:
         )
 
 
+@dataclass(slots=True)
+class PlanarManualInit:
+    """Manual initialization seeds for planar intrinsics calibration.
+
+    Each field is optional. A ``None`` field is auto-initialized using the
+    standard linear routines (Zhang's method, homography-based pose recovery).
+
+    Parameters
+    ----------
+    intrinsics:
+        Known camera intrinsics. If ``None``: auto-initialized via Zhang's method.
+    distortion:
+        Known distortion parameters. If ``None``: auto-initialized.
+    poses:
+        Known per-view poses (``cam_se3_target``). If ``None``: auto-recovered from
+        homographies using the chosen intrinsics. Must match the number of views
+        in the dataset if provided.
+
+    Examples
+    --------
+    >>> init = PlanarManualInit(
+    ...     intrinsics=PinholeIntrinsics(fx=800.0, fy=780.0, cx=640.0, cy=360.0, skew=0.0),
+    ... )
+    """
+
+    intrinsics: PinholeIntrinsics | None = None
+    distortion: BrownConradyDistortion | None = None
+    poses: list[Pose] | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to serde payload shape expected by ``run_planar_intrinsics_with_init``."""
+        return {
+            "intrinsics": None if self.intrinsics is None else self.intrinsics.to_payload(),
+            "distortion": None if self.distortion is None else self.distortion.to_payload(),
+            "poses": None if self.poses is None else [p.to_payload() for p in self.poses],
+        }
+
+
+@dataclass(slots=True)
+class SingleCamHandeyeIntrinsicsManualInit:
+    """Manual initialization seeds for the intrinsics stage of hand-eye calibration.
+
+    Each field is optional. A ``None`` field is auto-initialized using the
+    standard linear routines (Zhang's method, homography-based pose recovery).
+
+    Parameters
+    ----------
+    camera:
+        Known pinhole camera (intrinsics + distortion). If ``None``: auto-initialized.
+    target_poses:
+        Known per-view target poses (``cam_se3_target``). If ``None``: auto-recovered
+        from homographies using the chosen camera's intrinsics. Must match the
+        number of views if provided.
+
+    Examples
+    --------
+    >>> init = SingleCamHandeyeIntrinsicsManualInit(
+    ...     camera=PinholeBrownConradyCamera(
+    ...         intrinsics=PinholeIntrinsics(fx=800.0, fy=780.0, cx=640.0, cy=360.0, skew=0.0),
+    ...         distortion=BrownConradyDistortion(k1=0.0, k2=0.0, k3=0.0, p1=0.0, p2=0.0, iters=8),
+    ...     ),
+    ... )
+    """
+
+    camera: PinholeBrownConradyCamera | None = None
+    target_poses: list[Pose] | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to serde payload shape expected by ``run_single_cam_handeye_with_init``."""
+        return {
+            "camera": None if self.camera is None else self.camera.to_payload(),
+            "target_poses": (
+                None if self.target_poses is None else [p.to_payload() for p in self.target_poses]
+            ),
+        }
+
+
 def normalize_input_payload(input_value: Any) -> Any:
     """Convert high-level model inputs to serde payloads."""
     return _payload_from_maybe_model(input_value)

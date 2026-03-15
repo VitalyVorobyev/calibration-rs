@@ -13,7 +13,9 @@ use vision_calibration_optim::{
     optimize_scheimpflug_intrinsics,
 };
 
-use crate::planar_family::bootstrap_planar_intrinsics;
+use crate::planar_family::{
+    bootstrap_planar_intrinsics, estimate_view_homographies, recover_planar_poses_from_homographies,
+};
 use crate::session::CalibrationSession;
 
 use super::problem::{
@@ -37,9 +39,41 @@ pub struct IntrinsicsOptimizeOptions {
     pub verbosity: Option<usize>,
 }
 
-/// Initialize intrinsics and poses for Scheimpflug refinement.
-pub fn step_init(
+/// Manual initialization seeds for Scheimpflug intrinsics calibration.
+///
+/// Each field is `Option<T>`. A `None` field is auto-initialized using the
+/// standard linear routines. Use `..Default::default()` to fill unspecified fields.
+#[derive(Debug, Clone, Default)]
+pub struct ScheimpflugManualInit {
+    /// Manually provided intrinsic parameters. If `None`: auto-initialized via Zhang's method.
+    pub intrinsics: Option<FxFyCxCySkew<f64>>,
+    /// Manually provided distortion parameters. If `None`: auto-initialized.
+    pub distortion: Option<BrownConrady5<f64>>,
+    /// Manually provided Scheimpflug sensor tilt angles. If `None`: defaults to zeros (no tilt).
+    pub sensor: Option<ScheimpflugParams>,
+    /// Manually provided per-view poses (`cam_se3_target`). If `None`: auto-recovered from
+    /// homographies. Must match the number of views if provided.
+    pub poses: Option<Vec<vision_calibration_core::Iso3>>,
+}
+
+/// Seed individual parameter groups with known values, auto-initializing the rest.
+///
+/// This step is an expert alternative to [`step_init`]. It accepts a [`ScheimpflugManualInit`]
+/// where each field is `Option<T>`:
+/// - `Some(value)` — use the provided value directly.
+/// - `None` — auto-initialize using standard linear routines.
+///
+/// After this function returns, the session state is fully initialized.
+/// Call [`step_optimize`] next.
+///
+/// # Errors
+///
+/// - Input not set
+/// - `manual.poses` length does not match the number of views
+/// - Auto-initialization fails
+pub fn step_set_init(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
+    manual: ScheimpflugManualInit,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -52,45 +86,113 @@ pub fn step_init(
     }
     ensure!(init_iterations > 0, "init_iterations must be positive");
 
-    // Shared planar-family initialization helper (homographies + intrinsics + poses).
-    let bootstrap = bootstrap_planar_intrinsics(
-        &dataset,
-        IterativeIntrinsicsOptions {
-            iterations: init_iterations,
-            distortion_opts: DistortionFitOptions {
-                fix_k3: session.config.fix_k3_in_init,
-                fix_tangential: true,
-                iters: 8,
+    let num_views = dataset.num_views();
+    let need_intrinsics = manual.intrinsics.is_none();
+    let need_poses = manual.poses.is_none();
+
+    let (auto_intrinsics, auto_distortion, auto_poses, homographies) = if need_intrinsics {
+        let bootstrap = bootstrap_planar_intrinsics(
+            &dataset,
+            IterativeIntrinsicsOptions {
+                iterations: init_iterations,
+                distortion_opts: DistortionFitOptions {
+                    fix_k3: session.config.fix_k3_in_init,
+                    fix_tangential: true,
+                    iters: 8,
+                },
+                zero_skew: session.config.zero_skew,
             },
-            zero_skew: session.config.zero_skew,
-        },
-    )
-    .context("scheimpflug intrinsics initialization failed")?;
-    let mut initial_camera = bootstrap.camera;
+        )
+        .context("scheimpflug intrinsics initialization failed")?;
+        let mut cam = bootstrap.camera;
+        // Tangential terms are intentionally fixed for this workflow.
+        cam.dist.p1 = 0.0;
+        cam.dist.p2 = 0.0;
+        (
+            Some(cam.k),
+            Some(cam.dist),
+            Some(bootstrap.poses),
+            Some(bootstrap.homographies),
+        )
+    } else if need_poses {
+        let h = estimate_view_homographies(&dataset).context("homography computation failed")?;
+        (None, None, None, Some(h))
+    } else {
+        (None, None, None, None)
+    };
 
-    // Tangential terms are intentionally fixed for this workflow.
-    initial_camera.dist.p1 = 0.0;
-    initial_camera.dist.p2 = 0.0;
+    let intrinsics = manual
+        .intrinsics
+        .or(auto_intrinsics)
+        .expect("intrinsics must be Some");
+    let mut distortion = manual.distortion.or(auto_distortion).unwrap_or_default();
+    // Tangential terms are always zeroed in Scheimpflug workflow.
+    distortion.p1 = 0.0;
+    distortion.p2 = 0.0;
+    let sensor = manual.sensor.unwrap_or_default();
 
-    let poses = bootstrap.poses;
+    let poses = if let Some(p) = manual.poses {
+        ensure!(
+            p.len() == num_views,
+            "manual poses length ({}) does not match view count ({})",
+            p.len(),
+            num_views
+        );
+        p
+    } else if let Some(p) = auto_poses {
+        p
+    } else {
+        let h = homographies.as_ref().expect("homographies computed above");
+        recover_planar_poses_from_homographies(h, &intrinsics).context("pose recovery failed")?
+    };
 
-    session.state.initial_intrinsics = Some(initial_camera.k);
-    session.state.initial_distortion = Some(initial_camera.dist);
-    session.state.initial_sensor = Some(ScheimpflugParams::default());
+    let mut manual_fields: Vec<&str> = Vec::new();
+    if manual.intrinsics.is_some() {
+        manual_fields.push("intrinsics");
+    }
+    if manual.distortion.is_some() {
+        manual_fields.push("distortion");
+    }
+    if manual.sensor.is_some() {
+        manual_fields.push("sensor");
+    }
+    // manual.poses has been consumed; track via need_poses flag.
+    if !need_poses {
+        manual_fields.push("poses");
+    }
+    let log_note = if manual_fields.is_empty() {
+        format!(
+            "fx={:.1}, fy={:.1}, views={} (auto)",
+            intrinsics.fx, intrinsics.fy, num_views
+        )
+    } else {
+        format!(
+            "fx={:.1}, fy={:.1} (manual: {})",
+            intrinsics.fx,
+            intrinsics.fy,
+            manual_fields.join(", ")
+        )
+    };
+
+    session.state.initial_intrinsics = Some(intrinsics);
+    session.state.initial_distortion = Some(distortion);
+    session.state.initial_sensor = Some(sensor);
     session.state.initial_poses = Some(poses);
     session.state.clear_optimization();
 
-    session.log_success_with_notes(
-        "init",
-        format!(
-            "fx={:.1}, fy={:.1}, views={}",
-            initial_camera.k.fx,
-            initial_camera.k.fy,
-            dataset.num_views()
-        ),
-    );
+    session.log_success_with_notes("init", log_note);
 
     Ok(())
+}
+
+/// Initialize intrinsics and poses for Scheimpflug refinement.
+///
+/// To use prior knowledge about any parameter group, call [`step_set_init`] instead.
+pub fn step_init(
+    session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<()> {
+    step_set_init(session, ScheimpflugManualInit::default(), opts)
 }
 
 /// Optimize Scheimpflug intrinsics, distortion, sensor tilt, and target poses.

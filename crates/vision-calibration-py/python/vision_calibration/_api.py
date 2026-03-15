@@ -19,6 +19,7 @@ from .models import (
     PlanarCalibrationConfig,
     PlanarCalibrationResult,
     PlanarDataset,
+    PlanarManualInit,
     RigExtrinsicsCalibrationConfig,
     RigExtrinsicsDataset,
     RigExtrinsicsResult,
@@ -29,6 +30,7 @@ from .models import (
     ScheimpflugIntrinsicsResult,
     SingleCamHandeyeCalibrationConfig,
     SingleCamHandeyeDataset,
+    SingleCamHandeyeIntrinsicsManualInit,
     SingleCamHandeyeResult,
 )
 from .types import RobustLoss
@@ -211,3 +213,83 @@ def run_scheimpflug_intrinsics(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
     )
+
+
+def run_planar_intrinsics_with_init(
+    input: PlanarDataset,
+    init: PlanarManualInit,
+    config: PlanarCalibrationConfig | None = None,
+) -> PlanarCalibrationResult:
+    """Run planar intrinsics calibration with manual initialization seeds.
+
+    This is an expert alternative to :func:`run_planar_intrinsics` for cases where
+    system specifications (focal length, distortion) are known from datasheets or
+    prior calibrations.
+
+    Parameters
+    ----------
+    input:
+        Planar calibration dataset.
+    init:
+        Manual initialization seeds. Fields set to ``None`` are auto-initialized
+        using Zhang's method and homography-based pose recovery.
+    config:
+        Optional calibration configuration.
+
+    Returns
+    -------
+    PlanarCalibrationResult
+        Calibration result with intrinsics, distortion, and poses.
+    """
+    dataset = _ensure_type(input, PlanarDataset, "input")
+    manual = _ensure_type(init, PlanarManualInit, "init")
+    cfg = _ensure_optional_type(config, PlanarCalibrationConfig, "config")
+    raw = cast(
+        dict[str, Any],
+        _native.run_planar_intrinsics_with_init(
+            dataset.to_payload(),
+            manual.to_payload(),
+            None if cfg is None else cfg.to_payload(),
+        ),
+    )
+    return PlanarCalibrationResult.from_payload(raw)
+
+
+def run_single_cam_handeye_with_init(
+    input: SingleCamHandeyeDataset,
+    intrinsics_init: SingleCamHandeyeIntrinsicsManualInit,
+    config: SingleCamHandeyeCalibrationConfig | None = None,
+) -> SingleCamHandeyeResult:
+    """Run single-camera hand-eye calibration with manual intrinsics initialization seeds.
+
+    This is an expert alternative to :func:`run_single_cam_handeye` for cases where
+    camera intrinsics are known from a prior calibration. The hand-eye transform is
+    always auto-initialized using the Tsai-Lenz linear estimator.
+
+    Parameters
+    ----------
+    input:
+        Single-camera hand-eye calibration dataset.
+    intrinsics_init:
+        Manual initialization seeds for the intrinsics stage. Fields set to ``None``
+        are auto-initialized.
+    config:
+        Optional calibration configuration.
+
+    Returns
+    -------
+    SingleCamHandeyeResult
+        Calibration result with intrinsics and hand-eye transform.
+    """
+    dataset = _ensure_type(input, SingleCamHandeyeDataset, "input")
+    manual = _ensure_type(intrinsics_init, SingleCamHandeyeIntrinsicsManualInit, "intrinsics_init")
+    cfg = _ensure_optional_type(config, SingleCamHandeyeCalibrationConfig, "config")
+    raw = cast(
+        dict[str, Any],
+        _native.run_single_cam_handeye_with_init(
+            dataset.to_payload(),
+            manual.to_payload(),
+            None if cfg is None else cfg.to_payload(),
+        ),
+    )
+    return SingleCamHandeyeResult.from_payload(raw)

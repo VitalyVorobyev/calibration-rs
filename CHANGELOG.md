@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Manual parameter initialization workflow** (M10, ADR 0011): expert alternative to auto-initialization for all six problem types.
+  - `step_set_init(session, XxxManualInit, opts)` per problem type — seeds provided fields, auto-initializes the rest.
+  - `step_init` now delegates to `step_set_init` with all-`None` defaults; `step_optimize` is unchanged.
+  - `ManualInit` structs: `PlanarManualInit`, `ScheimpflugManualInit`, `IntrinsicsManualInit`, `HandeyeManualInit`, `PerCamIntrinsicsManualInit`, `RigExtrinsicsManualInit`, `LaserlineManualInit`.
+  - Partial init: any subset of parameter groups can be seeded; unspecified groups are auto-initialized.
+  - Intrinsics-pose coupling preserved: when manual intrinsics but auto poses, poses are recovered using the manual intrinsics.
+  - All `ManualInit` types derive `serde::Serialize/Deserialize` for Python interop.
+- **Facade re-exports**: all `ManualInit` types and `step_set_*` functions exposed through `vision-calibration/src/lib.rs`.
+- **Integration test** `manual_init_integration.rs`: exact seeds → reproj < 1e-3 px; perturbed seeds (~10%) → convergence; default equivalence regression guard.
+- **Python bindings** for manual init (PlanarIntrinsics and SingleCamHandeye):
+  - `PlanarManualInit` and `SingleCamHandeyeIntrinsicsManualInit` dataclasses in `vision_calibration.models`.
+  - `run_planar_intrinsics_with_init` and `run_single_cam_handeye_with_init` in `vision_calibration`.
+
 ## [0.2.0] - 2026-03-07
 
 ### Added

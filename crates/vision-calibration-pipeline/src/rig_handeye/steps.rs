@@ -58,6 +58,23 @@ pub struct HandeyeInitOptions {
     pub min_motion_angle_deg: Option<f64>,
 }
 
+/// Manual initialization seeds for the hand-eye stage of rig hand-eye calibration.
+///
+/// Each field is `Option<Iso3>`. A `None` field is auto-initialized.
+///
+/// The semantics of each field depend on the configured hand-eye mode:
+/// - `EyeInHand`: `handeye` is `gripper_se3_rig`; `mode_target_pose` is `base_se3_target`.
+/// - `EyeToHand`: `handeye` is `rig_se3_base`; `mode_target_pose` is `gripper_se3_target`.
+#[derive(Debug, Clone, Default)]
+pub struct HandeyeManualInit {
+    /// Manually provided hand-eye transform (mode-dependent). If `None`: auto-initialized
+    /// via Tsai-Lenz linear estimation.
+    pub handeye: Option<Iso3>,
+    /// Manually provided fixed target pose (mode-dependent). If `None`: derived analytically
+    /// from the first view using the rig BA result and the hand-eye transform.
+    pub mode_target_pose: Option<Iso3>,
+}
+
 /// Options for hand-eye optimization.
 #[derive(Debug, Clone, Default)]
 pub struct HandeyeOptimizeOptions {
@@ -515,19 +532,23 @@ pub fn step_rig_optimize(
     Ok(())
 }
 
-/// Initialize hand-eye transform from robot poses and rig poses.
+/// Seed hand-eye transform and/or target pose with known values, auto-initializing the rest.
 ///
-/// Uses Tsai-Lenz linear initialization.
+/// This step is an expert alternative to [`step_handeye_init`].
 ///
-/// Requires [`step_rig_optimize`] to be run first.
+/// When `handeye` is `Some` but `mode_target_pose` is `None`, the target pose is derived
+/// analytically from the first view (an approximation that the optimizer will refine).
+///
+/// Requires [`step_rig_optimize`] to have been run first.
 ///
 /// # Errors
 ///
 /// - Input not set
 /// - Rig optimization not run
-/// - Linear hand-eye estimation fails
-pub fn step_handeye_init(
+/// - Auto hand-eye estimation fails (when `handeye` is `None`)
+pub fn step_set_handeye_init(
     session: &mut CalibrationSession<RigHandeyeProblem>,
+    manual: HandeyeManualInit,
     opts: Option<HandeyeInitOptions>,
 ) -> Result<()> {
     session.validate()?;
@@ -543,7 +564,6 @@ pub fn step_handeye_init(
         .min_motion_angle_deg
         .unwrap_or(config.handeye_init.min_motion_angle_deg);
 
-    // Get robot poses and rig-to-target poses
     let robot_poses: Vec<Iso3> = input
         .views
         .iter()
@@ -557,34 +577,41 @@ pub fn step_handeye_init(
 
     let (handeye, mode_target_pose) = match config.handeye_init.handeye_mode {
         vision_calibration_optim::HandEyeMode::EyeInHand => {
-            // vision-calibration-linear expects `target_se3_rig` (rig -> target), while the rig BA state
-            // stores `rig_se3_target` (target -> rig).
-            let target_se3_rig: Vec<Iso3> = rig_se3_target.iter().map(|t| t.inverse()).collect();
-
-            // Note: estimate_handeye_dlt expects `target_se3_camera`; here "camera" is the rig.
-            let gripper_se3_rig = estimate_handeye_dlt(&robot_poses, &target_se3_rig, min_angle)
-                .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
-                .context("linear hand-eye estimation failed")?;
-
-            // base_se3_target = base_se3_gripper * gripper_se3_rig * rig_se3_target
-            let base_se3_target = robot_poses[0] * gripper_se3_rig * rig_se3_target[0];
-
+            let gripper_se3_rig = if let Some(he) = manual.handeye {
+                he
+            } else {
+                let target_se3_rig: Vec<Iso3> =
+                    rig_se3_target.iter().map(|t| t.inverse()).collect();
+                estimate_handeye_dlt(&robot_poses, &target_se3_rig, min_angle)
+                    .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
+                    .context("linear hand-eye estimation failed")?
+            };
+            let base_se3_target = manual
+                .mode_target_pose
+                .unwrap_or_else(|| robot_poses[0] * gripper_se3_rig * rig_se3_target[0]);
             (gripper_se3_rig, base_se3_target)
         }
         vision_calibration_optim::HandEyeMode::EyeToHand => {
-            // For EyeToHand, the target is attached to the gripper. Solve for the fixed
-            // gripper_se3_target (T_G_T) using relative motions, then recover rig_se3_base.
-            let gripper_se3_target =
+            let gripper_se3_target = if let Some(he) = manual.handeye {
+                he
+            } else {
                 estimate_gripper_se3_target_dlt(&robot_poses, &rig_se3_target, min_angle)
                     .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
-                    .context("linear gripper->target estimation failed")?;
-
-            // T_R_T = T_R_B * T_B_G * T_G_T  =>  T_R_B = T_R_T * (T_B_G * T_G_T)^-1
-            let rig_se3_base = rig_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse();
-
-            // In EyeToHand mode the mode-target pose is `gripper_se3_target` (T_G_T).
+                    .context("linear gripper->target estimation failed")?
+            };
+            let rig_se3_base = manual.mode_target_pose.unwrap_or_else(|| {
+                // T_R_T = T_R_B * T_B_G * T_G_T  =>  T_R_B = T_R_T * (T_B_G * T_G_T)^-1
+                rig_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse()
+            });
             (rig_se3_base, gripper_se3_target)
         }
+    };
+
+    let manual_note = match (manual.handeye.is_some(), manual.mode_target_pose.is_some()) {
+        (true, true) => " (manual: handeye, mode_target_pose)",
+        (true, false) => " (manual: handeye)",
+        (false, true) => " (manual: mode_target_pose)",
+        (false, false) => " (auto)",
     };
 
     session.state.initial_handeye = Some(handeye);
@@ -592,10 +619,34 @@ pub fn step_handeye_init(
 
     session.log_success_with_notes(
         "handeye_init",
-        format!("translation_norm={:.4}m", handeye.translation.vector.norm()),
+        format!(
+            "translation_norm={:.4}m{}",
+            handeye.translation.vector.norm(),
+            manual_note
+        ),
     );
 
     Ok(())
+}
+
+/// Initialize hand-eye transform from robot poses and rig poses.
+///
+/// Uses Tsai-Lenz linear initialization.
+///
+/// Requires [`step_rig_optimize`] to be run first.
+///
+/// To provide a known hand-eye transform, call [`step_set_handeye_init`] instead.
+///
+/// # Errors
+///
+/// - Input not set
+/// - Rig optimization not run
+/// - Linear hand-eye estimation fails
+pub fn step_handeye_init(
+    session: &mut CalibrationSession<RigHandeyeProblem>,
+    opts: Option<HandeyeInitOptions>,
+) -> Result<()> {
+    step_set_handeye_init(session, HandeyeManualInit::default(), opts)
 }
 
 /// Optimize hand-eye calibration using bundle adjustment.

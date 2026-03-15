@@ -37,7 +37,7 @@ pub(crate) fn bootstrap_planar_intrinsics(
     })
 }
 
-fn estimate_view_homographies(dataset: &PlanarDataset) -> Result<Vec<Mat3>> {
+pub(crate) fn estimate_view_homographies(dataset: &PlanarDataset) -> Result<Vec<Mat3>> {
     let mut homographies = Vec::with_capacity(dataset.num_views());
     for (idx, view) in dataset.views.iter().enumerate() {
         let (board_2d, pixel_2d) = board_and_pixel_points(&view.obs);
@@ -52,7 +52,7 @@ fn estimate_view_homographies(dataset: &PlanarDataset) -> Result<Vec<Mat3>> {
     Ok(homographies)
 }
 
-fn recover_planar_poses_from_homographies(
+pub(crate) fn recover_planar_poses_from_homographies(
     homographies: &[Mat3],
     intrinsics: &FxFyCxCySkew<Real>,
 ) -> Result<Vec<Iso3>> {
