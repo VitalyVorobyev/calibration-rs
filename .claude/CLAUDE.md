@@ -24,7 +24,7 @@ vision-calibration (facade) → vision-calibration-pipeline (sessions, workflows
                             (types, models, RANSAC)   (MVG pipelines)  (low-level solvers)
 ```
 
-Plus `vision-calibration-py` (PyO3 bindings, depends on facade only).
+Plus `vision-calibration-py` (PyO3 bindings, depends on facade + core + vision-geometry + vision-mvg).
 
 **Key rules**:
 - linear and optim are peers — they depend on core but not each other.
@@ -86,6 +86,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo doc --workspace --no-deps  # check for warnings
 python3 -m compileall crates/vision-calibration-py/python/vision_calibration
+.venv/bin/python -m pytest crates/vision-calibration-py/tests/ -v
 ```
 
 ## Planning
