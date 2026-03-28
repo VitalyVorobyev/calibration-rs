@@ -60,8 +60,8 @@ pub fn recover_relative_pose(corrs: &[Correspondence2D]) -> Result<RelativePose>
         let decompositions = vision_geometry::epipolar::decompose_essential(e)?;
         if let Some((r, t, count)) = cheirality::select_pose(&decompositions, &pts1, &pts2) {
             // Prefer more cheirality inliers; break ties by residual.
-            let is_better = count > best_count
-                || (count == best_count && mean_sampson < best_residual);
+            let is_better =
+                count > best_count || (count == best_count && mean_sampson < best_residual);
             if is_better {
                 best_count = count;
                 best_residual = mean_sampson;
@@ -139,7 +139,10 @@ mod tests {
                 }
             }
         }
-        assert!(found_good, "5-point solver did not produce a valid E candidate");
+        assert!(
+            found_good,
+            "5-point solver did not produce a valid E candidate"
+        );
 
         let result = recover_relative_pose(&corrs).unwrap();
 
@@ -147,11 +150,7 @@ mod tests {
         let r_diff = result.r.transpose() * r_gt;
         let cos_theta = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);
         let ang_deg = cos_theta.acos().to_degrees();
-        assert!(
-            ang_deg < 1.0,
-            "rotation error too large: {} deg",
-            ang_deg
-        );
+        assert!(ang_deg < 1.0, "rotation error too large: {} deg", ang_deg);
 
         // Check translation direction.
         let cos_t = result.t.normalize().dot(&t_gt.normalize());

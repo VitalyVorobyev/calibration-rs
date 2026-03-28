@@ -147,10 +147,7 @@ impl<T: nalgebra::RealField> Factor<T> for ReprojectionFactor {
         let u_obs = T::from_f64(self.obs.x).unwrap();
         let v_obs = T::from_f64(self.obs.y).unwrap();
 
-        DVector::from_vec(vec![
-            px / pw.clone() - u_obs,
-            py / pw - v_obs,
-        ])
+        DVector::from_vec(vec![px / pw.clone() - u_obs, py / pw - v_obs])
     }
 }
 
@@ -158,11 +155,7 @@ impl<T: nalgebra::RealField> Factor<T> for ReprojectionFactor {
 ///
 /// `cameras` are 3×4 projection matrices, `observations` are the
 /// corresponding 2D observations. `init` is the initial 3D point estimate.
-pub fn refine_point(
-    cameras: &[Mat34],
-    observations: &[Pt2],
-    init: &Pt3,
-) -> Result<Pt3> {
+pub fn refine_point(cameras: &[Mat34], observations: &[Pt2], init: &Pt3) -> Result<Pt3> {
     if cameras.len() != observations.len() || cameras.is_empty() {
         anyhow::bail!("cameras and observations must have equal non-zero length");
     }
@@ -224,7 +217,10 @@ mod tests {
             Pt3::new(0.4, -0.5, d),
         ];
 
-        let pts1: Vec<_> = plane_pts.iter().map(|p| Pt2::new(p.x / p.z, p.y / p.z)).collect();
+        let pts1: Vec<_> = plane_pts
+            .iter()
+            .map(|p| Pt2::new(p.x / p.z, p.y / p.z))
+            .collect();
         let pts2: Vec<_> = pts1
             .iter()
             .map(|p| crate::homography::homography_transfer(&h_gt, p))
@@ -246,16 +242,16 @@ mod tests {
             err_init,
             err_refined
         );
-        assert!(err_refined < 1e-3, "refined error too large: {}", err_refined);
+        assert!(
+            err_refined < 1e-3,
+            "refined error too large: {}",
+            err_refined
+        );
     }
 
     #[test]
     fn refine_point_improves_estimate() {
-        let p1 = Mat34::new(
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-        );
+        let p1 = Mat34::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
         let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
         let r = *rot.matrix();
         let t = Vec3::new(0.3, 0.01, 0.005);
@@ -285,7 +281,11 @@ mod tests {
             err_init,
             err_refined
         );
-        assert!(err_refined < 1e-3, "refined error too large: {}", err_refined);
+        assert!(
+            err_refined < 1e-3,
+            "refined error too large: {}",
+            err_refined
+        );
     }
 
     #[test]
@@ -304,7 +304,10 @@ mod tests {
             Pt3::new(-0.3, -0.4, d),
         ];
 
-        let pts1: Vec<_> = plane_pts.iter().map(|p| Pt2::new(p.x / p.z, p.y / p.z)).collect();
+        let pts1: Vec<_> = plane_pts
+            .iter()
+            .map(|p| Pt2::new(p.x / p.z, p.y / p.z))
+            .collect();
         let pts2: Vec<_> = pts1
             .iter()
             .map(|p| crate::homography::homography_transfer(&h_gt, p))

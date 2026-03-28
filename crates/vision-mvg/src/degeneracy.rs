@@ -79,12 +79,7 @@ pub fn detect_poor_baseline(parallax_angles: &[Real], threshold_deg: Real) -> bo
 ///
 /// Given correspondences, the estimated essential matrix, and the recovered
 /// pose (R, t), returns diagnostics about the scene configuration.
-pub fn analyze_scene(
-    corrs: &[Correspondence2D],
-    e: &Mat3,
-    r: &Mat3,
-    t: &Vec3,
-) -> SceneDiagnostics {
+pub fn analyze_scene(corrs: &[Correspondence2D], e: &Mat3, r: &Mat3, t: &Vec3) -> SceneDiagnostics {
     let is_pure_rotation = detect_pure_rotation(e);
 
     // Triangulate to get parallax angles.
@@ -105,24 +100,27 @@ pub fn analyze_scene(
     };
 
     // Estimate baseline ratio: ||t|| / median_depth.
-    let baseline_ratio = if let Ok(tps) =
-        crate::triangulation::triangulate_two_view(r, t, &pts1, &pts2)
-    {
-        let mut depths: Vec<Real> = tps.iter().filter(|tp| tp.in_front).map(|tp| tp.point.z).collect();
-        if depths.is_empty() {
-            0.0
-        } else {
-            depths.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let median_depth = depths[depths.len() / 2];
-            if median_depth.abs() > 1e-12 {
-                t.norm() / median_depth
-            } else {
+    let baseline_ratio =
+        if let Ok(tps) = crate::triangulation::triangulate_two_view(r, t, &pts1, &pts2) {
+            let mut depths: Vec<Real> = tps
+                .iter()
+                .filter(|tp| tp.in_front)
+                .map(|tp| tp.point.z)
+                .collect();
+            if depths.is_empty() {
                 0.0
+            } else {
+                depths.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let median_depth = depths[depths.len() / 2];
+                if median_depth.abs() > 1e-12 {
+                    t.norm() / median_depth
+                } else {
+                    0.0
+                }
             }
-        }
-    } else {
-        0.0
-    };
+        } else {
+            0.0
+        };
 
     // Planar detection heuristic: check if points lie on a plane.
     // Use the parallax angle distribution — planar scenes have very

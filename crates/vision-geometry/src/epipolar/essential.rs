@@ -205,5 +205,4 @@ mod tests {
             "5-point solver did not produce an E that decomposes to the correct pose"
         );
     }
-
 }

@@ -28,18 +28,24 @@
 pub mod cheirality;
 pub mod degeneracy;
 pub mod homography;
+pub mod pose_recovery;
 #[cfg(feature = "refine")]
 pub mod refine;
-pub mod pose_recovery;
 pub mod residuals;
 pub mod robust;
 pub mod triangulation;
 pub mod types;
 
 // Re-export core types for convenience.
-pub use homography::{HomographyDecomposition, decompose_homography, homography_from_pose_and_plane, homography_transfer, homography_transfer_inverse};
+pub use homography::{
+    HomographyDecomposition, decompose_homography, homography_from_pose_and_plane,
+    homography_transfer, homography_transfer_inverse,
+};
 pub use pose_recovery::{RelativePose, recover_relative_pose};
-pub use robust::{EssentialEstimate, HomographyEstimate, RobustRelativePose, estimate_essential, estimate_homography, recover_relative_pose_robust};
+pub use robust::{
+    EssentialEstimate, HomographyEstimate, RobustRelativePose, estimate_essential,
+    estimate_homography, recover_relative_pose_robust,
+};
 pub use types::{
     Correspondence2D, EssentialMatrix, FundamentalMatrix, HomographyMatrix, TriangulatedPoint,
 };

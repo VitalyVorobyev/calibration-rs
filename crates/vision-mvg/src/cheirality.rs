@@ -66,11 +66,7 @@ pub fn select_pose(
 ///
 /// Decomposes `E` into 4 candidate (R, t) pairs, then selects the one with
 /// the most points in front of both cameras.
-pub fn recover_pose_from_essential(
-    e: &Mat3,
-    pts1: &[Pt2],
-    pts2: &[Pt2],
-) -> Result<(Mat3, Vec3)> {
+pub fn recover_pose_from_essential(e: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<(Mat3, Vec3)> {
     let candidates = vision_geometry::epipolar::decompose_essential(e)?;
     select_pose(&candidates, pts1, pts2)
         .map(|(r, t, _)| (r, t))
@@ -148,7 +144,10 @@ mod tests {
 
         // Check translation direction.
         let cos_t = t_est.normalize().dot(&t.normalize());
-        assert!((cos_t.abs() - 1.0).abs() < 1e-6, "translation direction error");
+        assert!(
+            (cos_t.abs() - 1.0).abs() < 1e-6,
+            "translation direction error"
+        );
     }
 
     #[test]

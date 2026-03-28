@@ -68,19 +68,17 @@ impl Estimator for EssentialEstimator {
         let candidates = vision_geometry::epipolar::essential_5point(&pts1, &pts2).ok()?;
 
         // Pick the candidate with lowest total Sampson distance over the sample.
-        candidates
-            .into_iter()
-            .min_by(|a, b| {
-                let sa: Real = sample_indices
-                    .iter()
-                    .map(|&i| residuals::sampson_distance(a, &data[i]))
-                    .sum();
-                let sb: Real = sample_indices
-                    .iter()
-                    .map(|&i| residuals::sampson_distance(b, &data[i]))
-                    .sum();
-                sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
-            })
+        candidates.into_iter().min_by(|a, b| {
+            let sa: Real = sample_indices
+                .iter()
+                .map(|&i| residuals::sampson_distance(a, &data[i]))
+                .sum();
+            let sb: Real = sample_indices
+                .iter()
+                .map(|&i| residuals::sampson_distance(b, &data[i]))
+                .sum();
+            sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
 
     fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
@@ -279,7 +277,11 @@ mod tests {
         };
 
         let est = estimate_essential(&corrs, &opts).unwrap();
-        assert!(est.inliers.len() >= 12, "expected ≥12 inliers, got {}", est.inliers.len());
+        assert!(
+            est.inliers.len() >= 12,
+            "expected ≥12 inliers, got {}",
+            est.inliers.len()
+        );
 
         // Verify decomposition recovers pose.
         let (pts1, pts2) = Correspondence2D::split(&corrs);
@@ -355,7 +357,11 @@ mod tests {
             "expected ≥8 inliers, got {}",
             est.inliers.len()
         );
-        assert!(est.inlier_rms < 1e-6, "inlier RMS too large: {}", est.inlier_rms);
+        assert!(
+            est.inlier_rms < 1e-6,
+            "inlier RMS too large: {}",
+            est.inlier_rms
+        );
     }
 
     #[test]

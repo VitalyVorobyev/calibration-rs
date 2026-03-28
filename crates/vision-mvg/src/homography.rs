@@ -70,11 +70,7 @@ pub fn decompose_homography(h: &HomographyMatrix) -> Result<Vec<HomographyDecomp
     let eig = hth.symmetric_eigen();
 
     let mut indices = [0usize, 1, 2];
-    indices.sort_by(|&a, &b| {
-        eig.eigenvalues[b]
-            .partial_cmp(&eig.eigenvalues[a])
-            .unwrap()
-    });
+    indices.sort_by(|&a, &b| eig.eigenvalues[b].partial_cmp(&eig.eigenvalues[a]).unwrap());
     let l1 = eig.eigenvalues[indices[0]];
     let l3 = eig.eigenvalues[indices[2]];
     let v1 = eig.eigenvectors.column(indices[0]).into_owned();
@@ -130,11 +126,7 @@ pub fn decompose_homography(h: &HomographyMatrix) -> Result<Vec<HomographyDecomp
         let t: Vec3 = (h_n - r) * n;
 
         // Sign ambiguity: (R, t, n) and (R, -t, -n).
-        results.push(HomographyDecomposition {
-            r,
-            t,
-            normal: n,
-        });
+        results.push(HomographyDecomposition { r, t, normal: n });
         results.push(HomographyDecomposition {
             r,
             t: -t,
@@ -209,8 +201,7 @@ mod tests {
             assert!(err < 1e-10, "transfer error: {}", err);
 
             let pt1_back = homography_transfer_inverse(&h, &pt2).unwrap();
-            let err_back =
-                ((pt1_back.x - pt1.x).powi(2) + (pt1_back.y - pt1.y).powi(2)).sqrt();
+            let err_back = ((pt1_back.x - pt1.x).powi(2) + (pt1_back.y - pt1.y).powi(2)).sqrt();
             assert!(err_back < 1e-10, "inverse transfer error: {}", err_back);
         }
     }
@@ -282,7 +273,10 @@ mod tests {
             .iter()
             .min_by(|a, b| a.t.norm().partial_cmp(&b.t.norm()).unwrap())
             .unwrap();
-        assert!(best.t.norm() < 1e-6, "expected zero translation for pure rotation");
+        assert!(
+            best.t.norm() < 1e-6,
+            "expected zero translation for pure rotation"
+        );
 
         let r_diff = best.r.transpose() * rot.matrix();
         let cos_theta = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);

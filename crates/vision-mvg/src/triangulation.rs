@@ -64,11 +64,7 @@ pub fn triangulate_two_view(
     pts2: &[Pt2],
 ) -> Result<Vec<TriangulatedPoint>> {
     if pts1.len() != pts2.len() {
-        anyhow::bail!(
-            "point count mismatch: {} vs {}",
-            pts1.len(),
-            pts2.len()
-        );
+        anyhow::bail!("point count mismatch: {} vs {}", pts1.len(), pts2.len());
     }
 
     let p1 = Mat34::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
