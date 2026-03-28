@@ -37,8 +37,8 @@ serde_json = "1"
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
 image = { version = "0.25" }
-chess-corners = { version = "0.3", features = ["rayon", "ml-refiner"] }
-calib-targets = "0.2"
-rand = { version = "0.9" }
+chess-corners = { version = "0.3.2", features = ["rayon", "ml-refiner"] }
+calib-targets = "0.3"
+rand = { version = "0.10" }
 tracing = { version = "0.1" }
 tiny-solver = "0.18"

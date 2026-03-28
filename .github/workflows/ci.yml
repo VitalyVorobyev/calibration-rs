@@ -15,14 +15,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          components: rustfmt, clippy
 
       - name: Cargo fmt
         run: cargo fmt --all --check
@@ -36,19 +34,32 @@ jobs:
       - name: Cargo doc
         run: cargo doc --no-deps --workspace
 
-  python-runtime:
-    name: Python Runtime Tests
-    needs: build
+  publishability:
+    name: Publishability Checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check publishable crate manifests
+        run: ./tools/publish-crates.sh check
+
+  python-runtime:
+    name: Python Runtime Tests
+    needs: [build, publishability]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 

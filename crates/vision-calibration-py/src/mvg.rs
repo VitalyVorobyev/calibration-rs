@@ -106,7 +106,8 @@ fn decompose_homography<'py>(
             let dict = pyo3::types::PyDict::new(py);
             dict.set_item("r", mat3_to_numpy(py, &d.r)).unwrap();
             dict.set_item("t", vec3_to_numpy(py, &d.t)).unwrap();
-            dict.set_item("normal", vec3_to_numpy(py, &d.normal)).unwrap();
+            dict.set_item("normal", vec3_to_numpy(py, &d.normal))
+                .unwrap();
             dict.into()
         })
         .collect())
@@ -114,10 +115,7 @@ fn decompose_homography<'py>(
 
 /// Apply homography to a 2D point. Returns (x', y').
 #[pyfunction]
-fn homography_transfer(
-    h: PyReadonlyArray2<'_, Real>,
-    pt: (Real, Real),
-) -> PyResult<(Real, Real)> {
+fn homography_transfer(h: PyReadonlyArray2<'_, Real>, pt: (Real, Real)) -> PyResult<(Real, Real)> {
     let h_mat = numpy_to_mat3(h)?;
     let p = vision_calibration_core::Pt2::new(pt.0, pt.1);
     let result = vision_mvg::homography_transfer(&h_mat, &p);
@@ -138,9 +136,8 @@ fn triangulate_two_view<'py>(
     let t_vec = numpy_to_vec3(t)?;
     let p1 = numpy_to_pt2_list(pts1)?;
     let p2 = numpy_to_pt2_list(pts2)?;
-    let tps =
-        vision_mvg::triangulation::triangulate_two_view(&r_mat, &t_vec, &p1, &p2)
-            .map_err(crate::runtime_err)?;
+    let tps = vision_mvg::triangulation::triangulate_two_view(&r_mat, &t_vec, &p1, &p2)
+        .map_err(crate::runtime_err)?;
     Ok(tps
         .iter()
         .map(|tp| {

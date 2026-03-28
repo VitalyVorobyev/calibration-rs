@@ -117,8 +117,8 @@ fn dlt_camera_matrix<'py>(
 ) -> PyResult<Bound<'py, PyArray2<Real>>> {
     let w = numpy_to_pt3_list(world)?;
     let i = numpy_to_pt2_list(image)?;
-    let p = vision_geometry::camera_matrix::dlt_camera_matrix(&w, &i)
-        .map_err(crate::runtime_err)?;
+    let p =
+        vision_geometry::camera_matrix::dlt_camera_matrix(&w, &i).map_err(crate::runtime_err)?;
     Ok(mat34_to_numpy(py, &p))
 }
 

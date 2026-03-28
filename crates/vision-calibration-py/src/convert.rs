@@ -1,6 +1,8 @@
 //! Conversion utilities between nalgebra types and numpy arrays.
 
-use numpy::{PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{
+    PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use vision_calibration_core::{Mat3, Pt2, Pt3, Real, Vec3};
@@ -152,7 +154,9 @@ pub fn numpy_to_correspondences(
 }
 
 /// Parse `RansacOptions` from a Python object (expects dataclass with named fields).
-pub fn ransac_opts_from_py(obj: &Bound<'_, PyAny>) -> PyResult<vision_calibration_core::RansacOptions> {
+pub fn ransac_opts_from_py(
+    obj: &Bound<'_, PyAny>,
+) -> PyResult<vision_calibration_core::RansacOptions> {
     Ok(vision_calibration_core::RansacOptions {
         max_iters: obj.getattr("max_iters")?.extract()?,
         thresh: obj.getattr("thresh")?.extract()?,
