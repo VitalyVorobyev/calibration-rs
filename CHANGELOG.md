@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- New `vision-geometry` crate: low-level deterministic geometric solvers (epipolar, homography, triangulation, camera matrix) extracted from `vision-calibration-linear`
+- New `vision-mvg` crate: multi-view geometry pipelines (pose recovery, robust estimation, cheirality, residuals) built on `vision-geometry`
+- `vision-mvg` optional `refine` feature for iterative refinement via `tiny-solver`
+
+### Changed
+- Extracted shared geometric solvers from `vision-calibration-linear` into `vision-geometry`; `vision-calibration-linear` now depends on `vision-geometry` and re-exports for backward compatibility
+- Moved epipolar decomposition, essential/fundamental matrix solvers, polynomial utilities, homography DLT, triangulation, and camera matrix code to `vision-geometry`
+- Moved developer documentation from README.md to CONTRIBUTING.md; README.md is now a concise user-facing document
+
 ## [0.2.0] - 2026-03-07
 
 ### Added

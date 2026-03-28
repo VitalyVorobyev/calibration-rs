@@ -3220,6 +3220,7 @@ dependencies = [
  "serde",
  "serde_json",
  "vision-calibration-core",
+ "vision-geometry",
 ]
 
 [[package]]
@@ -3258,6 +3259,26 @@ dependencies = [
  "pythonize",
  "serde",
  "vision-calibration",
+]
+
+[[package]]
+name = "vision-geometry"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "nalgebra",
+ "vision-calibration-core",
+]
+
+[[package]]
+name = "vision-mvg"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "nalgebra",
+ "tiny-solver",
+ "vision-calibration-core",
+ "vision-geometry",
 ]
 
 [[package]]

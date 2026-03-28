@@ -1,16 +1,13 @@
 //! Polynomial constraint system for 5-point essential matrix solver.
 //!
-//! This module implements symbolic polynomial manipulation in three variables
+//! Implements symbolic polynomial manipulation in three variables
 //! (x, y, z) up to degree 3, used to encode the essential matrix constraints
 //! in Nistér's 5-point algorithm.
 
 use vision_calibration_core::{Mat3, Real};
 
 /// Monomial ordering for degree-3 polynomials in three variables.
-///
-/// Each entry is (x_degree, y_degree, z_degree), ordered by total degree
-/// then lexicographically.
-pub(super) const MONOMIALS: [(u8, u8, u8); 20] = [
+const MONOMIALS: [(u8, u8, u8); 20] = [
     (3, 0, 0), // x^3
     (2, 1, 0), // x^2 y
     (2, 0, 1), // x^2 z
@@ -34,30 +31,25 @@ pub(super) const MONOMIALS: [(u8, u8, u8); 20] = [
 ];
 
 /// Polynomial in three variables (x, y, z) with degree ≤ 3.
-///
-/// Coefficients are stored in the order defined by `MONOMIALS`.
 #[derive(Clone, Copy)]
-pub(super) struct Poly3 {
+pub(crate) struct Poly3 {
     pub coeffs: [Real; 20],
 }
 
 impl Poly3 {
-    /// Zero polynomial.
     pub fn zero() -> Self {
         Self { coeffs: [0.0; 20] }
     }
 
-    /// Linear polynomial: c0 + cx*x + cy*y + cz*z.
     pub fn linear(c0: Real, cx: Real, cy: Real, cz: Real) -> Self {
         let mut p = Self::zero();
-        p.coeffs[19] = c0; // constant term
-        p.coeffs[16] = cx; // x
-        p.coeffs[17] = cy; // y
-        p.coeffs[18] = cz; // z
+        p.coeffs[19] = c0;
+        p.coeffs[16] = cx;
+        p.coeffs[17] = cy;
+        p.coeffs[18] = cz;
         p
     }
 
-    /// Add two polynomials.
     pub fn add(&self, other: &Self) -> Self {
         let mut out = Self::zero();
         for i in 0..20 {
@@ -66,7 +58,6 @@ impl Poly3 {
         out
     }
 
-    /// Subtract two polynomials.
     pub fn sub(&self, other: &Self) -> Self {
         let mut out = Self::zero();
         for i in 0..20 {
@@ -75,7 +66,6 @@ impl Poly3 {
         out
     }
 
-    /// Scale polynomial by constant.
     pub fn scale(&self, s: Real) -> Self {
         let mut out = Self::zero();
         for i in 0..20 {
@@ -84,7 +74,6 @@ impl Poly3 {
         out
     }
 
-    /// Multiply two polynomials (truncate to degree 3).
     pub fn mul(&self, other: &Self) -> Self {
         let mut out = Self::zero();
         for (i, &ai) in self.coeffs.iter().enumerate() {
@@ -112,7 +101,6 @@ impl Poly3 {
     }
 }
 
-/// Find the index of a monomial (x^dx * y^dy * z^dz) in the coefficient array.
 fn monomial_index(x: u8, y: u8, z: u8) -> Option<usize> {
     MONOMIALS.iter().enumerate().find_map(|(i, &(mx, my, mz))| {
         if mx == x && my == y && mz == z {
@@ -123,8 +111,7 @@ fn monomial_index(x: u8, y: u8, z: u8) -> Option<usize> {
     })
 }
 
-/// Multiply two 3x3 polynomial matrices.
-pub(super) fn poly_mat_mul(a: &[[Poly3; 3]; 3], b: &[[Poly3; 3]; 3]) -> [[Poly3; 3]; 3] {
+pub(crate) fn poly_mat_mul(a: &[[Poly3; 3]; 3], b: &[[Poly3; 3]; 3]) -> [[Poly3; 3]; 3] {
     let mut out = [[Poly3::zero(); 3]; 3];
     for r in 0..3 {
         for c in 0..3 {
@@ -138,8 +125,7 @@ pub(super) fn poly_mat_mul(a: &[[Poly3; 3]; 3], b: &[[Poly3; 3]; 3]) -> [[Poly3;
     out
 }
 
-/// Transpose a 3x3 polynomial matrix.
-pub(super) fn poly_transpose(a: &[[Poly3; 3]; 3]) -> [[Poly3; 3]; 3] {
+pub(crate) fn poly_transpose(a: &[[Poly3; 3]; 3]) -> [[Poly3; 3]; 3] {
     let mut out = [[Poly3::zero(); 3]; 3];
     for r in 0..3 {
         for c in 0..3 {
@@ -149,8 +135,7 @@ pub(super) fn poly_transpose(a: &[[Poly3; 3]; 3]) -> [[Poly3; 3]; 3] {
     out
 }
 
-/// Compute determinant of 3x3 polynomial matrix.
-pub(super) fn poly_det3(a: &[[Poly3; 3]; 3]) -> Poly3 {
+pub(crate) fn poly_det3(a: &[[Poly3; 3]; 3]) -> Poly3 {
     let term1 = a[0][0].mul(&a[1][1].mul(&a[2][2]).sub(&a[1][2].mul(&a[2][1])));
     let term2 = a[0][1].mul(&a[1][0].mul(&a[2][2]).sub(&a[1][2].mul(&a[2][0])));
     let term3 = a[0][2].mul(&a[1][0].mul(&a[2][1]).sub(&a[1][1].mul(&a[2][0])));
@@ -162,7 +147,7 @@ pub(super) fn poly_det3(a: &[[Poly3; 3]; 3]) -> Poly3 {
 ///
 /// Given four basis essential matrices, constructs the 10 equations that
 /// encode det(E) = 0 and trace(E E^T E) - 0.5 * trace(E E^T) E = 0.
-pub(super) fn build_polynomial_system(
+pub(crate) fn build_polynomial_system(
     e1: &Mat3,
     e2: &Mat3,
     e3: &Mat3,

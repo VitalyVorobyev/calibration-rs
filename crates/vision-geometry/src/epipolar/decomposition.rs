@@ -10,10 +10,10 @@ use vision_calibration_core::{Mat3, Real, Vec3};
 
 /// Enforce essential matrix constraints via SVD projection.
 ///
-/// Projects a 3x3 matrix onto the essential matrix manifold by forcing
+/// Projects a 3×3 matrix onto the essential matrix manifold by forcing
 /// the singular values to be (σ, σ, 0) where σ is the mean of the first
 /// two singular values.
-pub(super) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
+pub(crate) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
     let svd = e.svd(true, true);
     let u = svd.u.ok_or(anyhow::anyhow!("SVD failed"))?;
     let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
@@ -72,7 +72,6 @@ pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>> {
 mod tests {
     use super::*;
     use nalgebra::Rotation3;
-    use vision_calibration_core::Vec3;
 
     fn skew(v: &Vec3) -> Mat3 {
         Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)

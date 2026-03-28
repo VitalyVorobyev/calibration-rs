@@ -4,17 +4,20 @@
 //! point correspondences in normalized coordinates.
 
 use super::polynomial::build_polynomial_system;
-use crate::math::{mat3_from_svd_row, normalize_points_2d};
+use crate::math::mat3_from_svd_row;
 use anyhow::Result;
 use nalgebra::{DMatrix, linalg::Schur};
 use vision_calibration_core::{Mat3, Pt2, Real};
 
 /// 5-point algorithm for the essential matrix in normalized coordinates.
 ///
-/// The inputs must be **calibrated** (e.g. apply `K^{-1}` to pixel points).
+/// The inputs must be **calibrated** (e.g. apply `K⁻¹` to pixel points).
 /// Returns up to ten candidate essential matrices that satisfy the cubic
 /// constraints; choose the physically valid one by cheirality or by
 /// reprojection error against additional correspondences.
+///
+/// Unlike fundamental matrix solvers, this does **not** apply Hartley
+/// normalization — calibrated coordinates are already well-conditioned.
 pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     if pts1.len() != pts2.len() {
         anyhow::bail!(
@@ -27,13 +30,8 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
         anyhow::bail!("Point count mismatch: expected 5, got {}", pts1.len());
     }
 
-    let (pts1_n, t1) = normalize_points_2d(pts1)
-        .ok_or(anyhow::anyhow!("SVD failed during point normalization"))?;
-    let (pts2_n, t2) = normalize_points_2d(pts2)
-        .ok_or(anyhow::anyhow!("SVD failed during point normalization"))?;
-
     let mut a = DMatrix::<Real>::zeros(5, 9);
-    for (i, (p1, p2)) in pts1_n.iter().zip(pts2_n.iter()).enumerate() {
+    for (i, (p1, p2)) in pts1.iter().zip(pts2.iter()).enumerate() {
         let x = p1.x;
         let y = p1.y;
         let xp = p2.x;
@@ -100,6 +98,8 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     action[(5, 8)] = 1.0;
     action[(8, 9)] = 1.0;
 
+    let action = action.transpose();
+
     let schur = Schur::new(action.clone());
     let eigvals = schur.complex_eigenvalues();
 
@@ -127,8 +127,7 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
         let y = vec[7] / v9;
         let z_vec = vec[8] / v9;
 
-        let mut e = e1 * x + e2 * y + e3 * z_vec + e4;
-        e = t2.transpose() * e * t1;
+        let e = e1 * x + e2 * y + e3 * z_vec + e4;
 
         solutions.push((z_vec, e));
     }
@@ -174,7 +173,7 @@ mod tests {
         assert!(!sols.is_empty());
 
         let mut best = f64::INFINITY;
-        for e in sols {
+        for e in &sols {
             let mut err = 0.0;
             for (p1, p2) in pts1.iter().zip(pts2.iter()) {
                 let x = nalgebra::Vector3::new(p1.x, p1.y, 1.0);
@@ -186,5 +185,25 @@ mod tests {
         }
 
         assert!(best < 1e-6, "5-point residual too large: {}", best);
+
+        // Also verify decomposition recovers the ground truth pose.
+        let mut found_good_decomp = false;
+        for e in &sols {
+            let decomps = crate::epipolar::decompose_essential(e).unwrap();
+            for (r_est, t_est) in &decomps {
+                let r_diff: Mat3 = r_est.transpose() * rot.matrix();
+                let cos_theta = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);
+                let ang_deg = cos_theta.acos().to_degrees();
+                let cos_t: Real = t_est.normalize().dot(&t.normalize()).abs();
+                if ang_deg < 1.0 && cos_t > 0.99 {
+                    found_good_decomp = true;
+                }
+            }
+        }
+        assert!(
+            found_good_decomp,
+            "5-point solver did not produce an E that decomposes to the correct pose"
+        );
     }
+
 }
