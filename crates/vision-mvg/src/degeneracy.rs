@@ -26,19 +26,18 @@ pub struct SceneDiagnostics {
 /// Detect a pure rotation from an essential matrix.
 ///
 /// A pure rotation has `t ≈ 0`, so the essential matrix `E = [t]× R ≈ 0`.
-/// Returns `true` if the Frobenius norm of E (after normalizing the largest
-/// singular value to 1) is below a threshold.
+/// For a proper essential matrix with translation, the singular values are
+/// `(σ, σ, 0)` with `σ > 0`. For pure rotation, all singular values are
+/// near zero.
+///
+/// Returns `true` if the Frobenius norm of E is below a threshold,
+/// indicating negligible translation.
 pub fn detect_pure_rotation(e: &Mat3) -> bool {
-    let svd = e.svd(false, false);
-    let s1 = svd.singular_values[0];
-    if s1 < 1e-12 {
-        return true; // zero matrix ⇒ pure rotation
-    }
-    // For a proper essential matrix, sv = (σ, σ, 0).
-    // For pure rotation, all singular values ≈ 0.
-    // Check ratio of second singular value to first.
-    let s2 = svd.singular_values[1];
-    s2 / s1 < 0.01
+    // Frobenius norm: sqrt(s1² + s2² + s3²). For a valid E this equals
+    // sqrt(2) * σ where σ is the repeated singular value. A near-zero
+    // norm means negligible translation.
+    let frob = e.norm();
+    frob < 1e-6
 }
 
 /// Detect a planar scene by comparing homography and essential inlier counts.

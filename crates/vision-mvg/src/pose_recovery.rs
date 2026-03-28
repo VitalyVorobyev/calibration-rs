@@ -26,22 +26,56 @@ pub struct RelativePose {
 /// Recover relative pose from calibrated correspondences using the 5-point algorithm.
 ///
 /// This is a convenience function that:
-/// 1. Runs the 5-point essential matrix solver on all correspondences
-/// 2. For each candidate E, decomposes into (R, t) pairs
+/// 1. Samples multiple 5-point subsets from the correspondences to generate
+///    essential matrix candidates
+/// 2. For each candidate E, scores it by Sampson distance and cheirality
+///    over **all** correspondences
 /// 3. Selects the pose with the most points passing cheirality
 /// 4. Triangulates all correspondences with the selected pose
+///
+/// For outlier-contaminated data, prefer [`crate::recover_relative_pose_robust`]
+/// which uses RANSAC.
 ///
 /// Input points must be in **normalized camera coordinates**.
 /// Requires at least 5 correspondences.
 pub fn recover_relative_pose(corrs: &[Correspondence2D]) -> Result<RelativePose> {
-    if corrs.len() < 5 {
-        anyhow::bail!("need at least 5 correspondences, got {}", corrs.len());
+    let n = corrs.len();
+    if n < 5 {
+        anyhow::bail!("need at least 5 correspondences, got {}", n);
     }
 
     let (pts1, pts2) = Correspondence2D::split(corrs);
 
-    // Use first 5 points for the 5-point algorithm.
-    let candidates_e = vision_geometry::epipolar::essential_5point(&pts1[..5], &pts2[..5])?;
+    // Generate essential matrix candidates from multiple 5-point subsets.
+    // Use evenly-spaced subsets to avoid dependence on input ordering.
+    let mut all_candidates: Vec<EssentialMatrix> = Vec::new();
+
+    if n == 5 {
+        // Exactly 5 points: single call.
+        all_candidates.extend(vision_geometry::epipolar::essential_5point(&pts1, &pts2)?);
+    } else {
+        // Sample up to `max_subsets` evenly-spaced 5-point subsets.
+        let max_subsets = n.min(20);
+        for start in 0..max_subsets {
+            let indices: Vec<usize> = (0..5).map(|k| (start + k * n / 5) % n).collect();
+            // Skip if indices are not distinct.
+            let mut sorted = indices.clone();
+            sorted.sort();
+            sorted.dedup();
+            if sorted.len() < 5 {
+                continue;
+            }
+            let sub1: Vec<_> = indices.iter().map(|&i| pts1[i]).collect();
+            let sub2: Vec<_> = indices.iter().map(|&i| pts2[i]).collect();
+            if let Ok(es) = vision_geometry::epipolar::essential_5point(&sub1, &sub2) {
+                all_candidates.extend(es);
+            }
+        }
+    }
+
+    if all_candidates.is_empty() {
+        anyhow::bail!("5-point solver produced no candidates from any subset");
+    }
 
     let mut best_r = None;
     let mut best_t = None;
@@ -49,13 +83,13 @@ pub fn recover_relative_pose(corrs: &[Correspondence2D]) -> Result<RelativePose>
     let mut best_count = 0;
     let mut best_residual = Real::INFINITY;
 
-    for e in &candidates_e {
+    for e in &all_candidates {
         // Score this E by mean Sampson distance over all correspondences.
         let mean_sampson: Real = corrs
             .iter()
             .map(|c| residuals::sampson_distance(e, c))
             .sum::<Real>()
-            / corrs.len() as Real;
+            / n as Real;
 
         let decompositions = vision_geometry::epipolar::decompose_essential(e)?;
         if let Some((r, t, count)) = cheirality::select_pose(&decompositions, &pts1, &pts2) {

@@ -192,7 +192,11 @@ pub fn recover_relative_pose_robust(
     opts: &RansacOptions,
 ) -> Result<RobustRelativePose> {
     let est = estimate_essential(corrs, opts)?;
-    let (pts1, pts2) = Correspondence2D::split(corrs);
+
+    // Use only inlier correspondences for cheirality disambiguation,
+    // so outliers don't corrupt the positive-depth vote.
+    let inlier_corrs: Vec<_> = est.inliers.iter().map(|&i| corrs[i]).collect();
+    let (pts1, pts2) = Correspondence2D::split(&inlier_corrs);
 
     let (r, t) = crate::cheirality::recover_pose_from_essential(&est.essential, &pts1, &pts2)?;
 
@@ -283,8 +287,9 @@ mod tests {
             est.inliers.len()
         );
 
-        // Verify decomposition recovers pose.
-        let (pts1, pts2) = Correspondence2D::split(&corrs);
+        // Verify decomposition recovers pose (using inliers only).
+        let inlier_corrs: Vec<_> = est.inliers.iter().map(|&i| corrs[i]).collect();
+        let (pts1, pts2) = Correspondence2D::split(&inlier_corrs);
         let (r_est, t_est) =
             crate::cheirality::recover_pose_from_essential(&est.essential, &pts1, &pts2).unwrap();
 
