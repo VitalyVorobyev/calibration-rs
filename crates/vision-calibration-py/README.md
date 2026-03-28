@@ -2,7 +2,11 @@
 
 Python bindings for `calibration-rs`.
 
-This crate exposes high-level calibration workflows from `vision-calibration`:
+This crate exposes high-level calibration workflows from `vision-calibration`,
+low-level geometric solvers from `vision-geometry`, and multi-view geometry
+pipelines from `vision-mvg`.
+
+### Calibration workflows
 
 - planar intrinsics
 - single-camera hand-eye
@@ -10,6 +14,23 @@ This crate exposes high-level calibration workflows from `vision-calibration`:
 - rig hand-eye
 - laserline device
 - scheimpflug intrinsics
+
+### Geometry (`vision_calibration.geometry`)
+
+- Fundamental matrix: 7-point, 8-point, RANSAC 8-point
+- Essential matrix: 5-point (Nister), decomposition
+- Homography: DLT, RANSAC DLT
+- Camera matrix: DLT estimation, K/R/t decomposition
+- Triangulation: linear DLT
+
+### Multi-view geometry (`vision_calibration.mvg`)
+
+- Relative pose recovery (minimal and RANSAC)
+- Essential matrix and homography RANSAC estimation
+- Homography decomposition and transfer
+- Two-view triangulation with quality metrics
+- Scene degeneracy analysis
+- Sampson distance and symmetric transfer error
 
 ## Build locally
 
@@ -52,10 +73,28 @@ obs = vc.Observation(
 )
 dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
 config = vc.ScheimpflugIntrinsicsCalibrationConfig(
-    fix_scheimpflug={"tilt_x": False, "tilt_y": False}
+    fix_scheimpflug=vc.ScheimpflugFixMask(tilt_x=False, tilt_y=False),
 )
 result = vc.run_scheimpflug_intrinsics(dataset, config)
 print(result.camera.sensor)
+```
+
+Geometry and MVG:
+
+```python
+import numpy as np
+import vision_calibration as vc
+
+# Estimate a homography from point correspondences
+src = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=np.float64)
+dst = np.array([[0.1, 0.1], [1.1, 0.0], [1.2, 1.1], [0.0, 1.0]], dtype=np.float64)
+h = vc.geometry.dlt_homography(src, dst)
+
+# RANSAC essential matrix + pose recovery
+corrs = np.random.randn(50, 4)  # (N, 4): [x1, y1, x2, y2]
+opts = vc.RansacOptions(max_iters=1000, thresh=0.01)
+result = vc.mvg.estimate_essential(corrs, opts)
+print(result.essential.shape, len(result.inliers))
 ```
 
 ## Migration: hard break to typed high-level API

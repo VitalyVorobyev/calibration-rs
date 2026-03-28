@@ -64,6 +64,8 @@ result = vc.run_planar_intrinsics(dataset)
 print(result.mean_reproj_error)
 ```
 
+Geometry and MVG solvers are also available from Python — see `vision_calibration.geometry` and `vision_calibration.mvg`.
+
 ## Calibration Workflows
 
 | Workflow | Description |
