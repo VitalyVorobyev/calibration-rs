@@ -3,9 +3,11 @@ members = [
     "crates/vision-calibration",
     "crates/vision-calibration-py",
     "crates/vision-calibration-core",
+    "crates/vision-geometry",
     "crates/vision-calibration-linear",
     "crates/vision-calibration-optim",
     "crates/vision-calibration-pipeline",
+    "crates/vision-mvg",
 ]
 
 resolver = "2"
@@ -24,6 +26,8 @@ vision-calibration-core = { path = "./crates/vision-calibration-core", version =
 vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.2.0" }
 vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.2.0" }
 vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.2.0" }
+vision-geometry = { path = "./crates/vision-geometry", version = "0.2.0" }
+vision-mvg = { path = "./crates/vision-mvg", version = "0.2.0" }
 
 anyhow = "1"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
@@ -33,8 +37,8 @@ serde_json = "1"
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
 image = { version = "0.25" }
-chess-corners = { version = "0.3", features = ["rayon", "ml-refiner"] }
-calib-targets = "0.2"
-rand = { version = "0.9" }
+chess-corners = { version = "0.3.2", features = ["rayon", "ml-refiner"] }
+calib-targets = "0.3"
+rand = { version = "0.10" }
 tracing = { version = "0.1" }
 tiny-solver = "0.18"

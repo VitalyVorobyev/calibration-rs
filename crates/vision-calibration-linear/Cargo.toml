@@ -13,6 +13,7 @@ repository.workspace = true
 
 [dependencies]
 vision-calibration-core = { workspace = true }
+vision-geometry = { workspace = true }
 nalgebra = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }

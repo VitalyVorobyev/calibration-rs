@@ -25,35 +25,39 @@ from .models import (
     RigHandeyeCalibrationConfig,
     RigHandeyeDataset,
     RigHandeyeResult,
+    RobustLoss,
+    RobustLossArctan,
+    RobustLossCauchy,
+    RobustLossHuber,
+    RobustLossNone,
     ScheimpflugIntrinsicsCalibrationConfig,
     ScheimpflugIntrinsicsResult,
     SingleCamHandeyeCalibrationConfig,
     SingleCamHandeyeDataset,
     SingleCamHandeyeResult,
 )
-from .types import RobustLoss
 
 _T = TypeVar("_T")
 
 
 def robust_none() -> RobustLoss:
-    """Build a serde-compatible "no robust loss" value."""
-    return "None"
+    """Build a "no robust loss" value (plain squared residual)."""
+    return RobustLossNone()
 
 
 def robust_huber(scale: float) -> RobustLoss:
-    """Build a serde-compatible Huber robust loss payload."""
-    return {"Huber": {"scale": float(scale)}}
+    """Build a Huber robust loss with given *scale*."""
+    return RobustLossHuber(scale=float(scale))
 
 
 def robust_cauchy(scale: float) -> RobustLoss:
-    """Build a serde-compatible Cauchy robust loss payload."""
-    return {"Cauchy": {"scale": float(scale)}}
+    """Build a Cauchy robust loss with given *scale*."""
+    return RobustLossCauchy(scale=float(scale))
 
 
 def robust_arctan(scale: float) -> RobustLoss:
-    """Build a serde-compatible Arctan robust loss payload."""
-    return {"Arctan": {"scale": float(scale)}}
+    """Build an Arctan robust loss with given *scale*."""
+    return RobustLossArctan(scale=float(scale))
 
 
 def _ensure_type(value: Any, expected_type: type[_T], name: str) -> _T:

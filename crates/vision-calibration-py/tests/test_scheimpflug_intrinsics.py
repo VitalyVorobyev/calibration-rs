@@ -101,7 +101,7 @@ class ScheimpflugIntrinsicsTest(unittest.TestCase):
         result = vc.run_scheimpflug_intrinsics(
             _make_dataset(),
             vc.ScheimpflugIntrinsicsCalibrationConfig(
-                fix_scheimpflug={"tilt_x": False, "tilt_y": False}
+                fix_scheimpflug=vc.ScheimpflugFixMask(tilt_x=False, tilt_y=False)
             ),
         )
         self.assertGreaterEqual(result.mean_reproj_error, 0.0)

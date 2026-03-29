@@ -18,8 +18,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 anyhow.workspace = true
+nalgebra.workspace = true
 serde = { workspace = true, features = ["derive"] }
 vision-calibration.workspace = true
+vision-calibration-core.workspace = true
+vision-geometry.workspace = true
+vision-mvg = { workspace = true, features = ["refine"] }
+numpy = "0.28"
 pyo3 = { version = "0.28", features = ["extension-module", "abi3-py310"] }
 pythonize = "0.28"
 

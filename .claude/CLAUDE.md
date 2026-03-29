@@ -13,19 +13,24 @@ cargo doc --workspace --no-deps      # Docs
 
 ## Architecture
 
-5-crate layered workspace (~7k LoC). See ADR 0006.
+7-crate layered workspace. See ADR 0006.
 
 ```
 vision-calibration (facade) → vision-calibration-pipeline (sessions, workflows)
                                     ↓
                     vision-calibration-optim + vision-calibration-linear  (peers, no cross-dep)
-                                    ↓
-                            vision-calibration-core (types, models, RANSAC)
+                                    ↓               ↓
+                            vision-calibration-core   vision-mvg → vision-geometry
+                            (types, models, RANSAC)   (MVG pipelines)  (low-level solvers)
 ```
 
-Plus `vision-calibration-py` (PyO3 bindings, depends on facade only).
+Plus `vision-calibration-py` (PyO3 bindings, depends on facade + core + vision-geometry + vision-mvg).
 
-**Key rule**: linear and optim are peers — they depend on core but not each other.
+**Key rules**:
+- linear and optim are peers — they depend on core but not each other.
+- `vision-geometry` has low-level deterministic solvers (epipolar, homography, triangulation, camera matrix).
+- `vision-mvg` builds on vision-geometry for multi-view pipelines (pose recovery, robust estimation, cheirality).
+- vision-calibration-linear depends on vision-geometry for shared solvers.
 
 ## Camera Model (ADR 0005)
 
@@ -81,6 +86,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo doc --workspace --no-deps  # check for warnings
 python3 -m compileall crates/vision-calibration-py/python/vision_calibration
+.venv/bin/python -m pytest crates/vision-calibration-py/tests/ -v
 ```
 
 ## Planning

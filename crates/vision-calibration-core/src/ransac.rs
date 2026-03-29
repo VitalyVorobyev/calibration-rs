@@ -7,7 +7,7 @@
 //! when consensus is not found, [`ransac_fit`] returns a [`RansacResult`] with
 //! `success == false` and `model == None`.
 
-use rand::prelude::IndexedRandom;
+use rand::seq::index;
 use rand::{SeedableRng, rngs::StdRng};
 
 /// Configuration parameters for the generic RANSAC engine.
@@ -165,7 +165,6 @@ pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> Rans
         return best;
     }
 
-    let all_indices: Vec<usize> = (0..data.len()).collect();
     let mut sample_idxs = vec![0usize; E::MIN_SAMPLES];
 
     let mut rng = StdRng::seed_from_u64(opts.seed);
@@ -182,11 +181,10 @@ pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> Rans
     while num_iters < dynamic_max_iters {
         num_iters += 1;
         // Draw a random sample of MIN_SAMPLES indices
-        all_indices
-            .as_slice()
-            .choose_multiple(&mut rng, E::MIN_SAMPLES)
+        index::sample(&mut rng, data.len(), E::MIN_SAMPLES)
+            .into_iter()
             .enumerate()
-            .for_each(|(k, &idx)| sample_idxs[k] = idx);
+            .for_each(|(k, idx)| sample_idxs[k] = idx);
 
         if E::is_degenerate(data, &sample_idxs) {
             continue;
