@@ -13,7 +13,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
@@ -21,13 +21,13 @@ homepage = "https://vitalyvorobyev.github.io/calibration-rs"
 repository = "https://github.com/VitalyVorobyev/calibration-rs"
 
 [workspace.dependencies]
-vision-calibration = { path = "./crates/vision-calibration", version = "0.2.0" }
-vision-calibration-core = { path = "./crates/vision-calibration-core", version = "0.2.0" }
-vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.2.0" }
-vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.2.0" }
-vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.2.0" }
-vision-geometry = { path = "./crates/vision-geometry", version = "0.2.0" }
-vision-mvg = { path = "./crates/vision-mvg", version = "0.2.0" }
+vision-calibration = { path = "./crates/vision-calibration", version = "0.3" }
+vision-calibration-core = { path = "./crates/vision-calibration-core", version = "0.3" }
+vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.3" }
+vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.3" }
+vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.3" }
+vision-geometry = { path = "./crates/vision-geometry", version = "0.3" }
+vision-mvg = { path = "./crates/vision-mvg", version = "0.3" }
 
 anyhow = "1"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
@@ -37,7 +37,7 @@ serde_json = "1"
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
 image = { version = "0.25" }
-chess-corners = { version = "0.3.2", features = ["rayon", "ml-refiner"] }
+chess-corners = { version = "0.3", features = ["rayon", "ml-refiner"] }
 calib-targets = "0.3"
 rand = { version = "0.10" }
 tracing = { version = "0.1" }

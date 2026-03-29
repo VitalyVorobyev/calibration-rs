@@ -26,6 +26,50 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Verify release tag matches package versions
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ "${tag}" != v* ]]; then
+            echo "expected release tag starting with 'v', got ${tag}" >&2
+            exit 1
+          fi
+
+          tag_version="${tag#v}"
+          workspace_version=$(
+            awk '
+              $0 == "[workspace.package]" { in_section=1; next }
+              /^\[/ && in_section { exit }
+              in_section && $1 == "version" {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' Cargo.toml
+          )
+          python_version=$(
+            awk '
+              $0 == "[project]" { in_section=1; next }
+              /^\[/ && in_section { exit }
+              in_section && $1 == "version" {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' crates/vision-calibration-py/pyproject.toml
+          )
+
+          if [[ "$workspace_version" != "$tag_version" ]]; then
+            echo "tag version $tag_version != workspace version $workspace_version" >&2
+            exit 1
+          fi
+          if [[ "$python_version" != "$tag_version" ]]; then
+            echo "tag version $tag_version != python package version $python_version" >&2
+            exit 1
+          fi
+
+          echo "release metadata OK for $tag"
+
       - name: Format check
         run: cargo fmt --all --check
 

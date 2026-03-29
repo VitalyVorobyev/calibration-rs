@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-29
+
 ### Added
 - New `vision-geometry` crate: low-level deterministic geometric solvers (epipolar, homography, triangulation, camera matrix) extracted from `vision-calibration-linear`
 - New `vision-mvg` crate: multi-view geometry pipelines (pose recovery, robust estimation, cheirality, residuals) built on `vision-geometry`
@@ -25,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved epipolar decomposition, essential/fundamental matrix solvers, polynomial utilities, homography DLT, triangulation, and camera matrix code to `vision-geometry`
 - Moved developer documentation from README.md to CONTRIBUTING.md; README.md is now a concise user-facing document
 - Python config fields (`fix_intrinsics`, `fix_distortion`, `fix_scheimpflug`, `sensor_init`, `robust_loss`) now use typed dataclasses instead of raw dicts
+- Release automation now checks Rust/Python version metadata consistency in CI and validates that the pushed `vX.Y.Z` tag matches the published package versions
+
+### Breaking
+- Minor release bump to `0.3.0` because the public crate structure changed: low-level geometry and multi-view APIs are now published as the standalone `vision-geometry` and `vision-mvg` crates
 
 ## [0.2.0] - 2026-03-07
 

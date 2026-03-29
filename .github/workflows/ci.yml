@@ -22,6 +22,39 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Check version metadata consistency
+        shell: bash
+        run: |
+          workspace_version=$(
+            awk '
+              $0 == "[workspace.package]" { in_section=1; next }
+              /^\[/ && in_section { exit }
+              in_section && $1 == "version" {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' Cargo.toml
+          )
+          python_version=$(
+            awk '
+              $0 == "[project]" { in_section=1; next }
+              /^\[/ && in_section { exit }
+              in_section && $1 == "version" {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' crates/vision-calibration-py/pyproject.toml
+          )
+
+          if [[ "$workspace_version" != "$python_version" ]]; then
+            echo "workspace version $workspace_version != python package version $python_version" >&2
+            exit 1
+          fi
+
+          echo "version metadata OK: $workspace_version"
+
       - name: Cargo fmt
         run: cargo fmt --all --check
 

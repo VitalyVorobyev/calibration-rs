@@ -17,7 +17,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-vision-calibration = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
+vision-calibration = "0.3.0"
 ```
 
 ### Planar Intrinsics Calibration

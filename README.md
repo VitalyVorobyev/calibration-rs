@@ -14,19 +14,19 @@ Also includes standalone multi-view geometry crates (`vision-geometry`, `vision-
 
 ```toml
 # Calibration workflows
-vision-calibration = "0.2"
+vision-calibration = "0.3.0"
 
 # Multi-view geometry (independent of calibration)
-vision-mvg = "0.2"
+vision-mvg = "0.3.0"
 
 # Low-level geometric solvers
-vision-geometry = "0.2"
+vision-geometry = "0.3.0"
 ```
 
 ### Python
 
 ```bash
-pip install vision-calibration
+pip install "vision-calibration==0.3.0"
 ```
 
 ## Quick Start (Rust)

@@ -2043,9 +2043,9 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "ordered-float"
-version = "5.2.0"
+version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0218004a4aae742209bee9c3cef05672f6b2708be36a50add8eb613b1f2a4008"
+checksum = "b7d950ca161dc355eaf28f82b11345ed76c6e1f6eb1f4f4479e0323b9e2fbd0e"
 dependencies = [
  "num-traits",
 ]
@@ -3380,7 +3380,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vision-calibration"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "calib-targets",
@@ -3396,7 +3396,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "nalgebra",
@@ -3408,7 +3408,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-linear"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "log",
@@ -3421,7 +3421,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-optim"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "nalgebra",
@@ -3434,7 +3434,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-pipeline"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "nalgebra",
@@ -3447,7 +3447,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-py"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "nalgebra",
@@ -3464,7 +3464,7 @@ dependencies = [
 
 [[package]]
 name = "vision-geometry"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "nalgebra",
@@ -3473,7 +3473,7 @@ dependencies = [
 
 [[package]]
 name = "vision-mvg"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "nalgebra",
@@ -3807,18 +3807,18 @@ checksum = "7a5a4b21e1a62b67a2970e6831bc091d7b87e119e7f9791aef9702e3bef04448"
 
 [[package]]
 name = "zerocopy"
-version = "0.8.47"
+version = "0.8.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efbb2a062be311f2ba113ce66f697a4dc589f85e78a4aea276200804cea0ed87"
+checksum = "eed437bf9d6692032087e337407a86f04cd8d6a16a37199ed57949d415bd68e9"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.47"
+version = "0.8.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e8bc7269b54418e7aeeef514aa68f8690b8c0489a06b0136e5f57c4c5ccab89"
+checksum = "70e3cd084b1788766f53af483dd21f93881ff30d7320490ec3ef7526d203bad4"
 dependencies = [
  "proc-macro2",
  "quote",
