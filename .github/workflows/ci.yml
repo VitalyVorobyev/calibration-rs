@@ -69,8 +69,8 @@ jobs:
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
           echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
 
-      - name: Install maturin
-        run: python -m pip install --upgrade pip maturin
+      - name: Install Python test tooling
+        run: python -m pip install --upgrade pip maturin pytest
 
       - name: Build Python extension
         run: maturin develop -m crates/vision-calibration-py/Cargo.toml
@@ -79,4 +79,4 @@ jobs:
         run: python -m compileall crates/vision-calibration-py/python/vision_calibration
 
       - name: Run Python runtime tests
-        run: python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
+        run: python -m pytest crates/vision-calibration-py/tests
