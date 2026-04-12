@@ -4,7 +4,7 @@
 //! Sessions store configuration, input data, intermediate state, and the
 //! final output. Step functions mutate the session in-place.
 
-use anyhow::{Result, bail};
+use crate::Error;
 use serde::{Deserialize, Serialize};
 
 use super::problem_type::ProblemType;
@@ -105,7 +105,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if input validation fails.
-    pub fn with_input(input: P::Input) -> Result<Self> {
+    pub fn with_input(input: P::Input) -> Result<Self, Error> {
         let mut session = Self::new();
         session.set_input(input)?;
         Ok(session)
@@ -120,7 +120,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if [`ProblemType::validate_input`] fails.
-    pub fn set_input(&mut self, input: P::Input) -> Result<()> {
+    pub fn set_input(&mut self, input: P::Input) -> Result<(), Error> {
         P::validate_input(&input)?;
 
         let policy = P::on_input_change();
@@ -154,10 +154,10 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if input is not set.
-    pub fn require_input(&self) -> Result<&P::Input> {
+    pub fn require_input(&self) -> Result<&P::Input, Error> {
         self.input
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("input not set"))
+            .ok_or_else(|| Error::not_available("input"))
     }
 
     /// Get a mutable reference to the input, or error if not set.
@@ -165,10 +165,10 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if input is not set.
-    pub fn require_input_mut(&mut self) -> Result<&mut P::Input> {
+    pub fn require_input_mut(&mut self) -> Result<&mut P::Input, Error> {
         self.input
             .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("input not set"))
+            .ok_or_else(|| Error::not_available("input"))
     }
 
     /// Check if input is set.
@@ -201,7 +201,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if [`ProblemType::validate_config`] fails.
-    pub fn set_config(&mut self, config: P::Config) -> Result<()> {
+    pub fn set_config(&mut self, config: P::Config) -> Result<(), Error> {
         P::validate_config(&config)?;
 
         let policy = P::on_config_change();
@@ -228,7 +228,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if validation fails after the update.
-    pub fn update_config<F>(&mut self, f: F) -> Result<()>
+    pub fn update_config<F>(&mut self, f: F) -> Result<(), Error>
     where
         F: FnOnce(&mut P::Config),
     {
@@ -256,10 +256,10 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if output is not computed.
-    pub fn require_output(&self) -> Result<&P::Output> {
+    pub fn require_output(&self) -> Result<&P::Output, Error> {
         self.output
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("output not computed"))
+            .ok_or_else(|| Error::not_available("output"))
     }
 
     /// Set the output (typically called by step functions).
@@ -288,7 +288,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if output is not computed or if export conversion fails.
-    pub fn export(&mut self) -> Result<P::Export> {
+    pub fn export(&mut self) -> Result<P::Export, Error> {
         let output = self.require_output()?;
         let export = P::export(output, &self.config)?;
         self.exports.push(ExportRecord::new(export.clone()));
@@ -301,7 +301,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if output is not computed or if export conversion fails.
-    pub fn export_with_notes(&mut self, notes: impl Into<String>) -> Result<P::Export> {
+    pub fn export_with_notes(&mut self, notes: impl Into<String>) -> Result<P::Export, Error> {
         let output = self.require_output()?;
         let export = P::export(output, &self.config)?;
         self.exports
@@ -317,7 +317,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if output is not computed or if export conversion fails.
-    pub fn export_peek(&self) -> Result<P::Export> {
+    pub fn export_peek(&self) -> Result<P::Export, Error> {
         let output = self.require_output()?;
         P::export(output, &self.config)
     }
@@ -336,7 +336,7 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if any validation check fails.
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<(), Error> {
         let input = self.require_input()?;
         P::validate_input(input)?;
         P::validate_config(&self.config)?;
@@ -406,13 +406,13 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// # Errors
     ///
     /// Returns an error if serialization fails.
-    pub fn to_json(&self) -> Result<String> {
+    pub fn to_json(&self) -> Result<String, Error> {
         // Pin metadata identity/version to the problem type contract on write.
-        let mut value = serde_json::to_value(self)?;
+        let mut value = serde_json::to_value(self).map_err(Error::Serde)?;
         let metadata = value
             .get_mut("metadata")
             .and_then(serde_json::Value::as_object_mut)
-            .ok_or_else(|| anyhow::anyhow!("session metadata missing during serialization"))?;
+            .ok_or_else(|| Error::numerical("session metadata missing during serialization"))?;
         metadata.insert(
             "problem_type".to_string(),
             serde_json::Value::String(P::name().to_string()),
@@ -421,7 +421,7 @@ impl<P: ProblemType> CalibrationSession<P> {
             "schema_version".to_string(),
             serde_json::Value::Number(P::schema_version().into()),
         );
-        serde_json::to_string_pretty(&value).map_err(Into::into)
+        serde_json::to_string_pretty(&value).map_err(Error::Serde)
     }
 
     /// Deserialize session from JSON string.
@@ -432,25 +432,23 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// - Deserialization fails
     /// - Problem type does not match `P::name()`
     /// - Schema version does not match `P::schema_version()`
-    pub fn from_json(json: &str) -> Result<Self> {
+    pub fn from_json(json: &str) -> Result<Self, Error> {
         let session: Self = serde_json::from_str(json)?;
         let expected_problem_type = P::name();
         let expected_schema_version = P::schema_version();
 
         if session.metadata.problem_type != expected_problem_type {
-            bail!(
+            return Err(Error::invalid_input(format!(
                 "session problem_type '{}' does not match expected '{}'",
-                session.metadata.problem_type,
-                expected_problem_type
-            );
+                session.metadata.problem_type, expected_problem_type
+            )));
         }
 
         if session.metadata.schema_version != expected_schema_version {
-            bail!(
+            return Err(Error::invalid_input(format!(
                 "session schema version {} does not match expected version {}",
-                session.metadata.schema_version,
-                expected_schema_version
-            );
+                session.metadata.schema_version, expected_schema_version
+            )));
         }
 
         Ok(session)
@@ -516,21 +514,21 @@ mod tests {
             1
         }
 
-        fn validate_input(input: &Self::Input) -> Result<()> {
+        fn validate_input(input: &Self::Input) -> Result<(), Error> {
             if input.data.is_empty() {
-                bail!("input data cannot be empty");
+                return Err(Error::invalid_input("input data cannot be empty"));
             }
             Ok(())
         }
 
-        fn validate_config(config: &Self::Config) -> Result<()> {
+        fn validate_config(config: &Self::Config) -> Result<(), Error> {
             if config.max_iters == 0 {
-                bail!("max_iters must be positive");
+                return Err(Error::invalid_input("max_iters must be positive"));
             }
             Ok(())
         }
 
-        fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
+        fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
             Ok(MockExport {
                 value: output.result,
             })
@@ -642,7 +640,7 @@ mod tests {
         let session = CalibrationSession::<MockProblem>::new();
         let result = session.require_input();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("input not set"));
+        assert!(result.unwrap_err().to_string().contains("input"));
     }
 
     #[test]
@@ -650,12 +648,7 @@ mod tests {
         let session = CalibrationSession::<MockProblem>::new();
         let result = session.require_output();
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("output not computed")
-        );
+        assert!(result.unwrap_err().to_string().contains("output"));
     }
 
     #[test]

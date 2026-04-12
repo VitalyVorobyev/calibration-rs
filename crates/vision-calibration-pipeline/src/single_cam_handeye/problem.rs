@@ -3,7 +3,7 @@
 //! This module provides the `SingleCamHandeyeProblem` type that implements
 //! the session API's `ProblemType` trait.
 
-use anyhow::{Result, ensure};
+use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{Iso3, PinholeCamera, View};
 use vision_calibration_optim::{HandEyeEstimate, HandEyeMode, RobustLoss};
@@ -37,14 +37,18 @@ pub struct SingleCamHandeyeInput {
 
 impl SingleCamHandeyeInput {
     /// Create a new input from views.
-    pub fn new(views: Vec<SingleCamHandeyeView>) -> Result<Self> {
-        ensure!(!views.is_empty(), "need at least one view");
+    pub fn new(views: Vec<SingleCamHandeyeView>) -> Result<Self, Error> {
+        if views.is_empty() {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
+        }
         for (i, view) in views.iter().enumerate() {
-            ensure!(
-                view.obs.len() >= 4,
-                "view {} has too few points (need >= 4)",
-                i
-            );
+            if view.obs.len() < 4 {
+                return Err(Error::invalid_input(format!(
+                    "view {} has too few points (need >= 4, got {})",
+                    i,
+                    view.obs.len()
+                )));
+            }
         }
         Ok(Self { views })
     }
@@ -232,44 +236,48 @@ impl ProblemType for SingleCamHandeyeProblem {
         2
     }
 
-    fn validate_input(input: &Self::Input) -> Result<()> {
-        ensure!(
-            input.num_views() >= 3,
-            "need at least 3 views for calibration (got {})",
-            input.num_views()
-        );
+    fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        if input.num_views() < 3 {
+            return Err(Error::InsufficientData {
+                need: 3,
+                got: input.num_views(),
+            });
+        }
 
         for (i, view) in input.views.iter().enumerate() {
-            ensure!(
-                view.obs.len() >= 4,
-                "view {} has too few points (need >= 4 for homography, got {})",
-                i,
-                view.obs.len()
-            );
+            if view.obs.len() < 4 {
+                return Err(Error::invalid_input(format!(
+                    "view {} has too few points (need >= 4 for homography, got {})",
+                    i,
+                    view.obs.len()
+                )));
+            }
         }
 
         Ok(())
     }
 
-    fn validate_config(config: &Self::Config) -> Result<()> {
-        ensure!(config.max_iters > 0, "max_iters must be positive");
-        ensure!(
-            config.intrinsics_init_iterations > 0,
-            "intrinsics_init_iterations must be positive"
-        );
-        ensure!(
-            config.min_motion_angle_deg > 0.0,
-            "min_motion_angle_deg must be positive"
-        );
+    fn validate_config(config: &Self::Config) -> Result<(), Error> {
+        if config.max_iters == 0 {
+            return Err(Error::invalid_input("max_iters must be positive"));
+        }
+        if config.intrinsics_init_iterations == 0 {
+            return Err(Error::invalid_input(
+                "intrinsics_init_iterations must be positive",
+            ));
+        }
+        if config.min_motion_angle_deg <= 0.0 {
+            return Err(Error::invalid_input(
+                "min_motion_angle_deg must be positive",
+            ));
+        }
         if config.refine_robot_poses {
-            ensure!(
-                config.robot_rot_sigma > 0.0,
-                "robot_rot_sigma must be positive"
-            );
-            ensure!(
-                config.robot_trans_sigma > 0.0,
-                "robot_trans_sigma must be positive"
-            );
+            if config.robot_rot_sigma <= 0.0 {
+                return Err(Error::invalid_input("robot_rot_sigma must be positive"));
+            }
+            if config.robot_trans_sigma <= 0.0 {
+                return Err(Error::invalid_input("robot_trans_sigma must be positive"));
+            }
         }
         Ok(())
     }
@@ -282,14 +290,14 @@ impl ProblemType for SingleCamHandeyeProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export> {
+    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export, Error> {
         // Extract the single camera (index 0 for single-cam setup)
         let camera = output
             .params
             .cameras
             .first()
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no camera in output"))?;
+            .ok_or_else(|| Error::invalid_input("no camera in output"))?;
 
         // Target pose (single fixed target pose; interpretation depends on mode)
         let target_pose = output
@@ -297,7 +305,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             .target_poses
             .first()
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no target pose in output"))?;
+            .ok_or_else(|| Error::invalid_input("no target pose in output"))?;
 
         let (gripper_se3_camera, camera_se3_base, base_se3_target, gripper_se3_target) =
             match config.handeye_mode {
@@ -375,7 +383,7 @@ mod tests {
         };
         let result = SingleCamHandeyeProblem::validate_input(&input);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("3 views"));
+        assert!(result.unwrap_err().to_string().contains("need 3"));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //! Defines the minimal interface that calibration problems must implement
 //! to work with [`CalibrationSession`](super::CalibrationSession).
 
-use anyhow::Result;
+use crate::Error;
 use serde::{Serialize, de::DeserializeOwned};
 use std::fmt::Debug;
 
@@ -88,7 +88,7 @@ impl Default for InvalidationPolicy {
 ///
 ///     fn name() -> &'static str { "my_problem" }
 ///
-///     fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
+///     fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, crate::Error> {
 ///         Ok(output.into())
 ///     }
 /// }
@@ -155,7 +155,7 @@ pub trait ProblemType: Sized + 'static {
     /// Return an error to reject the input.
     ///
     /// Default implementation: always valid.
-    fn validate_input(_input: &Self::Input) -> Result<()> {
+    fn validate_input(_input: &Self::Input) -> Result<(), Error> {
         Ok(())
     }
 
@@ -165,7 +165,7 @@ pub trait ProblemType: Sized + 'static {
     /// Return an error to reject the config.
     ///
     /// Default implementation: always valid.
-    fn validate_config(_config: &Self::Config) -> Result<()> {
+    fn validate_config(_config: &Self::Config) -> Result<(), Error> {
         Ok(())
     }
 
@@ -175,7 +175,7 @@ pub trait ProblemType: Sized + 'static {
     /// after individual validation passes.
     ///
     /// Default implementation: always valid.
-    fn validate_input_config(_input: &Self::Input, _config: &Self::Config) -> Result<()> {
+    fn validate_input_config(_input: &Self::Input, _config: &Self::Config) -> Result<(), Error> {
         Ok(())
     }
 
@@ -205,7 +205,7 @@ pub trait ProblemType: Sized + 'static {
     ///
     /// Called by [`CalibrationSession::export`](super::CalibrationSession::export).
     /// The config is provided for cases where export format depends on settings.
-    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export>;
+    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export, Error>;
 }
 
 #[cfg(test)]

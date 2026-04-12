@@ -3387,6 +3387,7 @@ dependencies = [
  "nalgebra",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
  "vision-calibration-core",
  "vision-calibration-linear",
  "vision-calibration-optim",

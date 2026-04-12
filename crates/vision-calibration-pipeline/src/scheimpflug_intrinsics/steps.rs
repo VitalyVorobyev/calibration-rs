@@ -1,6 +1,6 @@
 //! Step functions for Scheimpflug intrinsics calibration.
 
-use anyhow::{Context, Result, anyhow, ensure};
+use crate::Error;
 use vision_calibration_core::{
     BrownConrady5, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams,
     ProjectionParams, ScheimpflugParams, SensorParams,
@@ -41,7 +41,7 @@ pub struct IntrinsicsOptimizeOptions {
 pub fn step_init(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let dataset = session.require_input()?.clone();
 
@@ -50,7 +50,9 @@ pub fn step_init(
     if let Some(iterations) = opts.iterations {
         init_iterations = iterations;
     }
-    ensure!(init_iterations > 0, "init_iterations must be positive");
+    if init_iterations == 0 {
+        return Err(Error::invalid_input("init_iterations must be positive"));
+    }
 
     // Shared planar-family initialization helper (homographies + intrinsics + poses).
     let bootstrap = bootstrap_planar_intrinsics(
@@ -65,7 +67,7 @@ pub fn step_init(
             zero_skew: session.config.zero_skew,
         },
     )
-    .context("scheimpflug intrinsics initialization failed")?;
+    .map_err(|e| Error::numerical(format!("scheimpflug intrinsics initialization failed: {e}")))?;
     let mut initial_camera = bootstrap.camera;
 
     // Tangential terms are intentionally fixed for this workflow.
@@ -97,14 +99,14 @@ pub fn step_init(
 pub fn step_optimize(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let dataset = session.require_input()?.clone();
 
     let (initial_intrinsics, initial_distortion, initial_sensor, initial_poses) = session
         .state
         .initial_values()
-        .ok_or_else(|| anyhow!("initialization not run - call step_init first"))?;
+        .ok_or_else(|| Error::not_available("initial params (call step_init first)"))?;
 
     let opts = opts.unwrap_or_default();
     let mut max_iters = session.config.max_iters;
@@ -115,7 +117,9 @@ pub fn step_optimize(
     if let Some(v) = opts.verbosity {
         verbosity = v;
     }
-    ensure!(max_iters > 0, "max_iters must be positive");
+    if max_iters == 0 {
+        return Err(Error::invalid_input("max_iters must be positive"));
+    }
 
     let initial = OptimScheimpflugIntrinsicsParams::new(
         initial_intrinsics,
@@ -145,8 +149,7 @@ pub fn step_optimize(
             verbosity,
             ..Default::default()
         },
-    )
-    .context("scheimpflug optimization failed")?;
+    )?;
 
     let result = ScheimpflugIntrinsicsResult {
         params: ScheimpflugIntrinsicsParams {
@@ -180,7 +183,7 @@ pub fn step_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     config: Option<ScheimpflugIntrinsicsConfig>,
-) -> Result<()> {
+) -> Result<(), Error> {
     if let Some(cfg) = config {
         session.set_config(cfg)?;
     }

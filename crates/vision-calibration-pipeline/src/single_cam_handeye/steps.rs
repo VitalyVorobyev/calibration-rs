@@ -27,7 +27,7 @@
 //! # }
 //! ```
 
-use anyhow::{Context, Result};
+use crate::Error;
 use vision_calibration_core::{
     CameraFixMask, CorrespondenceView, Iso3, NoMeta, PlanarDataset, RigView, RigViewObs, View,
 };
@@ -84,20 +84,20 @@ pub struct HandeyeOptimizeOptions {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Convert single-cam input to PlanarDataset for intrinsics calibration.
-fn input_to_planar_dataset(input: &SingleCamHandeyeInput) -> Result<PlanarDataset> {
+fn input_to_planar_dataset(input: &SingleCamHandeyeInput) -> Result<PlanarDataset, Error> {
     let views: Vec<View<NoMeta>> = input
         .views
         .iter()
         .map(|v| View::without_meta(v.obs.clone()))
         .collect();
-    PlanarDataset::new(views).map_err(|e| anyhow::anyhow!("{e}"))
+    PlanarDataset::new(views).map_err(Error::Core)
 }
 
 /// Estimate initial target pose from camera intrinsics and view observations.
 fn estimate_target_pose(
     k_matrix: &vision_calibration_core::Mat3,
     view: &CorrespondenceView,
-) -> Result<Iso3> {
+) -> Result<Iso3, Error> {
     // Compute homography
     let board_2d: Vec<vision_calibration_core::Pt2> = view
         .points_3d
@@ -110,10 +110,12 @@ fn estimate_target_pose(
         .map(|v| vision_calibration_core::Pt2::new(v.x, v.y))
         .collect();
 
-    let h = dlt_homography(&board_2d, &pixel_2d).context("failed to compute homography")?;
+    let h = dlt_homography(&board_2d, &pixel_2d)
+        .map_err(|e| Error::numerical(format!("failed to compute homography: {e}")))?;
 
     // Recover pose from homography
-    estimate_planar_pose_from_h(k_matrix, &h).context("failed to recover pose from homography")
+    estimate_planar_pose_from_h(k_matrix, &h)
+        .map_err(|e| Error::numerical(format!("failed to recover pose from homography: {e}")))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,7 +138,7 @@ fn estimate_target_pose(
 pub fn step_intrinsics_init(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -162,7 +164,7 @@ pub fn step_intrinsics_init(
         Ok(c) => c,
         Err(e) => {
             session.log_failure("intrinsics_init", e.to_string());
-            return Err(anyhow::anyhow!("{e}"));
+            return Err(Error::from(e));
         }
     };
 
@@ -185,10 +187,11 @@ pub fn step_intrinsics_init(
         .iter()
         .enumerate()
         .map(|(idx, view)| {
-            estimate_target_pose(&k_matrix, &view.obs)
-                .with_context(|| format!("failed to estimate pose for view {}", idx))
+            estimate_target_pose(&k_matrix, &view.obs).map_err(|e| {
+                Error::numerical(format!("failed to estimate pose for view {idx}: {e}"))
+            })
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, Error>>()?;
 
     // Update state
     session.state.initial_camera = Some(camera.clone());
@@ -219,12 +222,14 @@ pub fn step_intrinsics_init(
 pub fn step_intrinsics_optimize(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
 
     if !session.state.has_intrinsics_init() {
-        anyhow::bail!("intrinsics initialization not run - call step_intrinsics_init first");
+        return Err(Error::not_available(
+            "intrinsics init (call step_intrinsics_init first)",
+        ));
     }
 
     let opts = opts.unwrap_or_default();
@@ -235,16 +240,16 @@ pub fn step_intrinsics_optimize(
         .state
         .initial_camera
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("no initial camera"))?;
+        .ok_or_else(|| Error::not_available("initial camera"))?;
     let initial_poses = session
         .state
         .initial_target_poses
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("no initial poses"))?;
+        .ok_or_else(|| Error::not_available("initial poses"))?;
 
     // Build initial params
     let initial_params = PlanarIntrinsicsParams::new(initial_camera, initial_poses)
-        .context("failed to build params")?;
+        .map_err(|e| Error::numerical(format!("failed to build params: {e}")))?;
 
     // Convert to PlanarDataset
     let planar_dataset = input_to_planar_dataset(input)?;
@@ -273,7 +278,7 @@ pub fn step_intrinsics_optimize(
         Ok(r) => r,
         Err(e) => {
             session.log_failure("intrinsics_optimize", e.to_string());
-            return Err(anyhow::anyhow!("{e}"));
+            return Err(Error::from(e));
         }
     };
 
@@ -307,12 +312,14 @@ pub fn step_intrinsics_optimize(
 pub fn step_handeye_init(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<HandeyeInitOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
 
     if !session.state.has_intrinsics_optimized() {
-        anyhow::bail!("intrinsics optimization not run - call step_intrinsics_optimize first");
+        return Err(Error::not_available(
+            "intrinsics optimization (call step_intrinsics_optimize first)",
+        ));
     }
 
     let opts = opts.unwrap_or_default();
@@ -331,7 +338,7 @@ pub fn step_handeye_init(
         .state
         .optimized_target_poses
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("no optimized target poses"))?;
+        .ok_or_else(|| Error::not_available("optimized target poses"))?;
 
     // Clear previous init results (allows re-running with a different mode)
     session.state.initial_gripper_se3_camera = None;
@@ -348,7 +355,9 @@ pub fn step_handeye_init(
             let gripper_se3_camera =
                 estimate_handeye_dlt(&robot_poses, &target_se3_camera, min_angle)
                     .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
-                    .context("linear hand-eye estimation failed")?;
+                    .map_err(|e| {
+                        Error::numerical(format!("linear hand-eye estimation failed: {e}"))
+                    })?;
 
             let base_se3_target = robot_poses[0] * gripper_se3_camera * cam_se3_target[0];
 
@@ -363,7 +372,9 @@ pub fn step_handeye_init(
             let gripper_se3_target =
                 estimate_gripper_se3_target_dlt(&robot_poses, &cam_se3_target, min_angle)
                     .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
-                    .context("linear gripper->target estimation failed")?;
+                    .map_err(|e| {
+                        Error::numerical(format!("linear gripper->target estimation failed: {e}"))
+                    })?;
 
             // T_C_T = T_C_B * T_B_G * T_G_T  =>  T_C_B = T_C_T * (T_B_G * T_G_T)^-1
             let camera_se3_base =
@@ -406,12 +417,14 @@ pub fn step_handeye_init(
 pub fn step_handeye_optimize(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<HandeyeOptimizeOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
 
     if !session.state.has_handeye_init() {
-        anyhow::bail!("hand-eye initialization not run - call step_handeye_init first");
+        return Err(Error::not_available(
+            "handeye init (call step_handeye_init first)",
+        ));
     }
 
     let opts = opts.unwrap_or_default();
@@ -422,28 +435,28 @@ pub fn step_handeye_optimize(
         .state
         .optimized_camera
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("no optimized camera"))?;
+        .ok_or_else(|| Error::not_available("optimized camera"))?;
     let (handeye, target_pose) = match config.handeye_mode {
         vision_calibration_optim::HandEyeMode::EyeInHand => {
             let handeye = session
                 .state
                 .initial_gripper_se3_camera
-                .ok_or_else(|| anyhow::anyhow!("no initial gripper_se3_camera"))?;
+                .ok_or_else(|| Error::not_available("initial gripper_se3_camera"))?;
             let target_pose = session
                 .state
                 .initial_base_se3_target
-                .ok_or_else(|| anyhow::anyhow!("no initial base_se3_target"))?;
+                .ok_or_else(|| Error::not_available("initial base_se3_target"))?;
             (handeye, target_pose)
         }
         vision_calibration_optim::HandEyeMode::EyeToHand => {
             let handeye = session
                 .state
                 .initial_camera_se3_base
-                .ok_or_else(|| anyhow::anyhow!("no initial camera_se3_base"))?;
+                .ok_or_else(|| Error::not_available("initial camera_se3_base"))?;
             let target_pose = session
                 .state
                 .initial_gripper_se3_target
-                .ok_or_else(|| anyhow::anyhow!("no initial gripper_se3_target"))?;
+                .ok_or_else(|| Error::not_available("initial gripper_se3_target"))?;
             (handeye, target_pose)
         }
     };
@@ -498,7 +511,7 @@ pub fn step_handeye_optimize(
         Ok(r) => r,
         Err(e) => {
             session.log_failure("handeye_optimize", e.to_string());
-            return Err(anyhow::anyhow!("{e}"));
+            return Err(Error::from(e));
         }
     };
 
@@ -528,7 +541,9 @@ pub fn step_handeye_optimize(
 /// # Errors
 ///
 /// Any error from the constituent steps.
-pub fn run_calibration(session: &mut CalibrationSession<SingleCamHandeyeProblem>) -> Result<()> {
+pub fn run_calibration(
+    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
+) -> Result<(), Error> {
     step_intrinsics_init(session, None)?;
     step_intrinsics_optimize(session, None)?;
     step_handeye_init(session, None)?;
@@ -656,7 +671,7 @@ mod tests {
 
         let result = step_handeye_optimize(&mut session, None);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("hand-eye"));
+        assert!(result.unwrap_err().to_string().contains("handeye"));
     }
 
     #[test]

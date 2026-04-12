@@ -42,7 +42,7 @@ where
     P::Input: DeserializeOwned,
     P::Config: DeserializeOwned,
     P::Export: Serialize,
-    F: FnOnce(&mut CalibrationSession<P>) -> anyhow::Result<()>,
+    F: FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
 {
     reject_non_finite("input", input)?;
     if let Some(cfg) = config {

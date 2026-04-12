@@ -25,45 +25,45 @@ fn facade_modules_compile_with_glob_import() {
     let _planar_step_init: fn(
         &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
         Option<planar_intrinsics::IntrinsicsInitOptions>,
-    ) -> anyhow::Result<()> = planar_intrinsics::step_init;
+    ) -> Result<(), Error> = planar_intrinsics::step_init;
     let _planar_step_optimize: fn(
         &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
         Option<planar_intrinsics::IntrinsicsOptimizeOptions>,
-    ) -> anyhow::Result<()> = planar_intrinsics::step_optimize;
+    ) -> Result<(), Error> = planar_intrinsics::step_optimize;
     let _planar_step_filter: fn(
         &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
         planar_intrinsics::FilterOptions,
-    ) -> anyhow::Result<()> = planar_intrinsics::step_filter;
+    ) -> Result<(), Error> = planar_intrinsics::step_filter;
     let _planar_run: fn(
         &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
-    ) -> anyhow::Result<()> = planar_intrinsics::run_calibration;
+    ) -> Result<(), Error> = planar_intrinsics::run_calibration;
 
     // Scheimpflug intrinsics API.
     let _scheimpflug_run: fn(
         &mut session::CalibrationSession<scheimpflug_intrinsics::ScheimpflugIntrinsicsProblem>,
         Option<scheimpflug_intrinsics::ScheimpflugIntrinsicsConfig>,
-    ) -> anyhow::Result<()> = scheimpflug_intrinsics::run_calibration;
+    ) -> Result<(), Error> = scheimpflug_intrinsics::run_calibration;
 
     // Single-camera hand-eye API.
     let _single_handeye_run: fn(
         &mut session::CalibrationSession<single_cam_handeye::SingleCamHandeyeProblem>,
-    ) -> anyhow::Result<()> = single_cam_handeye::run_calibration;
+    ) -> Result<(), Error> = single_cam_handeye::run_calibration;
 
     // Rig extrinsics API.
     let _rig_extrinsics_run: fn(
         &mut session::CalibrationSession<rig_extrinsics::RigExtrinsicsProblem>,
-    ) -> anyhow::Result<()> = rig_extrinsics::run_calibration;
+    ) -> Result<(), Error> = rig_extrinsics::run_calibration;
 
     // Rig hand-eye API.
     let _rig_handeye_run: fn(
         &mut session::CalibrationSession<rig_handeye::RigHandeyeProblem>,
-    ) -> anyhow::Result<()> = rig_handeye::run_calibration;
+    ) -> Result<(), Error> = rig_handeye::run_calibration;
 
     // Laserline device API.
     let _laserline_run: fn(
         &mut session::CalibrationSession<laserline_device::LaserlineDeviceProblem>,
         Option<laserline_device::LaserlineDeviceConfig>,
-    ) -> anyhow::Result<()> = laserline_device::run_calibration;
+    ) -> Result<(), Error> = laserline_device::run_calibration;
 }
 
 #[test]
@@ -71,6 +71,6 @@ fn prelude_compiles_for_hello_world_surface() {
     use vision_calibration::prelude::*;
 
     let _session: Option<CalibrationSession<PlanarIntrinsicsProblem>> = None;
-    let _runner: fn(&mut CalibrationSession<PlanarIntrinsicsProblem>) -> anyhow::Result<()> =
+    let _runner: fn(&mut CalibrationSession<PlanarIntrinsicsProblem>) -> Result<(), vision_calibration::Error> =
         run_planar_intrinsics;
 }

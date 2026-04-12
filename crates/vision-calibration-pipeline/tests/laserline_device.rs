@@ -227,7 +227,7 @@ fn pipeline_rejects_insufficient_views() {
 
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
     let err = session.set_input(dataset).unwrap_err().to_string();
-    assert!(err.contains("need at least 3 views"));
+    assert!(err.contains("need 3"));
 }
 
 #[test]

@@ -29,6 +29,9 @@
 //! # }
 //! ```
 
+mod error;
+pub use error::Error;
+
 // Core session framework
 mod planar_family;
 pub mod session;

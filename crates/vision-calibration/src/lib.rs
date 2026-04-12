@@ -77,6 +77,9 @@
 
 #![deny(missing_docs)]
 
+/// Typed error returned by all public calibration step functions.
+pub use vision_calibration_pipeline::Error;
+
 /// Single-camera planar intrinsics with Scheimpflug/tilted sensor refinement.
 ///
 /// This high-level helper mirrors planar intrinsics calibration, but optimizes a

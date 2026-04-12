@@ -3,7 +3,7 @@
 //! This module provides step functions that operate on
 //! `CalibrationSession<RigExtrinsicsProblem>` to perform calibration.
 
-use anyhow::{Context, Result};
+use crate::Error;
 use vision_calibration_core::{
     CameraFixMask, Iso3, NoMeta, PlanarDataset, View, compute_rig_reprojection_stats_per_camera,
     make_pinhole_camera,
@@ -68,7 +68,9 @@ fn extract_camera_views(input: &RigExtrinsicsInput, cam_idx: usize) -> Vec<Optio
 }
 
 /// Create a PlanarDataset from non-None views.
-fn views_to_planar_dataset(views: &[Option<View<NoMeta>>]) -> Result<(PlanarDataset, Vec<usize>)> {
+fn views_to_planar_dataset(
+    views: &[Option<View<NoMeta>>],
+) -> Result<(PlanarDataset, Vec<usize>), Error> {
     let (valid_views, indices): (Vec<_>, Vec<_>) = views
         .iter()
         .enumerate()
@@ -76,10 +78,10 @@ fn views_to_planar_dataset(views: &[Option<View<NoMeta>>]) -> Result<(PlanarData
         .unzip();
 
     if valid_views.len() < 3 {
-        anyhow::bail!(
-            "need at least 3 views for intrinsics calibration, got {}",
-            valid_views.len()
-        );
+        return Err(Error::InsufficientData {
+            need: 3,
+            got: valid_views.len(),
+        });
     }
 
     let dataset = PlanarDataset::new(valid_views)?;
@@ -90,7 +92,7 @@ fn views_to_planar_dataset(views: &[Option<View<NoMeta>>]) -> Result<(PlanarData
 fn estimate_target_pose(
     k_matrix: &vision_calibration_core::Mat3,
     obs: &vision_calibration_core::CorrespondenceView,
-) -> Result<Iso3> {
+) -> Result<Iso3, Error> {
     let board_2d: Vec<vision_calibration_core::Pt2> = obs
         .points_3d
         .iter()
@@ -102,8 +104,10 @@ fn estimate_target_pose(
         .map(|v| vision_calibration_core::Pt2::new(v.x, v.y))
         .collect();
 
-    let h = dlt_homography(&board_2d, &pixel_2d).context("failed to compute homography")?;
-    estimate_planar_pose_from_h(k_matrix, &h).context("failed to recover pose from homography")
+    let h = dlt_homography(&board_2d, &pixel_2d)
+        .map_err(|e| Error::numerical(format!("failed to compute homography: {e}")))?;
+    estimate_planar_pose_from_h(k_matrix, &h)
+        .map_err(|e| Error::numerical(format!("failed to recover pose from homography: {e}")))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,7 +125,7 @@ fn estimate_target_pose(
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -149,12 +153,16 @@ pub fn step_intrinsics_init_all(
     // cam_idx used for both extract_camera_views and 2D array indexing
     for cam_idx in 0..num_cameras {
         let cam_views = extract_camera_views(input, cam_idx);
-        let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views)
-            .with_context(|| format!("camera {} has insufficient views", cam_idx))?;
+        let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views).map_err(|e| {
+            Error::numerical(format!("camera {cam_idx} has insufficient views: {e}"))
+        })?;
 
         // Estimate intrinsics
-        let camera = estimate_intrinsics_iterative(&planar_dataset, init_opts)
-            .with_context(|| format!("intrinsics estimation failed for camera {}", cam_idx))?;
+        let camera = estimate_intrinsics_iterative(&planar_dataset, init_opts).map_err(|e| {
+            Error::numerical(format!(
+                "intrinsics estimation failed for camera {cam_idx}: {e}"
+            ))
+        })?;
 
         // Compute K matrix for pose estimation
         let k_matrix = vision_calibration_core::Mat3::new(
@@ -172,11 +180,10 @@ pub fn step_intrinsics_init_all(
         // Estimate target poses for valid views
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
             let view = &planar_dataset.views[local_idx];
-            let pose = estimate_target_pose(&k_matrix, &view.obs).with_context(|| {
-                format!(
-                    "pose estimation failed for cam {} view {}",
-                    cam_idx, global_idx
-                )
+            let pose = estimate_target_pose(&k_matrix, &view.obs).map_err(|e| {
+                Error::numerical(format!(
+                    "pose estimation failed for cam {cam_idx} view {global_idx}: {e}"
+                ))
             })?;
             per_cam_target_poses[global_idx][cam_idx] = Some(pose);
         }
@@ -210,12 +217,14 @@ pub fn step_intrinsics_init_all(
 pub fn step_intrinsics_optimize_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
 
     if !session.state.has_per_cam_intrinsics() {
-        anyhow::bail!("intrinsics initialization not run - call step_intrinsics_init_all first");
+        return Err(Error::not_available(
+            "per-camera intrinsics (call step_intrinsics_init_all first)",
+        ));
     }
 
     let opts = opts.unwrap_or_default();
@@ -225,34 +234,37 @@ pub fn step_intrinsics_optimize_all(
         .state
         .per_cam_intrinsics
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("no initial intrinsics"))?;
+        .ok_or_else(|| Error::not_available("per-camera intrinsics"))?;
     let mut per_cam_target_poses = session
         .state
         .per_cam_target_poses
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("no initial target poses"))?;
+        .ok_or_else(|| Error::not_available("per-camera target poses"))?;
 
     let mut optimized_cameras = Vec::with_capacity(input.num_cameras);
     let mut per_cam_reproj_errors = Vec::with_capacity(input.num_cameras);
 
     for cam_idx in 0..input.num_cameras {
         let cam_views = extract_camera_views(input, cam_idx);
-        let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views)
-            .with_context(|| format!("camera {} has insufficient views", cam_idx))?;
+        let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views).map_err(|e| {
+            Error::numerical(format!("camera {cam_idx} has insufficient views: {e}"))
+        })?;
 
         // Get initial poses for this camera
         let initial_poses: Vec<Iso3> = valid_indices
             .iter()
             .map(|&global_idx| {
                 per_cam_target_poses[global_idx][cam_idx]
-                    .ok_or_else(|| anyhow::anyhow!("missing initial pose"))
+                    .ok_or_else(|| Error::not_available("initial pose"))
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>, Error>>()?;
 
         // Build params
         let initial_params =
             PlanarIntrinsicsParams::new(per_cam_intrinsics[cam_idx].clone(), initial_poses)
-                .with_context(|| format!("failed to build params for camera {}", cam_idx))?;
+                .map_err(|e| {
+                    Error::numerical(format!("failed to build params for camera {cam_idx}: {e}"))
+                })?;
 
         // Optimize
         let solve_opts = PlanarIntrinsicsSolveOptions {
@@ -270,7 +282,9 @@ pub fn step_intrinsics_optimize_all(
 
         let result =
             optimize_planar_intrinsics(&planar_dataset, &initial_params, solve_opts, backend_opts)
-                .with_context(|| format!("optimization failed for camera {}", cam_idx))?;
+                .map_err(|e| {
+                    Error::numerical(format!("optimization failed for camera {cam_idx}: {e}"))
+                })?;
 
         // Update target poses for this camera
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
@@ -307,14 +321,14 @@ pub fn step_intrinsics_optimize_all(
 /// - Input not set
 /// - Per-camera intrinsics not computed
 /// - Insufficient overlapping views between cameras
-pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> Result<()> {
+pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
 
     if !session.state.has_per_cam_intrinsics() {
-        anyhow::bail!(
-            "per-camera intrinsics not computed - call step_intrinsics_optimize_all first"
-        );
+        return Err(Error::not_available(
+            "per-camera intrinsics (call step_intrinsics_optimize_all first)",
+        ));
     }
 
     // Copy values we need
@@ -326,12 +340,12 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> 
         .state
         .per_cam_target_poses
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("no per-camera target poses"))?;
+        .ok_or_else(|| Error::not_available("per-camera target poses"))?;
 
     // Use vision_calibration_linear's rig extrinsics initialization
     let extrinsic_result =
         estimate_extrinsics_from_cam_target_poses(&per_cam_target_poses, reference_camera_idx)
-            .context("rig extrinsics initialization failed")?;
+            .map_err(|e| Error::numerical(format!("rig extrinsics initialization failed: {e}")))?;
 
     // Update state
     let cam_se3_rig: Vec<Iso3> = extrinsic_result
@@ -367,12 +381,12 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> 
 pub fn step_rig_optimize(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<RigOptimizeOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?.clone();
 
     if !session.state.has_rig_init() {
-        anyhow::bail!("rig initialization not run - call step_rig_init first");
+        return Err(Error::not_available("rig init (call step_rig_init first)"));
     }
 
     let opts = opts.unwrap_or_default();
@@ -382,18 +396,18 @@ pub fn step_rig_optimize(
         .state
         .per_cam_intrinsics
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("no per-camera intrinsics"))?;
+        .ok_or_else(|| Error::not_available("per-camera intrinsics"))?;
     let cam_se3_rig = session
         .state
         .initial_cam_se3_rig
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("no initial cam_se3_rig"))?;
+        .ok_or_else(|| Error::not_available("initial cam_se3_rig"))?;
     let cam_to_rig: Vec<Iso3> = cam_se3_rig.iter().map(|t| t.inverse()).collect();
     let rig_from_target = session
         .state
         .initial_rig_se3_target
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("no initial rig_se3_target"))?;
+        .ok_or_else(|| Error::not_available("initial rig_se3_target"))?;
 
     // Build initial params
     let initial = RigExtrinsicsParams {
@@ -439,7 +453,7 @@ pub fn step_rig_optimize(
         Ok(r) => r,
         Err(e) => {
             session.log_failure("rig_optimize", e.to_string());
-            return Err(anyhow::anyhow!("{e}"));
+            return Err(Error::from(e));
         }
     };
 
@@ -456,7 +470,11 @@ pub fn step_rig_optimize(
         &cam_se3_rig,
         &result.params.rig_from_target,
     )
-    .context("failed to compute per-camera rig BA reprojection error")?;
+    .map_err(|e| {
+        Error::numerical(format!(
+            "failed to compute per-camera rig BA reprojection error: {e}"
+        ))
+    })?;
     let total_count: usize = per_cam_stats.iter().map(|s| s.count).sum();
     let total_error: f64 = per_cam_stats
         .iter()
@@ -493,7 +511,9 @@ pub fn step_rig_optimize(
 /// # Errors
 ///
 /// Any error from the constituent steps.
-pub fn run_calibration(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> Result<()> {
+pub fn run_calibration(
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
+) -> Result<(), Error> {
     step_intrinsics_init_all(session, None)?;
     step_intrinsics_optimize_all(session, None)?;
     step_rig_init(session)?;
