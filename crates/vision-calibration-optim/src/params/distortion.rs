@@ -15,6 +15,11 @@ pub fn pack_distortion(dist: &BrownConrady5<Real>) -> DVector<f64> {
 /// Unpack distortion from a dense parameter vector `[k1, k2, k3, p1, p2]`.
 ///
 /// The `iters` field is set to the default of 8.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if the vector length does not equal
+/// [`DISTORTION_DIM`].
 pub fn unpack_distortion(v: DVectorView<'_, f64>) -> Result<BrownConrady5<Real>, Error> {
     if v.len() != DISTORTION_DIM {
         return Err(Error::invalid_input(format!(

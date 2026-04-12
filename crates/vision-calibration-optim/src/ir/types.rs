@@ -353,7 +353,18 @@ impl ProblemIR {
     }
 
     /// Validates internal consistency and factor expectations.
-    pub fn validate(&self) -> Result<()> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Numerical`] (converted from the internal
+    /// structural error) if the IR has inconsistent parameter indices,
+    /// malformed factor blocks, or residual-dimension mismatches.
+    pub fn validate(&self) -> std::result::Result<(), crate::Error> {
+        self.validate_inner()?;
+        Ok(())
+    }
+
+    fn validate_inner(&self) -> Result<()> {
         for (idx, param) in self.params.iter().enumerate() {
             ensure!(
                 param.id.0 == idx,

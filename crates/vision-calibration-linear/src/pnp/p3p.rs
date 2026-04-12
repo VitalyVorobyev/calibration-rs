@@ -28,6 +28,12 @@ fn poly_mul_1d(a: &[Real; 5], b: &[Real; 5]) -> [Real; 5] {
 ///
 /// Requires exactly three non-collinear points and intrinsics `k` to
 /// convert pixels into rays. The resulting poses are in `T_C_W` form.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if `world` and `image` are not both
+/// of length 3, or [`Error::Singular`] if the intrinsics `k` are
+/// non-invertible or the points are collinear (quartic has no real roots).
 pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Vec<Iso3>, Error> {
     if world.len() != image.len() || world.len() != 3 {
         return Err(Error::invalid_input(format!(

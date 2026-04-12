@@ -7,7 +7,7 @@
 //! In optimization, the normal is optimized on the S2 manifold (unit sphere),
 //! while the distance is a separate Euclidean scalar.
 
-use anyhow::{Result, ensure};
+use crate::Error;
 use nalgebra::{DVector, DVectorView, Unit, Vector3};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::Pt3;
@@ -63,12 +63,17 @@ impl LaserPlane {
     /// Parse from 4D vector [nx, ny, nz, d].
     ///
     /// The first 3 components are normalized to create a unit normal.
-    pub fn from_dvec(v: DVectorView<f64>) -> Result<Self> {
-        ensure!(
-            v.len() == 4,
-            "LaserPlane requires 4D vector, got {}",
-            v.len()
-        );
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] if the vector length is not 4.
+    pub fn from_dvec(v: DVectorView<f64>) -> Result<Self, Error> {
+        if v.len() != 4 {
+            return Err(Error::invalid_input(format!(
+                "LaserPlane requires 4D vector, got {}",
+                v.len()
+            )));
+        }
         let normal = Unit::new_normalize(Vector3::new(v[0], v[1], v[2]));
         Ok(Self {
             normal,
@@ -77,17 +82,27 @@ impl LaserPlane {
     }
 
     /// Parse from split normal + distance vectors.
-    pub fn from_split_dvec(normal: DVectorView<f64>, distance: DVectorView<f64>) -> Result<Self> {
-        ensure!(
-            normal.len() == 3,
-            "LaserPlane normal requires 3D vector, got {}",
-            normal.len()
-        );
-        ensure!(
-            distance.len() == 1,
-            "LaserPlane distance requires 1D vector, got {}",
-            distance.len()
-        );
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] if `normal` is not length 3 or
+    /// `distance` is not length 1.
+    pub fn from_split_dvec(
+        normal: DVectorView<f64>,
+        distance: DVectorView<f64>,
+    ) -> Result<Self, Error> {
+        if normal.len() != 3 {
+            return Err(Error::invalid_input(format!(
+                "LaserPlane normal requires 3D vector, got {}",
+                normal.len()
+            )));
+        }
+        if distance.len() != 1 {
+            return Err(Error::invalid_input(format!(
+                "LaserPlane distance requires 1D vector, got {}",
+                distance.len()
+            )));
+        }
         let normal = Unit::new_normalize(Vector3::new(normal[0], normal[1], normal[2]));
         Ok(Self {
             normal,

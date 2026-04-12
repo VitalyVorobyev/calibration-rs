@@ -75,6 +75,12 @@ impl LaserlinePlaneSolver {
     /// Requires at least 3 non-collinear points. Collinearity is detected
     /// by checking if the smallest eigenvalue is negligibly small compared
     /// to the second-smallest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if fewer than 3 points are given,
+    /// or [`Error::Singular`] if the point cloud is collinear (smallest
+    /// eigenvalue vanishes) and a unique plane cannot be determined.
     pub fn from_points_3d(points_camera: &[Pt3]) -> Result<LinearPlaneEstimate, Error> {
         if points_camera.len() < 3 {
             return Err(Error::InsufficientData {

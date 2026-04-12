@@ -17,6 +17,12 @@ use vision_calibration_core::{Mat3, Pt2, Real};
 /// Returns up to ten candidate essential matrices that satisfy the cubic
 /// constraints; choose the physically valid one by cheirality or by
 /// reprojection error against additional correspondences.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if `pts1` and `pts2` are not both of
+/// length 5, or [`Error::Singular`] if point normalization or the 10×10
+/// polynomial eigensolve fails on a degenerate configuration.
 pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Error> {
     if pts1.len() != pts2.len() || pts1.len() != 5 {
         return Err(Error::invalid_input(format!(

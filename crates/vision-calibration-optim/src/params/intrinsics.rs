@@ -10,6 +10,11 @@ pub const INTRINSICS_DIM: usize = 4;
 /// Pack intrinsics into a dense parameter vector `[fx, fy, cx, cy]`.
 ///
 /// Skew is not optimized in the current problems and must be ~0.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if `k.skew` is not ~0 (the 4-parameter
+/// packing cannot represent skew).
 pub fn pack_intrinsics(k: &FxFyCxCySkew<Real>) -> Result<DVector<f64>, Error> {
     if k.skew.abs() > 1e-12 {
         return Err(Error::invalid_input(
@@ -20,6 +25,11 @@ pub fn pack_intrinsics(k: &FxFyCxCySkew<Real>) -> Result<DVector<f64>, Error> {
 }
 
 /// Unpack intrinsics from a dense parameter vector `[fx, fy, cx, cy]`.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if the vector length does not equal
+/// [`INTRINSICS_DIM`].
 pub fn unpack_intrinsics(v: DVectorView<'_, f64>) -> Result<FxFyCxCySkew<Real>, Error> {
     if v.len() != INTRINSICS_DIM {
         return Err(Error::invalid_input(format!(

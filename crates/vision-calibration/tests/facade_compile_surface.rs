@@ -71,6 +71,7 @@ fn prelude_compiles_for_hello_world_surface() {
     use vision_calibration::prelude::*;
 
     let _session: Option<CalibrationSession<PlanarIntrinsicsProblem>> = None;
-    let _runner: fn(&mut CalibrationSession<PlanarIntrinsicsProblem>) -> Result<(), vision_calibration::Error> =
-        run_planar_intrinsics;
+    let _runner: fn(
+        &mut CalibrationSession<PlanarIntrinsicsProblem>,
+    ) -> Result<(), vision_calibration::Error> = run_planar_intrinsics;
 }

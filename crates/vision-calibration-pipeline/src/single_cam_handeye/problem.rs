@@ -37,6 +37,11 @@ pub struct SingleCamHandeyeInput {
 
 impl SingleCamHandeyeInput {
     /// Create a new input from views.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if `views` is empty, or
+    /// [`Error::InvalidInput`] if any view has fewer than 4 observations.
     pub fn new(views: Vec<SingleCamHandeyeView>) -> Result<Self, Error> {
         if views.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });

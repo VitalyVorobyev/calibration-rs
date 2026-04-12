@@ -26,6 +26,10 @@ pub fn iso3_to_se3_dvec(pose: &Iso3) -> DVector<f64> {
 /// Convert a 7D SE(3) vector `[qx, qy, qz, qw, tx, ty, tz]` into an `Iso3`.
 ///
 /// The input quaternion is not renormalized; callers should provide a unit quaternion.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if the vector length is not 7.
 pub fn se3_dvec_to_iso3(v: DVectorView<'_, f64>) -> Result<Iso3, Error> {
     if v.len() != 7 {
         return Err(Error::invalid_input(format!(

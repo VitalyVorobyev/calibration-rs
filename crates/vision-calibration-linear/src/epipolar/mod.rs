@@ -31,6 +31,13 @@ impl EpipolarSolver {
     /// `pts1` and `pts2` are corresponding pixel points in two images. The
     /// returned matrix is forced to rank-2 and satisfies `x'^T F x = 0`
     /// (up to numerical error).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] if `pts1` and `pts2` have different
+    /// lengths, [`Error::InsufficientData`] if fewer than 8 correspondences
+    /// are given, or [`Error::Singular`] if SVD-based normalization or
+    /// rank-2 projection fails on a degenerate point configuration.
     pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3, Error> {
         fundamental::fundamental_8point(pts1, pts2)
     }
@@ -39,6 +46,12 @@ impl EpipolarSolver {
     ///
     /// Returns up to three candidate fundamental matrices. Inputs are pixel
     /// coordinates; internal normalization is applied before solving.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] if `pts1` and `pts2` have different
+    /// lengths or either is not exactly 7 points, or [`Error::Singular`]
+    /// if the cubic constraint yields no real roots (degenerate geometry).
     pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Error> {
         fundamental::fundamental_7point(pts1, pts2)
     }
@@ -49,6 +62,12 @@ impl EpipolarSolver {
     /// Returns up to ten candidate essential matrices that satisfy the cubic
     /// constraints; choose the physically valid one by cheirality or by
     /// reprojection error against additional correspondences.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] if `pts1` and `pts2` do not have
+    /// length 5 or their lengths disagree, or [`Error::Singular`] if point
+    /// normalization or the 10×10 polynomial eigensolve fails.
     pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Error> {
         essential::essential_5point(pts1, pts2)
     }
@@ -58,6 +77,11 @@ impl EpipolarSolver {
     /// Returns four possible `(R, t)` pairs; the correct one can be selected by
     /// cheirality checks on triangulated points. The translation is unit-length
     /// (direction only).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Singular`] if the essential matrix SVD fails or the
+    /// rank-2 essential-structure constraint cannot be enforced numerically.
     pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>, Error> {
         decomposition::decompose_essential(e)
     }
@@ -66,6 +90,13 @@ impl EpipolarSolver {
     ///
     /// Returns the best model and the indices of inliers. The residual uses an
     /// approximate symmetric epipolar distance in pixels.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] if `pts1` and `pts2` have different
+    /// lengths, [`Error::InsufficientData`] if fewer than 8 correspondences
+    /// are given, or [`Error::Singular`] if no consensus model can be found
+    /// within `opts.max_iters`.
     pub fn fundamental_8point_ransac(
         pts1: &[Pt2],
         pts2: &[Pt2],
