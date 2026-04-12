@@ -47,6 +47,8 @@
 //! assert!(px.is_some());
 //! ```
 
+/// Typed error enum for this crate.
+pub mod error;
 /// Linear algebra type aliases and helpers.
 mod math;
 /// Camera models and distortion utilities.
@@ -69,13 +71,12 @@ pub mod test_utils;
 mod types;
 mod view;
 
+pub use error::Error;
 pub use math::*;
 pub use models::*;
 pub use ransac::*;
 pub use types::*;
 pub use view::*;
-
-use anyhow::Result;
 
 /// Concrete pinhole camera alias used across single-camera workflows.
 ///
@@ -128,10 +129,14 @@ pub struct TargetPose {
 /// Compute mean per-point reprojection error for a calibrated camera and posed views.
 ///
 /// The transform chain is `p_cam = T_C_T * p_target`.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if no points could be projected.
 pub fn compute_mean_reproj_error(
     camera: &PinholeCamera,
     views: &[View<TargetPose>],
-) -> Result<Real> {
+) -> Result<Real, Error> {
     let mut total_error = 0.0;
     let mut total_points = 0;
 
@@ -147,7 +152,9 @@ pub fn compute_mean_reproj_error(
     }
 
     if total_points == 0 {
-        anyhow::bail!("No valid projections for error computation");
+        return Err(Error::invalid_input(
+            "no valid projections for error computation",
+        ));
     }
 
     Ok(total_error / total_points as Real)
@@ -165,30 +172,38 @@ pub fn compute_mean_reproj_error(
 ///
 /// Points that fail projection are skipped. Returns an error if no points are
 /// successfully projected.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if array lengths don't match expected counts
+/// or if no points could be projected.
 pub fn compute_rig_reprojection_stats<Meta>(
     cameras: &[PinholeCamera],
     dataset: &RigDataset<Meta>,
     cam_se3_rig: &[Iso3],
     rig_se3_target: &[Iso3],
-) -> Result<ReprojectionStats> {
-    anyhow::ensure!(
-        cameras.len() == dataset.num_cameras,
-        "camera count {} != num_cameras {}",
-        cameras.len(),
-        dataset.num_cameras
-    );
-    anyhow::ensure!(
-        cam_se3_rig.len() == dataset.num_cameras,
-        "cam_se3_rig count {} != num_cameras {}",
-        cam_se3_rig.len(),
-        dataset.num_cameras
-    );
-    anyhow::ensure!(
-        rig_se3_target.len() == dataset.num_views(),
-        "rig_se3_target count {} != num_views {}",
-        rig_se3_target.len(),
-        dataset.num_views()
-    );
+) -> Result<ReprojectionStats, Error> {
+    if cameras.len() != dataset.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "camera count {} != num_cameras {}",
+            cameras.len(),
+            dataset.num_cameras
+        )));
+    }
+    if cam_se3_rig.len() != dataset.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "cam_se3_rig count {} != num_cameras {}",
+            cam_se3_rig.len(),
+            dataset.num_cameras
+        )));
+    }
+    if rig_se3_target.len() != dataset.num_views() {
+        return Err(Error::invalid_input(format!(
+            "rig_se3_target count {} != num_views {}",
+            rig_se3_target.len(),
+            dataset.num_views()
+        )));
+    }
 
     let mut sum = 0.0_f64;
     let mut sum_sq = 0.0_f64;
@@ -218,7 +233,9 @@ pub fn compute_rig_reprojection_stats<Meta>(
     }
 
     if count == 0 {
-        anyhow::bail!("No valid projections for error computation");
+        return Err(Error::invalid_input(
+            "no valid projections for error computation",
+        ));
     }
 
     let count_f = count as f64;
@@ -234,30 +251,38 @@ pub fn compute_rig_reprojection_stats<Meta>(
 ///
 /// Uses the same transform chain as [`compute_rig_reprojection_stats`], but splits
 /// the aggregation by camera index.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if array lengths don't match expected counts
+/// or if any camera has no valid projections.
 pub fn compute_rig_reprojection_stats_per_camera<Meta>(
     cameras: &[PinholeCamera],
     dataset: &RigDataset<Meta>,
     cam_se3_rig: &[Iso3],
     rig_se3_target: &[Iso3],
-) -> Result<Vec<ReprojectionStats>> {
-    anyhow::ensure!(
-        cameras.len() == dataset.num_cameras,
-        "camera count {} != num_cameras {}",
-        cameras.len(),
-        dataset.num_cameras
-    );
-    anyhow::ensure!(
-        cam_se3_rig.len() == dataset.num_cameras,
-        "cam_se3_rig count {} != num_cameras {}",
-        cam_se3_rig.len(),
-        dataset.num_cameras
-    );
-    anyhow::ensure!(
-        rig_se3_target.len() == dataset.num_views(),
-        "rig_se3_target count {} != num_views {}",
-        rig_se3_target.len(),
-        dataset.num_views()
-    );
+) -> Result<Vec<ReprojectionStats>, Error> {
+    if cameras.len() != dataset.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "camera count {} != num_cameras {}",
+            cameras.len(),
+            dataset.num_cameras
+        )));
+    }
+    if cam_se3_rig.len() != dataset.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "cam_se3_rig count {} != num_cameras {}",
+            cam_se3_rig.len(),
+            dataset.num_cameras
+        )));
+    }
+    if rig_se3_target.len() != dataset.num_views() {
+        return Err(Error::invalid_input(format!(
+            "rig_se3_target count {} != num_views {}",
+            rig_se3_target.len(),
+            dataset.num_views()
+        )));
+    }
 
     let mut sum = vec![0.0_f64; dataset.num_cameras];
     let mut sum_sq = vec![0.0_f64; dataset.num_cameras];
@@ -289,10 +314,9 @@ pub fn compute_rig_reprojection_stats_per_camera<Meta>(
     let mut stats = Vec::with_capacity(dataset.num_cameras);
     for cam_idx in 0..dataset.num_cameras {
         if count[cam_idx] == 0 {
-            anyhow::bail!(
-                "camera {} has no valid projections for error computation",
-                cam_idx
-            );
+            return Err(Error::invalid_input(format!(
+                "camera {cam_idx} has no valid projections for error computation"
+            )));
         }
         let n = count[cam_idx] as f64;
         stats.push(ReprojectionStats {
@@ -317,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn rig_reprojection_stats_zero_for_perfect_data() -> Result<()> {
+    fn rig_reprojection_stats_zero_for_perfect_data() -> anyhow::Result<()> {
         let cam0 = make_pinhole_camera(
             FxFyCxCySkew {
                 fx: 800.0,
@@ -340,17 +364,19 @@ mod tests {
             Pt3::new(0.1, 0.1, 0.0),
         ];
 
-        let make_obs = |cam: &PinholeCamera, cam_se3_target: &Iso3| -> Result<CorrespondenceView> {
-            let points_2d = points_3d
-                .iter()
-                .map(|p| {
-                    let p_cam = cam_se3_target * p;
-                    cam.project_point_c(&p_cam.coords)
-                        .ok_or_else(|| anyhow::anyhow!("projection failed"))
-                })
-                .collect::<Result<Vec<_>>>()?;
-            CorrespondenceView::new(points_3d.clone(), points_2d)
-        };
+        let make_obs =
+            |cam: &PinholeCamera, cam_se3_target: &Iso3| -> anyhow::Result<CorrespondenceView> {
+                let points_2d = points_3d
+                    .iter()
+                    .map(|p| {
+                        let p_cam = cam_se3_target * p;
+                        cam.project_point_c(&p_cam.coords)
+                            .ok_or_else(|| anyhow::anyhow!("projection failed"))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                CorrespondenceView::new(points_3d.clone(), points_2d)
+                    .map_err(|e| anyhow::anyhow!("{e}"))
+            };
 
         let view = RigView {
             meta: NoMeta,

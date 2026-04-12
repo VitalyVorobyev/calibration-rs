@@ -27,6 +27,7 @@ vision-calibration-optim = { path = "./crates/vision-calibration-optim", version
 vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.2.0" }
 
 anyhow = "1"
+thiserror = "2"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 num-dual = "0.13"
 serde = { version = "1", features = ["derive"] }
