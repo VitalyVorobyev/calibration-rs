@@ -3,7 +3,7 @@
 //! This module provides the `RigExtrinsicsProblem` type that implements
 //! the session API's `ProblemType` trait.
 
-use anyhow::{Result, ensure};
+use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{Iso3, NoMeta, PinholeCamera, RigDataset};
 use vision_calibration_optim::{RigExtrinsicsEstimate, RobustLoss};
@@ -172,53 +172,64 @@ impl ProblemType for RigExtrinsicsProblem {
         1
     }
 
-    fn validate_input(input: &Self::Input) -> Result<()> {
-        ensure!(
-            input.num_views() >= 3,
-            "need at least 3 views for calibration (got {})",
-            input.num_views()
-        );
+    fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        if input.num_views() < 3 {
+            return Err(Error::InsufficientData {
+                need: 3,
+                got: input.num_views(),
+            });
+        }
 
-        ensure!(
-            input.num_cameras >= 2,
-            "need at least 2 cameras for rig calibration (got {})",
-            input.num_cameras
-        );
+        if input.num_cameras < 2 {
+            return Err(Error::InsufficientData {
+                need: 2,
+                got: input.num_cameras,
+            });
+        }
 
         // Check each view has correct number of cameras
         for (i, view) in input.views.iter().enumerate() {
-            ensure!(
-                view.obs.cameras.len() == input.num_cameras,
-                "view {} has {} cameras, expected {}",
-                i,
-                view.obs.cameras.len(),
-                input.num_cameras
-            );
+            if view.obs.cameras.len() != input.num_cameras {
+                return Err(Error::invalid_input(format!(
+                    "view {} has {} cameras, expected {}",
+                    i,
+                    view.obs.cameras.len(),
+                    input.num_cameras
+                )));
+            }
 
             // Check at least one camera has observations in this view
             let has_obs = view.obs.cameras.iter().any(|c| c.is_some());
-            ensure!(has_obs, "view {} has no observations from any camera", i);
+            if !has_obs {
+                return Err(Error::invalid_input(format!(
+                    "view {} has no observations from any camera",
+                    i
+                )));
+            }
         }
 
         Ok(())
     }
 
-    fn validate_config(config: &Self::Config) -> Result<()> {
-        ensure!(config.max_iters > 0, "max_iters must be positive");
-        ensure!(
-            config.intrinsics_init_iterations > 0,
-            "intrinsics_init_iterations must be positive"
-        );
+    fn validate_config(config: &Self::Config) -> Result<(), Error> {
+        if config.max_iters == 0 {
+            return Err(Error::invalid_input("max_iters must be positive"));
+        }
+        if config.intrinsics_init_iterations == 0 {
+            return Err(Error::invalid_input(
+                "intrinsics_init_iterations must be positive",
+            ));
+        }
         Ok(())
     }
 
-    fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<()> {
-        ensure!(
-            config.reference_camera_idx < input.num_cameras,
-            "reference_camera_idx {} is out of range (num_cameras = {})",
-            config.reference_camera_idx,
-            input.num_cameras
-        );
+    fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
+        if config.reference_camera_idx >= input.num_cameras {
+            return Err(Error::invalid_input(format!(
+                "reference_camera_idx {} is out of range (num_cameras = {})",
+                config.reference_camera_idx, input.num_cameras
+            )));
+        }
         Ok(())
     }
 
@@ -230,7 +241,7 @@ impl ProblemType for RigExtrinsicsProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
+    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
         let cam_se3_rig: Vec<Iso3> = output
             .params
             .cam_to_rig
@@ -305,7 +316,7 @@ mod tests {
         let input = RigDataset::new(views, 1).unwrap();
         let result = RigExtrinsicsProblem::validate_input(&input);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("2 cameras"));
+        assert!(result.unwrap_err().to_string().contains("need 2"));
     }
 
     #[test]

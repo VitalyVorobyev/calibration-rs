@@ -144,7 +144,7 @@ fn main() -> anyhow::Result<()> {
                 obs,
                 LaserlineMeta {
                     laser_pixels,
-                    laser_weights: None,
+                    laser_weights: Vec::new(),
                 },
             ));
         }

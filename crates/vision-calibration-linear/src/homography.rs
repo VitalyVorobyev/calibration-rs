@@ -7,8 +7,8 @@
 //! Input points should be in consistent units; normalization is applied
 //! internally for numerical stability and the output is de-normalized.
 
+use crate::Error;
 use crate::math::normalize_points_2d;
-use anyhow::Result;
 use nalgebra::DMatrix;
 use vision_calibration_core::{
     Estimator, Mat3, Pt2, RansacOptions, from_homogeneous, ransac_fit, to_homogeneous,
@@ -26,7 +26,12 @@ pub struct HomographySolver;
 /// `world` are planar points in a board or world coordinate frame, and `image`
 /// are their pixel coordinates. The returned homography is scaled so that
 /// `H[2,2] == 1` when possible.
-pub fn dlt_homography(world: &[Pt2], image: &[Pt2]) -> Result<Mat3> {
+///
+/// # Errors
+///
+/// Returns [`Error::InsufficientData`] if fewer than 4 correspondences are given,
+/// or [`Error::Singular`] if the configuration is degenerate.
+pub fn dlt_homography(world: &[Pt2], image: &[Pt2]) -> Result<Mat3, Error> {
     HomographySolver::dlt(world, image)
 }
 
@@ -35,16 +40,19 @@ impl HomographySolver {
     ///
     /// This uses Hartley-style point normalization (zero-mean, average distance
     /// sqrt(2)) and solves `A h = 0` via SVD on the design matrix `A`.
-    pub fn dlt(world: &[Pt2], image: &[Pt2]) -> Result<Mat3> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if fewer than 4 correspondences are given,
+    /// or [`Error::Singular`] if the configuration is degenerate.
+    pub fn dlt(world: &[Pt2], image: &[Pt2]) -> Result<Mat3, Error> {
         let n = world.len();
         if n < 4 || image.len() != n {
-            anyhow::bail!("need at least 4 point correspondences, got {}", n);
+            return Err(Error::InsufficientData { need: 4, got: n });
         }
 
-        let (world_n, t_w) = normalize_points_2d(world)
-            .ok_or_else(|| anyhow::anyhow!("degenerate point configuration for normalization"))?;
-        let (image_n, t_i) = normalize_points_2d(image)
-            .ok_or_else(|| anyhow::anyhow!("degenerate point configuration for normalization"))?;
+        let (world_n, t_w) = normalize_points_2d(world).ok_or(Error::Singular)?;
+        let (image_n, t_i) = normalize_points_2d(image).ok_or(Error::Singular)?;
 
         let mut a = DMatrix::<f64>::zeros(2 * n, 9);
 
@@ -83,7 +91,7 @@ impl HomographySolver {
         }
 
         let svd = a_work.svd(true, true);
-        let v_t = svd.v_t.ok_or_else(|| anyhow::anyhow!("svd failed"))?;
+        let v_t = svd.v_t.ok_or(Error::Singular)?;
         let h_vec = v_t.row(v_t.nrows() - 1);
 
         let mut h_mat = Mat3::zeros();
@@ -93,9 +101,7 @@ impl HomographySolver {
             }
         }
 
-        let t_i_inv = t_i
-            .try_inverse()
-            .ok_or_else(|| anyhow::anyhow!("svd failed"))?;
+        let t_i_inv = t_i.try_inverse().ok_or(Error::Singular)?;
         h_mat = t_i_inv * h_mat * t_w;
 
         // normalise such that H[2,2] = 1
@@ -111,11 +117,16 @@ impl HomographySolver {
 /// Estimate a homography using DLT inside a RANSAC loop.
 ///
 /// Returns the best homography and the indices of inliers.
+///
+/// # Errors
+///
+/// Returns [`Error::InsufficientData`] if fewer than 4 correspondences are given,
+/// or [`Error::Numerical`] if RANSAC fails to find a consensus.
 pub fn dlt_homography_ransac(
     world: &[Pt2],
     image: &[Pt2],
     opts: &RansacOptions,
-) -> Result<(Mat3, Vec<usize>)> {
+) -> Result<(Mat3, Vec<usize>), Error> {
     HomographySolver::dlt_ransac(world, image, opts)
 }
 
@@ -124,14 +135,19 @@ impl HomographySolver {
     ///
     /// Returns the best homography and the indices of inliers. The residual is
     /// Euclidean reprojection error in pixels.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if fewer than 4 correspondences are given,
+    /// or [`Error::Numerical`] if RANSAC fails to find a consensus.
     pub fn dlt_ransac(
         world: &[Pt2],
         image: &[Pt2],
         opts: &RansacOptions,
-    ) -> Result<(Mat3, Vec<usize>)> {
+    ) -> Result<(Mat3, Vec<usize>), Error> {
         let n = world.len();
         if n < 4 || image.len() != n {
-            anyhow::bail!("need at least 4 point correspondences, got {}", n);
+            return Err(Error::InsufficientData { need: 4, got: n });
         }
 
         #[derive(Clone)]
@@ -201,7 +217,9 @@ impl HomographySolver {
 
         let res = ransac_fit::<HomographyEst>(&data, opts);
         if !res.success {
-            anyhow::bail!("ransac failed to find a consensus homography");
+            return Err(Error::numerical(
+                "ransac failed to find a consensus homography",
+            ));
         }
 
         let h = res.model.expect("success guarantees a model");

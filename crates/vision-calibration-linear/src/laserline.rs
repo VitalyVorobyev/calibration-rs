@@ -24,7 +24,7 @@
 //! which is degenerate for plane fitting. Use [`LaserlinePlaneSolver::from_views`] with
 //! at least 2 views at different poses to obtain non-collinear points.
 
-use anyhow::Result;
+use crate::Error;
 use nalgebra::{Point3, UnitVector3, Vector3};
 use vision_calibration_core::{
     BrownConrady5, Camera, FxFyCxCySkew, Iso3, Pinhole, Pt2, Pt3, Real, SensorModel,
@@ -75,13 +75,18 @@ impl LaserlinePlaneSolver {
     /// Requires at least 3 non-collinear points. Collinearity is detected
     /// by checking if the smallest eigenvalue is negligibly small compared
     /// to the second-smallest.
-    pub fn from_points_3d(points_camera: &[Pt3]) -> Result<LinearPlaneEstimate> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if fewer than 3 points are given,
+    /// or [`Error::Singular`] if the point cloud is collinear (smallest
+    /// eigenvalue vanishes) and a unique plane cannot be determined.
+    pub fn from_points_3d(points_camera: &[Pt3]) -> Result<LinearPlaneEstimate, Error> {
         if points_camera.len() < 3 {
-            anyhow::bail!(
-                "insufficient points: got {}, need at least {}",
-                points_camera.len(),
-                3
-            );
+            return Err(Error::InsufficientData {
+                need: 3,
+                got: points_camera.len(),
+            });
         }
 
         // Use covariance-based approach for numerical stability
@@ -122,11 +127,15 @@ impl LaserlinePlaneSolver {
             // Relative threshold: check if points span 2D (plane) or 1D (line)
             let rank1_ratio = second_eigenvalue / max_eigenvalue;
             if rank1_ratio < RANK_THRESHOLD {
-                anyhow::bail!("collinear points: cannot fit plane to points along a single line");
+                return Err(Error::invalid_input(
+                    "collinear points: cannot fit plane to points along a single line",
+                ));
             }
         } else if min_eigenvalue.abs() < RANK_THRESHOLD && second_eigenvalue < RANK_THRESHOLD {
             // All eigenvalues near zero: degenerate (all points at same location)
-            anyhow::bail!("collinear points: cannot fit plane to points along a single line");
+            return Err(Error::invalid_input(
+                "collinear points: cannot fit plane to points along a single line",
+            ));
         }
 
         let normal_vec = eigen.eigenvectors.column(min_idx);
@@ -176,16 +185,15 @@ impl LaserlinePlaneSolver {
     pub fn from_views<Sm>(
         views: &[LaserlineView],
         camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
-    ) -> Result<LinearPlaneEstimate>
+    ) -> Result<LinearPlaneEstimate, Error>
     where
         Sm: SensorModel<Real>,
     {
         if views.len() < 2 {
-            anyhow::bail!(
-                "insufficient views: got {}, need at least {}",
-                views.len(),
-                2
-            );
+            return Err(Error::InsufficientData {
+                need: 2,
+                got: views.len(),
+            });
         }
 
         // Gather all 3D points from all views
@@ -197,11 +205,10 @@ impl LaserlinePlaneSolver {
         }
 
         if all_points.len() < 3 {
-            anyhow::bail!(
-                "insufficient points: got {}, need at least {}",
-                all_points.len(),
-                3
-            );
+            return Err(Error::InsufficientData {
+                need: 3,
+                got: all_points.len(),
+            });
         }
 
         // Fit plane to 3D points
@@ -222,12 +229,12 @@ impl LaserlinePlaneSolver {
     pub fn from_view<Sm>(
         view: &LaserlineView,
         camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
-    ) -> Result<LinearPlaneEstimate>
+    ) -> Result<LinearPlaneEstimate, Error>
     where
         Sm: SensorModel<Real>,
     {
         if view.laser_pixels.is_empty() {
-            anyhow::bail!("insufficient points: got 0, need at least 1");
+            return Err(Error::InsufficientData { need: 1, got: 0 });
         }
 
         // Compute 3D points in camera frame
@@ -249,7 +256,7 @@ impl LaserlinePlaneSolver {
         laser_pixels: &[Pt2],
         camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
         camera_se3_target: &Iso3,
-    ) -> Result<Vec<Pt3>>
+    ) -> Result<Vec<Pt3>, Error>
     where
         Sm: SensorModel<Real>,
     {
@@ -272,7 +279,9 @@ impl LaserlinePlaneSolver {
             // Plane: Z = 0
             // Solve: ray_origin_target.z + t * ray_dir_target.z = 0
             if ray_dir_target.z.abs() < 1e-12 {
-                anyhow::bail!("ray parallel to target plane (degenerate geometry)");
+                return Err(Error::invalid_input(
+                    "ray parallel to target plane (degenerate geometry)",
+                ));
             }
 
             let t = -ray_origin_target.z / ray_dir_target.z;
@@ -398,7 +407,7 @@ mod tests {
         let result = LaserlinePlaneSolver::from_views(&[view], &camera);
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("insufficient views"),
+            err.contains("insufficient data"),
             "unexpected error: {}",
             err
         );

@@ -58,7 +58,9 @@ class HighLevelApiContractTest(unittest.TestCase):
 
     def test_typed_inputs_take_the_runtime_path(self) -> None:
         # Datasets are intentionally invalid (too few views), so the expected
-        # failure mode is RuntimeError from Rust validation, not TypeError.
+        # failure mode is ValueError from Rust input validation, not TypeError.
+        # Per R-07, invalid input/config from Python surfaces as ValueError;
+        # TypeError is reserved for wrong Python types (dicts, lists, ...).
         cases = [
             (vc.run_planar_intrinsics, vc.PlanarDataset(views=[]), vc.PlanarCalibrationConfig()),
             (
@@ -90,7 +92,7 @@ class HighLevelApiContractTest(unittest.TestCase):
 
         for fn, dataset, cfg in cases:
             with self.subTest(runner=fn.__name__):
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises(ValueError):
                     fn(dataset, cfg)
 
 

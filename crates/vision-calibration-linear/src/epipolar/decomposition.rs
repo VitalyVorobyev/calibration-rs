@@ -4,7 +4,7 @@
 //! decomposition. Returns four possible (R, t) pairs that must be
 //! disambiguated via cheirality checks.
 
-use anyhow::Result;
+use crate::Error;
 use nalgebra::SMatrix;
 use vision_calibration_core::{Mat3, Real, Vec3};
 
@@ -13,10 +13,10 @@ use vision_calibration_core::{Mat3, Real, Vec3};
 /// Projects a 3x3 matrix onto the essential matrix manifold by forcing
 /// the singular values to be (σ, σ, 0) where σ is the mean of the first
 /// two singular values.
-pub(super) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
+pub(super) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3, Error> {
     let svd = e.svd(true, true);
-    let u = svd.u.ok_or(anyhow::anyhow!("SVD failed"))?;
-    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let u = svd.u.ok_or(Error::Singular)?;
+    let v_t = svd.v_t.ok_or(Error::Singular)?;
 
     let s1 = svd.singular_values[0];
     let s2 = svd.singular_values[1];
@@ -31,11 +31,16 @@ pub(super) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
 /// Returns four possible `(R, t)` pairs; the correct one can be selected by
 /// cheirality checks on triangulated points. The translation is unit-length
 /// (direction only).
-pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>> {
+///
+/// # Errors
+///
+/// Returns [`Error::Singular`] if the essential matrix SVD fails or the
+/// essential structure constraint cannot be enforced numerically.
+pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>, Error> {
     let e = enforce_essential_constraints(e)?;
     let svd = e.svd(true, true);
-    let mut u = svd.u.ok_or(anyhow::anyhow!("SVD failed"))?;
-    let mut v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let mut u = svd.u.ok_or(Error::Singular)?;
+    let mut v_t = svd.v_t.ok_or(Error::Singular)?;
 
     if u.determinant() < 0.0 {
         u.column_mut(2).neg_mut();

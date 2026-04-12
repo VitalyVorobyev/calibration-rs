@@ -34,7 +34,7 @@
 //! # }
 //! ```
 
-use anyhow::{Context, Result, ensure};
+use crate::Error;
 use vision_calibration_core::{CorrespondenceView, View};
 use vision_calibration_optim::optimize_planar_intrinsics;
 
@@ -118,7 +118,7 @@ impl Default for FilterOptions {
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     // Validate preconditions
     session.validate()?;
     let input = session.require_input()?;
@@ -134,7 +134,7 @@ pub fn step_init(
         Ok(c) => c,
         Err(e) => {
             session.log_failure("init", e.to_string());
-            return Err(e);
+            return Err(Error::from(e));
         }
     };
 
@@ -183,7 +183,7 @@ pub fn step_init(
 pub fn step_optimize(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     // Validate preconditions
     session.validate()?;
     let input = session.require_input()?;
@@ -191,7 +191,7 @@ pub fn step_optimize(
     let initial = session
         .state
         .initial_params()
-        .ok_or_else(|| anyhow::anyhow!("initialization not run - call step_init first"))?;
+        .ok_or_else(|| Error::not_available("initial params (call step_init first)"))?;
 
     // Get effective options
     let opts = opts.unwrap_or_default();
@@ -209,7 +209,7 @@ pub fn step_optimize(
         Ok(r) => r,
         Err(e) => {
             session.log_failure("optimize", e.to_string());
-            return Err(e);
+            return Err(Error::from(e));
         }
     };
 
@@ -256,22 +256,24 @@ pub fn step_optimize(
 pub fn step_filter(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: FilterOptions,
-) -> Result<()> {
-    ensure!(
-        opts.min_points_per_view >= 4,
-        "min_points_per_view must be >= 4 for homography"
-    );
+) -> Result<(), Error> {
+    if opts.min_points_per_view < 4 {
+        return Err(Error::invalid_input(
+            "min_points_per_view must be >= 4 for homography",
+        ));
+    }
 
     let output = session.require_output()?.clone();
     let input = session.require_input()?.clone();
 
     let poses = output.params.poses();
-    ensure!(
-        input.views.len() == poses.len(),
-        "pose count ({}) must match view count ({})",
-        poses.len(),
-        input.views.len()
-    );
+    if input.views.len() != poses.len() {
+        return Err(Error::invalid_input(format!(
+            "pose count ({}) must match view count ({})",
+            poses.len(),
+            input.views.len()
+        )));
+    }
 
     let camera = &output.params.camera;
 
@@ -281,7 +283,8 @@ pub fn step_filter(
     for (view, pose) in input.views.iter().zip(poses) {
         let mut points_3d = Vec::new();
         let mut points_2d = Vec::new();
-        let mut weights = view.obs.weights.as_ref().map(|_| Vec::<f64>::new());
+        let mut weights: Vec<f64> = Vec::new();
+        let has_weights = !view.obs.weights.is_empty();
 
         for (i, (p3d, p2d)) in view
             .obs
@@ -300,8 +303,8 @@ pub fn step_filter(
             if error <= opts.max_reproj_error {
                 points_3d.push(*p3d);
                 points_2d.push(*p2d);
-                if let Some(ref mut w) = weights {
-                    w.push(view.obs.weight(i));
+                if has_weights {
+                    weights.push(view.obs.weight(i));
                 }
             } else {
                 total_removed += 1;
@@ -309,8 +312,8 @@ pub fn step_filter(
         }
 
         if points_3d.len() >= opts.min_points_per_view {
-            let obs = if let Some(w) = weights {
-                CorrespondenceView::new_with_weights(points_3d, points_2d, w)?
+            let obs = if has_weights {
+                CorrespondenceView::new_with_weights(points_3d, points_2d, weights)?
             } else {
                 CorrespondenceView::new(points_3d, points_2d)?
             };
@@ -323,13 +326,12 @@ pub fn step_filter(
     }
 
     let views_removed = input.views.len() - filtered_views.len();
-    ensure!(
-        !filtered_views.is_empty(),
-        "filtering would remove all views"
-    );
+    if filtered_views.is_empty() {
+        return Err(Error::invalid_input("filtering would remove all views"));
+    }
 
     let filtered_dataset = vision_calibration_core::PlanarDataset::new(filtered_views)
-        .context("failed to create filtered dataset")?;
+        .map_err(|e| Error::invalid_input(format!("failed to create filtered dataset: {e}")))?;
 
     // This will clear state and output per invalidation policy
     session.set_input(filtered_dataset)?;
@@ -353,7 +355,9 @@ pub fn step_filter(
 /// # Errors
 ///
 /// Any error from [`step_init`] or [`step_optimize`].
-pub fn run_calibration(session: &mut CalibrationSession<PlanarIntrinsicsProblem>) -> Result<()> {
+pub fn run_calibration(
+    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
+) -> Result<(), Error> {
     step_init(session, None)?;
     step_optimize(session, None)?;
     Ok(())
@@ -375,7 +379,7 @@ pub fn run_calibration(session: &mut CalibrationSession<PlanarIntrinsicsProblem>
 pub fn run_calibration_with_filtering(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     filter_opts: FilterOptions,
-) -> Result<()> {
+) -> Result<(), Error> {
     // First pass
     step_init(session, None)?;
     step_optimize(session, None)?;

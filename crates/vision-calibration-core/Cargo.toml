@@ -19,6 +19,7 @@ nalgebra = { workspace = true }
 serde = { workspace = true }
 rand = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true, optional=true }
 
 [dev-dependencies]

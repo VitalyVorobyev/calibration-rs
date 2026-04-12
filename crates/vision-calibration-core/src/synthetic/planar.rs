@@ -5,10 +5,9 @@
 //! [`crate::CorrespondenceView`] instances.
 
 use crate::{
-    Camera, CorrespondenceView, Iso3, Pt2, Pt3, Real,
+    Camera, CorrespondenceView, Error, Iso3, Pt2, Pt3, Real,
     models::{DistortionModel, IntrinsicsModel, ProjectionModel, SensorModel},
 };
-use anyhow::Result;
 use nalgebra::{Translation3, UnitQuaternion, Vector3};
 use std::ops::RangeInclusive;
 
@@ -100,11 +99,15 @@ pub fn poses_yaw_y_z(
 /// Project a planar target into the camera, requiring every point to be projectable.
 ///
 /// `cam_from_target` must map target-frame points into the camera frame.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if any point is not projectable (e.g. behind the camera).
 pub fn project_view_all<P, D, Sm, K>(
     camera: &Camera<Real, P, D, Sm, K>,
     cam_from_target: &Iso3,
     target_points: &[Pt3],
-) -> Result<CorrespondenceView>
+) -> Result<CorrespondenceView, Error>
 where
     P: ProjectionModel<Real>,
     D: DistortionModel<Real>,
@@ -115,7 +118,10 @@ where
     for (idx, pw) in target_points.iter().enumerate() {
         let pc = cam_from_target.transform_point(pw);
         let Some(uv) = camera.project_point(&pc) else {
-            anyhow::bail!("point {idx} not projectable (z={:.6})", pc.z);
+            return Err(Error::invalid_input(format!(
+                "point {idx} not projectable (z={:.6})",
+                pc.z
+            )));
         };
         pixels.push(uv);
     }
@@ -152,16 +158,20 @@ where
     CorrespondenceView {
         points_3d,
         points_2d,
-        weights: None,
+        weights: Vec::new(),
     }
 }
 
 /// Project multiple views, requiring every point to be projectable in every view.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if any point in any view is not projectable.
 pub fn project_views_all<P, D, Sm, K>(
     camera: &Camera<Real, P, D, Sm, K>,
     target_points: &[Pt3],
     cam_from_target: &[Iso3],
-) -> Result<Vec<CorrespondenceView>>
+) -> Result<Vec<CorrespondenceView>, Error>
 where
     P: ProjectionModel<Real>,
     D: DistortionModel<Real>,

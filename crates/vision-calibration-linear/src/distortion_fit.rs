@@ -36,7 +36,7 @@
 //! - Z. Zhang, "A Flexible New Technique for Camera Calibration," PAMI 2000
 //! - OpenCV calibration implementation
 
-use anyhow::Result;
+use crate::Error;
 use nalgebra::DMatrix;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{BrownConrady5, Mat3, Pt2, Real, Vec2, Vec3, View};
@@ -157,7 +157,7 @@ pub fn estimate_distortion_from_homographies(
     intrinsics: &Mat3,
     views: &[DistortionView],
     opts: DistortionFitOptions,
-) -> Result<BrownConrady5<Real>> {
+) -> Result<BrownConrady5<Real>, Error> {
     // Count total points
     let total_points: usize = views.iter().map(|v| v.obs.points_2d.len()).sum();
 
@@ -172,17 +172,14 @@ pub fn estimate_distortion_from_homographies(
     #[allow(clippy::manual_div_ceil)] // Type ambiguity with div_ceil on usize
     let min_points = (n_params + 1) / 2 + 2; // Need overdetermined system
     if total_points < min_points {
-        anyhow::bail!(
-            "insufficient points: got {}, need at least {}",
-            total_points,
-            min_points
-        );
+        return Err(Error::InsufficientData {
+            need: min_points,
+            got: total_points,
+        });
     }
 
     // Invert intrinsics once
-    let k_inv = intrinsics
-        .try_inverse()
-        .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
+    let k_inv = intrinsics.try_inverse().ok_or(Error::Singular)?;
 
     // Build design matrix A and observation vector b
     // Each point contributes 2 rows (x and y residuals)
@@ -285,14 +282,16 @@ pub fn estimate_distortion_from_homographies(
     }
 
     if max_r2 < 1e-6 {
-        anyhow::bail!("degenerate configuration for distortion estimation");
+        return Err(Error::invalid_input(
+            "degenerate configuration for distortion estimation",
+        ));
     }
 
     // Solve least-squares: x = A \ b via SVD (handles overdetermined systems)
     let svd = a.svd(true, true);
     let x = svd
         .solve(&b, 1e-10)
-        .map_err(|_| anyhow::anyhow!("svd failed during distortion estimation"))?;
+        .map_err(|_| Error::numerical("svd failed during distortion estimation"))?;
 
     // Extract parameters
     let mut col_idx = 0;

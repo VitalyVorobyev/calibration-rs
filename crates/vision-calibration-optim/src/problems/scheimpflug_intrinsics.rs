@@ -1,5 +1,6 @@
 //! Scheimpflug planar intrinsics optimization using the backend-agnostic IR.
 
+use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
 use crate::ir::RobustLoss;
 use crate::params::distortion::unpack_distortion;
@@ -9,7 +10,7 @@ use crate::problems::planar_family_shared::{
     PlanarReprojectionFactorModel, PlanarReprojectionIrOptions, PlanarSensorIrOptions,
     build_planar_reprojection_ir,
 };
-use anyhow::{Result, anyhow, ensure};
+use anyhow::{Result as AnyhowResult, anyhow, ensure};
 use nalgebra::DVectorView;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
@@ -52,8 +53,10 @@ impl ScheimpflugIntrinsicsParams {
         distortion: BrownConrady5<Real>,
         sensor: ScheimpflugParams,
         camera_se3_target: Vec<Iso3>,
-    ) -> Result<Self> {
-        ensure!(!camera_se3_target.is_empty(), "need at least one pose");
+    ) -> Result<Self, Error> {
+        if camera_se3_target.is_empty() {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
+        }
         Ok(Self {
             intrinsics,
             distortion,
@@ -105,7 +108,7 @@ fn build_scheimpflug_intrinsics_ir(
     dataset: &PlanarDataset,
     initial: &ScheimpflugIntrinsicsParams,
     opts: &ScheimpflugIntrinsicsSolveOptions,
-) -> Result<(
+) -> AnyhowResult<(
     crate::ir::ProblemIR,
     std::collections::HashMap<String, nalgebra::DVector<f64>>,
 )> {
@@ -129,12 +132,16 @@ fn build_scheimpflug_intrinsics_ir(
 }
 
 /// Optimize Scheimpflug intrinsics using the default tiny-solver backend.
+///
+/// # Errors
+///
+/// Returns [`Error`] if IR construction or solver backend fails.
 pub fn optimize_scheimpflug_intrinsics(
     dataset: &PlanarDataset,
     initial: &ScheimpflugIntrinsicsParams,
     opts: ScheimpflugIntrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
-) -> Result<ScheimpflugIntrinsicsEstimate> {
+) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
     optimize_scheimpflug_intrinsics_with_backend(
         dataset,
         initial,
@@ -145,13 +152,17 @@ pub fn optimize_scheimpflug_intrinsics(
 }
 
 /// Optimize Scheimpflug intrinsics using the selected backend.
+///
+/// # Errors
+///
+/// Returns [`Error`] if IR construction or solver backend fails.
 pub fn optimize_scheimpflug_intrinsics_with_backend(
     dataset: &PlanarDataset,
     initial: &ScheimpflugIntrinsicsParams,
     opts: ScheimpflugIntrinsicsSolveOptions,
     backend: BackendKind,
     backend_opts: BackendSolveOptions,
-) -> Result<ScheimpflugIntrinsicsEstimate> {
+) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
     let (ir, initial_map) = build_scheimpflug_intrinsics_ir(dataset, initial, &opts)?;
     let solution = solve_with_backend(backend, &ir, &initial_map, &backend_opts)?;
 
@@ -202,7 +213,7 @@ pub fn optimize_scheimpflug_intrinsics_with_backend(
     })
 }
 
-fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> Result<ScheimpflugParams> {
+fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> AnyhowResult<ScheimpflugParams> {
     ensure!(values.len() == 2, "scheimpflug block must have 2 entries");
     Ok(ScheimpflugParams {
         tilt_x: values[0],

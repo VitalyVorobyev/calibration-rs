@@ -3,8 +3,10 @@
 //! Implements the normalized 8-point algorithm, the minimal 7-point solver,
 //! and RANSAC-based robust estimation for fundamental matrices.
 
-use crate::math::{mat3_from_svd_row, solve_cubic_real};
-use anyhow::Result;
+use crate::{
+    Error,
+    math::{mat3_from_svd_row, solve_cubic_real},
+};
 use nalgebra::{DMatrix, SMatrix};
 use vision_calibration_core::{Estimator, Mat3, Pt2, RansacOptions, Real, ransac_fit};
 
@@ -13,10 +15,15 @@ use vision_calibration_core::{Estimator, Mat3, Pt2, RansacOptions, Real, ransac_
 /// `pts1` and `pts2` are corresponding pixel points in two images. The
 /// returned matrix is forced to rank-2 and satisfies `x'^T F x = 0`
 /// (up to numerical error).
-pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
+///
+/// # Errors
+///
+/// Returns [`Error::InsufficientData`] if fewer than 8 correspondences are provided, or if
+/// `pts1` and `pts2` have different lengths.
+pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3, Error> {
     let n = pts1.len();
     if n < 8 || pts2.len() != n {
-        return Err(anyhow::anyhow!("Not enough points"));
+        return Err(Error::InsufficientData { need: 8, got: n });
     }
 
     let pts1_n = pts1.to_vec();
@@ -55,7 +62,7 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     }
 
     let svd = a_work.svd(true, true);
-    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let v_t = svd.v_t.ok_or(Error::Singular)?;
     let f_vec = v_t.row(v_t.nrows() - 1);
 
     let mut f = Mat3::zeros();
@@ -67,9 +74,9 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
 
     // Enforce rank-2 constraint on F.
     let svd_f = f.svd(true, true);
-    let u = svd_f.u.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let u = svd_f.u.ok_or(Error::Singular)?;
     let mut s = svd_f.singular_values;
-    let v_t = svd_f.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let v_t = svd_f.v_t.ok_or(Error::Singular)?;
     s[2] = 0.0;
     let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&s);
     f = u * s_mat * v_t;
@@ -84,16 +91,18 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
 ///
 /// Returns up to three candidate fundamental matrices. Inputs are pixel
 /// coordinates; internal normalization is applied before solving.
-pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
-    if pts1.len() != pts2.len() {
-        anyhow::bail!(
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if exactly 7 correspondences are not provided, or if
+/// `pts1` and `pts2` have different lengths.
+pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Error> {
+    if pts1.len() != pts2.len() || pts1.len() != 7 {
+        return Err(Error::invalid_input(format!(
             "Point count mismatch: expected 7, pts1 has {}, pts2 has {}",
             pts1.len(),
             pts2.len()
-        );
-    }
-    if pts1.len() != 7 {
-        anyhow::bail!("Point count mismatch: expected 7, got {}", pts1.len());
+        )));
     }
 
     let pts1_n = pts1.to_vec();
@@ -129,9 +138,9 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     }
 
     let svd = a_work.svd(true, true);
-    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let v_t = svd.v_t.ok_or(Error::Singular)?;
     if v_t.nrows() < 2 {
-        anyhow::bail!("SVD failed: not enough nullspace vectors");
+        return Err(Error::Singular);
     }
 
     let f1 = mat3_from_svd_row(&v_t, v_t.nrows() - 2);
@@ -154,7 +163,7 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 
     let roots = solve_cubic_real(a, b, c, d);
     if roots.is_empty() {
-        anyhow::bail!("Polynomial solve failed");
+        return Err(Error::numerical("7-point polynomial solve failed"));
     }
 
     let mut solutions = Vec::new();
@@ -162,9 +171,9 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
         let mut f = f2 + lambda * f1;
 
         let svd_f = f.svd(true, true);
-        let u = svd_f.u.ok_or(anyhow::anyhow!("SVD failed"))?;
+        let u = svd_f.u.ok_or(Error::Singular)?;
         let mut s = svd_f.singular_values;
-        let v_t = svd_f.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+        let v_t = svd_f.v_t.ok_or(Error::Singular)?;
         s[2] = 0.0;
         let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&s);
         f = u * s_mat * v_t;
@@ -181,14 +190,18 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 ///
 /// Returns the best model and the indices of inliers. The residual uses an
 /// approximate symmetric epipolar distance in pixels.
+///
+/// # Errors
+///
+/// Returns [`Error::InsufficientData`] if fewer than 8 correspondences are provided.
 pub fn fundamental_8point_ransac(
     pts1: &[Pt2],
     pts2: &[Pt2],
     opts: &RansacOptions,
-) -> Result<(Mat3, Vec<usize>)> {
+) -> Result<(Mat3, Vec<usize>), Error> {
     let n = pts1.len();
     if n < 8 || pts2.len() != n {
-        anyhow::bail!(format!("Not enough points: {}", n));
+        return Err(Error::InsufficientData { need: 8, got: n });
     }
 
     #[derive(Clone)]
@@ -243,7 +256,9 @@ pub fn fundamental_8point_ransac(
 
     let res = ransac_fit::<FundamentalEst>(&data, opts);
     if !res.success {
-        anyhow::bail!("RANSAC failed");
+        return Err(Error::numerical(
+            "RANSAC failed to find a consensus fundamental matrix",
+        ));
     }
     let f = res.model.expect("success guarantees a model");
     Ok((f, res.inliers))

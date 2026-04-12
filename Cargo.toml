@@ -11,23 +11,28 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
+# MSRV is 1.88. Some transitive deps are pinned in Cargo.lock below their
+# latest release to stay MSRV-compatible. Before running `cargo update`,
+# read docs/MSRV.md — running it blindly will re-break the 1.88 CI job.
+rust-version = "1.88"
 license = "MIT"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
 homepage = "https://vitalyvorobyev.github.io/calibration-rs"
 repository = "https://github.com/VitalyVorobyev/calibration-rs"
 
 [workspace.dependencies]
-vision-calibration = { path = "./crates/vision-calibration", version = "0.2.0" }
-vision-calibration-core = { path = "./crates/vision-calibration-core", version = "0.2.0" }
-vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.2.0" }
-vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.2.0" }
-vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.2.0" }
+vision-calibration = { path = "./crates/vision-calibration", version = "0.3.0" }
+vision-calibration-core = { path = "./crates/vision-calibration-core", version = "0.3.0" }
+vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.3.0" }
+vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.3.0" }
+vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.3.0" }
 
 anyhow = "1"
+thiserror = "2"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
-num-dual = "0.13.1"
+num-dual = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }
@@ -35,6 +40,6 @@ log = "0.4"
 image = { version = "0.25" }
 chess-corners = { version = "0.3", features = ["rayon", "ml-refiner"] }
 calib-targets = "0.2"
-rand = { version = "0.9" }
+rand = { version = "0.10" }
 tracing = { version = "0.1" }
 tiny-solver = "0.18"

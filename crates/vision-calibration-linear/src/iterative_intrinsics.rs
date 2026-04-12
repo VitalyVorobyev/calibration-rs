@@ -57,13 +57,13 @@
 //! ```
 
 use crate::{
+    Error,
     distortion_fit::{
         DistortionFitOptions, DistortionView, MetaHomography, estimate_distortion_from_homographies,
     },
     homography::HomographySolver,
     zhang_intrinsics::PlanarIntrinsicsLinearInit,
 };
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, DistortionModel, FxFyCxCySkew, Mat3, PinholeCamera, PlanarDataset, Pt2, Real,
@@ -142,9 +142,12 @@ impl Default for IterativeIntrinsicsOptions {
 pub fn estimate_intrinsics_iterative(
     dataset: &PlanarDataset,
     opts: IterativeIntrinsicsOptions,
-) -> Result<PinholeCamera> {
+) -> Result<PinholeCamera, Error> {
     if dataset.views.len() < 3 {
-        anyhow::bail!("need at least 3 views, got {}", dataset.views.len());
+        return Err(Error::InsufficientData {
+            need: 3,
+            got: dataset.views.len(),
+        });
     }
 
     let target_points_2d: Vec<Vec<Pt2>> = dataset
@@ -159,7 +162,7 @@ pub fn estimate_intrinsics_iterative(
         .iter()
         .zip(&target_points_2d)
         .map(|(v, target)| HomographySolver::dlt(target, &v.obs.points_2d))
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, Error>>()?;
 
     let mut current_intrinsics =
         PlanarIntrinsicsLinearInit::from_homographies(&homographies_iter0)?;
@@ -176,9 +179,7 @@ pub fn estimate_intrinsics_iterative(
 
     for _iter in 0..opts.iterations {
         let k_mtx = current_intrinsics.k_matrix();
-        let k_inv = k_mtx
-            .try_inverse()
-            .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
+        let k_inv = k_mtx.try_inverse().ok_or(Error::Singular)?;
 
         let homographies_for_distortion: Vec<Mat3> = dataset
             .views
@@ -193,7 +194,7 @@ pub fn estimate_intrinsics_iterative(
                 );
                 HomographySolver::dlt(target, &undistorted_pixels)
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>, Error>>()?;
 
         let dist_views: Vec<DistortionView> = dataset
             .views
@@ -218,7 +219,7 @@ pub fn estimate_intrinsics_iterative(
                 );
                 HomographySolver::dlt(target, &undistorted_pixels)
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>, Error>>()?;
 
         current_intrinsics =
             PlanarIntrinsicsLinearInit::from_homographies(&undistorted_homographies)?;

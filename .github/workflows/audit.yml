@@ -15,4 +15,10 @@ jobs:
       - uses: actions-rust-lang/audit@v1
         with:
           createIssues: false
+          # RUSTSEC-2024-0436: the `paste` crate is unmaintained (INFO-level
+          # advisory, not a vulnerability). It is pulled in transitively as a
+          # proc-macro (build-time only, zero runtime exposure) via
+          # gemm -> faer -> tiny-solver, simba -> nalgebra, and rav1e -> image.
+          # Upstream crates will eventually migrate to `pastey`; no direct
+          # action required on our side.
           ignore: RUSTSEC-2024-0436

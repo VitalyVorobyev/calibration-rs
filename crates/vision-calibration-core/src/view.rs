@@ -1,7 +1,6 @@
 //! View-related structures and functions.
 
-use crate::CorrespondenceView;
-use anyhow::{Result, ensure};
+use crate::{CorrespondenceView, Error};
 use serde::{Deserialize, Serialize};
 
 /// Single-camera observation view with attached metadata.
@@ -64,16 +63,24 @@ impl<Meta> RigDataset<Meta> {
     }
 
     /// Construct a rig dataset and validate per-view camera counts.
-    pub fn new(views: Vec<RigView<Meta>>, num_cameras: usize) -> Result<Self> {
-        ensure!(!views.is_empty(), "need at least one view");
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] if `views` is empty or any view has the
+    /// wrong number of cameras.
+    pub fn new(views: Vec<RigView<Meta>>, num_cameras: usize) -> Result<Self, Error> {
+        if views.is_empty() {
+            return Err(Error::invalid_input("need at least one view"));
+        }
         for (idx, view) in views.iter().enumerate() {
-            ensure!(
-                view.obs.cameras.len() == num_cameras,
-                "view {} has {} cameras, expected {}",
-                idx,
-                view.obs.cameras.len(),
-                num_cameras
-            );
+            if view.obs.cameras.len() != num_cameras {
+                return Err(Error::invalid_input(format!(
+                    "view {} has {} cameras, expected {}",
+                    idx,
+                    view.obs.cameras.len(),
+                    num_cameras
+                )));
+            }
         }
         Ok(Self { num_cameras, views })
     }
@@ -94,14 +101,23 @@ pub struct PlanarDataset {
 
 impl PlanarDataset {
     /// Construct a planar dataset and validate basic cardinality constraints.
-    pub fn new(views: Vec<View<NoMeta>>) -> Result<Self> {
-        ensure!(!views.is_empty(), "need at least one view for calibration");
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if `views` is empty or any view has
+    /// fewer than 4 point correspondences.
+    pub fn new(views: Vec<View<NoMeta>>) -> Result<Self, Error> {
+        if views.is_empty() {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
+        }
         for (i, view) in views.iter().enumerate() {
-            ensure!(
-                view.obs.len() >= 4,
-                "view {} has too few points (need >=4)",
-                i
-            );
+            if view.obs.len() < 4 {
+                return Err(Error::invalid_input(format!(
+                    "view {} has too few points (need >=4, got {})",
+                    i,
+                    view.obs.len()
+                )));
+            }
         }
         Ok(Self { views })
     }

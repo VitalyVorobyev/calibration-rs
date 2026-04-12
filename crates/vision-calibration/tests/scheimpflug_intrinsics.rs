@@ -206,7 +206,7 @@ fn public_api_rejects_too_few_views() {
     let dataset = PlanarDataset::new(views).expect("dataset with 2 views");
     let err = run_pipeline(&dataset, ScheimpflugIntrinsicsConfig::default())
         .expect_err("expected validation error");
-    assert!(err.to_string().contains("need at least 3 views"));
+    assert!(err.to_string().contains("need 3"));
 }
 
 #[test]

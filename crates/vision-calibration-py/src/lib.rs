@@ -5,6 +5,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use vision_calibration::session::{CalibrationSession, ProblemType};
 
+mod validation;
+use validation::{reject_non_finite, value_err};
+
 fn runtime_err(message: impl std::fmt::Display) -> PyErr {
     PyRuntimeError::new_err(message.to_string())
 }
@@ -39,20 +42,25 @@ where
     P::Input: DeserializeOwned,
     P::Config: DeserializeOwned,
     P::Export: Serialize,
-    F: FnOnce(&mut CalibrationSession<P>) -> anyhow::Result<()>,
+    F: FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
 {
+    reject_non_finite("input", input)?;
+    if let Some(cfg) = config {
+        reject_non_finite("config", cfg)?;
+    }
+
     let input: P::Input = parse_payload(input, "input")?;
     let config: Option<P::Config> = parse_optional_payload(config, "config")?;
 
     let mut session = CalibrationSession::<P>::new();
     session
         .set_input(input)
-        .map_err(|err| runtime_err(format!("failed to set input: {err}")))?;
+        .map_err(|err| value_err(format!("invalid input: {err}")))?;
 
     if let Some(cfg) = config {
         session
             .set_config(cfg)
-            .map_err(|err| runtime_err(format!("failed to set config: {err}")))?;
+            .map_err(|err| value_err(format!("invalid config: {err}")))?;
     }
 
     run_fn(&mut session).map_err(|err| runtime_err(format!("calibration failed: {err}")))?;

@@ -137,7 +137,7 @@ fn synthetic_laserline_calibration_smoke_test() {
                 target_view,
                 LaserlineMeta {
                     laser_pixels,
-                    laser_weights: None,
+                    laser_weights: Vec::new(),
                 },
             ));
             used_poses.push(*pose);
@@ -354,7 +354,7 @@ fn synthetic_laserline_line_dist_normalized_converges() {
                 target_view,
                 LaserlineMeta {
                     laser_pixels,
-                    laser_weights: None,
+                    laser_weights: Vec::new(),
                 },
             ));
             used_poses.push(*pose);
@@ -572,7 +572,7 @@ fn compare_point_plane_vs_line_dist() {
                 target_view,
                 LaserlineMeta {
                     laser_pixels,
-                    laser_weights: None,
+                    laser_weights: Vec::new(),
                 },
             ));
             used_poses.push(*pose);

@@ -1,6 +1,6 @@
 //! Step functions for single laserline device calibration.
 
-use anyhow::{Context, Result, anyhow};
+use crate::Error;
 use vision_calibration_core::{
     Camera, CorrespondenceView, FxFyCxCySkew, Iso3, NoMeta, Pinhole, PlanarDataset, Pt2,
     SensorModel, View,
@@ -49,30 +49,27 @@ fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
 
 fn planar_dataset_from_input(
     input: &[vision_calibration_optim::LaserlineView],
-) -> Result<PlanarDataset> {
+) -> Result<PlanarDataset, Error> {
     let views: Vec<View<NoMeta>> = input
         .iter()
         .map(|view| View::without_meta(view.obs.clone()))
         .collect();
-    PlanarDataset::new(views)
+    PlanarDataset::new(views).map_err(Error::Core)
 }
 
 fn estimate_poses(
     input: &[vision_calibration_optim::LaserlineView],
     intrinsics: &FxFyCxCySkew<vision_calibration_core::Real>,
-) -> Result<Vec<Iso3>> {
+) -> Result<Vec<Iso3>, Error> {
     let k_matrix = intrinsics.k_matrix();
     let mut poses = Vec::with_capacity(input.len());
     for (idx, view) in input.iter().enumerate() {
         let (board_2d, pixel_2d) = board_and_pixel_points(&view.obs);
-        let h = dlt_homography(&board_2d, &pixel_2d).with_context(|| {
-            format!(
-                "failed to compute homography for view {} (need >=4 well-conditioned points)",
-                idx
-            )
+        let h = dlt_homography(&board_2d, &pixel_2d).map_err(|e| {
+            Error::numerical(format!("failed to compute homography for view {idx}: {e}"))
         })?;
         let pose = estimate_planar_pose_from_h(&k_matrix, &h)
-            .with_context(|| format!("failed to recover pose for view {}", idx))?;
+            .map_err(|e| Error::numerical(format!("failed to recover pose for view {idx}: {e}")))?;
         poses.push(pose);
     }
     Ok(poses)
@@ -88,7 +85,7 @@ fn linear_plane_init<Sm>(
         FxFyCxCySkew<vision_calibration_core::Real>,
     >,
     poses: &[Iso3],
-) -> Result<(vision_calibration_optim::LaserPlane, f64)>
+) -> Result<(vision_calibration_optim::LaserPlane, f64), Error>
 where
     Sm: SensorModel<vision_calibration_core::Real>,
 {
@@ -101,8 +98,8 @@ where
         })
         .collect();
 
-    let estimate =
-        LaserlinePlaneSolver::from_views(&views, camera).context("laser plane init failed")?;
+    let estimate = LaserlinePlaneSolver::from_views(&views, camera)
+        .map_err(|e| Error::numerical(format!("laser plane init failed: {e}")))?;
     let plane =
         vision_calibration_optim::LaserPlane::new(estimate.normal.into_inner(), estimate.distance);
     Ok((plane, estimate.rmse))
@@ -128,7 +125,7 @@ fn update_state_with_stats(
 pub fn step_init(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     opts: Option<DeviceInitOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -140,9 +137,9 @@ pub fn step_init(
 
     let planar_dataset = planar_dataset_from_input(input)?;
     let camera_init = estimate_intrinsics_iterative(&planar_dataset, init_opts)
-        .context("intrinsics initialization failed")?;
+        .map_err(|e| Error::numerical(format!("intrinsics initialization failed: {e}")))?;
 
-    let poses = estimate_poses(input, &camera_init.k).context("pose initialization failed")?;
+    let poses = estimate_poses(input, &camera_init.k)?;
 
     let sensor = session.config.init.sensor_init;
     let camera = Camera::new(Pinhole, camera_init.dist, sensor.compile(), camera_init.k);
@@ -171,7 +168,7 @@ pub fn step_init(
 pub fn step_optimize(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     opts: Option<DeviceOptimizeOptions>,
-) -> Result<()> {
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -179,7 +176,7 @@ pub fn step_optimize(
         .state
         .initial_params
         .clone()
-        .ok_or_else(|| anyhow!("initialization required before optimization"))?;
+        .ok_or_else(|| Error::not_available("initial params (call step_init first)"))?;
 
     let opts = opts.unwrap_or_default();
     let solve_opts = session.config.solve_opts();
@@ -191,11 +188,9 @@ pub fn step_optimize(
         backend_opts.verbosity = verbosity;
     }
 
-    let result = optimize_laserline(input, &initial, &solve_opts, &backend_opts)
-        .context("laserline optimization failed")?;
+    let result = optimize_laserline(input, &initial, &solve_opts, &backend_opts)?;
 
-    let stats = compute_laserline_stats(input, &result.params, solve_opts.laser_residual_type)
-        .context("failed to compute laserline stats")?;
+    let stats = compute_laserline_stats(input, &result.params, solve_opts.laser_residual_type)?;
 
     update_state_with_stats(session, &stats, result.report.final_cost);
 
@@ -220,7 +215,7 @@ pub fn step_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     config: Option<LaserlineDeviceConfig>,
-) -> Result<()> {
+) -> Result<(), Error> {
     if let Some(cfg) = config {
         session.set_config(cfg)?;
     }

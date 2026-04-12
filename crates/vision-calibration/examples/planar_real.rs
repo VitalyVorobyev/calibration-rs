@@ -229,5 +229,5 @@ fn detection_to_view(detection: ChessboardDetectionResult) -> Result<Corresponde
         "Insufficient corners after grid filtering"
     );
 
-    CorrespondenceView::new(points_3d, points_2d)
+    CorrespondenceView::new(points_3d, points_2d).map_err(|e| anyhow::anyhow!("{e}"))
 }

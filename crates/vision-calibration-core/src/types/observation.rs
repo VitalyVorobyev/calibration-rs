@@ -3,8 +3,7 @@
 //! This module provides canonical data structures for storing 2D-3D point
 //! correspondences used throughout the calibration pipeline.
 
-use crate::{Pt2, Pt3};
-use anyhow::{Result, ensure};
+use crate::{Error, Pt2, Pt3};
 use serde::{Deserialize, Serialize};
 
 /// A single view containing 2D-3D point correspondences.
@@ -16,7 +15,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// - `points_3d`: 3D points in world/target coordinates
 /// - `points_2d`: Corresponding 2D pixel observations
-/// - `weights`: Optional per-point weights for robust estimation
+/// - `weights`: Per-point weights for robust estimation.
+///   An empty vec means "unweighted" (all weights default to 1.0).
 ///
 /// # Example
 ///
@@ -32,14 +32,52 @@ use serde::{Deserialize, Serialize};
 /// assert_eq!(view.weight(0), 1.0); // default weight
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "CorrespondenceViewRaw")]
 pub struct CorrespondenceView {
     /// 3D points in world/target frame.
     pub points_3d: Vec<Pt3>,
     /// Corresponding 2D pixel observations.
     pub points_2d: Vec<Pt2>,
-    /// Optional per-point weights (default: 1.0 for all points).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub weights: Option<Vec<f64>>,
+    /// Per-point weights (empty = unweighted, all default to 1.0).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub weights: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+struct CorrespondenceViewRaw {
+    points_3d: Vec<Pt3>,
+    points_2d: Vec<Pt2>,
+    #[serde(default)]
+    weights: Vec<f64>,
+}
+
+impl TryFrom<CorrespondenceViewRaw> for CorrespondenceView {
+    type Error = String;
+
+    fn try_from(raw: CorrespondenceViewRaw) -> Result<Self, Self::Error> {
+        if raw.points_3d.len() != raw.points_2d.len() {
+            return Err(format!(
+                "3D / 2D point counts must match: {} vs {}",
+                raw.points_3d.len(),
+                raw.points_2d.len()
+            ));
+        }
+        if !raw.weights.is_empty() && raw.weights.len() != raw.points_3d.len() {
+            return Err(format!(
+                "weight count must match point count: {} vs {}",
+                raw.weights.len(),
+                raw.points_3d.len()
+            ));
+        }
+        if !raw.weights.iter().all(|w| *w >= 0.0) {
+            return Err("weights must be non-negative".to_string());
+        }
+        Ok(Self {
+            points_3d: raw.points_3d,
+            points_2d: raw.points_2d,
+            weights: raw.weights,
+        })
+    }
 }
 
 impl CorrespondenceView {
@@ -47,18 +85,19 @@ impl CorrespondenceView {
     ///
     /// # Errors
     ///
-    /// Returns an error if the 3D and 2D point counts don't match.
-    pub fn new(points_3d: Vec<Pt3>, points_2d: Vec<Pt2>) -> Result<Self> {
-        ensure!(
-            points_3d.len() == points_2d.len(),
-            "3D / 2D point counts must match: {} vs {}",
-            points_3d.len(),
-            points_2d.len()
-        );
+    /// Returns [`Error::InvalidInput`] if the 3D and 2D point counts don't match.
+    pub fn new(points_3d: Vec<Pt3>, points_2d: Vec<Pt2>) -> Result<Self, Error> {
+        if points_3d.len() != points_2d.len() {
+            return Err(Error::invalid_input(format!(
+                "3D / 2D point counts must match: {} vs {}",
+                points_3d.len(),
+                points_2d.len()
+            )));
+        }
         Ok(Self {
             points_3d,
             points_2d,
-            weights: None,
+            weights: Vec::new(),
         })
     }
 
@@ -76,32 +115,33 @@ impl CorrespondenceView {
     ///
     /// # Errors
     ///
-    /// Returns an error if counts don't match or weights are negative.
+    /// Returns [`Error::InvalidInput`] if counts don't match or any weight is negative.
     pub fn new_with_weights(
         points_3d: Vec<Pt3>,
         points_2d: Vec<Pt2>,
         weights: Vec<f64>,
-    ) -> Result<Self> {
-        ensure!(
-            points_3d.len() == points_2d.len(),
-            "3D / 2D point counts must match: {} vs {}",
-            points_3d.len(),
-            points_2d.len()
-        );
-        ensure!(
-            weights.len() == points_3d.len(),
-            "weight count must match point count: {} vs {}",
-            weights.len(),
-            points_3d.len()
-        );
-        ensure!(
-            weights.iter().all(|w| *w >= 0.0),
-            "weights must be non-negative"
-        );
+    ) -> Result<Self, Error> {
+        if points_3d.len() != points_2d.len() {
+            return Err(Error::invalid_input(format!(
+                "3D / 2D point counts must match: {} vs {}",
+                points_3d.len(),
+                points_2d.len()
+            )));
+        }
+        if weights.len() != points_3d.len() {
+            return Err(Error::invalid_input(format!(
+                "weight count must match point count: {} vs {}",
+                weights.len(),
+                points_3d.len()
+            )));
+        }
+        if !weights.iter().all(|w| *w >= 0.0) {
+            return Err(Error::invalid_input("weights must be non-negative"));
+        }
         Ok(Self {
             points_3d,
             points_2d,
-            weights: Some(weights),
+            weights,
         })
     }
 
@@ -119,14 +159,14 @@ impl CorrespondenceView {
 
     /// Get the weight for a specific point index.
     ///
-    /// Returns 1.0 if no weights were provided.
+    /// Returns 1.0 if no weights were provided (empty `weights` vec) or if
+    /// `idx` falls outside the weights vector. The out-of-bounds fallback
+    /// guards against direct struct construction with mismatched lengths
+    /// (the field is `pub`); validated constructors and deserialization
+    /// keep `weights.len()` aligned with `points_3d.len()`.
     #[inline]
     pub fn weight(&self, idx: usize) -> f64 {
-        self.weights
-            .as_ref()
-            .and_then(|w| w.get(idx))
-            .copied()
-            .unwrap_or(1.0)
+        self.weights.get(idx).copied().unwrap_or(1.0)
     }
 
     /// Iterate over (3D point, 2D point) pairs.
@@ -255,5 +295,53 @@ mod tests {
         let restored: CorrespondenceView = serde_json::from_str(&json).unwrap();
 
         assert_eq!(restored.len(), view.len());
+    }
+
+    #[test]
+    fn correspondence_view_deserialize_rejects_short_weights() {
+        // JSON payload with weights shorter than points — previously would
+        // bypass new_with_weights validation and panic later in weight(idx).
+        let json = r#"{
+            "points_3d": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            "points_2d": [[320.0, 240.0], [400.0, 240.0]],
+            "weights": [0.5]
+        }"#;
+        let err = serde_json::from_str::<CorrespondenceView>(json).unwrap_err();
+        assert!(err.to_string().contains("weight count"));
+    }
+
+    #[test]
+    fn correspondence_view_deserialize_rejects_negative_weights() {
+        let json = r#"{
+            "points_3d": [[0.0, 0.0, 0.0]],
+            "points_2d": [[320.0, 240.0]],
+            "weights": [-1.0]
+        }"#;
+        let err = serde_json::from_str::<CorrespondenceView>(json).unwrap_err();
+        assert!(err.to_string().contains("non-negative"));
+    }
+
+    #[test]
+    fn correspondence_view_deserialize_rejects_point_mismatch() {
+        let json = r#"{
+            "points_3d": [[0.0, 0.0, 0.0]],
+            "points_2d": [[320.0, 240.0], [400.0, 240.0]]
+        }"#;
+        let err = serde_json::from_str::<CorrespondenceView>(json).unwrap_err();
+        assert!(err.to_string().contains("must match"));
+    }
+
+    #[test]
+    fn correspondence_view_weight_out_of_bounds_does_not_panic() {
+        // Construct directly via public fields to simulate a caller that
+        // bypassed the validated constructors. weight() must not panic.
+        let view = CorrespondenceView {
+            points_3d: vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(1.0, 0.0, 0.0)],
+            points_2d: vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)],
+            weights: vec![0.5], // shorter than points
+        };
+        assert_eq!(view.weight(0), 0.5);
+        assert_eq!(view.weight(1), 1.0); // fallback, not panic
+        assert_eq!(view.weight(99), 1.0);
     }
 }

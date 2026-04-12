@@ -5,8 +5,8 @@
 //! candidate poses that must be disambiguated.
 
 use super::pose_utils::pose_from_points;
+use crate::Error;
 use crate::math::solve_quartic_real;
-use anyhow::Result;
 use nalgebra::Vector3;
 use vision_calibration_core::{FxFyCxCySkew, Iso3, Mat3, Pt2, Pt3, Real};
 
@@ -28,24 +28,22 @@ fn poly_mul_1d(a: &[Real; 5], b: &[Real; 5]) -> [Real; 5] {
 ///
 /// Requires exactly three non-collinear points and intrinsics `k` to
 /// convert pixels into rays. The resulting poses are in `T_C_W` form.
-pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Vec<Iso3>> {
-    if world.len() != image.len() {
-        anyhow::bail!(
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if `world` and `image` are not both
+/// of length 3, or [`Error::Singular`] if the intrinsics `k` are
+/// non-invertible or the points are collinear (quartic has no real roots).
+pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Vec<Iso3>, Error> {
+    if world.len() != image.len() || world.len() != 3 {
+        return Err(Error::invalid_input(format!(
             "invalid number of correspondences: expected 3, got {}",
             world.len().max(image.len())
-        );
-    }
-    if world.len() != 3 {
-        anyhow::bail!(
-            "invalid number of correspondences: expected 3, got {}",
-            world.len()
-        );
+        )));
     }
 
     let kmtx: Mat3 = k.k_matrix();
-    let k_inv = kmtx
-        .try_inverse()
-        .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
+    let k_inv = kmtx.try_inverse().ok_or(Error::Singular)?;
 
     let mut bearings = Vec::with_capacity(3);
     for pi in image {
@@ -58,7 +56,9 @@ pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Vec<I
     let c = (world[0] - world[1]).norm(); // AB
 
     if a <= Real::EPSILON || b <= Real::EPSILON || c <= Real::EPSILON {
-        anyhow::bail!("degenerate 3d point configuration for normalization");
+        return Err(Error::invalid_input(
+            "degenerate 3d point configuration for normalization",
+        ));
     }
 
     let cos_alpha = bearings[1].dot(&bearings[2]);
@@ -99,7 +99,9 @@ pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Vec<I
 
     let roots = solve_quartic_real(coeffs[4], coeffs[3], coeffs[2], coeffs[1], coeffs[0]);
     if roots.is_empty() {
-        anyhow::bail!("failed to solve the P3P polynomial system");
+        return Err(Error::numerical(
+            "failed to solve the P3P polynomial system",
+        ));
     }
 
     let mut solutions = Vec::new();
@@ -135,7 +137,9 @@ pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Vec<I
     }
 
     if solutions.is_empty() {
-        anyhow::bail!("failed to solve the P3P polynomial system");
+        return Err(Error::numerical(
+            "failed to solve the P3P polynomial system",
+        ));
     }
 
     solutions.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));

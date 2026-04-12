@@ -9,7 +9,7 @@
 //! All methods estimate a pose `T_C_W`: transform from world coordinates into
 //! the camera frame.
 
-use anyhow::Result;
+use crate::Error;
 use vision_calibration_core::{FxFyCxCySkew, Iso3, Pt2, Pt3, RansacOptions, Real};
 
 mod dlt;
@@ -38,7 +38,11 @@ impl PnpSolver {
     /// `world` are 3D points in world coordinates, `image` are their pixel
     /// positions, and `k` are the camera intrinsics. Uses a normalized DLT
     /// solve and projects the rotation onto SO(3).
-    pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3> {
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if fewer than 6 correspondences are given,
+    /// or [`Error::Singular`] if normalization or SVD fails.
+    pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3, Error> {
         dlt::dlt(world, image, k)
     }
 
@@ -46,7 +50,12 @@ impl PnpSolver {
     ///
     /// Requires exactly three non-collinear points and intrinsics `k` to
     /// convert pixels into rays. The resulting poses are in `T_C_W` form.
-    pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Vec<Iso3>> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] if the correspondence count is not exactly 3,
+    /// or [`Error::Singular`] if the intrinsics are not invertible.
+    pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Vec<Iso3>, Error> {
         p3p::p3p(world, image, k)
     }
 
@@ -54,7 +63,12 @@ impl PnpSolver {
     ///
     /// Uses a control-point formulation derived from the covariance of the
     /// 3D points. Returns a single pose estimate in `T_C_W` form.
-    pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if fewer than 4 correspondences are given,
+    /// or [`Error::Singular`] if SVD fails.
+    pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3, Error> {
         epnp::epnp(world, image, k)
     }
 
@@ -62,12 +76,17 @@ impl PnpSolver {
     ///
     /// Returns the best pose and inlier indices. The residual is pixel
     /// reprojection error using the provided intrinsics.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if fewer than 6 correspondences are given,
+    /// or [`Error::Numerical`] if RANSAC fails to find a consensus.
     pub fn dlt_ransac(
         world: &[Pt3],
         image: &[Pt2],
         k: &FxFyCxCySkew<Real>,
         opts: &RansacOptions,
-    ) -> Result<(Iso3, Vec<usize>)> {
+    ) -> Result<(Iso3, Vec<usize>), Error> {
         ransac::dlt_ransac(world, image, k, opts)
     }
 }

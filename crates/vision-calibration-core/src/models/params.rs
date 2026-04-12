@@ -244,7 +244,7 @@ mod tests {
                 assert!((params.p2 - 0.0).abs() < 1e-12);
                 assert_eq!(params.iters, 4);
             }
-            _ => panic!("expected BrownConrady5 params"),
+            DistortionParams::None => panic!("expected BrownConrady5 params, got None"),
         }
     }
 }

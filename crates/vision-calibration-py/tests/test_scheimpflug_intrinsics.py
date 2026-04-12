@@ -108,27 +108,31 @@ class ScheimpflugIntrinsicsTest(unittest.TestCase):
         self.assertIsInstance(result.camera, vc.PinholeBrownConradyScheimpflugCamera)
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
 
-    def test_invalid_config_maps_to_set_config_error(self) -> None:
-        with self.assertRaises(RuntimeError) as ctx:
+    def test_invalid_config_maps_to_value_error(self) -> None:
+        # Per R-07: invalid config from Python surfaces as ValueError, not
+        # RuntimeError. RuntimeError is reserved for genuine runtime failures
+        # (solver divergence, export/pythonize errors).
+        with self.assertRaises(ValueError) as ctx:
             vc.run_scheimpflug_intrinsics(
                 _make_dataset(),
                 vc.ScheimpflugIntrinsicsCalibrationConfig(max_iters=0),
             )
         message = str(ctx.exception)
-        self.assertIn("failed to set config", message)
+        self.assertIn("invalid config", message)
         self.assertIn("max_iters must be positive", message)
 
-    def test_invalid_input_maps_to_set_input_error(self) -> None:
+    def test_invalid_input_maps_to_value_error(self) -> None:
+        # Per R-07: invalid input (too few views) surfaces as ValueError.
         dataset = _make_dataset()
         dataset.views = dataset.views[:2]
-        with self.assertRaises(RuntimeError) as ctx:
+        with self.assertRaises(ValueError) as ctx:
             vc.run_scheimpflug_intrinsics(
                 dataset,
                 vc.ScheimpflugIntrinsicsCalibrationConfig(),
             )
         message = str(ctx.exception)
-        self.assertIn("failed to set input", message)
-        self.assertIn("at least 3 views", message)
+        self.assertIn("invalid input", message)
+        self.assertIn("insufficient data", message)
 
     def test_high_level_api_rejects_mapping_inputs(self) -> None:
         with self.assertRaises(TypeError) as cfg_ctx:

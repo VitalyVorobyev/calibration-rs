@@ -3,7 +3,7 @@
 //! This module provides the `RigHandeyeProblem` type that implements
 //! the v2 session API's `ProblemType` trait.
 
-use anyhow::{Result, ensure};
+use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{Iso3, PinholeCamera};
 use vision_calibration_optim::{
@@ -271,65 +271,75 @@ impl ProblemType for RigHandeyeProblem {
         1
     }
 
-    fn validate_input(input: &Self::Input) -> Result<()> {
-        ensure!(
-            input.num_views() >= 3,
-            "need at least 3 views for calibration (got {})",
-            input.num_views()
-        );
+    fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        if input.num_views() < 3 {
+            return Err(Error::InsufficientData {
+                need: 3,
+                got: input.num_views(),
+            });
+        }
 
-        ensure!(
-            input.num_cameras >= 2,
-            "need at least 2 cameras for rig calibration (got {})",
-            input.num_cameras
-        );
+        if input.num_cameras < 2 {
+            return Err(Error::InsufficientData {
+                need: 2,
+                got: input.num_cameras,
+            });
+        }
 
         // Check each view has correct number of cameras and robot pose
         for (i, view) in input.views.iter().enumerate() {
-            ensure!(
-                view.obs.cameras.len() == input.num_cameras,
-                "view {} has {} cameras, expected {}",
-                i,
-                view.obs.cameras.len(),
-                input.num_cameras
-            );
+            if view.obs.cameras.len() != input.num_cameras {
+                return Err(Error::invalid_input(format!(
+                    "view {} has {} cameras, expected {}",
+                    i,
+                    view.obs.cameras.len(),
+                    input.num_cameras
+                )));
+            }
 
             // Check at least one camera has observations in this view
             let has_obs = view.obs.cameras.iter().any(|c| c.is_some());
-            ensure!(has_obs, "view {} has no observations from any camera", i);
+            if !has_obs {
+                return Err(Error::invalid_input(format!(
+                    "view {} has no observations from any camera",
+                    i
+                )));
+            }
         }
 
         Ok(())
     }
 
-    fn validate_config(config: &Self::Config) -> Result<()> {
-        ensure!(config.solver.max_iters > 0, "max_iters must be positive");
-        ensure!(
-            config.intrinsics.init_iterations > 0,
-            "intrinsics_init_iterations must be positive"
-        );
-        ensure!(
-            config.handeye_init.min_motion_angle_deg > 0.0,
-            "min_motion_angle_deg must be positive"
-        );
-        ensure!(
-            config.handeye_ba.robot_rot_sigma > 0.0,
-            "robot_rot_sigma must be positive"
-        );
-        ensure!(
-            config.handeye_ba.robot_trans_sigma > 0.0,
-            "robot_trans_sigma must be positive"
-        );
+    fn validate_config(config: &Self::Config) -> Result<(), Error> {
+        if config.solver.max_iters == 0 {
+            return Err(Error::invalid_input("max_iters must be positive"));
+        }
+        if config.intrinsics.init_iterations == 0 {
+            return Err(Error::invalid_input(
+                "intrinsics_init_iterations must be positive",
+            ));
+        }
+        if config.handeye_init.min_motion_angle_deg <= 0.0 {
+            return Err(Error::invalid_input(
+                "min_motion_angle_deg must be positive",
+            ));
+        }
+        if config.handeye_ba.robot_rot_sigma <= 0.0 {
+            return Err(Error::invalid_input("robot_rot_sigma must be positive"));
+        }
+        if config.handeye_ba.robot_trans_sigma <= 0.0 {
+            return Err(Error::invalid_input("robot_trans_sigma must be positive"));
+        }
         Ok(())
     }
 
-    fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<()> {
-        ensure!(
-            config.rig.reference_camera_idx < input.num_cameras,
-            "reference_camera_idx {} is out of range (num_cameras = {})",
-            config.rig.reference_camera_idx,
-            input.num_cameras
-        );
+    fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
+        if config.rig.reference_camera_idx >= input.num_cameras {
+            return Err(Error::invalid_input(format!(
+                "reference_camera_idx {} is out of range (num_cameras = {})",
+                config.rig.reference_camera_idx, input.num_cameras
+            )));
+        }
         Ok(())
     }
 
@@ -341,7 +351,7 @@ impl ProblemType for RigHandeyeProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export> {
+    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export, Error> {
         let cam_se3_rig: Vec<Iso3> = output
             .params
             .cam_to_rig
@@ -354,7 +364,7 @@ impl ProblemType for RigHandeyeProblem {
             .target_poses
             .first()
             .copied()
-            .ok_or_else(|| anyhow::anyhow!("no target pose in output"))?;
+            .ok_or_else(|| Error::invalid_input("no target pose in output"))?;
 
         let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) = match config
             .handeye_init
@@ -441,7 +451,7 @@ mod tests {
         let input = RigDataset::new(views, 1).unwrap();
         let result = RigHandeyeProblem::validate_input(&input);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("2 cameras"));
+        assert!(result.unwrap_err().to_string().contains("need 2"));
     }
 
     #[test]

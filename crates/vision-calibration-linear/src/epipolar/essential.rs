@@ -4,8 +4,10 @@
 //! point correspondences in normalized coordinates.
 
 use super::polynomial::build_polynomial_system;
-use crate::math::{mat3_from_svd_row, normalize_points_2d};
-use anyhow::Result;
+use crate::{
+    Error,
+    math::{mat3_from_svd_row, normalize_points_2d},
+};
 use nalgebra::{DMatrix, linalg::Schur};
 use vision_calibration_core::{Mat3, Pt2, Real};
 
@@ -15,22 +17,23 @@ use vision_calibration_core::{Mat3, Pt2, Real};
 /// Returns up to ten candidate essential matrices that satisfy the cubic
 /// constraints; choose the physically valid one by cheirality or by
 /// reprojection error against additional correspondences.
-pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
-    if pts1.len() != pts2.len() {
-        anyhow::bail!(
-            "Point count mismatch: expected {}, got {}",
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if `pts1` and `pts2` are not both of
+/// length 5, or [`Error::Singular`] if point normalization or the 10×10
+/// polynomial eigensolve fails on a degenerate configuration.
+pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Error> {
+    if pts1.len() != pts2.len() || pts1.len() != 5 {
+        return Err(Error::invalid_input(format!(
+            "Point count mismatch: expected 5, pts1 has {}, pts2 has {}",
             pts1.len(),
             pts2.len()
-        );
-    }
-    if pts1.len() != 5 {
-        anyhow::bail!("Point count mismatch: expected 5, got {}", pts1.len());
+        )));
     }
 
-    let (pts1_n, t1) = normalize_points_2d(pts1)
-        .ok_or(anyhow::anyhow!("SVD failed during point normalization"))?;
-    let (pts2_n, t2) = normalize_points_2d(pts2)
-        .ok_or(anyhow::anyhow!("SVD failed during point normalization"))?;
+    let (pts1_n, t1) = normalize_points_2d(pts1).ok_or(Error::Singular)?;
+    let (pts2_n, t2) = normalize_points_2d(pts2).ok_or(Error::Singular)?;
 
     let mut a = DMatrix::<Real>::zeros(5, 9);
     for (i, (p1, p2)) in pts1_n.iter().zip(pts2_n.iter()).enumerate() {
@@ -60,9 +63,9 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     }
 
     let svd = a_work.svd(true, true);
-    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let v_t = svd.v_t.ok_or(Error::Singular)?;
     if v_t.nrows() < 4 {
-        anyhow::bail!("SVD failed");
+        return Err(Error::Singular);
     }
 
     let e1 = mat3_from_svd_row(&v_t, v_t.nrows() - 4);
@@ -83,9 +86,7 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     let m2 = m.view((0, 10), (10, 10)).into_owned();
 
     let m1_lu = m1.lu();
-    let c = m1_lu
-        .solve(&(-m2))
-        .ok_or(anyhow::anyhow!("Polynomial solve failed"))?;
+    let c = m1_lu.solve(&(-m2)).ok_or(Error::Singular)?;
 
     let mut action = DMatrix::<Real>::zeros(10, 10);
     let deg3_rows = [2, 4, 5, 7, 8, 9];
@@ -115,7 +116,7 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
             a_eval[(i, i)] -= z;
         }
         let svd = a_eval.svd(true, true);
-        let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+        let v_t = svd.v_t.ok_or(Error::Singular)?;
         let vec = v_t.row(v_t.nrows() - 1);
 
         let v9 = vec[9];
@@ -134,7 +135,7 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     }
 
     if solutions.is_empty() {
-        anyhow::bail!("Polynomial solve failed");
+        return Err(Error::numerical("5-point polynomial solve failed"));
     }
 
     solutions.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));

@@ -2,7 +2,7 @@
 //!
 //! Uses a DLT formulation on the camera projection matrices and image points.
 
-use anyhow::Result;
+use crate::Error;
 use nalgebra::DMatrix;
 use vision_calibration_core::{Pt2, Pt3, Real};
 
@@ -13,16 +13,26 @@ use crate::camera_matrix::Mat34;
 /// `cameras` are projection matrices `P_i`, and `points` are their corresponding
 /// pixel coordinates. The returned 3D point is in the same world frame as the
 /// camera matrices.
-pub fn triangulate_point_linear(cameras: &[Mat34], points: &[Pt2]) -> Result<Pt3> {
+///
+/// # Errors
+///
+/// Returns [`Error::InsufficientData`] if fewer than 2 views are given,
+/// [`Error::InvalidInput`] if camera and point counts differ,
+/// [`Error::Singular`] if SVD fails, or [`Error::Numerical`] if the
+/// triangulated homogeneous weight is zero.
+pub fn triangulate_point_linear(cameras: &[Mat34], points: &[Pt2]) -> Result<Pt3, Error> {
     if cameras.len() < 2 {
-        anyhow::bail!("need at least 2 views, got {}", cameras.len());
+        return Err(Error::InsufficientData {
+            need: 2,
+            got: cameras.len(),
+        });
     }
     if cameras.len() != points.len() {
-        anyhow::bail!(
+        return Err(Error::invalid_input(format!(
             "mismatched number of cameras ({}) and points ({})",
             cameras.len(),
             points.len()
-        );
+        )));
     }
 
     let mut a = DMatrix::<Real>::zeros(2 * cameras.len(), 4);
@@ -42,14 +52,12 @@ pub fn triangulate_point_linear(cameras: &[Mat34], points: &[Pt2]) -> Result<Pt3
     }
 
     let svd = a.svd(true, true);
-    let v_t = svd
-        .v_t
-        .ok_or_else(|| anyhow::anyhow!("svd failed during triangulation"))?;
+    let v_t = svd.v_t.ok_or(Error::Singular)?;
     let x_h = v_t.row(v_t.nrows() - 1);
 
     let w = x_h[3];
     if w.abs() <= Real::EPSILON {
-        anyhow::bail!("triangulation produced an invalid point");
+        return Err(Error::numerical("triangulation produced an invalid point"));
     }
 
     let x = x_h[0] / w;

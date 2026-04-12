@@ -3,7 +3,7 @@
 //! This module provides the `PlanarIntrinsicsProblem` type that implements
 //! the session API's `ProblemType` trait.
 
-use anyhow::{Result, ensure};
+use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{DistortionFixMask, IntrinsicsFixMask, PlanarDataset};
 use vision_calibration_linear::prelude::*;
@@ -178,31 +178,34 @@ impl ProblemType for PlanarIntrinsicsProblem {
         1
     }
 
-    fn validate_input(input: &Self::Input) -> Result<()> {
-        ensure!(
-            input.num_views() >= 3,
-            "need at least 3 views for calibration (got {})",
-            input.num_views()
-        );
+    fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        if input.num_views() < 3 {
+            return Err(Error::InsufficientData {
+                need: 3,
+                got: input.num_views(),
+            });
+        }
 
         for (i, view) in input.views.iter().enumerate() {
-            ensure!(
-                view.obs.len() >= 4,
-                "view {} has too few points (need >= 4 for homography, got {})",
-                i,
-                view.obs.len()
-            );
+            if view.obs.len() < 4 {
+                return Err(Error::invalid_input(format!(
+                    "view {} has too few points (need >= 4 for homography, got {})",
+                    i,
+                    view.obs.len()
+                )));
+            }
         }
 
         Ok(())
     }
 
-    fn validate_config(config: &Self::Config) -> Result<()> {
-        ensure!(config.max_iters > 0, "max_iters must be positive");
-        ensure!(
-            config.init_iterations > 0,
-            "init_iterations must be positive"
-        );
+    fn validate_config(config: &Self::Config) -> Result<(), Error> {
+        if config.max_iters == 0 {
+            return Err(Error::invalid_input("max_iters must be positive"));
+        }
+        if config.init_iterations == 0 {
+            return Err(Error::invalid_input("init_iterations must be positive"));
+        }
         Ok(())
     }
 
@@ -216,7 +219,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
+    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
         Ok(PlanarIntrinsicsExport {
             params: output.params.clone(),
             report: output.report.clone(),
@@ -249,7 +252,7 @@ mod tests {
                         Pt2::new(200.0, 200.0),
                         Pt2::new(100.0, 200.0),
                     ],
-                    weights: None,
+                    weights: Vec::new(),
                 },
                 NoMeta {},
             )
@@ -320,7 +323,14 @@ mod tests {
             vision_calibration_optim::RobustLoss::Huber { scale } => {
                 assert!((scale - 2.5).abs() < 1e-12);
             }
-            _ => panic!("wrong loss type"),
+            vision_calibration_optim::RobustLoss::None
+            | vision_calibration_optim::RobustLoss::Cauchy { .. }
+            | vision_calibration_optim::RobustLoss::Arctan { .. } => {
+                panic!(
+                    "expected Huber loss after roundtrip, got {:?}",
+                    restored.robust_loss
+                );
+            }
         }
     }
 
@@ -361,7 +371,11 @@ mod tests {
             vision_calibration_optim::RobustLoss::Cauchy { scale } => {
                 assert!((scale - 1.0).abs() < 1e-12);
             }
-            _ => panic!("wrong loss type"),
+            vision_calibration_optim::RobustLoss::None
+            | vision_calibration_optim::RobustLoss::Huber { .. }
+            | vision_calibration_optim::RobustLoss::Arctan { .. } => {
+                panic!("expected Cauchy loss, got {:?}", opts.robust_loss);
+            }
         }
     }
 

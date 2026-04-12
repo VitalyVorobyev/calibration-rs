@@ -1,6 +1,6 @@
 //! [`ProblemType`] implementation for Scheimpflug planar intrinsics calibration.
 
-use anyhow::{Result, ensure};
+use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     CameraParams, DistortionFixMask, IntrinsicsFixMask, Iso3, PlanarDataset,
@@ -133,31 +133,34 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
         1
     }
 
-    fn validate_input(input: &Self::Input) -> Result<()> {
-        ensure!(
-            input.num_views() >= 3,
-            "need at least 3 views for scheimpflug calibration (got {})",
-            input.num_views()
-        );
+    fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        if input.num_views() < 3 {
+            return Err(Error::InsufficientData {
+                need: 3,
+                got: input.num_views(),
+            });
+        }
 
         for (view_idx, view) in input.views.iter().enumerate() {
-            ensure!(
-                view.obs.len() >= 4,
-                "view {} has too few points (need >= 4, got {})",
-                view_idx,
-                view.obs.len()
-            );
+            if view.obs.len() < 4 {
+                return Err(Error::invalid_input(format!(
+                    "view {} has too few points (need >= 4, got {})",
+                    view_idx,
+                    view.obs.len()
+                )));
+            }
         }
 
         Ok(())
     }
 
-    fn validate_config(config: &Self::Config) -> Result<()> {
-        ensure!(
-            config.init_iterations > 0,
-            "init_iterations must be positive"
-        );
-        ensure!(config.max_iters > 0, "max_iters must be positive");
+    fn validate_config(config: &Self::Config) -> Result<(), Error> {
+        if config.init_iterations == 0 {
+            return Err(Error::invalid_input("init_iterations must be positive"));
+        }
+        if config.max_iters == 0 {
+            return Err(Error::invalid_input("max_iters must be positive"));
+        }
         Ok(())
     }
 
@@ -169,7 +172,7 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
+    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
         Ok(ScheimpflugIntrinsicsExport {
             params: output.params.clone(),
             report: output.report.clone(),
@@ -203,7 +206,7 @@ mod tests {
                         vision_calibration_core::Pt2::new(200.0, 200.0),
                         vision_calibration_core::Pt2::new(100.0, 200.0),
                     ],
-                    weights: None,
+                    weights: Vec::new(),
                 },
                 NoMeta,
             )
@@ -227,7 +230,7 @@ mod tests {
         let dataset = PlanarDataset::new(vec![view]).expect("single-view dataset");
         let err = ScheimpflugIntrinsicsProblem::validate_input(&dataset)
             .expect_err("should reject less than 3 views");
-        assert!(err.to_string().contains("at least 3 views"));
+        assert!(err.to_string().contains("need 3"));
     }
 
     #[test]

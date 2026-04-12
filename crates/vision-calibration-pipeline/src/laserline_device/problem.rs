@@ -1,6 +1,6 @@
 //! [`ProblemType`] implementation for single laserline device calibration.
 
-use anyhow::{Result, anyhow, ensure};
+use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::ScheimpflugParams;
 use vision_calibration_linear::prelude::*;
@@ -200,42 +200,43 @@ impl ProblemType for LaserlineDeviceProblem {
         "laserline_device_v1"
     }
 
-    fn validate_input(input: &Self::Input) -> Result<()> {
-        ensure!(
-            input.len() >= 3,
-            "need at least 3 views for intrinsics initialization (got {})",
-            input.len()
-        );
+    fn validate_input(input: &Self::Input) -> Result<(), Error> {
+        if input.len() < 3 {
+            return Err(Error::InsufficientData {
+                need: 3,
+                got: input.len(),
+            });
+        }
 
         for (i, view) in input.iter().enumerate() {
-            ensure!(
-                view.obs.len() >= 4,
-                "view {} has too few points (need >= 4 for homography, got {})",
-                i,
-                view.obs.len()
-            );
+            if view.obs.len() < 4 {
+                return Err(Error::invalid_input(format!(
+                    "view {} has too few points (need >= 4 for homography, got {})",
+                    i,
+                    view.obs.len()
+                )));
+            }
             view.meta
                 .validate()
-                .map_err(|e| anyhow!("view {}: {}", i, e))?;
+                .map_err(|e| Error::invalid_input(format!("view {}: {}", i, e)))?;
         }
 
         Ok(())
     }
 
-    fn validate_config(config: &Self::Config) -> Result<()> {
-        ensure!(config.solver.max_iters > 0, "max_iters must be positive");
-        ensure!(
-            config.init.iterations > 0,
-            "init_iterations must be positive"
-        );
-        ensure!(
-            config.optimize.calib_weight > 0.0,
-            "calib_weight must be positive"
-        );
-        ensure!(
-            config.optimize.laser_weight > 0.0,
-            "laser_weight must be positive"
-        );
+    fn validate_config(config: &Self::Config) -> Result<(), Error> {
+        if config.solver.max_iters == 0 {
+            return Err(Error::invalid_input("max_iters must be positive"));
+        }
+        if config.init.iterations == 0 {
+            return Err(Error::invalid_input("init_iterations must be positive"));
+        }
+        if config.optimize.calib_weight <= 0.0 {
+            return Err(Error::invalid_input("calib_weight must be positive"));
+        }
+        if config.optimize.laser_weight <= 0.0 {
+            return Err(Error::invalid_input("laser_weight must be positive"));
+        }
         Ok(())
     }
 
@@ -243,7 +244,7 @@ impl ProblemType for LaserlineDeviceProblem {
         InvalidationPolicy::CLEAR_COMPUTED
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export> {
+    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
         Ok(LaserlineDeviceExport {
             estimate: output.estimate.clone(),
             stats: output.stats.clone(),

@@ -15,6 +15,7 @@ repository.workspace = true
 vision-calibration-core = { workspace = true }
 nalgebra = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 tiny-solver = { workspace = true }
 serde = { workspace = true }
 
@@ -22,6 +23,3 @@ serde = { workspace = true }
 vision-calibration-linear = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-[features]
-default = []
