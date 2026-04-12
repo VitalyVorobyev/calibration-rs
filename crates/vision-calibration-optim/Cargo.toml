@@ -22,6 +22,3 @@ serde = { workspace = true }
 vision-calibration-linear = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-[features]
-default = []
