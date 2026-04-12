@@ -183,6 +183,6 @@ fn detection_to_view_data(
     Ok(CorrespondenceView {
         points_3d,
         points_2d,
-        weights: None,
+        weights: Vec::new(),
     })
 }

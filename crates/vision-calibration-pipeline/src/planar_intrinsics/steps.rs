@@ -281,7 +281,8 @@ pub fn step_filter(
     for (view, pose) in input.views.iter().zip(poses) {
         let mut points_3d = Vec::new();
         let mut points_2d = Vec::new();
-        let mut weights = view.obs.weights.as_ref().map(|_| Vec::<f64>::new());
+        let mut weights: Vec<f64> = Vec::new();
+        let has_weights = !view.obs.weights.is_empty();
 
         for (i, (p3d, p2d)) in view
             .obs
@@ -300,8 +301,8 @@ pub fn step_filter(
             if error <= opts.max_reproj_error {
                 points_3d.push(*p3d);
                 points_2d.push(*p2d);
-                if let Some(ref mut w) = weights {
-                    w.push(view.obs.weight(i));
+                if has_weights {
+                    weights.push(view.obs.weight(i));
                 }
             } else {
                 total_removed += 1;
@@ -309,8 +310,8 @@ pub fn step_filter(
         }
 
         if points_3d.len() >= opts.min_points_per_view {
-            let obs = if let Some(w) = weights {
-                CorrespondenceView::new_with_weights(points_3d, points_2d, w)?
+            let obs = if has_weights {
+                CorrespondenceView::new_with_weights(points_3d, points_2d, weights)?
             } else {
                 CorrespondenceView::new(points_3d, points_2d)?
             };

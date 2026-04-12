@@ -203,7 +203,7 @@ mod tests {
                         vision_calibration_core::Pt2::new(200.0, 200.0),
                         vision_calibration_core::Pt2::new(100.0, 200.0),
                     ],
-                    weights: None,
+                    weights: Vec::new(),
                 },
                 NoMeta,
             )

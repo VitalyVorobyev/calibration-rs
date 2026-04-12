@@ -249,7 +249,7 @@ mod tests {
                         Pt2::new(200.0, 200.0),
                         Pt2::new(100.0, 200.0),
                     ],
-                    weights: None,
+                    weights: Vec::new(),
                 },
                 NoMeta {},
             )

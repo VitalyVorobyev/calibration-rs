@@ -141,7 +141,7 @@ fn make_dataset(sensor: ScheimpflugParams) -> (Vec<LaserlineView>, FxFyCxCySkew<
                 obs,
                 LaserlineMeta {
                     laser_pixels,
-                    laser_weights: None,
+                    laser_weights: Vec::new(),
                 },
             ));
         }

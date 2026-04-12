@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// - `points_3d`: 3D points in world/target coordinates
 /// - `points_2d`: Corresponding 2D pixel observations
-/// - `weights`: Optional per-point weights for robust estimation
+/// - `weights`: Per-point weights for robust estimation.
+///   An empty vec means "unweighted" (all weights default to 1.0).
 ///
 /// # Example
 ///
@@ -37,9 +38,9 @@ pub struct CorrespondenceView {
     pub points_3d: Vec<Pt3>,
     /// Corresponding 2D pixel observations.
     pub points_2d: Vec<Pt2>,
-    /// Optional per-point weights (default: 1.0 for all points).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub weights: Option<Vec<f64>>,
+    /// Per-point weights (empty = unweighted, all default to 1.0).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub weights: Vec<f64>,
 }
 
 impl CorrespondenceView {
@@ -58,7 +59,7 @@ impl CorrespondenceView {
         Ok(Self {
             points_3d,
             points_2d,
-            weights: None,
+            weights: Vec::new(),
         })
     }
 
@@ -101,7 +102,7 @@ impl CorrespondenceView {
         Ok(Self {
             points_3d,
             points_2d,
-            weights: Some(weights),
+            weights,
         })
     }
 
@@ -119,14 +120,14 @@ impl CorrespondenceView {
 
     /// Get the weight for a specific point index.
     ///
-    /// Returns 1.0 if no weights were provided.
+    /// Returns 1.0 if no weights were provided (empty `weights` vec).
     #[inline]
     pub fn weight(&self, idx: usize) -> f64 {
-        self.weights
-            .as_ref()
-            .and_then(|w| w.get(idx))
-            .copied()
-            .unwrap_or(1.0)
+        if self.weights.is_empty() {
+            1.0
+        } else {
+            self.weights[idx]
+        }
     }
 
     /// Iterate over (3D point, 2D point) pairs.

@@ -26,8 +26,9 @@ use vision_calibration_core::{
 pub struct LaserlineMeta {
     /// Laser line pixel observations.
     pub laser_pixels: Vec<Pt2>,
-    /// Optional per-pixel weights.
-    pub laser_weights: Option<Vec<f64>>,
+    /// Per-pixel weights (empty = unweighted, all default to 1.0).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub laser_weights: Vec<f64>,
 }
 
 impl LaserlineMeta {
@@ -37,13 +38,13 @@ impl LaserlineMeta {
             !self.laser_pixels.is_empty(),
             "need at least one laser pixel observation"
         );
-        if let Some(weights) = &self.laser_weights {
+        if !self.laser_weights.is_empty() {
             ensure!(
-                weights.len() == self.laser_pixels.len(),
+                self.laser_weights.len() == self.laser_pixels.len(),
                 "laser weight count must match pixel count"
             );
             ensure!(
-                weights.iter().all(|w| *w >= 0.0),
+                self.laser_weights.iter().all(|w| *w >= 0.0),
                 "laser weights must be non-negative"
             );
         }
@@ -52,7 +53,11 @@ impl LaserlineMeta {
 
     /// Return per-pixel weight, defaulting to `1.0` when absent.
     pub fn laser_weight(&self, idx: usize) -> f64 {
-        self.laser_weights.as_ref().map_or(1.0, |w| w[idx])
+        if self.laser_weights.is_empty() {
+            1.0
+        } else {
+            self.laser_weights[idx]
+        }
     }
 }
 
@@ -529,7 +534,7 @@ fn build_laserline_ir(
             .zip(&view.obs.points_2d)
             .enumerate()
         {
-            let w = view.obs.weights.as_ref().map_or(1.0, |w| w[pt_idx]) * opts.calib_weight;
+            let w = view.obs.weight(pt_idx) * opts.calib_weight;
             ir.add_residual_block(ResidualBlock {
                 params: vec![intrinsics_id, distortion_id, sensor_id, pose_id],
                 loss: opts.calib_loss,
@@ -594,7 +599,7 @@ mod tests {
             .unwrap(),
             LaserlineMeta {
                 laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
-                laser_weights: None,
+                laser_weights: Vec::new(),
             },
         )];
 
@@ -649,7 +654,7 @@ mod tests {
             .unwrap(),
             LaserlineMeta {
                 laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
-                laser_weights: None,
+                laser_weights: Vec::new(),
             },
         )];
 
