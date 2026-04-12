@@ -184,7 +184,7 @@ pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> Rans
         // Draw a random sample of MIN_SAMPLES indices
         all_indices
             .as_slice()
-            .choose_multiple(&mut rng, E::MIN_SAMPLES)
+            .sample(&mut rng, E::MIN_SAMPLES)
             .enumerate()
             .for_each(|(k, &idx)| sample_idxs[k] = idx);
 

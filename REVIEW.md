@@ -107,7 +107,8 @@ allowed) gives a natural window to address the P2 items too.
 - **Severity**: P1
 - **Category**: contracts
 - **Location**: `crates/vision-calibration-core/src/ransac.rs:187`
-- **Status**: todo
+- **Status**: done
+- **Resolution**: Renamed `.choose_multiple(&mut rng, E::MIN_SAMPLES)` to `.sample(&mut rng, E::MIN_SAMPLES)` in `crates/vision-calibration-core/src/ransac.rs`. Sampling semantics are identical; `cargo doc --workspace --no-deps` now produces zero warnings.
 - **Problem**: `rand::prelude::IndexedRandom::choose_multiple` was renamed to `sample` in rand 0.10. The current call `.choose_multiple(&mut rng, E::MIN_SAMPLES)` triggers a `deprecated` warning. CLAUDE.md's Quality Gates block declares `cargo doc --workspace --no-deps` must be warning-free; this finding violates that contract (single warning in `vision-calibration-core`).
 - **Fix**: Rename the call site to `.sample(&mut rng, E::MIN_SAMPLES)`. Verify `cargo doc --workspace --no-deps` produces zero warnings and `cargo test --workspace` still passes (sampling semantics are identical, only the name changed).
 
