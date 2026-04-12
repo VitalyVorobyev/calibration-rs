@@ -273,7 +273,7 @@ pub fn step_intrinsics_optimize(
         Ok(r) => r,
         Err(e) => {
             session.log_failure("intrinsics_optimize", e.to_string());
-            return Err(e);
+            return Err(anyhow::anyhow!("{e}"));
         }
     };
 
@@ -498,7 +498,7 @@ pub fn step_handeye_optimize(
         Ok(r) => r,
         Err(e) => {
             session.log_failure("handeye_optimize", e.to_string());
-            return Err(e);
+            return Err(anyhow::anyhow!("{e}"));
         }
     };
 

@@ -6,7 +6,8 @@
 mod tiny_solver_backend;
 mod tiny_solver_manifolds;
 
-use anyhow::{Result, anyhow};
+use crate::Error;
+use anyhow::Result as AnyhowResult;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -84,7 +85,7 @@ pub trait OptimBackend {
         ir: &ProblemIR,
         initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
-    ) -> Result<BackendSolution>;
+    ) -> AnyhowResult<BackendSolution>;
 }
 
 /// Supported solver backends.
@@ -104,9 +105,11 @@ pub fn solve_with_backend(
     ir: &ProblemIR,
     initial: &HashMap<String, DVector<f64>>,
     opts: &BackendSolveOptions,
-) -> Result<BackendSolution> {
+) -> Result<BackendSolution, Error> {
     match backend {
-        BackendKind::TinySolver => TinySolverBackend.solve(ir, initial, opts),
-        BackendKind::Ceres => Err(anyhow!("Ceres backend not implemented")),
+        BackendKind::TinySolver => TinySolverBackend
+            .solve(ir, initial, opts)
+            .map_err(Error::from),
+        BackendKind::Ceres => Err(Error::numerical("Ceres backend not implemented")),
     }
 }

@@ -3,6 +3,7 @@
 //! Each observation contributes a residual block with two residuals (u, v),
 //! enabling robust loss to operate per point rather than per view.
 
+use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
 use crate::ir::RobustLoss;
 use crate::params::distortion::unpack_distortion;
@@ -11,7 +12,7 @@ use crate::params::pose_se3::se3_dvec_to_iso3;
 use crate::problems::planar_family_shared::{
     PlanarReprojectionFactorModel, PlanarReprojectionIrOptions, build_planar_reprojection_ir,
 };
-use anyhow::{Result, anyhow, ensure};
+use anyhow::{Result as AnyhowResult, anyhow};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, PinholeCamera,
@@ -29,8 +30,10 @@ pub struct PlanarIntrinsicsParams {
 
 impl PlanarIntrinsicsParams {
     /// Construct parameter pack with non-empty pose validation.
-    pub fn new(camera: PinholeCamera, camera_se3_target: Vec<Iso3>) -> Result<Self> {
-        ensure!(!camera_se3_target.is_empty(), "need at least one pose");
+    pub fn new(camera: PinholeCamera, camera_se3_target: Vec<Iso3>) -> Result<Self, Error> {
+        if camera_se3_target.is_empty() {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
+        }
         Ok(Self {
             camera,
             camera_se3_target,
@@ -42,7 +45,7 @@ impl PlanarIntrinsicsParams {
         intrinsics: FxFyCxCySkew<Real>,
         distortion: BrownConrady5<Real>,
         poses: Vec<Iso3>,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         Self::new(make_pinhole_camera(intrinsics, distortion), poses)
     }
 
@@ -50,7 +53,7 @@ impl PlanarIntrinsicsParams {
     pub fn from_intrinsics(
         intrinsics: FxFyCxCySkew<Real>,
         camera_se3_target: Vec<Iso3>,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         Self::new(
             make_pinhole_camera(intrinsics, BrownConrady5::default()),
             camera_se3_target,
@@ -115,7 +118,7 @@ fn build_planar_intrinsics_ir(
     dataset: &PlanarDataset,
     initial: &PlanarIntrinsicsParams,
     opts: &PlanarIntrinsicsSolveOptions,
-) -> Result<(
+) -> AnyhowResult<(
     crate::ir::ProblemIR,
     std::collections::HashMap<String, nalgebra::DVector<f64>>,
 )> {
@@ -141,7 +144,7 @@ pub fn optimize_planar_intrinsics(
     initial: &PlanarIntrinsicsParams,
     opts: PlanarIntrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
-) -> Result<PlanarIntrinsicsEstimate> {
+) -> Result<PlanarIntrinsicsEstimate, Error> {
     optimize_planar_intrinsics_with_backend(
         dataset,
         initial,
@@ -158,7 +161,7 @@ pub fn optimize_planar_intrinsics_with_backend(
     opts: PlanarIntrinsicsSolveOptions,
     backend: BackendKind,
     backend_opts: BackendSolveOptions,
-) -> Result<PlanarIntrinsicsEstimate> {
+) -> Result<PlanarIntrinsicsEstimate, Error> {
     let (ir, initial_map) = build_planar_intrinsics_ir(dataset, initial, &opts)?;
     let solution = solve_with_backend(backend, &ir, &initial_map, &backend_opts)?;
 

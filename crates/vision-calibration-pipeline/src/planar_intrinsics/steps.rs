@@ -209,7 +209,7 @@ pub fn step_optimize(
         Ok(r) => r,
         Err(e) => {
             session.log_failure("optimize", e.to_string());
-            return Err(e);
+            return Err(anyhow::anyhow!("{e}"));
         }
     };
 

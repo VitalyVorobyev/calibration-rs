@@ -472,7 +472,7 @@ pub fn step_rig_optimize(
         Ok(r) => r,
         Err(e) => {
             session.log_failure("rig_optimize", e.to_string());
-            return Err(e);
+            return Err(anyhow::anyhow!("{e}"));
         }
     };
 
@@ -702,7 +702,7 @@ pub fn step_handeye_optimize(
         Ok(r) => r,
         Err(e) => {
             session.log_failure("handeye_optimize", e.to_string());
-            return Err(e);
+            return Err(anyhow::anyhow!("{e}"));
         }
     };
 

@@ -19,6 +19,7 @@
 //! Legacy mode can relax per-view target poses, but that is discouraged for a
 //! physically fixed target because it weakens hand-eye observability.
 
+use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
 use crate::ir::{
     FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
@@ -26,7 +27,8 @@ use crate::ir::{
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
-use anyhow::{Result, ensure};
+use anyhow::ensure;
+type AnyhowResult<T> = anyhow::Result<T>;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -57,7 +59,7 @@ impl HandEyeDataset {
         views: Vec<RigView<RobotPoseMeta>>,
         num_cameras: usize,
         mode: HandEyeMode,
-    ) -> Result<Self> {
+    ) -> AnyhowResult<Self> {
         ensure!(!views.is_empty(), "need at least one view");
         for (idx, view) in views.iter().enumerate() {
             ensure!(
@@ -173,7 +175,7 @@ pub fn optimize_handeye(
     initial: HandEyeParams,
     opts: HandEyeSolveOptions,
     backend_opts: BackendSolveOptions,
-) -> Result<HandEyeEstimate> {
+) -> Result<HandEyeEstimate, Error> {
     let (ir, initial_map) = build_handeye_ir(&dataset, &initial, &opts)?;
     let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)?;
 
@@ -196,7 +198,7 @@ pub fn optimize_handeye(
             )?;
             Ok(make_pinhole_camera(intrinsics, distortion))
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, Error>>()?;
 
     // Extract extrinsics
     let cam_to_rig = (0..dataset.data.num_cameras)
@@ -204,7 +206,7 @@ pub fn optimize_handeye(
             let key = format!("extr/{}", i);
             crate::params::pose_se3::se3_dvec_to_iso3(solution.params.get(&key).unwrap().as_view())
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, Error>>()?;
 
     // Extract hand-eye transform
     let handeye = crate::params::pose_se3::se3_dvec_to_iso3(
@@ -220,7 +222,7 @@ pub fn optimize_handeye(
                     solution.params.get(&key).unwrap().as_view(),
                 )
             })
-            .collect::<Result<Vec<_>>>()?
+            .collect::<Result<Vec<_>, Error>>()?
     } else {
         let target_pose = crate::params::pose_se3::se3_dvec_to_iso3(
             solution.params.get("target").unwrap().as_view(),
@@ -382,7 +384,7 @@ fn build_handeye_ir(
     dataset: &HandEyeDataset,
     initial: &HandEyeParams,
     opts: &HandEyeSolveOptions,
-) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
+) -> AnyhowResult<(ProblemIR, HashMap<String, DVector<f64>>)> {
     ensure!(
         initial.cameras.len() == dataset.data.num_cameras,
         "intrinsics count {} != num_cameras {}",

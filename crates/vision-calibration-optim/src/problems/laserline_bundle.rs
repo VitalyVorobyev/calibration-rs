@@ -4,6 +4,7 @@
 //! This problem builder combines standard planar calibration observations (corners)
 //! with laser line observations to estimate laser plane parameters in camera frame.
 
+use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
 use crate::factors::laserline::{
     laser_line_dist_normalized_generic, laser_plane_pixel_residual_generic,
@@ -13,7 +14,7 @@ use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distorti
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
-use anyhow::{Result, anyhow, ensure};
+use anyhow::{Result as AnyhowResult, anyhow, ensure};
 use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -33,20 +34,21 @@ pub struct LaserlineMeta {
 
 impl LaserlineMeta {
     /// Validate metadata consistency (non-empty pixels and optional weights).
-    pub fn validate(&self) -> Result<()> {
-        ensure!(
-            !self.laser_pixels.is_empty(),
-            "need at least one laser pixel observation"
-        );
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.laser_pixels.is_empty() {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
+        }
         if !self.laser_weights.is_empty() {
-            ensure!(
-                self.laser_weights.len() == self.laser_pixels.len(),
-                "laser weight count must match pixel count"
-            );
-            ensure!(
-                self.laser_weights.iter().all(|w| *w >= 0.0),
-                "laser weights must be non-negative"
-            );
+            if self.laser_weights.len() != self.laser_pixels.len() {
+                return Err(Error::invalid_input(format!(
+                    "laser weight count {} must match pixel count {}",
+                    self.laser_weights.len(),
+                    self.laser_pixels.len()
+                )));
+            }
+            if !self.laser_weights.iter().all(|w| *w >= 0.0) {
+                return Err(Error::invalid_input("laser weights must be non-negative"));
+            }
         }
         Ok(())
     }
@@ -90,8 +92,10 @@ impl LaserlineParams {
         sensor: ScheimpflugParams,
         poses: Vec<Iso3>,
         plane: LaserPlane,
-    ) -> Result<Self> {
-        ensure!(!poses.is_empty(), "need at least one pose");
+    ) -> Result<Self, Error> {
+        if poses.is_empty() {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
+        }
         Ok(Self {
             intrinsics,
             distortion,
@@ -193,7 +197,7 @@ fn pack_scheimpflug(sensor: &ScheimpflugParams) -> DVector<f64> {
     DVector::from_vec(vec![sensor.tilt_x, sensor.tilt_y])
 }
 
-fn unpack_scheimpflug(sensor: DVectorView<'_, f64>) -> Result<ScheimpflugParams> {
+fn unpack_scheimpflug(sensor: DVectorView<'_, f64>) -> AnyhowResult<ScheimpflugParams> {
     ensure!(
         sensor.len() == 2,
         "Scheimpflug sensor params require 2D vector, got {}",
@@ -215,13 +219,14 @@ pub fn compute_laserline_stats(
     dataset: &LaserlineDataset,
     params: &LaserlineParams,
     residual_type: LaserlineResidualType,
-) -> Result<LaserlineStats> {
-    ensure!(
-        dataset.len() == params.poses.len(),
-        "dataset has {} views but {} poses",
-        dataset.len(),
-        params.poses.len()
-    );
+) -> Result<LaserlineStats, Error> {
+    if dataset.len() != params.poses.len() {
+        return Err(Error::invalid_input(format!(
+            "dataset has {} views but {} poses",
+            dataset.len(),
+            params.poses.len()
+        )));
+    }
 
     let camera = Camera::new(
         Pinhole,
@@ -307,11 +312,14 @@ pub fn compute_laserline_stats(
         total_laser_count += view_laser_count;
     }
 
-    ensure!(
-        total_reproj_count > 0,
-        "no valid reprojection errors for stats"
-    );
-    ensure!(total_laser_count > 0, "no laser pixels for stats");
+    if total_reproj_count == 0 {
+        return Err(Error::invalid_input(
+            "no valid reprojection errors for stats",
+        ));
+    }
+    if total_laser_count == 0 {
+        return Err(Error::invalid_input("no laser pixels for stats"));
+    }
 
     Ok(LaserlineStats {
         mean_reproj_error: total_reproj_sum / total_reproj_count as f64,
@@ -325,7 +333,7 @@ pub fn compute_laserline_stats(
 fn extract_solution(
     solution: crate::backend::BackendSolution,
     num_poses: usize,
-) -> Result<LaserlineEstimate> {
+) -> AnyhowResult<LaserlineEstimate> {
     let intrinsics = unpack_intrinsics(
         solution
             .params
@@ -408,10 +416,10 @@ pub fn optimize_laserline(
     initial: &LaserlineParams,
     opts: &LaserlineSolveOptions,
     backend_opts: &BackendSolveOptions,
-) -> Result<LaserlineEstimate> {
+) -> Result<LaserlineEstimate, Error> {
     let (ir, initial_map) = build_laserline_ir(dataset, initial, opts)?;
     let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, backend_opts)?;
-    extract_solution(solution, dataset.len())
+    extract_solution(solution, dataset.len()).map_err(Error::from)
 }
 
 /// Build IR for laserline bundle adjustment.
@@ -419,7 +427,7 @@ fn build_laserline_ir(
     dataset: &LaserlineDataset,
     initial: &LaserlineParams,
     opts: &LaserlineSolveOptions,
-) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
+) -> AnyhowResult<(ProblemIR, HashMap<String, DVector<f64>>)> {
     ensure!(!dataset.is_empty(), "need at least one view");
     ensure!(
         dataset.len() == initial.poses.len(),

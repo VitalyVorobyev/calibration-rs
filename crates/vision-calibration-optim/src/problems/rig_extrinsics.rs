@@ -3,12 +3,14 @@
 //! Optimizes per-camera intrinsics and distortion, per-camera extrinsics (`T_R_C`, camera-to-rig),
 //! and per-view rig poses (`T_R_T`, target-to-rig).
 
+use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
 use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
-use anyhow::{Result, ensure};
+use anyhow::ensure;
+type AnyhowResult<T> = anyhow::Result<T>;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -75,7 +77,7 @@ fn build_rig_extrinsics_ir(
     dataset: &RigExtrinsicsDataset,
     initial: &RigExtrinsicsParams,
     opts: &RigExtrinsicsSolveOptions,
-) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
+) -> AnyhowResult<(ProblemIR, HashMap<String, DVector<f64>>)> {
     ensure!(
         initial.cameras.len() == dataset.num_cameras,
         "intrinsics count {} != num_cameras {}",
@@ -210,7 +212,7 @@ pub fn optimize_rig_extrinsics(
     initial: RigExtrinsicsParams,
     opts: RigExtrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
-) -> Result<RigExtrinsicsEstimate> {
+) -> Result<RigExtrinsicsEstimate, Error> {
     let (ir, initial_map) = build_rig_extrinsics_ir(&dataset, &initial, &opts)?;
     let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)?;
 
@@ -233,7 +235,7 @@ pub fn optimize_rig_extrinsics(
             )?;
             Ok(make_pinhole_camera(intrinsics, distortion))
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, Error>>()?;
 
     // Extract extrinsics
     let cam_to_rig = (0..dataset.num_cameras)
@@ -241,7 +243,7 @@ pub fn optimize_rig_extrinsics(
             let key = format!("extr/{}", i);
             crate::params::pose_se3::se3_dvec_to_iso3(solution.params.get(&key).unwrap().as_view())
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, Error>>()?;
 
     // Extract rig poses
     let rig_from_target = (0..dataset.num_views())
@@ -249,7 +251,7 @@ pub fn optimize_rig_extrinsics(
             let key = format!("rig_pose/{}", i);
             crate::params::pose_se3::se3_dvec_to_iso3(solution.params.get(&key).unwrap().as_view())
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, Error>>()?;
 
     // Compute per-camera reprojection error
     // cam_se3_rig = cam_to_rig^-1 (converts T_R_C to T_C_R)
