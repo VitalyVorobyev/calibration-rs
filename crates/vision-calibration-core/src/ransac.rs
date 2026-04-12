@@ -158,6 +158,18 @@ fn is_better_model(
 /// insufficient data or no consensus model can be found within the iteration
 /// budget, it returns a [`RansacResult`] with `success == false` and
 /// `model == None`.
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(
+        skip_all,
+        fields(
+            n = data.len(),
+            min_samples = E::MIN_SAMPLES,
+            max_iters = opts.max_iters,
+            seed = opts.seed
+        )
+    )
+)]
 pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> RansacResult<E::Model> {
     let mut best: RansacResult<E::Model> = RansacResult::default();
 
