@@ -10,33 +10,170 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, cast
 
-from .types import HandEyeMode, LaserlineResidualType, RobustLoss
+from .types import HandEyeMode, LaserlineResidualType
 
 Vec2 = tuple[float, float]
 Vec3 = tuple[float, float, float]
 QuatXyzw = tuple[float, float, float, float]
 
-_DEFAULT_INTRINSICS_FIX_MASK: dict[str, bool] = {
-    "fx": False,
-    "fy": False,
-    "cx": False,
-    "cy": False,
-}
-_DEFAULT_DISTORTION_FIX_MASK: dict[str, bool] = {
-    "k1": False,
-    "k2": False,
-    "k3": True,
-    "p1": False,
-    "p2": False,
-}
-_DEFAULT_SENSOR_INIT: dict[str, float] = {
-    "tilt_x": 0.0,
-    "tilt_y": 0.0,
-}
-_DEFAULT_SCHEIMPFLUG_FIX_MASK: dict[str, bool] = {
-    "tilt_x": False,
-    "tilt_y": False,
-}
+
+# ---------------------------------------------------------------------------
+# Robust loss hierarchy
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True, frozen=True)
+class RobustLossNone:
+    """No robustification (plain squared residual)."""
+
+    def to_payload(self) -> str:
+        return "None"
+
+
+@dataclass(slots=True, frozen=True)
+class RobustLossHuber:
+    """Huber loss with quadratic-to-linear transition at *scale*."""
+
+    scale: float
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"Huber": {"scale": float(self.scale)}}
+
+
+@dataclass(slots=True, frozen=True)
+class RobustLossCauchy:
+    """Cauchy (Lorentzian) robust loss with parameter *scale*."""
+
+    scale: float
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"Cauchy": {"scale": float(self.scale)}}
+
+
+@dataclass(slots=True, frozen=True)
+class RobustLossArctan:
+    """Arctan robust loss with parameter *scale*."""
+
+    scale: float
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"Arctan": {"scale": float(self.scale)}}
+
+
+RobustLoss = RobustLossNone | RobustLossHuber | RobustLossCauchy | RobustLossArctan
+
+
+# ---------------------------------------------------------------------------
+# RANSAC options
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class RansacOptions:
+    """RANSAC robust estimation configuration.
+
+    Used by geometry and MVG functions that support robust estimation.
+    """
+
+    max_iters: int = 1000
+    """Maximum number of RANSAC iterations."""
+    thresh: float = 2.0
+    """Inlier distance threshold."""
+    min_inliers: int = 12
+    """Minimum number of inliers to accept a model."""
+    confidence: float = 0.99
+    """Early-stop confidence level."""
+    seed: int = 42
+    """Random seed for reproducibility."""
+    refit_on_inliers: bool = True
+    """Whether to refit the model on all inliers after RANSAC."""
+
+
+# ---------------------------------------------------------------------------
+# Fix-mask and sensor-init dataclasses
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class IntrinsicsFixMask:
+    """Control which intrinsic parameters are held fixed during optimization."""
+
+    fx: bool = False
+    fy: bool = False
+    cx: bool = False
+    cy: bool = False
+
+    def to_payload(self) -> dict[str, bool]:
+        return {"fx": self.fx, "fy": self.fy, "cx": self.cx, "cy": self.cy}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "IntrinsicsFixMask":
+        return cls(
+            fx=bool(payload.get("fx", False)),
+            fy=bool(payload.get("fy", False)),
+            cx=bool(payload.get("cx", False)),
+            cy=bool(payload.get("cy", False)),
+        )
+
+
+@dataclass(slots=True)
+class DistortionFixMask:
+    """Control which distortion parameters are held fixed during optimization."""
+
+    k1: bool = False
+    k2: bool = False
+    k3: bool = True
+    p1: bool = False
+    p2: bool = False
+
+    def to_payload(self) -> dict[str, bool]:
+        return {
+            "k1": self.k1, "k2": self.k2, "k3": self.k3,
+            "p1": self.p1, "p2": self.p2,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "DistortionFixMask":
+        return cls(
+            k1=bool(payload.get("k1", False)),
+            k2=bool(payload.get("k2", False)),
+            k3=bool(payload.get("k3", True)),
+            p1=bool(payload.get("p1", False)),
+            p2=bool(payload.get("p2", False)),
+        )
+
+
+@dataclass(slots=True)
+class ScheimpflugFixMask:
+    """Control which Scheimpflug tilt parameters are held fixed."""
+
+    tilt_x: bool = False
+    tilt_y: bool = False
+
+    def to_payload(self) -> dict[str, bool]:
+        return {"tilt_x": self.tilt_x, "tilt_y": self.tilt_y}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ScheimpflugFixMask":
+        return cls(
+            tilt_x=bool(payload.get("tilt_x", False)),
+            tilt_y=bool(payload.get("tilt_y", False)),
+        )
+
+
+@dataclass(slots=True)
+class ScheimpflugSensorInit:
+    """Initial Scheimpflug tilt values for laserline device calibration."""
+
+    tilt_x: float = 0.0
+    tilt_y: float = 0.0
+
+    def to_payload(self) -> dict[str, float]:
+        return {"tilt_x": float(self.tilt_x), "tilt_y": float(self.tilt_y)}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ScheimpflugSensorInit":
+        return cls(
+            tilt_x=float(payload.get("tilt_x", 0.0)),
+            tilt_y=float(payload.get("tilt_y", 0.0)),
+        )
 
 
 def _as_floats(values: tuple[Any, ...] | list[Any], expected: int, name: str) -> tuple[float, ...]:
@@ -318,16 +455,12 @@ class PlanarCalibrationConfig:
     zero_skew: bool = True
     max_iters: int = 50
     verbosity: int = 0
-    robust_loss: RobustLoss = "None"
-    fix_intrinsics: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_INTRINSICS_FIX_MASK))
-    fix_distortion: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_DISTORTION_FIX_MASK))
+    robust_loss: RobustLoss = field(default_factory=RobustLossNone)
+    fix_intrinsics: IntrinsicsFixMask = field(default_factory=IntrinsicsFixMask)
+    fix_distortion: DistortionFixMask = field(default_factory=DistortionFixMask)
     fix_poses: list[int] = field(default_factory=list)
 
     def to_payload(self) -> dict[str, Any]:
-        fix_intrinsics = dict(_DEFAULT_INTRINSICS_FIX_MASK)
-        fix_intrinsics.update(self.fix_intrinsics)
-        fix_distortion = dict(_DEFAULT_DISTORTION_FIX_MASK)
-        fix_distortion.update(self.fix_distortion)
         return {
             "init_iterations": int(self.init_iterations),
             "fix_k3_in_init": bool(self.fix_k3_in_init),
@@ -335,9 +468,9 @@ class PlanarCalibrationConfig:
             "zero_skew": bool(self.zero_skew),
             "max_iters": int(self.max_iters),
             "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
-            "fix_intrinsics": fix_intrinsics,
-            "fix_distortion": fix_distortion,
+            "robust_loss": self.robust_loss.to_payload(),
+            "fix_intrinsics": self.fix_intrinsics.to_payload(),
+            "fix_distortion": self.fix_distortion.to_payload(),
             "fix_poses": [int(i) for i in self.fix_poses],
         }
 
@@ -363,7 +496,7 @@ class SingleCamHandeyeCalibrationConfig:
     min_motion_angle_deg: float = 5.0
     max_iters: int = 50
     verbosity: int = 0
-    robust_loss: RobustLoss = "None"
+    robust_loss: RobustLoss = field(default_factory=RobustLossNone)
     refine_robot_poses: bool = True
     robot_rot_sigma: float = 0.5 * 3.141592653589793 / 180.0
     robot_trans_sigma: float = 0.001
@@ -378,7 +511,7 @@ class SingleCamHandeyeCalibrationConfig:
             "min_motion_angle_deg": float(self.min_motion_angle_deg),
             "max_iters": int(self.max_iters),
             "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
+            "robust_loss": self.robust_loss.to_payload(),
             "refine_robot_poses": bool(self.refine_robot_poses),
             "robot_rot_sigma": float(self.robot_rot_sigma),
             "robot_trans_sigma": float(self.robot_trans_sigma),
@@ -405,7 +538,7 @@ class RigExtrinsicsCalibrationConfig:
     reference_camera_idx: int = 0
     max_iters: int = 50
     verbosity: int = 0
-    robust_loss: RobustLoss = "None"
+    robust_loss: RobustLoss = field(default_factory=RobustLossNone)
     refine_intrinsics_in_rig_ba: bool = False
     fix_first_rig_pose: bool = True
 
@@ -418,7 +551,7 @@ class RigExtrinsicsCalibrationConfig:
             "reference_camera_idx": int(self.reference_camera_idx),
             "max_iters": int(self.max_iters),
             "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
+            "robust_loss": self.robust_loss.to_payload(),
             "refine_intrinsics_in_rig_ba": bool(self.refine_intrinsics_in_rig_ba),
             "fix_first_rig_pose": bool(self.fix_first_rig_pose),
         }
@@ -514,13 +647,13 @@ class RigHandeyeSolverConfig:
 
     max_iters: int = 50
     verbosity: int = 0
-    robust_loss: RobustLoss = "None"
+    robust_loss: RobustLoss = field(default_factory=RobustLossNone)
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "max_iters": int(self.max_iters),
             "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
+            "robust_loss": self.robust_loss.to_payload(),
         }
 
     @classmethod
@@ -626,17 +759,15 @@ class LaserlineDeviceInitConfig:
     fix_k3: bool = True
     fix_tangential: bool = False
     zero_skew: bool = True
-    sensor_init: dict[str, float] = field(default_factory=lambda: dict(_DEFAULT_SENSOR_INIT))
+    sensor_init: ScheimpflugSensorInit = field(default_factory=ScheimpflugSensorInit)
 
     def to_payload(self) -> dict[str, Any]:
-        sensor_init = dict(_DEFAULT_SENSOR_INIT)
-        sensor_init.update(self.sensor_init)
         return {
             "iterations": int(self.iterations),
             "fix_k3": bool(self.fix_k3),
             "fix_tangential": bool(self.fix_tangential),
             "zero_skew": bool(self.zero_skew),
-            "sensor_init": sensor_init,
+            "sensor_init": self.sensor_init.to_payload(),
         }
 
     @classmethod
@@ -676,8 +807,8 @@ class LaserlineDeviceSolverConfig:
 class LaserlineDeviceOptimizeConfig:
     """Bundle-adjustment options for laserline-device calibration."""
 
-    calib_loss: RobustLoss = field(default_factory=lambda: {"Huber": {"scale": 1.0}})
-    laser_loss: RobustLoss = field(default_factory=lambda: {"Huber": {"scale": 0.01}})
+    calib_loss: RobustLoss = field(default_factory=lambda: RobustLossHuber(scale=1.0))
+    laser_loss: RobustLoss = field(default_factory=lambda: RobustLossHuber(scale=0.01))
     calib_weight: float = 1.0
     laser_weight: float = 1.0
     fix_intrinsics: bool = False
@@ -690,8 +821,8 @@ class LaserlineDeviceOptimizeConfig:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "calib_loss": cast(Any, self.calib_loss),
-            "laser_loss": cast(Any, self.laser_loss),
+            "calib_loss": self.calib_loss.to_payload(),
+            "laser_loss": self.laser_loss.to_payload(),
             "calib_weight": float(self.calib_weight),
             "laser_weight": float(self.laser_weight),
             "fix_intrinsics": bool(self.fix_intrinsics),
@@ -764,43 +895,25 @@ class ScheimpflugIntrinsicsCalibrationConfig:
     zero_skew: bool = True
     max_iters: int = 120
     verbosity: int = 0
-    robust_loss: RobustLoss = field(default_factory=lambda: "None")
-    fix_intrinsics: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_INTRINSICS_FIX_MASK))
-    fix_distortion: dict[str, bool] = field(
-        default_factory=lambda: {
-            "k1": False,
-            "k2": False,
-            "k3": True,
-            "p1": True,
-            "p2": True,
-        }
+    robust_loss: RobustLoss = field(default_factory=RobustLossNone)
+    fix_intrinsics: IntrinsicsFixMask = field(default_factory=IntrinsicsFixMask)
+    fix_distortion: DistortionFixMask = field(
+        default_factory=lambda: DistortionFixMask(k3=True, p1=True, p2=True)
     )
-    fix_scheimpflug: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK))
+    fix_scheimpflug: ScheimpflugFixMask = field(default_factory=ScheimpflugFixMask)
     fix_first_pose: bool = True
 
     def to_payload(self) -> dict[str, Any]:
-        fix_intrinsics = dict(_DEFAULT_INTRINSICS_FIX_MASK)
-        fix_intrinsics.update(self.fix_intrinsics)
-        fix_distortion = {
-            "k1": False,
-            "k2": False,
-            "k3": True,
-            "p1": True,
-            "p2": True,
-        }
-        fix_distortion.update(self.fix_distortion)
-        fix_scheimpflug = dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
-        fix_scheimpflug.update(self.fix_scheimpflug)
         return {
             "init_iterations": int(self.init_iterations),
             "fix_k3_in_init": bool(self.fix_k3_in_init),
             "zero_skew": bool(self.zero_skew),
             "max_iters": int(self.max_iters),
             "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
-            "fix_intrinsics": fix_intrinsics,
-            "fix_distortion": fix_distortion,
-            "fix_scheimpflug": fix_scheimpflug,
+            "robust_loss": self.robust_loss.to_payload(),
+            "fix_intrinsics": self.fix_intrinsics.to_payload(),
+            "fix_distortion": self.fix_distortion.to_payload(),
+            "fix_scheimpflug": self.fix_scheimpflug.to_payload(),
             "fix_first_pose": bool(self.fix_first_pose),
         }
 

@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.3.0] - 2026-03-29
+
+### Added
+- New `vision-geometry` crate: low-level deterministic geometric solvers (epipolar, homography, triangulation, camera matrix) extracted from `vision-calibration-linear`
+- New `vision-mvg` crate: multi-view geometry pipelines (pose recovery, robust estimation, cheirality, residuals) built on `vision-geometry`
+- `vision-mvg` optional `refine` feature for iterative refinement via `tiny-solver`
+
+- Python bindings for `vision-geometry` solvers via `vision_calibration.geometry` submodule (essential 5-point, fundamental 7/8-point, homography DLT, camera matrix DLT, triangulation, RANSAC variants)
+- Python bindings for `vision-mvg` pipelines via `vision_calibration.mvg` submodule (pose recovery, RANSAC estimation, homography decomposition/transfer, two-view triangulation, scene analysis, residual metrics)
+- Typed Python dataclasses for all MVG/geometry results (`RelativePose`, `RobustRelativePose`, `EssentialEstimate`, `HomographyEstimate`, `HomographyDecomposition`, `SceneDiagnostics`, `TriangulatedPoint`, `CameraMatrixDecomposition`)
+- `RansacOptions` dataclass for configuring RANSAC-based estimators from Python
+- Typed fix-mask dataclasses (`IntrinsicsFixMask`, `DistortionFixMask`, `ScheimpflugFixMask`, `ScheimpflugSensorInit`) replacing dict-based config fields
+- Typed `RobustLoss` hierarchy (`RobustLossNone`, `RobustLossHuber`, `RobustLossCauchy`, `RobustLossArctan`) replacing dict/literal union
+- `numpy` as a required Python dependency for array-based inputs/outputs
+
+### Changed
+- Extracted shared geometric solvers from `vision-calibration-linear` into `vision-geometry`; `vision-calibration-linear` now depends on `vision-geometry` and re-exports for backward compatibility
+- Moved epipolar decomposition, essential/fundamental matrix solvers, polynomial utilities, homography DLT, triangulation, and camera matrix code to `vision-geometry`
+- Moved developer documentation from README.md to CONTRIBUTING.md; README.md is now a concise user-facing document
+- Python config fields (`fix_intrinsics`, `fix_distortion`, `fix_scheimpflug`, `sensor_init`, `robust_loss`) now use typed dataclasses instead of raw dicts
+- Release automation now checks Rust/Python version metadata consistency in CI and validates that the pushed `vX.Y.Z` tag matches the published package versions
+
+### Breaking
+- Minor release bump to `0.3.0` because the public crate structure changed: low-level geometry and multi-view APIs are now published as the standalone `vision-geometry` and `vision-mvg` crates
+
 ## [0.2.0] - 2026-03-07
 
 ### Added

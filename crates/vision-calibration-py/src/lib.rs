@@ -5,6 +5,10 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use vision_calibration::session::{CalibrationSession, ProblemType};
 
+mod convert;
+mod geometry;
+mod mvg;
+
 fn runtime_err(message: impl std::fmt::Display) -> PyErr {
     PyRuntimeError::new_err(message.to_string())
 }
@@ -244,5 +248,16 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_laserline_device, m)?)?;
     m.add_function(wrap_pyfunction!(run_scheimpflug_intrinsics, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
+
+    // Geometry submodule (low-level solvers)
+    let geo_m = PyModule::new(m.py(), "geometry")?;
+    geometry::register(&geo_m)?;
+    m.add_submodule(&geo_m)?;
+
+    // MVG submodule (multi-view geometry pipelines)
+    let mvg_m = PyModule::new(m.py(), "mvg")?;
+    mvg::register(&mvg_m)?;
+    m.add_submodule(&mvg_m)?;
+
     Ok(())
 }

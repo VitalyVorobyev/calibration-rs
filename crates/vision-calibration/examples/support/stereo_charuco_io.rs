@@ -4,7 +4,7 @@ use anyhow::{Context, Result, ensure};
 use calib_targets::aruco::builtins;
 use calib_targets::charuco::{CharucoBoardSpec, CharucoDetectorParams, MarkerLayout};
 use calib_targets::detect;
-use chess_corners::ChessConfig;
+use calib_targets::ChessConfig;
 use std::collections::BTreeSet;
 use std::path::Path;
 use vision_calibration::prelude::*;

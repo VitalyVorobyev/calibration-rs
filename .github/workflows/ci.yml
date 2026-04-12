@@ -15,14 +15,45 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          components: rustfmt, clippy
+
+      - name: Check version metadata consistency
+        shell: bash
+        run: |
+          workspace_version=$(
+            awk '
+              $0 == "[workspace.package]" { in_section=1; next }
+              /^\[/ && in_section { exit }
+              in_section && $1 == "version" {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' Cargo.toml
+          )
+          python_version=$(
+            awk '
+              $0 == "[project]" { in_section=1; next }
+              /^\[/ && in_section { exit }
+              in_section && $1 == "version" {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' crates/vision-calibration-py/pyproject.toml
+          )
+
+          if [[ "$workspace_version" != "$python_version" ]]; then
+            echo "workspace version $workspace_version != python package version $python_version" >&2
+            exit 1
+          fi
+
+          echo "version metadata OK: $workspace_version"
 
       - name: Cargo fmt
         run: cargo fmt --all --check
@@ -36,19 +67,32 @@ jobs:
       - name: Cargo doc
         run: cargo doc --no-deps --workspace
 
-  python-runtime:
-    name: Python Runtime Tests
-    needs: build
+  publishability:
+    name: Publishability Checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check publishable crate manifests
+        run: ./tools/publish-crates.sh check
+
+  python-runtime:
+    name: Python Runtime Tests
+    needs: [build, publishability]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -58,8 +102,8 @@ jobs:
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
           echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
 
-      - name: Install maturin
-        run: python -m pip install --upgrade pip maturin
+      - name: Install Python test tooling
+        run: python -m pip install --upgrade pip maturin pytest
 
       - name: Build Python extension
         run: maturin develop -m crates/vision-calibration-py/Cargo.toml
@@ -68,4 +112,4 @@ jobs:
         run: python -m compileall crates/vision-calibration-py/python/vision_calibration
 
       - name: Run Python runtime tests
-        run: python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
+        run: python -m pytest crates/vision-calibration-py/tests

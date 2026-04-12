@@ -24,7 +24,6 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     let t1 = Mat3::identity();
     let t2 = Mat3::identity();
 
-    // Build design matrix A (n x 9) for x'^T F x = 0.
     let mut a = DMatrix::<Real>::zeros(n, 9);
 
     for (i, (p1, p2)) in pts1_n.iter().zip(pts2_n.iter()).enumerate() {
@@ -44,7 +43,6 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
         a[(i, 8)] = 1.0;
     }
 
-    // Solve A f = 0 via SVD: take the singular vector for the smallest singular value.
     let mut a_work = a.clone();
     if a_work.nrows() < a_work.ncols() {
         let rows = a_work.nrows();
@@ -65,7 +63,6 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
         }
     }
 
-    // Enforce rank-2 constraint on F.
     let svd_f = f.svd(true, true);
     let u = svd_f.u.ok_or(anyhow::anyhow!("SVD failed"))?;
     let mut s = svd_f.singular_values;
@@ -74,7 +71,6 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&s);
     f = u * s_mat * v_t;
 
-    // Denormalize.
     f = t2.transpose() * f * t1;
 
     Ok(f)
@@ -216,7 +212,6 @@ pub fn fundamental_8point_ransac(
         }
 
         fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
-            // Symmetric epipolar distance (approximate).
             let x = nalgebra::Vector3::new(datum.x1.x, datum.x1.y, 1.0);
             let xp = nalgebra::Vector3::new(datum.x2.x, datum.x2.y, 1.0);
 
@@ -268,7 +263,6 @@ mod tests {
 
     #[test]
     fn fundamental_8point_succeeds_on_simple_data() {
-        // Very simple synthetic stereo with small baseline along X.
         let (_k, kmtx) = make_k();
 
         let rot_l = Rotation3::identity();
@@ -305,7 +299,6 @@ mod tests {
         }
 
         let f = fundamental_8point(&pts1, &pts2).unwrap();
-        // Basic sanity check: F should not be the zero matrix.
         let norm_f = f.norm();
         assert!(norm_f > 0.0);
     }
@@ -349,7 +342,6 @@ mod tests {
 
         let inlier_count = pts1.len();
 
-        // Add a few gross outliers.
         pts1.extend_from_slice(&[
             Pt2::new(120.0, -80.0),
             Pt2::new(-50.0, 90.0),

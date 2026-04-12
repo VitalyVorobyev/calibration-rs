@@ -9,6 +9,7 @@ Raw serde payload access is available only via low-level helpers in
 from __future__ import annotations
 
 from . import _vision_calibration as _native
+from . import geometry, mvg
 from ._api import (
     robust_arctan,
     robust_cauchy,
@@ -23,6 +24,8 @@ from ._api import (
 )
 from .models import (
     BrownConradyDistortion,
+    DistortionFixMask,
+    IntrinsicsFixMask,
     LaserlineDataset,
     LaserlineDeviceCalibrationConfig,
     LaserlineEstimate,
@@ -43,8 +46,14 @@ from .models import (
     PlanarDataset,
     PlanarView,
     Pose,
+    RobustLossArctan,
+    RobustLossCauchy,
+    RobustLossHuber,
+    RobustLossNone,
+    ScheimpflugFixMask,
     ScheimpflugIntrinsicsCalibrationConfig,
     ScheimpflugSensor,
+    ScheimpflugSensorInit,
     ScheimpflugIntrinsicsResult,
     RigExtrinsicsCalibrationConfig,
     RigExtrinsicsDataset,
@@ -59,10 +68,21 @@ from .models import (
     RigHandeyeRigConfig,
     RigHandeyeSolverConfig,
     RigHandeyeView,
+    RansacOptions,
     SingleCamHandeyeCalibrationConfig,
     SingleCamHandeyeDataset,
     SingleCamHandeyeResult,
     SingleCamHandeyeView,
+)
+from .geometry import CameraMatrixDecomposition
+from .mvg import (
+    EssentialEstimate,
+    HomographyDecomposition,
+    HomographyEstimate,
+    RelativePose,
+    RobustRelativePose,
+    SceneDiagnostics,
+    TriangulatedPoint,
 )
 __version__ = _native.library_version()
 
@@ -85,6 +105,16 @@ __all__ = [
     "ScheimpflugSensor",
     "PinholeBrownConradyCamera",
     "PinholeBrownConradyScheimpflugCamera",
+    # Fix masks and robust loss
+    "IntrinsicsFixMask",
+    "DistortionFixMask",
+    "ScheimpflugFixMask",
+    "ScheimpflugSensorInit",
+    "RobustLossNone",
+    "RobustLossHuber",
+    "RobustLossCauchy",
+    "RobustLossArctan",
+    # Laserline results
     "LaserlinePlane",
     "LaserlineEstimateParams",
     "LaserlineEstimate",
@@ -119,4 +149,16 @@ __all__ = [
     "run_rig_extrinsics",
     "run_rig_handeye",
     "run_laserline_device",
+    # Geometry / MVG submodules
+    "geometry",
+    "mvg",
+    "RansacOptions",
+    "CameraMatrixDecomposition",
+    "TriangulatedPoint",
+    "RelativePose",
+    "RobustRelativePose",
+    "EssentialEstimate",
+    "HomographyEstimate",
+    "HomographyDecomposition",
+    "SceneDiagnostics",
 ]

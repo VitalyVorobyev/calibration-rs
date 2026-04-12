@@ -17,7 +17,7 @@
 mod stereo_charuco_io;
 
 use anyhow::{Result, ensure};
-use chess_corners::ChessConfig;
+use calib_targets::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use stereo_charuco_io::{

@@ -4,12 +4,13 @@ build-backend = "maturin"
 
 [project]
 name = "vision-calibration"
-version = "0.2.0"
+version = "0.3.0"
 description = "Python bindings for calibration-rs end-to-end camera calibration"
 readme = "README.md"
 authors = [{ name = "Vitaly Vorobyev", email = "vit.vorobiev@gmail.com" }]
 license = { text = "MIT" }
 requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "License :: OSI Approved :: MIT License",
