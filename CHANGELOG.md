@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-12
+
+### Added
+- Typed `Error` enum (using `thiserror`) exposed from every workspace crate:
+  `vision-calibration-core`, `vision-calibration-linear`, `vision-calibration-optim`,
+  and `vision-calibration-pipeline` now return structured, matchable error variants instead of `anyhow::Error`.
+- `# Errors` sections added across fallible public APIs in `vision-calibration-linear`,
+  `vision-calibration-optim`, and `vision-calibration-pipeline` rustdoc.
+- Optional `tracing` feature on `vision-calibration-core` instruments `ransac_fit` with spans
+  (off by default, no runtime cost when disabled).
+- Boundary validation for Python inputs with `PyValueError` (high-level `run_*` APIs).
+- CI job enforcing the declared MSRV and a typing-stub coverage check for the Python package.
+
+### Changed
+- **MSRV bumped to 1.88** (workspace-wide `rust-version = "1.88"`).
+- `vision-calibration-core`: renamed `choose_multiple` → `sample` in the RANSAC sampling API.
+- Replaced `Option<Vec<_>>` with `Vec<_>` for weights fields across public configs (empty = unweighted).
+- Documented the rationale for the `RUSTSEC-2024-0436` audit ignore.
+- Dropped redundant empty `[features]` blocks in `vision-calibration-optim`.
+
+### Breaking
+- Minor release bump to `0.3.0` for the migration from `anyhow::Error` to typed `Error`
+  in `vision-calibration-{core,linear,optim,pipeline}` public signatures.
+- `choose_multiple` → `sample` rename in `vision-calibration-core`.
+- MSRV raised to 1.88.
+- `weights: Option<Vec<_>>` replaced by `weights: Vec<_>` in public config structs.
+
 ## [0.2.0] - 2026-03-07
 
 ### Added

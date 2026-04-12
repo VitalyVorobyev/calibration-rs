@@ -1,8 +1,12 @@
 # vision-calibration
 
+[![Crates.io](https://img.shields.io/crates/v/vision-calibration.svg)](https://crates.io/crates/vision-calibration)
+[![PyPI](https://img.shields.io/pypi/v/vision-calibration.svg)](https://pypi.org/project/vision-calibration/)
+[![Docs.rs](https://docs.rs/vision-calibration/badge.svg)](https://docs.rs/vision-calibration)
 [![CI](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/ci.yml)
 [![Docs](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/publish-docs.yml/badge.svg)](https://vitalyvorobyev.github.io/calibration/)
 [![Audit](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A Rust workspace for end-to-end camera calibration: math primitives, linear solvers, non-linear
 refinement, and session-based pipelines. Supports perspective cameras, laserline calibration,
@@ -59,6 +63,12 @@ computer vision, validates algorithmic behavior and numerical results, and enfor
 Add the facade crate to your `Cargo.toml`:
 
 ```toml
+vision-calibration = "0.3"
+```
+
+Or track `main` directly:
+
+```toml
 vision-calibration = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
 ```
 
@@ -67,7 +77,13 @@ or `vision_calibration::prelude::*` rather than relying on broad top-level symbo
 
 ### Python Package
 
-Build and install the local Python package:
+Install from PyPI:
+
+```bash
+pip install vision-calibration
+```
+
+Or build and install the local Python package:
 
 ```bash
 maturin develop -m crates/vision-calibration-py/Cargo.toml
