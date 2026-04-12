@@ -13,7 +13,7 @@ cargo doc --workspace --no-deps      # Docs
 
 ## Architecture
 
-5-crate layered workspace (~7k LoC). See ADR 0006.
+6-crate workspace (~24k LoC Rust). See ADR 0006.
 
 ```
 vision-calibration (facade) → vision-calibration-pipeline (sessions, workflows)
@@ -27,9 +27,24 @@ Plus `vision-calibration-py` (PyO3 bindings, depends on facade only).
 
 **Key rule**: linear and optim are peers — they depend on core but not each other.
 
+### Feature Flags
+
+- `vision-calibration-core`: optional `tracing` feature enables `tracing` crate instrumentation (off by default).
+- All other crates: `default = []`, no public feature flags.
+
+### Python Bindings
+
+Built with [maturin](https://www.maturin.rs/) + PyO3 0.28 (`abi3-py310`, cdylib `_vision_calibration`). Dev build:
+
+```bash
+maturin develop -m crates/vision-calibration-py/Cargo.toml
+```
+
+Published to PyPI via the `release-pypi.yml` GitHub Actions workflow.
+
 ## Camera Model (ADR 0005)
 
-Composable pipeline: `pixel = K(sensor(distortion(projection(dir))))`. Each stage is a generic type parameter on `Camera<P, D, S, K>`.
+Composable pipeline: `pixel = K(sensor(distortion(projection(dir))))`. Defined as `Camera<S, P, D, Sm, K>` where `S` is the scalar (`RealField + Copy`), `P` projection, `D` distortion, `Sm` sensor, `K` intrinsics.
 
 ## Session Framework (ADR 0007)
 
@@ -85,7 +100,5 @@ python3 -m compileall crates/vision-calibration-py/python/vision_calibration
 
 ## Planning
 
-- ADRs in `docs/adrs/` — design decisions (see README there)
-- Backlog in `docs/backlog.md` — task tracking with `M<n>-T<nn>` IDs
-- Reports in `docs/report/` — per-task completion records
-- Automated workflow: `/orchestrate`, `/architect`, `/implement`, `/review`, `/gate-check`
+- 10 ADRs (0001–0010) in `docs/adrs/` — design decisions (see README there)
+- Automated workflow skills: `/orchestrate`, `/architect`, `/implement`, `/review`, `/gate-check`
