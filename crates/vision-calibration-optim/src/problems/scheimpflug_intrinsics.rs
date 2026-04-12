@@ -132,6 +132,10 @@ fn build_scheimpflug_intrinsics_ir(
 }
 
 /// Optimize Scheimpflug intrinsics using the default tiny-solver backend.
+///
+/// # Errors
+///
+/// Returns [`Error`] if IR construction or solver backend fails.
 pub fn optimize_scheimpflug_intrinsics(
     dataset: &PlanarDataset,
     initial: &ScheimpflugIntrinsicsParams,
@@ -148,6 +152,10 @@ pub fn optimize_scheimpflug_intrinsics(
 }
 
 /// Optimize Scheimpflug intrinsics using the selected backend.
+///
+/// # Errors
+///
+/// Returns [`Error`] if IR construction or solver backend fails.
 pub fn optimize_scheimpflug_intrinsics_with_backend(
     dataset: &PlanarDataset,
     initial: &ScheimpflugIntrinsicsParams,

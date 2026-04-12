@@ -15,6 +15,11 @@ use vision_calibration_core::{Estimator, Mat3, Pt2, RansacOptions, Real, ransac_
 /// `pts1` and `pts2` are corresponding pixel points in two images. The
 /// returned matrix is forced to rank-2 and satisfies `x'^T F x = 0`
 /// (up to numerical error).
+///
+/// # Errors
+///
+/// Returns [`Error::InsufficientData`] if fewer than 8 correspondences are provided, or if
+/// `pts1` and `pts2` have different lengths.
 pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3, Error> {
     let n = pts1.len();
     if n < 8 || pts2.len() != n {
@@ -86,6 +91,11 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3, Error> {
 ///
 /// Returns up to three candidate fundamental matrices. Inputs are pixel
 /// coordinates; internal normalization is applied before solving.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if exactly 7 correspondences are not provided, or if
+/// `pts1` and `pts2` have different lengths.
 pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Error> {
     if pts1.len() != pts2.len() || pts1.len() != 7 {
         return Err(Error::invalid_input(format!(
@@ -180,6 +190,10 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>, Error
 ///
 /// Returns the best model and the indices of inliers. The residual uses an
 /// approximate symmetric epipolar distance in pixels.
+///
+/// # Errors
+///
+/// Returns [`Error::InsufficientData`] if fewer than 8 correspondences are provided.
 pub fn fundamental_8point_ransac(
     pts1: &[Pt2],
     pts2: &[Pt2],

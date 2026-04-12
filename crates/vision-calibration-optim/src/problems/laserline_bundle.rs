@@ -34,6 +34,11 @@ pub struct LaserlineMeta {
 
 impl LaserlineMeta {
     /// Validate metadata consistency (non-empty pixels and optional weights).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if `laser_pixels` is empty.
+    /// Returns [`Error::InvalidInput`] if weight count mismatches pixel count, or if any weight is negative.
     pub fn validate(&self) -> Result<(), Error> {
         if self.laser_pixels.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });
@@ -86,6 +91,10 @@ pub struct LaserlineParams {
 
 impl LaserlineParams {
     /// Construct parameter pack with basic cardinality validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if `poses` is empty.
     pub fn new(
         intrinsics: FxFyCxCySkew<Real>,
         distortion: BrownConrady5<Real>,
@@ -215,6 +224,11 @@ fn unpack_scheimpflug(sensor: DVectorView<'_, f64>) -> AnyhowResult<ScheimpflugP
 /// - Laser residual units depend on `residual_type`:
 ///   - `PointToPlane`: meters (signed distance to plane)
 ///   - `LineDistNormalized`: pixels (normalized line distance scaled by sqrt(fx*fy))
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if the dataset and params have different view counts, or if
+/// intrinsics/distortion packing fails.
 pub fn compute_laserline_stats(
     dataset: &LaserlineDataset,
     params: &LaserlineParams,
@@ -391,6 +405,10 @@ fn extract_solution(
 /// This function jointly optimizes camera intrinsics, distortion parameters,
 /// camera-to-target poses, and laser plane parameters using both calibration
 /// feature observations and laser line observations.
+///
+/// # Errors
+///
+/// Returns [`Error`] if IR construction or solver backend fails.
 ///
 /// # Example
 ///

@@ -30,6 +30,10 @@ pub struct PlanarIntrinsicsParams {
 
 impl PlanarIntrinsicsParams {
     /// Construct parameter pack with non-empty pose validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
     pub fn new(camera: PinholeCamera, camera_se3_target: Vec<Iso3>) -> Result<Self, Error> {
         if camera_se3_target.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });
@@ -41,6 +45,10 @@ impl PlanarIntrinsicsParams {
     }
 
     /// Create from individual components.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if `poses` is empty.
     pub fn new_from_components(
         intrinsics: FxFyCxCySkew<Real>,
         distortion: BrownConrady5<Real>,
@@ -139,6 +147,10 @@ fn build_planar_intrinsics_ir(
 }
 
 /// Optimize planar intrinsics using the default tiny-solver backend.
+///
+/// # Errors
+///
+/// Returns [`Error`] if IR construction or solver backend fails.
 pub fn optimize_planar_intrinsics(
     dataset: &PlanarDataset,
     initial: &PlanarIntrinsicsParams,
@@ -155,6 +167,10 @@ pub fn optimize_planar_intrinsics(
 }
 
 /// Optimize planar intrinsics using the selected backend.
+///
+/// # Errors
+///
+/// Returns [`Error`] if IR construction or solver backend fails.
 pub fn optimize_planar_intrinsics_with_backend(
     dataset: &PlanarDataset,
     initial: &PlanarIntrinsicsParams,

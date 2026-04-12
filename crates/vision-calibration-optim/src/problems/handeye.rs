@@ -170,6 +170,10 @@ pub struct HandEyeEstimate {
 }
 
 /// Optimize hand-eye calibration using specified backend.
+///
+/// # Errors
+///
+/// Returns [`Error`] if IR construction or solver backend fails.
 pub fn optimize_handeye(
     dataset: HandEyeDataset,
     initial: HandEyeParams,

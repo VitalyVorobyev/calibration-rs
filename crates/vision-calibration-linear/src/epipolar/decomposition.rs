@@ -31,6 +31,11 @@ pub(super) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3, Error> {
 /// Returns four possible `(R, t)` pairs; the correct one can be selected by
 /// cheirality checks on triangulated points. The translation is unit-length
 /// (direction only).
+///
+/// # Errors
+///
+/// Returns [`Error::Singular`] if the essential matrix SVD fails or the
+/// essential structure constraint cannot be enforced numerically.
 pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>, Error> {
     let e = enforce_essential_constraints(e)?;
     let svd = e.svd(true, true);

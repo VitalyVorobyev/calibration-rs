@@ -100,6 +100,10 @@ pub enum BackendKind {
 /// Solve a problem using the selected backend.
 ///
 /// This is the main backend-agnostic entry point used by problems.
+///
+/// # Errors
+///
+/// Returns [`Error::Numerical`] if the solver fails or the requested backend is not available.
 pub fn solve_with_backend(
     backend: BackendKind,
     ir: &ProblemIR,

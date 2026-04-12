@@ -207,6 +207,10 @@ fn build_rig_extrinsics_ir(
 }
 
 /// Optimize rig extrinsics using specified backend.
+///
+/// # Errors
+///
+/// Returns [`Error`] if IR construction or solver backend fails.
 pub fn optimize_rig_extrinsics(
     dataset: RigExtrinsicsDataset,
     initial: RigExtrinsicsParams,
