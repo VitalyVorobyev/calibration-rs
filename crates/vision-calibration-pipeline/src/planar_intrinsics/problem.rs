@@ -320,7 +320,14 @@ mod tests {
             vision_calibration_optim::RobustLoss::Huber { scale } => {
                 assert!((scale - 2.5).abs() < 1e-12);
             }
-            _ => panic!("wrong loss type"),
+            vision_calibration_optim::RobustLoss::None
+            | vision_calibration_optim::RobustLoss::Cauchy { .. }
+            | vision_calibration_optim::RobustLoss::Arctan { .. } => {
+                panic!(
+                    "expected Huber loss after roundtrip, got {:?}",
+                    restored.robust_loss
+                );
+            }
         }
     }
 
@@ -361,7 +368,11 @@ mod tests {
             vision_calibration_optim::RobustLoss::Cauchy { scale } => {
                 assert!((scale - 1.0).abs() < 1e-12);
             }
-            _ => panic!("wrong loss type"),
+            vision_calibration_optim::RobustLoss::None
+            | vision_calibration_optim::RobustLoss::Huber { .. }
+            | vision_calibration_optim::RobustLoss::Arctan { .. } => {
+                panic!("expected Cauchy loss, got {:?}", opts.robust_loss);
+            }
         }
     }
 
