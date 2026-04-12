@@ -98,6 +98,15 @@ cargo doc --workspace --no-deps  # check for warnings
 python3 -m compileall crates/vision-calibration-py/python/vision_calibration
 ```
 
+## MSRV
+
+Workspace MSRV: **1.88**. Some transitive deps (`fixed`, `kiddo`) are
+pinned in `Cargo.lock` below their latest release to stay compatible.
+**Do not run `cargo update` without reading `docs/MSRV.md`** — it will
+silently bump deps past 1.88 and break the `MSRV (1.88)` CI job. The
+job uses `--locked` so drift fails at PR time, but the lockfile must
+be re-pinned manually after any update.
+
 ## Planning
 
 - 10 ADRs (0001–0010) in `docs/adrs/` — design decisions (see README there)

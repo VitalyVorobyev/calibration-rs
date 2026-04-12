@@ -13,6 +13,9 @@ resolver = "2"
 [workspace.package]
 version = "0.3.0"
 edition = "2024"
+# MSRV is 1.88. Some transitive deps are pinned in Cargo.lock below their
+# latest release to stay MSRV-compatible. Before running `cargo update`,
+# read docs/MSRV.md — running it blindly will re-break the 1.88 CI job.
 rust-version = "1.88"
 license = "MIT"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
