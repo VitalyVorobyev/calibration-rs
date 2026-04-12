@@ -83,5 +83,8 @@ jobs:
       - name: Validate Python package
         run: python -m compileall crates/vision-calibration-py/python/vision_calibration
 
+      - name: Check typing-stub coverage
+        run: python3 scripts/check_pyi_coverage.py --check
+
       - name: Run Python runtime tests
         run: python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
