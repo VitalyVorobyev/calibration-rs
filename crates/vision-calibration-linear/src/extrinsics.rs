@@ -3,7 +3,7 @@
 //! Estimates per-camera rig transforms and per-view rig-to-target poses from
 //! per-camera target observations.
 
-use anyhow::Result;
+use crate::Error;
 use nalgebra::{Quaternion, Translation3, UnitQuaternion};
 use vision_calibration_core::{Iso3, Real, Vec3};
 
@@ -28,7 +28,7 @@ pub struct MultiCamExtrinsicsInit;
 ///
 /// Use this only for initialization; it does not preserve full rotation
 /// statistics and should be refined downstream.
-fn average_isometries(poses: &[Iso3]) -> Result<Iso3> {
+fn average_isometries(poses: &[Iso3]) -> anyhow::Result<Iso3> {
     if poses.is_empty() {
         anyhow::bail!("cannot average an empty set of poses");
     }
@@ -86,32 +86,31 @@ fn average_isometries(poses: &[Iso3]) -> Result<Iso3> {
 pub fn estimate_extrinsics_from_cam_target_poses(
     cam_se3_target: &[Vec<Option<Iso3>>],
     ref_cam_idx: usize,
-) -> Result<ExtrinsicPoses> {
+) -> Result<ExtrinsicPoses, Error> {
     let num_views = cam_se3_target.len();
     if num_views == 0 {
-        anyhow::bail!("need at least one view");
+        return Err(Error::InsufficientData { need: 1, got: 0 });
     }
 
     let num_cameras = cam_se3_target[0].len();
     if num_cameras == 0 {
-        anyhow::bail!("need at least one camera per view");
+        return Err(Error::InsufficientData { need: 1, got: 0 });
     }
     if ref_cam_idx >= num_cameras {
-        anyhow::bail!(
+        return Err(Error::invalid_input(format!(
             "invalid ref_cam_idx {} for {} cameras",
-            ref_cam_idx,
-            num_cameras
-        );
+            ref_cam_idx, num_cameras
+        )));
     }
 
     for (v_idx, view) in cam_se3_target.iter().enumerate() {
         if view.len() != num_cameras {
-            anyhow::bail!(
+            return Err(Error::invalid_input(format!(
                 "view {} has camera count {}, expected {}",
                 v_idx,
                 view.len(),
                 num_cameras
-            );
+            )));
         }
     }
 
@@ -142,14 +141,13 @@ pub fn estimate_extrinsics_from_cam_target_poses(
         }
 
         if candidates.is_empty() {
-            anyhow::bail!(
+            return Err(Error::invalid_input(format!(
                 "no overlapping views between camera {} and reference {}",
-                cam_idx,
-                ref_cam_idx
-            );
+                cam_idx, ref_cam_idx
+            )));
         }
 
-        let avg = average_isometries(&candidates)?;
+        let avg = average_isometries(&candidates).map_err(|e| Error::numerical(e.to_string()))?;
         cam_to_rig.push(avg);
     }
 
@@ -170,10 +168,13 @@ pub fn estimate_extrinsics_from_cam_target_poses(
         }
 
         if candidates.is_empty() {
-            anyhow::bail!("view {} has no valid camera poses", v_idx);
+            return Err(Error::invalid_input(format!(
+                "view {} has no valid camera poses",
+                v_idx
+            )));
         }
 
-        let avg = average_isometries(&candidates)?;
+        let avg = average_isometries(&candidates).map_err(|e| Error::numerical(e.to_string()))?;
         rig_from_target.push(avg);
     }
 

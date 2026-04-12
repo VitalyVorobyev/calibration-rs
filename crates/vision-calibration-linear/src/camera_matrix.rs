@@ -3,8 +3,8 @@
 //! Provides a normalized DLT solver for the 3x4 projection matrix `P` and an
 //! RQ decomposition to recover intrinsics and rotation.
 
+use crate::Error;
 use crate::math::{mat34_from_svd_row, normalize_points_2d, normalize_points_3d};
-use anyhow::Result;
 use nalgebra::{DMatrix, Matrix3x4};
 use vision_calibration_core::{Mat3, Pt2, Pt3, Real, Vec3};
 
@@ -26,25 +26,27 @@ pub struct CameraMatrixDecomposition {
 ///
 /// `world` are 3D points and `image` are their pixel projections. The output is
 /// defined up to a global scale.
-pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
+///
+/// # Errors
+///
+/// Returns [`Error::InsufficientData`] if fewer than 6 correspondences are given,
+/// [`Error::InvalidInput`] if counts differ, or [`Error::Singular`] if
+/// normalization or SVD fails.
+pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34, Error> {
     let n = world.len();
     if n < 6 {
-        anyhow::bail!("need at least 6 point correspondences, got {}", n);
+        return Err(Error::InsufficientData { need: 6, got: n });
     }
     if n != image.len() {
-        anyhow::bail!(
+        return Err(Error::invalid_input(format!(
             "mismatched number of world points ({}) and image points ({})",
             n,
             image.len()
-        );
+        )));
     }
 
-    let (world_n, t_w) = normalize_points_3d(world).ok_or(anyhow::anyhow!(
-        "degenerate point configuration for normalization"
-    ))?;
-    let (image_n, t_i) = normalize_points_2d(image).ok_or(anyhow::anyhow!(
-        "degenerate point configuration for normalization"
-    ))?;
+    let (world_n, t_w) = normalize_points_3d(world).ok_or(Error::Singular)?;
+    let (image_n, t_i) = normalize_points_2d(image).ok_or(Error::Singular)?;
 
     let mut a = DMatrix::<Real>::zeros(2 * n, 12);
 
@@ -78,10 +80,10 @@ pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
     }
 
     let svd = a.svd(true, true);
-    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let v_t = svd.v_t.ok_or(Error::Singular)?;
     let p_norm = mat34_from_svd_row(&v_t, v_t.nrows() - 1);
 
-    let t_i_inv = t_i.try_inverse().ok_or(anyhow::anyhow!("SVD failed"))?;
+    let t_i_inv = t_i.try_inverse().ok_or(Error::Singular)?;
     let p = t_i_inv * p_norm * t_w;
 
     Ok(p)
@@ -116,7 +118,11 @@ pub fn rq_decompose(m: &Mat3) -> (Mat3, Mat3) {
 ///
 /// Returns `K`, `R`, and `t` such that `P ~ K [R | t]`. The diagonal of `K` is
 /// forced positive and `R` is projected onto SO(3).
-pub fn decompose_camera_matrix(p: &Mat34) -> Result<CameraMatrixDecomposition> {
+///
+/// # Errors
+///
+/// Returns [`Error::Singular`] if the intrinsics sub-matrix is not invertible.
+pub fn decompose_camera_matrix(p: &Mat34) -> Result<CameraMatrixDecomposition, Error> {
     let m = p.fixed_view::<3, 3>(0, 0).into_owned();
     let (mut k, mut r) = rq_decompose(&m);
 
@@ -126,9 +132,7 @@ pub fn decompose_camera_matrix(p: &Mat34) -> Result<CameraMatrixDecomposition> {
         r = -r;
     }
 
-    let k_inv = k
-        .try_inverse()
-        .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
+    let k_inv = k.try_inverse().ok_or(Error::Singular)?;
     let mut t = k_inv * p.column(3);
 
     if r.determinant() < 0.0 {

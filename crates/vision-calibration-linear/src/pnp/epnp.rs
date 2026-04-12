@@ -5,7 +5,7 @@
 //! basis, then solves for control point positions in the camera frame.
 
 use super::pose_utils::pose_from_points;
-use anyhow::Result;
+use crate::Error;
 use nalgebra::{DMatrix, Vector3, linalg::SymmetricEigen};
 use vision_calibration_core::{FxFyCxCySkew, Iso3, Mat3, Pt2, Pt3, Real, Vec3};
 
@@ -13,16 +13,14 @@ use vision_calibration_core::{FxFyCxCySkew, Iso3, Mat3, Pt2, Pt3, Real, Vec3};
 ///
 /// Uses a control-point formulation derived from the covariance of the
 /// 3D points. Returns a single pose estimate in `T_C_W` form.
-pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3> {
+pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3, Error> {
     let n = world.len();
     if n < 4 || image.len() != n {
-        anyhow::bail!("need at least 4 point correspondences, got {}", n);
+        return Err(Error::InsufficientData { need: 4, got: n });
     }
 
     let kmtx: Mat3 = k.k_matrix();
-    let k_inv = kmtx
-        .try_inverse()
-        .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
+    let k_inv = kmtx.try_inverse().ok_or(Error::Singular)?;
 
     let mut img_norm = Vec::with_capacity(n);
     for pi in image {
@@ -60,9 +58,7 @@ pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3
         control_w[2] - control_w[0],
         control_w[3] - control_w[0],
     ]);
-    let basis_inv = basis
-        .try_inverse()
-        .ok_or_else(|| anyhow::anyhow!("degenerate control point configuration for EPnP"))?;
+    let basis_inv = basis.try_inverse().ok_or(Error::Singular)?;
 
     let mut alphas = Vec::with_capacity(n);
     for p in world {
@@ -87,9 +83,7 @@ pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3
     }
 
     let svd = m.svd(true, true);
-    let v_t = svd
-        .v_t
-        .ok_or_else(|| anyhow::anyhow!("svd failed in PnP DLT"))?;
+    let v_t = svd.v_t.ok_or(Error::Singular)?;
     let sol = v_t.row(v_t.nrows() - 1);
 
     let mut control_c = [Vec3::zeros(); 4];
@@ -109,7 +103,7 @@ pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3
     }
 
     if sum_c <= Real::EPSILON {
-        anyhow::bail!("degenerate control point configuration for EPnP");
+        return Err(Error::Singular);
     }
 
     let scale = (sum_w / sum_c).sqrt();

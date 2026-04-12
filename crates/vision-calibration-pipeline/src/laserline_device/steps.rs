@@ -54,7 +54,7 @@ fn planar_dataset_from_input(
         .iter()
         .map(|view| View::without_meta(view.obs.clone()))
         .collect();
-    PlanarDataset::new(views)
+    PlanarDataset::new(views).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 fn estimate_poses(

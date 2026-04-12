@@ -51,6 +51,11 @@
 //! Non-linear refinement and full pipelines live in `vision-calibration-optim` and
 //! `vision-calibration-pipeline` and are re-exported via the top-level `vision-calibration` crate.
 
+/// Typed error enum for this crate.
+pub mod error;
+
+pub use error::Error;
+
 pub mod camera_matrix;
 pub mod distortion_fit;
 pub mod epipolar;

@@ -3,7 +3,7 @@
 //! Decomposes a plane-induced homography into a pose `T_C_B` given intrinsics
 //! `K`, assuming the board lies on `Z = 0` in its own coordinates.
 
-use anyhow::Result;
+use crate::Error;
 use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
 use vision_calibration_core::{Iso3, Mat3, Real};
 
@@ -19,7 +19,12 @@ pub struct PlanarPoseSolver;
 /// `K` and homography `H` (plane -> image).
 ///
 /// Returns an `Iso3` that maps board coordinates into camera coordinates.
-pub fn estimate_planar_pose_from_h(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3> {
+///
+/// # Errors
+///
+/// Returns [`Error::Singular`] if `K` is not invertible, the homography is
+/// degenerate, or SVD fails during SO(3) projection.
+pub fn estimate_planar_pose_from_h(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3, Error> {
     PlanarPoseSolver::from_homography(kmtx, hmtx)
 }
 
@@ -28,11 +33,14 @@ impl PlanarPoseSolver {
     ///
     /// The resulting rotation is projected onto SO(3); the translation is
     /// scaled so that the first two rotation columns have unit norm.
-    pub fn from_homography(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Singular`] if `K` is not invertible, the homography is
+    /// degenerate, or SVD fails during SO(3) projection.
+    pub fn from_homography(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3, Error> {
         // K^{-1}
-        let k_inv = kmtx
-            .try_inverse()
-            .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
+        let k_inv = kmtx.try_inverse().ok_or(Error::Singular)?;
 
         // Columns of H
         let h1 = hmtx.column(0);
@@ -46,11 +54,11 @@ impl PlanarPoseSolver {
         let norm1 = k_inv_h1.norm();
         let norm2 = k_inv_h2.norm();
         if norm1 <= 1e-12 || norm2 <= 1e-12 {
-            anyhow::bail!("degenerate homography for planar pose extraction");
+            return Err(Error::Singular);
         }
         let denom = (norm1 + norm2) * 0.5;
         if denom <= 1e-12 {
-            anyhow::bail!("degenerate homography for planar pose extraction");
+            return Err(Error::Singular);
         }
         let lambda = 1.0 / denom;
 
@@ -64,7 +72,7 @@ impl PlanarPoseSolver {
         }
         let r3 = r1.cross(&r2);
         if r3.norm() <= 1e-12 {
-            anyhow::bail!("degenerate homography for planar pose extraction");
+            return Err(Error::Singular);
         }
 
         let mut r_mat = Matrix3::<Real>::zeros();
@@ -74,12 +82,8 @@ impl PlanarPoseSolver {
 
         // Project onto SO(3) (polar decomposition via SVD)
         let svd = r_mat.svd(true, true);
-        let u = svd
-            .u
-            .ok_or_else(|| anyhow::anyhow!("svd failed during planar pose extraction"))?;
-        let v_t = svd
-            .v_t
-            .ok_or_else(|| anyhow::anyhow!("svd failed during planar pose extraction"))?;
+        let u = svd.u.ok_or(Error::Singular)?;
+        let v_t = svd.v_t.ok_or(Error::Singular)?;
         let r_orth = u * v_t;
 
         // Ensure det(R) > 0

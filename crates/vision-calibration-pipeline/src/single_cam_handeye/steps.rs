@@ -90,7 +90,7 @@ fn input_to_planar_dataset(input: &SingleCamHandeyeInput) -> Result<PlanarDatase
         .iter()
         .map(|v| View::without_meta(v.obs.clone()))
         .collect();
-    PlanarDataset::new(views)
+    PlanarDataset::new(views).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// Estimate initial target pose from camera intrinsics and view observations.
@@ -162,7 +162,7 @@ pub fn step_intrinsics_init(
         Ok(c) => c,
         Err(e) => {
             session.log_failure("intrinsics_init", e.to_string());
-            return Err(e);
+            return Err(anyhow::anyhow!("{e}"));
         }
     };
 
