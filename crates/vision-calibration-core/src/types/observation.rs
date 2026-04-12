@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 /// assert_eq!(view.weight(0), 1.0); // default weight
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "CorrespondenceViewRaw")]
 pub struct CorrespondenceView {
     /// 3D points in world/target frame.
     pub points_3d: Vec<Pt3>,
@@ -40,6 +41,43 @@ pub struct CorrespondenceView {
     /// Per-point weights (empty = unweighted, all default to 1.0).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub weights: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+struct CorrespondenceViewRaw {
+    points_3d: Vec<Pt3>,
+    points_2d: Vec<Pt2>,
+    #[serde(default)]
+    weights: Vec<f64>,
+}
+
+impl TryFrom<CorrespondenceViewRaw> for CorrespondenceView {
+    type Error = String;
+
+    fn try_from(raw: CorrespondenceViewRaw) -> Result<Self, Self::Error> {
+        if raw.points_3d.len() != raw.points_2d.len() {
+            return Err(format!(
+                "3D / 2D point counts must match: {} vs {}",
+                raw.points_3d.len(),
+                raw.points_2d.len()
+            ));
+        }
+        if !raw.weights.is_empty() && raw.weights.len() != raw.points_3d.len() {
+            return Err(format!(
+                "weight count must match point count: {} vs {}",
+                raw.weights.len(),
+                raw.points_3d.len()
+            ));
+        }
+        if !raw.weights.iter().all(|w| *w >= 0.0) {
+            return Err("weights must be non-negative".to_string());
+        }
+        Ok(Self {
+            points_3d: raw.points_3d,
+            points_2d: raw.points_2d,
+            weights: raw.weights,
+        })
+    }
 }
 
 impl CorrespondenceView {
@@ -121,14 +159,14 @@ impl CorrespondenceView {
 
     /// Get the weight for a specific point index.
     ///
-    /// Returns 1.0 if no weights were provided (empty `weights` vec).
+    /// Returns 1.0 if no weights were provided (empty `weights` vec) or if
+    /// `idx` falls outside the weights vector. The out-of-bounds fallback
+    /// guards against direct struct construction with mismatched lengths
+    /// (the field is `pub`); validated constructors and deserialization
+    /// keep `weights.len()` aligned with `points_3d.len()`.
     #[inline]
     pub fn weight(&self, idx: usize) -> f64 {
-        if self.weights.is_empty() {
-            1.0
-        } else {
-            self.weights[idx]
-        }
+        self.weights.get(idx).copied().unwrap_or(1.0)
     }
 
     /// Iterate over (3D point, 2D point) pairs.
@@ -257,5 +295,53 @@ mod tests {
         let restored: CorrespondenceView = serde_json::from_str(&json).unwrap();
 
         assert_eq!(restored.len(), view.len());
+    }
+
+    #[test]
+    fn correspondence_view_deserialize_rejects_short_weights() {
+        // JSON payload with weights shorter than points — previously would
+        // bypass new_with_weights validation and panic later in weight(idx).
+        let json = r#"{
+            "points_3d": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            "points_2d": [[320.0, 240.0], [400.0, 240.0]],
+            "weights": [0.5]
+        }"#;
+        let err = serde_json::from_str::<CorrespondenceView>(json).unwrap_err();
+        assert!(err.to_string().contains("weight count"));
+    }
+
+    #[test]
+    fn correspondence_view_deserialize_rejects_negative_weights() {
+        let json = r#"{
+            "points_3d": [[0.0, 0.0, 0.0]],
+            "points_2d": [[320.0, 240.0]],
+            "weights": [-1.0]
+        }"#;
+        let err = serde_json::from_str::<CorrespondenceView>(json).unwrap_err();
+        assert!(err.to_string().contains("non-negative"));
+    }
+
+    #[test]
+    fn correspondence_view_deserialize_rejects_point_mismatch() {
+        let json = r#"{
+            "points_3d": [[0.0, 0.0, 0.0]],
+            "points_2d": [[320.0, 240.0], [400.0, 240.0]]
+        }"#;
+        let err = serde_json::from_str::<CorrespondenceView>(json).unwrap_err();
+        assert!(err.to_string().contains("must match"));
+    }
+
+    #[test]
+    fn correspondence_view_weight_out_of_bounds_does_not_panic() {
+        // Construct directly via public fields to simulate a caller that
+        // bypassed the validated constructors. weight() must not panic.
+        let view = CorrespondenceView {
+            points_3d: vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(1.0, 0.0, 0.0)],
+            points_2d: vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)],
+            weights: vec![0.5], // shorter than points
+        };
+        assert_eq!(view.weight(0), 0.5);
+        assert_eq!(view.weight(1), 1.0); // fallback, not panic
+        assert_eq!(view.weight(99), 1.0);
     }
 }
