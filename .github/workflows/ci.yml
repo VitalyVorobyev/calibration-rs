@@ -47,10 +47,10 @@ jobs:
         uses: dtolnay/rust-toolchain@1.88
 
       - name: Cargo build (MSRV)
-        run: cargo build --workspace --all-features
+        run: cargo build --workspace --all-features --locked
 
       - name: Cargo test (MSRV)
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
   python-runtime:
     name: Python Runtime Tests
