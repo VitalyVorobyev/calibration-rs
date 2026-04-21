@@ -58,7 +58,7 @@ step_optimize(&mut session, None)?;
 let result = session.export()?;
 ```
 
-Six problem types: `PlanarIntrinsics`, `ScheimpflugIntrinsics`, `SingleCamHandeye`, `RigExtrinsics`, `RigHandeye`, `LaserlineDevice`.
+Nine problem types: `PlanarIntrinsics`, `ScheimpflugIntrinsics`, `SingleCamHandeye`, `RigExtrinsics`, `RigHandeye`, `LaserlineDevice`, plus the Scheimpflug family — `RigScheimpflugExtrinsics`, `RigScheimpflugHandeye` (EyeInHand), and `RigLaserlineDevice`.
 
 ## Optimization IR (ADR 0008)
 

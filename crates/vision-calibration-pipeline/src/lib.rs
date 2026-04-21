@@ -41,5 +41,8 @@ pub mod laserline_device;
 pub mod planar_intrinsics;
 pub mod rig_extrinsics;
 pub mod rig_handeye;
+pub mod rig_laserline_device;
+pub mod rig_scheimpflug_extrinsics;
+pub mod rig_scheimpflug_handeye;
 pub mod scheimpflug_intrinsics;
 pub mod single_cam_handeye;

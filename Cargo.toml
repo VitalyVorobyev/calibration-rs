@@ -6,6 +6,7 @@ members = [
     "crates/vision-calibration-linear",
     "crates/vision-calibration-optim",
     "crates/vision-calibration-pipeline",
+    "crates/vision-calibration-examples-private",
 ]
 
 resolver = "2"

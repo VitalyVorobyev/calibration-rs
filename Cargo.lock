@@ -273,6 +273,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "box-image-pyramid"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58b98343f595652ccc4da8ba4bb349ed9ce9c77b0472bad0e9d0858295dd092e"
+dependencies = [
+ "rayon",
+]
+
+[[package]]
 name = "built"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -328,14 +337,33 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fd4a45fc6df85e271d0fd800bd0da1cbe552dc507c3842e4e50fbc6d40e1a76"
 dependencies = [
- "calib-targets-aruco",
- "calib-targets-charuco",
- "calib-targets-chessboard",
- "calib-targets-core",
- "calib-targets-marker",
- "chess-corners",
+ "calib-targets-aruco 0.2.5",
+ "calib-targets-charuco 0.2.5",
+ "calib-targets-chessboard 0.2.5",
+ "calib-targets-core 0.2.5",
+ "calib-targets-marker 0.2.5",
+ "chess-corners 0.3.2",
  "image",
- "nalgebra",
+ "nalgebra 0.34.2",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "calib-targets"
+version = "0.7.1"
+dependencies = [
+ "calib-targets-aruco 0.7.1",
+ "calib-targets-charuco 0.7.1",
+ "calib-targets-chessboard 0.7.1",
+ "calib-targets-core 0.7.1",
+ "calib-targets-marker 0.7.1",
+ "calib-targets-print",
+ "calib-targets-puzzleboard",
+ "chess-corners 0.6.0",
+ "clap",
+ "image",
+ "nalgebra 0.34.2",
+ "projective-grid",
  "thiserror 2.0.18",
 ]
 
@@ -345,8 +373,19 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4233535aa422ec513609f1b3e303616b8b6f9692efed0ebea1ba9293ef8345c"
 dependencies = [
- "calib-targets-core",
- "nalgebra",
+ "calib-targets-core 0.2.5",
+ "nalgebra 0.34.2",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "calib-targets-aruco"
+version = "0.7.1"
+dependencies = [
+ "calib-targets-core 0.7.1",
+ "log",
+ "nalgebra 0.34.2",
  "serde",
  "serde_json",
 ]
@@ -357,12 +396,28 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9af56b04bf0cea8065698cfdd66fc3e595ab4074a1ab61655476001b80562801"
 dependencies = [
- "calib-targets-aruco",
- "calib-targets-chessboard",
- "calib-targets-core",
- "chess-corners-core",
+ "calib-targets-aruco 0.2.5",
+ "calib-targets-chessboard 0.2.5",
+ "calib-targets-core 0.2.5",
+ "chess-corners-core 0.3.2",
  "log",
- "nalgebra",
+ "nalgebra 0.34.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "calib-targets-charuco"
+version = "0.7.1"
+dependencies = [
+ "calib-targets-aruco 0.7.1",
+ "calib-targets-chessboard 0.7.1",
+ "calib-targets-core 0.7.1",
+ "chess-corners-core 0.6.0",
+ "log",
+ "nalgebra 0.34.2",
+ "projective-grid",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -374,12 +429,25 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f862a0dbadaf269f01e1d68d5ee34870195cc3af790f0d4e2e37f8c8eb6094fb"
 dependencies = [
- "calib-targets-core",
+ "calib-targets-core 0.2.5",
  "kiddo",
  "log",
- "nalgebra",
+ "nalgebra 0.34.2",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "calib-targets-chessboard"
+version = "0.7.1"
+dependencies = [
+ "calib-targets-core 0.7.1",
+ "kiddo",
+ "log",
+ "nalgebra 0.34.2",
+ "projective-grid",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -390,11 +458,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64484c8ecc5db7e801c33a80f3fde997c4a7d15e9d0516fd001a91bf3a3ff7a9"
 dependencies = [
  "log",
- "nalgebra",
+ "nalgebra 0.34.2",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "calib-targets-core"
+version = "0.7.1"
+dependencies = [
+ "log",
+ "nalgebra 0.34.2",
+ "projective-grid",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -403,11 +483,53 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e8a79f1e27d3c2f0bf9904663e5d88243bf5c12494d354099e92bb59b24f0b2"
 dependencies = [
- "calib-targets-chessboard",
- "calib-targets-core",
+ "calib-targets-chessboard 0.2.5",
+ "calib-targets-core 0.2.5",
  "log",
- "nalgebra",
+ "nalgebra 0.34.2",
  "serde",
+]
+
+[[package]]
+name = "calib-targets-marker"
+version = "0.7.1"
+dependencies = [
+ "calib-targets-chessboard 0.7.1",
+ "calib-targets-core 0.7.1",
+ "log",
+ "nalgebra 0.34.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "calib-targets-print"
+version = "0.7.1"
+dependencies = [
+ "calib-targets-aruco 0.7.1",
+ "calib-targets-charuco 0.7.1",
+ "calib-targets-core 0.7.1",
+ "calib-targets-marker 0.7.1",
+ "calib-targets-puzzleboard",
+ "png",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "calib-targets-puzzleboard"
+version = "0.7.1"
+dependencies = [
+ "calib-targets-chessboard 0.7.1",
+ "calib-targets-core 0.7.1",
+ "chess-corners-core 0.6.0",
+ "nalgebra 0.34.2",
+ "projective-grid",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -446,8 +568,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c93cf78918bbfb5db5771437e114ad6bf7d0c79f11f4ed754c29a5d58dc5d4e5"
 dependencies = [
  "anyhow",
- "chess-corners-core",
- "chess-corners-ml",
+ "chess-corners-core 0.3.2",
+ "chess-corners-ml 0.3.0",
  "clap",
  "image",
  "log",
@@ -455,6 +577,21 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "chess-corners"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48621dcb7fc750c0c56563b604af9a9c4c74f482d1c81b004dbb86c67aafec04"
+dependencies = [
+ "box-image-pyramid",
+ "chess-corners-core 0.6.0",
+ "chess-corners-ml 0.6.0",
+ "image",
+ "log",
+ "rayon",
+ "serde",
 ]
 
 [[package]]
@@ -468,6 +605,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "chess-corners-core"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c484dc3dc9736d59400c6439d27a81bdee9fcaa22bc8796f0ec573cf412e7d7"
+dependencies = [
+ "log",
+ "rayon",
+ "serde",
+]
+
+[[package]]
 name = "chess-corners-ml"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -475,7 +623,18 @@ checksum = "687fcfec8847870e3c79744f00009ddfd128e74d60983e708780116d7104a504"
 dependencies = [
  "anyhow",
  "serde_json",
- "tract-onnx",
+ "tract-onnx 0.21.10",
+]
+
+[[package]]
+name = "chess-corners-ml"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a943392ba88f9e418976030f720801b6e7268527a7ef1f9e22c7d907acd154e1"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "tract-onnx 0.22.1",
 ]
 
 [[package]]
@@ -849,7 +1008,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa4d037166f25435671ecc6054ae76b964f17da513353f1617690470680efdf0"
 dependencies = [
  "faer",
- "nalgebra",
+ "nalgebra 0.34.2",
  "num-complex",
 ]
 
@@ -1709,6 +1868,22 @@ dependencies = [
 
 [[package]]
 name = "nalgebra"
+version = "0.33.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d43ddcacf343185dfd6de2ee786d9e8b1c2301622afab66b6c73baf9882abfd"
+dependencies = [
+ "approx",
+ "matrixmultiply",
+ "nalgebra-macros 0.2.2",
+ "num-complex",
+ "num-rational",
+ "num-traits",
+ "simba",
+ "typenum",
+]
+
+[[package]]
+name = "nalgebra"
 version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df76ea0ff5c7e6b88689085804d6132ded0ddb9de5ca5b8aeb9eeadc0508a70a"
@@ -1733,13 +1908,24 @@ dependencies = [
  "glam 0.31.1",
  "glam 0.32.1",
  "matrixmultiply",
- "nalgebra-macros",
+ "nalgebra-macros 0.3.0",
  "num-complex",
  "num-rational",
  "num-traits",
  "serde",
  "simba",
  "typenum",
+]
+
+[[package]]
+name = "nalgebra-macros"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "254a5372af8fc138e36684761d3c0cdb758a4410e938babcff1c860ce14ddbfc"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -1864,6 +2050,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nom-language"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2de2bc5b451bfedaef92c90b8939a8fff5770bdcc1fafd6239d086aab8fa6b29"
+dependencies = [
+ "nom 8.0.0",
+]
+
+[[package]]
 name = "noop_proc_macro"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1935,7 +2130,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58ef374bb34978304bf541752bdaa948891c2d3cc787e91b9b11b429ef8f77f2"
 dependencies = [
  "approx",
- "nalgebra",
+ "nalgebra 0.34.2",
  "num-traits",
  "simba",
 ]
@@ -2201,6 +2396,16 @@ checksum = "52717f9a02b6965224f95ca2a81e2e0c5c43baacd28ca057577988930b6c3d5b"
 dependencies = [
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "projective-grid"
+version = "0.7.1"
+dependencies = [
+ "kiddo",
+ "nalgebra 0.34.2",
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2658,6 +2863,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "safetensors"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "172dd94c5a87b5c79f945c863da53b2ebc7ccef4eca24ac63cca66a41aab2178"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3012,7 +3227,7 @@ dependencies = [
  "faer",
  "faer-ext",
  "log",
- "nalgebra",
+ "nalgebra 0.34.2",
  "num-dual",
  "num-traits",
  "rayon",
@@ -3130,8 +3345,34 @@ dependencies = [
  "paste",
  "rustfft",
  "smallvec",
- "tract-data",
- "tract-linalg",
+ "tract-data 0.21.10",
+ "tract-linalg 0.21.10",
+]
+
+[[package]]
+name = "tract-core"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b65d67f5190132365dda73fe215bfc5e01b031e8cbfbea9d486bb5b0dbba3545"
+dependencies = [
+ "anyhow",
+ "anymap3",
+ "bit-set",
+ "derive-new",
+ "downcast-rs",
+ "dyn-clone",
+ "lazy_static",
+ "log",
+ "maplit",
+ "ndarray",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "pastey",
+ "rustfft",
+ "smallvec",
+ "tract-data 0.22.1",
+ "tract-linalg 0.22.1",
 ]
 
 [[package]]
@@ -3159,6 +3400,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "tract-data"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73cd7fda1e5e8b854ea3abdd09126a87fc4af81e6d1e29ec1710a8a4abf4f13a"
+dependencies = [
+ "anyhow",
+ "downcast-rs",
+ "dyn-clone",
+ "dyn-hash",
+ "half",
+ "itertools 0.12.1",
+ "lazy_static",
+ "libm",
+ "maplit",
+ "ndarray",
+ "nom 8.0.0",
+ "nom-language",
+ "num-integer",
+ "num-traits",
+ "parking_lot",
+ "scan_fmt",
+ "smallvec",
+ "string-interner",
+]
+
+[[package]]
 name = "tract-hir"
 version = "0.21.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3166,7 +3433,18 @@ checksum = "7dca047ba1151fe3446fb0194d4b6ddb9ae8f361337c47a267870c53605fbafb"
 dependencies = [
  "derive-new",
  "log",
- "tract-core",
+ "tract-core 0.21.10",
+]
+
+[[package]]
+name = "tract-hir"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "554df991b647dba8af0547ee5838b6912ed20b424f2adda0ea0b7faf8db1b151"
+dependencies = [
+ "derive-new",
+ "log",
+ "tract-core 0.22.1",
 ]
 
 [[package]]
@@ -3193,7 +3471,35 @@ dependencies = [
  "scan_fmt",
  "smallvec",
  "time",
- "tract-data",
+ "tract-data 0.21.10",
+ "unicode-normalization",
+ "walkdir",
+]
+
+[[package]]
+name = "tract-linalg"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e72097a89cc4e7c5f1bc4f854b9294dd30fa6f6d8f7f409c556953b49078c94f"
+dependencies = [
+ "byteorder",
+ "cc",
+ "derive-new",
+ "downcast-rs",
+ "dyn-clone",
+ "dyn-hash",
+ "half",
+ "lazy_static",
+ "liquid",
+ "liquid-core",
+ "liquid-derive",
+ "log",
+ "num-traits",
+ "pastey",
+ "scan_fmt",
+ "smallvec",
+ "time",
+ "tract-data 0.22.1",
  "unicode-normalization",
  "walkdir",
 ]
@@ -3209,7 +3515,27 @@ dependencies = [
  "log",
  "nom 7.1.3",
  "tar",
- "tract-core",
+ "tract-core 0.21.10",
+ "walkdir",
+]
+
+[[package]]
+name = "tract-nnef"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45b3755dd0948111b407085d11033ba218cb85b85ce8d795cec2b8353db552ea"
+dependencies = [
+ "byteorder",
+ "flate2",
+ "liquid",
+ "liquid-core",
+ "log",
+ "nom 8.0.0",
+ "nom-language",
+ "safetensors",
+ "serde_json",
+ "tar",
+ "tract-core 0.22.1",
  "walkdir",
 ]
 
@@ -3226,9 +3552,27 @@ dependencies = [
  "num-integer",
  "prost",
  "smallvec",
- "tract-hir",
- "tract-nnef",
- "tract-onnx-opl",
+ "tract-hir 0.21.10",
+ "tract-nnef 0.21.10",
+ "tract-onnx-opl 0.21.10",
+]
+
+[[package]]
+name = "tract-onnx"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac23ad1d2d5da3256ae1a78757b1072a8a3fac2a4b28d27cfb561c5942ec2701"
+dependencies = [
+ "bytes",
+ "derive-new",
+ "log",
+ "memmap2",
+ "num-integer",
+ "prost",
+ "smallvec",
+ "tract-hir 0.22.1",
+ "tract-nnef 0.22.1",
+ "tract-onnx-opl 0.22.1",
 ]
 
 [[package]]
@@ -3242,7 +3586,21 @@ dependencies = [
  "rand 0.8.5",
  "rand_distr 0.4.3",
  "rustfft",
- "tract-nnef",
+ "tract-nnef 0.21.10",
+]
+
+[[package]]
+name = "tract-onnx-opl"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87561bf0b84f74a124afc0f1997682728da6cd821083511e0357432954fd24f6"
+dependencies = [
+ "getrandom 0.2.17",
+ "log",
+ "rand 0.8.5",
+ "rand_distr 0.4.3",
+ "rustfft",
+ "tract-nnef 0.22.1",
 ]
 
 [[package]]
@@ -3328,10 +3686,10 @@ name = "vision-calibration"
 version = "0.3.0"
 dependencies = [
  "anyhow",
- "calib-targets",
- "chess-corners",
+ "calib-targets 0.2.5",
+ "chess-corners 0.3.2",
  "image",
- "nalgebra",
+ "nalgebra 0.34.2",
  "serde_json",
  "vision-calibration-core",
  "vision-calibration-linear",
@@ -3344,7 +3702,7 @@ name = "vision-calibration-core"
 version = "0.3.0"
 dependencies = [
  "anyhow",
- "nalgebra",
+ "nalgebra 0.34.2",
  "rand 0.10.1",
  "serde",
  "serde_json",
@@ -3353,12 +3711,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "vision-calibration-examples-private"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "approx",
+ "calib-targets 0.7.1",
+ "image",
+ "nalgebra 0.34.2",
+ "serde",
+ "serde_json",
+ "vision-calibration",
+ "vision-calibration-core",
+ "vision-calibration-optim",
+ "vision-calibration-pipeline",
+ "vision-metrology",
+ "vm-primitives",
+]
+
+[[package]]
 name = "vision-calibration-linear"
 version = "0.3.0"
 dependencies = [
  "anyhow",
  "log",
- "nalgebra",
+ "nalgebra 0.34.2",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3370,7 +3747,7 @@ name = "vision-calibration-optim"
 version = "0.3.0"
 dependencies = [
  "anyhow",
- "nalgebra",
+ "nalgebra 0.34.2",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3384,7 +3761,7 @@ name = "vision-calibration-pipeline"
 version = "0.3.0"
 dependencies = [
  "anyhow",
- "nalgebra",
+ "nalgebra 0.34.2",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3403,6 +3780,22 @@ dependencies = [
  "pythonize",
  "serde",
  "vision-calibration",
+]
+
+[[package]]
+name = "vision-metrology"
+version = "0.1.0"
+dependencies = [
+ "libm",
+ "nalgebra 0.33.3",
+ "vm-primitives",
+]
+
+[[package]]
+name = "vm-primitives"
+version = "0.1.0"
+dependencies = [
+ "nalgebra 0.33.3",
 ]
 
 [[package]]

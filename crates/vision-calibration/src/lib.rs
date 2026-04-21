@@ -342,6 +342,145 @@ pub mod rig_handeye {
     };
 }
 
+/// Multi-camera rig extrinsics calibration with Scheimpflug-tilted sensors.
+///
+/// Parallels [`rig_extrinsics`] with per-camera Scheimpflug sensor support.
+pub mod rig_scheimpflug_extrinsics {
+    pub use vision_calibration_pipeline::rig_scheimpflug_extrinsics::{
+        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigOptimizeOptions,
+        RigScheimpflugExtrinsicsConfig, RigScheimpflugExtrinsicsExport,
+        RigScheimpflugExtrinsicsInput, RigScheimpflugExtrinsicsProblem,
+        RigScheimpflugExtrinsicsState, run_calibration, step_intrinsics_init_all,
+        step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+    };
+}
+
+/// Multi-camera rig hand-eye calibration with Scheimpflug-tilted sensors (EyeInHand).
+///
+/// Parallels [`rig_handeye`] with per-camera Scheimpflug sensor support.
+pub mod rig_scheimpflug_handeye {
+    pub use vision_calibration_pipeline::rig_scheimpflug_handeye::{
+        HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
+        IntrinsicsOptimizeOptions, RigOptimizeOptions, RigScheimpflugHandeyeBaConfig,
+        RigScheimpflugHandeyeConfig, RigScheimpflugHandeyeExport, RigScheimpflugHandeyeInitConfig,
+        RigScheimpflugHandeyeInput, RigScheimpflugHandeyeIntrinsicsConfig,
+        RigScheimpflugHandeyeProblem, RigScheimpflugHandeyeRigConfig,
+        RigScheimpflugHandeyeSolverConfig, RigScheimpflugHandeyeState, run_calibration,
+        step_handeye_init, step_handeye_optimize, step_intrinsics_init_all,
+        step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+    };
+}
+
+/// Rig-level laserline calibration.
+///
+/// Given an upstream rig calibration ([`rig_scheimpflug_handeye`]), fits one laser
+/// plane per camera and reports each plane in the rig frame.
+pub mod rig_laserline_device {
+    pub use vision_calibration_pipeline::rig_laserline_device::{
+        RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
+        RigLaserlineDeviceProblem, RigLaserlineDeviceState, RigUpstreamCalibration, StepOptions,
+        run_calibration, step_init, step_optimize,
+    };
+}
+
+/// Map a laser pixel in a specific camera to a 3D point in the robot gripper frame.
+///
+/// Given:
+/// - `cam_idx`: which camera of the rig captured the pixel.
+/// - `pixel`: observed pixel on the laser line.
+/// - `rig_cal`: upstream rig + Scheimpflug hand-eye calibration.
+/// - `laser_planes_rig`: laser planes (one per camera) expressed in rig frame.
+///
+/// Returns the 3D point in gripper (robot flange) frame:
+///
+/// 1. Undistort `pixel` to a normalized camera-frame ray using the full
+///    pinhole + Brown-Conrady + Scheimpflug chain (inverted).
+/// 2. Transform the ray into rig frame via `cam_se3_rig[cam_idx].inverse()`.
+/// 3. Intersect the ray with `laser_planes_rig[cam_idx]`.
+/// 4. Apply `gripper_se3_rig` to obtain the point in gripper frame.
+///
+/// # Errors
+///
+/// Returns [`Error`] if `cam_idx` is out of range, if the ray never intersects
+/// the plane, or if undistortion fails.
+pub fn pixel_to_gripper_point(
+    cam_idx: usize,
+    pixel: vision_calibration_core::Pt2,
+    rig_cal: &rig_scheimpflug_handeye::RigScheimpflugHandeyeExport,
+    laser_planes_rig: &[vision_calibration_optim::LaserPlane],
+) -> Result<vision_calibration_core::Pt3, Error> {
+    use vision_calibration_core::{DistortionModel, Mat3, Pt2, Pt3, SensorModel, Vec3};
+
+    let n_cams = rig_cal.cameras.len();
+    if cam_idx >= n_cams {
+        return Err(Error::InvalidInput {
+            reason: format!("cam_idx {cam_idx} out of range (num_cameras = {n_cams})"),
+        });
+    }
+    if laser_planes_rig.len() != n_cams {
+        return Err(Error::InvalidInput {
+            reason: format!(
+                "laser_planes_rig has {} entries, expected {n_cams}",
+                laser_planes_rig.len()
+            ),
+        });
+    }
+    if cam_idx >= rig_cal.sensors.len() || cam_idx >= rig_cal.cam_se3_rig.len() {
+        return Err(Error::InvalidInput {
+            reason: "rig calibration missing per-cam data".to_string(),
+        });
+    }
+
+    let cam = &rig_cal.cameras[cam_idx];
+    let sensor = &rig_cal.sensors[cam_idx];
+
+    // Undistort pixel to a normalized camera-frame direction by inverting the full
+    // chain: pixel -> sensor (after Scheimpflug) -> normalized (after distortion) -> ray.
+    let k_matrix = Mat3::new(
+        cam.k.fx, cam.k.skew, cam.k.cx, 0.0, cam.k.fy, cam.k.cy, 0.0, 0.0, 1.0,
+    );
+    let k_inv = k_matrix
+        .try_inverse()
+        .ok_or_else(|| Error::Numerical("intrinsics matrix is singular".to_string()))?;
+    let uv_h: Vec3 = Vec3::new(pixel.x, pixel.y, 1.0);
+    let sensor_h: Vec3 = k_inv * uv_h;
+    if sensor_h.z.abs() < 1e-12 {
+        return Err(Error::Numerical(
+            "pixel projects to infinity after K^-1".to_string(),
+        ));
+    }
+    let sensor_pt: Pt2 = Pt2::new(sensor_h.x / sensor_h.z, sensor_h.y / sensor_h.z);
+    // Invert Scheimpflug sensor (sensor -> distorted normalized).
+    let compiled_sensor = sensor.compile();
+    let distorted_pt = compiled_sensor.sensor_to_normalized(&sensor_pt);
+    // Invert distortion (distorted -> undistorted normalized).
+    let normalized = cam.dist.undistort(&distorted_pt);
+    // Ray direction in camera frame: (x_n, y_n, 1).
+    let dir_cam = Vec3::new(normalized.x, normalized.y, 1.0);
+
+    // Transform ray origin/direction from camera to rig.
+    let cam_to_rig = rig_cal.cam_se3_rig[cam_idx].inverse();
+    let origin_rig = cam_to_rig.translation.vector;
+    let dir_rig = cam_to_rig.rotation.transform_vector(&dir_cam);
+
+    // Intersect with laser plane (in rig frame): n · (o + t d) + d_plane = 0.
+    let plane = &laser_planes_rig[cam_idx];
+    let n = plane.normal.into_inner();
+    let denom = n.dot(&dir_rig);
+    if denom.abs() < 1e-12 {
+        return Err(Error::Numerical(
+            "ray is parallel to laser plane; no intersection".to_string(),
+        ));
+    }
+    let t = -(n.dot(&origin_rig) + plane.distance) / denom;
+    let p_rig: Vec3 = origin_rig + t * dir_rig;
+
+    // Apply gripper_se3_rig to get point in gripper frame.
+    let p_rig_pt = Pt3::from(p_rig);
+    let p_gripper = rig_cal.gripper_se3_rig.transform_point(&p_rig_pt);
+    Ok(p_gripper)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Foundation Crates (Advanced Users)
 // ═══════════════════════════════════════════════════════════════════════════════

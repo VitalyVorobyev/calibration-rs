@@ -179,9 +179,25 @@ pub use crate::problems::handeye::{
     optimize_handeye,
 };
 
+pub use crate::problems::handeye_scheimpflug::{
+    HandEyeScheimpflugDataset, HandEyeScheimpflugEstimate, HandEyeScheimpflugParams,
+    HandEyeScheimpflugSolveOptions, optimize_handeye_scheimpflug,
+};
+
 pub use crate::problems::rig_extrinsics::{
     RigExtrinsicsDataset, RigExtrinsicsEstimate, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
     optimize_rig_extrinsics,
+};
+
+pub use crate::problems::rig_extrinsics_scheimpflug::{
+    RigExtrinsicsScheimpflugDataset, RigExtrinsicsScheimpflugEstimate,
+    RigExtrinsicsScheimpflugParams, RigExtrinsicsScheimpflugSolveOptions,
+    optimize_rig_extrinsics_scheimpflug,
+};
+
+pub use crate::problems::laserline_rig_bundle::{
+    RigLaserlineDataset, RigLaserlineEstimate, RigLaserlineSolveOptions, RigLaserlineUpstream,
+    RigLaserlineView, optimize_rig_laserline,
 };
 
 pub use crate::problems::laserline_bundle::{

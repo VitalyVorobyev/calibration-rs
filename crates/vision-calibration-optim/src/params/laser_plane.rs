@@ -10,7 +10,7 @@
 use crate::Error;
 use nalgebra::{DVector, DVectorView, Unit, Vector3};
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::Pt3;
+use vision_calibration_core::{Iso3, Pt3};
 
 /// Laser plane in camera frame: unit normal + signed distance.
 ///
@@ -117,6 +117,25 @@ impl LaserPlane {
     pub fn point_distance(&self, point: &Pt3) -> f64 {
         self.normal.dot(&point.coords) + self.distance
     }
+
+    /// Transform this plane from frame A to frame B.
+    ///
+    /// Given `T_B_A` (a pose that maps points from frame A to frame B, i.e.
+    /// `p_B = T_B_A * p_A`), compute the plane equation in frame B:
+    /// `n_B · p_B + d_B = 0`.
+    ///
+    /// Derivation: `p_A = R^T (p_B - t)` where `(R, t) = T_B_A`, so
+    /// `n_A · p_A + d_A = (R n_A) · p_B + (d_A - (R n_A) · t) = 0`.
+    pub fn transform_by(&self, t_b_a: &Iso3) -> Self {
+        let r = t_b_a.rotation.to_rotation_matrix();
+        let t = t_b_a.translation.vector;
+        let n_b = r * self.normal.into_inner();
+        let d_b = self.distance - n_b.dot(&t);
+        Self {
+            normal: Unit::new_normalize(n_b),
+            distance: d_b,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -170,6 +189,38 @@ mod tests {
     fn plane_from_dvec_wrong_size() {
         let v = DVector::from_vec(vec![1.0, 2.0, 3.0]); // Only 3D
         assert!(LaserPlane::from_dvec(v.as_view()).is_err());
+    }
+
+    #[test]
+    fn plane_transform_identity_is_noop() {
+        let plane = LaserPlane::new(Vector3::new(0.1, -0.2, 0.9), -0.4);
+        let t = Iso3::identity();
+        let out = plane.transform_by(&t);
+        assert!((plane.normal.x - out.normal.x).abs() < 1e-12);
+        assert!((plane.normal.y - out.normal.y).abs() < 1e-12);
+        assert!((plane.normal.z - out.normal.z).abs() < 1e-12);
+        assert!((plane.distance - out.distance).abs() < 1e-12);
+    }
+
+    #[test]
+    fn plane_transform_preserves_geometry() {
+        use nalgebra::{Rotation3, Translation3};
+        let plane = LaserPlane::new(Vector3::new(0.2, 0.3, 0.95), -0.5);
+        let t_b_a = Iso3::from_parts(
+            Translation3::new(0.1, -0.05, 0.2),
+            Rotation3::from_euler_angles(0.2, -0.1, 0.15).into(),
+        );
+        let plane_b = plane.transform_by(&t_b_a);
+
+        // Pick a point on the original plane and verify its image is on the new plane.
+        let n_a = plane.normal.into_inner();
+        let p_a_on_plane = Pt3::from(-plane.distance * n_a);
+        let p_b = t_b_a.transform_point(&p_a_on_plane);
+        assert!(
+            plane_b.point_distance(&p_b).abs() < 1e-10,
+            "transformed point not on transformed plane: {}",
+            plane_b.point_distance(&p_b)
+        );
     }
 
     #[test]

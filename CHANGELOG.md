@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Scheimpflug rig calibration family:
+  - `optim::optimize_rig_extrinsics_scheimpflug` + `RigExtrinsicsScheimpflugParams/SolveOptions/Estimate`.
+  - `optim::optimize_handeye_scheimpflug` + `HandEyeScheimpflugParams/SolveOptions/Estimate` (EyeInHand).
+  - `optim::optimize_rig_laserline` + `RigLaserlineDataset/Upstream/SolveOptions/Estimate` — per-camera
+    laser-plane calibration against a frozen upstream rig calibration, with plane output expressed in
+    rig frame.
+  - `LaserPlane::transform_by(&Iso3)` utility for frame-to-frame plane transforms.
+- Three new session-API pipelines in `vision_calibration_pipeline`:
+  - `rig_scheimpflug_extrinsics` (4 steps)
+  - `rig_scheimpflug_handeye` (6 steps, EyeInHand)
+  - `rig_laserline_device` (2 steps, consumes a frozen `RigScheimpflugHandeyeExport`)
+- Facade helper `vision_calibration::pixel_to_gripper_point(cam_idx, pixel, rig_cal, laser_planes_rig)`
+  maps a laser pixel in any camera to a 3D point in the robot gripper frame by chaining undistort →
+  rig-frame ray → plane intersection → hand-eye transform.
+- New IR factor kinds `ReprojPointPinhole4Dist5Scheimpflug2{TwoSE3,HandEye,HandEyeRobotDelta}` with
+  matching TinySolver adapters and autodiff-ready residual generics.
+- New private example crate `vision-calibration-examples-private` (publish = false) with
+  `examples/puzzle_130x130_rig.rs` running the full pipeline on a sensor dataset.
+
 ## [0.3.0] - 2026-04-12
 
 ### Added

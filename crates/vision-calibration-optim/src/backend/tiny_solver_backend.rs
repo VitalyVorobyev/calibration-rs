@@ -8,7 +8,10 @@ use crate::factors::laserline::{
 use crate::factors::reprojection_model::{
     reproj_residual_pinhole4_dist5_handeye_generic,
     reproj_residual_pinhole4_dist5_handeye_robot_delta_generic,
+    reproj_residual_pinhole4_dist5_scheimpflug2_handeye_generic,
+    reproj_residual_pinhole4_dist5_scheimpflug2_handeye_robot_delta_generic,
     reproj_residual_pinhole4_dist5_scheimpflug2_se3_generic,
+    reproj_residual_pinhole4_dist5_scheimpflug2_two_se3_generic,
     reproj_residual_pinhole4_dist5_se3_generic, reproj_residual_pinhole4_dist5_two_se3_generic,
     reproj_residual_pinhole4_se3_generic,
 };
@@ -271,6 +274,46 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor>
             };
             Ok((Box::new(factor), loss))
         }
+        FactorKind::ReprojPointPinhole4Dist5Scheimpflug2TwoSE3 { pw, uv, w } => {
+            let factor = TinyReprojPointDistScheimpflugTwoSE3Factor {
+                pw: *pw,
+                uv: *uv,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
+        }
+        FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEye {
+            pw,
+            uv,
+            w,
+            base_to_gripper_se3,
+            mode,
+        } => {
+            let factor = TinyReprojPointDistScheimpflugHandEyeFactor {
+                pw: *pw,
+                uv: *uv,
+                w: *w,
+                robot_se3: *base_to_gripper_se3,
+                mode: *mode,
+            };
+            Ok((Box::new(factor), loss))
+        }
+        FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta {
+            pw,
+            uv,
+            w,
+            base_to_gripper_se3,
+            mode,
+        } => {
+            let factor = TinyReprojPointDistScheimpflugHandEyeDeltaFactor {
+                pw: *pw,
+                uv: *uv,
+                w: *w,
+                robot_se3: *base_to_gripper_se3,
+                mode: *mode,
+            };
+            Ok((Box::new(factor), loss))
+        }
         FactorKind::Se3TangentPrior { sqrt_info } => {
             let factor = TinySe3TangentPriorFactor {
                 sqrt_info: *sqrt_info,
@@ -471,6 +514,117 @@ impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistHandEyeDeltaFactor
             params[3].as_view(), // handeye
             params[4].as_view(), // target
             params[5].as_view(), // robot delta (se3 tangent)
+            &data,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyReprojPointDistScheimpflugTwoSE3Factor {
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistScheimpflugTwoSE3Factor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            5,
+            "expected [cam, dist, sensor, extr, pose] parameter blocks"
+        );
+        let obs = crate::factors::reprojection_model::ObservationData {
+            pw: self.pw,
+            uv: self.uv,
+            w: self.w,
+        };
+        let r = reproj_residual_pinhole4_dist5_scheimpflug2_two_se3_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // sensor (Scheimpflug)
+            params[3].as_view(), // extr (camera-to-rig)
+            params[4].as_view(), // pose (target-to-rig)
+            &obs,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyReprojPointDistScheimpflugHandEyeFactor {
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+    robot_se3: [f64; 7],
+    mode: crate::ir::HandEyeMode,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistScheimpflugHandEyeFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            6,
+            "expected [cam, dist, sensor, extr, handeye, target] parameter blocks"
+        );
+        let obs = crate::factors::reprojection_model::ObservationData {
+            pw: self.pw,
+            uv: self.uv,
+            w: self.w,
+        };
+        let robot_data = crate::factors::reprojection_model::RobotPoseData {
+            robot_se3: self.robot_se3,
+            mode: self.mode,
+        };
+        let r = reproj_residual_pinhole4_dist5_scheimpflug2_handeye_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // sensor (Scheimpflug)
+            params[3].as_view(), // extr
+            params[4].as_view(), // handeye
+            params[5].as_view(), // target
+            &robot_data,
+            &obs,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyReprojPointDistScheimpflugHandEyeDeltaFactor {
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+    robot_se3: [f64; 7],
+    mode: crate::ir::HandEyeMode,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojPointDistScheimpflugHandEyeDeltaFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            7,
+            "expected [cam, dist, sensor, extr, handeye, target, robot_delta] parameter blocks"
+        );
+        let data = crate::factors::reprojection_model::HandEyeRobotDeltaData {
+            robot: crate::factors::reprojection_model::RobotPoseData {
+                robot_se3: self.robot_se3,
+                mode: self.mode,
+            },
+            obs: crate::factors::reprojection_model::ObservationData {
+                pw: self.pw,
+                uv: self.uv,
+                w: self.w,
+            },
+        };
+        let r = reproj_residual_pinhole4_dist5_scheimpflug2_handeye_robot_delta_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // sensor (Scheimpflug)
+            params[3].as_view(), // extr
+            params[4].as_view(), // handeye
+            params[5].as_view(), // target
+            params[6].as_view(), // robot delta (se3 tangent)
             &data,
         );
         DVector::from_row_slice(r.as_slice())

@@ -1,0 +1,26 @@
+[package]
+name = "vision-calibration-examples-private"
+description = "Private end-to-end calibration examples using private sensor datasets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+vision-calibration.workspace = true
+vision-calibration-core.workspace = true
+vision-calibration-optim.workspace = true
+vision-calibration-pipeline.workspace = true
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+image = { workspace = true }
+nalgebra = { workspace = true }
+calib-targets = { path = "../../../calib-targets-rs/crates/calib-targets" }
+vision-metrology = { path = "../../../vision-metrology/crates/vision-metrology" }
+vm-primitives = { path = "../../../vision-metrology/crates/vm-primitives" }
+
+[dev-dependencies]
+approx = "0.5"
