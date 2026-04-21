@@ -54,6 +54,13 @@ pub struct RigScheimpflugHandeyeIntrinsicsConfig {
     /// typical homogeneous rig has identical optics, so reusing a successful
     /// neighbor's solution is a safe starting point for non-linear refinement.
     pub fallback_to_shared_init: bool,
+
+    /// When `initial_cameras` is provided, fix the intrinsics + distortion of
+    /// those cameras during per-camera Scheimpflug BA (only Scheimpflug tilts
+    /// and target poses are refined). Defaults to `true` — a user-supplied
+    /// override is usually a strong prior that shouldn't be perturbed by
+    /// per-camera refinement.
+    pub fix_intrinsics_when_overridden: bool,
 }
 
 impl Default for RigScheimpflugHandeyeIntrinsicsConfig {
@@ -69,6 +76,7 @@ impl Default for RigScheimpflugHandeyeIntrinsicsConfig {
             initial_cameras: None,
             initial_sensors: None,
             fallback_to_shared_init: true,
+            fix_intrinsics_when_overridden: true,
         }
     }
 }

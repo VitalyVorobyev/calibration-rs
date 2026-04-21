@@ -396,8 +396,13 @@ pub fn step_intrinsics_optimize_all(
     let mut optimized_sensors = Vec::with_capacity(input.num_cameras);
     let mut per_cam_reproj_errors = Vec::with_capacity(input.num_cameras);
 
-    let fix_intrinsics = IntrinsicsFixMask::default();
-    let fix_distortion = DistortionFixMask::default();
+    let fix_intrinsics_default = IntrinsicsFixMask::default();
+    // Default to radial-only (k1, k2 free; k3, p1, p2 fixed). Tangential
+    // distortion is held at zero because it can absorb tilt-like geometric
+    // signal and interfere with Scheimpflug tilt optimization.
+    let fix_distortion_default = DistortionFixMask::radial_only();
+    let fix_intrinsics_override = IntrinsicsFixMask::all_fixed();
+    let fix_distortion_override = DistortionFixMask::all_fixed();
 
     let mut per_cam_failures: Vec<(usize, String)> = Vec::new();
     let per_cam_used_fallback = session
@@ -478,10 +483,20 @@ pub fn step_intrinsics_optimize_all(
             initial_poses,
         )?;
 
+        let is_overridden = cfg.intrinsics.initial_cameras.is_some()
+            && cfg.intrinsics.fix_intrinsics_when_overridden;
         let solve_opts = ScheimpflugIntrinsicsSolveOptions {
             robust_loss: cfg.solver.robust_loss,
-            fix_intrinsics,
-            fix_distortion,
+            fix_intrinsics: if is_overridden {
+                fix_intrinsics_override
+            } else {
+                fix_intrinsics_default
+            },
+            fix_distortion: if is_overridden {
+                fix_distortion_override
+            } else {
+                fix_distortion_default
+            },
             fix_scheimpflug: cfg.intrinsics.fix_scheimpflug,
             fix_poses: vec![0],
         };

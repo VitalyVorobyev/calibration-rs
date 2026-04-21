@@ -223,7 +223,10 @@ pub fn step_intrinsics_optimize_all(
     let mut per_cam_reproj_errors = Vec::with_capacity(input.num_cameras);
 
     let fix_intrinsics = IntrinsicsFixMask::default();
-    let fix_distortion = DistortionFixMask::default();
+    // Radial-only distortion (k1, k2 free; k3, p1, p2 fixed). Tangential
+    // distortion can absorb tilt-like geometric signal and interfere with
+    // Scheimpflug tilt optimization.
+    let fix_distortion = DistortionFixMask::radial_only();
 
     for cam_idx in 0..input.num_cameras {
         let cam_views = extract_camera_views(input, cam_idx);

@@ -26,7 +26,10 @@ use vision_calibration::{
     rig_scheimpflug_handeye::{RigScheimpflugHandeyeConfig, RigScheimpflugHandeyeProblem},
     session::CalibrationSession,
 };
-use vision_calibration_core::{CorrespondenceView, Pt2, RigDataset, RigView, RigViewObs};
+use vision_calibration_core::{
+    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Pt2, RigDataset, RigView, RigViewObs,
+    ScheimpflugParams, make_pinhole_camera,
+};
 use vision_calibration_examples_private::{
     PoseEntry, detect_laser, detect_target, load_gray, load_poses, split_horizontal,
 };
@@ -37,6 +40,22 @@ const BOARD_ROWS: u32 = 130;
 const BOARD_COLS: u32 = 130;
 const CELL_SIZE_MM: f64 = 1.014;
 
+/// Homogeneous rig: all 6 cameras share the same optics. Provide a good
+/// initial intrinsic guess that accounts for Scheimpflug (principal point at
+/// image center, moderate focal length). Zhang's method applied to
+/// Scheimpflug images "compensates" for the missing tilt by shifting cy,
+/// yielding a wrong (but self-consistent) K. Non-linear BA with tilts as
+/// free parameters should then find the correct tilt + refine fx/fy.
+fn build_initial_intrinsics(tile_w: u32, tile_h: u32) -> FxFyCxCySkew<f64> {
+    FxFyCxCySkew {
+        fx: 1800.0,
+        fy: 1800.0,
+        cx: (tile_w as f64) * 0.5,
+        cy: (tile_h as f64) * 0.5,
+        skew: 0.0,
+    }
+}
+
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
         std::env::var("PUZZLE_DATA_DIR")
@@ -46,6 +65,13 @@ fn main() -> Result<()> {
 
     let poses = load_poses(&data_dir.join("poses.json"))?;
     println!("loaded {} poses", poses.len());
+
+    // Probe tile size from the first target image.
+    let first_target = load_gray(&data_dir.join(&poses[0].target_image))?;
+    let tile_w = first_target.width() / NUM_CAMERAS as u32;
+    let tile_h = first_target.height();
+    println!("tile size: {tile_w}x{tile_h}");
+    drop(first_target);
 
     // ─── Stage 1: detect targets and laser lines ───────────────────────────
     let t0 = Instant::now();
@@ -64,10 +90,40 @@ fn main() -> Result<()> {
         CalibrationSession::<RigScheimpflugHandeyeProblem>::with_description("puzzle_130x130_rig");
     rig_session.set_input(handeye_dataset)?;
 
+    // Provide a good initial intrinsic guess for all 6 cameras so BA recovers
+    // the Scheimpflug tilts rather than drifting cy to compensate. Principal
+    // point is set to the tile center; focal length is a rough prior.
+    let initial_k = build_initial_intrinsics(tile_w, tile_h);
+    let initial_dist = BrownConrady5 {
+        k1: 0.0,
+        k2: 0.0,
+        k3: 0.0,
+        p1: 0.0,
+        p2: 0.0,
+        iters: 8,
+    };
+    let initial_camera = make_pinhole_camera(initial_k, initial_dist);
+    let initial_cameras = vec![initial_camera; NUM_CAMERAS];
+    let initial_sensors = vec![ScheimpflugParams::default(); NUM_CAMERAS];
+
     let mut cfg = RigScheimpflugHandeyeConfig::default();
-    cfg.solver.max_iters = 120;
+    cfg.solver.max_iters = 200;
     cfg.solver.verbosity = 1;
     cfg.handeye_ba.refine_robot_poses = false;
+    cfg.intrinsics.initial_cameras = Some(initial_cameras);
+    cfg.intrinsics.initial_sensors = Some(initial_sensors);
+    // Per-camera BA: fix K and distortion at the seeded values — only
+    // Scheimpflug tilts and per-view poses are refined. Letting k1/k2 float
+    // per-camera overfits them to the limited per-view data (k2 wanders to
+    // ±several units). Rig BA below will refine them using the multi-view
+    // rig constraint, which is better-conditioned.
+    cfg.intrinsics.fix_intrinsics_when_overridden = true;
+    // Keep intrinsics + tilts fixed in rig BA; the rig-level optimization
+    // is free to update extrinsics and rig poses. Letting K/tilts float
+    // at this stage tends to diverge (k2 runs to hundreds) — the per-camera
+    // estimates are already in reasonable ballparks.
+    cfg.rig.refine_intrinsics_in_rig_ba = false;
+    cfg.rig.refine_scheimpflug_in_rig_ba = false;
     rig_session.set_config(cfg)?;
 
     let t0 = Instant::now();
@@ -105,8 +161,19 @@ fn main() -> Result<()> {
         if let Some(cams) = &rig_session.state.per_cam_intrinsics {
             for (i, c) in cams.iter().enumerate() {
                 println!(
-                    "    cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1}",
-                    c.k.fx, c.k.fy, c.k.cx, c.k.cy
+                    "    cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
+                    c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
+                );
+            }
+        }
+        if let Some(sens) = &rig_session.state.per_cam_sensors {
+            for (i, s) in sens.iter().enumerate() {
+                println!(
+                    "    cam {i} tilt: tilt_x={:+.4} rad ({:+.3}°) tilt_y={:+.4} rad ({:+.3}°)",
+                    s.tilt_x,
+                    s.tilt_x.to_degrees(),
+                    s.tilt_y,
+                    s.tilt_y.to_degrees()
                 );
             }
         }
@@ -123,6 +190,25 @@ fn main() -> Result<()> {
         if let Some(per) = &rig_session.state.rig_ba_per_cam_reproj_errors {
             for (i, e) in per.iter().enumerate() {
                 println!("    cam {i} rig reproj = {e:.3} px");
+            }
+        }
+        if let Some(cams) = &rig_session.state.per_cam_intrinsics {
+            for (i, c) in cams.iter().enumerate() {
+                println!(
+                    "    [after rig] cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
+                    c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
+                );
+            }
+        }
+        if let Some(sens) = &rig_session.state.per_cam_sensors {
+            for (i, s) in sens.iter().enumerate() {
+                println!(
+                    "    [after rig] cam {i} tilt: tilt_x={:+.4} ({:+.3}°) tilt_y={:+.4} ({:+.3}°)",
+                    s.tilt_x,
+                    s.tilt_x.to_degrees(),
+                    s.tilt_y,
+                    s.tilt_y.to_degrees()
+                );
             }
         }
         let step_t = Instant::now();
