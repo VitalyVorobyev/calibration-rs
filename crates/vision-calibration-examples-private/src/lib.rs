@@ -35,6 +35,10 @@ pub struct PoseEntry {
 
 impl PoseEntry {
     /// Convert `tcp2base` to an [`Iso3`] (robot base_se3_gripper).
+    ///
+    /// Translation is read from the manifest in millimeters and converted to
+    /// meters here so every `Iso3` returned by this crate is SI-consistent
+    /// (matching the target-frame 3D points emitted by [`detect_target`]).
     pub fn base_se3_gripper(&self) -> Iso3 {
         use nalgebra::{Matrix3, Matrix4, Translation3, UnitQuaternion};
         let m = Matrix4::<f64>::from_iterator(self.tcp2base.iter().flatten().copied()).transpose();
@@ -49,7 +53,14 @@ impl PoseEntry {
             m[(2, 1)],
             m[(2, 2)],
         );
-        let trans = Translation3::new(m[(0, 3)], m[(1, 3)], m[(2, 3)]);
+        // poses.json encodes tcp2base translation in millimeters; convert to
+        // meters to stay consistent with detect_target's mm→m conversion.
+        const MM_TO_M: f64 = 1.0e-3;
+        let trans = Translation3::new(
+            m[(0, 3)] * MM_TO_M,
+            m[(1, 3)] * MM_TO_M,
+            m[(2, 3)] * MM_TO_M,
+        );
         let quat = UnitQuaternion::from_matrix(&rot);
         Iso3::from_parts(trans, quat)
     }
@@ -107,9 +118,32 @@ pub fn detect_target(
 
     let mut pts_3d: Vec<Pt3> = Vec::new();
     let mut pts_2d: Vec<Pt2> = Vec::new();
+    // Find target_position range so we can recenter to a board-local frame.
+    // The puzzleboard detector returns absolute positions on the 501×501 master
+    // pattern; for each view only a small subregion is visible. Without
+    // recentering, Zhang sees a narrow slab offset from the origin, which
+    // biases the recovered principal point.
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
     for corner in &result.detection.corners {
         if let (Some(_id), Some(t)) = (corner.id, corner.target_position) {
-            pts_3d.push(Pt3::new(t.x as Real / 1000.0, t.y as Real / 1000.0, 0.0)); // mm→m
+            min_x = min_x.min(t.x);
+            max_x = max_x.max(t.x);
+            min_y = min_y.min(t.y);
+            max_y = max_y.max(t.y);
+        }
+    }
+    let mid_x = 0.5 * (min_x + max_x);
+    let mid_y = 0.5 * (min_y + max_y);
+    for corner in &result.detection.corners {
+        if let (Some(_id), Some(t)) = (corner.id, corner.target_position) {
+            pts_3d.push(Pt3::new(
+                (t.x - mid_x) as Real / 1000.0,
+                (t.y - mid_y) as Real / 1000.0,
+                0.0,
+            ));
             pts_2d.push(Pt2::new(
                 corner.position.x as Real,
                 corner.position.y as Real,

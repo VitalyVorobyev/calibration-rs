@@ -67,10 +67,71 @@ fn main() -> Result<()> {
     let mut cfg = RigScheimpflugHandeyeConfig::default();
     cfg.solver.max_iters = 120;
     cfg.solver.verbosity = 1;
+    cfg.handeye_ba.refine_robot_poses = false;
     rig_session.set_config(cfg)?;
 
     let t0 = Instant::now();
-    vision_calibration::rig_scheimpflug_handeye::run_calibration(&mut rig_session)?;
+    {
+        use vision_calibration::rig_scheimpflug_handeye as rh;
+        let step_t = Instant::now();
+        rh::step_intrinsics_init_all(&mut rig_session, None)?;
+        println!("  step_intrinsics_init_all: {:.2?}", step_t.elapsed());
+        if let Some(cams) = &rig_session.state.per_cam_intrinsics {
+            for (i, c) in cams.iter().enumerate() {
+                let fb = rig_session
+                    .state
+                    .per_cam_used_fallback
+                    .as_ref()
+                    .map(|v| v[i])
+                    .unwrap_or(false);
+                println!(
+                    "    [zhang] cam {i}{}: fx={:.1} fy={:.1} cx={:.1} cy={:.1}",
+                    if fb { " (fallback)" } else { "" },
+                    c.k.fx,
+                    c.k.fy,
+                    c.k.cx,
+                    c.k.cy
+                );
+            }
+        }
+        let step_t = Instant::now();
+        rh::step_intrinsics_optimize_all(&mut rig_session, None)?;
+        println!("  step_intrinsics_optimize_all: {:.2?}", step_t.elapsed());
+        if let Some(errs) = &rig_session.state.per_cam_reproj_errors {
+            for (i, e) in errs.iter().enumerate() {
+                println!("    cam {i} intrinsics reproj = {e:?}");
+            }
+        }
+        if let Some(cams) = &rig_session.state.per_cam_intrinsics {
+            for (i, c) in cams.iter().enumerate() {
+                println!(
+                    "    cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1}",
+                    c.k.fx, c.k.fy, c.k.cx, c.k.cy
+                );
+            }
+        }
+        let step_t = Instant::now();
+        rh::step_rig_init(&mut rig_session)?;
+        println!("  step_rig_init: {:.2?}", step_t.elapsed());
+        let step_t = Instant::now();
+        rh::step_rig_optimize(&mut rig_session, None)?;
+        println!(
+            "  step_rig_optimize: {:.2?}, rig_reproj={:?}",
+            step_t.elapsed(),
+            rig_session.state.rig_ba_reproj_error
+        );
+        if let Some(per) = &rig_session.state.rig_ba_per_cam_reproj_errors {
+            for (i, e) in per.iter().enumerate() {
+                println!("    cam {i} rig reproj = {e:.3} px");
+            }
+        }
+        let step_t = Instant::now();
+        rh::step_handeye_init(&mut rig_session, None)?;
+        println!("  step_handeye_init: {:.2?}", step_t.elapsed());
+        let step_t = Instant::now();
+        rh::step_handeye_optimize(&mut rig_session, None)?;
+        println!("  step_handeye_optimize: {:.2?}", step_t.elapsed());
+    }
     println!(
         "stage 2 (rig + scheimpflug + hand-eye): {:.2?}",
         t0.elapsed()

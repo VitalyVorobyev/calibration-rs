@@ -32,6 +32,28 @@ pub struct RigScheimpflugHandeyeIntrinsicsConfig {
     pub init_tilt_y: f64,
     /// Scheimpflug mask during per-camera refinement.
     pub fix_scheimpflug: ScheimpflugFixMask,
+
+    /// Optional per-camera initial intrinsics that bypass Zhang's method.
+    ///
+    /// If `Some`, its length must equal `num_cameras`. Each `Some` entry
+    /// overrides the linear init for that camera; `None` entries fall back to
+    /// Zhang's method (with `fallback_to_shared_init` applying if Zhang fails).
+    ///
+    /// Useful when a single homogeneous rig shares the same optical design
+    /// across all cameras — a known focal-length / principal-point prior lets
+    /// the non-linear refinement step do all the heavy lifting and sidesteps
+    /// Zhang's sensitivity to borderline view geometry.
+    pub initial_cameras: Option<Vec<PinholeCamera>>,
+
+    /// Optional per-camera initial Scheimpflug tilts. Same semantics as
+    /// `initial_cameras`. `None` entries fall back to `init_tilt_x/y`.
+    pub initial_sensors: Option<Vec<ScheimpflugParams>>,
+
+    /// When Zhang's method fails for a camera, fall back to a successful
+    /// camera's intrinsics + sensor as the seed. Defaults to `true` — a
+    /// typical homogeneous rig has identical optics, so reusing a successful
+    /// neighbor's solution is a safe starting point for non-linear refinement.
+    pub fallback_to_shared_init: bool,
 }
 
 impl Default for RigScheimpflugHandeyeIntrinsicsConfig {
@@ -44,6 +66,9 @@ impl Default for RigScheimpflugHandeyeIntrinsicsConfig {
             init_tilt_x: 0.0,
             init_tilt_y: 0.0,
             fix_scheimpflug: ScheimpflugFixMask::default(),
+            initial_cameras: None,
+            initial_sensors: None,
+            fallback_to_shared_init: true,
         }
     }
 }

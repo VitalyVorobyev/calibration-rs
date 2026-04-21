@@ -116,11 +116,25 @@ fn estimate_target_pose(
         .map_err(|e| Error::numerical(format!("failed to recover pose from homography: {e}")))
 }
 
-/// Initialize Scheimpflug intrinsics for all cameras (Zhang + zero tilts).
+/// Initialize Scheimpflug intrinsics for all cameras.
+///
+/// Source of each camera's initial intrinsics:
+/// 1. `config.intrinsics.initial_cameras[i]` if set (skips Zhang).
+/// 2. Zhang's method with iterative distortion refinement.
+/// 3. If Zhang fails and `config.intrinsics.fallback_to_shared_init` is `true`,
+///    reuse the most recent successful camera's intrinsics (intended for
+///    homogeneous rigs where all cameras share the same optical design).
+///
+/// Per-view target poses are always computed from the resulting `K` via a DLT
+/// homography + metric recovery; failures on individual views are reported
+/// but do not abort the step.
 ///
 /// # Errors
 ///
-/// Returns [`Error`] if the input is missing or any camera has insufficient views.
+/// Returns [`Error`] if:
+/// - the input is missing,
+/// - `initial_cameras` length does not match `num_cameras`,
+/// - *all* cameras fail and no fallback is available.
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigScheimpflugHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
@@ -142,21 +156,91 @@ pub fn step_intrinsics_init_all(
 
     let num_cameras = input.num_cameras;
     let num_views = input.num_views();
-    let mut per_cam_intrinsics = Vec::with_capacity(num_cameras);
-    let mut per_cam_sensors = Vec::with_capacity(num_cameras);
-    let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
 
-    #[allow(clippy::needless_range_loop)]
+    if let Some(override_cams) = &cfg.intrinsics.initial_cameras
+        && override_cams.len() != num_cameras
+    {
+        return Err(Error::InvalidInput {
+            reason: format!(
+                "initial_cameras has {} entries, expected {num_cameras}",
+                override_cams.len()
+            ),
+        });
+    }
+    if let Some(override_sensors) = &cfg.intrinsics.initial_sensors
+        && override_sensors.len() != num_cameras
+    {
+        return Err(Error::InvalidInput {
+            reason: format!(
+                "initial_sensors has {} entries, expected {num_cameras}",
+                override_sensors.len()
+            ),
+        });
+    }
+
+    let default_sensor = ScheimpflugParams {
+        tilt_x: cfg.intrinsics.init_tilt_x,
+        tilt_y: cfg.intrinsics.init_tilt_y,
+    };
+
+    // Per-camera Zhang + poses; None when init fails and we may backfill later.
+    let mut per_cam_intrinsics: Vec<Option<vision_calibration_core::PinholeCamera>> =
+        vec![None; num_cameras];
+    let mut per_cam_sensors: Vec<Option<ScheimpflugParams>> = vec![None; num_cameras];
+    let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> =
+        vec![vec![None; num_cameras]; num_views];
+    let mut per_cam_zhang_failure: Vec<Option<String>> = vec![None; num_cameras];
+
     for cam_idx in 0..num_cameras {
+        // If an explicit override is provided for this camera, use it and skip
+        // Zhang but still solve per-view target poses via DLT.
+        if let Some(overrides) = cfg.intrinsics.initial_cameras.as_ref() {
+            let camera = overrides[cam_idx].clone();
+            let sensor = cfg
+                .intrinsics
+                .initial_sensors
+                .as_ref()
+                .map(|s| s[cam_idx])
+                .unwrap_or(default_sensor);
+            solve_per_view_poses(
+                input,
+                cam_idx,
+                &camera,
+                &mut per_cam_target_poses,
+            );
+            per_cam_intrinsics[cam_idx] = Some(camera);
+            per_cam_sensors[cam_idx] = Some(sensor);
+            continue;
+        }
+
         let cam_views = extract_camera_views(input, cam_idx);
-        let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views).map_err(|e| {
-            Error::numerical(format!("camera {cam_idx} has insufficient views: {e}"))
-        })?;
-        let camera = estimate_intrinsics_iterative(&planar_dataset, init_opts).map_err(|e| {
-            Error::numerical(format!(
-                "intrinsics estimation failed for camera {cam_idx}: {e}"
-            ))
-        })?;
+        let planar_result = views_to_planar_dataset(&cam_views);
+        let (planar_dataset, valid_indices) = match planar_result {
+            Ok(v) => v,
+            Err(e) => {
+                per_cam_zhang_failure[cam_idx] = Some(format!("too few views: {e}"));
+                continue;
+            }
+        };
+
+        let camera = match estimate_intrinsics_iterative(&planar_dataset, init_opts) {
+            Ok(c) => c,
+            Err(e) => {
+                per_cam_zhang_failure[cam_idx] = Some(format!("Zhang failed: {e}"));
+                continue;
+            }
+        };
+        // Sanity-check Zhang output: a degenerate solve can return
+        // non-positive or tiny focal lengths that still pass the inner
+        // linear-algebra checks. Treat this as a failure so the fallback
+        // kicks in.
+        if !(camera.k.fx > 1.0 && camera.k.fy > 1.0 && camera.k.fx.is_finite() && camera.k.fy.is_finite()) {
+            per_cam_zhang_failure[cam_idx] = Some(format!(
+                "Zhang produced degenerate intrinsics fx={}, fy={}",
+                camera.k.fx, camera.k.fy
+            ));
+            continue;
+        }
         let k_matrix = vision_calibration_core::Mat3::new(
             camera.k.fx,
             camera.k.skew,
@@ -170,28 +254,119 @@ pub fn step_intrinsics_init_all(
         );
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
             let view = &planar_dataset.views[local_idx];
-            let pose = estimate_target_pose(&k_matrix, &view.obs).map_err(|e| {
-                Error::numerical(format!(
-                    "pose estimation failed for cam {cam_idx} view {global_idx}: {e}"
-                ))
-            })?;
-            per_cam_target_poses[global_idx][cam_idx] = Some(pose);
+            if let Ok(pose) = estimate_target_pose(&k_matrix, &view.obs) {
+                per_cam_target_poses[global_idx][cam_idx] = Some(pose);
+            }
         }
-        per_cam_intrinsics.push(make_pinhole_camera(camera.k, camera.dist));
-        per_cam_sensors.push(ScheimpflugParams {
-            tilt_x: cfg.intrinsics.init_tilt_x,
-            tilt_y: cfg.intrinsics.init_tilt_y,
-        });
+        per_cam_intrinsics[cam_idx] = Some(make_pinhole_camera(camera.k, camera.dist));
+        per_cam_sensors[cam_idx] = Some(
+            cfg.intrinsics
+                .initial_sensors
+                .as_ref()
+                .map(|s| s[cam_idx])
+                .unwrap_or(default_sensor),
+        );
     }
 
-    session.state.per_cam_intrinsics = Some(per_cam_intrinsics);
-    session.state.per_cam_sensors = Some(per_cam_sensors);
+    // Backfill failed cameras from the first successful camera, if enabled.
+    let first_ok = per_cam_intrinsics
+        .iter()
+        .position(Option::is_some)
+        .map(|i| {
+            (
+                per_cam_intrinsics[i].clone().unwrap(),
+                per_cam_sensors[i].unwrap_or(default_sensor),
+                i,
+            )
+        });
+
+    let mut fallbacks = Vec::new();
+    let mut per_cam_used_fallback = vec![false; num_cameras];
+    if let Some((fallback_cam, fallback_sensor, donor_idx)) = &first_ok {
+        for cam_idx in 0..num_cameras {
+            if per_cam_intrinsics[cam_idx].is_some() {
+                continue;
+            }
+            if !cfg.intrinsics.fallback_to_shared_init {
+                break;
+            }
+            // Solve per-view target poses with the fallback intrinsics so the
+            // downstream rig_init has something to work with for this camera.
+            solve_per_view_poses(input, cam_idx, fallback_cam, &mut per_cam_target_poses);
+            per_cam_intrinsics[cam_idx] = Some(fallback_cam.clone());
+            per_cam_sensors[cam_idx] = Some(*fallback_sensor);
+            per_cam_used_fallback[cam_idx] = true;
+            fallbacks.push((cam_idx, *donor_idx));
+        }
+    }
+
+    // Finalize: if any camera is still None, we cannot proceed.
+    let mut final_cameras = Vec::with_capacity(num_cameras);
+    let mut final_sensors = Vec::with_capacity(num_cameras);
+    for cam_idx in 0..num_cameras {
+        let cam = per_cam_intrinsics[cam_idx].clone().ok_or_else(|| {
+            let reason = per_cam_zhang_failure[cam_idx]
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
+            Error::Numerical(format!(
+                "camera {cam_idx} has no initial intrinsics ({reason}); provide \
+                `intrinsics.initial_cameras[{cam_idx}]` or enable `fallback_to_shared_init`"
+            ))
+        })?;
+        let sensor = per_cam_sensors[cam_idx].unwrap_or(default_sensor);
+        final_cameras.push(cam);
+        final_sensors.push(sensor);
+    }
+
+    session.state.per_cam_intrinsics = Some(final_cameras);
+    session.state.per_cam_sensors = Some(final_sensors);
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
-    session.log_success_with_notes(
-        "intrinsics_init_all",
-        format!("initialized {num_cameras} cameras"),
-    );
+    session.state.per_cam_used_fallback = Some(per_cam_used_fallback);
+    let failures: Vec<_> = per_cam_zhang_failure
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| e.as_ref().map(|m| (i, m.clone())))
+        .collect();
+    let notes = if failures.is_empty() && fallbacks.is_empty() {
+        format!("initialized {num_cameras} cameras")
+    } else {
+        format!(
+            "initialized {num_cameras} cameras ({} fallback: {:?}; failures: {:?})",
+            fallbacks.len(),
+            fallbacks,
+            failures.iter().map(|(i, _)| *i).collect::<Vec<_>>()
+        )
+    };
+    session.log_success_with_notes("intrinsics_init_all", notes);
     Ok(())
+}
+
+fn solve_per_view_poses(
+    input: &RigScheimpflugHandeyeInput,
+    cam_idx: usize,
+    camera: &vision_calibration_core::PinholeCamera,
+    per_cam_target_poses: &mut [Vec<Option<Iso3>>],
+) {
+    let k_matrix = vision_calibration_core::Mat3::new(
+        camera.k.fx,
+        camera.k.skew,
+        camera.k.cx,
+        0.0,
+        camera.k.fy,
+        camera.k.cy,
+        0.0,
+        0.0,
+        1.0,
+    );
+    for (view_idx, view) in input.views.iter().enumerate() {
+        let Some(obs_opt) = view.obs.cameras.get(cam_idx) else {
+            continue;
+        };
+        let Some(obs) = obs_opt else { continue };
+        if let Ok(pose) = estimate_target_pose(&k_matrix, obs) {
+            per_cam_target_poses[view_idx][cam_idx] = Some(pose);
+        }
+    }
 }
 
 /// Optimize Scheimpflug intrinsics for all cameras.
@@ -224,17 +399,76 @@ pub fn step_intrinsics_optimize_all(
     let fix_intrinsics = IntrinsicsFixMask::default();
     let fix_distortion = DistortionFixMask::default();
 
+    let mut per_cam_failures: Vec<(usize, String)> = Vec::new();
+    let per_cam_used_fallback = session
+        .state
+        .per_cam_used_fallback
+        .clone()
+        .unwrap_or_else(|| vec![false; input.num_cameras]);
+
     for cam_idx in 0..input.num_cameras {
+        // Cameras that used fallback intrinsics have target poses derived from
+        // a shared-K DLT; refining them per-camera can drag the intrinsics and
+        // extrinsics into a bad local minimum. Skip the per-camera BA and let
+        // the downstream rig BA handle it with a consistent gauge.
+        if per_cam_used_fallback[cam_idx] {
+            optimized_cameras.push(per_cam_intrinsics[cam_idx].clone());
+            optimized_sensors.push(per_cam_sensors[cam_idx]);
+            per_cam_reproj_errors.push(f64::NAN);
+            continue;
+        }
         let cam_views = extract_camera_views(input, cam_idx);
-        let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views).map_err(|e| {
-            Error::numerical(format!("camera {cam_idx} has insufficient views: {e}"))
-        })?;
-        let initial_poses: Vec<Iso3> = valid_indices
+        let planar_result = views_to_planar_dataset(&cam_views);
+        let (planar_dataset, valid_indices) = match planar_result {
+            Ok(v) => v,
+            Err(e) => {
+                per_cam_failures.push((cam_idx, format!("insufficient views: {e}")));
+                optimized_cameras.push(per_cam_intrinsics[cam_idx].clone());
+                optimized_sensors.push(per_cam_sensors[cam_idx]);
+                per_cam_reproj_errors.push(f64::NAN);
+                continue;
+            }
+        };
+
+        // Filter to views where we have both a correspondence and a valid
+        // initial pose. Without this, a single DLT failure on a fallback-only
+        // camera would abort the whole step.
+        let mut kept_local: Vec<usize> = Vec::new();
+        let mut kept_global: Vec<usize> = Vec::new();
+        let mut initial_poses: Vec<Iso3> = Vec::new();
+        for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
+            if let Some(pose) = per_cam_target_poses[global_idx][cam_idx] {
+                kept_local.push(local_idx);
+                kept_global.push(global_idx);
+                initial_poses.push(pose);
+            }
+        }
+        if initial_poses.len() < 3 {
+            per_cam_failures.push((
+                cam_idx,
+                format!("only {} views with initial poses", initial_poses.len()),
+            ));
+            optimized_cameras.push(per_cam_intrinsics[cam_idx].clone());
+            optimized_sensors.push(per_cam_sensors[cam_idx]);
+            per_cam_reproj_errors.push(f64::NAN);
+            continue;
+        }
+        // Rebuild a filtered planar dataset matching kept_local ordering.
+        let filtered_views: Vec<_> = kept_local
             .iter()
-            .map(|&i| {
-                per_cam_target_poses[i][cam_idx].ok_or_else(|| Error::not_available("initial pose"))
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
+            .map(|&i| planar_dataset.views[i].clone())
+            .collect();
+        let planar_dataset = match PlanarDataset::new(filtered_views) {
+            Ok(d) => d,
+            Err(e) => {
+                per_cam_failures.push((cam_idx, format!("planar dataset build: {e}")));
+                optimized_cameras.push(per_cam_intrinsics[cam_idx].clone());
+                optimized_sensors.push(per_cam_sensors[cam_idx]);
+                per_cam_reproj_errors.push(f64::NAN);
+                continue;
+            }
+        };
+        let valid_indices = kept_global;
 
         let cam = &per_cam_intrinsics[cam_idx];
         let initial_params = ScheimpflugIntrinsicsParams::new(
@@ -257,13 +491,43 @@ pub fn step_intrinsics_optimize_all(
             ..Default::default()
         };
 
-        let result = optimize_scheimpflug_intrinsics(
+        let result = match optimize_scheimpflug_intrinsics(
             &planar_dataset,
             &initial_params,
             solve_opts,
             backend_opts,
-        )
-        .map_err(|e| Error::numerical(format!("camera {cam_idx}: {e}")))?;
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                per_cam_failures.push((cam_idx, format!("solver: {e}")));
+                // Keep the initial intrinsics + sensors; let rig BA refine.
+                optimized_cameras.push(per_cam_intrinsics[cam_idx].clone());
+                optimized_sensors.push(per_cam_sensors[cam_idx]);
+                per_cam_reproj_errors.push(f64::NAN);
+                continue;
+            }
+        };
+        // Post-optim sanity check: if the solver ran to completion but
+        // produced degenerate intrinsics (fx/fy near zero or non-finite) or a
+        // blow-up in reprojection error, fall back to the initial values.
+        // This happens on cameras where the per-view DLT poses come from
+        // a wrong fallback K and BA follows the bad local geometry.
+        let fx = result.params.intrinsics.fx;
+        let fy = result.params.intrinsics.fy;
+        let reproj = result.mean_reproj_error;
+        let degenerate =
+            !(fx > 1.0 && fy > 1.0 && fx.is_finite() && fy.is_finite() && reproj.is_finite())
+                || reproj > 50.0;
+        if degenerate {
+            per_cam_failures.push((
+                cam_idx,
+                format!("optim degenerate (fx={fx:.3}, fy={fy:.3}, reproj={reproj:.3})"),
+            ));
+            optimized_cameras.push(per_cam_intrinsics[cam_idx].clone());
+            optimized_sensors.push(per_cam_sensors[cam_idx]);
+            per_cam_reproj_errors.push(f64::NAN);
+            continue;
+        }
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
             per_cam_target_poses[global_idx][cam_idx] =
                 Some(result.params.camera_se3_target[local_idx]);
@@ -280,8 +544,28 @@ pub fn step_intrinsics_optimize_all(
     session.state.per_cam_sensors = Some(optimized_sensors);
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
     session.state.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
-    let avg: f64 = per_cam_reproj_errors.iter().sum::<f64>() / per_cam_reproj_errors.len() as f64;
-    session.log_success_with_notes("intrinsics_optimize_all", format!("avg_reproj={avg:.3}px"));
+    let finite: Vec<f64> = per_cam_reproj_errors
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .collect();
+    let avg = if finite.is_empty() {
+        f64::NAN
+    } else {
+        finite.iter().sum::<f64>() / finite.len() as f64
+    };
+    let notes = if per_cam_failures.is_empty() {
+        format!("avg_reproj={avg:.3}px")
+    } else {
+        format!(
+            "avg_reproj={avg:.3}px (failures: {:?})",
+            per_cam_failures
+                .iter()
+                .map(|(i, _)| *i)
+                .collect::<Vec<_>>()
+        )
+    };
+    session.log_success_with_notes("intrinsics_optimize_all", notes);
     Ok(())
 }
 

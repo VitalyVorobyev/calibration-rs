@@ -14,6 +14,10 @@ pub struct RigScheimpflugHandeyeState {
     pub per_cam_target_poses: Option<Vec<Vec<Option<Iso3>>>>,
     /// Per-camera mean reprojection error from intrinsics calibration.
     pub per_cam_reproj_errors: Option<Vec<f64>>,
+    /// Per-camera flag: `true` means the camera's initial intrinsics came from
+    /// a fallback (e.g., Zhang failed and the module reused another camera's
+    /// solution). Fallback cameras skip per-camera Scheimpflug BA.
+    pub per_cam_used_fallback: Option<Vec<bool>>,
 
     /// Initial cam_se3_rig.
     pub initial_cam_se3_rig: Option<Vec<Iso3>>,
