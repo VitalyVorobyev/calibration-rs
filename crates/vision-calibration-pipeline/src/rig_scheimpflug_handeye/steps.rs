@@ -1,4 +1,7 @@
-//! Step functions for Scheimpflug rig hand-eye calibration (EyeInHand only).
+//! Step functions for Scheimpflug rig hand-eye calibration.
+//!
+//! Supports both `EyeInHand` and `EyeToHand` modes, selected via
+//! `RigScheimpflugHandeyeInitConfig::handeye_mode`.
 
 use crate::Error;
 use vision_calibration_core::{
@@ -6,7 +9,8 @@ use vision_calibration_core::{
     ScheimpflugParams, View, make_pinhole_camera,
 };
 use vision_calibration_linear::{
-    estimate_extrinsics_from_cam_target_poses, estimate_handeye_dlt, prelude::*,
+    estimate_extrinsics_from_cam_target_poses, estimate_gripper_se3_target_dlt,
+    estimate_handeye_dlt, prelude::*,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeMode, HandEyeScheimpflugDataset, HandEyeScheimpflugParams,
@@ -187,8 +191,7 @@ pub fn step_intrinsics_init_all(
     let mut per_cam_intrinsics: Vec<Option<vision_calibration_core::PinholeCamera>> =
         vec![None; num_cameras];
     let mut per_cam_sensors: Vec<Option<ScheimpflugParams>> = vec![None; num_cameras];
-    let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> =
-        vec![vec![None; num_cameras]; num_views];
+    let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
     let mut per_cam_zhang_failure: Vec<Option<String>> = vec![None; num_cameras];
 
     for cam_idx in 0..num_cameras {
@@ -202,12 +205,7 @@ pub fn step_intrinsics_init_all(
                 .as_ref()
                 .map(|s| s[cam_idx])
                 .unwrap_or(default_sensor);
-            solve_per_view_poses(
-                input,
-                cam_idx,
-                &camera,
-                &mut per_cam_target_poses,
-            );
+            solve_per_view_poses(input, cam_idx, &camera, &mut per_cam_target_poses);
             per_cam_intrinsics[cam_idx] = Some(camera);
             per_cam_sensors[cam_idx] = Some(sensor);
             continue;
@@ -234,7 +232,11 @@ pub fn step_intrinsics_init_all(
         // non-positive or tiny focal lengths that still pass the inner
         // linear-algebra checks. Treat this as a failure so the fallback
         // kicks in.
-        if !(camera.k.fx > 1.0 && camera.k.fy > 1.0 && camera.k.fx.is_finite() && camera.k.fy.is_finite()) {
+        if !(camera.k.fx > 1.0
+            && camera.k.fy > 1.0
+            && camera.k.fx.is_finite()
+            && camera.k.fy.is_finite())
+        {
             per_cam_zhang_failure[cam_idx] = Some(format!(
                 "Zhang produced degenerate intrinsics fx={}, fy={}",
                 camera.k.fx, camera.k.fy
@@ -396,11 +398,11 @@ pub fn step_intrinsics_optimize_all(
     let mut optimized_sensors = Vec::with_capacity(input.num_cameras);
     let mut per_cam_reproj_errors = Vec::with_capacity(input.num_cameras);
 
-    let fix_intrinsics_default = IntrinsicsFixMask::default();
-    // Default to radial-only (k1, k2 free; k3, p1, p2 fixed). Tangential
-    // distortion is held at zero because it can absorb tilt-like geometric
-    // signal and interfere with Scheimpflug tilt optimization.
-    let fix_distortion_default = DistortionFixMask::radial_only();
+    // Use configured per-camera masks when initial cameras are supplied but
+    // not fixed; when Zhang's method provided the seed, the same mask is used
+    // (acts as an all-free default unless the caller overrides).
+    let fix_intrinsics_default = cfg.intrinsics.fix_intrinsics_in_percam_ba;
+    let fix_distortion_default = cfg.intrinsics.fix_distortion_in_percam_ba;
     let fix_intrinsics_override = IntrinsicsFixMask::all_fixed();
     let fix_distortion_override = DistortionFixMask::all_fixed();
 
@@ -574,10 +576,7 @@ pub fn step_intrinsics_optimize_all(
     } else {
         format!(
             "avg_reproj={avg:.3}px (failures: {:?})",
-            per_cam_failures
-                .iter()
-                .map(|(i, _)| *i)
-                .collect::<Vec<_>>()
+            per_cam_failures.iter().map(|(i, _)| *i).collect::<Vec<_>>()
         )
     };
     session.log_success_with_notes("intrinsics_optimize_all", notes);
@@ -729,7 +728,15 @@ pub fn step_rig_optimize(
     Ok(())
 }
 
-/// Initialize hand-eye transform via Tsai-Lenz (EyeInHand).
+/// Initialize hand-eye transform via Tsai-Lenz.
+///
+/// Mode-dependent semantics:
+///
+/// - `EyeInHand`: solves for `gripper_se3_rig` (T_G_R) with a fixed target in
+///   the base; recovers `base_se3_target` (T_B_T) from the first view.
+/// - `EyeToHand`: solves for `gripper_se3_target` (T_G_T) with a target on the
+///   gripper and rig fixed in base; recovers `rig_se3_base` (T_R_B) from the
+///   first view.
 ///
 /// # Errors
 ///
@@ -746,10 +753,10 @@ pub fn step_handeye_init(
         ));
     }
     let opts = opts.unwrap_or_default();
-    let cfg = &session.config;
+    let handeye_mode = session.config.handeye_init.handeye_mode;
     let min_angle = opts
         .min_motion_angle_deg
-        .unwrap_or(cfg.handeye_init.min_motion_angle_deg);
+        .unwrap_or(session.config.handeye_init.min_motion_angle_deg);
 
     let robot_poses: Vec<Iso3> = input
         .views
@@ -758,21 +765,47 @@ pub fn step_handeye_init(
         .collect();
     let rig_se3_target = session.state.rig_ba_rig_se3_target.clone().unwrap();
 
-    // estimate_handeye_dlt expects target_se3_rig = rig_se3_target.inverse()
-    let target_se3_rig: Vec<Iso3> = rig_se3_target.iter().map(|t| t.inverse()).collect();
-    let gripper_se3_rig = estimate_handeye_dlt(&robot_poses, &target_se3_rig, min_angle)
-        .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
-        .map_err(|e| Error::numerical(format!("linear hand-eye estimation failed: {e}")))?;
+    let result = match handeye_mode {
+        HandEyeMode::EyeInHand => {
+            // estimate_handeye_dlt expects target_se3_rig = rig_se3_target.inverse().
+            let target_se3_rig: Vec<Iso3> = rig_se3_target.iter().map(|t| t.inverse()).collect();
+            estimate_handeye_dlt(&robot_poses, &target_se3_rig, min_angle).map(|gripper_se3_rig| {
+                // base_se3_target = base_se3_gripper * gripper_se3_rig * rig_se3_target
+                let base_se3_target = robot_poses[0] * gripper_se3_rig * rig_se3_target[0];
+                (gripper_se3_rig, base_se3_target)
+            })
+        }
+        HandEyeMode::EyeToHand => {
+            // Target is on the gripper; solve for the fixed gripper_se3_target
+            // (T_G_T), then recover rig_se3_base (T_R_B) from the first view.
+            estimate_gripper_se3_target_dlt(&robot_poses, &rig_se3_target, min_angle).map(
+                |gripper_se3_target| {
+                    // T_R_T = T_R_B * T_B_G * T_G_T  =>  T_R_B = T_R_T * (T_B_G * T_G_T)^-1
+                    let rig_se3_base =
+                        rig_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse();
+                    (rig_se3_base, gripper_se3_target)
+                },
+            )
+        }
+    };
+    let (handeye, mode_target_pose) = match result {
+        Ok(v) => v,
+        Err(e) => {
+            session.log_failure("handeye_init", e.to_string());
+            return Err(Error::numerical(format!(
+                "linear hand-eye estimation failed: {e}"
+            )));
+        }
+    };
 
-    // base_se3_target = base_se3_gripper * gripper_se3_rig * rig_se3_target
-    let base_se3_target = robot_poses[0] * gripper_se3_rig * rig_se3_target[0];
-    session.state.initial_handeye = Some(gripper_se3_rig);
-    session.state.initial_base_se3_target = Some(base_se3_target);
+    session.state.initial_handeye = Some(handeye);
+    session.state.initial_mode_target_pose = Some(mode_target_pose);
     session.log_success_with_notes(
         "handeye_init",
         format!(
-            "translation_norm={:.4}m",
-            gripper_se3_rig.translation.vector.norm()
+            "mode={:?} |t|={:.4}m",
+            handeye_mode,
+            handeye.translation.vector.norm()
         ),
     );
     Ok(())
@@ -802,14 +835,14 @@ pub fn step_handeye_optimize(
     let cam_se3_rig = session.state.rig_ba_cam_se3_rig.clone().unwrap();
     let cam_to_rig: Vec<Iso3> = cam_se3_rig.iter().map(|t| t.inverse()).collect();
     let handeye = session.state.initial_handeye.unwrap();
-    let base_se3_target = session.state.initial_base_se3_target.unwrap();
+    let mode_target_pose = session.state.initial_mode_target_pose.unwrap();
 
     let initial = HandEyeScheimpflugParams {
         cameras,
         sensors,
         cam_to_rig,
         handeye,
-        target_poses: vec![base_se3_target],
+        target_poses: vec![mode_target_pose],
     };
 
     let fix_extrinsics: Vec<bool> = if cfg.handeye_ba.refine_cam_se3_rig_in_handeye_ba {
@@ -851,7 +884,7 @@ pub fn step_handeye_optimize(
     let dataset = HandEyeScheimpflugDataset::new(
         input.views.clone(),
         input.num_cameras,
-        HandEyeMode::EyeInHand,
+        cfg.handeye_init.handeye_mode,
     )?;
 
     let result = match optimize_handeye_scheimpflug(dataset, initial, solve_opts, backend_opts) {

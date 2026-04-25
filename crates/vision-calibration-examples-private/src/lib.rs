@@ -12,7 +12,7 @@ use vision_calibration_core::{CorrespondenceView, Iso3, Pt2, Pt3, Real};
 
 use calib_targets::{
     detect::detect_puzzleboard,
-    puzzleboard::{PuzzleBoardParams, PuzzleBoardSpec},
+    puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec},
 };
 
 use vision_metrology::{LaserExtractConfig, LaserExtractor, ScanAxis};
@@ -104,7 +104,7 @@ pub fn split_horizontal(img: &GrayImage, num_cameras: usize) -> Vec<GrayImage> {
 }
 
 /// Detect a 130x130 puzzleboard in a tile and build a [`CorrespondenceView`]
-/// with 3D points in millimeters (Z=0).
+/// with 3D points in meters (Z=0) in the canonical master-board frame.
 pub fn detect_target(
     tile: &GrayImage,
     rows: u32,
@@ -113,35 +113,27 @@ pub fn detect_target(
 ) -> Result<CorrespondenceView> {
     let spec = PuzzleBoardSpec::new(rows, cols, cell_size_mm as f32)
         .map_err(|e| anyhow!("puzzleboard spec: {e}"))?;
-    let params = PuzzleBoardParams::for_board(&spec);
+    let mut params = PuzzleBoardParams::for_board(&spec);
+    params.decode.search_all_components = false;
+    params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
     let result = detect_puzzleboard(tile, &params).map_err(|e| anyhow!("detect: {e}"))?;
 
     let mut pts_3d: Vec<Pt3> = Vec::new();
     let mut pts_2d: Vec<Pt2> = Vec::new();
-    // Find target_position range so we can recenter to a board-local frame.
-    // The puzzleboard detector returns absolute positions on the 501×501 master
-    // pattern; for each view only a small subregion is visible. Without
-    // recentering, Zhang sees a narrow slab offset from the origin, which
-    // biases the recovered principal point.
-    let mut min_x = f32::INFINITY;
-    let mut max_x = f32::NEG_INFINITY;
-    let mut min_y = f32::INFINITY;
-    let mut max_y = f32::NEG_INFINITY;
+    let origin_x_mm = 0.5 * (cols.saturating_sub(1) as f64) * cell_size_mm;
+    let origin_y_mm = 0.5 * (rows.saturating_sub(1) as f64) * cell_size_mm;
+    let max_x_mm = cols.saturating_sub(1) as f64 * cell_size_mm;
+    let max_y_mm = rows.saturating_sub(1) as f64 * cell_size_mm;
     for corner in &result.detection.corners {
         if let (Some(_id), Some(t)) = (corner.id, corner.target_position) {
-            min_x = min_x.min(t.x);
-            max_x = max_x.max(t.x);
-            min_y = min_y.min(t.y);
-            max_y = max_y.max(t.y);
-        }
-    }
-    let mid_x = 0.5 * (min_x + max_x);
-    let mid_y = 0.5 * (min_y + max_y);
-    for corner in &result.detection.corners {
-        if let (Some(_id), Some(t)) = (corner.id, corner.target_position) {
+            let x_mm = t.x as f64;
+            let y_mm = t.y as f64;
+            if !(0.0..=max_x_mm).contains(&x_mm) || !(0.0..=max_y_mm).contains(&y_mm) {
+                continue;
+            }
             pts_3d.push(Pt3::new(
-                (t.x - mid_x) as Real / 1000.0,
-                (t.y - mid_y) as Real / 1000.0,
+                ((x_mm - origin_x_mm) / 1000.0) as Real,
+                ((y_mm - origin_y_mm) / 1000.0) as Real,
                 0.0,
             ));
             pts_2d.push(Pt2::new(

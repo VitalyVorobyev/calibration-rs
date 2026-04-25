@@ -1,4 +1,4 @@
-calib-targets==0.2
+calib-targets==0.7
 numpy
 matplotlib
 pillow

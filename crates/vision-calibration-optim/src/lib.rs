@@ -206,4 +206,10 @@ pub use crate::problems::laserline_bundle::{
     optimize_laserline,
 };
 
+pub use crate::problems::rig_handeye_laserline_bundle::{
+    RigHandeyeLaserlineDataset, RigHandeyeLaserlineEstimate, RigHandeyeLaserlineParams,
+    RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions, RigHandeyeLaserlineView,
+    evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
+};
+
 pub use vision_calibration_core::{RigDataset, RigViewObs, View};

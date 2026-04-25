@@ -18,7 +18,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 image = { workspace = true }
 nalgebra = { workspace = true }
-calib-targets = { path = "../../../calib-targets-rs/crates/calib-targets" }
+calib-targets = { workspace = true }
 vision-metrology = { path = "../../../vision-metrology/crates/vision-metrology" }
 vm-primitives = { path = "../../../vision-metrology/crates/vm-primitives" }
 

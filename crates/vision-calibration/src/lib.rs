@@ -355,9 +355,10 @@ pub mod rig_scheimpflug_extrinsics {
     };
 }
 
-/// Multi-camera rig hand-eye calibration with Scheimpflug-tilted sensors (EyeInHand).
+/// Multi-camera rig hand-eye calibration with Scheimpflug-tilted sensors.
 ///
-/// Parallels [`rig_handeye`] with per-camera Scheimpflug sensor support.
+/// Parallels [`rig_handeye`] with per-camera Scheimpflug sensor support and
+/// supports both `EyeInHand` and `EyeToHand` configurations.
 pub mod rig_scheimpflug_handeye {
     pub use vision_calibration_pipeline::rig_scheimpflug_handeye::{
         HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
@@ -390,26 +391,33 @@ pub mod rig_laserline_device {
 /// - `pixel`: observed pixel on the laser line.
 /// - `rig_cal`: upstream rig + Scheimpflug hand-eye calibration.
 /// - `laser_planes_rig`: laser planes (one per camera) expressed in rig frame.
+/// - `base_se3_gripper`: the robot gripper pose at the time the pixel was
+///   observed. Required for `EyeToHand` (where the rig is fixed in base and
+///   the gripper frame depends on the robot pose); ignored for `EyeInHand`.
 ///
 /// Returns the 3D point in gripper (robot flange) frame:
 ///
 /// 1. Undistort `pixel` to a normalized camera-frame ray using the full
 ///    pinhole + Brown-Conrady + Scheimpflug chain (inverted).
 /// 2. Transform the ray into rig frame via `cam_se3_rig[cam_idx].inverse()`.
-/// 3. Intersect the ray with `laser_planes_rig[cam_idx]`.
-/// 4. Apply `gripper_se3_rig` to obtain the point in gripper frame.
+/// 3. Intersect the ray with `laser_planes_rig[cam_idx]` (in rig frame).
+/// 4. Map the rig-frame point into the gripper frame using the hand-eye
+///    transform plus, for `EyeToHand`, the provided robot pose.
 ///
 /// # Errors
 ///
 /// Returns [`Error`] if `cam_idx` is out of range, if the ray never intersects
-/// the plane, or if undistortion fails.
+/// the plane, if undistortion fails, or if `base_se3_gripper` is missing in
+/// `EyeToHand` mode.
 pub fn pixel_to_gripper_point(
     cam_idx: usize,
     pixel: vision_calibration_core::Pt2,
     rig_cal: &rig_scheimpflug_handeye::RigScheimpflugHandeyeExport,
     laser_planes_rig: &[vision_calibration_optim::LaserPlane],
+    base_se3_gripper: Option<vision_calibration_core::Iso3>,
 ) -> Result<vision_calibration_core::Pt3, Error> {
     use vision_calibration_core::{DistortionModel, Mat3, Pt2, Pt3, SensorModel, Vec3};
+    use vision_calibration_optim::HandEyeMode;
 
     let n_cams = rig_cal.cameras.len();
     if cam_idx >= n_cams {
@@ -475,9 +483,35 @@ pub fn pixel_to_gripper_point(
     let t = -(n.dot(&origin_rig) + plane.distance) / denom;
     let p_rig: Vec3 = origin_rig + t * dir_rig;
 
-    // Apply gripper_se3_rig to get point in gripper frame.
+    // Map rig-frame point into the gripper frame. The chain depends on mode:
+    // - EyeInHand: rig is mounted on the gripper, so p_G = T_G_R * p_R where
+    //   T_G_R = gripper_se3_rig (the fixed hand-eye transform).
+    // - EyeToHand: rig is fixed in base, so p_G depends on the robot pose:
+    //   p_G = T_G_B * T_B_R * p_R where T_B_R = rig_se3_base.inverse() and
+    //   T_G_B = base_se3_gripper.inverse().
     let p_rig_pt = Pt3::from(p_rig);
-    let p_gripper = rig_cal.gripper_se3_rig.transform_point(&p_rig_pt);
+    let p_gripper = match rig_cal.handeye_mode {
+        HandEyeMode::EyeInHand => rig_cal
+            .gripper_se3_rig
+            .ok_or_else(|| Error::InvalidInput {
+                reason: "EyeInHand export missing gripper_se3_rig".to_string(),
+            })?
+            .transform_point(&p_rig_pt),
+        HandEyeMode::EyeToHand => {
+            let rig_se3_base = rig_cal.rig_se3_base.ok_or_else(|| Error::InvalidInput {
+                reason: "EyeToHand export missing rig_se3_base".to_string(),
+            })?;
+            let base_se3_gripper = base_se3_gripper.ok_or_else(|| Error::InvalidInput {
+                reason: "EyeToHand mode requires `base_se3_gripper` to map into the \
+                         gripper frame; call pixel_to_rig_point for a pose-free result"
+                    .to_string(),
+            })?;
+            // p_base = rig_se3_base.inverse() * p_rig = T_B_R * p_rig
+            let p_base = rig_se3_base.inverse().transform_point(&p_rig_pt);
+            // p_gripper = base_se3_gripper.inverse() * p_base = T_G_B * p_base
+            base_se3_gripper.inverse().transform_point(&p_base)
+        }
+    };
     Ok(p_gripper)
 }
 

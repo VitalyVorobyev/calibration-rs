@@ -27,13 +27,18 @@ use vision_calibration::{
     session::CalibrationSession,
 };
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Pt2, RigDataset, RigView, RigViewObs,
-    ScheimpflugParams, make_pinhole_camera,
+    BrownConrady5, CameraFixMask, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Pt2,
+    RigDataset, RigView, RigViewObs, ScheimpflugParams, make_pinhole_camera,
 };
 use vision_calibration_examples_private::{
     PoseEntry, detect_laser, detect_target, load_gray, load_poses, split_horizontal,
 };
-use vision_calibration_optim::{RigLaserlineDataset, RigLaserlineView, RobotPoseMeta};
+use vision_calibration_optim::{
+    BackendSolveOptions, HandEyeMode, LaserlineResidualType, RigHandeyeLaserlineDataset,
+    RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
+    RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView, RobotPoseMeta, RobustLoss,
+    ScheimpflugFixMask, evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
+};
 
 const NUM_CAMERAS: usize = 6;
 const BOARD_ROWS: u32 = 130;
@@ -75,17 +80,18 @@ fn main() -> Result<()> {
 
     // ─── Stage 1: detect targets and laser lines ───────────────────────────
     let t0 = Instant::now();
-    let (rig_handeye_views, rig_laserline_views) =
-        build_datasets(&data_dir, &poses).context("detect stage")?;
+    let detected = build_datasets(&data_dir, &poses).context("detect stage")?;
     println!(
-        "stage 1 (detect): {:.2?} → {} handeye views, {} laser views",
+        "stage 1 (detect): {:.2?} → {} handeye views, {} laser views, {} joint views",
         t0.elapsed(),
-        rig_handeye_views.len(),
-        rig_laserline_views.len()
+        detected.handeye_views.len(),
+        detected.laserline_views.len(),
+        detected.joint_views.len()
     );
+    print_detection_diagnostics(&detected);
 
     // ─── Stage 2: rig + scheimpflug + hand-eye ─────────────────────────────
-    let handeye_dataset = RigDataset::new(rig_handeye_views, NUM_CAMERAS)?;
+    let handeye_dataset = RigDataset::new(detected.handeye_views.clone(), NUM_CAMERAS)?;
     let mut rig_session =
         CalibrationSession::<RigScheimpflugHandeyeProblem>::with_description("puzzle_130x130_rig");
     rig_session.set_input(handeye_dataset)?;
@@ -109,21 +115,44 @@ fn main() -> Result<()> {
     let mut cfg = RigScheimpflugHandeyeConfig::default();
     cfg.solver.max_iters = 200;
     cfg.solver.verbosity = 1;
-    cfg.handeye_ba.refine_robot_poses = false;
+    cfg.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    // Sensor rig is rigidly mounted in the robot base frame; the puzzleboard
+    // target is held by the robot end-effector → hand-to-eye / EyeToHand.
+    cfg.handeye_init.handeye_mode = HandEyeMode::EyeToHand;
+    // Refine per-view robot pose se(3) deltas — encoder noise otherwise
+    // biases hand-eye. Stage 4 uses these as initial robot-delta parameters
+    // rather than mutating the canonical detected dataset.
+    cfg.handeye_ba.refine_robot_poses = true;
     cfg.intrinsics.initial_cameras = Some(initial_cameras);
     cfg.intrinsics.initial_sensors = Some(initial_sensors);
-    // Per-camera BA: fix K and distortion at the seeded values — only
-    // Scheimpflug tilts and per-view poses are refined. Letting k1/k2 float
-    // per-camera overfits them to the limited per-view data (k2 wanders to
-    // ±several units). Rig BA below will refine them using the multi-view
-    // rig constraint, which is better-conditioned.
-    cfg.intrinsics.fix_intrinsics_when_overridden = true;
-    // Keep intrinsics + tilts fixed in rig BA; the rig-level optimization
-    // is free to update extrinsics and rig poses. Letting K/tilts float
-    // at this stage tends to diverge (k2 runs to hundreds) — the per-camera
-    // estimates are already in reasonable ballparks.
+    // The seeded K (fx=1800, cx/cy at tile center) is only a rough prior.
+    // Let per-camera BA refine fx/fy/cx/cy + k1, and the Scheimpflug tilts.
+    // k2 is held fixed because with this narrow FOV (~22°) and limited
+    // per-view corner coverage the solver overfits k2 (values ±4) and the
+    // resulting per-camera models no longer share a consistent rigid rig.
+    cfg.intrinsics.fix_intrinsics_when_overridden = false;
+    // Refine k1 + tangential distortion (p1, p2); fix k2, k3. The narrow FOV
+    // doesn't support k2; tangential terms can absorb subtle asymmetry in
+    // sensor mounting that otherwise leaks into the rig extrinsics.
+    cfg.intrinsics.fix_distortion_in_percam_ba = DistortionFixMask {
+        k1: false,
+        k2: true,
+        k3: true,
+        p1: false,
+        p2: false,
+    };
+    cfg.intrinsics.fix_scheimpflug = ScheimpflugFixMask {
+        tilt_x: false,
+        tilt_y: true,
+    };
+    // Freeze intrinsics + Scheimpflug in rig BA. Allowing tilts to drift
+    // during rig BA produced wildly inconsistent tilts (e.g. +13° tilt_y)
+    // without improving residuals; per-camera BA already nails tilt values
+    // in a narrow -8°…-10° x_tilt band, so keep them frozen.
     cfg.rig.refine_intrinsics_in_rig_ba = false;
     cfg.rig.refine_scheimpflug_in_rig_ba = false;
+    let robot_rot_sigma = cfg.handeye_ba.robot_rot_sigma;
+    let robot_trans_sigma = cfg.handeye_ba.robot_trans_sigma;
     rig_session.set_config(cfg)?;
 
     let t0 = Instant::now();
@@ -231,26 +260,71 @@ fn main() -> Result<()> {
     for (i, err) in rig_export.per_cam_reproj_errors.iter().enumerate() {
         println!("    camera {i}: {err:.4} px");
     }
-    println!(
-        "  gripper_se3_rig: t={:?} |t|={:.4} m",
-        rig_export.gripper_se3_rig.translation.vector.data.0[0],
-        rig_export.gripper_se3_rig.translation.vector.norm()
+    match rig_export.handeye_mode {
+        HandEyeMode::EyeInHand => {
+            let he = rig_export
+                .gripper_se3_rig
+                .expect("EyeInHand missing gripper_se3_rig");
+            println!(
+                "  gripper_se3_rig: |t|={:.4} m",
+                he.translation.vector.norm()
+            );
+        }
+        HandEyeMode::EyeToHand => {
+            let he = rig_export
+                .rig_se3_base
+                .expect("EyeToHand missing rig_se3_base");
+            let gt = rig_export
+                .gripper_se3_target
+                .expect("EyeToHand missing gripper_se3_target");
+            println!(
+                "  rig_se3_base:         |t|={:.4} m",
+                he.translation.vector.norm()
+            );
+            println!(
+                "  gripper_se3_target:   |t|={:.4} m",
+                gt.translation.vector.norm()
+            );
+        }
+    }
+    print_robot_delta_summary(
+        "stage 2 exported robot deltas",
+        rig_export.robot_deltas.as_deref(),
     );
 
     // ─── Stage 3: rig laserline calibration ────────────────────────────────
-    let laserline_dataset = RigLaserlineDataset::new(rig_laserline_views, NUM_CAMERAS)
+    let laserline_dataset = RigLaserlineDataset::new(detected.laserline_views.clone(), NUM_CAMERAS)
         .context("build laserline dataset")?;
+    // Per-view rig_se3_target in either mode:
+    //   EyeInHand:  T_R_T_i = T_G_R^-1 * T_B_G_i^-1 * T_B_T
+    //   EyeToHand:  T_R_T_i = T_R_B    * T_B_G_i    * T_G_T
     let mut rig_se3_target = Vec::new();
     for pose in &poses {
         if !pose.has_laser() {
             continue;
         }
-        // T_R_T = T_G_R^-1 * T_B_G^-1 * T_B_T
-        let gripper_se3_rig = rig_export.gripper_se3_rig;
-        let base_se3_target = rig_export.base_se3_target;
         let base_se3_gripper = pose.base_se3_gripper();
-        rig_se3_target
-            .push(gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target);
+        let rt = match rig_export.handeye_mode {
+            HandEyeMode::EyeInHand => {
+                let gripper_se3_rig = rig_export
+                    .gripper_se3_rig
+                    .expect("EyeInHand missing gripper_se3_rig");
+                let base_se3_target = rig_export
+                    .base_se3_target
+                    .expect("EyeInHand missing base_se3_target");
+                gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target
+            }
+            HandEyeMode::EyeToHand => {
+                let rig_se3_base = rig_export
+                    .rig_se3_base
+                    .expect("EyeToHand missing rig_se3_base");
+                let gripper_se3_target = rig_export
+                    .gripper_se3_target
+                    .expect("EyeToHand missing gripper_se3_target");
+                rig_se3_base * base_se3_gripper * gripper_se3_target
+            }
+        };
+        rig_se3_target.push(rt);
     }
 
     let upstream = RigUpstreamCalibration {
@@ -272,6 +346,7 @@ fn main() -> Result<()> {
     let mut laser_cfg = RigLaserlineDeviceConfig::default();
     laser_cfg.max_iters = Some(200);
     laser_cfg.verbosity = Some(1);
+    laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
     laser_session.set_config(laser_cfg)?;
 
     let t0 = Instant::now();
@@ -293,11 +368,169 @@ fn main() -> Result<()> {
         );
     }
 
-    // ─── Stage 4: pixel → gripper point demo ───────────────────────────────
+    // ─── Stage 4: joint rig + hand-eye + laser-plane BA ────────────────────
+    //
+    // Warm-starts come from stages 2 (rig + Scheimpflug + hand-eye) and 3
+    // (per-camera laser planes, upstream frozen). The joint BA relaxes all
+    // upstream parameters and adds per-pixel laser residuals (laser line
+    // distance in undistorted pixel space) to constrain intrinsics,
+    // extrinsics, hand-eye, target reference pose, and laser planes all
+    // together under a single cost.
+    //
+    // Residual type: `LineDistNormalized` — exactly the "undistort laser
+    // pixel, intersect the laser plane with the target plane in camera
+    // frame, project to z=1 plane, take perpendicular distance" formulation.
+    print_frame_table();
+    let joint_views: Vec<RigHandeyeLaserlineView> = detected.joint_views.clone();
+    let joint_dataset =
+        RigHandeyeLaserlineDataset::new(joint_views, NUM_CAMERAS, rig_export.handeye_mode)?;
+
+    let handeye = match rig_export.handeye_mode {
+        HandEyeMode::EyeInHand => rig_export
+            .gripper_se3_rig
+            .expect("EyeInHand missing gripper_se3_rig"),
+        HandEyeMode::EyeToHand => rig_export
+            .rig_se3_base
+            .expect("EyeToHand missing rig_se3_base"),
+    };
+    let target_ref = match rig_export.handeye_mode {
+        HandEyeMode::EyeInHand => rig_export
+            .base_se3_target
+            .expect("EyeInHand missing base_se3_target"),
+        HandEyeMode::EyeToHand => rig_export
+            .gripper_se3_target
+            .expect("EyeToHand missing gripper_se3_target"),
+    };
+    // Convert cam_se3_rig to cam_to_rig (T_rig_from_cam) for the optim block.
+    let cam_to_rig: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
+
+    let joint_initial = RigHandeyeLaserlineParams {
+        cameras: rig_export.cameras.clone(),
+        sensors: rig_export.sensors.clone(),
+        cam_to_rig,
+        handeye,
+        target_ref,
+        planes_cam: laser_export.laser_planes_cam.clone(),
+    };
+    let initial_robot_deltas = rig_export.robot_deltas.clone();
+    let (joint_initial_mean, joint_initial_stats) = evaluate_rig_handeye_laserline(
+        &joint_dataset,
+        &joint_initial,
+        initial_robot_deltas.as_deref(),
+    );
+    println!(
+        "  stage 4 initial eval on canonical observations: {:.4} px",
+        joint_initial_mean
+    );
+    print_joint_stats("initial", &joint_initial_stats);
+
+    // Fix distortion to radial-only (k1, k2); hold k3/p1/p2 at their warm-
+    // start values. Fix Scheimpflug tilts (they were converged per camera).
+    // Free everything else, except reference camera extrinsic for gauge.
+    let cam_fix = CameraFixMask {
+        intrinsics: vision_calibration_core::IntrinsicsFixMask::all_free(),
+        distortion: DistortionFixMask {
+            k1: false,
+            k2: true, // narrow FOV; keep k2 at warm-start value
+            k3: true,
+            p1: true,
+            p2: true,
+        },
+    };
+    let mut joint_opts = RigHandeyeLaserlineSolveOptions {
+        // PointToPlane residual (meters): a 1 mm error is a 0.001 residual;
+        // target reprojection is ~1-20 px, so the calib term naturally
+        // drives geometry while the laser term regularizes. Switching to
+        // LineDistNormalized is fruitful only after the joint geometry is
+        // already well-conditioned (reproj < 1 px).
+        laser_residual_type: LaserlineResidualType::PointToPlane,
+        fix_intrinsics: vec![cam_fix; NUM_CAMERAS],
+        fix_extrinsics: (0..NUM_CAMERAS).map(|i| i == 0).collect(),
+        ..Default::default()
+    };
+    // Balance calib (pixel-scale) against PointToPlane laser (meter-scale).
+    // With ~10k calib residuals at a few-px reproj and ~2k laser residuals
+    // at a few-cm initial residual, a laser_weight around 1e4 makes laser
+    // influential without destabilizing the calib term. The residual
+    // magnitudes on this particular real dataset (20 px rig reproj,
+    // 70 mm laser) keep the joint BA from escaping the warm-start basin;
+    // getting below 1 px reproj / 0.1 mm laser σ needs improvements
+    // upstream (shared-intrinsics rig or sub-pixel detection).
+    joint_opts.laser_weight = 1e4;
+    joint_opts.calib_weight = 1.0;
+    joint_opts.refine_robot_poses = true;
+    joint_opts.robot_rot_sigma = robot_rot_sigma;
+    joint_opts.robot_trans_sigma = robot_trans_sigma;
+    joint_opts.initial_robot_deltas = initial_robot_deltas;
+    // Scheimpflug tilts converge well in per-camera BA — don't refit here.
+    joint_opts.fix_scheimpflug = vec![
+        vision_calibration_optim::ScheimpflugFixMask {
+            tilt_x: true,
+            tilt_y: true,
+        };
+        NUM_CAMERAS
+    ];
+
+    let backend_opts = BackendSolveOptions {
+        max_iters: 30,
+        verbosity: 1,
+        ..Default::default()
+    };
+
+    let t0 = Instant::now();
+    let joint_est = optimize_rig_handeye_laserline(
+        joint_dataset,
+        joint_initial.clone(),
+        joint_opts,
+        backend_opts,
+    )?;
+    println!("stage 4 (joint BA): {:.2?}", t0.elapsed());
+    println!("  solve final_cost = {:.3e}", joint_est.report.final_cost);
+    println!(
+        "  mean reproj after joint BA: {:.4} px",
+        joint_est.mean_reproj_error_px
+    );
+    for (i, s) in joint_est.per_cam_stats.iter().enumerate() {
+        println!(
+            "    cam {i}: reproj={:.4}px max={:.2}px hist={:?}  laser={:.5}m ({:.1}μm) max={:.5}m hist={:?}  laser_px={:.4}px max={:.2}px",
+            s.mean_reproj_error_px,
+            s.max_reproj_error_px,
+            s.reproj_histogram_px,
+            s.mean_laser_err_m,
+            s.mean_laser_err_m * 1e6,
+            s.max_laser_err_m,
+            s.laser_histogram_m,
+            s.mean_laser_err_px,
+            s.max_laser_err_px
+        );
+    }
+    print_param_deltas(&joint_initial, &joint_est.params);
+    print_robot_delta_summary("joint BA robot deltas", joint_est.robot_deltas.as_deref());
+    for (i, p) in joint_est.planes_rig.iter().enumerate() {
+        let n = p.normal.into_inner();
+        println!(
+            "  plane (rig) {i}: n=({:+.4}, {:+.4}, {:+.4}), d={:+.4} m",
+            n.x, n.y, n.z, p.distance
+        );
+    }
+
+    // ─── Stage 5: pixel → gripper point demo ───────────────────────────────
+    // Use the first pose that carried laser observations to anchor the query
+    // — in EyeToHand, the gripper-frame mapping depends on the robot pose.
+    let ref_pose = poses
+        .iter()
+        .find(|p| p.has_laser())
+        .map(|p| p.base_se3_gripper());
     println!("\nsample pixel→gripper mappings:");
     for cam in 0..NUM_CAMERAS {
         let pixel = Pt2::new(320.0, 240.0); // center-ish
-        match pixel_to_gripper_point(cam, pixel, &rig_export, &laser_export.laser_planes_rig) {
+        match pixel_to_gripper_point(
+            cam,
+            pixel,
+            &rig_export,
+            &laser_export.laser_planes_rig,
+            ref_pose,
+        ) {
             Ok(p) => println!(
                 "  cam{cam} ({:.1},{:.1}) → ({:.3}, {:.3}, {:.3}) m (gripper)",
                 pixel.x, pixel.y, p.x, p.y, p.z
@@ -309,12 +542,189 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn build_datasets(
-    data_dir: &Path,
-    poses: &[PoseEntry],
-) -> Result<(Vec<RigView<RobotPoseMeta>>, Vec<RigLaserlineView>)> {
+#[derive(Debug, Clone)]
+struct DetectedDatasets {
+    handeye_views: Vec<RigView<RobotPoseMeta>>,
+    laserline_views: Vec<RigLaserlineView>,
+    joint_views: Vec<RigHandeyeLaserlineView>,
+}
+
+fn print_detection_diagnostics(detected: &DetectedDatasets) {
+    let mut target_views_per_cam = [0usize; NUM_CAMERAS];
+    let mut target_points_per_cam = [0usize; NUM_CAMERAS];
+    let mut laser_views_per_cam = [0usize; NUM_CAMERAS];
+    let mut laser_pixels_per_cam = [0usize; NUM_CAMERAS];
+    let mut per_pose_target_cams = Vec::with_capacity(detected.joint_views.len());
+    let mut target_min_x = [f64::INFINITY; NUM_CAMERAS];
+    let mut target_max_x = [f64::NEG_INFINITY; NUM_CAMERAS];
+    let mut target_min_y = [f64::INFINITY; NUM_CAMERAS];
+    let mut target_max_y = [f64::NEG_INFINITY; NUM_CAMERAS];
+
+    for view in &detected.joint_views {
+        let mut cams_this_pose = 0usize;
+        for (cam_idx, obs) in view.obs.cameras.iter().enumerate() {
+            if let Some(obs) = obs {
+                cams_this_pose += 1;
+                target_views_per_cam[cam_idx] += 1;
+                target_points_per_cam[cam_idx] += obs.points_2d.len();
+                for p in &obs.points_3d {
+                    target_min_x[cam_idx] = target_min_x[cam_idx].min(p.x);
+                    target_max_x[cam_idx] = target_max_x[cam_idx].max(p.x);
+                    target_min_y[cam_idx] = target_min_y[cam_idx].min(p.y);
+                    target_max_y[cam_idx] = target_max_y[cam_idx].max(p.y);
+                }
+            }
+        }
+        per_pose_target_cams.push(cams_this_pose);
+        for (cam_idx, pixels) in view.obs.laser_pixels.iter().enumerate() {
+            if let Some(pixels) = pixels {
+                laser_views_per_cam[cam_idx] += 1;
+                laser_pixels_per_cam[cam_idx] += pixels.len();
+            }
+        }
+    }
+
+    println!("  detection diagnostics:");
+    for cam in 0..NUM_CAMERAS {
+        println!(
+            "    cam {cam}: target_views={} target_pts={} target_x=[{:.4},{:.4}]m target_y=[{:.4},{:.4}]m laser_views={} laser_pts={}",
+            target_views_per_cam[cam],
+            target_points_per_cam[cam],
+            target_min_x[cam],
+            target_max_x[cam],
+            target_min_y[cam],
+            target_max_y[cam],
+            laser_views_per_cam[cam],
+            laser_pixels_per_cam[cam]
+        );
+    }
+    println!("    target cameras per pose: {per_pose_target_cams:?}");
+}
+
+fn print_frame_table() {
+    println!("  frame table:");
+    println!("    cam_se3_rig = T_C_R (exported by stage 2)");
+    println!("    cam_to_rig  = T_R_C (joint optimizer parameter)");
+    println!("    EyeToHand   = T_C_T = T_C_R * T_R_B * T_B_G * T_G_T");
+    println!("    robot delta = T_B_G_corr = exp(delta) * T_B_G");
+}
+
+fn print_joint_stats(label: &str, stats: &[RigHandeyeLaserlinePerCamStats]) {
+    for (i, s) in stats.iter().enumerate() {
+        println!(
+            "    [{label}] cam {i}: reproj={:.4}px max={:.2}px hist={:?} laser={:.5}m ({:.1}μm) max={:.5}m hist={:?} laser_px={:.4}px max={:.2}px counts=({}/{})",
+            s.mean_reproj_error_px,
+            s.max_reproj_error_px,
+            s.reproj_histogram_px,
+            s.mean_laser_err_m,
+            s.mean_laser_err_m * 1e6,
+            s.max_laser_err_m,
+            s.laser_histogram_m,
+            s.mean_laser_err_px,
+            s.max_laser_err_px,
+            s.reproj_count,
+            s.laser_count
+        );
+    }
+}
+
+fn print_param_deltas(
+    initial: &RigHandeyeLaserlineParams,
+    final_params: &RigHandeyeLaserlineParams,
+) {
+    let mut max_fx = 0.0f64;
+    let mut max_c = 0.0f64;
+    let mut max_dist = 0.0f64;
+    let mut max_tilt = 0.0f64;
+    let mut max_extr_t = 0.0f64;
+    let mut max_extr_rot = 0.0f64;
+    let mut max_plane_angle = 0.0f64;
+    let mut max_plane_d = 0.0f64;
+
+    for (a, b) in initial.cameras.iter().zip(final_params.cameras.iter()) {
+        max_fx = max_fx.max((a.k.fx - b.k.fx).abs().max((a.k.fy - b.k.fy).abs()));
+        max_c = max_c.max((a.k.cx - b.k.cx).abs().max((a.k.cy - b.k.cy).abs()));
+        max_dist = max_dist
+            .max((a.dist.k1 - b.dist.k1).abs())
+            .max((a.dist.k2 - b.dist.k2).abs())
+            .max((a.dist.k3 - b.dist.k3).abs())
+            .max((a.dist.p1 - b.dist.p1).abs())
+            .max((a.dist.p2 - b.dist.p2).abs());
+    }
+    for (a, b) in initial.sensors.iter().zip(final_params.sensors.iter()) {
+        max_tilt = max_tilt
+            .max((a.tilt_x - b.tilt_x).abs())
+            .max((a.tilt_y - b.tilt_y).abs());
+    }
+    for (a, b) in initial
+        .cam_to_rig
+        .iter()
+        .zip(final_params.cam_to_rig.iter())
+    {
+        let d = a.inverse() * *b;
+        max_extr_t = max_extr_t.max(d.translation.vector.norm());
+        max_extr_rot = max_extr_rot.max(d.rotation.angle());
+    }
+    for (a, b) in initial
+        .planes_cam
+        .iter()
+        .zip(final_params.planes_cam.iter())
+    {
+        let dot = a
+            .normal
+            .into_inner()
+            .dot(&b.normal.into_inner())
+            .clamp(-1.0, 1.0);
+        max_plane_angle = max_plane_angle.max(dot.acos());
+        max_plane_d = max_plane_d.max((a.distance - b.distance).abs());
+    }
+    let handeye_delta = initial.handeye.inverse() * final_params.handeye;
+    let target_delta = initial.target_ref.inverse() * final_params.target_ref;
+    println!(
+        "  joint parameter deltas: max_f={max_fx:.4}px max_c={max_c:.4}px max_dist={max_dist:.3e} max_tilt={:.4}rad",
+        max_tilt
+    );
+    println!(
+        "    extrinsics max: rot={:.4}rad trans={:.5}m; handeye: rot={:.4}rad trans={:.5}m; target: rot={:.4}rad trans={:.5}m",
+        max_extr_rot,
+        max_extr_t,
+        handeye_delta.rotation.angle(),
+        handeye_delta.translation.vector.norm(),
+        target_delta.rotation.angle(),
+        target_delta.translation.vector.norm()
+    );
+    println!(
+        "    laser planes max: normal_angle={:.4}rad distance={:.5}m",
+        max_plane_angle, max_plane_d
+    );
+}
+
+fn print_robot_delta_summary(label: &str, deltas: Option<&[[f64; 6]]>) {
+    let Some(deltas) = deltas else {
+        println!("  {label}: none");
+        return;
+    };
+    let mut max_rot = 0.0f64;
+    let mut max_trans = 0.0f64;
+    for delta in deltas {
+        let rot = (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
+        let trans = (delta[3] * delta[3] + delta[4] * delta[4] + delta[5] * delta[5]).sqrt();
+        max_rot = max_rot.max(rot);
+        max_trans = max_trans.max(trans);
+    }
+    println!(
+        "  {label}: count={} max_rot={:.4}rad ({:.3}°) max_trans={:.5}m",
+        deltas.len(),
+        max_rot,
+        max_rot.to_degrees(),
+        max_trans
+    );
+}
+
+fn build_datasets(data_dir: &Path, poses: &[PoseEntry]) -> Result<DetectedDatasets> {
     let mut handeye_views = Vec::new();
     let mut laser_views = Vec::new();
+    let mut joint_views = Vec::new();
 
     for (i, pose) in poses.iter().enumerate() {
         let target_img = load_gray(&data_dir.join(&pose.target_image))
@@ -345,11 +755,12 @@ fn build_datasets(
             },
         });
 
+        let mut laser_pixels: Vec<Option<Vec<Pt2>>> = vec![None; NUM_CAMERAS];
         if pose.has_laser() {
             let laser_img = load_gray(&data_dir.join(&pose.laser_image))
                 .with_context(|| format!("pose {i} laser"))?;
             let laser_tiles = split_horizontal(&laser_img, NUM_CAMERAS);
-            let laser_pixels: Vec<Option<Vec<Pt2>>> = laser_tiles
+            laser_pixels = laser_tiles
                 .iter()
                 .map(|tile| {
                     let pts = detect_laser(tile);
@@ -358,13 +769,31 @@ fn build_datasets(
                 .collect();
             laser_views.push(RigLaserlineView {
                 cameras: cam_obs,
-                laser_pixels,
+                laser_pixels: laser_pixels.clone(),
             });
         }
+        joint_views.push(RigHandeyeLaserlineView {
+            obs: RigLaserlineView {
+                cameras: handeye_views
+                    .last()
+                    .expect("handeye view just pushed")
+                    .obs
+                    .cameras
+                    .clone(),
+                laser_pixels,
+            },
+            meta: RobotPoseMeta {
+                base_se3_gripper: pose.base_se3_gripper(),
+            },
+        });
 
         // Drop per-pose images to limit peak memory.
         let _ = target_img;
     }
 
-    Ok((handeye_views, laser_views))
+    Ok(DetectedDatasets {
+        handeye_views,
+        laserline_views: laser_views,
+        joint_views,
+    })
 }

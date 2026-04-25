@@ -283,6 +283,87 @@ pub enum FactorKind {
         /// Residual weight.
         w: f64,
     },
+    /// Rig + hand-eye version of [`FactorKind::LaserPlanePixel`].
+    ///
+    /// Parameters: [intrinsics, distortion, sensor, cam_to_rig, handeye,
+    /// target_ref, plane_normal, plane_distance].
+    ///
+    /// The target pose in camera frame is composed from `cam_to_rig`,
+    /// `handeye`, `target_ref`, and the per-view robot pose according to
+    /// [`HandEyeMode`] — so intrinsics, rig extrinsics, hand-eye transform,
+    /// target reference pose and the laser plane all move simultaneously
+    /// under a single point-to-plane cost.
+    ///
+    /// Residual: 1D signed distance in meters (same units as
+    /// [`FactorKind::LaserPlanePixel`]).
+    LaserPlanePixelRigHandEye {
+        /// Observed laser pixel coordinates.
+        laser_pixel: [f64; 2],
+        /// Known robot pose (base-to-gripper) as SE3 `[qx, qy, qz, qw, tx, ty, tz]`.
+        robot_se3: [f64; 7],
+        /// Hand-eye mode defining the transform chain.
+        mode: HandEyeMode,
+        /// Residual weight.
+        w: f64,
+    },
+    /// Rig + hand-eye point-to-plane laser residual with a per-view robot pose correction.
+    ///
+    /// Parameters: [intrinsics, distortion, sensor, cam_to_rig, handeye,
+    /// target_ref, plane_normal, plane_distance, robot_delta].
+    ///
+    /// `robot_delta` is a 6D se(3) tangent correction applied as
+    /// `exp(delta) * T_B_G`, matching
+    /// [`FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta`].
+    LaserPlanePixelRigHandEyeRobotDelta {
+        /// Observed laser pixel coordinates.
+        laser_pixel: [f64; 2],
+        /// Known robot pose (base-to-gripper) as SE3 `[qx, qy, qz, qw, tx, ty, tz]`.
+        robot_se3: [f64; 7],
+        /// Hand-eye mode defining the transform chain.
+        mode: HandEyeMode,
+        /// Residual weight.
+        w: f64,
+    },
+    /// Rig + hand-eye version of [`FactorKind::LaserLineDist2D`].
+    ///
+    /// Parameters: [intrinsics, distortion, sensor, cam_to_rig, handeye,
+    /// target_ref, plane_normal, plane_distance].
+    ///
+    /// Same chain composition as [`FactorKind::LaserPlanePixelRigHandEye`],
+    /// but measures perpendicular pixel distance between the undistorted
+    /// laser pixel and the projected laser-target intersection line. This is
+    /// the undistorted-image-space formulation described in the design plan.
+    ///
+    /// Residual: 1D distance in pixels (same units as
+    /// [`FactorKind::LaserLineDist2D`]).
+    LaserLineDist2DRigHandEye {
+        /// Observed laser pixel coordinates.
+        laser_pixel: [f64; 2],
+        /// Known robot pose (base-to-gripper) as SE3 `[qx, qy, qz, qw, tx, ty, tz]`.
+        robot_se3: [f64; 7],
+        /// Hand-eye mode defining the transform chain.
+        mode: HandEyeMode,
+        /// Residual weight.
+        w: f64,
+    },
+    /// Rig + hand-eye line-distance laser residual with a per-view robot pose correction.
+    ///
+    /// Parameters: [intrinsics, distortion, sensor, cam_to_rig, handeye,
+    /// target_ref, plane_normal, plane_distance, robot_delta].
+    ///
+    /// `robot_delta` is a 6D se(3) tangent correction applied as
+    /// `exp(delta) * T_B_G`, matching
+    /// [`FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta`].
+    LaserLineDist2DRigHandEyeRobotDelta {
+        /// Observed laser pixel coordinates.
+        laser_pixel: [f64; 2],
+        /// Known robot pose (base-to-gripper) as SE3 `[qx, qy, qz, qw, tx, ty, tz]`.
+        robot_se3: [f64; 7],
+        /// Hand-eye mode defining the transform chain.
+        mode: HandEyeMode,
+        /// Residual weight.
+        w: f64,
+    },
     /// Placeholder for future prior factors.
     Prior,
     /// Zero-mean prior on a 6D se(3) tangent vector.
@@ -311,6 +392,10 @@ impl FactorKind {
             FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta { .. } => 2,
             FactorKind::LaserPlanePixel { .. } => 1,
             FactorKind::LaserLineDist2D { .. } => 1,
+            FactorKind::LaserPlanePixelRigHandEye { .. } => 1,
+            FactorKind::LaserPlanePixelRigHandEyeRobotDelta { .. } => 1,
+            FactorKind::LaserLineDist2DRigHandEye { .. } => 1,
+            FactorKind::LaserLineDist2DRigHandEyeRobotDelta { .. } => 1,
             FactorKind::Prior => 0,
             FactorKind::Se3TangentPrior { .. } => 6,
             FactorKind::ReprojPointWithDistortion => 2,
@@ -913,6 +998,100 @@ impl ProblemIR {
                         plane_distance.dim,
                         plane_distance.manifold
                     );
+                }
+                FactorKind::LaserPlanePixelRigHandEye { .. }
+                | FactorKind::LaserLineDist2DRigHandEye { .. }
+                | FactorKind::LaserPlanePixelRigHandEyeRobotDelta { .. }
+                | FactorKind::LaserLineDist2DRigHandEyeRobotDelta { .. } => {
+                    let label = match residual.factor {
+                        FactorKind::LaserPlanePixelRigHandEye { .. } => "LaserPlanePixelRigHandEye",
+                        FactorKind::LaserLineDist2DRigHandEye { .. } => "LaserLineDist2DRigHandEye",
+                        FactorKind::LaserPlanePixelRigHandEyeRobotDelta { .. } => {
+                            "LaserPlanePixelRigHandEyeRobotDelta"
+                        }
+                        _ => "LaserLineDist2DRigHandEyeRobotDelta",
+                    };
+                    let has_robot_delta = matches!(
+                        residual.factor,
+                        FactorKind::LaserPlanePixelRigHandEyeRobotDelta { .. }
+                            | FactorKind::LaserLineDist2DRigHandEyeRobotDelta { .. }
+                    );
+                    let expected_len = if has_robot_delta { 9 } else { 8 };
+                    let expected_desc = if has_robot_delta {
+                        "[cam, dist, sensor, cam_to_rig, handeye, target_ref, plane_normal, plane_distance, robot_delta]"
+                    } else {
+                        "[cam, dist, sensor, cam_to_rig, handeye, target_ref, plane_normal, plane_distance]"
+                    };
+                    ensure!(
+                        residual.params.len() == expected_len,
+                        "{label} factor requires {expected_len} params {expected_desc}"
+                    );
+                    let cam = &self.params[residual.params[0].0];
+                    let dist = &self.params[residual.params[1].0];
+                    let sensor = &self.params[residual.params[2].0];
+                    let cam_to_rig = &self.params[residual.params[3].0];
+                    let handeye = &self.params[residual.params[4].0];
+                    let target_ref = &self.params[residual.params[5].0];
+                    let plane_normal = &self.params[residual.params[6].0];
+                    let plane_distance = &self.params[residual.params[7].0];
+                    ensure!(
+                        cam.dim == 4 && cam.manifold == ManifoldKind::Euclidean,
+                        "{label} factor expects 4D Euclidean intrinsics, got dim={} manifold={:?}",
+                        cam.dim,
+                        cam.manifold
+                    );
+                    ensure!(
+                        dist.dim == 5 && dist.manifold == ManifoldKind::Euclidean,
+                        "{label} factor expects 5D Euclidean distortion, got dim={} manifold={:?}",
+                        dist.dim,
+                        dist.manifold
+                    );
+                    ensure!(
+                        sensor.dim == 2 && sensor.manifold == ManifoldKind::Euclidean,
+                        "{label} factor expects 2D Euclidean sensor params, got dim={} manifold={:?}",
+                        sensor.dim,
+                        sensor.manifold
+                    );
+                    ensure!(
+                        cam_to_rig.dim == 7 && cam_to_rig.manifold == ManifoldKind::SE3,
+                        "{label} factor expects 7D SE3 cam_to_rig, got dim={} manifold={:?}",
+                        cam_to_rig.dim,
+                        cam_to_rig.manifold
+                    );
+                    ensure!(
+                        handeye.dim == 7 && handeye.manifold == ManifoldKind::SE3,
+                        "{label} factor expects 7D SE3 handeye, got dim={} manifold={:?}",
+                        handeye.dim,
+                        handeye.manifold
+                    );
+                    ensure!(
+                        target_ref.dim == 7 && target_ref.manifold == ManifoldKind::SE3,
+                        "{label} factor expects 7D SE3 target_ref, got dim={} manifold={:?}",
+                        target_ref.dim,
+                        target_ref.manifold
+                    );
+                    ensure!(
+                        plane_normal.dim == 3 && plane_normal.manifold == ManifoldKind::S2,
+                        "{label} factor expects 3D S2 plane normal, got dim={} manifold={:?}",
+                        plane_normal.dim,
+                        plane_normal.manifold
+                    );
+                    ensure!(
+                        plane_distance.dim == 1
+                            && plane_distance.manifold == ManifoldKind::Euclidean,
+                        "{label} factor expects 1D Euclidean plane distance, got dim={} manifold={:?}",
+                        plane_distance.dim,
+                        plane_distance.manifold
+                    );
+                    if has_robot_delta {
+                        let robot_delta = &self.params[residual.params[8].0];
+                        ensure!(
+                            robot_delta.dim == 6 && robot_delta.manifold == ManifoldKind::Euclidean,
+                            "{label} factor expects 6D Euclidean robot delta, got dim={} manifold={:?}",
+                            robot_delta.dim,
+                            robot_delta.manifold
+                        );
+                    }
                 }
                 FactorKind::Se3TangentPrior { .. } => {
                     ensure!(

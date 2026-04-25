@@ -4,8 +4,20 @@
 //! Two approaches are provided:
 //! 1. Point-to-plane distance: ray-target intersection then distance to laser plane
 //! 2. Line-distance in normalized plane: projects laser-target line to normalized plane
+//!
+//! Both come in two flavours:
+//! - Single-pose (`*_residual_generic`): the residual takes a direct
+//!   `cam_se3_target` SE3 parameter block.
+//! - Rig + hand-eye (`*_rig_handeye_residual_generic`): the residual composes
+//!   `cam_se3_target` from (`cam_to_rig`, `handeye`, `target_ref`, robot pose)
+//!   according to [`HandEyeMode`], so that rig extrinsics, hand-eye transform,
+//!   and target reference pose all move under a single cost with the laser
+//!   geometry constraint.
 
-use crate::factors::reprojection_model::apply_scheimpflug_inverse_generic;
+use crate::factors::reprojection_model::{
+    RobotPoseData, apply_scheimpflug_inverse_generic, se3_exp,
+};
+use crate::ir::HandEyeMode;
 use nalgebra::{DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector2, Vector3};
 
 /// Undistort a pixel to normalized coordinates using a fixed-point iteration.
@@ -398,6 +410,321 @@ pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
     SVector::<T, 1>::new(residual)
 }
 
+/// Build `cam_se3_target` from the hand-eye chain for a rig-level laser factor.
+///
+/// Inputs are the SE3 param blocks and the per-view robot pose data; output is
+/// the composed `(rotation, translation)` that maps points in the target frame
+/// into the camera frame, identical to the pose the single-camera
+/// `laser_*_residual_generic` functions consume directly.
+///
+/// The chain matches `reproj_residual_pinhole4_dist5_scheimpflug2_handeye_*`
+/// so a rig-level target-corner reprojection and a rig-level laser-line
+/// residual share the exact same chain semantics.
+///
+/// - `cam_to_rig`: 7D SE3 `T_rig_from_cam`.
+/// - `handeye`:   7D SE3 — `gripper_se3_rig` (EyeInHand) or `rig_se3_base`
+///   (EyeToHand).
+/// - `target_ref`: 7D SE3 — `base_se3_target` (EyeInHand) or
+///   `gripper_se3_target` (EyeToHand).
+/// - `robot_se3`: known `base_se3_gripper` for this view.
+#[allow(clippy::too_many_arguments)]
+fn compose_cam_se3_target_generic<T: RealField>(
+    cam_to_rig: DVectorView<'_, T>,
+    handeye: DVectorView<'_, T>,
+    target_ref: DVectorView<'_, T>,
+    robot_se3: [f64; 7],
+    mode: HandEyeMode,
+) -> (UnitQuaternion<T>, Vector3<T>) {
+    compose_cam_se3_target_with_delta_generic(
+        cam_to_rig, handeye, target_ref, robot_se3, None, mode,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compose_cam_se3_target_with_delta_generic<T: RealField>(
+    cam_to_rig: DVectorView<'_, T>,
+    handeye: DVectorView<'_, T>,
+    target_ref: DVectorView<'_, T>,
+    robot_se3: [f64; 7],
+    robot_delta: Option<DVectorView<'_, T>>,
+    mode: HandEyeMode,
+) -> (UnitQuaternion<T>, Vector3<T>) {
+    debug_assert!(cam_to_rig.len() == 7, "cam_to_rig must be 7 SE3");
+    debug_assert!(handeye.len() == 7, "handeye must be 7 SE3");
+    debug_assert!(target_ref.len() == 7, "target_ref must be 7 SE3");
+
+    let extr_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        cam_to_rig[3].clone(),
+        cam_to_rig[0].clone(),
+        cam_to_rig[1].clone(),
+        cam_to_rig[2].clone(),
+    ));
+    let extr_t = Vector3::new(
+        cam_to_rig[4].clone(),
+        cam_to_rig[5].clone(),
+        cam_to_rig[6].clone(),
+    );
+    let handeye_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        handeye[3].clone(),
+        handeye[0].clone(),
+        handeye[1].clone(),
+        handeye[2].clone(),
+    ));
+    let handeye_t = Vector3::new(handeye[4].clone(), handeye[5].clone(), handeye[6].clone());
+    let target_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        target_ref[3].clone(),
+        target_ref[0].clone(),
+        target_ref[1].clone(),
+        target_ref[2].clone(),
+    ));
+    let target_t = Vector3::new(
+        target_ref[4].clone(),
+        target_ref[5].clone(),
+        target_ref[6].clone(),
+    );
+    let robot_q: UnitQuaternion<T> = UnitQuaternion::from_quaternion(Quaternion::new(
+        T::from_f64(robot_se3[3]).unwrap(),
+        T::from_f64(robot_se3[0]).unwrap(),
+        T::from_f64(robot_se3[1]).unwrap(),
+        T::from_f64(robot_se3[2]).unwrap(),
+    ));
+    let robot_t = Vector3::new(
+        T::from_f64(robot_se3[4]).unwrap(),
+        T::from_f64(robot_se3[5]).unwrap(),
+        T::from_f64(robot_se3[6]).unwrap(),
+    );
+    let (robot_q, robot_t) = if let Some(delta) = robot_delta {
+        let (delta_q, delta_t) = se3_exp(delta);
+        (
+            delta_q.clone() * robot_q,
+            delta_q.transform_vector(&robot_t) + delta_t,
+        )
+    } else {
+        (robot_q, robot_t)
+    };
+
+    // Compute (R_net, t_net) such that p_cam = R_net * p_target + t_net, by
+    // pushing the origin of the target frame through each stage of the chain.
+    match mode {
+        HandEyeMode::EyeInHand => {
+            // p_cam = extr^-1 ( handeye^-1 ( robot^-1 ( target * p_t ) ) )
+            //
+            // Composing R: R_net = extr^-1 * handeye^-1 * robot^-1 * target
+            let r_net = extr_q.inverse() * handeye_q.inverse() * robot_q.inverse() * target_q;
+
+            // Translation: apply chain to origin (p_t = 0):
+            // p_base   = target_t
+            // p_grip   = robot_q^-1 * (p_base - robot_t)
+            // p_rig    = handeye_q^-1 * (p_grip - handeye_t)
+            // p_cam    = extr_q^-1 * (p_rig - extr_t)
+            let p_base = target_t;
+            let p_grip = robot_q.inverse_transform_vector(&(p_base - robot_t));
+            let p_rig = handeye_q.inverse_transform_vector(&(p_grip - handeye_t));
+            let t_net = extr_q.inverse_transform_vector(&(p_rig - extr_t));
+            (r_net, t_net)
+        }
+        HandEyeMode::EyeToHand => {
+            // p_cam = extr^-1 ( handeye * ( robot * ( target * p_t ) ) )
+            //
+            // Composing R: R_net = extr^-1 * handeye * robot * target
+            let r_net = extr_q.inverse() * handeye_q.clone() * robot_q.clone() * target_q;
+
+            // Translation: origin propagation:
+            // p_grip   = target_t
+            // p_base   = robot_q * p_grip + robot_t
+            // p_rig    = handeye_q * p_base + handeye_t
+            // p_cam    = extr_q^-1 * (p_rig - extr_t)
+            let p_grip = target_t;
+            let p_base = robot_q.transform_vector(&p_grip) + robot_t;
+            let p_rig = handeye_q.transform_vector(&p_base) + handeye_t;
+            let t_net = extr_q.inverse_transform_vector(&(p_rig - extr_t));
+            (r_net, t_net)
+        }
+    }
+}
+
+/// Pack `(rotation, translation)` into a heap-allocated 7D SE3 DVector suitable
+/// for the `laser_*_residual_generic` functions.
+fn se3_from_rot_trans<T: RealField>(
+    rot: &UnitQuaternion<T>,
+    t: &Vector3<T>,
+) -> nalgebra::DVector<T> {
+    let q = rot.quaternion();
+    // Layout matches params::pose_se3::iso3_to_se3_dvec: [qx, qy, qz, qw, tx, ty, tz]
+    nalgebra::DVector::from_vec(vec![
+        q.i.clone(),
+        q.j.clone(),
+        q.k.clone(),
+        q.w.clone(),
+        t.x.clone(),
+        t.y.clone(),
+        t.z.clone(),
+    ])
+}
+
+/// Rig + hand-eye version of [`laser_plane_pixel_residual_generic`].
+///
+/// Composes `cam_se3_target` from (`cam_to_rig`, `handeye`, `target_ref`,
+/// `robot_data.robot_se3`) via the mode-dependent chain, then delegates to the
+/// single-camera point-to-plane residual. Residual is 1D (meters, signed
+/// distance from laser-target ray intersection to the laser plane).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn laser_plane_pixel_rig_handeye_residual_generic<T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
+    cam_to_rig: DVectorView<'_, T>,
+    handeye: DVectorView<'_, T>,
+    target_ref: DVectorView<'_, T>,
+    plane_normal: DVectorView<'_, T>,
+    plane_distance: DVectorView<'_, T>,
+    robot_data: RobotPoseData,
+    laser_pixel: [f64; 2],
+    w: f64,
+) -> SVector<T, 1> {
+    let (rot, t) = compose_cam_se3_target_generic(
+        cam_to_rig,
+        handeye,
+        target_ref,
+        robot_data.robot_se3,
+        robot_data.mode,
+    );
+    let pose = se3_from_rot_trans(&rot, &t);
+    laser_plane_pixel_residual_generic(
+        intr,
+        dist,
+        sensor,
+        pose.as_view(),
+        plane_normal,
+        plane_distance,
+        laser_pixel,
+        w,
+    )
+}
+
+/// Rig + hand-eye + robot-delta version of [`laser_plane_pixel_residual_generic`].
+///
+/// `robot_delta` is a 6D se(3) tangent correction applied as
+/// `exp(delta) * T_B_G`, matching the Scheimpflug hand-eye reprojection
+/// robot-delta factor.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn laser_plane_pixel_rig_handeye_robot_delta_residual_generic<T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
+    cam_to_rig: DVectorView<'_, T>,
+    handeye: DVectorView<'_, T>,
+    target_ref: DVectorView<'_, T>,
+    plane_normal: DVectorView<'_, T>,
+    plane_distance: DVectorView<'_, T>,
+    robot_delta: DVectorView<'_, T>,
+    robot_data: RobotPoseData,
+    laser_pixel: [f64; 2],
+    w: f64,
+) -> SVector<T, 1> {
+    let (rot, t) = compose_cam_se3_target_with_delta_generic(
+        cam_to_rig,
+        handeye,
+        target_ref,
+        robot_data.robot_se3,
+        Some(robot_delta),
+        robot_data.mode,
+    );
+    let pose = se3_from_rot_trans(&rot, &t);
+    laser_plane_pixel_residual_generic(
+        intr,
+        dist,
+        sensor,
+        pose.as_view(),
+        plane_normal,
+        plane_distance,
+        laser_pixel,
+        w,
+    )
+}
+
+/// Rig + hand-eye version of [`laser_line_dist_normalized_generic`].
+///
+/// Composes `cam_se3_target` from (`cam_to_rig`, `handeye`, `target_ref`,
+/// `robot_data.robot_se3`) via the mode-dependent chain, then delegates to the
+/// single-camera line-distance-in-normalized-plane residual. Residual is 1D
+/// (pixels, perpendicular distance from the undistorted laser pixel to the
+/// projected laser-target intersection line, scaled by sqrt(fx*fy)).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn laser_line_dist_normalized_rig_handeye_residual_generic<T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
+    cam_to_rig: DVectorView<'_, T>,
+    handeye: DVectorView<'_, T>,
+    target_ref: DVectorView<'_, T>,
+    plane_normal: DVectorView<'_, T>,
+    plane_distance: DVectorView<'_, T>,
+    robot_data: RobotPoseData,
+    laser_pixel: [f64; 2],
+    w: f64,
+) -> SVector<T, 1> {
+    let (rot, t) = compose_cam_se3_target_generic(
+        cam_to_rig,
+        handeye,
+        target_ref,
+        robot_data.robot_se3,
+        robot_data.mode,
+    );
+    let pose = se3_from_rot_trans(&rot, &t);
+    laser_line_dist_normalized_generic(
+        intr,
+        dist,
+        sensor,
+        pose.as_view(),
+        plane_normal,
+        plane_distance,
+        laser_pixel,
+        w,
+    )
+}
+
+/// Rig + hand-eye + robot-delta version of [`laser_line_dist_normalized_generic`].
+///
+/// `robot_delta` is a 6D se(3) tangent correction applied as
+/// `exp(delta) * T_B_G`, matching the Scheimpflug hand-eye reprojection
+/// robot-delta factor.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn laser_line_dist_normalized_rig_handeye_robot_delta_residual_generic<T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
+    cam_to_rig: DVectorView<'_, T>,
+    handeye: DVectorView<'_, T>,
+    target_ref: DVectorView<'_, T>,
+    plane_normal: DVectorView<'_, T>,
+    plane_distance: DVectorView<'_, T>,
+    robot_delta: DVectorView<'_, T>,
+    robot_data: RobotPoseData,
+    laser_pixel: [f64; 2],
+    w: f64,
+) -> SVector<T, 1> {
+    let (rot, t) = compose_cam_se3_target_with_delta_generic(
+        cam_to_rig,
+        handeye,
+        target_ref,
+        robot_data.robot_se3,
+        Some(robot_delta),
+        robot_data.mode,
+    );
+    let pose = se3_from_rot_trans(&rot, &t);
+    laser_line_dist_normalized_generic(
+        intr,
+        dist,
+        sensor,
+        pose.as_view(),
+        plane_normal,
+        plane_distance,
+        laser_pixel,
+        w,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -570,5 +897,409 @@ mod tests {
         // And should have x=0, z=0
         assert!(p0.x.abs() < 1e-10);
         assert!(p0.z.abs() < 1e-10);
+    }
+
+    /// Compose ground-truth `cam_se3_target` via the hand-eye chain in each
+    /// mode and check that `compose_cam_se3_target_generic` produces the
+    /// same transform. This pins down chain semantics and guards against
+    /// flipped inverses.
+    ///
+    /// Conventions (mirror `reproj_residual_pinhole4_dist5_scheimpflug2_handeye_*`):
+    /// - `cam_to_rig` param ≡ T_rig_from_cam (forward maps cam→rig).
+    /// - EyeInHand: `handeye` = T_gripper_from_rig; `target_ref` = T_base_from_target.
+    /// - EyeToHand: `handeye` = T_rig_from_base;    `target_ref` = T_gripper_from_target.
+    /// - Robot data: `robot_se3` = T_base_from_gripper (as published by the robot).
+    #[test]
+    fn compose_cam_se3_target_matches_explicit_chain() {
+        use nalgebra::{Isometry3, Translation3, UnitQuaternion as UQ, Vector3 as V3};
+
+        let rot_xyz = |rx: f64, ry: f64, rz: f64| -> UQ<f64> {
+            UQ::from_axis_angle(&Vector3::x_axis(), rx)
+                * UQ::from_axis_angle(&Vector3::y_axis(), ry)
+                * UQ::from_axis_angle(&Vector3::z_axis(), rz)
+        };
+
+        // Arbitrary non-identity transforms, distinct enough to catch
+        // convention mix-ups.
+        let t_rig_from_cam: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(0.10, -0.05, 0.20),
+            rot_xyz(0.1, -0.2, 0.3),
+        );
+        let handeye_iso: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(-0.02, 0.03, 0.15),
+            rot_xyz(-0.05, 0.04, 0.08),
+        );
+        let target_ref_iso: Isometry3<f64> =
+            Isometry3::from_parts(Translation3::new(0.30, 0.20, 0.40), rot_xyz(0.3, 0.0, -0.1));
+        let t_base_from_gripper: Isometry3<f64> =
+            Isometry3::from_parts(Translation3::new(0.50, 0.10, 0.20), rot_xyz(0.2, 0.2, 0.2));
+
+        // Helper to pack an Isometry3 into [qx,qy,qz,qw,tx,ty,tz].
+        let pack = |iso: &Isometry3<f64>| -> DVector<f64> {
+            let q = iso.rotation.into_inner();
+            DVector::from_vec(vec![
+                q.i,
+                q.j,
+                q.k,
+                q.w,
+                iso.translation.vector.x,
+                iso.translation.vector.y,
+                iso.translation.vector.z,
+            ])
+        };
+        let pack_arr = |iso: &Isometry3<f64>| -> [f64; 7] {
+            let q = iso.rotation.into_inner();
+            [
+                q.i,
+                q.j,
+                q.k,
+                q.w,
+                iso.translation.vector.x,
+                iso.translation.vector.y,
+                iso.translation.vector.z,
+            ]
+        };
+
+        let cam_to_rig = pack(&t_rig_from_cam);
+        let handeye = pack(&handeye_iso);
+        let target_ref = pack(&target_ref_iso);
+        let robot_arr = pack_arr(&t_base_from_gripper);
+
+        // --- EyeInHand --- T_C_T = T_C_R * T_R_G * T_G_B * T_B_T
+        //                       = t_rig_from_cam^-1 * handeye^-1 * robot^-1 * target_ref
+        let t_ct_eih: Isometry3<f64> = t_rig_from_cam.inverse()
+            * handeye_iso.inverse()
+            * t_base_from_gripper.inverse()
+            * target_ref_iso;
+        let (r, t) = compose_cam_se3_target_generic::<f64>(
+            cam_to_rig.as_view(),
+            handeye.as_view(),
+            target_ref.as_view(),
+            robot_arr,
+            HandEyeMode::EyeInHand,
+        );
+        for pw in [[0.01, 0.02, 0.0], [-0.03, 0.04, 0.1], [0.0, 0.0, 0.0]] {
+            let p = V3::new(pw[0], pw[1], pw[2]);
+            let expected = t_ct_eih * nalgebra::Point3::from(p);
+            let actual = r.transform_vector(&p) + t;
+            assert!(
+                (expected.coords - actual).norm() < 1e-12,
+                "EyeInHand chain mismatch: expected={:?} actual={:?}",
+                expected.coords,
+                actual
+            );
+        }
+
+        // --- EyeToHand --- T_C_T = T_C_R * T_R_B * T_B_G * T_G_T
+        //                       = t_rig_from_cam^-1 * handeye * robot * target_ref
+        let t_ct_eth: Isometry3<f64> =
+            t_rig_from_cam.inverse() * handeye_iso * t_base_from_gripper * target_ref_iso;
+        let (r2, t2) = compose_cam_se3_target_generic::<f64>(
+            cam_to_rig.as_view(),
+            handeye.as_view(),
+            target_ref.as_view(),
+            robot_arr,
+            HandEyeMode::EyeToHand,
+        );
+        for pw in [[0.01, 0.02, 0.0], [-0.03, 0.04, 0.1], [0.0, 0.0, 0.0]] {
+            let p = V3::new(pw[0], pw[1], pw[2]);
+            let expected = t_ct_eth * nalgebra::Point3::from(p);
+            let actual = r2.transform_vector(&p) + t2;
+            assert!(
+                (expected.coords - actual).norm() < 1e-12,
+                "EyeToHand chain mismatch: expected={:?} actual={:?}",
+                expected.coords,
+                actual
+            );
+        }
+    }
+
+    /// Ground-truth laser-plane pixel residual via the rig/hand-eye composition
+    /// must equal the single-camera residual when we pass the same composed
+    /// `cam_se3_target` directly — in both modes, with both residual types.
+    #[test]
+    fn rig_handeye_residuals_match_single_camera_via_composition() {
+        use nalgebra::{Isometry3, Translation3, UnitQuaternion as UQ};
+
+        let intr = DVector::from_vec(vec![900.0, 900.0, 640.0, 360.0]);
+        let dist = DVector::from_vec(vec![0.05, -0.1, 0.0, 0.0, 0.0]);
+        let sensor = DVector::from_vec(vec![0.02, -0.01]);
+        let plane_normal = {
+            let n = nalgebra::Vector3::new(0.1, 0.2, 1.0).normalize();
+            DVector::from_vec(vec![n.x, n.y, n.z])
+        };
+        let plane_distance = DVector::from_vec(vec![-0.35]);
+        let laser_pixel = [712.0, 388.0];
+        let w = 2.0;
+
+        let t_rig_from_cam: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(0.05, -0.03, 0.10),
+            UQ::from_axis_angle(&Vector3::y_axis(), 0.25_f64),
+        );
+        let handeye_iso: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(-0.02, 0.01, 0.08),
+            UQ::from_axis_angle(&Vector3::x_axis(), -0.1_f64),
+        );
+        let target_ref_iso: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(0.22, 0.15, 0.42),
+            UQ::from_axis_angle(&Vector3::z_axis(), 0.35_f64),
+        );
+        let t_base_from_gripper: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(0.50, 0.10, 0.30),
+            UQ::from_axis_angle(&Vector3::y_axis(), 0.2_f64),
+        );
+
+        let pack = |iso: &Isometry3<f64>| -> DVector<f64> {
+            let q = iso.rotation.into_inner();
+            DVector::from_vec(vec![
+                q.i,
+                q.j,
+                q.k,
+                q.w,
+                iso.translation.vector.x,
+                iso.translation.vector.y,
+                iso.translation.vector.z,
+            ])
+        };
+        let pack_arr = |iso: &Isometry3<f64>| -> [f64; 7] {
+            let q = iso.rotation.into_inner();
+            [
+                q.i,
+                q.j,
+                q.k,
+                q.w,
+                iso.translation.vector.x,
+                iso.translation.vector.y,
+                iso.translation.vector.z,
+            ]
+        };
+
+        let cam_to_rig_dv = pack(&t_rig_from_cam);
+        let handeye_dv = pack(&handeye_iso);
+        let target_ref_dv = pack(&target_ref_iso);
+        let robot_arr = pack_arr(&t_base_from_gripper);
+
+        for mode in [HandEyeMode::EyeInHand, HandEyeMode::EyeToHand] {
+            let cam_se3_target: Isometry3<f64> = match mode {
+                HandEyeMode::EyeInHand => {
+                    t_rig_from_cam.inverse()
+                        * handeye_iso.inverse()
+                        * t_base_from_gripper.inverse()
+                        * target_ref_iso
+                }
+                HandEyeMode::EyeToHand => {
+                    t_rig_from_cam.inverse() * handeye_iso * t_base_from_gripper * target_ref_iso
+                }
+            };
+            let pose_dv = pack(&cam_se3_target);
+
+            let robot_data = RobotPoseData {
+                robot_se3: robot_arr,
+                mode,
+            };
+
+            // Point-to-plane variant.
+            let r_single = laser_plane_pixel_residual_generic::<f64>(
+                intr.as_view(),
+                dist.as_view(),
+                sensor.as_view(),
+                pose_dv.as_view(),
+                plane_normal.as_view(),
+                plane_distance.as_view(),
+                laser_pixel,
+                w,
+            );
+            let r_rig = laser_plane_pixel_rig_handeye_residual_generic::<f64>(
+                intr.as_view(),
+                dist.as_view(),
+                sensor.as_view(),
+                cam_to_rig_dv.as_view(),
+                handeye_dv.as_view(),
+                target_ref_dv.as_view(),
+                plane_normal.as_view(),
+                plane_distance.as_view(),
+                robot_data,
+                laser_pixel,
+                w,
+            );
+            assert!(
+                (r_single[0] - r_rig[0]).abs() < 1e-10,
+                "PointToPlane mismatch mode={:?}: single={} rig={}",
+                mode,
+                r_single[0],
+                r_rig[0]
+            );
+
+            // Line-distance in normalized plane variant.
+            let r_single_ln = laser_line_dist_normalized_generic::<f64>(
+                intr.as_view(),
+                dist.as_view(),
+                sensor.as_view(),
+                pose_dv.as_view(),
+                plane_normal.as_view(),
+                plane_distance.as_view(),
+                laser_pixel,
+                w,
+            );
+            let r_rig_ln = laser_line_dist_normalized_rig_handeye_residual_generic::<f64>(
+                intr.as_view(),
+                dist.as_view(),
+                sensor.as_view(),
+                cam_to_rig_dv.as_view(),
+                handeye_dv.as_view(),
+                target_ref_dv.as_view(),
+                plane_normal.as_view(),
+                plane_distance.as_view(),
+                robot_data,
+                laser_pixel,
+                w,
+            );
+            assert!(
+                (r_single_ln[0] - r_rig_ln[0]).abs() < 1e-10,
+                "LineDistNormalized mismatch mode={:?}: single={} rig={}",
+                mode,
+                r_single_ln[0],
+                r_rig_ln[0]
+            );
+        }
+    }
+
+    #[test]
+    fn rig_handeye_robot_delta_laser_residual_matches_corrected_robot_pose() {
+        use nalgebra::{Isometry3, Translation3, UnitQuaternion as UQ};
+
+        let intr = DVector::from_vec(vec![900.0, 880.0, 640.0, 360.0]);
+        let dist = DVector::from_vec(vec![0.03, -0.02, 0.0, 0.001, -0.001]);
+        let sensor = DVector::from_vec(vec![0.015, -0.008]);
+        let plane_normal = {
+            let n = nalgebra::Vector3::new(0.08, -0.12, 1.0).normalize();
+            DVector::from_vec(vec![n.x, n.y, n.z])
+        };
+        let plane_distance = DVector::from_vec(vec![-0.32]);
+        let laser_pixel = [705.0, 402.0];
+        let w = 3.0;
+
+        let t_rig_from_cam: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(0.05, -0.03, 0.10),
+            UQ::from_axis_angle(&Vector3::y_axis(), 0.25_f64),
+        );
+        let rig_se3_base: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(-0.02, 0.01, 0.08),
+            UQ::from_axis_angle(&Vector3::x_axis(), -0.1_f64),
+        );
+        let gripper_se3_target: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(0.22, 0.15, 0.42),
+            UQ::from_axis_angle(&Vector3::z_axis(), 0.35_f64),
+        );
+        let base_se3_gripper: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(0.50, 0.10, 0.30),
+            UQ::from_axis_angle(&Vector3::y_axis(), 0.2_f64),
+        );
+        let delta = DVector::from_vec(vec![0.003, -0.002, 0.004, 0.0005, -0.0004, 0.0003]);
+
+        let pack = |iso: &Isometry3<f64>| -> DVector<f64> {
+            let q = iso.rotation.into_inner();
+            DVector::from_vec(vec![
+                q.i,
+                q.j,
+                q.k,
+                q.w,
+                iso.translation.vector.x,
+                iso.translation.vector.y,
+                iso.translation.vector.z,
+            ])
+        };
+        let pack_arr = |iso: &Isometry3<f64>| -> [f64; 7] {
+            let q = iso.rotation.into_inner();
+            [
+                q.i,
+                q.j,
+                q.k,
+                q.w,
+                iso.translation.vector.x,
+                iso.translation.vector.y,
+                iso.translation.vector.z,
+            ]
+        };
+
+        let (delta_q, delta_t) = se3_exp(delta.as_view());
+        let corrected_robot = Isometry3::from_parts(
+            Translation3::from(
+                delta_q.transform_vector(&base_se3_gripper.translation.vector) + delta_t,
+            ),
+            delta_q * base_se3_gripper.rotation,
+        );
+
+        let cam_to_rig_dv = pack(&t_rig_from_cam);
+        let handeye_dv = pack(&rig_se3_base);
+        let target_ref_dv = pack(&gripper_se3_target);
+        let robot_arr = pack_arr(&base_se3_gripper);
+        let corrected_robot_arr = pack_arr(&corrected_robot);
+        let robot_data = RobotPoseData {
+            robot_se3: robot_arr,
+            mode: HandEyeMode::EyeToHand,
+        };
+        let corrected_robot_data = RobotPoseData {
+            robot_se3: corrected_robot_arr,
+            mode: HandEyeMode::EyeToHand,
+        };
+
+        let p2p_delta = laser_plane_pixel_rig_handeye_robot_delta_residual_generic::<f64>(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            cam_to_rig_dv.as_view(),
+            handeye_dv.as_view(),
+            target_ref_dv.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            delta.as_view(),
+            robot_data,
+            laser_pixel,
+            w,
+        );
+        let p2p_corrected = laser_plane_pixel_rig_handeye_residual_generic::<f64>(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            cam_to_rig_dv.as_view(),
+            handeye_dv.as_view(),
+            target_ref_dv.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            corrected_robot_data,
+            laser_pixel,
+            w,
+        );
+        assert!((p2p_delta[0] - p2p_corrected[0]).abs() < 1e-10);
+
+        let line_delta = laser_line_dist_normalized_rig_handeye_robot_delta_residual_generic::<f64>(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            cam_to_rig_dv.as_view(),
+            handeye_dv.as_view(),
+            target_ref_dv.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            delta.as_view(),
+            robot_data,
+            laser_pixel,
+            w,
+        );
+        let line_corrected = laser_line_dist_normalized_rig_handeye_residual_generic::<f64>(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            cam_to_rig_dv.as_view(),
+            handeye_dv.as_view(),
+            target_ref_dv.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            corrected_robot_data,
+            laser_pixel,
+            w,
+        );
+        assert!((line_delta[0] - line_corrected[0]).abs() < 1e-10);
     }
 }

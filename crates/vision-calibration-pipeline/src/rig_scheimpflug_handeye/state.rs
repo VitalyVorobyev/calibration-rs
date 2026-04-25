@@ -33,10 +33,16 @@ pub struct RigScheimpflugHandeyeState {
     /// Per-camera reprojection error after rig BA.
     pub rig_ba_per_cam_reproj_errors: Option<Vec<f64>>,
 
-    /// Initial hand-eye transform (gripper_se3_rig for EyeInHand).
+    /// Initial hand-eye transform.
+    ///
+    /// - `EyeInHand`: `gripper_se3_rig` (T_G_R).
+    /// - `EyeToHand`: `rig_se3_base` (T_R_B).
     pub initial_handeye: Option<Iso3>,
-    /// Initial base_se3_target (EyeInHand).
-    pub initial_base_se3_target: Option<Iso3>,
+    /// Initial mode-dependent fixed target pose.
+    ///
+    /// - `EyeInHand`: `base_se3_target` (T_B_T).
+    /// - `EyeToHand`: `gripper_se3_target` (T_G_T).
+    pub initial_mode_target_pose: Option<Iso3>,
 
     /// Final cost from hand-eye BA.
     pub final_cost: Option<f64>,
@@ -59,6 +65,6 @@ impl RigScheimpflugHandeyeState {
     }
     /// Whether hand-eye init has run.
     pub fn has_handeye_init(&self) -> bool {
-        self.initial_handeye.is_some() && self.initial_base_se3_target.is_some()
+        self.initial_handeye.is_some() && self.initial_mode_target_pose.is_some()
     }
 }

@@ -3,10 +3,13 @@ use crate::backend::{
     BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend, SolveReport,
 };
 use crate::factors::laserline::{
-    laser_line_dist_normalized_generic, laser_plane_pixel_residual_generic,
+    laser_line_dist_normalized_generic, laser_line_dist_normalized_rig_handeye_residual_generic,
+    laser_line_dist_normalized_rig_handeye_robot_delta_residual_generic,
+    laser_plane_pixel_residual_generic, laser_plane_pixel_rig_handeye_residual_generic,
+    laser_plane_pixel_rig_handeye_robot_delta_residual_generic,
 };
 use crate::factors::reprojection_model::{
-    reproj_residual_pinhole4_dist5_handeye_generic,
+    RobotPoseData, reproj_residual_pinhole4_dist5_handeye_generic,
     reproj_residual_pinhole4_dist5_handeye_robot_delta_generic,
     reproj_residual_pinhole4_dist5_scheimpflug2_handeye_generic,
     reproj_residual_pinhole4_dist5_scheimpflug2_handeye_robot_delta_generic,
@@ -15,7 +18,7 @@ use crate::factors::reprojection_model::{
     reproj_residual_pinhole4_dist5_se3_generic, reproj_residual_pinhole4_dist5_two_se3_generic,
     reproj_residual_pinhole4_se3_generic,
 };
-use crate::ir::{FactorKind, ManifoldKind, ProblemIR, RobustLoss};
+use crate::ir::{FactorKind, HandEyeMode, ManifoldKind, ProblemIR, RobustLoss};
 use anyhow::{Result, anyhow, ensure};
 use nalgebra::DVector;
 use std::collections::HashMap;
@@ -27,6 +30,11 @@ use tiny_solver::manifold::so3::QuaternionManifold;
 use tiny_solver::optimizer::{Optimizer, OptimizerOptions};
 use tiny_solver::problem::Problem;
 use tiny_solver::{LevenbergMarquardtOptimizer, linear::sparse::LinearSolverType};
+
+const LM_MIN_DIAGONAL: f64 = 1e-6;
+const LM_MAX_DIAGONAL: f64 = 1e32;
+const LM_FALLBACK_TRUST_REGION_RADIUS: f64 = 1.0;
+const NOOP_DELTA_THRESHOLD: f64 = 1e-12;
 
 /// tiny-solver backend adapter.
 #[derive(Debug, Clone, Copy)]
@@ -145,9 +153,22 @@ impl OptimBackend for TinySolverBackend {
         let (problem, initial_map) = self.compile(ir, initial)?;
         let optimizer = LevenbergMarquardtOptimizer::default();
         let options = to_optimizer_options(opts);
-        let solution = optimizer
+        let mut solution = optimizer
             .optimize(&problem, &initial_map, Some(options))
             .ok_or_else(|| anyhow!("tiny-solver failed to converge"))?;
+        if solution_is_noop(&initial_map, &solution) && opts.max_iters > 1 {
+            let optimizer = LevenbergMarquardtOptimizer::new(
+                LM_MIN_DIAGONAL,
+                LM_MAX_DIAGONAL,
+                LM_FALLBACK_TRUST_REGION_RADIUS,
+            );
+            let solution_retry = optimizer
+                .optimize(&problem, &initial_map, Some(to_optimizer_options(opts)))
+                .ok_or_else(|| anyhow!("tiny-solver fallback failed to converge"))?;
+            if !solution_is_noop(&initial_map, &solution_retry) {
+                solution = solution_retry;
+            }
+        }
 
         let param_blocks = problem.initialize_parameter_blocks(&solution);
         let residuals = problem.compute_residuals(&param_blocks, true);
@@ -158,6 +179,25 @@ impl OptimBackend for TinySolverBackend {
             solve_report: SolveReport { final_cost },
         })
     }
+}
+
+fn solution_is_noop(
+    initial: &HashMap<String, DVector<f64>>,
+    solution: &HashMap<String, DVector<f64>>,
+) -> bool {
+    let mut max_delta = 0.0f64;
+    for (name, init) in initial {
+        let Some(sol) = solution.get(name) else {
+            return false;
+        };
+        if init.len() != sol.len() {
+            return false;
+        }
+        for (a, b) in init.iter().zip(sol.iter()) {
+            max_delta = max_delta.max((a - b).abs());
+        }
+    }
+    max_delta < NOOP_DELTA_THRESHOLD
 }
 
 fn to_optimizer_options(opts: &BackendSolveOptions) -> OptimizerOptions {
@@ -330,6 +370,62 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor>
         FactorKind::LaserLineDist2D { laser_pixel, w } => {
             let factor = TinyLaserLineDist2DFactor {
                 laser_pixel: *laser_pixel,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
+        }
+        FactorKind::LaserPlanePixelRigHandEye {
+            laser_pixel,
+            robot_se3,
+            mode,
+            w,
+        } => {
+            let factor = TinyLaserPlanePixelRigHandEyeFactor {
+                laser_pixel: *laser_pixel,
+                robot_se3: *robot_se3,
+                mode: *mode,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
+        }
+        FactorKind::LaserPlanePixelRigHandEyeRobotDelta {
+            laser_pixel,
+            robot_se3,
+            mode,
+            w,
+        } => {
+            let factor = TinyLaserPlanePixelRigHandEyeDeltaFactor {
+                laser_pixel: *laser_pixel,
+                robot_se3: *robot_se3,
+                mode: *mode,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
+        }
+        FactorKind::LaserLineDist2DRigHandEye {
+            laser_pixel,
+            robot_se3,
+            mode,
+            w,
+        } => {
+            let factor = TinyLaserLineDist2DRigHandEyeFactor {
+                laser_pixel: *laser_pixel,
+                robot_se3: *robot_se3,
+                mode: *mode,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
+        }
+        FactorKind::LaserLineDist2DRigHandEyeRobotDelta {
+            laser_pixel,
+            robot_se3,
+            mode,
+            w,
+        } => {
+            let factor = TinyLaserLineDist2DRigHandEyeDeltaFactor {
+                laser_pixel: *laser_pixel,
+                robot_se3: *robot_se3,
+                mode: *mode,
                 w: *w,
             };
             Ok((Box::new(factor), loss))
@@ -693,6 +789,152 @@ impl<T: nalgebra::RealField> Factor<T> for TinyLaserLineDist2DFactor {
             params[3].as_view(), // pose (camera-to-target)
             params[4].as_view(), // plane normal
             params[5].as_view(), // plane distance
+            self.laser_pixel,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyLaserPlanePixelRigHandEyeFactor {
+    laser_pixel: [f64; 2],
+    robot_se3: [f64; 7],
+    mode: HandEyeMode,
+    w: f64,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyLaserPlanePixelRigHandEyeFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            8,
+            "expected [cam, dist, sensor, cam_to_rig, handeye, target_ref, plane_normal, plane_distance] parameter blocks"
+        );
+        let robot_data = RobotPoseData {
+            robot_se3: self.robot_se3,
+            mode: self.mode,
+        };
+        let r = laser_plane_pixel_rig_handeye_residual_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // sensor
+            params[3].as_view(), // cam_to_rig
+            params[4].as_view(), // handeye
+            params[5].as_view(), // target_ref
+            params[6].as_view(), // plane normal
+            params[7].as_view(), // plane distance
+            robot_data,
+            self.laser_pixel,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyLaserPlanePixelRigHandEyeDeltaFactor {
+    laser_pixel: [f64; 2],
+    robot_se3: [f64; 7],
+    mode: HandEyeMode,
+    w: f64,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyLaserPlanePixelRigHandEyeDeltaFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            9,
+            "expected [cam, dist, sensor, cam_to_rig, handeye, target_ref, plane_normal, plane_distance, robot_delta] parameter blocks"
+        );
+        let robot_data = RobotPoseData {
+            robot_se3: self.robot_se3,
+            mode: self.mode,
+        };
+        let r = laser_plane_pixel_rig_handeye_robot_delta_residual_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // sensor
+            params[3].as_view(), // cam_to_rig
+            params[4].as_view(), // handeye
+            params[5].as_view(), // target_ref
+            params[6].as_view(), // plane normal
+            params[7].as_view(), // plane distance
+            params[8].as_view(), // robot delta
+            robot_data,
+            self.laser_pixel,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyLaserLineDist2DRigHandEyeFactor {
+    laser_pixel: [f64; 2],
+    robot_se3: [f64; 7],
+    mode: HandEyeMode,
+    w: f64,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyLaserLineDist2DRigHandEyeFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            8,
+            "expected [cam, dist, sensor, cam_to_rig, handeye, target_ref, plane_normal, plane_distance] parameter blocks"
+        );
+        let robot_data = RobotPoseData {
+            robot_se3: self.robot_se3,
+            mode: self.mode,
+        };
+        let r = laser_line_dist_normalized_rig_handeye_residual_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // sensor
+            params[3].as_view(), // cam_to_rig
+            params[4].as_view(), // handeye
+            params[5].as_view(), // target_ref
+            params[6].as_view(), // plane normal
+            params[7].as_view(), // plane distance
+            robot_data,
+            self.laser_pixel,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyLaserLineDist2DRigHandEyeDeltaFactor {
+    laser_pixel: [f64; 2],
+    robot_se3: [f64; 7],
+    mode: HandEyeMode,
+    w: f64,
+}
+
+impl<T: nalgebra::RealField> Factor<T> for TinyLaserLineDist2DRigHandEyeDeltaFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        debug_assert_eq!(
+            params.len(),
+            9,
+            "expected [cam, dist, sensor, cam_to_rig, handeye, target_ref, plane_normal, plane_distance, robot_delta] parameter blocks"
+        );
+        let robot_data = RobotPoseData {
+            robot_se3: self.robot_se3,
+            mode: self.mode,
+        };
+        let r = laser_line_dist_normalized_rig_handeye_robot_delta_residual_generic(
+            params[0].as_view(), // intrinsics
+            params[1].as_view(), // distortion
+            params[2].as_view(), // sensor
+            params[3].as_view(), // cam_to_rig
+            params[4].as_view(), // handeye
+            params[5].as_view(), // target_ref
+            params[6].as_view(), // plane normal
+            params[7].as_view(), // plane distance
+            params[8].as_view(), // robot delta
+            robot_data,
             self.laser_pixel,
             self.w,
         );

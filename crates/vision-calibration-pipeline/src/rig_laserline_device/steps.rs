@@ -2,6 +2,10 @@
 
 use crate::Error;
 use nalgebra::Vector3;
+use vision_calibration_core::{Camera, Pinhole};
+use vision_calibration_linear::laserline::{
+    LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
+};
 use vision_calibration_optim::{
     BackendSolveOptions, LaserPlane, RigLaserlineSolveOptions, RigLaserlineUpstream,
     optimize_rig_laserline,
@@ -23,8 +27,8 @@ pub struct StepOptions {
 /// Initialize per-camera laser planes in camera frame.
 ///
 /// If the input provides `initial_planes_cam`, they are stored as-is.
-/// Otherwise a generic default plane (normal `[0, 0, 1]`, distance `-0.2m`)
-/// is used for every camera.
+/// Otherwise a closed-form plane fit is computed from the frozen upstream
+/// poses, with a generic default plane as a fallback for degenerate inputs.
 ///
 /// # Errors
 ///
@@ -35,14 +39,57 @@ pub fn step_init(session: &mut CalibrationSession<RigLaserlineDeviceProblem>) ->
 
     let planes: Vec<LaserPlane> = match &input.initial_planes_cam {
         Some(p) => p.clone(),
-        None => (0..input.dataset.num_cameras)
-            .map(|_| LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.2))
-            .collect(),
+        None => {
+            let mut planes = Vec::with_capacity(input.dataset.num_cameras);
+            for cam_idx in 0..input.dataset.num_cameras {
+                let default_plane = LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.2);
+                let plane = linear_plane_init(input, cam_idx).unwrap_or(default_plane);
+                planes.push(plane);
+            }
+            planes
+        }
     };
 
     session.state.initial_planes_cam = Some(planes);
-    session.log_success_with_notes("init", "initial planes set (identity defaults)".to_string());
+    session.log_success_with_notes(
+        "init",
+        "initial planes set (linear fit with default fallback)".to_string(),
+    );
     Ok(())
+}
+
+fn linear_plane_init(
+    input: &super::problem::RigLaserlineDeviceInput,
+    cam_idx: usize,
+) -> Option<LaserPlane> {
+    let rig_to_cam = input.upstream.cam_se3_rig[cam_idx];
+    let camera = Camera::new(
+        Pinhole,
+        input.upstream.distortion[cam_idx],
+        input.upstream.sensors[cam_idx].compile(),
+        input.upstream.intrinsics[cam_idx],
+    );
+    let mut views = Vec::new();
+    for (view_idx, view) in input.dataset.views.iter().enumerate() {
+        let Some(laser_pixels) = view
+            .laser_pixels
+            .get(cam_idx)
+            .and_then(|slot| slot.clone())
+            .filter(|pixels| !pixels.is_empty())
+        else {
+            continue;
+        };
+        let rig_se3_target = input.upstream.rig_se3_target[view_idx];
+        views.push(LinearLaserlineView {
+            laser_pixels,
+            camera_se3_target: rig_to_cam * rig_se3_target,
+        });
+    }
+    let estimate = LaserlinePlaneSolver::from_views(&views, &camera).ok()?;
+    Some(LaserPlane::new(
+        estimate.normal.into_inner(),
+        estimate.distance,
+    ))
 }
 
 /// Optimize per-camera laser planes and express them in rig frame.

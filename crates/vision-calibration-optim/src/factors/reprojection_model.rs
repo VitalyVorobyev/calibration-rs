@@ -124,7 +124,7 @@ fn skew_matrix<T: RealField>(w: &Vector3<T>) -> Matrix3<T> {
     )
 }
 
-fn se3_exp<T: RealField>(xi: DVectorView<'_, T>) -> (UnitQuaternion<T>, Vector3<T>) {
+pub(crate) fn se3_exp<T: RealField>(xi: DVectorView<'_, T>) -> (UnitQuaternion<T>, Vector3<T>) {
     debug_assert!(xi.len() == 6, "se3 tangent must have 6 params");
     let w = Vector3::new(xi[0].clone(), xi[1].clone(), xi[2].clone());
     let v = Vector3::new(xi[3].clone(), xi[4].clone(), xi[5].clone());

@@ -1,10 +1,16 @@
-//! [`ProblemType`] implementation for Scheimpflug rig hand-eye calibration (EyeInHand only).
+//! [`ProblemType`] implementation for Scheimpflug rig hand-eye calibration.
+//!
+//! Supports both hand-eye configurations:
+//! - `EyeInHand`: camera rig mounted on the robot end-effector.
+//! - `EyeToHand`: camera rig fixed in the robot base; target attached to the gripper.
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{Iso3, PinholeCamera, RigDataset, ScheimpflugParams};
+use vision_calibration_core::{
+    DistortionFixMask, IntrinsicsFixMask, Iso3, PinholeCamera, RigDataset, ScheimpflugParams,
+};
 use vision_calibration_optim::{
-    HandEyeScheimpflugEstimate, RobotPoseMeta, RobustLoss, ScheimpflugFixMask,
+    HandEyeMode, HandEyeScheimpflugEstimate, RobotPoseMeta, RobustLoss, ScheimpflugFixMask,
 };
 
 use crate::session::{InvalidationPolicy, ProblemType};
@@ -61,6 +67,21 @@ pub struct RigScheimpflugHandeyeIntrinsicsConfig {
     /// override is usually a strong prior that shouldn't be perturbed by
     /// per-camera refinement.
     pub fix_intrinsics_when_overridden: bool,
+
+    /// Per-camera BA intrinsics mask (applied only when
+    /// `fix_intrinsics_when_overridden = false` or no override was supplied).
+    /// Defaults to `IntrinsicsFixMask::all_free()` — fx, fy, cx, cy refined.
+    pub fix_intrinsics_in_percam_ba: IntrinsicsFixMask,
+
+    /// Per-camera BA distortion mask (applied only when
+    /// `fix_intrinsics_when_overridden = false` or no override was supplied).
+    /// Defaults to `DistortionFixMask::radial_only()` — k1, k2 free;
+    /// k3, p1, p2 held fixed to avoid absorbing Scheimpflug tilt signal.
+    ///
+    /// Narrow-FOV rigs with limited per-view corner coverage often overfit
+    /// k2; tighten to `DistortionFixMask::all_fixed()` or a custom mask with
+    /// `k2: true` in that case to improve cross-camera consistency in rig BA.
+    pub fix_distortion_in_percam_ba: DistortionFixMask,
 }
 
 impl Default for RigScheimpflugHandeyeIntrinsicsConfig {
@@ -77,6 +98,8 @@ impl Default for RigScheimpflugHandeyeIntrinsicsConfig {
             initial_sensors: None,
             fallback_to_shared_init: true,
             fix_intrinsics_when_overridden: true,
+            fix_intrinsics_in_percam_ba: IntrinsicsFixMask::all_free(),
+            fix_distortion_in_percam_ba: DistortionFixMask::radial_only(),
         }
     }
 }
@@ -110,6 +133,9 @@ impl Default for RigScheimpflugHandeyeRigConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RigScheimpflugHandeyeInitConfig {
+    /// Hand-eye configuration: `EyeInHand` (rig on gripper) or `EyeToHand`
+    /// (rig fixed in base, target on gripper).
+    pub handeye_mode: HandEyeMode,
     /// Minimum motion angle (degrees) for linear hand-eye initialization.
     pub min_motion_angle_deg: f64,
 }
@@ -117,6 +143,7 @@ pub struct RigScheimpflugHandeyeInitConfig {
 impl Default for RigScheimpflugHandeyeInitConfig {
     fn default() -> Self {
         Self {
+            handeye_mode: HandEyeMode::EyeInHand,
             min_motion_angle_deg: 5.0,
         }
     }
@@ -188,7 +215,14 @@ pub struct RigScheimpflugHandeyeConfig {
     pub handeye_ba: RigScheimpflugHandeyeBaConfig,
 }
 
-/// Export format for Scheimpflug rig hand-eye calibration (EyeInHand).
+/// Export format for Scheimpflug rig hand-eye calibration.
+///
+/// Mode-dependent transform fields:
+///
+/// - `EyeInHand`: `gripper_se3_rig` (T_G_R), `base_se3_target` (T_B_T).
+///   The rig is mounted on the gripper; the target is fixed in the base.
+/// - `EyeToHand`: `rig_se3_base` (T_R_B), `gripper_se3_target` (T_G_T).
+///   The rig is fixed in the base; the target moves with the gripper.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RigScheimpflugHandeyeExport {
@@ -198,10 +232,20 @@ pub struct RigScheimpflugHandeyeExport {
     pub sensors: Vec<ScheimpflugParams>,
     /// Per-camera `cam_se3_rig` (T_C_R).
     pub cam_se3_rig: Vec<Iso3>,
-    /// Gripper-to-rig transform (T_G_R).
-    pub gripper_se3_rig: Iso3,
-    /// Base-to-target transform (T_B_T).
-    pub base_se3_target: Iso3,
+    /// Hand-eye mode describing which mode-specific transforms are populated.
+    pub handeye_mode: HandEyeMode,
+    /// Eye-in-hand: gripper-to-rig transform `gripper_se3_rig` (T_G_R).
+    /// `None` for `EyeToHand`.
+    pub gripper_se3_rig: Option<Iso3>,
+    /// Eye-to-hand: rig-to-base transform `rig_se3_base` (T_R_B).
+    /// `None` for `EyeInHand`.
+    pub rig_se3_base: Option<Iso3>,
+    /// Eye-in-hand: base-to-target transform `base_se3_target` (T_B_T).
+    /// `None` for `EyeToHand`.
+    pub base_se3_target: Option<Iso3>,
+    /// Eye-to-hand: gripper-to-target transform `gripper_se3_target` (T_G_T).
+    /// `None` for `EyeInHand`.
+    pub gripper_se3_target: Option<Iso3>,
     /// Per-view robot pose corrections in se(3) ([rx, ry, rz, tx, ty, tz]).
     pub robot_deltas: Option<Vec<[f64; 6]>>,
     /// Mean reprojection error (pixels).
@@ -210,7 +254,10 @@ pub struct RigScheimpflugHandeyeExport {
     pub per_cam_reproj_errors: Vec<f64>,
 }
 
-/// Multi-camera Scheimpflug rig hand-eye calibration problem (EyeInHand).
+/// Multi-camera Scheimpflug rig hand-eye calibration problem.
+///
+/// Supports both `EyeInHand` and `EyeToHand` configurations via
+/// `RigScheimpflugHandeyeInitConfig::handeye_mode`.
 #[derive(Debug)]
 pub struct RigScheimpflugHandeyeProblem;
 
@@ -300,7 +347,7 @@ impl ProblemType for RigScheimpflugHandeyeProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
+    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export, Error> {
         let cam_se3_rig: Vec<Iso3> = output
             .params
             .cam_to_rig
@@ -314,12 +361,26 @@ impl ProblemType for RigScheimpflugHandeyeProblem {
             .copied()
             .ok_or_else(|| Error::invalid_input("no target pose in output"))?;
 
+        let handeye_mode = config.handeye_init.handeye_mode;
+        let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) =
+            match handeye_mode {
+                HandEyeMode::EyeInHand => {
+                    (Some(output.params.handeye), None, Some(target_pose), None)
+                }
+                HandEyeMode::EyeToHand => {
+                    (None, Some(output.params.handeye), None, Some(target_pose))
+                }
+            };
+
         Ok(RigScheimpflugHandeyeExport {
             cameras: output.params.cameras.clone(),
             sensors: output.params.sensors.clone(),
             cam_se3_rig,
-            gripper_se3_rig: output.params.handeye,
-            base_se3_target: target_pose,
+            handeye_mode,
+            gripper_se3_rig,
+            rig_se3_base,
+            base_se3_target,
+            gripper_se3_target,
             robot_deltas: output.robot_deltas.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
