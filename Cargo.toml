@@ -44,3 +44,5 @@ calib-targets = "0.7"
 rand = { version = "0.10" }
 tracing = { version = "0.1" }
 tiny-solver = "0.18"
+faer = "0.23"
+faer-ext = "0.7"

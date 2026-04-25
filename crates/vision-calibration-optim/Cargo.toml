@@ -17,6 +17,8 @@ nalgebra = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tiny-solver = { workspace = true }
+faer = { workspace = true }
+faer-ext = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]

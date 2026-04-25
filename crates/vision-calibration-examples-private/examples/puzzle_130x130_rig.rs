@@ -17,6 +17,9 @@ use anyhow::{Context, Result, anyhow};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+#[path = "puzzle_130x130_rig_viewer.rs"]
+mod puzzle_viewer;
+
 use vision_calibration::{
     pixel_to_gripper_point,
     rig_laserline_device::{
@@ -514,6 +517,26 @@ fn main() -> Result<()> {
         );
     }
 
+    if let Ok(out_dir) = std::env::var("PUZZLE_VIEWER_OUT") {
+        let out_dir = PathBuf::from(out_dir);
+        puzzle_viewer::write_viewer_artifacts(puzzle_viewer::ViewerExportInput {
+            out_dir: &out_dir,
+            data_dir: &data_dir,
+            poses: &poses,
+            tile_w,
+            tile_h,
+            detected: &detected,
+            rig_export: &rig_export,
+            joint_initial: &joint_initial,
+            joint_initial_stats: &joint_initial_stats,
+            joint_est: &joint_est,
+        })?;
+        println!(
+            "viewer artifacts: {}",
+            out_dir.join("viewer_manifest.json").display()
+        );
+    }
+
     // ─── Stage 5: pixel → gripper point demo ───────────────────────────────
     // Use the first pose that carried laser observations to anchor the query
     // — in EyeToHand, the gripper-frame mapping depends on the robot pose.
@@ -543,7 +566,7 @@ fn main() -> Result<()> {
 }
 
 #[derive(Debug, Clone)]
-struct DetectedDatasets {
+pub(crate) struct DetectedDatasets {
     handeye_views: Vec<RigView<RobotPoseMeta>>,
     laserline_views: Vec<RigLaserlineView>,
     joint_views: Vec<RigHandeyeLaserlineView>,

@@ -3454,6 +3454,8 @@ name = "vision-calibration-optim"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "faer",
+ "faer-ext",
  "nalgebra 0.34.2",
  "serde",
  "serde_json",

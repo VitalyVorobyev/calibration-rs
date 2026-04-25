@@ -5,7 +5,7 @@
 //! end-to-end example can run on physical sensor data.
 
 use anyhow::{Context, Result, anyhow};
-use image::{GrayImage, ImageReader};
+use image::{GrayImage, ImageReader, imageops::FilterType};
 use serde::Deserialize;
 use std::path::Path;
 use vision_calibration_core::{CorrespondenceView, Iso3, Pt2, Pt3, Real};
@@ -15,7 +15,7 @@ use calib_targets::{
     puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec},
 };
 
-use vision_metrology::{LaserExtractConfig, LaserExtractor, ScanAxis};
+use vision_metrology::{ColAccess, Edge1DConfig, LaserExtractConfig, LaserExtractor, ScanAxis};
 use vm_primitives::core::ImageView;
 
 /// Pose entry as serialized in `poses.json`.
@@ -111,12 +111,20 @@ pub fn detect_target(
     cols: u32,
     cell_size_mm: f64,
 ) -> Result<CorrespondenceView> {
+    const TARGET_DETECT_UPSCALE: u32 = 2;
+    let detection_image = image::imageops::resize(
+        tile,
+        tile.width() * TARGET_DETECT_UPSCALE,
+        tile.height() * TARGET_DETECT_UPSCALE,
+        FilterType::Triangle,
+    );
     let spec = PuzzleBoardSpec::new(rows, cols, cell_size_mm as f32)
         .map_err(|e| anyhow!("puzzleboard spec: {e}"))?;
     let mut params = PuzzleBoardParams::for_board(&spec);
     params.decode.search_all_components = false;
     params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
-    let result = detect_puzzleboard(tile, &params).map_err(|e| anyhow!("detect: {e}"))?;
+    let result =
+        detect_puzzleboard(&detection_image, &params).map_err(|e| anyhow!("detect: {e}"))?;
 
     let mut pts_3d: Vec<Pt3> = Vec::new();
     let mut pts_2d: Vec<Pt2> = Vec::new();
@@ -137,8 +145,8 @@ pub fn detect_target(
                 0.0,
             ));
             pts_2d.push(Pt2::new(
-                corner.position.x as Real,
-                corner.position.y as Real,
+                (corner.position.x / TARGET_DETECT_UPSCALE as f32) as Real,
+                (corner.position.y / TARGET_DETECT_UPSCALE as f32) as Real,
             ));
         }
     }
@@ -161,14 +169,50 @@ pub fn detect_laser(tile: &GrayImage) -> Vec<Pt2> {
         .expect("image slice length matches width*height");
 
     let cfg = LaserExtractConfig {
-        axis: ScanAxis::Rows,
+        axis: ScanAxis::Cols {
+            access: ColAccess::Gather,
+        },
+        edge_cfg: Edge1DConfig {
+            sigma: 1.2,
+            pos_thresh: 4.0,
+            neg_thresh: 4.0,
+            ..Edge1DConfig::default()
+        },
         ..LaserExtractConfig::default()
     };
     let mut extractor = LaserExtractor::new(cfg.edge_cfg.sigma);
-    let line = extractor.extract_line_u8(&view, 0..height, &cfg, None);
+    let line = extractor.extract_line_u8(&view, 0..width, &cfg, None);
 
     line.points
         .into_iter()
         .map(|p| Pt2::new(p.x as Real, p.y as Real))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_laser_returns_at_most_one_point_per_column() {
+        let width = 80;
+        let height = 48;
+        let mut img = GrayImage::new(width, height);
+        for x in 5..75 {
+            let y = 20 + (x as i32 - 40).abs() / 16;
+            for dy in -1..=1 {
+                img.put_pixel(x, (y + dy) as u32, image::Luma([220]));
+            }
+        }
+
+        let points = detect_laser(&img);
+        assert!(!points.is_empty());
+        assert!(points.len() <= width as usize);
+
+        let mut seen = std::collections::BTreeSet::new();
+        for p in points {
+            assert!(seen.insert(p.x.round() as i32));
+            assert!((18.0..=24.0).contains(&p.y));
+        }
+    }
 }
