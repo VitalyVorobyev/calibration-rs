@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result, ensure};
 use calib_targets::aruco::builtins;
-use calib_targets::charuco::{CharucoBoardSpec, CharucoDetectorParams, MarkerLayout};
+use calib_targets::charuco::{CharucoBoardSpec, CharucoParams, MarkerLayout};
 use calib_targets::detect;
 use chess_corners::ChessConfig;
 use std::collections::BTreeSet;
@@ -29,7 +29,7 @@ pub struct StereoCharucoDatasetSummary {
 }
 
 /// Build ChArUco detector params used by the stereo example.
-pub fn make_charuco_detector_params() -> CharucoDetectorParams {
+pub fn make_charuco_detector_params() -> CharucoParams {
     let board = CharucoBoardSpec {
         rows: BOARD_ROWS,
         cols: BOARD_COLS,
@@ -39,8 +39,8 @@ pub fn make_charuco_detector_params() -> CharucoDetectorParams {
         marker_layout: MarkerLayout::OpenCvCharuco,
     };
 
-    let mut params = CharucoDetectorParams::for_board(&board);
-    params.graph.max_spacing_pix = GRAPH_MAX_SPACING_PX;
+    let mut params = CharucoParams::for_board(&board);
+    params.chessboard.cell_size_hint = Some(GRAPH_MAX_SPACING_PX);
     params
 }
 
@@ -52,7 +52,7 @@ pub fn make_charuco_detector_params() -> CharucoDetectorParams {
 pub fn load_stereo_charuco_input_with_progress<F>(
     base_dir: &Path,
     chess_config: &ChessConfig,
-    charuco_params: &CharucoDetectorParams,
+    charuco_params: &CharucoParams,
     max_views: Option<usize>,
     mut progress: F,
 ) -> Result<(RigExtrinsicsInput, StereoCharucoDatasetSummary)>
@@ -180,8 +180,8 @@ fn list_stereo_pair_suffixes(left_dir: &Path, right_dir: &Path) -> Result<Vec<St
 
 fn detect_view(
     path: &Path,
-    chess_config: &ChessConfig,
-    charuco_params: &CharucoDetectorParams,
+    _chess_config: &ChessConfig,
+    charuco_params: &CharucoParams,
 ) -> Result<Option<CorrespondenceView>> {
     let img = image::ImageReader::open(path)
         .with_context(|| format!("failed to read image {}", path.display()))?
@@ -189,7 +189,7 @@ fn detect_view(
         .with_context(|| format!("failed to decode {}", path.display()))?
         .to_luma8();
 
-    let detection = match detect::detect_charuco(&img, chess_config, charuco_params.clone()) {
+    let detection = match detect::detect_charuco(&img, charuco_params) {
         Ok(detection) => detection,
         Err(_) => return Ok(None),
     };

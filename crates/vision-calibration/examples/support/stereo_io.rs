@@ -1,8 +1,8 @@
 //! Shared I/O helpers for the stereo rig calibration examples.
 
 use anyhow::{Context, Result, ensure};
-use calib_targets::chessboard::ChessboardDetectionResult;
-use calib_targets::{ChessboardParams, detect};
+use calib_targets::chessboard::{Detection as ChessboardDetection, DetectorParams};
+use calib_targets::detect;
 use chess_corners::ChessConfig;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -26,7 +26,7 @@ pub struct StereoDatasetSummary {
 pub fn load_stereo_input_with_progress<F>(
     imgs_dir: &Path,
     chess_config: &ChessConfig,
-    board_params: &ChessboardParams,
+    board_params: &DetectorParams,
     square_size_m: f64,
     max_views: Option<usize>,
     mut progress: F,
@@ -76,20 +76,10 @@ where
             right_path.display()
         );
 
-        let left = detect_view(
-            &left_path,
-            chess_config,
-            board_params.clone(),
-            square_size_m,
-        )
-        .with_context(|| format!("left detection failed for {}", left_path.display()))?;
-        let right = detect_view(
-            &right_path,
-            chess_config,
-            board_params.clone(),
-            square_size_m,
-        )
-        .with_context(|| format!("right detection failed for {}", right_path.display()))?;
+        let left = detect_view(&left_path, chess_config, board_params, square_size_m)
+            .with_context(|| format!("left detection failed for {}", left_path.display()))?;
+        let right = detect_view(&right_path, chess_config, board_params, square_size_m)
+            .with_context(|| format!("right detection failed for {}", right_path.display()))?;
 
         if left.is_none() && right.is_none() {
             skipped_views += 1;
@@ -180,8 +170,8 @@ fn list_stereo_pair_indices(left_dir: &Path, right_dir: &Path) -> Result<Vec<usi
 
 fn detect_view(
     path: &Path,
-    chess_config: &ChessConfig,
-    board_params: ChessboardParams,
+    _chess_config: &ChessConfig,
+    board_params: &DetectorParams,
     square_size_m: f64,
 ) -> Result<Option<CorrespondenceView>> {
     let img = image::ImageReader::open(path)
@@ -190,7 +180,7 @@ fn detect_view(
         .with_context(|| format!("failed to decode {}", path.display()))?
         .to_luma8();
 
-    let detection = detect::detect_chessboard(&img, chess_config, board_params);
+    let detection = detect::detect_chessboard(&img, board_params);
     let Some(detection) = detection else {
         return Ok(None);
     };
@@ -198,12 +188,12 @@ fn detect_view(
 }
 
 fn detection_to_view_data(
-    detection: ChessboardDetectionResult,
+    detection: ChessboardDetection,
     square_size_m: f64,
 ) -> Result<CorrespondenceView> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();
-    for corner in detection.detection.corners {
+    for corner in detection.target.corners {
         let Some(grid) = corner.grid else {
             continue;
         };

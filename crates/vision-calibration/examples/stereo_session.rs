@@ -17,7 +17,7 @@
 mod stereo_io;
 
 use anyhow::{Result, ensure};
-use calib_targets::ChessboardParams;
+use calib_targets::chessboard::DetectorParams;
 use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -60,11 +60,7 @@ fn main() -> Result<()> {
     println!();
 
     let chess_config = ChessConfig::default();
-    let board_params = ChessboardParams {
-        expected_rows: Some(BOARD_ROWS),
-        expected_cols: Some(BOARD_COLS),
-        ..ChessboardParams::default()
-    };
+    let board_params = DetectorParams::default();
 
     println!("Detecting chessboard corners...");
     let (input, summary) = load_stereo_input_with_progress(

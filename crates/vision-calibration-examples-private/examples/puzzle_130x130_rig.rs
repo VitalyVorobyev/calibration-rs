@@ -17,7 +17,7 @@ use anyhow::{Context, Result, anyhow};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-#[path = "puzzle_130x130_rig_viewer.rs"]
+#[path = "puzzle_130x130_rig/viewer.rs"]
 mod puzzle_viewer;
 
 use vision_calibration::{

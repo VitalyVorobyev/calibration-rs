@@ -3,14 +3,14 @@
 //! This module loads real calibration images from a 3-camera rig setup with
 //! robot poses for hand-eye calibration scenarios.
 
-use anyhow::{ensure, Context, Result};
-use vision_calibration::core::{CorrespondenceView, Pt3, Real, Vec2};
-use vision_calibration::rig_handeye::{RigHandEyeInput, RigHandEyeViewData};
-use calib_targets::chessboard::ChessboardDetectionResult;
-use calib_targets::{detect, ChessboardParams};
+use anyhow::{Context, Result, ensure};
+use calib_targets::chessboard::{Detection as ChessboardDetection, DetectorParams};
+use calib_targets::detect;
 use chess_corners::ChessConfig;
 use image::ImageReader;
 use std::path::Path;
+use vision_calibration::core::{CorrespondenceView, Iso3, Pt3, Real, Vec2};
+use vision_calibration::rig_handeye::{RigHandEyeInput, RigHandEyeViewData};
 
 const NUM_CAMERAS: usize = 3;
 
@@ -33,7 +33,7 @@ fn image2_filename(index: usize) -> String {
 pub fn load_rig_handeye_input_with_progress<F>(
     imgs_dir: &Path,
     chess_config: &ChessConfig,
-    board_params: &ChessboardParams,
+    board_params: &DetectorParams,
     square_size_m: Real,
     max_views: Option<usize>,
     mut progress: F,
@@ -93,11 +93,11 @@ where
             img2_path.display()
         );
 
-        let view0 = detect_view(&img0_path, chess_config, *board_params, square_size_m)
+        let view0 = detect_view(&img0_path, chess_config, board_params, square_size_m)
             .with_context(|| format!("failed to detect view for {}", img0_path.display()))?;
-        let view1 = detect_view(&img1_path, chess_config, *board_params, square_size_m)
+        let view1 = detect_view(&img1_path, chess_config, board_params, square_size_m)
             .with_context(|| format!("failed to detect view for {}", img1_path.display()))?;
-        let view2 = detect_view(&img2_path, chess_config, *board_params, square_size_m)
+        let view2 = detect_view(&img2_path, chess_config, board_params, square_size_m)
             .with_context(|| format!("failed to detect view for {}", img2_path.display()))?;
 
         // Skip if all cameras failed to detect
@@ -119,7 +119,7 @@ where
 
         // For hand-eye we need robot poses - placeholder identity for now
         // In real usage, these would come from robot controller or a poses file
-        let base_from_gripper = vision-calibration::core::Iso3::identity();
+        let base_from_gripper = Iso3::identity();
 
         views.push(RigHandEyeViewData {
             cameras: vec![view0, view1, view2],
@@ -151,8 +151,8 @@ where
 
 fn detect_view(
     path: &Path,
-    chess_config: &ChessConfig,
-    board_params: ChessboardParams,
+    _chess_config: &ChessConfig,
+    board_params: &DetectorParams,
     square_size_m: Real,
 ) -> Result<Option<CorrespondenceView>> {
     let img = ImageReader::open(path)
@@ -161,7 +161,7 @@ fn detect_view(
         .with_context(|| format!("failed to decode {}", path.display()))?
         .to_luma8();
 
-    let detection = detect::detect_chessboard(&img, chess_config, board_params);
+    let detection = detect::detect_chessboard(&img, board_params);
     let Some(detection) = detection else {
         return Ok(None);
     };
@@ -169,12 +169,12 @@ fn detect_view(
 }
 
 fn detection_to_view_data(
-    detection: ChessboardDetectionResult,
+    detection: ChessboardDetection,
     square_size_m: Real,
 ) -> Result<CorrespondenceView> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();
-    for corner in detection.detection.corners {
+    for corner in detection.target.corners {
         let Some(grid) = corner.grid else {
             continue;
         };
