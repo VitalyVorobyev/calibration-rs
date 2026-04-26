@@ -124,7 +124,7 @@ fn skew_matrix<T: RealField>(w: &Vector3<T>) -> Matrix3<T> {
     )
 }
 
-fn se3_exp<T: RealField>(xi: DVectorView<'_, T>) -> (UnitQuaternion<T>, Vector3<T>) {
+pub(crate) fn se3_exp<T: RealField>(xi: DVectorView<'_, T>) -> (UnitQuaternion<T>, Vector3<T>) {
     debug_assert!(xi.len() == 6, "se3 tangent must have 6 params");
     let w = Vector3::new(xi[0].clone(), xi[1].clone(), xi[2].clone());
     let v = Vector3::new(xi[3].clone(), xi[4].clone(), xi[5].clone());
@@ -649,6 +649,324 @@ pub(crate) fn reproj_residual_pinhole4_dist5_handeye_generic<T: RealField>(
     )
 }
 
+/// Reprojection residual with two composed SE3 transforms and a Scheimpflug sensor.
+///
+/// Equivalent to [`reproj_residual_pinhole4_dist5_two_se3_generic`] with a Scheimpflug
+/// homography inserted between distortion and intrinsics application.
+///
+/// # Parameters
+/// - `intr`: [fx, fy, cx, cy] intrinsics
+/// - `dist`: [k1, k2, k3, p1, p2] Brown-Conrady distortion
+/// - `sensor`: [tilt_x, tilt_y] Scheimpflug tilt angles
+/// - `extr`: [qx, qy, qz, qw, tx, ty, tz] camera-to-rig SE3
+/// - `pose`: [qx, qy, qz, qw, tx, ty, tz] target-to-rig SE3
+pub(crate) fn reproj_residual_pinhole4_dist5_scheimpflug2_two_se3_generic<T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
+    extr: DVectorView<'_, T>,
+    pose: DVectorView<'_, T>,
+    obs: &ObservationData,
+) -> SVector<T, 2> {
+    debug_assert!(sensor.len() >= 2, "sensor must have 2 params");
+
+    let extr_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        extr[3].clone(),
+        extr[0].clone(),
+        extr[1].clone(),
+        extr[2].clone(),
+    ));
+    let extr_t = Vector3::new(extr[4].clone(), extr[5].clone(), extr[6].clone());
+
+    let pose_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        pose[3].clone(),
+        pose[0].clone(),
+        pose[1].clone(),
+        pose[2].clone(),
+    ));
+    let pose_t = Vector3::new(pose[4].clone(), pose[5].clone(), pose[6].clone());
+
+    let pw_t = Vector3::new(
+        T::from_f64(obs.pw[0]).unwrap(),
+        T::from_f64(obs.pw[1]).unwrap(),
+        T::from_f64(obs.pw[2]).unwrap(),
+    );
+
+    let p_rig = pose_q.transform_vector(&pw_t) + pose_t;
+    let p_camera = extr_q.inverse_transform_vector(&(p_rig - extr_t));
+
+    let eps = T::from_f64(1e-12).unwrap();
+    let z_safe = if p_camera.z.clone() > eps.clone() {
+        p_camera.z.clone()
+    } else {
+        eps
+    };
+    let x_norm = p_camera.x.clone() / z_safe.clone();
+    let y_norm = p_camera.y.clone() / z_safe;
+
+    let k1 = dist[0].clone();
+    let k2 = dist[1].clone();
+    let k3 = dist[2].clone();
+    let p1 = dist[3].clone();
+    let p2 = dist[4].clone();
+    let (xd, yd) = distort_brown_conrady_generic(x_norm, y_norm, k1, k2, k3, p1, p2);
+
+    let tau_x = sensor[0].clone();
+    let tau_y = sensor[1].clone();
+    let (xs, ys) = apply_scheimpflug_generic(xd, yd, tau_x, tau_y);
+
+    let fx = intr[0].clone();
+    let fy = intr[1].clone();
+    let cx = intr[2].clone();
+    let cy = intr[3].clone();
+
+    let u_pred = fx * xs + cx;
+    let v_pred = fy * ys + cy;
+
+    let sqrt_w = T::from_f64(obs.w.sqrt()).unwrap();
+    let u_meas = T::from_f64(obs.uv[0]).unwrap();
+    let v_meas = T::from_f64(obs.uv[1]).unwrap();
+
+    SVector::<T, 2>::new(
+        (u_meas - u_pred) * sqrt_w.clone(),
+        (v_meas - v_pred) * sqrt_w,
+    )
+}
+
+/// Reprojection residual for hand-eye calibration with a Scheimpflug sensor.
+///
+/// Equivalent to [`reproj_residual_pinhole4_dist5_handeye_generic`] with a Scheimpflug
+/// homography inserted between distortion and intrinsics application.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn reproj_residual_pinhole4_dist5_scheimpflug2_handeye_generic<T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
+    extr: DVectorView<'_, T>,
+    handeye: DVectorView<'_, T>,
+    target: DVectorView<'_, T>,
+    robot_data: &RobotPoseData,
+    obs: &ObservationData,
+) -> SVector<T, 2> {
+    debug_assert!(sensor.len() >= 2, "sensor must have 2 params");
+
+    let extr_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        extr[3].clone(),
+        extr[0].clone(),
+        extr[1].clone(),
+        extr[2].clone(),
+    ));
+    let extr_t = Vector3::new(extr[4].clone(), extr[5].clone(), extr[6].clone());
+
+    let handeye_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        handeye[3].clone(),
+        handeye[0].clone(),
+        handeye[1].clone(),
+        handeye[2].clone(),
+    ));
+    let handeye_t = Vector3::new(handeye[4].clone(), handeye[5].clone(), handeye[6].clone());
+
+    let target_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        target[3].clone(),
+        target[0].clone(),
+        target[1].clone(),
+        target[2].clone(),
+    ));
+    let target_t = Vector3::new(target[4].clone(), target[5].clone(), target[6].clone());
+
+    let robot_q: UnitQuaternion<T> = UnitQuaternion::from_quaternion(Quaternion::new(
+        T::from_f64(robot_data.robot_se3[3]).unwrap(),
+        T::from_f64(robot_data.robot_se3[0]).unwrap(),
+        T::from_f64(robot_data.robot_se3[1]).unwrap(),
+        T::from_f64(robot_data.robot_se3[2]).unwrap(),
+    ));
+    let robot_t = Vector3::new(
+        T::from_f64(robot_data.robot_se3[4]).unwrap(),
+        T::from_f64(robot_data.robot_se3[5]).unwrap(),
+        T::from_f64(robot_data.robot_se3[6]).unwrap(),
+    );
+
+    let pw_t = Vector3::new(
+        T::from_f64(obs.pw[0]).unwrap(),
+        T::from_f64(obs.pw[1]).unwrap(),
+        T::from_f64(obs.pw[2]).unwrap(),
+    );
+
+    let p_camera = match robot_data.mode {
+        crate::ir::HandEyeMode::EyeInHand => {
+            let p_base = target_q.transform_vector(&pw_t) + target_t.clone();
+            let p_gripper = robot_q.inverse_transform_vector(&(p_base - robot_t.clone()));
+            let p_rig = handeye_q.inverse_transform_vector(&(p_gripper - handeye_t.clone()));
+            extr_q.inverse_transform_vector(&(p_rig - extr_t.clone()))
+        }
+        crate::ir::HandEyeMode::EyeToHand => {
+            let p_gripper = target_q.transform_vector(&pw_t) + target_t.clone();
+            let p_base = robot_q.transform_vector(&p_gripper) + robot_t.clone();
+            let p_rig = handeye_q.transform_vector(&p_base) + handeye_t.clone();
+            extr_q.inverse_transform_vector(&(p_rig - extr_t.clone()))
+        }
+    };
+
+    let eps = T::from_f64(1e-12).unwrap();
+    let z_safe = if p_camera.z.clone() > eps.clone() {
+        p_camera.z.clone()
+    } else {
+        eps
+    };
+    let x_norm = p_camera.x.clone() / z_safe.clone();
+    let y_norm = p_camera.y.clone() / z_safe;
+
+    let k1 = dist[0].clone();
+    let k2 = dist[1].clone();
+    let k3 = dist[2].clone();
+    let p1 = dist[3].clone();
+    let p2 = dist[4].clone();
+    let (xd, yd) = distort_brown_conrady_generic(x_norm, y_norm, k1, k2, k3, p1, p2);
+
+    let tau_x = sensor[0].clone();
+    let tau_y = sensor[1].clone();
+    let (xs, ys) = apply_scheimpflug_generic(xd, yd, tau_x, tau_y);
+
+    let fx = intr[0].clone();
+    let fy = intr[1].clone();
+    let cx = intr[2].clone();
+    let cy = intr[3].clone();
+
+    let u_pred = fx * xs + cx;
+    let v_pred = fy * ys + cy;
+
+    let sqrt_w = T::from_f64(obs.w.sqrt()).unwrap();
+    let u_meas = T::from_f64(obs.uv[0]).unwrap();
+    let v_meas = T::from_f64(obs.uv[1]).unwrap();
+
+    SVector::<T, 2>::new(
+        (u_meas - u_pred) * sqrt_w.clone(),
+        (v_meas - v_pred) * sqrt_w,
+    )
+}
+
+/// Reprojection residual for hand-eye calibration with per-view robot pose
+/// corrections and a Scheimpflug sensor.
+///
+/// Equivalent to [`reproj_residual_pinhole4_dist5_handeye_robot_delta_generic`] with a
+/// Scheimpflug homography inserted between distortion and intrinsics application.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn reproj_residual_pinhole4_dist5_scheimpflug2_handeye_robot_delta_generic<
+    T: RealField,
+>(
+    intr: DVectorView<'_, T>,
+    dist: DVectorView<'_, T>,
+    sensor: DVectorView<'_, T>,
+    extr: DVectorView<'_, T>,
+    handeye: DVectorView<'_, T>,
+    target: DVectorView<'_, T>,
+    robot_delta: DVectorView<'_, T>,
+    data: &HandEyeRobotDeltaData,
+) -> SVector<T, 2> {
+    debug_assert!(sensor.len() >= 2, "sensor must have 2 params");
+
+    let robot_data = &data.robot;
+    let obs = &data.obs;
+
+    let extr_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        extr[3].clone(),
+        extr[0].clone(),
+        extr[1].clone(),
+        extr[2].clone(),
+    ));
+    let extr_t = Vector3::new(extr[4].clone(), extr[5].clone(), extr[6].clone());
+
+    let handeye_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        handeye[3].clone(),
+        handeye[0].clone(),
+        handeye[1].clone(),
+        handeye[2].clone(),
+    ));
+    let handeye_t = Vector3::new(handeye[4].clone(), handeye[5].clone(), handeye[6].clone());
+
+    let target_q = UnitQuaternion::from_quaternion(Quaternion::new(
+        target[3].clone(),
+        target[0].clone(),
+        target[1].clone(),
+        target[2].clone(),
+    ));
+    let target_t = Vector3::new(target[4].clone(), target[5].clone(), target[6].clone());
+
+    let robot_q: UnitQuaternion<T> = UnitQuaternion::from_quaternion(Quaternion::new(
+        T::from_f64(robot_data.robot_se3[3]).unwrap(),
+        T::from_f64(robot_data.robot_se3[0]).unwrap(),
+        T::from_f64(robot_data.robot_se3[1]).unwrap(),
+        T::from_f64(robot_data.robot_se3[2]).unwrap(),
+    ));
+    let robot_t = Vector3::new(
+        T::from_f64(robot_data.robot_se3[4]).unwrap(),
+        T::from_f64(robot_data.robot_se3[5]).unwrap(),
+        T::from_f64(robot_data.robot_se3[6]).unwrap(),
+    );
+
+    let (delta_q, delta_t) = se3_exp(robot_delta);
+    let robot_q = delta_q.clone() * robot_q;
+    let robot_t = delta_q.transform_vector(&robot_t) + delta_t;
+
+    let pw_t = Vector3::new(
+        T::from_f64(obs.pw[0]).unwrap(),
+        T::from_f64(obs.pw[1]).unwrap(),
+        T::from_f64(obs.pw[2]).unwrap(),
+    );
+
+    let p_camera = match robot_data.mode {
+        crate::ir::HandEyeMode::EyeInHand => {
+            let p_base = target_q.transform_vector(&pw_t) + target_t.clone();
+            let p_gripper = robot_q.inverse_transform_vector(&(p_base - robot_t.clone()));
+            let p_rig = handeye_q.inverse_transform_vector(&(p_gripper - handeye_t.clone()));
+            extr_q.inverse_transform_vector(&(p_rig - extr_t.clone()))
+        }
+        crate::ir::HandEyeMode::EyeToHand => {
+            let p_gripper = target_q.transform_vector(&pw_t) + target_t.clone();
+            let p_base = robot_q.transform_vector(&p_gripper) + robot_t.clone();
+            let p_rig = handeye_q.transform_vector(&p_base) + handeye_t.clone();
+            extr_q.inverse_transform_vector(&(p_rig - extr_t.clone()))
+        }
+    };
+
+    let eps = T::from_f64(1e-12).unwrap();
+    let z_safe = if p_camera.z.clone() > eps.clone() {
+        p_camera.z.clone()
+    } else {
+        eps
+    };
+    let x_norm = p_camera.x.clone() / z_safe.clone();
+    let y_norm = p_camera.y.clone() / z_safe;
+
+    let k1 = dist[0].clone();
+    let k2 = dist[1].clone();
+    let k3 = dist[2].clone();
+    let p1 = dist[3].clone();
+    let p2 = dist[4].clone();
+    let (xd, yd) = distort_brown_conrady_generic(x_norm, y_norm, k1, k2, k3, p1, p2);
+
+    let tau_x = sensor[0].clone();
+    let tau_y = sensor[1].clone();
+    let (xs, ys) = apply_scheimpflug_generic(xd, yd, tau_x, tau_y);
+
+    let fx = intr[0].clone();
+    let fy = intr[1].clone();
+    let cx = intr[2].clone();
+    let cy = intr[3].clone();
+
+    let u_pred = fx * xs + cx;
+    let v_pred = fy * ys + cy;
+
+    let sqrt_w = T::from_f64(obs.w.sqrt()).unwrap();
+    let u_meas = T::from_f64(obs.uv[0]).unwrap();
+    let v_meas = T::from_f64(obs.uv[1]).unwrap();
+
+    SVector::<T, 2>::new(
+        (u_meas - u_pred) * sqrt_w.clone(),
+        (v_meas - v_pred) * sqrt_w,
+    )
+}
+
 /// Reprojection residual for hand-eye calibration with per-view robot pose corrections.
 ///
 /// The correction is applied as `exp(delta) * T_B_E` (left-multiply).
@@ -812,6 +1130,127 @@ mod tests {
             diff > 1.0,
             "Expected residuals to differ by >1.0, got diff={diff}"
         );
+    }
+
+    #[test]
+    fn scheimpflug_two_se3_zero_tilt_matches_pinhole() {
+        let intr = DVector::from_row_slice(&[820.0, 810.0, 640.5, 360.5]);
+        let dist = DVector::from_row_slice(&[-0.12, 0.08, 0.0, 0.001, -0.002]);
+        let sensor_zero = DVector::from_row_slice(&[0.0, 0.0]);
+        let extr = DVector::from_row_slice(&[0.02, 0.03, -0.01, 0.999_049_9, 0.12, -0.05, 0.03]);
+        let pose = DVector::from_row_slice(&[0.05, -0.02, 0.04, 0.997_549_9, 0.4, 0.2, 0.9]);
+        let obs = ObservationData {
+            pw: [0.11, -0.07, 0.0],
+            uv: [680.0, 340.0],
+            w: 1.5,
+        };
+
+        let r_pin: SVector<f64, 2> = reproj_residual_pinhole4_dist5_two_se3_generic(
+            intr.as_view(),
+            dist.as_view(),
+            extr.as_view(),
+            pose.as_view(),
+            &obs,
+        );
+        let r_sch: SVector<f64, 2> = reproj_residual_pinhole4_dist5_scheimpflug2_two_se3_generic(
+            intr.as_view(),
+            dist.as_view(),
+            sensor_zero.as_view(),
+            extr.as_view(),
+            pose.as_view(),
+            &obs,
+        );
+
+        assert!((r_pin[0] - r_sch[0]).abs() < 1e-10);
+        assert!((r_pin[1] - r_sch[1]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn scheimpflug_handeye_zero_tilt_matches_pinhole() {
+        let intr = DVector::from_row_slice(&[700.0, 698.0, 320.5, 240.5]);
+        let dist = DVector::from_row_slice(&[-0.05, 0.02, 0.0, -0.001, 0.0005]);
+        let sensor_zero = DVector::from_row_slice(&[0.0, 0.0]);
+        let extr = DVector::from_row_slice(&[0.01, -0.02, 0.015, 0.999_6, 0.05, 0.01, -0.02]);
+        let handeye = DVector::from_row_slice(&[-0.03, 0.02, 0.01, 0.999_3, 0.08, -0.04, 0.12]);
+        let target = DVector::from_row_slice(&[0.04, 0.05, -0.02, 0.997_7, 0.3, 0.4, 0.7]);
+        let robot = RobotPoseData {
+            robot_se3: [0.02, 0.01, 0.03, 0.999_3, 0.5, -0.2, 0.8],
+            mode: crate::ir::HandEyeMode::EyeInHand,
+        };
+        let obs = ObservationData {
+            pw: [0.09, 0.04, 0.0],
+            uv: [305.0, 265.0],
+            w: 1.0,
+        };
+
+        let r_pin: SVector<f64, 2> = reproj_residual_pinhole4_dist5_handeye_generic(
+            intr.as_view(),
+            dist.as_view(),
+            extr.as_view(),
+            handeye.as_view(),
+            target.as_view(),
+            &robot,
+            &obs,
+        );
+        let r_sch: SVector<f64, 2> = reproj_residual_pinhole4_dist5_scheimpflug2_handeye_generic(
+            intr.as_view(),
+            dist.as_view(),
+            sensor_zero.as_view(),
+            extr.as_view(),
+            handeye.as_view(),
+            target.as_view(),
+            &robot,
+            &obs,
+        );
+
+        assert!((r_pin[0] - r_sch[0]).abs() < 1e-10);
+        assert!((r_pin[1] - r_sch[1]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn scheimpflug_handeye_delta_zero_tilt_matches_pinhole() {
+        let intr = DVector::from_row_slice(&[700.0, 698.0, 320.5, 240.5]);
+        let dist = DVector::from_row_slice(&[-0.05, 0.02, 0.0, -0.001, 0.0005]);
+        let sensor_zero = DVector::from_row_slice(&[0.0, 0.0]);
+        let extr = DVector::from_row_slice(&[0.01, -0.02, 0.015, 0.999_6, 0.05, 0.01, -0.02]);
+        let handeye = DVector::from_row_slice(&[-0.03, 0.02, 0.01, 0.999_3, 0.08, -0.04, 0.12]);
+        let target = DVector::from_row_slice(&[0.04, 0.05, -0.02, 0.997_7, 0.3, 0.4, 0.7]);
+        let delta = DVector::from_row_slice(&[0.001, -0.002, 0.003, 0.0005, -0.001, 0.002]);
+        let data = HandEyeRobotDeltaData {
+            robot: RobotPoseData {
+                robot_se3: [0.02, 0.01, 0.03, 0.999_3, 0.5, -0.2, 0.8],
+                mode: crate::ir::HandEyeMode::EyeInHand,
+            },
+            obs: ObservationData {
+                pw: [0.09, 0.04, 0.0],
+                uv: [305.0, 265.0],
+                w: 1.0,
+            },
+        };
+
+        let r_pin: SVector<f64, 2> = reproj_residual_pinhole4_dist5_handeye_robot_delta_generic(
+            intr.as_view(),
+            dist.as_view(),
+            extr.as_view(),
+            handeye.as_view(),
+            target.as_view(),
+            delta.as_view(),
+            &data,
+        );
+        let r_sch: SVector<f64, 2> =
+            reproj_residual_pinhole4_dist5_scheimpflug2_handeye_robot_delta_generic(
+                intr.as_view(),
+                dist.as_view(),
+                sensor_zero.as_view(),
+                extr.as_view(),
+                handeye.as_view(),
+                target.as_view(),
+                delta.as_view(),
+                &data,
+            );
+
+        assert!((r_pin[0] - r_sch[0]).abs() < 1e-10);
+        assert!((r_pin[1] - r_sch[1]).abs() < 1e-10);
     }
 
     #[test]

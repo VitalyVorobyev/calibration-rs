@@ -12,8 +12,8 @@
 //! Dataset: Uses left camera images from `data/stereo/imgs/leftcamera/`
 
 use anyhow::{Context, Result};
-use calib_targets::chessboard::ChessboardDetectionResult;
-use calib_targets::{ChessboardParams, detect};
+use calib_targets::chessboard::{Detection as ChessboardDetection, DetectorParams};
+use calib_targets::detect;
 use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -140,11 +140,7 @@ fn main() -> Result<()> {
 
 fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> {
     let chess_config = ChessConfig::default();
-    let board_params = ChessboardParams {
-        expected_rows: Some(BOARD_ROWS),
-        expected_cols: Some(BOARD_COLS),
-        ..ChessboardParams::default()
-    };
+    let board_params = DetectorParams::default();
 
     // Find all left camera images
     let mut indices: Vec<usize> = std::fs::read_dir(imgs_dir)?
@@ -172,7 +168,7 @@ fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> 
         io::stdout().flush()?;
 
         let path = imgs_dir.join(format!("Im_L_{}.png", idx));
-        match detect_chessboard(&path, &chess_config, board_params.clone()) {
+        match detect_chessboard(&path, &chess_config, &board_params) {
             Ok(Some(view)) => views.push(view),
             Ok(None) => skipped += 1,
             Err(e) => {
@@ -192,8 +188,8 @@ fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> 
 
 fn detect_chessboard(
     path: &Path,
-    chess_config: &ChessConfig,
-    board_params: ChessboardParams,
+    _chess_config: &ChessConfig,
+    board_params: &DetectorParams,
 ) -> Result<Option<CorrespondenceView>> {
     let img = image::ImageReader::open(path)
         .with_context(|| format!("Failed to open {}", path.display()))?
@@ -201,18 +197,18 @@ fn detect_chessboard(
         .with_context(|| format!("Failed to decode {}", path.display()))?
         .to_luma8();
 
-    let Some(detection) = detect::detect_chessboard(&img, chess_config, board_params) else {
+    let Some(detection) = detect::detect_chessboard(&img, board_params) else {
         return Ok(None);
     };
 
     Ok(Some(detection_to_view(detection)?))
 }
 
-fn detection_to_view(detection: ChessboardDetectionResult) -> Result<CorrespondenceView> {
+fn detection_to_view(detection: ChessboardDetection) -> Result<CorrespondenceView> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();
 
-    for corner in detection.detection.corners {
+    for corner in detection.target.corners {
         let Some(grid) = corner.grid else {
             continue;
         };

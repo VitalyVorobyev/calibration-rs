@@ -16,7 +16,7 @@ jobs:
     name: Release quality gates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -44,7 +44,7 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -74,6 +74,6 @@ jobs:
           done
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true

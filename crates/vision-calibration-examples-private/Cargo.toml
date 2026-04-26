@@ -1,0 +1,29 @@
+[package]
+name = "vision-calibration-examples-private"
+description = "Private end-to-end calibration examples using private sensor datasets"
+version = "0.3.0"
+edition = "2024"
+license = "MIT"
+authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
+rust-version = "1.88"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+vision-calibration = { path = "../vision-calibration", version = "0.3.0" }
+vision-calibration-core = { path = "../vision-calibration-core", version = "0.3.0" }
+vision-calibration-optim = { path = "../vision-calibration-optim", version = "0.3.0" }
+vision-calibration-pipeline = { path = "../vision-calibration-pipeline", version = "0.3.0" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25" }
+nalgebra = { version = "0.34", features = ["serde-serialize"] }
+calib-targets = "0.7"
+vision-metrology = { path = "../../../vision-metrology/crates/vision-metrology" }
+vm-primitives = { path = "../../../vision-metrology/crates/vm-primitives" }
+
+[dev-dependencies]
+approx = "0.5"

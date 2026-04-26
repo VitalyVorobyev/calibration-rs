@@ -1,8 +1,8 @@
 //! Shared I/O helpers for the KUKA hand-eye examples.
 
 use anyhow::{Context, Result, ensure};
-use calib_targets::chessboard::ChessboardDetectionResult;
-use calib_targets::{ChessboardParams, detect};
+use calib_targets::chessboard::{Detection as ChessboardDetection, DetectorParams};
+use calib_targets::detect;
 use chess_corners::ChessConfig;
 use image::ImageReader;
 use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
@@ -28,18 +28,14 @@ pub struct DatasetSummary {
     pub square_size_m: f64,
 }
 
-pub fn kuka_chessboard_params() -> ChessboardParams {
-    ChessboardParams {
-        expected_rows: Some(17),
-        expected_cols: Some(28),
-        ..ChessboardParams::default()
-    }
+pub fn kuka_chessboard_params() -> DetectorParams {
+    DetectorParams::default()
 }
 
 pub fn load_kuka_dataset_with_progress<F>(
     base_path: &Path,
-    chess_config: &ChessConfig,
-    board_params: &ChessboardParams,
+    _chess_config: &ChessConfig,
+    board_params: &DetectorParams,
     mut progress: F,
 ) -> Result<(Vec<ViewSample>, DatasetSummary)>
 where
@@ -67,7 +63,7 @@ where
             .with_context(|| format!("failed to decode {}", img_path.display()))?
             .to_luma8();
 
-        let detection = match detect::detect_chessboard(&img, chess_config, board_params.clone()) {
+        let detection = match detect::detect_chessboard(&img, board_params) {
             Some(result) => result,
             None => {
                 eprintln!("Skipping view {:02}: chessboard not detected", image_index);
@@ -158,12 +154,12 @@ fn load_robot_poses(path: &Path) -> Result<Vec<Iso3>> {
 }
 
 fn detection_to_view_data(
-    detection: ChessboardDetectionResult,
+    detection: ChessboardDetection,
     square_size_m: f64,
 ) -> Result<CorrespondenceView> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();
-    for corner in detection.detection.corners {
+    for corner in detection.target.corners {
         let Some(grid) = corner.grid else {
             continue;
         };
