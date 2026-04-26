@@ -81,7 +81,8 @@ Start from the current branch and use the private e2e example:
 
 ```bash
 PUZZLE_DATA_DIR=privatedata/130x130_puzzle \
-cargo run -p vision-calibration-examples-private --example puzzle_130x130_rig --release \
+cargo run --manifest-path crates/vision-calibration-examples-private/Cargo.toml \
+  --example puzzle_130x130_rig --release \
   2>&1 | tee /tmp/puzzle_fixedboard_baseline.log
 ```
 
@@ -116,7 +117,8 @@ Run again:
 
 ```bash
 PUZZLE_DATA_DIR=privatedata/130x130_puzzle \
-cargo run -p vision-calibration-examples-private --example puzzle_130x130_rig --release \
+cargo run --manifest-path crates/vision-calibration-examples-private/Cargo.toml \
+  --example puzzle_130x130_rig --release \
   2>&1 | tee /tmp/puzzle_full_mode_repro.log
 ```
 

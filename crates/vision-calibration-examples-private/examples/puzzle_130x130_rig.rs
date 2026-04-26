@@ -10,8 +10,8 @@
 //! 5. Demonstrate `pixel_to_gripper_point` on sample laser pixels.
 //!
 //! Set `PUZZLE_DATA_DIR` to the dataset directory and run with
-//! `cargo run -p vision-calibration-examples-private --example
-//! puzzle_130x130_rig --release`.
+//! `cargo run --manifest-path crates/vision-calibration-examples-private/Cargo.toml
+//! --example puzzle_130x130_rig --release`.
 
 use anyhow::{Context, Result, anyhow};
 use std::path::{Path, PathBuf};
