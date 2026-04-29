@@ -36,14 +36,11 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Real, View,
-};
+use vision_calibration_core::{BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Real, View};
 use vision_calibration_optim::optimize_planar_intrinsics;
 
 use crate::planar_family::{
-    bootstrap_planar_intrinsics, estimate_view_homographies,
-    recover_planar_poses_from_homographies,
+    bootstrap_planar_intrinsics, estimate_view_homographies, recover_planar_poses_from_homographies,
 };
 use crate::session::CalibrationSession;
 
@@ -287,11 +284,7 @@ pub fn step_set_init(
 
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
     match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!(
-            "(manual: {}; auto: {})",
-            manual.join(", "),
-            auto.join(", ")
-        ),
+        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
         (false, true) => format!("(manual: {})", manual.join(", ")),
         (true, false) => format!("(auto: {})", auto.join(", ")),
         (true, true) => "(empty)".to_string(),

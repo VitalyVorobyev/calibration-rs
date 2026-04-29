@@ -75,19 +75,20 @@ pub fn step_set_init(
         return Err(Error::invalid_input(msg));
     }
 
-    let (planes, source): (Vec<LaserPlane>, &'static str) = match (manual.planes_cam, &input.initial_planes_cam) {
-        (Some(p), _) => (p, "(manual: planes_cam)"),
-        (None, Some(p)) => (p.clone(), "(input: initial_planes_cam)"),
-        (None, None) => {
-            let mut planes = Vec::with_capacity(input.dataset.num_cameras);
-            for cam_idx in 0..input.dataset.num_cameras {
-                let default_plane = LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.2);
-                let plane = linear_plane_init(input, cam_idx).unwrap_or(default_plane);
-                planes.push(plane);
+    let (planes, source): (Vec<LaserPlane>, &'static str) =
+        match (manual.planes_cam, &input.initial_planes_cam) {
+            (Some(p), _) => (p, "(manual: planes_cam)"),
+            (None, Some(p)) => (p.clone(), "(input: initial_planes_cam)"),
+            (None, None) => {
+                let mut planes = Vec::with_capacity(input.dataset.num_cameras);
+                for cam_idx in 0..input.dataset.num_cameras {
+                    let default_plane = LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.2);
+                    let plane = linear_plane_init(input, cam_idx).unwrap_or(default_plane);
+                    planes.push(plane);
+                }
+                (planes, "(auto: linear fit with default fallback)")
             }
-            (planes, "(auto: linear fit with default fallback)")
-        }
-    };
+        };
 
     session.state.initial_planes_cam = Some(planes);
     session.log_success_with_notes("init", format!("initial planes set {source}"));

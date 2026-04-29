@@ -773,11 +773,7 @@ pub fn step_rig_init(
 
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
     match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!(
-            "(manual: {}; auto: {})",
-            manual.join(", "),
-            auto.join(", ")
-        ),
+        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
         (false, true) => format!("(manual: {})", manual.join(", ")),
         (true, false) => format!("(auto: {})", auto.join(", ")),
         (true, true) => "(empty)".to_string(),
@@ -938,10 +934,11 @@ pub fn step_set_handeye_init(
                     estimate_handeye_dlt(&robot_poses, &target_se3_rig, min_angle)
                 }
                 HandEyeMode::EyeToHand => {
-                    estimate_gripper_se3_target_dlt(&robot_poses, &rig_se3_target, min_angle)
-                        .map(|gripper_se3_target| {
+                    estimate_gripper_se3_target_dlt(&robot_poses, &rig_se3_target, min_angle).map(
+                        |gripper_se3_target| {
                             rig_se3_target[0] * (robot_poses[0] * gripper_se3_target).inverse()
-                        })
+                        },
+                    )
                 }
             };
             match estimated {
@@ -993,7 +990,11 @@ pub fn step_handeye_init(
     session: &mut CalibrationSession<RigScheimpflugHandeyeProblem>,
     opts: Option<HandeyeInitOptions>,
 ) -> Result<(), Error> {
-    step_set_handeye_init(session, RigScheimpflugHandeyeHandeyeManualInit::default(), opts)
+    step_set_handeye_init(
+        session,
+        RigScheimpflugHandeyeHandeyeManualInit::default(),
+        opts,
+    )
 }
 
 /// Optimize Scheimpflug hand-eye calibration.

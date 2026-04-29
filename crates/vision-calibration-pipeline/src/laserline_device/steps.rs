@@ -272,11 +272,7 @@ pub fn step_set_init(
 
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
     match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!(
-            "(manual: {}; auto: {})",
-            manual.join(", "),
-            auto.join(", ")
-        ),
+        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
         (false, true) => format!("(manual: {})", manual.join(", ")),
         (true, false) => format!("(auto: {})", auto.join(", ")),
         (true, true) => "(empty)".to_string(),

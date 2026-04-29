@@ -240,13 +240,12 @@ pub fn step_set_intrinsics_init_all(
                 .unwrap_or_default();
             make_pinhole_camera(k, dist)
         } else {
-            let bootstrap = estimate_intrinsics_iterative(&planar_dataset, init_opts).map_err(
-                |e| {
+            let bootstrap =
+                estimate_intrinsics_iterative(&planar_dataset, init_opts).map_err(|e| {
                     Error::numerical(format!(
                         "intrinsics estimation failed for camera {cam_idx}: {e}"
                     ))
-                },
-            )?;
+                })?;
             let dist = manual
                 .per_cam_distortion
                 .as_ref()
@@ -304,11 +303,7 @@ pub fn step_intrinsics_init_all(
 
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
     match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!(
-            "(manual: {}; auto: {})",
-            manual.join(", "),
-            auto.join(", ")
-        ),
+        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
         (false, true) => format!("(manual: {})", manual.join(", ")),
         (true, false) => format!("(auto: {})", auto.join(", ")),
         (true, true) => "(empty)".to_string(),
@@ -460,8 +455,7 @@ pub fn step_set_rig_init(
     // Coupling rule: both-or-neither.
     match (&manual.cam_se3_rig, &manual.rig_se3_target) {
         (Some(_), None) | (None, Some(_)) => {
-            let msg =
-                "RigExtrinsicsManualInit: cam_se3_rig and rig_se3_target must both be Some or \
+            let msg = "RigExtrinsicsManualInit: cam_se3_rig and rig_se3_target must both be Some or \
                  both be None (geometrically coupled per ADR 0011)";
             session.log_failure("rig_init", msg);
             return Err(Error::invalid_input(msg));
@@ -509,9 +503,7 @@ pub fn step_set_rig_init(
                 &per_cam_target_poses,
                 reference_camera_idx,
             )
-            .map_err(|e| {
-                Error::numerical(format!("rig extrinsics initialization failed: {e}"))
-            })?;
+            .map_err(|e| Error::numerical(format!("rig extrinsics initialization failed: {e}")))?;
             let cam_se3_rig: Vec<Iso3> = extrinsic_result
                 .cam_to_rig
                 .iter()
