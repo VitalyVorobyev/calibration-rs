@@ -63,7 +63,7 @@ computer vision, validates algorithmic behavior and numerical results, and enfor
 Add the facade crate to your `Cargo.toml`:
 
 ```toml
-vision-calibration = "0.3"
+vision-calibration = "0.4"
 ```
 
 Or track `main` directly:
