@@ -236,7 +236,10 @@ release · **P2** fix soon · **P3** polish.
   and `rig_extrinsics_scheimpflug.rs` cover their respective functions, but
   there is no `rig_laserline.rs` (existing `laserline_bundle.rs` covers the
   single-camera bundle, not the rig-level joint solve).
-- **Status:** todo
+- **Status:** done
+- **Resolution:** Added `crates/vision-calibration-optim/tests/rig_laserline.rs` with a
+  2-camera synthetic GT test. Asserts normal angle <0.5°, distance abs error <0.01,
+  reproj RMS <0.5 px. Test passes.
 - **Problem:** Of the three new optim entry points, `optimize_rig_laserline`
   is the only one without a direct test. A future refactor of the
   rig-laserline residuals or the upstream-calibration adapter could break it
