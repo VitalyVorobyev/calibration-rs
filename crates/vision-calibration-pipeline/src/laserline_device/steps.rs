@@ -1,16 +1,17 @@
 //! Step functions for single laserline device calibration.
 
 use crate::Error;
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    Camera, CorrespondenceView, FxFyCxCySkew, Iso3, NoMeta, Pinhole, PlanarDataset, Pt2,
-    SensorModel, View,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Iso3, NoMeta, Pinhole, PlanarDataset,
+    Pt2, Real, SensorModel, View,
 };
 use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    LaserlineParams, LaserlineStats, compute_laserline_stats, optimize_laserline,
+    LaserPlane, LaserlineParams, LaserlineStats, compute_laserline_stats, optimize_laserline,
 };
 
 use crate::session::CalibrationSession;
@@ -26,6 +27,34 @@ use super::problem::{LaserlineDeviceConfig, LaserlineDeviceOutput, LaserlineDevi
 pub struct DeviceInitOptions {
     /// Override the number of iterations for iterative intrinsics estimation.
     pub iterations: Option<usize>,
+}
+
+/// Manual initialization seeds for laserline device calibration.
+///
+/// All fields are `Option<T>`:
+/// - `None` means *auto-initialize this group* (same path as plain `step_init`).
+/// - `Some(value)` means *use this value*; do not auto-initialize.
+///
+/// **Sensor is intentionally not in this struct** — for laserline devices the
+/// sensor model is a hardware property taken from `session.config.init.sensor_init`.
+/// See ADR 0011.
+///
+/// Partial-seed semantics:
+/// - `intrinsics: Some` skips `estimate_intrinsics_iterative`. Distortion defaults
+///   to `BrownConrady5::default()` (zeros) unless also seeded; poses recover from
+///   per-view homographies using the manual intrinsics.
+/// - `plane: Some` skips the linear plane fit. Note that `initial_plane_rmse` is
+///   recorded as `None` in this case (no fit RMSE is meaningful for a manual seed).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LaserlineDeviceManualInit {
+    /// Manual intrinsics seed.
+    pub intrinsics: Option<FxFyCxCySkew<Real>>,
+    /// Manual distortion seed.
+    pub distortion: Option<BrownConrady5<Real>>,
+    /// Manual per-view poses (`camera_se3_target`).
+    pub poses: Option<Vec<Iso3>>,
+    /// Manual laser plane seed (camera-frame `(n̂, d)`).
+    pub plane: Option<LaserPlane>,
 }
 
 /// Options for the optimization step.
@@ -121,13 +150,28 @@ fn update_state_with_stats(
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Initialize intrinsics, poses, and laser plane from observations.
-pub fn step_init(
+/// Initialize intrinsics, distortion, per-view poses, and laser plane from any
+/// combination of manual seeds and auto-estimation.
+///
+/// This is the load-bearing init function. [`step_init`] is a thin delegate that
+/// passes `LaserlineDeviceManualInit::default()` (all-`None`, full auto path).
+///
+/// See [`LaserlineDeviceManualInit`] for partial-seed semantics. The sensor model
+/// is always taken from `session.config.init.sensor_init` regardless.
+///
+/// # Errors
+///
+/// - Input not set, or fewer than 3 views.
+/// - Auto-init computation fails (homography / Zhang's / linear plane).
+/// - `manual.poses` is `Some` but its length does not match the view count.
+pub fn step_set_init(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
+    manual: LaserlineDeviceManualInit,
     opts: Option<DeviceInitOptions>,
 ) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
+    let view_count = input.len();
 
     let opts = opts.unwrap_or_default();
     let mut init_opts = session.config.init_opts();
@@ -135,33 +179,120 @@ pub fn step_init(
         init_opts.iterations = iters;
     }
 
-    let planar_dataset = planar_dataset_from_input(input)?;
-    let camera_init = estimate_intrinsics_iterative(&planar_dataset, init_opts)
-        .map_err(|e| Error::numerical(format!("intrinsics initialization failed: {e}")))?;
+    let mut manual_fields: Vec<&'static str> = Vec::new();
+    let mut auto_fields: Vec<&'static str> = Vec::new();
 
-    let poses = estimate_poses(input, &camera_init.k)?;
+    let (intrinsics, distortion) = if let Some(k) = manual.intrinsics {
+        manual_fields.push("intrinsics");
+        let d = match manual.distortion {
+            Some(d) => {
+                manual_fields.push("distortion");
+                d
+            }
+            None => {
+                auto_fields.push("distortion");
+                BrownConrady5::default()
+            }
+        };
+        (k, d)
+    } else {
+        auto_fields.push("intrinsics");
+        let planar_dataset = planar_dataset_from_input(input)?;
+        let camera_init = estimate_intrinsics_iterative(&planar_dataset, init_opts)
+            .map_err(|e| Error::numerical(format!("intrinsics initialization failed: {e}")))?;
+        let d = match manual.distortion {
+            Some(d) => {
+                manual_fields.push("distortion");
+                d
+            }
+            None => {
+                auto_fields.push("distortion");
+                camera_init.dist
+            }
+        };
+        (camera_init.k, d)
+    };
+
+    let poses = match manual.poses {
+        Some(p) => {
+            manual_fields.push("poses");
+            if p.len() != view_count {
+                let msg = format!(
+                    "manual poses count ({}) does not match view count ({})",
+                    p.len(),
+                    view_count
+                );
+                session.log_failure("init", msg.clone());
+                return Err(Error::invalid_input(msg));
+            }
+            p
+        }
+        None => {
+            auto_fields.push("poses");
+            estimate_poses(input, &intrinsics)?
+        }
+    };
 
     let sensor = session.config.init.sensor_init;
-    let camera = Camera::new(Pinhole, camera_init.dist, sensor.compile(), camera_init.k);
+    let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
 
-    let (plane, plane_rmse) = linear_plane_init(input, &camera, &poses)?;
+    let (plane, plane_rmse) = match manual.plane {
+        Some(p) => {
+            manual_fields.push("plane");
+            (p, None)
+        }
+        None => {
+            auto_fields.push("plane");
+            let (p, rmse) = linear_plane_init(input, &camera, &poses)?;
+            (p, Some(rmse))
+        }
+    };
 
-    let initial_params =
-        LaserlineParams::new(camera_init.k, camera_init.dist, sensor, poses, plane)?;
+    let initial_params = LaserlineParams::new(intrinsics, distortion, sensor, poses, plane)?;
 
     session.state.initial_params = Some(initial_params);
-    session.state.initial_plane_rmse = Some(plane_rmse);
+    session.state.initial_plane_rmse = plane_rmse;
     session.state.clear_optimization();
 
+    let source = format_init_source(&manual_fields, &auto_fields);
+    let plane_note = match plane_rmse {
+        Some(rmse) => format!("plane_rmse={:.4}", rmse),
+        None => "plane=manual".to_string(),
+    };
     session.log_success_with_notes(
         "init",
         format!(
-            "fx={:.1}, fy={:.1}, plane_rmse={:.4}",
-            camera_init.k.fx, camera_init.k.fy, plane_rmse
+            "fx={:.1}, fy={:.1}, {} {}",
+            intrinsics.fx, intrinsics.fy, plane_note, source
         ),
     );
 
     Ok(())
+}
+
+fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
+    match (manual.is_empty(), auto.is_empty()) {
+        (false, false) => format!(
+            "(manual: {}; auto: {})",
+            manual.join(", "),
+            auto.join(", ")
+        ),
+        (false, true) => format!("(manual: {})", manual.join(", ")),
+        (true, false) => format!("(auto: {})", auto.join(", ")),
+        (true, true) => "(empty)".to_string(),
+    }
+}
+
+/// Initialize intrinsics, poses, and laser plane from observations using full
+/// auto-init.
+///
+/// Convenience wrapper around [`step_set_init`] with
+/// `LaserlineDeviceManualInit::default()`.
+pub fn step_init(
+    session: &mut CalibrationSession<LaserlineDeviceProblem>,
+    opts: Option<DeviceInitOptions>,
+) -> Result<(), Error> {
+    step_set_init(session, LaserlineDeviceManualInit::default(), opts)
 }
 
 /// Optimize laserline calibration using non-linear bundle adjustment.
