@@ -18,6 +18,8 @@ pub use problem::{
 };
 pub use state::RigScheimpflugExtrinsicsState;
 pub use steps::{
-    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigOptimizeOptions, run_calibration,
+    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigOptimizeOptions,
+    RigScheimpflugExtrinsicsRigManualInit, RigScheimpflugIntrinsicsManualInit, run_calibration,
     step_intrinsics_init_all, step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+    step_set_intrinsics_init_all, step_set_rig_init,
 };
