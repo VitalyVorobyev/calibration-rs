@@ -260,7 +260,7 @@ release · **P2** fix soon · **P3** polish.
 - **Category:** tests
 - **Location:** `crates/vision-calibration/tests/` — `facade_compile_surface.rs`
   and `scheimpflug_intrinsics.rs` only; no test covering the new helper.
-- **Status:** todo
+- **Status:** done
 - **Problem:** The helper composes four error-prone geometric steps and has
   multiple documented failure paths (`cam_idx` out of range, ray-plane miss,
   undistortion failure, missing `base_se3_gripper` in `EyeToHand`). Only the
@@ -285,7 +285,7 @@ release · **P2** fix soon · **P3** polish.
 - **Location:** `/README.md` — current text mentions perspective + Scheimpflug
   cameras and rigs, but not the rig-level Scheimpflug pipelines or
   `pixel_to_gripper_point`.
-- **Status:** todo
+- **Status:** done
 - **Problem:** The single biggest user-visible feature of the upcoming
   release is unstated on the front page. CHANGELOG has the detail, but
   README is the discovery surface for new users and crates.io browsers.
@@ -300,7 +300,7 @@ release · **P2** fix soon · **P3** polish.
 - **Category:** docs
 - **Location:** `crates/vision-calibration-optim/src/problems/laserline_rig_bundle.rs`
   (struct definition near the top of the module).
-- **Status:** todo
+- **Status:** done
 - **Problem:** The new `RigLaserlineDataset` carries per-view, per-camera
   observations, but the field-level doc does not state whether a camera that
   saw nothing in a given view is encoded as `None`, an empty observation
@@ -343,7 +343,7 @@ release · **P2** fix soon · **P3** polish.
 - **Location:** `crates/vision-calibration-pipeline/src/rig_scheimpflug_handeye/problem.rs:359-388`
   (specifically the `target_poses.first().copied()` line in the export
   builder).
-- **Status:** todo
+- **Status:** done
 - **Problem:** `HandEyeScheimpflugEstimate::target_poses` is a `Vec<Iso3>`
   with one entry per view. The export uses `.first().copied()`, which is
   correct (the calibration target is fixed; all view-poses are equivalent
