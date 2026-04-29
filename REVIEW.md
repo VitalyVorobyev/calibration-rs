@@ -43,7 +43,7 @@ issues in B-04 plus an incomplete C-01 helper block tagging v0.4.0.
 | T-03 | verified | Five tests covering happy path EyeInHand + EyeToHand, cam_idx range, parallel ray, missing pose. All pass. |
 | D-01 | verified (P3 nit) | Section added. Minor markdown polish: "Sessions support JSON serialization" line lost its leading blank line. The README claim "accepts a `RigScheimpflugHandeyeExport` directly via `RigUpstreamCalibration::from`" is technically true but misleading — the resulting struct fails `validate_input` until `rig_se3_target` is populated separately; cross-references C-01. |
 | D-02 | verified | Module + struct + field docs all expanded; rustdoc example present; doctest compiles. |
-| C-01 | needs-rework | See **Review Note** below. `From` impl returns a half-initialised struct. |
+| C-01 | verified | `From` impl replaced with `to_upstream_calibration(rig_se3_target)` method; README updated. |
 | C-02 | verified | One-line "All views observe the same fixed target; first() is canonical." comment in place at problem.rs:357. |
 
 **Issues introduced by the fixes:**
@@ -429,11 +429,16 @@ release · **P2** fix soon · **P3** polish.
 - **Location:** Implicit; consumers chaining
   `rig_scheimpflug_handeye → rig_laserline_device` must hand-construct
   `RigUpstreamCalibration` field-by-field.
-- **Status:** needs-rework
+- **Status:** verified
 - **Resolution:** Added `impl From<&RigScheimpflugHandeyeExport> for RigUpstreamCalibration` in
   `crates/vision-calibration-pipeline/src/rig_laserline_device/problem.rs`. Includes a rustdoc
   example showing the `.into()` conversion. Re-exported through the facade via the existing
   `RigUpstreamCalibration` re-export.
+- **Rework Resolution:** Removed the broken `From` impl; replaced with
+  `RigScheimpflugHandeyeExport::to_upstream_calibration(&self, rig_se3_target: Vec<Iso3>)`
+  which requires the caller to supply the missing per-view poses. Updated README to remove
+  the erroneous `RigUpstreamCalibration::from` reference. Doctest compiles and passes.
+  (Rework commit: see `fix(pipeline): replace From with to_upstream_calibration method [refs C-01-rework]`)
 - **Review Note:** The `From` impl is incomplete: it sets
   `rig_se3_target: Vec::new()` because the handeye export does not carry
   per-view target poses, but `RigLaserlineDeviceProblem::validate_input`

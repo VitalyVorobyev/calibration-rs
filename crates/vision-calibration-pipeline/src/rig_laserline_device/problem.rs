@@ -30,31 +30,35 @@ pub struct RigUpstreamCalibration {
     pub rig_se3_target: Vec<Iso3>,
 }
 
-impl From<&RigScheimpflugHandeyeExport> for RigUpstreamCalibration {
-    /// Derive a frozen upstream calibration from a Scheimpflug hand-eye export.
+impl RigScheimpflugHandeyeExport {
+    /// Build a [`RigUpstreamCalibration`] from this hand-eye result, supplying
+    /// the per-view rig→target poses that this export does not carry.
+    ///
+    /// Each entry of `rig_se3_target` must correspond to one view of the
+    /// downstream laserline dataset. For a fixed target observed from a moving
+    /// rig, all entries are typically equal to the canonical target pose
+    /// recorded in this export (`base_se3_target` for `EyeInHand`); pass
+    /// `vec![target_pose; num_views]`.
     ///
     /// # Example
     ///
     /// ```no_run
     /// # use vision_calibration_pipeline::rig_scheimpflug_handeye::RigScheimpflugHandeyeExport;
     /// # use vision_calibration_pipeline::rig_laserline_device::RigUpstreamCalibration;
+    /// # use vision_calibration_core::Iso3;
     /// # let handeye_export: RigScheimpflugHandeyeExport = unimplemented!();
-    /// let upstream: RigUpstreamCalibration = (&handeye_export).into();
+    /// # let num_views: usize = unimplemented!();
+    /// # let target_pose: Iso3 = Iso3::identity();
+    /// let upstream: RigUpstreamCalibration = handeye_export
+    ///     .to_upstream_calibration(vec![target_pose; num_views]);
     /// ```
-    fn from(export: &RigScheimpflugHandeyeExport) -> Self {
-        let intrinsics: Vec<FxFyCxCySkew<Real>> = export.cameras.iter().map(|c| c.k).collect();
-        let distortion: Vec<BrownConrady5<Real>> = export.cameras.iter().map(|c| c.dist).collect();
-        let sensors: Vec<ScheimpflugParams> = export.sensors.clone();
-        let cam_se3_rig: Vec<Iso3> = export.cam_se3_rig.clone();
-        // rig_se3_target is not available in the handeye export — the laserline
-        // pipeline will supply its own per-view target poses via the dataset.
-        // Leave the field empty; `validate_input` will confirm it is populated.
+    pub fn to_upstream_calibration(&self, rig_se3_target: Vec<Iso3>) -> RigUpstreamCalibration {
         RigUpstreamCalibration {
-            intrinsics,
-            distortion,
-            sensors,
-            cam_se3_rig,
-            rig_se3_target: Vec::new(),
+            intrinsics: self.cameras.iter().map(|c| c.k).collect(),
+            distortion: self.cameras.iter().map(|c| c.dist).collect(),
+            sensors: self.sensors.clone(),
+            cam_se3_rig: self.cam_se3_rig.clone(),
+            rig_se3_target,
         }
     }
 }

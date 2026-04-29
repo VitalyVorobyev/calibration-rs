@@ -261,7 +261,8 @@ Three pipelines cover the end-to-end Scheimpflug rig workflow:
 2. **`rig_scheimpflug_handeye`** — extends the above with hand-eye calibration (EyeInHand or
    EyeToHand) using robot-mounted rig observations.
 3. **`rig_laserline_device`** — calibrates one laser plane per camera with all upstream parameters
-   frozen; accepts a `RigScheimpflugHandeyeExport` directly via `RigUpstreamCalibration::from`.
+   frozen; accepts a `RigScheimpflugHandeyeExport` via
+   `RigScheimpflugHandeyeExport::to_upstream_calibration(rig_se3_target_poses)`.
 
 A `pixel_to_gripper_point` helper in the facade crate converts a raw pixel coordinate into the
 gripper frame in one call, composing undistortion → rig-frame ray → laser-plane intersection →
