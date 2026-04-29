@@ -1,6 +1,7 @@
 //! [`ProblemType`] implementation for rig-level laserline calibration.
 
 use crate::Error;
+use crate::rig_scheimpflug_handeye::RigScheimpflugHandeyeExport;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, Iso3, Real, ScheimpflugParams};
 use vision_calibration_optim::{
@@ -27,6 +28,35 @@ pub struct RigUpstreamCalibration {
     pub cam_se3_rig: Vec<Iso3>,
     /// Per-view rig poses `rig_se3_target` (T_R_T).
     pub rig_se3_target: Vec<Iso3>,
+}
+
+impl From<&RigScheimpflugHandeyeExport> for RigUpstreamCalibration {
+    /// Derive a frozen upstream calibration from a Scheimpflug hand-eye export.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use vision_calibration_pipeline::rig_scheimpflug_handeye::RigScheimpflugHandeyeExport;
+    /// # use vision_calibration_pipeline::rig_laserline_device::RigUpstreamCalibration;
+    /// # let handeye_export: RigScheimpflugHandeyeExport = unimplemented!();
+    /// let upstream: RigUpstreamCalibration = (&handeye_export).into();
+    /// ```
+    fn from(export: &RigScheimpflugHandeyeExport) -> Self {
+        let intrinsics: Vec<FxFyCxCySkew<Real>> = export.cameras.iter().map(|c| c.k).collect();
+        let distortion: Vec<BrownConrady5<Real>> = export.cameras.iter().map(|c| c.dist).collect();
+        let sensors: Vec<ScheimpflugParams> = export.sensors.clone();
+        let cam_se3_rig: Vec<Iso3> = export.cam_se3_rig.clone();
+        // rig_se3_target is not available in the handeye export — the laserline
+        // pipeline will supply its own per-view target poses via the dataset.
+        // Leave the field empty; `validate_input` will confirm it is populated.
+        RigUpstreamCalibration {
+            intrinsics,
+            distortion,
+            sensors,
+            cam_se3_rig,
+            rig_se3_target: Vec::new(),
+        }
+    }
 }
 
 /// Input for rig laserline calibration: dataset + frozen upstream calibration.

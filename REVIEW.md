@@ -294,7 +294,11 @@ release · **P2** fix soon · **P3** polish.
 - **Location:** Implicit; consumers chaining
   `rig_scheimpflug_handeye → rig_laserline_device` must hand-construct
   `RigUpstreamCalibration` field-by-field.
-- **Status:** todo
+- **Status:** done
+- **Resolution:** Added `impl From<&RigScheimpflugHandeyeExport> for RigUpstreamCalibration` in
+  `crates/vision-calibration-pipeline/src/rig_laserline_device/problem.rs`. Includes a rustdoc
+  example showing the `.into()` conversion. Re-exported through the facade via the existing
+  `RigUpstreamCalibration` re-export.
 - **Problem:** The example `puzzle_130x130_rig.rs` shows the canonical
   pattern: take the export from the rig handeye stage and feed it to the
   laserline-device pipeline. Without a helper, every user reimplements the
