@@ -9,6 +9,22 @@
 //!
 //! Joint rig+plane bundle adjustment with rig-frame plane parameterization is
 //! a v1.1 follow-up; see the workspace plan.
+//!
+//! # Input shape
+//!
+//! The dataset is organized as a 2-D grid of `(view_idx, cam_idx)`:
+//!
+//! ```text
+//! views[v].cameras[c]       -- Option<CorrespondenceView>  (3D-2D target pairs)
+//! views[v].laser_pixels[c]  -- Option<Vec<Pt2>>            (laser-line pixel coords)
+//! ```
+//!
+//! `None` in either slot means the camera produced no usable data for that
+//! view (occluded, out-of-FOV, etc.).  An empty `Some(vec![])` is never
+//! returned by the solvers but is accepted as input and treated the same as
+//! `None` for residual purposes.  The outer `Vec` length must equal
+//! `num_cameras` for every view; the constructor enforces this at creation
+//! time.
 
 use crate::Error;
 use crate::backend::BackendSolveOptions;
@@ -23,22 +39,64 @@ use vision_calibration_core::{
 };
 
 /// Per-view observations for a rig-level laserline calibration.
+///
+/// Both `cameras` and `laser_pixels` are indexed by `cam_idx ∈ [0, num_cameras)`.
+/// A slot is `None` when that camera had no usable data in this view (occlusion,
+/// out-of-FOV, etc.).  An empty inner `Vec` is accepted but treated the same as
+/// `None` by the solver.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigLaserlineView {
-    /// Target correspondences per camera. `None` means the camera did not see
-    /// the target in this view.
+    /// Target correspondences per camera (`cam_idx` → `Option<CorrespondenceView>`).
+    ///
+    /// `None` means the camera did not see the calibration target in this view.
+    /// The slice length must equal `RigLaserlineDataset::num_cameras`.
     pub cameras: Vec<Option<CorrespondenceView>>,
-    /// Laser pixel observations per camera. `None` means the camera has no
-    /// usable laser data for this view.
+    /// Laser pixel observations per camera (`cam_idx` → `Option<Vec<Pt2>>`).
+    ///
+    /// `None` means the camera has no usable laser data for this view.
+    /// The slice length must equal `RigLaserlineDataset::num_cameras`.
     pub laser_pixels: Vec<Option<Vec<Pt2>>>,
 }
 
 /// Dataset for rig-level laserline calibration.
+///
+/// Each view contains one row of the `(view, camera)` observation grid.
+/// Use [`RigLaserlineDataset::new`] to construct — it validates that every
+/// view has exactly `num_cameras` slots in both `cameras` and `laser_pixels`.
+///
+/// # Missing-observation convention
+///
+/// * `Some(obs)` — camera contributed data; `obs` may still be empty (no
+///   correspondences / pixels), in which case it contributes zero residuals.
+/// * `None` — camera is absent for this view and is skipped entirely.
+///
+/// # Example
+///
+/// ```no_run
+/// # use vision_calibration_optim::{RigLaserlineDataset, RigLaserlineView};
+/// // Two views, two cameras; camera 1 missed the target in view 0.
+/// let views = vec![
+///     RigLaserlineView {
+///         cameras:      vec![Some(/* cam0 obs */ todo!()), None],
+///         laser_pixels: vec![Some(vec![]),                None],
+///     },
+///     RigLaserlineView {
+///         cameras:      vec![Some(/* cam0 obs */ todo!()), Some(/* cam1 obs */ todo!())],
+///         laser_pixels: vec![Some(vec![]),                 Some(vec![])],
+///     },
+/// ];
+/// let dataset = RigLaserlineDataset::new(views, 2).unwrap();
+/// assert_eq!(dataset.num_cameras, 2);
+/// assert_eq!(dataset.num_views(), 2);
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigLaserlineDataset {
-    /// Per-view, per-camera observations.
+    /// Per-view observation rows; length = number of views.
+    ///
+    /// Each `RigLaserlineView` contains two `Vec`s of length `num_cameras`,
+    /// one for target correspondences and one for laser pixels.
     pub views: Vec<RigLaserlineView>,
-    /// Number of cameras.
+    /// Number of cameras in the rig; governs the expected slot count per view.
     pub num_cameras: usize,
 }
 

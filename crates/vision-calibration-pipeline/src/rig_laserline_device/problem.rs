@@ -1,6 +1,7 @@
 //! [`ProblemType`] implementation for rig-level laserline calibration.
 
 use crate::Error;
+use crate::rig_scheimpflug_handeye::RigScheimpflugHandeyeExport;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, Iso3, Real, ScheimpflugParams};
 use vision_calibration_optim::{
@@ -27,6 +28,39 @@ pub struct RigUpstreamCalibration {
     pub cam_se3_rig: Vec<Iso3>,
     /// Per-view rig poses `rig_se3_target` (T_R_T).
     pub rig_se3_target: Vec<Iso3>,
+}
+
+impl RigScheimpflugHandeyeExport {
+    /// Build a [`RigUpstreamCalibration`] from this hand-eye result, supplying
+    /// the per-view rig→target poses that this export does not carry.
+    ///
+    /// Each entry of `rig_se3_target` must correspond to one view of the
+    /// downstream laserline dataset. For a fixed target observed from a moving
+    /// rig, all entries are typically equal to the canonical target pose
+    /// recorded in this export (`base_se3_target` for `EyeInHand`); pass
+    /// `vec![target_pose; num_views]`.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use vision_calibration_pipeline::rig_scheimpflug_handeye::RigScheimpflugHandeyeExport;
+    /// # use vision_calibration_pipeline::rig_laserline_device::RigUpstreamCalibration;
+    /// # use vision_calibration_core::Iso3;
+    /// # let handeye_export: RigScheimpflugHandeyeExport = unimplemented!();
+    /// # let num_views: usize = unimplemented!();
+    /// # let target_pose: Iso3 = Iso3::identity();
+    /// let upstream: RigUpstreamCalibration = handeye_export
+    ///     .to_upstream_calibration(vec![target_pose; num_views]);
+    /// ```
+    pub fn to_upstream_calibration(&self, rig_se3_target: Vec<Iso3>) -> RigUpstreamCalibration {
+        RigUpstreamCalibration {
+            intrinsics: self.cameras.iter().map(|c| c.k).collect(),
+            distortion: self.cameras.iter().map(|c| c.dist).collect(),
+            sensors: self.sensors.clone(),
+            cam_se3_rig: self.cam_se3_rig.clone(),
+            rig_se3_target,
+        }
+    }
 }
 
 /// Input for rig laserline calibration: dataset + frozen upstream calibration.

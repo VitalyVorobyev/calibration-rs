@@ -63,7 +63,7 @@ computer vision, validates algorithmic behavior and numerical results, and enfor
 Add the facade crate to your `Cargo.toml`:
 
 ```toml
-vision-calibration = "0.3"
+vision-calibration = "0.4"
 ```
 
 Or track `main` directly:
@@ -246,8 +246,28 @@ step functions. Each problem type defines its own sequence of steps:
 | `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
 | `RigHandeyeProblem` | 6 steps: intrinsics (×2) → rig (×2) → hand-eye (×2) |
 | `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
+| `RigScheimpflugExtrinsicsProblem` | Joint intrinsics + Scheimpflug tilt + rig extrinsics for a multi-camera rig |
+| `RigScheimpflugHandeyeProblem` | Adds hand-eye calibration (EyeInHand or EyeToHand) to the Scheimpflug rig |
+| `RigLaserlineDeviceProblem` | Per-camera laser-plane calibration for a Scheimpflug rig; takes upstream hand-eye export |
 
 Each problem type also provides a `run_calibration` convenience function that runs all steps.
+
+### Scheimpflug Rig Family
+
+Three pipelines cover the end-to-end Scheimpflug rig workflow:
+
+1. **`rig_scheimpflug_extrinsics`** — calibrates per-camera intrinsics, Scheimpflug tilt angles, and
+   inter-camera rig extrinsics from a shared planar target.
+2. **`rig_scheimpflug_handeye`** — extends the above with hand-eye calibration (EyeInHand or
+   EyeToHand) using robot-mounted rig observations.
+3. **`rig_laserline_device`** — calibrates one laser plane per camera with all upstream parameters
+   frozen; accepts a `RigScheimpflugHandeyeExport` via
+   `RigScheimpflugHandeyeExport::to_upstream_calibration(rig_se3_target_poses)`.
+
+A `pixel_to_gripper_point` helper in the facade crate converts a raw pixel coordinate into the
+gripper frame in one call, composing undistortion → rig-frame ray → laser-plane intersection →
+hand-eye transform. See [`docs.rs/vision-calibration`](https://docs.rs/vision-calibration) for the
+full API reference.
 Sessions support JSON serialization for checkpointing and resuming.
 
 For larger workflows, configs are grouped by responsibility (e.g. `init`, `solver`,
