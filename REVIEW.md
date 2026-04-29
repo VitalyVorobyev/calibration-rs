@@ -10,6 +10,87 @@
 
 ---
 
+## Review Verdict (Phase 5)
+
+**Overall:** NEEDS-REWORK — Rust-side fixes ship cleanly; two Python-binding
+issues in B-04 plus an incomplete C-01 helper block tagging v0.4.0.
+
+**Verified:** 9 · **Needs rework:** 2 · **Regressions:** 0
+
+**Quality gates (2026-04-29, after commit `933c615`):**
+
+| Gate | Result |
+|------|--------|
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --workspace` | PASS (all suites, including new `rig_scheimpflug_extrinsics`, `rig_scheimpflug_handeye`, `rig_laserline_device`, `rig_laserline`, `pixel_to_gripper_point` tests) |
+| `cargo test --workspace --all-features` | PASS |
+| `cargo doc --workspace --no-deps` | PASS (zero warnings) |
+| `python3 scripts/check_pyi_coverage.py --check` | PASS (73 `__all__` entries, 11 pyfunctions) |
+| `python3 -m compileall .../vision_calibration` | PASS |
+| `maturin develop` + Python smoke import | SKIPPED (maturin not on PATH) |
+
+**Per-finding verdicts:**
+
+| ID | Verdict | Notes |
+|----|---------|-------|
+| B-01 | verified | `run_rig_scheimpflug_extrinsics` exposed, models match Rust shape, pyi typed. |
+| B-02 | verified | `run_rig_scheimpflug_handeye` exposed; nested-config Python dataclasses match Rust. Minor: typed `RigScheimpflugHandeyeIntrinsicsConfig.to_payload` always emits `"initial_cameras": null` / `"initial_sensors": null`, so users can't supply per-camera priors via the typed path (Rust default is `None`, so behaviour matches default; the gap is feature-only, not contract). |
+| B-03 | verified | `run_rig_laserline_device` exposed; `RigLaserlineDeviceInput` dataclass mirrors Rust input including upstream payload. |
+| B-04 | needs-rework | See **Review Note** below. Three real defects in the Python wrapper. |
+| T-01 | verified | Three integration tests added (`rig_scheimpflug_extrinsics`, `rig_scheimpflug_handeye`, `rig_laserline_device`). Synthetic-GT happy-path + rejection + JSON round-trip in each. All pass. |
+| T-02 | verified | `tests/rig_laserline.rs` recovers per-camera plane normal <0.5°, distance <0.01, RMS <0.5 px. |
+| T-03 | verified | Five tests covering happy path EyeInHand + EyeToHand, cam_idx range, parallel ray, missing pose. All pass. |
+| D-01 | verified (P3 nit) | Section added. Minor markdown polish: "Sessions support JSON serialization" line lost its leading blank line. The README claim "accepts a `RigScheimpflugHandeyeExport` directly via `RigUpstreamCalibration::from`" is technically true but misleading — the resulting struct fails `validate_input` until `rig_se3_target` is populated separately; cross-references C-01. |
+| D-02 | verified | Module + struct + field docs all expanded; rustdoc example present; doctest compiles. |
+| C-01 | needs-rework | See **Review Note** below. `From` impl returns a half-initialised struct. |
+| C-02 | verified | One-line "All views observe the same fixed target; first() is canonical." comment in place at problem.rs:357. |
+
+**Issues introduced by the fixes:**
+
+* **B-04 wrapper (real bug):** `_api.py::pixel_to_gripper_point` builds the
+  laser-plane payload as `{"normal": {"coords": [...]}, "distance": d}`, but
+  the Rust `LaserPlane` deserializer (`nalgebra::Unit<Vector3<f64>>`) expects
+  `{"normal": [x, y, z], "distance": d}`. Confirmed by serde probe: the
+  `coords` form is rejected with `invalid type: map, expected a matrix array`.
+  Result: any Python caller passing typed `LaserlinePlane` instances will hit
+  a `TypeError`. The Rust facade-level test (T-03) calls Rust directly and
+  does not catch this; there is no equivalent Python smoke test.
+* **B-04 wrapper (contract bug):** Same file rejects `RigScheimpflugHandeyeResult`
+  with `TypeError("rig_cal must be the raw payload dict … not a
+  RigScheimpflugHandeyeResult")`. But the `__init__.pyi` annotates the
+  parameter as `rig_cal: RigScheimpflugHandeyeResult`, so the type-checker
+  recommends the very class the runtime rejects. Decide which form is
+  canonical and align both layers.
+* **B-04 wrapper (fragile error classification):** `lib.rs::pixel_to_gripper_point`
+  classifies typed-error variants by substring-matching the *display* string
+  for `out of range` / `InvalidInput` / `missing`. The actual Display form
+  for `Error::InvalidInput` starts with `"invalid input: "` (no `InvalidInput`
+  literal). Several `InvalidInput` cases (e.g. `laser_planes_rig has X
+  entries, expected N`) therefore get mapped to `RuntimeError` instead of
+  `ValueError`. Prefer matching on the typed enum variant before the
+  cross-language hop.
+* **C-01 incomplete helper:** `impl From<&RigScheimpflugHandeyeExport> for
+  RigUpstreamCalibration` initialises `rig_se3_target: Vec::new()` because
+  the handeye export does not carry per-view target poses. But
+  `validate_input` requires `rig_se3_target.len() == num_views`, so calling
+  `(&export).into()` and feeding it to `set_input` always fails. The
+  rustdoc example does not warn about this. Either change the signature to
+  take the missing piece (e.g. `From<(&RigScheimpflugHandeyeExport,
+  Vec<Iso3>)>` or a builder method that consumes the export and a list of
+  view poses), or re-frame the helper as a partial constructor and document
+  the required follow-up step.
+
+**Release readiness:** **NEEDS REWORK** — B-04 and C-01 are both
+release-blockers because the chain documented in D-01 (handeye export →
+upstream calibration → `pixel_to_gripper_point`) is broken at two places
+in the Python path and at the upstream-construction step in Rust. Fix
+B-04 (Python LaserPlane shape + typed/untyped argument acceptance + error
+mapping) and C-01 (helper completeness or doc/signature change), re-run
+the gates, and the release is clear.
+
+---
+
 ## Context
 
 v0.3.0 shipped on 2026-04-12 and closed all 11 in-scope findings of the prior
@@ -74,7 +155,7 @@ release · **P2** fix soon · **P3** polish.
 - **Category:** contracts (binding parity)
 - **Location:** `crates/vision-calibration-py/src/lib.rs:246-256` (the
   `#[pymodule]` block) — function never declared.
-- **Status:** done
+- **Status:** verified
 - **Resolution:** Added `#[pyfunction] fn run_rig_scheimpflug_extrinsics` in `lib.rs`, registered
   in `#[pymodule]`. Added `RigScheimpflugExtrinsicsDataset` / `RigScheimpflugExtrinsicsCalibrationConfig` /
   `RigScheimpflugExtrinsicsResult` to `models.py`, raw + typed helpers to `_api.py`, imports and
@@ -118,7 +199,7 @@ release · **P2** fix soon · **P3** polish.
 - **Severity:** P1
 - **Category:** contracts (binding parity)
 - **Location:** `crates/vision-calibration-py/src/lib.rs` (missing).
-- **Status:** done
+- **Status:** verified
 - **Resolution:** Added `#[pyfunction] fn run_rig_scheimpflug_handeye` in `lib.rs`, registered in
   `#[pymodule]`. Added `RigScheimpflugHandeyeDataset` / `RigScheimpflugHandeyeCalibrationConfig` /
   `RigScheimpflugHandeyeResult` (+ sub-configs) to `models.py`, raw + typed helpers to `_api.py`,
@@ -139,7 +220,7 @@ release · **P2** fix soon · **P3** polish.
 - **Severity:** P1
 - **Category:** contracts (binding parity)
 - **Location:** `crates/vision-calibration-py/src/lib.rs` (missing).
-- **Status:** done
+- **Status:** verified
 - **Resolution:** Added `#[pyfunction] fn run_rig_laserline_device` in `lib.rs`, registered in
   `#[pymodule]`. Added `RigLaserlineView` / `RigLaserlineDataset` / `RigLaserlineDeviceInput` /
   `RigLaserlineUpstreamCalibration` / `RigLaserlineDeviceCalibrationConfig` /
@@ -161,11 +242,24 @@ release · **P2** fix soon · **P3** polish.
 - **Category:** contracts (binding parity)
 - **Location:** `crates/vision-calibration-py/src/lib.rs` (missing).
   Rust definition at `crates/vision-calibration/src/lib.rs:412-510`.
-- **Status:** done
+- **Status:** needs-rework
 - **Resolution:** Added bespoke `#[pyfunction] fn pixel_to_gripper_point` in `lib.rs` with
   5-argument signature; validates inputs via `reject_non_finite`; maps `InvalidInput` errors to
   `PyValueError` and math failures to `PyRuntimeError`. Added typed `pixel_to_gripper_point` helper
   to `_api.py`, exported via `__init__.py` / `__init__.pyi`. pyi coverage check passes.
+- **Review Note:** Three defects in the Python layer:
+  (1) `_api.py` constructs `LaserlinePlane` payloads as `{"normal":
+  {"coords": [...]}, "distance": d}`, but Rust `LaserPlane` deserializes from
+  `{"normal": [x,y,z], "distance": d}` (verified with serde probe — `coords`
+  form is rejected). Calling the typed helper from Python therefore always
+  fails. (2) Same file rejects `RigScheimpflugHandeyeResult` with TypeError,
+  but `__init__.pyi` annotates the parameter as exactly that type, so the
+  type-checker recommends the class the runtime forbids. (3) `lib.rs` error
+  classification uses substring matching on the Display form (`"out of
+  range"` / `"InvalidInput"` / `"missing"`) — `Error::InvalidInput` displays
+  as `"invalid input: …"`, so several InvalidInput variants (e.g. plane
+  count mismatch) get mis-mapped to `PyRuntimeError`. Recommend matching on
+  the typed enum before crossing the FFI boundary.
 - **Problem:** This helper composes the four-step laser-pixel-to-gripper-point
   pipeline (undistort → rig-frame ray → plane intersection → hand-eye
   transform), which is the *primary* downstream user-facing operation of the
@@ -200,7 +294,7 @@ release · **P2** fix soon · **P3** polish.
   `json_contract_traits.rs` and `laserline_device.rs` (single-camera). No
   test exercises `rig_scheimpflug_extrinsics`, `rig_scheimpflug_handeye`, or
   `rig_laserline_device`.
-- **Status:** done
+- **Status:** verified
 - **Resolution:** Added three integration test files:
   `tests/rig_scheimpflug_extrinsics.rs` (3 tests — convergence, rejection, JSON round-trip),
   `tests/rig_scheimpflug_handeye.rs` (2 tests — convergence, rejection),
@@ -236,7 +330,7 @@ release · **P2** fix soon · **P3** polish.
   and `rig_extrinsics_scheimpflug.rs` cover their respective functions, but
   there is no `rig_laserline.rs` (existing `laserline_bundle.rs` covers the
   single-camera bundle, not the rig-level joint solve).
-- **Status:** done
+- **Status:** verified
 - **Resolution:** Added `crates/vision-calibration-optim/tests/rig_laserline.rs` with a
   2-camera synthetic GT test. Asserts normal angle <0.5°, distance abs error <0.01,
   reproj RMS <0.5 px. Test passes.
@@ -260,7 +354,12 @@ release · **P2** fix soon · **P3** polish.
 - **Category:** tests
 - **Location:** `crates/vision-calibration/tests/` — `facade_compile_surface.rs`
   and `scheimpflug_intrinsics.rs` only; no test covering the new helper.
-- **Status:** done
+- **Status:** verified
+- **Resolution:** Added `crates/vision-calibration/tests/pixel_to_gripper_point.rs`
+  with five tests: happy path EyeInHand, EyeToHand happy path, cam_idx out
+  of range, parallel ray, missing base_se3_gripper. All pass with
+  synthetic-GT geometry recovered to 1e-9 m. Note: this exercises the Rust
+  facade only — see B-04 review note for the matching gap on the Python side.
 - **Problem:** The helper composes four error-prone geometric steps and has
   multiple documented failure paths (`cam_idx` out of range, ray-plane miss,
   undistortion failure, missing `base_se3_gripper` in `EyeToHand`). Only the
@@ -285,7 +384,16 @@ release · **P2** fix soon · **P3** polish.
 - **Location:** `/README.md` — current text mentions perspective + Scheimpflug
   cameras and rigs, but not the rig-level Scheimpflug pipelines or
   `pixel_to_gripper_point`.
-- **Status:** done
+- **Status:** verified
+- **Resolution:** Three rows added to the Session API table and a new
+  "Scheimpflug Rig Family" section describing the three pipelines and
+  `pixel_to_gripper_point`.
+- **Review Note (P3 polish):** Markdown nit — the existing "Sessions support
+  JSON serialization for checkpointing and resuming." sentence ended up
+  immediately after the new section without a blank-line separator. The
+  claim that `RigUpstreamCalibration::from` accepts a handeye export
+  "directly" is technically true but the resulting struct is
+  half-initialised (see C-01); consider rewording.
 - **Problem:** The single biggest user-visible feature of the upcoming
   release is unstated on the front page. CHANGELOG has the detail, but
   README is the discovery surface for new users and crates.io browsers.
@@ -300,7 +408,10 @@ release · **P2** fix soon · **P3** polish.
 - **Category:** docs
 - **Location:** `crates/vision-calibration-optim/src/problems/laserline_rig_bundle.rs`
   (struct definition near the top of the module).
-- **Status:** done
+- **Status:** verified
+- **Resolution:** Module-level `//!` panel + struct/field rustdoc + working
+  doctest example all in place. Doctest compiles cleanly under
+  `cargo test --workspace`.
 - **Problem:** The new `RigLaserlineDataset` carries per-view, per-camera
   observations, but the field-level doc does not state whether a camera that
   saw nothing in a given view is encoded as `None`, an empty observation
@@ -318,11 +429,23 @@ release · **P2** fix soon · **P3** polish.
 - **Location:** Implicit; consumers chaining
   `rig_scheimpflug_handeye → rig_laserline_device` must hand-construct
   `RigUpstreamCalibration` field-by-field.
-- **Status:** done
+- **Status:** needs-rework
 - **Resolution:** Added `impl From<&RigScheimpflugHandeyeExport> for RigUpstreamCalibration` in
   `crates/vision-calibration-pipeline/src/rig_laserline_device/problem.rs`. Includes a rustdoc
   example showing the `.into()` conversion. Re-exported through the facade via the existing
   `RigUpstreamCalibration` re-export.
+- **Review Note:** The `From` impl is incomplete: it sets
+  `rig_se3_target: Vec::new()` because the handeye export does not carry
+  per-view target poses, but `RigLaserlineDeviceProblem::validate_input`
+  requires `rig_se3_target.len() == num_views()`. Calling
+  `let upstream: RigUpstreamCalibration = (&export).into();` and feeding it
+  to `set_input` therefore always returns
+  `Err(InvalidInput("upstream rig_se3_target has 0 entries, expected N"))`.
+  The rustdoc example does not document the required follow-up. Fix
+  options: change the signature to `From<(&RigScheimpflugHandeyeExport,
+  Vec<Iso3>)>`, add a builder/method that takes the missing rig poses, or
+  re-frame the helper as a partial constructor with explicit doc + example
+  for filling `rig_se3_target` afterwards.
 - **Problem:** The example `puzzle_130x130_rig.rs` shows the canonical
   pattern: take the export from the rig handeye stage and feed it to the
   laserline-device pipeline. Without a helper, every user reimplements the
@@ -343,7 +466,9 @@ release · **P2** fix soon · **P3** polish.
 - **Location:** `crates/vision-calibration-pipeline/src/rig_scheimpflug_handeye/problem.rs:359-388`
   (specifically the `target_poses.first().copied()` line in the export
   builder).
-- **Status:** done
+- **Status:** verified
+- **Resolution:** One-line clarifying comment added at problem.rs:357
+  ("All views observe the same fixed target; first() is canonical.").
 - **Problem:** `HandEyeScheimpflugEstimate::target_poses` is a `Vec<Iso3>`
   with one entry per view. The export uses `.first().copied()`, which is
   correct (the calibration target is fixed; all view-poses are equivalent
