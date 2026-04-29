@@ -1286,6 +1286,455 @@ class ScheimpflugIntrinsicsResult:
         )
 
 
+# ─── Scheimpflug rig extrinsics ─────────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class RigScheimpflugExtrinsicsDataset:
+    """Multi-camera Scheimpflug rig dataset for extrinsics calibration.
+
+    Mirrors :class:`RigHandeyeDataset` but without per-view robot pose metadata.
+    """
+
+    num_cameras: int
+    views: list[RigExtrinsicsView]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "num_cameras": int(self.num_cameras),
+            "views": [view.to_payload() for view in self.views],
+        }
+
+
+@dataclass(slots=True)
+class RigScheimpflugExtrinsicsCalibrationConfig:
+    """Configuration for Scheimpflug rig extrinsics calibration."""
+
+    intrinsics_init_iterations: int = 2
+    fix_k3: bool = True
+    fix_tangential: bool = False
+    zero_skew: bool = True
+    init_tilt_x: float = 0.0
+    init_tilt_y: float = 0.0
+    fix_scheimpflug_in_intrinsics: dict[str, bool] = field(
+        default_factory=lambda: dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
+    )
+    reference_camera_idx: int = 0
+    max_iters: int = 80
+    verbosity: int = 0
+    robust_loss: RobustLoss = "None"
+    refine_intrinsics_in_rig_ba: bool = False
+    refine_scheimpflug_in_rig_ba: bool = False
+    fix_first_rig_pose: bool = True
+
+    def to_payload(self) -> dict[str, Any]:
+        fix_s = dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
+        fix_s.update(self.fix_scheimpflug_in_intrinsics)
+        return {
+            "intrinsics_init_iterations": int(self.intrinsics_init_iterations),
+            "fix_k3": bool(self.fix_k3),
+            "fix_tangential": bool(self.fix_tangential),
+            "zero_skew": bool(self.zero_skew),
+            "init_tilt_x": float(self.init_tilt_x),
+            "init_tilt_y": float(self.init_tilt_y),
+            "fix_scheimpflug_in_intrinsics": fix_s,
+            "reference_camera_idx": int(self.reference_camera_idx),
+            "max_iters": int(self.max_iters),
+            "verbosity": int(self.verbosity),
+            "robust_loss": cast(Any, self.robust_loss),
+            "refine_intrinsics_in_rig_ba": bool(self.refine_intrinsics_in_rig_ba),
+            "refine_scheimpflug_in_rig_ba": bool(self.refine_scheimpflug_in_rig_ba),
+            "fix_first_rig_pose": bool(self.fix_first_rig_pose),
+        }
+
+
+@dataclass(slots=True)
+class RigScheimpflugExtrinsicsResult:
+    """Result from :func:`vision_calibration.run_rig_scheimpflug_extrinsics`."""
+
+    cameras: list[PinholeBrownConradyCamera]
+    sensors: list[ScheimpflugSensor]
+    cam_se3_rig: list[Pose]
+    rig_se3_target: list[Pose]
+    mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigScheimpflugExtrinsicsResult":
+        return cls(
+            cameras=[
+                PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
+                for c in cast(list[Any], payload["cameras"])
+            ],
+            sensors=[
+                ScheimpflugSensor.from_payload(cast(Mapping[str, Any], s))
+                for s in cast(list[Any], payload["sensors"])
+            ],
+            cam_se3_rig=[
+                Pose.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["cam_se3_rig"])
+            ],
+            rig_se3_target=[
+                Pose.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["rig_se3_target"])
+            ],
+            mean_reproj_error=float(payload["mean_reproj_error"]),
+            per_cam_reproj_errors=[
+                float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
+            ],
+        )
+
+
+# ─── Scheimpflug rig hand-eye ────────────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class RigScheimpflugHandeyeIntrinsicsConfig:
+    """Per-camera intrinsics initialization options for Scheimpflug hand-eye."""
+
+    init_iterations: int = 2
+    fix_k3: bool = True
+    fix_tangential: bool = False
+    zero_skew: bool = True
+    init_tilt_x: float = 0.0
+    init_tilt_y: float = 0.0
+    fix_scheimpflug: dict[str, bool] = field(
+        default_factory=lambda: dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
+    )
+    fallback_to_shared_init: bool = True
+    fix_intrinsics_when_overridden: bool = True
+    fix_intrinsics_in_percam_ba: dict[str, bool] = field(
+        default_factory=lambda: dict(_DEFAULT_INTRINSICS_FIX_MASK)
+    )
+    fix_distortion_in_percam_ba: dict[str, bool] = field(
+        default_factory=lambda: dict(_DEFAULT_DISTORTION_FIX_MASK)
+    )
+
+    def to_payload(self) -> dict[str, Any]:
+        fix_s = dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
+        fix_s.update(self.fix_scheimpflug)
+        fix_i = dict(_DEFAULT_INTRINSICS_FIX_MASK)
+        fix_i.update(self.fix_intrinsics_in_percam_ba)
+        fix_d = dict(_DEFAULT_DISTORTION_FIX_MASK)
+        fix_d.update(self.fix_distortion_in_percam_ba)
+        return {
+            "init_iterations": int(self.init_iterations),
+            "fix_k3": bool(self.fix_k3),
+            "fix_tangential": bool(self.fix_tangential),
+            "zero_skew": bool(self.zero_skew),
+            "init_tilt_x": float(self.init_tilt_x),
+            "init_tilt_y": float(self.init_tilt_y),
+            "fix_scheimpflug": fix_s,
+            "initial_cameras": None,
+            "initial_sensors": None,
+            "fallback_to_shared_init": bool(self.fallback_to_shared_init),
+            "fix_intrinsics_when_overridden": bool(self.fix_intrinsics_when_overridden),
+            "fix_intrinsics_in_percam_ba": fix_i,
+            "fix_distortion_in_percam_ba": fix_d,
+        }
+
+
+@dataclass(slots=True)
+class RigScheimpflugHandeyeRigConfig:
+    """Rig frame / gauge options for Scheimpflug hand-eye."""
+
+    reference_camera_idx: int = 0
+    refine_intrinsics_in_rig_ba: bool = False
+    refine_scheimpflug_in_rig_ba: bool = False
+    fix_first_rig_pose: bool = True
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "reference_camera_idx": int(self.reference_camera_idx),
+            "refine_intrinsics_in_rig_ba": bool(self.refine_intrinsics_in_rig_ba),
+            "refine_scheimpflug_in_rig_ba": bool(self.refine_scheimpflug_in_rig_ba),
+            "fix_first_rig_pose": bool(self.fix_first_rig_pose),
+        }
+
+
+@dataclass(slots=True)
+class RigScheimpflugHandeyeInitConfig:
+    """Linear hand-eye initialization settings for Scheimpflug."""
+
+    handeye_mode: HandEyeMode = "EyeInHand"
+    min_motion_angle_deg: float = 5.0
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "handeye_mode": self.handeye_mode,
+            "min_motion_angle_deg": float(self.min_motion_angle_deg),
+        }
+
+
+@dataclass(slots=True)
+class RigScheimpflugHandeyeSolverConfig:
+    """Shared nonlinear solver settings for Scheimpflug hand-eye."""
+
+    max_iters: int = 80
+    verbosity: int = 0
+    robust_loss: RobustLoss = "None"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "max_iters": int(self.max_iters),
+            "verbosity": int(self.verbosity),
+            "robust_loss": cast(Any, self.robust_loss),
+        }
+
+
+@dataclass(slots=True)
+class RigScheimpflugHandeyeBaConfig:
+    """Final hand-eye bundle-adjustment options for Scheimpflug."""
+
+    refine_robot_poses: bool = True
+    robot_rot_sigma: float = 0.5 * 3.141592653589793 / 180.0
+    robot_trans_sigma: float = 0.001
+    refine_cam_se3_rig_in_handeye_ba: bool = False
+    refine_scheimpflug_in_handeye_ba: bool = False
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "refine_robot_poses": bool(self.refine_robot_poses),
+            "robot_rot_sigma": float(self.robot_rot_sigma),
+            "robot_trans_sigma": float(self.robot_trans_sigma),
+            "refine_cam_se3_rig_in_handeye_ba": bool(self.refine_cam_se3_rig_in_handeye_ba),
+            "refine_scheimpflug_in_handeye_ba": bool(self.refine_scheimpflug_in_handeye_ba),
+        }
+
+
+@dataclass(slots=True)
+class RigScheimpflugHandeyeCalibrationConfig:
+    """Configuration for Scheimpflug rig hand-eye calibration."""
+
+    intrinsics: RigScheimpflugHandeyeIntrinsicsConfig = field(
+        default_factory=RigScheimpflugHandeyeIntrinsicsConfig
+    )
+    rig: RigScheimpflugHandeyeRigConfig = field(
+        default_factory=RigScheimpflugHandeyeRigConfig
+    )
+    handeye_init: RigScheimpflugHandeyeInitConfig = field(
+        default_factory=RigScheimpflugHandeyeInitConfig
+    )
+    solver: RigScheimpflugHandeyeSolverConfig = field(
+        default_factory=RigScheimpflugHandeyeSolverConfig
+    )
+    handeye_ba: RigScheimpflugHandeyeBaConfig = field(
+        default_factory=RigScheimpflugHandeyeBaConfig
+    )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "intrinsics": self.intrinsics.to_payload(),
+            "rig": self.rig.to_payload(),
+            "handeye_init": self.handeye_init.to_payload(),
+            "solver": self.solver.to_payload(),
+            "handeye_ba": self.handeye_ba.to_payload(),
+        }
+
+
+@dataclass(slots=True)
+class RigScheimpflugHandeyeDataset:
+    """Multi-camera Scheimpflug rig hand-eye dataset."""
+
+    num_cameras: int
+    views: list[RigHandeyeView]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "num_cameras": int(self.num_cameras),
+            "views": [view.to_payload() for view in self.views],
+        }
+
+
+@dataclass(slots=True)
+class RigScheimpflugHandeyeResult:
+    """Result from :func:`vision_calibration.run_rig_scheimpflug_handeye`."""
+
+    cameras: list[PinholeBrownConradyCamera]
+    sensors: list[ScheimpflugSensor]
+    cam_se3_rig: list[Pose]
+    handeye_mode: HandEyeMode
+    gripper_se3_rig: Pose | None
+    rig_se3_base: Pose | None
+    base_se3_target: Pose | None
+    gripper_se3_target: Pose | None
+    robot_deltas: list[list[float]] | None
+    mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigScheimpflugHandeyeResult":
+        def _pose(name: str) -> Pose | None:
+            value = payload.get(name)
+            if value is None:
+                return None
+            return Pose.from_payload(cast(Mapping[str, Any], value))
+
+        return cls(
+            cameras=[
+                PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
+                for c in cast(list[Any], payload["cameras"])
+            ],
+            sensors=[
+                ScheimpflugSensor.from_payload(cast(Mapping[str, Any], s))
+                for s in cast(list[Any], payload["sensors"])
+            ],
+            cam_se3_rig=[
+                Pose.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["cam_se3_rig"])
+            ],
+            handeye_mode=cast(HandEyeMode, payload["handeye_mode"]),
+            gripper_se3_rig=_pose("gripper_se3_rig"),
+            rig_se3_base=_pose("rig_se3_base"),
+            base_se3_target=_pose("base_se3_target"),
+            gripper_se3_target=_pose("gripper_se3_target"),
+            robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
+            mean_reproj_error=float(payload["mean_reproj_error"]),
+            per_cam_reproj_errors=[
+                float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
+            ],
+        )
+
+
+# ─── Rig laserline device ─────────────────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class RigLaserlineUpstreamCalibration:
+    """Frozen upstream calibration for rig laserline device.
+
+    Typically derived from a :class:`RigScheimpflugHandeyeResult` export.
+    """
+
+    intrinsics: list[dict[str, float]]
+    distortion: list[dict[str, Any]]
+    sensors: list[dict[str, float]]
+    cam_se3_rig: list[Pose]
+    rig_se3_target: list[Pose]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "intrinsics": self.intrinsics,
+            "distortion": self.distortion,
+            "sensors": self.sensors,
+            "cam_se3_rig": [p.to_payload() for p in self.cam_se3_rig],
+            "rig_se3_target": [p.to_payload() for p in self.rig_se3_target],
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigLaserlineUpstreamCalibration":
+        return cls(
+            intrinsics=cast(list[dict[str, float]], payload["intrinsics"]),
+            distortion=cast(list[dict[str, Any]], payload["distortion"]),
+            sensors=cast(list[dict[str, float]], payload["sensors"]),
+            cam_se3_rig=[
+                Pose.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["cam_se3_rig"])
+            ],
+            rig_se3_target=[
+                Pose.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["rig_se3_target"])
+            ],
+        )
+
+
+@dataclass(slots=True)
+class RigLaserlineView:
+    """One frame in a rig laserline dataset.
+
+    Parameters
+    ----------
+    cameras:
+        Per-camera target correspondences. Use ``None`` for a missing camera.
+    laser_pixels:
+        Per-camera laser pixel observations. Use ``None`` for a missing camera.
+    """
+
+    cameras: list[Observation | None]
+    laser_pixels: list[list[Vec2] | None]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "cameras": [None if obs is None else obs.to_payload() for obs in self.cameras],
+            "laser_pixels": [
+                None if px is None else [[u, v] for u, v in px]
+                for px in self.laser_pixels
+            ],
+        }
+
+
+@dataclass(slots=True)
+class RigLaserlineDataset:
+    """Multi-camera rig laserline dataset."""
+
+    num_cameras: int
+    views: list[RigLaserlineView]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "num_cameras": int(self.num_cameras),
+            "views": [view.to_payload() for view in self.views],
+        }
+
+
+@dataclass(slots=True)
+class RigLaserlineDeviceInput:
+    """Input for rig laserline device calibration."""
+
+    dataset: RigLaserlineDataset
+    upstream: RigLaserlineUpstreamCalibration
+    initial_planes_cam: list[dict[str, Any]] | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "dataset": self.dataset.to_payload(),
+            "upstream": self.upstream.to_payload(),
+            "initial_planes_cam": self.initial_planes_cam,
+        }
+
+
+@dataclass(slots=True)
+class RigLaserlineDeviceCalibrationConfig:
+    """Configuration for rig laserline device calibration."""
+
+    max_iters: int | None = None
+    verbosity: int | None = None
+    laser_residual_type: LaserlineResidualType = "LineDistNormalized"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "max_iters": self.max_iters,
+            "verbosity": self.verbosity,
+            "laser_residual_type": self.laser_residual_type,
+        }
+
+
+@dataclass(slots=True)
+class RigLaserlineDeviceResult:
+    """Result from :func:`vision_calibration.run_rig_laserline_device`."""
+
+    laser_planes_rig: list[LaserlinePlane]
+    laser_planes_cam: list[LaserlinePlane]
+    per_camera_stats: list[LaserlineStats]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigLaserlineDeviceResult":
+        return cls(
+            laser_planes_rig=[
+                LaserlinePlane.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["laser_planes_rig"])
+            ],
+            laser_planes_cam=[
+                LaserlinePlane.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["laser_planes_cam"])
+            ],
+            per_camera_stats=[
+                LaserlineStats.from_payload(cast(Mapping[str, Any], s))
+                for s in cast(list[Any], payload["per_camera_stats"])
+            ],
+        )
+
+
 def normalize_input_payload(input_value: Any) -> Any:
     """Convert high-level model inputs to serde payloads."""
     return _payload_from_maybe_model(input_value)

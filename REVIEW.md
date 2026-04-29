@@ -74,7 +74,11 @@ release · **P2** fix soon · **P3** polish.
 - **Category:** contracts (binding parity)
 - **Location:** `crates/vision-calibration-py/src/lib.rs:246-256` (the
   `#[pymodule]` block) — function never declared.
-- **Status:** todo
+- **Status:** done
+- **Resolution:** Added `#[pyfunction] fn run_rig_scheimpflug_extrinsics` in `lib.rs`, registered
+  in `#[pymodule]`. Added `RigScheimpflugExtrinsicsDataset` / `RigScheimpflugExtrinsicsCalibrationConfig` /
+  `RigScheimpflugExtrinsicsResult` to `models.py`, raw + typed helpers to `_api.py`, imports and
+  `__all__` entry in `__init__.py`, typed signature in `__init__.pyi`. pyi coverage check passes.
 - **Problem:** The Rust facade exports
   `vision_calibration::rig_scheimpflug_extrinsics::run_calibration`
   (re-exported at `crates/vision-calibration/src/lib.rs:348-356`), but no
@@ -114,7 +118,11 @@ release · **P2** fix soon · **P3** polish.
 - **Severity:** P1
 - **Category:** contracts (binding parity)
 - **Location:** `crates/vision-calibration-py/src/lib.rs` (missing).
-- **Status:** todo
+- **Status:** done
+- **Resolution:** Added `#[pyfunction] fn run_rig_scheimpflug_handeye` in `lib.rs`, registered in
+  `#[pymodule]`. Added `RigScheimpflugHandeyeDataset` / `RigScheimpflugHandeyeCalibrationConfig` /
+  `RigScheimpflugHandeyeResult` (+ sub-configs) to `models.py`, raw + typed helpers to `_api.py`,
+  imports and `__all__` entries in `__init__.py`, typed signature in `__init__.pyi`.
 - **Problem:** Same shape as B-01.
   `vision_calibration::rig_scheimpflug_handeye::run_calibration` exists at
   `crates/vision-calibration-pipeline/src/rig_scheimpflug_handeye/steps.rs:916`
@@ -131,7 +139,12 @@ release · **P2** fix soon · **P3** polish.
 - **Severity:** P1
 - **Category:** contracts (binding parity)
 - **Location:** `crates/vision-calibration-py/src/lib.rs` (missing).
-- **Status:** todo
+- **Status:** done
+- **Resolution:** Added `#[pyfunction] fn run_rig_laserline_device` in `lib.rs`, registered in
+  `#[pymodule]`. Added `RigLaserlineView` / `RigLaserlineDataset` / `RigLaserlineDeviceInput` /
+  `RigLaserlineUpstreamCalibration` / `RigLaserlineDeviceCalibrationConfig` /
+  `RigLaserlineDeviceResult` to `models.py`, raw + typed helpers to `_api.py`, imports and
+  `__all__` entries in `__init__.py`, typed signature in `__init__.pyi`.
 - **Problem:** Same shape. Pipeline at `crates/vision-calibration-pipeline/src/
   rig_laserline_device/steps.rs:177`, facade re-export at
   `crates/vision-calibration/src/lib.rs:379-385`. The pipeline consumes a
@@ -148,7 +161,11 @@ release · **P2** fix soon · **P3** polish.
 - **Category:** contracts (binding parity)
 - **Location:** `crates/vision-calibration-py/src/lib.rs` (missing).
   Rust definition at `crates/vision-calibration/src/lib.rs:412-510`.
-- **Status:** todo
+- **Status:** done
+- **Resolution:** Added bespoke `#[pyfunction] fn pixel_to_gripper_point` in `lib.rs` with
+  5-argument signature; validates inputs via `reject_non_finite`; maps `InvalidInput` errors to
+  `PyValueError` and math failures to `PyRuntimeError`. Added typed `pixel_to_gripper_point` helper
+  to `_api.py`, exported via `__init__.py` / `__init__.pyi`. pyi coverage check passes.
 - **Problem:** This helper composes the four-step laser-pixel-to-gripper-point
   pipeline (undistort → rig-frame ray → plane intersection → hand-eye
   transform), which is the *primary* downstream user-facing operation of the
