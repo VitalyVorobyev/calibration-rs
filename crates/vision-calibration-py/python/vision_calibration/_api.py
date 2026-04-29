@@ -318,6 +318,27 @@ def run_rig_laserline_device(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _pixel_to_gripper_point_raw(
+    cam_idx: int,
+    pixel: list[float],
+    rig_cal_payload: Mapping[str, Any],
+    laser_planes_payload: list[Mapping[str, Any]],
+    base_se3_gripper_payload: Mapping[str, Any] | None = None,
+) -> tuple[float, float, float]:
+    """Low-level raw helper: all arguments are already serde payloads."""
+    result = cast(
+        list[float],
+        _native.pixel_to_gripper_point(
+            cam_idx,
+            list(pixel),
+            rig_cal_payload,
+            list(laser_planes_payload),
+            base_se3_gripper_payload,
+        ),
+    )
+    return (result[0], result[1], result[2])
+
+
 def pixel_to_gripper_point(
     cam_idx: int,
     pixel: tuple[float, float] | list[float],
@@ -334,37 +355,35 @@ def pixel_to_gripper_point(
     pixel:
         Observed pixel as ``(u, v)``.
     rig_cal:
-        Scheimpflug rig hand-eye calibration result (typed or raw payload).
+        Scheimpflug rig hand-eye calibration result — either a typed
+        :class:`~vision_calibration.models.RigScheimpflugHandeyeResult` or
+        a raw serde payload dict.
     laser_planes_rig:
-        Per-camera laser planes in rig frame (typed or raw payloads).
+        Per-camera laser planes in rig frame — either typed
+        :class:`~vision_calibration.models.LaserlinePlane` instances or
+        raw serde payload dicts.
     base_se3_gripper:
         Robot gripper pose (required for EyeToHand; ignored for EyeInHand).
+        Either a typed :class:`~vision_calibration.models.Pose` or a raw
+        serde payload dict.
 
     Returns
     -------
     tuple[float, float, float]
         3D point ``(x, y, z)`` in gripper frame.
     """
-    # Normalise pixel
-    px_list = list(pixel)
-
-    # Normalise rig_cal
+    # Normalise rig_cal — accept the typed dataclass or a raw dict
     if isinstance(rig_cal, RigScheimpflugHandeyeResult):
-        raise TypeError(
-            "rig_cal must be the raw payload dict returned by run_rig_scheimpflug_handeye "
-            "or equivalent — not a RigScheimpflugHandeyeResult; "
-            "pass the dict from _run_rig_scheimpflug_handeye_raw or the native call"
-        )
-    rig_cal_payload = dict(rig_cal)
+        rig_cal_payload: Mapping[str, Any] = rig_cal.to_payload()
+    else:
+        rig_cal_payload = dict(rig_cal)
 
-    # Normalise planes
+    # Normalise planes — use LaserlinePlane.to_payload() which emits the
+    # correct {"normal": [x, y, z], "distance": d} shape expected by Rust
     planes_payload: list[Any] = []
     for p in laser_planes_rig:
         if isinstance(p, LaserlinePlane):
-            planes_payload.append({
-                "normal": {"coords": list(p.normal_xyz)},
-                "distance": p.distance,
-            })
+            planes_payload.append(p.to_payload())
         else:
             planes_payload.append(dict(p))
 
@@ -376,10 +395,6 @@ def pixel_to_gripper_point(
         else:
             pose_payload = dict(base_se3_gripper)
 
-    result = cast(
-        list[float],
-        _native.pixel_to_gripper_point(
-            cam_idx, px_list, rig_cal_payload, planes_payload, pose_payload
-        ),
+    return _pixel_to_gripper_point_raw(
+        cam_idx, list(pixel), rig_cal_payload, planes_payload, pose_payload
     )
-    return (result[0], result[1], result[2])

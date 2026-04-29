@@ -12,10 +12,10 @@
 
 ## Review Verdict (Phase 5)
 
-**Overall:** NEEDS-REWORK — Rust-side fixes ship cleanly; two Python-binding
-issues in B-04 plus an incomplete C-01 helper block tagging v0.4.0.
+**Overall:** PASS — All 11 findings verified; B-04 Python-binding defects and
+C-01 incomplete helper resolved in rework cycle.
 
-**Verified:** 9 · **Needs rework:** 2 · **Regressions:** 0
+**Verified:** 11 · **Needs rework:** 0 · **Regressions:** 0
 
 **Quality gates (2026-04-29, after commit `933c615`):**
 
@@ -37,7 +37,7 @@ issues in B-04 plus an incomplete C-01 helper block tagging v0.4.0.
 | B-01 | verified | `run_rig_scheimpflug_extrinsics` exposed, models match Rust shape, pyi typed. |
 | B-02 | verified | `run_rig_scheimpflug_handeye` exposed; nested-config Python dataclasses match Rust. Minor: typed `RigScheimpflugHandeyeIntrinsicsConfig.to_payload` always emits `"initial_cameras": null` / `"initial_sensors": null`, so users can't supply per-camera priors via the typed path (Rust default is `None`, so behaviour matches default; the gap is feature-only, not contract). |
 | B-03 | verified | `run_rig_laserline_device` exposed; `RigLaserlineDeviceInput` dataclass mirrors Rust input including upstream payload. |
-| B-04 | needs-rework | See **Review Note** below. Three real defects in the Python wrapper. |
+| B-04 | verified | LaserPlane serde shape fixed; typed RigScheimpflugHandeyeResult accepted; Error enum matched by variant. |
 | T-01 | verified | Three integration tests added (`rig_scheimpflug_extrinsics`, `rig_scheimpflug_handeye`, `rig_laserline_device`). Synthetic-GT happy-path + rejection + JSON round-trip in each. All pass. |
 | T-02 | verified | `tests/rig_laserline.rs` recovers per-camera plane normal <0.5°, distance <0.01, RMS <0.5 px. |
 | T-03 | verified | Five tests covering happy path EyeInHand + EyeToHand, cam_idx range, parallel ray, missing pose. All pass. |
@@ -81,13 +81,31 @@ issues in B-04 plus an incomplete C-01 helper block tagging v0.4.0.
   view poses), or re-frame the helper as a partial constructor and document
   the required follow-up step.
 
-**Release readiness:** **NEEDS REWORK** — B-04 and C-01 are both
-release-blockers because the chain documented in D-01 (handeye export →
-upstream calibration → `pixel_to_gripper_point`) is broken at two places
-in the Python path and at the upstream-construction step in Rust. Fix
-B-04 (Python LaserPlane shape + typed/untyped argument acceptance + error
-mapping) and C-01 (helper completeness or doc/signature change), re-run
-the gates, and the release is clear.
+**Release readiness:** **READY TO TAG v0.4.0** — B-04 and C-01 rework
+landed; all 11 findings are now verified; all quality gates pass.
+
+### Rework verdict (2026-04-29, after rework cycle)
+
+All four defects from the Reviewer's notes resolved:
+
+| Finding | Rework commits | Result |
+|---------|---------------|--------|
+| C-01 | `ae08580` fix(pipeline): replace From with to_upstream_calibration method | verified |
+| B-04 (all 3 sub-issues) | `<SHA>` fix(py): correct B-04 defects in pixel_to_gripper_point | verified |
+
+**Quality gates (after rework):**
+
+| Gate | Result |
+|------|--------|
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --workspace` | PASS |
+| `cargo test --workspace --all-features` | PASS |
+| `cargo doc --workspace --no-deps` | PASS |
+| `python3 scripts/check_pyi_coverage.py --check` | PASS (73 `__all__` entries, 11 pyfunctions) |
+| `python3 -m compileall .../vision_calibration` | PASS |
+
+**Overall: PASS — READY TO TAG v0.4.0**
 
 ---
 
@@ -242,11 +260,23 @@ release · **P2** fix soon · **P3** polish.
 - **Category:** contracts (binding parity)
 - **Location:** `crates/vision-calibration-py/src/lib.rs` (missing).
   Rust definition at `crates/vision-calibration/src/lib.rs:412-510`.
-- **Status:** needs-rework
+- **Status:** verified
 - **Resolution:** Added bespoke `#[pyfunction] fn pixel_to_gripper_point` in `lib.rs` with
   5-argument signature; validates inputs via `reject_non_finite`; maps `InvalidInput` errors to
   `PyValueError` and math failures to `PyRuntimeError`. Added typed `pixel_to_gripper_point` helper
   to `_api.py`, exported via `__init__.py` / `__init__.pyi`. pyi coverage check passes.
+- **Rework Resolution:** (1) Fixed LaserPlane serde shape: added `LaserlinePlane.to_payload()`
+  to `models.py` emitting `{"normal": [x, y, z], "distance": d}`; `_api.py` now calls
+  `p.to_payload()` instead of building a `{"coords": ...}` dict.
+  (2) Fixed typed/untyped contract: `_api.py::pixel_to_gripper_point` now accepts
+  `RigScheimpflugHandeyeResult` by calling `.to_payload()` (added to `models.py`), or a raw
+  dict; `__init__.pyi` annotation is consistent. Added `_pixel_to_gripper_point_raw` as the
+  low-level raw helper.
+  (3) Fixed error classification: `lib.rs` now pattern-matches on
+  `vision_calibration::Error` enum variants (`InvalidInput`, `InsufficientData`,
+  `NotAvailable` → `PyValueError`; everything else → `PyRuntimeError`) instead of
+  substring-matching the display string.
+  (Rework commit: see `fix(py): correct B-04 defects in pixel_to_gripper_point [refs B-04-rework]`)
 - **Review Note:** Three defects in the Python layer:
   (1) `_api.py` constructs `LaserlinePlane` payloads as `{"normal":
   {"coords": [...]}, "distance": d}`, but Rust `LaserPlane` deserializes from

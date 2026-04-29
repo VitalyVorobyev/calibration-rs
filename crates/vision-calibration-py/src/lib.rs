@@ -380,15 +380,13 @@ fn pixel_to_gripper_point(
 
     let pt = vision_calibration::pixel_to_gripper_point(cam_idx, px, &rig_cal, &planes, pose)
         .map_err(|err| {
-            let msg = err.to_string();
-            // Distinguish input errors (ValueError) from math failures (RuntimeError).
-            if msg.contains("out of range")
-                || msg.contains("InvalidInput")
-                || msg.contains("missing")
-            {
-                value_err(msg)
-            } else {
-                runtime_err(msg)
+            // Match on the typed enum: any input-validation variant → ValueError;
+            // numerical / propagated errors → RuntimeError.
+            match &err {
+                vision_calibration::Error::InvalidInput { .. }
+                | vision_calibration::Error::InsufficientData { .. }
+                | vision_calibration::Error::NotAvailable { .. } => value_err(err.to_string()),
+                _ => runtime_err(err.to_string()),
             }
         })?;
 

@@ -1016,6 +1016,17 @@ class LaserlinePlane:
         self.normal_xyz = _as_vec3(list(self.normal_xyz))
         self.distance = float(self.distance)
 
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to Rust/serde shape.
+
+        Rust's ``LaserPlane`` (``nalgebra::Unit<Vector3<f64>>``) deserializes
+        ``normal`` as a plain array ``[x, y, z]``.
+        """
+        return {
+            "normal": list(self.normal_xyz),
+            "distance": float(self.distance),
+        }
+
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlinePlane":
         """Parse laser plane from serde payload."""
@@ -1561,6 +1572,26 @@ class RigScheimpflugHandeyeResult:
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to Rust/serde shape (``RigScheimpflugHandeyeExport``)."""
+
+        def _pose(p: Pose | None) -> Any:
+            return None if p is None else p.to_payload()
+
+        return {
+            "cameras": [c.to_payload() for c in self.cameras],
+            "sensors": [s.to_payload() for s in self.sensors],
+            "cam_se3_rig": [p.to_payload() for p in self.cam_se3_rig],
+            "handeye_mode": self.handeye_mode,
+            "gripper_se3_rig": _pose(self.gripper_se3_rig),
+            "rig_se3_base": _pose(self.rig_se3_base),
+            "base_se3_target": _pose(self.base_se3_target),
+            "gripper_se3_target": _pose(self.gripper_se3_target),
+            "robot_deltas": self.robot_deltas,
+            "mean_reproj_error": float(self.mean_reproj_error),
+            "per_cam_reproj_errors": [float(v) for v in self.per_cam_reproj_errors],
+        }
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigScheimpflugHandeyeResult":
