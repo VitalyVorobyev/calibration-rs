@@ -354,6 +354,7 @@ impl ProblemType for RigScheimpflugHandeyeProblem {
             .iter()
             .map(|t| t.inverse())
             .collect();
+        // All views observe the same fixed target; first() is canonical.
         let target_pose = output
             .params
             .target_poses
