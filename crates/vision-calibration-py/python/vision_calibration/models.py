@@ -1710,17 +1710,27 @@ class RigLaserlineDataset:
 
 @dataclass(slots=True)
 class RigLaserlineDeviceInput:
-    """Input for rig laserline device calibration."""
+    """Input for rig laserline device calibration.
+
+    The ``initial_planes_cam`` warm-start field accepts the same
+    [`LaserlinePlane`] dataclass returned by
+    [`RigLaserlineDeviceResult.laser_planes_cam`], so the canonical
+    restart pattern ``initial_planes_cam=previous.laser_planes_cam``
+    works directly without manual conversion.
+    """
 
     dataset: RigLaserlineDataset
     upstream: RigLaserlineUpstreamCalibration
-    initial_planes_cam: list[dict[str, Any]] | None = None
+    initial_planes_cam: list[LaserlinePlane] | None = None
 
     def to_payload(self) -> dict[str, Any]:
+        initial: list[dict[str, Any]] | None = None
+        if self.initial_planes_cam is not None:
+            initial = [plane.to_payload() for plane in self.initial_planes_cam]
         return {
             "dataset": self.dataset.to_payload(),
             "upstream": self.upstream.to_payload(),
-            "initial_planes_cam": self.initial_planes_cam,
+            "initial_planes_cam": initial,
         }
 
 
