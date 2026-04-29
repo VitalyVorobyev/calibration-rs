@@ -200,7 +200,11 @@ release · **P2** fix soon · **P3** polish.
   `json_contract_traits.rs` and `laserline_device.rs` (single-camera). No
   test exercises `rig_scheimpflug_extrinsics`, `rig_scheimpflug_handeye`, or
   `rig_laserline_device`.
-- **Status:** todo
+- **Status:** done
+- **Resolution:** Added three integration test files:
+  `tests/rig_scheimpflug_extrinsics.rs` (3 tests — convergence, rejection, JSON round-trip),
+  `tests/rig_scheimpflug_handeye.rs` (2 tests — convergence, rejection),
+  `tests/rig_laserline_device.rs` (2 tests — convergence, config JSON round-trip). All pass.
 - **Problem:** The three new session pipelines are validated only through the
   private dataset example (`puzzle_130x130_rig.rs`), which CI does not (and
   cannot) run because the dataset is not in the public repo. A regression in
