@@ -91,7 +91,7 @@ All four defects from the Reviewer's notes resolved:
 | Finding | Rework commits | Result |
 |---------|---------------|--------|
 | C-01 | `ae08580` fix(pipeline): replace From with to_upstream_calibration method | verified |
-| B-04 (all 3 sub-issues) | `<SHA>` fix(py): correct B-04 defects in pixel_to_gripper_point | verified |
+| B-04 (all 3 sub-issues) | `746005f` fix(py): correct B-04 defects in pixel_to_gripper_point | verified |
 
 **Quality gates (after rework):**
 
@@ -276,7 +276,7 @@ release · **P2** fix soon · **P3** polish.
   `vision_calibration::Error` enum variants (`InvalidInput`, `InsufficientData`,
   `NotAvailable` → `PyValueError`; everything else → `PyRuntimeError`) instead of
   substring-matching the display string.
-  (Rework commit: see `fix(py): correct B-04 defects in pixel_to_gripper_point [refs B-04-rework]`)
+  (Rework commit: `746005f`)
 - **Review Note:** Three defects in the Python layer:
   (1) `_api.py` constructs `LaserlinePlane` payloads as `{"normal":
   {"coords": [...]}, "distance": d}`, but Rust `LaserPlane` deserializes from
@@ -468,7 +468,7 @@ release · **P2** fix soon · **P3** polish.
   `RigScheimpflugHandeyeExport::to_upstream_calibration(&self, rig_se3_target: Vec<Iso3>)`
   which requires the caller to supply the missing per-view poses. Updated README to remove
   the erroneous `RigUpstreamCalibration::from` reference. Doctest compiles and passes.
-  (Rework commit: see `fix(pipeline): replace From with to_upstream_calibration method [refs C-01-rework]`)
+  (Rework commit: `ae08580`)
 - **Review Note:** The `From` impl is incomplete: it sets
   `rig_se3_target: Vec::new()` because the handeye export does not carry
   per-view target poses, but `RigLaserlineDeviceProblem::validate_input`
