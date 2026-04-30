@@ -219,7 +219,11 @@ impl ProblemType for PlanarIntrinsicsProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
+    fn export(
+        _input: &Self::Input,
+        output: &Self::Output,
+        _config: &Self::Config,
+    ) -> Result<Self::Export, Error> {
         Ok(PlanarIntrinsicsExport {
             params: output.params.clone(),
             report: output.report.clone(),
@@ -415,7 +419,17 @@ mod tests {
             mean_reproj_error: 0.42,
         };
 
+        let dummy_view = vision_calibration_core::View::without_meta(
+            vision_calibration_core::CorrespondenceView::new(
+                vec![vision_calibration_core::Pt3::new(0.0, 0.0, 0.0); 4],
+                vec![vision_calibration_core::Pt2::new(0.0, 0.0); 4],
+            )
+            .unwrap(),
+        );
+        let dummy_input = vision_calibration_core::PlanarDataset::new(vec![dummy_view]).unwrap();
+
         let export = PlanarIntrinsicsProblem::export(
+            &dummy_input,
             &output,
             &PlanarIntrinsicsConfig {
                 robust_loss: RobustLoss::None,

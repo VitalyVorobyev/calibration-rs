@@ -163,7 +163,11 @@ impl ProblemType for RigLaserlineDeviceProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
+    fn export(
+        _input: &Self::Input,
+        output: &Self::Output,
+        _config: &Self::Config,
+    ) -> Result<Self::Export, Error> {
         Ok(RigLaserlineDeviceExport {
             laser_planes_rig: output.laser_planes_rig.clone(),
             laser_planes_cam: output.laser_planes_cam.clone(),

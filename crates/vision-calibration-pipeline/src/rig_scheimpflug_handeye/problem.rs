@@ -347,7 +347,11 @@ impl ProblemType for RigScheimpflugHandeyeProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export, Error> {
+    fn export(
+        _input: &Self::Input,
+        output: &Self::Output,
+        config: &Self::Config,
+    ) -> Result<Self::Export, Error> {
         let cam_se3_rig: Vec<Iso3> = output
             .params
             .cam_to_rig

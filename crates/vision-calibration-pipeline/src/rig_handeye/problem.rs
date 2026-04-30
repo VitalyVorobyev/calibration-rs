@@ -351,7 +351,11 @@ impl ProblemType for RigHandeyeProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export, Error> {
+    fn export(
+        _input: &Self::Input,
+        output: &Self::Output,
+        config: &Self::Config,
+    ) -> Result<Self::Export, Error> {
         let cam_se3_rig: Vec<Iso3> = output
             .params
             .cam_to_rig
@@ -557,7 +561,22 @@ mod tests {
             },
             ..Default::default()
         };
-        let export = RigHandeyeProblem::export(&output, &config).unwrap();
+        let dummy_view = RigView {
+            meta: RobotPoseMeta {
+                base_se3_gripper: Iso3::identity(),
+            },
+            obs: RigViewObs {
+                cameras: vec![Some(
+                    CorrespondenceView::new(
+                        vec![Pt3::new(0.0, 0.0, 0.0); 4],
+                        vec![Pt2::new(0.0, 0.0); 4],
+                    )
+                    .unwrap(),
+                )],
+            },
+        };
+        let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
+        let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
 
         assert!(matches!(export.handeye_mode, HandEyeMode::EyeInHand));
         assert!(export.gripper_se3_rig.is_some());
@@ -576,7 +595,22 @@ mod tests {
             },
             ..Default::default()
         };
-        let export = RigHandeyeProblem::export(&output, &config).unwrap();
+        let dummy_view = RigView {
+            meta: RobotPoseMeta {
+                base_se3_gripper: Iso3::identity(),
+            },
+            obs: RigViewObs {
+                cameras: vec![Some(
+                    CorrespondenceView::new(
+                        vec![Pt3::new(0.0, 0.0, 0.0); 4],
+                        vec![Pt2::new(0.0, 0.0); 4],
+                    )
+                    .unwrap(),
+                )],
+            },
+        };
+        let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
+        let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
 
         assert!(matches!(export.handeye_mode, HandEyeMode::EyeToHand));
         assert!(export.rig_se3_base.is_some());

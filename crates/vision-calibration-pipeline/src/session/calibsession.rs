@@ -290,7 +290,8 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// Returns an error if output is not computed or if export conversion fails.
     pub fn export(&mut self) -> Result<P::Export, Error> {
         let output = self.require_output()?;
-        let export = P::export(output, &self.config)?;
+        let input = self.require_input()?;
+        let export = P::export(input, output, &self.config)?;
         self.exports.push(ExportRecord::new(export.clone()));
         self.metadata.touch();
         Ok(export)
@@ -303,7 +304,8 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// Returns an error if output is not computed or if export conversion fails.
     pub fn export_with_notes(&mut self, notes: impl Into<String>) -> Result<P::Export, Error> {
         let output = self.require_output()?;
-        let export = P::export(output, &self.config)?;
+        let input = self.require_input()?;
+        let export = P::export(input, output, &self.config)?;
         self.exports
             .push(ExportRecord::with_notes(export.clone(), notes));
         self.metadata.touch();
@@ -319,7 +321,8 @@ impl<P: ProblemType> CalibrationSession<P> {
     /// Returns an error if output is not computed or if export conversion fails.
     pub fn export_peek(&self) -> Result<P::Export, Error> {
         let output = self.require_output()?;
-        P::export(output, &self.config)
+        let input = self.require_input()?;
+        P::export(input, output, &self.config)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -528,7 +531,11 @@ mod tests {
             Ok(())
         }
 
-        fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
+        fn export(
+            _input: &Self::Input,
+            output: &Self::Output,
+            _config: &Self::Config,
+        ) -> Result<Self::Export, Error> {
             Ok(MockExport {
                 value: output.result,
             })

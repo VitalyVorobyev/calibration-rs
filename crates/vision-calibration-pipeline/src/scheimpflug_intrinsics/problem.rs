@@ -172,7 +172,11 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
+    fn export(
+        _input: &Self::Input,
+        output: &Self::Output,
+        _config: &Self::Config,
+    ) -> Result<Self::Export, Error> {
         Ok(ScheimpflugIntrinsicsExport {
             params: output.params.clone(),
             report: output.report.clone(),
@@ -326,8 +330,17 @@ mod tests {
             mean_reproj_error: 0.25,
         };
 
-        let exported = ScheimpflugIntrinsicsProblem::export(&output, &Default::default())
-            .expect("export should succeed");
+        let dummy_view = vision_calibration_core::View::without_meta(
+            vision_calibration_core::CorrespondenceView::new(
+                vec![vision_calibration_core::Pt3::new(0.0, 0.0, 0.0); 4],
+                vec![vision_calibration_core::Pt2::new(0.0, 0.0); 4],
+            )
+            .unwrap(),
+        );
+        let dummy_input = vision_calibration_core::PlanarDataset::new(vec![dummy_view]).unwrap();
+        let exported =
+            ScheimpflugIntrinsicsProblem::export(&dummy_input, &output, &Default::default())
+                .expect("export should succeed");
 
         assert_eq!(exported.mean_reproj_error, output.mean_reproj_error);
         assert_eq!(

@@ -244,7 +244,11 @@ impl ProblemType for LaserlineDeviceProblem {
         InvalidationPolicy::CLEAR_COMPUTED
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
+    fn export(
+        _input: &Self::Input,
+        output: &Self::Output,
+        _config: &Self::Config,
+    ) -> Result<Self::Export, Error> {
         Ok(LaserlineDeviceExport {
             estimate: output.estimate.clone(),
             stats: output.stats.clone(),
