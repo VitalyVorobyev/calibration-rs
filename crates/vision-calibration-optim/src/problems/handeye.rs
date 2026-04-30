@@ -169,6 +169,36 @@ pub struct HandEyeEstimate {
     pub per_cam_reproj_errors: Vec<f64>,
 }
 
+/// Derive per-view "observer-to-target" poses from a hand-eye chain.
+///
+/// The returned slice parallels `base_se3_gripper`: index `i` gives the
+/// target pose in the observer frame (camera for single-cam, rig for
+/// rig-based problems) for view `i`.
+///
+/// Mode-dependent semantics:
+/// - `EyeInHand`: `handeye = T_G_R` (or `T_G_C` for single-camera) and
+///   `mode_target_pose = T_B_T`. Result: `T_R_T_i = handeye^-1 * T_G_B_i * T_B_T`.
+/// - `EyeToHand`: `handeye = T_R_B` (or `T_C_B` for single-camera) and
+///   `mode_target_pose = T_G_T`. Result: `T_R_T_i = handeye * T_B_G_i * T_G_T`.
+///
+/// For single-camera workflows the observer frame *is* the camera, so the
+/// returned poses are `T_C_T` directly. For multi-camera rigs the caller
+/// must compose with `cam_se3_rig` to project per camera.
+pub fn handeye_observer_se3_target(
+    mode: HandEyeMode,
+    handeye: &Iso3,
+    mode_target_pose: &Iso3,
+    base_se3_gripper: &[Iso3],
+) -> Vec<Iso3> {
+    base_se3_gripper
+        .iter()
+        .map(|tbg| match mode {
+            HandEyeMode::EyeInHand => handeye.inverse() * tbg.inverse() * mode_target_pose,
+            HandEyeMode::EyeToHand => handeye * tbg * mode_target_pose,
+        })
+        .collect()
+}
+
 /// Optimize hand-eye calibration using specified backend.
 ///
 /// # Errors
