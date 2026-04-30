@@ -398,6 +398,7 @@ impl ProblemType for RigScheimpflugHandeyeProblem {
             &output.params.handeye,
             &target_pose,
             &robot_poses,
+            output.robot_deltas.as_deref(),
         );
         let scheimpflug_cameras: Vec<_> = output
             .params

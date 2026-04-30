@@ -394,8 +394,13 @@ impl ProblemType for RigHandeyeProblem {
             .iter()
             .map(|v| v.meta.base_se3_gripper)
             .collect();
-        let rig_se3_target =
-            handeye_observer_se3_target(mode, &output.params.handeye, &target_pose, &robot_poses);
+        let rig_se3_target = handeye_observer_se3_target(
+            mode,
+            &output.params.handeye,
+            &target_pose,
+            &robot_poses,
+            output.robot_deltas.as_deref(),
+        );
         let target = compute_rig_target_residuals(
             &output.params.cameras,
             input,

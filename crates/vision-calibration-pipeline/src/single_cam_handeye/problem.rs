@@ -349,6 +349,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             &output.params.handeye,
             &target_pose,
             &robot_poses,
+            output.robot_deltas.as_deref(),
         );
         let target = compute_planar_target_residuals_views(&camera, &input.views, &cam_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
