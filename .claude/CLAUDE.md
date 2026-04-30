@@ -109,7 +109,10 @@ be re-pinned manually after any update.
 
 ## Planning
 
-- 10 ADRs (0001–0010) in `docs/adrs/` — design decisions (see README there)
+- ADRs in `docs/adrs/` — design decisions (see README there). 0011 covers
+  manual init (PR #32), 0012 covers per-feature residuals (PR #33 + follow-ups).
+- Tutorials in `docs/tutorials/` — hands-on onboarding for new users. New
+  features should ship with a tutorial entry.
 - Automated workflow skills: `/orchestrate`, `/architect`, `/implement`, `/review`, `/gate-check`
 
 ## Strategic Roadmap (>40 weeks)

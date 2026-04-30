@@ -109,7 +109,10 @@ future ambition.
 ## See also
 
 - [ADR index](adrs/README.md) — design records.
+- [Tutorials](tutorials/README.md) — hands-on walkthroughs for new users.
 - [MSRV notes](MSRV.md) — why the lockfile is frozen below latest releases.
-- Per-track ADRs: `0011-manual-initialization-workflow.md` (A1, ships with PR #27);
-  `0012-per-feature-residuals.md` (A2, pending); `0013-tauri-desktop-app.md` (B0, pending);
+- Per-track ADRs:
+  [`0011-manual-initialization-workflow.md`](adrs/0011-manual-initialization-workflow.md) (A1, landed in PR #32);
+  [`0012-per-feature-reprojection-residuals.md`](adrs/0012-per-feature-reprojection-residuals.md) (A2, landed in PR #33 + follow-ups);
+  `0013-tauri-desktop-app.md` (B0, pending);
   `0014-mvg-ceiling.md` (C1, pending).
