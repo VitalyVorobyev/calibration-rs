@@ -3,9 +3,14 @@
 use crate::Error;
 use crate::rig_scheimpflug_handeye::RigScheimpflugHandeyeExport;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, Iso3, Real, ScheimpflugParams};
+use vision_calibration_core::{
+    BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCySkew, Iso3, NoMeta,
+    PerFeatureResiduals, Pinhole, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams,
+    build_feature_histogram, compute_rig_target_residuals,
+};
 use vision_calibration_optim::{
     LaserPlane, LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
+    compute_rig_laserline_feature_residuals,
 };
 
 use crate::session::{InvalidationPolicy, ProblemType};
@@ -97,6 +102,12 @@ pub struct RigLaserlineDeviceExport {
     pub laser_planes_cam: Vec<LaserPlane>,
     /// Per-camera stats (reprojection + laser residuals).
     pub per_camera_stats: Vec<LaserlineStats>,
+    /// Per-feature reprojection + laser residuals (ADR 0012). Multi-camera
+    /// rig: `target` covers per-corner reprojection (when present) and
+    /// `laser` covers per-pixel laser distances. Both per-camera histograms
+    /// are populated.
+    #[serde(default)]
+    pub per_feature_residuals: PerFeatureResiduals,
 }
 
 /// Rig laserline calibration problem.
@@ -164,14 +175,86 @@ impl ProblemType for RigLaserlineDeviceProblem {
     }
 
     fn export(
-        _input: &Self::Input,
+        input: &Self::Input,
         output: &Self::Output,
         _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
+        let n = input.dataset.num_cameras;
+        let upstream = &input.upstream;
+
+        // Build a RigDataset<NoMeta> from the laser dataset's target slot for
+        // target residual computation.
+        let target_dataset = RigDataset::<NoMeta> {
+            num_cameras: n,
+            views: input
+                .dataset
+                .views
+                .iter()
+                .map(|v| RigView {
+                    meta: NoMeta,
+                    obs: RigViewObs {
+                        cameras: v.cameras.clone(),
+                    },
+                })
+                .collect(),
+        };
+        let scheimpflug_cameras: Vec<_> = (0..n)
+            .map(|c| {
+                Camera::new(
+                    Pinhole,
+                    upstream.distortion[c],
+                    upstream.sensors[c].compile(),
+                    upstream.intrinsics[c],
+                )
+            })
+            .collect();
+        let target = compute_rig_target_residuals(
+            &scheimpflug_cameras,
+            &target_dataset,
+            &upstream.cam_se3_rig,
+            &upstream.rig_se3_target,
+        )?;
+        let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..n)
+            .map(|cam_idx| {
+                build_feature_histogram(
+                    target
+                        .iter()
+                        .filter(|r| r.camera == cam_idx)
+                        .filter_map(|r| r.error_px),
+                )
+            })
+            .collect();
+
+        let laser = compute_rig_laserline_feature_residuals(
+            &input.dataset,
+            &upstream.intrinsics,
+            &upstream.distortion,
+            &upstream.sensors,
+            &upstream.cam_se3_rig,
+            &upstream.rig_se3_target,
+            &output.laser_planes_cam,
+        )?;
+        let laser_hist_per_camera: Vec<FeatureResidualHistogram> = (0..n)
+            .map(|cam_idx| {
+                build_feature_histogram(
+                    laser
+                        .iter()
+                        .filter(|r| r.camera == cam_idx)
+                        .filter_map(|r| r.residual_px),
+                )
+            })
+            .collect();
+
         Ok(RigLaserlineDeviceExport {
             laser_planes_rig: output.laser_planes_rig.clone(),
             laser_planes_cam: output.laser_planes_cam.clone(),
             per_camera_stats: output.per_camera_stats.clone(),
+            per_feature_residuals: PerFeatureResiduals {
+                target,
+                laser,
+                target_hist_per_camera: Some(target_hist_per_camera),
+                laser_hist_per_camera: Some(laser_hist_per_camera),
+            },
         })
     }
 }

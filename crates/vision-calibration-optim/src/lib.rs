@@ -197,7 +197,7 @@ pub use crate::problems::rig_extrinsics_scheimpflug::{
 
 pub use crate::problems::laserline_rig_bundle::{
     RigLaserlineDataset, RigLaserlineEstimate, RigLaserlineSolveOptions, RigLaserlineUpstream,
-    RigLaserlineView, optimize_rig_laserline,
+    RigLaserlineView, compute_rig_laserline_feature_residuals, optimize_rig_laserline,
 };
 
 pub use crate::problems::laserline_bundle::{
