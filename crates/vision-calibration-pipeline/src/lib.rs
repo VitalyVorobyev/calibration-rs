@@ -34,6 +34,7 @@ pub use error::Error;
 
 // Core session framework
 mod planar_family;
+mod rig_family;
 pub mod session;
 
 // Problem-specific modules
