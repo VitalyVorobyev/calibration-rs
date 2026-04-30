@@ -169,6 +169,73 @@ pub struct HandEyeEstimate {
     pub per_cam_reproj_errors: Vec<f64>,
 }
 
+/// Apply a per-view se(3) robot pose correction `[rx, ry, rz, tx, ty, tz]` to
+/// a base-to-gripper pose, mirroring the convention the hand-eye optimizer
+/// uses internally:
+///
+/// `T_B_G_corr = exp(delta) * T_B_G`  (left-multiply; matches
+/// `crates/vision-calibration-optim/src/factors/reprojection_model.rs`).
+///
+/// A delta of all zeros returns `base_se3_gripper` unchanged.
+pub fn apply_robot_delta(base_se3_gripper: &Iso3, delta: &[Real; 6]) -> Iso3 {
+    use nalgebra::{Translation3, Unit, UnitQuaternion, Vector3};
+
+    let rot_vec = Vector3::new(delta[0], delta[1], delta[2]);
+    let trans_vec = Vector3::new(delta[3], delta[4], delta[5]);
+    let angle = rot_vec.norm();
+    let delta_rot = if angle > 1e-12 {
+        UnitQuaternion::from_axis_angle(&Unit::new_normalize(rot_vec), angle)
+    } else {
+        UnitQuaternion::identity()
+    };
+    let delta_iso = Iso3::from_parts(Translation3::from(trans_vec), delta_rot);
+    delta_iso * base_se3_gripper
+}
+
+/// Derive per-view "observer-to-target" poses from a hand-eye chain.
+///
+/// The returned slice parallels `base_se3_gripper`: index `i` gives the
+/// target pose in the observer frame (camera for single-cam, rig for
+/// rig-based problems) for view `i`.
+///
+/// Mode-dependent semantics:
+/// - `EyeInHand`: `handeye = T_G_R` (or `T_G_C` for single-camera) and
+///   `mode_target_pose = T_B_T`. Result: `T_R_T_i = handeye^-1 * T_G_B_i * T_B_T`.
+/// - `EyeToHand`: `handeye = T_R_B` (or `T_C_B` for single-camera) and
+///   `mode_target_pose = T_G_T`. Result: `T_R_T_i = handeye * T_B_G_i * T_G_T`.
+///
+/// When `robot_deltas` is `Some`, each `T_B_G_i` is first corrected via
+/// [`apply_robot_delta`] before being plugged into the chain. This matches
+/// the pose corrections the hand-eye optimizer applies internally when
+/// `refine_robot_poses = true`. Pass `None` to use the raw input poses
+/// unchanged.
+///
+/// For single-camera workflows the observer frame *is* the camera, so the
+/// returned poses are `T_C_T` directly. For multi-camera rigs the caller
+/// must compose with `cam_se3_rig` to project per camera.
+pub fn handeye_observer_se3_target(
+    mode: HandEyeMode,
+    handeye: &Iso3,
+    mode_target_pose: &Iso3,
+    base_se3_gripper: &[Iso3],
+    robot_deltas: Option<&[[Real; 6]]>,
+) -> Vec<Iso3> {
+    base_se3_gripper
+        .iter()
+        .enumerate()
+        .map(|(i, tbg)| {
+            let tbg_corr = match robot_deltas {
+                Some(deltas) if i < deltas.len() => apply_robot_delta(tbg, &deltas[i]),
+                _ => *tbg,
+            };
+            match mode {
+                HandEyeMode::EyeInHand => handeye.inverse() * tbg_corr.inverse() * mode_target_pose,
+                HandEyeMode::EyeToHand => handeye * tbg_corr * mode_target_pose,
+            }
+        })
+        .collect()
+}
+
 /// Optimize hand-eye calibration using specified backend.
 ///
 /// # Errors

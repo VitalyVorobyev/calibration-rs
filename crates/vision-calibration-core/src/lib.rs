@@ -346,8 +346,8 @@ pub fn compute_rig_reprojection_stats_per_camera<Meta>(
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if `camera_se3_target.len() != dataset.num_views()`.
-pub fn compute_planar_target_residuals(
-    camera: &PinholeCamera,
+pub fn compute_planar_target_residuals<C: CameraProject>(
+    camera: &C,
     dataset: &PlanarDataset,
     camera_se3_target: &[Iso3],
 ) -> Result<Vec<TargetFeatureResidual>, Error> {
@@ -358,11 +358,15 @@ pub fn compute_planar_target_residuals(
 /// `&[View<Meta>]` slice. Useful when the input dataset carries metadata
 /// (e.g., laser pixels) that the planar dataset wrapper does not preserve.
 ///
+/// `camera` is anything that implements [`CameraProject`] — the standard
+/// `PinholeCamera` and the Scheimpflug-tilted [`Camera`] variants both
+/// qualify.
+///
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if `camera_se3_target.len() != views.len()`.
-pub fn compute_planar_target_residuals_views<Meta>(
-    camera: &PinholeCamera,
+pub fn compute_planar_target_residuals_views<C: CameraProject, Meta>(
+    camera: &C,
     views: &[View<Meta>],
     camera_se3_target: &[Iso3],
 ) -> Result<Vec<TargetFeatureResidual>, Error> {
@@ -385,7 +389,7 @@ pub fn compute_planar_target_residuals_views<Meta>(
             .enumerate()
         {
             let p_cam = pose * p3d;
-            let (projected_px, error_px) = match camera.project_point_c(&p_cam.coords) {
+            let (projected_px, error_px) = match camera.project_camera_point(&p_cam.coords) {
                 Some(proj) => {
                     let err = (proj - *p2d).norm();
                     (Some([proj.x, proj.y]), Some(err))
@@ -415,18 +419,25 @@ pub fn compute_planar_target_residuals_views<Meta>(
 /// `points_3d`. Failed projections become records with `projected_px` and
 /// `error_px` set to `None`.
 ///
+/// `cameras` may be a slice of any concrete camera type implementing
+/// [`CameraProject`] — the standard `PinholeCamera` and Scheimpflug-tilted
+/// `Camera` variants both qualify.
+///
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if any of:
 /// - `cameras.len() != dataset.num_cameras`
 /// - `cam_se3_rig.len() != dataset.num_cameras`
 /// - `rig_se3_target.len() != dataset.num_views()`.
-pub fn compute_rig_target_residuals<Meta>(
-    cameras: &[PinholeCamera],
+pub fn compute_rig_target_residuals<C, Meta>(
+    cameras: &[C],
     dataset: &RigDataset<Meta>,
     cam_se3_rig: &[Iso3],
     rig_se3_target: &[Iso3],
-) -> Result<Vec<TargetFeatureResidual>, Error> {
+) -> Result<Vec<TargetFeatureResidual>, Error>
+where
+    C: CameraProject,
+{
     if cameras.len() != dataset.num_cameras {
         return Err(Error::invalid_input(format!(
             "camera count {} != num_cameras {}",
@@ -462,7 +473,7 @@ pub fn compute_rig_target_residuals<Meta>(
                 obs.points_3d.iter().zip(obs.points_2d.iter()).enumerate()
             {
                 let p_cam = cam_se3_target * p3d;
-                let (projected_px, error_px) = match cam.project_point_c(&p_cam.coords) {
+                let (projected_px, error_px) = match cam.project_camera_point(&p_cam.coords) {
                     Some(proj) => {
                         let err = (proj - *p2d).norm();
                         (Some([proj.x, proj.y]), Some(err))

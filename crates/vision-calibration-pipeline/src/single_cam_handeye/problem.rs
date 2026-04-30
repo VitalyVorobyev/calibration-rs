@@ -5,8 +5,13 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{Iso3, PinholeCamera, View};
-use vision_calibration_optim::{HandEyeEstimate, HandEyeMode, RobustLoss};
+use vision_calibration_core::{
+    Iso3, PerFeatureResiduals, PinholeCamera, View, build_feature_histogram,
+    compute_planar_target_residuals_views,
+};
+use vision_calibration_optim::{
+    HandEyeEstimate, HandEyeMode, RobustLoss, handeye_observer_se3_target,
+};
 
 use crate::session::{InvalidationPolicy, ProblemType};
 
@@ -187,6 +192,12 @@ pub struct SingleCamHandeyeExport {
 
     /// Per-camera reprojection errors (pixels). Single element for single-camera.
     pub per_cam_reproj_errors: Vec<f64>,
+
+    /// Per-feature reprojection residuals (ADR 0012). Single-camera, target
+    /// only. Per-view `cam_se3_target` is derived from the handeye chain
+    /// (see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)).
+    #[serde(default)]
+    pub per_feature_residuals: PerFeatureResiduals,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -296,7 +307,7 @@ impl ProblemType for SingleCamHandeyeProblem {
     }
 
     fn export(
-        _input: &Self::Input,
+        input: &Self::Input,
         output: &Self::Output,
         config: &Self::Config,
     ) -> Result<Self::Export, Error> {
@@ -326,6 +337,23 @@ impl ProblemType for SingleCamHandeyeProblem {
                 }
             };
 
+        // Per-feature residuals: derive cam_se3_target per view from the
+        // handeye chain (camera == observer for single-cam) and project.
+        let robot_poses: Vec<Iso3> = input
+            .views
+            .iter()
+            .map(|v| v.meta.base_se3_gripper)
+            .collect();
+        let cam_se3_target = handeye_observer_se3_target(
+            config.handeye_mode,
+            &output.params.handeye,
+            &target_pose,
+            &robot_poses,
+            output.robot_deltas.as_deref(),
+        );
+        let target = compute_planar_target_residuals_views(&camera, &input.views, &cam_se3_target)?;
+        let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
+
         Ok(SingleCamHandeyeExport {
             camera,
             handeye_mode: config.handeye_mode,
@@ -336,6 +364,12 @@ impl ProblemType for SingleCamHandeyeProblem {
             robot_deltas: output.robot_deltas.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
+            per_feature_residuals: PerFeatureResiduals {
+                target,
+                laser: Vec::new(),
+                target_hist_per_camera: Some(vec![target_hist]),
+                laser_hist_per_camera: None,
+            },
         })
     }
 }

@@ -3,7 +3,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraParams, DistortionFixMask, IntrinsicsFixMask, Iso3, PlanarDataset,
+    CameraParams, DistortionFixMask, IntrinsicsFixMask, Iso3, PerFeatureResiduals, PlanarDataset,
+    build_feature_histogram, compute_planar_target_residuals,
 };
 use vision_calibration_optim::{RobustLoss, SolveReport};
 
@@ -116,6 +117,11 @@ pub struct ScheimpflugIntrinsicsExport {
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors (single element for single-camera workflows).
     pub per_cam_reproj_errors: Vec<f64>,
+    /// Per-feature reprojection residuals (ADR 0012). Single-camera, target
+    /// only — `laser` is empty; `target_hist_per_camera` is
+    /// `Some(vec![one_entry])`.
+    #[serde(default)]
+    pub per_feature_residuals: PerFeatureResiduals,
 }
 
 impl ProblemType for ScheimpflugIntrinsicsProblem {
@@ -173,15 +179,26 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
     }
 
     fn export(
-        _input: &Self::Input,
+        input: &Self::Input,
         output: &Self::Output,
         _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
+        let camera = output.params.camera.build();
+        let target =
+            compute_planar_target_residuals(&camera, input, &output.params.camera_se3_target)?;
+        let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
+
         Ok(ScheimpflugIntrinsicsExport {
             params: output.params.clone(),
             report: output.report.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: vec![output.mean_reproj_error],
+            per_feature_residuals: PerFeatureResiduals {
+                target,
+                laser: Vec::new(),
+                target_hist_per_camera: Some(vec![target_hist]),
+                laser_hist_per_camera: None,
+            },
         })
     }
 }

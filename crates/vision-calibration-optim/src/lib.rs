@@ -176,7 +176,7 @@ pub use crate::problems::scheimpflug_intrinsics::{
 
 pub use crate::problems::handeye::{
     HandEyeDataset, HandEyeEstimate, HandEyeParams, HandEyeSolveOptions, RobotPoseMeta,
-    optimize_handeye,
+    apply_robot_delta, handeye_observer_se3_target, optimize_handeye,
 };
 
 pub use crate::problems::handeye_scheimpflug::{
@@ -197,7 +197,7 @@ pub use crate::problems::rig_extrinsics_scheimpflug::{
 
 pub use crate::problems::laserline_rig_bundle::{
     RigLaserlineDataset, RigLaserlineEstimate, RigLaserlineSolveOptions, RigLaserlineUpstream,
-    RigLaserlineView, optimize_rig_laserline,
+    RigLaserlineView, compute_rig_laserline_feature_residuals, optimize_rig_laserline,
 };
 
 pub use crate::problems::laserline_bundle::{

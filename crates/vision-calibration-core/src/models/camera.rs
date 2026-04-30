@@ -3,6 +3,32 @@ use serde::{Deserialize, Serialize};
 
 use super::{DistortionModel, IntrinsicsModel, ProjectionModel, SensorModel};
 
+/// Tiny abstraction over "anything that can project a 3D point in camera
+/// frame to a 2D pixel".
+///
+/// Implemented by [`Camera<f64, _, _, _, _>`] (and therefore by
+/// [`crate::PinholeCamera`] and the Scheimpflug variants used elsewhere in
+/// the workspace), this trait lets per-feature residual helpers in
+/// `vision_calibration_core` operate on any pinhole-style camera regardless
+/// of distortion or sensor configuration.
+pub trait CameraProject {
+    /// Project a 3D point in camera coordinates into pixel coordinates.
+    /// Returns `None` if the point is behind the camera or projection fails.
+    fn project_camera_point(&self, p_c: &Vector3<f64>) -> Option<Point2<f64>>;
+}
+
+impl<P, D, Sm, K> CameraProject for Camera<f64, P, D, Sm, K>
+where
+    P: ProjectionModel<f64>,
+    D: DistortionModel<f64>,
+    Sm: SensorModel<f64>,
+    K: IntrinsicsModel<f64>,
+{
+    fn project_camera_point(&self, p_c: &Vector3<f64>) -> Option<Point2<f64>> {
+        self.project_point_c(p_c)
+    }
+}
+
 /// A camera ray represented by its intersection with the z = 1 plane.
 #[derive(Clone, Copy, Debug)]
 pub struct Ray<S: RealField + Copy> {

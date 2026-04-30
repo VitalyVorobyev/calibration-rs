@@ -5,9 +5,13 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{Iso3, PinholeCamera};
+use vision_calibration_core::{
+    FeatureResidualHistogram, Iso3, PerFeatureResiduals, PinholeCamera, build_feature_histogram,
+    compute_rig_target_residuals,
+};
 use vision_calibration_optim::{
     HandEyeEstimate, HandEyeMode, RigDataset, RobotPoseMeta, RobustLoss,
+    handeye_observer_se3_target,
 };
 #[cfg(test)]
 use vision_calibration_optim::{HandEyeParams, SolveReport};
@@ -207,6 +211,13 @@ pub struct RigHandeyeExport {
 
     /// Per-camera reprojection errors (pixels).
     pub per_cam_reproj_errors: Vec<f64>,
+
+    /// Per-feature reprojection residuals (ADR 0012). Per-view
+    /// `rig_se3_target` is derived from the handeye chain
+    /// (see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)),
+    /// then composed with `cam_se3_rig` for projection.
+    #[serde(default)]
+    pub per_feature_residuals: PerFeatureResiduals,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -352,7 +363,7 @@ impl ProblemType for RigHandeyeProblem {
     }
 
     fn export(
-        _input: &Self::Input,
+        input: &Self::Input,
         output: &Self::Output,
         config: &Self::Config,
     ) -> Result<Self::Export, Error> {
@@ -370,18 +381,47 @@ impl ProblemType for RigHandeyeProblem {
             .copied()
             .ok_or_else(|| Error::invalid_input("no target pose in output"))?;
 
-        let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) = match config
-            .handeye_init
-            .handeye_mode
-        {
+        let mode = config.handeye_init.handeye_mode;
+        let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) = match mode {
             HandEyeMode::EyeInHand => (Some(output.params.handeye), None, Some(target_pose), None),
             HandEyeMode::EyeToHand => (None, Some(output.params.handeye), None, Some(target_pose)),
         };
 
+        // Per-feature residuals: derive rig_se3_target per view from the
+        // handeye chain, then project via the per-camera transform.
+        let robot_poses: Vec<Iso3> = input
+            .views
+            .iter()
+            .map(|v| v.meta.base_se3_gripper)
+            .collect();
+        let rig_se3_target = handeye_observer_se3_target(
+            mode,
+            &output.params.handeye,
+            &target_pose,
+            &robot_poses,
+            output.robot_deltas.as_deref(),
+        );
+        let target = compute_rig_target_residuals(
+            &output.params.cameras,
+            input,
+            &cam_se3_rig,
+            &rig_se3_target,
+        )?;
+        let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..input.num_cameras)
+            .map(|cam_idx| {
+                build_feature_histogram(
+                    target
+                        .iter()
+                        .filter(|r| r.camera == cam_idx)
+                        .filter_map(|r| r.error_px),
+                )
+            })
+            .collect();
+
         Ok(RigHandeyeExport {
             cameras: output.params.cameras.clone(),
             cam_se3_rig,
-            handeye_mode: config.handeye_init.handeye_mode,
+            handeye_mode: mode,
             gripper_se3_rig,
             rig_se3_base,
             base_se3_target,
@@ -389,6 +429,12 @@ impl ProblemType for RigHandeyeProblem {
             robot_deltas: output.robot_deltas.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
+            per_feature_residuals: PerFeatureResiduals {
+                target,
+                laser: Vec::new(),
+                target_hist_per_camera: Some(target_hist_per_camera),
+                laser_hist_per_camera: None,
+            },
         })
     }
 }

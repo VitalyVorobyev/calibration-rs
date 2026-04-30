@@ -574,6 +574,14 @@ pub mod linear {
     pub use vision_calibration_linear::*;
 }
 
+/// Per-feature residual helpers from `vision-calibration-optim` re-exported
+/// for convenience: `handeye_observer_se3_target` (used by hand-eye exports)
+/// and `compute_*_feature_residuals` (used by laser exports).
+pub use vision_calibration_optim::{
+    compute_laserline_feature_residuals, compute_rig_laserline_feature_residuals,
+    handeye_observer_se3_target,
+};
+
 /// Non-linear optimization with backend-agnostic IR.
 ///
 /// Includes optimization problems, factors, and solver backends.

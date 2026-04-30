@@ -2,7 +2,10 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{Iso3, NoMeta, PinholeCamera, RigDataset, ScheimpflugParams};
+use vision_calibration_core::{
+    Camera, FeatureResidualHistogram, Iso3, NoMeta, PerFeatureResiduals, Pinhole, PinholeCamera,
+    RigDataset, ScheimpflugParams, build_feature_histogram, compute_rig_target_residuals,
+};
 use vision_calibration_optim::{RigExtrinsicsScheimpflugEstimate, RobustLoss, ScheimpflugFixMask};
 
 use crate::session::{InvalidationPolicy, ProblemType};
@@ -90,6 +93,12 @@ pub struct RigScheimpflugExtrinsicsExport {
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors (pixels).
     pub per_cam_reproj_errors: Vec<f64>,
+    /// Per-feature reprojection residuals (ADR 0012). Multi-camera Scheimpflug
+    /// rig: `target` is populated, `laser` is empty, `target_hist_per_camera`
+    /// has one entry per camera. Projection uses the full
+    /// pinhole + Brown-Conrady + Scheimpflug chain.
+    #[serde(default)]
+    pub per_feature_residuals: PerFeatureResiduals,
 }
 
 /// Multi-camera Scheimpflug rig extrinsics calibration problem.
@@ -172,7 +181,7 @@ impl ProblemType for RigScheimpflugExtrinsicsProblem {
     }
 
     fn export(
-        _input: &Self::Input,
+        input: &Self::Input,
         output: &Self::Output,
         _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
@@ -182,6 +191,33 @@ impl ProblemType for RigScheimpflugExtrinsicsProblem {
             .iter()
             .map(|t| t.inverse())
             .collect();
+
+        // Build full Scheimpflug-tilted cameras for projection: combine each
+        // pinhole core with the corresponding compiled Scheimpflug sensor.
+        let scheimpflug_cameras: Vec<_> = output
+            .params
+            .cameras
+            .iter()
+            .zip(output.params.sensors.iter())
+            .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
+            .collect();
+        let target = compute_rig_target_residuals(
+            &scheimpflug_cameras,
+            input,
+            &cam_se3_rig,
+            &output.params.rig_from_target,
+        )?;
+        let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..input.num_cameras)
+            .map(|cam_idx| {
+                build_feature_histogram(
+                    target
+                        .iter()
+                        .filter(|r| r.camera == cam_idx)
+                        .filter_map(|r| r.error_px),
+                )
+            })
+            .collect();
+
         Ok(RigScheimpflugExtrinsicsExport {
             cameras: output.params.cameras.clone(),
             sensors: output.params.sensors.clone(),
@@ -189,6 +225,12 @@ impl ProblemType for RigScheimpflugExtrinsicsProblem {
             rig_se3_target: output.params.rig_from_target.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
+            per_feature_residuals: PerFeatureResiduals {
+                target,
+                laser: Vec::new(),
+                target_hist_per_camera: Some(target_hist_per_camera),
+                laser_hist_per_camera: None,
+            },
         })
     }
 }

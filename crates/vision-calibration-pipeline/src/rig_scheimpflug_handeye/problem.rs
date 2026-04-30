@@ -7,10 +7,13 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    DistortionFixMask, IntrinsicsFixMask, Iso3, PinholeCamera, RigDataset, ScheimpflugParams,
+    Camera, DistortionFixMask, FeatureResidualHistogram, IntrinsicsFixMask, Iso3,
+    PerFeatureResiduals, Pinhole, PinholeCamera, RigDataset, ScheimpflugParams,
+    build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
     HandEyeMode, HandEyeScheimpflugEstimate, RobotPoseMeta, RobustLoss, ScheimpflugFixMask,
+    handeye_observer_se3_target,
 };
 
 use crate::session::{InvalidationPolicy, ProblemType};
@@ -252,6 +255,12 @@ pub struct RigScheimpflugHandeyeExport {
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors.
     pub per_cam_reproj_errors: Vec<f64>,
+
+    /// Per-feature reprojection residuals (ADR 0012). Per-view
+    /// `rig_se3_target` is derived from the handeye chain; projection uses
+    /// the full pinhole + Brown-Conrady + Scheimpflug chain.
+    #[serde(default)]
+    pub per_feature_residuals: PerFeatureResiduals,
 }
 
 /// Multi-camera Scheimpflug rig hand-eye calibration problem.
@@ -348,7 +357,7 @@ impl ProblemType for RigScheimpflugHandeyeProblem {
     }
 
     fn export(
-        _input: &Self::Input,
+        input: &Self::Input,
         output: &Self::Output,
         config: &Self::Config,
     ) -> Result<Self::Export, Error> {
@@ -377,6 +386,44 @@ impl ProblemType for RigScheimpflugHandeyeProblem {
                 }
             };
 
+        // Per-feature residuals: derive rig_se3_target per view from the
+        // handeye chain, build full Scheimpflug-tilted cameras, project.
+        let robot_poses: Vec<Iso3> = input
+            .views
+            .iter()
+            .map(|v| v.meta.base_se3_gripper)
+            .collect();
+        let rig_se3_target = handeye_observer_se3_target(
+            handeye_mode,
+            &output.params.handeye,
+            &target_pose,
+            &robot_poses,
+            output.robot_deltas.as_deref(),
+        );
+        let scheimpflug_cameras: Vec<_> = output
+            .params
+            .cameras
+            .iter()
+            .zip(output.params.sensors.iter())
+            .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
+            .collect();
+        let target = compute_rig_target_residuals(
+            &scheimpflug_cameras,
+            input,
+            &cam_se3_rig,
+            &rig_se3_target,
+        )?;
+        let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..input.num_cameras)
+            .map(|cam_idx| {
+                build_feature_histogram(
+                    target
+                        .iter()
+                        .filter(|r| r.camera == cam_idx)
+                        .filter_map(|r| r.error_px),
+                )
+            })
+            .collect();
+
         Ok(RigScheimpflugHandeyeExport {
             cameras: output.params.cameras.clone(),
             sensors: output.params.sensors.clone(),
@@ -389,6 +436,12 @@ impl ProblemType for RigScheimpflugHandeyeProblem {
             robot_deltas: output.robot_deltas.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
+            per_feature_residuals: PerFeatureResiduals {
+                target,
+                laser: Vec::new(),
+                target_hist_per_camera: Some(target_hist_per_camera),
+                laser_hist_per_camera: None,
+            },
         })
     }
 }
