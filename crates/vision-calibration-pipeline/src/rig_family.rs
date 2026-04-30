@@ -26,11 +26,6 @@
 //! - **A6.3** — Same for `rig_handeye` family.
 //! - **A6.4** — `rig_laserline_device` (if non-trivial) + ADR + roadmap hygiene.
 
-// Items in this module are reachable from `#[cfg(test)]` only until A6.2 wires
-// them into the rig workflow modules. Remove this allow once `rig_extrinsics`
-// imports `bootstrap_rig_intrinsics` (A6.2).
-#![allow(dead_code)]
-
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
@@ -77,10 +72,14 @@ impl RigSensorBundle {
         }
     }
 
+    /// Number of cameras in the bundle.
+    #[allow(dead_code)] // Public accessor; consumed by upcoming A6.2b/A6.3 collapse.
     pub fn num_cameras(&self) -> usize {
         self.cameras.len()
     }
 
+    /// `true` when the bundle carries Scheimpflug sensor params.
+    #[allow(dead_code)] // Public accessor; consumed by upcoming A6.2b/A6.3 collapse.
     pub fn is_scheimpflug(&self) -> bool {
         self.scheimpflug.is_some()
     }

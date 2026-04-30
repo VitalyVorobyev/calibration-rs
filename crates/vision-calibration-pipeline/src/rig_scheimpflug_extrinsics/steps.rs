@@ -4,7 +4,7 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, CameraFixMask, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta,
-    PlanarDataset, Real, ScheimpflugParams, View, make_pinhole_camera,
+    Real, ScheimpflugParams, View, make_pinhole_camera,
 };
 use vision_calibration_linear::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_linear::prelude::*;
@@ -14,6 +14,10 @@ use vision_calibration_optim::{
     optimize_rig_extrinsics_scheimpflug, optimize_scheimpflug_intrinsics,
 };
 
+use crate::rig_family::{
+    RigIntrinsicsSeeds, SensorFlavour, bootstrap_rig_intrinsics, format_init_source,
+    views_to_planar_dataset,
+};
 use crate::session::CalibrationSession;
 
 use super::problem::{RigScheimpflugExtrinsicsInput, RigScheimpflugExtrinsicsProblem};
@@ -64,6 +68,11 @@ pub struct RigOptimizeOptions {
     pub verbosity: Option<usize>,
 }
 
+/// Extract views for a single camera from the rig dataset.
+///
+/// Input-type-specific; the rest of the per-camera bootstrap chain
+/// (`views_to_planar_dataset`, `estimate_target_pose`) is shared via
+/// [`crate::rig_family`].
 fn extract_camera_views(
     input: &RigScheimpflugExtrinsicsInput,
     cam_idx: usize,
@@ -81,44 +90,6 @@ fn extract_camera_views(
         .collect()
 }
 
-fn views_to_planar_dataset(
-    views: &[Option<View<NoMeta>>],
-) -> Result<(PlanarDataset, Vec<usize>), Error> {
-    let (valid_views, indices): (Vec<_>, Vec<_>) = views
-        .iter()
-        .enumerate()
-        .filter_map(|(i, v)| v.as_ref().map(|view| (view.clone(), i)))
-        .unzip();
-    if valid_views.len() < 3 {
-        return Err(Error::InsufficientData {
-            need: 3,
-            got: valid_views.len(),
-        });
-    }
-    let dataset = PlanarDataset::new(valid_views)?;
-    Ok((dataset, indices))
-}
-
-fn estimate_target_pose(
-    k_matrix: &vision_calibration_core::Mat3,
-    obs: &vision_calibration_core::CorrespondenceView,
-) -> Result<Iso3, Error> {
-    let board_2d: Vec<vision_calibration_core::Pt2> = obs
-        .points_3d
-        .iter()
-        .map(|p| vision_calibration_core::Pt2::new(p.x, p.y))
-        .collect();
-    let pixel_2d: Vec<vision_calibration_core::Pt2> = obs
-        .points_2d
-        .iter()
-        .map(|v| vision_calibration_core::Pt2::new(v.x, v.y))
-        .collect();
-    let h = dlt_homography(&board_2d, &pixel_2d)
-        .map_err(|e| Error::numerical(format!("failed to compute homography: {e}")))?;
-    estimate_planar_pose_from_h(k_matrix, &h)
-        .map_err(|e| Error::numerical(format!("failed to recover pose from homography: {e}")))
-}
-
 pub fn step_set_intrinsics_init_all(
     session: &mut CalibrationSession<RigScheimpflugExtrinsicsProblem>,
     manual: RigScheimpflugIntrinsicsManualInit,
@@ -132,34 +103,6 @@ pub fn step_set_intrinsics_init_all(
     let num_cameras = input.num_cameras;
     let num_views = input.num_views();
 
-    if let Some(s) = &manual.per_cam_intrinsics
-        && s.len() != num_cameras
-    {
-        return Err(Error::invalid_input(format!(
-            "per_cam_intrinsics length ({}) != num_cameras ({})",
-            s.len(),
-            num_cameras
-        )));
-    }
-    if let Some(s) = &manual.per_cam_distortion
-        && s.len() != num_cameras
-    {
-        return Err(Error::invalid_input(format!(
-            "per_cam_distortion length ({}) != num_cameras ({})",
-            s.len(),
-            num_cameras
-        )));
-    }
-    if let Some(s) = &manual.per_cam_sensors
-        && s.len() != num_cameras
-    {
-        return Err(Error::invalid_input(format!(
-            "per_cam_sensors length ({}) != num_cameras ({})",
-            s.len(),
-            num_cameras
-        )));
-    }
-
     let init_opts = IterativeIntrinsicsOptions {
         iterations: opts.iterations.unwrap_or(config.intrinsics_init_iterations),
         distortion_opts: DistortionFitOptions {
@@ -169,99 +112,30 @@ pub fn step_set_intrinsics_init_all(
         },
         zero_skew: config.zero_skew,
     };
-    let default_sensor = ScheimpflugParams {
-        tilt_x: config.init_tilt_x,
-        tilt_y: config.init_tilt_y,
+
+    let seeds = RigIntrinsicsSeeds {
+        per_cam_intrinsics: manual.per_cam_intrinsics,
+        per_cam_distortion: manual.per_cam_distortion,
+        per_cam_sensors: manual.per_cam_sensors,
     };
 
-    let mut manual_fields: Vec<&'static str> = Vec::new();
-    let mut auto_fields: Vec<&'static str> = Vec::new();
-    if manual.per_cam_intrinsics.is_some() {
-        manual_fields.push("per_cam_intrinsics");
-    } else {
-        auto_fields.push("per_cam_intrinsics");
-    }
-    if manual.per_cam_distortion.is_some() {
-        manual_fields.push("per_cam_distortion");
-    } else {
-        auto_fields.push("per_cam_distortion");
-    }
-    if manual.per_cam_sensors.is_some() {
-        manual_fields.push("per_cam_sensors");
-    } else {
-        auto_fields.push("per_cam_sensors");
-    }
+    let bootstrap = bootstrap_rig_intrinsics(
+        num_cameras,
+        num_views,
+        |cam_idx| extract_camera_views(input, cam_idx),
+        seeds,
+        init_opts,
+        SensorFlavour::Scheimpflug {
+            default_tilt_x: config.init_tilt_x,
+            default_tilt_y: config.init_tilt_y,
+        },
+    )?;
 
-    let mut per_cam_intrinsics = Vec::with_capacity(num_cameras);
-    let mut per_cam_sensors = Vec::with_capacity(num_cameras);
-    let mut per_cam_target_poses: Vec<Vec<Option<Iso3>>> = vec![vec![None; num_cameras]; num_views];
+    session.state.per_cam_intrinsics = Some(bootstrap.bundle.cameras);
+    session.state.per_cam_sensors = bootstrap.bundle.scheimpflug;
+    session.state.per_cam_target_poses = Some(bootstrap.per_cam_target_poses);
 
-    #[allow(clippy::needless_range_loop)]
-    for cam_idx in 0..num_cameras {
-        let cam_views = extract_camera_views(input, cam_idx);
-        let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views).map_err(|e| {
-            Error::numerical(format!("camera {cam_idx} has insufficient views: {e}"))
-        })?;
-
-        let camera = if let Some(seeds) = manual.per_cam_intrinsics.as_ref() {
-            let k = seeds[cam_idx];
-            let dist = manual
-                .per_cam_distortion
-                .as_ref()
-                .map(|d| d[cam_idx])
-                .unwrap_or_default();
-            make_pinhole_camera(k, dist)
-        } else {
-            let bootstrap =
-                estimate_intrinsics_iterative(&planar_dataset, init_opts).map_err(|e| {
-                    Error::numerical(format!(
-                        "intrinsics estimation failed for camera {cam_idx}: {e}"
-                    ))
-                })?;
-            let dist = manual
-                .per_cam_distortion
-                .as_ref()
-                .map(|d| d[cam_idx])
-                .unwrap_or(bootstrap.dist);
-            make_pinhole_camera(bootstrap.k, dist)
-        };
-
-        let k_matrix = vision_calibration_core::Mat3::new(
-            camera.k.fx,
-            camera.k.skew,
-            camera.k.cx,
-            0.0,
-            camera.k.fy,
-            camera.k.cy,
-            0.0,
-            0.0,
-            1.0,
-        );
-        for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
-            let view = &planar_dataset.views[local_idx];
-            let pose = estimate_target_pose(&k_matrix, &view.obs).map_err(|e| {
-                Error::numerical(format!(
-                    "pose estimation failed for cam {cam_idx} view {global_idx}: {e}"
-                ))
-            })?;
-            per_cam_target_poses[global_idx][cam_idx] = Some(pose);
-        }
-
-        let sensor = manual
-            .per_cam_sensors
-            .as_ref()
-            .map(|s| s[cam_idx])
-            .unwrap_or(default_sensor);
-
-        per_cam_intrinsics.push(camera);
-        per_cam_sensors.push(sensor);
-    }
-
-    session.state.per_cam_intrinsics = Some(per_cam_intrinsics);
-    session.state.per_cam_sensors = Some(per_cam_sensors);
-    session.state.per_cam_target_poses = Some(per_cam_target_poses);
-
-    let source = format_init_source(&manual_fields, &auto_fields);
+    let source = format_init_source(&bootstrap.manual_fields, &bootstrap.auto_fields);
     session.log_success_with_notes(
         "intrinsics_init_all",
         format!("initialized {num_cameras} cameras {source}"),
@@ -274,15 +148,6 @@ pub fn step_intrinsics_init_all(
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<(), Error> {
     step_set_intrinsics_init_all(session, RigScheimpflugIntrinsicsManualInit::default(), opts)
-}
-
-fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
-    match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
-        (false, true) => format!("(manual: {})", manual.join(", ")),
-        (true, false) => format!("(auto: {})", auto.join(", ")),
-        (true, true) => "(empty)".to_string(),
-    }
 }
 
 /// Optimize Scheimpflug intrinsics per camera.
