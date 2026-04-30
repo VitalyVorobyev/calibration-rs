@@ -31,11 +31,13 @@ use crate::backend::BackendSolveOptions;
 use crate::params::laser_plane::LaserPlane;
 use crate::problems::laserline_bundle::{
     LaserlineMeta, LaserlineParams, LaserlineResidualType, LaserlineSolveOptions, LaserlineStats,
-    LaserlineView, compute_laserline_stats, optimize_laserline,
+    LaserlineView, compute_laserline_stats, laser_line_endpoints_px,
+    laser_point_to_plane_residual_m, optimize_laserline, point_line_distance,
 };
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Pt2, Real, ScheimpflugParams, View,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Iso3, LaserFeatureResidual, Pinhole,
+    Pt2, Real, ScheimpflugParams, View,
 };
 
 /// Per-view observations for a rig-level laserline calibration.
@@ -174,6 +176,85 @@ impl Default for RigLaserlineSolveOptions {
             laser_residual_type: LaserlineResidualType::default(),
         }
     }
+}
+
+/// Compute per-pixel laser residual records for every laser observation in a
+/// rig dataset, indexed pose-major then by camera then by pixel.
+///
+/// Like [`super::laserline_bundle::compute_laserline_feature_residuals`] but
+/// fans out across all cameras of a rig: each (view, cam_idx, pixel_idx)
+/// triple becomes one [`LaserFeatureResidual`] tagged with its triple. None
+/// slots in `dataset.views[v].laser_pixels[c]` produce no records.
+///
+/// `cam_se3_target_per_view_cam[v][c]` is the camera-frame target pose for
+/// view `v`, camera `c`, derived by composing `cam_se3_rig[c] *
+/// rig_se3_target[v]`. Cameras are reconstructed from `intrinsics`,
+/// `distortion`, and `sensors`.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if the per-camera or per-view slice
+/// lengths are inconsistent with the dataset shape.
+pub fn compute_rig_laserline_feature_residuals(
+    dataset: &RigLaserlineDataset,
+    intrinsics: &[FxFyCxCySkew<Real>],
+    distortion: &[BrownConrady5<Real>],
+    sensors: &[ScheimpflugParams],
+    cam_se3_rig: &[Iso3],
+    rig_se3_target: &[Iso3],
+    laser_planes_cam: &[LaserPlane],
+) -> Result<Vec<LaserFeatureResidual>, Error> {
+    let n = dataset.num_cameras;
+    if intrinsics.len() != n
+        || distortion.len() != n
+        || sensors.len() != n
+        || cam_se3_rig.len() != n
+        || laser_planes_cam.len() != n
+    {
+        return Err(Error::invalid_input(format!(
+            "per-camera slice length mismatch (expected {n})"
+        )));
+    }
+    if rig_se3_target.len() != dataset.num_views() {
+        return Err(Error::invalid_input(format!(
+            "rig_se3_target has {} entries, expected {}",
+            rig_se3_target.len(),
+            dataset.num_views()
+        )));
+    }
+
+    let cameras: Vec<_> = (0..n)
+        .map(|c| Camera::new(Pinhole, distortion[c], sensors[c].compile(), intrinsics[c]))
+        .collect();
+
+    let mut out = Vec::new();
+    for (view_idx, view) in dataset.views.iter().enumerate() {
+        for cam_idx in 0..n {
+            let Some(pixels) = view.laser_pixels.get(cam_idx).and_then(|p| p.as_ref()) else {
+                continue;
+            };
+            let cam_se3_target = cam_se3_rig[cam_idx] * rig_se3_target[view_idx];
+            let camera = &cameras[cam_idx];
+            let plane = &laser_planes_cam[cam_idx];
+            let line_endpoints = laser_line_endpoints_px(camera, &cam_se3_target, plane);
+            for (feature_idx, px) in pixels.iter().enumerate() {
+                let residual_m =
+                    laser_point_to_plane_residual_m(camera, &cam_se3_target, plane, px);
+                let residual_px =
+                    line_endpoints.map(|line| point_line_distance([px.x, px.y], line));
+                out.push(LaserFeatureResidual {
+                    pose: view_idx,
+                    camera: cam_idx,
+                    feature: feature_idx,
+                    observed_px: [px.x, px.y],
+                    residual_m,
+                    residual_px,
+                    projected_line_px: line_endpoints,
+                });
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Result of rig-level laserline calibration.
