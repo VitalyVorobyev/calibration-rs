@@ -111,3 +111,23 @@ be re-pinned manually after any update.
 
 - 10 ADRs (0001–0010) in `docs/adrs/` — design decisions (see README there)
 - Automated workflow skills: `/orchestrate`, `/architect`, `/implement`, `/review`, `/gate-check`
+
+## Strategic Roadmap (>40 weeks)
+
+We work to a multi-quarter, four-track plan summarized in `docs/ROADMAP.md`. The
+load-bearing path is **A1 → A2 → B5**:
+
+- **A — Calibration core** (puzzle-rig-anchored). A1 = manual init (this is PR #32,
+  superseding PR #27); A2 = per-feature residuals on every `*Export`; A3 = Zhang init
+  robustness; A4 = EyeToHand for Scheimpflug; A5 = Python parity; A6 = rig_family
+  refactor.
+- **B — Tauri 2 + React + TypeScript desktop app**. B0 scaffold → B1 file load →
+  B2 detection wrap → B3 calibration runner → B4 3D rig viewer → **B5 diagnose mode
+  (the MVP)** → B6 polish.
+- **C — MVG** (postponed until B5). C1 PR #28 land → C2 N-view triangulation →
+  C3 BA frozen-intrinsics → C4 Scheimpflug-aware rectification → C5 dense matcher
+  (opencv-rust SGBM, feature-flagged).
+- **D — Earn v1.0** (continuous ratchet). Typed errors → doc-warning-free → Python
+  parity audit → v1.0 release.
+
+We are pre-1.0; breaking changes are acceptable.
