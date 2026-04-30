@@ -74,6 +74,7 @@ pub use problem::{
 pub use state::SingleCamHandeyeState;
 pub use steps::{
     HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
-    run_calibration, step_handeye_init, step_handeye_optimize, step_intrinsics_init,
-    step_intrinsics_optimize,
+    SingleCamHandeyeManualInit, SingleCamIntrinsicsManualInit, run_calibration, step_handeye_init,
+    step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize, step_set_handeye_init,
+    step_set_intrinsics_init,
 };

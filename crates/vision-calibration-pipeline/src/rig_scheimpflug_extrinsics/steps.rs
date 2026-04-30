@@ -1,9 +1,10 @@
 //! Step functions for Scheimpflug rig extrinsics calibration.
 
 use crate::Error;
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraFixMask, DistortionFixMask, IntrinsicsFixMask, Iso3, NoMeta, PlanarDataset,
-    ScheimpflugParams, View, make_pinhole_camera,
+    BrownConrady5, CameraFixMask, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta,
+    PlanarDataset, Real, ScheimpflugParams, View, make_pinhole_camera,
 };
 use vision_calibration_linear::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_linear::prelude::*;
@@ -31,6 +32,27 @@ pub struct IntrinsicsOptimizeOptions {
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
+}
+
+/// Manual seeds for the **per-camera intrinsics stage** of Scheimpflug rig
+/// extrinsics calibration.
+///
+/// Mirrors `RigIntrinsicsManualInit` from rig_extrinsics with an additional
+/// `per_cam_sensors` field for Scheimpflug tilts. When `per_cam_sensors` is
+/// `None`, sensors default to `ScheimpflugParams { tilt_x: config.init_tilt_x,
+/// tilt_y: config.init_tilt_y }`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RigScheimpflugIntrinsicsManualInit {
+    pub per_cam_intrinsics: Option<Vec<FxFyCxCySkew<Real>>>,
+    pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
+    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
+}
+
+/// Manual seeds for the **rig extrinsics stage**. Coupled per ADR 0011.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RigScheimpflugExtrinsicsRigManualInit {
+    pub cam_se3_rig: Option<Vec<Iso3>>,
+    pub rig_se3_target: Option<Vec<Iso3>>,
 }
 
 /// Options for rig BA optimization.
@@ -97,19 +119,46 @@ fn estimate_target_pose(
         .map_err(|e| Error::numerical(format!("failed to recover pose from homography: {e}")))
 }
 
-/// Initialize intrinsics for all cameras (Zhang + zero Scheimpflug tilts).
-///
-/// # Errors
-///
-/// Returns [`Error`] if the input is missing or any camera has insufficient views.
-pub fn step_intrinsics_init_all(
+pub fn step_set_intrinsics_init_all(
     session: &mut CalibrationSession<RigScheimpflugExtrinsicsProblem>,
+    manual: RigScheimpflugIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
     let opts = opts.unwrap_or_default();
     let config = &session.config;
+
+    let num_cameras = input.num_cameras;
+    let num_views = input.num_views();
+
+    if let Some(s) = &manual.per_cam_intrinsics
+        && s.len() != num_cameras
+    {
+        return Err(Error::invalid_input(format!(
+            "per_cam_intrinsics length ({}) != num_cameras ({})",
+            s.len(),
+            num_cameras
+        )));
+    }
+    if let Some(s) = &manual.per_cam_distortion
+        && s.len() != num_cameras
+    {
+        return Err(Error::invalid_input(format!(
+            "per_cam_distortion length ({}) != num_cameras ({})",
+            s.len(),
+            num_cameras
+        )));
+    }
+    if let Some(s) = &manual.per_cam_sensors
+        && s.len() != num_cameras
+    {
+        return Err(Error::invalid_input(format!(
+            "per_cam_sensors length ({}) != num_cameras ({})",
+            s.len(),
+            num_cameras
+        )));
+    }
 
     let init_opts = IterativeIntrinsicsOptions {
         iterations: opts.iterations.unwrap_or(config.intrinsics_init_iterations),
@@ -120,9 +169,28 @@ pub fn step_intrinsics_init_all(
         },
         zero_skew: config.zero_skew,
     };
+    let default_sensor = ScheimpflugParams {
+        tilt_x: config.init_tilt_x,
+        tilt_y: config.init_tilt_y,
+    };
 
-    let num_cameras = input.num_cameras;
-    let num_views = input.num_views();
+    let mut manual_fields: Vec<&'static str> = Vec::new();
+    let mut auto_fields: Vec<&'static str> = Vec::new();
+    if manual.per_cam_intrinsics.is_some() {
+        manual_fields.push("per_cam_intrinsics");
+    } else {
+        auto_fields.push("per_cam_intrinsics");
+    }
+    if manual.per_cam_distortion.is_some() {
+        manual_fields.push("per_cam_distortion");
+    } else {
+        auto_fields.push("per_cam_distortion");
+    }
+    if manual.per_cam_sensors.is_some() {
+        manual_fields.push("per_cam_sensors");
+    } else {
+        auto_fields.push("per_cam_sensors");
+    }
 
     let mut per_cam_intrinsics = Vec::with_capacity(num_cameras);
     let mut per_cam_sensors = Vec::with_capacity(num_cameras);
@@ -135,11 +203,28 @@ pub fn step_intrinsics_init_all(
             Error::numerical(format!("camera {cam_idx} has insufficient views: {e}"))
         })?;
 
-        let camera = estimate_intrinsics_iterative(&planar_dataset, init_opts).map_err(|e| {
-            Error::numerical(format!(
-                "intrinsics estimation failed for camera {cam_idx}: {e}"
-            ))
-        })?;
+        let camera = if let Some(seeds) = manual.per_cam_intrinsics.as_ref() {
+            let k = seeds[cam_idx];
+            let dist = manual
+                .per_cam_distortion
+                .as_ref()
+                .map(|d| d[cam_idx])
+                .unwrap_or_default();
+            make_pinhole_camera(k, dist)
+        } else {
+            let bootstrap =
+                estimate_intrinsics_iterative(&planar_dataset, init_opts).map_err(|e| {
+                    Error::numerical(format!(
+                        "intrinsics estimation failed for camera {cam_idx}: {e}"
+                    ))
+                })?;
+            let dist = manual
+                .per_cam_distortion
+                .as_ref()
+                .map(|d| d[cam_idx])
+                .unwrap_or(bootstrap.dist);
+            make_pinhole_camera(bootstrap.k, dist)
+        };
 
         let k_matrix = vision_calibration_core::Mat3::new(
             camera.k.fx,
@@ -162,22 +247,42 @@ pub fn step_intrinsics_init_all(
             per_cam_target_poses[global_idx][cam_idx] = Some(pose);
         }
 
-        per_cam_intrinsics.push(make_pinhole_camera(camera.k, camera.dist));
-        per_cam_sensors.push(ScheimpflugParams {
-            tilt_x: config.init_tilt_x,
-            tilt_y: config.init_tilt_y,
-        });
+        let sensor = manual
+            .per_cam_sensors
+            .as_ref()
+            .map(|s| s[cam_idx])
+            .unwrap_or(default_sensor);
+
+        per_cam_intrinsics.push(camera);
+        per_cam_sensors.push(sensor);
     }
 
     session.state.per_cam_intrinsics = Some(per_cam_intrinsics);
     session.state.per_cam_sensors = Some(per_cam_sensors);
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
 
+    let source = format_init_source(&manual_fields, &auto_fields);
     session.log_success_with_notes(
         "intrinsics_init_all",
-        format!("initialized {num_cameras} cameras"),
+        format!("initialized {num_cameras} cameras {source}"),
     );
     Ok(())
+}
+
+pub fn step_intrinsics_init_all(
+    session: &mut CalibrationSession<RigScheimpflugExtrinsicsProblem>,
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<(), Error> {
+    step_set_intrinsics_init_all(session, RigScheimpflugIntrinsicsManualInit::default(), opts)
+}
+
+fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
+    match (manual.is_empty(), auto.is_empty()) {
+        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
+        (false, true) => format!("(manual: {})", manual.join(", ")),
+        (true, false) => format!("(auto: {})", auto.join(", ")),
+        (true, true) => "(empty)".to_string(),
+    }
 }
 
 /// Optimize Scheimpflug intrinsics per camera.
@@ -303,14 +408,9 @@ pub fn step_intrinsics_optimize_all(
     Ok(())
 }
 
-/// Initialize rig extrinsics from per-camera target poses (linear).
-///
-/// # Errors
-///
-/// Returns [`Error`] if intrinsics have not been computed, or if rig
-/// initialization fails (e.g., insufficient overlap).
-pub fn step_rig_init(
+pub fn step_set_rig_init(
     session: &mut CalibrationSession<RigScheimpflugExtrinsicsProblem>,
+    manual: RigScheimpflugExtrinsicsRigManualInit,
 ) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
@@ -322,31 +422,79 @@ pub fn step_rig_init(
     }
 
     let num_views = input.num_views();
+    let num_cameras = input.num_cameras;
     let reference_camera_idx = session.config.reference_camera_idx;
 
-    let per_cam_target_poses = session
-        .state
-        .per_cam_target_poses
-        .clone()
-        .ok_or_else(|| Error::not_available("per-camera target poses"))?;
+    match (&manual.cam_se3_rig, &manual.rig_se3_target) {
+        (Some(_), None) | (None, Some(_)) => {
+            let msg = "RigScheimpflugExtrinsicsRigManualInit: cam_se3_rig and rig_se3_target must \
+                       both be Some or both None (geometrically coupled per ADR 0011)";
+            session.log_failure("rig_init", msg);
+            return Err(Error::invalid_input(msg));
+        }
+        _ => {}
+    }
 
-    let extrinsic_result =
-        estimate_extrinsics_from_cam_target_poses(&per_cam_target_poses, reference_camera_idx)
+    let mut manual_fields: Vec<&'static str> = Vec::new();
+    let mut auto_fields: Vec<&'static str> = Vec::new();
+
+    let (cam_se3_rig, rig_se3_target) = match (manual.cam_se3_rig, manual.rig_se3_target) {
+        (Some(cam_se3_rig), Some(rig_se3_target)) => {
+            if cam_se3_rig.len() != num_cameras {
+                return Err(Error::invalid_input(format!(
+                    "cam_se3_rig length ({}) != num_cameras ({})",
+                    cam_se3_rig.len(),
+                    num_cameras
+                )));
+            }
+            if rig_se3_target.len() != num_views {
+                return Err(Error::invalid_input(format!(
+                    "rig_se3_target length ({}) != num_views ({})",
+                    rig_se3_target.len(),
+                    num_views
+                )));
+            }
+            manual_fields.push("cam_se3_rig");
+            manual_fields.push("rig_se3_target");
+            (cam_se3_rig, rig_se3_target)
+        }
+        _ => {
+            auto_fields.push("cam_se3_rig");
+            auto_fields.push("rig_se3_target");
+            let per_cam_target_poses = session
+                .state
+                .per_cam_target_poses
+                .clone()
+                .ok_or_else(|| Error::not_available("per-camera target poses"))?;
+            let extrinsic_result = estimate_extrinsics_from_cam_target_poses(
+                &per_cam_target_poses,
+                reference_camera_idx,
+            )
             .map_err(|e| Error::numerical(format!("rig extrinsics initialization failed: {e}")))?;
+            let cam_se3_rig: Vec<Iso3> = extrinsic_result
+                .cam_to_rig
+                .iter()
+                .map(|t| t.inverse())
+                .collect();
+            (cam_se3_rig, extrinsic_result.rig_from_target)
+        }
+    };
 
-    let cam_se3_rig: Vec<Iso3> = extrinsic_result
-        .cam_to_rig
-        .iter()
-        .map(|t| t.inverse())
-        .collect();
     session.state.initial_cam_se3_rig = Some(cam_se3_rig);
-    session.state.initial_rig_se3_target = Some(extrinsic_result.rig_from_target);
+    session.state.initial_rig_se3_target = Some(rig_se3_target);
 
+    let source = format_init_source(&manual_fields, &auto_fields);
     session.log_success_with_notes(
         "rig_init",
-        format!("ref_cam={reference_camera_idx}, {num_views} views"),
+        format!("ref_cam={reference_camera_idx}, {num_views} views {source}"),
     );
     Ok(())
+}
+
+pub fn step_rig_init(
+    session: &mut CalibrationSession<RigScheimpflugExtrinsicsProblem>,
+) -> Result<(), Error> {
+    step_set_rig_init(session, RigScheimpflugExtrinsicsRigManualInit::default())
 }
 
 /// Optimize Scheimpflug rig extrinsics via bundle adjustment.

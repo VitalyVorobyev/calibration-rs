@@ -35,10 +35,13 @@
 //! ```
 
 use crate::Error;
-use vision_calibration_core::{CorrespondenceView, View};
+use serde::{Deserialize, Serialize};
+use vision_calibration_core::{BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Real, View};
 use vision_calibration_optim::optimize_planar_intrinsics;
 
-use crate::planar_family::bootstrap_planar_intrinsics;
+use crate::planar_family::{
+    bootstrap_planar_intrinsics, estimate_view_homographies, recover_planar_poses_from_homographies,
+};
 use crate::session::CalibrationSession;
 
 use super::problem::PlanarIntrinsicsProblem;
@@ -65,6 +68,35 @@ pub struct IntrinsicsOptimizeOptions {
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
+}
+
+/// Manual initialization seeds for planar intrinsics calibration.
+///
+/// All fields are `Option<T>`:
+/// - `None` means *auto-initialize this group* (same path as plain `step_init`).
+/// - `Some(value)` means *use this value*; do not auto-initialize.
+///
+/// Partial-seed semantics:
+/// - When `intrinsics` is `Some` but `poses` is `None`, poses are recovered from
+///   homographies using the **manual** intrinsics (not auto-estimated ones). This keeps
+///   the geometric chain consistent with the seed.
+/// - When `intrinsics` is `Some` and `distortion` is `None`, distortion defaults to
+///   `BrownConrady5::default()` (zeros) — the auto distortion fit is coupled with the
+///   iterative intrinsics estimator and does not run when intrinsics are seeded.
+/// - When `intrinsics` is `None`, the bootstrap auto-fit runs and any `Some` field
+///   overrides the corresponding bootstrap output.
+///
+/// See ADR 0011 for the design rationale.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlanarManualInit {
+    /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
+    pub intrinsics: Option<FxFyCxCySkew<Real>>,
+    /// Manual distortion seed. `None` means auto-init (or zeros when intrinsics are
+    /// also seeded — see struct docs).
+    pub distortion: Option<BrownConrady5<Real>>,
+    /// Manual per-view poses (camera-from-target). `None` means recover from
+    /// homographies using whichever intrinsics are in effect.
+    pub poses: Option<Vec<Iso3>>,
 }
 
 /// Options for filtering observations based on reprojection error.
@@ -95,12 +127,175 @@ impl Default for FilterOptions {
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Initialize intrinsics and poses from observations.
+/// Initialize intrinsics, distortion, and per-view poses from any combination of
+/// manual seeds and auto-estimation.
 ///
-/// This step computes:
-/// 1. Homographies from each view's 2D-3D correspondences
-/// 2. Initial intrinsics using Zhang's method with iterative distortion estimation
-/// 3. Initial poses from homographies and estimated intrinsics
+/// This is the load-bearing init function. [`step_init`] is a thin delegate that
+/// passes `PlanarManualInit::default()` (all-`None`, full auto path).
+///
+/// # Field-by-field behavior
+///
+/// - `intrinsics`: `Some` skips Zhang's auto-fit and uses the seed; `None` runs the
+///   iterative auto-fit (`bootstrap_planar_intrinsics`).
+/// - `distortion`: `Some` overrides the bootstrap's fitted distortion; `None` keeps
+///   the bootstrap value (or `BrownConrady5::default()` when intrinsics are seeded
+///   and the bootstrap doesn't run).
+/// - `poses`: `Some` uses the seed verbatim (count must match view count); `None`
+///   recovers poses from homographies using the in-effect intrinsics — manual when
+///   seeded, auto otherwise.
+///
+/// Updates `session.state.{homographies, initial_intrinsics, initial_distortion,
+/// initial_poses}` and clears any previous optimization results. Same postcondition
+/// as `step_init`.
+///
+/// # Errors
+///
+/// - Input not set, or fewer than 3 views.
+/// - Homography or auto-init computation fails.
+/// - `manual.poses` is `Some` but its length does not match the view count.
+pub fn step_set_init(
+    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
+    manual: PlanarManualInit,
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<(), Error> {
+    session.validate()?;
+    let input = session.require_input()?;
+
+    let opts = opts.unwrap_or_default();
+    let mut init_opts = session.config.init_opts();
+    if let Some(iters) = opts.iterations {
+        init_opts.iterations = iters;
+    }
+
+    let mut manual_fields: Vec<&'static str> = Vec::new();
+    let mut auto_fields: Vec<&'static str> = Vec::new();
+
+    let (intrinsics, distortion, homographies, poses) = if let Some(k) = manual.intrinsics {
+        manual_fields.push("intrinsics");
+
+        let dist = match manual.distortion {
+            Some(d) => {
+                manual_fields.push("distortion");
+                d
+            }
+            None => {
+                auto_fields.push("distortion");
+                BrownConrady5::default()
+            }
+        };
+
+        let homographies = match estimate_view_homographies(input) {
+            Ok(hs) => hs,
+            Err(e) => {
+                session.log_failure("init", e.to_string());
+                return Err(Error::from(e));
+            }
+        };
+
+        let poses = match manual.poses {
+            Some(p) => {
+                manual_fields.push("poses");
+                if p.len() != input.num_views() {
+                    let msg = format!(
+                        "manual poses count ({}) does not match view count ({})",
+                        p.len(),
+                        input.num_views()
+                    );
+                    session.log_failure("init", msg.clone());
+                    return Err(Error::invalid_input(msg));
+                }
+                p
+            }
+            None => {
+                auto_fields.push("poses");
+                match recover_planar_poses_from_homographies(&homographies, &k) {
+                    Ok(ps) => ps,
+                    Err(e) => {
+                        session.log_failure("init", e.to_string());
+                        return Err(Error::from(e));
+                    }
+                }
+            }
+        };
+
+        (k, dist, homographies, poses)
+    } else {
+        auto_fields.push("intrinsics");
+
+        let bootstrap = match bootstrap_planar_intrinsics(input, init_opts) {
+            Ok(b) => b,
+            Err(e) => {
+                session.log_failure("init", e.to_string());
+                return Err(Error::from(e));
+            }
+        };
+
+        let dist = match manual.distortion {
+            Some(d) => {
+                manual_fields.push("distortion");
+                d
+            }
+            None => {
+                auto_fields.push("distortion");
+                bootstrap.camera.dist
+            }
+        };
+
+        let poses = match manual.poses {
+            Some(p) => {
+                manual_fields.push("poses");
+                if p.len() != input.num_views() {
+                    let msg = format!(
+                        "manual poses count ({}) does not match view count ({})",
+                        p.len(),
+                        input.num_views()
+                    );
+                    session.log_failure("init", msg.clone());
+                    return Err(Error::invalid_input(msg));
+                }
+                p
+            }
+            None => {
+                auto_fields.push("poses");
+                bootstrap.poses
+            }
+        };
+
+        (bootstrap.camera.k, dist, bootstrap.homographies, poses)
+    };
+
+    session.state.homographies = Some(homographies);
+    session.state.initial_intrinsics = Some(intrinsics);
+    session.state.initial_distortion = Some(distortion);
+    session.state.initial_poses = Some(poses);
+    session.state.clear_optimization();
+
+    let source = format_init_source(&manual_fields, &auto_fields);
+    session.log_success_with_notes(
+        "init",
+        format!(
+            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1} {}",
+            intrinsics.fx, intrinsics.fy, intrinsics.cx, intrinsics.cy, source
+        ),
+    );
+
+    Ok(())
+}
+
+fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
+    match (manual.is_empty(), auto.is_empty()) {
+        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
+        (false, true) => format!("(manual: {})", manual.join(", ")),
+        (true, false) => format!("(auto: {})", auto.join(", ")),
+        (true, true) => "(empty)".to_string(),
+    }
+}
+
+/// Initialize intrinsics and poses from observations using full auto-init.
+///
+/// Convenience wrapper around [`step_set_init`] with `PlanarManualInit::default()`
+/// (all-`None`). Auto-fits intrinsics + distortion via Zhang's method with iterative
+/// distortion, then recovers poses from homographies.
 ///
 /// Updates `session.state` with intermediate results (homographies, initial estimates).
 ///
@@ -111,54 +306,12 @@ impl Default for FilterOptions {
 ///
 /// # Errors
 ///
-/// - Input not set
-/// - Fewer than 3 views
-/// - Homography computation fails
-/// - Intrinsics estimation fails
+/// See [`step_set_init`].
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<(), Error> {
-    // Validate preconditions
-    session.validate()?;
-    let input = session.require_input()?;
-
-    // Get effective options
-    let opts = opts.unwrap_or_default();
-    let mut init_opts = session.config.init_opts();
-    if let Some(iters) = opts.iterations {
-        init_opts.iterations = iters;
-    }
-
-    let bootstrap = match bootstrap_planar_intrinsics(input, init_opts) {
-        Ok(c) => c,
-        Err(e) => {
-            session.log_failure("init", e.to_string());
-            return Err(Error::from(e));
-        }
-    };
-
-    let camera = bootstrap.camera;
-
-    // Update state
-    session.state.homographies = Some(bootstrap.homographies);
-    session.state.initial_intrinsics = Some(camera.k);
-    session.state.initial_distortion = Some(camera.dist);
-    session.state.initial_poses = Some(bootstrap.poses);
-
-    // Clear any previous optimization results (since we have new init)
-    session.state.clear_optimization();
-
-    // Log success
-    session.log_success_with_notes(
-        "init",
-        format!(
-            "fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
-            camera.k.fx, camera.k.fy, camera.k.cx, camera.k.cy
-        ),
-    );
-
-    Ok(())
+    step_set_init(session, PlanarManualInit::default(), opts)
 }
 
 /// Optimize camera parameters using non-linear least squares.
@@ -573,5 +726,137 @@ mod tests {
         assert!(session.log.iter().any(|e| e.operation == "init"));
         assert!(session.log.iter().any(|e| e.operation == "optimize"));
         assert!(session.log.iter().all(|e| e.success));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Manual init (ADR 0011) tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn step_set_init_default_matches_step_init() {
+        let mut session_a = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session_a.set_input(make_test_dataset()).unwrap();
+        step_init(&mut session_a, None).unwrap();
+
+        let mut session_b = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session_b.set_input(make_test_dataset()).unwrap();
+        step_set_init(&mut session_b, PlanarManualInit::default(), None).unwrap();
+
+        // Both paths should produce identical state — step_init delegates to
+        // step_set_init with default fields.
+        let k_a = session_a.state.initial_intrinsics.unwrap();
+        let k_b = session_b.state.initial_intrinsics.unwrap();
+        assert!((k_a.fx - k_b.fx).abs() < 1e-9);
+        assert!((k_a.fy - k_b.fy).abs() < 1e-9);
+        assert!((k_a.cx - k_b.cx).abs() < 1e-9);
+        assert!((k_a.cy - k_b.cy).abs() < 1e-9);
+    }
+
+    #[test]
+    fn step_set_init_with_intrinsics_seed_converges() {
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session.set_input(make_test_dataset()).unwrap();
+
+        let manual = PlanarManualInit {
+            intrinsics: Some(FxFyCxCySkew {
+                fx: 800.0,
+                fy: 780.0,
+                cx: 640.0,
+                cy: 360.0,
+                skew: 0.0,
+            }),
+            ..Default::default()
+        };
+        step_set_init(&mut session, manual, None).unwrap();
+        step_optimize(&mut session, None).unwrap();
+
+        let output = session.output().unwrap();
+        // Synthetic data with GT-matching intrinsics seed should converge tightly.
+        assert!(
+            output.mean_reproj_error < 1.0,
+            "got {:.4}",
+            output.mean_reproj_error
+        );
+    }
+
+    #[test]
+    fn step_set_init_with_full_seeds_converges_tightly() {
+        // Run auto-init first to harvest a plausible pose set.
+        let mut session_auto = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session_auto.set_input(make_test_dataset()).unwrap();
+        step_init(&mut session_auto, None).unwrap();
+        let auto_poses = session_auto.state.initial_poses.clone().unwrap();
+
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session.set_input(make_test_dataset()).unwrap();
+
+        let manual = PlanarManualInit {
+            intrinsics: Some(FxFyCxCySkew {
+                fx: 800.0,
+                fy: 780.0,
+                cx: 640.0,
+                cy: 360.0,
+                skew: 0.0,
+            }),
+            distortion: Some(BrownConrady5::default()),
+            poses: Some(auto_poses),
+        };
+        step_set_init(&mut session, manual, None).unwrap();
+        step_optimize(&mut session, None).unwrap();
+
+        let output = session.output().unwrap();
+        assert!(
+            output.mean_reproj_error < 1.0,
+            "got {:.4}",
+            output.mean_reproj_error
+        );
+    }
+
+    #[test]
+    fn step_set_init_rejects_wrong_pose_count() {
+        use vision_calibration_core::Iso3;
+
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session.set_input(make_test_dataset()).unwrap();
+
+        // Test dataset has 4 views; supply only 1 pose.
+        let manual = PlanarManualInit {
+            poses: Some(vec![Iso3::identity()]),
+            ..Default::default()
+        };
+        let err = step_set_init(&mut session, manual, None).unwrap_err();
+        assert!(
+            err.to_string().contains("manual poses count"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn step_set_init_logs_manual_and_auto_sources() {
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session.set_input(make_test_dataset()).unwrap();
+
+        let manual = PlanarManualInit {
+            intrinsics: Some(FxFyCxCySkew {
+                fx: 800.0,
+                fy: 780.0,
+                cx: 640.0,
+                cy: 360.0,
+                skew: 0.0,
+            }),
+            ..Default::default()
+        };
+        step_set_init(&mut session, manual, None).unwrap();
+
+        let init_entry = session
+            .log
+            .iter()
+            .find(|e| e.operation == "init")
+            .expect("init log entry");
+        let notes = init_entry.notes.as_deref().unwrap_or("");
+        assert!(notes.contains("manual: intrinsics"), "notes: {}", notes);
+        assert!(notes.contains("auto: distortion"), "notes: {}", notes);
+        assert!(notes.contains("poses"), "notes: {}", notes);
     }
 }

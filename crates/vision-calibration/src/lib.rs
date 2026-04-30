@@ -89,7 +89,8 @@ pub mod scheimpflug_intrinsics {
         IntrinsicsInitOptions, IntrinsicsOptimizeOptions, ScheimpflugFixMask,
         ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsExport, ScheimpflugIntrinsicsInput,
         ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult,
-        ScheimpflugIntrinsicsState, run_calibration, step_init, step_optimize,
+        ScheimpflugIntrinsicsState, ScheimpflugManualInit, run_calibration, step_init,
+        step_optimize, step_set_init,
     };
 }
 
@@ -146,6 +147,8 @@ pub mod planar_intrinsics {
         PlanarIntrinsicsParams,
         PlanarIntrinsicsProblem,
         PlanarIntrinsicsSolveOptions,
+        // Manual init seed (ADR 0011)
+        PlanarManualInit,
         PlanarState,
         // Step functions
         run_calibration,
@@ -153,6 +156,7 @@ pub mod planar_intrinsics {
         step_filter,
         step_init,
         step_optimize,
+        step_set_init,
     };
 }
 
@@ -194,15 +198,20 @@ pub mod single_cam_handeye {
         SingleCamHandeyeConfig,
         SingleCamHandeyeExport,
         SingleCamHandeyeInput,
+        // Manual init seeds (ADR 0011)
+        SingleCamHandeyeManualInit,
         SingleCamHandeyeProblem,
         SingleCamHandeyeState,
         SingleCamHandeyeView,
+        SingleCamIntrinsicsManualInit,
         // Step functions
         run_calibration,
         step_handeye_init,
         step_handeye_optimize,
         step_intrinsics_init,
         step_intrinsics_optimize,
+        step_set_handeye_init,
+        step_set_intrinsics_init,
     };
 }
 
@@ -231,9 +240,10 @@ pub mod single_cam_handeye {
 pub mod laserline_device {
     pub use vision_calibration_pipeline::laserline_device::{
         DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceConfig, LaserlineDeviceExport,
-        LaserlineDeviceInitConfig, LaserlineDeviceInput, LaserlineDeviceOptimizeConfig,
-        LaserlineDeviceOutput, LaserlineDeviceProblem, LaserlineDeviceSolverConfig,
-        LaserlineDeviceState, run_calibration, step_init, step_optimize,
+        LaserlineDeviceInitConfig, LaserlineDeviceInput, LaserlineDeviceManualInit,
+        LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput, LaserlineDeviceProblem,
+        LaserlineDeviceSolverConfig, LaserlineDeviceState, run_calibration, step_init,
+        step_optimize, step_set_init,
     };
 }
 
@@ -273,8 +283,11 @@ pub mod rig_extrinsics {
         RigExtrinsicsConfig,
         RigExtrinsicsExport,
         RigExtrinsicsInput,
+        // Manual init seeds (ADR 0011)
+        RigExtrinsicsManualInit,
         RigExtrinsicsProblem,
         RigExtrinsicsState,
+        RigIntrinsicsManualInit,
         RigOptimizeOptions,
         // Step functions
         run_calibration,
@@ -282,6 +295,8 @@ pub mod rig_extrinsics {
         step_intrinsics_optimize_all,
         step_rig_init,
         step_rig_optimize,
+        step_set_intrinsics_init_all,
+        step_set_rig_init,
     };
 }
 
@@ -323,11 +338,15 @@ pub mod rig_handeye {
         RigHandeyeBaConfig,
         RigHandeyeConfig,
         RigHandeyeExport,
+        // Manual init seeds (ADR 0011)
+        RigHandeyeHandeyeManualInit,
         RigHandeyeInitConfig,
         RigHandeyeInput,
         RigHandeyeIntrinsicsConfig,
+        RigHandeyeIntrinsicsManualInit,
         RigHandeyeProblem,
         RigHandeyeRigConfig,
+        RigHandeyeRigManualInit,
         RigHandeyeSolverConfig,
         RigHandeyeState,
         RigOptimizeOptions,
@@ -339,6 +358,9 @@ pub mod rig_handeye {
         step_intrinsics_optimize_all,
         step_rig_init,
         step_rig_optimize,
+        step_set_handeye_init,
+        step_set_intrinsics_init_all,
+        step_set_rig_init,
     };
 }
 
@@ -350,8 +372,10 @@ pub mod rig_scheimpflug_extrinsics {
         IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigOptimizeOptions,
         RigScheimpflugExtrinsicsConfig, RigScheimpflugExtrinsicsExport,
         RigScheimpflugExtrinsicsInput, RigScheimpflugExtrinsicsProblem,
-        RigScheimpflugExtrinsicsState, run_calibration, step_intrinsics_init_all,
+        RigScheimpflugExtrinsicsRigManualInit, RigScheimpflugExtrinsicsState,
+        RigScheimpflugIntrinsicsManualInit, run_calibration, step_intrinsics_init_all,
         step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+        step_set_intrinsics_init_all, step_set_rig_init,
     };
 }
 
@@ -363,12 +387,15 @@ pub mod rig_scheimpflug_handeye {
     pub use vision_calibration_pipeline::rig_scheimpflug_handeye::{
         HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions, RigOptimizeOptions, RigScheimpflugHandeyeBaConfig,
-        RigScheimpflugHandeyeConfig, RigScheimpflugHandeyeExport, RigScheimpflugHandeyeInitConfig,
+        RigScheimpflugHandeyeConfig, RigScheimpflugHandeyeExport,
+        RigScheimpflugHandeyeHandeyeManualInit, RigScheimpflugHandeyeInitConfig,
         RigScheimpflugHandeyeInput, RigScheimpflugHandeyeIntrinsicsConfig,
-        RigScheimpflugHandeyeProblem, RigScheimpflugHandeyeRigConfig,
+        RigScheimpflugHandeyeIntrinsicsManualInit, RigScheimpflugHandeyeProblem,
+        RigScheimpflugHandeyeRigConfig, RigScheimpflugHandeyeRigManualInit,
         RigScheimpflugHandeyeSolverConfig, RigScheimpflugHandeyeState, run_calibration,
         step_handeye_init, step_handeye_optimize, step_intrinsics_init_all,
-        step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
+        step_intrinsics_optimize_all, step_rig_init, step_rig_optimize, step_set_handeye_init,
+        step_set_intrinsics_init_all, step_set_rig_init,
     };
 }
 
@@ -379,8 +406,9 @@ pub mod rig_scheimpflug_handeye {
 pub mod rig_laserline_device {
     pub use vision_calibration_pipeline::rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
-        RigLaserlineDeviceProblem, RigLaserlineDeviceState, RigUpstreamCalibration, StepOptions,
-        run_calibration, step_init, step_optimize,
+        RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem, RigLaserlineDeviceState,
+        RigUpstreamCalibration, StepOptions, run_calibration, step_init, step_optimize,
+        step_set_init,
     };
 }
 

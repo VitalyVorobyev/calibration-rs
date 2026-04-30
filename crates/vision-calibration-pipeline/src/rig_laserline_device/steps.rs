@@ -2,6 +2,7 @@
 
 use crate::Error;
 use nalgebra::Vector3;
+use serde::{Deserialize, Serialize};
 use vision_calibration_core::{Camera, Pinhole};
 use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
@@ -24,38 +25,81 @@ pub struct StepOptions {
     pub verbosity: Option<usize>,
 }
 
-/// Initialize per-camera laser planes in camera frame.
+/// Manual seeds for rig laserline device calibration.
 ///
-/// If the input provides `initial_planes_cam`, they are stored as-is.
-/// Otherwise a closed-form plane fit is computed from the frozen upstream
-/// poses, with a generic default plane as a fallback for degenerate inputs.
+/// The upstream rig calibration (intrinsics, distortion, sensors, cam_se3_rig,
+/// rig_se3_target) is part of `input.upstream` and is *not* a manual-init concern
+/// — it's an input contract. Only the laser planes are seedable here.
+///
+/// When `planes_cam` is `Some`, it overrides any `input.initial_planes_cam` and
+/// the linear plane fit is skipped entirely. Length must equal
+/// `input.dataset.num_cameras`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RigLaserlineDeviceManualInit {
+    /// Per-camera laser planes (camera frame). Overrides input-supplied seeds.
+    pub planes_cam: Option<Vec<LaserPlane>>,
+}
+
+/// Initialize per-camera laser planes from any combination of manual seeds and
+/// auto-estimation.
+///
+/// This is the load-bearing init function. [`step_init`] is a thin delegate with
+/// `RigLaserlineDeviceManualInit::default()`.
+///
+/// Resolution order for the laser planes:
+/// 1. `manual.planes_cam` if `Some` (highest priority).
+/// 2. `input.initial_planes_cam` if `Some`.
+/// 3. Closed-form linear fit per camera, with a generic fallback plane for
+///    degenerate cases.
 ///
 /// # Errors
 ///
-/// Returns [`Error`] if the session has no input.
-pub fn step_init(session: &mut CalibrationSession<RigLaserlineDeviceProblem>) -> Result<(), Error> {
+/// - Input not set.
+/// - `manual.planes_cam.len() != input.dataset.num_cameras`.
+pub fn step_set_init(
+    session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
+    manual: RigLaserlineDeviceManualInit,
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?;
 
-    let planes: Vec<LaserPlane> = match &input.initial_planes_cam {
-        Some(p) => p.clone(),
-        None => {
-            let mut planes = Vec::with_capacity(input.dataset.num_cameras);
-            for cam_idx in 0..input.dataset.num_cameras {
-                let default_plane = LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.2);
-                let plane = linear_plane_init(input, cam_idx).unwrap_or(default_plane);
-                planes.push(plane);
+    if let Some(p) = &manual.planes_cam
+        && p.len() != input.dataset.num_cameras
+    {
+        let msg = format!(
+            "manual planes_cam length ({}) != num_cameras ({})",
+            p.len(),
+            input.dataset.num_cameras
+        );
+        session.log_failure("init", msg.clone());
+        return Err(Error::invalid_input(msg));
+    }
+
+    let (planes, source): (Vec<LaserPlane>, &'static str) =
+        match (manual.planes_cam, &input.initial_planes_cam) {
+            (Some(p), _) => (p, "(manual: planes_cam)"),
+            (None, Some(p)) => (p.clone(), "(input: initial_planes_cam)"),
+            (None, None) => {
+                let mut planes = Vec::with_capacity(input.dataset.num_cameras);
+                for cam_idx in 0..input.dataset.num_cameras {
+                    let default_plane = LaserPlane::new(Vector3::new(0.0, 0.0, 1.0), -0.2);
+                    let plane = linear_plane_init(input, cam_idx).unwrap_or(default_plane);
+                    planes.push(plane);
+                }
+                (planes, "(auto: linear fit with default fallback)")
             }
-            planes
-        }
-    };
+        };
 
     session.state.initial_planes_cam = Some(planes);
-    session.log_success_with_notes(
-        "init",
-        "initial planes set (linear fit with default fallback)".to_string(),
-    );
+    session.log_success_with_notes("init", format!("initial planes set {source}"));
     Ok(())
+}
+
+/// Initialize per-camera laser planes using the input-or-auto path.
+///
+/// Convenience wrapper around [`step_set_init`] with default seeds.
+pub fn step_init(session: &mut CalibrationSession<RigLaserlineDeviceProblem>) -> Result<(), Error> {
+    step_set_init(session, RigLaserlineDeviceManualInit::default())
 }
 
 fn linear_plane_init(

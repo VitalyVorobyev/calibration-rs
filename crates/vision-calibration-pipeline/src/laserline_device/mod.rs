@@ -15,5 +15,6 @@ pub use problem::{
 };
 pub use state::LaserlineDeviceState;
 pub use steps::{
-    DeviceInitOptions, DeviceOptimizeOptions, run_calibration, step_init, step_optimize,
+    DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceManualInit, run_calibration,
+    step_init, step_optimize, step_set_init,
 };
