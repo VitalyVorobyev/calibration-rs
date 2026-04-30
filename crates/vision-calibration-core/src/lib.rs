@@ -340,6 +340,9 @@ pub fn compute_rig_reprojection_stats_per_camera<Meta>(
 /// All records carry `camera = 0`. Records are pose-major: outer = view
 /// index, inner = feature index in that view's `points_3d`.
 ///
+/// Convenience wrapper around [`compute_planar_target_residuals_views`] that
+/// accepts a [`PlanarDataset`] directly.
+///
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if `camera_se3_target.len() != dataset.num_views()`.
@@ -348,16 +351,31 @@ pub fn compute_planar_target_residuals(
     dataset: &PlanarDataset,
     camera_se3_target: &[Iso3],
 ) -> Result<Vec<TargetFeatureResidual>, Error> {
-    if camera_se3_target.len() != dataset.num_views() {
+    compute_planar_target_residuals_views(camera, &dataset.views, camera_se3_target)
+}
+
+/// Like [`compute_planar_target_residuals`] but operates on a generic
+/// `&[View<Meta>]` slice. Useful when the input dataset carries metadata
+/// (e.g., laser pixels) that the planar dataset wrapper does not preserve.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if `camera_se3_target.len() != views.len()`.
+pub fn compute_planar_target_residuals_views<Meta>(
+    camera: &PinholeCamera,
+    views: &[View<Meta>],
+    camera_se3_target: &[Iso3],
+) -> Result<Vec<TargetFeatureResidual>, Error> {
+    if camera_se3_target.len() != views.len() {
         return Err(Error::invalid_input(format!(
-            "camera_se3_target count {} != num_views {}",
+            "camera_se3_target count {} != view count {}",
             camera_se3_target.len(),
-            dataset.num_views()
+            views.len()
         )));
     }
 
     let mut out = Vec::new();
-    for (view_idx, view) in dataset.views.iter().enumerate() {
+    for (view_idx, view) in views.iter().enumerate() {
         let pose = camera_se3_target[view_idx];
         for (feature_idx, (p3d, p2d)) in view
             .obs
