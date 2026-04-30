@@ -162,7 +162,8 @@ ground truth records.
 
 ### Scheimpflug projection
 
-`ScheimpflugIntrinsicsExport`, `RigScheimpflugExtrinsicsExport`, and
+`ScheimpflugIntrinsicsExport`, `RigExtrinsicsExport` (when
+`SensorMode::Scheimpflug` is configured — `sensors` field populated), and
 `RigScheimpflugHandeyeExport` build the full pinhole + Brown-Conrady +
 Scheimpflug `Camera` for projection. The records are computed using the
 exact same chain the optimizer used.

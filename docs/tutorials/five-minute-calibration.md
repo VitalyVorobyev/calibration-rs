@@ -97,11 +97,10 @@ the same; only the input shape and the step list change.
 |---|---|---|
 | `PlanarIntrinsicsProblem` | `PlanarDataset` | `step_init` → `step_optimize` |
 | `SingleCamHandeyeProblem` | `SingleCamHandeyeInput` | 4 steps (intrinsics ×2, hand-eye ×2) |
-| `RigExtrinsicsProblem` | `RigDataset<NoMeta>` | 4 steps (this tutorial) |
+| `RigExtrinsicsProblem` | `RigDataset<NoMeta>` | 4 steps (this tutorial). Pinhole or Scheimpflug rig — set `RigExtrinsicsConfig::sensor` to `SensorMode::Pinhole` (default) or `SensorMode::Scheimpflug { … }`. |
 | `RigHandeyeProblem` | `RigDataset<RobotPoseMeta>` | 6 steps |
 | `LaserlineDeviceProblem` | `LaserlineDataset` | `step_init` → `step_optimize` |
 | `ScheimpflugIntrinsicsProblem` | `PlanarDataset` (with tilt) | `step_init` → `step_optimize` |
-| `RigScheimpflugExtrinsicsProblem` | `RigDataset<NoMeta>` (Scheimpflug) | 4 steps |
 | `RigScheimpflugHandeyeProblem` | `RigDataset<RobotPoseMeta>` (Scheimpflug) | 6 steps |
 | `RigLaserlineDeviceProblem` | `RigLaserlineDeviceInput` | `step_init` → `step_optimize` |
 

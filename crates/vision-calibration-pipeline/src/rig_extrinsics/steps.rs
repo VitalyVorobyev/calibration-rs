@@ -6,14 +6,17 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, FxFyCxCySkew, Iso3, NoMeta, Real, View,
-    compute_rig_reprojection_stats_per_camera,
+    BrownConrady5, CameraFixMask, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta,
+    Real, ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
 use vision_calibration_linear::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
     BackendSolveOptions, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigExtrinsicsParams,
-    RigExtrinsicsSolveOptions, optimize_planar_intrinsics, optimize_rig_extrinsics,
+    RigExtrinsicsScheimpflugParams, RigExtrinsicsScheimpflugSolveOptions,
+    RigExtrinsicsSolveOptions, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions,
+    optimize_planar_intrinsics, optimize_rig_extrinsics, optimize_rig_extrinsics_scheimpflug,
+    optimize_scheimpflug_intrinsics,
 };
 
 use crate::rig_family::{
@@ -22,7 +25,7 @@ use crate::rig_family::{
 };
 use crate::session::CalibrationSession;
 
-use super::problem::{RigExtrinsicsInput, RigExtrinsicsProblem};
+use super::problem::{RigExtrinsicsInput, RigExtrinsicsOutput, RigExtrinsicsProblem, SensorMode};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Options
@@ -57,6 +60,9 @@ pub struct IntrinsicsOptimizeOptions {
 /// intrinsics are auto-init'd, the bootstrap fitted distortion is used unless
 /// distortion is seeded explicitly.
 ///
+/// `per_cam_sensors` is consulted only when [`SensorMode::Scheimpflug`] is
+/// configured; for [`SensorMode::Pinhole`] it is silently ignored.
+///
 /// Per-camera vectors must have length equal to `input.num_cameras`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RigIntrinsicsManualInit {
@@ -64,6 +70,9 @@ pub struct RigIntrinsicsManualInit {
     pub per_cam_intrinsics: Option<Vec<FxFyCxCySkew<Real>>>,
     /// Per-camera distortion seeds.
     pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
+    /// Per-camera Scheimpflug sensor seeds (Scheimpflug mode only).
+    #[serde(default)]
+    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
 
 /// Manual seeds for the **rig extrinsics stage**.
@@ -154,10 +163,22 @@ pub fn step_set_intrinsics_init_all(
         zero_skew: config.zero_skew,
     };
 
+    let flavour = match &config.sensor {
+        SensorMode::Pinhole => SensorFlavour::Pinhole,
+        SensorMode::Scheimpflug {
+            init_tilt_x,
+            init_tilt_y,
+            ..
+        } => SensorFlavour::Scheimpflug {
+            default_tilt_x: *init_tilt_x,
+            default_tilt_y: *init_tilt_y,
+        },
+    };
+
     let seeds = RigIntrinsicsSeeds {
         per_cam_intrinsics: manual.per_cam_intrinsics,
         per_cam_distortion: manual.per_cam_distortion,
-        per_cam_sensors: None,
+        per_cam_sensors: manual.per_cam_sensors,
     };
 
     let bootstrap = bootstrap_rig_intrinsics(
@@ -166,10 +187,11 @@ pub fn step_set_intrinsics_init_all(
         |cam_idx| extract_camera_views(input, cam_idx),
         seeds,
         init_opts,
-        SensorFlavour::Pinhole,
+        flavour,
     )?;
 
     session.state.per_cam_intrinsics = Some(bootstrap.bundle.cameras);
+    session.state.per_cam_sensors = bootstrap.bundle.scheimpflug;
     session.state.per_cam_target_poses = Some(bootstrap.per_cam_target_poses);
 
     let source = format_init_source(&bootstrap.manual_fields, &bootstrap.auto_fields);
@@ -229,8 +251,26 @@ pub fn step_intrinsics_optimize_all(
         .clone()
         .ok_or_else(|| Error::not_available("per-camera target poses"))?;
 
+    let max_iters = opts.max_iters.unwrap_or(config.max_iters);
+    let verbosity = opts.verbosity.unwrap_or(config.verbosity);
+
     let mut optimized_cameras = Vec::with_capacity(input.num_cameras);
     let mut per_cam_reproj_errors = Vec::with_capacity(input.num_cameras);
+    let mut optimized_sensors = match &config.sensor {
+        SensorMode::Pinhole => None,
+        SensorMode::Scheimpflug { .. } => Some(Vec::with_capacity(input.num_cameras)),
+    };
+
+    let per_cam_sensors_in = match &config.sensor {
+        SensorMode::Pinhole => None,
+        SensorMode::Scheimpflug { .. } => Some(
+            session
+                .state
+                .per_cam_sensors
+                .clone()
+                .ok_or_else(|| Error::not_available("per-camera Scheimpflug sensors"))?,
+        ),
+    };
 
     for cam_idx in 0..input.num_cameras {
         let cam_views = extract_camera_views(input, cam_idx);
@@ -238,7 +278,6 @@ pub fn step_intrinsics_optimize_all(
             Error::numerical(format!("camera {cam_idx} has insufficient views: {e}"))
         })?;
 
-        // Get initial poses for this camera
         let initial_poses: Vec<Iso3> = valid_indices
             .iter()
             .map(|&global_idx| {
@@ -247,44 +286,106 @@ pub fn step_intrinsics_optimize_all(
             })
             .collect::<Result<Vec<_>, Error>>()?;
 
-        // Build params
-        let initial_params =
-            PlanarIntrinsicsParams::new(per_cam_intrinsics[cam_idx].clone(), initial_poses)
-                .map_err(|e| {
-                    Error::numerical(format!("failed to build params for camera {cam_idx}: {e}"))
-                })?;
+        match &config.sensor {
+            SensorMode::Pinhole => {
+                let initial_params =
+                    PlanarIntrinsicsParams::new(per_cam_intrinsics[cam_idx].clone(), initial_poses)
+                        .map_err(|e| {
+                            Error::numerical(format!(
+                                "failed to build params for camera {cam_idx}: {e}"
+                            ))
+                        })?;
 
-        // Optimize
-        let solve_opts = PlanarIntrinsicsSolveOptions {
-            robust_loss: config.robust_loss,
-            fix_intrinsics: Default::default(),
-            fix_distortion: Default::default(),
-            fix_poses: Vec::new(),
-        };
+                let solve_opts = PlanarIntrinsicsSolveOptions {
+                    robust_loss: config.robust_loss,
+                    fix_intrinsics: Default::default(),
+                    fix_distortion: Default::default(),
+                    fix_poses: Vec::new(),
+                };
 
-        let backend_opts = BackendSolveOptions {
-            max_iters: opts.max_iters.unwrap_or(config.max_iters),
-            verbosity: opts.verbosity.unwrap_or(config.verbosity),
-            ..Default::default()
-        };
+                let backend_opts = BackendSolveOptions {
+                    max_iters,
+                    verbosity,
+                    ..Default::default()
+                };
 
-        let result =
-            optimize_planar_intrinsics(&planar_dataset, &initial_params, solve_opts, backend_opts)
+                let result = optimize_planar_intrinsics(
+                    &planar_dataset,
+                    &initial_params,
+                    solve_opts,
+                    backend_opts,
+                )
                 .map_err(|e| {
                     Error::numerical(format!("optimization failed for camera {cam_idx}: {e}"))
                 })?;
 
-        // Update target poses for this camera
-        for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
-            per_cam_target_poses[global_idx][cam_idx] = Some(result.params.poses()[local_idx]);
-        }
+                for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
+                    per_cam_target_poses[global_idx][cam_idx] =
+                        Some(result.params.poses()[local_idx]);
+                }
 
-        optimized_cameras.push(result.params.camera.clone());
-        per_cam_reproj_errors.push(result.mean_reproj_error);
+                optimized_cameras.push(result.params.camera.clone());
+                per_cam_reproj_errors.push(result.mean_reproj_error);
+            }
+            SensorMode::Scheimpflug {
+                fix_scheimpflug_in_intrinsics,
+                ..
+            } => {
+                let cam = &per_cam_intrinsics[cam_idx];
+                let sensor = per_cam_sensors_in.as_ref().unwrap()[cam_idx];
+                let initial_params =
+                    ScheimpflugIntrinsicsParams::new(cam.k, cam.dist, sensor, initial_poses)?;
+
+                // Radial-only distortion (k1, k2 free; k3, p1, p2 fixed). Tangential
+                // distortion can absorb tilt-like geometric signal and interfere with
+                // Scheimpflug tilt optimization (matches the original
+                // rig_scheimpflug_extrinsics behaviour).
+                let solve_opts = ScheimpflugIntrinsicsSolveOptions {
+                    robust_loss: config.robust_loss,
+                    fix_intrinsics: IntrinsicsFixMask::default(),
+                    fix_distortion: DistortionFixMask::radial_only(),
+                    fix_scheimpflug: *fix_scheimpflug_in_intrinsics,
+                    fix_poses: vec![0],
+                };
+
+                let backend_opts = BackendSolveOptions {
+                    max_iters,
+                    verbosity,
+                    ..Default::default()
+                };
+
+                let result = optimize_scheimpflug_intrinsics(
+                    &planar_dataset,
+                    &initial_params,
+                    solve_opts,
+                    backend_opts,
+                )
+                .map_err(|e| {
+                    Error::numerical(format!(
+                        "Scheimpflug intrinsics optimization failed for camera {cam_idx}: {e}"
+                    ))
+                })?;
+
+                for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
+                    per_cam_target_poses[global_idx][cam_idx] =
+                        Some(result.params.camera_se3_target[local_idx]);
+                }
+
+                optimized_cameras.push(make_pinhole_camera(
+                    result.params.intrinsics,
+                    result.params.distortion,
+                ));
+                optimized_sensors
+                    .as_mut()
+                    .unwrap()
+                    .push(result.params.sensor);
+                per_cam_reproj_errors.push(result.mean_reproj_error);
+            }
+        }
     }
 
-    // Update state
     session.state.per_cam_intrinsics = Some(optimized_cameras);
+    session.state.per_cam_sensors = optimized_sensors;
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
     session.state.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
 
@@ -292,7 +393,7 @@ pub fn step_intrinsics_optimize_all(
         per_cam_reproj_errors.iter().sum::<f64>() / per_cam_reproj_errors.len() as f64;
     session.log_success_with_notes(
         "intrinsics_optimize_all",
-        format!("avg_reproj_err={:.3}px", avg_error),
+        format!("avg_reproj_err={avg_error:.3}px"),
     );
 
     Ok(())
@@ -461,21 +562,12 @@ pub fn step_rig_optimize(
         .clone()
         .ok_or_else(|| Error::not_available("initial rig_se3_target"))?;
 
-    // Build initial params
-    let initial = RigExtrinsicsParams {
-        cameras,
-        cam_to_rig,
-        rig_from_target,
-    };
-
-    // Configure solve options
     let fix_intrinsics = if config.refine_intrinsics_in_rig_ba {
         CameraFixMask::default()
     } else {
         CameraFixMask::all_fixed()
     };
 
-    // Reference camera has fixed extrinsics (identity)
     let fix_extrinsics: Vec<bool> = (0..input.num_cameras)
         .map(|i| i == config.reference_camera_idx)
         .collect();
@@ -486,67 +578,120 @@ pub fn step_rig_optimize(
         Vec::new()
     };
 
-    let solve_opts = RigExtrinsicsSolveOptions {
-        robust_loss: config.robust_loss,
-        default_fix: fix_intrinsics,
-        camera_overrides: Vec::new(),
-        fix_extrinsics,
-        fix_rig_poses,
-    };
-
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.verbosity),
         ..Default::default()
     };
 
-    // Run optimization
-    let result = match optimize_rig_extrinsics(input, initial, solve_opts, backend_opts) {
-        Ok(r) => r,
-        Err(e) => {
-            session.log_failure("rig_optimize", e.to_string());
-            return Err(Error::from(e));
+    let output = match &config.sensor {
+        SensorMode::Pinhole => {
+            let initial = RigExtrinsicsParams {
+                cameras,
+                cam_to_rig,
+                rig_from_target,
+            };
+            let solve_opts = RigExtrinsicsSolveOptions {
+                robust_loss: config.robust_loss,
+                default_fix: fix_intrinsics,
+                camera_overrides: Vec::new(),
+                fix_extrinsics,
+                fix_rig_poses,
+            };
+            match optimize_rig_extrinsics(input.clone(), initial, solve_opts, backend_opts) {
+                Ok(r) => RigExtrinsicsOutput::Pinhole(r),
+                Err(e) => {
+                    session.log_failure("rig_optimize", e.to_string());
+                    return Err(Error::from(e));
+                }
+            }
+        }
+        SensorMode::Scheimpflug {
+            refine_scheimpflug_in_rig_ba,
+            ..
+        } => {
+            let sensors = session
+                .state
+                .per_cam_sensors
+                .clone()
+                .ok_or_else(|| Error::not_available("per-camera Scheimpflug sensors"))?;
+            let initial = RigExtrinsicsScheimpflugParams {
+                cameras,
+                sensors,
+                cam_to_rig,
+                rig_from_target,
+            };
+            let scheimpflug_fix = if *refine_scheimpflug_in_rig_ba {
+                vision_calibration_optim::ScheimpflugFixMask::default()
+            } else {
+                vision_calibration_optim::ScheimpflugFixMask {
+                    tilt_x: true,
+                    tilt_y: true,
+                }
+            };
+            let solve_opts = RigExtrinsicsScheimpflugSolveOptions {
+                robust_loss: config.robust_loss,
+                default_fix: fix_intrinsics,
+                camera_overrides: Vec::new(),
+                default_scheimpflug_fix: scheimpflug_fix,
+                scheimpflug_overrides: Vec::new(),
+                fix_extrinsics,
+                fix_rig_poses,
+            };
+            match optimize_rig_extrinsics_scheimpflug(
+                input.clone(),
+                initial,
+                solve_opts,
+                backend_opts,
+            ) {
+                Ok(r) => RigExtrinsicsOutput::Scheimpflug(r),
+                Err(e) => {
+                    session.log_failure("rig_optimize", e.to_string());
+                    return Err(Error::from(e));
+                }
+            }
         }
     };
 
-    // Update state metrics
-    let cam_se3_rig: Vec<Iso3> = result
-        .params
-        .cam_to_rig
-        .iter()
-        .map(|t| t.inverse())
-        .collect();
-    let per_cam_stats = compute_rig_reprojection_stats_per_camera(
-        &result.params.cameras,
-        session.require_input()?,
-        &cam_se3_rig,
-        &result.params.rig_from_target,
-    )
-    .map_err(|e| {
-        Error::numerical(format!(
-            "failed to compute per-camera rig BA reprojection error: {e}"
-        ))
-    })?;
-    let total_count: usize = per_cam_stats.iter().map(|s| s.count).sum();
-    let total_error: f64 = per_cam_stats
-        .iter()
-        .map(|s| s.mean * (s.count as f64))
-        .sum();
-    let mean_reproj_error = total_error / (total_count as f64);
-    session.state.rig_ba_final_cost = Some(result.report.final_cost);
+    let cam_se3_rig: Vec<Iso3> = output.cam_to_rig().iter().map(|t| t.inverse()).collect();
+    // For pinhole rigs we recompute per-camera stats via the shared core helper
+    // (matches the original rig_extrinsics behaviour). For Scheimpflug rigs the
+    // helper is type-locked to `IdentitySensor`, so we trust the optim's
+    // already-computed mean and per-camera errors (computed with the tilted
+    // projection chain).
+    let (per_cam_errors, mean_reproj_error) = match &output {
+        RigExtrinsicsOutput::Pinhole(e) => {
+            let stats = compute_rig_reprojection_stats_per_camera(
+                &e.params.cameras,
+                session.require_input()?,
+                &cam_se3_rig,
+                &e.params.rig_from_target,
+            )
+            .map_err(|err| {
+                Error::numerical(format!(
+                    "failed to compute per-camera rig BA reprojection error: {err}"
+                ))
+            })?;
+            let total_count: usize = stats.iter().map(|s| s.count).sum();
+            let total_error: f64 = stats.iter().map(|s| s.mean * (s.count as f64)).sum();
+            let mean = total_error / (total_count as f64);
+            let per_cam: Vec<f64> = stats.iter().map(|s| s.mean).collect();
+            (per_cam, mean)
+        }
+        RigExtrinsicsOutput::Scheimpflug(e) => {
+            (e.per_cam_reproj_errors.clone(), e.mean_reproj_error)
+        }
+    };
+    session.state.rig_ba_final_cost = Some(output.final_cost());
     session.state.rig_ba_reproj_error = Some(mean_reproj_error);
-    session.state.rig_ba_per_cam_reproj_errors =
-        Some(per_cam_stats.iter().map(|s| s.mean).collect());
+    session.state.rig_ba_per_cam_reproj_errors = Some(per_cam_errors);
 
-    // Set output
-    session.set_output(result.clone());
+    let final_cost = output.final_cost();
+    session.set_output(output);
 
     session.log_success_with_notes(
         "rig_optimize",
-        format!(
-            "final_cost={:.2e}, mean_reproj_err={:.3}px",
-            result.report.final_cost, mean_reproj_error
-        ),
+        format!("final_cost={final_cost:.2e}, mean_reproj_err={mean_reproj_error:.3}px"),
     );
 
     Ok(())
@@ -749,24 +894,19 @@ mod tests {
         run_calibration(&mut session).unwrap();
         let output = session.require_output().unwrap().clone();
 
-        let cam_se3_rig: Vec<Iso3> = output
-            .params
-            .cam_to_rig
-            .iter()
-            .map(|t| t.inverse())
-            .collect();
+        let cam_se3_rig: Vec<Iso3> = output.cam_to_rig().iter().map(|t| t.inverse()).collect();
         let reproj_stats = vision_calibration_core::compute_rig_reprojection_stats(
-            &output.params.cameras,
+            output.cameras(),
             &input,
             &cam_se3_rig,
-            &output.params.rig_from_target,
+            output.rig_from_target(),
         )
         .unwrap();
         let per_cam_stats = compute_rig_reprojection_stats_per_camera(
-            &output.params.cameras,
+            output.cameras(),
             &input,
             &cam_se3_rig,
-            &output.params.rig_from_target,
+            output.rig_from_target(),
         )
         .unwrap();
         let mean_err = reproj_stats.mean;

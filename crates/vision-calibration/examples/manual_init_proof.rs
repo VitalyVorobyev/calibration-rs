@@ -124,6 +124,7 @@ fn main() -> Result<()> {
         RigIntrinsicsManualInit {
             per_cam_intrinsics: Some(per_cam_k.clone()),
             per_cam_distortion: Some(per_cam_dist.clone()),
+            per_cam_sensors: None,
         },
         None,
     )?;
@@ -169,6 +170,7 @@ fn main() -> Result<()> {
         RigIntrinsicsManualInit {
             per_cam_intrinsics: Some(perturbed_k),
             per_cam_distortion: None, // let auto-fit it
+            per_cam_sensors: None,
         },
         None,
     )?;
@@ -234,12 +236,7 @@ fn summarize(
     let output = session
         .require_output()
         .map_err(|e| anyhow::anyhow!("{label}: no output: {e}"))?;
-    let cam_se3_rig: Vec<Iso3> = output
-        .params
-        .cam_to_rig
-        .iter()
-        .map(|t| t.inverse())
-        .collect();
+    let cam_se3_rig: Vec<Iso3> = output.cam_to_rig().iter().map(|t| t.inverse()).collect();
 
     println!("  {label}: mean reproj = {:.4} px", mean_reproj);
     for (i, err) in per_cam_reproj.iter().enumerate() {

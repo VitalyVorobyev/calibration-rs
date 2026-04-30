@@ -237,33 +237,6 @@ fn run_scheimpflug_intrinsics(
     )
 }
 
-/// Run multi-camera Scheimpflug rig extrinsics calibration.
-///
-/// Parameters
-/// ----------
-/// input:
-///     Rig dataset payload (serde-compatible with `RigScheimpflugExtrinsicsInput`).
-/// config:
-///     Optional config payload (serde-compatible with `RigScheimpflugExtrinsicsConfig`).
-///
-/// Returns
-/// -------
-/// dict
-///     Scheimpflug rig extrinsics export payload.
-#[pyfunction(signature = (input, config=None))]
-fn run_rig_scheimpflug_extrinsics(
-    py: Python<'_>,
-    input: &Bound<'_, PyAny>,
-    config: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Py<PyAny>> {
-    run_problem::<vision_calibration::rig_scheimpflug_extrinsics::RigScheimpflugExtrinsicsProblem, _>(
-        py,
-        input,
-        config,
-        vision_calibration::rig_scheimpflug_extrinsics::run_calibration,
-    )
-}
-
 /// Run multi-camera Scheimpflug rig hand-eye calibration.
 ///
 /// Parameters
@@ -410,7 +383,6 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_rig_handeye, m)?)?;
     m.add_function(wrap_pyfunction!(run_laserline_device, m)?)?;
     m.add_function(wrap_pyfunction!(run_scheimpflug_intrinsics, m)?)?;
-    m.add_function(wrap_pyfunction!(run_rig_scheimpflug_extrinsics, m)?)?;
     m.add_function(wrap_pyfunction!(run_rig_scheimpflug_handeye, m)?)?;
     m.add_function(wrap_pyfunction!(run_rig_laserline_device, m)?)?;
     m.add_function(wrap_pyfunction!(pixel_to_gripper_point, m)?)?;
