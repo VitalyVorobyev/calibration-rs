@@ -769,9 +769,9 @@ pub fn step_set_handeye_init(
             match handeye_mode {
                 HandEyeMode::EyeInHand => robot_poses[0] * handeye * rig_se3_target[0],
                 HandEyeMode::EyeToHand => {
-                    // gripper_se3_target derived from T_R_T = T_R_B * T_B_G * T_G_T.
-                    // T_G_T = (T_B_G)^-1 * (T_R_B)^-1 * T_R_T = (T_B_G)^-1 * handeye * T_R_T.
-                    robot_poses[0].inverse() * handeye * rig_se3_target[0]
+                    // handeye = T_R_B. Chain: T_R_T = T_R_B * T_B_G * T_G_T.
+                    // T_G_T = (T_B_G)^-1 * (T_R_B)^-1 * T_R_T = robot_poses[0]^-1 * handeye^-1 * T_R_T.
+                    robot_poses[0].inverse() * handeye.inverse() * rig_se3_target[0]
                 }
             }
         }
@@ -1132,6 +1132,62 @@ mod tests {
             .unwrap();
 
         assert!(session.has_output());
+    }
+
+    #[test]
+    fn step_set_handeye_init_eye_to_hand_recovers_target_on_gripper() {
+        // Regression test for Codex P1 on PR #32: in EyeToHand mode the
+        // auto-derive of `mode_target_pose` from a manual `handeye` seed must
+        // use `handeye.inverse()`, since `handeye = T_R_B` and the chain is
+        // T_R_T = T_R_B * T_B_G * T_G_T, so T_G_T = T_B_G^-1 * T_R_B^-1 * T_R_T.
+        let input = make_test_input();
+        let robot_poses: Vec<Iso3> = input
+            .views
+            .iter()
+            .map(|v| v.meta.base_se3_gripper)
+            .collect();
+
+        // Ground-truth EyeToHand: rig fixed in robot base, target on gripper.
+        let t_r_b = make_iso((0.4, -0.2, 0.1), (0.5, -0.3, 0.2));
+        let t_g_t = make_iso((0.15, 0.0, -0.1), (0.05, 0.04, 0.03));
+        let rig_se3_target: Vec<Iso3> = robot_poses.iter().map(|tbg| t_r_b * tbg * t_g_t).collect();
+
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+        session.set_input(input).unwrap();
+        session
+            .set_config(super::super::problem::RigHandeyeConfig {
+                handeye_init: super::super::problem::RigHandeyeInitConfig {
+                    handeye_mode: HandEyeMode::EyeToHand,
+                    min_motion_angle_deg: 5.0,
+                },
+                ..Default::default()
+            })
+            .unwrap();
+
+        // Simulate post-rig-BA state.
+        session.state.rig_ba_cam_se3_rig = Some(vec![
+            Iso3::identity();
+            session.require_input().unwrap().num_cameras
+        ]);
+        session.state.rig_ba_rig_se3_target = Some(rig_se3_target);
+
+        // Pin handeye to ground truth so the test isolates the
+        // mode_target_pose auto-derive arithmetic from DLT precision.
+        let manual = RigHandeyeHandeyeManualInit {
+            handeye: Some(t_r_b),
+            mode_target_pose: None,
+        };
+        step_set_handeye_init(&mut session, manual, None).unwrap();
+
+        let recovered = session.state.initial_mode_target_pose.unwrap();
+        let dt = (recovered.translation.vector - t_g_t.translation.vector).norm();
+        let dq = recovered
+            .rotation
+            .rotation_to(&t_g_t.rotation)
+            .angle()
+            .abs();
+        assert!(dt < 1e-9, "T_G_T translation mismatch: |Δt|={dt}");
+        assert!(dq < 1e-9, "T_G_T rotation mismatch: angle={dq}");
     }
 
     #[test]

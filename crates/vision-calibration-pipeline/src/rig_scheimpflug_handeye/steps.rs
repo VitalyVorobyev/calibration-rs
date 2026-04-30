@@ -963,8 +963,9 @@ pub fn step_set_handeye_init(
             match handeye_mode {
                 HandEyeMode::EyeInHand => robot_poses[0] * handeye * rig_se3_target[0],
                 HandEyeMode::EyeToHand => {
-                    // T_G_T = (T_B_G)^-1 * (T_R_B)^-1 * T_R_T = (T_B_G)^-1 * handeye * T_R_T
-                    robot_poses[0].inverse() * handeye * rig_se3_target[0]
+                    // handeye = T_R_B. T_G_T = (T_B_G)^-1 * (T_R_B)^-1 * T_R_T
+                    //                       = robot_poses[0]^-1 * handeye^-1 * T_R_T
+                    robot_poses[0].inverse() * handeye.inverse() * rig_se3_target[0]
                 }
             }
         }
@@ -1109,4 +1110,148 @@ pub fn run_calibration(
     step_handeye_init(session, None)?;
     step_handeye_optimize(session, None)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::{Rotation3, Translation3};
+    use vision_calibration_core::{
+        BrownConrady5, CorrespondenceView, FxFyCxCySkew, PinholeCamera, Pt2, Pt3, RigDataset,
+        RigView, RigViewObs, make_pinhole_camera,
+    };
+    use vision_calibration_optim::RobotPoseMeta;
+
+    fn make_iso(angles: (f64, f64, f64), t: (f64, f64, f64)) -> Iso3 {
+        let rot = Rotation3::from_euler_angles(angles.0, angles.1, angles.2);
+        let tr = Translation3::new(t.0, t.1, t.2);
+        Iso3::from_parts(tr, rot.into())
+    }
+
+    fn make_test_camera() -> PinholeCamera {
+        make_pinhole_camera(
+            FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 640.0,
+                cy: 360.0,
+                skew: 0.0,
+            },
+            BrownConrady5::default(),
+        )
+    }
+
+    fn make_test_input() -> RigScheimpflugHandeyeInput {
+        let cam = make_test_camera();
+        let cam0_se3_rig = Iso3::identity();
+        let cam1_se3_rig = make_iso((0.0, 0.0, 0.1), (0.2, 0.0, 0.0));
+        let handeye_gt = make_iso((0.05, -0.03, 0.02), (0.03, -0.02, 0.08));
+        let target_in_base_gt = make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 1.2));
+
+        let board_pts: Vec<Pt3> = (0..6)
+            .flat_map(|i| (0..5).map(move |j| Pt3::new(i as f64 * 0.05, j as f64 * 0.05, 0.0)))
+            .collect();
+
+        let robot_poses = [
+            make_iso((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+            make_iso((0.1, 0.0, 0.0), (0.1, 0.0, 0.0)),
+            make_iso((0.0, 0.1, 0.0), (0.0, 0.1, 0.0)),
+            make_iso((0.05, 0.05, 0.0), (-0.1, 0.0, 0.0)),
+        ];
+
+        let views: Vec<RigView<RobotPoseMeta>> = robot_poses
+            .iter()
+            .map(|robot_pose| {
+                let rig_se3_target = (robot_pose * handeye_gt).inverse() * target_in_base_gt;
+                let cam0_se3_target = cam0_se3_rig * rig_se3_target;
+                let cam1_se3_target = cam1_se3_rig * rig_se3_target;
+                let project = |pose: &Iso3| -> Vec<Pt2> {
+                    board_pts
+                        .iter()
+                        .map(|p| {
+                            let p_cam = pose.transform_point(p);
+                            cam.project_point_c(&p_cam.coords).unwrap()
+                        })
+                        .collect()
+                };
+                RigView {
+                    meta: RobotPoseMeta {
+                        base_se3_gripper: *robot_pose,
+                    },
+                    obs: RigViewObs {
+                        cameras: vec![
+                            Some(
+                                CorrespondenceView::new(
+                                    board_pts.clone(),
+                                    project(&cam0_se3_target),
+                                )
+                                .unwrap(),
+                            ),
+                            Some(
+                                CorrespondenceView::new(
+                                    board_pts.clone(),
+                                    project(&cam1_se3_target),
+                                )
+                                .unwrap(),
+                            ),
+                        ],
+                    },
+                }
+            })
+            .collect();
+
+        RigDataset::new(views, 2).unwrap()
+    }
+
+    #[test]
+    fn step_set_handeye_init_eye_to_hand_recovers_target_on_gripper() {
+        // Regression test for Codex P1 on PR #32: in EyeToHand mode the
+        // auto-derive of `mode_target_pose` from a manual `handeye` seed must
+        // use `handeye.inverse()`, since `handeye = T_R_B` and the chain is
+        // T_R_T = T_R_B * T_B_G * T_G_T, so T_G_T = T_B_G^-1 * T_R_B^-1 * T_R_T.
+        let input = make_test_input();
+        let robot_poses: Vec<Iso3> = input
+            .views
+            .iter()
+            .map(|v| v.meta.base_se3_gripper)
+            .collect();
+
+        let t_r_b = make_iso((0.4, -0.2, 0.1), (0.5, -0.3, 0.2));
+        let t_g_t = make_iso((0.15, 0.0, -0.1), (0.05, 0.04, 0.03));
+        let rig_se3_target: Vec<Iso3> = robot_poses.iter().map(|tbg| t_r_b * tbg * t_g_t).collect();
+
+        let mut session = CalibrationSession::<RigScheimpflugHandeyeProblem>::new();
+        session.set_input(input).unwrap();
+        session
+            .set_config(super::super::problem::RigScheimpflugHandeyeConfig {
+                handeye_init: super::super::problem::RigScheimpflugHandeyeInitConfig {
+                    handeye_mode: HandEyeMode::EyeToHand,
+                    min_motion_angle_deg: 5.0,
+                },
+                ..Default::default()
+            })
+            .unwrap();
+
+        session.state.rig_ba_cam_se3_rig = Some(vec![
+            Iso3::identity();
+            session.require_input().unwrap().num_cameras
+        ]);
+        session.state.rig_ba_rig_se3_target = Some(rig_se3_target);
+
+        let manual = RigScheimpflugHandeyeHandeyeManualInit {
+            handeye: Some(t_r_b),
+            mode_target_pose: None,
+        };
+        step_set_handeye_init(&mut session, manual, None).unwrap();
+
+        let recovered = session.state.initial_mode_target_pose.unwrap();
+        let dt = (recovered.translation.vector - t_g_t.translation.vector).norm();
+        let dq = recovered
+            .rotation
+            .rotation_to(&t_g_t.rotation)
+            .angle()
+            .abs();
+        assert!(dt < 1e-9, "T_G_T translation mismatch: |Δt|={dt}");
+        assert!(dq < 1e-9, "T_G_T rotation mismatch: angle={dq}");
+    }
 }
