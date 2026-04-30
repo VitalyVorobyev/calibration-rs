@@ -2,11 +2,14 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::ScheimpflugParams;
+use vision_calibration_core::{
+    Camera, PerFeatureResiduals, Pinhole, ScheimpflugParams, TargetFeatureResidual,
+    build_feature_histogram,
+};
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
     BackendSolveOptions, LaserlineDataset, LaserlineEstimate, LaserlineResidualType,
-    LaserlineSolveOptions, LaserlineStats,
+    LaserlineSolveOptions, LaserlineStats, compute_laserline_feature_residuals,
 };
 
 use crate::session::{InvalidationPolicy, ProblemType};
@@ -187,6 +190,11 @@ pub struct LaserlineDeviceExport {
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors (single element for single-camera workflows).
     pub per_cam_reproj_errors: Vec<f64>,
+    /// Per-feature reprojection + laser residuals (ADR 0012). Single-camera:
+    /// `target_hist_per_camera` and `laser_hist_per_camera` each carry
+    /// `Some(vec![one_entry])`.
+    #[serde(default)]
+    pub per_feature_residuals: PerFeatureResiduals,
 }
 
 impl ProblemType for LaserlineDeviceProblem {
@@ -244,12 +252,301 @@ impl ProblemType for LaserlineDeviceProblem {
         InvalidationPolicy::CLEAR_COMPUTED
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
+    fn export(
+        input: &Self::Input,
+        output: &Self::Output,
+        _config: &Self::Config,
+    ) -> Result<Self::Export, Error> {
+        // Reconstruct the full calibrated camera (pinhole core + Brown-Conrady
+        // distortion + Scheimpflug-tilted sensor) so target reprojection
+        // residuals match the projection model the optimizer used. Skipping
+        // the sensor here would mis-report errors for any non-identity
+        // Scheimpflug calibration.
+        //
+        // Inlined projection loop because the core helper
+        // `compute_planar_target_residuals_views` is currently typed against
+        // PinholeCamera. PR #34 (follow-ups) generifies it over a
+        // CameraProject trait so this can be replaced with one helper call.
+        let params = &output.estimate.params;
+        let camera = Camera::new(
+            Pinhole,
+            params.distortion,
+            params.sensor.compile(),
+            params.intrinsics,
+        );
+        if params.poses.len() != input.len() {
+            return Err(Error::invalid_input(format!(
+                "camera_se3_target count {} != view count {}",
+                params.poses.len(),
+                input.len()
+            )));
+        }
+        let mut target = Vec::new();
+        for (view_idx, view) in input.iter().enumerate() {
+            let pose = params.poses[view_idx];
+            for (feature_idx, (p3d, p2d)) in view
+                .obs
+                .points_3d
+                .iter()
+                .zip(view.obs.points_2d.iter())
+                .enumerate()
+            {
+                let p_cam = pose * p3d;
+                let (projected_px, error_px) = match camera.project_point_c(&p_cam.coords) {
+                    Some(proj) => (Some([proj.x, proj.y]), Some((proj - *p2d).norm())),
+                    None => (None, None),
+                };
+                target.push(TargetFeatureResidual {
+                    pose: view_idx,
+                    camera: 0,
+                    feature: feature_idx,
+                    target_xyz_m: [p3d.x, p3d.y, p3d.z],
+                    observed_px: [p2d.x, p2d.y],
+                    projected_px,
+                    error_px,
+                });
+            }
+        }
+        let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
+
+        let laser = compute_laserline_feature_residuals(input, params)?;
+        let laser_hist = build_feature_histogram(laser.iter().filter_map(|r| r.residual_px));
+
         Ok(LaserlineDeviceExport {
             estimate: output.estimate.clone(),
             stats: output.stats.clone(),
             mean_reproj_error: output.stats.mean_reproj_error,
             per_cam_reproj_errors: vec![output.stats.mean_reproj_error],
+            per_feature_residuals: PerFeatureResiduals {
+                target,
+                laser,
+                target_hist_per_camera: Some(vec![target_hist]),
+                laser_hist_per_camera: Some(vec![laser_hist]),
+            },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vision_calibration_core::{
+        BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Pt2, Pt3, View,
+    };
+    use vision_calibration_optim::{LaserPlane, LaserlineMeta, LaserlineParams, SolveReport};
+
+    fn make_synthetic_scenario() -> (LaserlineDataset, LaserlineDeviceOutput) {
+        // Camera + target plane setup matching the laser feature residual
+        // synthetic test: target plane at z=1 in camera frame, laser plane at
+        // y=0.1 in camera frame. Pixels lie exactly on the projected line +
+        // exactly on the projected target board.
+        let intrinsics = FxFyCxCySkew {
+            fx: 800.0,
+            fy: 800.0,
+            cx: 320.0,
+            cy: 240.0,
+            skew: 0.0,
+        };
+        let distortion = BrownConrady5::default();
+        let sensor = ScheimpflugParams::default();
+        let camera = vision_calibration_core::make_pinhole_camera(intrinsics, distortion);
+
+        let board = vec![
+            Pt3::new(0.0, 0.0, 0.0),
+            Pt3::new(0.05, 0.0, 0.0),
+            Pt3::new(0.0, 0.05, 0.0),
+            Pt3::new(0.05, 0.05, 0.0),
+        ];
+        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 1.0, 0.0), -0.1);
+
+        let mut views = Vec::new();
+        let mut poses = Vec::new();
+        for view_idx in 0..3 {
+            // Each view's target plane lives at depth z = 1.0 + 0.05*i in
+            // camera frame. Generate laser pixels by projecting points along
+            // the per-view intersection line (y = 0.1, z = view_z).
+            let view_z = 1.0 + 0.05 * view_idx as f64;
+            let pose = Iso3::from_parts(
+                nalgebra::Translation3::new(0.0, 0.0, view_z),
+                nalgebra::UnitQuaternion::identity(),
+            );
+            poses.push(pose);
+            let target_pixels: Vec<Pt2> = board
+                .iter()
+                .map(|p| {
+                    let p_cam = pose * p;
+                    camera.project_point_c(&p_cam.coords).unwrap()
+                })
+                .collect();
+            let laser_pixels: Vec<Pt2> = [-0.10, -0.05, 0.0, 0.05, 0.10]
+                .iter()
+                .map(|&x| {
+                    camera
+                        .project_point_c(&nalgebra::Vector3::new(x, 0.1, view_z))
+                        .unwrap()
+                })
+                .collect();
+            views.push(View::new(
+                CorrespondenceView::new(board.clone(), target_pixels).unwrap(),
+                LaserlineMeta {
+                    laser_pixels,
+                    laser_weights: Vec::new(),
+                },
+            ));
+        }
+
+        let params = LaserlineParams::new(intrinsics, distortion, sensor, poses, plane).unwrap();
+        let estimate = LaserlineEstimate {
+            params,
+            report: SolveReport { final_cost: 0.0 },
+        };
+        let stats = LaserlineStats {
+            mean_reproj_error: 0.0,
+            mean_laser_error: 0.0,
+            per_view_reproj_errors: vec![0.0, 0.0, 0.0],
+            per_view_laser_errors: vec![0.0, 0.0, 0.0],
+        };
+        (views, LaserlineDeviceOutput { estimate, stats })
+    }
+
+    #[test]
+    fn export_per_feature_residuals_zero_for_perfect_data() {
+        let (dataset, output) = make_synthetic_scenario();
+        let export =
+            LaserlineDeviceProblem::export(&dataset, &output, &LaserlineDeviceConfig::default())
+                .expect("export");
+
+        // 3 views × 4 target features = 12; 3 views × 5 laser pixels = 15.
+        assert_eq!(export.per_feature_residuals.target.len(), 12);
+        assert_eq!(export.per_feature_residuals.laser.len(), 15);
+        for r in &export.per_feature_residuals.target {
+            assert!(r.error_px.unwrap() < 1e-9);
+        }
+        for r in &export.per_feature_residuals.laser {
+            let res_m = r.residual_m.expect("ray must hit target plane");
+            let res_px = r.residual_px.expect("line endpoints must be recoverable");
+            assert!(res_m.abs() < 1e-6, "residual_m {res_m}");
+            assert!(res_px < 1e-6, "residual_px {res_px}");
+        }
+        let target_hist = &export
+            .per_feature_residuals
+            .target_hist_per_camera
+            .as_ref()
+            .unwrap()[0];
+        assert_eq!(target_hist.count, 12);
+        assert_eq!(target_hist.counts, [12, 0, 0, 0, 0]);
+        let laser_hist = &export
+            .per_feature_residuals
+            .laser_hist_per_camera
+            .as_ref()
+            .unwrap()[0];
+        assert_eq!(laser_hist.count, 15);
+        assert_eq!(laser_hist.counts, [15, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn export_uses_scheimpflug_sensor_for_target_residuals() {
+        // Regression test for Codex P1 on PR #33: target reprojection
+        // residuals must use the calibrated Scheimpflug sensor, not a plain
+        // pinhole. The setup constructs ground-truth pixels with a non-zero
+        // Scheimpflug tilt; if the export rebuilds a sensor-less PinholeCamera
+        // (the bug), the resulting `error_px` values will be much larger than
+        // 1e-6 px because the ground-truth pixels embed the tilt that the
+        // bare pinhole projection ignores.
+        let intrinsics = FxFyCxCySkew {
+            fx: 800.0,
+            fy: 800.0,
+            cx: 320.0,
+            cy: 240.0,
+            skew: 0.0,
+        };
+        let distortion = BrownConrady5::default();
+        let sensor = ScheimpflugParams {
+            tilt_x: 0.05,
+            tilt_y: -0.03,
+        };
+        // Project through the full Scheimpflug-tilted camera to generate
+        // ground-truth pixels.
+        let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
+
+        let board = vec![
+            Pt3::new(0.0, 0.0, 0.0),
+            Pt3::new(0.05, 0.0, 0.0),
+            Pt3::new(0.0, 0.05, 0.0),
+            Pt3::new(0.05, 0.05, 0.0),
+        ];
+        let pose = Iso3::from_parts(
+            nalgebra::Translation3::new(0.0, 0.0, 1.0),
+            nalgebra::UnitQuaternion::identity(),
+        );
+        let pixels: Vec<Pt2> = board
+            .iter()
+            .map(|p| {
+                let p_cam = pose * p;
+                camera.project_point_c(&p_cam.coords).unwrap()
+            })
+            .collect();
+        let dataset = vec![View::new(
+            CorrespondenceView::new(board.clone(), pixels).unwrap(),
+            LaserlineMeta {
+                laser_pixels: vec![Pt2::new(320.0, 240.0)],
+                laser_weights: Vec::new(),
+            },
+        )];
+        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -1.0);
+        let params =
+            LaserlineParams::new(intrinsics, distortion, sensor, vec![pose], plane).unwrap();
+        let output = LaserlineDeviceOutput {
+            estimate: LaserlineEstimate {
+                params,
+                report: SolveReport { final_cost: 0.0 },
+            },
+            stats: LaserlineStats {
+                mean_reproj_error: 0.0,
+                mean_laser_error: 0.0,
+                per_view_reproj_errors: vec![0.0],
+                per_view_laser_errors: vec![0.0],
+            },
+        };
+
+        let export =
+            LaserlineDeviceProblem::export(&dataset, &output, &LaserlineDeviceConfig::default())
+                .expect("export");
+        assert_eq!(export.per_feature_residuals.target.len(), 4);
+        for r in &export.per_feature_residuals.target {
+            let err = r.error_px.expect("residual missing");
+            assert!(
+                err < 1e-6,
+                "feature {} error_px {} should be near zero with correct sensor model",
+                r.feature,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn export_per_feature_residuals_json_roundtrip() {
+        let (dataset, output) = make_synthetic_scenario();
+        let export =
+            LaserlineDeviceProblem::export(&dataset, &output, &LaserlineDeviceConfig::default())
+                .expect("export");
+        let json = serde_json::to_string(&export).unwrap();
+        let restored: LaserlineDeviceExport = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            restored.per_feature_residuals.target.len(),
+            export.per_feature_residuals.target.len()
+        );
+        assert_eq!(
+            restored.per_feature_residuals.laser.len(),
+            export.per_feature_residuals.laser.len()
+        );
+        assert_eq!(
+            restored.per_feature_residuals.target_hist_per_camera,
+            export.per_feature_residuals.target_hist_per_camera
+        );
+        assert_eq!(
+            restored.per_feature_residuals.laser_hist_per_camera,
+            export.per_feature_residuals.laser_hist_per_camera
+        );
     }
 }

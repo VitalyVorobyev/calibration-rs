@@ -5,7 +5,10 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{DistortionFixMask, IntrinsicsFixMask, PlanarDataset};
+use vision_calibration_core::{
+    DistortionFixMask, IntrinsicsFixMask, PerFeatureResiduals, PlanarDataset,
+    build_feature_histogram, compute_planar_target_residuals,
+};
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
     BackendSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
@@ -161,6 +164,11 @@ pub struct PlanarIntrinsicsExport {
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors (single element for single-camera workflows).
     pub per_cam_reproj_errors: Vec<f64>,
+    /// Per-feature reprojection residuals (ADR 0012). For planar intrinsics
+    /// only `target` is populated; `laser` is empty. `target_hist_per_camera`
+    /// is `Some(vec![one_entry])` since this problem type is single-camera.
+    #[serde(default)]
+    pub per_feature_residuals: PerFeatureResiduals,
 }
 
 impl ProblemType for PlanarIntrinsicsProblem {
@@ -219,12 +227,31 @@ impl ProblemType for PlanarIntrinsicsProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, Error> {
+    fn export(
+        input: &Self::Input,
+        output: &Self::Output,
+        _config: &Self::Config,
+    ) -> Result<Self::Export, Error> {
+        // Length-mismatch is a logic error inside the pipeline (output came
+        // out of an optimizer that ran on `input`); surface it as a typed
+        // error rather than panicking.
+        let target = compute_planar_target_residuals(
+            &output.params.camera,
+            input,
+            &output.params.camera_se3_target,
+        )?;
+        let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
         Ok(PlanarIntrinsicsExport {
             params: output.params.clone(),
             report: output.report.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: vec![output.mean_reproj_error],
+            per_feature_residuals: PerFeatureResiduals {
+                target,
+                laser: Vec::new(),
+                target_hist_per_camera: Some(vec![target_hist]),
+                laser_hist_per_camera: None,
+            },
         })
     }
 }
@@ -415,7 +442,17 @@ mod tests {
             mean_reproj_error: 0.42,
         };
 
+        let dummy_view = vision_calibration_core::View::without_meta(
+            vision_calibration_core::CorrespondenceView::new(
+                vec![vision_calibration_core::Pt3::new(0.0, 0.0, 0.0); 4],
+                vec![vision_calibration_core::Pt2::new(0.0, 0.0); 4],
+            )
+            .unwrap(),
+        );
+        let dummy_input = vision_calibration_core::PlanarDataset::new(vec![dummy_view]).unwrap();
+
         let export = PlanarIntrinsicsProblem::export(
+            &dummy_input,
             &output,
             &PlanarIntrinsicsConfig {
                 robust_loss: RobustLoss::None,
@@ -426,5 +463,159 @@ mod tests {
 
         assert_eq!(export.mean_reproj_error, 0.42);
         assert_eq!(export.per_cam_reproj_errors, vec![0.42]);
+        // Even though the synthetic input has every feature at (0,0,0)
+        // (projection diverges), one record per feature must still appear.
+        assert_eq!(export.per_feature_residuals.target.len(), 4);
+        for r in &export.per_feature_residuals.target {
+            assert_eq!(r.camera, 0);
+            assert!(r.projected_px.is_none());
+            assert!(r.error_px.is_none());
+        }
+        let hist = export
+            .per_feature_residuals
+            .target_hist_per_camera
+            .as_ref()
+            .expect("planar export emits a single-camera histogram");
+        assert_eq!(hist.len(), 1);
+        assert_eq!(hist[0].count, 0);
+    }
+
+    #[test]
+    fn export_target_residuals_zero_for_perfect_data() {
+        // Synthesize a 3-view dataset where every feature reprojects to the
+        // observed pixel exactly. The exported per_feature_residuals.target
+        // must report Some(error_px) ≈ 0 for every record and the histogram
+        // must place all counts in the first bucket.
+        let camera = vision_calibration_core::make_pinhole_camera(
+            vision_calibration_core::FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            },
+            vision_calibration_core::BrownConrady5::default(),
+        );
+        let pose = vision_calibration_core::Iso3::from_parts(
+            nalgebra::Translation3::new(0.0, 0.0, 1.0),
+            nalgebra::UnitQuaternion::identity(),
+        );
+        let board: Vec<vision_calibration_core::Pt3> = vec![
+            vision_calibration_core::Pt3::new(0.0, 0.0, 0.0),
+            vision_calibration_core::Pt3::new(0.05, 0.0, 0.0),
+            vision_calibration_core::Pt3::new(0.0, 0.05, 0.0),
+            vision_calibration_core::Pt3::new(0.05, 0.05, 0.0),
+        ];
+        let make_view = || {
+            let pixels: Vec<vision_calibration_core::Pt2> = board
+                .iter()
+                .map(|p| {
+                    let p_cam = pose * p;
+                    camera.project_point_c(&p_cam.coords).unwrap()
+                })
+                .collect();
+            vision_calibration_core::View::without_meta(
+                vision_calibration_core::CorrespondenceView::new(board.clone(), pixels).unwrap(),
+            )
+        };
+        let dataset = vision_calibration_core::PlanarDataset::new(vec![
+            make_view(),
+            make_view(),
+            make_view(),
+        ])
+        .unwrap();
+
+        let params =
+            PlanarIntrinsicsParams::new(camera, vec![pose, pose, pose]).expect("valid params");
+        let output = PlanarIntrinsicsEstimate {
+            params,
+            report: SolveReport { final_cost: 0.0 },
+            mean_reproj_error: 0.0,
+        };
+
+        let export =
+            PlanarIntrinsicsProblem::export(&dataset, &output, &PlanarIntrinsicsConfig::default())
+                .expect("export");
+
+        assert_eq!(export.per_feature_residuals.target.len(), 12);
+        for (i, r) in export.per_feature_residuals.target.iter().enumerate() {
+            let err = r
+                .error_px
+                .unwrap_or_else(|| panic!("record {i} missing error"));
+            assert!(err < 1e-9, "record {i} error_px {err} not near zero");
+        }
+        let hist = &export
+            .per_feature_residuals
+            .target_hist_per_camera
+            .as_ref()
+            .unwrap()[0];
+        assert_eq!(hist.count, 12);
+        // All errors are <=1 px so they fall in the first bucket.
+        assert_eq!(hist.counts, [12, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn export_per_feature_residuals_json_roundtrip() {
+        // Round-trip the export through JSON and confirm per_feature_residuals
+        // including bucket counts survive serialize/deserialize.
+        let camera = vision_calibration_core::make_pinhole_camera(
+            vision_calibration_core::FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            },
+            vision_calibration_core::BrownConrady5::default(),
+        );
+        let pose = vision_calibration_core::Iso3::from_parts(
+            nalgebra::Translation3::new(0.0, 0.0, 1.0),
+            nalgebra::UnitQuaternion::identity(),
+        );
+        let view = vision_calibration_core::View::without_meta(
+            vision_calibration_core::CorrespondenceView::new(
+                vec![
+                    vision_calibration_core::Pt3::new(0.0, 0.0, 0.0),
+                    vision_calibration_core::Pt3::new(0.05, 0.0, 0.0),
+                    vision_calibration_core::Pt3::new(0.0, 0.05, 0.0),
+                    vision_calibration_core::Pt3::new(0.05, 0.05, 0.0),
+                ],
+                vec![
+                    vision_calibration_core::Pt2::new(320.0, 240.0),
+                    vision_calibration_core::Pt2::new(360.0, 240.0),
+                    vision_calibration_core::Pt2::new(320.0, 280.0),
+                    vision_calibration_core::Pt2::new(360.0, 280.0),
+                ],
+            )
+            .unwrap(),
+        );
+        let dataset = vision_calibration_core::PlanarDataset::new(vec![view]).unwrap();
+        let params = PlanarIntrinsicsParams::new(camera, vec![pose]).expect("valid params");
+        let output = PlanarIntrinsicsEstimate {
+            params,
+            report: SolveReport { final_cost: 0.0 },
+            mean_reproj_error: 0.0,
+        };
+        let export =
+            PlanarIntrinsicsProblem::export(&dataset, &output, &PlanarIntrinsicsConfig::default())
+                .expect("export");
+
+        let json = serde_json::to_string(&export).expect("serialize");
+        let restored: PlanarIntrinsicsExport = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(
+            restored.per_feature_residuals.target.len(),
+            export.per_feature_residuals.target.len()
+        );
+        assert_eq!(
+            restored.per_feature_residuals.target_hist_per_camera,
+            export.per_feature_residuals.target_hist_per_camera
+        );
+        assert!(restored.per_feature_residuals.laser.is_empty());
+        assert!(
+            restored
+                .per_feature_residuals
+                .laser_hist_per_camera
+                .is_none()
+        );
     }
 }

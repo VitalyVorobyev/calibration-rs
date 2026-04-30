@@ -553,10 +553,14 @@ pub fn pixel_to_gripper_point(
 pub mod core {
     pub use vision_calibration_core::{
         BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionFixMask,
-        DistortionParams, FxFyCxCySkew, IdentitySensor, IntrinsicsFixMask, IntrinsicsParams, Iso3,
-        NoMeta, Pinhole, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3, Real,
-        ReprojectionStats, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorModel,
-        SensorParams, Vec2, Vec3, View, make_pinhole_camera, pinhole_camera_params,
+        DistortionParams, FeatureResidualHistogram, FxFyCxCySkew, IdentitySensor,
+        IntrinsicsFixMask, IntrinsicsParams, Iso3, LaserFeatureResidual, NoMeta,
+        PerFeatureResiduals, Pinhole, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3,
+        REPROJECTION_HISTOGRAM_EDGES_PX, Real, ReprojectionStats, RigDataset, RigView, RigViewObs,
+        ScheimpflugParams, SensorModel, SensorParams, TargetFeatureResidual, Vec2, Vec3, View,
+        build_feature_histogram, compute_planar_target_residuals,
+        compute_planar_target_residuals_views, compute_rig_target_residuals, make_pinhole_camera,
+        pinhole_camera_params,
     };
 }
 

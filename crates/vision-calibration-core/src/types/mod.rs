@@ -5,6 +5,8 @@
 
 mod observation;
 mod options;
+mod residual;
 
 pub use observation::*;
 pub use options::*;
+pub use residual::*;

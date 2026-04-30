@@ -88,7 +88,7 @@ impl Default for InvalidationPolicy {
 ///
 ///     fn name() -> &'static str { "my_problem" }
 ///
-///     fn export(output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, crate::Error> {
+///     fn export(_input: &Self::Input, output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, crate::Error> {
 ///         Ok(output.into())
 ///     }
 /// }
@@ -204,8 +204,14 @@ pub trait ProblemType: Sized + 'static {
     /// Convert output to export format.
     ///
     /// Called by [`CalibrationSession::export`](super::CalibrationSession::export).
-    /// The config is provided for cases where export format depends on settings.
-    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export, Error>;
+    /// The input + config are provided so exports can attach per-feature
+    /// reprojection residuals (ADR 0012) and other input-dependent diagnostic
+    /// data.
+    fn export(
+        input: &Self::Input,
+        output: &Self::Output,
+        config: &Self::Config,
+    ) -> Result<Self::Export, Error>;
 }
 
 #[cfg(test)]

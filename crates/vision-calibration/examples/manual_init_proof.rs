@@ -93,6 +93,7 @@ fn main() -> Result<()> {
     step_rig_optimize(&mut session_a, None)?;
     let a_summary = summarize(&session_a, "Run A")?;
     print_init_logs(&session_a.log, "Run A");
+    print_per_feature_residuals_summary(&mut session_a, "Run A")?;
     println!();
 
     let cameras_a = session_a
@@ -322,6 +323,106 @@ fn print_init_logs(log: &[LogEntry], label: &str) {
             println!("    [{}] {}", entry.operation, notes);
         }
     }
+}
+
+/// Demonstrate the ADR 0012 per-feature residuals on the exported result.
+///
+/// Calls `session.export_peek()` (does not mutate the export collection),
+/// prints per-camera histograms, head/tail of the residual vector, and
+/// asserts that:
+/// - the histogram counts sum to the number of records that produced a
+///   `Some(error_px)`;
+/// - the mean recomputed from the records matches the histogram's `mean`
+///   field within float roundoff.
+fn print_per_feature_residuals_summary(
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
+    label: &str,
+) -> Result<()> {
+    let export = session.export_peek()?;
+    let pf = &export.per_feature_residuals;
+    let total = pf.target.len();
+    let with_value = pf.target.iter().filter(|r| r.error_px.is_some()).count();
+    println!(
+        "  {label} per-feature residuals: {total} records ({with_value} with finite error_px, {} divergent)",
+        total - with_value
+    );
+
+    if let Some(hists) = pf.target_hist_per_camera.as_ref() {
+        for (i, h) in hists.iter().enumerate() {
+            println!(
+                "    cam {i}: count={} mean={:.4}px max={:.4}px buckets <=1={} <=2={} <=5={} <=10={} >10={}",
+                h.count,
+                h.mean,
+                h.max,
+                h.counts[0],
+                h.counts[1],
+                h.counts[2],
+                h.counts[3],
+                h.counts[4]
+            );
+            // Each histogram aggregates only that camera's records that
+            // produced a finite error. Verify that invariant:
+            let cam_with_value = pf
+                .target
+                .iter()
+                .filter(|r| r.camera == i)
+                .filter_map(|r| r.error_px)
+                .count();
+            ensure!(
+                h.count == cam_with_value,
+                "{label}: cam {i} histogram count {} != expected {}",
+                h.count,
+                cam_with_value
+            );
+            let mean_from_records: f64 = if cam_with_value == 0 {
+                0.0
+            } else {
+                pf.target
+                    .iter()
+                    .filter(|r| r.camera == i)
+                    .filter_map(|r| r.error_px)
+                    .sum::<f64>()
+                    / cam_with_value as f64
+            };
+            ensure!(
+                (mean_from_records - h.mean).abs() < 1e-9,
+                "{label}: cam {i} mean from records {mean_from_records} != histogram mean {}",
+                h.mean
+            );
+        }
+    }
+
+    let head_n = 3.min(pf.target.len());
+    if head_n > 0 {
+        println!("    head:");
+        for r in pf.target.iter().take(head_n) {
+            println!(
+                "      pose={} cam={} feat={} err={}",
+                r.pose,
+                r.camera,
+                r.feature,
+                r.error_px
+                    .map(|e| format!("{:.4}px", e))
+                    .unwrap_or_else(|| "None".to_string())
+            );
+        }
+    }
+    let tail_n = 3.min(pf.target.len().saturating_sub(head_n));
+    if tail_n > 0 {
+        println!("    tail:");
+        for r in pf.target.iter().rev().take(tail_n).rev() {
+            println!(
+                "      pose={} cam={} feat={} err={}",
+                r.pose,
+                r.camera,
+                r.feature,
+                r.error_px
+                    .map(|e| format!("{:.4}px", e))
+                    .unwrap_or_else(|| "None".to_string())
+            );
+        }
+    }
+    Ok(())
 }
 
 fn parse_max_views() -> usize {

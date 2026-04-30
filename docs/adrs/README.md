@@ -29,3 +29,8 @@ Status legend:
 - [0003 - Facade and Python API Consistency](0003-facade-and-python-api-consistency.md)
 - [0004 - Planning Process: ADR + Backlog](0004-planning-process-adr-backlog.md)
 - [0010 - Step Option Naming Convention](0010-step-option-naming-convention.md)
+
+## Workflow & Schema
+
+- [0011 - Manual Parameter Initialization Workflow](0011-manual-initialization-workflow.md)
+- [0012 - Per-Feature Reprojection Residuals on Export Types](0012-per-feature-reprojection-residuals.md)

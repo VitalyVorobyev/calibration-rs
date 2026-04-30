@@ -295,7 +295,11 @@ impl ProblemType for SingleCamHandeyeProblem {
         InvalidationPolicy::KEEP_ALL
     }
 
-    fn export(output: &Self::Output, config: &Self::Config) -> Result<Self::Export, Error> {
+    fn export(
+        _input: &Self::Input,
+        output: &Self::Output,
+        config: &Self::Config,
+    ) -> Result<Self::Export, Error> {
         // Extract the single camera (index 0 for single-cam setup)
         let camera = output
             .params
