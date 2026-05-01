@@ -121,14 +121,15 @@ impl RigSensorBundle {
         }
     }
 
-    /// Number of cameras in the bundle.
-    #[allow(dead_code)] // Public accessor; consumed by upcoming A6.2b/A6.3 collapse.
+    /// Number of cameras in the bundle. Used by the `rig_family` test suite;
+    /// keep `pub(crate)` even when unused in production callers.
+    #[cfg(test)]
     pub fn num_cameras(&self) -> usize {
         self.cameras.len()
     }
 
     /// `true` when the bundle carries Scheimpflug sensor params.
-    #[allow(dead_code)] // Public accessor; consumed by upcoming A6.2b/A6.3 collapse.
+    #[cfg(test)]
     pub fn is_scheimpflug(&self) -> bool {
         self.scheimpflug.is_some()
     }

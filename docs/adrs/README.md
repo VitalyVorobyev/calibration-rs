@@ -34,3 +34,4 @@ Status legend:
 
 - [0011 - Manual Parameter Initialization Workflow](0011-manual-initialization-workflow.md)
 - [0012 - Per-Feature Reprojection Residuals on Export Types](0012-per-feature-reprojection-residuals.md)
+- [0013 - rig_family Sensor-Axis Refactor (Pinhole + Scheimpflug Unification)](0013-rig-family-sensor-axis-refactor.md)
