@@ -1,55 +1,82 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { isTauriContext, joinPath } from "../lib/tauri";
+import { useKeyboardNav } from "../hooks/useKeyboardNav";
+import {
+  getPixelLum,
+  rectHistogram,
+  useImageData,
+} from "../hooks/useImageData";
 import type {
+  CursorReadout,
   FrameKey,
   LoadExportResult,
   PlanarExport,
   TargetFeatureResidual,
 } from "../types";
+import {
+  CompareViewer,
+  type CompareViewerHandle,
+} from "./CompareViewer";
+import {
+  FrameCanvas,
+  type FrameCanvasHandle,
+  colorForError,
+} from "./FrameCanvas";
+import { Histogram } from "./Histogram";
+import { PoseCameraStepper } from "./PoseCameraStepper";
 
-// True iff the page is running inside a Tauri webview (i.e. the IPC
-// internals have been injected). When the user runs `bun run dev` and
-// loads localhost:1420 in a regular browser, this is false and any
-// `invoke` / dialog call would throw `Cannot read properties of
-// undefined (reading 'invoke')`. We guard up-front so the failure mode
-// is a readable banner instead of an opaque TypeError.
-function isTauriContext(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    "__TAURI_INTERNALS__" in window &&
-    (window as unknown as { __TAURI_INTERNALS__?: unknown })
-      .__TAURI_INTERNALS__ != null
-  );
-}
-
-// Path joining for absolute filesystem paths. Tauri exposes a path
-// utility but for v0 the manifest only ever uses POSIX-style relatives,
-// so a hand-rolled join keeps the dependency surface tiny.
-function joinPath(dir: string, ...rest: string[]): string {
-  let out = dir.replace(/[\\/]+$/, "");
-  for (const segment of rest) {
-    if (!segment) continue;
-    const sep = out.includes("\\") && !out.includes("/") ? "\\" : "/";
-    out = `${out}${sep}${segment.replace(/^[\\/]+/, "")}`;
-  }
-  return out;
-}
+const HISTOGRAM_BINS = 64;
 
 interface ExportState {
   exportPath: string;
   exportDir: string;
   data: PlanarExport;
   frames: FrameKey[];
+  /** Sorted distinct pose values present in the manifest. */
+  poseValues: number[];
+  /** Sorted distinct camera values present in the manifest. */
+  cameraValues: number[];
+  /** For each camera, the sorted list of poses that have a frame. */
+  posesByCamera: Map<number, number[]>;
+  /** For each pose, the sorted list of cameras that have a frame. */
+  camerasByPose: Map<number, number[]>;
+}
+
+/** Wrap-around index lookup over a sorted array; returns the value
+ * at position `(idx(current) + delta) mod arr.length`, with a
+ * fallback to the first/last element when `current` is missing. */
+function nextInWrap(
+  arr: number[],
+  current: number,
+  delta: number,
+): number {
+  if (arr.length === 0) return current;
+  const idx = arr.indexOf(current);
+  if (idx < 0) {
+    // Current value is no longer in the available set; jump to the
+    // nearest neighbour in the step direction.
+    return delta >= 0 ? arr[0] : arr[arr.length - 1];
+  }
+  const n = arr.length;
+  return arr[((idx + delta) % n + n) % n];
 }
 
 export function ResidualViewer() {
   const [state, setState] = useState<ExportState | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [pose, setPose] = useState<number>(0);
+  const [camera, setCamera] = useState<number>(0);
+  const [poseRight, setPoseRight] = useState<number>(0);
+  const [cameraRight, setCameraRight] = useState<number>(1);
+  const [compare, setCompare] = useState<boolean>(false);
+  const [linked, setLinked] = useState<boolean>(true);
+  const [activePane, setActivePane] = useState<"left" | "right">("left");
   const [error, setError] = useState<string | null>(null);
-  const [imgUrl, setImgUrl] = useState<string | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [cursor, setCursor] = useState<CursorReadout | null>(null);
   const tauriOk = isTauriContext();
+  const canvasHandleRef = useRef<FrameCanvasHandle | null>(null);
+  const compareHandleRef = useRef<CompareViewerHandle | null>(null);
 
   const handleOpen = async () => {
     setError(null);
@@ -94,204 +121,393 @@ export function ResidualViewer() {
         abs_path: joinPath(root, f.path),
         roi: f.roi,
       }));
+      if (frames.length === 0) {
+        setError(
+          "This export's image_manifest is empty. v0 needs at least one " +
+            "(pose, camera) frame to render.",
+        );
+        return;
+      }
+      // Build availability indices off the actual manifest entries —
+      // a manifest may be sparse (detector failures, partial captures),
+      // so we must NOT navigate over a dense `[0..max]` Cartesian grid.
+      const poseSet = new Set<number>();
+      const cameraSet = new Set<number>();
+      const posesByCameraSet = new Map<number, Set<number>>();
+      const camerasByPoseSet = new Map<number, Set<number>>();
+      for (const f of frames) {
+        poseSet.add(f.pose);
+        cameraSet.add(f.camera);
+        if (!posesByCameraSet.has(f.camera)) {
+          posesByCameraSet.set(f.camera, new Set());
+        }
+        posesByCameraSet.get(f.camera)!.add(f.pose);
+        if (!camerasByPoseSet.has(f.pose)) {
+          camerasByPoseSet.set(f.pose, new Set());
+        }
+        camerasByPoseSet.get(f.pose)!.add(f.camera);
+      }
+      const sortNum = (s: Set<number>) => [...s].sort((a, b) => a - b);
+      const poseValues = sortNum(poseSet);
+      const cameraValues = sortNum(cameraSet);
+      const posesByCamera = new Map(
+        [...posesByCameraSet].map(([k, v]) => [k, sortNum(v)]),
+      );
+      const camerasByPose = new Map(
+        [...camerasByPoseSet].map(([k, v]) => [k, sortNum(v)]),
+      );
+
+      const first = frames[0];
+      // Default right pane to the next manifest entry that differs from
+      // the first; falls back to the first if it's the only frame so the
+      // compare branch can still mount.
+      const second =
+        frames.find((f) => f.pose !== first.pose || f.camera !== first.camera) ??
+        first;
+
       setState({
         exportPath: chosen,
         exportDir: result.export_dir,
         data: result.export,
         frames,
+        poseValues,
+        cameraValues,
+        posesByCamera,
+        camerasByPose,
       });
-      setSelected(frames[0] ? frameKey(frames[0]) : null);
+      setPose(first.pose);
+      setCamera(first.camera);
+      setPoseRight(second.pose);
+      setCameraRight(second.camera);
+      setCompare(false);
+      setActivePane("left");
     } catch (e) {
       setError(`Could not load export: ${e}`);
     }
   };
 
   const frame = useMemo<FrameKey | null>(() => {
-    if (!state || !selected) return null;
-    return state.frames.find((f) => frameKey(f) === selected) ?? null;
-  }, [state, selected]);
+    if (!state) return null;
+    return (
+      state.frames.find((f) => f.pose === pose && f.camera === camera) ?? null
+    );
+  }, [state, pose, camera]);
 
-  // Load the image bytes when the selection changes.
+  const rightFrame = useMemo<FrameKey | null>(() => {
+    if (!state) return null;
+    return (
+      state.frames.find(
+        (f) => f.pose === poseRight && f.camera === cameraRight,
+      ) ?? null
+    );
+  }, [state, poseRight, cameraRight]);
+
+  const imageData = useImageData(frame, setError);
+
+  // Static ROI histogram — recomputed only when the frame's image data
+  // changes, which is the cheap path. (A viewport-tracking variant
+  // can come later; for diagnostic use the static distribution is
+  // more stable to read.)
+  const roiHistogram = useMemo<number[] | null>(() => {
+    if (!imageData || !frame) return null;
+    const r = frame.roi ?? {
+      x: 0,
+      y: 0,
+      w: imageData.naturalWidth,
+      h: imageData.naturalHeight,
+    };
+    return rectHistogram(imageData, r, HISTOGRAM_BINS);
+  }, [imageData, frame]);
+
+  const cursorBin = useMemo<number | null>(() => {
+    if (!cursor || cursor.intensity == null) return null;
+    const bin = Math.floor((cursor.intensity * HISTOGRAM_BINS) / 256);
+    return Math.min(bin, HISTOGRAM_BINS - 1);
+  }, [cursor]);
+
+  // Reset cursor whenever the frame changes — the previous cursor's
+  // (x, y) no longer maps to the new image.
   useEffect(() => {
-    if (!frame) {
-      setImgUrl(null);
-      return;
-    }
-    let cancelled = false;
-    setImgUrl(null);
-    invoke<string>("load_image", { path: frame.abs_path })
-      .then((dataUrl) => {
-        if (!cancelled) setImgUrl(dataUrl);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(`Could not load image: ${e}`);
+    setCursor(null);
+  }, [frame?.abs_path]);
+
+  const handleCursor = useCallback(
+    (c: { x: number; y: number } | null) => {
+      if (!c || !imageData) {
+        setCursor(null);
+        return;
+      }
+      const roi = frame?.roi;
+      // Translate ROI-local coords back to source-image coords for the
+      // luminance lookup; residual frame and pixel buffer differ when
+      // the manifest crops out a tile.
+      const srcX = (roi?.x ?? 0) + c.x;
+      const srcY = (roi?.y ?? 0) + c.y;
+      setCursor({
+        x: c.x,
+        y: c.y,
+        intensity: getPixelLum(imageData, srcX, srcY),
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [frame]);
+    },
+    [imageData, frame],
+  );
 
-  // Draw image + arrows whenever the selection or image changes.
+  const stepPose = useCallback(
+    (delta: number) => {
+      if (!state) return;
+      const isRight = compare && activePane === "right";
+      const cam = isRight ? cameraRight : camera;
+      // Walk the poses that actually exist for the current camera.
+      // Falling back to the global pose set keeps stepping useful
+      // when the active camera has no frames (e.g. just-loaded state).
+      const poses = state.posesByCamera.get(cam) ?? state.poseValues;
+      const cur = isRight ? poseRight : pose;
+      const next = nextInWrap(poses, cur, delta);
+      if (isRight) setPoseRight(next);
+      else setPose(next);
+    },
+    [state, compare, activePane, camera, cameraRight, pose, poseRight],
+  );
+  const stepCamera = useCallback(
+    (delta: number) => {
+      if (!state) return;
+      const isRight = compare && activePane === "right";
+      const p = isRight ? poseRight : pose;
+      const cams = state.camerasByPose.get(p) ?? state.cameraValues;
+      const cur = isRight ? cameraRight : camera;
+      const next = nextInWrap(cams, cur, delta);
+      if (isRight) setCameraRight(next);
+      else setCamera(next);
+    },
+    [state, compare, activePane, pose, poseRight, camera, cameraRight],
+  );
+
+  useKeyboardNav({
+    onPoseStep: stepPose,
+    onCameraStep: stepCamera,
+    enabled: state != null,
+  });
+
+  // Single-key shortcuts for zoom controls. Bound at the window level
+  // so they work without needing the canvas to be focused; ignored
+  // when an editable element has focus.
   useEffect(() => {
-    if (!state || !frame || !imgUrl) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const img = new Image();
-    img.onload = () => {
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      const roi = frame.roi;
-      const sx = roi?.x ?? 0;
-      const sy = roi?.y ?? 0;
-      const sw = roi?.w ?? img.naturalWidth;
-      const sh = roi?.h ?? img.naturalHeight;
-      canvas.width = sw;
-      canvas.height = sh;
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-      drawResidualArrows(ctx, state.data.per_feature_residuals.target, frame, sx, sy);
+    if (!state) return;
+    const handler = (e: KeyboardEvent) => {
+      const tgt = e.target as HTMLElement | null;
+      if (
+        tgt &&
+        (tgt.tagName === "INPUT" ||
+          tgt.tagName === "SELECT" ||
+          tgt.tagName === "TEXTAREA" ||
+          tgt.isContentEditable)
+      ) {
+        return;
+      }
+      const fit = () =>
+        compare ? compareHandleRef.current?.fitActive() : canvasHandleRef.current?.fit();
+      const oneToOne = () =>
+        compare
+          ? compareHandleRef.current?.reset1to1Active()
+          : canvasHandleRef.current?.reset1to1();
+      const zoom = (factor: number) =>
+        compare
+          ? compareHandleRef.current?.zoomActiveBy(factor)
+          : canvasHandleRef.current?.zoomBy(factor);
+      switch (e.key) {
+        case "f":
+        case "F":
+          fit();
+          e.preventDefault();
+          break;
+        case "1":
+          oneToOne();
+          e.preventDefault();
+          break;
+        case "+":
+        case "=":
+          zoom(1.25);
+          e.preventDefault();
+          break;
+        case "-":
+        case "_":
+          zoom(1 / 1.25);
+          e.preventDefault();
+          break;
+        case "l":
+        case "L":
+          if (compare) {
+            setLinked((v) => !v);
+            e.preventDefault();
+          }
+          break;
+      }
     };
-    img.onerror = () => setError("Image failed to decode.");
-    img.src = imgUrl;
-  }, [state, frame, imgUrl]);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [state, compare]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
       {!tauriOk && (
-        <div className="rounded-md border border-[var(--warn-border)] bg-[var(--warn-bg)] p-2.5 text-[13px] text-[var(--warn-fg)]">
+        <div className="rounded-md border-l-2 border-brand bg-brand/[0.06] p-2.5 text-[13px] text-foreground">
           Tauri runtime not detected — you appear to be running plain Vite
           (<code>bun run dev</code>) in a browser. Launch the desktop app
           with <code>bun run tauri dev</code> to use the file dialog.
         </div>
       )}
-      <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center gap-3">
         <button onClick={handleOpen} disabled={!tauriOk}>
           Open Export…
         </button>
         {state && (
-          <select
-            value={selected ?? ""}
-            onChange={(e) => setSelected(e.target.value)}
-          >
-            {state.frames.map((f) => (
-              <option key={frameKey(f)} value={frameKey(f)}>
-                {f.label}
-              </option>
-            ))}
-          </select>
+          <PoseCameraStepper
+            poseOrdinal={
+              state.poseValues.indexOf(
+                compare && activePane === "right" ? poseRight : pose,
+              ) + 1
+            }
+            poseTotal={state.poseValues.length}
+            cameraOrdinal={
+              state.cameraValues.indexOf(
+                compare && activePane === "right" ? cameraRight : camera,
+              ) + 1
+            }
+            cameraTotal={state.cameraValues.length}
+            onPoseStep={stepPose}
+            onCameraStep={stepCamera}
+          />
         )}
         {state && (
-          <span className="text-xs opacity-70">
-            mean reprojection error: {state.data.mean_reproj_error.toFixed(3)} px
+          <ZoomControls
+            onFit={() =>
+              compare
+                ? compareHandleRef.current?.fitActive()
+                : canvasHandleRef.current?.fit()
+            }
+            onOneToOne={() =>
+              compare
+                ? compareHandleRef.current?.reset1to1Active()
+                : canvasHandleRef.current?.reset1to1()
+            }
+            onZoomIn={() =>
+              compare
+                ? compareHandleRef.current?.zoomActiveBy(1.25)
+                : canvasHandleRef.current?.zoomBy(1.25)
+            }
+            onZoomOut={() =>
+              compare
+                ? compareHandleRef.current?.zoomActiveBy(1 / 1.25)
+                : canvasHandleRef.current?.zoomBy(1 / 1.25)
+            }
+          />
+        )}
+        {state && (
+          <button
+            type="button"
+            onClick={() => setCompare((v) => !v)}
+            className={`h-7 px-2 font-mono text-[11px] ${
+              compare ? "border-brand text-brand" : ""
+            }`}
+            title="Toggle compare mode"
+          >
+            {compare ? "Compare ✓" : "Compare"}
+          </button>
+        )}
+        {state && compare && (
+          <button
+            type="button"
+            onClick={() => setLinked((v) => !v)}
+            className={`h-7 px-2 font-mono text-[11px] ${
+              linked ? "border-brand text-brand" : ""
+            }`}
+            title="Toggle linked viewport (L)"
+          >
+            {linked ? "Linked" : "Unlinked"}
+          </button>
+        )}
+        {state && (
+          <span className="ml-auto font-mono text-xs text-muted-foreground">
+            mean reproj: {state.data.mean_reproj_error.toFixed(3)} px
           </span>
         )}
       </div>
 
       {error && (
-        <div className="rounded-md border border-[var(--error-border)] bg-[var(--error-bg)] p-2.5 text-[13px] text-[var(--error-fg)]">
+        <div className="rounded-md border-l-2 border-destructive bg-destructive/[0.08] p-2.5 text-[13px] text-foreground">
           {error}
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-md bg-[var(--panel-bg)]">
-        {state ? (
-          <canvas
-            ref={canvasRef}
-            className="max-h-full max-w-full shadow-[0_1px_4px_rgba(0,0,0,0.2)] [image-rendering:pixelated]"
+      <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft p-2">
+        {state && frame && compare && rightFrame ? (
+          <CompareViewer
+            leftFrame={frame}
+            rightFrame={rightFrame}
+            residuals={state.data.per_feature_residuals.target}
+            activePane={activePane}
+            onActivePane={setActivePane}
+            linked={linked}
+            onCursorChange={setCursor}
+            onError={setError}
+            innerRef={compareHandleRef}
+          />
+        ) : state && frame ? (
+          <FrameCanvas
+            ref={canvasHandleRef}
+            frame={frame}
+            residuals={state.data.per_feature_residuals.target}
+            image={imageData?.image ?? null}
+            onCursor={handleCursor}
+            onError={setError}
           />
         ) : (
-          <div className="text-[13px] opacity-60">
+          <div className="m-auto text-[13px] text-muted-foreground">
             Open an <code>export.json</code> from a calibration run with an
-            <code> image_manifest</code>.
+            <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for
+            camera; toggle Compare to view two frames side by side.
           </div>
         )}
       </div>
 
       {state && frame && (
-        <ResidualLegend
-          residuals={state.data.per_feature_residuals.target.filter(
-            (r) => r.pose === frame.pose && r.camera === frame.camera,
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <ResidualLegend
+            residuals={state.data.per_feature_residuals.target.filter(
+              (r) => r.pose === frame.pose && r.camera === frame.camera,
+            )}
+          />
+          {roiHistogram && (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                histogram
+              </span>
+              <Histogram bins={roiHistogram} cursorBin={cursorBin} />
+            </div>
           )}
-        />
+          <CursorChip cursor={cursor} />
+        </div>
       )}
     </section>
   );
 }
 
-function frameKey(f: { pose: number; camera: number }): string {
-  return `${f.pose}/${f.camera}`;
-}
-
-/** Cap on rendered arrow length so a freak diverged feature does not
- * dominate the canvas. The numeric value still reads correctly off the
- * legend if needed. */
-const ARROW_LENGTH_CAP_PX = 40;
-/** Multiplier applied to the residual vector so sub-pixel errors are
- * actually visible on a 640×480 canvas. */
-const ARROW_GAIN = 30;
-
-function drawResidualArrows(
-  ctx: CanvasRenderingContext2D,
-  all: TargetFeatureResidual[],
-  frame: FrameKey,
-  roiX: number,
-  roiY: number,
-) {
-  const arrows = all.filter((r) => r.pose === frame.pose && r.camera === frame.camera);
-  for (const r of arrows) {
-    if (!r.projected_px) continue;
-    const ox = r.observed_px[0] - roiX;
-    const oy = r.observed_px[1] - roiY;
-    const dx0 = r.projected_px[0] - r.observed_px[0];
-    const dy0 = r.projected_px[1] - r.observed_px[1];
-    const mag = Math.hypot(dx0, dy0);
-    if (mag < 1e-6) continue;
-    const gain = Math.min(ARROW_GAIN, ARROW_LENGTH_CAP_PX / Math.max(mag, 1e-6) / 1);
-    const dx = dx0 * gain;
-    const dy = dy0 * gain;
-    ctx.strokeStyle = colorForError(r.error_px ?? mag);
-    ctx.lineWidth = 1.5;
-    drawArrow(ctx, ox, oy, ox + dx, oy + dy);
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.beginPath();
-    ctx.arc(ox, oy, 1.6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-function drawArrow(
-  ctx: CanvasRenderingContext2D,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-) {
-  const angle = Math.atan2(y2 - y1, x2 - x1);
-  const head = 4;
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.lineTo(
-    x2 - head * Math.cos(angle - Math.PI / 6),
-    y2 - head * Math.sin(angle - Math.PI / 6),
+function CursorChip({ cursor }: { cursor: CursorReadout | null }) {
+  return (
+    <span className="inline-flex min-w-[12rem] items-center gap-2 rounded-md border border-border bg-surface px-2 py-1 font-mono text-[11px] text-muted-foreground">
+      <span className="uppercase tracking-wider">cursor</span>
+      {cursor ? (
+        <span className="text-foreground tabular-nums">
+          ({cursor.x.toFixed(0)}, {cursor.y.toFixed(0)})
+          {cursor.intensity != null
+            ? ` · I=${cursor.intensity}`
+            : ""}
+        </span>
+      ) : (
+        <span>—</span>
+      )}
+    </span>
   );
-  ctx.moveTo(x2, y2);
-  ctx.lineTo(
-    x2 - head * Math.cos(angle + Math.PI / 6),
-    y2 - head * Math.sin(angle + Math.PI / 6),
-  );
-  ctx.stroke();
-}
-
-function colorForError(err: number): string {
-  // Cool→warm ramp matching the histogram bucket edges (1, 2, 5, 10 px)
-  // already used for `target_hist_per_camera`. Keeps the visual scale
-  // consistent across UI surfaces if a histogram view is added later.
-  if (err < 1) return "#1abc9c"; // teal
-  if (err < 2) return "#2ecc71"; // green
-  if (err < 5) return "#f1c40f"; // yellow
-  if (err < 10) return "#e67e22"; // orange
-  return "#e74c3c"; // red
 }
 
 function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
@@ -302,35 +518,83 @@ function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
   const max = errs.length > 0 ? Math.max(...errs) : 0;
   const diverged = residuals.length - errs.length;
   return (
-    <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs opacity-85">
-      <span>features: {residuals.length}</span>
-      <span>diverged: {diverged}</span>
-      <span>mean error: {mean.toFixed(3)} px</span>
-      <span>max error: {max.toFixed(3)} px</span>
-      <span>
-        legend (px):
-        <SwatchLabel color="#1abc9c" label="<1" />
-        <SwatchLabel color="#2ecc71" label="<2" />
-        <SwatchLabel color="#f1c40f" label="<5" />
-        <SwatchLabel color="#e67e22" label="<10" />
-        <SwatchLabel color="#e74c3c" label="≥10" />
-      </span>
-      <span>
-        arrows scaled ×{ARROW_GAIN} (cap {ARROW_LENGTH_CAP_PX}px) for
-        sub-pixel visibility.
+    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-muted-foreground">
+      <span>features {residuals.length}</span>
+      <span>diverged {diverged}</span>
+      <span>mean {mean.toFixed(3)} px</span>
+      <span>max {max.toFixed(3)} px</span>
+      <span className="flex items-center gap-2">
+        <Swatch err={0.5} label="<1" />
+        <Swatch err={1.5} label="<2" />
+        <Swatch err={3} label="<5" />
+        <Swatch err={7} label="<10" />
+        <Swatch err={20} label="≥10" />
       </span>
     </div>
   );
 }
 
-function SwatchLabel({ color, label }: { color: string; label: string }) {
-  // Color is data-driven (matches the canvas error ramp), so the swatch
-  // background stays inline rather than escaping to a Tailwind arbitrary.
+interface ZoomControlsProps {
+  onFit: () => void;
+  onOneToOne: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+}
+
+function ZoomControls({
+  onFit,
+  onOneToOne,
+  onZoomIn,
+  onZoomOut,
+}: ZoomControlsProps) {
   return (
-    <span className="ml-1.5 inline-flex items-center gap-1">
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onZoomOut}
+        title="Zoom out (−)"
+        aria-label="Zoom out"
+        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
+      >
+        −
+      </button>
+      <button
+        type="button"
+        onClick={onZoomIn}
+        title="Zoom in (+)"
+        aria-label="Zoom in"
+        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
+      >
+        +
+      </button>
+      <button
+        type="button"
+        onClick={onFit}
+        title="Fit (f)"
+        className="h-7 px-2 font-mono text-[11px]"
+      >
+        Fit
+      </button>
+      <button
+        type="button"
+        onClick={onOneToOne}
+        title="1:1 (1)"
+        className="h-7 px-2 font-mono text-[11px]"
+      >
+        1:1
+      </button>
+    </div>
+  );
+}
+
+function Swatch({ err, label }: { err: number; label: string }) {
+  // Color is data-driven (matches the canvas error ramp), so it stays
+  // inline; the dot is a Tailwind utility.
+  return (
+    <span className="inline-flex items-center gap-1">
       <span
-        className="inline-block h-2.5 w-2.5 rounded-[2px]"
-        style={{ background: color }}
+        className="inline-block h-2 w-2 rounded-[2px]"
+        style={{ background: colorForError(err) }}
       />
       {label}
     </span>

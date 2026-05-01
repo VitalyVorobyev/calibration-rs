@@ -6,8 +6,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    Camera, FeatureResidualHistogram, Iso3, PerFeatureResiduals, Pinhole, PinholeCamera,
-    ScheimpflugParams, build_feature_histogram, compute_rig_target_residuals,
+    Camera, FeatureResidualHistogram, ImageManifest, Iso3, PerFeatureResiduals, Pinhole,
+    PinholeCamera, ScheimpflugParams, build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
     HandEyeEstimate as PinholeHandEyeEstimate, HandEyeMode,
@@ -322,6 +322,16 @@ pub struct RigHandeyeExport {
     /// then composed with `cam_se3_rig` for projection.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
+
+    /// Optional image manifest (ADR 0014, viewer-side contract). When
+    /// populated, downstream viewers (the diagnose UI) can locate the source
+    /// image for each `(pose, camera)` slot. Tiled multi-camera frames
+    /// (e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point
+    /// multiple `FrameRef`s at the same `path` with disjoint ROIs. `None`
+    /// means "no images shipped"; the calibration pipeline never reads
+    /// this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_manifest: Option<ImageManifest>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -553,6 +563,10 @@ impl ProblemType for RigHandeyeProblem {
                 target_hist_per_camera: Some(target_hist_per_camera),
                 laser_hist_per_camera: None,
             },
+            // Manifest is populated by callers that also wrote images for
+            // the dataset (e.g. the puzzle 130×130 example); the pipeline
+            // itself never has image paths to fill in.
+            image_manifest: None,
         })
     }
 }
@@ -781,5 +795,95 @@ mod tests {
         assert!(export.gripper_se3_target.is_some());
         assert!(export.gripper_se3_rig.is_none());
         assert!(export.base_se3_target.is_none());
+    }
+
+    #[test]
+    fn export_image_manifest_defaults_absent_from_wire() {
+        // ADR 0014: when the pipeline emits an export the manifest is
+        // None and `skip_serializing_if` keeps the legacy JSON byte-stable.
+        let output = make_dummy_output();
+        let config = RigHandeyeConfig::default();
+        let dummy_view = RigView {
+            meta: RobotPoseMeta {
+                base_se3_gripper: Iso3::identity(),
+            },
+            obs: RigViewObs {
+                cameras: vec![Some(
+                    CorrespondenceView::new(
+                        vec![Pt3::new(0.0, 0.0, 0.0); 4],
+                        vec![Pt2::new(0.0, 0.0); 4],
+                    )
+                    .unwrap(),
+                )],
+            },
+        };
+        let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
+        let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
+        assert!(export.image_manifest.is_none());
+
+        let json = serde_json::to_string(&export).unwrap();
+        assert!(
+            !json.contains("image_manifest"),
+            "absent manifest must not appear on the wire"
+        );
+        let restored: RigHandeyeExport = serde_json::from_str(&json).unwrap();
+        assert!(restored.image_manifest.is_none());
+    }
+
+    #[test]
+    fn export_image_manifest_roundtrip_with_tiled_roi() {
+        // The puzzle 130×130 rig writes a single 4320×540 PNG per pose
+        // and references each of its six 720×540 camera tiles via ROI;
+        // mirror that shape in the test to lock the wire format.
+        //
+        // Note: per the `image_manifest` coordinate convention, residual
+        // pixel coords are *ROI-local* — the ROI is a render-time crop
+        // hint only. This test pins the wire format; the convention
+        // itself is exercised by the viewer (see app/src/components).
+        use vision_calibration_core::{FrameRef, ImageManifest, PixelRect};
+
+        let output = make_dummy_output();
+        let config = RigHandeyeConfig::default();
+        let dummy_view = RigView {
+            meta: RobotPoseMeta {
+                base_se3_gripper: Iso3::identity(),
+            },
+            obs: RigViewObs {
+                cameras: vec![Some(
+                    CorrespondenceView::new(
+                        vec![Pt3::new(0.0, 0.0, 0.0); 4],
+                        vec![Pt2::new(0.0, 0.0); 4],
+                    )
+                    .unwrap(),
+                )],
+            },
+        };
+        let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
+        let mut export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
+        export.image_manifest = Some(ImageManifest {
+            root: std::path::PathBuf::from("."),
+            frames: (0..6)
+                .map(|cam| FrameRef {
+                    pose: 0,
+                    camera: cam,
+                    path: std::path::PathBuf::from("target_0.png"),
+                    roi: Some(PixelRect {
+                        x: (cam as u32) * 720,
+                        y: 0,
+                        w: 720,
+                        h: 540,
+                    }),
+                })
+                .collect(),
+        });
+
+        let json = serde_json::to_string(&export).unwrap();
+        let restored: RigHandeyeExport = serde_json::from_str(&json).unwrap();
+        let manifest = restored
+            .image_manifest
+            .expect("manifest survives roundtrip");
+        assert_eq!(manifest.frames.len(), 6);
+        assert_eq!(manifest.frames[0].camera, 0);
+        assert_eq!(manifest.frames[5].roi.unwrap().x, 5 * 720);
     }
 }

@@ -136,18 +136,32 @@ be re-pinned manually after any update.
 
 We work to a multi-quarter, four-track plan summarized in `docs/ROADMAP.md`. **Track A is
 done as of 2026-05-01** (A1 + A2 + A4 + A6 shipped; A3 closed, A5 dropped). The
-remaining load-bearing path is **B0 → … → B5**:
+B-track was re-sequenced post-grill on 2026-05-01 to **diagnose-first** because
+the residual visualisation is the actual new capability; everything else
+re-implements what `cargo run --example` already gives a terminal user.
 
 - **A — Calibration core (DONE).** Two rig problem types (`RigExtrinsics`,
   `RigHandeye`) handle both pinhole and Scheimpflug via `SensorMode`; eight
   problem types in total. Manual init (ADR 0011) and per-feature residuals on
   export (ADR 0012) ship across the family.
-- **B — Tauri 2 + React + TypeScript desktop app.** B0 scaffold → B1 file load →
-  B2 detection wrap → B3 calibration runner → B4 3D rig viewer → **B5 diagnose mode
-  (the MVP)** → B6 polish. Next up.
-- **C — MVG** (postponed until B5). C1 PR #28 land → C2 N-view triangulation →
-  C3 BA frozen-intrinsics → C4 Scheimpflug-aware rectification → C5 dense matcher
-  (opencv-rust SGBM, feature-flagged).
+- **B — Tauri 2 + React + TypeScript desktop app (current).**
+  - **B0 — diagnose viewer v0 (DONE, PR #40 + #41).** Passive viewer of one
+    `PlanarIntrinsicsExport`; `ImageManifest` Export-side contract; Tauri 2 +
+    React 19 + Vite 8 + TS 6 shell at `app/`; Tailwind 4 styling. ADR 0014.
+  - **B0.5 — real-data acceptance (current).** Extend `RigHandeyeExport` with
+    `image_manifest`; populate it against the puzzle 130×130 Scheimpflug rig
+    dataset; verify ROI + tiled multi-camera strips render correctly.
+  - **Post-B0 enrichments — priority TBD by user feedback.** Order is no
+    longer pre-committed; will be driven by what the engineer actually
+    misses while using v0. Likely candidates: re-run button calling the
+    facade in-process; multi-pose residual stats panel; cross-camera
+    residual matrix; manifest support on the remaining `*Export` types;
+    in-app detection wrap; 3D rig viewer; init-failure diagnosis;
+    signed installers.
+- **C — MVG** (postponed until B-track diagnose viewer matures). C1 PR #28
+  land → C2 N-view triangulation → C3 BA frozen-intrinsics → C4
+  Scheimpflug-aware rectification → C5 dense matcher (opencv-rust SGBM,
+  feature-flagged).
 - **D — Earn v1.0** (continuous ratchet). Typed errors → doc-warning-free → Python
   parity audit → v1.0 release.
 
