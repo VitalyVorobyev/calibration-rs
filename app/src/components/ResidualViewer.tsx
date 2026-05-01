@@ -163,7 +163,7 @@ export function ResidualViewer() {
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
       {!tauriOk && (
-        <div className="rounded-md border border-[var(--warn-border)] bg-[var(--warn-bg)] p-2.5 text-[13px] text-[var(--warn-fg)]">
+        <div className="rounded-md border-l-2 border-brand bg-brand/[0.06] p-2.5 text-[13px] text-foreground">
           Tauri runtime not detected — you appear to be running plain Vite
           (<code>bun run dev</code>) in a browser. Launch the desktop app
           with <code>bun run tauri dev</code> to use the file dialog.
@@ -193,16 +193,16 @@ export function ResidualViewer() {
       </div>
 
       {error && (
-        <div className="rounded-md border border-[var(--error-border)] bg-[var(--error-bg)] p-2.5 text-[13px] text-[var(--error-fg)]">
+        <div className="rounded-md border-l-2 border-destructive bg-destructive/[0.08] p-2.5 text-[13px] text-foreground">
           {error}
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-md bg-[var(--panel-bg)]">
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-md bg-bg-soft">
         {state ? (
           <canvas
             ref={canvasRef}
-            className="max-h-full max-w-full shadow-[0_1px_4px_rgba(0,0,0,0.2)] [image-rendering:pixelated]"
+            className="max-h-full max-w-full border border-border [image-rendering:pixelated]"
           />
         ) : (
           <div className="text-[13px] opacity-60">

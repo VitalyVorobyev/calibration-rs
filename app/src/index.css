@@ -1,73 +1,144 @@
 @import "tailwindcss";
 
-/* Light/dark color tokens consumed via Tailwind's `var()` arbitrary values
-   (e.g. `bg-[var(--page-bg)]`). We keep the palette here rather than in a
-   `@theme` block so dark mode follows the OS preference automatically; a
-   `@theme` switch would require explicit class toggling. */
-:root {
-  --page-bg: #f6f8fa;
-  --page-fg: #1f2328;
-  --panel-bg: rgba(127, 127, 127, 0.08);
-  --warn-border: #d4a72c;
-  --warn-bg: #fff7d6;
-  --warn-fg: #5a4400;
-  --error-border: #c0392b;
-  --error-bg: #fdecea;
-  --error-fg: #7d2118;
-  color-scheme: light dark;
+/* Class-based dark mode: Tailwind's `dark:` variant matches when an
+   ancestor (typically <html>) carries the `.dark` class. Toggle from
+   main.tsx; persist user override in localStorage. */
+@custom-variant dark (&:is(.dark *));
+
+/* Design tokens — adapted from the vitavision website
+   (https://github.com/VitalyVorobyev/vitavision src/index.css). Trimmed
+   to what the diagnose viewer actually consumes (no article/horizon
+   tokens). Colours are HSL triplets so `hsl(var(--name))` works in
+   Tailwind arbitrary values and CSS alike. */
+@theme {
+  --color-background: hsl(var(--background));
+  --color-bg-soft: hsl(var(--bg-soft));
+  --color-surface: hsl(var(--surface));
+  --color-surface-hi: hsl(var(--surface-hi));
+  --color-foreground: hsl(var(--foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-border: hsl(var(--border));
+  --color-border-strong: hsl(var(--border-strong));
+  --color-accent: hsl(var(--accent));
+  --color-accent-soft: hsl(var(--accent-soft));
+  --color-brand: hsl(var(--brand));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  /* Tighter than Tailwind defaults — "engineered" feel matches vitavision. */
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.375rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --page-bg: #0d1117;
-    --page-fg: #e6edf3;
-    --panel-bg: rgba(255, 255, 255, 0.05);
-    --warn-border: #d4a72c;
-    --warn-bg: #3a2f00;
-    --warn-fg: #ffe589;
-    --error-border: #c0392b;
-    --error-bg: #3a1414;
-    --error-fg: #ffb3a8;
+@layer base {
+  *,
+  ::after,
+  ::before {
+    border-color: var(--color-border);
   }
-}
 
-html,
-body,
-#root {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  width: 100%;
-  font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-  font-size: 14px;
-  color: var(--page-fg);
-  background: var(--page-bg);
-}
+  :root {
+    /* Light mode — "Technical Journal" */
+    --background: 210 40% 98%;
+    --bg-soft: 210 40% 96%;
+    --surface: 0 0% 100%;
+    --surface-hi: 214 32% 91%;
+    --foreground: 215 25% 27%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --border: 214 32% 91%;
+    --border-strong: 214 32% 80%;
+    --accent: 215 19% 35%;
+    --accent-soft: 214 32% 91%;
+    --brand: 191 75% 55%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    color-scheme: light;
+  }
 
-button {
-  font: inherit;
-  padding: 0.4em 0.9em;
-  border-radius: 6px;
-  border: 1px solid currentColor;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
+  .dark {
+    /* Dark mode — "Observatory" */
+    --background: 222 47% 11%;
+    --bg-soft: 222 40% 13%;
+    --surface: 217 33% 17%;
+    --surface-hi: 217 33% 21%;
+    --foreground: 210 40% 96%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --border: 215 25% 27%;
+    --border-strong: 222 18% 28%;
+    --accent: 215 20% 65%;
+    --accent-soft: 217 33% 17%;
+    --brand: 191 75% 55%;
+    --destructive: 0 70% 65%;
+    --destructive-foreground: 222 47% 11%;
+    color-scheme: dark;
+  }
 
-button:hover:not(:disabled) {
-  background: rgba(127, 127, 127, 0.12);
-}
+  html,
+  body,
+  #root {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
 
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
+  ::selection {
+    background: hsl(var(--accent) / 0.18);
+  }
 
-select {
-  font: inherit;
-  padding: 0.3em 0.5em;
-  border-radius: 6px;
-  border: 1px solid currentColor;
-  background: transparent;
-  color: inherit;
+  button {
+    font: inherit;
+    padding: 0.4em 0.9em;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-foreground);
+    cursor: pointer;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease;
+  }
+
+  button:hover:not(:disabled) {
+    background: var(--color-surface-hi);
+    border-color: var(--color-border-strong);
+  }
+
+  button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  button:focus-visible {
+    outline: 1px solid var(--color-brand);
+    outline-offset: 1px;
+  }
+
+  select {
+    font: inherit;
+    padding: 0.3em 0.5em;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-foreground);
+  }
+
+  code,
+  kbd {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+  }
 }
