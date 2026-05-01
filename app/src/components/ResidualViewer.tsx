@@ -156,32 +156,15 @@ export function ResidualViewer() {
   }, [state, frame, imgUrl]);
 
   return (
-    <section
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        gap: "10px",
-        minHeight: 0,
-      }}
-    >
+    <section className="flex min-h-0 flex-1 flex-col gap-2.5">
       {!tauriOk && (
-        <div
-          style={{
-            border: "1px solid #d4a72c",
-            background: "#fff7d6",
-            color: "#5a4400",
-            padding: "10px",
-            borderRadius: 6,
-            fontSize: "13px",
-          }}
-        >
+        <div className="rounded-md border border-[var(--warn-border)] bg-[var(--warn-bg)] p-2.5 text-[13px] text-[var(--warn-fg)]">
           Tauri runtime not detected — you appear to be running plain Vite
           (<code>bun run dev</code>) in a browser. Launch the desktop app
           with <code>bun run tauri dev</code> to use the file dialog.
         </div>
       )}
-      <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+      <div className="flex items-center gap-2.5">
         <button onClick={handleOpen} disabled={!tauriOk}>
           Open Export…
         </button>
@@ -198,51 +181,26 @@ export function ResidualViewer() {
           </select>
         )}
         {state && (
-          <span style={{ opacity: 0.7, fontSize: "12px" }}>
+          <span className="text-xs opacity-70">
             mean reprojection error: {state.data.mean_reproj_error.toFixed(3)} px
           </span>
         )}
       </div>
 
       {error && (
-        <div
-          style={{
-            border: "1px solid #c0392b",
-            background: "#fdecea",
-            color: "#7d2118",
-            padding: "10px",
-            borderRadius: 6,
-            fontSize: "13px",
-          }}
-        >
+        <div className="rounded-md border border-[var(--error-border)] bg-[var(--error-bg)] p-2.5 text-[13px] text-[var(--error-fg)]">
           {error}
         </div>
       )}
 
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "rgba(127,127,127,0.08)",
-          borderRadius: 6,
-          overflow: "auto",
-        }}
-      >
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-md bg-[var(--panel-bg)]">
         {state ? (
           <canvas
             ref={canvasRef}
-            style={{
-              maxWidth: "100%",
-              maxHeight: "100%",
-              imageRendering: "pixelated",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
-            }}
+            className="max-h-full max-w-full shadow-[0_1px_4px_rgba(0,0,0,0.2)] [image-rendering:pixelated]"
           />
         ) : (
-          <div style={{ opacity: 0.6, fontSize: "13px" }}>
+          <div className="text-[13px] opacity-60">
             Open an <code>export.json</code> from a calibration run with an
             <code> image_manifest</code>.
           </div>
@@ -344,7 +302,7 @@ function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
   const max = errs.length > 0 ? Math.max(...errs) : 0;
   const diverged = residuals.length - errs.length;
   return (
-    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, opacity: 0.85 }}>
+    <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs opacity-85">
       <span>features: {residuals.length}</span>
       <span>diverged: {diverged}</span>
       <span>mean error: {mean.toFixed(3)} px</span>
@@ -366,16 +324,13 @@ function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
 }
 
 function SwatchLabel({ color, label }: { color: string; label: string }) {
+  // Color is data-driven (matches the canvas error ramp), so the swatch
+  // background stays inline rather than escaping to a Tailwind arbitrary.
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 3, marginLeft: 6 }}>
+    <span className="ml-1.5 inline-flex items-center gap-1">
       <span
-        style={{
-          display: "inline-block",
-          width: 10,
-          height: 10,
-          background: color,
-          borderRadius: 2,
-        }}
+        className="inline-block h-2.5 w-2.5 rounded-[2px]"
+        style={{ background: color }}
       />
       {label}
     </span>
