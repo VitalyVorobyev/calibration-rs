@@ -1,10 +1,35 @@
 //! End-to-end rig calibration on the 130x130 puzzleboard dataset.
 //!
-//! Runs the complete pipeline:
+//! ⚠ **Post-A6 migration pending.** This example was authored against the
+//! pre-A6 `rig_scheimpflug_handeye` module, which the
+//! [rig_family sensor-axis refactor](../../../docs/adrs/0013-rig-family-sensor-axis-refactor.md)
+//! collapsed into the unified `rig_handeye::RigHandeyeProblem` (with
+//! `SensorMode::Scheimpflug`). The example currently does **not compile**
+//! against the post-A6 facade — migration is tracked separately because it
+//! depends on a small set of Scheimpflug-specific intrinsics knobs that A6.3
+//! deliberately dropped:
+//!
+//! - `RigScheimpflugHandeyeIntrinsicsConfig::initial_cameras` and
+//!   `initial_sensors` → replaceable via the unified manual-init API
+//!   (`RigHandeyeIntrinsicsManualInit { per_cam_intrinsics, per_cam_distortion,
+//!   per_cam_sensors }` passed to `step_set_intrinsics_init_all`).
+//! - `fix_distortion_in_percam_ba` (custom per-camera distortion mask) → A6.3
+//!   hard-coded `DistortionFixMask::radial_only()` (k1, k2 free; k3, p1, p2
+//!   fixed). This example wanted (k1, p1, p2 free; k2, k3 fixed) for
+//!   narrow-FOV Scheimpflug; the unified API has no way to express that
+//!   today. Migration likely needs `SensorMode::Scheimpflug` to gain a
+//!   `distortion_mask` field, or the unified intrinsics config to expose one.
+//! - `fix_intrinsics_when_overridden` → no longer relevant; the unified
+//!   `step_intrinsics_optimize_all` always refines all intrinsics.
+//! - `per_cam_used_fallback` (`fallback_to_shared_init` recovery state) →
+//!   dropped along with the Scheimpflug-specific Zhang fallback.
+//!
+//! Original pipeline:
 //! 1. Detect 130x130 puzzleboard (1.014 mm cells) in each of the 6 per-camera
 //!    tiles for every pose.
 //! 2. Detect laser lines in double-snap poses.
-//! 3. `RigScheimpflugHandeyeProblem` session (intrinsics → rig → hand-eye).
+//! 3. (post-A6) `RigHandeyeProblem` session with
+//!    `SensorMode::Scheimpflug` (intrinsics → rig → hand-eye).
 //! 4. `RigLaserlineDeviceProblem` session consuming the frozen upstream
 //!    calibration to recover 6 laser planes in rig frame.
 //! 5. Demonstrate `pixel_to_gripper_point` on sample laser pixels.

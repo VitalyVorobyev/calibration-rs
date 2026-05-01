@@ -42,17 +42,6 @@ from .models import (
     RigLaserlineDeviceResult,
     RigLaserlineUpstreamCalibration,
     RigLaserlineView,
-    RigScheimpflugExtrinsicsCalibrationConfig,
-    RigScheimpflugExtrinsicsDataset,
-    RigScheimpflugExtrinsicsResult,
-    RigScheimpflugHandeyeBaConfig,
-    RigScheimpflugHandeyeCalibrationConfig,
-    RigScheimpflugHandeyeDataset,
-    RigScheimpflugHandeyeInitConfig,
-    RigScheimpflugHandeyeIntrinsicsConfig,
-    RigScheimpflugHandeyeResult,
-    RigScheimpflugHandeyeRigConfig,
-    RigScheimpflugHandeyeSolverConfig,
     SingleCamHandeyeCalibrationConfig,
     SingleCamHandeyeDataset,
     SingleCamHandeyeResult,
@@ -108,18 +97,6 @@ def run_laserline_device(
 ) -> LaserlineDeviceResult: ...
 
 
-def run_rig_scheimpflug_extrinsics(
-    input: RigScheimpflugExtrinsicsDataset,
-    config: RigScheimpflugExtrinsicsCalibrationConfig | None = None,
-) -> RigScheimpflugExtrinsicsResult: ...
-
-
-def run_rig_scheimpflug_handeye(
-    input: RigScheimpflugHandeyeDataset,
-    config: RigScheimpflugHandeyeCalibrationConfig | None = None,
-) -> RigScheimpflugHandeyeResult: ...
-
-
 def run_rig_laserline_device(
     input: RigLaserlineDeviceInput,
     config: RigLaserlineDeviceCalibrationConfig | None = None,
@@ -129,7 +106,7 @@ def run_rig_laserline_device(
 def pixel_to_gripper_point(
     cam_idx: int,
     pixel: tuple[float, float] | list[float],
-    rig_cal: RigScheimpflugHandeyeResult,
+    rig_cal: RigHandeyeResult,
     laser_planes_rig: list[LaserlinePlane],
     base_se3_gripper: Pose | None = None,
 ) -> tuple[float, float, float]: ...

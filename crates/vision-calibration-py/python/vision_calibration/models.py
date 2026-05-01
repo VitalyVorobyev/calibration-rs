@@ -1354,7 +1354,8 @@ class ScheimpflugIntrinsicsResult:
 class RigLaserlineUpstreamCalibration:
     """Frozen upstream calibration for rig laserline device.
 
-    Typically derived from a :class:`RigScheimpflugHandeyeResult` export.
+    Typically derived from a :class:`RigHandeyeResult` export with
+    ``sensors`` populated (Scheimpflug rig).
     """
 
     intrinsics: list[dict[str, float]]
