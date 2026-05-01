@@ -1,0 +1,38 @@
+[package]
+name = "calibration-diagnose"
+version = "0.1.0"
+description = "calibration-rs diagnose UI (Tauri 2 + React)"
+authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/VitalyVorobyev/calibration-rs"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+# This crate is intentionally NOT a member of the root Cargo workspace
+# (`/Cargo.toml`) — Tauri's tauri-build pulls in a substantial build-time
+# dep tree that we do not want polluting `cargo build --workspace` for
+# the calibration library itself. Build it from inside `app/` (or via
+# `npm run tauri dev`), not from the repo root.
+
+[lib]
+name = "calibration_diagnose_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+anyhow = "1"
+vision-calibration = { path = "../../crates/vision-calibration" }
+
+[features]
+# Avoid touching the embed_plist build hooks unless explicitly running
+# `cargo tauri build`. `tauri dev` enables what it needs from the CLI.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

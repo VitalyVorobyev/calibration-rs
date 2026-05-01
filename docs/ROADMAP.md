@@ -17,7 +17,7 @@ lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
   [ADR 0013](adrs/0013-rig-family-sensor-axis-refactor.md).
 - **In-flight PRs:**
   [#28 mvg](https://github.com/VitalyVorobyev/calibration-rs/pull/28) — multiple-view
-  geometry crate split (Track C, deferred until B5 ships).
+  geometry crate split (Track C, deferred until the diagnose viewer ships).
 
 ## Four tracks
 
@@ -43,25 +43,37 @@ that B0 (Tauri scaffold) can compile against it with no breaking churn back into
 
 ### Track B — Tauri 2 + React + TypeScript desktop app
 
-A production-grade internal tool wrapping the calibration library. ~4–6 months
-end-to-end at one-engineer cadence. ADR 0014 will record the choice over
-`rerun.io` and `egui` (rejected: `rerun`'s developer-tool aesthetic + gRPC
-clashes with this project's zenoh-Rust stack; `egui` has less ecosystem leverage
-for production polish).
+A production-grade internal tool wrapping the calibration library. The
+original B0–B6 ordering placed the diagnose UI sixth; a 2026-05-01 grill
+session flipped to **diagnose-first** because the actual new capability is
+the residual visualisation and everything before it re-implements what
+`cargo run --example` already gives an engineer at the terminal.
+[ADR 0014](adrs/0014-tauri-desktop-app.md) records the framework choice
+(Tauri 2 + React + TS over `rerun.io` and `egui`) and the v0 scope.
 
-- **B0** Scaffolding — new `app/` directory with conventional Tauri 2 layout
-  (`app/src-tauri/` Rust + `app/src/` React + TS). **Next up.**
-- **B1** Project model + file loading (images + calibration config in).
-- **B2** Feature detection pipeline wrapping `chess-corners` and `calib-targets`.
-- **B3** Calibration runner with live progress streaming via Tauri events.
-- **B4** 3D rig viewer (Three.js / React Three Fiber: camera frustums, target poses,
-  laser plane).
-- **B5** **Diagnose mode — the MVP.** Per-feature reprojection arrows, per-image
-  residual heatmaps, drill-down, coordinated highlighting between 2D image, 3D
-  scene, and sidebar. Consumes A2's per-feature residuals.
-- **B6** Production polish — wizard, settings persistence, signed installers per OS.
+**Re-sequenced track (post-grill):**
 
-### Track C — MVG (postponed; depends on B5 done)
+- **B0 — diagnose viewer v0 (current PR / next-up).** Passive viewer of
+  one `PlanarIntrinsicsExport` JSON. New `ImageManifest` Export-side
+  contract; synthesized fixture (`planar_synthetic_with_images`
+  example + regression test); Tauri 2 + React + TS shell at `app/` with
+  one route: file-open → (pose, camera) selector → canvas with
+  per-feature residual arrows on the source image. ADR 0014.
+- **B0.5 — real-data acceptance.** Extend `RigHandeyeExport` with the
+  same `image_manifest` field; populate it against the puzzle 130×130
+  Scheimpflug rig dataset; verify ROI + tiled multi-camera strips
+  render correctly in the viewer. Stays in the same milestone as B0
+  but ships as a separate PR.
+- **Post-B0 enrichments — priority TBD by user feedback.** Order is no
+  longer pre-committed; will be driven by what the engineer actually
+  misses while using v0. Likely candidates: a "re-run" button calling
+  the facade in-process; multi-pose residual stats panel; cross-camera
+  residual matrix; manifest support on the remaining `*Export` types;
+  in-app detection wrap of `chess-corners` / `calib-targets`; 3D rig
+  viewer (Three.js / R3F); init-failure diagnosis (perturbed re-runs);
+  signed installers per OS. None of these are pre-scheduled.
+
+### Track C — MVG (postponed; depends on diagnose viewer done)
 
 PR #28 splits two-view geometry into `vision-geometry` (deterministic solvers) and
 `vision-mvg` (pipelines, robust estimation). Post-merge the track extends to multi-view
@@ -84,15 +96,16 @@ in-house dense matcher, no full SfM.
 - **D2** Doc-warning-free, MSRV 1.88 frozen.
 - **D3** Python binding parity audited at every minor version bump.
 - **D4** v1.0 release once the puzzle rig runs green end-to-end via the Tauri app,
-  PR #28 + B5 + C4 have all landed, and the API has been stable across two minor
+  PR #28 + the diagnose viewer + C4 have all landed, and the API has been stable across two minor
   releases.
 
 ## Load-bearing path
 
-**B0 → … → B5.** Track A is done; the diagnose UI (B5) is the next user-facing
-milestone and consumes the A2 per-feature-residuals foundation that already
-ships on every export. C is parallelizable once B5 lands; D is a continuous
-ratchet.
+**B0 (diagnose viewer v0) → B0.5 (real-data acceptance on puzzle 130×130) →
+post-B0 enrichments (priority TBD).** Track A is done; the diagnose UI is
+now B0 itself, not B5, and consumes the A2 per-feature-residuals foundation
+that already ships on every export. C is parallelizable once the viewer
+exists; D is a continuous ratchet.
 
 ## Out of scope (explicit)
 
@@ -113,6 +126,6 @@ ratchet.
 - Per-track ADRs:
   [`0011-manual-initialization-workflow.md`](adrs/0011-manual-initialization-workflow.md) (A1, landed in PR #32);
   [`0012-per-feature-reprojection-residuals.md`](adrs/0012-per-feature-reprojection-residuals.md) (A2, landed in PR #33 + #35);
-  [`0013-rig-family-sensor-axis-refactor.md`](adrs/0013-rig-family-sensor-axis-refactor.md) (A6, landed in PRs #36 + #37 + this PR);
-  `0014-tauri-desktop-app.md` (B0, pending);
+  [`0013-rig-family-sensor-axis-refactor.md`](adrs/0013-rig-family-sensor-axis-refactor.md) (A6, landed in PRs #36 + #37 + #38);
+  [`0014-tauri-desktop-app.md`](adrs/0014-tauri-desktop-app.md) (B0, this PR — diagnose viewer v0 + sequencing flip);
   `0015-mvg-ceiling.md` (C1, pending).

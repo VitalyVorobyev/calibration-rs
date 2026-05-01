@@ -6,7 +6,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    DistortionFixMask, IntrinsicsFixMask, PerFeatureResiduals, PlanarDataset,
+    DistortionFixMask, ImageManifest, IntrinsicsFixMask, PerFeatureResiduals, PlanarDataset,
     build_feature_histogram, compute_planar_target_residuals,
 };
 use vision_calibration_linear::prelude::*;
@@ -169,6 +169,12 @@ pub struct PlanarIntrinsicsExport {
     /// is `Some(vec![one_entry])` since this problem type is single-camera.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
+    /// Optional image manifest (ADR 0014, viewer-side contract). When
+    /// populated, downstream viewers (the diagnose UI) can locate the source
+    /// image for each `(pose, camera)` slot. `None` means "no images
+    /// shipped"; the calibration pipeline never reads this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_manifest: Option<ImageManifest>,
 }
 
 impl ProblemType for PlanarIntrinsicsProblem {
@@ -252,6 +258,10 @@ impl ProblemType for PlanarIntrinsicsProblem {
                 target_hist_per_camera: Some(vec![target_hist]),
                 laser_hist_per_camera: None,
             },
+            // Manifest is populated by callers that also wrote images for
+            // the dataset (e.g. the `planar_synthetic_with_images` example);
+            // the pipeline itself never has image paths to fill in.
+            image_manifest: None,
         })
     }
 }
@@ -616,6 +626,59 @@ mod tests {
                 .per_feature_residuals
                 .laser_hist_per_camera
                 .is_none()
+        );
+        // ADR 0014: image_manifest defaults to None and absent from the wire
+        // when not populated, preserving JSON byte-stability for legacy
+        // exports.
+        assert!(restored.image_manifest.is_none());
+        assert!(!json.contains("image_manifest"));
+    }
+
+    #[test]
+    fn export_image_manifest_roundtrip() {
+        use vision_calibration_core::{FrameRef, ImageManifest};
+
+        let camera = vision_calibration_core::make_pinhole_camera(
+            vision_calibration_core::FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            },
+            vision_calibration_core::BrownConrady5::default(),
+        );
+        let params =
+            PlanarIntrinsicsParams::new(camera, vec![vision_calibration_core::Iso3::identity()])
+                .expect("valid params");
+        let mut export = PlanarIntrinsicsExport {
+            params,
+            report: SolveReport { final_cost: 0.0 },
+            mean_reproj_error: 0.0,
+            per_cam_reproj_errors: vec![0.0],
+            per_feature_residuals: PerFeatureResiduals::default(),
+            image_manifest: None,
+        };
+        export.image_manifest = Some(ImageManifest {
+            root: std::path::PathBuf::from("images"),
+            frames: vec![FrameRef {
+                pose: 0,
+                camera: 0,
+                path: std::path::PathBuf::from("pose_0_cam_0.png"),
+                roi: None,
+            }],
+        });
+
+        let json = serde_json::to_string(&export).expect("serialize");
+        let restored: PlanarIntrinsicsExport = serde_json::from_str(&json).expect("deserialize");
+        let manifest = restored
+            .image_manifest
+            .expect("manifest survives roundtrip");
+        assert_eq!(manifest.root, std::path::PathBuf::from("images"));
+        assert_eq!(manifest.frames.len(), 1);
+        assert_eq!(
+            manifest.frames[0].path,
+            std::path::PathBuf::from("pose_0_cam_0.png")
         );
     }
 }

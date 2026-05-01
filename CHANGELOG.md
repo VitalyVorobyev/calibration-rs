@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Track B / B0 — diagnose UI scaffold (ADR 0014).**
+  - `vision_calibration_core::{ImageManifest, FrameRef, PixelRect}` — new
+    viewer-facing image-data contract. Pose-major frame list with optional
+    per-frame ROI for tiled multi-camera images. Re-exported from
+    `vision_calibration::core`.
+  - `PlanarIntrinsicsExport` gains an optional
+    `image_manifest: Option<ImageManifest>` field. Serde-skipped when
+    absent so existing exports remain byte-identical. Other `*Export`
+    types extend in their own follow-up PRs (B0.5+).
+  - New example
+    `cargo run -p vision-calibration --example planar_synthetic_with_images`
+    deterministically renders a 5-pose 9×6 checkerboard fixture
+    (`target/fixtures/planar_synthetic_with_images/`) — `export.json`
+    with manifest + 5 PNGs — and is the source of truth for the v0
+    diagnose viewer's input contract.
+  - New regression test
+    `crates/vision-calibration/tests/planar_synthetic_with_images.rs`
+    pins fixture residuals (mean < 0.5 px, max < 1.5 px) and verifies
+    every manifest entry maps to a rendered PNG.
+  - New top-level `app/` directory carrying the Tauri 2 + React +
+    TypeScript desktop shell. The Rust backend (`app/src-tauri/`) is
+    excluded from the workspace via `Cargo.toml`'s
+    `exclude = ["app"]`. Two Tauri commands: `load_export` and
+    `load_image`. One UI surface: file-open + (pose, camera) dropdown
+    + canvas with per-feature residual arrows colored by error
+    bucket. See `app/README.md`.
+- **ADR 0014** ([`docs/adrs/0014-tauri-desktop-app.md`](docs/adrs/0014-tauri-desktop-app.md))
+  records the Tauri 2 + React + TypeScript framework choice (vs
+  rerun.io and egui), the Track B re-sequencing (diagnose-first vs
+  the original B0 → B6 ordering), the v0 viewer-only scope, and the
+  `ImageManifest` Export-side contract.
+
 ### Changed (breaking, pre-1.0)
 - **Rig family sensor-axis refactor (ADR 0013).** The pinhole and Scheimpflug
   rig modules collapse into a single workflow per problem family. Five rig
