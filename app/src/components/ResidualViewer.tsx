@@ -16,6 +16,10 @@ import type {
   TargetFeatureResidual,
 } from "../types";
 import {
+  CompareViewer,
+  type CompareViewerHandle,
+} from "./CompareViewer";
+import {
   FrameCanvas,
   type FrameCanvasHandle,
   colorForError,
@@ -39,10 +43,16 @@ export function ResidualViewer() {
   const [state, setState] = useState<ExportState | null>(null);
   const [pose, setPose] = useState<number>(0);
   const [camera, setCamera] = useState<number>(0);
+  const [poseRight, setPoseRight] = useState<number>(0);
+  const [cameraRight, setCameraRight] = useState<number>(1);
+  const [compare, setCompare] = useState<boolean>(false);
+  const [linked, setLinked] = useState<boolean>(true);
+  const [activePane, setActivePane] = useState<"left" | "right">("left");
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<CursorReadout | null>(null);
   const tauriOk = isTauriContext();
   const canvasHandleRef = useRef<FrameCanvasHandle | null>(null);
+  const compareHandleRef = useRef<CompareViewerHandle | null>(null);
 
   const handleOpen = async () => {
     setError(null);
@@ -101,6 +111,10 @@ export function ResidualViewer() {
       });
       setPose(0);
       setCamera(0);
+      setPoseRight(0);
+      setCameraRight(Math.min(1, Math.max(numCameras - 1, 0)));
+      setCompare(false);
+      setActivePane("left");
     } catch (e) {
       setError(`Could not load export: ${e}`);
     }
@@ -112,6 +126,15 @@ export function ResidualViewer() {
       state.frames.find((f) => f.pose === pose && f.camera === camera) ?? null
     );
   }, [state, pose, camera]);
+
+  const rightFrame = useMemo<FrameKey | null>(() => {
+    if (!state) return null;
+    return (
+      state.frames.find(
+        (f) => f.pose === poseRight && f.camera === cameraRight,
+      ) ?? null
+    );
+  }, [state, poseRight, cameraRight]);
 
   const imageData = useImageData(frame, setError);
 
@@ -166,18 +189,28 @@ export function ResidualViewer() {
   const stepPose = useCallback(
     (delta: number) => {
       if (!state) return;
-      setPose((p) => ((p + delta) % state.numPoses + state.numPoses) % state.numPoses);
+      const apply = (p: number) =>
+        ((p + delta) % state.numPoses + state.numPoses) % state.numPoses;
+      if (compare && activePane === "right") {
+        setPoseRight(apply);
+      } else {
+        setPose(apply);
+      }
     },
-    [state],
+    [state, compare, activePane],
   );
   const stepCamera = useCallback(
     (delta: number) => {
       if (!state) return;
-      setCamera(
-        (c) => ((c + delta) % state.numCameras + state.numCameras) % state.numCameras,
-      );
+      const apply = (c: number) =>
+        ((c + delta) % state.numCameras + state.numCameras) % state.numCameras;
+      if (compare && activePane === "right") {
+        setCameraRight(apply);
+      } else {
+        setCamera(apply);
+      }
     },
-    [state],
+    [state, compare, activePane],
   );
 
   useKeyboardNav({
@@ -202,33 +235,48 @@ export function ResidualViewer() {
       ) {
         return;
       }
-      const handle = canvasHandleRef.current;
-      if (!handle) return;
+      const fit = () =>
+        compare ? compareHandleRef.current?.fitActive() : canvasHandleRef.current?.fit();
+      const oneToOne = () =>
+        compare
+          ? compareHandleRef.current?.reset1to1Active()
+          : canvasHandleRef.current?.reset1to1();
+      const zoom = (factor: number) =>
+        compare
+          ? compareHandleRef.current?.zoomActiveBy(factor)
+          : canvasHandleRef.current?.zoomBy(factor);
       switch (e.key) {
         case "f":
         case "F":
-          handle.fit();
+          fit();
           e.preventDefault();
           break;
         case "1":
-          handle.reset1to1();
+          oneToOne();
           e.preventDefault();
           break;
         case "+":
         case "=":
-          handle.zoomBy(1.25);
+          zoom(1.25);
           e.preventDefault();
           break;
         case "-":
         case "_":
-          handle.zoomBy(1 / 1.25);
+          zoom(1 / 1.25);
           e.preventDefault();
+          break;
+        case "l":
+        case "L":
+          if (compare) {
+            setLinked((v) => !v);
+            e.preventDefault();
+          }
           break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [state]);
+  }, [state, compare]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
@@ -245,21 +293,67 @@ export function ResidualViewer() {
         </button>
         {state && (
           <PoseCameraStepper
-            pose={pose}
-            camera={camera}
+            pose={compare && activePane === "right" ? poseRight : pose}
+            camera={compare && activePane === "right" ? cameraRight : camera}
             numPoses={state.numPoses}
             numCameras={state.numCameras}
-            onPose={setPose}
-            onCamera={setCamera}
+            onPose={(next) =>
+              compare && activePane === "right" ? setPoseRight(next) : setPose(next)
+            }
+            onCamera={(next) =>
+              compare && activePane === "right"
+                ? setCameraRight(next)
+                : setCamera(next)
+            }
           />
         )}
         {state && (
           <ZoomControls
-            onFit={() => canvasHandleRef.current?.fit()}
-            onOneToOne={() => canvasHandleRef.current?.reset1to1()}
-            onZoomIn={() => canvasHandleRef.current?.zoomBy(1.25)}
-            onZoomOut={() => canvasHandleRef.current?.zoomBy(1 / 1.25)}
+            onFit={() =>
+              compare
+                ? compareHandleRef.current?.fitActive()
+                : canvasHandleRef.current?.fit()
+            }
+            onOneToOne={() =>
+              compare
+                ? compareHandleRef.current?.reset1to1Active()
+                : canvasHandleRef.current?.reset1to1()
+            }
+            onZoomIn={() =>
+              compare
+                ? compareHandleRef.current?.zoomActiveBy(1.25)
+                : canvasHandleRef.current?.zoomBy(1.25)
+            }
+            onZoomOut={() =>
+              compare
+                ? compareHandleRef.current?.zoomActiveBy(1 / 1.25)
+                : canvasHandleRef.current?.zoomBy(1 / 1.25)
+            }
           />
+        )}
+        {state && (
+          <button
+            type="button"
+            onClick={() => setCompare((v) => !v)}
+            className={`h-7 px-2 font-mono text-[11px] ${
+              compare ? "border-brand text-brand" : ""
+            }`}
+            title="Toggle compare mode"
+          >
+            {compare ? "Compare ✓" : "Compare"}
+          </button>
+        )}
+        {state && compare && (
+          <button
+            type="button"
+            onClick={() => setLinked((v) => !v)}
+            className={`h-7 px-2 font-mono text-[11px] ${
+              linked ? "border-brand text-brand" : ""
+            }`}
+            title="Toggle linked viewport (L)"
+          >
+            {linked ? "Linked" : "Unlinked"}
+          </button>
         )}
         {state && (
           <span className="ml-auto font-mono text-xs text-muted-foreground">
@@ -274,8 +368,20 @@ export function ResidualViewer() {
         </div>
       )}
 
-      <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft">
-        {state && frame ? (
+      <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft p-2">
+        {state && frame && compare && rightFrame ? (
+          <CompareViewer
+            leftFrame={frame}
+            rightFrame={rightFrame}
+            residuals={state.data.per_feature_residuals.target}
+            activePane={activePane}
+            onActivePane={setActivePane}
+            linked={linked}
+            onCursorChange={setCursor}
+            onError={setError}
+            innerRef={compareHandleRef}
+          />
+        ) : state && frame ? (
           <FrameCanvas
             ref={canvasHandleRef}
             frame={frame}
@@ -288,7 +394,7 @@ export function ResidualViewer() {
           <div className="m-auto text-[13px] text-muted-foreground">
             Open an <code>export.json</code> from a calibration run with an
             <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for
-            camera once an export is loaded.
+            camera; toggle Compare to view two frames side by side.
           </div>
         )}
       </div>

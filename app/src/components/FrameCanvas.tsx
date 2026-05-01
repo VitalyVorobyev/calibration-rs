@@ -12,20 +12,31 @@ import type {
   TargetFeatureResidual,
   ViewportTransform,
 } from "../types";
+import { IDENTITY_TRANSFORM } from "../types";
 
 interface FrameCanvasProps {
   frame: FrameKey;
-  /** All target residuals for the loaded export; filtered down to
+  /** Target residuals for the loaded export; filtered down to
    * `frame.{pose, camera}` before drawing. */
   residuals: TargetFeatureResidual[];
-  /** Decoded image element from `useImageData`. `null` while loading. */
+  /** Decoded image element. `null` while loading. */
   image: HTMLImageElement | null;
+  /** Controlled transform. When provided, the canvas treats it as
+   * authoritative and emits all updates via `onTransformChange`.
+   * When `undefined` the canvas keeps an internal transform — the
+   * single-pane mode used by `ResidualViewer`. Compare mode passes
+   * a shared transform from above. */
+  transform?: ViewportTransform;
+  onTransformChange?: (t: ViewportTransform) => void;
   /** Surfaced when something fails (the parent owns the error UI). */
   onError?: (msg: string) => void;
   /** Called on `mousemove` with image-pixel coordinates (ROI-local,
    * matching the residual frame). `null` when the cursor leaves the
    * image area. */
   onCursor?: (cursor: { x: number; y: number } | null) => void;
+  /** Visual ring drawn around the canvas when this pane is the
+   * keyboard-active pane in compare mode. */
+  active?: boolean;
 }
 
 /** Imperative handle the toolbar uses to drive zoom/fit. */
@@ -41,16 +52,42 @@ const SCALE_MIN = 0.25;
 const SCALE_MAX = 16;
 
 export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
-  function FrameCanvas({ frame, residuals, image, onError, onCursor }, ref) {
-    void onError; // Reserved for future canvas-internal failures.
+  function FrameCanvas(
+    {
+      frame,
+      residuals,
+      image,
+      transform: controlled,
+      onTransformChange,
+      onError,
+      onCursor,
+      active,
+    },
+    ref,
+  ) {
+    void onError;
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [container, setContainer] = useState({ w: 0, h: 0 });
-    const [transform, setTransform] = useState<ViewportTransform>({
-      scale: 1,
-      tx: 0,
-      ty: 0,
-    });
+    const [internal, setInternal] = useState<ViewportTransform>(IDENTITY_TRANSFORM);
+    const isControlled = controlled !== undefined;
+    const transform = controlled ?? internal;
+
+    const setTransform = useCallback(
+      (next: ViewportTransform | ((prev: ViewportTransform) => ViewportTransform)) => {
+        const value =
+          typeof next === "function"
+            ? (next as (p: ViewportTransform) => ViewportTransform)(transform)
+            : next;
+        if (isControlled) {
+          onTransformChange?.(value);
+        } else {
+          setInternal(value);
+          onTransformChange?.(value);
+        }
+      },
+      [isControlled, onTransformChange, transform],
+    );
 
     const roi = frame.roi;
 
@@ -71,7 +108,7 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
       const sw = roi?.w ?? image?.naturalWidth ?? 0;
       const sh = roi?.h ?? image?.naturalHeight ?? 0;
       if (sw === 0 || sh === 0 || container.w === 0 || container.h === 0) {
-        return { scale: 1, tx: 0, ty: 0 };
+        return IDENTITY_TRANSFORM;
       }
       const scale = Math.min(container.w / sw, container.h / sh);
       const tx = (container.w - scale * sw) / 2;
@@ -79,10 +116,14 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
       return { scale, tx, ty };
     }, [roi, image, container]);
 
+    // Auto-fit on frame change is owned by the canvas only in
+    // uncontrolled mode. When the parent controls the transform
+    // (compare mode with linked panes), it decides when to re-fit.
     useEffect(() => {
+      if (isControlled) return;
       if (!image || container.w === 0 || container.h === 0) return;
-      setTransform(computeFit());
-    }, [frame.abs_path, image, container, computeFit]);
+      setInternal(computeFit());
+    }, [frame.abs_path, image, container, computeFit, isControlled]);
 
     useImperativeHandle(
       ref,
@@ -102,7 +143,7 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
             zoomAround(t, factor, container.w / 2, container.h / 2),
           ),
       }),
-      [computeFit, roi, image, container],
+      [computeFit, roi, image, container, setTransform],
     );
 
     const handleWheel = useCallback(
@@ -116,7 +157,7 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
         const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
         setTransform((t) => zoomAround(t, factor, cx, cy));
       },
-      [],
+      [setTransform],
     );
 
     const dragRef = useRef<{
@@ -196,7 +237,9 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
     return (
       <div
         ref={containerRef}
-        className="relative h-full w-full overflow-hidden rounded-md bg-bg-soft"
+        className={`relative h-full w-full overflow-hidden rounded-md bg-bg-soft transition-shadow ${
+          active ? "ring-1 ring-brand" : ""
+        }`}
       >
         <canvas
           ref={canvasRef}
