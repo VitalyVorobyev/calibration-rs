@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { isTauriContext, joinPath } from "../lib/tauri";
@@ -9,7 +9,11 @@ import type {
   PlanarExport,
   TargetFeatureResidual,
 } from "../types";
-import { FrameCanvas, colorForError } from "./FrameCanvas";
+import {
+  FrameCanvas,
+  type FrameCanvasHandle,
+  colorForError,
+} from "./FrameCanvas";
 import { PoseCameraStepper } from "./PoseCameraStepper";
 
 interface ExportState {
@@ -28,6 +32,7 @@ export function ResidualViewer() {
   const [camera, setCamera] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const tauriOk = isTauriContext();
+  const canvasHandleRef = useRef<FrameCanvasHandle | null>(null);
 
   const handleOpen = async () => {
     setError(null);
@@ -121,6 +126,50 @@ export function ResidualViewer() {
     enabled: state != null,
   });
 
+  // Single-key shortcuts for zoom controls. Bound at the window level
+  // so they work without needing the canvas to be focused; ignored
+  // when an editable element has focus.
+  useEffect(() => {
+    if (!state) return;
+    const handler = (e: KeyboardEvent) => {
+      const tgt = e.target as HTMLElement | null;
+      if (
+        tgt &&
+        (tgt.tagName === "INPUT" ||
+          tgt.tagName === "SELECT" ||
+          tgt.tagName === "TEXTAREA" ||
+          tgt.isContentEditable)
+      ) {
+        return;
+      }
+      const handle = canvasHandleRef.current;
+      if (!handle) return;
+      switch (e.key) {
+        case "f":
+        case "F":
+          handle.fit();
+          e.preventDefault();
+          break;
+        case "1":
+          handle.reset1to1();
+          e.preventDefault();
+          break;
+        case "+":
+        case "=":
+          handle.zoomBy(1.25);
+          e.preventDefault();
+          break;
+        case "-":
+        case "_":
+          handle.zoomBy(1 / 1.25);
+          e.preventDefault();
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [state]);
+
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
       {!tauriOk && (
@@ -145,6 +194,14 @@ export function ResidualViewer() {
           />
         )}
         {state && (
+          <ZoomControls
+            onFit={() => canvasHandleRef.current?.fit()}
+            onOneToOne={() => canvasHandleRef.current?.reset1to1()}
+            onZoomIn={() => canvasHandleRef.current?.zoomBy(1.25)}
+            onZoomOut={() => canvasHandleRef.current?.zoomBy(1 / 1.25)}
+          />
+        )}
+        {state && (
           <span className="ml-auto font-mono text-xs text-muted-foreground">
             mean reproj: {state.data.mean_reproj_error.toFixed(3)} px
           </span>
@@ -157,15 +214,16 @@ export function ResidualViewer() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-md bg-bg-soft">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft">
         {state && frame ? (
           <FrameCanvas
+            ref={canvasHandleRef}
             frame={frame}
             residuals={state.data.per_feature_residuals.target}
             onError={setError}
           />
         ) : (
-          <div className="text-[13px] text-muted-foreground">
+          <div className="m-auto text-[13px] text-muted-foreground">
             Open an <code>export.json</code> from a calibration run with an
             <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for
             camera once an export is loaded.
@@ -204,6 +262,59 @@ function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
         <Swatch err={7} label="<10" />
         <Swatch err={20} label="≥10" />
       </span>
+    </div>
+  );
+}
+
+interface ZoomControlsProps {
+  onFit: () => void;
+  onOneToOne: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+}
+
+function ZoomControls({
+  onFit,
+  onOneToOne,
+  onZoomIn,
+  onZoomOut,
+}: ZoomControlsProps) {
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onZoomOut}
+        title="Zoom out (−)"
+        aria-label="Zoom out"
+        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
+      >
+        −
+      </button>
+      <button
+        type="button"
+        onClick={onZoomIn}
+        title="Zoom in (+)"
+        aria-label="Zoom in"
+        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
+      >
+        +
+      </button>
+      <button
+        type="button"
+        onClick={onFit}
+        title="Fit (f)"
+        className="h-7 px-2 font-mono text-[11px]"
+      >
+        Fit
+      </button>
+      <button
+        type="button"
+        onClick={onOneToOne}
+        title="1:1 (1)"
+        className="h-7 px-2 font-mono text-[11px]"
+      >
+        1:1
+      </button>
     </div>
   );
 }
