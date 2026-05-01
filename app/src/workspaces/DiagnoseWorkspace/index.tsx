@@ -1,206 +1,64 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { isTauriContext, joinPath } from "../lib/tauri";
-import { useKeyboardNav } from "../hooks/useKeyboardNav";
-import {
-  getPixelLum,
-  rectHistogram,
-  useImageData,
-} from "../hooks/useImageData";
-import type {
-  CursorReadout,
-  FrameKey,
-  LoadExportResult,
-  PlanarExport,
-  TargetFeatureResidual,
-} from "../types";
 import {
   CompareViewer,
   type CompareViewerHandle,
-} from "./CompareViewer";
+} from "../../components/CompareViewer";
 import {
   FrameCanvas,
   type FrameCanvasHandle,
   colorForError,
-} from "./FrameCanvas";
-import { Histogram } from "./Histogram";
-import { PoseCameraStepper } from "./PoseCameraStepper";
+} from "../../components/FrameCanvas";
+import { Histogram } from "../../components/Histogram";
+import { PoseCameraStepper } from "../../components/PoseCameraStepper";
+import {
+  getPixelLum,
+  rectHistogram,
+  useImageData,
+} from "../../hooks/useImageData";
+import { useKeyboardNav } from "../../hooks/useKeyboardNav";
+import { useStore } from "../../store";
+import type { CursorReadout, FrameKey, TargetFeatureResidual } from "../../types";
 
 const HISTOGRAM_BINS = 64;
 
-interface ExportState {
-  exportPath: string;
-  exportDir: string;
-  data: PlanarExport;
-  frames: FrameKey[];
-  /** Sorted distinct pose values present in the manifest. */
-  poseValues: number[];
-  /** Sorted distinct camera values present in the manifest. */
-  cameraValues: number[];
-  /** For each camera, the sorted list of poses that have a frame. */
-  posesByCamera: Map<number, number[]>;
-  /** For each pose, the sorted list of cameras that have a frame. */
-  camerasByPose: Map<number, number[]>;
-}
+export function DiagnoseWorkspace() {
+  // Cross-workspace state from the store.
+  const data = useStore((s) => s.data);
+  const frames = useStore((s) => s.frames);
+  const poseValues = useStore((s) => s.poseValues);
+  const cameraValues = useStore((s) => s.cameraValues);
+  const selectedPose = useStore((s) => s.selectedPose);
+  const selectedPoseB = useStore((s) => s.selectedPoseB);
+  const cameraA = useStore((s) => s.cameraA);
+  const cameraB = useStore((s) => s.cameraB);
+  const stepPose = useStore((s) => s.stepPose);
+  const stepCamera = useStore((s) => s.stepCamera);
 
-/** Wrap-around index lookup over a sorted array; returns the value
- * at position `(idx(current) + delta) mod arr.length`, with a
- * fallback to the first/last element when `current` is missing. */
-function nextInWrap(
-  arr: number[],
-  current: number,
-  delta: number,
-): number {
-  if (arr.length === 0) return current;
-  const idx = arr.indexOf(current);
-  if (idx < 0) {
-    // Current value is no longer in the available set; jump to the
-    // nearest neighbour in the step direction.
-    return delta >= 0 ? arr[0] : arr[arr.length - 1];
-  }
-  const n = arr.length;
-  return arr[((idx + delta) % n + n) % n];
-}
-
-export function ResidualViewer() {
-  const [state, setState] = useState<ExportState | null>(null);
-  const [pose, setPose] = useState<number>(0);
-  const [camera, setCamera] = useState<number>(0);
-  const [poseRight, setPoseRight] = useState<number>(0);
-  const [cameraRight, setCameraRight] = useState<number>(1);
+  // Diagnose-specific UI state stays local — these affordances don't
+  // exist in the other workspaces.
   const [compare, setCompare] = useState<boolean>(false);
   const [linked, setLinked] = useState<boolean>(true);
   const [activePane, setActivePane] = useState<"left" | "right">("left");
-  const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<CursorReadout | null>(null);
-  const tauriOk = isTauriContext();
+  const [error, setError] = useState<string | null>(null);
   const canvasHandleRef = useRef<FrameCanvasHandle | null>(null);
   const compareHandleRef = useRef<CompareViewerHandle | null>(null);
 
-  const handleOpen = async () => {
-    setError(null);
-    if (!isTauriContext()) {
-      setError(
-        "Tauri runtime not detected. Launch the app with `bun run tauri dev` " +
-          "(or the bundled binary). Plain `bun run dev` only starts Vite, so " +
-          "the file-dialog and IPC commands aren't wired up.",
-      );
-      return;
-    }
-    let chosen: string | null = null;
-    try {
-      chosen = await openDialog({
-        multiple: false,
-        directory: false,
-        filters: [{ name: "Calibration export", extensions: ["json"] }],
-      });
-    } catch (e) {
-      setError(`File dialog error: ${e}`);
-      return;
-    }
-    if (!chosen) return;
-
-    try {
-      const result = await invoke<LoadExportResult>("load_export", {
-        path: chosen,
-      });
-      const manifest = result.export.image_manifest;
-      if (!manifest) {
-        setError(
-          "This export has no image_manifest field. v0 requires the manifest " +
-            "to render the source images alongside the residuals.",
-        );
-        return;
-      }
-      const root = joinPath(result.export_dir, manifest.root);
-      const frames: FrameKey[] = manifest.frames.map((f) => ({
-        pose: f.pose,
-        camera: f.camera,
-        label: `pose ${f.pose} · cam ${f.camera}`,
-        abs_path: joinPath(root, f.path),
-        roi: f.roi,
-      }));
-      if (frames.length === 0) {
-        setError(
-          "This export's image_manifest is empty. v0 needs at least one " +
-            "(pose, camera) frame to render.",
-        );
-        return;
-      }
-      // Build availability indices off the actual manifest entries —
-      // a manifest may be sparse (detector failures, partial captures),
-      // so we must NOT navigate over a dense `[0..max]` Cartesian grid.
-      const poseSet = new Set<number>();
-      const cameraSet = new Set<number>();
-      const posesByCameraSet = new Map<number, Set<number>>();
-      const camerasByPoseSet = new Map<number, Set<number>>();
-      for (const f of frames) {
-        poseSet.add(f.pose);
-        cameraSet.add(f.camera);
-        if (!posesByCameraSet.has(f.camera)) {
-          posesByCameraSet.set(f.camera, new Set());
-        }
-        posesByCameraSet.get(f.camera)!.add(f.pose);
-        if (!camerasByPoseSet.has(f.pose)) {
-          camerasByPoseSet.set(f.pose, new Set());
-        }
-        camerasByPoseSet.get(f.pose)!.add(f.camera);
-      }
-      const sortNum = (s: Set<number>) => [...s].sort((a, b) => a - b);
-      const poseValues = sortNum(poseSet);
-      const cameraValues = sortNum(cameraSet);
-      const posesByCamera = new Map(
-        [...posesByCameraSet].map(([k, v]) => [k, sortNum(v)]),
-      );
-      const camerasByPose = new Map(
-        [...camerasByPoseSet].map(([k, v]) => [k, sortNum(v)]),
-      );
-
-      const first = frames[0];
-      // Default right pane to the next manifest entry that differs from
-      // the first; falls back to the first if it's the only frame so the
-      // compare branch can still mount.
-      const second =
-        frames.find((f) => f.pose !== first.pose || f.camera !== first.camera) ??
-        first;
-
-      setState({
-        exportPath: chosen,
-        exportDir: result.export_dir,
-        data: result.export,
-        frames,
-        poseValues,
-        cameraValues,
-        posesByCamera,
-        camerasByPose,
-      });
-      setPose(first.pose);
-      setCamera(first.camera);
-      setPoseRight(second.pose);
-      setCameraRight(second.camera);
-      setCompare(false);
-      setActivePane("left");
-    } catch (e) {
-      setError(`Could not load export: ${e}`);
-    }
-  };
+  const which: "A" | "B" = compare && activePane === "right" ? "B" : "A";
 
   const frame = useMemo<FrameKey | null>(() => {
-    if (!state) return null;
     return (
-      state.frames.find((f) => f.pose === pose && f.camera === camera) ?? null
+      frames.find((f) => f.pose === selectedPose && f.camera === cameraA) ??
+      null
     );
-  }, [state, pose, camera]);
+  }, [frames, selectedPose, cameraA]);
 
   const rightFrame = useMemo<FrameKey | null>(() => {
-    if (!state) return null;
     return (
-      state.frames.find(
-        (f) => f.pose === poseRight && f.camera === cameraRight,
-      ) ?? null
+      frames.find((f) => f.pose === selectedPoseB && f.camera === cameraB) ??
+      null
     );
-  }, [state, poseRight, cameraRight]);
+  }, [frames, selectedPoseB, cameraB]);
 
   const imageData = useImageData(frame, setError);
 
@@ -238,9 +96,6 @@ export function ResidualViewer() {
         return;
       }
       const roi = frame?.roi;
-      // Translate ROI-local coords back to source-image coords for the
-      // luminance lookup; residual frame and pixel buffer differ when
-      // the manifest crops out a tile.
       const srcX = (roi?.x ?? 0) + c.x;
       const srcY = (roi?.y ?? 0) + c.y;
       setCursor({
@@ -252,47 +107,25 @@ export function ResidualViewer() {
     [imageData, frame],
   );
 
-  const stepPose = useCallback(
-    (delta: number) => {
-      if (!state) return;
-      const isRight = compare && activePane === "right";
-      const cam = isRight ? cameraRight : camera;
-      // Walk the poses that actually exist for the current camera.
-      // Falling back to the global pose set keeps stepping useful
-      // when the active camera has no frames (e.g. just-loaded state).
-      const poses = state.posesByCamera.get(cam) ?? state.poseValues;
-      const cur = isRight ? poseRight : pose;
-      const next = nextInWrap(poses, cur, delta);
-      if (isRight) setPoseRight(next);
-      else setPose(next);
-    },
-    [state, compare, activePane, camera, cameraRight, pose, poseRight],
+  const onPoseStep = useCallback(
+    (delta: number) => stepPose(delta, which),
+    [stepPose, which],
   );
-  const stepCamera = useCallback(
-    (delta: number) => {
-      if (!state) return;
-      const isRight = compare && activePane === "right";
-      const p = isRight ? poseRight : pose;
-      const cams = state.camerasByPose.get(p) ?? state.cameraValues;
-      const cur = isRight ? cameraRight : camera;
-      const next = nextInWrap(cams, cur, delta);
-      if (isRight) setCameraRight(next);
-      else setCamera(next);
-    },
-    [state, compare, activePane, pose, poseRight, camera, cameraRight],
+  const onCameraStep = useCallback(
+    (delta: number) => stepCamera(delta, which),
+    [stepCamera, which],
   );
 
   useKeyboardNav({
-    onPoseStep: stepPose,
-    onCameraStep: stepCamera,
-    enabled: state != null,
+    onPoseStep,
+    onCameraStep,
+    enabled: data != null,
   });
 
-  // Single-key shortcuts for zoom controls. Bound at the window level
-  // so they work without needing the canvas to be focused; ignored
-  // when an editable element has focus.
+  // Single-key shortcuts for zoom controls — bound at the window level
+  // so they work without canvas focus; ignored over editable elements.
   useEffect(() => {
-    if (!state) return;
+    if (!data) return;
     const handler = (e: KeyboardEvent) => {
       const tgt = e.target as HTMLElement | null;
       if (
@@ -305,7 +138,9 @@ export function ResidualViewer() {
         return;
       }
       const fit = () =>
-        compare ? compareHandleRef.current?.fitActive() : canvasHandleRef.current?.fit();
+        compare
+          ? compareHandleRef.current?.fitActive()
+          : canvasHandleRef.current?.fit();
       const oneToOne = () =>
         compare
           ? compareHandleRef.current?.reset1to1Active()
@@ -345,40 +180,27 @@ export function ResidualViewer() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [state, compare]);
+  }, [data, compare]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
-      {!tauriOk && (
-        <div className="rounded-md border-l-2 border-brand bg-brand/[0.06] p-2.5 text-[13px] text-foreground">
-          Tauri runtime not detected — you appear to be running plain Vite
-          (<code>bun run dev</code>) in a browser. Launch the desktop app
-          with <code>bun run tauri dev</code> to use the file dialog.
-        </div>
-      )}
       <div className="flex flex-wrap items-center gap-3">
-        <button onClick={handleOpen} disabled={!tauriOk}>
-          Open Export…
-        </button>
-        {state && (
+        {data && (
           <PoseCameraStepper
             poseOrdinal={
-              state.poseValues.indexOf(
-                compare && activePane === "right" ? poseRight : pose,
-              ) + 1
+              poseValues.indexOf(which === "B" ? selectedPoseB : selectedPose) +
+              1
             }
-            poseTotal={state.poseValues.length}
+            poseTotal={poseValues.length}
             cameraOrdinal={
-              state.cameraValues.indexOf(
-                compare && activePane === "right" ? cameraRight : camera,
-              ) + 1
+              cameraValues.indexOf(which === "B" ? cameraB : cameraA) + 1
             }
-            cameraTotal={state.cameraValues.length}
-            onPoseStep={stepPose}
-            onCameraStep={stepCamera}
+            cameraTotal={cameraValues.length}
+            onPoseStep={onPoseStep}
+            onCameraStep={onCameraStep}
           />
         )}
-        {state && (
+        {data && (
           <ZoomControls
             onFit={() =>
               compare
@@ -402,7 +224,7 @@ export function ResidualViewer() {
             }
           />
         )}
-        {state && (
+        {data && (
           <button
             type="button"
             onClick={() => setCompare((v) => !v)}
@@ -414,7 +236,7 @@ export function ResidualViewer() {
             {compare ? "Compare ✓" : "Compare"}
           </button>
         )}
-        {state && compare && (
+        {data && compare && (
           <button
             type="button"
             onClick={() => setLinked((v) => !v)}
@@ -426,9 +248,9 @@ export function ResidualViewer() {
             {linked ? "Linked" : "Unlinked"}
           </button>
         )}
-        {state && (
+        {data && (
           <span className="ml-auto font-mono text-xs text-muted-foreground">
-            mean reproj: {state.data.mean_reproj_error.toFixed(3)} px
+            mean reproj: {data.mean_reproj_error.toFixed(3)} px
           </span>
         )}
       </div>
@@ -440,11 +262,11 @@ export function ResidualViewer() {
       )}
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft p-2">
-        {state && frame && compare && rightFrame ? (
+        {data && frame && compare && rightFrame ? (
           <CompareViewer
             leftFrame={frame}
             rightFrame={rightFrame}
-            residuals={state.data.per_feature_residuals.target}
+            residuals={data.per_feature_residuals.target}
             activePane={activePane}
             onActivePane={setActivePane}
             linked={linked}
@@ -452,11 +274,11 @@ export function ResidualViewer() {
             onError={setError}
             innerRef={compareHandleRef}
           />
-        ) : state && frame ? (
+        ) : data && frame ? (
           <FrameCanvas
             ref={canvasHandleRef}
             frame={frame}
-            residuals={state.data.per_feature_residuals.target}
+            residuals={data.per_feature_residuals.target}
             image={imageData?.image ?? null}
             onCursor={handleCursor}
             onError={setError}
@@ -470,10 +292,10 @@ export function ResidualViewer() {
         )}
       </div>
 
-      {state && frame && (
+      {data && frame && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <ResidualLegend
-            residuals={state.data.per_feature_residuals.target.filter(
+            residuals={data.per_feature_residuals.target.filter(
               (r) => r.pose === frame.pose && r.camera === frame.camera,
             )}
           />
@@ -499,9 +321,7 @@ function CursorChip({ cursor }: { cursor: CursorReadout | null }) {
       {cursor ? (
         <span className="text-foreground tabular-nums">
           ({cursor.x.toFixed(0)}, {cursor.y.toFixed(0)})
-          {cursor.intensity != null
-            ? ` · I=${cursor.intensity}`
-            : ""}
+          {cursor.intensity != null ? ` · I=${cursor.intensity}` : ""}
         </span>
       ) : (
         <span>—</span>
@@ -510,11 +330,16 @@ function CursorChip({ cursor }: { cursor: CursorReadout | null }) {
   );
 }
 
-function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
+function ResidualLegend({
+  residuals,
+}: {
+  residuals: TargetFeatureResidual[];
+}) {
   const errs = residuals
     .map((r) => r.error_px)
     .filter((e): e is number => typeof e === "number");
-  const mean = errs.length > 0 ? errs.reduce((a, b) => a + b, 0) / errs.length : 0;
+  const mean =
+    errs.length > 0 ? errs.reduce((a, b) => a + b, 0) / errs.length : 0;
   const max = errs.length > 0 ? Math.max(...errs) : 0;
   const diverged = residuals.length - errs.length;
   return (
@@ -588,8 +413,6 @@ function ZoomControls({
 }
 
 function Swatch({ err, label }: { err: number; label: string }) {
-  // Color is data-driven (matches the canvas error ramp), so it stays
-  // inline; the dot is a Tailwind utility.
   return (
     <span className="inline-flex items-center gap-1">
       <span

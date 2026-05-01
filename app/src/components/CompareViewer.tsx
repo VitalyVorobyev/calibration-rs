@@ -99,7 +99,7 @@ export function CompareViewer({
     [leftImageData, rightImageData, leftFrame, rightFrame, onCursorChange],
   );
 
-  // Wire the imperative handle so ResidualViewer's toolbar can drive
+  // Wire the imperative handle so the diagnose toolbar can drive
   // whichever pane is active. In linked mode the canvases share state,
   // so calling either pane's methods produces the same effect.
   useEffect(() => {

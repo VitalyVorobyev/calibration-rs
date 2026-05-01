@@ -17,7 +17,7 @@ export interface ImageData {
 
 /** Loads a frame's PNG via the Tauri `load_image` command and decodes
  * its luminance buffer once, so both `FrameCanvas` (drawing) and
- * `ResidualViewer` (cursor readout + histogram) can share the same
+ * `DiagnoseWorkspace` (cursor readout + histogram) can share the same
  * decode without the IPC roundtrip happening twice. */
 export function useImageData(
   frame: FrameKey | null,
