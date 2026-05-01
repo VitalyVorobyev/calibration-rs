@@ -237,33 +237,6 @@ fn run_scheimpflug_intrinsics(
     )
 }
 
-/// Run multi-camera Scheimpflug rig hand-eye calibration.
-///
-/// Parameters
-/// ----------
-/// input:
-///     Rig dataset payload (serde-compatible with `RigScheimpflugHandeyeInput`).
-/// config:
-///     Optional config payload (serde-compatible with `RigScheimpflugHandeyeConfig`).
-///
-/// Returns
-/// -------
-/// dict
-///     Scheimpflug rig hand-eye export payload.
-#[pyfunction(signature = (input, config=None))]
-fn run_rig_scheimpflug_handeye(
-    py: Python<'_>,
-    input: &Bound<'_, PyAny>,
-    config: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Py<PyAny>> {
-    run_problem::<vision_calibration::rig_scheimpflug_handeye::RigScheimpflugHandeyeProblem, _>(
-        py,
-        input,
-        config,
-        vision_calibration::rig_scheimpflug_handeye::run_calibration,
-    )
-}
-
 /// Run rig laserline device calibration.
 ///
 /// Parameters
@@ -300,8 +273,9 @@ fn run_rig_laserline_device(
 /// pixel:
 ///     Observed pixel as ``[u, v]`` (2-element list or tuple).
 /// rig_cal:
-///     Rig + Scheimpflug hand-eye calibration export (serde-compatible with
-///     `RigScheimpflugHandeyeExport`).
+///     Rig hand-eye calibration export (serde-compatible with
+///     `RigHandeyeExport`). Must be a Scheimpflug rig (i.e. its `sensors` field
+///     populated); pinhole rigs are not yet supported by this helper.
 /// laser_planes_rig:
 ///     Per-camera laser planes expressed in rig frame (list of serde-compatible
 ///     `LaserPlane` objects).
@@ -318,7 +292,7 @@ fn run_rig_laserline_device(
 /// ------
 /// ValueError
 ///     If `cam_idx` is out of range, any payload contains non-finite values,
-///     or a required argument is missing.
+///     a required argument is missing, or the rig calibration is pinhole.
 /// RuntimeError
 ///     If undistortion fails or the ray is parallel to the laser plane.
 #[pyfunction(signature = (cam_idx, pixel, rig_cal, laser_planes_rig, base_se3_gripper=None))]
@@ -332,7 +306,7 @@ fn pixel_to_gripper_point(
 ) -> PyResult<Py<PyAny>> {
     use vision_calibration::core::{Iso3, Pt2};
     use vision_calibration::optim::LaserPlane;
-    use vision_calibration::rig_scheimpflug_handeye::RigScheimpflugHandeyeExport;
+    use vision_calibration::rig_handeye::RigHandeyeExport;
 
     reject_non_finite("pixel", pixel)?;
     reject_non_finite("rig_cal", rig_cal)?;
@@ -344,7 +318,7 @@ fn pixel_to_gripper_point(
     let pixel_arr: [f64; 2] = parse_payload(pixel, "pixel")?;
     let px = Pt2::new(pixel_arr[0], pixel_arr[1]);
 
-    let rig_cal: RigScheimpflugHandeyeExport = parse_payload(rig_cal, "rig_cal")?;
+    let rig_cal: RigHandeyeExport = parse_payload(rig_cal, "rig_cal")?;
     let planes: Vec<LaserPlane> = parse_payload(laser_planes_rig, "laser_planes_rig")?;
     let pose: Option<Iso3> = match base_se3_gripper {
         None => None,
@@ -383,7 +357,6 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_rig_handeye, m)?)?;
     m.add_function(wrap_pyfunction!(run_laserline_device, m)?)?;
     m.add_function(wrap_pyfunction!(run_scheimpflug_intrinsics, m)?)?;
-    m.add_function(wrap_pyfunction!(run_rig_scheimpflug_handeye, m)?)?;
     m.add_function(wrap_pyfunction!(run_rig_laserline_device, m)?)?;
     m.add_function(wrap_pyfunction!(pixel_to_gripper_point, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;

@@ -36,6 +36,55 @@ use vision_calibration_linear::{
     IterativeIntrinsicsOptions, dlt_homography, estimate_intrinsics_iterative,
     estimate_planar_pose_from_h,
 };
+use vision_calibration_optim::ScheimpflugFixMask;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sensor mode (public — re-exported by rig_extrinsics and rig_handeye)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Sensor flavour for rig calibration workflows.
+///
+/// `Pinhole` is the default and matches a standard multi-camera rig with
+/// pure pinhole + Brown-Conrady distortion projection. `Scheimpflug` adds
+/// per-camera tilt parameters; per-camera intrinsics share the pinhole core
+/// but include a tilted sensor plane in projection.
+///
+/// The `Scheimpflug` variant carries its own bootstrap defaults and BA-stage
+/// fix masks so the rest of the workflow config stays shared between flavours.
+///
+/// Re-exported by [`crate::rig_extrinsics::SensorMode`] and
+/// [`crate::rig_handeye::SensorMode`] (single source of truth in `rig_family`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(tag = "kind")]
+pub enum SensorMode {
+    /// Pinhole + Brown-Conrady projection (no sensor tilt).
+    #[default]
+    Pinhole,
+    /// Pinhole + Brown-Conrady + Scheimpflug-tilted sensor.
+    Scheimpflug {
+        /// Initial Scheimpflug tilt around X (radians) — used only when no
+        /// per-camera sensor seed is supplied via the workflow's manual init.
+        #[serde(default)]
+        init_tilt_x: f64,
+        /// Initial Scheimpflug tilt around Y (radians) — same convention.
+        #[serde(default)]
+        init_tilt_y: f64,
+        /// Mask for Scheimpflug parameters during per-camera intrinsics refinement.
+        #[serde(default)]
+        fix_scheimpflug_in_intrinsics: ScheimpflugFixMask,
+        /// Re-refine Scheimpflug parameters in rig BA (default: false).
+        #[serde(default)]
+        refine_scheimpflug_in_rig_ba: bool,
+    },
+}
+
+impl SensorMode {
+    /// `true` when the mode is the Scheimpflug variant.
+    pub fn is_scheimpflug(&self) -> bool {
+        matches!(self, Self::Scheimpflug { .. })
+    }
+}
 
 /// Per-camera intrinsics bundle covering both pinhole and Scheimpflug rigs.
 ///

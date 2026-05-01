@@ -1,7 +1,7 @@
 //! [`ProblemType`] implementation for rig-level laserline calibration.
 
 use crate::Error;
-use crate::rig_scheimpflug_handeye::RigScheimpflugHandeyeExport;
+use crate::rig_handeye::RigHandeyeExport;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCySkew, Iso3, NoMeta,
@@ -19,8 +19,9 @@ use super::state::RigLaserlineDeviceState;
 
 /// Upstream rig calibration (frozen starting point).
 ///
-/// This is a plain struct so the example can construct it directly from an
-/// upstream `RigScheimpflugHandeyeExport`.
+/// Mirrors a Scheimpflug hand-eye result's per-camera intrinsics + distortion +
+/// Scheimpflug sensors + cam→rig poses, plus the per-view rig→target poses the
+/// downstream laserline dataset spans.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigUpstreamCalibration {
     /// Per-camera intrinsics.
@@ -35,7 +36,7 @@ pub struct RigUpstreamCalibration {
     pub rig_se3_target: Vec<Iso3>,
 }
 
-impl RigScheimpflugHandeyeExport {
+impl RigHandeyeExport {
     /// Build a [`RigUpstreamCalibration`] from this hand-eye result, supplying
     /// the per-view rig→target poses that this export does not carry.
     ///
@@ -45,26 +46,43 @@ impl RigScheimpflugHandeyeExport {
     /// recorded in this export (`base_se3_target` for `EyeInHand`); pass
     /// `vec![target_pose; num_views]`.
     ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] if `self.sensors` is `None` (pinhole
+    /// rig). The downstream laserline calibration currently requires
+    /// Scheimpflug sensor parameters; pinhole rigs are not yet supported.
+    ///
     /// # Example
     ///
     /// ```no_run
-    /// # use vision_calibration_pipeline::rig_scheimpflug_handeye::RigScheimpflugHandeyeExport;
+    /// # use vision_calibration_pipeline::rig_handeye::RigHandeyeExport;
     /// # use vision_calibration_pipeline::rig_laserline_device::RigUpstreamCalibration;
     /// # use vision_calibration_core::Iso3;
-    /// # let handeye_export: RigScheimpflugHandeyeExport = unimplemented!();
+    /// # let handeye_export: RigHandeyeExport = unimplemented!();
     /// # let num_views: usize = unimplemented!();
     /// # let target_pose: Iso3 = Iso3::identity();
     /// let upstream: RigUpstreamCalibration = handeye_export
-    ///     .to_upstream_calibration(vec![target_pose; num_views]);
+    ///     .to_upstream_calibration(vec![target_pose; num_views])
+    ///     .expect("Scheimpflug rig handeye export");
     /// ```
-    pub fn to_upstream_calibration(&self, rig_se3_target: Vec<Iso3>) -> RigUpstreamCalibration {
-        RigUpstreamCalibration {
+    pub fn to_upstream_calibration(
+        &self,
+        rig_se3_target: Vec<Iso3>,
+    ) -> Result<RigUpstreamCalibration, Error> {
+        let sensors = self.sensors.as_ref().ok_or_else(|| {
+            Error::invalid_input(
+                "to_upstream_calibration requires a Scheimpflug rig handeye export \
+                 (sensors field populated); pinhole rigs are not yet supported \
+                 by rig_laserline_device",
+            )
+        })?;
+        Ok(RigUpstreamCalibration {
             intrinsics: self.cameras.iter().map(|c| c.k).collect(),
             distortion: self.cameras.iter().map(|c| c.dist).collect(),
-            sensors: self.sensors.clone(),
+            sensors: sensors.clone(),
             cam_se3_rig: self.cam_se3_rig.clone(),
             rig_se3_target,
-        }
+        })
     }
 }
 

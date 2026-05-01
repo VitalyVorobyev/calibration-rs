@@ -154,7 +154,7 @@ in addition to `pf.target`. Each `LaserFeatureResidual` carries:
 ### Hand-eye chain
 
 `SingleCamHandeyeExport`, `RigHandeyeExport`, and
-`RigScheimpflugHandeyeExport` derive per-view `cam_se3_target` from the
+`RigHandeyeExport` (Scheimpflug variant) derive per-view `cam_se3_target` from the
 hand-eye chain via
 [`handeye_observer_se3_target`](../../crates/vision-calibration-optim/src/problems/handeye.rs).
 You don't need to reproduce that math — the export already carries the
@@ -164,7 +164,7 @@ ground truth records.
 
 `ScheimpflugIntrinsicsExport`, `RigExtrinsicsExport` (when
 `SensorMode::Scheimpflug` is configured — `sensors` field populated), and
-`RigScheimpflugHandeyeExport` build the full pinhole + Brown-Conrady +
+`RigHandeyeExport` (Scheimpflug variant) build the full pinhole + Brown-Conrady +
 Scheimpflug `Camera` for projection. The records are computed using the
 exact same chain the optimizer used.
 

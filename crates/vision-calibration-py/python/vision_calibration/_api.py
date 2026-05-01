@@ -32,9 +32,7 @@ from .models import (
     RigLaserlineDeviceInput,
     RigLaserlineDeviceResult,
     RigLaserlineUpstreamCalibration,
-    RigScheimpflugHandeyeCalibrationConfig,
-    RigScheimpflugHandeyeDataset,
-    RigScheimpflugHandeyeResult,
+    RigHandeyeResult,
     ScheimpflugIntrinsicsCalibrationConfig,
     ScheimpflugIntrinsicsResult,
     SingleCamHandeyeCalibrationConfig,
@@ -224,35 +222,6 @@ def run_scheimpflug_intrinsics(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Scheimpflug rig hand-eye
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _run_rig_scheimpflug_handeye_raw(
-    input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,
-) -> RigScheimpflugHandeyeResult:
-    raw = cast(
-        dict[str, Any],
-        _native.run_rig_scheimpflug_handeye(input_payload, config_payload),
-    )
-    return RigScheimpflugHandeyeResult.from_payload(raw)
-
-
-def run_rig_scheimpflug_handeye(
-    input: RigScheimpflugHandeyeDataset,
-    config: RigScheimpflugHandeyeCalibrationConfig | None = None,
-) -> RigScheimpflugHandeyeResult:
-    """Run Scheimpflug rig hand-eye calibration with typed input/config objects."""
-    dataset = _ensure_type(input, RigScheimpflugHandeyeDataset, "input")
-    cfg = _ensure_optional_type(config, RigScheimpflugHandeyeCalibrationConfig, "config")
-    return _run_rig_scheimpflug_handeye_raw(
-        dataset.to_payload(),
-        None if cfg is None else cfg.to_payload(),
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Rig laserline device
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -310,7 +279,7 @@ def _pixel_to_gripper_point_raw(
 def pixel_to_gripper_point(
     cam_idx: int,
     pixel: tuple[float, float] | list[float],
-    rig_cal: RigScheimpflugHandeyeResult | Mapping[str, Any],
+    rig_cal: RigHandeyeResult | Mapping[str, Any],
     laser_planes_rig: list[LaserlinePlane] | list[Mapping[str, Any]],
     base_se3_gripper: Pose | Mapping[str, Any] | None = None,
 ) -> tuple[float, float, float]:
@@ -323,9 +292,10 @@ def pixel_to_gripper_point(
     pixel:
         Observed pixel as ``(u, v)``.
     rig_cal:
-        Scheimpflug rig hand-eye calibration result — either a typed
-        :class:`~vision_calibration.models.RigScheimpflugHandeyeResult` or
-        a raw serde payload dict.
+        Rig hand-eye calibration result — either a typed
+        :class:`~vision_calibration.models.RigHandeyeResult` or
+        a raw serde payload dict. Must be a Scheimpflug rig (``sensors``
+        field populated); pinhole rigs are not yet supported.
     laser_planes_rig:
         Per-camera laser planes in rig frame — either typed
         :class:`~vision_calibration.models.LaserlinePlane` instances or
@@ -341,7 +311,7 @@ def pixel_to_gripper_point(
         3D point ``(x, y, z)`` in gripper frame.
     """
     # Normalise rig_cal — accept the typed dataclass or a raw dict
-    if isinstance(rig_cal, RigScheimpflugHandeyeResult):
+    if isinstance(rig_cal, RigHandeyeResult):
         rig_cal_payload: Mapping[str, Any] = rig_cal.to_payload()
     else:
         rig_cal_payload = dict(rig_cal)

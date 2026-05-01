@@ -6,15 +6,18 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    FeatureResidualHistogram, Iso3, PerFeatureResiduals, PinholeCamera, build_feature_histogram,
-    compute_rig_target_residuals,
+    Camera, FeatureResidualHistogram, Iso3, PerFeatureResiduals, Pinhole, PinholeCamera,
+    ScheimpflugParams, build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
-    HandEyeEstimate, HandEyeMode, RigDataset, RobotPoseMeta, RobustLoss,
-    handeye_observer_se3_target,
+    HandEyeEstimate as PinholeHandEyeEstimate, HandEyeMode,
+    HandEyeScheimpflugEstimate as ScheimpflugHandEyeEstimate, RigDataset, RobotPoseMeta,
+    RobustLoss, handeye_observer_se3_target,
 };
 #[cfg(test)]
 use vision_calibration_optim::{HandEyeParams, SolveReport};
+
+pub use crate::rig_family::SensorMode;
 
 use crate::session::{InvalidationPolicy, ProblemType};
 
@@ -35,11 +38,17 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Configuration for multi-camera rig hand-eye calibration.
+///
+/// Shared between pinhole and Scheimpflug rigs; the [`SensorMode`] field
+/// `sensor` selects the sensor flavour.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RigHandeyeConfig {
     /// Per-camera intrinsics initialization options.
     pub intrinsics: RigHandeyeIntrinsicsConfig,
+    /// Sensor flavour (pinhole or Scheimpflug). Default is `Pinhole`.
+    #[serde(default)]
+    pub sensor: SensorMode,
     /// Rig and gauge options.
     pub rig: RigHandeyeRigConfig,
     /// Hand-eye linear initialization options.
@@ -151,6 +160,11 @@ pub struct RigHandeyeBaConfig {
     /// Refine cam_se3_rig in hand-eye BA (default: false).
     /// When true, rig extrinsics are further refined during hand-eye optimization.
     pub refine_cam_se3_rig_in_handeye_ba: bool,
+    /// Refine Scheimpflug tilt parameters in hand-eye BA (default: false).
+    /// Only consulted when [`SensorMode::Scheimpflug`] is configured; ignored
+    /// for [`SensorMode::Pinhole`].
+    #[serde(default)]
+    pub refine_scheimpflug_in_handeye_ba: bool,
 }
 
 impl Default for RigHandeyeBaConfig {
@@ -160,6 +174,87 @@ impl Default for RigHandeyeBaConfig {
             robot_rot_sigma: 0.5_f64.to_radians(), // 0.5 degrees
             robot_trans_sigma: 0.001,              // 1 mm
             refine_cam_se3_rig_in_handeye_ba: false,
+            refine_scheimpflug_in_handeye_ba: false,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Output (pinhole or Scheimpflug variant)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Output of the hand-eye BA stage. Pinhole and Scheimpflug rigs return
+/// structurally similar but type-distinct optim estimates; this enum
+/// preserves both as `Self::Output` for [`RigHandeyeProblem`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum RigHandeyeOutput {
+    /// Pinhole hand-eye BA estimate.
+    Pinhole(PinholeHandEyeEstimate),
+    /// Scheimpflug hand-eye BA estimate (per-camera sensors included).
+    Scheimpflug(ScheimpflugHandEyeEstimate),
+}
+
+impl RigHandeyeOutput {
+    pub fn final_cost(&self) -> f64 {
+        match self {
+            Self::Pinhole(e) => e.report.final_cost,
+            Self::Scheimpflug(e) => e.report.final_cost,
+        }
+    }
+
+    pub fn mean_reproj_error(&self) -> f64 {
+        match self {
+            Self::Pinhole(e) => e.mean_reproj_error,
+            Self::Scheimpflug(e) => e.mean_reproj_error,
+        }
+    }
+
+    pub fn cameras(&self) -> &[PinholeCamera] {
+        match self {
+            Self::Pinhole(e) => &e.params.cameras,
+            Self::Scheimpflug(e) => &e.params.cameras,
+        }
+    }
+
+    pub fn cam_to_rig(&self) -> &[Iso3] {
+        match self {
+            Self::Pinhole(e) => &e.params.cam_to_rig,
+            Self::Scheimpflug(e) => &e.params.cam_to_rig,
+        }
+    }
+
+    pub fn target_poses(&self) -> &[Iso3] {
+        match self {
+            Self::Pinhole(e) => &e.params.target_poses,
+            Self::Scheimpflug(e) => &e.params.target_poses,
+        }
+    }
+
+    pub fn handeye(&self) -> &Iso3 {
+        match self {
+            Self::Pinhole(e) => &e.params.handeye,
+            Self::Scheimpflug(e) => &e.params.handeye,
+        }
+    }
+
+    pub fn robot_deltas(&self) -> Option<&[[f64; 6]]> {
+        match self {
+            Self::Pinhole(e) => e.robot_deltas.as_deref(),
+            Self::Scheimpflug(e) => e.robot_deltas.as_deref(),
+        }
+    }
+
+    pub fn sensors(&self) -> Option<&[ScheimpflugParams]> {
+        match self {
+            Self::Pinhole(_) => None,
+            Self::Scheimpflug(e) => Some(&e.params.sensors),
+        }
+    }
+
+    pub fn per_cam_reproj_errors(&self) -> &[f64] {
+        match self {
+            Self::Pinhole(e) => &e.per_cam_reproj_errors,
+            Self::Scheimpflug(e) => &e.per_cam_reproj_errors,
         }
     }
 }
@@ -169,11 +264,20 @@ impl Default for RigHandeyeBaConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Export format for rig hand-eye calibration.
+///
+/// Common to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole
+/// rigs and `Some(_)` for Scheimpflug rigs, matching the configured
+/// [`SensorMode`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RigHandeyeExport {
-    /// Per-camera calibrated intrinsics + distortion.
+    /// Per-camera calibrated intrinsics + distortion (pinhole core).
     pub cameras: Vec<PinholeCamera>,
+
+    /// Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;
+    /// `Some(_)` for Scheimpflug rigs (one entry per camera).
+    #[serde(default)]
+    pub sensors: Option<Vec<ScheimpflugParams>>,
 
     /// Per-camera extrinsics: `cam_se3_rig` (T_C_R).
     /// Transform from rig frame to camera frame.
@@ -271,7 +375,7 @@ impl ProblemType for RigHandeyeProblem {
     type Config = RigHandeyeConfig;
     type Input = RigHandeyeInput;
     type State = RigHandeyeState;
-    type Output = HandEyeEstimate;
+    type Output = RigHandeyeOutput;
     type Export = RigHandeyeExport;
 
     fn name() -> &'static str {
@@ -367,28 +471,24 @@ impl ProblemType for RigHandeyeProblem {
         output: &Self::Output,
         config: &Self::Config,
     ) -> Result<Self::Export, Error> {
-        let cam_se3_rig: Vec<Iso3> = output
-            .params
-            .cam_to_rig
-            .iter()
-            .map(|t| t.inverse())
-            .collect();
+        let cam_se3_rig: Vec<Iso3> = output.cam_to_rig().iter().map(|t| t.inverse()).collect();
 
         let target_pose = output
-            .params
-            .target_poses
+            .target_poses()
             .first()
             .copied()
             .ok_or_else(|| Error::invalid_input("no target pose in output"))?;
 
         let mode = config.handeye_init.handeye_mode;
+        let handeye = *output.handeye();
         let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) = match mode {
-            HandEyeMode::EyeInHand => (Some(output.params.handeye), None, Some(target_pose), None),
-            HandEyeMode::EyeToHand => (None, Some(output.params.handeye), None, Some(target_pose)),
+            HandEyeMode::EyeInHand => (Some(handeye), None, Some(target_pose), None),
+            HandEyeMode::EyeToHand => (None, Some(handeye), None, Some(target_pose)),
         };
 
         // Per-feature residuals: derive rig_se3_target per view from the
-        // handeye chain, then project via the per-camera transform.
+        // handeye chain, then project. For Scheimpflug, splice tilted
+        // sensors into the projection chain.
         let robot_poses: Vec<Iso3> = input
             .views
             .iter()
@@ -396,17 +496,34 @@ impl ProblemType for RigHandeyeProblem {
             .collect();
         let rig_se3_target = handeye_observer_se3_target(
             mode,
-            &output.params.handeye,
+            &handeye,
             &target_pose,
             &robot_poses,
-            output.robot_deltas.as_deref(),
+            output.robot_deltas(),
         );
-        let target = compute_rig_target_residuals(
-            &output.params.cameras,
-            input,
-            &cam_se3_rig,
-            &rig_se3_target,
-        )?;
+        let target = match output {
+            RigHandeyeOutput::Pinhole(estimate) => compute_rig_target_residuals(
+                &estimate.params.cameras,
+                input,
+                &cam_se3_rig,
+                &rig_se3_target,
+            )?,
+            RigHandeyeOutput::Scheimpflug(estimate) => {
+                let scheimpflug_cameras: Vec<_> = estimate
+                    .params
+                    .cameras
+                    .iter()
+                    .zip(estimate.params.sensors.iter())
+                    .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
+                    .collect();
+                compute_rig_target_residuals(
+                    &scheimpflug_cameras,
+                    input,
+                    &cam_se3_rig,
+                    &rig_se3_target,
+                )?
+            }
+        };
         let target_hist_per_camera: Vec<FeatureResidualHistogram> = (0..input.num_cameras)
             .map(|cam_idx| {
                 build_feature_histogram(
@@ -419,16 +536,17 @@ impl ProblemType for RigHandeyeProblem {
             .collect();
 
         Ok(RigHandeyeExport {
-            cameras: output.params.cameras.clone(),
+            cameras: output.cameras().to_vec(),
+            sensors: output.sensors().map(|s| s.to_vec()),
             cam_se3_rig,
             handeye_mode: mode,
             gripper_se3_rig,
             rig_se3_base,
             base_se3_target,
             gripper_se3_target,
-            robot_deltas: output.robot_deltas.clone(),
-            mean_reproj_error: output.mean_reproj_error,
-            per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
+            robot_deltas: output.robot_deltas().map(|d| d.to_vec()),
+            mean_reproj_error: output.mean_reproj_error(),
+            per_cam_reproj_errors: output.per_cam_reproj_errors().to_vec(),
             per_feature_residuals: PerFeatureResiduals {
                 target,
                 laser: Vec::new(),
@@ -571,7 +689,7 @@ mod tests {
         assert_eq!(RigHandeyeProblem::schema_version(), 1);
     }
 
-    fn make_dummy_output() -> HandEyeEstimate {
+    fn make_dummy_output() -> RigHandeyeOutput {
         let camera = vision_calibration_core::make_pinhole_camera(
             vision_calibration_core::FxFyCxCySkew {
                 fx: 800.0,
@@ -583,7 +701,7 @@ mod tests {
             vision_calibration_core::BrownConrady5::default(),
         );
 
-        HandEyeEstimate {
+        RigHandeyeOutput::Pinhole(PinholeHandEyeEstimate {
             params: HandEyeParams {
                 cameras: vec![camera],
                 cam_to_rig: vec![Iso3::identity()],
@@ -594,7 +712,7 @@ mod tests {
             robot_deltas: None,
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0],
-        }
+        })
     }
 
     #[test]

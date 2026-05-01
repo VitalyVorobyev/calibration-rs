@@ -73,7 +73,8 @@ mod steps;
 // Re-export types
 pub use problem::{
     RigHandeyeBaConfig, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInitConfig, RigHandeyeInput,
-    RigHandeyeIntrinsicsConfig, RigHandeyeProblem, RigHandeyeRigConfig, RigHandeyeSolverConfig,
+    RigHandeyeIntrinsicsConfig, RigHandeyeOutput, RigHandeyeProblem, RigHandeyeRigConfig,
+    RigHandeyeSolverConfig, SensorMode,
 };
 pub use state::RigHandeyeState;
 pub use steps::{

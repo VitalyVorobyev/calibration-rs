@@ -1,4 +1,5 @@
-//! Pipeline integration test for `rig_scheimpflug_handeye`.
+//! Integration test: Scheimpflug-flavoured rig hand-eye via the unified
+//! `RigHandeyeProblem` (post A6.3 collapse).
 //!
 //! Synthetic EyeInHand rig with 2 cameras and Scheimpflug tilt. Runs all 6
 //! steps and asserts intrinsics, hand-eye, and JSON export round-trip.
@@ -9,8 +10,8 @@ use vision_calibration_core::{
     RigView, RigViewObs, ScheimpflugParams,
 };
 use vision_calibration_optim::RobotPoseMeta;
-use vision_calibration_pipeline::rig_scheimpflug_handeye::{
-    RigScheimpflugHandeyeExport, RigScheimpflugHandeyeProblem, run_calibration,
+use vision_calibration_pipeline::rig_handeye::{
+    RigHandeyeConfig, RigHandeyeExport, RigHandeyeProblem, SensorMode, run_calibration,
 };
 use vision_calibration_pipeline::session::CalibrationSession;
 
@@ -119,19 +120,37 @@ fn make_dataset() -> (
     (RigDataset::new(views, 2).unwrap(), intrinsics, handeye_gt)
 }
 
+fn scheimpflug_handeye_config() -> RigHandeyeConfig {
+    // `RigHandeyeConfig` is `#[non_exhaustive]` — populate via Default + field
+    // assignment from outside the crate.
+    let mut cfg = RigHandeyeConfig::default();
+    cfg.sensor = SensorMode::Scheimpflug {
+        init_tilt_x: 0.0,
+        init_tilt_y: 0.0,
+        fix_scheimpflug_in_intrinsics: Default::default(),
+        refine_scheimpflug_in_rig_ba: false,
+    };
+    cfg
+}
+
 #[test]
 fn pipeline_converges_scheimpflug_rig_handeye() {
     let (dataset, intrinsics_gt, handeye_gt) = make_dataset();
 
-    let mut session = CalibrationSession::<RigScheimpflugHandeyeProblem>::new();
+    let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+    session.set_config(scheimpflug_handeye_config()).unwrap();
     session.set_input(dataset).unwrap();
     run_calibration(&mut session).unwrap();
 
     let export = session.export().unwrap();
 
-    // JSON round-trip.
+    // JSON round-trip + sensor field populated.
     let json = serde_json::to_string(&export).unwrap();
-    let _: RigScheimpflugHandeyeExport = serde_json::from_str(&json).unwrap();
+    let restored: RigHandeyeExport = serde_json::from_str(&json).unwrap();
+    assert!(
+        restored.sensors.is_some(),
+        "Scheimpflug handeye export must carry sensors"
+    );
 
     // Intrinsics convergence (~5% relative error).
     for (i, cam) in export.cameras.iter().enumerate() {
@@ -165,7 +184,8 @@ fn pipeline_converges_scheimpflug_rig_handeye() {
 fn pipeline_rejects_insufficient_views() {
     let (mut dataset, _, _) = make_dataset();
     dataset.views.truncate(2);
-    let mut session = CalibrationSession::<RigScheimpflugHandeyeProblem>::new();
+    let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+    session.set_config(scheimpflug_handeye_config()).unwrap();
     let err = session.set_input(dataset).unwrap_err().to_string();
     assert!(err.contains("need 3"), "unexpected error: {err}");
 }
