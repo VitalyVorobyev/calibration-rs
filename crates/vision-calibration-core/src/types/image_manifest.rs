@@ -25,6 +25,21 @@
 //! tiled-image format: multiple `FrameRef`s point at the same `path` with
 //! disjoint ROIs.
 //!
+//! # Coordinate convention
+//!
+//! `observed_px` and `projected_px` in any [`PerFeatureResiduals`] entry
+//! that refers to a frame are in **the camera's own pixel frame** — i.e.
+//! the frame the camera intrinsics were calibrated against. With
+//! `roi = None` that is the full source image; with `roi = Some(_)` it is
+//! the ROI-local frame, with origin at the ROI's top-left corner.
+//!
+//! ROI is therefore a **render-time crop hint**, never a coordinate
+//! transform: a viewer that renders the per-camera tile by blitting the
+//! ROI rectangle onto a fresh canvas at `(0, 0)` can plot residual
+//! coordinates directly, without subtracting `roi.x` / `roi.y`. Doing so
+//! would double-correct and push residuals off-canvas — see the bug fix
+//! that introduced this convention.
+//!
 //! [`PerFeatureResiduals`]: crate::PerFeatureResiduals
 //! [`TargetFeatureResidual`]: crate::TargetFeatureResidual
 //! [`LaserFeatureResidual`]: crate::LaserFeatureResidual
@@ -58,6 +73,14 @@ pub struct FrameRef {
     pub path: PathBuf,
     /// Sub-image rectangle in pixel coordinates. `None` means the entire
     /// image is this `(pose, camera)`. Used for tiled multi-camera frames.
+    ///
+    /// **Coordinate convention:** see the module-level `# Coordinate
+    /// convention` block. ROI is a render-time crop hint only —
+    /// per-feature residuals are already in the ROI-local pixel frame
+    /// (i.e. the camera's own image frame, since intrinsics were
+    /// calibrated against the cropped tile), so a viewer must not
+    /// subtract `(x, y)` from `observed_px` / `projected_px` when
+    /// drawing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub roi: Option<PixelRect>,
 }

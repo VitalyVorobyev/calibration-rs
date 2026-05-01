@@ -835,6 +835,11 @@ mod tests {
         // The puzzle 130×130 rig writes a single 4320×540 PNG per pose
         // and references each of its six 720×540 camera tiles via ROI;
         // mirror that shape in the test to lock the wire format.
+        //
+        // Note: per the `image_manifest` coordinate convention, residual
+        // pixel coords are *ROI-local* — the ROI is a render-time crop
+        // hint only. This test pins the wire format; the convention
+        // itself is exercised by the viewer (see app/src/components).
         use vision_calibration_core::{FrameRef, ImageManifest, PixelRect};
 
         let output = make_dummy_output();

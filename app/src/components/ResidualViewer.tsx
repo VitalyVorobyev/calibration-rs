@@ -149,7 +149,12 @@ export function ResidualViewer() {
       canvas.height = sh;
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-      drawResidualArrows(ctx, state.data.per_feature_residuals.target, frame, sx, sy);
+      // Per ImageManifest convention (see image_manifest.rs `# Coordinate
+      // convention`), residual pixel coords are already in the ROI-local
+      // frame, so we draw them directly onto the canvas — which we just
+      // blitted from `[sx, sx+sw) × [sy, sy+sh)` to `(0, 0)`. Subtracting
+      // `(sx, sy)` here would double-correct.
+      drawResidualArrows(ctx, state.data.per_feature_residuals.target, frame);
     };
     img.onerror = () => setError("Image failed to decode.");
     img.src = imgUrl;
@@ -234,14 +239,12 @@ function drawResidualArrows(
   ctx: CanvasRenderingContext2D,
   all: TargetFeatureResidual[],
   frame: FrameKey,
-  roiX: number,
-  roiY: number,
 ) {
   const arrows = all.filter((r) => r.pose === frame.pose && r.camera === frame.camera);
   for (const r of arrows) {
     if (!r.projected_px) continue;
-    const ox = r.observed_px[0] - roiX;
-    const oy = r.observed_px[1] - roiY;
+    const ox = r.observed_px[0];
+    const oy = r.observed_px[1];
     const dx0 = r.projected_px[0] - r.observed_px[0];
     const dy0 = r.projected_px[1] - r.observed_px[1];
     const mag = Math.hypot(dx0, dy0);
