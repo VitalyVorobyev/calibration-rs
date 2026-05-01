@@ -29,8 +29,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, NoMeta, PinholeCamera,
-    PlanarDataset, Pt2, Real, ScheimpflugParams, View, make_pinhole_camera,
+    BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Iso3, Mat3, NoMeta,
+    PinholeCamera, PlanarDataset, Pt2, Real, ScheimpflugParams, View, make_pinhole_camera,
 };
 use vision_calibration_linear::{
     IterativeIntrinsicsOptions, dlt_homography, estimate_intrinsics_iterative,
@@ -73,10 +73,22 @@ pub enum SensorMode {
         /// Mask for Scheimpflug parameters during per-camera intrinsics refinement.
         #[serde(default)]
         fix_scheimpflug_in_intrinsics: ScheimpflugFixMask,
+        /// Distortion mask applied during per-camera Scheimpflug intrinsics
+        /// refinement. Defaults to [`DistortionFixMask::radial_only`]
+        /// (k1, k2 free; k3, p1, p2 fixed) — a safe choice for typical
+        /// Scheimpflug rigs where tangential distortion can absorb tilt-like
+        /// signal. Narrow-FOV rigs that overfit k2 may want
+        /// `(k1, p1, p2) free, (k2, k3) fixed` instead.
+        #[serde(default = "default_scheimpflug_percam_distortion_mask")]
+        distortion_mask_in_percam_ba: DistortionFixMask,
         /// Re-refine Scheimpflug parameters in rig BA (default: false).
         #[serde(default)]
         refine_scheimpflug_in_rig_ba: bool,
     },
+}
+
+fn default_scheimpflug_percam_distortion_mask() -> DistortionFixMask {
+    DistortionFixMask::radial_only()
 }
 
 impl SensorMode {

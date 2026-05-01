@@ -242,32 +242,35 @@ step functions. Each problem type defines its own sequence of steps:
 | Problem Type | Steps |
 |---|---|
 | `PlanarIntrinsicsProblem` | `step_init` → `step_optimize` |
+| `ScheimpflugIntrinsicsProblem` | `step_init` → `step_optimize` (single camera with Scheimpflug tilt) |
 | `SingleCamHandeyeProblem` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
-| `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
-| `RigHandeyeProblem` | 6 steps: intrinsics (×2) → rig (×2) → hand-eye (×2) |
 | `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
-| `RigScheimpflugExtrinsicsProblem` | Joint intrinsics + Scheimpflug tilt + rig extrinsics for a multi-camera rig |
-| `RigScheimpflugHandeyeProblem` | Adds hand-eye calibration (EyeInHand or EyeToHand) to the Scheimpflug rig |
-| `RigLaserlineDeviceProblem` | Per-camera laser-plane calibration for a Scheimpflug rig; takes upstream hand-eye export |
+| `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` (pinhole or Scheimpflug rig via `RigExtrinsicsConfig::sensor`) |
+| `RigHandeyeProblem` | 6 steps: intrinsics (×2) → rig (×2) → hand-eye (×2) (pinhole or Scheimpflug rig via `RigHandeyeConfig::sensor`; supports `EyeInHand` and `EyeToHand`) |
+| `RigLaserlineDeviceProblem` | Per-camera laser-plane calibration for a Scheimpflug rig; takes a frozen `RigHandeyeExport` (Scheimpflug variant) as upstream calibration |
 
 Each problem type also provides a `run_calibration` convenience function that runs all steps.
 
-### Scheimpflug Rig Family
+### Rig family — pinhole + Scheimpflug
 
-Three pipelines cover the end-to-end Scheimpflug rig workflow:
+The two rig problem types (`RigExtrinsicsProblem` and `RigHandeyeProblem`) handle both pinhole and
+Scheimpflug rigs through a `SensorMode` enum on their config. Set
+`config.sensor = SensorMode::Pinhole` (the default) for a standard rig, or
+`config.sensor = SensorMode::Scheimpflug { init_tilt_x, init_tilt_y, fix_scheimpflug_in_intrinsics, refine_scheimpflug_in_rig_ba }`
+for a Scheimpflug-tilted rig. Step functions dispatch on the mode and produce an export with a
+`sensors: Option<Vec<ScheimpflugParams>>` field — `None` for pinhole, `Some(_)` for Scheimpflug.
 
-1. **`rig_scheimpflug_extrinsics`** — calibrates per-camera intrinsics, Scheimpflug tilt angles, and
-   inter-camera rig extrinsics from a shared planar target.
-2. **`rig_scheimpflug_handeye`** — extends the above with hand-eye calibration (EyeInHand or
-   EyeToHand) using robot-mounted rig observations.
-3. **`rig_laserline_device`** — calibrates one laser plane per camera with all upstream parameters
-   frozen; accepts a `RigScheimpflugHandeyeExport` via
-   `RigScheimpflugHandeyeExport::to_upstream_calibration(rig_se3_target_poses)`.
+`RigLaserlineDeviceProblem` extends a Scheimpflug rig hand-eye result with one laser plane per
+camera, all upstream parameters frozen; convert via
+`RigHandeyeExport::to_upstream_calibration(rig_se3_target_poses)` (errors on pinhole rigs since
+laserline calibration currently requires Scheimpflug sensor params).
 
 A `pixel_to_gripper_point` helper in the facade crate converts a raw pixel coordinate into the
 gripper frame in one call, composing undistortion → rig-frame ray → laser-plane intersection →
-hand-eye transform. See [`docs.rs/vision-calibration`](https://docs.rs/vision-calibration) for the
-full API reference.
+hand-eye transform. It accepts a `RigHandeyeExport` (Scheimpflug variant required). See
+[`docs.rs/vision-calibration`](https://docs.rs/vision-calibration) for the full API reference,
+and [ADR 0013](docs/adrs/0013-rig-family-sensor-axis-refactor.md) for the rationale behind the
+sensor-axis collapse that unified the pinhole and Scheimpflug rig modules.
 Sessions support JSON serialization for checkpointing and resuming.
 
 For larger workflows, configs are grouped by responsibility (e.g. `init`, `solver`,

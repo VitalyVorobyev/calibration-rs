@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking, pre-1.0)
+- **Rig family sensor-axis refactor (ADR 0013).** The pinhole and Scheimpflug
+  rig modules collapse into a single workflow per problem family. Five rig
+  sibling modules become three (~−2,300 LoC across PRs #36, #37, #38).
+  - `vision_calibration_pipeline::rig_scheimpflug_extrinsics` — module
+    deleted. Migrate to `rig_extrinsics::RigExtrinsicsProblem` with
+    `RigExtrinsicsConfig::sensor = SensorMode::Scheimpflug { … }`.
+  - `vision_calibration_pipeline::rig_scheimpflug_handeye` — module
+    deleted. Migrate to `rig_handeye::RigHandeyeProblem` with
+    `RigHandeyeConfig::sensor = SensorMode::Scheimpflug { … }`.
+  - `RigExtrinsicsProblem::Output` is now `RigExtrinsicsOutput::{Pinhole,
+    Scheimpflug}`; `RigHandeyeProblem::Output` is now
+    `RigHandeyeOutput::{Pinhole, Scheimpflug}`. Use accessor methods
+    (`cam_to_rig()`, `cameras()`, `sensors()`, `mean_reproj_error()`, …)
+    instead of `output.params.*`.
+  - `RigExtrinsicsExport` and `RigHandeyeExport` gain
+    `sensors: Option<Vec<ScheimpflugParams>>` (`None` for pinhole, `Some(_)`
+    for Scheimpflug). `RigExtrinsicsExport` also gains
+    `rig_se3_target: Vec<Iso3>` (always populated; pinhole exports
+    previously omitted it).
+  - `RigIntrinsicsManualInit` (rig_extrinsics) and
+    `RigHandeyeIntrinsicsManualInit` gain
+    `per_cam_sensors: Option<Vec<ScheimpflugParams>>` for Scheimpflug
+    seeds.
+  - `RigHandeyeBaConfig` gains `refine_scheimpflug_in_handeye_ba: bool`.
+  - `SensorMode` lives in `crate::rig_family::SensorMode` and is
+    re-exported by both `rig_extrinsics::SensorMode` and
+    `rig_handeye::SensorMode` (single source of truth).
+  - `RigHandeyeExport::to_upstream_calibration` (used by
+    `rig_laserline_device`) now returns `Result<…>` and errors on pinhole
+    rigs.
+  - Facade `pixel_to_gripper_point` accepts `&RigHandeyeExport` and errors
+    when sensors are absent.
+  - Python: `run_rig_scheimpflug_extrinsics`, `run_rig_scheimpflug_handeye`,
+    and their dataclasses are removed; `RigHandeyeResult` gains a
+    `sensors: list[ScheimpflugSensor] | None` field plus a `to_payload()`
+    method that round-trips the unified export. The Python
+    `pixel_to_gripper_point` accepts `RigHandeyeResult`.
+  - A handful of advanced Scheimpflug-only intrinsics knobs
+    (`initial_cameras`, `initial_sensors`, `fallback_to_shared_init`,
+    `fix_intrinsics_when_overridden`, `fix_intrinsics_in_percam_ba`,
+    `fix_distortion_in_percam_ba`) are dropped. The most load-bearing
+    default — `DistortionFixMask::radial_only()` for Scheimpflug
+    per-camera intrinsics refinement — is preserved as a hard-coded
+    constant.
+
+### Added
+- **ADR 0013** ([`docs/adrs/0013-rig-family-sensor-axis-refactor.md`](docs/adrs/0013-rig-family-sensor-axis-refactor.md))
+  records the rig family sensor-axis refactor decision: composition over
+  traits, single-axis collapse, alternatives considered.
+
 ## [0.4.0] - 2026-04-29
 
 ### Added
