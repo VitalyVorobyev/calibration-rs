@@ -1,20 +1,34 @@
+@import "tailwindcss";
+
+/* Light/dark color tokens consumed via Tailwind's `var()` arbitrary values
+   (e.g. `bg-[var(--page-bg)]`). We keep the palette here rather than in a
+   `@theme` block so dark mode follows the OS preference automatically; a
+   `@theme` switch would require explicit class toggling. */
 :root {
-  font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-  font-size: 14px;
+  --page-bg: #f6f8fa;
+  --page-fg: #1f2328;
+  --panel-bg: rgba(127, 127, 127, 0.08);
+  --warn-border: #d4a72c;
+  --warn-bg: #fff7d6;
+  --warn-fg: #5a4400;
+  --error-border: #c0392b;
+  --error-bg: #fdecea;
+  --error-fg: #7d2118;
   color-scheme: light dark;
-  color: #1f2328;
-  background: #f6f8fa;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    color: #e6edf3;
-    background: #0d1117;
+    --page-bg: #0d1117;
+    --page-fg: #e6edf3;
+    --panel-bg: rgba(255, 255, 255, 0.05);
+    --warn-border: #d4a72c;
+    --warn-bg: #3a2f00;
+    --warn-fg: #ffe589;
+    --error-border: #c0392b;
+    --error-bg: #3a1414;
+    --error-fg: #ffb3a8;
   }
-}
-
-* {
-  box-sizing: border-box;
 }
 
 html,
@@ -24,6 +38,10 @@ body,
   padding: 0;
   height: 100%;
   width: 100%;
+  font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  color: var(--page-fg);
+  background: var(--page-bg);
 }
 
 button {
