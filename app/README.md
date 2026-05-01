@@ -16,15 +16,17 @@ the deferred-features list.
 
 ## First-time setup
 
+This app uses **bun** exclusively — the lockfile is `bun.lock`, the Tauri
+`beforeDevCommand` runs `bun run dev`, and we don't carry alternative
+lockfiles. If you don't have bun, install it from <https://bun.sh>.
+
 ```bash
 # from this directory
-bun install      # or `npm install` / `pnpm install` / `yarn install`
+bun install
 ```
 
 The Tauri CLI is pulled in as a dev-dep of `package.json`, so a global
-install is not required. The committed lockfile is `bun.lock`; the
-other package managers will regenerate their own lockfile on first
-install.
+install is not required.
 
 ## Running
 
@@ -37,8 +39,16 @@ cargo run -p vision-calibration --example planar_synthetic_with_images
 Then launch the app:
 
 ```bash
-bun run tauri dev      # or `npm run tauri dev`
+bun run tauri dev
 ```
+
+> **Important.** Use `bun run tauri dev`, **not** `bun run dev`. The
+> latter only starts Vite at <http://localhost:1420>; opening that URL
+> in a regular browser bypasses the Tauri webview, so the
+> `__TAURI_INTERNALS__` global is absent and any IPC call (file dialog,
+> `load_export`, `load_image`) fails with `Cannot read properties of
+> undefined (reading 'invoke')`. The app detects this and shows a
+> banner, but the fix is to launch via `tauri dev`.
 
 In the running window: **Open Export…** → pick
 `target/fixtures/planar_synthetic_with_images/export.json`.

@@ -8,6 +8,21 @@ import type {
   TargetFeatureResidual,
 } from "../types";
 
+// True iff the page is running inside a Tauri webview (i.e. the IPC
+// internals have been injected). When the user runs `bun run dev` and
+// loads localhost:1420 in a regular browser, this is false and any
+// `invoke` / dialog call would throw `Cannot read properties of
+// undefined (reading 'invoke')`. We guard up-front so the failure mode
+// is a readable banner instead of an opaque TypeError.
+function isTauriContext(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    "__TAURI_INTERNALS__" in window &&
+    (window as unknown as { __TAURI_INTERNALS__?: unknown })
+      .__TAURI_INTERNALS__ != null
+  );
+}
+
 // Path joining for absolute filesystem paths. Tauri exposes a path
 // utility but for v0 the manifest only ever uses POSIX-style relatives,
 // so a hand-rolled join keeps the dependency surface tiny.
@@ -34,21 +49,25 @@ export function ResidualViewer() {
   const [error, setError] = useState<string | null>(null);
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const tauriOk = isTauriContext();
 
   const handleOpen = async () => {
     setError(null);
+    if (!isTauriContext()) {
+      setError(
+        "Tauri runtime not detected. Launch the app with `bun run tauri dev` " +
+          "(or the bundled binary). Plain `bun run dev` only starts Vite, so " +
+          "the file-dialog and IPC commands aren't wired up.",
+      );
+      return;
+    }
     let chosen: string | null = null;
     try {
-      const result = await openDialog({
+      chosen = await openDialog({
         multiple: false,
         directory: false,
         filters: [{ name: "Calibration export", extensions: ["json"] }],
       });
-      if (typeof result === "string") {
-        chosen = result;
-      } else if (Array.isArray(result) && result.length > 0) {
-        chosen = result[0];
-      }
     } catch (e) {
       setError(`File dialog error: ${e}`);
       return;
@@ -146,8 +165,26 @@ export function ResidualViewer() {
         minHeight: 0,
       }}
     >
+      {!tauriOk && (
+        <div
+          style={{
+            border: "1px solid #d4a72c",
+            background: "#fff7d6",
+            color: "#5a4400",
+            padding: "10px",
+            borderRadius: 6,
+            fontSize: "13px",
+          }}
+        >
+          Tauri runtime not detected — you appear to be running plain Vite
+          (<code>bun run dev</code>) in a browser. Launch the desktop app
+          with <code>bun run tauri dev</code> to use the file dialog.
+        </div>
+      )}
       <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-        <button onClick={handleOpen}>Open Export…</button>
+        <button onClick={handleOpen} disabled={!tauriOk}>
+          Open Export…
+        </button>
         {state && (
           <select
             value={selected ?? ""}

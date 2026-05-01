@@ -11,6 +11,22 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings  # Lint
 cargo doc --workspace --no-deps      # Docs
 ```
 
+## Desktop app (`app/`) commands
+
+Track B Tauri 2 + React + TypeScript viewer. **Always use bun**, never
+`npm`/`pnpm`/`yarn`. The committed lockfile is `bun.lock`, and
+`tauri.conf.json` `beforeDevCommand`/`beforeBuildCommand` must invoke
+`bun run …`.
+
+```bash
+cd app
+bun install            # First-time setup
+bun run tauri dev      # Launch the desktop app (NOT `bun run dev` — that
+                       #   starts Vite only and the Tauri APIs are absent)
+bun run build          # TS compile + Vite build (frontend only)
+bun run tauri build    # Bundle the desktop app
+```
+
 ## Architecture
 
 6-crate workspace (~24k LoC Rust). See ADR 0006.
