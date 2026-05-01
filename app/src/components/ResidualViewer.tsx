@@ -34,9 +34,33 @@ interface ExportState {
   exportDir: string;
   data: PlanarExport;
   frames: FrameKey[];
-  /** `pose` values run [0, numPoses); `camera` values run [0, numCameras). */
-  numPoses: number;
-  numCameras: number;
+  /** Sorted distinct pose values present in the manifest. */
+  poseValues: number[];
+  /** Sorted distinct camera values present in the manifest. */
+  cameraValues: number[];
+  /** For each camera, the sorted list of poses that have a frame. */
+  posesByCamera: Map<number, number[]>;
+  /** For each pose, the sorted list of cameras that have a frame. */
+  camerasByPose: Map<number, number[]>;
+}
+
+/** Wrap-around index lookup over a sorted array; returns the value
+ * at position `(idx(current) + delta) mod arr.length`, with a
+ * fallback to the first/last element when `current` is missing. */
+function nextInWrap(
+  arr: number[],
+  current: number,
+  delta: number,
+): number {
+  if (arr.length === 0) return current;
+  const idx = arr.indexOf(current);
+  if (idx < 0) {
+    // Current value is no longer in the available set; jump to the
+    // nearest neighbour in the step direction.
+    return delta >= 0 ? arr[0] : arr[arr.length - 1];
+  }
+  const n = arr.length;
+  return arr[((idx + delta) % n + n) % n];
 }
 
 export function ResidualViewer() {
@@ -97,22 +121,64 @@ export function ResidualViewer() {
         abs_path: joinPath(root, f.path),
         roi: f.roi,
       }));
-      const numPoses =
-        frames.reduce((m, f) => Math.max(m, f.pose), -1) + 1;
-      const numCameras =
-        frames.reduce((m, f) => Math.max(m, f.camera), -1) + 1;
+      if (frames.length === 0) {
+        setError(
+          "This export's image_manifest is empty. v0 needs at least one " +
+            "(pose, camera) frame to render.",
+        );
+        return;
+      }
+      // Build availability indices off the actual manifest entries —
+      // a manifest may be sparse (detector failures, partial captures),
+      // so we must NOT navigate over a dense `[0..max]` Cartesian grid.
+      const poseSet = new Set<number>();
+      const cameraSet = new Set<number>();
+      const posesByCameraSet = new Map<number, Set<number>>();
+      const camerasByPoseSet = new Map<number, Set<number>>();
+      for (const f of frames) {
+        poseSet.add(f.pose);
+        cameraSet.add(f.camera);
+        if (!posesByCameraSet.has(f.camera)) {
+          posesByCameraSet.set(f.camera, new Set());
+        }
+        posesByCameraSet.get(f.camera)!.add(f.pose);
+        if (!camerasByPoseSet.has(f.pose)) {
+          camerasByPoseSet.set(f.pose, new Set());
+        }
+        camerasByPoseSet.get(f.pose)!.add(f.camera);
+      }
+      const sortNum = (s: Set<number>) => [...s].sort((a, b) => a - b);
+      const poseValues = sortNum(poseSet);
+      const cameraValues = sortNum(cameraSet);
+      const posesByCamera = new Map(
+        [...posesByCameraSet].map(([k, v]) => [k, sortNum(v)]),
+      );
+      const camerasByPose = new Map(
+        [...camerasByPoseSet].map(([k, v]) => [k, sortNum(v)]),
+      );
+
+      const first = frames[0];
+      // Default right pane to the next manifest entry that differs from
+      // the first; falls back to the first if it's the only frame so the
+      // compare branch can still mount.
+      const second =
+        frames.find((f) => f.pose !== first.pose || f.camera !== first.camera) ??
+        first;
+
       setState({
         exportPath: chosen,
         exportDir: result.export_dir,
         data: result.export,
         frames,
-        numPoses: Math.max(numPoses, 1),
-        numCameras: Math.max(numCameras, 1),
+        poseValues,
+        cameraValues,
+        posesByCamera,
+        camerasByPose,
       });
-      setPose(0);
-      setCamera(0);
-      setPoseRight(0);
-      setCameraRight(Math.min(1, Math.max(numCameras - 1, 0)));
+      setPose(first.pose);
+      setCamera(first.camera);
+      setPoseRight(second.pose);
+      setCameraRight(second.camera);
       setCompare(false);
       setActivePane("left");
     } catch (e) {
@@ -189,28 +255,31 @@ export function ResidualViewer() {
   const stepPose = useCallback(
     (delta: number) => {
       if (!state) return;
-      const apply = (p: number) =>
-        ((p + delta) % state.numPoses + state.numPoses) % state.numPoses;
-      if (compare && activePane === "right") {
-        setPoseRight(apply);
-      } else {
-        setPose(apply);
-      }
+      const isRight = compare && activePane === "right";
+      const cam = isRight ? cameraRight : camera;
+      // Walk the poses that actually exist for the current camera.
+      // Falling back to the global pose set keeps stepping useful
+      // when the active camera has no frames (e.g. just-loaded state).
+      const poses = state.posesByCamera.get(cam) ?? state.poseValues;
+      const cur = isRight ? poseRight : pose;
+      const next = nextInWrap(poses, cur, delta);
+      if (isRight) setPoseRight(next);
+      else setPose(next);
     },
-    [state, compare, activePane],
+    [state, compare, activePane, camera, cameraRight, pose, poseRight],
   );
   const stepCamera = useCallback(
     (delta: number) => {
       if (!state) return;
-      const apply = (c: number) =>
-        ((c + delta) % state.numCameras + state.numCameras) % state.numCameras;
-      if (compare && activePane === "right") {
-        setCameraRight(apply);
-      } else {
-        setCamera(apply);
-      }
+      const isRight = compare && activePane === "right";
+      const p = isRight ? poseRight : pose;
+      const cams = state.camerasByPose.get(p) ?? state.cameraValues;
+      const cur = isRight ? cameraRight : camera;
+      const next = nextInWrap(cams, cur, delta);
+      if (isRight) setCameraRight(next);
+      else setCamera(next);
     },
-    [state, compare, activePane],
+    [state, compare, activePane, pose, poseRight, camera, cameraRight],
   );
 
   useKeyboardNav({
@@ -293,18 +362,20 @@ export function ResidualViewer() {
         </button>
         {state && (
           <PoseCameraStepper
-            pose={compare && activePane === "right" ? poseRight : pose}
-            camera={compare && activePane === "right" ? cameraRight : camera}
-            numPoses={state.numPoses}
-            numCameras={state.numCameras}
-            onPose={(next) =>
-              compare && activePane === "right" ? setPoseRight(next) : setPose(next)
+            poseOrdinal={
+              state.poseValues.indexOf(
+                compare && activePane === "right" ? poseRight : pose,
+              ) + 1
             }
-            onCamera={(next) =>
-              compare && activePane === "right"
-                ? setCameraRight(next)
-                : setCamera(next)
+            poseTotal={state.poseValues.length}
+            cameraOrdinal={
+              state.cameraValues.indexOf(
+                compare && activePane === "right" ? cameraRight : camera,
+              ) + 1
             }
+            cameraTotal={state.cameraValues.length}
+            onPoseStep={stepPose}
+            onCameraStep={stepCamera}
           />
         )}
         {state && (
