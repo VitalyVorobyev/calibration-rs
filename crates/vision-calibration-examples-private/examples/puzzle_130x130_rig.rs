@@ -1,38 +1,23 @@
 //! End-to-end rig calibration on the 130x130 puzzleboard dataset.
 //!
-//! ⚠ **Post-A6 migration pending.** This example was authored against the
-//! pre-A6 `rig_scheimpflug_handeye` module, which the
-//! [rig_family sensor-axis refactor](../../../docs/adrs/0013-rig-family-sensor-axis-refactor.md)
-//! collapsed into the unified `rig_handeye::RigHandeyeProblem` (with
-//! `SensorMode::Scheimpflug`). The example currently does **not compile**
-//! against the post-A6 facade — migration is tracked separately because it
-//! depends on a small set of Scheimpflug-specific intrinsics knobs that A6.3
-//! deliberately dropped:
+//! Post-A6 layout: drives the unified `rig_handeye::RigHandeyeProblem` with
+//! `SensorMode::Scheimpflug`. Per-camera intrinsics + distortion + tilt seeds
+//! are supplied via `step_set_intrinsics_init_all` and the
+//! `RigHandeyeIntrinsicsManualInit` struct (replacing the pre-A6
+//! `RigScheimpflugHandeyeIntrinsicsConfig::{initial_cameras, initial_sensors}`
+//! knobs). The narrow-FOV `(k1, p1, p2 free; k2, k3 fixed)` distortion mask is
+//! expressed via `SensorMode::Scheimpflug.distortion_mask_in_percam_ba`.
 //!
-//! - `RigScheimpflugHandeyeIntrinsicsConfig::initial_cameras` and
-//!   `initial_sensors` → replaceable via the unified manual-init API
-//!   (`RigHandeyeIntrinsicsManualInit { per_cam_intrinsics, per_cam_distortion,
-//!   per_cam_sensors }` passed to `step_set_intrinsics_init_all`).
-//! - `fix_distortion_in_percam_ba` (custom per-camera distortion mask) → A6.3
-//!   hard-coded `DistortionFixMask::radial_only()` (k1, k2 free; k3, p1, p2
-//!   fixed). This example wanted (k1, p1, p2 free; k2, k3 fixed) for
-//!   narrow-FOV Scheimpflug; the unified API has no way to express that
-//!   today. Migration likely needs `SensorMode::Scheimpflug` to gain a
-//!   `distortion_mask` field, or the unified intrinsics config to expose one.
-//! - `fix_intrinsics_when_overridden` → no longer relevant; the unified
-//!   `step_intrinsics_optimize_all` always refines all intrinsics.
-//! - `per_cam_used_fallback` (`fallback_to_shared_init` recovery state) →
-//!   dropped along with the Scheimpflug-specific Zhang fallback.
-//!
-//! Original pipeline:
+//! Pipeline:
 //! 1. Detect 130x130 puzzleboard (1.014 mm cells) in each of the 6 per-camera
 //!    tiles for every pose.
 //! 2. Detect laser lines in double-snap poses.
-//! 3. (post-A6) `RigHandeyeProblem` session with
-//!    `SensorMode::Scheimpflug` (intrinsics → rig → hand-eye).
-//! 4. `RigLaserlineDeviceProblem` session consuming the frozen upstream
+//! 3. `RigHandeyeProblem` session with `SensorMode::Scheimpflug` and EyeToHand
+//!    handeye mode (intrinsics → rig → hand-eye).
+//! 4. `RigLaserlineDeviceProblem` session consuming the frozen upstream rig
 //!    calibration to recover 6 laser planes in rig frame.
-//! 5. Demonstrate `pixel_to_gripper_point` on sample laser pixels.
+//! 5. Joint rig + hand-eye + laser-plane BA.
+//! 6. Demonstrate `pixel_to_gripper_point` on sample laser pixels.
 //!
 //! Set `PUZZLE_DATA_DIR` to the dataset directory and run with
 //! `cargo run --manifest-path crates/vision-calibration-examples-private/Cargo.toml
@@ -47,16 +32,17 @@ mod puzzle_viewer;
 
 use vision_calibration::{
     pixel_to_gripper_point,
+    rig_handeye::{
+        RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem, SensorMode,
+    },
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
-        RigUpstreamCalibration,
     },
-    rig_scheimpflug_handeye::{RigScheimpflugHandeyeConfig, RigScheimpflugHandeyeProblem},
     session::CalibrationSession,
 };
 use vision_calibration_core::{
     BrownConrady5, CameraFixMask, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Pt2,
-    RigDataset, RigView, RigViewObs, ScheimpflugParams, make_pinhole_camera,
+    RigDataset, RigView, RigViewObs, ScheimpflugParams,
 };
 use vision_calibration_examples_private::{
     PoseEntry, detect_laser, detect_target, load_gray, load_poses, split_horizontal,
@@ -121,7 +107,7 @@ fn main() -> Result<()> {
     // ─── Stage 2: rig + scheimpflug + hand-eye ─────────────────────────────
     let handeye_dataset = RigDataset::new(detected.handeye_views.clone(), NUM_CAMERAS)?;
     let mut rig_session =
-        CalibrationSession::<RigScheimpflugHandeyeProblem>::with_description("puzzle_130x130_rig");
+        CalibrationSession::<RigHandeyeProblem>::with_description("puzzle_130x130_rig");
     rig_session.set_input(handeye_dataset)?;
 
     // Provide a good initial intrinsic guess for all 6 cameras so BA recovers
@@ -136,11 +122,11 @@ fn main() -> Result<()> {
         p2: 0.0,
         iters: 8,
     };
-    let initial_camera = make_pinhole_camera(initial_k, initial_dist);
-    let initial_cameras = vec![initial_camera; NUM_CAMERAS];
-    let initial_sensors = vec![ScheimpflugParams::default(); NUM_CAMERAS];
+    let per_cam_intrinsics_seed = vec![initial_k; NUM_CAMERAS];
+    let per_cam_distortion_seed = vec![initial_dist; NUM_CAMERAS];
+    let per_cam_sensors_seed = vec![ScheimpflugParams::default(); NUM_CAMERAS];
 
-    let mut cfg = RigScheimpflugHandeyeConfig::default();
+    let mut cfg = RigHandeyeConfig::default();
     cfg.solver.max_iters = 200;
     cfg.solver.verbosity = 1;
     cfg.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
@@ -151,59 +137,58 @@ fn main() -> Result<()> {
     // biases hand-eye. Stage 4 uses these as initial robot-delta parameters
     // rather than mutating the canonical detected dataset.
     cfg.handeye_ba.refine_robot_poses = true;
-    cfg.intrinsics.initial_cameras = Some(initial_cameras);
-    cfg.intrinsics.initial_sensors = Some(initial_sensors);
-    // The seeded K (fx=1800, cx/cy at tile center) is only a rough prior.
-    // Let per-camera BA refine fx/fy/cx/cy + k1, and the Scheimpflug tilts.
-    // k2 is held fixed because with this narrow FOV (~22°) and limited
-    // per-view corner coverage the solver overfits k2 (values ±4) and the
-    // resulting per-camera models no longer share a consistent rigid rig.
-    cfg.intrinsics.fix_intrinsics_when_overridden = false;
-    // Refine k1 + tangential distortion (p1, p2); fix k2, k3. The narrow FOV
-    // doesn't support k2; tangential terms can absorb subtle asymmetry in
-    // sensor mounting that otherwise leaks into the rig extrinsics.
-    cfg.intrinsics.fix_distortion_in_percam_ba = DistortionFixMask {
-        k1: false,
-        k2: true,
-        k3: true,
-        p1: false,
-        p2: false,
+    // Configure Scheimpflug sensor mode:
+    // - tilt_x is free, tilt_y is held fixed (per-camera BA on this dataset
+    //   converges tilt_x in a narrow band; tilt_y has degenerate signal at
+    //   this FOV).
+    // - distortion mask: refine k1 + tangential distortion (p1, p2); fix
+    //   k2, k3. Narrow FOV (~22°) overfits k2; tangentials absorb subtle
+    //   sensor-mounting asymmetry that would otherwise leak into the rig.
+    // - tilts are NOT re-refined in rig BA — that produced wildly
+    //   inconsistent values (+13° tilt_y) without improving residuals.
+    cfg.sensor = SensorMode::Scheimpflug {
+        init_tilt_x: 0.0,
+        init_tilt_y: 0.0,
+        fix_scheimpflug_in_intrinsics: ScheimpflugFixMask {
+            tilt_x: false,
+            tilt_y: true,
+        },
+        distortion_mask_in_percam_ba: DistortionFixMask {
+            k1: false,
+            k2: true,
+            k3: true,
+            p1: false,
+            p2: false,
+        },
+        refine_scheimpflug_in_rig_ba: false,
     };
-    cfg.intrinsics.fix_scheimpflug = ScheimpflugFixMask {
-        tilt_x: false,
-        tilt_y: true,
-    };
-    // Freeze intrinsics + Scheimpflug in rig BA. Allowing tilts to drift
-    // during rig BA produced wildly inconsistent tilts (e.g. +13° tilt_y)
-    // without improving residuals; per-camera BA already nails tilt values
-    // in a narrow -8°…-10° x_tilt band, so keep them frozen.
     cfg.rig.refine_intrinsics_in_rig_ba = false;
-    cfg.rig.refine_scheimpflug_in_rig_ba = false;
     let robot_rot_sigma = cfg.handeye_ba.robot_rot_sigma;
     let robot_trans_sigma = cfg.handeye_ba.robot_trans_sigma;
     rig_session.set_config(cfg)?;
 
     let t0 = Instant::now();
     {
-        use vision_calibration::rig_scheimpflug_handeye as rh;
+        use vision_calibration::rig_handeye as rh;
         let step_t = Instant::now();
-        rh::step_intrinsics_init_all(&mut rig_session, None)?;
-        println!("  step_intrinsics_init_all: {:.2?}", step_t.elapsed());
+        // Seed intrinsics + distortion + sensors per camera (homogeneous rig)
+        // via the unified manual-init API. Replaces the pre-A6
+        // `cfg.intrinsics.initial_cameras` / `initial_sensors` knobs.
+        rh::step_set_intrinsics_init_all(
+            &mut rig_session,
+            RigHandeyeIntrinsicsManualInit {
+                per_cam_intrinsics: Some(per_cam_intrinsics_seed),
+                per_cam_distortion: Some(per_cam_distortion_seed),
+                per_cam_sensors: Some(per_cam_sensors_seed),
+            },
+            None,
+        )?;
+        println!("  step_set_intrinsics_init_all: {:.2?}", step_t.elapsed());
         if let Some(cams) = &rig_session.state.per_cam_intrinsics {
             for (i, c) in cams.iter().enumerate() {
-                let fb = rig_session
-                    .state
-                    .per_cam_used_fallback
-                    .as_ref()
-                    .map(|v| v[i])
-                    .unwrap_or(false);
                 println!(
-                    "    [zhang] cam {i}{}: fx={:.1} fy={:.1} cx={:.1} cy={:.1}",
-                    if fb { " (fallback)" } else { "" },
-                    c.k.fx,
-                    c.k.fy,
-                    c.k.cx,
-                    c.k.cy
+                    "    [seeded] cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1}",
+                    c.k.fx, c.k.fy, c.k.cx, c.k.cy
                 );
             }
         }
@@ -355,13 +340,13 @@ fn main() -> Result<()> {
         rig_se3_target.push(rt);
     }
 
-    let upstream = RigUpstreamCalibration {
-        intrinsics: rig_export.cameras.iter().map(|c| c.k).collect(),
-        distortion: rig_export.cameras.iter().map(|c| c.dist).collect(),
-        sensors: rig_export.sensors.clone(),
-        cam_se3_rig: rig_export.cam_se3_rig.clone(),
-        rig_se3_target,
-    };
+    // Build the upstream calibration via the unified post-A6 helper.
+    // `to_upstream_calibration` errors on pinhole rigs (laserline still
+    // requires Scheimpflug sensor params); we configured Scheimpflug above so
+    // the unwrap is safe.
+    let upstream = rig_export
+        .to_upstream_calibration(rig_se3_target)
+        .context("rig handeye export must be Scheimpflug for laserline upstream")?;
     let laserline_input = RigLaserlineDeviceInput {
         dataset: laserline_dataset,
         upstream,
@@ -432,9 +417,13 @@ fn main() -> Result<()> {
     // Convert cam_se3_rig to cam_to_rig (T_rig_from_cam) for the optim block.
     let cam_to_rig: Vec<_> = rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect();
 
+    let scheimpflug_sensors = rig_export
+        .sensors
+        .clone()
+        .context("rig handeye export missing Scheimpflug sensors (pinhole mode?)")?;
     let joint_initial = RigHandeyeLaserlineParams {
         cameras: rig_export.cameras.clone(),
-        sensors: rig_export.sensors.clone(),
+        sensors: scheimpflug_sensors,
         cam_to_rig,
         handeye,
         target_ref,

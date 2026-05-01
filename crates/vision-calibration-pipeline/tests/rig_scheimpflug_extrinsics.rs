@@ -123,6 +123,7 @@ fn scheimpflug_config() -> RigExtrinsicsConfig {
         init_tilt_x: 0.0,
         init_tilt_y: 0.0,
         fix_scheimpflug_in_intrinsics: Default::default(),
+        distortion_mask_in_percam_ba: vision_calibration_core::DistortionFixMask::radial_only(),
         refine_scheimpflug_in_rig_ba: false,
     };
     cfg.max_iters = 80;

@@ -6,8 +6,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta,
-    Real, ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
+    BrownConrady5, CameraFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta, Real,
+    ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
 use vision_calibration_linear::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_linear::prelude::*;
@@ -339,6 +339,7 @@ pub fn step_intrinsics_optimize_all(
             }
             SensorMode::Scheimpflug {
                 fix_scheimpflug_in_intrinsics,
+                distortion_mask_in_percam_ba,
                 ..
             } => {
                 let cam = &per_cam_intrinsics[cam_idx];
@@ -349,7 +350,7 @@ pub fn step_intrinsics_optimize_all(
                 let solve_opts = ScheimpflugIntrinsicsSolveOptions {
                     robust_loss: config.solver.robust_loss,
                     fix_intrinsics: IntrinsicsFixMask::default(),
-                    fix_distortion: DistortionFixMask::radial_only(),
+                    fix_distortion: *distortion_mask_in_percam_ba,
                     fix_scheimpflug: *fix_scheimpflug_in_intrinsics,
                     fix_poses: vec![0],
                 };

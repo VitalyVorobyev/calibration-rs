@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
-use vision_calibration::rig_scheimpflug_handeye::RigScheimpflugHandeyeExport;
+use vision_calibration::rig_handeye::RigHandeyeExport;
 use vision_calibration_core::{Camera, Iso3, Pinhole, Pt2, Real};
 use vision_calibration_examples_private::PoseEntry;
 use vision_calibration_optim::{
@@ -26,7 +26,7 @@ pub(crate) struct ViewerExportInput<'a> {
     pub tile_w: u32,
     pub tile_h: u32,
     pub detected: &'a DetectedDatasets,
-    pub rig_export: &'a RigScheimpflugHandeyeExport,
+    pub rig_export: &'a RigHandeyeExport,
     pub joint_initial: &'a RigHandeyeLaserlineParams,
     pub joint_initial_stats: &'a [RigHandeyeLaserlinePerCamStats],
     pub joint_est: &'a RigHandeyeLaserlineEstimate,
