@@ -285,10 +285,14 @@ pub mod rig_extrinsics {
         RigExtrinsicsInput,
         // Manual init seeds (ADR 0011)
         RigExtrinsicsManualInit,
+        // Output (pinhole or Scheimpflug variant; A6 unified rig family)
+        RigExtrinsicsOutput,
         RigExtrinsicsProblem,
         RigExtrinsicsState,
         RigIntrinsicsManualInit,
         RigOptimizeOptions,
+        // Sensor flavour selector (pinhole vs Scheimpflug)
+        SensorMode,
         // Step functions
         run_calibration,
         step_intrinsics_init_all,
@@ -361,21 +365,6 @@ pub mod rig_handeye {
         step_set_handeye_init,
         step_set_intrinsics_init_all,
         step_set_rig_init,
-    };
-}
-
-/// Multi-camera rig extrinsics calibration with Scheimpflug-tilted sensors.
-///
-/// Parallels [`rig_extrinsics`] with per-camera Scheimpflug sensor support.
-pub mod rig_scheimpflug_extrinsics {
-    pub use vision_calibration_pipeline::rig_scheimpflug_extrinsics::{
-        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigOptimizeOptions,
-        RigScheimpflugExtrinsicsConfig, RigScheimpflugExtrinsicsExport,
-        RigScheimpflugExtrinsicsInput, RigScheimpflugExtrinsicsProblem,
-        RigScheimpflugExtrinsicsRigManualInit, RigScheimpflugExtrinsicsState,
-        RigScheimpflugIntrinsicsManualInit, run_calibration, step_intrinsics_init_all,
-        step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
-        step_set_intrinsics_init_all, step_set_rig_init,
     };
 }
 

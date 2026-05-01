@@ -34,6 +34,7 @@ pub use error::Error;
 
 // Core session framework
 mod planar_family;
+mod rig_family;
 pub mod session;
 
 // Problem-specific modules
@@ -42,7 +43,6 @@ pub mod planar_intrinsics;
 pub mod rig_extrinsics;
 pub mod rig_handeye;
 pub mod rig_laserline_device;
-pub mod rig_scheimpflug_extrinsics;
 pub mod rig_scheimpflug_handeye;
 pub mod scheimpflug_intrinsics;
 pub mod single_cam_handeye;

@@ -4,12 +4,13 @@
 //! computed during the calibration pipeline.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{Iso3, PinholeCamera};
+use vision_calibration_core::{Iso3, PinholeCamera, ScheimpflugParams};
 
 /// Intermediate state for rig extrinsics calibration.
 ///
 /// Stores by-products of the calibration pipeline including:
-/// - Per-camera intrinsics from individual calibration
+/// - Per-camera intrinsics (pinhole core) from individual calibration
+/// - Per-camera Scheimpflug sensor params (Scheimpflug mode only)
 /// - Per-camera target poses
 /// - Initial rig extrinsics from linear estimation
 /// - Optimization metrics
@@ -18,8 +19,13 @@ pub struct RigExtrinsicsState {
     // ─────────────────────────────────────────────────────────────────────────
     // Per-camera intrinsics
     // ─────────────────────────────────────────────────────────────────────────
-    /// Per-camera calibrated intrinsics + distortion.
+    /// Per-camera calibrated intrinsics + distortion (pinhole core).
     pub per_cam_intrinsics: Option<Vec<PinholeCamera>>,
+
+    /// Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;
+    /// `Some(_)` after intrinsics init when [`super::SensorMode::Scheimpflug`] is configured.
+    #[serde(default)]
+    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 
     /// Per-camera target poses: `[view][cam] -> Option<Iso3>`.
     /// `cam_se3_target` (T_C_T) for each camera in each view.
@@ -67,7 +73,7 @@ impl RigExtrinsicsState {
         self.rig_ba_final_cost.is_some()
     }
 
-    /// Clear rig-related results, keeping per-camera intrinsics.
+    /// Clear rig-related results, keeping per-camera intrinsics and sensors.
     pub fn clear_rig(&mut self) {
         self.initial_cam_se3_rig = None;
         self.initial_rig_se3_target = None;

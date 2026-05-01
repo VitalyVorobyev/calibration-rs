@@ -32,9 +32,6 @@ from .models import (
     RigLaserlineDeviceInput,
     RigLaserlineDeviceResult,
     RigLaserlineUpstreamCalibration,
-    RigScheimpflugExtrinsicsCalibrationConfig,
-    RigScheimpflugExtrinsicsDataset,
-    RigScheimpflugExtrinsicsResult,
     RigScheimpflugHandeyeCalibrationConfig,
     RigScheimpflugHandeyeDataset,
     RigScheimpflugHandeyeResult,
@@ -221,35 +218,6 @@ def run_scheimpflug_intrinsics(
     dataset = _ensure_type(input, PlanarDataset, "input")
     cfg = _ensure_optional_type(config, ScheimpflugIntrinsicsCalibrationConfig, "config")
     return _run_scheimpflug_intrinsics_raw(
-        dataset.to_payload(),
-        None if cfg is None else cfg.to_payload(),
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Scheimpflug rig extrinsics
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _run_rig_scheimpflug_extrinsics_raw(
-    input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,
-) -> RigScheimpflugExtrinsicsResult:
-    raw = cast(
-        dict[str, Any],
-        _native.run_rig_scheimpflug_extrinsics(input_payload, config_payload),
-    )
-    return RigScheimpflugExtrinsicsResult.from_payload(raw)
-
-
-def run_rig_scheimpflug_extrinsics(
-    input: RigScheimpflugExtrinsicsDataset,
-    config: RigScheimpflugExtrinsicsCalibrationConfig | None = None,
-) -> RigScheimpflugExtrinsicsResult:
-    """Run Scheimpflug rig extrinsics calibration with typed input/config objects."""
-    dataset = _ensure_type(input, RigScheimpflugExtrinsicsDataset, "input")
-    cfg = _ensure_optional_type(config, RigScheimpflugExtrinsicsCalibrationConfig, "config")
-    return _run_rig_scheimpflug_extrinsics_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
     )

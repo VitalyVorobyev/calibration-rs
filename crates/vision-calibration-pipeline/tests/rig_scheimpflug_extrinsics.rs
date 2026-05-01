@@ -1,16 +1,18 @@
-//! Pipeline integration test for `rig_scheimpflug_extrinsics`.
+//! Integration test: Scheimpflug-flavoured rig extrinsics via the unified
+//! `RigExtrinsicsProblem` (post A6 collapse).
 //!
-//! Mirrors `laserline_device.rs` in structure: synthetic 2-camera rig with
-//! Scheimpflug tilt, 4 views, runs all 4 steps, checks convergence and JSON
-//! export round-trip.
+//! Synthetic 2-camera rig with Scheimpflug tilt, 4 views, runs all 4 steps,
+//! checks convergence and JSON export round-trip. Mirrors the original
+//! `rig_scheimpflug_extrinsics` integration test that lived here before A6
+//! merged the Scheimpflug variant into the pinhole module.
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
     BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, NoMeta, Pinhole, Pt3, Real,
     RigDataset, RigView, RigViewObs, ScheimpflugParams, make_pinhole_camera,
 };
-use vision_calibration_pipeline::rig_scheimpflug_extrinsics::{
-    RigScheimpflugExtrinsicsExport, RigScheimpflugExtrinsicsProblem, run_calibration,
+use vision_calibration_pipeline::rig_extrinsics::{
+    RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsProblem, SensorMode, run_calibration,
 };
 use vision_calibration_pipeline::session::CalibrationSession;
 
@@ -113,11 +115,26 @@ fn make_dataset() -> (
     )
 }
 
+fn scheimpflug_config() -> RigExtrinsicsConfig {
+    // `RigExtrinsicsConfig` is `#[non_exhaustive]` — populate via Default + field
+    // assignment from outside the crate.
+    let mut cfg = RigExtrinsicsConfig::default();
+    cfg.sensor = SensorMode::Scheimpflug {
+        init_tilt_x: 0.0,
+        init_tilt_y: 0.0,
+        fix_scheimpflug_in_intrinsics: Default::default(),
+        refine_scheimpflug_in_rig_ba: false,
+    };
+    cfg.max_iters = 80;
+    cfg
+}
+
 #[test]
 fn pipeline_converges_scheimpflug_rig_extrinsics() {
     let (dataset, intrinsics_gt, _sensors_gt, cam1_to_rig_gt) = make_dataset();
 
-    let mut session = CalibrationSession::<RigScheimpflugExtrinsicsProblem>::new();
+    let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+    session.set_config(scheimpflug_config()).unwrap();
     session.set_input(dataset).unwrap();
     run_calibration(&mut session).unwrap();
 
@@ -125,7 +142,11 @@ fn pipeline_converges_scheimpflug_rig_extrinsics() {
 
     // JSON round-trip.
     let json = serde_json::to_string(&export).unwrap();
-    let _: RigScheimpflugExtrinsicsExport = serde_json::from_str(&json).unwrap();
+    let restored: RigExtrinsicsExport = serde_json::from_str(&json).unwrap();
+    assert!(
+        restored.sensors.is_some(),
+        "Scheimpflug export must carry sensors"
+    );
 
     // Intrinsics convergence (~5% relative error).
     for (i, cam) in export.cameras.iter().enumerate() {
@@ -144,6 +165,10 @@ fn pipeline_converges_scheimpflug_rig_extrinsics() {
         );
     }
 
+    // Sensors carry per-camera tilt parameters.
+    let sensors = export.sensors.as_ref().expect("sensors populated");
+    assert_eq!(sensors.len(), 2);
+
     // Camera-1 extrinsics recovery.
     let cam1_final = export.cam_se3_rig[1].inverse(); // cam_se3_rig is T_C_R; we need T_R_C
     let dt = (cam1_final.translation.vector - cam1_to_rig_gt.translation.vector).norm();
@@ -161,7 +186,8 @@ fn pipeline_converges_scheimpflug_rig_extrinsics() {
 fn pipeline_rejects_insufficient_views() {
     let (mut dataset, _, _, _) = make_dataset();
     dataset.views.truncate(1);
-    let mut session = CalibrationSession::<RigScheimpflugExtrinsicsProblem>::new();
+    let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+    session.set_config(scheimpflug_config()).unwrap();
     let err = session.set_input(dataset).unwrap_err().to_string();
     assert!(err.contains("need 3"), "unexpected error: {err}");
 }

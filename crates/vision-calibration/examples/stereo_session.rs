@@ -177,12 +177,7 @@ fn main() -> Result<()> {
         );
     }
     let output = session.require_output()?;
-    let cam_se3_rig: Vec<Iso3> = output
-        .params
-        .cam_to_rig
-        .iter()
-        .map(|t| t.inverse())
-        .collect();
+    let cam_se3_rig: Vec<Iso3> = output.cam_to_rig().iter().map(|t| t.inverse()).collect();
     print_baseline("Rig baseline (after BA)", &cam_se3_rig);
 
     // Alternative: run with filtering for outlier removal

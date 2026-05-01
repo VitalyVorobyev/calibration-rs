@@ -61,7 +61,8 @@ mod steps;
 
 // Re-export types
 pub use problem::{
-    RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblem,
+    RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsOutput,
+    RigExtrinsicsProblem, SensorMode,
 };
 pub use state::RigExtrinsicsState;
 pub use steps::{
