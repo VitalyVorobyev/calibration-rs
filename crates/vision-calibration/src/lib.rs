@@ -348,12 +348,16 @@ pub mod rig_handeye {
         RigHandeyeInput,
         RigHandeyeIntrinsicsConfig,
         RigHandeyeIntrinsicsManualInit,
+        // Output (pinhole or Scheimpflug variant; A6 unified rig family)
+        RigHandeyeOutput,
         RigHandeyeProblem,
         RigHandeyeRigConfig,
         RigHandeyeRigManualInit,
         RigHandeyeSolverConfig,
         RigHandeyeState,
         RigOptimizeOptions,
+        // Sensor flavour selector (pinhole vs Scheimpflug)
+        SensorMode,
         // Step functions
         run_calibration,
         step_handeye_init,
@@ -368,30 +372,11 @@ pub mod rig_handeye {
     };
 }
 
-/// Multi-camera rig hand-eye calibration with Scheimpflug-tilted sensors.
-///
-/// Parallels [`rig_handeye`] with per-camera Scheimpflug sensor support and
-/// supports both `EyeInHand` and `EyeToHand` configurations.
-pub mod rig_scheimpflug_handeye {
-    pub use vision_calibration_pipeline::rig_scheimpflug_handeye::{
-        HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
-        IntrinsicsOptimizeOptions, RigOptimizeOptions, RigScheimpflugHandeyeBaConfig,
-        RigScheimpflugHandeyeConfig, RigScheimpflugHandeyeExport,
-        RigScheimpflugHandeyeHandeyeManualInit, RigScheimpflugHandeyeInitConfig,
-        RigScheimpflugHandeyeInput, RigScheimpflugHandeyeIntrinsicsConfig,
-        RigScheimpflugHandeyeIntrinsicsManualInit, RigScheimpflugHandeyeProblem,
-        RigScheimpflugHandeyeRigConfig, RigScheimpflugHandeyeRigManualInit,
-        RigScheimpflugHandeyeSolverConfig, RigScheimpflugHandeyeState, run_calibration,
-        step_handeye_init, step_handeye_optimize, step_intrinsics_init_all,
-        step_intrinsics_optimize_all, step_rig_init, step_rig_optimize, step_set_handeye_init,
-        step_set_intrinsics_init_all, step_set_rig_init,
-    };
-}
-
 /// Rig-level laserline calibration.
 ///
-/// Given an upstream rig calibration ([`rig_scheimpflug_handeye`]), fits one laser
-/// plane per camera and reports each plane in the rig frame.
+/// Given an upstream Scheimpflug rig hand-eye calibration ([`rig_handeye`] with
+/// `SensorMode::Scheimpflug`), fits one laser plane per camera and reports each
+/// plane in the rig frame.
 pub mod rig_laserline_device {
     pub use vision_calibration_pipeline::rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
@@ -429,12 +414,21 @@ pub mod rig_laserline_device {
 pub fn pixel_to_gripper_point(
     cam_idx: usize,
     pixel: vision_calibration_core::Pt2,
-    rig_cal: &rig_scheimpflug_handeye::RigScheimpflugHandeyeExport,
+    rig_cal: &rig_handeye::RigHandeyeExport,
     laser_planes_rig: &[vision_calibration_optim::LaserPlane],
     base_se3_gripper: Option<vision_calibration_core::Iso3>,
 ) -> Result<vision_calibration_core::Pt3, Error> {
     use vision_calibration_core::{DistortionModel, Mat3, Pt2, Pt3, SensorModel, Vec3};
     use vision_calibration_optim::HandEyeMode;
+
+    let sensors = rig_cal
+        .sensors
+        .as_ref()
+        .ok_or_else(|| Error::InvalidInput {
+            reason: "pixel_to_gripper_point requires a Scheimpflug rig handeye export \
+                 (sensors field populated); pinhole rigs are not yet supported"
+                .to_string(),
+        })?;
 
     let n_cams = rig_cal.cameras.len();
     if cam_idx >= n_cams {
@@ -450,14 +444,14 @@ pub fn pixel_to_gripper_point(
             ),
         });
     }
-    if cam_idx >= rig_cal.sensors.len() || cam_idx >= rig_cal.cam_se3_rig.len() {
+    if cam_idx >= sensors.len() || cam_idx >= rig_cal.cam_se3_rig.len() {
         return Err(Error::InvalidInput {
             reason: "rig calibration missing per-cam data".to_string(),
         });
     }
 
     let cam = &rig_cal.cameras[cam_idx];
-    let sensor = &rig_cal.sensors[cam_idx];
+    let sensor = &sensors[cam_idx];
 
     // Undistort pixel to a normalized camera-frame direction by inverting the full
     // chain: pixel -> sensor (after Scheimpflug) -> normalized (after distortion) -> ray.

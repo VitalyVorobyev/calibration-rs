@@ -9,14 +9,14 @@ use vision_calibration::{
     core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt2, Pt3, ScheimpflugParams, make_pinhole_camera},
     optim::LaserPlane,
     pixel_to_gripper_point,
-    rig_scheimpflug_handeye::RigScheimpflugHandeyeExport,
+    rig_handeye::RigHandeyeExport,
 };
 
-/// Build a minimal `RigScheimpflugHandeyeExport` for EyeInHand mode.
+/// Build a minimal `RigHandeyeExport` (Scheimpflug variant) for EyeInHand mode.
 ///
 /// Uses `serde_json` round-trip to construct the `#[non_exhaustive]` struct
 /// without relying on struct literal syntax.
-fn make_eye_in_hand_export() -> RigScheimpflugHandeyeExport {
+fn make_eye_in_hand_export() -> RigHandeyeExport {
     let intr = FxFyCxCySkew {
         fx: 600.0,
         fy: 600.0,
@@ -58,8 +58,8 @@ fn make_eye_in_hand_export() -> RigScheimpflugHandeyeExport {
     serde_json::from_str(&json).expect("failed to parse eye-in-hand export")
 }
 
-/// Build a minimal `RigScheimpflugHandeyeExport` for EyeToHand mode.
-fn make_eye_to_hand_export() -> RigScheimpflugHandeyeExport {
+/// Build a minimal `RigHandeyeExport` (Scheimpflug variant) for EyeToHand mode.
+fn make_eye_to_hand_export() -> RigHandeyeExport {
     let intr = FxFyCxCySkew {
         fx: 600.0,
         fy: 600.0,

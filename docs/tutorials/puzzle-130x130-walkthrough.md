@@ -33,7 +33,7 @@ internal), but the source is the canonical reference for putting
                  │  detect laser pixels      │
                  └─────────────┬─────────────┘
                                ▼
-       ┌─ stage 2 ─ RigScheimpflugHandeyeProblem ─────────────┐
+       ┌─ stage 2 ─ RigHandeyeProblem (Scheimpflug) ──────────┐
        │  step_intrinsics_init_all   (Zhang per camera)       │
        │  step_intrinsics_optimize_all (per-camera BA)        │
        │  step_rig_init               (linear cam_se3_rig)    │
@@ -41,7 +41,7 @@ internal), but the source is the canonical reference for putting
        │  step_handeye_init           (Tsai-Lenz)             │
        │  step_handeye_optimize       (final hand-eye BA)     │
        │                                                       │
-       │  → RigScheimpflugHandeyeExport                        │
+       │  → RigHandeyeExport (sensors populated)               │
        └─────────────┬─────────────────────────────────────────┘
                      ▼
        ┌─ stage 3 ─ RigLaserlineDeviceProblem ────────────────┐
@@ -59,8 +59,8 @@ internal), but the source is the canonical reference for putting
 ```
 
 Each stage produces a typed `*Export` that the next stage consumes (via
-[`RigScheimpflugHandeyeExport::to_upstream_calibration`](../../crates/vision-calibration-pipeline/src/rig_laserline_device/problem.rs)
-in particular). The example glues them together.
+[`RigHandeyeExport::to_upstream_calibration`](../../crates/vision-calibration-pipeline/src/rig_laserline_device/problem.rs)
+in particular — Scheimpflug rigs only). The example glues them together.
 
 ## Walkthrough
 
@@ -81,7 +81,8 @@ corners and laser pixels each camera produced.
 
 ```rust
 let mut rig_session =
-    CalibrationSession::<RigScheimpflugHandeyeProblem>::with_description("puzzle_130x130_rig");
+    CalibrationSession::<RigHandeyeProblem>::with_description("puzzle_130x130_rig");
+// Set RigHandeyeConfig::sensor = SensorMode::Scheimpflug { ... } first.
 rig_session.set_input(detected.handeye_views)?;
 rig_session.set_config(stage2_cfg)?;
 

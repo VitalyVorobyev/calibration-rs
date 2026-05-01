@@ -167,7 +167,7 @@ a typed `Error::InvalidInput`.
 
 ### Hand-eye coupling
 
-`RigHandeye` and `RigScheimpflugHandeye` have three init stages
+`RigHandeye` (pinhole and Scheimpflug variants) has three init stages
 (intrinsics, rig, hand-eye), each with its own `*ManualInit`. The hand-eye
 stage's `mode_target_pose` is mode-dependent:
 
