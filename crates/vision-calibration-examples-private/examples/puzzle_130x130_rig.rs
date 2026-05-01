@@ -41,8 +41,8 @@ use vision_calibration::{
     session::CalibrationSession,
 };
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Pt2,
-    RigDataset, RigView, RigViewObs, ScheimpflugParams,
+    BrownConrady5, CameraFixMask, CorrespondenceView, DistortionFixMask, FrameRef, FxFyCxCySkew,
+    ImageManifest, PixelRect, Pt2, RigDataset, RigView, RigViewObs, ScheimpflugParams,
 };
 use vision_calibration_examples_private::{
     PoseEntry, detect_laser, detect_target, load_gray, load_poses, split_horizontal,
@@ -265,7 +265,19 @@ fn main() -> Result<()> {
         t0.elapsed()
     );
 
-    let rig_export = rig_session.export()?;
+    let mut rig_export = rig_session.export()?;
+    // ADR 0014 / B0.5: ship an `image_manifest` so the diagnose viewer can
+    // pull per-tile pixels straight from the source PNGs. Each pose stores
+    // a single 4320×540 strip; emit one `FrameRef` per (pose, camera) using
+    // ROI to slice the camera's 720×540 tile out of that strip.
+    rig_export.image_manifest = Some(build_image_manifest(&poses, tile_w, tile_h));
+    let export_path = data_dir.join("export.json");
+    std::fs::write(
+        &export_path,
+        serde_json::to_string_pretty(&rig_export).context("serialize rig export")?,
+    )
+    .with_context(|| format!("write {}", export_path.display()))?;
+    println!("  wrote {}", export_path.display());
     println!(
         "  mean reproj error:   {:.4} px",
         rig_export.mean_reproj_error
@@ -756,6 +768,37 @@ fn print_robot_delta_summary(label: &str, deltas: Option<&[[f64; 6]]>) {
         max_rot.to_degrees(),
         max_trans
     );
+}
+
+/// Build the [`ImageManifest`] that ships with `export.json` so the
+/// diagnose viewer (Track B) can locate the per-camera tile for every
+/// `(pose, camera)` slot. The puzzle 130×130 rig stores all six camera
+/// views of a pose as a single horizontal strip; each `FrameRef` points
+/// at that strip with an ROI carving out a 720×540 tile. `root` is `.`
+/// because we write `export.json` alongside the source PNGs (the
+/// `privatedata/` directory is `*`-gitignored, so this is private to
+/// the developer).
+fn build_image_manifest(poses: &[PoseEntry], tile_w: u32, tile_h: u32) -> ImageManifest {
+    let mut frames = Vec::with_capacity(poses.len() * NUM_CAMERAS);
+    for (pose_idx, pose) in poses.iter().enumerate() {
+        for cam_idx in 0..NUM_CAMERAS {
+            frames.push(FrameRef {
+                pose: pose_idx,
+                camera: cam_idx,
+                path: PathBuf::from(&pose.target_image),
+                roi: Some(PixelRect {
+                    x: (cam_idx as u32) * tile_w,
+                    y: 0,
+                    w: tile_w,
+                    h: tile_h,
+                }),
+            });
+        }
+    }
+    ImageManifest {
+        root: PathBuf::from("."),
+        frames,
+    }
 }
 
 fn build_datasets(data_dir: &Path, poses: &[PoseEntry]) -> Result<DetectedDatasets> {
