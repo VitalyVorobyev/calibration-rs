@@ -58,7 +58,7 @@ step_optimize(&mut session, None)?;
 let result = session.export()?;
 ```
 
-Nine problem types: `PlanarIntrinsics`, `ScheimpflugIntrinsics`, `SingleCamHandeye`, `RigExtrinsics`, `RigHandeye`, `LaserlineDevice`, plus the Scheimpflug family — `RigScheimpflugExtrinsics`, `RigScheimpflugHandeye` (EyeInHand), and `RigLaserlineDevice`.
+Seven problem types (post A6 sensor-axis collapse, see [ADR 0013](../docs/adrs/0013-rig-family-sensor-axis-refactor.md)): `PlanarIntrinsics`, `ScheimpflugIntrinsics`, `SingleCamHandeye`, `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`, and `RigLaserlineDevice`. The two rig problem types (`RigExtrinsics`, `RigHandeye`) cover both pinhole and Scheimpflug rigs via `RigExtrinsicsConfig::sensor` / `RigHandeyeConfig::sensor` (`SensorMode::Pinhole` | `SensorMode::Scheimpflug { … }`). `RigLaserlineDevice` accepts a frozen Scheimpflug rig hand-eye export as upstream calibration.
 
 ## Optimization IR (ADR 0008)
 
@@ -110,23 +110,25 @@ be re-pinned manually after any update.
 ## Planning
 
 - ADRs in `docs/adrs/` — design decisions (see README there). 0011 covers
-  manual init (PR #32), 0012 covers per-feature residuals (PR #33 + follow-ups).
+  manual init, 0012 covers per-feature residuals, 0013 covers the
+  `rig_family` sensor-axis refactor (the Scheimpflug rig modules collapse).
 - Tutorials in `docs/tutorials/` — hands-on onboarding for new users. New
   features should ship with a tutorial entry.
 - Automated workflow skills: `/orchestrate`, `/architect`, `/implement`, `/review`, `/gate-check`
 
 ## Strategic Roadmap (>40 weeks)
 
-We work to a multi-quarter, four-track plan summarized in `docs/ROADMAP.md`. The
-load-bearing path is **A1 → A2 → B5**:
+We work to a multi-quarter, four-track plan summarized in `docs/ROADMAP.md`. **Track A is
+done as of 2026-05-01** (A1 + A2 + A4 + A6 shipped; A3 closed, A5 dropped). The
+remaining load-bearing path is **B0 → … → B5**:
 
-- **A — Calibration core** (puzzle-rig-anchored). A1 = manual init (this is PR #32,
-  superseding PR #27); A2 = per-feature residuals on every `*Export`; A3 = Zhang init
-  robustness; A4 = EyeToHand for Scheimpflug; A5 = Python parity; A6 = rig_family
-  refactor.
-- **B — Tauri 2 + React + TypeScript desktop app**. B0 scaffold → B1 file load →
+- **A — Calibration core (DONE).** Two rig problem types (`RigExtrinsics`,
+  `RigHandeye`) handle both pinhole and Scheimpflug via `SensorMode`; eight
+  problem types in total. Manual init (ADR 0011) and per-feature residuals on
+  export (ADR 0012) ship across the family.
+- **B — Tauri 2 + React + TypeScript desktop app.** B0 scaffold → B1 file load →
   B2 detection wrap → B3 calibration runner → B4 3D rig viewer → **B5 diagnose mode
-  (the MVP)** → B6 polish.
+  (the MVP)** → B6 polish. Next up.
 - **C — MVG** (postponed until B5). C1 PR #28 land → C2 N-view triangulation →
   C3 BA frozen-intrinsics → C4 Scheimpflug-aware rectification → C5 dense matcher
   (opencv-rust SGBM, feature-flagged).
