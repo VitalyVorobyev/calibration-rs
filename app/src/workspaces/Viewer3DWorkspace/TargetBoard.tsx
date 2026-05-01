@@ -44,9 +44,17 @@ export function TargetBoard({
     [bbox.x0, bbox.y0, 0],
   ];
 
+  // `planeGeometry` is centered at the local origin, but the outline
+  // uses absolute board coordinates (target_xyz_m starts at the board
+  // origin, often a corner — not symmetric around zero). Translate the
+  // mesh so the centered plane aligns with the absolute outline,
+  // otherwise fill and outline are visibly offset by half the bbox.
+  const cx = (bbox.x0 + bbox.x1) / 2;
+  const cy = (bbox.y0 + bbox.y1) / 2;
+
   return (
     <group matrix={matrix} matrixAutoUpdate={false} onClick={onSelect}>
-      <mesh>
+      <mesh position={[cx, cy, 0]}>
         <planeGeometry
           args={[bbox.x1 - bbox.x0, bbox.y1 - bbox.y0]}
         />

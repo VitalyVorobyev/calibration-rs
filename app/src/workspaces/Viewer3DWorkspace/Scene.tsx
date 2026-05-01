@@ -13,8 +13,13 @@ import { useThemeColors } from "./useThemeColors";
 interface SceneProps {
   data: AnyExport;
   showAllPoses: boolean;
-  /** Default image dimensions in pixels — used when the manifest
-   * doesn't pin a per-camera size. */
+  /** Per-camera image dimensions (pixels). Built from the manifest's
+   * ROI metadata in the workspace; falls back to a sensible default
+   * when a camera has no manifest entry. The frustum aspect ratio
+   * comes from these — using the same value for every camera skews the
+   * field of view on tiled rigs (e.g. the puzzle 130×130 6×720×540). */
+  cameraDimensions: Map<number, { width: number; height: number }>;
+  /** Last-resort fallback when a camera index has no manifest entry. */
   fallbackImage: { width: number; height: number };
 }
 
@@ -25,7 +30,12 @@ const FAR_DEPTH_M = 0.05; // 5 cm — long enough to read on the puzzle
 /** R3F scene root. Renders rig origin + per-camera frustums + the
  * active pose's target board (or all poses as ghosts). Click events
  * on a frustum or board drive the workspace selection state. */
-export function Scene({ data, showAllPoses, fallbackImage }: SceneProps) {
+export function Scene({
+  data,
+  showAllPoses,
+  cameraDimensions,
+  fallbackImage,
+}: SceneProps) {
   const colors = useThemeColors();
   const cameras = data.cameras ?? [];
   const camSe3Rig = data.cam_se3_rig ?? [];
@@ -82,13 +92,14 @@ export function Scene({ data, showAllPoses, fallbackImage }: SceneProps) {
       {cameras.map((camera, i) => {
         const pose = camSe3Rig[i];
         if (!pose) return null;
+        const dims = cameraDimensions.get(i) ?? fallbackImage;
         return (
           <CameraFrustum
             key={`cam-${i}`}
             camera={camera}
             camSe3Rig={pose}
-            imageWidth={fallbackImage.width}
-            imageHeight={fallbackImage.height}
+            imageWidth={dims.width}
+            imageHeight={dims.height}
             farDepth={FAR_DEPTH_M}
             color={i === cameraA ? colors.active : colors.inactive}
             active={i === cameraA}

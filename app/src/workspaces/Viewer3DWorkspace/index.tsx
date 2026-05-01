@@ -1,7 +1,24 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "../../store";
 import { exportKindLabel } from "../../store/exportShape";
+import type { FrameKey } from "../../types";
 import { Scene } from "./Scene";
+
+/** Build a per-camera (width, height) map from the manifest's ROI
+ * entries. For tiled rigs (puzzle 130×130: one 4320×540 PNG per pose
+ * with six 720×540 ROIs) this gives every frustum its real sensor
+ * dimensions; for single-image-per-camera shapes the ROI is absent and
+ * the camera falls back to the workspace default. */
+function cameraDimensionsFromFrames(
+  frames: FrameKey[],
+): Map<number, { width: number; height: number }> {
+  const dims = new Map<number, { width: number; height: number }>();
+  for (const f of frames) {
+    if (dims.has(f.camera)) continue;
+    if (f.roi) dims.set(f.camera, { width: f.roi.w, height: f.roi.h });
+  }
+  return dims;
+}
 
 /** B1.2 — 3D rig scene. Renders the rig origin, per-camera frustums,
  * and the active pose's target board. Click a frustum to select that
@@ -9,9 +26,15 @@ import { Scene } from "./Scene";
 export function Viewer3DWorkspace() {
   const data = useStore((s) => s.data);
   const kind = useStore((s) => s.kind);
+  const frames = useStore((s) => s.frames);
   const cameraA = useStore((s) => s.cameraA);
   const selectedPose = useStore((s) => s.selectedPose);
   const [showAllPoses, setShowAllPoses] = useState(false);
+
+  const cameraDimensions = useMemo(
+    () => cameraDimensionsFromFrames(frames),
+    [frames],
+  );
 
   if (!data || !kind) {
     return <Empty body="Load a rig export to see cameras and target poses in 3D." />;
@@ -61,6 +84,7 @@ export function Viewer3DWorkspace() {
         <Scene
           data={data}
           showAllPoses={showAllPoses}
+          cameraDimensions={cameraDimensions}
           fallbackImage={{ width: 1024, height: 768 }}
         />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between border-t border-border bg-bg-soft/80 px-3 py-1.5 font-mono text-[10px] text-muted-foreground backdrop-blur-sm">
