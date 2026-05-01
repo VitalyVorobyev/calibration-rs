@@ -7,6 +7,10 @@ members = [
     "crates/vision-calibration-optim",
     "crates/vision-calibration-pipeline",
 ]
+# `app/src-tauri/` is its own crate — it pulls in the Tauri build-time
+# dep tree and is built from `app/` (or via `npm run tauri dev`), not
+# from the workspace root. See ADR 0014.
+exclude = ["app"]
 
 resolver = "2"
 
