@@ -6,8 +6,9 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    Camera, FeatureResidualHistogram, Iso3, NoMeta, PerFeatureResiduals, Pinhole, PinholeCamera,
-    RigDataset, ScheimpflugParams, build_feature_histogram, compute_rig_target_residuals,
+    Camera, FeatureResidualHistogram, ImageManifest, Iso3, NoMeta, PerFeatureResiduals, Pinhole,
+    PinholeCamera, RigDataset, ScheimpflugParams, build_feature_histogram,
+    compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
     RigExtrinsicsEstimate as PinholeRigExtrinsicsEstimate,
@@ -209,6 +210,16 @@ pub struct RigExtrinsicsExport {
     /// is `Some(vec)` with one entry per camera.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
+
+    /// Optional image manifest (ADR 0014, viewer-side contract). When
+    /// populated, downstream viewers (the diagnose UI) can locate the source
+    /// image for each `(pose, camera)` slot. Tiled multi-camera frames
+    /// (e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point
+    /// multiple `FrameRef`s at the same `path` with disjoint ROIs. `None`
+    /// means "no images shipped"; the calibration pipeline never reads
+    /// this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_manifest: Option<ImageManifest>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -398,6 +409,10 @@ impl ProblemType for RigExtrinsicsProblem {
                 target_hist_per_camera: Some(target_hist_per_camera),
                 laser_hist_per_camera: None,
             },
+            // Manifest is populated by callers that also wrote images for
+            // the dataset; the pipeline itself never has image paths to
+            // fill in. Mirrors the rig_handeye precedent.
+            image_manifest: None,
         })
     }
 }
@@ -697,5 +712,118 @@ mod tests {
             restored.per_feature_residuals.target_hist_per_camera,
             export.per_feature_residuals.target_hist_per_camera
         );
+    }
+
+    fn make_minimal_export() -> RigExtrinsicsExport {
+        // Smallest export the trait can produce — one pose, two cameras
+        // with identical pinhole models and identity extrinsics. Used
+        // by the manifest tests below; never round-tripped through the
+        // calibration pipeline.
+        use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, make_pinhole_camera};
+        use vision_calibration_optim::{RigExtrinsicsParams, SolveReport};
+
+        let camera = make_pinhole_camera(
+            FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            },
+            BrownConrady5::default(),
+        );
+        let cam_to_rig = vec![Iso3::identity(), Iso3::identity()];
+        let rig_from_target = vec![Iso3::from_parts(
+            nalgebra::Translation3::new(0.0, 0.0, 1.0),
+            nalgebra::UnitQuaternion::identity(),
+        )];
+        let board = vec![
+            Pt3::new(0.0, 0.0, 0.0),
+            Pt3::new(0.05, 0.0, 0.0),
+            Pt3::new(0.0, 0.05, 0.0),
+            Pt3::new(0.05, 0.05, 0.0),
+        ];
+        let cam_se3_target = rig_from_target[0];
+        let pixels: Vec<Pt2> = board
+            .iter()
+            .map(|p| {
+                let p_cam = cam_se3_target * p;
+                camera.project_point_c(&p_cam.coords).unwrap()
+            })
+            .collect();
+        let view = RigView {
+            meta: NoMeta,
+            obs: RigViewObs {
+                cameras: vec![
+                    Some(CorrespondenceView::new(board.clone(), pixels.clone()).unwrap()),
+                    Some(CorrespondenceView::new(board.clone(), pixels).unwrap()),
+                ],
+            },
+        };
+        let dataset = RigDataset::new(vec![view], 2).unwrap();
+        let output = RigExtrinsicsOutput::Pinhole(PinholeRigExtrinsicsEstimate {
+            params: RigExtrinsicsParams {
+                cameras: vec![camera.clone(), camera],
+                cam_to_rig,
+                rig_from_target,
+            },
+            report: SolveReport { final_cost: 0.0 },
+            mean_reproj_error: 0.0,
+            per_cam_reproj_errors: vec![0.0, 0.0],
+        });
+        RigExtrinsicsProblem::export(&dataset, &output, &RigExtrinsicsConfig::default())
+            .expect("export")
+    }
+
+    #[test]
+    fn export_image_manifest_defaults_absent_from_wire() {
+        // ADR 0014: when the pipeline emits an export the manifest is
+        // None and `skip_serializing_if` keeps the legacy JSON byte-stable.
+        let export = make_minimal_export();
+        assert!(export.image_manifest.is_none());
+
+        let json = serde_json::to_string(&export).unwrap();
+        assert!(
+            !json.contains("image_manifest"),
+            "absent manifest must not appear on the wire"
+        );
+        let restored: RigExtrinsicsExport = serde_json::from_str(&json).unwrap();
+        assert!(restored.image_manifest.is_none());
+    }
+
+    #[test]
+    fn export_image_manifest_roundtrip_with_tiled_roi() {
+        // The puzzle 130×130 rig writes a single 4320×540 PNG per pose
+        // and references each of its six 720×540 camera tiles via ROI;
+        // mirror that shape here so any future change to PixelRect or
+        // FrameRef serialization is caught at PR time.
+        use vision_calibration_core::{FrameRef, ImageManifest, PixelRect};
+
+        let mut export = make_minimal_export();
+        export.image_manifest = Some(ImageManifest {
+            root: std::path::PathBuf::from("."),
+            frames: (0..6)
+                .map(|cam| FrameRef {
+                    pose: 0,
+                    camera: cam,
+                    path: std::path::PathBuf::from("target_0.png"),
+                    roi: Some(PixelRect {
+                        x: (cam as u32) * 720,
+                        y: 0,
+                        w: 720,
+                        h: 540,
+                    }),
+                })
+                .collect(),
+        });
+
+        let json = serde_json::to_string(&export).unwrap();
+        let restored: RigExtrinsicsExport = serde_json::from_str(&json).unwrap();
+        let manifest = restored
+            .image_manifest
+            .expect("manifest survives roundtrip");
+        assert_eq!(manifest.frames.len(), 6);
+        assert_eq!(manifest.frames[0].camera, 0);
+        assert_eq!(manifest.frames[5].roi.unwrap().x, 5 * 720);
     }
 }

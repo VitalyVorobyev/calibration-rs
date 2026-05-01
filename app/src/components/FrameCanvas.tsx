@@ -24,7 +24,7 @@ interface FrameCanvasProps {
   /** Controlled transform. When provided, the canvas treats it as
    * authoritative and emits all updates via `onTransformChange`.
    * When `undefined` the canvas keeps an internal transform — the
-   * single-pane mode used by `ResidualViewer`. Compare mode passes
+   * single-pane mode used by `DiagnoseWorkspace`. Compare mode passes
    * a shared transform from above. */
   transform?: ViewportTransform;
   onTransformChange?: (t: ViewportTransform) => void;
