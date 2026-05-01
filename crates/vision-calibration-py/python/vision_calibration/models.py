@@ -1205,7 +1205,12 @@ class RigExtrinsicsResult:
 
 @dataclass(slots=True)
 class RigHandeyeResult:
-    """Result from :func:`vision_calibration.run_rig_handeye`."""
+    """Result from :func:`vision_calibration.run_rig_handeye`.
+
+    `sensors` is `None` for pinhole rigs and `Some(_)` for Scheimpflug rigs
+    (one entry per camera); matches the Rust ``RigHandeyeExport.sensors``
+    field (A6.3 unified hand-eye family).
+    """
 
     cameras: list[PinholeBrownConradyCamera]
     cam_se3_rig: list[Pose]
@@ -1217,6 +1222,35 @@ class RigHandeyeResult:
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    sensors: list[ScheimpflugSensor] | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to Rust/serde shape (``RigHandeyeExport``).
+
+        Used by helpers like :func:`pixel_to_gripper_point` that pass a
+        result back across the FFI boundary.
+        """
+
+        def _pose(p: Pose | None) -> Any:
+            return None if p is None else p.to_payload()
+
+        return {
+            "cameras": [c.to_payload() for c in self.cameras],
+            "sensors": (
+                None
+                if self.sensors is None
+                else [s.to_payload() for s in self.sensors]
+            ),
+            "cam_se3_rig": [p.to_payload() for p in self.cam_se3_rig],
+            "handeye_mode": self.handeye_mode,
+            "gripper_se3_rig": _pose(self.gripper_se3_rig),
+            "rig_se3_base": _pose(self.rig_se3_base),
+            "base_se3_target": _pose(self.base_se3_target),
+            "gripper_se3_target": _pose(self.gripper_se3_target),
+            "robot_deltas": self.robot_deltas,
+            "mean_reproj_error": float(self.mean_reproj_error),
+            "per_cam_reproj_errors": [float(v) for v in self.per_cam_reproj_errors],
+        }
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeResult":
@@ -1226,12 +1260,25 @@ class RigHandeyeResult:
                 return None
             return Pose.from_payload(cast(Mapping[str, Any], value))
 
+        sensors_raw = payload.get("sensors")
+        sensors: list[ScheimpflugSensor] | None = (
+            None
+            if sensors_raw is None
+            else [
+                ScheimpflugSensor.from_payload(cast(Mapping[str, Any], s))
+                for s in cast(list[Any], sensors_raw)
+            ]
+        )
+
         return cls(
             cameras=[
                 PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
                 for c in cast(list[Any], payload["cameras"])
             ],
-            cam_se3_rig=[Pose.from_payload(cast(Mapping[str, Any], p)) for p in cast(list[Any], payload["cam_se3_rig"])],
+            cam_se3_rig=[
+                Pose.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["cam_se3_rig"])
+            ],
             handeye_mode=cast(HandEyeMode, payload["handeye_mode"]),
             gripper_se3_rig=_pose("gripper_se3_rig"),
             rig_se3_base=_pose("rig_se3_base"),
@@ -1239,7 +1286,10 @@ class RigHandeyeResult:
             gripper_se3_target=_pose("gripper_se3_target"),
             robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
             mean_reproj_error=float(payload["mean_reproj_error"]),
-            per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
+            per_cam_reproj_errors=[
+                float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
+            ],
+            sensors=sensors,
         )
 
 
