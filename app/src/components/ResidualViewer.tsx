@@ -3,7 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { isTauriContext, joinPath } from "../lib/tauri";
 import { useKeyboardNav } from "../hooks/useKeyboardNav";
+import {
+  getPixelLum,
+  rectHistogram,
+  useImageData,
+} from "../hooks/useImageData";
 import type {
+  CursorReadout,
   FrameKey,
   LoadExportResult,
   PlanarExport,
@@ -14,7 +20,10 @@ import {
   type FrameCanvasHandle,
   colorForError,
 } from "./FrameCanvas";
+import { Histogram } from "./Histogram";
 import { PoseCameraStepper } from "./PoseCameraStepper";
+
+const HISTOGRAM_BINS = 64;
 
 interface ExportState {
   exportPath: string;
@@ -31,6 +40,7 @@ export function ResidualViewer() {
   const [pose, setPose] = useState<number>(0);
   const [camera, setCamera] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const [cursor, setCursor] = useState<CursorReadout | null>(null);
   const tauriOk = isTauriContext();
   const canvasHandleRef = useRef<FrameCanvasHandle | null>(null);
 
@@ -102,6 +112,56 @@ export function ResidualViewer() {
       state.frames.find((f) => f.pose === pose && f.camera === camera) ?? null
     );
   }, [state, pose, camera]);
+
+  const imageData = useImageData(frame, setError);
+
+  // Static ROI histogram — recomputed only when the frame's image data
+  // changes, which is the cheap path. (A viewport-tracking variant
+  // can come later; for diagnostic use the static distribution is
+  // more stable to read.)
+  const roiHistogram = useMemo<number[] | null>(() => {
+    if (!imageData || !frame) return null;
+    const r = frame.roi ?? {
+      x: 0,
+      y: 0,
+      w: imageData.naturalWidth,
+      h: imageData.naturalHeight,
+    };
+    return rectHistogram(imageData, r, HISTOGRAM_BINS);
+  }, [imageData, frame]);
+
+  const cursorBin = useMemo<number | null>(() => {
+    if (!cursor || cursor.intensity == null) return null;
+    const bin = Math.floor((cursor.intensity * HISTOGRAM_BINS) / 256);
+    return Math.min(bin, HISTOGRAM_BINS - 1);
+  }, [cursor]);
+
+  // Reset cursor whenever the frame changes — the previous cursor's
+  // (x, y) no longer maps to the new image.
+  useEffect(() => {
+    setCursor(null);
+  }, [frame?.abs_path]);
+
+  const handleCursor = useCallback(
+    (c: { x: number; y: number } | null) => {
+      if (!c || !imageData) {
+        setCursor(null);
+        return;
+      }
+      const roi = frame?.roi;
+      // Translate ROI-local coords back to source-image coords for the
+      // luminance lookup; residual frame and pixel buffer differ when
+      // the manifest crops out a tile.
+      const srcX = (roi?.x ?? 0) + c.x;
+      const srcY = (roi?.y ?? 0) + c.y;
+      setCursor({
+        x: c.x,
+        y: c.y,
+        intensity: getPixelLum(imageData, srcX, srcY),
+      });
+    },
+    [imageData, frame],
+  );
 
   const stepPose = useCallback(
     (delta: number) => {
@@ -220,6 +280,8 @@ export function ResidualViewer() {
             ref={canvasHandleRef}
             frame={frame}
             residuals={state.data.per_feature_residuals.target}
+            image={imageData?.image ?? null}
+            onCursor={handleCursor}
             onError={setError}
           />
         ) : (
@@ -232,13 +294,42 @@ export function ResidualViewer() {
       </div>
 
       {state && frame && (
-        <ResidualLegend
-          residuals={state.data.per_feature_residuals.target.filter(
-            (r) => r.pose === frame.pose && r.camera === frame.camera,
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <ResidualLegend
+            residuals={state.data.per_feature_residuals.target.filter(
+              (r) => r.pose === frame.pose && r.camera === frame.camera,
+            )}
+          />
+          {roiHistogram && (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                histogram
+              </span>
+              <Histogram bins={roiHistogram} cursorBin={cursorBin} />
+            </div>
           )}
-        />
+          <CursorChip cursor={cursor} />
+        </div>
       )}
     </section>
+  );
+}
+
+function CursorChip({ cursor }: { cursor: CursorReadout | null }) {
+  return (
+    <span className="inline-flex min-w-[12rem] items-center gap-2 rounded-md border border-border bg-surface px-2 py-1 font-mono text-[11px] text-muted-foreground">
+      <span className="uppercase tracking-wider">cursor</span>
+      {cursor ? (
+        <span className="text-foreground tabular-nums">
+          ({cursor.x.toFixed(0)}, {cursor.y.toFixed(0)})
+          {cursor.intensity != null
+            ? ` · I=${cursor.intensity}`
+            : ""}
+        </span>
+      ) : (
+        <span>—</span>
+      )}
+    </span>
   );
 }
 
