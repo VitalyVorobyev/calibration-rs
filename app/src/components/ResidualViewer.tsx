@@ -1,54 +1,32 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { isTauriContext, joinPath } from "../lib/tauri";
+import { useKeyboardNav } from "../hooks/useKeyboardNav";
 import type {
   FrameKey,
   LoadExportResult,
   PlanarExport,
   TargetFeatureResidual,
 } from "../types";
-
-// True iff the page is running inside a Tauri webview (i.e. the IPC
-// internals have been injected). When the user runs `bun run dev` and
-// loads localhost:1420 in a regular browser, this is false and any
-// `invoke` / dialog call would throw `Cannot read properties of
-// undefined (reading 'invoke')`. We guard up-front so the failure mode
-// is a readable banner instead of an opaque TypeError.
-function isTauriContext(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    "__TAURI_INTERNALS__" in window &&
-    (window as unknown as { __TAURI_INTERNALS__?: unknown })
-      .__TAURI_INTERNALS__ != null
-  );
-}
-
-// Path joining for absolute filesystem paths. Tauri exposes a path
-// utility but for v0 the manifest only ever uses POSIX-style relatives,
-// so a hand-rolled join keeps the dependency surface tiny.
-function joinPath(dir: string, ...rest: string[]): string {
-  let out = dir.replace(/[\\/]+$/, "");
-  for (const segment of rest) {
-    if (!segment) continue;
-    const sep = out.includes("\\") && !out.includes("/") ? "\\" : "/";
-    out = `${out}${sep}${segment.replace(/^[\\/]+/, "")}`;
-  }
-  return out;
-}
+import { FrameCanvas, colorForError } from "./FrameCanvas";
+import { PoseCameraStepper } from "./PoseCameraStepper";
 
 interface ExportState {
   exportPath: string;
   exportDir: string;
   data: PlanarExport;
   frames: FrameKey[];
+  /** `pose` values run [0, numPoses); `camera` values run [0, numCameras). */
+  numPoses: number;
+  numCameras: number;
 }
 
 export function ResidualViewer() {
   const [state, setState] = useState<ExportState | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [pose, setPose] = useState<number>(0);
+  const [camera, setCamera] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
-  const [imgUrl, setImgUrl] = useState<string | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tauriOk = isTauriContext();
 
   const handleOpen = async () => {
@@ -94,71 +72,54 @@ export function ResidualViewer() {
         abs_path: joinPath(root, f.path),
         roi: f.roi,
       }));
+      const numPoses =
+        frames.reduce((m, f) => Math.max(m, f.pose), -1) + 1;
+      const numCameras =
+        frames.reduce((m, f) => Math.max(m, f.camera), -1) + 1;
       setState({
         exportPath: chosen,
         exportDir: result.export_dir,
         data: result.export,
         frames,
+        numPoses: Math.max(numPoses, 1),
+        numCameras: Math.max(numCameras, 1),
       });
-      setSelected(frames[0] ? frameKey(frames[0]) : null);
+      setPose(0);
+      setCamera(0);
     } catch (e) {
       setError(`Could not load export: ${e}`);
     }
   };
 
   const frame = useMemo<FrameKey | null>(() => {
-    if (!state || !selected) return null;
-    return state.frames.find((f) => frameKey(f) === selected) ?? null;
-  }, [state, selected]);
+    if (!state) return null;
+    return (
+      state.frames.find((f) => f.pose === pose && f.camera === camera) ?? null
+    );
+  }, [state, pose, camera]);
 
-  // Load the image bytes when the selection changes.
-  useEffect(() => {
-    if (!frame) {
-      setImgUrl(null);
-      return;
-    }
-    let cancelled = false;
-    setImgUrl(null);
-    invoke<string>("load_image", { path: frame.abs_path })
-      .then((dataUrl) => {
-        if (!cancelled) setImgUrl(dataUrl);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(`Could not load image: ${e}`);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [frame]);
+  const stepPose = useCallback(
+    (delta: number) => {
+      if (!state) return;
+      setPose((p) => ((p + delta) % state.numPoses + state.numPoses) % state.numPoses);
+    },
+    [state],
+  );
+  const stepCamera = useCallback(
+    (delta: number) => {
+      if (!state) return;
+      setCamera(
+        (c) => ((c + delta) % state.numCameras + state.numCameras) % state.numCameras,
+      );
+    },
+    [state],
+  );
 
-  // Draw image + arrows whenever the selection or image changes.
-  useEffect(() => {
-    if (!state || !frame || !imgUrl) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const img = new Image();
-    img.onload = () => {
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      const roi = frame.roi;
-      const sx = roi?.x ?? 0;
-      const sy = roi?.y ?? 0;
-      const sw = roi?.w ?? img.naturalWidth;
-      const sh = roi?.h ?? img.naturalHeight;
-      canvas.width = sw;
-      canvas.height = sh;
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-      // Per ImageManifest convention (see image_manifest.rs `# Coordinate
-      // convention`), residual pixel coords are already in the ROI-local
-      // frame, so we draw them directly onto the canvas — which we just
-      // blitted from `[sx, sx+sw) × [sy, sy+sh)` to `(0, 0)`. Subtracting
-      // `(sx, sy)` here would double-correct.
-      drawResidualArrows(ctx, state.data.per_feature_residuals.target, frame);
-    };
-    img.onerror = () => setError("Image failed to decode.");
-    img.src = imgUrl;
-  }, [state, frame, imgUrl]);
+  useKeyboardNav({
+    onPoseStep: stepPose,
+    onCameraStep: stepCamera,
+    enabled: state != null,
+  });
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
@@ -169,25 +130,23 @@ export function ResidualViewer() {
           with <code>bun run tauri dev</code> to use the file dialog.
         </div>
       )}
-      <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center gap-3">
         <button onClick={handleOpen} disabled={!tauriOk}>
           Open Export…
         </button>
         {state && (
-          <select
-            value={selected ?? ""}
-            onChange={(e) => setSelected(e.target.value)}
-          >
-            {state.frames.map((f) => (
-              <option key={frameKey(f)} value={frameKey(f)}>
-                {f.label}
-              </option>
-            ))}
-          </select>
+          <PoseCameraStepper
+            pose={pose}
+            camera={camera}
+            numPoses={state.numPoses}
+            numCameras={state.numCameras}
+            onPose={setPose}
+            onCamera={setCamera}
+          />
         )}
         {state && (
-          <span className="text-xs opacity-70">
-            mean reprojection error: {state.data.mean_reproj_error.toFixed(3)} px
+          <span className="ml-auto font-mono text-xs text-muted-foreground">
+            mean reproj: {state.data.mean_reproj_error.toFixed(3)} px
           </span>
         )}
       </div>
@@ -199,15 +158,17 @@ export function ResidualViewer() {
       )}
 
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-md bg-bg-soft">
-        {state ? (
-          <canvas
-            ref={canvasRef}
-            className="max-h-full max-w-full border border-border [image-rendering:pixelated]"
+        {state && frame ? (
+          <FrameCanvas
+            frame={frame}
+            residuals={state.data.per_feature_residuals.target}
+            onError={setError}
           />
         ) : (
-          <div className="text-[13px] opacity-60">
+          <div className="text-[13px] text-muted-foreground">
             Open an <code>export.json</code> from a calibration run with an
-            <code> image_manifest</code>.
+            <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for
+            camera once an export is loaded.
           </div>
         )}
       </div>
@@ -223,80 +184,6 @@ export function ResidualViewer() {
   );
 }
 
-function frameKey(f: { pose: number; camera: number }): string {
-  return `${f.pose}/${f.camera}`;
-}
-
-/** Cap on rendered arrow length so a freak diverged feature does not
- * dominate the canvas. The numeric value still reads correctly off the
- * legend if needed. */
-const ARROW_LENGTH_CAP_PX = 40;
-/** Multiplier applied to the residual vector so sub-pixel errors are
- * actually visible on a 640×480 canvas. */
-const ARROW_GAIN = 30;
-
-function drawResidualArrows(
-  ctx: CanvasRenderingContext2D,
-  all: TargetFeatureResidual[],
-  frame: FrameKey,
-) {
-  const arrows = all.filter((r) => r.pose === frame.pose && r.camera === frame.camera);
-  for (const r of arrows) {
-    if (!r.projected_px) continue;
-    const ox = r.observed_px[0];
-    const oy = r.observed_px[1];
-    const dx0 = r.projected_px[0] - r.observed_px[0];
-    const dy0 = r.projected_px[1] - r.observed_px[1];
-    const mag = Math.hypot(dx0, dy0);
-    if (mag < 1e-6) continue;
-    const gain = Math.min(ARROW_GAIN, ARROW_LENGTH_CAP_PX / Math.max(mag, 1e-6) / 1);
-    const dx = dx0 * gain;
-    const dy = dy0 * gain;
-    ctx.strokeStyle = colorForError(r.error_px ?? mag);
-    ctx.lineWidth = 1.5;
-    drawArrow(ctx, ox, oy, ox + dx, oy + dy);
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.beginPath();
-    ctx.arc(ox, oy, 1.6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-function drawArrow(
-  ctx: CanvasRenderingContext2D,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-) {
-  const angle = Math.atan2(y2 - y1, x2 - x1);
-  const head = 4;
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.lineTo(
-    x2 - head * Math.cos(angle - Math.PI / 6),
-    y2 - head * Math.sin(angle - Math.PI / 6),
-  );
-  ctx.moveTo(x2, y2);
-  ctx.lineTo(
-    x2 - head * Math.cos(angle + Math.PI / 6),
-    y2 - head * Math.sin(angle + Math.PI / 6),
-  );
-  ctx.stroke();
-}
-
-function colorForError(err: number): string {
-  // Cool→warm ramp matching the histogram bucket edges (1, 2, 5, 10 px)
-  // already used for `target_hist_per_camera`. Keeps the visual scale
-  // consistent across UI surfaces if a histogram view is added later.
-  if (err < 1) return "#1abc9c"; // teal
-  if (err < 2) return "#2ecc71"; // green
-  if (err < 5) return "#f1c40f"; // yellow
-  if (err < 10) return "#e67e22"; // orange
-  return "#e74c3c"; // red
-}
-
 function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
   const errs = residuals
     .map((r) => r.error_px)
@@ -305,35 +192,30 @@ function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
   const max = errs.length > 0 ? Math.max(...errs) : 0;
   const diverged = residuals.length - errs.length;
   return (
-    <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs opacity-85">
-      <span>features: {residuals.length}</span>
-      <span>diverged: {diverged}</span>
-      <span>mean error: {mean.toFixed(3)} px</span>
-      <span>max error: {max.toFixed(3)} px</span>
-      <span>
-        legend (px):
-        <SwatchLabel color="#1abc9c" label="<1" />
-        <SwatchLabel color="#2ecc71" label="<2" />
-        <SwatchLabel color="#f1c40f" label="<5" />
-        <SwatchLabel color="#e67e22" label="<10" />
-        <SwatchLabel color="#e74c3c" label="≥10" />
-      </span>
-      <span>
-        arrows scaled ×{ARROW_GAIN} (cap {ARROW_LENGTH_CAP_PX}px) for
-        sub-pixel visibility.
+    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-muted-foreground">
+      <span>features {residuals.length}</span>
+      <span>diverged {diverged}</span>
+      <span>mean {mean.toFixed(3)} px</span>
+      <span>max {max.toFixed(3)} px</span>
+      <span className="flex items-center gap-2">
+        <Swatch err={0.5} label="<1" />
+        <Swatch err={1.5} label="<2" />
+        <Swatch err={3} label="<5" />
+        <Swatch err={7} label="<10" />
+        <Swatch err={20} label="≥10" />
       </span>
     </div>
   );
 }
 
-function SwatchLabel({ color, label }: { color: string; label: string }) {
-  // Color is data-driven (matches the canvas error ramp), so the swatch
-  // background stays inline rather than escaping to a Tailwind arbitrary.
+function Swatch({ err, label }: { err: number; label: string }) {
+  // Color is data-driven (matches the canvas error ramp), so it stays
+  // inline; the dot is a Tailwind utility.
   return (
-    <span className="ml-1.5 inline-flex items-center gap-1">
+    <span className="inline-flex items-center gap-1">
       <span
-        className="inline-block h-2.5 w-2.5 rounded-[2px]"
-        style={{ background: color }}
+        className="inline-block h-2 w-2 rounded-[2px]"
+        style={{ background: colorForError(err) }}
       />
       {label}
     </span>

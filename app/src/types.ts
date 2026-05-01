@@ -63,3 +63,25 @@ export interface FrameKey {
   abs_path: string;
   roi?: PixelRect;
 }
+
+/** Viewport transform applied to the canvas before drawing the image
+ * + residuals. `scale` is the zoom factor; `(tx, ty)` is the
+ * translation in canvas pixels. Identity is `{ scale: 1, tx: 0, ty: 0 }`.
+ * Wheel zoom anchors at the cursor; reset on frame change. */
+export interface ViewportTransform {
+  scale: number;
+  tx: number;
+  ty: number;
+}
+
+export const IDENTITY_TRANSFORM: ViewportTransform = { scale: 1, tx: 0, ty: 0 };
+
+/** Cursor readout emitted by FrameCanvas on mouse move. Coordinates
+ * are in image-pixel space (the ROI-local frame the residuals live
+ * in); `intensity` is luminance ∈ [0, 255] when the underlying pixel
+ * is decodable, or null at the canvas's edge / outside the image. */
+export interface CursorReadout {
+  x: number;
+  y: number;
+  intensity: number | null;
+}
