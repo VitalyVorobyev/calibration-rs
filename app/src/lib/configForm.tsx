@@ -88,6 +88,9 @@ function SchemaField(props: FieldProps) {
   const schema = resolve(props.schema, props.ctx);
 
   if (schema.oneOf && schema.oneOf.length > 0) {
+    if (isExternalTaggedOneOf(schema, props.ctx)) {
+      return <ExternalTaggedOneOfField {...props} schema={schema} />;
+    }
     return <OneOfField {...props} schema={schema} />;
   }
   if (schema.enum && hasType(schema, "string")) {
@@ -148,6 +151,126 @@ function ObjectField({ schema, value, onChange, ctx, label }: FieldProps) {
       ))}
     </fieldset>
   );
+}
+
+// ─── oneOf with serde externally tagged enum shape ─────────────────────────
+interface ExternalVariant {
+  tag: string;
+  schema: JsonSchema | null;
+}
+
+function externalVariant(variant: JsonSchema, ctx: FormCtx): ExternalVariant | null {
+  const v = resolve(variant, ctx);
+  if (typeof v.const === "string" && hasType(v, "string")) {
+    return { tag: v.const, schema: null };
+  }
+  const required = v.required ?? [];
+  const props = v.properties ?? {};
+  if (required.length === 1 && props[required[0]]) {
+    return { tag: required[0], schema: props[required[0]] };
+  }
+  const keys = Object.keys(props);
+  if (keys.length === 1) {
+    return { tag: keys[0], schema: props[keys[0]] };
+  }
+  return null;
+}
+
+function isExternalTaggedOneOf(schema: JsonSchema, ctx: FormCtx): boolean {
+  const variants = schema.oneOf ?? [];
+  return variants.length > 0 && variants.every((v) => externalVariant(v, ctx) != null);
+}
+
+function ExternalTaggedOneOfField({ schema, value, onChange, ctx, label }: FieldProps) {
+  const variants = (schema.oneOf ?? [])
+    .map((v) => externalVariant(v, ctx))
+    .filter((v): v is ExternalVariant => v != null);
+  const currentTag = externalCurrentTag(value, variants);
+  const active = variants.find((v) => v.tag === currentTag) ?? variants[0];
+  const payload =
+    active?.schema &&
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    active.tag in value
+      ? (value as Record<string, unknown>)[active.tag]
+      : active?.schema
+        ? defaultValueForSchema(resolve(active.schema, ctx))
+        : undefined;
+
+  return (
+    <fieldset className="flex flex-col gap-2 rounded-md border border-border bg-bg-soft p-3">
+      {label && (
+        <legend className="px-1 text-[12px] font-semibold tracking-tight">{label}</legend>
+      )}
+      {schema.description && (
+        <p className="text-[11px] text-muted-foreground">{schema.description}</p>
+      )}
+      <select
+        className="rounded border border-border bg-bg px-2 py-1 text-[12px]"
+        value={active?.tag ?? ""}
+        onChange={(e) => {
+          const next = variants.find((v) => v.tag === e.target.value);
+          if (!next) return;
+          if (!next.schema) {
+            onChange(next.tag);
+          } else {
+            onChange({ [next.tag]: defaultValueForSchema(resolve(next.schema, ctx)) });
+          }
+        }}
+      >
+        {variants.map((v) => (
+          <option key={v.tag} value={v.tag}>
+            {v.tag}
+          </option>
+        ))}
+      </select>
+      {active?.schema && (
+        <SchemaField
+          schema={active.schema}
+          value={payload}
+          onChange={(next) => onChange({ [active.tag]: next })}
+          ctx={{ ...ctx, path: `${ctx.path}.${active.tag}` }}
+          label={active.tag}
+        />
+      )}
+    </fieldset>
+  );
+}
+
+function externalCurrentTag(value: unknown, variants: ExternalVariant[]): string {
+  if (typeof value === "string" && variants.some((v) => v.tag === value)) {
+    return value;
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const key = Object.keys(obj).find((k) => variants.some((v) => v.tag === k));
+    if (key) return key;
+  }
+  return variants[0]?.tag ?? "";
+}
+
+function defaultValueForSchema(schema: JsonSchema): unknown {
+  const resolved = schema;
+  if (resolved.default !== undefined) return resolved.default;
+  if (typeof resolved.const === "string") return resolved.const;
+  if (resolved.enum && resolved.enum.length > 0) return resolved.enum[0];
+  if (hasType(resolved, "object") && resolved.properties) {
+    const out: Record<string, unknown> = {};
+    const required = resolved.required ?? Object.keys(resolved.properties);
+    for (const key of required) {
+      const sub = resolved.properties[key];
+      if (sub) out[key] = defaultValueForSchema(sub);
+    }
+    return out;
+  }
+  if (hasType(resolved, "array")) return [];
+  if (hasType(resolved, "boolean")) return false;
+  if (hasType(resolved, "integer") || hasType(resolved, "number")) {
+    return resolved.minimum ?? 1;
+  }
+  if (hasType(resolved, "string")) return "";
+  return {};
 }
 
 // ─── oneOf with `kind` discriminator ────────────────────────────────────────

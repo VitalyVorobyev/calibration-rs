@@ -17,6 +17,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use vision_calibration_core::{FrameRef, ImageManifest};
 use vision_calibration_dataset::{DatasetSpec, Topology};
 use vision_calibration_detect::FsDetectionCache;
 use vision_calibration_pipeline::dataset_runner::{RunError, build_planar_input};
@@ -169,12 +170,21 @@ fn run_blocking(
             message: format!("calibration failed: {e}"),
         };
     }
-    let export = match session.export() {
+    let mut export = match session.export() {
         Ok(e) => e,
         Err(e) => {
             return RunResponse::Failed {
                 category: "session_export".into(),
                 message: format!("export failed: {e}"),
+            };
+        }
+    };
+    export.image_manifest = match planar_image_manifest(&planar_run.view_paths, base_dir) {
+        Ok(m) => Some(m),
+        Err(e) => {
+            return RunResponse::Failed {
+                category: "image_manifest".into(),
+                message: e,
             };
         }
     };
@@ -192,14 +202,41 @@ fn run_blocking(
     // worker returns, so the diagnose / 3D / epipolar workspaces can
     // pick it up via the existing `compute_*` commands without a disk
     // round-trip.
-    let _ = planar_run.view_paths; // PR 1 doesn't yet thread image_manifest back
-
     RunResponse::Ok(RunSuccess {
         export: export_value,
         duration_ms: started.elapsed().as_millis() as u64,
         usable_views: planar_run.usable_views,
         total_views: planar_run.total_views,
         cache_used,
+    })
+}
+
+fn planar_image_manifest(view_paths: &[PathBuf], base_dir: &Path) -> Result<ImageManifest, String> {
+    let base_abs = base_dir
+        .canonicalize()
+        .map_err(|e| format!("canonicalize manifest dir {}: {e}", base_dir.display()))?;
+    let mut frames = Vec::with_capacity(view_paths.len());
+    for (pose, path) in view_paths.iter().enumerate() {
+        let abs = path
+            .canonicalize()
+            .map_err(|e| format!("canonicalize image path {}: {e}", path.display()))?;
+        let rel = abs.strip_prefix(&base_abs).map_err(|_| {
+            format!(
+                "accepted image {} is not under manifest dir {}",
+                abs.display(),
+                base_abs.display()
+            )
+        })?;
+        frames.push(FrameRef {
+            pose,
+            camera: 0,
+            path: rel.to_path_buf(),
+            roi: None,
+        });
+    }
+    Ok(ImageManifest {
+        root: PathBuf::from("."),
+        frames,
     })
 }
 

@@ -10,6 +10,7 @@ use base64::Engine;
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::State;
+use vision_calibration_core::PixelRect;
 
 use crate::epipolar::{self, EpipolarOverlay};
 use crate::export_cache::ExportCache;
@@ -91,6 +92,37 @@ pub async fn load_image(path: String) -> Result<String, String> {
     Ok(format!("data:{mime};base64,{b64}"))
 }
 
+/// Read an image file and render it into a camera's undistorted pixel
+/// frame. This is only used by the Epipolar workspace; Diagnose keeps
+/// showing the raw source image.
+#[tauri::command]
+pub async fn load_undistorted_image(
+    path: String,
+    camera: usize,
+    roi: Option<PixelRect>,
+    cache: State<'_, ExportCache>,
+) -> Result<String, String> {
+    let path_buf = PathBuf::from(&path);
+    let bytes = cache
+        .read(|cached| epipolar::undistort_image_png(&cached.value, &path_buf, camera, roi))
+        .ok_or_else(|| "no export loaded yet".to_string())??;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:image/png;base64,{b64}"))
+}
+
+/// Map raw/distorted camera pixels into the undistorted pixel frame
+/// used by the Epipolar workspace.
+#[tauri::command]
+pub async fn undistort_points(
+    camera: usize,
+    points_px: Vec<[f64; 2]>,
+    cache: State<'_, ExportCache>,
+) -> Result<Vec<[f64; 2]>, String> {
+    cache
+        .read(|cached| epipolar::undistort_points(&cached.value, camera, points_px))
+        .ok_or_else(|| "no export loaded yet".to_string())?
+}
+
 /// Compute the epipolar polyline + epipole for a click in pane A.
 ///
 /// Reads the most recently loaded export from [`ExportCache`] (no disk
@@ -109,6 +141,31 @@ pub async fn compute_epipolar_overlay(
 ) -> Result<EpipolarOverlay, String> {
     cache
         .read(|cached| epipolar::compute_overlay(&cached.value, cam_a, cam_b, point_px))
+        .ok_or_else(|| "no export loaded yet".to_string())?
+}
+
+/// Compute a clipped straight epipolar segment in cam-B's undistorted
+/// image frame. `point_px` is in cam-A's undistorted pixel frame.
+#[tauri::command]
+pub async fn compute_epipolar_overlay_undistorted(
+    cam_a: usize,
+    cam_b: usize,
+    point_px: [f64; 2],
+    image_width_b: f64,
+    image_height_b: f64,
+    cache: State<'_, ExportCache>,
+) -> Result<EpipolarOverlay, String> {
+    cache
+        .read(|cached| {
+            epipolar::compute_overlay_undistorted(
+                &cached.value,
+                cam_a,
+                cam_b,
+                point_px,
+                image_width_b,
+                image_height_b,
+            )
+        })
         .ok_or_else(|| "no export loaded yet".to_string())?
 }
 

@@ -104,6 +104,7 @@ export function Scene({
             color={i === cameraA ? colors.active : colors.inactive}
             active={i === cameraA}
             onSelect={() => setCamera(i, "A")}
+            label={`cam ${i}`}
           />
         );
       })}
