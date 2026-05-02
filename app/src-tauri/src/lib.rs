@@ -17,11 +17,12 @@
 mod commands;
 mod epipolar;
 mod export_cache;
+mod run;
 
 use export_cache::ExportCache;
 
 /// Entry point invoked from `main.rs`. Wires up the dialog plugin, the
-/// shared export cache, and the viewer + math commands.
+/// shared export cache, and the viewer + math + runner commands.
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -31,6 +32,7 @@ pub fn run() {
             commands::set_active_export,
             commands::load_image,
             commands::compute_epipolar_overlay,
+            run::run_calibration_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("failed to launch calibration-diagnose");
