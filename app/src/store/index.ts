@@ -93,6 +93,10 @@ export const useStore = create<AppState>()(
       const data = result.export;
       const manifest = data.image_manifest;
       if (!manifest) {
+        // Reject the file. We deliberately do NOT promote it to the
+        // backend export cache — `compute_epipolar_overlay` (and any
+        // future math command) must keep operating against the
+        // previous accepted export until the user picks a valid one.
         set({
           loadError:
             "This export has no image_manifest field. v0 requires the manifest to render the source images alongside the residuals.",
@@ -149,6 +153,18 @@ export const useStore = create<AppState>()(
         frames.find(
           (f) => f.pose !== first.pose || f.camera !== first.camera,
         ) ?? first;
+
+      // Promote the validated export into the backend cache *before*
+      // updating the frontend state, so `compute_epipolar_overlay` and
+      // any future math command sees the same dataset the user is
+      // about to interact with. If the commit fails the frontend
+      // surfaces the error and stays on the previous export.
+      try {
+        await invoke("set_active_export", { path, export: data });
+      } catch (e) {
+        set({ loadError: `Could not commit export to backend cache: ${e}` });
+        return;
+      }
 
       set({
         exportPath: path,

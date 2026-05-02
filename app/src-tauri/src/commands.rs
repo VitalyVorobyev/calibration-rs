@@ -27,14 +27,14 @@ pub struct LoadExportResult {
     pub export_dir: String,
 }
 
-/// Read and parse a calibration export JSON file. Also populates the
-/// [`ExportCache`] so [`compute_epipolar_overlay`] can reuse the parsed
-/// JSON without going back to disk.
+/// Read and parse a calibration export JSON file. Does NOT cache the
+/// result — the frontend validates the export (e.g. requires
+/// `image_manifest`) before the user can interact with it, and a
+/// rejected export must not displace the cache the previous session is
+/// still using. The frontend calls [`set_active_export`] explicitly
+/// once it accepts the file.
 #[tauri::command]
-pub async fn load_export(
-    path: String,
-    cache: State<'_, ExportCache>,
-) -> Result<LoadExportResult, String> {
+pub async fn load_export(path: String) -> Result<LoadExportResult, String> {
     let p = PathBuf::from(&path);
     let parent = p
         .parent()
@@ -49,9 +49,24 @@ pub async fn load_export(
         .to_string_lossy()
         .into_owned();
 
-    cache.set(path.clone(), export.clone());
-
     Ok(LoadExportResult { export, export_dir })
+}
+
+/// Commit the export the frontend has accepted as the active dataset.
+///
+/// Called by the frontend after [`load_export`] returned and the
+/// frontend's validation (image_manifest required, frames non-empty,
+/// …) passed. Writes `path` + the parsed `export` into the
+/// [`ExportCache`] so subsequent math commands operate on exactly the
+/// dataset the user is looking at.
+#[tauri::command]
+pub async fn set_active_export(
+    path: String,
+    export: serde_json::Value,
+    cache: State<'_, ExportCache>,
+) -> Result<(), String> {
+    cache.set(path, export);
+    Ok(())
 }
 
 /// Read an image file and return it as a `data:` URL the webview can use

@@ -28,6 +28,7 @@ pub fn run() {
         .manage(ExportCache::new())
         .invoke_handler(tauri::generate_handler![
             commands::load_export,
+            commands::set_active_export,
             commands::load_image,
             commands::compute_epipolar_overlay,
         ])

@@ -43,8 +43,7 @@ fn main() -> Result<()> {
 
     println!("=== Viewer fixture generator ===\n");
 
-    write_stereo_fixture(&repo_root)
-        .context("failed to generate stereo viewer fixture")?;
+    write_stereo_fixture(&repo_root).context("failed to generate stereo viewer fixture")?;
     println!();
     write_stereo_charuco_fixture(&repo_root)
         .context("failed to generate stereo_charuco viewer fixture")?;
@@ -57,7 +56,11 @@ fn main() -> Result<()> {
 fn write_stereo_fixture(repo_root: &Path) -> Result<()> {
     let dataset_dir = repo_root.join("data/stereo");
     let imgs_dir = dataset_dir.join("imgs");
-    ensure!(imgs_dir.exists(), "stereo dataset missing: {}", imgs_dir.display());
+    ensure!(
+        imgs_dir.exists(),
+        "stereo dataset missing: {}",
+        imgs_dir.display()
+    );
 
     println!("[stereo] detecting chessboard corners (7×11, 30 mm)…");
     let chess_config = ChessConfig::default();

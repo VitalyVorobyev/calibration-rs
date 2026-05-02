@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FrameCanvas } from "../../components/FrameCanvas";
 import { useImageData } from "../../hooks/useImageData";
 import { useStore } from "../../store";
@@ -176,10 +176,18 @@ function EpipolarBody(props: BodyProps) {
     [residualsForPose, cameraB],
   );
 
+  // Monotonic request id so out-of-order responses don't overwrite a
+  // newer overlay. Bumped on every pick AND on every working-tuple
+  // change; only the response whose id matches `latestRequestIdRef`
+  // when it returns is allowed to set state.
+  const latestRequestIdRef = useRef(0);
+
   // Reset the picked overlay whenever the user changes the working
   // tuple (pose / cam-A / cam-B). Stale polylines from a previous
-  // configuration are misleading.
+  // configuration are misleading. Bump the request id so any in-flight
+  // response from the previous tuple is silently dropped on arrival.
   useEffect(() => {
+    latestRequestIdRef.current += 1;
     setPicked(null);
     setOverlay(null);
     setOverlayError(null);
@@ -207,13 +215,20 @@ function EpipolarBody(props: BodyProps) {
       }
       setPicked({ px, feature });
       setOverlayError(null);
+      // Capture a monotonic id so we can drop this response if a newer
+      // pick / pose change happens before it returns. Without this an
+      // old response can race ahead and overwrite the latest overlay.
+      latestRequestIdRef.current += 1;
+      const myRequestId = latestRequestIdRef.current;
       try {
         const result = await invoke<EpipolarOverlayResult>(
           "compute_epipolar_overlay",
           { camA: cameraA, camB: cameraB, pointPx: px },
         );
+        if (myRequestId !== latestRequestIdRef.current) return;
         setOverlay(result);
       } catch (e) {
+        if (myRequestId !== latestRequestIdRef.current) return;
         setOverlay(null);
         setOverlayError(`epipolar overlay failed: ${e}`);
       }
