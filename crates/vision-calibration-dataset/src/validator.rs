@@ -19,13 +19,19 @@ pub enum ValidationError {
         topology: Topology,
     },
 
-    /// A topology requires multiple cameras but only one was given.
-    #[error("topology {topology:?} requires a multi-camera rig but only {got} camera(s) given")]
-    NotEnoughCameras {
+    /// The number of cameras declared doesn't match what the topology
+    /// expects — either too few (single-cam topology with extras) or
+    /// too many (rig topology with insufficient cameras for stereo).
+    #[error("topology {topology:?} expects {expected_min}..={expected_max} camera(s), got {got}")]
+    WrongCameraCount {
         /// The offending topology.
         topology: Topology,
         /// How many cameras were declared.
         got: usize,
+        /// Inclusive minimum count for the topology.
+        expected_min: usize,
+        /// Inclusive maximum count (`usize::MAX` for unbounded rigs).
+        expected_max: usize,
     },
 
     /// `pose_convention` is missing while `robot_poses` is set.
@@ -77,11 +83,14 @@ pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
         });
     }
 
-    let min_cams = topology_min_cameras(spec.topology);
-    if spec.cameras.len() < min_cams {
-        return Err(ValidationError::NotEnoughCameras {
+    let (min_cams, max_cams) = topology_camera_range(spec.topology);
+    let got = spec.cameras.len();
+    if got < min_cams || got > max_cams {
+        return Err(ValidationError::WrongCameraCount {
             topology: spec.topology,
-            got: spec.cameras.len(),
+            got,
+            expected_min: min_cams,
+            expected_max: max_cams,
         });
     }
 
@@ -127,13 +136,20 @@ fn topology_needs_robot(t: Topology) -> bool {
     matches!(t, Topology::SingleCamHandeye | Topology::RigHandeye)
 }
 
-fn topology_min_cameras(t: Topology) -> usize {
+fn topology_camera_range(t: Topology) -> (usize, usize) {
     match t {
+        // Single-camera topologies must have exactly one camera; an
+        // extra camera in the manifest is almost always a user mistake
+        // (wrong topology selected, leftover entry from a copy-paste).
         Topology::PlanarIntrinsics
         | Topology::ScheimpflugIntrinsics
         | Topology::SingleCamHandeye
-        | Topology::LaserlineDevice => 1,
-        Topology::RigExtrinsics | Topology::RigHandeye | Topology::RigLaserlineDevice => 2,
+        | Topology::LaserlineDevice => (1, 1),
+        // Rig topologies need at least two cameras; the upper bound is
+        // unconstrained (puzzle 130×130 ships with 6).
+        Topology::RigExtrinsics | Topology::RigHandeye | Topology::RigLaserlineDevice => {
+            (2, usize::MAX)
+        }
     }
 }
 
@@ -235,6 +251,28 @@ mod tests {
         });
         let err = validate(&spec).unwrap_err();
         assert!(matches!(err, ValidationError::MissingRobotPoses { .. }));
+    }
+
+    #[test]
+    fn planar_topology_rejects_extra_camera() {
+        let mut spec = planar_chessboard_minimal();
+        spec.cameras.push(CameraSource {
+            id: "cam1".into(),
+            images: ImagePattern::Glob {
+                pattern: "cam1/*.png".into(),
+            },
+            roi_xywh: None,
+        });
+        let err = validate(&spec).unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::WrongCameraCount {
+                expected_min: 1,
+                expected_max: 1,
+                got: 2,
+                ..
+            }
+        ));
     }
 
     #[test]

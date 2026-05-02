@@ -152,10 +152,13 @@ pub fn build_planar_input(
     let detector = pick_detector(detector_name)?;
     validate(spec)?;
 
+    // PlanarIntrinsics has the validator-enforced invariant of exactly
+    // one camera, so `cameras[0]` is the only camera — no silent
+    // truncation.
     let camera = spec
         .cameras
         .first()
-        .expect("validate guarantees at least one camera for PlanarIntrinsics");
+        .expect("validate guarantees exactly one camera for PlanarIntrinsics");
     let images = expand_camera_images(camera, base_dir)?;
     if images.is_empty() {
         return Err(RunError::EmptyImageMatch {
@@ -170,9 +173,16 @@ pub fn build_planar_input(
     let mut usable = 0usize;
     let total = images.len();
 
+    // ROI is part of what determines detection output, so it has to be
+    // part of the cache key. We splice it into the key-side config and
+    // leave the actual `detector_config` untouched (the detector itself
+    // doesn't know about ROI — the runner crops the image first).
+    let roi = camera.roi_xywh;
+    let key_config = augment_config_with_roi(&detector_config, roi);
+
     for image_path in &images {
         let bytes = std::fs::read(image_path)?;
-        let key = CacheKey::from_inputs(&bytes, detector_name, &detector_config);
+        let key = CacheKey::from_inputs(&bytes, detector_name, &key_config);
 
         let cached: Option<CachedFeatures> = if force_redetect {
             None
@@ -187,13 +197,30 @@ pub fn build_planar_input(
                     path: image_path.clone(),
                     source: e,
                 })?;
-                let detected = detector.detect_json(&img, &detector_config).map_err(|e| {
-                    RunError::Detection {
+                let img_for_detect = if let Some([x, y, w, h]) = roi {
+                    img.crop_imm(x, y, w, h)
+                } else {
+                    img
+                };
+                let mut detected = detector
+                    .detect_json(&img_for_detect, &detector_config)
+                    .map_err(|e| RunError::Detection {
                         detector: detector_name.to_string(),
                         path: image_path.clone(),
                         source: e,
+                    })?;
+                // Detected pixels are in the cropped frame; lift them
+                // back into source-image coordinates so the rest of
+                // the pipeline (and the export's `image_manifest`)
+                // stays in one consistent coordinate system.
+                if let Some([x, y, _w, _h]) = roi {
+                    let dx = x as f64;
+                    let dy = y as f64;
+                    for f in detected.iter_mut() {
+                        f.image_xy[0] += dx;
+                        f.image_xy[1] += dy;
                     }
-                })?;
+                }
                 cache.put(
                     &key,
                     &CachedFeatures {
@@ -328,6 +355,20 @@ fn expand_camera_images(
     }
 }
 
+/// Splice a `_roi` field into the detector's canonical config JSON so
+/// the cache key changes whenever the user edits the ROI. The detector
+/// itself never sees `_roi` — the runner crops the image upstream.
+fn augment_config_with_roi(detector_config: &Value, roi: Option<[u32; 4]>) -> Value {
+    let Some(roi) = roi else {
+        return detector_config.clone();
+    };
+    let mut copy = detector_config.clone();
+    if let Value::Object(map) = &mut copy {
+        map.insert("_roi".to_string(), json!([roi[0], roi[1], roi[2], roi[3]]));
+    }
+    copy
+}
+
 fn pattern_repr(p: &ImagePattern) -> String {
     match p {
         ImagePattern::Glob { pattern } => pattern.clone(),
@@ -426,5 +467,43 @@ mod tests {
 
     fn tempdir_or_skip() -> tempfile::TempDir {
         tempfile::tempdir().expect("tempdir")
+    }
+
+    #[test]
+    fn augment_config_with_roi_changes_cache_key() {
+        // Two ROIs over the same image with the same detector config
+        // must hash to different cache keys; otherwise a user editing
+        // an ROI would silently re-use stale detections.
+        let detector_config = json!({"rows": 9, "cols": 6, "square_size_m": 0.025});
+        let key_no_roi = CacheKey::from_inputs(
+            b"img",
+            "chessboard",
+            &augment_config_with_roi(&detector_config, None),
+        );
+        let key_roi_a = CacheKey::from_inputs(
+            b"img",
+            "chessboard",
+            &augment_config_with_roi(&detector_config, Some([10, 20, 100, 100])),
+        );
+        let key_roi_b = CacheKey::from_inputs(
+            b"img",
+            "chessboard",
+            &augment_config_with_roi(&detector_config, Some([10, 20, 200, 100])),
+        );
+        assert_ne!(key_no_roi, key_roi_a);
+        assert_ne!(key_roi_a, key_roi_b);
+        assert_ne!(key_no_roi, key_roi_b);
+    }
+
+    #[test]
+    fn detector_config_unchanged_by_roi_augmentation() {
+        // Splicing _roi into the *cache-key* config must not pollute
+        // the *detector-side* config — the detector is ROI-agnostic
+        // and would reject unknown fields with `deny_unknown_fields`.
+        let detector_config = json!({"rows": 9, "cols": 6, "square_size_m": 0.025});
+        let augmented = augment_config_with_roi(&detector_config, Some([0, 0, 64, 64]));
+        assert_ne!(detector_config, augmented);
+        assert!(augmented.get("_roi").is_some());
+        assert!(detector_config.get("_roi").is_none());
     }
 }
