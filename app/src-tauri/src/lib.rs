@@ -31,6 +31,7 @@ pub fn run() {
             commands::load_export,
             commands::set_active_export,
             commands::load_image,
+            commands::load_text_file,
             commands::compute_epipolar_overlay,
             run::run_calibration_cmd,
         ])

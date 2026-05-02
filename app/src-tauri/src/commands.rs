@@ -69,6 +69,17 @@ pub async fn set_active_export(
     Ok(())
 }
 
+/// Read a UTF-8 text file (TOML / JSON / arbitrary text) and return
+/// its contents. Used by the Run workspace's preset loader to fetch
+/// `data/<dataset>/dataset.toml` files at runtime so they round-trip
+/// to the form state via the same TOML→Manifest decoder the Rust
+/// runner uses. Errors carry the path so the UI can surface them
+/// directly.
+#[tauri::command]
+pub async fn load_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))
+}
+
 /// Read an image file and return it as a `data:` URL the webview can use
 /// directly. PNG is the only format the v0 fixture writes; the MIME type
 /// is inferred from the extension.

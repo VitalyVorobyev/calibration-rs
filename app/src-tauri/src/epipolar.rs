@@ -29,6 +29,14 @@ const DEPTH_SAMPLES: usize = 256;
 /// 130×130 working volume and shorter benchtop calibrations.
 const DEPTH_MIN_M: f64 = 0.05;
 const DEPTH_MAX_M: f64 = 5.0;
+/// Cutoff for cam-B-frame z below which we drop the sample. Even
+/// though `project_point_c` already filters strictly behind-camera
+/// points (`z <= 0`), depth samples that land *just* in front of cam
+/// B's image plane produce near-singular projections that fly off
+/// across the frame between consecutive samples — visually a fold /
+/// "parabola" in pane B. 5 cm is past the lens minimum focus on
+/// every dataset we ship; anything closer is meaningless geometry.
+const CAM_B_Z_MIN_M: f64 = 0.05;
 
 /// Result of a single epipolar overlay computation.
 #[derive(Debug, Clone, Serialize)]
@@ -105,6 +113,13 @@ pub fn compute_overlay(
     for d in log_depths() {
         let p_a = Point3::from(ray_a.point * d);
         let p_b = t_b_a * p_a;
+        // Pre-filter near-singular samples: in-front of cam B but so
+        // close to its image plane that the projection effectively
+        // jumps across the frame between this sample and the next.
+        if p_b.z < CAM_B_Z_MIN_M {
+            samples_clipped += 1;
+            continue;
+        }
         match cam_b_model.project_point_c(&p_b.coords) {
             Some(px) => line_b.push([px.x, px.y]),
             None => samples_clipped += 1,
@@ -286,5 +301,58 @@ mod tests {
         assert_eq!(depths.len(), DEPTH_SAMPLES);
         assert!((depths[0] - DEPTH_MIN_M).abs() < 1e-12);
         assert!((depths[DEPTH_SAMPLES - 1] - DEPTH_MAX_M).abs() < 1e-9);
+    }
+
+    /// Regression guard for the "parabola in pane B" fold bug. When
+    /// cam B is positioned so that early depth samples on cam A's ray
+    /// land less than `CAM_B_Z_MIN_M` in front of cam B's image plane,
+    /// `compute_overlay` must drop those samples (counted in
+    /// `samples_clipped`) so the polyline doesn't fork through the
+    /// near-singular projection zone.
+    ///
+    /// Construction: cam A at rig origin (`T_A_R = I`); cam B has the
+    /// same orientation as cam A but is offset so that a forward ray
+    /// from cam A's principal pixel maps to `p_b = (0, 0, d - 0.04)`
+    /// in cam B's frame. With the depth sweep starting at `d = 0.05`,
+    /// the smallest sample produces `p_b.z = 0.01 m`, which is well
+    /// below the `CAM_B_Z_MIN_M = 0.05` cutoff and must be dropped.
+    /// Samples at `d > 0.09` survive and form a usable polyline.
+    #[test]
+    fn overlay_drops_near_image_plane_samples() {
+        let k = K {
+            fx: 800.0,
+            fy: 800.0,
+            cx: 320.0,
+            cy: 240.0,
+            skew: 0.0,
+        };
+        let cam = make_pinhole_camera(k, BC5::default());
+        let t_a_r = Iso3::identity();
+        // Translation only — rotation is identity so cam B's forward
+        // axis aligns with cam A's. Translating (0, 0, -0.04) in
+        // T_B_R means cam B sits 4 cm further along Z than the rig
+        // origin (i.e. than cam A): a forward ray's `p_b.z` equals
+        // `d - 0.04`.
+        let t_b_r = Iso3::from_parts(
+            nalgebra::Translation3::new(0.0, 0.0, -0.04),
+            nalgebra::UnitQuaternion::identity(),
+        );
+        let export = serde_json::json!({
+            "cameras": [serde_json::to_value(&cam).unwrap(), serde_json::to_value(&cam).unwrap()],
+            "cam_se3_rig": [t_a_r, t_b_r],
+        });
+        // Click at cam A's principal point → back-projected ray is
+        // along the optical axis.
+        let overlay = compute_overlay(&export, 0, 1, [320.0, 240.0]).unwrap();
+        assert!(
+            overlay.samples_clipped > 0,
+            "expected the near-image-plane cutoff to drop at least one sample; got 0 clipped"
+        );
+        // Polyline should still have a non-trivial run after the cutoff.
+        assert!(
+            overlay.line_b.len() > 4,
+            "expected a usable polyline after the cutoff; got {}",
+            overlay.line_b.len()
+        );
     }
 }

@@ -1,7 +1,14 @@
 import { useMemo } from "react";
-import { BufferGeometry, Float32BufferAttribute } from "three";
+import { BufferGeometry, Float32BufferAttribute, type Object3D } from "three";
 import { iso3InverseFromWire } from "../../lib/se3";
 import type { Iso3Wire, PinholeCameraWire } from "../../store/types";
+
+/** R3F's `raycast={fn}` prop expects a `Object3D['raycast']`. We use
+ * a no-op to opt the visual-only meshes out of the raycaster pipeline,
+ * letting clicks pass through to the dedicated hitbox quad below.
+ * `Object3D['raycast']` returns void, so an empty function is the
+ * canonical "no hit" signal. */
+const NO_RAYCAST: Object3D["raycast"] = () => {};
 
 interface CameraFrustumProps {
   camera: PinholeCameraWire;
@@ -48,15 +55,49 @@ export function CameraFrustum({
 
   const geom = useMemo(() => buildEdgeGeometry(corners), [corners]);
 
+  // Far-plane hitbox: a transparent quad covering the full far plane
+  // of the frustum. Three.js's raycaster doesn't intersect line
+  // geometry by default, so without this hitbox the only clickable
+  // surface is the small apex sphere — and most users naturally try
+  // to click on the visible far quad. The mesh has `visible={false}`
+  // so it draws nothing but still participates in raycasting.
+  const hitboxGeom = useMemo(() => buildFarPlaneHitbox(corners), [corners]);
+
   return (
-    <group matrix={matrix} matrixAutoUpdate={false} onClick={onSelect}>
-      <lineSegments geometry={geom}>
+    <group
+      matrix={matrix}
+      matrixAutoUpdate={false}
+      onClick={(e) => {
+        if (!onSelect) return;
+        // Stop propagation so clicks on overlapping frustums don't
+        // double-fire onto whichever group is rendered next.
+        e.stopPropagation();
+        onSelect();
+      }}
+      onPointerOver={(e) => {
+        if (!onSelect) return;
+        e.stopPropagation();
+        document.body.style.cursor = "pointer";
+      }}
+      onPointerOut={() => {
+        document.body.style.cursor = "";
+      }}
+    >
+      {/* Wireframe edges — visual only. Opt out of raycast so clicks
+        pass through to the hitbox below. */}
+      <lineSegments geometry={geom} raycast={NO_RAYCAST}>
         <lineBasicMaterial color={color} linewidth={active ? 2 : 1} />
       </lineSegments>
-      {/* Solid apex marker so clicks register on a non-edge target. */}
-      <mesh>
+      {/* Apex marker — visual only. */}
+      <mesh raycast={NO_RAYCAST}>
         <sphereGeometry args={[farDepth * 0.06, 12, 8]} />
         <meshBasicMaterial color={color} transparent opacity={active ? 0.9 : 0.45} />
+      </mesh>
+      {/* Invisible far-plane hitbox. The `visible={false}` flag stops
+        Three from rasterising this mesh, but the raycaster still
+        considers it. */}
+      <mesh geometry={hitboxGeom} visible={false}>
+        <meshBasicMaterial transparent opacity={0} />
       </mesh>
     </group>
   );
@@ -97,6 +138,23 @@ function buildEdgeGeometry(
     const b = corners[(i + 1) % 4];
     verts.push(...a, ...b);
   }
+  const g = new BufferGeometry();
+  g.setAttribute("position", new Float32BufferAttribute(verts, 3));
+  return g;
+}
+
+/** Build a two-triangle BufferGeometry covering the four far-plane
+ * corners. Used as an invisible click target — Three.js's raycaster
+ * picks up triangulated meshes by default but skips line geometry. */
+function buildFarPlaneHitbox(
+  corners: [number, number, number][],
+): BufferGeometry {
+  // Triangulate the quad as (0, 1, 2) + (0, 2, 3).
+  const [a, b, c, d] = corners;
+  const verts: number[] = [
+    ...a, ...b, ...c,
+    ...a, ...c, ...d,
+  ];
   const g = new BufferGeometry();
   g.setAttribute("position", new Float32BufferAttribute(verts, 3));
   return g;
