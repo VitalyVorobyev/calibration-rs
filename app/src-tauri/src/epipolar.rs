@@ -17,10 +17,13 @@ use vision_calibration::core::{
 };
 use vision_calibration_core::CameraModel;
 
-/// Number of depth samples along the ray. 64 is enough that even when
-/// the polyline crosses the far plane at a high angle the rendered SVG
-/// looks smooth.
-const DEPTH_SAMPLES: usize = 64;
+/// Number of depth samples along the ray. 256 keeps the rendered SVG
+/// smooth even when only a short subset of samples lands inside the
+/// pane-B image (which is where the engineer actually reads the
+/// epipolar curve). 64 was enough for the in-test scenario but left a
+/// visibly piecewise polyline on real datasets where most samples
+/// project outside the image and only a handful land within bounds.
+const DEPTH_SAMPLES: usize = 256;
 /// Min/max depths along the back-projected ray (meters). Logarithmic
 /// spacing inside this window. Picked to comfortably cover the puzzle
 /// 130×130 working volume and shorter benchtop calibrations.

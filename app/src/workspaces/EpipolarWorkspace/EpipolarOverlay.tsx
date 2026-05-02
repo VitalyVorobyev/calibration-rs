@@ -26,6 +26,10 @@ interface EpipolarOverlayProps {
   markers?: OverlayPoint[];
   /** Optional label drawn at the top-left of the overlay. */
   caption?: string;
+  /** Optional pixel-anchored text annotation drawn near `px` (canvas
+   * pixel space, fixed on-screen size). Used to flag the picked
+   * feature's residual distance to the epipolar polyline. */
+  annotation?: { px: [number, number]; text: string; color: string };
 }
 
 /** SVG layer drawn over a FrameCanvas. The SVG fills the canvas's
@@ -39,6 +43,7 @@ export function EpipolarOverlay({
   polylineColor = "currentColor",
   markers,
   caption,
+  annotation,
 }: EpipolarOverlayProps) {
   return (
     <svg
@@ -91,6 +96,26 @@ export function EpipolarOverlay({
           {caption}
         </text>
       )}
+      {annotation && (() => {
+        const cx = annotation.px[0] * transform.scale + transform.tx;
+        const cy = annotation.px[1] * transform.scale + transform.ty;
+        // Offset upward-right of the anchor so the label clears the
+        // crosshair drawn at the same pixel.
+        return (
+          <text
+            x={cx + 10}
+            y={cy - 8}
+            fontFamily="var(--font-mono, monospace)"
+            fontSize={11}
+            fill={annotation.color}
+            stroke="hsl(var(--bg-soft))"
+            strokeWidth={3}
+            paintOrder="stroke"
+          >
+            {annotation.text}
+          </text>
+        );
+      })()}
     </svg>
   );
 }

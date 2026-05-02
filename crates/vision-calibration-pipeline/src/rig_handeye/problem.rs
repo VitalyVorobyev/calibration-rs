@@ -283,6 +283,15 @@ pub struct RigHandeyeExport {
     /// Transform from rig frame to camera frame.
     pub cam_se3_rig: Vec<Iso3>,
 
+    /// Per-view rig poses: `rig_se3_target` (T_R_T), derived from the
+    /// hand-eye chain (`handeye_observer_se3_target`) so downstream
+    /// viewers (3D scene, epipolar overlay) can read board poses
+    /// without re-implementing the chain. One entry per input view.
+    /// `#[serde(default)]` keeps older exports forward-compatible at
+    /// load time; they decode with an empty Vec.
+    #[serde(default)]
+    pub rig_se3_target: Vec<Iso3>,
+
     /// Hand-eye mode used to interpret mode-dependent transforms.
     pub handeye_mode: HandEyeMode,
 
@@ -549,6 +558,7 @@ impl ProblemType for RigHandeyeProblem {
             cameras: output.cameras().to_vec(),
             sensors: output.sensors().map(|s| s.to_vec()),
             cam_se3_rig,
+            rig_se3_target: rig_se3_target.clone(),
             handeye_mode: mode,
             gripper_se3_rig,
             rig_se3_base,
@@ -761,6 +771,11 @@ mod tests {
         assert!(export.base_se3_target.is_some());
         assert!(export.rig_se3_base.is_none());
         assert!(export.gripper_se3_target.is_none());
+        assert_eq!(
+            export.rig_se3_target.len(),
+            1,
+            "rig_se3_target must have one entry per input view"
+        );
     }
 
     #[test]

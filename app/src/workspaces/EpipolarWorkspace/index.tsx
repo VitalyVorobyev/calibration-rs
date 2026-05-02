@@ -1,12 +1,35 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FrameCanvas } from "../../components/FrameCanvas";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  FrameCanvas,
+  type FrameCanvasHandle,
+} from "../../components/FrameCanvas";
+import { PoseStepper } from "../../components/PoseStepper";
 import { useImageData } from "../../hooks/useImageData";
+import {
+  iso3DistanceM,
+  iso3EulerXYZDeg,
+  iso3RotationAngleDeg,
+  relativeCameraPose,
+} from "../../lib/se3";
 import { useStore } from "../../store";
 import { exportKindLabel } from "../../store/exportShape";
-import type { FrameKey, TargetFeatureResidual, ViewportTransform } from "../../types";
+import type {
+  FrameKey,
+  TargetFeatureResidual,
+  ViewportTransform,
+} from "../../types";
 import { IDENTITY_TRANSFORM } from "../../types";
-import { EpipolarOverlay, type OverlayPoint } from "./EpipolarOverlay";
+import {
+  EpipolarOverlay,
+  type OverlayPoint,
+} from "./EpipolarOverlay";
 
 interface EpipolarOverlayResult {
   line_b: [number, number][];
@@ -14,17 +37,16 @@ interface EpipolarOverlayResult {
   samples_clipped: number;
 }
 
-/** Pixel-radius around the click within which we snap the selected
- * feature index; otherwise the click is a free pixel pick (no
- * corresponding pane-B ghost). */
-const FEATURE_SNAP_PX = 6;
+/** Pixel-radius around the click within which we snap to the nearest
+ * residual feature. Outside this radius the click is a free pixel
+ * pick (no corresponding pane-B ghost is drawn). */
+const FEATURE_SNAP_PX = 8;
 
 export function EpipolarWorkspace() {
   const data = useStore((s) => s.data);
   const kind = useStore((s) => s.kind);
   const frames = useStore((s) => s.frames);
   const cameraValues = useStore((s) => s.cameraValues);
-  const poseValues = useStore((s) => s.poseValues);
   const camerasByPose = useStore((s) => s.camerasByPose);
   const selectedPose = useStore((s) => s.selectedPose);
   const cameraA = useStore((s) => s.cameraA);
@@ -32,18 +54,25 @@ export function EpipolarWorkspace() {
   const setSelectedPose = useStore((s) => s.setSelectedPose);
   const setCamera = useStore((s) => s.setCamera);
 
-  const [transformA, setTransformA] = useState<ViewportTransform>(
+  const [linked, setLinked] = useState<boolean>(false);
+  const [showFeatures, setShowFeatures] = useState<boolean>(true);
+  const [showTieLines, setShowTieLines] = useState<boolean>(false);
+
+  const [transformA, setTransformA] = useState<ViewportTransform>(IDENTITY_TRANSFORM);
+  const [transformB, setTransformB] = useState<ViewportTransform>(IDENTITY_TRANSFORM);
+  const [linkedTransform, setLinkedTransform] = useState<ViewportTransform>(
     IDENTITY_TRANSFORM,
   );
-  const [transformB, setTransformB] = useState<ViewportTransform>(
-    IDENTITY_TRANSFORM,
-  );
-  const [picked, setPicked] = useState<{ px: [number, number]; feature: number | null } | null>(
-    null,
-  );
+
+  const [picked, setPicked] = useState<{
+    px: [number, number];
+    feature: number | null;
+  } | null>(null);
   const [overlay, setOverlay] = useState<EpipolarOverlayResult | null>(null);
   const [overlayError, setOverlayError] = useState<string | null>(null);
-  const [showTieLines, setShowTieLines] = useState(false);
+
+  const handleARef = useRef<FrameCanvasHandle | null>(null);
+  const handleBRef = useRef<FrameCanvasHandle | null>(null);
 
   if (!data || !kind) {
     return (
@@ -70,7 +99,6 @@ export function EpipolarWorkspace() {
       data={data}
       kind={kind}
       frames={frames}
-      poseValues={poseValues}
       cameraValues={cameraValues}
       camerasByPose={camerasByPose}
       selectedPose={selectedPose}
@@ -78,18 +106,26 @@ export function EpipolarWorkspace() {
       cameraB={cameraB}
       setSelectedPose={setSelectedPose}
       setCamera={setCamera}
+      linked={linked}
+      setLinked={setLinked}
+      showFeatures={showFeatures}
+      setShowFeatures={setShowFeatures}
+      showTieLines={showTieLines}
+      setShowTieLines={setShowTieLines}
       transformA={transformA}
       transformB={transformB}
+      linkedTransform={linkedTransform}
       setTransformA={setTransformA}
       setTransformB={setTransformB}
+      setLinkedTransform={setLinkedTransform}
       picked={picked}
       setPicked={setPicked}
       overlay={overlay}
       setOverlay={setOverlay}
       overlayError={overlayError}
       setOverlayError={setOverlayError}
-      showTieLines={showTieLines}
-      setShowTieLines={setShowTieLines}
+      handleARef={handleARef}
+      handleBRef={handleBRef}
     />
   );
 }
@@ -98,7 +134,6 @@ interface BodyProps {
   data: NonNullable<ReturnType<typeof useStore.getState>["data"]>;
   kind: NonNullable<ReturnType<typeof useStore.getState>["kind"]>;
   frames: FrameKey[];
-  poseValues: number[];
   cameraValues: number[];
   camerasByPose: Map<number, number[]>;
   selectedPose: number;
@@ -106,18 +141,26 @@ interface BodyProps {
   cameraB: number;
   setSelectedPose: (pose: number, which?: "A" | "B") => void;
   setCamera: (camera: number, which?: "A" | "B") => void;
+  linked: boolean;
+  setLinked: (v: boolean | ((prev: boolean) => boolean)) => void;
+  showFeatures: boolean;
+  setShowFeatures: (v: boolean | ((prev: boolean) => boolean)) => void;
+  showTieLines: boolean;
+  setShowTieLines: (v: boolean | ((prev: boolean) => boolean)) => void;
   transformA: ViewportTransform;
   transformB: ViewportTransform;
+  linkedTransform: ViewportTransform;
   setTransformA: (t: ViewportTransform) => void;
   setTransformB: (t: ViewportTransform) => void;
+  setLinkedTransform: (t: ViewportTransform) => void;
   picked: { px: [number, number]; feature: number | null } | null;
   setPicked: (p: { px: [number, number]; feature: number | null } | null) => void;
   overlay: EpipolarOverlayResult | null;
   setOverlay: (o: EpipolarOverlayResult | null) => void;
   overlayError: string | null;
   setOverlayError: (msg: string | null) => void;
-  showTieLines: boolean;
-  setShowTieLines: (v: boolean | ((prev: boolean) => boolean)) => void;
+  handleARef: React.MutableRefObject<FrameCanvasHandle | null>;
+  handleBRef: React.MutableRefObject<FrameCanvasHandle | null>;
 }
 
 function EpipolarBody(props: BodyProps) {
@@ -125,7 +168,6 @@ function EpipolarBody(props: BodyProps) {
     data,
     kind,
     frames,
-    poseValues,
     cameraValues,
     camerasByPose,
     selectedPose,
@@ -133,19 +175,33 @@ function EpipolarBody(props: BodyProps) {
     cameraB,
     setSelectedPose,
     setCamera,
+    linked,
+    setLinked,
+    showFeatures,
+    setShowFeatures,
+    showTieLines,
+    setShowTieLines,
     transformA,
     transformB,
+    linkedTransform,
     setTransformA,
     setTransformB,
+    setLinkedTransform,
     picked,
     setPicked,
     overlay,
     setOverlay,
     overlayError,
     setOverlayError,
-    showTieLines,
-    setShowTieLines,
+    handleARef,
+    handleBRef,
   } = props;
+
+  const numPoses = data.rig_se3_target?.length ?? 0;
+  const poseIndices = useMemo(
+    () => Array.from({ length: numPoses }, (_, i) => i),
+    [numPoses],
+  );
 
   const frameA = useMemo<FrameKey | null>(
     () =>
@@ -160,8 +216,8 @@ function EpipolarBody(props: BodyProps) {
     [frames, selectedPose, cameraB],
   );
 
-  // Bucket the residuals once per (pose) so the overlays / tie-lines
-  // don't re-scan the full residual array on every render.
+  // Bucket residuals by (camera) for the active pose so the overlay /
+  // tie-points / snap logic doesn't re-scan the full residual array.
   const residualsForPose = useMemo<TargetFeatureResidual[]>(
     () =>
       data.per_feature_residuals.target.filter((r) => r.pose === selectedPose),
@@ -176,16 +232,11 @@ function EpipolarBody(props: BodyProps) {
     [residualsForPose, cameraB],
   );
 
-  // Monotonic request id so out-of-order responses don't overwrite a
-  // newer overlay. Bumped on every pick AND on every working-tuple
-  // change; only the response whose id matches `latestRequestIdRef`
-  // when it returns is allowed to set state.
   const latestRequestIdRef = useRef(0);
 
-  // Reset the picked overlay whenever the user changes the working
-  // tuple (pose / cam-A / cam-B). Stale polylines from a previous
-  // configuration are misleading. Bump the request id so any in-flight
-  // response from the previous tuple is silently dropped on arrival.
+  // Reset the overlay whenever the working tuple changes; bump the
+  // request id so any in-flight response from the previous tuple is
+  // dropped on arrival.
   useEffect(() => {
     latestRequestIdRef.current += 1;
     setPicked(null);
@@ -198,12 +249,9 @@ function EpipolarBody(props: BodyProps) {
   const handlePickA = useCallback(
     async (pixel: { x: number; y: number }) => {
       const px: [number, number] = [pixel.x, pixel.y];
-      // Snap to the nearest residual feature in cam A within
-      // FEATURE_SNAP_PX so the workspace can ghost the matching feature
-      // in pane B; outside that radius the click is a free pixel pick
-      // and no ghost is shown.
       let feature: number | null = null;
       let bestDist = FEATURE_SNAP_PX;
+      let snappedPx: [number, number] = px;
       for (const r of residualsA) {
         const dx = r.observed_px[0] - px[0];
         const dy = r.observed_px[1] - px[1];
@@ -211,19 +259,17 @@ function EpipolarBody(props: BodyProps) {
         if (d < bestDist) {
           bestDist = d;
           feature = r.feature;
+          snappedPx = [r.observed_px[0], r.observed_px[1]];
         }
       }
-      setPicked({ px, feature });
+      setPicked({ px: snappedPx, feature });
       setOverlayError(null);
-      // Capture a monotonic id so we can drop this response if a newer
-      // pick / pose change happens before it returns. Without this an
-      // old response can race ahead and overwrite the latest overlay.
       latestRequestIdRef.current += 1;
       const myRequestId = latestRequestIdRef.current;
       try {
         const result = await invoke<EpipolarOverlayResult>(
           "compute_epipolar_overlay",
-          { camA: cameraA, camB: cameraB, pointPx: px },
+          { camA: cameraA, camB: cameraB, pointPx: snappedPx },
         );
         if (myRequestId !== latestRequestIdRef.current) return;
         setOverlay(result);
@@ -240,6 +286,41 @@ function EpipolarBody(props: BodyProps) {
     if (!picked || picked.feature == null) return null;
     return residualsB.find((r) => r.feature === picked.feature) ?? null;
   }, [picked, residualsB]);
+
+  // Polyline clipped strictly to pane-B's image bounds. The Rust side
+  // sweeps depths from 0.05 m to 5 m, which is wider than any real
+  // dataset's working volume — most samples land outside the image
+  // and pull the polyline into a long curve (distortion gets visually
+  // amplified far from the principal point). Only the in-image
+  // portion is what the engineer actually reads, so we drop the rest
+  // and keep only the longest contiguous in-image run to avoid a
+  // straight bridge across an out-of-image gap.
+  const clippedPolyline = useMemo<[number, number][] | undefined>(() => {
+    if (!overlay || overlay.line_b.length < 2) return undefined;
+    if (!frameB) return overlay.line_b;
+    const w = frameB.roi?.w ?? 0;
+    const h = frameB.roi?.h ?? 0;
+    if (w === 0 || h === 0) return overlay.line_b;
+    return longestInImageRun(overlay.line_b, w, h);
+  }, [overlay, frameB]);
+
+  // Distance from the corresponding pane-B feature to the polyline in
+  // pixels — the calibration's epipolar residual for the picked
+  // feature pair. Surfaced as an annotation next to the cam-B
+  // crosshair so the engineer can read it without leaving the workspace.
+  const ghostDistancePx = useMemo<number | null>(() => {
+    if (!ghostInB || !overlay || overlay.line_b.length < 2) return null;
+    return distanceToPolyline(ghostInB.observed_px, overlay.line_b);
+  }, [ghostInB, overlay]);
+
+  // Camera relative pose (cam B as seen from cam A). Read here so the
+  // info strip shows it alongside the overlay status.
+  const relativePose = useMemo(() => {
+    const cs = data.cam_se3_rig;
+    if (!cs || cs.length <= cameraA || cs.length <= cameraB) return null;
+    if (cameraA === cameraB) return null;
+    return relativeCameraPose(cs[cameraA], cs[cameraB]);
+  }, [data, cameraA, cameraB]);
 
   const tieMarkersA = useMemo<OverlayPoint[]>(() => {
     if (!showTieLines) return [];
@@ -261,7 +342,27 @@ function EpipolarBody(props: BodyProps) {
     }));
   }, [showTieLines, residualsB]);
 
+  const featureMarkersA = useMemo<OverlayPoint[]>(() => {
+    if (!showFeatures) return [];
+    return residualsA.map((r) => ({
+      px: r.observed_px,
+      color: "var(--color-accent, #888)",
+      dot: true,
+      size: 6,
+    }));
+  }, [showFeatures, residualsA]);
+  const featureMarkersB = useMemo<OverlayPoint[]>(() => {
+    if (!showFeatures) return [];
+    return residualsB.map((r) => ({
+      px: r.observed_px,
+      color: "var(--color-accent, #888)",
+      dot: true,
+      size: 6,
+    }));
+  }, [showFeatures, residualsB]);
+
   const markersA: OverlayPoint[] = [
+    ...featureMarkersA,
     ...tieMarkersA,
     ...(picked
       ? [
@@ -274,6 +375,7 @@ function EpipolarBody(props: BodyProps) {
       : []),
   ];
   const markersB: OverlayPoint[] = [
+    ...featureMarkersB,
     ...tieMarkersB,
     ...(ghostInB
       ? [
@@ -295,15 +397,33 @@ function EpipolarBody(props: BodyProps) {
       : []),
   ];
 
+  // Linked-mode shares one transform between both panes; flipping into
+  // linked mode forces a fresh fit so the two start aligned.
+  useEffect(() => {
+    if (linked) handleARef.current?.fit();
+  }, [linked, handleARef]);
+
+  const drivePane = (which: "A" | "B", action: (h: FrameCanvasHandle) => void) => {
+    if (linked) {
+      // Either ref drives the linked transform.
+      const h = handleARef.current ?? handleBRef.current;
+      if (h) action(h);
+      return;
+    }
+    const h = which === "A" ? handleARef.current : handleBRef.current;
+    if (h) action(h);
+  };
+
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
       <div className="flex flex-wrap items-center gap-3">
-        <Selector
-          label="pose"
-          value={selectedPose}
-          options={poseValues}
-          onChange={(v) => setSelectedPose(v, "A")}
-        />
+        {numPoses > 0 && (
+          <PoseStepper
+            poseValues={poseIndices}
+            selectedPose={selectedPose}
+            onSelectPose={(next) => setSelectedPose(next, "A")}
+          />
+        )}
         <Selector
           label="cam A"
           value={cameraA}
@@ -316,20 +436,54 @@ function EpipolarBody(props: BodyProps) {
           options={camerasInPose}
           onChange={(v) => setCamera(v, "B")}
         />
-        <button
-          type="button"
+        <ZoomBar
+          onFit={() =>
+            drivePane("A", (h) => h.fit())
+          }
+          onOneToOne={() =>
+            drivePane("A", (h) => h.reset1to1())
+          }
+          onZoomIn={() =>
+            drivePane("A", (h) => h.zoomBy(1.25))
+          }
+          onZoomOut={() =>
+            drivePane("A", (h) => h.zoomBy(1 / 1.25))
+          }
+        />
+        <Toggle
+          active={linked}
+          onClick={() => setLinked((v) => !v)}
+          label="Linked"
+          activeLabel="Linked ✓"
+          title="Share zoom + pan between both panes (common AOI)"
+        />
+        <Toggle
+          active={showFeatures}
+          onClick={() => setShowFeatures((v) => !v)}
+          label="Features"
+          activeLabel="Features ✓"
+          title="Show every detected feature as a clickable dot"
+        />
+        <Toggle
+          active={showTieLines}
           onClick={() => setShowTieLines((v) => !v)}
-          className={`h-7 px-2 font-mono text-[11px] ${
-            showTieLines ? "border-brand text-brand" : ""
-          }`}
-          title="Render every feature observation as a faint dot in both panes"
-        >
-          {showTieLines ? "Tie-points ✓" : "Tie-points"}
-        </button>
+          label="Tie-points"
+          activeLabel="Tie-points ✓"
+          title="Render every observed feature as a faint dot (both panes)"
+        />
         <span className="ml-auto font-mono text-[11px] text-muted-foreground">
           {exportKindLabel(kind)}
         </span>
       </div>
+
+      <RelativePoseStrip
+        relativePose={relativePose}
+        cameraA={cameraA}
+        cameraB={cameraB}
+        ghostDistancePx={ghostDistancePx}
+        pickedFeature={picked?.feature ?? null}
+        samplesClipped={overlay?.samples_clipped ?? null}
+      />
 
       {overlayError && (
         <div className="rounded-md border-l-2 border-destructive bg-destructive/[0.08] p-2.5 text-[13px] text-foreground">
@@ -341,31 +495,111 @@ function EpipolarBody(props: BodyProps) {
         <Pane
           frame={frameA}
           residuals={residualsForPose}
-          transform={transformA}
-          onTransformChange={setTransformA}
+          transform={linked ? linkedTransform : transformA}
+          onTransformChange={linked ? setLinkedTransform : setTransformA}
           onPick={handlePickA}
           markers={markersA}
-          caption={frameA ? `pane A · cam ${cameraA} · click to pick` : undefined}
+          caption={frameA ? `pane A · cam ${cameraA}${showFeatures ? " · click feature or anywhere" : " · click to pick"}` : undefined}
+          handleRef={handleARef}
         />
         <Pane
           frame={frameB}
           residuals={residualsForPose}
-          transform={transformB}
-          onTransformChange={setTransformB}
-          polyline={overlay?.line_b}
+          transform={linked ? linkedTransform : transformB}
+          onTransformChange={linked ? setLinkedTransform : setTransformB}
+          polyline={clippedPolyline}
           polylineColor="var(--color-brand, #1abc9c)"
           markers={markersB}
           caption={frameB ? `pane B · cam ${cameraB}` : undefined}
+          handleRef={handleBRef}
+          annotation={
+            ghostInB && ghostDistancePx != null
+              ? {
+                  px: ghostInB.observed_px,
+                  text: `Δ ${ghostDistancePx.toFixed(2)} px`,
+                  color:
+                    ghostDistancePx < 1
+                      ? "var(--color-brand, #1abc9c)"
+                      : ghostDistancePx < 5
+                        ? "var(--color-foreground, #888)"
+                        : "var(--color-destructive, #e74c3c)",
+                }
+              : undefined
+          }
         />
       </div>
-
-      {!cameraValues.includes(cameraB) && (
-        <div className="rounded-md border-l-2 border-brand bg-brand/[0.06] p-2 text-[12px] text-foreground">
-          Pane-B camera {cameraB} is not in this export.
-        </div>
-      )}
     </section>
   );
+}
+
+/** Return the longest contiguous run of polyline points that fall
+ * inside `[0, w] × [0, h]`. The Rust side densely samples depths along
+ * the back-projected ray; only some samples project inside pane B's
+ * image. Filtering kept-in-bounds points and re-stitching them into
+ * one polyline draws a "straight bridge" across out-of-image gaps,
+ * which looks like a curve. Picking the single longest in-image run
+ * sidesteps that. */
+function longestInImageRun(
+  pts: [number, number][],
+  w: number,
+  h: number,
+): [number, number][] {
+  let bestStart = 0;
+  let bestLen = 0;
+  let curStart = -1;
+  let curLen = 0;
+  const flush = (i: number) => {
+    if (curLen > bestLen) {
+      bestLen = curLen;
+      bestStart = curStart;
+    }
+    curStart = i;
+    curLen = 0;
+  };
+  for (let i = 0; i < pts.length; i++) {
+    const [x, y] = pts[i];
+    if (x >= 0 && x <= w && y >= 0 && y <= h) {
+      if (curStart < 0) curStart = i;
+      curLen += 1;
+    } else if (curLen > 0) {
+      flush(i + 1);
+    }
+  }
+  if (curLen > bestLen) {
+    bestLen = curLen;
+    bestStart = curStart;
+  }
+  return bestLen > 0 ? pts.slice(bestStart, bestStart + bestLen) : [];
+}
+
+function distanceToPolyline(
+  point: [number, number],
+  polyline: [number, number][],
+): number {
+  let best = Infinity;
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const d = distanceToSegment(point, polyline[i], polyline[i + 1]);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+function distanceToSegment(
+  p: [number, number],
+  a: [number, number],
+  b: [number, number],
+): number {
+  const abx = b[0] - a[0];
+  const aby = b[1] - a[1];
+  const lenSq = abx * abx + aby * aby;
+  if (lenSq === 0) return Math.hypot(p[0] - a[0], p[1] - a[1]);
+  const t = Math.max(
+    0,
+    Math.min(1, ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / lenSq),
+  );
+  const cx = a[0] + t * abx;
+  const cy = a[1] + t * aby;
+  return Math.hypot(p[0] - cx, p[1] - cy);
 }
 
 interface PaneProps {
@@ -378,6 +612,8 @@ interface PaneProps {
   polylineColor?: string;
   markers?: OverlayPoint[];
   caption?: string;
+  handleRef: React.MutableRefObject<FrameCanvasHandle | null>;
+  annotation?: { px: [number, number]; text: string; color: string };
 }
 
 function Pane({
@@ -390,6 +626,8 @@ function Pane({
   polylineColor,
   markers,
   caption,
+  handleRef,
+  annotation,
 }: PaneProps) {
   if (!frame) {
     return (
@@ -410,6 +648,8 @@ function Pane({
       polylineColor={polylineColor}
       markers={markers}
       caption={caption}
+      handleRef={handleRef}
+      annotation={annotation}
     />
   );
 }
@@ -424,12 +664,15 @@ function PaneInner({
   polylineColor,
   markers,
   caption,
+  handleRef,
+  annotation,
 }: PaneProps & { frame: FrameKey }) {
   const image = useImageData(frame);
   return (
     <div className="relative flex h-full flex-col">
       <div className="relative flex-1 overflow-hidden">
         <FrameCanvas
+          ref={handleRef}
           frame={frame}
           residuals={residuals}
           image={image?.image ?? null}
@@ -443,8 +686,151 @@ function PaneInner({
           polylineColor={polylineColor}
           markers={markers}
           caption={caption}
+          annotation={annotation}
         />
       </div>
+    </div>
+  );
+}
+
+interface ZoomBarProps {
+  onFit: () => void;
+  onOneToOne: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+}
+
+function ZoomBar({ onFit, onOneToOne, onZoomIn, onZoomOut }: ZoomBarProps) {
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onZoomOut}
+        title="Zoom out"
+        aria-label="Zoom out"
+        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
+      >
+        −
+      </button>
+      <button
+        type="button"
+        onClick={onZoomIn}
+        title="Zoom in"
+        aria-label="Zoom in"
+        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
+      >
+        +
+      </button>
+      <button
+        type="button"
+        onClick={onFit}
+        title="Fit"
+        className="h-7 px-2 font-mono text-[11px]"
+      >
+        Fit
+      </button>
+      <button
+        type="button"
+        onClick={onOneToOne}
+        title="1:1"
+        className="h-7 px-2 font-mono text-[11px]"
+      >
+        1:1
+      </button>
+    </div>
+  );
+}
+
+interface ToggleProps {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  activeLabel?: string;
+  title?: string;
+}
+
+function Toggle({ active, onClick, label, activeLabel, title }: ToggleProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-7 px-2 font-mono text-[11px] ${
+        active ? "border-brand text-brand" : ""
+      }`}
+      title={title}
+    >
+      {active ? (activeLabel ?? `${label} ✓`) : label}
+    </button>
+  );
+}
+
+interface RelativePoseStripProps {
+  relativePose: ReturnType<typeof relativeCameraPose> | null;
+  cameraA: number;
+  cameraB: number;
+  ghostDistancePx: number | null;
+  pickedFeature: number | null;
+  samplesClipped: number | null;
+}
+
+function RelativePoseStrip({
+  relativePose,
+  cameraA,
+  cameraB,
+  ghostDistancePx,
+  pickedFeature,
+  samplesClipped,
+}: RelativePoseStripProps) {
+  if (!relativePose) {
+    return (
+      <div className="font-mono text-[11px] text-muted-foreground">
+        cam {cameraA} ↔ cam {cameraB}: pick two distinct cameras for relative pose
+      </div>
+    );
+  }
+  const dist = iso3DistanceM(relativePose);
+  const euler = iso3EulerXYZDeg(relativePose);
+  const angle = iso3RotationAngleDeg(relativePose);
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
+      <span>
+        cam {cameraA} ⇒ cam {cameraB}:
+      </span>
+      <span>
+        baseline <span className="text-foreground tabular-nums">{(dist * 1000).toFixed(1)} mm</span>
+      </span>
+      <span>
+        rot <span className="text-foreground tabular-nums">{angle.toFixed(2)}°</span>
+        <span className="ml-1">
+          ({euler.x.toFixed(1)}, {euler.y.toFixed(1)}, {euler.z.toFixed(1)})°
+        </span>
+      </span>
+      {pickedFeature != null && (
+        <span>
+          feature <span className="text-foreground tabular-nums">#{pickedFeature}</span>
+        </span>
+      )}
+      {ghostDistancePx != null && (
+        <span>
+          ghost Δ
+          <span
+            className={`ml-1 tabular-nums ${
+              ghostDistancePx < 1
+                ? "text-brand"
+                : ghostDistancePx < 5
+                  ? "text-foreground"
+                  : "text-destructive"
+            }`}
+          >
+            {ghostDistancePx.toFixed(2)} px
+          </span>
+        </span>
+      )}
+      {samplesClipped != null && samplesClipped > 0 && (
+        <span title="number of depth samples whose projection diverged">
+          clipped <span className="text-foreground tabular-nums">{samplesClipped}</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -482,7 +868,9 @@ function Empty({ body }: { body: string }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <header className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold tracking-tight">Epipolar geometry</h2>
+        <h2 className="text-sm font-semibold tracking-tight">
+          Epipolar geometry
+        </h2>
       </header>
       <div className="flex min-h-0 flex-1 items-center justify-center rounded-md border border-dashed border-border bg-bg-soft">
         <p className="max-w-[28rem] p-6 text-center text-[13px] text-muted-foreground">

@@ -1,85 +1,97 @@
+import { PoseStepper } from "./PoseStepper";
+
 interface PoseCameraStepperProps {
-  /** 1-indexed ordinal of the current pose within the meaningful set
-   * (the manifest's available poses for the current camera, or all
-   * distinct poses if the parent treats them globally). */
-  poseOrdinal: number;
-  /** Count of meaningful poses — the denominator in `i / N`. */
-  poseTotal: number;
-  cameraOrdinal: number;
-  cameraTotal: number;
-  /** Step the pose by `delta` (typically ±1). The parent handles
-   * wraparound and ROI-aware skipping over manifest gaps. */
-  onPoseStep: (delta: number) => void;
-  onCameraStep: (delta: number) => void;
+  poseValues: number[];
+  selectedPose: number;
+  onSelectPose: (next: number) => void;
+  cameraValues: number[];
+  selectedCamera: number;
+  onSelectCamera: (next: number) => void;
 }
 
-/** Two stepper widgets side by side: pose (◀ / ▶) and camera (◀ / ▶).
- * The arrow keys are also bound at the window level via
- * `useKeyboardNav`; these buttons are the mouse-only path. The
- * stepper itself is dumb — the parent decides what "next" means
- * (especially for sparse manifests where some `(pose, camera)`
- * combinations don't exist). */
+/** Pose + camera selectors side by side. Pose has a typeable value
+ * (handy for sparse manifests where stepping is slow); camera is a
+ * compact stepper because rigs rarely have more than a handful. */
 export function PoseCameraStepper({
-  poseOrdinal,
-  poseTotal,
-  cameraOrdinal,
-  cameraTotal,
-  onPoseStep,
-  onCameraStep,
+  poseValues,
+  selectedPose,
+  onSelectPose,
+  cameraValues,
+  selectedCamera,
+  onSelectCamera,
 }: PoseCameraStepperProps) {
   return (
     <div className="flex items-center gap-4">
-      <Stepper
-        label="pose"
-        ordinal={poseOrdinal}
-        total={poseTotal}
-        onPrev={() => onPoseStep(-1)}
-        onNext={() => onPoseStep(+1)}
+      <PoseStepper
+        poseValues={poseValues}
+        selectedPose={selectedPose}
+        onSelectPose={onSelectPose}
       />
-      <Stepper
-        label="cam"
-        ordinal={cameraOrdinal}
-        total={cameraTotal}
-        onPrev={() => onCameraStep(-1)}
-        onNext={() => onCameraStep(+1)}
+      <CameraStepper
+        cameraValues={cameraValues}
+        selectedCamera={selectedCamera}
+        onSelectCamera={onSelectCamera}
       />
     </div>
   );
 }
 
-interface StepperProps {
-  label: string;
-  ordinal: number;
-  total: number;
-  onPrev: () => void;
-  onNext: () => void;
+interface CameraStepperProps {
+  cameraValues: number[];
+  selectedCamera: number;
+  onSelectCamera: (next: number) => void;
 }
 
-function Stepper({ label, ordinal, total, onPrev, onNext }: StepperProps) {
+function CameraStepper({
+  cameraValues,
+  selectedCamera,
+  onSelectCamera,
+}: CameraStepperProps) {
+  const stepBy = (delta: number) => {
+    if (cameraValues.length === 0) return;
+    const idx = cameraValues.indexOf(selectedCamera);
+    if (idx < 0) {
+      onSelectCamera(cameraValues[delta >= 0 ? 0 : cameraValues.length - 1]);
+      return;
+    }
+    const n = cameraValues.length;
+    onSelectCamera(cameraValues[(((idx + delta) % n) + n) % n]);
+  };
+
+  const idx = cameraValues.indexOf(selectedCamera);
+  const ordinalLabel =
+    idx >= 0 ? `${idx + 1}/${cameraValues.length}` : `?/${cameraValues.length}`;
+
   return (
     <div className="flex items-center gap-1">
-      <span className="font-mono text-[11px] text-muted-foreground">{label}</span>
+      <span className="font-mono text-[11px] text-muted-foreground">cam</span>
       <button
         type="button"
-        onClick={onPrev}
-        aria-label={`previous ${label}`}
+        onClick={() => stepBy(-1)}
+        aria-label="previous camera"
         className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
-        title={`previous ${label}`}
+        title="previous camera"
       >
         ◀
       </button>
-      <span className="min-w-[3.5rem] text-center font-mono text-xs tabular-nums">
-        {ordinal} / {total}
+      <span className="min-w-[1.5rem] text-center font-mono text-xs tabular-nums">
+        {selectedCamera}
       </span>
       <button
         type="button"
-        onClick={onNext}
-        aria-label={`next ${label}`}
+        onClick={() => stepBy(+1)}
+        aria-label="next camera"
         className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
-        title={`next ${label}`}
+        title="next camera"
       >
         ▶
       </button>
+      <span
+        className="font-mono text-[10px] tabular-nums text-muted-foreground"
+        title={`${idx + 1} of ${cameraValues.length} cameras`}
+      >
+        {ordinalLabel}
+      </span>
     </div>
   );
 }
