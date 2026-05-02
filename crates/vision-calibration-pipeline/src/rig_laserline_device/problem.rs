@@ -4,7 +4,7 @@ use crate::Error;
 use crate::rig_handeye::RigHandeyeExport;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCySkew, Iso3, NoMeta,
+    BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCySkew, ImageManifest, Iso3, NoMeta,
     PerFeatureResiduals, Pinhole, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams,
     build_feature_histogram, compute_rig_target_residuals,
 };
@@ -126,6 +126,16 @@ pub struct RigLaserlineDeviceExport {
     /// are populated.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
+
+    /// Optional image manifest (ADR 0014, viewer-side contract). When
+    /// populated, downstream viewers (the diagnose / 3D / epipolar UIs)
+    /// can locate the source image for each `(pose, camera)` slot.
+    /// Tiled multi-camera frames (e.g. 6× 720×540 horizontal strips on
+    /// the puzzle 130×130 rig) point multiple `FrameRef`s at the same
+    /// `path` with disjoint ROIs. `None` means "no images shipped"; the
+    /// calibration pipeline never reads this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_manifest: Option<ImageManifest>,
 }
 
 /// Rig laserline calibration problem.
@@ -273,6 +283,80 @@ impl ProblemType for RigLaserlineDeviceProblem {
                 target_hist_per_camera: Some(target_hist_per_camera),
                 laser_hist_per_camera: Some(laser_hist_per_camera),
             },
+            // Manifest is populated by callers that wrote images for the
+            // dataset; the pipeline never has image paths to fill in.
+            image_manifest: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_minimal_export() -> RigLaserlineDeviceExport {
+        // Construct an export directly — RigLaserlineDeviceExport is
+        // `#[non_exhaustive]` so external callers can't, but in-module
+        // tests can. This keeps the manifest tests independent of the
+        // upstream calibration setup needed to drive `export()`.
+        RigLaserlineDeviceExport {
+            laser_planes_rig: Vec::new(),
+            laser_planes_cam: Vec::new(),
+            per_camera_stats: Vec::new(),
+            per_feature_residuals: PerFeatureResiduals::default(),
+            image_manifest: None,
+        }
+    }
+
+    #[test]
+    fn export_image_manifest_defaults_absent_from_wire() {
+        // ADR 0014: when the pipeline emits an export the manifest is
+        // None and `skip_serializing_if` keeps the legacy JSON byte-stable.
+        let export = make_minimal_export();
+        assert!(export.image_manifest.is_none());
+
+        let json = serde_json::to_string(&export).unwrap();
+        assert!(
+            !json.contains("image_manifest"),
+            "absent manifest must not appear on the wire"
+        );
+        let restored: RigLaserlineDeviceExport = serde_json::from_str(&json).unwrap();
+        assert!(restored.image_manifest.is_none());
+    }
+
+    #[test]
+    fn export_image_manifest_roundtrip_with_tiled_roi() {
+        // The puzzle 130×130 rig writes a single 4320×540 PNG per pose
+        // and references each of its six 720×540 camera tiles via ROI;
+        // mirror that shape here so any future change to PixelRect or
+        // FrameRef serialization is caught at PR time.
+        use vision_calibration_core::{FrameRef, ImageManifest, PixelRect};
+
+        let mut export = make_minimal_export();
+        export.image_manifest = Some(ImageManifest {
+            root: std::path::PathBuf::from("."),
+            frames: (0..6)
+                .map(|cam| FrameRef {
+                    pose: 0,
+                    camera: cam,
+                    path: std::path::PathBuf::from("target_0.png"),
+                    roi: Some(PixelRect {
+                        x: (cam as u32) * 720,
+                        y: 0,
+                        w: 720,
+                        h: 540,
+                    }),
+                })
+                .collect(),
+        });
+
+        let json = serde_json::to_string(&export).unwrap();
+        let restored: RigLaserlineDeviceExport = serde_json::from_str(&json).unwrap();
+        let manifest = restored
+            .image_manifest
+            .expect("manifest survives roundtrip");
+        assert_eq!(manifest.frames.len(), 6);
+        assert_eq!(manifest.frames[0].camera, 0);
+        assert_eq!(manifest.frames[5].roi.unwrap().x, 5 * 720);
     }
 }

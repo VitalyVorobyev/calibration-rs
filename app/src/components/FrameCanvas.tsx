@@ -34,10 +34,19 @@ interface FrameCanvasProps {
    * matching the residual frame). `null` when the cursor leaves the
    * image area. */
   onCursor?: (cursor: { x: number; y: number } | null) => void;
+  /** Called on a discrete left-click (mousedown → mouseup with little
+   * cursor movement, distinguishing it from a pan-drag) at the given
+   * image-pixel coordinates. Used by the epipolar workspace to pick a
+   * pane-A pixel for the overlay request. */
+  onPick?: (pixel: { x: number; y: number }) => void;
   /** Visual ring drawn around the canvas when this pane is the
    * keyboard-active pane in compare mode. */
   active?: boolean;
 }
+
+/** Pixel-distance threshold below which a mousedown→mouseup pair is a
+ * click (firing `onPick`) and above which it's a pan-drag. */
+const CLICK_DRAG_THRESHOLD_PX = 4;
 
 /** Imperative handle the toolbar uses to drive zoom/fit. */
 export interface FrameCanvasHandle {
@@ -61,6 +70,7 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
       onTransformChange,
       onError,
       onCursor,
+      onPick,
       active,
     },
     ref,
@@ -200,8 +210,28 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
         }));
       }
     };
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const d = dragRef.current;
       dragRef.current = null;
+      // Distinguish click from pan-drag by total cursor movement.
+      // Below the threshold we treat it as a pick; above it the user
+      // was dragging and shouldn't accidentally select a feature.
+      if (!d || !onPick) return;
+      const dx = e.clientX - d.startX;
+      const dy = e.clientY - d.startY;
+      if (Math.hypot(dx, dy) > CLICK_DRAG_THRESHOLD_PX) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const ix = (cx - transform.tx) / transform.scale;
+      const iy = (cy - transform.ty) / transform.scale;
+      const sw = roi?.w ?? image?.naturalWidth ?? 0;
+      const sh = roi?.h ?? image?.naturalHeight ?? 0;
+      if (ix >= 0 && iy >= 0 && ix < sw && iy < sh) {
+        onPick({ x: ix, y: iy });
+      }
     };
     const handleMouseLeave = () => {
       dragRef.current = null;

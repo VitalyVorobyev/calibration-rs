@@ -1,29 +1,35 @@
-//! Tauri 2 backend for the calibration-rs diagnose viewer (B0).
+//! Tauri 2 backend for the calibration-rs diagnose viewer.
 //!
-//! See `app/README.md` and `docs/adrs/0014-tauri-desktop-app.md` for the
-//! v0 scope. The backend exposes exactly two commands:
+//! Commands exposed to the React frontend:
 //!
 //! - [`commands::load_export`] — read + parse an `export.json` produced
 //!   by the calibration library, return its parsed contents and the
 //!   absolute directory it lives in (so the frontend can resolve the
-//!   image manifest's relative paths).
-//! - [`commands::load_image`] — read a PNG file from disk, return a
-//!   `data:` URL the webview can drop into a `<canvas>` via
-//!   `Image()`.
-//!
-//! No long-lived state, no calibration mutation, no IPC events — the
-//! viewer is a one-way passive consumer of an export bundle.
+//!   image manifest's relative paths). Also caches the parsed JSON for
+//!   downstream math commands.
+//! - [`commands::load_image`] — read an image file from disk, return a
+//!   `data:` URL the webview can drop into a `<canvas>` via `Image()`.
+//! - [`commands::compute_epipolar_overlay`] — server-side epipolar line
+//!   computation through the canonical camera models in
+//!   `vision_calibration_core`. See ADR 0014 for the architecture
+//!   rationale (no TS-side projection).
 
 mod commands;
+mod epipolar;
+mod export_cache;
 
-/// Entry point invoked from `main.rs`. Wires up the dialog plugin and
-/// the two viewer commands and starts the Tauri runtime.
+use export_cache::ExportCache;
+
+/// Entry point invoked from `main.rs`. Wires up the dialog plugin, the
+/// shared export cache, and the viewer + math commands.
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(ExportCache::new())
         .invoke_handler(tauri::generate_handler![
             commands::load_export,
             commands::load_image,
+            commands::compute_epipolar_overlay,
         ])
         .run(tauri::generate_context!())
         .expect("failed to launch calibration-diagnose");

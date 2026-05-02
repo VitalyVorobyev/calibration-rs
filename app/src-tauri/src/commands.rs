@@ -9,11 +9,15 @@
 use base64::Engine;
 use serde::Serialize;
 use std::path::PathBuf;
+use tauri::State;
+
+use crate::epipolar::{self, EpipolarOverlay};
+use crate::export_cache::ExportCache;
 
 /// Successful response for [`load_export`].
 #[derive(Serialize)]
 pub struct LoadExportResult {
-    /// Raw parsed export JSON. The frontend treats this as `PlanarExport`
+    /// Raw parsed export JSON. The frontend treats this as `AnyExport`
     /// (subset interface) and ignores fields it does not render.
     pub export: serde_json::Value,
     /// Absolute path to the directory containing `export.json`. The
@@ -23,9 +27,14 @@ pub struct LoadExportResult {
     pub export_dir: String,
 }
 
-/// Read and parse a calibration export JSON file.
+/// Read and parse a calibration export JSON file. Also populates the
+/// [`ExportCache`] so [`compute_epipolar_overlay`] can reuse the parsed
+/// JSON without going back to disk.
 #[tauri::command]
-pub async fn load_export(path: String) -> Result<LoadExportResult, String> {
+pub async fn load_export(
+    path: String,
+    cache: State<'_, ExportCache>,
+) -> Result<LoadExportResult, String> {
     let p = PathBuf::from(&path);
     let parent = p
         .parent()
@@ -39,6 +48,9 @@ pub async fn load_export(path: String) -> Result<LoadExportResult, String> {
         .map_err(|e| format!("canonicalize {}: {e}", parent.display()))?
         .to_string_lossy()
         .into_owned();
+
+    cache.set(path.clone(), export.clone());
+
     Ok(LoadExportResult { export, export_dir })
 }
 
@@ -51,6 +63,27 @@ pub async fn load_image(path: String) -> Result<String, String> {
     let mime = mime_for(&path);
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{mime};base64,{b64}"))
+}
+
+/// Compute the epipolar polyline + epipole for a click in pane A.
+///
+/// Reads the most recently loaded export from [`ExportCache`] (no disk
+/// I/O), backprojects `point_px` through cam-A's full distortion +
+/// (optional) Scheimpflug chain, transforms the resulting ray into
+/// cam-B's frame via the rig extrinsics, and projects 64 logarithmically
+/// spaced depth samples through cam-B's full chain. The returned line
+/// is in distorted pane-B pixel coordinates and can be rendered as an
+/// SVG `<polyline>` directly.
+#[tauri::command]
+pub async fn compute_epipolar_overlay(
+    cam_a: usize,
+    cam_b: usize,
+    point_px: [f64; 2],
+    cache: State<'_, ExportCache>,
+) -> Result<EpipolarOverlay, String> {
+    cache
+        .read(|cached| epipolar::compute_overlay(&cached.value, cam_a, cam_b, point_px))
+        .ok_or_else(|| "no export loaded yet".to_string())?
 }
 
 fn mime_for(path: &str) -> &'static str {
