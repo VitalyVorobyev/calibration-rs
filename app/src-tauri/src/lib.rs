@@ -31,8 +31,11 @@ pub fn run() {
             commands::load_export,
             commands::set_active_export,
             commands::load_image,
+            commands::load_undistorted_image,
             commands::load_text_file,
             commands::compute_epipolar_overlay,
+            commands::compute_epipolar_overlay_undistorted,
+            commands::undistort_points,
             run::run_calibration_cmd,
         ])
         .run(tauri::generate_context!())

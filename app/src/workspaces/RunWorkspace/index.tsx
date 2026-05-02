@@ -22,9 +22,10 @@ import * as TOML from "toml";
 
 import { ConfigForm, type JsonSchema } from "../../lib/configForm";
 import { runCalibration, type RunResponse } from "../../lib/runCalibration";
-import { isTauriContext, joinPath } from "../../lib/tauri";
+import { isTauriContext } from "../../lib/tauri";
 import datasetSchemaJson from "../../schemas/dataset_spec.json";
 import planarConfigSchemaJson from "../../schemas/planar_intrinsics_config.json";
+import { useStore } from "../../store";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { PresetCard } from "./PresetCard";
 import { BUILTIN_PRESETS, type EnabledPreset } from "./presets";
@@ -60,7 +61,7 @@ const DEFAULT_PLANAR_CONFIG: unknown = {
   zero_skew: true,
   max_iters: 50,
   verbosity: 0,
-  robust_loss: { type: "None" },
+  robust_loss: "None",
   fix_intrinsics: { fx: false, fy: false, cx: false, cy: false },
   fix_distortion: { k1: false, k2: false, k3: true, p1: false, p2: false },
   fix_poses: [],
@@ -81,6 +82,7 @@ type RunStatus =
 export function RunWorkspace() {
   const navigate = useNavigate();
   const inTauri = isTauriContext();
+  const acceptLiveRunExport = useStore((s) => s.acceptLiveRunExport);
 
   // Preset state — null means "no preset selected / custom".
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
@@ -118,7 +120,7 @@ export function RunWorkspace() {
   const configSummary = useMemo<string>(() => {
     const c = config as Record<string, unknown>;
     const iters = typeof c?.max_iters === "number" ? c.max_iters : "?";
-    const loss = (c?.robust_loss as Record<string, unknown> | undefined)?.type ?? "None";
+    const loss = robustLossLabel(c?.robust_loss);
     return `max_iters=${iters} · loss=${loss}`;
   }, [config]);
 
@@ -246,6 +248,9 @@ export function RunWorkspace() {
 
   const handleResponse = (response: RunResponse) => {
     if (response.kind === "ok") {
+      if (manifestDir) {
+        acceptLiveRunExport(response.export, manifestDir);
+      }
       setStatus({
         kind: "ok",
         durationMs: response.duration_ms,
@@ -379,6 +384,17 @@ export function RunWorkspace() {
       </CollapsibleSection>
     </div>
   );
+}
+
+function robustLossLabel(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.type === "string") return obj.type;
+    const key = Object.keys(obj)[0];
+    if (key) return key;
+  }
+  return "None";
 }
 
 // ── Quick-start grid ─────────────────────────────────────────────────────────
@@ -597,8 +613,3 @@ function SpinnerIcon() {
     </svg>
   );
 }
-
-// Keep joinPath in scope (it's imported at the top and referenced in
-// path-derivation logic; TypeScript would otherwise flag it unused).
-// The actual invocations are inside the handlers above.
-void joinPath; // used: imported from lib/tauri for path building in handlePickManifest

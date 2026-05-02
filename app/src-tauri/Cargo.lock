@@ -614,6 +614,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "dirs 5.0.1",
+ "image",
  "nalgebra",
  "serde",
  "serde_json",
