@@ -1,0 +1,392 @@
+{
+  "$defs": {
+    "DistortionFixMask": {
+      "description": "Mask for fixing distortion parameters during optimization.\n\nSupports Brown-Conrady distortion model with:\n- Radial coefficients: k1, k2, k3\n- Tangential coefficients: p1, p2\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Default\n\nBy default, `k3` is fixed because it often causes overfitting with\ntypical calibration data. Only enable k3 optimization for wide-angle\nlenses or with high-quality calibration data.\n\n# Example\n\n```\nuse vision_calibration_core::DistortionFixMask;\n\n// Default: k3 fixed, others free\nlet mask = DistortionFixMask::default();\nassert!(!mask.k1);\nassert!(mask.k3); // k3 fixed by default\n\n// Fix tangential distortion\nlet mask = DistortionFixMask {\n    p1: true,\n    p2: true,\n    ..Default::default()\n};\n```",
+      "properties": {
+        "k1": {
+          "description": "Fix first radial distortion coefficient.",
+          "type": "boolean"
+        },
+        "k2": {
+          "description": "Fix second radial distortion coefficient.",
+          "type": "boolean"
+        },
+        "k3": {
+          "description": "Fix third radial distortion coefficient (fixed by default).",
+          "type": "boolean"
+        },
+        "p1": {
+          "description": "Fix first tangential distortion coefficient.",
+          "type": "boolean"
+        },
+        "p2": {
+          "description": "Fix second tangential distortion coefficient.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "k1",
+        "k2",
+        "k3",
+        "p1",
+        "p2"
+      ],
+      "type": "object"
+    },
+    "HandEyeMode": {
+      "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",
+      "oneOf": [
+        {
+          "const": "EyeInHand",
+          "description": "Camera mounted on robot end-effector (gripper).\n\nTransform chain: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world",
+          "type": "string"
+        },
+        {
+          "const": "EyeToHand",
+          "description": "Camera fixed in workspace, observes robot end-effector.\n\nTransform chain: P_camera = extr^-1 * handeye * robot * target * P_world",
+          "type": "string"
+        }
+      ]
+    },
+    "RigHandeyeBaConfig": {
+      "description": "Hand-eye bundle-adjustment options.",
+      "properties": {
+        "refine_cam_se3_rig_in_handeye_ba": {
+          "description": "Refine cam_se3_rig in hand-eye BA (default: false).\nWhen true, rig extrinsics are further refined during hand-eye optimization.",
+          "type": "boolean"
+        },
+        "refine_robot_poses": {
+          "description": "Refine robot poses in hand-eye BA (default: true).",
+          "type": "boolean"
+        },
+        "refine_scheimpflug_in_handeye_ba": {
+          "default": false,
+          "description": "Refine Scheimpflug tilt parameters in hand-eye BA (default: false).\nOnly consulted when [`SensorMode::Scheimpflug`] is configured; ignored\nfor [`SensorMode::Pinhole`].",
+          "type": "boolean"
+        },
+        "robot_rot_sigma": {
+          "description": "Robot rotation sigma for prior (radians). Default: 0.5° ≈ 0.0087 rad.",
+          "format": "double",
+          "type": "number"
+        },
+        "robot_trans_sigma": {
+          "description": "Robot translation sigma for prior (meters). Default: 1mm = 0.001.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "refine_robot_poses",
+        "robot_rot_sigma",
+        "robot_trans_sigma",
+        "refine_cam_se3_rig_in_handeye_ba"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeInitConfig": {
+      "description": "Hand-eye linear initialization options for rig hand-eye calibration.",
+      "properties": {
+        "handeye_mode": {
+          "$ref": "#/$defs/HandEyeMode",
+          "description": "Hand-eye mode: EyeInHand or EyeToHand."
+        },
+        "min_motion_angle_deg": {
+          "description": "Minimum motion angle (degrees) for linear hand-eye initialization.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "handeye_mode",
+        "min_motion_angle_deg"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeIntrinsicsConfig": {
+      "description": "Per-camera intrinsics initialization options for rig hand-eye calibration.",
+      "properties": {
+        "fix_k3": {
+          "description": "Fix k3 during intrinsics calibration.",
+          "type": "boolean"
+        },
+        "fix_tangential": {
+          "description": "Fix tangential distortion (p1, p2).",
+          "type": "boolean"
+        },
+        "init_iterations": {
+          "description": "Number of iterations for iterative intrinsics estimation.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "zero_skew": {
+          "description": "Enforce zero skew.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "init_iterations",
+        "fix_k3",
+        "fix_tangential",
+        "zero_skew"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeRigConfig": {
+      "description": "Rig-specific options for rig hand-eye calibration.",
+      "properties": {
+        "fix_first_rig_pose": {
+          "description": "Fix first rig pose for gauge freedom (default: true, fixes view 0).",
+          "type": "boolean"
+        },
+        "reference_camera_idx": {
+          "description": "Reference camera index for rig frame (identity extrinsics).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "refine_intrinsics_in_rig_ba": {
+          "description": "Re-refine intrinsics in rig BA (default: false).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "reference_camera_idx",
+        "refine_intrinsics_in_rig_ba",
+        "fix_first_rig_pose"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeSolverConfig": {
+      "description": "Solver options shared across rig and hand-eye optimization stages.",
+      "properties": {
+        "max_iters": {
+          "description": "Maximum iterations for optimization.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "robust_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss function for outlier handling."
+        },
+        "verbosity": {
+          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_iters",
+        "verbosity",
+        "robust_loss"
+      ],
+      "type": "object"
+    },
+    "RobustLoss": {
+      "description": "Robust loss applied to a residual block.\n\nEach residual block has its own loss; per-point robustification is achieved\nby using one residual block per observation.",
+      "oneOf": [
+        {
+          "const": "None",
+          "description": "No robustification (plain squared residual).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Huber loss with transition scale.",
+          "properties": {
+            "Huber": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling quadratic-to-linear transition.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Huber"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Cauchy loss with scale parameter.",
+          "properties": {
+            "Cauchy": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling outlier down-weighting.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Cauchy"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Arctangent loss with bounded influence.",
+          "properties": {
+            "Arctan": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling curvature.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Arctan"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ScheimpflugFixMask": {
+      "description": "Mask for Scheimpflug tilt parameters.",
+      "properties": {
+        "tilt_x": {
+          "description": "Keep `tilt_x` fixed during optimization.",
+          "type": "boolean"
+        },
+        "tilt_y": {
+          "description": "Keep `tilt_y` fixed during optimization.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "tilt_x",
+        "tilt_y"
+      ],
+      "type": "object"
+    },
+    "SensorMode": {
+      "description": "Sensor flavour for rig calibration workflows.\n\n`Pinhole` is the default and matches a standard multi-camera rig with\npure pinhole + Brown-Conrady distortion projection. `Scheimpflug` adds\nper-camera tilt parameters; per-camera intrinsics share the pinhole core\nbut include a tilted sensor plane in projection.\n\nThe `Scheimpflug` variant carries its own bootstrap defaults and BA-stage\nfix masks so the rest of the workflow config stays shared between flavours.\n\nRe-exported by [`crate::rig_extrinsics::SensorMode`] and\n[`crate::rig_handeye::SensorMode`] (single source of truth in `rig_family`).",
+      "oneOf": [
+        {
+          "description": "Pinhole + Brown-Conrady projection (no sensor tilt).",
+          "properties": {
+            "kind": {
+              "const": "Pinhole",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Pinhole + Brown-Conrady + Scheimpflug-tilted sensor.",
+          "properties": {
+            "distortion_mask_in_percam_ba": {
+              "$ref": "#/$defs/DistortionFixMask",
+              "default": {
+                "k1": false,
+                "k2": false,
+                "k3": true,
+                "p1": true,
+                "p2": true
+              },
+              "description": "Distortion mask applied during per-camera Scheimpflug intrinsics\nrefinement. Defaults to [`DistortionFixMask::radial_only`]\n(k1, k2 free; k3, p1, p2 fixed) — a safe choice for typical\nScheimpflug rigs where tangential distortion can absorb tilt-like\nsignal. Narrow-FOV rigs that overfit k2 may want\n`(k1, p1, p2) free, (k2, k3) fixed` instead."
+            },
+            "fix_scheimpflug_in_intrinsics": {
+              "$ref": "#/$defs/ScheimpflugFixMask",
+              "default": {
+                "tilt_x": false,
+                "tilt_y": false
+              },
+              "description": "Mask for Scheimpflug parameters during per-camera intrinsics refinement."
+            },
+            "init_tilt_x": {
+              "default": 0.0,
+              "description": "Initial Scheimpflug tilt around X (radians) — used only when no\nper-camera sensor seed is supplied via the workflow's manual init.",
+              "format": "double",
+              "type": "number"
+            },
+            "init_tilt_y": {
+              "default": 0.0,
+              "description": "Initial Scheimpflug tilt around Y (radians) — same convention.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "Scheimpflug",
+              "type": "string"
+            },
+            "refine_scheimpflug_in_rig_ba": {
+              "default": false,
+              "description": "Re-refine Scheimpflug parameters in rig BA (default: false).",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Configuration for multi-camera rig hand-eye calibration.\n\nShared between pinhole and Scheimpflug rigs; the [`SensorMode`] field\n`sensor` selects the sensor flavour.",
+  "properties": {
+    "handeye_ba": {
+      "$ref": "#/$defs/RigHandeyeBaConfig",
+      "description": "Final hand-eye bundle-adjustment options."
+    },
+    "handeye_init": {
+      "$ref": "#/$defs/RigHandeyeInitConfig",
+      "description": "Hand-eye linear initialization options."
+    },
+    "intrinsics": {
+      "$ref": "#/$defs/RigHandeyeIntrinsicsConfig",
+      "description": "Per-camera intrinsics initialization options."
+    },
+    "rig": {
+      "$ref": "#/$defs/RigHandeyeRigConfig",
+      "description": "Rig and gauge options."
+    },
+    "sensor": {
+      "$ref": "#/$defs/SensorMode",
+      "default": {
+        "kind": "Pinhole"
+      },
+      "description": "Sensor flavour (pinhole or Scheimpflug). Default is `Pinhole`."
+    },
+    "solver": {
+      "$ref": "#/$defs/RigHandeyeSolverConfig",
+      "description": "Shared solver settings for optimization stages."
+    }
+  },
+  "required": [
+    "intrinsics",
+    "rig",
+    "handeye_init",
+    "solver",
+    "handeye_ba"
+  ],
+  "title": "RigHandeyeConfig",
+  "type": "object"
+}

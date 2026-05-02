@@ -11,15 +11,28 @@ authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
 
+[features]
+schemars = [
+    "dep:schemars",
+    "vision-calibration-core/schemars",
+    "vision-calibration-optim/schemars",
+]
+
 [dependencies]
 vision-calibration-core = { workspace = true }
 vision-calibration-linear = { workspace = true }
 vision-calibration-optim = { workspace = true }
+vision-calibration-dataset = { workspace = true }
+vision-calibration-detect = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 nalgebra = { workspace = true }
+image = { workspace = true }
+glob = { workspace = true }
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+tempfile = "3"

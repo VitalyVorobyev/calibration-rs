@@ -21,6 +21,7 @@ pub type ScheimpflugIntrinsicsInput = PlanarDataset;
 
 /// Optimization mask for Scheimpflug tilt parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ScheimpflugFixMask {
     /// Keep `tilt_x` fixed during optimization.
     pub tilt_x: bool,
@@ -44,6 +45,7 @@ impl ScheimpflugFixMask {
 
 /// Configuration for planar Scheimpflug intrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ScheimpflugIntrinsicsConfig {
     /// Number of iterative linear intrinsics initialization rounds.

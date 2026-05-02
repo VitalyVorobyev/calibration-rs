@@ -39,6 +39,7 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 /// Shared between pinhole and Scheimpflug rigs; the [`SensorMode`] field
 /// `sensor` selects the sensor flavour.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigExtrinsicsConfig {
     // ─────────────────────────────────────────────────────────────────────────

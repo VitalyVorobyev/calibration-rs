@@ -100,6 +100,7 @@ pub struct RigLaserlineDeviceInput {
 
 /// Configuration for rig laserline calibration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigLaserlineDeviceConfig {
     /// Maximum solver iterations.
