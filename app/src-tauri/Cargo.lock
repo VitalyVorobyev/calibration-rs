@@ -254,12 +254,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "nalgebra",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "vision-calibration",
+ "vision-calibration-core",
 ]
 
 [[package]]

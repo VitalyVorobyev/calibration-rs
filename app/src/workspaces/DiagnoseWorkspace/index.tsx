@@ -33,6 +33,8 @@ export function DiagnoseWorkspace() {
   const cameraB = useStore((s) => s.cameraB);
   const stepPose = useStore((s) => s.stepPose);
   const stepCamera = useStore((s) => s.stepCamera);
+  const setSelectedPose = useStore((s) => s.setSelectedPose);
+  const setCamera = useStore((s) => s.setCamera);
 
   // Diagnose-specific UI state stays local — these affordances don't
   // exist in the other workspaces.
@@ -187,17 +189,12 @@ export function DiagnoseWorkspace() {
       <div className="flex flex-wrap items-center gap-3">
         {data && (
           <PoseCameraStepper
-            poseOrdinal={
-              poseValues.indexOf(which === "B" ? selectedPoseB : selectedPose) +
-              1
-            }
-            poseTotal={poseValues.length}
-            cameraOrdinal={
-              cameraValues.indexOf(which === "B" ? cameraB : cameraA) + 1
-            }
-            cameraTotal={cameraValues.length}
-            onPoseStep={onPoseStep}
-            onCameraStep={onCameraStep}
+            poseValues={poseValues}
+            selectedPose={which === "B" ? selectedPoseB : selectedPose}
+            onSelectPose={(next) => setSelectedPose(next, which)}
+            cameraValues={cameraValues}
+            selectedCamera={which === "B" ? cameraB : cameraA}
+            onSelectCamera={(next) => setCamera(next, which)}
           />
         )}
         {data && (
@@ -293,20 +290,23 @@ export function DiagnoseWorkspace() {
       </div>
 
       {data && frame && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        // Reserve a stable height so the panel doesn't shimmy when the
+        // histogram briefly drops out during a frame switch (imageData
+        // unloads → roiHistogram becomes null until the next decode).
+        // The histogram block always mounts; its bins go empty during
+        // the gap and re-fill once decode lands.
+        <div className="flex min-h-[3.25rem] flex-wrap items-center gap-x-4 gap-y-2">
           <ResidualLegend
             residuals={data.per_feature_residuals.target.filter(
               (r) => r.pose === frame.pose && r.camera === frame.camera,
             )}
           />
-          {roiHistogram && (
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                histogram
-              </span>
-              <Histogram bins={roiHistogram} cursorBin={cursorBin} />
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              histogram
+            </span>
+            <Histogram bins={roiHistogram ?? []} cursorBin={cursorBin} />
+          </div>
           <CursorChip cursor={cursor} />
         </div>
       )}

@@ -9,11 +9,15 @@
 use base64::Engine;
 use serde::Serialize;
 use std::path::PathBuf;
+use tauri::State;
+
+use crate::epipolar::{self, EpipolarOverlay};
+use crate::export_cache::ExportCache;
 
 /// Successful response for [`load_export`].
 #[derive(Serialize)]
 pub struct LoadExportResult {
-    /// Raw parsed export JSON. The frontend treats this as `PlanarExport`
+    /// Raw parsed export JSON. The frontend treats this as `AnyExport`
     /// (subset interface) and ignores fields it does not render.
     pub export: serde_json::Value,
     /// Absolute path to the directory containing `export.json`. The
@@ -23,7 +27,12 @@ pub struct LoadExportResult {
     pub export_dir: String,
 }
 
-/// Read and parse a calibration export JSON file.
+/// Read and parse a calibration export JSON file. Does NOT cache the
+/// result — the frontend validates the export (e.g. requires
+/// `image_manifest`) before the user can interact with it, and a
+/// rejected export must not displace the cache the previous session is
+/// still using. The frontend calls [`set_active_export`] explicitly
+/// once it accepts the file.
 #[tauri::command]
 pub async fn load_export(path: String) -> Result<LoadExportResult, String> {
     let p = PathBuf::from(&path);
@@ -39,7 +48,25 @@ pub async fn load_export(path: String) -> Result<LoadExportResult, String> {
         .map_err(|e| format!("canonicalize {}: {e}", parent.display()))?
         .to_string_lossy()
         .into_owned();
+
     Ok(LoadExportResult { export, export_dir })
+}
+
+/// Commit the export the frontend has accepted as the active dataset.
+///
+/// Called by the frontend after [`load_export`] returned and the
+/// frontend's validation (image_manifest required, frames non-empty,
+/// …) passed. Writes `path` + the parsed `export` into the
+/// [`ExportCache`] so subsequent math commands operate on exactly the
+/// dataset the user is looking at.
+#[tauri::command]
+pub async fn set_active_export(
+    path: String,
+    export: serde_json::Value,
+    cache: State<'_, ExportCache>,
+) -> Result<(), String> {
+    cache.set(path, export);
+    Ok(())
 }
 
 /// Read an image file and return it as a `data:` URL the webview can use
@@ -51,6 +78,27 @@ pub async fn load_image(path: String) -> Result<String, String> {
     let mime = mime_for(&path);
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{mime};base64,{b64}"))
+}
+
+/// Compute the epipolar polyline + epipole for a click in pane A.
+///
+/// Reads the most recently loaded export from [`ExportCache`] (no disk
+/// I/O), backprojects `point_px` through cam-A's full distortion +
+/// (optional) Scheimpflug chain, transforms the resulting ray into
+/// cam-B's frame via the rig extrinsics, and projects 64 logarithmically
+/// spaced depth samples through cam-B's full chain. The returned line
+/// is in distorted pane-B pixel coordinates and can be rendered as an
+/// SVG `<polyline>` directly.
+#[tauri::command]
+pub async fn compute_epipolar_overlay(
+    cam_a: usize,
+    cam_b: usize,
+    point_px: [f64; 2],
+    cache: State<'_, ExportCache>,
+) -> Result<EpipolarOverlay, String> {
+    cache
+        .read(|cached| epipolar::compute_overlay(&cached.value, cam_a, cam_b, point_px))
+        .ok_or_else(|| "no export loaded yet".to_string())?
 }
 
 fn mime_for(path: &str) -> &'static str {
