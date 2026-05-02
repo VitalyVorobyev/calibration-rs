@@ -5,7 +5,7 @@ use calib_targets::chessboard::{Detection as ChessboardDetection, DetectorParams
 use calib_targets::detect;
 use chess_corners::ChessConfig;
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::RigExtrinsicsInput;
 
@@ -17,6 +17,15 @@ pub struct StereoDatasetSummary {
     pub skipped_views: usize,
     pub usable_left: usize,
     pub usable_right: usize,
+    /// Per-accepted-view absolute paths `[left, right]`. Indexed by the
+    /// view's position in the resulting `RigExtrinsicsInput` (so the
+    /// pose index in any downstream `*Export` matches the slot here).
+    /// Populated for every view pushed into the dataset, including
+    /// views where detection failed on one of the two cameras.
+    /// Read by the `viewer_fixtures` example; the existing
+    /// `stereo_session` / `manual_init_proof` examples ignore it.
+    #[allow(dead_code)]
+    pub view_paths: Vec<[PathBuf; 2]>,
 }
 
 /// Load stereo dataset from images directory.
@@ -60,6 +69,7 @@ where
 
     let total_pairs = indices.len();
     let mut views = Vec::new();
+    let mut view_paths: Vec<[PathBuf; 2]> = Vec::new();
     let mut usable_left = 0usize;
     let mut usable_right = 0usize;
     let mut skipped_views = 0usize;
@@ -100,6 +110,7 @@ where
                 cameras: vec![left, right],
             },
         });
+        view_paths.push([left_path, right_path]);
     }
 
     ensure!(
@@ -115,6 +126,7 @@ where
         skipped_views,
         usable_left,
         usable_right,
+        view_paths,
     };
 
     use vision_calibration::core::RigDataset;
