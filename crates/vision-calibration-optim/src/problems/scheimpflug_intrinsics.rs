@@ -20,6 +20,7 @@ use vision_calibration_core::{
 
 /// Mask for Scheimpflug tilt parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ScheimpflugFixMask {
     /// Keep `tilt_x` fixed during optimization.
     pub tilt_x: bool,

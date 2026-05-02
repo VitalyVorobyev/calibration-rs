@@ -32,6 +32,10 @@ anyhow = "1"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 vision-calibration = { path = "../../crates/vision-calibration" }
 vision-calibration-core = { path = "../../crates/vision-calibration-core" }
+vision-calibration-pipeline = { path = "../../crates/vision-calibration-pipeline" }
+vision-calibration-dataset = { path = "../../crates/vision-calibration-dataset" }
+vision-calibration-detect = { path = "../../crates/vision-calibration-detect" }
+dirs = "5"
 
 [features]
 # Avoid touching the embed_plist build hooks unless explicitly running

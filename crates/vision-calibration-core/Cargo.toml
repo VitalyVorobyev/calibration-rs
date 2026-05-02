@@ -13,6 +13,7 @@ repository.workspace = true
 
 [features]
 tracing = ["dep:tracing"]
+schemars = ["dep:schemars"]
 
 [dependencies]
 nalgebra = { workspace = true }
@@ -21,6 +22,7 @@ rand = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true, optional=true }
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

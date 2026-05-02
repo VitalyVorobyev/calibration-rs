@@ -1,0 +1,24 @@
+[package]
+name = "vision-calibration-dataset"
+description = "Canonical input-data manifest (DatasetSpec) for calibration-rs"
+readme = "README.md"
+keywords = ["camera", "calibration", "computer-vision", "dataset", "manifest"]
+categories = ["computer-vision"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[features]
+schemars = ["dep:schemars"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -42,6 +42,7 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 /// Shared between pinhole and Scheimpflug rigs; the [`SensorMode`] field
 /// `sensor` selects the sensor flavour.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeConfig {
     /// Per-camera intrinsics initialization options.
@@ -61,6 +62,7 @@ pub struct RigHandeyeConfig {
 
 /// Per-camera intrinsics initialization options for rig hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeIntrinsicsConfig {
     /// Number of iterations for iterative intrinsics estimation.
@@ -86,6 +88,7 @@ impl Default for RigHandeyeIntrinsicsConfig {
 
 /// Rig-specific options for rig hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeRigConfig {
     /// Reference camera index for rig frame (identity extrinsics).
@@ -108,6 +111,7 @@ impl Default for RigHandeyeRigConfig {
 
 /// Hand-eye linear initialization options for rig hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeInitConfig {
     /// Hand-eye mode: EyeInHand or EyeToHand.
@@ -127,6 +131,7 @@ impl Default for RigHandeyeInitConfig {
 
 /// Solver options shared across rig and hand-eye optimization stages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeSolverConfig {
     /// Maximum iterations for optimization.
@@ -149,6 +154,7 @@ impl Default for RigHandeyeSolverConfig {
 
 /// Hand-eye bundle-adjustment options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeBaConfig {
     /// Refine robot poses in hand-eye BA (default: true).

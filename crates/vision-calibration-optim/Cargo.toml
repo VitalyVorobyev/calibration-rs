@@ -11,6 +11,9 @@ authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
 
+[features]
+schemars = ["dep:schemars", "vision-calibration-core/schemars"]
+
 [dependencies]
 vision-calibration-core = { workspace = true }
 nalgebra = { workspace = true }
@@ -20,6 +23,7 @@ tiny-solver = { workspace = true }
 faer = { workspace = true }
 faer-ext = { workspace = true }
 serde = { workspace = true }
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 vision-calibration-linear = { workspace = true }

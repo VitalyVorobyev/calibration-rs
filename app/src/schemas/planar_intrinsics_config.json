@@ -1,0 +1,213 @@
+{
+  "$defs": {
+    "DistortionFixMask": {
+      "description": "Mask for fixing distortion parameters during optimization.\n\nSupports Brown-Conrady distortion model with:\n- Radial coefficients: k1, k2, k3\n- Tangential coefficients: p1, p2\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Default\n\nBy default, `k3` is fixed because it often causes overfitting with\ntypical calibration data. Only enable k3 optimization for wide-angle\nlenses or with high-quality calibration data.\n\n# Example\n\n```\nuse vision_calibration_core::DistortionFixMask;\n\n// Default: k3 fixed, others free\nlet mask = DistortionFixMask::default();\nassert!(!mask.k1);\nassert!(mask.k3); // k3 fixed by default\n\n// Fix tangential distortion\nlet mask = DistortionFixMask {\n    p1: true,\n    p2: true,\n    ..Default::default()\n};\n```",
+      "properties": {
+        "k1": {
+          "description": "Fix first radial distortion coefficient.",
+          "type": "boolean"
+        },
+        "k2": {
+          "description": "Fix second radial distortion coefficient.",
+          "type": "boolean"
+        },
+        "k3": {
+          "description": "Fix third radial distortion coefficient (fixed by default).",
+          "type": "boolean"
+        },
+        "p1": {
+          "description": "Fix first tangential distortion coefficient.",
+          "type": "boolean"
+        },
+        "p2": {
+          "description": "Fix second tangential distortion coefficient.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "k1",
+        "k2",
+        "k3",
+        "p1",
+        "p2"
+      ],
+      "type": "object"
+    },
+    "IntrinsicsFixMask": {
+      "description": "Mask for fixing intrinsics parameters during optimization.\n\nEach field corresponds to a component of the camera matrix K:\n```text\nK = | fx   skew  cx |\n    | 0    fy    cy |\n    | 0    0     1  |\n```\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Example\n\n```\nuse vision_calibration_core::IntrinsicsFixMask;\n\n// Fix only the principal point\nlet mask = IntrinsicsFixMask {\n    cx: true,\n    cy: true,\n    ..Default::default()\n};\n\nassert!(!mask.fx); // fx will be optimized\nassert!(mask.cx);  // cx is fixed\n```",
+      "properties": {
+        "cx": {
+          "description": "Fix principal point x component.",
+          "type": "boolean"
+        },
+        "cy": {
+          "description": "Fix principal point y component.",
+          "type": "boolean"
+        },
+        "fx": {
+          "description": "Fix focal length x component.",
+          "type": "boolean"
+        },
+        "fy": {
+          "description": "Fix focal length y component.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fx",
+        "fy",
+        "cx",
+        "cy"
+      ],
+      "type": "object"
+    },
+    "RobustLoss": {
+      "description": "Robust loss applied to a residual block.\n\nEach residual block has its own loss; per-point robustification is achieved\nby using one residual block per observation.",
+      "oneOf": [
+        {
+          "const": "None",
+          "description": "No robustification (plain squared residual).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Huber loss with transition scale.",
+          "properties": {
+            "Huber": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling quadratic-to-linear transition.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Huber"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Cauchy loss with scale parameter.",
+          "properties": {
+            "Cauchy": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling outlier down-weighting.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Cauchy"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Arctangent loss with bounded influence.",
+          "properties": {
+            "Arctan": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling curvature.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Arctan"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Configuration for planar intrinsics calibration.\n\nContains settings for both initialization and optimization phases.",
+  "properties": {
+    "fix_distortion": {
+      "$ref": "#/$defs/DistortionFixMask",
+      "description": "Mask for fixing distortion parameters during optimization."
+    },
+    "fix_intrinsics": {
+      "$ref": "#/$defs/IntrinsicsFixMask",
+      "description": "Mask for fixing intrinsic parameters during optimization."
+    },
+    "fix_k3_in_init": {
+      "description": "Fix k3 during initialization (recommended for typical lenses).",
+      "type": "boolean"
+    },
+    "fix_poses": {
+      "description": "Indices of poses to fix during optimization (e.g., \\[0\\] to fix first pose).",
+      "items": {
+        "format": "uint",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "type": "array"
+    },
+    "fix_tangential_in_init": {
+      "description": "Fix tangential distortion (p1, p2) during initialization.",
+      "type": "boolean"
+    },
+    "init_iterations": {
+      "description": "Number of iterations for iterative intrinsics estimation.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_iters": {
+      "description": "Maximum iterations for the optimizer.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "robust_loss": {
+      "$ref": "#/$defs/RobustLoss",
+      "description": "Robust loss function for outlier handling."
+    },
+    "verbosity": {
+      "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "zero_skew": {
+      "description": "Enforce zero skew during initialization.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "init_iterations",
+    "fix_k3_in_init",
+    "fix_tangential_in_init",
+    "zero_skew",
+    "max_iters",
+    "verbosity",
+    "robust_loss",
+    "fix_intrinsics",
+    "fix_distortion",
+    "fix_poses"
+  ],
+  "title": "PlanarIntrinsicsConfig",
+  "type": "object"
+}

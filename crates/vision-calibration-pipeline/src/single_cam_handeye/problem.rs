@@ -75,6 +75,7 @@ impl SingleCamHandeyeInput {
 
 /// Configuration for single-camera hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct SingleCamHandeyeConfig {
     // ─────────────────────────────────────────────────────────────────────────

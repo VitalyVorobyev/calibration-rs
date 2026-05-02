@@ -1,0 +1,268 @@
+{
+  "$defs": {
+    "LaserlineDeviceInitConfig": {
+      "description": "Initialization options for laserline device calibration.",
+      "properties": {
+        "fix_k3": {
+          "description": "Fix k3 during initialization (recommended for typical lenses).",
+          "type": "boolean"
+        },
+        "fix_tangential": {
+          "description": "Fix tangential distortion during initialization.",
+          "type": "boolean"
+        },
+        "iterations": {
+          "description": "Number of iterations for iterative intrinsics estimation.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sensor_init": {
+          "$ref": "#/$defs/ScheimpflugParams",
+          "description": "Initial Scheimpflug sensor parameters (use zeros for pinhole/identity)."
+        },
+        "zero_skew": {
+          "description": "Enforce zero skew during initialization.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "iterations",
+        "fix_k3",
+        "fix_tangential",
+        "zero_skew",
+        "sensor_init"
+      ],
+      "type": "object"
+    },
+    "LaserlineDeviceOptimizeConfig": {
+      "description": "Bundle-adjustment options for laserline device calibration.",
+      "properties": {
+        "calib_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss for calibration reprojection residuals."
+        },
+        "calib_weight": {
+          "description": "Global weight for calibration residuals.",
+          "format": "double",
+          "type": "number"
+        },
+        "fix_distortion": {
+          "description": "Fix distortion parameters during optimization.",
+          "type": "boolean"
+        },
+        "fix_intrinsics": {
+          "description": "Fix camera intrinsics during optimization.",
+          "type": "boolean"
+        },
+        "fix_k3": {
+          "description": "Fix k3 distortion parameter during optimization.",
+          "type": "boolean"
+        },
+        "fix_plane": {
+          "description": "Fix laser plane parameters during optimization.",
+          "type": "boolean"
+        },
+        "fix_poses": {
+          "description": "Indices of poses to fix (e.g., \\[0\\] to fix first pose).",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "fix_sensor": {
+          "description": "Fix Scheimpflug sensor parameters during optimization.",
+          "type": "boolean"
+        },
+        "laser_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss for laser residuals."
+        },
+        "laser_residual_type": {
+          "$ref": "#/$defs/LaserlineResidualType",
+          "description": "Laser residual type."
+        },
+        "laser_weight": {
+          "description": "Global weight for laser residuals.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "calib_loss",
+        "laser_loss",
+        "calib_weight",
+        "laser_weight",
+        "fix_intrinsics",
+        "fix_distortion",
+        "fix_k3",
+        "fix_sensor",
+        "fix_poses",
+        "fix_plane",
+        "laser_residual_type"
+      ],
+      "type": "object"
+    },
+    "LaserlineDeviceSolverConfig": {
+      "description": "Shared solver options for laserline device calibration.",
+      "properties": {
+        "max_iters": {
+          "description": "Maximum iterations for the optimizer.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "verbosity": {
+          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_iters",
+        "verbosity"
+      ],
+      "type": "object"
+    },
+    "LaserlineResidualType": {
+      "description": "Type of laser plane residual to use.",
+      "oneOf": [
+        {
+          "const": "PointToPlane",
+          "description": "Point-to-plane distance (original approach).\n\nUndistorts pixel, back-projects to 3D ray, intersects with target plane,\ncomputes 3D point in camera frame, measures signed distance to laser plane.\nResidual: 1D distance in meters.",
+          "type": "string"
+        },
+        {
+          "const": "LineDistNormalized",
+          "description": "Line-distance in normalized plane (alternative approach).\n\nComputes 3D intersection line of laser plane and target plane, projects\nline onto z=1 normalized camera plane, undistorts laser pixels to normalized\ncoordinates, measures perpendicular distance from pixel to projected line,\nscales by sqrt(fx*fy) for pixel-comparable residual.\nResidual: 1D distance in pixels.",
+          "type": "string"
+        }
+      ]
+    },
+    "RobustLoss": {
+      "description": "Robust loss applied to a residual block.\n\nEach residual block has its own loss; per-point robustification is achieved\nby using one residual block per observation.",
+      "oneOf": [
+        {
+          "const": "None",
+          "description": "No robustification (plain squared residual).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Huber loss with transition scale.",
+          "properties": {
+            "Huber": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling quadratic-to-linear transition.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Huber"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Cauchy loss with scale parameter.",
+          "properties": {
+            "Cauchy": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling outlier down-weighting.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Cauchy"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Arctangent loss with bounded influence.",
+          "properties": {
+            "Arctan": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling curvature.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Arctan"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ScheimpflugParams": {
+      "description": "Scheimpflug tilt parameters (OpenCV-compatible).",
+      "properties": {
+        "tilt_x": {
+          "description": "Tilt around X axis in radians (alias: tau_x).",
+          "format": "double",
+          "type": "number"
+        },
+        "tilt_y": {
+          "description": "Tilt around Y axis in radians (alias: tau_y).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "tilt_x",
+        "tilt_y"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Configuration for laserline device calibration.",
+  "properties": {
+    "init": {
+      "$ref": "#/$defs/LaserlineDeviceInitConfig",
+      "description": "Initialization options."
+    },
+    "optimize": {
+      "$ref": "#/$defs/LaserlineDeviceOptimizeConfig",
+      "description": "Bundle-adjustment options."
+    },
+    "solver": {
+      "$ref": "#/$defs/LaserlineDeviceSolverConfig",
+      "description": "Shared solver options."
+    }
+  },
+  "required": [
+    "init",
+    "solver",
+    "optimize"
+  ],
+  "title": "LaserlineDeviceConfig",
+  "type": "object"
+}

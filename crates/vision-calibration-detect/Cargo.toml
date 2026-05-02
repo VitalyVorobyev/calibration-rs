@@ -1,0 +1,30 @@
+[package]
+name = "vision-calibration-detect"
+description = "Calibration-target feature detectors (chessboard, charuco, puzzleboard, ringgrid) with content-addressed cache"
+readme = "README.md"
+keywords = ["camera", "calibration", "computer-vision", "detection", "chessboard"]
+categories = ["computer-vision"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[features]
+default = ["chessboard"]
+chessboard = ["dep:chess-corners", "dep:calib-targets"]
+schemars = ["dep:schemars"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+image = { workspace = true }
+schemars = { workspace = true, optional = true }
+chess-corners = { workspace = true, optional = true }
+calib-targets = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = "3"

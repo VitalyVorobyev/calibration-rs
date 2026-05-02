@@ -287,21 +287,29 @@ function EpipolarBody(props: BodyProps) {
     return residualsB.find((r) => r.feature === picked.feature) ?? null;
   }, [picked, residualsB]);
 
-  // Polyline clipped strictly to pane-B's image bounds. The Rust side
-  // sweeps depths from 0.05 m to 5 m, which is wider than any real
-  // dataset's working volume — most samples land outside the image
-  // and pull the polyline into a long curve (distortion gets visually
-  // amplified far from the principal point). Only the in-image
-  // portion is what the engineer actually reads, so we drop the rest
-  // and keep only the longest contiguous in-image run to avoid a
-  // straight bridge across an out-of-image gap.
+  // Polyline clipped strictly to pane-B's image bounds + split on
+  // unphysically large jumps. The Rust side sweeps depths from 0.05 m
+  // to 5 m, which is wider than any real dataset's working volume —
+  // most samples land outside the image and pull the polyline into a
+  // long curve (distortion gets visually amplified far from the
+  // principal point). On top of that, when cam A's ray approaches
+  // cam B's optical axis the projection passes through a near-
+  // singular fold zone and consecutive samples can land hundreds of
+  // pixels apart on opposite sides of the epipolar line — visually a
+  // "parabola" / fork. We keep only the longest contiguous in-image
+  // run AND require that consecutive surviving samples are close
+  // enough that the line is physically plausible.
   const clippedPolyline = useMemo<[number, number][] | undefined>(() => {
     if (!overlay || overlay.line_b.length < 2) return undefined;
     if (!frameB) return overlay.line_b;
     const w = frameB.roi?.w ?? 0;
     const h = frameB.roi?.h ?? 0;
     if (w === 0 || h === 0) return overlay.line_b;
-    return longestInImageRun(overlay.line_b, w, h);
+    // Quarter-frame jumps between consecutive depth samples are
+    // physically impossible for a smooth epipolar line and reliably
+    // indicate a fold-through-singularity in the projection.
+    const jumpPx = Math.min(w, h) * 0.25;
+    return longestContinuousRun(overlay.line_b, w, h, jumpPx);
   }, [overlay, frameB]);
 
   // Distance from the corresponding pane-B feature to the polyline in
@@ -532,43 +540,66 @@ function EpipolarBody(props: BodyProps) {
   );
 }
 
-/** Return the longest contiguous run of polyline points that fall
- * inside `[0, w] × [0, h]`. The Rust side densely samples depths along
- * the back-projected ray; only some samples project inside pane B's
- * image. Filtering kept-in-bounds points and re-stitching them into
- * one polyline draws a "straight bridge" across out-of-image gaps,
- * which looks like a curve. Picking the single longest in-image run
- * sidesteps that. */
-function longestInImageRun(
+/** Return the longest contiguous run of polyline points that
+ * (a) fall inside `[0, w] × [0, h]` AND
+ * (b) sit within `jumpPx` of the previous in-run point.
+ *
+ * The Rust side densely samples depths along the back-projected ray;
+ * only some samples project inside pane B's image. Filtering
+ * in-bounds points and re-stitching them into one polyline draws a
+ * "straight bridge" across out-of-image gaps, which looks like a
+ * curve. Worse, when the ray passes near cam B's principal axis the
+ * projection wraps around a near-singularity and consecutive in-image
+ * samples can land hundreds of pixels apart on opposite sides of the
+ * actual epipolar line — visually a fork / "parabola". Picking the
+ * single longest run that survives both filters sidesteps both
+ * artefacts. */
+function longestContinuousRun(
   pts: [number, number][],
   w: number,
   h: number,
+  jumpPx: number,
 ): [number, number][] {
   let bestStart = 0;
   let bestLen = 0;
   let curStart = -1;
   let curLen = 0;
-  const flush = (i: number) => {
+  const flushIfBetter = () => {
     if (curLen > bestLen) {
       bestLen = curLen;
       bestStart = curStart;
     }
+  };
+  const reset = (i: number) => {
+    flushIfBetter();
     curStart = i;
     curLen = 0;
   };
+  const inBounds = (x: number, y: number) => x >= 0 && x <= w && y >= 0 && y <= h;
   for (let i = 0; i < pts.length; i++) {
     const [x, y] = pts[i];
-    if (x >= 0 && x <= w && y >= 0 && y <= h) {
-      if (curStart < 0) curStart = i;
-      curLen += 1;
-    } else if (curLen > 0) {
-      flush(i + 1);
+    if (!inBounds(x, y)) {
+      if (curLen > 0) reset(-1);
+      continue;
     }
+    if (curStart < 0) {
+      curStart = i;
+      curLen = 1;
+      continue;
+    }
+    const [px, py] = pts[curStart + curLen - 1];
+    const dx = x - px;
+    const dy = y - py;
+    if (dx * dx + dy * dy > jumpPx * jumpPx) {
+      // Singularity-induced fold: end the current run at `i-1` and
+      // start a new one at `i`.
+      reset(i);
+      curLen = 1;
+      continue;
+    }
+    curLen += 1;
   }
-  if (curLen > bestLen) {
-    bestLen = curLen;
-    bestStart = curStart;
-  }
+  flushIfBetter();
   return bestLen > 0 ? pts.slice(bestStart, bestStart + bestLen) : [];
 }
 

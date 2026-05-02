@@ -3,7 +3,7 @@
 Canonical short-form summary of the multi-quarter direction. Detailed reasoning per track
 lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
 
-## Status (as of 2026-05-01)
+## Status (as of 2026-05-02)
 
 - **Version line:** 0.x. v1.0 (= stable public API) is deferred until the API has been
   stable across two minor releases without breaking changes. Pre-1.0 means breaking changes
@@ -13,11 +13,19 @@ lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
   residuals), A4 (Scheimpflug EyeToHand) shipped. A3 closed (false premise — the
   reported Zhang failure was a fixed puzzleboard-detector bug). A5 dropped (no real
   Python consumer; revisit after the Rust API stabilises). A6 (`rig_family` sensor-
-  axis refactor) shipped across PRs #36 + #37 + this PR; see
+  axis refactor) shipped via PRs #36 + #37 + #38; see
   [ADR 0013](adrs/0013-rig-family-sensor-axis-refactor.md).
+- **Track B — Tauri viewer:** B0 (PR #40), B0.5/B0.6 (PR #42), B1 (PR #43), B2
+  (PR #44) **SHIPPED**. The `app/` shell now hosts four workspaces (Diagnose, 3D,
+  Epipolar, Run-stub). After a 2026-05-02 grill the user committed to evolving the
+  app into the **primary calibration tool** (Track B is no longer "post-B0 enrichments
+  TBD" — see the B-track section below for the committed sub-phasing).
 - **In-flight PRs:**
   [#28 mvg](https://github.com/VitalyVorobyev/calibration-rs/pull/28) — multiple-view
-  geometry crate split (Track C, deferred until the diagnose viewer ships).
+  geometry crate split (Track C, deferred until the B3 series stabilises);
+  [#45 B3a foundation](https://github.com/VitalyVorobyev/calibration-rs/pull/45) —
+  schema-driven configs, `DatasetSpec`, detection cache, fail-fast contract
+  (ADRs 0016–0019).
 
 ## Four tracks
 
@@ -43,35 +51,75 @@ that B0 (Tauri scaffold) can compile against it with no breaking churn back into
 
 ### Track B — Tauri 2 + React + TypeScript desktop app
 
-A production-grade internal tool wrapping the calibration library. The
-original B0–B6 ordering placed the diagnose UI sixth; a 2026-05-01 grill
-session flipped to **diagnose-first** because the actual new capability is
-the residual visualisation and everything before it re-implements what
-`cargo run --example` already gives an engineer at the terminal.
+A production-grade internal tool wrapping the calibration library.
 [ADR 0014](adrs/0014-tauri-desktop-app.md) records the framework choice
-(Tauri 2 + React + TS over `rerun.io` and `egui`) and the v0 scope.
+(Tauri 2 + React + TS over `rerun.io` and `egui`) and the diagnose-first
+v0 scope. After B0–B2 shipped, a 2026-05-02 grill session committed the
+track to a much larger goal: make the app the **primary calibration
+tool**, not a passive viewer.
 
-**Re-sequenced track (post-grill):**
+**End-state vision (settled 2026-05-02):** point the app at any
+foreign dataset → AI inspects the layout → emits a canonical
+[`DatasetSpec`](adrs/0016-dataset-manifest.md) manifest with fields
+the AI couldn't determine listed under `_unresolved` (no silent
+guessing, [ADR 0019](adrs/0019-fail-fast-on-ambiguity.md)) → schema-
+driven forms ([ADR 0018](adrs/0018-schema-driven-ui.md)) let the user
+edit any of the manifest's or the per-problem-type config's fields →
+Run dispatches detection (cached, [ADR 0017](adrs/0017-detection-cache.md))
++ calibration in-process and routes the export into `/diagnose`. All
+8 problem types and 4 target detectors (chessboard / charuco /
+puzzleboard / ringgrid) are supported.
 
-- **B0 — diagnose viewer v0 (current PR / next-up).** Passive viewer of
-  one `PlanarIntrinsicsExport` JSON. New `ImageManifest` Export-side
-  contract; synthesized fixture (`planar_synthetic_with_images`
-  example + regression test); Tauri 2 + React + TS shell at `app/` with
-  one route: file-open → (pose, camera) selector → canvas with
-  per-feature residual arrows on the source image. ADR 0014.
-- **B0.5 — real-data acceptance.** Extend `RigHandeyeExport` with the
-  same `image_manifest` field; populate it against the puzzle 130×130
-  Scheimpflug rig dataset; verify ROI + tiled multi-camera strips
-  render correctly in the viewer. Stays in the same milestone as B0
-  but ships as a separate PR.
-- **Post-B0 enrichments — priority TBD by user feedback.** Order is no
-  longer pre-committed; will be driven by what the engineer actually
-  misses while using v0. Likely candidates: a "re-run" button calling
-  the facade in-process; multi-pose residual stats panel; cross-camera
-  residual matrix; manifest support on the remaining `*Export` types;
-  in-app detection wrap of `chess-corners` / `calib-targets`; 3D rig
-  viewer (Three.js / R3F); init-failure diagnosis (perturbed re-runs);
-  signed installers per OS. None of these are pre-scheduled.
+**Phase 1 — passive viewer (DONE, 2026-05-02).**
+
+- **B0 — diagnose viewer v0** (PR #40). Passive viewer of one
+  `PlanarIntrinsicsExport`. `ImageManifest` Export-side contract.
+- **B0.5/B0.6 — real-data acceptance + viewer UX** (PR #42). Manifest
+  extended to `RigHandeyeExport`; puzzle 130×130 Scheimpflug rig
+  rendered correctly; design tokens, navigation, theme toggle.
+- **B1 — 3D rig viewer** (PR #43). React-Three-Fiber scene with rig
+  origin, per-camera frustums, target boards. Multi-workspace shell.
+- **B2 — epipolar workspace** (PR #44). Server-side
+  `compute_epipolar_overlay` Tauri command via canonical camera
+  models. Two-pane viewer with click-to-pick.
+
+**Phase 2 — self-contained calibration app (in flight).**
+
+- **B3a — foundation** (PR #45). `schemars` derives across every
+  `*Config` + shared option types; `cargo xtask emit-schemas` →
+  `app/src/schemas/`. New crates `vision-calibration-dataset`
+  (`DatasetSpec` + validator) and `vision-calibration-detect`
+  (`Detector` trait, `ChessboardDetector`, `DetectionCache` trait
+  + filesystem impl). `pipeline::dataset_runner::build_planar_input`
+  wires manifest → cache → detect-on-miss → `PlanarDataset` IR.
+  ADRs 0016–0019.
+- **B3b — Tauri runner + Run workspace.** Tauri `run_calibration`
+  command (Planar+Chessboard end-to-end), schema-driven
+  `<ConfigForm/>` React component, Run workspace replaces the stub.
+  Vertical slice ships first; coverage to all 8 topologies + 4
+  detectors follows in B3c.
+- **B3c — coverage.** Wire the remaining 7 problem types through
+  dispatch; wire charuco / puzzleboard / ringgrid detectors;
+  per-problem-type `DatasetSpec → *Input` converters; manifest
+  sweep finish on `SingleCamHandeyeExport`,
+  `ScheimpflugIntrinsicsExport`, and `LaserlineDeviceExport`.
+- **B3d — manifest UX.** AI-driven `generate-manifest` CLI binary
+  (heuristic-only v0: regex / file-extension / vendor signature /
+  README scraping). Tauri "Sniff folder" command. `_unresolved` UX
+  (red badges, blocked Run button). `AskUser` modal component.
+  Frame-convention validator with vendor-aware error messages.
+- **B3e — iteration polish.** Cancellability for long solves;
+  progress event streaming; multi-pose residual stats panel;
+  cross-camera residual matrix; experiments directory storing
+  `(dataset.toml, config.json, export.json)` tuples for
+  reproducibility.
+
+**Phase 3 — deferred until B3 stabilises.**
+
+- LLM-backed manifest inference (separate ADR; opt-in, behind API
+  key configuration).
+- Init-failure diagnosis sweeps (perturbed re-runs).
+- Signed installers per OS.
 
 ### Track C — MVG (postponed; depends on diagnose viewer done)
 
@@ -101,11 +149,13 @@ in-house dense matcher, no full SfM.
 
 ## Load-bearing path
 
-**B0 (diagnose viewer v0) → B0.5 (real-data acceptance on puzzle 130×130) →
-post-B0 enrichments (priority TBD).** Track A is done; the diagnose UI is
-now B0 itself, not B5, and consumes the A2 per-feature-residuals foundation
-that already ships on every export. C is parallelizable once the viewer
-exists; D is a continuous ratchet.
+**B0 → B0.5 → B1 → B2 (DONE) → B3a foundation (in flight) → B3b runner +
+Run workspace → B3c coverage (all 8 problem types + 4 detectors) → B3d
+manifest UX → B3e iteration polish → C-track resumes.** Track A is done;
+the B-track is now committed to making the app self-contained rather than
+treating post-B0 work as discretionary. C is parallelizable once B3c
+lands (the viewer can render arbitrary exports the runner produces); D
+is a continuous ratchet.
 
 ## Out of scope (explicit)
 
@@ -127,5 +177,9 @@ exists; D is a continuous ratchet.
   [`0011-manual-initialization-workflow.md`](adrs/0011-manual-initialization-workflow.md) (A1, landed in PR #32);
   [`0012-per-feature-reprojection-residuals.md`](adrs/0012-per-feature-reprojection-residuals.md) (A2, landed in PR #33 + #35);
   [`0013-rig-family-sensor-axis-refactor.md`](adrs/0013-rig-family-sensor-axis-refactor.md) (A6, landed in PRs #36 + #37 + #38);
-  [`0014-tauri-desktop-app.md`](adrs/0014-tauri-desktop-app.md) (B0, this PR — diagnose viewer v0 + sequencing flip);
+  [`0014-tauri-desktop-app.md`](adrs/0014-tauri-desktop-app.md) (B0, landed in PR #40);
+  [`0016-dataset-manifest.md`](adrs/0016-dataset-manifest.md) (B3a, PR #45);
+  [`0017-detection-cache.md`](adrs/0017-detection-cache.md) (B3a, PR #45);
+  [`0018-schema-driven-ui.md`](adrs/0018-schema-driven-ui.md) (B3a, PR #45);
+  [`0019-fail-fast-on-ambiguity.md`](adrs/0019-fail-fast-on-ambiguity.md) (B3a, PR #45);
   `0015-mvg-ceiling.md` (C1, pending).

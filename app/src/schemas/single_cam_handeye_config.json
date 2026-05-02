@@ -1,0 +1,175 @@
+{
+  "$defs": {
+    "HandEyeMode": {
+      "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",
+      "oneOf": [
+        {
+          "const": "EyeInHand",
+          "description": "Camera mounted on robot end-effector (gripper).\n\nTransform chain: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world",
+          "type": "string"
+        },
+        {
+          "const": "EyeToHand",
+          "description": "Camera fixed in workspace, observes robot end-effector.\n\nTransform chain: P_camera = extr^-1 * handeye * robot * target * P_world",
+          "type": "string"
+        }
+      ]
+    },
+    "RobustLoss": {
+      "description": "Robust loss applied to a residual block.\n\nEach residual block has its own loss; per-point robustification is achieved\nby using one residual block per observation.",
+      "oneOf": [
+        {
+          "const": "None",
+          "description": "No robustification (plain squared residual).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Huber loss with transition scale.",
+          "properties": {
+            "Huber": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling quadratic-to-linear transition.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Huber"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Cauchy loss with scale parameter.",
+          "properties": {
+            "Cauchy": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling outlier down-weighting.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Cauchy"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Arctangent loss with bounded influence.",
+          "properties": {
+            "Arctan": {
+              "properties": {
+                "scale": {
+                  "description": "Scale parameter controlling curvature.",
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "scale"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Arctan"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Configuration for single-camera hand-eye calibration.",
+  "properties": {
+    "fix_k3": {
+      "description": "Fix k3 during initialization.",
+      "type": "boolean"
+    },
+    "fix_tangential": {
+      "description": "Fix tangential distortion (p1, p2) during initialization.",
+      "type": "boolean"
+    },
+    "handeye_mode": {
+      "$ref": "#/$defs/HandEyeMode",
+      "description": "Hand-eye mode (EyeInHand or EyeToHand)."
+    },
+    "intrinsics_init_iterations": {
+      "description": "Number of iterations for iterative intrinsics estimation.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_iters": {
+      "description": "Maximum iterations for optimization.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "min_motion_angle_deg": {
+      "description": "Minimum motion angle (degrees) for linear hand-eye initialization.",
+      "format": "double",
+      "type": "number"
+    },
+    "refine_robot_poses": {
+      "description": "Refine robot poses with per-view se(3) corrections (default: true).",
+      "type": "boolean"
+    },
+    "robot_rot_sigma": {
+      "description": "Robot rotation prior sigma (radians). Default: 0.5 deg.",
+      "format": "double",
+      "type": "number"
+    },
+    "robot_trans_sigma": {
+      "description": "Robot translation prior sigma (meters). Default: 1 mm.",
+      "format": "double",
+      "type": "number"
+    },
+    "robust_loss": {
+      "$ref": "#/$defs/RobustLoss",
+      "description": "Robust loss function for outlier handling."
+    },
+    "verbosity": {
+      "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "zero_skew": {
+      "description": "Enforce zero skew.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "intrinsics_init_iterations",
+    "fix_k3",
+    "fix_tangential",
+    "zero_skew",
+    "handeye_mode",
+    "min_motion_angle_deg",
+    "max_iters",
+    "verbosity",
+    "robust_loss",
+    "refine_robot_poses",
+    "robot_rot_sigma",
+    "robot_trans_sigma"
+  ],
+  "title": "SingleCamHandeyeConfig",
+  "type": "object"
+}

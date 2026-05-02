@@ -1,0 +1,24 @@
+# Planar intrinsics manifest for the left half of the bundled stereo
+# dataset. Pair with `dataset_right.toml` to calibrate each camera in
+# isolation; once the rig runner ships in B3c the same data feeds the
+# RigExtrinsics topology directly.
+#
+# Board parameters: 7×11 interior corners, 30 mm squares (matches
+# crates/vision-calibration/examples/stereo_session.rs).
+
+version = 1
+topology = "planar_intrinsics"
+description = "stereo-left chessboard 7x11 30mm"
+
+[[cameras]]
+id = "leftcamera"
+
+[cameras.images]
+kind = "glob"
+pattern = "imgs/leftcamera/*.png"
+
+[target]
+kind = "chessboard"
+rows = 7
+cols = 11
+square_size_m = 0.03
