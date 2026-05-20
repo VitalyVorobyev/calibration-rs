@@ -4,7 +4,6 @@ use anyhow::{Context, Result, ensure};
 use calib_targets::aruco::builtins;
 use calib_targets::charuco::{CharucoBoardSpec, CharucoParams, MarkerLayout};
 use calib_targets::detect;
-use chess_corners::ChessConfig;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use vision_calibration::prelude::*;
@@ -58,7 +57,6 @@ pub fn make_charuco_detector_params() -> CharucoParams {
 /// - right: `Cam2_<suffix>.png`
 pub fn load_stereo_charuco_input_with_progress<F>(
     base_dir: &Path,
-    chess_config: &ChessConfig,
     charuco_params: &CharucoParams,
     max_views: Option<usize>,
     mut progress: F,
@@ -109,9 +107,9 @@ where
             right_path.display()
         );
 
-        let left = detect_view(&left_path, chess_config, charuco_params)
+        let left = detect_view(&left_path, charuco_params)
             .with_context(|| format!("left detection failed for {}", left_path.display()))?;
-        let right = detect_view(&right_path, chess_config, charuco_params)
+        let right = detect_view(&right_path, charuco_params)
             .with_context(|| format!("right detection failed for {}", right_path.display()))?;
 
         if left.is_none() && right.is_none() {
@@ -188,11 +186,7 @@ fn list_stereo_pair_suffixes(left_dir: &Path, right_dir: &Path) -> Result<Vec<St
     Ok(left.intersection(&right).cloned().collect())
 }
 
-fn detect_view(
-    path: &Path,
-    _chess_config: &ChessConfig,
-    charuco_params: &CharucoParams,
-) -> Result<Option<CorrespondenceView>> {
+fn detect_view(path: &Path, charuco_params: &CharucoParams) -> Result<Option<CorrespondenceView>> {
     let img = image::ImageReader::open(path)
         .with_context(|| format!("failed to read image {}", path.display()))?
         .decode()

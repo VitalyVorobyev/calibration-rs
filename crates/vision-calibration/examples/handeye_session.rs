@@ -19,7 +19,6 @@
 mod handeye_io;
 
 use anyhow::Result;
-use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use vision_calibration::optim::HandEyeMode;
@@ -50,12 +49,10 @@ fn main() -> Result<()> {
 
     // Load dataset with corner detection
     println!("\nLoading images and detecting corners...");
-    let chess_config = ChessConfig::default();
     let board_params = handeye_io::kuka_chessboard_params();
 
     let (samples, summary) = handeye_io::load_kuka_dataset_with_progress(
         &data_path,
-        &chess_config,
         &board_params,
         |current, total| {
             print!("\r  Processing image {current}/{total}...");

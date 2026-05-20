@@ -19,6 +19,88 @@ function nextInWrap(arr: number[], current: number, delta: number): number {
   return arr[(((idx + delta) % n) + n) % n];
 }
 
+interface MaterializedExport {
+  frames: FrameKey[];
+  poseValues: number[];
+  cameraValues: number[];
+  posesByCamera: Map<number, number[]>;
+  camerasByPose: Map<number, number[]>;
+  first: FrameKey;
+  second: FrameKey;
+}
+
+function materializeExport(data: AnyExport, exportDir: string):
+  | { ok: true; value: MaterializedExport }
+  | { ok: false; error: string } {
+  const manifest = data.image_manifest;
+  if (!manifest) {
+    return {
+      ok: false,
+      error:
+        "This export has no image_manifest field. v0 requires the manifest to render the source images alongside the residuals.",
+    };
+  }
+  const root = joinPath(exportDir, manifest.root);
+  const frames: FrameKey[] = manifest.frames.map((f) => ({
+    pose: f.pose,
+    camera: f.camera,
+    label: `pose ${f.pose} · cam ${f.camera}`,
+    abs_path: joinPath(root, f.path),
+    roi: f.roi,
+  }));
+  if (frames.length === 0) {
+    return {
+      ok: false,
+      error:
+        "This export's image_manifest is empty. v0 needs at least one (pose, camera) frame to render.",
+    };
+  }
+
+  const poseSet = new Set<number>();
+  const cameraSet = new Set<number>();
+  const posesByCameraSet = new Map<number, Set<number>>();
+  const camerasByPoseSet = new Map<number, Set<number>>();
+  for (const f of frames) {
+    poseSet.add(f.pose);
+    cameraSet.add(f.camera);
+    if (!posesByCameraSet.has(f.camera)) {
+      posesByCameraSet.set(f.camera, new Set());
+    }
+    posesByCameraSet.get(f.camera)!.add(f.pose);
+    if (!camerasByPoseSet.has(f.pose)) {
+      camerasByPoseSet.set(f.pose, new Set());
+    }
+    camerasByPoseSet.get(f.pose)!.add(f.camera);
+  }
+  const sortNum = (s: Set<number>) => [...s].sort((a, b) => a - b);
+  const poseValues = sortNum(poseSet);
+  const cameraValues = sortNum(cameraSet);
+  const posesByCamera = new Map(
+    [...posesByCameraSet].map(([k, v]) => [k, sortNum(v)]),
+  );
+  const camerasByPose = new Map(
+    [...camerasByPoseSet].map(([k, v]) => [k, sortNum(v)]),
+  );
+
+  const first = frames[0];
+  const second =
+    frames.find((f) => f.pose !== first.pose || f.camera !== first.camera) ??
+    first;
+
+  return {
+    ok: true,
+    value: {
+      frames,
+      poseValues,
+      cameraValues,
+      posesByCamera,
+      camerasByPose,
+      first,
+      second,
+    },
+  };
+}
+
 export interface ExportSlice {
   exportPath: string | null;
   exportDir: string | null;
@@ -31,6 +113,7 @@ export interface ExportSlice {
   camerasByPose: Map<number, number[]>;
   loadError: string | null;
   loadExport: (path: string) => Promise<void>;
+  acceptLiveRunExport: (exportValue: unknown, exportDir: string) => void;
   resetExport: () => void;
   setLoadError: (msg: string | null) => void;
 }
@@ -91,68 +174,11 @@ export const useStore = create<AppState>()(
         return;
       }
       const data = result.export;
-      const manifest = data.image_manifest;
-      if (!manifest) {
-        // Reject the file. We deliberately do NOT promote it to the
-        // backend export cache — `compute_epipolar_overlay` (and any
-        // future math command) must keep operating against the
-        // previous accepted export until the user picks a valid one.
-        set({
-          loadError:
-            "This export has no image_manifest field. v0 requires the manifest to render the source images alongside the residuals.",
-        });
+      const materialized = materializeExport(data, result.export_dir);
+      if (!materialized.ok) {
+        set({ loadError: materialized.error });
         return;
       }
-      const root = joinPath(result.export_dir, manifest.root);
-      const frames: FrameKey[] = manifest.frames.map((f) => ({
-        pose: f.pose,
-        camera: f.camera,
-        label: `pose ${f.pose} · cam ${f.camera}`,
-        abs_path: joinPath(root, f.path),
-        roi: f.roi,
-      }));
-      if (frames.length === 0) {
-        set({
-          loadError:
-            "This export's image_manifest is empty. v0 needs at least one (pose, camera) frame to render.",
-        });
-        return;
-      }
-
-      // Build sparse availability indices off the actual manifest entries.
-      // A manifest may be sparse (detector failures, partial captures), so
-      // navigation must NOT walk a dense [0..max] Cartesian grid.
-      const poseSet = new Set<number>();
-      const cameraSet = new Set<number>();
-      const posesByCameraSet = new Map<number, Set<number>>();
-      const camerasByPoseSet = new Map<number, Set<number>>();
-      for (const f of frames) {
-        poseSet.add(f.pose);
-        cameraSet.add(f.camera);
-        if (!posesByCameraSet.has(f.camera)) {
-          posesByCameraSet.set(f.camera, new Set());
-        }
-        posesByCameraSet.get(f.camera)!.add(f.pose);
-        if (!camerasByPoseSet.has(f.pose)) {
-          camerasByPoseSet.set(f.pose, new Set());
-        }
-        camerasByPoseSet.get(f.pose)!.add(f.camera);
-      }
-      const sortNum = (s: Set<number>) => [...s].sort((a, b) => a - b);
-      const poseValues = sortNum(poseSet);
-      const cameraValues = sortNum(cameraSet);
-      const posesByCamera = new Map(
-        [...posesByCameraSet].map(([k, v]) => [k, sortNum(v)]),
-      );
-      const camerasByPose = new Map(
-        [...camerasByPoseSet].map(([k, v]) => [k, sortNum(v)]),
-      );
-
-      const first = frames[0];
-      const second =
-        frames.find(
-          (f) => f.pose !== first.pose || f.camera !== first.camera,
-        ) ?? first;
 
       // Promote the validated export into the backend cache *before*
       // updating the frontend state, so `compute_epipolar_overlay` and
@@ -171,16 +197,43 @@ export const useStore = create<AppState>()(
         exportDir: result.export_dir,
         data,
         kind: inferExportKind(data),
-        frames,
-        poseValues,
-        cameraValues,
-        posesByCamera,
-        camerasByPose,
+        frames: materialized.value.frames,
+        poseValues: materialized.value.poseValues,
+        cameraValues: materialized.value.cameraValues,
+        posesByCamera: materialized.value.posesByCamera,
+        camerasByPose: materialized.value.camerasByPose,
         loadError: null,
-        selectedPose: first.pose,
-        selectedPoseB: second.pose,
-        cameraA: first.camera,
-        cameraB: second.camera,
+        selectedPose: materialized.value.first.pose,
+        selectedPoseB: materialized.value.second.pose,
+        cameraA: materialized.value.first.camera,
+        cameraB: materialized.value.second.camera,
+        selectedFeature: null,
+        hoverFeature: null,
+      });
+    },
+
+    acceptLiveRunExport: (exportValue, exportDir) => {
+      const data = exportValue as AnyExport;
+      const materialized = materializeExport(data, exportDir);
+      if (!materialized.ok) {
+        set({ loadError: materialized.error });
+        return;
+      }
+      set({
+        exportPath: "<live-run>",
+        exportDir,
+        data,
+        kind: inferExportKind(data),
+        frames: materialized.value.frames,
+        poseValues: materialized.value.poseValues,
+        cameraValues: materialized.value.cameraValues,
+        posesByCamera: materialized.value.posesByCamera,
+        camerasByPose: materialized.value.camerasByPose,
+        loadError: null,
+        selectedPose: materialized.value.first.pose,
+        selectedPoseB: materialized.value.second.pose,
+        cameraA: materialized.value.first.camera,
+        cameraB: materialized.value.second.camera,
         selectedFeature: null,
         hoverFeature: null,
       });

@@ -60,6 +60,7 @@ pub struct PlanarIntrinsicsProblem;
 ///
 /// Contains settings for both initialization and optimization phases.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PlanarIntrinsicsConfig {
     // ─────────────────────────────────────────────────────────────────────────

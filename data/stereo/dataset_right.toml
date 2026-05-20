@@ -1,0 +1,20 @@
+# Planar intrinsics manifest for the right half of the bundled stereo
+# dataset. Sibling of `dataset_left.toml`; identical board parameters,
+# different image folder.
+
+version = 1
+topology = "planar_intrinsics"
+description = "stereo-right chessboard 7x11 30mm"
+
+[[cameras]]
+id = "rightcamera"
+
+[cameras.images]
+kind = "glob"
+pattern = "imgs/rightcamera/*.png"
+
+[target]
+kind = "chessboard"
+rows = 7
+cols = 11
+square_size_m = 0.03

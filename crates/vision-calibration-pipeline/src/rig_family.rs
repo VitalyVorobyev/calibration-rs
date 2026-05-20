@@ -55,6 +55,7 @@ use vision_calibration_optim::ScheimpflugFixMask;
 /// Re-exported by [`crate::rig_extrinsics::SensorMode`] and
 /// [`crate::rig_handeye::SensorMode`] (single source of truth in `rig_family`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(tag = "kind")]
 pub enum SensorMode {

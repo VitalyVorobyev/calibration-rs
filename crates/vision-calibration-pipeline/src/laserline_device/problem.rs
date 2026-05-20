@@ -25,6 +25,7 @@ pub type LaserlineDeviceInput = LaserlineDataset;
 
 /// Configuration for laserline device calibration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserlineDeviceConfig {
     /// Initialization options.
@@ -37,6 +38,7 @@ pub struct LaserlineDeviceConfig {
 
 /// Initialization options for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserlineDeviceInitConfig {
     /// Number of iterations for iterative intrinsics estimation.
@@ -65,6 +67,7 @@ impl Default for LaserlineDeviceInitConfig {
 
 /// Shared solver options for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserlineDeviceSolverConfig {
     /// Maximum iterations for the optimizer.
@@ -84,6 +87,7 @@ impl Default for LaserlineDeviceSolverConfig {
 
 /// Bundle-adjustment options for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserlineDeviceOptimizeConfig {
     /// Robust loss for calibration reprojection residuals.

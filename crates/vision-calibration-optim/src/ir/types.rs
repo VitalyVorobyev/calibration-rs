@@ -102,6 +102,7 @@ impl FixedMask {
 /// Each residual block has its own loss; per-point robustification is achieved
 /// by using one residual block per observation.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum RobustLoss {
     /// No robustification (plain squared residual).
     #[default]
@@ -127,6 +128,7 @@ pub enum RobustLoss {
 ///
 /// Specifies the transform chain used for hand-eye calibration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum HandEyeMode {
     /// Camera mounted on robot end-effector (gripper).
     ///

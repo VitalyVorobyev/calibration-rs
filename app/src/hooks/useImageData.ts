@@ -66,6 +66,77 @@ export function useImageData(
   return data;
 }
 
+/** Loads a frame through the backend's canonical camera model into the
+ * undistorted pixel frame. The returned image is already ROI-local when
+ * `frame.roi` is set, so callers should render it without applying the
+ * ROI crop a second time. */
+export function useUndistortedImageData(
+  frame: FrameKey | null,
+  camera: number,
+  onError?: (msg: string) => void,
+): ImageData | null {
+  const [data, setData] = useState<ImageData | null>(null);
+
+  useEffect(() => {
+    if (!frame) {
+      setData(null);
+      return;
+    }
+    let cancelled = false;
+    setData(null);
+    invoke<string>("load_undistorted_image", {
+      path: frame.abs_path,
+      camera,
+      roi: frame.roi ?? null,
+    })
+      .then((dataUrl) => decodeImageDataUrl(dataUrl, () => cancelled, setData, onError))
+      .catch((e) => {
+        if (!cancelled) onError?.(`Could not load undistorted image: ${e}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    frame?.abs_path,
+    frame?.roi?.x,
+    frame?.roi?.y,
+    frame?.roi?.w,
+    frame?.roi?.h,
+    camera,
+    onError,
+  ]);
+
+  return data;
+}
+
+function decodeImageDataUrl(
+  dataUrl: string,
+  isCancelled: () => boolean,
+  setData: (data: ImageData) => void,
+  onError?: (msg: string) => void,
+) {
+  if (isCancelled()) return;
+  const img = new Image();
+  img.onload = () => {
+    if (isCancelled()) return;
+    try {
+      const luminance = decodeLuminance(img);
+      setData({
+        image: img,
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+        luminance,
+      });
+    } catch (e) {
+      onError?.(`Pixel decode failed: ${e}`);
+    }
+  };
+  img.onerror = () => {
+    if (!isCancelled()) onError?.("Image failed to decode.");
+  };
+  img.src = dataUrl;
+}
+
 /** Pull luminance out of an HTMLImageElement by drawing it into an
  * OffscreenCanvas (or a hidden 2D canvas for older runtimes) and
  * extracting RGBA. We compute Rec. 601 luma and discard the rest. */

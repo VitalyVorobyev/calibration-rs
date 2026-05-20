@@ -139,6 +139,7 @@ pub struct LaserlineStats {
 
 /// Type of laser plane residual to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum LaserlineResidualType {
     /// Point-to-plane distance (original approach).
     ///

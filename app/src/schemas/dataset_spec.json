@@ -1,0 +1,586 @@
+{
+  "$defs": {
+    "CameraSource": {
+      "additionalProperties": false,
+      "description": "Per-camera image source.",
+      "properties": {
+        "id": {
+          "description": "Stable camera identifier (e.g. `\"cam0\"`). Used as a key in\npose pairings and downstream exports.",
+          "type": "string"
+        },
+        "images": {
+          "$ref": "#/$defs/ImagePattern",
+          "description": "Glob pattern (e.g. `\"cam0/*.png\"`) or explicit list of image\npaths, relative to the manifest's directory unless absolute."
+        },
+        "roi_xywh": {
+          "description": "Optional rectangular ROI in source-image pixels — `[x, y, w, h]`.\nWhen set, only the cropped region is fed to the detector and\nstored in the export's image manifest.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "images"
+      ],
+      "type": "object"
+    },
+    "ImagePattern": {
+      "description": "How image paths for a camera are listed.",
+      "oneOf": [
+        {
+          "description": "Single shell-glob pattern, evaluated relative to the manifest\ndirectory. Example: `\"cam0/*.png\"`.",
+          "properties": {
+            "kind": {
+              "const": "glob",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "The glob pattern.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pattern"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Explicit ordered list of paths.",
+          "properties": {
+            "kind": {
+              "const": "list",
+              "type": "string"
+            },
+            "paths": {
+              "description": "Paths relative to the manifest directory unless absolute.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "paths"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PoseColumnMap": {
+      "additionalProperties": false,
+      "description": "Mapping from user-defined column / field names to the canonical\npose fields. All seven of `tx, ty, tz, qx, qy, qz, qw` are required\nwhen `rotation_format` is a quaternion; the runner rejects partial\nmappings as a fail-fast event.",
+      "properties": {
+        "pose_id": {
+          "description": "Optional view-id column (string or integer). When absent, the\npose row index is used as the implicit pose id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rotation": {
+          "description": "Rotation columns. Length and meaning depend on the\n`pose_convention.rotation_format`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tx": {
+          "description": "Translation x column.",
+          "type": "string"
+        },
+        "ty": {
+          "description": "Translation y column.",
+          "type": "string"
+        },
+        "tz": {
+          "description": "Translation z column.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx",
+        "ty",
+        "tz",
+        "rotation"
+      ],
+      "type": "object"
+    },
+    "PoseConvention": {
+      "additionalProperties": false,
+      "description": "Frame conventions for the robot pose stream.\n\nAll three components are required (no defaults). Each is a closed\nenum so the runtime supports a finite, validated set of conventions.",
+      "properties": {
+        "rotation_format": {
+          "$ref": "#/$defs/RotationFormat",
+          "description": "How rotation is parameterised in the file."
+        },
+        "transform": {
+          "$ref": "#/$defs/TransformConvention",
+          "description": "Which transform the pose row encodes."
+        },
+        "translation_units": {
+          "$ref": "#/$defs/TranslationUnits",
+          "description": "Translation units in the file."
+        }
+      },
+      "required": [
+        "transform",
+        "rotation_format",
+        "translation_units"
+      ],
+      "type": "object"
+    },
+    "PosePairing": {
+      "description": "How per-camera image lists align across views and (optionally)\nalign with robot poses.",
+      "oneOf": [
+        {
+          "description": "All cameras have the same number of images, paired by index\n(image[i] from cam0 ↔ image[i] from cam1 ↔ pose[i]).",
+          "properties": {
+            "kind": {
+              "const": "by_index",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A regex applied to filenames extracts a shared \"view token\"\n(e.g. timestamp or pose id). All cameras and the pose file\nmust produce the same set of tokens.",
+          "properties": {
+            "group": {
+              "description": "Name of the capture group whose value identifies the view.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "shared_filename_token",
+              "type": "string"
+            },
+            "regex": {
+              "description": "Regex with at least one named capture group.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "regex",
+            "group"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RobotPoseFormat": {
+      "description": "Robot-pose file format.",
+      "oneOf": [
+        {
+          "const": "csv",
+          "description": "Comma-separated values with a header row.",
+          "type": "string"
+        },
+        {
+          "const": "json",
+          "description": "JSON array of objects.",
+          "type": "string"
+        },
+        {
+          "const": "jsonl",
+          "description": "JSONL (one JSON object per line).",
+          "type": "string"
+        }
+      ]
+    },
+    "RobotPoseSource": {
+      "additionalProperties": false,
+      "description": "Where and how robot poses are stored on disk.",
+      "properties": {
+        "columns": {
+          "$ref": "#/$defs/PoseColumnMap",
+          "description": "Column / field mapping from the user's file to the canonical\nfields the converter consumes."
+        },
+        "format": {
+          "$ref": "#/$defs/RobotPoseFormat",
+          "description": "File-format selector."
+        },
+        "path": {
+          "description": "Path to the pose file, relative to the manifest directory\nunless absolute.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "format",
+        "columns"
+      ],
+      "type": "object"
+    },
+    "RotationFormat": {
+      "description": "Rotation parameterisation in the file.",
+      "oneOf": [
+        {
+          "const": "quat_xyzw",
+          "description": "Hamilton quaternion as `[qx, qy, qz, qw]`.",
+          "type": "string"
+        },
+        {
+          "const": "quat_wxyz",
+          "description": "Hamilton quaternion as `[qw, qx, qy, qz]`.",
+          "type": "string"
+        },
+        {
+          "const": "euler_xyz_deg",
+          "description": "Intrinsic XYZ Euler angles in degrees.",
+          "type": "string"
+        },
+        {
+          "const": "euler_xyz_rad",
+          "description": "Intrinsic XYZ Euler angles in radians.",
+          "type": "string"
+        },
+        {
+          "const": "euler_zyx_deg",
+          "description": "Intrinsic ZYX Euler angles in degrees.",
+          "type": "string"
+        },
+        {
+          "const": "euler_zyx_rad",
+          "description": "Intrinsic ZYX Euler angles in radians.",
+          "type": "string"
+        },
+        {
+          "const": "axis_angle_rad",
+          "description": "Axis-angle vector (length encodes magnitude, radians).",
+          "type": "string"
+        },
+        {
+          "const": "matrix4x4_row_major",
+          "description": "Row-major 4×4 homogeneous matrix flattened across 16 columns.",
+          "type": "string"
+        }
+      ]
+    },
+    "TargetSpec": {
+      "description": "Calibration-target metadata. Tagged on `kind`.",
+      "oneOf": [
+        {
+          "description": "Standard checkerboard. Counts are interior corners\n(i.e. `9x6` ⇒ a 10×7 black-and-white square grid).",
+          "properties": {
+            "cols": {
+              "description": "Number of interior corners along the cols axis.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "chessboard",
+              "type": "string"
+            },
+            "rows": {
+              "description": "Number of interior corners along the rows axis.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "square_size_m": {
+              "description": "Edge length of one square in metres.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "cols",
+            "square_size_m"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "ChArUco board. Marker IDs and dictionary live here so detection\nis fully deterministic from the manifest.",
+          "properties": {
+            "cols": {
+              "description": "Number of squares along the cols axis.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "dictionary": {
+              "description": "ArUco dictionary identifier (e.g. `\"DICT_4X4_50\"`). The\ndetector validates this against the supported set.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "charuco",
+              "type": "string"
+            },
+            "marker_size_m": {
+              "description": "Edge length of an embedded marker in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "rows": {
+              "description": "Number of squares along the rows axis (full grid, not\ninterior corners).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "square_size_m": {
+              "description": "Edge length of one square in metres.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "cols",
+            "square_size_m",
+            "marker_size_m",
+            "dictionary"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Puzzleboard target (calib-targets crate). Layout is fully\ndescribed by the named variant in calib-targets; the manifest\njust carries the discriminator.",
+          "properties": {
+            "cell_size_m": {
+              "description": "Edge length of one cell in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "puzzleboard",
+              "type": "string"
+            },
+            "layout": {
+              "description": "Named layout (e.g. `\"puzzle_130x130\"`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "layout",
+            "cell_size_m"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Ringgrid target (ringgrid crate).",
+          "properties": {
+            "cols": {
+              "description": "Number of rings along the cols axis.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "inner_radius_m": {
+              "description": "Inner ring radius in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "ringgrid",
+              "type": "string"
+            },
+            "outer_radius_m": {
+              "description": "Outer ring radius in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "rows": {
+              "description": "Number of rings along the rows axis.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "spacing_m": {
+              "description": "Centre-to-centre spacing of adjacent rings in metres.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "cols",
+            "spacing_m",
+            "inner_radius_m",
+            "outer_radius_m"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Topology": {
+      "description": "Calibration topology — selects the problem-type dispatch.",
+      "oneOf": [
+        {
+          "const": "planar_intrinsics",
+          "description": "Single camera, planar target — `PlanarIntrinsicsProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "scheimpflug_intrinsics",
+          "description": "Single camera with Scheimpflug tilt — `ScheimpflugIntrinsicsProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "single_cam_handeye",
+          "description": "Single camera mounted on a robot — `SingleCamHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "laserline_device",
+          "description": "Camera + laser plane — `LaserlineDeviceProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_extrinsics",
+          "description": "Multi-camera rig, target only — `RigExtrinsicsProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye",
+          "description": "Multi-camera rig + robot — `RigHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_laserline_device",
+          "description": "Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.",
+          "type": "string"
+        }
+      ]
+    },
+    "TransformConvention": {
+      "description": "Which transform a pose row encodes.",
+      "oneOf": [
+        {
+          "const": "t_base_tcp",
+          "description": "`T_base_tcp` — gripper pose in the robot base frame (KUKA, UR\ndefault).",
+          "type": "string"
+        },
+        {
+          "const": "t_tcp_base",
+          "description": "`T_tcp_base` — base pose in the gripper frame (some ABB exports).",
+          "type": "string"
+        },
+        {
+          "const": "t_world_tcp",
+          "description": "`T_world_tcp` — gripper pose in a fixed world frame (less\ncommon; some lab-frame setups).",
+          "type": "string"
+        },
+        {
+          "const": "t_tcp_world",
+          "description": "`T_tcp_world` — world pose in the gripper frame.",
+          "type": "string"
+        }
+      ]
+    },
+    "TranslationUnits": {
+      "description": "Translation units in the file.",
+      "oneOf": [
+        {
+          "const": "m",
+          "description": "Metres (SI, preferred).",
+          "type": "string"
+        },
+        {
+          "const": "mm",
+          "description": "Millimetres (some ABB / Fanuc exports).",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Top-level dataset manifest. Authoritative description of where\nthe user's calibration data lives and how to interpret it.",
+  "properties": {
+    "_unresolved": {
+      "description": "Field paths the AI manifest generator could not determine.\nValidated to be empty before the runner accepts the manifest.\nPopulated as e.g. `[\"pose_convention.transform\"]`.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "cameras": {
+      "description": "Per-camera image sources. Length must match the topology's\nexpected camera count (e.g. `Topology::Mono` requires exactly\none entry).",
+      "items": {
+        "$ref": "#/$defs/CameraSource"
+      },
+      "type": "array"
+    },
+    "description": {
+      "description": "Free-form human-readable description.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pose_convention": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PoseConvention"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Frame conventions for robot poses. **No defaults** — every\ncomponent is required when `robot_poses` is set."
+    },
+    "pose_pairing": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PosePairing"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "How per-camera images are paired across views (and optionally\nwith robot poses). `None` is permitted only for `Topology::Mono`\nwhere pose-pairing is irrelevant."
+    },
+    "robot_poses": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RobotPoseSource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Robot-pose source for hand-eye topologies. `None` for\npure-intrinsics calibrations."
+    },
+    "target": {
+      "$ref": "#/$defs/TargetSpec",
+      "description": "Calibration-target specification. Tagged enum on `kind`."
+    },
+    "topology": {
+      "$ref": "#/$defs/Topology",
+      "description": "Calibration topology — selects which problem type the runner\nwill dispatch to."
+    },
+    "version": {
+      "default": 1,
+      "description": "Format-version sentinel. Always `1` for now; bumped on\nbreaking schema revisions.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "cameras",
+    "target",
+    "topology"
+  ],
+  "title": "DatasetSpec",
+  "type": "object"
+}

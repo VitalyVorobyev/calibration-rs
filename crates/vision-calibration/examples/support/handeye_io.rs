@@ -3,7 +3,6 @@
 use anyhow::{Context, Result, ensure};
 use calib_targets::chessboard::{Detection as ChessboardDetection, DetectorParams};
 use calib_targets::detect;
-use chess_corners::ChessConfig;
 use image::ImageReader;
 use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
 use std::path::Path;
@@ -34,7 +33,6 @@ pub fn kuka_chessboard_params() -> DetectorParams {
 
 pub fn load_kuka_dataset_with_progress<F>(
     base_path: &Path,
-    _chess_config: &ChessConfig,
     board_params: &DetectorParams,
     mut progress: F,
 ) -> Result<(Vec<ViewSample>, DatasetSummary)>

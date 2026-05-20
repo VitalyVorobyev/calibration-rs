@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 /// assert!(mask.cx);  // cx is fixed
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct IntrinsicsFixMask {
     /// Fix focal length x component.
     pub fx: bool,
@@ -122,6 +123,7 @@ impl IntrinsicsFixMask {
 /// };
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DistortionFixMask {
     /// Fix first radial distortion coefficient.
     pub k1: bool,

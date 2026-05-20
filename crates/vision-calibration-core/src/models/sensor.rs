@@ -52,6 +52,7 @@ impl<S: RealField + Copy> SensorModel<S> for HomographySensor<S> {
 
 /// Scheimpflug tilt parameters (OpenCV-compatible).
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ScheimpflugParams {
     /// Tilt around X axis in radians (alias: tau_x).
     #[serde(alias = "tau_x")]

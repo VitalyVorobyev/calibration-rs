@@ -24,7 +24,6 @@
 mod stereo_charuco_io;
 
 use anyhow::{Result, ensure};
-use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use stereo_charuco_io::{
@@ -58,13 +57,11 @@ fn main() -> Result<()> {
     );
     println!("Max views: {max_views}\n");
 
-    let chess_config = ChessConfig::default();
     let charuco_params = make_charuco_detector_params();
 
     let load = || -> Result<RigExtrinsicsInput> {
         let (input, summary) = load_stereo_charuco_input_with_progress(
             &data_dir,
-            &chess_config,
             &charuco_params,
             Some(max_views),
             |idx, total, suffix| {

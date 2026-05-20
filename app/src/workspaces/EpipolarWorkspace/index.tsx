@@ -11,7 +11,7 @@ import {
   type FrameCanvasHandle,
 } from "../../components/FrameCanvas";
 import { PoseStepper } from "../../components/PoseStepper";
-import { useImageData } from "../../hooks/useImageData";
+import { useUndistortedImageData } from "../../hooks/useImageData";
 import {
   iso3DistanceM,
   iso3EulerXYZDeg,
@@ -231,8 +231,61 @@ function EpipolarBody(props: BodyProps) {
     () => residualsForPose.filter((r) => r.camera === cameraB),
     [residualsForPose, cameraB],
   );
+  const [undistortedResidualsA, setUndistortedResidualsA] = useState<
+    TargetFeatureResidual[]
+  >([]);
+  const [undistortedResidualsB, setUndistortedResidualsB] = useState<
+    TargetFeatureResidual[]
+  >([]);
+
+  const imageA = useUndistortedImageData(frameA, cameraA, setOverlayError);
+  const imageB = useUndistortedImageData(frameB, cameraB, setOverlayError);
 
   const latestRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      try {
+        const [pointsA, pointsB] = await Promise.all([
+          residualsA.length > 0
+            ? invoke<[number, number][]>("undistort_points", {
+                camera: cameraA,
+                pointsPx: residualsA.map((r) => r.observed_px),
+              })
+            : Promise.resolve<[number, number][]>([]),
+          residualsB.length > 0
+            ? invoke<[number, number][]>("undistort_points", {
+                camera: cameraB,
+                pointsPx: residualsB.map((r) => r.observed_px),
+              })
+            : Promise.resolve<[number, number][]>([]),
+        ]);
+        if (cancelled) return;
+        setUndistortedResidualsA(
+          residualsA.map((r, i) => ({
+            ...r,
+            observed_px: pointsA[i] ?? r.observed_px,
+          })),
+        );
+        setUndistortedResidualsB(
+          residualsB.map((r, i) => ({
+            ...r,
+            observed_px: pointsB[i] ?? r.observed_px,
+          })),
+        );
+      } catch (e) {
+        if (cancelled) return;
+        setUndistortedResidualsA([]);
+        setUndistortedResidualsB([]);
+        setOverlayError(`undistort points failed: ${e}`);
+      }
+    }
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [cameraA, cameraB, residualsA, residualsB, setOverlayError]);
 
   // Reset the overlay whenever the working tuple changes; bump the
   // request id so any in-flight response from the previous tuple is
@@ -252,7 +305,7 @@ function EpipolarBody(props: BodyProps) {
       let feature: number | null = null;
       let bestDist = FEATURE_SNAP_PX;
       let snappedPx: [number, number] = px;
-      for (const r of residualsA) {
+      for (const r of undistortedResidualsA) {
         const dx = r.observed_px[0] - px[0];
         const dy = r.observed_px[1] - px[1];
         const d = Math.hypot(dx, dy);
@@ -266,10 +319,21 @@ function EpipolarBody(props: BodyProps) {
       setOverlayError(null);
       latestRequestIdRef.current += 1;
       const myRequestId = latestRequestIdRef.current;
+      if (!imageB) {
+        setOverlay(null);
+        setOverlayError("epipolar overlay failed: pane-B undistorted image is not ready yet");
+        return;
+      }
       try {
         const result = await invoke<EpipolarOverlayResult>(
-          "compute_epipolar_overlay",
-          { camA: cameraA, camB: cameraB, pointPx: snappedPx },
+          "compute_epipolar_overlay_undistorted",
+          {
+            camA: cameraA,
+            camB: cameraB,
+            pointPx: snappedPx,
+            imageWidthB: imageB.naturalWidth,
+            imageHeightB: imageB.naturalHeight,
+          },
         );
         if (myRequestId !== latestRequestIdRef.current) return;
         setOverlay(result);
@@ -279,30 +343,23 @@ function EpipolarBody(props: BodyProps) {
         setOverlayError(`epipolar overlay failed: ${e}`);
       }
     },
-    [cameraA, cameraB, residualsA, setOverlay, setOverlayError, setPicked],
+    [
+      cameraA,
+      cameraB,
+      imageB,
+      setOverlay,
+      setOverlayError,
+      setPicked,
+      undistortedResidualsA,
+    ],
   );
 
   const ghostInB = useMemo<TargetFeatureResidual | null>(() => {
     if (!picked || picked.feature == null) return null;
-    return residualsB.find((r) => r.feature === picked.feature) ?? null;
-  }, [picked, residualsB]);
+    return undistortedResidualsB.find((r) => r.feature === picked.feature) ?? null;
+  }, [picked, undistortedResidualsB]);
 
-  // Polyline clipped strictly to pane-B's image bounds. The Rust side
-  // sweeps depths from 0.05 m to 5 m, which is wider than any real
-  // dataset's working volume — most samples land outside the image
-  // and pull the polyline into a long curve (distortion gets visually
-  // amplified far from the principal point). Only the in-image
-  // portion is what the engineer actually reads, so we drop the rest
-  // and keep only the longest contiguous in-image run to avoid a
-  // straight bridge across an out-of-image gap.
-  const clippedPolyline = useMemo<[number, number][] | undefined>(() => {
-    if (!overlay || overlay.line_b.length < 2) return undefined;
-    if (!frameB) return overlay.line_b;
-    const w = frameB.roi?.w ?? 0;
-    const h = frameB.roi?.h ?? 0;
-    if (w === 0 || h === 0) return overlay.line_b;
-    return longestInImageRun(overlay.line_b, w, h);
-  }, [overlay, frameB]);
+  const clippedPolyline = overlay && overlay.line_b.length >= 2 ? overlay.line_b : undefined;
 
   // Distance from the corresponding pane-B feature to the polyline in
   // pixels — the calibration's epipolar residual for the picked
@@ -324,42 +381,42 @@ function EpipolarBody(props: BodyProps) {
 
   const tieMarkersA = useMemo<OverlayPoint[]>(() => {
     if (!showTieLines) return [];
-    return residualsA.map((r) => ({
+    return undistortedResidualsA.map((r) => ({
       px: r.observed_px,
       color: "var(--color-muted-foreground, #888)",
       dot: true,
       size: 4,
     }));
-  }, [showTieLines, residualsA]);
+  }, [showTieLines, undistortedResidualsA]);
 
   const tieMarkersB = useMemo<OverlayPoint[]>(() => {
     if (!showTieLines) return [];
-    return residualsB.map((r) => ({
+    return undistortedResidualsB.map((r) => ({
       px: r.observed_px,
       color: "var(--color-muted-foreground, #888)",
       dot: true,
       size: 4,
     }));
-  }, [showTieLines, residualsB]);
+  }, [showTieLines, undistortedResidualsB]);
 
   const featureMarkersA = useMemo<OverlayPoint[]>(() => {
     if (!showFeatures) return [];
-    return residualsA.map((r) => ({
+    return undistortedResidualsA.map((r) => ({
       px: r.observed_px,
       color: "var(--color-accent, #888)",
       dot: true,
       size: 6,
     }));
-  }, [showFeatures, residualsA]);
+  }, [showFeatures, undistortedResidualsA]);
   const featureMarkersB = useMemo<OverlayPoint[]>(() => {
     if (!showFeatures) return [];
-    return residualsB.map((r) => ({
+    return undistortedResidualsB.map((r) => ({
       px: r.observed_px,
       color: "var(--color-accent, #888)",
       dot: true,
       size: 6,
     }));
-  }, [showFeatures, residualsB]);
+  }, [showFeatures, undistortedResidualsB]);
 
   const markersA: OverlayPoint[] = [
     ...featureMarkersA,
@@ -494,23 +551,23 @@ function EpipolarBody(props: BodyProps) {
       <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-hidden rounded-md bg-bg-soft p-2">
         <Pane
           frame={frameA}
-          residuals={residualsForPose}
           transform={linked ? linkedTransform : transformA}
           onTransformChange={linked ? setLinkedTransform : setTransformA}
           onPick={handlePickA}
           markers={markersA}
-          caption={frameA ? `pane A · cam ${cameraA}${showFeatures ? " · click feature or anywhere" : " · click to pick"}` : undefined}
+          image={imageA?.image ?? null}
+          caption={frameA ? `pane A · cam ${cameraA} · undistorted${showFeatures ? " · click feature or anywhere" : " · click to pick"}` : undefined}
           handleRef={handleARef}
         />
         <Pane
           frame={frameB}
-          residuals={residualsForPose}
           transform={linked ? linkedTransform : transformB}
           onTransformChange={linked ? setLinkedTransform : setTransformB}
           polyline={clippedPolyline}
           polylineColor="var(--color-brand, #1abc9c)"
           markers={markersB}
-          caption={frameB ? `pane B · cam ${cameraB}` : undefined}
+          image={imageB?.image ?? null}
+          caption={frameB ? `pane B · cam ${cameraB} · undistorted` : undefined}
           handleRef={handleBRef}
           annotation={
             ghostInB && ghostDistancePx != null
@@ -530,46 +587,6 @@ function EpipolarBody(props: BodyProps) {
       </div>
     </section>
   );
-}
-
-/** Return the longest contiguous run of polyline points that fall
- * inside `[0, w] × [0, h]`. The Rust side densely samples depths along
- * the back-projected ray; only some samples project inside pane B's
- * image. Filtering kept-in-bounds points and re-stitching them into
- * one polyline draws a "straight bridge" across out-of-image gaps,
- * which looks like a curve. Picking the single longest in-image run
- * sidesteps that. */
-function longestInImageRun(
-  pts: [number, number][],
-  w: number,
-  h: number,
-): [number, number][] {
-  let bestStart = 0;
-  let bestLen = 0;
-  let curStart = -1;
-  let curLen = 0;
-  const flush = (i: number) => {
-    if (curLen > bestLen) {
-      bestLen = curLen;
-      bestStart = curStart;
-    }
-    curStart = i;
-    curLen = 0;
-  };
-  for (let i = 0; i < pts.length; i++) {
-    const [x, y] = pts[i];
-    if (x >= 0 && x <= w && y >= 0 && y <= h) {
-      if (curStart < 0) curStart = i;
-      curLen += 1;
-    } else if (curLen > 0) {
-      flush(i + 1);
-    }
-  }
-  if (curLen > bestLen) {
-    bestLen = curLen;
-    bestStart = curStart;
-  }
-  return bestLen > 0 ? pts.slice(bestStart, bestStart + bestLen) : [];
 }
 
 function distanceToPolyline(
@@ -604,7 +621,6 @@ function distanceToSegment(
 
 interface PaneProps {
   frame: FrameKey | null;
-  residuals: TargetFeatureResidual[];
   transform: ViewportTransform;
   onTransformChange: (t: ViewportTransform) => void;
   onPick?: (pixel: { x: number; y: number }) => void;
@@ -612,13 +628,13 @@ interface PaneProps {
   polylineColor?: string;
   markers?: OverlayPoint[];
   caption?: string;
+  image: HTMLImageElement | null;
   handleRef: React.MutableRefObject<FrameCanvasHandle | null>;
   annotation?: { px: [number, number]; text: string; color: string };
 }
 
 function Pane({
   frame,
-  residuals,
   transform,
   onTransformChange,
   onPick,
@@ -626,6 +642,7 @@ function Pane({
   polylineColor,
   markers,
   caption,
+  image,
   handleRef,
   annotation,
 }: PaneProps) {
@@ -640,7 +657,6 @@ function Pane({
     <PaneInner
       key={frame.abs_path}
       frame={frame}
-      residuals={residuals}
       transform={transform}
       onTransformChange={onTransformChange}
       onPick={onPick}
@@ -648,6 +664,7 @@ function Pane({
       polylineColor={polylineColor}
       markers={markers}
       caption={caption}
+      image={image}
       handleRef={handleRef}
       annotation={annotation}
     />
@@ -656,7 +673,6 @@ function Pane({
 
 function PaneInner({
   frame,
-  residuals,
   transform,
   onTransformChange,
   onPick,
@@ -664,18 +680,22 @@ function PaneInner({
   polylineColor,
   markers,
   caption,
+  image,
   handleRef,
   annotation,
 }: PaneProps & { frame: FrameKey }) {
-  const image = useImageData(frame);
+  const displayFrame = useMemo<FrameKey>(
+    () => ({ ...frame, roi: undefined }),
+    [frame],
+  );
   return (
     <div className="relative flex h-full flex-col">
       <div className="relative flex-1 overflow-hidden">
         <FrameCanvas
           ref={handleRef}
-          frame={frame}
-          residuals={residuals}
-          image={image?.image ?? null}
+          frame={displayFrame}
+          residuals={[]}
+          image={image}
           transform={transform}
           onTransformChange={onTransformChange}
           onPick={onPick}

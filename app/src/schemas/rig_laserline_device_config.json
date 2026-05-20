@@ -1,0 +1,50 @@
+{
+  "$defs": {
+    "LaserlineResidualType": {
+      "description": "Type of laser plane residual to use.",
+      "oneOf": [
+        {
+          "const": "PointToPlane",
+          "description": "Point-to-plane distance (original approach).\n\nUndistorts pixel, back-projects to 3D ray, intersects with target plane,\ncomputes 3D point in camera frame, measures signed distance to laser plane.\nResidual: 1D distance in meters.",
+          "type": "string"
+        },
+        {
+          "const": "LineDistNormalized",
+          "description": "Line-distance in normalized plane (alternative approach).\n\nComputes 3D intersection line of laser plane and target plane, projects\nline onto z=1 normalized camera plane, undistorts laser pixels to normalized\ncoordinates, measures perpendicular distance from pixel to projected line,\nscales by sqrt(fx*fy) for pixel-comparable residual.\nResidual: 1D distance in pixels.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Configuration for rig laserline calibration.",
+  "properties": {
+    "laser_residual_type": {
+      "$ref": "#/$defs/LaserlineResidualType",
+      "description": "Laser residual type (point-to-plane vs line-distance)."
+    },
+    "max_iters": {
+      "description": "Maximum solver iterations.",
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "verbosity": {
+      "description": "Verbosity level.",
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "laser_residual_type"
+  ],
+  "title": "RigLaserlineDeviceConfig",
+  "type": "object"
+}
