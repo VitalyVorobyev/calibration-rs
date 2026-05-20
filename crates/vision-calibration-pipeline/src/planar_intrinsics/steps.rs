@@ -124,6 +124,40 @@ impl Default for FilterOptions {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Step Results
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Typed return value of [`step_init`] / [`step_set_init`].
+///
+/// Carries the seeded-or-fitted initial estimates that examples and downstream
+/// consumers used to read out of `session.state.initial_*` via `.as_ref().unwrap()`.
+/// The same values continue to be written into `session.state` for backwards
+/// compatibility — see ADR 0011.
+#[derive(Debug, Clone)]
+pub struct PlanarInitResult {
+    /// Initial pinhole intrinsics (fx, fy, cx, cy, skew).
+    pub intrinsics: FxFyCxCySkew<Real>,
+    /// Initial Brown–Conrady distortion coefficients.
+    pub distortion: BrownConrady5<Real>,
+    /// Initial per-view target poses (`camera_se3_target`).
+    pub poses: Vec<Iso3>,
+}
+
+/// Typed return value of [`step_optimize`].
+///
+/// Aggregates the optimization metrics that examples used to read out of
+/// `session.state` after the planar-intrinsics solve.
+#[derive(Debug, Clone)]
+pub struct PlanarOptimizeResult {
+    /// Final cost reported by the non-linear solver.
+    pub final_cost: f64,
+    /// Mean reprojection error in pixels.
+    pub mean_reproj_error: f64,
+    /// Number of solver iterations executed.
+    pub iterations: usize,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -157,7 +191,7 @@ pub fn step_set_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     manual: PlanarManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
+) -> Result<PlanarInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -267,7 +301,7 @@ pub fn step_set_init(
     session.state.homographies = Some(homographies);
     session.state.initial_intrinsics = Some(intrinsics);
     session.state.initial_distortion = Some(distortion);
-    session.state.initial_poses = Some(poses);
+    session.state.initial_poses = Some(poses.clone());
     session.state.clear_optimization();
 
     let source = format_init_source(&manual_fields, &auto_fields);
@@ -279,7 +313,11 @@ pub fn step_set_init(
         ),
     );
 
-    Ok(())
+    Ok(PlanarInitResult {
+        intrinsics,
+        distortion,
+        poses,
+    })
 }
 
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
@@ -310,7 +348,7 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
+) -> Result<PlanarInitResult, Error> {
     step_set_init(session, PlanarManualInit::default(), opts)
 }
 
@@ -336,7 +374,7 @@ pub fn step_init(
 pub fn step_optimize(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<PlanarOptimizeResult, Error> {
     // Validate preconditions
     session.validate()?;
     let input = session.require_input()?;
@@ -367,22 +405,28 @@ pub fn step_optimize(
     };
 
     // Update state
-    session.state.final_cost = Some(result.report.final_cost);
-    session.state.mean_reproj_error = Some(result.mean_reproj_error);
+    let final_cost = result.report.final_cost;
+    let mean_reproj_error = result.mean_reproj_error;
+    // `SolveReport` currently does not expose an iteration count; the
+    // state field is kept for future use (see `PlanarState::iterations`).
+    let iterations = session.state.iterations.unwrap_or(0);
+    session.state.final_cost = Some(final_cost);
+    session.state.mean_reproj_error = Some(mean_reproj_error);
 
     // Set output
-    session.set_output(result.clone());
+    session.set_output(result);
 
     // Log success
     session.log_success_with_notes(
         "optimize",
-        format!(
-            "cost={:.2e}, reproj_err={:.3}px",
-            result.report.final_cost, result.mean_reproj_error
-        ),
+        format!("cost={final_cost:.2e}, reproj_err={mean_reproj_error:.3}px"),
     );
 
-    Ok(())
+    Ok(PlanarOptimizeResult {
+        final_cost,
+        mean_reproj_error,
+        iterations,
+    })
 }
 
 /// Filter observations based on reprojection error.
@@ -511,8 +555,8 @@ pub fn step_filter(
 pub fn run_calibration(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
 ) -> Result<(), Error> {
-    step_init(session, None)?;
-    step_optimize(session, None)?;
+    let _ = step_init(session, None)?;
+    let _ = step_optimize(session, None)?;
     Ok(())
 }
 
@@ -534,15 +578,15 @@ pub fn run_calibration_with_filtering(
     filter_opts: FilterOptions,
 ) -> Result<(), Error> {
     // First pass
-    step_init(session, None)?;
-    step_optimize(session, None)?;
+    let _ = step_init(session, None)?;
+    let _ = step_optimize(session, None)?;
 
     // Filter outliers
     step_filter(session, filter_opts)?;
 
     // Second pass on cleaned data
-    step_init(session, None)?;
-    step_optimize(session, None)?;
+    let _ = step_init(session, None)?;
+    let _ = step_optimize(session, None)?;
 
     Ok(())
 }

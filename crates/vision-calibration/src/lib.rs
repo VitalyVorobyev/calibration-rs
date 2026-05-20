@@ -139,6 +139,8 @@ pub mod planar_intrinsics {
         FilterOptions,
         IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions,
+        // Typed step results (Phase 1a of 0.5.0 API revision)
+        PlanarInitResult,
         // Problem type and config
         PlanarIntrinsicsConfig,
         // Re-exports from vision-calibration-optim
@@ -149,6 +151,7 @@ pub mod planar_intrinsics {
         PlanarIntrinsicsSolveOptions,
         // Manual init seed (ADR 0011)
         PlanarManualInit,
+        PlanarOptimizeResult,
         PlanarState,
         // Step functions
         run_calibration,
@@ -197,13 +200,18 @@ pub mod single_cam_handeye {
         IntrinsicsOptimizeOptions,
         SingleCamHandeyeConfig,
         SingleCamHandeyeExport,
+        // Typed step results (Phase 1a of 0.5.0 API revision)
+        SingleCamHandeyeInitResult,
         SingleCamHandeyeInput,
         // Manual init seeds (ADR 0011)
         SingleCamHandeyeManualInit,
+        SingleCamHandeyeOptimizeResult,
         SingleCamHandeyeProblem,
         SingleCamHandeyeState,
         SingleCamHandeyeView,
+        SingleCamIntrinsicsInitResult,
         SingleCamIntrinsicsManualInit,
+        SingleCamIntrinsicsOptimizeResult,
         // Step functions
         run_calibration,
         step_handeye_init,
@@ -289,8 +297,13 @@ pub mod rig_extrinsics {
         RigExtrinsicsOutput,
         RigExtrinsicsProblem,
         RigExtrinsicsState,
+        // Typed step results (Phase 1a of 0.5.0 API revision)
+        RigInitResult,
+        RigIntrinsicsInitAllResult,
         RigIntrinsicsManualInit,
+        RigIntrinsicsOptimizeAllResult,
         RigOptimizeOptions,
+        RigOptimizeResult,
         // Sensor flavour selector (pinhole vs Scheimpflug)
         SensorMode,
         // Step functions
@@ -342,17 +355,24 @@ pub mod rig_handeye {
         RigHandeyeBaConfig,
         RigHandeyeConfig,
         RigHandeyeExport,
+        // Typed step results (Phase 1a of 0.5.0 API revision)
+        RigHandeyeHandeyeInitResult,
         // Manual init seeds (ADR 0011)
         RigHandeyeHandeyeManualInit,
+        RigHandeyeHandeyeOptimizeResult,
         RigHandeyeInitConfig,
         RigHandeyeInput,
         RigHandeyeIntrinsicsConfig,
+        RigHandeyeIntrinsicsInitAllResult,
         RigHandeyeIntrinsicsManualInit,
+        RigHandeyeIntrinsicsOptimizeAllResult,
         // Output (pinhole or Scheimpflug variant; A6 unified rig family)
         RigHandeyeOutput,
         RigHandeyeProblem,
         RigHandeyeRigConfig,
+        RigHandeyeRigInitResult,
         RigHandeyeRigManualInit,
+        RigHandeyeRigOptimizeResult,
         RigHandeyeSolverConfig,
         RigHandeyeState,
         RigOptimizeOptions,

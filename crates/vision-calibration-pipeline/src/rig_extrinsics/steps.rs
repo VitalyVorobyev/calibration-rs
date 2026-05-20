@@ -6,8 +6,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta, Real,
-    ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
+    BrownConrady5, CameraFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta, PinholeCamera,
+    Real, ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
 use vision_calibration_linear::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_linear::prelude::*;
@@ -121,6 +121,55 @@ fn extract_camera_views(input: &RigExtrinsicsInput, cam_idx: usize) -> Vec<Optio
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Step Results
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Typed return value of [`step_intrinsics_init_all`] /
+/// [`step_set_intrinsics_init_all`].
+///
+/// `per_cam_sensors` is `Some` for [`SensorMode::Scheimpflug`] rigs and `None`
+/// for pinhole rigs. The inner `Option<Iso3>` in `per_cam_target_poses` reflects
+/// real per-(view, camera) detection coverage — a camera may not have observed
+/// the target in a given view.
+#[derive(Debug, Clone)]
+pub struct RigIntrinsicsInitAllResult {
+    /// Per-camera initial pinhole intrinsics + distortion.
+    pub per_cam_intrinsics: Vec<PinholeCamera>,
+    /// Per-camera Scheimpflug sensor parameters; `None` for pinhole rigs.
+    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
+    /// Per-camera target poses: `[view][cam] -> Option<Iso3>` (`camera_se3_target`).
+    /// Inner `None` marks views where that camera did not observe the target.
+    pub per_cam_target_poses: Vec<Vec<Option<Iso3>>>,
+}
+
+/// Typed return value of [`step_intrinsics_optimize_all`].
+#[derive(Debug, Clone)]
+pub struct RigIntrinsicsOptimizeAllResult {
+    /// Per-camera refined pinhole intrinsics + distortion.
+    pub per_cam_intrinsics: Vec<PinholeCamera>,
+    /// Per-camera mean reprojection error in pixels.
+    pub per_cam_reproj_errors: Vec<f64>,
+}
+
+/// Typed return value of [`step_rig_init`] / [`step_set_rig_init`].
+#[derive(Debug, Clone)]
+pub struct RigInitResult {
+    /// Initial per-camera `T_C_R` — camera-from-rig (reference camera is identity).
+    pub initial_cam_se3_rig: Vec<Iso3>,
+    /// Initial per-view `T_R_T` — rig-from-target.
+    pub initial_rig_se3_target: Vec<Iso3>,
+}
+
+/// Typed return value of [`step_rig_optimize`].
+#[derive(Debug, Clone)]
+pub struct RigOptimizeResult {
+    /// Mean reprojection error in pixels across the whole rig.
+    pub mean_reproj_error: f64,
+    /// Per-camera mean reprojection error in pixels.
+    pub per_cam_reproj_errors: Vec<f64>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -143,7 +192,7 @@ pub fn step_set_intrinsics_init_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     manual: RigIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
+) -> Result<RigIntrinsicsInitAllResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -190,9 +239,13 @@ pub fn step_set_intrinsics_init_all(
         flavour,
     )?;
 
-    session.state.per_cam_intrinsics = Some(bootstrap.bundle.cameras);
-    session.state.per_cam_sensors = bootstrap.bundle.scheimpflug;
-    session.state.per_cam_target_poses = Some(bootstrap.per_cam_target_poses);
+    let per_cam_intrinsics = bootstrap.bundle.cameras;
+    let per_cam_sensors = bootstrap.bundle.scheimpflug;
+    let per_cam_target_poses = bootstrap.per_cam_target_poses;
+
+    session.state.per_cam_intrinsics = Some(per_cam_intrinsics.clone());
+    session.state.per_cam_sensors = per_cam_sensors.clone();
+    session.state.per_cam_target_poses = Some(per_cam_target_poses.clone());
 
     let source = format_init_source(&bootstrap.manual_fields, &bootstrap.auto_fields);
     session.log_success_with_notes(
@@ -200,7 +253,11 @@ pub fn step_set_intrinsics_init_all(
         format!("initialized {num_cameras} cameras {source}"),
     );
 
-    Ok(())
+    Ok(RigIntrinsicsInitAllResult {
+        per_cam_intrinsics,
+        per_cam_sensors,
+        per_cam_target_poses,
+    })
 }
 
 /// Initialize intrinsics for all cameras using full auto-init (Zhang's per camera).
@@ -209,7 +266,7 @@ pub fn step_set_intrinsics_init_all(
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
+) -> Result<RigIntrinsicsInitAllResult, Error> {
     step_set_intrinsics_init_all(session, RigIntrinsicsManualInit::default(), opts)
 }
 
@@ -227,7 +284,7 @@ pub fn step_intrinsics_init_all(
 pub fn step_intrinsics_optimize_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<RigIntrinsicsOptimizeAllResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -386,7 +443,7 @@ pub fn step_intrinsics_optimize_all(
         }
     }
 
-    session.state.per_cam_intrinsics = Some(optimized_cameras);
+    session.state.per_cam_intrinsics = Some(optimized_cameras.clone());
     session.state.per_cam_sensors = optimized_sensors;
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
     session.state.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
@@ -398,7 +455,10 @@ pub fn step_intrinsics_optimize_all(
         format!("avg_reproj_err={avg_error:.3}px"),
     );
 
-    Ok(())
+    Ok(RigIntrinsicsOptimizeAllResult {
+        per_cam_intrinsics: optimized_cameras,
+        per_cam_reproj_errors,
+    })
 }
 
 /// Initialize rig extrinsics from any combination of manual seeds and auto-
@@ -422,7 +482,7 @@ pub fn step_intrinsics_optimize_all(
 pub fn step_set_rig_init(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     manual: RigExtrinsicsManualInit,
-) -> Result<(), Error> {
+) -> Result<RigInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -497,8 +557,8 @@ pub fn step_set_rig_init(
         }
     };
 
-    session.state.initial_cam_se3_rig = Some(cam_se3_rig);
-    session.state.initial_rig_se3_target = Some(rig_se3_target);
+    session.state.initial_cam_se3_rig = Some(cam_se3_rig.clone());
+    session.state.initial_rig_se3_target = Some(rig_se3_target.clone());
 
     let source = format_init_source(&manual_fields, &auto_fields);
     session.log_success_with_notes(
@@ -509,13 +569,18 @@ pub fn step_set_rig_init(
         ),
     );
 
-    Ok(())
+    Ok(RigInitResult {
+        initial_cam_se3_rig: cam_se3_rig,
+        initial_rig_se3_target: rig_se3_target,
+    })
 }
 
 /// Initialize rig extrinsics using full auto-init (linear extrinsics fit).
 ///
 /// Convenience wrapper around [`step_set_rig_init`] with default seeds.
-pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> Result<(), Error> {
+pub fn step_rig_init(
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
+) -> Result<RigInitResult, Error> {
     step_set_rig_init(session, RigExtrinsicsManualInit::default())
 }
 
@@ -536,7 +601,7 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigExtrinsicsProblem>) -> 
 pub fn step_rig_optimize(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<RigOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<RigOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?.clone();
 
@@ -686,7 +751,7 @@ pub fn step_rig_optimize(
     };
     session.state.rig_ba_final_cost = Some(output.final_cost());
     session.state.rig_ba_reproj_error = Some(mean_reproj_error);
-    session.state.rig_ba_per_cam_reproj_errors = Some(per_cam_errors);
+    session.state.rig_ba_per_cam_reproj_errors = Some(per_cam_errors.clone());
 
     let final_cost = output.final_cost();
     session.set_output(output);
@@ -696,7 +761,10 @@ pub fn step_rig_optimize(
         format!("final_cost={final_cost:.2e}, mean_reproj_err={mean_reproj_error:.3}px"),
     );
 
-    Ok(())
+    Ok(RigOptimizeResult {
+        mean_reproj_error,
+        per_cam_reproj_errors: per_cam_errors,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -713,10 +781,10 @@ pub fn step_rig_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
 ) -> Result<(), Error> {
-    step_intrinsics_init_all(session, None)?;
-    step_intrinsics_optimize_all(session, None)?;
-    step_rig_init(session)?;
-    step_rig_optimize(session, None)?;
+    let _ = step_intrinsics_init_all(session, None)?;
+    let _ = step_intrinsics_optimize_all(session, None)?;
+    let _ = step_rig_init(session)?;
+    let _ = step_rig_optimize(session, None)?;
     Ok(())
 }
 

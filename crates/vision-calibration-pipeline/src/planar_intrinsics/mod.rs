@@ -41,9 +41,9 @@ mod steps;
 pub use problem::{PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem};
 pub use state::PlanarState;
 pub use steps::{
-    FilterOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions, PlanarManualInit,
-    run_calibration, run_calibration_with_filtering, step_filter, step_init, step_optimize,
-    step_set_init,
+    FilterOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions, PlanarInitResult,
+    PlanarManualInit, PlanarOptimizeResult, run_calibration, run_calibration_with_filtering,
+    step_filter, step_init, step_optimize, step_set_init,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
