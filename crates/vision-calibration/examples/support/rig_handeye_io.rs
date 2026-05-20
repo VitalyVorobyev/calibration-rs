@@ -6,7 +6,6 @@
 use anyhow::{Context, Result, ensure};
 use calib_targets::chessboard::{Detection as ChessboardDetection, DetectorParams};
 use calib_targets::detect;
-use chess_corners::ChessConfig;
 use image::ImageReader;
 use std::path::Path;
 use vision_calibration::core::{CorrespondenceView, Iso3, Pt3, Real, Vec2};
@@ -32,7 +31,6 @@ fn image2_filename(index: usize) -> String {
 
 pub fn load_rig_handeye_input_with_progress<F>(
     imgs_dir: &Path,
-    chess_config: &ChessConfig,
     board_params: &DetectorParams,
     square_size_m: Real,
     max_views: Option<usize>,
@@ -93,11 +91,11 @@ where
             img2_path.display()
         );
 
-        let view0 = detect_view(&img0_path, chess_config, board_params, square_size_m)
+        let view0 = detect_view(&img0_path, board_params, square_size_m)
             .with_context(|| format!("failed to detect view for {}", img0_path.display()))?;
-        let view1 = detect_view(&img1_path, chess_config, board_params, square_size_m)
+        let view1 = detect_view(&img1_path, board_params, square_size_m)
             .with_context(|| format!("failed to detect view for {}", img1_path.display()))?;
-        let view2 = detect_view(&img2_path, chess_config, board_params, square_size_m)
+        let view2 = detect_view(&img2_path, board_params, square_size_m)
             .with_context(|| format!("failed to detect view for {}", img2_path.display()))?;
 
         // Skip if all cameras failed to detect
@@ -151,7 +149,6 @@ where
 
 fn detect_view(
     path: &Path,
-    _chess_config: &ChessConfig,
     board_params: &DetectorParams,
     square_size_m: Real,
 ) -> Result<Option<CorrespondenceView>> {

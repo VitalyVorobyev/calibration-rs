@@ -372,9 +372,9 @@ dependencies = [
 
 [[package]]
 name = "box-image-pyramid"
-version = "0.6.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58b98343f595652ccc4da8ba4bb349ed9ce9c77b0472bad0e9d0858295dd092e"
+checksum = "87aa24dde918ca16f7456406a93fe76918ba55cc78fbd7b8aac42cf41810afc5"
 dependencies = [
  "rayon",
 ]
@@ -480,9 +480,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08ebcdd8eb12711dd4342f2b3d22e6b4a98a17eec53a2e6e6cb25aafcd6f47ea"
+checksum = "1db8d8448709b972efa2ef7efd8b4738cf06971713c837bc9c0082a98f57b4d5"
 dependencies = [
  "calib-targets-aruco",
  "calib-targets-charuco",
@@ -501,9 +501,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-aruco"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f63cc01177982500442017ad4e8b7066bdf0901f2409f0d95abe5d5999215e75"
+checksum = "d990b6bd5696a0ab2b322a81d2e4d5148dc84d629e57977638637afd8991fc88"
 dependencies = [
  "calib-targets-core",
  "log",
@@ -514,14 +514,14 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-charuco"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5faafed15f2c114f7430d326f1913a3b68ddf6892d4a2867842302420b524bc0"
+checksum = "7af66c739d481175bdd12e7d16ee7aadc67165b0d2c7bcebe5456eb240c6789b"
 dependencies = [
  "calib-targets-aruco",
  "calib-targets-chessboard",
  "calib-targets-core",
- "chess-corners-core",
+ "chess-corners",
  "log",
  "nalgebra",
  "projective-grid",
@@ -532,9 +532,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-chessboard"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d722baba1ddbe0c6b239b3054a7b593e66b560e4c831ed89a9b175fd9cff8268"
+checksum = "163b2769a687f46e681dafccb409d21feec422b098f63398e184a6630842e780"
 dependencies = [
  "calib-targets-core",
  "kiddo",
@@ -547,10 +547,11 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-core"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09f87430c0973312d043b80d4bff03a1da37574239d3778640cff67509b90b3d"
+checksum = "92f9ad4b23e73fdb29124d26d74267f34686648181a919867431d2c89ea5eeea"
 dependencies = [
+ "chess-corners",
  "log",
  "nalgebra",
  "projective-grid",
@@ -561,9 +562,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-marker"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd4de16719bde92eab612d90a16733e404f04879b761994b60a396317c1335ca"
+checksum = "4d74422dd07522178073cf222ed491e22064b1c03391aea4bd9c4b2b52a17c84"
 dependencies = [
  "calib-targets-chessboard",
  "calib-targets-core",
@@ -576,9 +577,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-print"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c52d8a8aed0aa2dad4f8555b5ee75665ab4d78a89fdcf2a67eda4c9a0bfea2ac"
+checksum = "533ee6c6ba56e730254dc811a7099397e9d9c0c3b021f6ae8ccf80d8610d717f"
 dependencies = [
  "calib-targets-aruco",
  "calib-targets-charuco",
@@ -593,13 +594,12 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-puzzleboard"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3290a2606df3c51300a36dff255bda5897d2545f846cc6df35f8eb24cd00a36c"
+checksum = "7edd0b32560c320d657250e9907b4bcdc1a0f88da95a40865a09a7dbb1b9f9fe"
 dependencies = [
  "calib-targets-chessboard",
  "calib-targets-core",
- "chess-corners-core",
  "nalgebra",
  "projective-grid",
  "serde",
@@ -728,9 +728,9 @@ dependencies = [
 
 [[package]]
 name = "chess-corners"
-version = "0.6.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48621dcb7fc750c0c56563b604af9a9c4c74f482d1c81b004dbb86c67aafec04"
+checksum = "ec0f69e08802e9ec95a13a51f883c774d999d004fd866a1c4c14655edbd524af"
 dependencies = [
  "box-image-pyramid",
  "chess-corners-core",
@@ -743,9 +743,9 @@ dependencies = [
 
 [[package]]
 name = "chess-corners-core"
-version = "0.6.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c484dc3dc9736d59400c6439d27a81bdee9fcaa22bc8796f0ec573cf412e7d7"
+checksum = "c71f1f26caffa180c4574c220746db2655b77825cb8b34aaa6fe2f3a9b87a7b1"
 dependencies = [
  "log",
  "rayon",
@@ -754,9 +754,9 @@ dependencies = [
 
 [[package]]
 name = "chess-corners-ml"
-version = "0.6.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a943392ba88f9e418976030f720801b6e7268527a7ef1f9e22c7d907acd154e1"
+checksum = "b709a0831849b936ae970515c000cfa0ede4a2410db08263d4402d5aa79156ce"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -1081,6 +1081,15 @@ name = "defer"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "930c7171c8df9fb1782bdf9b918ed9ed2d33d1d22300abb754f9085bc48bf8e8"
+
+[[package]]
+name = "delaunator"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e1ee323c1275374f7e612d3724d12707079fb6a2117349fe144def656f5a880"
+dependencies = [
+ "robust",
+]
 
 [[package]]
 name = "deranged"
@@ -4166,10 +4175,11 @@ dependencies = [
 
 [[package]]
 name = "projective-grid"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82d68e7e2b69d64b7e6a552dd98684d16d49e8dc468a0ad9badeccf51877a6b3"
+checksum = "4821fcfd313fe1fbb525a156a0ee5360b7dcf89245348f1061ef89e7c127246b"
 dependencies = [
+ "delaunator",
  "kiddo",
  "nalgebra",
  "serde",
@@ -4634,6 +4644,12 @@ name = "rgb"
 version = "0.8.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
+
+[[package]]
+name = "robust"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
 
 [[package]]
 name = "rustc-hash"
@@ -6388,7 +6404,6 @@ version = "0.4.0"
 dependencies = [
  "anyhow",
  "calib-targets",
- "chess-corners",
  "image",
  "serde",
  "serde_json",

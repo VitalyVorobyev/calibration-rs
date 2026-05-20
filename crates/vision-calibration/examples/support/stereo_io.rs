@@ -3,7 +3,6 @@
 use anyhow::{Context, Result, ensure};
 use calib_targets::chessboard::{Detection as ChessboardDetection, DetectorParams};
 use calib_targets::detect;
-use chess_corners::ChessConfig;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use vision_calibration::prelude::*;
@@ -34,7 +33,6 @@ pub struct StereoDatasetSummary {
 /// pairs.
 pub fn load_stereo_input_with_progress<F>(
     imgs_dir: &Path,
-    chess_config: &ChessConfig,
     board_params: &DetectorParams,
     square_size_m: f64,
     max_views: Option<usize>,
@@ -86,9 +84,9 @@ where
             right_path.display()
         );
 
-        let left = detect_view(&left_path, chess_config, board_params, square_size_m)
+        let left = detect_view(&left_path, board_params, square_size_m)
             .with_context(|| format!("left detection failed for {}", left_path.display()))?;
-        let right = detect_view(&right_path, chess_config, board_params, square_size_m)
+        let right = detect_view(&right_path, board_params, square_size_m)
             .with_context(|| format!("right detection failed for {}", right_path.display()))?;
 
         if left.is_none() && right.is_none() {
@@ -182,7 +180,6 @@ fn list_stereo_pair_indices(left_dir: &Path, right_dir: &Path) -> Result<Vec<usi
 
 fn detect_view(
     path: &Path,
-    _chess_config: &ChessConfig,
     board_params: &DetectorParams,
     square_size_m: f64,
 ) -> Result<Option<CorrespondenceView>> {

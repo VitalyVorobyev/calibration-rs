@@ -18,7 +18,6 @@ mod stereo_io;
 
 use anyhow::{Result, ensure};
 use calib_targets::chessboard::DetectorParams;
-use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use stereo_io::load_stereo_input_with_progress;
@@ -59,13 +58,11 @@ fn main() -> Result<()> {
     }
     println!();
 
-    let chess_config = ChessConfig::default();
     let board_params = DetectorParams::default();
 
     println!("Detecting chessboard corners...");
     let (input, summary) = load_stereo_input_with_progress(
         &imgs_dir,
-        &chess_config,
         &board_params,
         SQUARE_SIZE_M,
         max_views,
@@ -184,7 +181,6 @@ fn main() -> Result<()> {
     println!("--- Alternative: single facade function ---");
     let (input2, _summary2) = load_stereo_input_with_progress(
         &imgs_dir,
-        &chess_config,
         &board_params,
         SQUARE_SIZE_M,
         max_views,

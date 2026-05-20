@@ -48,8 +48,7 @@ schemars = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
 image = { version = "0.25" }
-chess-corners = { version = "0.6", features = ["rayon", "ml-refiner"] }
-calib-targets = "0.7"
+calib-targets = "0.8"
 glob = "0.3"
 rand = { version = "0.10" }
 tracing = { version = "0.1" }

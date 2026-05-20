@@ -17,7 +17,6 @@
 mod stereo_charuco_io;
 
 use anyhow::{Result, ensure};
-use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use stereo_charuco_io::{
@@ -54,13 +53,11 @@ fn main() -> Result<()> {
     }
     println!();
 
-    let chess_config = ChessConfig::default();
     let charuco_params = make_charuco_detector_params();
 
     println!("Detecting ChArUco corners...");
     let (input, summary) = load_stereo_charuco_input_with_progress(
         &data_dir,
-        &chess_config,
         &charuco_params,
         max_views,
         |idx, total, suffix| {
@@ -167,7 +164,6 @@ fn main() -> Result<()> {
     println!("--- Alternative: single facade function ---");
     let (input2, _summary2) = load_stereo_charuco_input_with_progress(
         &data_dir,
-        &chess_config,
         &charuco_params,
         max_views,
         |idx, total, suffix| {

@@ -8,7 +8,6 @@
 use anyhow::{Result, anyhow};
 use calib_targets::chessboard::DetectorParams as ChessboardDetectorParams;
 use calib_targets::detect;
-use chess_corners::ChessConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -52,9 +51,9 @@ impl Detector for ChessboardDetector {
         // The underlying detector auto-labels corners from
         // intersection clustering — `rows`/`cols` from our config are
         // used only for output validation, not as input parameters.
-        // `chess-corners` provides defaults tuned for typical
-        // 5–13 mm calibration boards.
-        let _chess_config = ChessConfig::default();
+        // ChESS corner config is fixed inside `detect::detect_chessboard`
+        // (uses `default_chess_config()`); callers needing custom ChESS
+        // parameters must drop down to `chessboard::Detector::detect`.
         let board_params = ChessboardDetectorParams::default();
 
         let detection = detect::detect_chessboard(&luma, &board_params);

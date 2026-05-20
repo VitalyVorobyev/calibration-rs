@@ -23,7 +23,6 @@ mod stereo_io;
 
 use anyhow::{Context, Result, ensure};
 use calib_targets::chessboard::DetectorParams;
-use chess_corners::ChessConfig;
 use std::path::{Path, PathBuf};
 use stereo_charuco_io::{
     BOARD_CELL_SIZE_MM, BOARD_COLS, BOARD_DICTIONARY_NAME, BOARD_ROWS,
@@ -63,11 +62,9 @@ fn write_stereo_fixture(repo_root: &Path) -> Result<()> {
     );
 
     println!("[stereo] detecting chessboard corners (7×11, 30 mm)…");
-    let chess_config = ChessConfig::default();
     let board_params = DetectorParams::default();
     let (input, summary) = load_stereo_input_with_progress(
         &imgs_dir,
-        &chess_config,
         &board_params,
         STEREO_SQUARE_SIZE_M,
         None,
@@ -116,15 +113,9 @@ fn write_stereo_charuco_fixture(repo_root: &Path) -> Result<()> {
         "[stereo_charuco] detecting ChArUco corners ({BOARD_ROWS}×{BOARD_COLS} board, \
          cell {BOARD_CELL_SIZE_MM:.4} mm, dict {BOARD_DICTIONARY_NAME})…"
     );
-    let chess_config = ChessConfig::default();
     let charuco_params = make_charuco_detector_params();
-    let (input, summary) = load_stereo_charuco_input_with_progress(
-        &dataset_dir,
-        &chess_config,
-        &charuco_params,
-        None,
-        |_, _, _| {},
-    )?;
+    let (input, summary) =
+        load_stereo_charuco_input_with_progress(&dataset_dir, &charuco_params, None, |_, _, _| {})?;
     println!(
         "[stereo_charuco] {} pairs total, {} accepted ({} skipped); usable left={} right={}",
         summary.total_pairs,

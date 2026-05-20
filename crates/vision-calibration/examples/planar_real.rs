@@ -14,7 +14,6 @@
 use anyhow::{Context, Result};
 use calib_targets::chessboard::{Detection as ChessboardDetection, DetectorParams};
 use calib_targets::detect;
-use chess_corners::ChessConfig;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use vision_calibration::planar_intrinsics::{
@@ -139,7 +138,6 @@ fn main() -> Result<()> {
 }
 
 fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> {
-    let chess_config = ChessConfig::default();
     let board_params = DetectorParams::default();
 
     // Find all left camera images
@@ -168,7 +166,7 @@ fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> 
         io::stdout().flush()?;
 
         let path = imgs_dir.join(format!("Im_L_{}.png", idx));
-        match detect_chessboard(&path, &chess_config, &board_params) {
+        match detect_chessboard(&path, &board_params) {
             Ok(Some(view)) => views.push(view),
             Ok(None) => skipped += 1,
             Err(e) => {
@@ -188,7 +186,6 @@ fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> 
 
 fn detect_chessboard(
     path: &Path,
-    _chess_config: &ChessConfig,
     board_params: &DetectorParams,
 ) -> Result<Option<CorrespondenceView>> {
     let img = image::ImageReader::open(path)

@@ -13,7 +13,7 @@ repository.workspace = true
 
 [features]
 default = ["chessboard"]
-chessboard = ["dep:chess-corners", "dep:calib-targets"]
+chessboard = ["dep:calib-targets"]
 schemars = ["dep:schemars"]
 
 [dependencies]
@@ -23,7 +23,6 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 image = { workspace = true }
 schemars = { workspace = true, optional = true }
-chess-corners = { workspace = true, optional = true }
 calib-targets = { workspace = true, optional = true }
 
 [dev-dependencies]
