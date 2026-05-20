@@ -149,15 +149,8 @@ fn main() -> Result<()> {
 
     // Step 1: Per-camera intrinsics initialization
     println!("--- Step 1: Per-Camera Intrinsics Initialization ---");
-    step_intrinsics_init_all(&mut session, None)?;
-    for (i, cam) in session
-        .state
-        .per_cam_intrinsics
-        .as_ref()
-        .unwrap()
-        .iter()
-        .enumerate()
-    {
+    let intr_init = step_intrinsics_init_all(&mut session, None)?;
+    for (i, cam) in intr_init.per_cam_intrinsics.iter().enumerate() {
         println!(
             "  Camera {}: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
             i, cam.k.fx, cam.k.fy, cam.k.cx, cam.k.cy
@@ -167,21 +160,9 @@ fn main() -> Result<()> {
 
     // Step 2: Per-camera intrinsics optimization
     println!("--- Step 2: Per-Camera Intrinsics Optimization ---");
-    step_intrinsics_optimize_all(&mut session, None)?;
-    for (i, cam) in session
-        .state
-        .per_cam_intrinsics
-        .as_ref()
-        .unwrap()
-        .iter()
-        .enumerate()
-    {
-        let reproj = session
-            .state
-            .per_cam_reproj_errors
-            .as_ref()
-            .map(|e| e[i])
-            .unwrap_or(f64::NAN);
+    let intr_opt = step_intrinsics_optimize_all(&mut session, None)?;
+    for (i, cam) in intr_opt.per_cam_intrinsics.iter().enumerate() {
+        let reproj = intr_opt.per_cam_reproj_errors[i];
         println!(
             "  Camera {}: fx={:.1}, fy={:.1}, reproj_err={:.4}px",
             i, cam.k.fx, cam.k.fy, reproj
@@ -191,8 +172,8 @@ fn main() -> Result<()> {
 
     // Step 3: Rig initialization
     println!("--- Step 3: Rig Extrinsics Initialization ---");
-    step_rig_init(&mut session)?;
-    let init_extr = session.state.initial_cam_se3_rig.as_ref().unwrap();
+    let rig_init = step_rig_init(&mut session)?;
+    let init_extr = &rig_init.initial_cam_se3_rig;
     let baseline_init = (init_extr[1].translation.vector - init_extr[0].translation.vector).norm();
     println!(
         "  Initial baseline: {:.4}m (GT: {:.4}m)",
@@ -203,21 +184,23 @@ fn main() -> Result<()> {
 
     // Step 4: Rig optimization
     println!("--- Step 4: Rig Bundle Adjustment ---");
-    step_rig_optimize(&mut session, None)?;
-    let rig_reproj = session.state.rig_ba_reproj_error.unwrap_or(f64::NAN);
-    println!("  Rig BA reprojection error: {:.4} px", rig_reproj);
+    let rig_opt = step_rig_optimize(&mut session, None)?;
+    println!(
+        "  Rig BA reprojection error: {:.4} px",
+        rig_opt.mean_reproj_error
+    );
     println!();
 
     // Step 5: Hand-eye initialization
     println!("--- Step 5: Hand-Eye Initialization (Tsai-Lenz) ---");
-    step_handeye_init(&mut session, None)?;
-    let init_he = session.state.initial_handeye.as_ref().unwrap();
+    let he_init = step_handeye_init(&mut session, None)?;
+    let init_he = &he_init.initial_handeye;
     println!(
         "  Hand-eye |t|: {:.4}m (GT: {:.4}m)",
         init_he.translation.vector.norm(),
         handeye_gt.translation.vector.norm()
     );
-    if let Some(init_target) = session.state.initial_mode_target_pose.as_ref() {
+    if let Some(init_target) = he_init.initial_mode_target_pose.as_ref() {
         println!(
             "  Target in base |t|: {:.4}m (GT: {:.4}m)",
             init_target.translation.vector.norm(),
@@ -228,9 +211,11 @@ fn main() -> Result<()> {
 
     // Step 6: Hand-eye optimization
     println!("--- Step 6: Hand-Eye Bundle Adjustment ---");
-    step_handeye_optimize(&mut session, None)?;
-    let he_reproj = session.state.final_reproj_error.unwrap_or(f64::NAN);
-    println!("  Final reprojection error: {:.4} px", he_reproj);
+    let he_opt = step_handeye_optimize(&mut session, None)?;
+    println!(
+        "  Final reprojection error: {:.4} px",
+        he_opt.mean_reproj_error
+    );
     println!();
 
     // Export and compare with ground truth

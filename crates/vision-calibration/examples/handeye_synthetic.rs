@@ -117,8 +117,8 @@ fn main() -> Result<()> {
 
     // Step 1: Intrinsics initialization
     println!("--- Step 1: Intrinsics Initialization ---");
-    step_intrinsics_init(&mut session, None)?;
-    let init_k = &session.state.initial_camera.as_ref().unwrap().k;
+    let intr_init = step_intrinsics_init(&mut session, None)?;
+    let init_k = &intr_init.camera.k;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         init_k.fx, init_k.fy, init_k.cx, init_k.cy
@@ -131,8 +131,8 @@ fn main() -> Result<()> {
 
     // Step 2: Intrinsics optimization
     println!("--- Step 2: Intrinsics Optimization ---");
-    step_intrinsics_optimize(&mut session, None)?;
-    let opt_cam = session.state.optimized_camera.as_ref().unwrap();
+    let intr_opt = step_intrinsics_optimize(&mut session, None)?;
+    let opt_cam = &intr_opt.camera;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         opt_cam.k.fx, opt_cam.k.fy, opt_cam.k.cx, opt_cam.k.cy
@@ -141,16 +141,18 @@ fn main() -> Result<()> {
         "  Distortion: k1={:.4}, k2={:.4}",
         opt_cam.dist.k1, opt_cam.dist.k2
     );
-    let reproj_err = session.state.intrinsics_reproj_error.unwrap_or(f64::NAN);
-    println!("  Reprojection error: {:.4} px", reproj_err);
+    println!("  Reprojection error: {:.4} px", intr_opt.mean_reproj_error);
     println!();
 
     // Step 3: Hand-eye initialization
     // Note: Linear hand-eye init (Tsai-Lenz) requires diverse rotation axes.
     // If results diverge, try adding more poses with varied rotation axes.
     println!("--- Step 3: Hand-Eye Initialization ---");
-    step_handeye_init(&mut session, None)?;
-    let init_he = session.state.initial_gripper_se3_camera.as_ref().unwrap();
+    let he_init = step_handeye_init(&mut session, None)?;
+    let init_he = he_init
+        .gripper_se3_camera
+        .as_ref()
+        .expect("EyeInHand mode populates gripper_se3_camera");
     let init_he_t = init_he.translation.vector.norm();
     println!(
         "  Hand-eye |t|: {:.4}m (GT: {:.4}m)",
@@ -164,9 +166,11 @@ fn main() -> Result<()> {
 
     // Step 4: Hand-eye optimization
     println!("--- Step 4: Hand-Eye Optimization ---");
-    step_handeye_optimize(&mut session, None)?;
-    let reproj_err = session.state.handeye_reproj_error.unwrap_or(f64::NAN);
-    println!("  Final reprojection error: {:.4} px", reproj_err);
+    let he_opt = step_handeye_optimize(&mut session, None)?;
+    println!(
+        "  Final reprojection error: {:.4} px",
+        he_opt.mean_reproj_error
+    );
     println!();
 
     // Export and compare with ground truth

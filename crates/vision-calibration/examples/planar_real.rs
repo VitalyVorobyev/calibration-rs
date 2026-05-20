@@ -65,10 +65,10 @@ fn main() -> Result<()> {
 
     // Step-by-step calibration
     println!("--- Step 1: Initialization ---");
-    step_init(&mut session, None)?;
+    let init = step_init(&mut session, None)?;
 
-    let init_k = session.state.initial_intrinsics.as_ref().unwrap();
-    let init_dist = session.state.initial_distortion.as_ref().unwrap();
+    let init_k = &init.intrinsics;
+    let init_dist = &init.distortion;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         init_k.fx, init_k.fy, init_k.cx, init_k.cy
@@ -79,14 +79,10 @@ fn main() -> Result<()> {
     );
 
     println!("--- Step 2: Optimization ---");
-    step_optimize(&mut session, None)?;
+    let opt = step_optimize(&mut session, None)?;
 
-    let state = &session.state;
-    println!("  Final cost: {:.2e}", state.final_cost.unwrap());
-    println!(
-        "  Mean reprojection error: {:.4} px",
-        state.mean_reproj_error.unwrap()
-    );
+    println!("  Final cost: {:.2e}", opt.final_cost);
+    println!("  Mean reprojection error: {:.4} px", opt.mean_reproj_error);
     println!();
 
     // Export results

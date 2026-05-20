@@ -85,27 +85,17 @@ fn main() -> Result<()> {
     session.set_input(input)?;
 
     println!("--- Step 1: Per-Camera Intrinsics Initialization ---");
-    step_intrinsics_init_all(&mut session, None)?;
+    let _intr_init = step_intrinsics_init_all(&mut session, None)?;
     println!("  Initialization complete");
     println!();
 
     println!("--- Step 2: Per-Camera Intrinsics Optimization ---");
-    step_intrinsics_optimize_all(&mut session, None)?;
+    let intr_opt = step_intrinsics_optimize_all(&mut session, None)?;
 
-    for (i, (cam, reproj)) in session
-        .state
+    for (i, (cam, reproj)) in intr_opt
         .per_cam_intrinsics
-        .as_ref()
-        .unwrap()
         .iter()
-        .zip(
-            session
-                .state
-                .per_cam_reproj_errors
-                .as_ref()
-                .unwrap_or(&vec![0.0, 0.0])
-                .iter(),
-        )
+        .zip(intr_opt.per_cam_reproj_errors.iter())
         .enumerate()
     {
         let k = &cam.k;
@@ -117,34 +107,23 @@ fn main() -> Result<()> {
     println!();
 
     println!("--- Step 3: Rig Extrinsics Initialization ---");
-    step_rig_init(&mut session)?;
-    let init_extr = session.state.initial_cam_se3_rig.as_ref().unwrap();
-    print_baseline("Initial baseline", init_extr);
+    let rig_init = step_rig_init(&mut session)?;
+    print_baseline("Initial baseline", &rig_init.initial_cam_se3_rig);
     println!();
 
     println!("--- Step 4: Rig Bundle Adjustment ---");
-    step_rig_optimize(&mut session, None)?;
-    let mean_reproj_error = session.state.rig_ba_reproj_error.unwrap_or(f64::NAN);
+    let rig_opt = step_rig_optimize(&mut session, None)?;
     println!(
         "  Rig BA mean reprojection error: {:.4} px",
-        mean_reproj_error
+        rig_opt.mean_reproj_error
     );
-    if let Some(per_cam) = session.state.rig_ba_per_cam_reproj_errors.as_ref() {
-        for (i, err) in per_cam.iter().enumerate() {
-            println!("    Camera {}: {:.4} px", i, err);
-        }
+    for (i, err) in rig_opt.per_cam_reproj_errors.iter().enumerate() {
+        println!("    Camera {}: {:.4} px", i, err);
     }
     println!();
 
     println!("--- Final Per-Camera Results ---");
-    for (i, cam) in session
-        .state
-        .per_cam_intrinsics
-        .as_ref()
-        .unwrap()
-        .iter()
-        .enumerate()
-    {
+    for (i, cam) in intr_opt.per_cam_intrinsics.iter().enumerate() {
         let k = &cam.k;
         let d = &cam.dist;
         println!("  Camera {i}:");
@@ -178,18 +157,12 @@ fn main() -> Result<()> {
     run_calibration(&mut session2)?;
 
     let export2 = session2.export()?;
-    let mean_reproj_error = session2
-        .state
-        .rig_ba_reproj_error
-        .unwrap_or(export2.mean_reproj_error);
     println!(
         "  Rig BA mean reprojection error: {:.4} px",
-        mean_reproj_error
+        export2.mean_reproj_error
     );
-    if let Some(per_cam) = session2.state.rig_ba_per_cam_reproj_errors.as_ref() {
-        for (i, err) in per_cam.iter().enumerate() {
-            println!("    Camera {}: {:.4} px", i, err);
-        }
+    for (i, err) in export2.per_cam_reproj_errors.iter().enumerate() {
+        println!("    Camera {}: {:.4} px", i, err);
     }
 
     Ok(())
