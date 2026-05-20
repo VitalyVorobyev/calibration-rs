@@ -248,17 +248,15 @@ impl ProblemType for PlanarIntrinsicsProblem {
             &output.params.camera_se3_target,
         )?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
+        let mut per_feature_residuals = PerFeatureResiduals::default();
+        per_feature_residuals.target = target;
+        per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
         Ok(PlanarIntrinsicsExport {
             params: output.params.clone(),
             report: output.report.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: vec![output.mean_reproj_error],
-            per_feature_residuals: PerFeatureResiduals {
-                target,
-                laser: Vec::new(),
-                target_hist_per_camera: Some(vec![target_hist]),
-                laser_hist_per_camera: None,
-            },
+            per_feature_residuals,
             // Manifest is populated by callers that also wrote images for
             // the dataset (e.g. the `planar_synthetic_with_images` example);
             // the pipeline itself never has image paths to fill in.
@@ -660,15 +658,12 @@ mod tests {
             per_feature_residuals: PerFeatureResiduals::default(),
             image_manifest: None,
         };
-        export.image_manifest = Some(ImageManifest {
-            root: std::path::PathBuf::from("images"),
-            frames: vec![FrameRef {
-                pose: 0,
-                camera: 0,
-                path: std::path::PathBuf::from("pose_0_cam_0.png"),
-                roi: None,
-            }],
-        });
+        let mut frame = FrameRef::default();
+        frame.path = std::path::PathBuf::from("pose_0_cam_0.png");
+        let mut manifest = ImageManifest::default();
+        manifest.root = std::path::PathBuf::from("images");
+        manifest.frames = vec![frame];
+        export.image_manifest = Some(manifest);
 
         let json = serde_json::to_string(&export).expect("serialize");
         let restored: PlanarIntrinsicsExport = serde_json::from_str(&json).expect("deserialize");

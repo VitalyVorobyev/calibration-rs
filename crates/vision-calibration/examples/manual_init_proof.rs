@@ -116,15 +116,10 @@ fn main() -> Result<()> {
     println!("--- Run B: replay Run A's seeds via ManualInit ---");
     let mut session_b = CalibrationSession::<RigExtrinsicsProblem>::new();
     session_b.set_input(load()?)?;
-    step_set_intrinsics_init_all(
-        &mut session_b,
-        RigIntrinsicsManualInit {
-            per_cam_intrinsics: Some(per_cam_k.clone()),
-            per_cam_distortion: Some(per_cam_dist.clone()),
-            per_cam_sensors: None,
-        },
-        None,
-    )?;
+    let mut manual_b = RigIntrinsicsManualInit::default();
+    manual_b.per_cam_intrinsics = Some(per_cam_k.clone());
+    manual_b.per_cam_distortion = Some(per_cam_dist.clone());
+    step_set_intrinsics_init_all(&mut session_b, manual_b, None)?;
     // Skip step_intrinsics_optimize_all: the seed is Run A's already-optimized
     // intrinsics, so re-running the per-camera optimizer would just shift them
     // by solver-noise levels and is not what a "load saved calibration" caller
@@ -132,13 +127,10 @@ fn main() -> Result<()> {
     // rig stage, but rig_optimize does not depend on it directly — it only
     // needs per_cam_intrinsics + per_cam_target_poses, both already set by
     // step_set_intrinsics_init_all.
-    step_set_rig_init(
-        &mut session_b,
-        RigExtrinsicsManualInit {
-            cam_se3_rig: Some(cam_se3_rig_a.clone()),
-            rig_se3_target: Some(rig_se3_target_a.clone()),
-        },
-    )?;
+    let mut rig_manual_b = RigExtrinsicsManualInit::default();
+    rig_manual_b.cam_se3_rig = Some(cam_se3_rig_a.clone());
+    rig_manual_b.rig_se3_target = Some(rig_se3_target_a.clone());
+    step_set_rig_init(&mut session_b, rig_manual_b)?;
     step_rig_optimize(&mut session_b, None)?;
     let b_summary = summarize(&session_b, "Run B")?;
     print_init_logs(&session_b.log, "Run B");
@@ -162,15 +154,10 @@ fn main() -> Result<()> {
         .collect();
     let mut session_c = CalibrationSession::<RigExtrinsicsProblem>::new();
     session_c.set_input(load()?)?;
-    step_set_intrinsics_init_all(
-        &mut session_c,
-        RigIntrinsicsManualInit {
-            per_cam_intrinsics: Some(perturbed_k),
-            per_cam_distortion: None, // let auto-fit it
-            per_cam_sensors: None,
-        },
-        None,
-    )?;
+    let mut manual_c = RigIntrinsicsManualInit::default();
+    manual_c.per_cam_intrinsics = Some(perturbed_k);
+    // `per_cam_distortion` left as None — let auto-fit it.
+    step_set_intrinsics_init_all(&mut session_c, manual_c, None)?;
     step_intrinsics_optimize_all(&mut session_c, None)?;
     step_set_rig_init(&mut session_c, RigExtrinsicsManualInit::default())?;
     step_rig_optimize(&mut session_c, None)?;

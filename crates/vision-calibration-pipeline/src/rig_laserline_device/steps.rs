@@ -18,6 +18,7 @@ use super::problem::RigLaserlineDeviceProblem;
 
 /// Options controlling both step functions.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct StepOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
@@ -35,6 +36,7 @@ pub struct StepOptions {
 /// the linear plane fit is skipped entirely. Length must equal
 /// `input.dataset.num_cameras`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigLaserlineDeviceManualInit {
     /// Per-camera laser planes (camera frame). Overrides input-supplied seeds.
     pub planes_cam: Option<Vec<LaserPlane>>,

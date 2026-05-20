@@ -26,6 +26,7 @@ use super::problem::{
 
 /// Options for the initialization step.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct IntrinsicsInitOptions {
     /// Override the number of iterative initialization rounds.
     pub iterations: Option<usize>,
@@ -48,6 +49,7 @@ pub struct IntrinsicsInitOptions {
 ///
 /// See ADR 0011 for the design rationale.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ScheimpflugManualInit {
     /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
     pub intrinsics: Option<FxFyCxCySkew<Real>>,
@@ -64,6 +66,7 @@ pub struct ScheimpflugManualInit {
 
 /// Options for the optimization step.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct IntrinsicsOptimizeOptions {
     /// Override the maximum number of optimization iterations.
     pub max_iters: Option<usize>,

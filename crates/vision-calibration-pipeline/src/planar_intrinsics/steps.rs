@@ -54,6 +54,7 @@ use super::problem::PlanarIntrinsicsProblem;
 ///
 /// These options override session config for a single step invocation.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct IntrinsicsInitOptions {
     /// Override the number of iterations for iterative estimation.
     pub iterations: Option<usize>,
@@ -63,6 +64,7 @@ pub struct IntrinsicsInitOptions {
 ///
 /// These options override session config for a single step invocation.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct IntrinsicsOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
@@ -88,6 +90,7 @@ pub struct IntrinsicsOptimizeOptions {
 ///
 /// See ADR 0011 for the design rationale.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PlanarManualInit {
     /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
     pub intrinsics: Option<FxFyCxCySkew<Real>>,
@@ -101,6 +104,7 @@ pub struct PlanarManualInit {
 
 /// Options for filtering observations based on reprojection error.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct FilterOptions {
     /// Maximum reprojection error threshold (pixels).
     /// Points with error above this are removed.
@@ -134,6 +138,7 @@ impl Default for FilterOptions {
 /// The same values continue to be written into `session.state` for backwards
 /// compatibility — see ADR 0011.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PlanarInitResult {
     /// Initial pinhole intrinsics (fx, fy, cx, cy, skew).
     pub intrinsics: FxFyCxCySkew<Real>,
@@ -148,6 +153,7 @@ pub struct PlanarInitResult {
 /// Aggregates the optimization metrics that examples used to read out of
 /// `session.state` after the planar-intrinsics solve.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PlanarOptimizeResult {
     /// Final cost reported by the non-linear solver.
     pub final_cost: f64,

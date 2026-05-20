@@ -185,7 +185,8 @@ impl CorrespondenceView {
 }
 
 /// Summary statistics for reprojection errors.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ReprojectionStats {
     /// Mean reprojection error in pixels.
     pub mean: f64,

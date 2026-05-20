@@ -24,6 +24,7 @@ use super::problem::{LaserlineDeviceConfig, LaserlineDeviceOutput, LaserlineDevi
 
 /// Options for the initialization step.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct DeviceInitOptions {
     /// Override the number of iterations for iterative intrinsics estimation.
     pub iterations: Option<usize>,
@@ -46,6 +47,7 @@ pub struct DeviceInitOptions {
 /// - `plane: Some` skips the linear plane fit. Note that `initial_plane_rmse` is
 ///   recorded as `None` in this case (no fit RMSE is meaningful for a manual seed).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceManualInit {
     /// Manual intrinsics seed.
     pub intrinsics: Option<FxFyCxCySkew<Real>>,
@@ -59,6 +61,7 @@ pub struct LaserlineDeviceManualInit {
 
 /// Options for the optimization step.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct DeviceOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,

@@ -174,15 +174,11 @@ fn main() -> Result<()> {
         // Seed intrinsics + distortion + sensors per camera (homogeneous rig)
         // via the unified manual-init API. Replaces the pre-A6
         // `cfg.intrinsics.initial_cameras` / `initial_sensors` knobs.
-        rh::step_set_intrinsics_init_all(
-            &mut rig_session,
-            RigHandeyeIntrinsicsManualInit {
-                per_cam_intrinsics: Some(per_cam_intrinsics_seed),
-                per_cam_distortion: Some(per_cam_distortion_seed),
-                per_cam_sensors: Some(per_cam_sensors_seed),
-            },
-            None,
-        )?;
+        let mut manual_init = RigHandeyeIntrinsicsManualInit::default();
+        manual_init.per_cam_intrinsics = Some(per_cam_intrinsics_seed);
+        manual_init.per_cam_distortion = Some(per_cam_distortion_seed);
+        manual_init.per_cam_sensors = Some(per_cam_sensors_seed);
+        rh::step_set_intrinsics_init_all(&mut rig_session, manual_init, None)?;
         println!("  step_set_intrinsics_init_all: {:.2?}", step_t.elapsed());
         if let Some(cams) = &rig_session.state.per_cam_intrinsics {
             for (i, c) in cams.iter().enumerate() {
@@ -782,23 +778,22 @@ fn build_image_manifest(poses: &[PoseEntry], tile_w: u32, tile_h: u32) -> ImageM
     let mut frames = Vec::with_capacity(poses.len() * NUM_CAMERAS);
     for (pose_idx, pose) in poses.iter().enumerate() {
         for cam_idx in 0..NUM_CAMERAS {
-            frames.push(FrameRef {
-                pose: pose_idx,
-                camera: cam_idx,
-                path: PathBuf::from(&pose.target_image),
-                roi: Some(PixelRect {
-                    x: (cam_idx as u32) * tile_w,
-                    y: 0,
-                    w: tile_w,
-                    h: tile_h,
-                }),
-            });
+            let mut roi = PixelRect::default();
+            roi.x = (cam_idx as u32) * tile_w;
+            roi.w = tile_w;
+            roi.h = tile_h;
+            let mut frame = FrameRef::default();
+            frame.pose = pose_idx;
+            frame.camera = cam_idx;
+            frame.path = PathBuf::from(&pose.target_image);
+            frame.roi = Some(roi);
+            frames.push(frame);
         }
     }
-    ImageManifest {
-        root: PathBuf::from("."),
-        frames,
-    }
+    let mut manifest = ImageManifest::default();
+    manifest.root = PathBuf::from(".");
+    manifest.frames = frames;
+    manifest
 }
 
 fn build_datasets(data_dir: &Path, poses: &[PoseEntry]) -> Result<DetectedDatasets> {

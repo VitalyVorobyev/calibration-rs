@@ -175,6 +175,7 @@ impl LaserlineDeviceConfig {
 
 /// Pipeline output including optimized parameters and summary statistics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LaserlineDeviceOutput {
     /// Optimized camera/laser parameters and backend report.
     pub estimate: LaserlineEstimate,
@@ -300,15 +301,15 @@ impl ProblemType for LaserlineDeviceProblem {
                     Some(proj) => (Some([proj.x, proj.y]), Some((proj - *p2d).norm())),
                     None => (None, None),
                 };
-                target.push(TargetFeatureResidual {
-                    pose: view_idx,
-                    camera: 0,
-                    feature: feature_idx,
-                    target_xyz_m: [p3d.x, p3d.y, p3d.z],
-                    observed_px: [p2d.x, p2d.y],
-                    projected_px,
-                    error_px,
-                });
+                let mut residual = TargetFeatureResidual::default();
+                residual.pose = view_idx;
+                residual.camera = 0;
+                residual.feature = feature_idx;
+                residual.target_xyz_m = [p3d.x, p3d.y, p3d.z];
+                residual.observed_px = [p2d.x, p2d.y];
+                residual.projected_px = projected_px;
+                residual.error_px = error_px;
+                target.push(residual);
             }
         }
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
@@ -316,17 +317,17 @@ impl ProblemType for LaserlineDeviceProblem {
         let laser = compute_laserline_feature_residuals(input, params)?;
         let laser_hist = build_feature_histogram(laser.iter().filter_map(|r| r.residual_px));
 
+        let mut per_feature_residuals = PerFeatureResiduals::default();
+        per_feature_residuals.target = target;
+        per_feature_residuals.laser = laser;
+        per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
+        per_feature_residuals.laser_hist_per_camera = Some(vec![laser_hist]);
         Ok(LaserlineDeviceExport {
             estimate: output.estimate.clone(),
             stats: output.stats.clone(),
             mean_reproj_error: output.stats.mean_reproj_error,
             per_cam_reproj_errors: vec![output.stats.mean_reproj_error],
-            per_feature_residuals: PerFeatureResiduals {
-                target,
-                laser,
-                target_hist_per_camera: Some(vec![target_hist]),
-                laser_hist_per_camera: Some(vec![laser_hist]),
-            },
+            per_feature_residuals,
         })
     }
 }

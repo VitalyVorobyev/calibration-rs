@@ -33,6 +33,7 @@ use super::problem::{RigExtrinsicsInput, RigExtrinsicsOutput, RigExtrinsicsProbl
 
 /// Options for per-camera intrinsics initialization.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct IntrinsicsInitOptions {
     /// Override the number of iterations.
     pub iterations: Option<usize>,
@@ -40,6 +41,7 @@ pub struct IntrinsicsInitOptions {
 
 /// Options for per-camera intrinsics optimization.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct IntrinsicsOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
@@ -65,6 +67,7 @@ pub struct IntrinsicsOptimizeOptions {
 ///
 /// Per-camera vectors must have length equal to `input.num_cameras`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigIntrinsicsManualInit {
     /// Per-camera intrinsics seeds. `None` runs Zhang's per camera.
     pub per_cam_intrinsics: Option<Vec<FxFyCxCySkew<Real>>>,
@@ -81,6 +84,7 @@ pub struct RigIntrinsicsManualInit {
 /// without the other is ambiguous. Per ADR 0011, both must be `Some` or both must
 /// be `None`. A mismatched configuration returns `Error::InvalidInput`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigExtrinsicsManualInit {
     /// Per-camera `T_C_R` (camera-from-rig). `None` runs the linear extrinsics fit.
     pub cam_se3_rig: Option<Vec<Iso3>>,
@@ -90,6 +94,7 @@ pub struct RigExtrinsicsManualInit {
 
 /// Options for rig BA optimization.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct RigOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
@@ -132,6 +137,7 @@ fn extract_camera_views(input: &RigExtrinsicsInput, cam_idx: usize) -> Vec<Optio
 /// real per-(view, camera) detection coverage — a camera may not have observed
 /// the target in a given view.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RigIntrinsicsInitAllResult {
     /// Per-camera initial pinhole intrinsics + distortion.
     pub per_cam_intrinsics: Vec<PinholeCamera>,
@@ -144,6 +150,7 @@ pub struct RigIntrinsicsInitAllResult {
 
 /// Typed return value of [`step_intrinsics_optimize_all`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RigIntrinsicsOptimizeAllResult {
     /// Per-camera refined pinhole intrinsics + distortion.
     pub per_cam_intrinsics: Vec<PinholeCamera>,
@@ -153,6 +160,7 @@ pub struct RigIntrinsicsOptimizeAllResult {
 
 /// Typed return value of [`step_rig_init`] / [`step_set_rig_init`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RigInitResult {
     /// Initial per-camera `T_C_R` — camera-from-rig (reference camera is identity).
     pub initial_cam_se3_rig: Vec<Iso3>,
@@ -162,6 +170,7 @@ pub struct RigInitResult {
 
 /// Typed return value of [`step_rig_optimize`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RigOptimizeResult {
     /// Mean reprojection error in pixels across the whole rig.
     pub mean_reproj_error: f64,

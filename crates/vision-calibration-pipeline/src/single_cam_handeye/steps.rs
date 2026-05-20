@@ -51,6 +51,7 @@ use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblem};
 
 /// Options for intrinsics initialization step.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct IntrinsicsInitOptions {
     /// Override the number of iterations.
     pub iterations: Option<usize>,
@@ -58,6 +59,7 @@ pub struct IntrinsicsInitOptions {
 
 /// Options for intrinsics optimization step.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct IntrinsicsOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
@@ -76,6 +78,7 @@ pub struct IntrinsicsOptimizeOptions {
 /// using the manual intrinsics. When intrinsics are seeded and distortion is not,
 /// distortion defaults to `BrownConrady5::default()`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SingleCamIntrinsicsManualInit {
     /// Manual intrinsics seed.
     pub intrinsics: Option<FxFyCxCySkew<Real>>,
@@ -94,6 +97,7 @@ pub struct SingleCamIntrinsicsManualInit {
 ///
 /// Fields irrelevant to the active mode are ignored.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SingleCamHandeyeManualInit {
     /// (EyeInHand) Camera mounted on gripper: `T_G_C`.
     pub gripper_se3_camera: Option<Iso3>,
@@ -107,6 +111,7 @@ pub struct SingleCamHandeyeManualInit {
 
 /// Options for hand-eye initialization step.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct HandeyeInitOptions {
     /// Override minimum motion angle (degrees).
     pub min_motion_angle_deg: Option<f64>,
@@ -114,6 +119,7 @@ pub struct HandeyeInitOptions {
 
 /// Options for hand-eye optimization step.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct HandeyeOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
@@ -169,6 +175,7 @@ fn estimate_target_pose(
 /// Mirrors the values written into `session.state` so consumers can read them
 /// directly without unwrapping `Option` fields.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SingleCamIntrinsicsInitResult {
     /// Initial pinhole camera estimate (intrinsics + distortion).
     pub camera: PinholeCamera,
@@ -178,6 +185,7 @@ pub struct SingleCamIntrinsicsInitResult {
 
 /// Typed return value of [`step_intrinsics_optimize`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SingleCamIntrinsicsOptimizeResult {
     /// Refined pinhole camera (intrinsics + distortion).
     pub camera: PinholeCamera,
@@ -195,6 +203,7 @@ pub struct SingleCamIntrinsicsOptimizeResult {
 /// - `EyeToHand` populates `camera_se3_base` and `gripper_se3_target`; the
 ///   `EyeInHand` fields are `None`.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SingleCamHandeyeInitResult {
     /// (EyeInHand) Hand-eye transform `T_G_C` — gripper-from-camera.
     pub gripper_se3_camera: Option<Iso3>,
@@ -208,6 +217,7 @@ pub struct SingleCamHandeyeInitResult {
 
 /// Typed return value of [`step_handeye_optimize`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SingleCamHandeyeOptimizeResult {
     /// Mean reprojection error in pixels after hand-eye BA.
     pub mean_reproj_error: f64,

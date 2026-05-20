@@ -37,6 +37,7 @@ use super::problem::{RigHandeyeInput, RigHandeyeOutput, RigHandeyeProblem, Senso
 
 /// Options for per-camera intrinsics initialization.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct IntrinsicsInitOptions {
     /// Override the number of iterations.
     pub iterations: Option<usize>,
@@ -44,6 +45,7 @@ pub struct IntrinsicsInitOptions {
 
 /// Options for per-camera intrinsics optimization.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct IntrinsicsOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
@@ -53,6 +55,7 @@ pub struct IntrinsicsOptimizeOptions {
 
 /// Options for rig BA optimization.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct RigOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
@@ -62,6 +65,7 @@ pub struct RigOptimizeOptions {
 
 /// Options for hand-eye initialization.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct HandeyeInitOptions {
     /// Override minimum motion angle (degrees).
     pub min_motion_angle_deg: Option<f64>,
@@ -73,6 +77,7 @@ pub struct HandeyeInitOptions {
 /// `per_cam_sensors` is consulted only when [`SensorMode::Scheimpflug`] is
 /// configured; for [`SensorMode::Pinhole`] it is silently ignored.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeIntrinsicsManualInit {
     /// Per-camera intrinsics seeds. `None` runs Zhang's per camera.
     pub per_cam_intrinsics: Option<Vec<FxFyCxCySkew<Real>>>,
@@ -88,6 +93,7 @@ pub struct RigHandeyeIntrinsicsManualInit {
 /// `cam_se3_rig` and `rig_se3_target` are coupled per ADR 0011 — both must be
 /// `Some` or both `None`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeRigManualInit {
     /// Per-camera `T_C_R` — camera-from-rig. `None` runs the linear extrinsics fit.
     pub cam_se3_rig: Option<Vec<Iso3>>,
@@ -107,6 +113,7 @@ pub struct RigHandeyeRigManualInit {
 /// The state stores both as mode-agnostic `initial_handeye` and
 /// `initial_mode_target_pose`, so this struct mirrors that shape directly.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeHandeyeManualInit {
     /// Mode-dependent hand-eye transform.
     pub handeye: Option<Iso3>,
@@ -116,6 +123,7 @@ pub struct RigHandeyeHandeyeManualInit {
 
 /// Options for hand-eye optimization.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct HandeyeOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
@@ -155,6 +163,7 @@ fn extract_camera_views(input: &RigHandeyeInput, cam_idx: usize) -> Vec<Option<V
 /// Structurally similar to [`crate::rig_extrinsics::RigIntrinsicsInitAllResult`]
 /// but lives in this module so the two problem types can evolve independently.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RigHandeyeIntrinsicsInitAllResult {
     /// Per-camera initial pinhole intrinsics + distortion.
     pub per_cam_intrinsics: Vec<PinholeCamera>,
@@ -168,6 +177,7 @@ pub struct RigHandeyeIntrinsicsInitAllResult {
 /// Typed return value of [`step_intrinsics_optimize_all`] for rig hand-eye
 /// calibration.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RigHandeyeIntrinsicsOptimizeAllResult {
     /// Per-camera refined pinhole intrinsics + distortion.
     pub per_cam_intrinsics: Vec<PinholeCamera>,
@@ -178,6 +188,7 @@ pub struct RigHandeyeIntrinsicsOptimizeAllResult {
 /// Typed return value of [`step_rig_init`] / [`step_set_rig_init`] for rig
 /// hand-eye calibration.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RigHandeyeRigInitResult {
     /// Initial per-camera `T_C_R` — camera-from-rig (reference camera is identity).
     pub initial_cam_se3_rig: Vec<Iso3>,
@@ -187,6 +198,7 @@ pub struct RigHandeyeRigInitResult {
 
 /// Typed return value of [`step_rig_optimize`] for rig hand-eye calibration.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RigHandeyeRigOptimizeResult {
     /// Mean reprojection error in pixels across the whole rig after rig BA.
     pub mean_reproj_error: f64,
@@ -199,6 +211,7 @@ pub struct RigHandeyeRigOptimizeResult {
 /// The interpretation of both fields is mode-dependent — see
 /// [`RigHandeyeHandeyeManualInit`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RigHandeyeHandeyeInitResult {
     /// Mode-dependent initial hand-eye transform.
     ///
@@ -216,6 +229,7 @@ pub struct RigHandeyeHandeyeInitResult {
 
 /// Typed return value of [`step_handeye_optimize`] for rig hand-eye calibration.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RigHandeyeHandeyeOptimizeResult {
     /// Mean reprojection error in pixels after the final hand-eye BA.
     pub mean_reproj_error: f64,
