@@ -4,10 +4,12 @@
 //! per-view rig_se3_target), calibrates one laser plane per camera and
 //! reports each plane in the rig frame.
 
+mod geometry;
 mod problem;
 mod state;
 mod steps;
 
+pub use geometry::pixel_to_gripper_point;
 pub use problem::{
     RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
     RigLaserlineDeviceProblem, RigUpstreamCalibration,

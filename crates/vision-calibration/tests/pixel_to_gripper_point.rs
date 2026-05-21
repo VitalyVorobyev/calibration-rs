@@ -8,8 +8,8 @@ use nalgebra::{Isometry3, Rotation3, Translation3, Vector3};
 use vision_calibration::{
     core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt2, Pt3, ScheimpflugParams, make_pinhole_camera},
     optim::LaserPlane,
-    pixel_to_gripper_point,
     rig_handeye::RigHandeyeExport,
+    rig_laserline_device::pixel_to_gripper_point,
 };
 
 /// Build a minimal `RigHandeyeExport` (Scheimpflug variant) for EyeInHand mode.

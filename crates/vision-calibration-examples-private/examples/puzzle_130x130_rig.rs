@@ -31,12 +31,12 @@ use std::time::Instant;
 mod puzzle_viewer;
 
 use vision_calibration::{
-    pixel_to_gripper_point,
     rig_handeye::{
         RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem, SensorMode,
     },
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
+        pixel_to_gripper_point,
     },
     session::CalibrationSession,
 };

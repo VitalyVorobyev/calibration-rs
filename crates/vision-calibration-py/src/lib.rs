@@ -325,17 +325,19 @@ fn pixel_to_gripper_point(
         Some(p) => Some(parse_payload(p, "base_se3_gripper")?),
     };
 
-    let pt = vision_calibration::pixel_to_gripper_point(cam_idx, px, &rig_cal, &planes, pose)
-        .map_err(|err| {
-            // Match on the typed enum: any input-validation variant → ValueError;
-            // numerical / propagated errors → RuntimeError.
-            match &err {
-                vision_calibration::Error::InvalidInput { .. }
-                | vision_calibration::Error::InsufficientData { .. }
-                | vision_calibration::Error::NotAvailable { .. } => value_err(err.to_string()),
-                _ => runtime_err(err.to_string()),
-            }
-        })?;
+    let pt = vision_calibration::rig_laserline_device::pixel_to_gripper_point(
+        cam_idx, px, &rig_cal, &planes, pose,
+    )
+    .map_err(|err| {
+        // Match on the typed enum: any input-validation variant → ValueError;
+        // numerical / propagated errors → RuntimeError.
+        match &err {
+            vision_calibration::Error::InvalidInput { .. }
+            | vision_calibration::Error::InsufficientData { .. }
+            | vision_calibration::Error::NotAvailable { .. } => value_err(err.to_string()),
+            _ => runtime_err(err.to_string()),
+        }
+    })?;
 
     let arr = vec![pt.x, pt.y, pt.z];
     let output = pythonize(py, &arr)
