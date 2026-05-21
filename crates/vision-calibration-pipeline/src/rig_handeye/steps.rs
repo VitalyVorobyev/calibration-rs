@@ -181,6 +181,8 @@ pub struct RigHandeyeIntrinsicsInitAllResult {
 pub struct RigHandeyeIntrinsicsOptimizeAllResult {
     /// Per-camera refined pinhole intrinsics + distortion.
     pub per_cam_intrinsics: Vec<PinholeCamera>,
+    /// Per-camera refined Scheimpflug sensor parameters; `None` for pinhole rigs.
+    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
     /// Per-camera mean reprojection error in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
 }
@@ -512,7 +514,7 @@ pub fn step_intrinsics_optimize_all(
     }
 
     session.state.per_cam_intrinsics = Some(optimized_cameras.clone());
-    session.state.per_cam_sensors = optimized_sensors;
+    session.state.per_cam_sensors = optimized_sensors.clone();
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
     session.state.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
 
@@ -525,6 +527,7 @@ pub fn step_intrinsics_optimize_all(
 
     Ok(RigHandeyeIntrinsicsOptimizeAllResult {
         per_cam_intrinsics: optimized_cameras,
+        per_cam_sensors: optimized_sensors,
         per_cam_reproj_errors,
     })
 }

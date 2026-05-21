@@ -202,7 +202,7 @@ fn main() -> Result<()> {
                 c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
             );
         }
-        if let Some(sens) = &rig_session.state.per_cam_sensors {
+        if let Some(sens) = &intr_opt.per_cam_sensors {
             for (i, s) in sens.iter().enumerate() {
                 println!(
                     "    cam {i} tilt: tilt_x={:+.4} rad ({:+.3}°) tilt_y={:+.4} rad ({:+.3}°)",
@@ -229,16 +229,14 @@ fn main() -> Result<()> {
         // The rig BA may refine per-camera intrinsics in-place (depending on
         // `rig.refine_intrinsics_in_rig_ba`); pull the current values from the
         // intrinsics-optimize result so the "after rig" line reflects the seed
-        // that fed the rig stage. The state mirror is still populated for
-        // sensor-tilt printout below until `per_cam_sensors` gets its own
-        // step return.
+        // that fed the rig stage.
         for (i, c) in intr_opt.per_cam_intrinsics.iter().enumerate() {
             println!(
                 "    [after rig] cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
                 c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
             );
         }
-        if let Some(sens) = &rig_session.state.per_cam_sensors {
+        if let Some(sens) = &intr_opt.per_cam_sensors {
             for (i, s) in sens.iter().enumerate() {
                 println!(
                     "    [after rig] cam {i} tilt: tilt_x={:+.4} ({:+.3}°) tilt_y={:+.4} ({:+.3}°)",

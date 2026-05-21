@@ -53,7 +53,11 @@ pub struct CalibrationSession<P: ProblemType> {
     input: Option<P::Input>,
 
     /// Problem-specific intermediate state (default until computed).
-    pub state: P::State,
+    ///
+    /// Internal pipeline scratch space — crate-private. Consumers read typed
+    /// `step_*` return values, [`Self::log`](Self::log),
+    /// [`Self::metadata`](Self::metadata), or `export()` instead.
+    pub(crate) state: P::State,
 
     /// Final calibration output. `None` until computed.
     output: Option<P::Output>,
@@ -372,6 +376,17 @@ impl<P: ProblemType> CalibrationSession<P> {
     pub fn log_failure(&mut self, operation: impl Into<String>, error: impl Into<String>) {
         self.log.push(LogEntry::failure(operation, error));
         self.metadata.touch();
+    }
+
+    /// Immutable view of the operation log (lightweight audit trail).
+    pub fn log(&self) -> &[LogEntry] {
+        &self.log
+    }
+
+    /// Immutable view of the session metadata (problem type, schema version,
+    /// timestamps, description).
+    pub fn metadata(&self) -> &SessionMetadata {
+        &self.metadata
     }
 
     // ─────────────────────────────────────────────────────────────────────────
