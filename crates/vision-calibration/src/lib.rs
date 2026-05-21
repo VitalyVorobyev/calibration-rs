@@ -480,9 +480,15 @@ pub mod core {
 /// Includes homography estimation, Zhang's method, PnP solvers,
 /// triangulation, hand-eye solvers, and more.
 ///
-/// Re-exports everything from `vision_calibration_linear`.
+/// Re-exports the algorithm modules of `vision_calibration_linear` by name —
+/// items are reached via their owning module, e.g.
+/// `vision_calibration::linear::homography::dlt_homography`. The curated
+/// [`prelude`](linear::prelude) gathers the most-used items.
 pub mod linear {
-    pub use vision_calibration_linear::*;
+    pub use vision_calibration_linear::{
+        camera_matrix, distortion_fit, epipolar, extrinsics, handeye, homography,
+        iterative_intrinsics, laserline, math, planar_pose, pnp, triangulation, zhang_intrinsics,
+    };
 
     pub mod prelude {
         //! Curated, most-used items from `vision-calibration-linear`.
