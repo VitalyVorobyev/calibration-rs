@@ -50,27 +50,7 @@ use super::problem::PlanarIntrinsicsProblem;
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Options for the initialization step.
-///
-/// These options override session config for a single step invocation.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct IntrinsicsInitOptions {
-    /// Override the number of iterations for iterative estimation.
-    pub iterations: Option<usize>,
-}
-
-/// Options for the optimization step.
-///
-/// These options override session config for a single step invocation.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct IntrinsicsOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
-}
+pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 
 /// Manual initialization seeds for planar intrinsics calibration.
 ///

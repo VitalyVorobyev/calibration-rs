@@ -49,23 +49,9 @@ use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblem};
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Options for intrinsics initialization step.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct IntrinsicsInitOptions {
-    /// Override the number of iterations.
-    pub iterations: Option<usize>,
-}
-
-/// Options for intrinsics optimization step.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct IntrinsicsOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
-}
+pub use crate::common::{
+    HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
+};
 
 /// Manual initialization seeds for the **intrinsics stage** of single-camera
 /// hand-eye calibration.
@@ -107,24 +93,6 @@ pub struct SingleCamHandeyeManualInit {
     pub camera_se3_base: Option<Iso3>,
     /// (EyeToHand) Target attached to gripper: `T_G_T`.
     pub gripper_se3_target: Option<Iso3>,
-}
-
-/// Options for hand-eye initialization step.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct HandeyeInitOptions {
-    /// Override minimum motion angle (degrees).
-    pub min_motion_angle_deg: Option<f64>,
-}
-
-/// Options for hand-eye optimization step.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct HandeyeOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

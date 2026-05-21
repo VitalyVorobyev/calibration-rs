@@ -35,23 +35,9 @@ use super::problem::{RigHandeyeInput, RigHandeyeOutput, RigHandeyeProblem, Senso
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Options for per-camera intrinsics initialization.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct IntrinsicsInitOptions {
-    /// Override the number of iterations.
-    pub iterations: Option<usize>,
-}
-
-/// Options for per-camera intrinsics optimization.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct IntrinsicsOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
-}
+pub use crate::common::{
+    HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
+};
 
 /// Options for rig BA optimization.
 #[derive(Debug, Clone, Default)]
@@ -61,14 +47,6 @@ pub struct RigOptimizeOptions {
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
-}
-
-/// Options for hand-eye initialization.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct HandeyeInitOptions {
-    /// Override minimum motion angle (degrees).
-    pub min_motion_angle_deg: Option<f64>,
 }
 
 /// Manual seeds for the **per-camera intrinsics stage** of rig hand-eye
@@ -119,16 +97,6 @@ pub struct RigHandeyeHandeyeManualInit {
     pub handeye: Option<Iso3>,
     /// Mode-dependent target pose.
     pub mode_target_pose: Option<Iso3>,
-}
-
-/// Options for hand-eye optimization.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct HandeyeOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

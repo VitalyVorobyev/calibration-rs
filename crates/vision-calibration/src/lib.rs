@@ -120,6 +120,21 @@ pub mod session {
     };
 }
 
+/// Step-option types shared across problem modules.
+///
+/// The intrinsics and hand-eye step-option structs are identical across every
+/// problem that exposes the corresponding step. They are defined once here; the
+/// per-problem modules re-export the ones they use, so both
+/// `vision_calibration::common::IntrinsicsInitOptions` and
+/// `vision_calibration::planar_intrinsics::IntrinsicsInitOptions` resolve to the
+/// same type.
+pub mod common {
+    pub use vision_calibration_pipeline::common::{
+        HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
+        IntrinsicsOptimizeOptions,
+    };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Problem-Specific Modules
 // ═══════════════════════════════════════════════════════════════════════════════

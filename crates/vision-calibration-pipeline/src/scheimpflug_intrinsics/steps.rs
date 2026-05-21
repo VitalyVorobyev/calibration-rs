@@ -25,13 +25,7 @@ use super::problem::{
     ScheimpflugIntrinsicsResult,
 };
 
-/// Options for the initialization step.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct IntrinsicsInitOptions {
-    /// Override the number of iterative initialization rounds.
-    pub iterations: Option<usize>,
-}
+pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 
 /// Manual initialization seeds for Scheimpflug intrinsics calibration.
 ///
@@ -63,16 +57,6 @@ pub struct ScheimpflugManualInit {
     /// Manual per-view poses (`camera_se3_target`). `None` means recover from
     /// homographies using whichever intrinsics are in effect.
     pub poses: Option<Vec<Iso3>>,
-}
-
-/// Options for the optimization step.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct IntrinsicsOptimizeOptions {
-    /// Override the maximum number of optimization iterations.
-    pub max_iters: Option<usize>,
-    /// Override solver verbosity.
-    pub verbosity: Option<usize>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

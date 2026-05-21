@@ -31,23 +31,7 @@ use super::problem::{RigExtrinsicsInput, RigExtrinsicsOutput, RigExtrinsicsProbl
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Options for per-camera intrinsics initialization.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct IntrinsicsInitOptions {
-    /// Override the number of iterations.
-    pub iterations: Option<usize>,
-}
-
-/// Options for per-camera intrinsics optimization.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct IntrinsicsOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
-}
+pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 
 /// Manual seeds for the **per-camera intrinsics stage** of rig extrinsics
 /// calibration.
