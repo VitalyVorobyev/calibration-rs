@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-21
+
+`0.5.0` bundles two pre-1.0 breaking efforts plus the first desktop
+viewer scaffold: the rig-family sensor-axis refactor (ADR 0013) and a
+batched public-API-surface revision applied before the library's
+contract stabilizes. Pre-1.0, breaking changes are expected and are
+collected here in a single minor bump rather than dribbled across
+several `0.x.y` releases. The API revision draws three boundaries that
+debugging and algorithm work had blurred: stable *results* (`*Export` +
+typed `step_*` return values), opt-in *diagnostics* (`session.log()` /
+`session.metadata()`), and implementation *internals* (now hidden or
+sealed). The full audit and rationale are in
+[`API_REVISION.md`](API_REVISION.md).
+
 ### Added
 - **Track B / B0 — diagnose UI scaffold (ADR 0014).**
   - `vision_calibration_core::{ImageManifest, FrameRef, PixelRect}` — new
@@ -39,6 +53,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rerun.io and egui), the Track B re-sequencing (diagnose-first vs
   the original B0 → B6 ordering), the v0 viewer-only scope, and the
   `ImageManifest` Export-side contract.
+- **ADR 0013** ([`docs/adrs/0013-rig-family-sensor-axis-refactor.md`](docs/adrs/0013-rig-family-sensor-axis-refactor.md))
+  records the rig family sensor-axis refactor decision: composition over
+  traits, single-axis collapse, alternatives considered.
+- **Typed `step_*` return values.** Every step function now returns a
+  typed, non-`Option` result instead of `()` — e.g.
+  `step_init -> PlanarInitResult`, `step_optimize -> PlanarOptimizeResult`,
+  with analogous `*InitResult` / `*OptimizeResult` (and rig-stage
+  variants) per problem type. Consumers read step outputs directly
+  rather than fishing intermediate values out of `session.state`.
+- **`linear::prelude`.** A curated re-export module covering the most
+  common `vision-calibration-linear` items, available both on the
+  `linear` crate and through `vision_calibration::linear::prelude`.
+- **`CalibrationSession::log()` / `metadata()`.** Accessor methods
+  returning immutable views of the session log and metadata — the
+  documented introspection channel that replaces direct field access.
+- **`vision_calibration_pipeline::common`.** New module holding the
+  shared step-option structs, re-exported from the facade as
+  `vision_calibration::common`.
 
 ### Changed (breaking, pre-1.0)
 - **Rig family sensor-axis refactor (ADR 0013).** The pinhole and Scheimpflug
@@ -86,10 +118,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     per-camera intrinsics refinement — is preserved as a hard-coded
     constant.
 
-### Added
-- **ADR 0013** ([`docs/adrs/0013-rig-family-sensor-axis-refactor.md`](docs/adrs/0013-rig-family-sensor-axis-refactor.md))
-  records the rig family sensor-axis refactor decision: composition over
-  traits, single-axis collapse, alternatives considered.
+#### Public-API surface revision
+
+Every break and the concrete migration a consumer must apply:
+
+| Change | Before | After |
+|--------|--------|-------|
+| `session.state.*` is no longer public — `CalibrationSession::state` is `pub(crate)`, and the seven `*State` structs (`PlanarState`, `SingleCamHandeyeState`, `RigExtrinsicsState`, `RigHandeyeState`, `ScheimpflugIntrinsicsState`, `LaserlineDeviceState`, `RigLaserlineDeviceState`) are `pub(crate)`. Step functions now return their own typed, non-`Option` result. | `step_init(&mut session, None)?; let k = session.state.initial_intrinsics.as_ref().unwrap();` | `let init = step_init(&mut session, None)?; let k = &init.intrinsics;` |
+| Session introspection moved to accessors. `CalibrationSession::log` / `::metadata` fields are `pub(crate)`. | `&session.log`, `&session.metadata` | `session.log()`, `session.metadata()` |
+| `step_set_*` manual-seed functions renamed to `step_*_with_seed`. | `step_set_init(&mut s, manual, None)?`, `step_set_intrinsics_init(...)`, `step_set_handeye_init(...)`, `step_set_rig_init(...)`, `step_set_intrinsics_init_all(...)` | `step_init_with_seed(...)`, `step_intrinsics_init_with_seed(...)`, `step_handeye_init_with_seed(...)`, `step_rig_init_with_seed(...)`, `step_intrinsics_init_all_with_seed(...)` |
+| Facade `linear` no longer glob-re-exports `vision-calibration-linear`. | `use vision_calibration::linear::*;` | import the module (`vision_calibration::linear::homography`), a specific item, or `vision_calibration::linear::prelude::*` for the curated common set |
+| Facade `optim` no longer glob-re-exports `vision-calibration-optim`. The curated set is `LaserPlane`, `HandEyeMode`, `RobustLoss`, `LaserlineMeta`, `LaserlineView`, `RobotPoseMeta`, plus the `compute_*_feature_residuals` helpers; typical consumers go through `pipeline`. | `use vision_calibration::optim::*;` | name the specific item (`vision_calibration::optim::LaserPlane`) or use the `pipeline` workflow |
+| Facade `synthetic` no longer glob-re-exports `vision_calibration_core::synthetic`. | `use vision_calibration::synthetic::*;` | `use vision_calibration::synthetic::{planar, noise};` |
+| `vision-calibration-linear` no longer flattens its modules into the crate root — items live only at their module path. | `linear::dlt_homography`, `linear::CameraMatrixDecomposition`, `linear::DistortionFitOptions` | `linear::homography::dlt_homography`, `linear::camera_matrix::CameraMatrixDecomposition`, `linear::distortion_fit::DistortionFitOptions` (or `linear::prelude` for common items) |
+| `vision-calibration-optim` no longer re-exports `core` types. | `vision_calibration_optim::{RigDataset, RigViewObs, View}` | `vision_calibration_core::{RigDataset, RigViewObs, View}` |
+| `pixel_to_gripper_point` moved into the `rig_laserline_device` module. | `vision_calibration::pixel_to_gripper_point(...)` | `vision_calibration::rig_laserline_device::pixel_to_gripper_point(...)` — the old crate-root path remains as a `#[deprecated]` alias for one release |
+| `#[non_exhaustive]` added to growth-prone public types: all `*Export`, `*Config`, `*ManualInit`, and `*Result` structs/enums (including `PlanarRunResult`, `RigExtrinsicsOutput`, `RigHandeyeOutput`, `LogEntry`, `SessionMetadata`, the per-problem `*Options` structs, and the diagnostic types `ReprojectionStats`, `FeatureResidualHistogram`, `PerFeatureResiduals`, `TargetFeatureResidual`, `LaserFeatureResidual`, `FrameRef`, `ImageManifest`, `PixelRect`). | `Config { a, b }` (bare struct literal) | `Config { a, b, ..Default::default() }`, or a constructor / `Config::default()` then field assignment. Serde round-trips are unchanged. |
+| `ProblemType` is now sealed. The seven problem types are a closed set (ADR 0013); a new `pub(crate)` `ProblemState` supertrait blocks downstream `impl`. | `impl ProblemType for MyProblem { ... }` | not supported — use one of the seven built-in problem types |
+| `Detector` (`vision-calibration-detect`) is now sealed via a private supertrait. | `impl Detector for MyDetector { ... }` | not supported downstream — use the provided detectors |
+| `vision_calibration_core::test_utils` is no longer public API. The module is `#[doc(hidden)]` and gated behind a non-default `test-utils` feature. | `use vision_calibration_core::test_utils::*;` | enable `features = ["test-utils"]` on the dev-dependency, or migrate to `vision_calibration_core::synthetic` helpers |
+| RANSAC scaffolding (`Estimator`, `RansacOptions`, `RansacResult`, `ransac_fit`) is `#[doc(hidden)]`. Still `pub` for cross-crate use, but no longer part of the documented surface. | (documented API) | treat as internal; do not rely on it |
+| Shared step-option structs hoisted to a new `vision_calibration_pipeline::common` module. `IntrinsicsInitOptions`, `IntrinsicsOptimizeOptions`, `HandeyeInitOptions`, `HandeyeOptimizeOptions` are now single types; they remain re-exported from each problem module, so existing per-module paths still resolve. | `planar_intrinsics::IntrinsicsInitOptions` (a distinct per-problem copy) | `vision_calibration_pipeline::common::IntrinsicsInitOptions` (canonical); per-module re-exports unchanged |
 
 ## [0.4.0] - 2026-04-29
 
