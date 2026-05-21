@@ -504,13 +504,30 @@ pub use vision_calibration_optim::{
     handeye_observer_se3_target,
 };
 
-/// Non-linear optimization with backend-agnostic IR.
+/// Non-linear optimization vocabulary.
 ///
-/// Includes optimization problems, factors, and solver backends.
+/// `vision-calibration-optim` is the optimization-backend implementation
+/// crate; the typical consumer never touches it directly — they go through
+/// the per-problem `step_*` functions, which wrap it. This module re-exports
+/// only the small value/enum vocabulary a facade consumer legitimately names:
+/// the robust-loss selector, the laser-plane parameter type, the hand-eye
+/// mode enum, and the per-problem input-construction `*Meta`/`*View` types.
 ///
-/// Re-exports everything from `vision_calibration_optim`.
+/// The `compute_*_feature_residuals` helpers are re-exported at the facade
+/// crate root, not here.
 pub mod optim {
-    pub use vision_calibration_optim::*;
+    /// Hand-eye configuration mode (eye-in-hand vs eye-to-hand).
+    pub use vision_calibration_optim::HandEyeMode;
+    /// Laser-plane parameter type.
+    pub use vision_calibration_optim::LaserPlane;
+    /// Per-view metadata for laserline device input.
+    pub use vision_calibration_optim::LaserlineMeta;
+    /// Per-view observation type for laserline device input.
+    pub use vision_calibration_optim::LaserlineView;
+    /// Per-view robot-pose metadata for rig hand-eye input.
+    pub use vision_calibration_optim::RobotPoseMeta;
+    /// Robust loss (M-estimator) selector for optimization.
+    pub use vision_calibration_optim::RobustLoss;
 }
 
 /// Deterministic synthetic data generation for testing.
