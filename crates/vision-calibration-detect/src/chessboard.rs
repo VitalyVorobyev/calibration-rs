@@ -38,6 +38,8 @@ pub struct ChessboardConfig {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ChessboardDetector;
 
+impl crate::sealed::Sealed for ChessboardDetector {}
+
 impl Detector for ChessboardDetector {
     fn name(&self) -> &'static str {
         "chessboard"
