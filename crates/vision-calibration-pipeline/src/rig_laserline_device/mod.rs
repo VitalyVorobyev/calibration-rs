@@ -13,7 +13,9 @@ pub use problem::{
     RigLaserlineDeviceProblem, RigUpstreamCalibration,
 };
 pub use state::RigLaserlineDeviceState;
+#[allow(deprecated)]
+pub use steps::step_set_init;
 pub use steps::{
-    RigLaserlineDeviceManualInit, StepOptions, run_calibration, step_init, step_optimize,
-    step_set_init,
+    RigLaserlineDeviceManualInit, StepOptions, run_calibration, step_init, step_init_with_seed,
+    step_optimize,
 };

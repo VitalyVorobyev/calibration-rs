@@ -158,7 +158,7 @@ fn extract_camera_views(input: &RigHandeyeInput, cam_idx: usize) -> Vec<Option<V
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Typed return value of [`step_intrinsics_init_all`] /
-/// [`step_set_intrinsics_init_all`] for rig hand-eye calibration.
+/// [`step_intrinsics_init_all_with_seed`] for rig hand-eye calibration.
 ///
 /// Structurally similar to [`crate::rig_extrinsics::RigIntrinsicsInitAllResult`]
 /// but lives in this module so the two problem types can evolve independently.
@@ -185,7 +185,7 @@ pub struct RigHandeyeIntrinsicsOptimizeAllResult {
     pub per_cam_reproj_errors: Vec<f64>,
 }
 
-/// Typed return value of [`step_rig_init`] / [`step_set_rig_init`] for rig
+/// Typed return value of [`step_rig_init`] / [`step_rig_init_with_seed`] for rig
 /// hand-eye calibration.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -206,7 +206,7 @@ pub struct RigHandeyeRigOptimizeResult {
     pub per_cam_reproj_errors: Vec<f64>,
 }
 
-/// Typed return value of [`step_handeye_init`] / [`step_set_handeye_init`].
+/// Typed return value of [`step_handeye_init`] / [`step_handeye_init_with_seed`].
 ///
 /// The interpretation of both fields is mode-dependent — see
 /// [`RigHandeyeHandeyeManualInit`].
@@ -249,7 +249,7 @@ pub struct RigHandeyeHandeyeOptimizeResult {
 ///
 /// - Input not set
 /// - Any camera has fewer than 3 views with observations
-pub fn step_set_intrinsics_init_all(
+pub fn step_intrinsics_init_all_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     manual: RigHandeyeIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
@@ -320,14 +320,27 @@ pub fn step_set_intrinsics_init_all(
     })
 }
 
+/// Deprecated alias for [`step_intrinsics_init_all_with_seed`].
+#[deprecated(
+    since = "0.5.0",
+    note = "renamed to step_intrinsics_init_all_with_seed"
+)]
+pub fn step_set_intrinsics_init_all(
+    session: &mut CalibrationSession<RigHandeyeProblem>,
+    manual: RigHandeyeIntrinsicsManualInit,
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<RigHandeyeIntrinsicsInitAllResult, Error> {
+    step_intrinsics_init_all_with_seed(session, manual, opts)
+}
+
 /// Initialize intrinsics for all cameras using full auto-init (Zhang's per camera).
 ///
-/// Convenience wrapper around [`step_set_intrinsics_init_all`] with default seeds.
+/// Convenience wrapper around [`step_intrinsics_init_all_with_seed`] with default seeds.
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<RigHandeyeIntrinsicsInitAllResult, Error> {
-    step_set_intrinsics_init_all(session, RigHandeyeIntrinsicsManualInit::default(), opts)
+    step_intrinsics_init_all_with_seed(session, RigHandeyeIntrinsicsManualInit::default(), opts)
 }
 
 /// Optimize intrinsics for all cameras.
@@ -527,7 +540,7 @@ pub fn step_intrinsics_optimize_all(
 /// - Input not set
 /// - Per-camera intrinsics not computed
 /// - Insufficient overlapping views between cameras
-pub fn step_set_rig_init(
+pub fn step_rig_init_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     manual: RigHandeyeRigManualInit,
 ) -> Result<RigHandeyeRigInitResult, Error> {
@@ -617,13 +630,22 @@ pub fn step_set_rig_init(
     })
 }
 
+/// Deprecated alias for [`step_rig_init_with_seed`].
+#[deprecated(since = "0.5.0", note = "renamed to step_rig_init_with_seed")]
+pub fn step_set_rig_init(
+    session: &mut CalibrationSession<RigHandeyeProblem>,
+    manual: RigHandeyeRigManualInit,
+) -> Result<RigHandeyeRigInitResult, Error> {
+    step_rig_init_with_seed(session, manual)
+}
+
 /// Initialize rig extrinsics using full auto-init (linear extrinsics fit).
 ///
-/// Convenience wrapper around [`step_set_rig_init`] with default seeds.
+/// Convenience wrapper around [`step_rig_init_with_seed`] with default seeds.
 pub fn step_rig_init(
     session: &mut CalibrationSession<RigHandeyeProblem>,
 ) -> Result<RigHandeyeRigInitResult, Error> {
-    step_set_rig_init(session, RigHandeyeRigManualInit::default())
+    step_rig_init_with_seed(session, RigHandeyeRigManualInit::default())
 }
 
 /// Optimize rig extrinsics using bundle adjustment.
@@ -871,7 +893,7 @@ pub fn step_rig_optimize(
 /// - Input not set
 /// - Rig optimization not run
 /// - Linear hand-eye estimation fails
-pub fn step_set_handeye_init(
+pub fn step_handeye_init_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     manual: RigHandeyeHandeyeManualInit,
     opts: Option<HandeyeInitOptions>,
@@ -974,14 +996,24 @@ pub fn step_set_handeye_init(
     })
 }
 
+/// Deprecated alias for [`step_handeye_init_with_seed`].
+#[deprecated(since = "0.5.0", note = "renamed to step_handeye_init_with_seed")]
+pub fn step_set_handeye_init(
+    session: &mut CalibrationSession<RigHandeyeProblem>,
+    manual: RigHandeyeHandeyeManualInit,
+    opts: Option<HandeyeInitOptions>,
+) -> Result<RigHandeyeHandeyeInitResult, Error> {
+    step_handeye_init_with_seed(session, manual, opts)
+}
+
 /// Initialize hand-eye transform using the linear Tsai-Lenz DLT path.
 ///
-/// Convenience wrapper around [`step_set_handeye_init`] with default seeds.
+/// Convenience wrapper around [`step_handeye_init_with_seed`] with default seeds.
 pub fn step_handeye_init(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<HandeyeInitOptions>,
 ) -> Result<RigHandeyeHandeyeInitResult, Error> {
-    step_set_handeye_init(session, RigHandeyeHandeyeManualInit::default(), opts)
+    step_handeye_init_with_seed(session, RigHandeyeHandeyeManualInit::default(), opts)
 }
 
 /// Optimize hand-eye calibration using bundle adjustment.
@@ -1410,7 +1442,7 @@ mod tests {
             handeye: Some(t_r_b),
             mode_target_pose: None,
         };
-        step_set_handeye_init(&mut session, manual, None).unwrap();
+        step_handeye_init_with_seed(&mut session, manual, None).unwrap();
 
         let recovered = session.state.initial_mode_target_pose.unwrap();
         let dt = (recovered.translation.vector - t_g_t.translation.vector).norm();

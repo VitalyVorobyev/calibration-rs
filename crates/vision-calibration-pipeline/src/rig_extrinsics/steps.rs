@@ -130,7 +130,7 @@ fn extract_camera_views(input: &RigExtrinsicsInput, cam_idx: usize) -> Vec<Optio
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Typed return value of [`step_intrinsics_init_all`] /
-/// [`step_set_intrinsics_init_all`].
+/// [`step_intrinsics_init_all_with_seed`].
 ///
 /// `per_cam_sensors` is `Some` for [`SensorMode::Scheimpflug`] rigs and `None`
 /// for pinhole rigs. The inner `Option<Iso3>` in `per_cam_target_poses` reflects
@@ -161,7 +161,7 @@ pub struct RigIntrinsicsOptimizeAllResult {
     pub per_cam_reproj_errors: Vec<f64>,
 }
 
-/// Typed return value of [`step_rig_init`] / [`step_set_rig_init`].
+/// Typed return value of [`step_rig_init`] / [`step_rig_init_with_seed`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RigInitResult {
@@ -203,7 +203,7 @@ pub struct RigOptimizeResult {
 /// - Input not set, or any camera has fewer than 3 views with observations.
 /// - `manual.per_cam_intrinsics` (or `per_cam_distortion`) length mismatches
 ///   `input.num_cameras`.
-pub fn step_set_intrinsics_init_all(
+pub fn step_intrinsics_init_all_with_seed(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     manual: RigIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
@@ -275,14 +275,27 @@ pub fn step_set_intrinsics_init_all(
     })
 }
 
+/// Deprecated alias for [`step_intrinsics_init_all_with_seed`].
+#[deprecated(
+    since = "0.5.0",
+    note = "renamed to step_intrinsics_init_all_with_seed"
+)]
+pub fn step_set_intrinsics_init_all(
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
+    manual: RigIntrinsicsManualInit,
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<RigIntrinsicsInitAllResult, Error> {
+    step_intrinsics_init_all_with_seed(session, manual, opts)
+}
+
 /// Initialize intrinsics for all cameras using full auto-init (Zhang's per camera).
 ///
-/// Convenience wrapper around [`step_set_intrinsics_init_all`] with default seeds.
+/// Convenience wrapper around [`step_intrinsics_init_all_with_seed`] with default seeds.
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<RigIntrinsicsInitAllResult, Error> {
-    step_set_intrinsics_init_all(session, RigIntrinsicsManualInit::default(), opts)
+    step_intrinsics_init_all_with_seed(session, RigIntrinsicsManualInit::default(), opts)
 }
 
 /// Optimize intrinsics for all cameras.
@@ -495,7 +508,7 @@ pub fn step_intrinsics_optimize_all(
 /// - Vector length mismatches: `cam_se3_rig.len() != input.num_cameras`, or
 ///   `rig_se3_target.len() != input.num_views()`.
 /// - Auto-init linear estimation fails.
-pub fn step_set_rig_init(
+pub fn step_rig_init_with_seed(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     manual: RigExtrinsicsManualInit,
 ) -> Result<RigInitResult, Error> {
@@ -591,13 +604,22 @@ pub fn step_set_rig_init(
     })
 }
 
+/// Deprecated alias for [`step_rig_init_with_seed`].
+#[deprecated(since = "0.5.0", note = "renamed to step_rig_init_with_seed")]
+pub fn step_set_rig_init(
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
+    manual: RigExtrinsicsManualInit,
+) -> Result<RigInitResult, Error> {
+    step_rig_init_with_seed(session, manual)
+}
+
 /// Initialize rig extrinsics using full auto-init (linear extrinsics fit).
 ///
-/// Convenience wrapper around [`step_set_rig_init`] with default seeds.
+/// Convenience wrapper around [`step_rig_init_with_seed`] with default seeds.
 pub fn step_rig_init(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
 ) -> Result<RigInitResult, Error> {
-    step_set_rig_init(session, RigExtrinsicsManualInit::default())
+    step_rig_init_with_seed(session, RigExtrinsicsManualInit::default())
 }
 
 /// Optimize rig extrinsics using bundle adjustment.

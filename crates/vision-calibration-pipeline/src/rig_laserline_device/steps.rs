@@ -58,7 +58,7 @@ pub struct RigLaserlineDeviceManualInit {
 ///
 /// - Input not set.
 /// - `manual.planes_cam.len() != input.dataset.num_cameras`.
-pub fn step_set_init(
+pub fn step_init_with_seed(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
     manual: RigLaserlineDeviceManualInit,
 ) -> Result<(), Error> {
@@ -97,11 +97,20 @@ pub fn step_set_init(
     Ok(())
 }
 
+/// Deprecated alias for [`step_init_with_seed`].
+#[deprecated(since = "0.5.0", note = "renamed to step_init_with_seed")]
+pub fn step_set_init(
+    session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
+    manual: RigLaserlineDeviceManualInit,
+) -> Result<(), Error> {
+    step_init_with_seed(session, manual)
+}
+
 /// Initialize per-camera laser planes using the input-or-auto path.
 ///
-/// Convenience wrapper around [`step_set_init`] with default seeds.
+/// Convenience wrapper around [`step_init_with_seed`] with default seeds.
 pub fn step_init(session: &mut CalibrationSession<RigLaserlineDeviceProblem>) -> Result<(), Error> {
-    step_set_init(session, RigLaserlineDeviceManualInit::default())
+    step_init_with_seed(session, RigLaserlineDeviceManualInit::default())
 }
 
 fn linear_plane_init(

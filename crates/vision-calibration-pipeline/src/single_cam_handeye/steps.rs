@@ -170,7 +170,7 @@ fn estimate_target_pose(
 // Step Results
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Typed return value of [`step_intrinsics_init`] / [`step_set_intrinsics_init`].
+/// Typed return value of [`step_intrinsics_init`] / [`step_intrinsics_init_with_seed`].
 ///
 /// Mirrors the values written into `session.state` so consumers can read them
 /// directly without unwrapping `Option` fields.
@@ -195,7 +195,7 @@ pub struct SingleCamIntrinsicsOptimizeResult {
     pub mean_reproj_error: f64,
 }
 
-/// Typed return value of [`step_handeye_init`] / [`step_set_handeye_init`].
+/// Typed return value of [`step_handeye_init`] / [`step_handeye_init_with_seed`].
 ///
 /// The pose fields are mutually-exclusive by hand-eye mode:
 /// - `EyeInHand` populates `gripper_se3_camera` and `base_se3_target`; the
@@ -236,7 +236,7 @@ pub struct SingleCamHandeyeOptimizeResult {
 /// thin delegate with `SingleCamIntrinsicsManualInit::default()`.
 ///
 /// See [`SingleCamIntrinsicsManualInit`] for partial-seed semantics.
-pub fn step_set_intrinsics_init(
+pub fn step_intrinsics_init_with_seed(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     manual: SingleCamIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
@@ -353,14 +353,24 @@ pub fn step_set_intrinsics_init(
     })
 }
 
+/// Deprecated alias for [`step_intrinsics_init_with_seed`].
+#[deprecated(since = "0.5.0", note = "renamed to step_intrinsics_init_with_seed")]
+pub fn step_set_intrinsics_init(
+    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
+    manual: SingleCamIntrinsicsManualInit,
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<SingleCamIntrinsicsInitResult, Error> {
+    step_intrinsics_init_with_seed(session, manual, opts)
+}
+
 /// Initialize intrinsics from observations using full auto-init.
 ///
-/// Convenience wrapper around [`step_set_intrinsics_init`] with default seeds.
+/// Convenience wrapper around [`step_intrinsics_init_with_seed`] with default seeds.
 pub fn step_intrinsics_init(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<SingleCamIntrinsicsInitResult, Error> {
-    step_set_intrinsics_init(session, SingleCamIntrinsicsManualInit::default(), opts)
+    step_intrinsics_init_with_seed(session, SingleCamIntrinsicsManualInit::default(), opts)
 }
 
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
@@ -488,7 +498,7 @@ pub fn step_intrinsics_optimize(
 ///
 /// - Input not set, intrinsics optimization not run.
 /// - DLT auto-init fails (when not seeded).
-pub fn step_set_handeye_init(
+pub fn step_handeye_init_with_seed(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     manual: SingleCamHandeyeManualInit,
     opts: Option<HandeyeInitOptions>,
@@ -632,14 +642,24 @@ pub fn step_set_handeye_init(
     Ok(result)
 }
 
+/// Deprecated alias for [`step_handeye_init_with_seed`].
+#[deprecated(since = "0.5.0", note = "renamed to step_handeye_init_with_seed")]
+pub fn step_set_handeye_init(
+    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
+    manual: SingleCamHandeyeManualInit,
+    opts: Option<HandeyeInitOptions>,
+) -> Result<SingleCamHandeyeInitResult, Error> {
+    step_handeye_init_with_seed(session, manual, opts)
+}
+
 /// Initialize the hand-eye transform using full auto-init (Tsai-Lenz DLT).
 ///
-/// Convenience wrapper around [`step_set_handeye_init`] with default seeds.
+/// Convenience wrapper around [`step_handeye_init_with_seed`] with default seeds.
 pub fn step_handeye_init(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<HandeyeInitOptions>,
 ) -> Result<SingleCamHandeyeInitResult, Error> {
-    step_set_handeye_init(session, SingleCamHandeyeManualInit::default(), opts)
+    step_handeye_init_with_seed(session, SingleCamHandeyeManualInit::default(), opts)
 }
 
 /// Optimize hand-eye calibration using bundle adjustment.

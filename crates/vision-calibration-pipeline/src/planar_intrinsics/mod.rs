@@ -40,10 +40,12 @@ mod steps;
 // ─────────────────────────────────────────────────────────────────────────────
 pub use problem::{PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem};
 pub use state::PlanarState;
+#[allow(deprecated)]
+pub use steps::step_set_init;
 pub use steps::{
     FilterOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions, PlanarInitResult,
     PlanarManualInit, PlanarOptimizeResult, run_calibration, run_calibration_with_filtering,
-    step_filter, step_init, step_optimize, step_set_init,
+    step_filter, step_init, step_init_with_seed, step_optimize,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

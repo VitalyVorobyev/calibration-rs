@@ -73,7 +73,7 @@ pub struct DeviceOptimizeOptions {
 // Step Results
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Typed return value of [`step_init`] / [`step_set_init`].
+/// Typed return value of [`step_init`] / [`step_init_with_seed`].
 ///
 /// Carries the seeded-or-fitted initial estimates that the same values continue
 /// to be written into `session.state` for backwards compatibility — see ADR 0011.
@@ -210,7 +210,7 @@ fn update_state_with_stats(
 /// - Input not set, or fewer than 3 views.
 /// - Auto-init computation fails (homography / Zhang's / linear plane).
 /// - `manual.poses` is `Some` but its length does not match the view count.
-pub fn step_set_init(
+pub fn step_init_with_seed(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     manual: LaserlineDeviceManualInit,
     opts: Option<DeviceInitOptions>,
@@ -323,6 +323,16 @@ pub fn step_set_init(
     })
 }
 
+/// Deprecated alias for [`step_init_with_seed`].
+#[deprecated(since = "0.5.0", note = "renamed to step_init_with_seed")]
+pub fn step_set_init(
+    session: &mut CalibrationSession<LaserlineDeviceProblem>,
+    manual: LaserlineDeviceManualInit,
+    opts: Option<DeviceInitOptions>,
+) -> Result<LaserlineDeviceInitResult, Error> {
+    step_init_with_seed(session, manual, opts)
+}
+
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
     match (manual.is_empty(), auto.is_empty()) {
         (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
@@ -335,13 +345,13 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 /// Initialize intrinsics, poses, and laser plane from observations using full
 /// auto-init.
 ///
-/// Convenience wrapper around [`step_set_init`] with
+/// Convenience wrapper around [`step_init_with_seed`] with
 /// `LaserlineDeviceManualInit::default()`.
 pub fn step_init(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     opts: Option<DeviceInitOptions>,
 ) -> Result<LaserlineDeviceInitResult, Error> {
-    step_set_init(session, LaserlineDeviceManualInit::default(), opts)
+    step_init_with_seed(session, LaserlineDeviceManualInit::default(), opts)
 }
 
 /// Optimize laserline calibration using non-linear bundle adjustment.

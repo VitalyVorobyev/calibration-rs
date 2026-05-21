@@ -131,7 +131,7 @@ impl Default for FilterOptions {
 // Step Results
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Typed return value of [`step_init`] / [`step_set_init`].
+/// Typed return value of [`step_init`] / [`step_init_with_seed`].
 ///
 /// Carries the seeded-or-fitted initial estimates that examples and downstream
 /// consumers used to read out of `session.state.initial_*` via `.as_ref().unwrap()`.
@@ -193,7 +193,7 @@ pub struct PlanarOptimizeResult {
 /// - Input not set, or fewer than 3 views.
 /// - Homography or auto-init computation fails.
 /// - `manual.poses` is `Some` but its length does not match the view count.
-pub fn step_set_init(
+pub fn step_init_with_seed(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     manual: PlanarManualInit,
     opts: Option<IntrinsicsInitOptions>,
@@ -326,6 +326,16 @@ pub fn step_set_init(
     })
 }
 
+/// Deprecated alias for [`step_init_with_seed`].
+#[deprecated(since = "0.5.0", note = "renamed to step_init_with_seed")]
+pub fn step_set_init(
+    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
+    manual: PlanarManualInit,
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<PlanarInitResult, Error> {
+    step_init_with_seed(session, manual, opts)
+}
+
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
     match (manual.is_empty(), auto.is_empty()) {
         (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
@@ -337,7 +347,7 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 
 /// Initialize intrinsics and poses from observations using full auto-init.
 ///
-/// Convenience wrapper around [`step_set_init`] with `PlanarManualInit::default()`
+/// Convenience wrapper around [`step_init_with_seed`] with `PlanarManualInit::default()`
 /// (all-`None`). Auto-fits intrinsics + distortion via Zhang's method with iterative
 /// distortion, then recovers poses from homographies.
 ///
@@ -350,12 +360,12 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 ///
 /// # Errors
 ///
-/// See [`step_set_init`].
+/// See [`step_init_with_seed`].
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<PlanarInitResult, Error> {
-    step_set_init(session, PlanarManualInit::default(), opts)
+    step_init_with_seed(session, PlanarManualInit::default(), opts)
 }
 
 /// Optimize camera parameters using non-linear least squares.
@@ -790,10 +800,10 @@ mod tests {
 
         let mut session_b = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session_b.set_input(make_test_dataset()).unwrap();
-        step_set_init(&mut session_b, PlanarManualInit::default(), None).unwrap();
+        step_init_with_seed(&mut session_b, PlanarManualInit::default(), None).unwrap();
 
         // Both paths should produce identical state — step_init delegates to
-        // step_set_init with default fields.
+        // step_init_with_seed with default fields.
         let k_a = session_a.state.initial_intrinsics.unwrap();
         let k_b = session_b.state.initial_intrinsics.unwrap();
         assert!((k_a.fx - k_b.fx).abs() < 1e-9);
@@ -817,7 +827,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        step_set_init(&mut session, manual, None).unwrap();
+        step_init_with_seed(&mut session, manual, None).unwrap();
         step_optimize(&mut session, None).unwrap();
 
         let output = session.output().unwrap();
@@ -851,7 +861,7 @@ mod tests {
             distortion: Some(BrownConrady5::default()),
             poses: Some(auto_poses),
         };
-        step_set_init(&mut session, manual, None).unwrap();
+        step_init_with_seed(&mut session, manual, None).unwrap();
         step_optimize(&mut session, None).unwrap();
 
         let output = session.output().unwrap();
@@ -874,7 +884,7 @@ mod tests {
             poses: Some(vec![Iso3::identity()]),
             ..Default::default()
         };
-        let err = step_set_init(&mut session, manual, None).unwrap_err();
+        let err = step_init_with_seed(&mut session, manual, None).unwrap_err();
         assert!(
             err.to_string().contains("manual poses count"),
             "unexpected error: {}",
@@ -897,7 +907,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        step_set_init(&mut session, manual, None).unwrap();
+        step_init_with_seed(&mut session, manual, None).unwrap();
 
         let init_entry = session
             .log

@@ -78,7 +78,7 @@ pub struct IntrinsicsOptimizeOptions {
 // Step Results
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Typed return value of [`step_init`] / [`step_set_init`].
+/// Typed return value of [`step_init`] / [`step_init_with_seed`].
 ///
 /// Carries the seeded-or-fitted initial estimates. The same values continue to
 /// be written into `session.state` for backwards compatibility — see ADR 0011.
@@ -122,7 +122,7 @@ pub struct ScheimpflugIntrinsicsOptimizeResult {
 /// - `init_iterations == 0` when running the bootstrap auto-fit.
 /// - Homography or auto-init computation fails.
 /// - `manual.poses` is `Some` but its length does not match the view count.
-pub fn step_set_init(
+pub fn step_init_with_seed(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     manual: ScheimpflugManualInit,
     opts: Option<IntrinsicsInitOptions>,
@@ -289,6 +289,16 @@ pub fn step_set_init(
     })
 }
 
+/// Deprecated alias for [`step_init_with_seed`].
+#[deprecated(since = "0.5.0", note = "renamed to step_init_with_seed")]
+pub fn step_set_init(
+    session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
+    manual: ScheimpflugManualInit,
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<ScheimpflugIntrinsicsInitResult, Error> {
+    step_init_with_seed(session, manual, opts)
+}
+
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
     match (manual.is_empty(), auto.is_empty()) {
         (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
@@ -301,12 +311,12 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 /// Initialize intrinsics, distortion, sensor tilt, and poses from observations
 /// using full auto-init.
 ///
-/// Convenience wrapper around [`step_set_init`] with `ScheimpflugManualInit::default()`.
+/// Convenience wrapper around [`step_init_with_seed`] with `ScheimpflugManualInit::default()`.
 pub fn step_init(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<ScheimpflugIntrinsicsInitResult, Error> {
-    step_set_init(session, ScheimpflugManualInit::default(), opts)
+    step_init_with_seed(session, ScheimpflugManualInit::default(), opts)
 }
 
 /// Optimize Scheimpflug intrinsics, distortion, sensor tilt, and target poses.
@@ -501,7 +511,7 @@ mod tests {
 
         let mut session_b = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
         session_b.set_input(make_dataset(sensor_gt)).expect("input");
-        step_set_init(&mut session_b, ScheimpflugManualInit::default(), None)
+        step_init_with_seed(&mut session_b, ScheimpflugManualInit::default(), None)
             .expect("step_set_init");
 
         let k_a = session_a.state.initial_intrinsics.unwrap();
@@ -531,7 +541,7 @@ mod tests {
             sensor: Some(sensor_gt),
             poses: None,
         };
-        step_set_init(&mut session, manual, None).expect("step_set_init");
+        step_init_with_seed(&mut session, manual, None).expect("step_set_init");
         step_optimize(&mut session, None).expect("step_optimize");
 
         let output = session.output().expect("output");
@@ -556,7 +566,7 @@ mod tests {
             poses: Some(vec![Iso3::identity()]),
             ..Default::default()
         };
-        let err = step_set_init(&mut session, manual, None).unwrap_err();
+        let err = step_init_with_seed(&mut session, manual, None).unwrap_err();
         assert!(
             err.to_string().contains("manual poses count"),
             "unexpected error: {}",

@@ -2,7 +2,7 @@
 //!
 //! Post-A6 layout: drives the unified `rig_handeye::RigHandeyeProblem` with
 //! `SensorMode::Scheimpflug`. Per-camera intrinsics + distortion + tilt seeds
-//! are supplied via `step_set_intrinsics_init_all` and the
+//! are supplied via `step_intrinsics_init_all_with_seed` and the
 //! `RigHandeyeIntrinsicsManualInit` struct (replacing the pre-A6
 //! `RigScheimpflugHandeyeIntrinsicsConfig::{initial_cameras, initial_sensors}`
 //! knobs). The narrow-FOV `(k1, p1, p2 free; k2, k3 fixed)` distortion mask is
@@ -178,8 +178,12 @@ fn main() -> Result<()> {
         manual_init.per_cam_intrinsics = Some(per_cam_intrinsics_seed);
         manual_init.per_cam_distortion = Some(per_cam_distortion_seed);
         manual_init.per_cam_sensors = Some(per_cam_sensors_seed);
-        let intr_init = rh::step_set_intrinsics_init_all(&mut rig_session, manual_init, None)?;
-        println!("  step_set_intrinsics_init_all: {:.2?}", step_t.elapsed());
+        let intr_init =
+            rh::step_intrinsics_init_all_with_seed(&mut rig_session, manual_init, None)?;
+        println!(
+            "  step_intrinsics_init_all_with_seed: {:.2?}",
+            step_t.elapsed()
+        );
         for (i, c) in intr_init.per_cam_intrinsics.iter().enumerate() {
             println!(
                 "    [seeded] cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1}",

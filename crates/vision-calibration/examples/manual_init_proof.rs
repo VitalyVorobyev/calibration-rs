@@ -34,8 +34,8 @@ use vision_calibration::core::{BrownConrady5, FxFyCxCySkew, Iso3, PinholeCamera}
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsInput, RigExtrinsicsManualInit, RigExtrinsicsProblem, RigIntrinsicsManualInit,
-    step_intrinsics_optimize_all, step_rig_optimize, step_set_intrinsics_init_all,
-    step_set_rig_init,
+    step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init_with_seed,
+    step_rig_optimize,
 };
 use vision_calibration::session::LogEntry;
 
@@ -84,10 +84,13 @@ fn main() -> Result<()> {
     println!("--- Run A: full auto-init pipeline ---");
     let mut session_a = CalibrationSession::<RigExtrinsicsProblem>::new();
     session_a.set_input(load()?)?;
-    let _intr_init_a =
-        step_set_intrinsics_init_all(&mut session_a, RigIntrinsicsManualInit::default(), None)?;
+    let _intr_init_a = step_intrinsics_init_all_with_seed(
+        &mut session_a,
+        RigIntrinsicsManualInit::default(),
+        None,
+    )?;
     let intr_opt_a = step_intrinsics_optimize_all(&mut session_a, None)?;
-    let rig_init_a = step_set_rig_init(&mut session_a, RigExtrinsicsManualInit::default())?;
+    let rig_init_a = step_rig_init_with_seed(&mut session_a, RigExtrinsicsManualInit::default())?;
     let rig_opt_a = step_rig_optimize(&mut session_a, None)?;
     let cameras_a = intr_opt_a.per_cam_intrinsics.clone();
     let cam_se3_rig_a = rig_init_a.initial_cam_se3_rig.clone();
@@ -107,19 +110,19 @@ fn main() -> Result<()> {
     let mut manual_b = RigIntrinsicsManualInit::default();
     manual_b.per_cam_intrinsics = Some(per_cam_k.clone());
     manual_b.per_cam_distortion = Some(per_cam_dist.clone());
-    let intr_init_b = step_set_intrinsics_init_all(&mut session_b, manual_b, None)?;
+    let intr_init_b = step_intrinsics_init_all_with_seed(&mut session_b, manual_b, None)?;
     // Skip step_intrinsics_optimize_all: the seed is Run A's already-optimized
     // intrinsics, so re-running the per-camera optimizer would just shift them
     // by solver-noise levels and is not what a "load saved calibration" caller
     // would do. We still need state.per_cam_reproj_errors populated for the
     // rig stage, but rig_optimize does not depend on it directly — it only
     // needs per_cam_intrinsics + per_cam_target_poses, both already set by
-    // step_set_intrinsics_init_all.
+    // step_intrinsics_init_all_with_seed.
     let cameras_b = intr_init_b.per_cam_intrinsics.clone();
     let mut rig_manual_b = RigExtrinsicsManualInit::default();
     rig_manual_b.cam_se3_rig = Some(cam_se3_rig_a.clone());
     rig_manual_b.rig_se3_target = Some(rig_se3_target_a.clone());
-    let _rig_init_b = step_set_rig_init(&mut session_b, rig_manual_b)?;
+    let _rig_init_b = step_rig_init_with_seed(&mut session_b, rig_manual_b)?;
     let rig_opt_b = step_rig_optimize(&mut session_b, None)?;
     let b_summary = summarize(&session_b, "Run B", &rig_opt_b, &cameras_b)?;
     print_init_logs(&session_b.log, "Run B");
@@ -146,9 +149,9 @@ fn main() -> Result<()> {
     let mut manual_c = RigIntrinsicsManualInit::default();
     manual_c.per_cam_intrinsics = Some(perturbed_k);
     // `per_cam_distortion` left as None — let auto-fit it.
-    let _intr_init_c = step_set_intrinsics_init_all(&mut session_c, manual_c, None)?;
+    let _intr_init_c = step_intrinsics_init_all_with_seed(&mut session_c, manual_c, None)?;
     let intr_opt_c = step_intrinsics_optimize_all(&mut session_c, None)?;
-    let _rig_init_c = step_set_rig_init(&mut session_c, RigExtrinsicsManualInit::default())?;
+    let _rig_init_c = step_rig_init_with_seed(&mut session_c, RigExtrinsicsManualInit::default())?;
     let rig_opt_c = step_rig_optimize(&mut session_c, None)?;
     let cameras_c = intr_opt_c.per_cam_intrinsics.clone();
     let c_summary = summarize(&session_c, "Run C", &rig_opt_c, &cameras_c)?;

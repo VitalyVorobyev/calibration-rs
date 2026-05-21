@@ -13,8 +13,10 @@ pub use problem::{
     ScheimpflugIntrinsicsResult,
 };
 pub use state::ScheimpflugIntrinsicsState;
+#[allow(deprecated)]
+pub use steps::step_set_init;
 pub use steps::{
     IntrinsicsInitOptions, IntrinsicsOptimizeOptions, ScheimpflugIntrinsicsInitResult,
     ScheimpflugIntrinsicsOptimizeResult, ScheimpflugManualInit, run_calibration, step_init,
-    step_optimize, step_set_init,
+    step_init_with_seed, step_optimize,
 };

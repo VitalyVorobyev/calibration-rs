@@ -14,7 +14,9 @@ pub use problem::{
     LaserlineDeviceSolverConfig,
 };
 pub use state::LaserlineDeviceState;
+#[allow(deprecated)]
+pub use steps::step_set_init;
 pub use steps::{
     DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceInitResult, LaserlineDeviceManualInit,
-    LaserlineDeviceOptimizeResult, run_calibration, step_init, step_optimize, step_set_init,
+    LaserlineDeviceOptimizeResult, run_calibration, step_init, step_init_with_seed, step_optimize,
 };
