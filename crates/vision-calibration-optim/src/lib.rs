@@ -211,5 +211,3 @@ pub use crate::problems::rig_handeye_laserline_bundle::{
     RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions, RigHandeyeLaserlineView,
     evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
 };
-
-pub use vision_calibration_core::{RigDataset, RigViewObs, View};

@@ -7,12 +7,13 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     Camera, FeatureResidualHistogram, ImageManifest, Iso3, PerFeatureResiduals, Pinhole,
-    PinholeCamera, ScheimpflugParams, build_feature_histogram, compute_rig_target_residuals,
+    PinholeCamera, RigDataset, ScheimpflugParams, build_feature_histogram,
+    compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
     HandEyeEstimate as PinholeHandEyeEstimate, HandEyeMode,
-    HandEyeScheimpflugEstimate as ScheimpflugHandEyeEstimate, RigDataset, RobotPoseMeta,
-    RobustLoss, handeye_observer_se3_target,
+    HandEyeScheimpflugEstimate as ScheimpflugHandEyeEstimate, RobotPoseMeta, RobustLoss,
+    handeye_observer_se3_target,
 };
 #[cfg(test)]
 use vision_calibration_optim::{HandEyeParams, SolveReport};
