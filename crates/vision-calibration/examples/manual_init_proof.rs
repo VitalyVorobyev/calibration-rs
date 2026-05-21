@@ -96,7 +96,7 @@ fn main() -> Result<()> {
     let cam_se3_rig_a = rig_init_a.initial_cam_se3_rig.clone();
     let rig_se3_target_a = rig_init_a.initial_rig_se3_target.clone();
     let a_summary = summarize(&session_a, "Run A", &rig_opt_a, &cameras_a)?;
-    print_init_logs(&session_a.log, "Run A");
+    print_init_logs(session_a.log(), "Run A");
     print_per_feature_residuals_summary(&mut session_a, "Run A")?;
     println!();
 
@@ -125,7 +125,7 @@ fn main() -> Result<()> {
     let _rig_init_b = step_rig_init_with_seed(&mut session_b, rig_manual_b)?;
     let rig_opt_b = step_rig_optimize(&mut session_b, None)?;
     let b_summary = summarize(&session_b, "Run B", &rig_opt_b, &cameras_b)?;
-    print_init_logs(&session_b.log, "Run B");
+    print_init_logs(session_b.log(), "Run B");
     println!();
 
     // ─── Run C: rough perturbed seed (intrinsics only) ────────────────────
@@ -155,7 +155,7 @@ fn main() -> Result<()> {
     let rig_opt_c = step_rig_optimize(&mut session_c, None)?;
     let cameras_c = intr_opt_c.per_cam_intrinsics.clone();
     let c_summary = summarize(&session_c, "Run C", &rig_opt_c, &cameras_c)?;
-    print_init_logs(&session_c.log, "Run C");
+    print_init_logs(session_c.log(), "Run C");
     println!();
 
     // ─── Verdict ──────────────────────────────────────────────────────────

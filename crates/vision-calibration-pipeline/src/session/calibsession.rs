@@ -44,7 +44,9 @@ use super::types::{ExportRecord, LogEntry, SessionMetadata};
 #[serde(bound = "P: ProblemType")]
 pub struct CalibrationSession<P: ProblemType> {
     /// Session metadata (problem type, schema version, timestamps, description).
-    pub metadata: SessionMetadata,
+    ///
+    /// Crate-private — consumers read [`Self::metadata`](Self::metadata).
+    pub(crate) metadata: SessionMetadata,
 
     /// Configuration parameters (always present, defaults if not explicitly set).
     pub config: P::Config,
@@ -66,7 +68,9 @@ pub struct CalibrationSession<P: ProblemType> {
     pub exports: Vec<ExportRecord<P::Export>>,
 
     /// Operation log (lightweight audit trail).
-    pub log: Vec<LogEntry>,
+    ///
+    /// Crate-private — consumers read [`Self::log`](Self::log).
+    pub(crate) log: Vec<LogEntry>,
 }
 
 impl<P: ProblemType> CalibrationSession<P> {
