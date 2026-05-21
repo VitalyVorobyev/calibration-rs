@@ -39,8 +39,6 @@ mod steps;
 // API
 // ─────────────────────────────────────────────────────────────────────────────
 pub use problem::{PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem};
-#[allow(deprecated)]
-pub use steps::step_set_init;
 pub use steps::{
     FilterOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions, PlanarInitResult,
     PlanarManualInit, PlanarOptimizeResult, run_calibration, run_calibration_with_filtering,

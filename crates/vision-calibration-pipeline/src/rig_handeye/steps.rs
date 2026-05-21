@@ -322,19 +322,6 @@ pub fn step_intrinsics_init_all_with_seed(
     })
 }
 
-/// Deprecated alias for [`step_intrinsics_init_all_with_seed`].
-#[deprecated(
-    since = "0.5.0",
-    note = "renamed to step_intrinsics_init_all_with_seed"
-)]
-pub fn step_set_intrinsics_init_all(
-    session: &mut CalibrationSession<RigHandeyeProblem>,
-    manual: RigHandeyeIntrinsicsManualInit,
-    opts: Option<IntrinsicsInitOptions>,
-) -> Result<RigHandeyeIntrinsicsInitAllResult, Error> {
-    step_intrinsics_init_all_with_seed(session, manual, opts)
-}
-
 /// Initialize intrinsics for all cameras using full auto-init (Zhang's per camera).
 ///
 /// Convenience wrapper around [`step_intrinsics_init_all_with_seed`] with default seeds.
@@ -631,15 +618,6 @@ pub fn step_rig_init_with_seed(
         initial_cam_se3_rig: cam_se3_rig,
         initial_rig_se3_target: rig_se3_target,
     })
-}
-
-/// Deprecated alias for [`step_rig_init_with_seed`].
-#[deprecated(since = "0.5.0", note = "renamed to step_rig_init_with_seed")]
-pub fn step_set_rig_init(
-    session: &mut CalibrationSession<RigHandeyeProblem>,
-    manual: RigHandeyeRigManualInit,
-) -> Result<RigHandeyeRigInitResult, Error> {
-    step_rig_init_with_seed(session, manual)
 }
 
 /// Initialize rig extrinsics using full auto-init (linear extrinsics fit).
@@ -997,16 +975,6 @@ pub fn step_handeye_init_with_seed(
         initial_handeye: handeye,
         initial_mode_target_pose: Some(mode_target_pose),
     })
-}
-
-/// Deprecated alias for [`step_handeye_init_with_seed`].
-#[deprecated(since = "0.5.0", note = "renamed to step_handeye_init_with_seed")]
-pub fn step_set_handeye_init(
-    session: &mut CalibrationSession<RigHandeyeProblem>,
-    manual: RigHandeyeHandeyeManualInit,
-    opts: Option<HandeyeInitOptions>,
-) -> Result<RigHandeyeHandeyeInitResult, Error> {
-    step_handeye_init_with_seed(session, manual, opts)
 }
 
 /// Initialize hand-eye transform using the linear Tsai-Lenz DLT path.

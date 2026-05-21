@@ -275,19 +275,6 @@ pub fn step_intrinsics_init_all_with_seed(
     })
 }
 
-/// Deprecated alias for [`step_intrinsics_init_all_with_seed`].
-#[deprecated(
-    since = "0.5.0",
-    note = "renamed to step_intrinsics_init_all_with_seed"
-)]
-pub fn step_set_intrinsics_init_all(
-    session: &mut CalibrationSession<RigExtrinsicsProblem>,
-    manual: RigIntrinsicsManualInit,
-    opts: Option<IntrinsicsInitOptions>,
-) -> Result<RigIntrinsicsInitAllResult, Error> {
-    step_intrinsics_init_all_with_seed(session, manual, opts)
-}
-
 /// Initialize intrinsics for all cameras using full auto-init (Zhang's per camera).
 ///
 /// Convenience wrapper around [`step_intrinsics_init_all_with_seed`] with default seeds.
@@ -602,15 +589,6 @@ pub fn step_rig_init_with_seed(
         initial_cam_se3_rig: cam_se3_rig,
         initial_rig_se3_target: rig_se3_target,
     })
-}
-
-/// Deprecated alias for [`step_rig_init_with_seed`].
-#[deprecated(since = "0.5.0", note = "renamed to step_rig_init_with_seed")]
-pub fn step_set_rig_init(
-    session: &mut CalibrationSession<RigExtrinsicsProblem>,
-    manual: RigExtrinsicsManualInit,
-) -> Result<RigInitResult, Error> {
-    step_rig_init_with_seed(session, manual)
 }
 
 /// Initialize rig extrinsics using full auto-init (linear extrinsics fit).

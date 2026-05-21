@@ -323,16 +323,6 @@ pub fn step_init_with_seed(
     })
 }
 
-/// Deprecated alias for [`step_init_with_seed`].
-#[deprecated(since = "0.5.0", note = "renamed to step_init_with_seed")]
-pub fn step_set_init(
-    session: &mut CalibrationSession<LaserlineDeviceProblem>,
-    manual: LaserlineDeviceManualInit,
-    opts: Option<DeviceInitOptions>,
-) -> Result<LaserlineDeviceInitResult, Error> {
-    step_init_with_seed(session, manual, opts)
-}
-
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
     match (manual.is_empty(), auto.is_empty()) {
         (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),

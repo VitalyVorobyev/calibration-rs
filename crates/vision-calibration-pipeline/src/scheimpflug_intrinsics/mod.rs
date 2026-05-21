@@ -12,8 +12,6 @@ pub use problem::{
     ScheimpflugIntrinsicsInput, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem,
     ScheimpflugIntrinsicsResult,
 };
-#[allow(deprecated)]
-pub use steps::step_set_init;
 pub use steps::{
     IntrinsicsInitOptions, IntrinsicsOptimizeOptions, ScheimpflugIntrinsicsInitResult,
     ScheimpflugIntrinsicsOptimizeResult, ScheimpflugManualInit, run_calibration, step_init,

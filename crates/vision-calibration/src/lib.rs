@@ -85,8 +85,6 @@ pub use vision_calibration_pipeline::Error;
 /// This high-level helper mirrors planar intrinsics calibration, but optimizes a
 /// Brown-Conrady camera together with two Scheimpflug tilt parameters.
 pub mod scheimpflug_intrinsics {
-    #[allow(deprecated)]
-    pub use vision_calibration_pipeline::scheimpflug_intrinsics::step_set_init;
     pub use vision_calibration_pipeline::scheimpflug_intrinsics::{
         IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions,
@@ -148,8 +146,6 @@ pub mod session {
 /// # }
 /// ```
 pub mod planar_intrinsics {
-    #[allow(deprecated)]
-    pub use vision_calibration_pipeline::planar_intrinsics::step_set_init;
     pub use vision_calibration_pipeline::planar_intrinsics::{
         // Step options
         FilterOptions,
@@ -235,10 +231,6 @@ pub mod single_cam_handeye {
         step_intrinsics_init_with_seed,
         step_intrinsics_optimize,
     };
-    #[allow(deprecated)]
-    pub use vision_calibration_pipeline::single_cam_handeye::{
-        step_set_handeye_init, step_set_intrinsics_init,
-    };
 }
 
 /// Single laserline device calibration (camera + laser plane).
@@ -264,8 +256,6 @@ pub mod single_cam_handeye {
 /// # }
 /// ```
 pub mod laserline_device {
-    #[allow(deprecated)]
-    pub use vision_calibration_pipeline::laserline_device::step_set_init;
     pub use vision_calibration_pipeline::laserline_device::{
         DeviceInitOptions,
         DeviceOptimizeOptions,
@@ -347,10 +337,6 @@ pub mod rig_extrinsics {
         step_rig_init_with_seed,
         step_rig_optimize,
     };
-    #[allow(deprecated)]
-    pub use vision_calibration_pipeline::rig_extrinsics::{
-        step_set_intrinsics_init_all, step_set_rig_init,
-    };
 }
 
 /// Multi-camera rig hand-eye calibration.
@@ -425,10 +411,6 @@ pub mod rig_handeye {
         step_rig_init_with_seed,
         step_rig_optimize,
     };
-    #[allow(deprecated)]
-    pub use vision_calibration_pipeline::rig_handeye::{
-        step_set_handeye_init, step_set_intrinsics_init_all, step_set_rig_init,
-    };
 }
 
 /// Rig-level laserline calibration.
@@ -437,8 +419,6 @@ pub mod rig_handeye {
 /// `SensorMode::Scheimpflug`), fits one laser plane per camera and reports each
 /// plane in the rig frame.
 pub mod rig_laserline_device {
-    #[allow(deprecated)]
-    pub use vision_calibration_pipeline::rig_laserline_device::step_set_init;
     pub use vision_calibration_pipeline::rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
         RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem, RigUpstreamCalibration,

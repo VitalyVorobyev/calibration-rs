@@ -22,7 +22,7 @@ and let the non-linear optimizer do the rest.
 
 For every problem type and every init stage there is:
 
-- A `step_set_*` function that takes a `*ManualInit` struct.
+- A `step_*_with_seed` function that takes a `*ManualInit` struct.
 - A typed `*ManualInit` struct whose fields are all `Option<T>`. `None`
   means "auto-initialize this group"; `Some(value)` means "use this value
   verbatim, do not auto-initialize".
@@ -33,7 +33,7 @@ step_init(&mut session, None)?;
 step_optimize(&mut session, None)?;
 
 // Manual path:
-step_set_init(&mut session, PlanarManualInit {
+step_init_with_seed(&mut session, PlanarManualInit {
     intrinsics: Some(nominal_camera_k),
     distortion: None,  // auto-initialized (or zeros when intrinsics seeded)
     poses: None,       // auto-recovered from homographies using manual intrinsics
@@ -41,7 +41,7 @@ step_set_init(&mut session, PlanarManualInit {
 step_optimize(&mut session, None)?;
 ```
 
-After `step_set_*` returns, the session state is fully initialized — same
+After `step_*_with_seed` returns, the session state is fully initialized — same
 postcondition as the auto path. `step_optimize` does not need to know
 which fields came from where.
 
@@ -62,15 +62,15 @@ We'll seed the rig stage of a stereo calibration from a previous run.
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsProblem, RigIntrinsicsManualInit, RigExtrinsicsManualInit,
-    step_set_intrinsics_init_all, step_intrinsics_optimize_all,
-    step_set_rig_init, step_rig_optimize,
+    step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all,
+    step_rig_init_with_seed, step_rig_optimize,
 };
 
 let mut session_a = CalibrationSession::<RigExtrinsicsProblem>::new();
 session_a.set_input(load_dataset()?)?;
-step_set_intrinsics_init_all(&mut session_a, RigIntrinsicsManualInit::default(), None)?;
+step_intrinsics_init_all_with_seed(&mut session_a, RigIntrinsicsManualInit::default(), None)?;
 step_intrinsics_optimize_all(&mut session_a, None)?;
-step_set_rig_init(&mut session_a, RigExtrinsicsManualInit::default())?;
+step_rig_init_with_seed(&mut session_a, RigExtrinsicsManualInit::default())?;
 step_rig_optimize(&mut session_a, None)?;
 ```
 
@@ -95,7 +95,7 @@ let per_cam_dist = cameras_a.iter().map(|c| c.dist).collect::<Vec<_>>();
 let mut session_b = CalibrationSession::<RigExtrinsicsProblem>::new();
 session_b.set_input(load_dataset()?)?;
 
-step_set_intrinsics_init_all(
+step_intrinsics_init_all_with_seed(
     &mut session_b,
     RigIntrinsicsManualInit {
         per_cam_intrinsics: Some(per_cam_k),
@@ -106,7 +106,7 @@ step_set_intrinsics_init_all(
 
 // Skip step_intrinsics_optimize_all: the seed is already optimized.
 
-step_set_rig_init(
+step_rig_init_with_seed(
     &mut session_b,
     RigExtrinsicsManualInit {
         cam_se3_rig: Some(cam_se3_rig_a),
@@ -146,7 +146,7 @@ let datasheet_k = FxFyCxCySkew {
 };
 let nominal_distortion = BrownConrady5 { k1: -0.1, ..Default::default() };
 
-step_set_intrinsics_init_all(
+step_intrinsics_init_all_with_seed(
     &mut session,
     RigIntrinsicsManualInit {
         per_cam_intrinsics: Some(vec![datasheet_k; num_cameras]),

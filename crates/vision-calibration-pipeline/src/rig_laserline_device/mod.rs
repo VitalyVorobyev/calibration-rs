@@ -14,8 +14,6 @@ pub use problem::{
     RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
     RigLaserlineDeviceProblem, RigUpstreamCalibration,
 };
-#[allow(deprecated)]
-pub use steps::step_set_init;
 pub use steps::{
     RigLaserlineDeviceManualInit, StepOptions, run_calibration, step_init, step_init_with_seed,
     step_optimize,

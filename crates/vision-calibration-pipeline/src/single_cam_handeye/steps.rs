@@ -353,16 +353,6 @@ pub fn step_intrinsics_init_with_seed(
     })
 }
 
-/// Deprecated alias for [`step_intrinsics_init_with_seed`].
-#[deprecated(since = "0.5.0", note = "renamed to step_intrinsics_init_with_seed")]
-pub fn step_set_intrinsics_init(
-    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
-    manual: SingleCamIntrinsicsManualInit,
-    opts: Option<IntrinsicsInitOptions>,
-) -> Result<SingleCamIntrinsicsInitResult, Error> {
-    step_intrinsics_init_with_seed(session, manual, opts)
-}
-
 /// Initialize intrinsics from observations using full auto-init.
 ///
 /// Convenience wrapper around [`step_intrinsics_init_with_seed`] with default seeds.
@@ -640,16 +630,6 @@ pub fn step_handeye_init_with_seed(
     );
 
     Ok(result)
-}
-
-/// Deprecated alias for [`step_handeye_init_with_seed`].
-#[deprecated(since = "0.5.0", note = "renamed to step_handeye_init_with_seed")]
-pub fn step_set_handeye_init(
-    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
-    manual: SingleCamHandeyeManualInit,
-    opts: Option<HandeyeInitOptions>,
-) -> Result<SingleCamHandeyeInitResult, Error> {
-    step_handeye_init_with_seed(session, manual, opts)
 }
 
 /// Initialize the hand-eye transform using full auto-init (Tsai-Lenz DLT).

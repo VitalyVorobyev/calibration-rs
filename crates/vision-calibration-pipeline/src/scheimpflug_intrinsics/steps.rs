@@ -290,16 +290,6 @@ pub fn step_init_with_seed(
     })
 }
 
-/// Deprecated alias for [`step_init_with_seed`].
-#[deprecated(since = "0.5.0", note = "renamed to step_init_with_seed")]
-pub fn step_set_init(
-    session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
-    manual: ScheimpflugManualInit,
-    opts: Option<IntrinsicsInitOptions>,
-) -> Result<ScheimpflugIntrinsicsInitResult, Error> {
-    step_init_with_seed(session, manual, opts)
-}
-
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
     match (manual.is_empty(), auto.is_empty()) {
         (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
