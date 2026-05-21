@@ -532,9 +532,15 @@ pub mod optim {
 
 /// Deterministic synthetic data generation for testing.
 ///
-/// Provides builders for creating synthetic calibration datasets.
+/// Provides builders for creating synthetic calibration datasets. The surface
+/// is a hand-picked subset of `vision_calibration_core::synthetic`: only the
+/// generator submodules genuinely useful to consumers are re-exported, not the
+/// whole module (which is primarily a test/example helper).
 pub mod synthetic {
-    pub use vision_calibration_core::synthetic::*;
+    /// Deterministic noise helpers (e.g. [`noise::UniformPixelNoise`]).
+    pub use vision_calibration_core::synthetic::noise;
+    /// Planar target generators: point grids, pose ramps, and projection helpers.
+    pub use vision_calibration_core::synthetic::planar;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
