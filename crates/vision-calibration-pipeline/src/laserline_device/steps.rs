@@ -70,6 +70,49 @@ pub struct DeviceOptimizeOptions {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Step Results
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Typed return value of [`step_init`] / [`step_set_init`].
+///
+/// Carries the seeded-or-fitted initial estimates that the same values continue
+/// to be written into `session.state` for backwards compatibility — see ADR 0011.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct LaserlineDeviceInitResult {
+    /// Initial pinhole intrinsics (fx, fy, cx, cy, skew).
+    pub intrinsics: FxFyCxCySkew<Real>,
+    /// Initial Brown–Conrady distortion coefficients.
+    pub distortion: BrownConrady5<Real>,
+    /// Initial per-view target poses (`camera_se3_target`).
+    pub poses: Vec<Iso3>,
+    /// Initial laser plane (camera-frame `(n̂, d)`).
+    pub plane: LaserPlane,
+    /// RMSE of the linear laser plane fit (meters); `None` when the plane was
+    /// supplied as a manual seed.
+    pub plane_rmse: Option<f64>,
+}
+
+/// Typed return value of [`step_optimize`].
+///
+/// Aggregates the optimization metrics that examples used to read out of
+/// `session.state` after the laserline-device solve.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct LaserlineDeviceOptimizeResult {
+    /// Final cost reported by the non-linear solver.
+    pub final_cost: f64,
+    /// Mean reprojection error in pixels.
+    pub mean_reproj_error: f64,
+    /// Mean laser residual (units depend on the selected residual type).
+    pub mean_laser_error: f64,
+    /// Per-view mean reprojection errors in pixels.
+    pub per_view_reproj_errors: Vec<f64>,
+    /// Per-view mean laser residuals.
+    pub per_view_laser_errors: Vec<f64>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helper Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -171,7 +214,7 @@ pub fn step_set_init(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     manual: LaserlineDeviceManualInit,
     opts: Option<DeviceInitOptions>,
-) -> Result<(), Error> {
+) -> Result<LaserlineDeviceInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
     let view_count = input.len();
@@ -251,7 +294,8 @@ pub fn step_set_init(
         }
     };
 
-    let initial_params = LaserlineParams::new(intrinsics, distortion, sensor, poses, plane)?;
+    let initial_params =
+        LaserlineParams::new(intrinsics, distortion, sensor, poses.clone(), plane.clone())?;
 
     session.state.initial_params = Some(initial_params);
     session.state.initial_plane_rmse = plane_rmse;
@@ -270,7 +314,13 @@ pub fn step_set_init(
         ),
     );
 
-    Ok(())
+    Ok(LaserlineDeviceInitResult {
+        intrinsics,
+        distortion,
+        poses,
+        plane,
+        plane_rmse,
+    })
 }
 
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
@@ -290,7 +340,7 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 pub fn step_init(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     opts: Option<DeviceInitOptions>,
-) -> Result<(), Error> {
+) -> Result<LaserlineDeviceInitResult, Error> {
     step_set_init(session, LaserlineDeviceManualInit::default(), opts)
 }
 
@@ -298,7 +348,7 @@ pub fn step_init(
 pub fn step_optimize(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     opts: Option<DeviceOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<LaserlineDeviceOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -322,7 +372,8 @@ pub fn step_optimize(
 
     let stats = compute_laserline_stats(input, &result.params, solve_opts.laser_residual_type)?;
 
-    update_state_with_stats(session, &stats, result.report.final_cost);
+    let final_cost = result.report.final_cost;
+    update_state_with_stats(session, &stats, final_cost);
 
     let output = LaserlineDeviceOutput {
         estimate: result.clone(),
@@ -338,7 +389,13 @@ pub fn step_optimize(
         ),
     );
 
-    Ok(())
+    Ok(LaserlineDeviceOptimizeResult {
+        final_cost,
+        mean_reproj_error: stats.mean_reproj_error,
+        mean_laser_error: stats.mean_laser_error,
+        per_view_reproj_errors: stats.per_view_reproj_errors,
+        per_view_laser_errors: stats.per_view_laser_errors,
+    })
 }
 
 /// Run full calibration pipeline: init → optimize.
@@ -349,7 +406,7 @@ pub fn run_calibration(
     if let Some(cfg) = config {
         session.set_config(cfg)?;
     }
-    step_init(session, None)?;
-    step_optimize(session, None)?;
+    let _ = step_init(session, None)?;
+    let _ = step_optimize(session, None)?;
     Ok(())
 }

@@ -14,6 +14,7 @@ pub use problem::{
 };
 pub use state::ScheimpflugIntrinsicsState;
 pub use steps::{
-    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, ScheimpflugManualInit, run_calibration,
-    step_init, step_optimize, step_set_init,
+    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, ScheimpflugIntrinsicsInitResult,
+    ScheimpflugIntrinsicsOptimizeResult, ScheimpflugManualInit, run_calibration, step_init,
+    step_optimize, step_set_init,
 };

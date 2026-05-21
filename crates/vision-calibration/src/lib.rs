@@ -86,11 +86,24 @@ pub use vision_calibration_pipeline::Error;
 /// Brown-Conrady camera together with two Scheimpflug tilt parameters.
 pub mod scheimpflug_intrinsics {
     pub use vision_calibration_pipeline::scheimpflug_intrinsics::{
-        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, ScheimpflugFixMask,
-        ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsExport, ScheimpflugIntrinsicsInput,
-        ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult,
-        ScheimpflugIntrinsicsState, ScheimpflugManualInit, run_calibration, step_init,
-        step_optimize, step_set_init,
+        IntrinsicsInitOptions,
+        IntrinsicsOptimizeOptions,
+        ScheimpflugFixMask,
+        ScheimpflugIntrinsicsConfig,
+        ScheimpflugIntrinsicsExport,
+        // Typed step results (Phase 1c of 0.5.0 API revision)
+        ScheimpflugIntrinsicsInitResult,
+        ScheimpflugIntrinsicsInput,
+        ScheimpflugIntrinsicsOptimizeResult,
+        ScheimpflugIntrinsicsParams,
+        ScheimpflugIntrinsicsProblem,
+        ScheimpflugIntrinsicsResult,
+        ScheimpflugIntrinsicsState,
+        ScheimpflugManualInit,
+        run_calibration,
+        step_init,
+        step_optimize,
+        step_set_init,
     };
 }
 
@@ -247,11 +260,25 @@ pub mod single_cam_handeye {
 /// ```
 pub mod laserline_device {
     pub use vision_calibration_pipeline::laserline_device::{
-        DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceConfig, LaserlineDeviceExport,
-        LaserlineDeviceInitConfig, LaserlineDeviceInput, LaserlineDeviceManualInit,
-        LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput, LaserlineDeviceProblem,
-        LaserlineDeviceSolverConfig, LaserlineDeviceState, run_calibration, step_init,
-        step_optimize, step_set_init,
+        DeviceInitOptions,
+        DeviceOptimizeOptions,
+        LaserlineDeviceConfig,
+        LaserlineDeviceExport,
+        LaserlineDeviceInitConfig,
+        // Typed step results (Phase 1c of 0.5.0 API revision)
+        LaserlineDeviceInitResult,
+        LaserlineDeviceInput,
+        LaserlineDeviceManualInit,
+        LaserlineDeviceOptimizeConfig,
+        LaserlineDeviceOptimizeResult,
+        LaserlineDeviceOutput,
+        LaserlineDeviceProblem,
+        LaserlineDeviceSolverConfig,
+        LaserlineDeviceState,
+        run_calibration,
+        step_init,
+        step_optimize,
+        step_set_init,
     };
 }
 

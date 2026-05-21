@@ -74,6 +74,40 @@ pub struct IntrinsicsOptimizeOptions {
     pub verbosity: Option<usize>,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Step Results
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Typed return value of [`step_init`] / [`step_set_init`].
+///
+/// Carries the seeded-or-fitted initial estimates. The same values continue to
+/// be written into `session.state` for backwards compatibility — see ADR 0011.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ScheimpflugIntrinsicsInitResult {
+    /// Initial pinhole intrinsics (fx, fy, cx, cy, skew).
+    pub intrinsics: FxFyCxCySkew<Real>,
+    /// Initial Brown–Conrady distortion coefficients.
+    pub distortion: BrownConrady5<Real>,
+    /// Initial Scheimpflug sensor tilt parameters.
+    pub sensor: ScheimpflugParams,
+    /// Initial per-view target poses (`camera_se3_target`).
+    pub poses: Vec<Iso3>,
+}
+
+/// Typed return value of [`step_optimize`].
+///
+/// Aggregates the optimization metrics that examples used to read out of
+/// `session.state` after the Scheimpflug-intrinsics solve.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ScheimpflugIntrinsicsOptimizeResult {
+    /// Final cost reported by the non-linear solver.
+    pub final_cost: f64,
+    /// Mean reprojection error in pixels.
+    pub mean_reproj_error: f64,
+}
+
 /// Initialize Scheimpflug intrinsics, distortion, sensor tilt, and per-view poses
 /// from any combination of manual seeds and auto-estimation.
 ///
@@ -92,7 +126,7 @@ pub fn step_set_init(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     manual: ScheimpflugManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
+) -> Result<ScheimpflugIntrinsicsInitResult, Error> {
     session.validate()?;
     let dataset = session.require_input()?.clone();
 
@@ -232,7 +266,7 @@ pub fn step_set_init(
     session.state.initial_intrinsics = Some(intrinsics);
     session.state.initial_distortion = Some(distortion);
     session.state.initial_sensor = Some(sensor);
-    session.state.initial_poses = Some(poses);
+    session.state.initial_poses = Some(poses.clone());
     session.state.clear_optimization();
 
     let source = format_init_source(&manual_fields, &auto_fields);
@@ -247,7 +281,12 @@ pub fn step_set_init(
         ),
     );
 
-    Ok(())
+    Ok(ScheimpflugIntrinsicsInitResult {
+        intrinsics,
+        distortion,
+        sensor,
+        poses,
+    })
 }
 
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
@@ -266,7 +305,7 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 pub fn step_init(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
+) -> Result<ScheimpflugIntrinsicsInitResult, Error> {
     step_set_init(session, ScheimpflugManualInit::default(), opts)
 }
 
@@ -274,7 +313,7 @@ pub fn step_init(
 pub fn step_optimize(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<ScheimpflugIntrinsicsOptimizeResult, Error> {
     session.validate()?;
     let dataset = session.require_input()?.clone();
 
@@ -339,19 +378,21 @@ pub fn step_optimize(
         mean_reproj_error: estimate.mean_reproj_error,
     };
 
-    session.state.final_cost = Some(result.report.final_cost);
-    session.state.mean_reproj_error = Some(result.mean_reproj_error);
-    session.set_output(result.clone());
+    let final_cost = result.report.final_cost;
+    let mean_reproj_error = result.mean_reproj_error;
+    session.state.final_cost = Some(final_cost);
+    session.state.mean_reproj_error = Some(mean_reproj_error);
+    session.set_output(result);
 
     session.log_success_with_notes(
         "optimize",
-        format!(
-            "cost={:.2e}, reproj_err={:.3}px",
-            result.report.final_cost, result.mean_reproj_error
-        ),
+        format!("cost={final_cost:.2e}, reproj_err={mean_reproj_error:.3}px"),
     );
 
-    Ok(())
+    Ok(ScheimpflugIntrinsicsOptimizeResult {
+        final_cost,
+        mean_reproj_error,
+    })
 }
 
 /// Run full Scheimpflug calibration pipeline on a session: init -> optimize.
@@ -362,8 +403,8 @@ pub fn run_calibration(
     if let Some(cfg) = config {
         session.set_config(cfg)?;
     }
-    step_init(session, None)?;
-    step_optimize(session, None)?;
+    let _ = step_init(session, None)?;
+    let _ = step_optimize(session, None)?;
     Ok(())
 }
 

@@ -154,6 +154,9 @@ pub struct RigIntrinsicsInitAllResult {
 pub struct RigIntrinsicsOptimizeAllResult {
     /// Per-camera refined pinhole intrinsics + distortion.
     pub per_cam_intrinsics: Vec<PinholeCamera>,
+    /// Per-camera refined Scheimpflug sensor parameters; `Some` only for
+    /// [`SensorMode::Scheimpflug`] rigs (`None` for pinhole rigs).
+    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
     /// Per-camera mean reprojection error in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
 }
@@ -176,6 +179,9 @@ pub struct RigOptimizeResult {
     pub mean_reproj_error: f64,
     /// Per-camera mean reprojection error in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
+    /// Per-camera refined Scheimpflug sensor parameters after rig BA;
+    /// `Some` only for [`SensorMode::Scheimpflug`] rigs (`None` for pinhole rigs).
+    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -453,7 +459,7 @@ pub fn step_intrinsics_optimize_all(
     }
 
     session.state.per_cam_intrinsics = Some(optimized_cameras.clone());
-    session.state.per_cam_sensors = optimized_sensors;
+    session.state.per_cam_sensors = optimized_sensors.clone();
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
     session.state.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
 
@@ -466,6 +472,7 @@ pub fn step_intrinsics_optimize_all(
 
     Ok(RigIntrinsicsOptimizeAllResult {
         per_cam_intrinsics: optimized_cameras,
+        per_cam_sensors: optimized_sensors,
         per_cam_reproj_errors,
     })
 }
@@ -762,6 +769,8 @@ pub fn step_rig_optimize(
     session.state.rig_ba_reproj_error = Some(mean_reproj_error);
     session.state.rig_ba_per_cam_reproj_errors = Some(per_cam_errors.clone());
 
+    let per_cam_sensors = output.sensors().map(|s| s.to_vec());
+
     let final_cost = output.final_cost();
     session.set_output(output);
 
@@ -773,6 +782,7 @@ pub fn step_rig_optimize(
     Ok(RigOptimizeResult {
         mean_reproj_error,
         per_cam_reproj_errors: per_cam_errors,
+        per_cam_sensors,
     })
 }
 
