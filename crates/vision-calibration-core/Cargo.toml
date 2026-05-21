@@ -14,6 +14,9 @@ repository.workspace = true
 [features]
 tracing = ["dep:tracing"]
 schemars = ["dep:schemars"]
+# Unstable/internal: exposes the `test_utils` module for cross-crate test
+# suites. Not part of the public API; do not enable in production builds.
+test-utils = []
 
 [dependencies]
 nalgebra = { workspace = true }

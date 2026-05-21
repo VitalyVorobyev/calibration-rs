@@ -64,8 +64,11 @@ mod ransac;
 pub mod synthetic;
 /// Test utilities for cross-crate calibration testing.
 ///
-/// This module is public to allow usage in integration tests across
-/// the workspace, but is not intended for production use.
+/// Gated behind the unstable, internal `test-utils` feature so it is not part
+/// of the published API surface. Enabled only by workspace test suites; do not
+/// rely on it from production code.
+#[cfg(feature = "test-utils")]
+#[doc(hidden)]
 pub mod test_utils;
 /// Common types for observations, results, and options.
 mod types;

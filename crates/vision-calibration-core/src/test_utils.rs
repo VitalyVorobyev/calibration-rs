@@ -1,8 +1,9 @@
 //! Utilities and common types for testing calibration algorithms.
 //!
-//! This module is public to allow use across workspace test suites,
-//! but is not intended for production use. It provides shared data structures
-//! and helper functions for working with calibration test data.
+//! Gated behind the unstable, internal `test-utils` feature and not part of
+//! the published API surface. It provides shared data structures and helper
+//! functions for working with calibration test data across workspace test
+//! suites; do not depend on it from production code.
 
 use crate::{BrownConrady5, Mat3, Pt2, Real};
 use serde::Deserialize;
