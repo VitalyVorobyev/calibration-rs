@@ -12,7 +12,6 @@ pub use problem::{
     ScheimpflugIntrinsicsInput, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem,
     ScheimpflugIntrinsicsResult,
 };
-pub use state::ScheimpflugIntrinsicsState;
 #[allow(deprecated)]
 pub use steps::step_set_init;
 pub use steps::{

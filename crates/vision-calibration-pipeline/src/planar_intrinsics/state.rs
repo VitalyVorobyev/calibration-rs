@@ -16,7 +16,7 @@ use vision_calibration_optim::PlanarIntrinsicsParams;
 ///
 /// This struct is updated by step functions as the calibration progresses.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct PlanarState {
+pub(crate) struct PlanarState {
     // ─────────────────────────────────────────────────────────────────────────
     // From homography computation
     // ─────────────────────────────────────────────────────────────────────────
@@ -53,11 +53,13 @@ impl PlanarState {
     ///
     /// Initialization is considered complete when both initial intrinsics
     /// and initial poses are available.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn is_initialized(&self) -> bool {
         self.initial_intrinsics.is_some() && self.initial_poses.is_some()
     }
 
     /// Check if optimization has been run.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn is_optimized(&self) -> bool {
         self.final_cost.is_some()
     }
@@ -84,6 +86,7 @@ impl PlanarState {
     }
 
     /// Clear everything including initialization.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn clear(&mut self) {
         *self = Self::default();
     }

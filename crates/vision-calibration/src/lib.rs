@@ -100,7 +100,6 @@ pub mod scheimpflug_intrinsics {
         ScheimpflugIntrinsicsParams,
         ScheimpflugIntrinsicsProblem,
         ScheimpflugIntrinsicsResult,
-        ScheimpflugIntrinsicsState,
         ScheimpflugManualInit,
         run_calibration,
         step_init,
@@ -169,7 +168,6 @@ pub mod planar_intrinsics {
         // Manual init seed (ADR 0011)
         PlanarManualInit,
         PlanarOptimizeResult,
-        PlanarState,
         // Step functions
         run_calibration,
         run_calibration_with_filtering,
@@ -224,7 +222,6 @@ pub mod single_cam_handeye {
         SingleCamHandeyeManualInit,
         SingleCamHandeyeOptimizeResult,
         SingleCamHandeyeProblem,
-        SingleCamHandeyeState,
         SingleCamHandeyeView,
         SingleCamIntrinsicsInitResult,
         SingleCamIntrinsicsManualInit,
@@ -284,7 +281,6 @@ pub mod laserline_device {
         LaserlineDeviceOutput,
         LaserlineDeviceProblem,
         LaserlineDeviceSolverConfig,
-        LaserlineDeviceState,
         run_calibration,
         step_init,
         step_init_with_seed,
@@ -333,7 +329,6 @@ pub mod rig_extrinsics {
         // Output (pinhole or Scheimpflug variant; A6 unified rig family)
         RigExtrinsicsOutput,
         RigExtrinsicsProblem,
-        RigExtrinsicsState,
         // Typed step results (Phase 1a of 0.5.0 API revision)
         RigInitResult,
         RigIntrinsicsInitAllResult,
@@ -415,7 +410,6 @@ pub mod rig_handeye {
         RigHandeyeRigManualInit,
         RigHandeyeRigOptimizeResult,
         RigHandeyeSolverConfig,
-        RigHandeyeState,
         RigOptimizeOptions,
         // Sensor flavour selector (pinhole vs Scheimpflug)
         SensorMode,
@@ -447,9 +441,9 @@ pub mod rig_laserline_device {
     pub use vision_calibration_pipeline::rig_laserline_device::step_set_init;
     pub use vision_calibration_pipeline::rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
-        RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem, RigLaserlineDeviceState,
-        RigUpstreamCalibration, StepOptions, pixel_to_gripper_point, run_calibration, step_init,
-        step_init_with_seed, step_optimize,
+        RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem, RigUpstreamCalibration,
+        StepOptions, pixel_to_gripper_point, run_calibration, step_init, step_init_with_seed,
+        step_optimize,
     };
 }
 

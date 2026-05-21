@@ -64,7 +64,6 @@ pub use problem::{
     RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsOutput,
     RigExtrinsicsProblem, SensorMode,
 };
-pub use state::RigExtrinsicsState;
 pub use steps::{
     IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigExtrinsicsManualInit, RigInitResult,
     RigIntrinsicsInitAllResult, RigIntrinsicsManualInit, RigIntrinsicsOptimizeAllResult,

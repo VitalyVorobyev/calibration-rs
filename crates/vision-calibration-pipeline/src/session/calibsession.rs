@@ -486,6 +486,7 @@ impl<P: ProblemType> Default for CalibrationSession<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::problem_type::ProblemState;
     use serde::{Deserialize, Serialize};
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -521,10 +522,13 @@ mod tests {
     #[derive(Debug)]
     struct MockProblem;
 
+    impl ProblemState for MockProblem {
+        type State = MockState;
+    }
+
     impl ProblemType for MockProblem {
         type Config = MockConfig;
         type Input = MockInput;
-        type State = MockState;
         type Output = MockOutput;
         type Export = MockExport;
 

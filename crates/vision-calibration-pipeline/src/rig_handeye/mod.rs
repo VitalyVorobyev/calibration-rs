@@ -76,7 +76,6 @@ pub use problem::{
     RigHandeyeIntrinsicsConfig, RigHandeyeOutput, RigHandeyeProblem, RigHandeyeRigConfig,
     RigHandeyeSolverConfig, SensorMode,
 };
-pub use state::RigHandeyeState;
 pub use steps::{
     HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
     RigHandeyeHandeyeInitResult, RigHandeyeHandeyeManualInit, RigHandeyeHandeyeOptimizeResult,

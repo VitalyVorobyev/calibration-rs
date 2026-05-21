@@ -16,7 +16,7 @@ use vision_calibration_core::{Iso3, PinholeCamera, ScheimpflugParams};
 /// - Hand-eye initialization
 /// - Final optimization metrics
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RigHandeyeState {
+pub(crate) struct RigHandeyeState {
     // ─────────────────────────────────────────────────────────────────────────
     // Per-camera intrinsics
     // ─────────────────────────────────────────────────────────────────────────
@@ -105,11 +105,13 @@ impl RigHandeyeState {
     }
 
     /// Check if final BA has been run.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn has_final_optimized(&self) -> bool {
         self.final_cost.is_some()
     }
 
     /// Clear rig-related results, keeping per-camera intrinsics.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn clear_rig(&mut self) {
         self.initial_cam_se3_rig = None;
         self.initial_rig_se3_target = None;
@@ -120,6 +122,7 @@ impl RigHandeyeState {
     }
 
     /// Clear hand-eye and final BA results.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn clear_handeye(&mut self) {
         self.initial_handeye = None;
         self.initial_mode_target_pose = None;
@@ -128,6 +131,7 @@ impl RigHandeyeState {
     }
 
     /// Clear everything.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn clear(&mut self) {
         *self = Self::default();
     }

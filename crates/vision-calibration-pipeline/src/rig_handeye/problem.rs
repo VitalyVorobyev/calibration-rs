@@ -19,7 +19,7 @@ use vision_calibration_optim::{HandEyeParams, SolveReport};
 
 pub use crate::rig_family::SensorMode;
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigHandeyeState;
 
@@ -397,10 +397,13 @@ pub struct RigHandeyeExport {
 #[derive(Debug)]
 pub struct RigHandeyeProblem;
 
+impl ProblemState for RigHandeyeProblem {
+    type State = RigHandeyeState;
+}
+
 impl ProblemType for RigHandeyeProblem {
     type Config = RigHandeyeConfig;
     type Input = RigHandeyeInput;
-    type State = RigHandeyeState;
     type Output = RigHandeyeOutput;
     type Export = RigHandeyeExport;
 

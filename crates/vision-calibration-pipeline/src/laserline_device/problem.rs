@@ -12,7 +12,7 @@ use vision_calibration_optim::{
     LaserlineSolveOptions, LaserlineStats, compute_laserline_feature_residuals,
 };
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::LaserlineDeviceState;
 
@@ -202,10 +202,13 @@ pub struct LaserlineDeviceExport {
     pub per_feature_residuals: PerFeatureResiduals,
 }
 
+impl ProblemState for LaserlineDeviceProblem {
+    type State = LaserlineDeviceState;
+}
+
 impl ProblemType for LaserlineDeviceProblem {
     type Config = LaserlineDeviceConfig;
     type Input = LaserlineDeviceInput;
-    type State = LaserlineDeviceState;
     type Output = LaserlineDeviceOutput;
     type Export = LaserlineDeviceExport;
 

@@ -13,7 +13,7 @@ use vision_calibration_optim::{
     HandEyeEstimate, HandEyeMode, RobustLoss, handeye_observer_se3_target,
 };
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::SingleCamHandeyeState;
 
@@ -238,10 +238,13 @@ pub struct SingleCamHandeyeExport {
 #[derive(Debug)]
 pub struct SingleCamHandeyeProblem;
 
+impl ProblemState for SingleCamHandeyeProblem {
+    type State = SingleCamHandeyeState;
+}
+
 impl ProblemType for SingleCamHandeyeProblem {
     type Config = SingleCamHandeyeConfig;
     type Input = SingleCamHandeyeInput;
-    type State = SingleCamHandeyeState;
     type Output = HandEyeEstimate;
     type Export = SingleCamHandeyeExport;
 

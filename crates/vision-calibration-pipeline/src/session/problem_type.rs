@@ -50,11 +50,25 @@ impl Default for InvalidationPolicy {
     }
 }
 
+/// Crate-internal carrier for a problem's session scratch state.
+///
+/// Kept separate from the public [`ProblemType`] contract so the per-problem
+/// `*State` scratch structs can remain `pub(crate)` — they are internal
+/// pipeline plumbing, not part of the public API.
+pub(crate) trait ProblemState {
+    /// Problem-specific workspace for intermediate results.
+    type State: Clone + Default + Serialize + DeserializeOwned + Debug;
+}
+
 /// Trait defining the interface for a calibration problem.
 ///
 /// Each problem type (e.g., planar intrinsics, hand-eye, laserline) implements
-/// this trait to specify its configuration, input data, internal state,
-/// output, and export formats.
+/// this trait to specify its configuration, input data, output, and export
+/// formats.
+///
+/// This trait is implemented only by the crate's built-in problem types. It is
+/// not downstream-implementable: it requires a `pub(crate)` supertrait
+/// (`ProblemState`), which carries the internal `State` associated type.
 ///
 /// # Design Philosophy
 ///
@@ -70,30 +84,16 @@ impl Default for InvalidationPolicy {
 ///
 /// - **Config**: Calibration parameters (solver options, fix masks, thresholds)
 /// - **Input**: Observation data (image points, correspondences)
-/// - **State**: Problem-specific intermediate results (homographies, initial poses)
 /// - **Output**: Final calibration result (camera parameters, errors)
 /// - **Export**: User-facing export format (may be same as Output)
 ///
-/// # Example
+/// The internal `State` associated type (problem-specific intermediate results)
+/// is carried by the crate-private `ProblemState` supertrait.
 ///
-/// ```ignore
-/// pub struct MyProblem;
-///
-/// impl ProblemType for MyProblem {
-///     type Config = MyConfig;
-///     type Input = MyDataset;
-///     type State = MyState;
-///     type Output = MyResult;
-///     type Export = MyExport;
-///
-///     fn name() -> &'static str { "my_problem" }
-///
-///     fn export(_input: &Self::Input, output: &Self::Output, _config: &Self::Config) -> Result<Self::Export, crate::Error> {
-///         Ok(output.into())
-///     }
-/// }
-/// ```
-pub trait ProblemType: Sized + 'static {
+// The `pub(crate)` [`ProblemState`] supertrait is intentional: it seals
+// `ProblemType` so only the crate's built-in problem types can implement it.
+#[allow(private_bounds)]
+pub trait ProblemType: ProblemState + Sized + 'static {
     /// Configuration parameters that control calibration behavior.
     ///
     /// Examples: solver options, fix masks, convergence thresholds.
@@ -104,12 +104,6 @@ pub trait ProblemType: Sized + 'static {
     ///
     /// Examples: `PlanarDataset`, `HandEyeDataset`, `LaserlineDataset`.
     type Input: Clone + Serialize + DeserializeOwned + Debug;
-
-    /// Problem-specific workspace for intermediate results.
-    ///
-    /// Examples: computed homographies, initial poses, per-view residuals.
-    /// Use `()` if no intermediate state is needed.
-    type State: Clone + Default + Serialize + DeserializeOwned + Debug;
 
     /// Final calibration output (single result).
     ///

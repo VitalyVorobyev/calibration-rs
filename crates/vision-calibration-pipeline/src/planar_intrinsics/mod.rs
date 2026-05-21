@@ -39,7 +39,6 @@ mod steps;
 // API
 // ─────────────────────────────────────────────────────────────────────────────
 pub use problem::{PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem};
-pub use state::PlanarState;
 #[allow(deprecated)]
 pub use steps::step_set_init;
 pub use steps::{

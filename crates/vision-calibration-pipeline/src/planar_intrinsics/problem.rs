@@ -15,7 +15,7 @@ use vision_calibration_optim::{
     PlanarIntrinsicsSolveOptions, SolveReport,
 };
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::PlanarState;
 
@@ -28,7 +28,6 @@ use super::state::PlanarState;
 ///
 /// - **Config**: [`PlanarIntrinsicsConfig`] - solver settings, fix masks, etc.
 /// - **Input**: [`PlanarDataset`] - views with 2D-3D point correspondences
-/// - **State**: [`PlanarState`] - homographies, initial estimates, metrics
 /// - **Output**: [`PlanarIntrinsicsEstimate`] - final calibrated camera + poses
 /// - **Export**: [`PlanarIntrinsicsExport`] - stable export contract
 ///
@@ -178,10 +177,13 @@ pub struct PlanarIntrinsicsExport {
     pub image_manifest: Option<ImageManifest>,
 }
 
+impl ProblemState for PlanarIntrinsicsProblem {
+    type State = PlanarState;
+}
+
 impl ProblemType for PlanarIntrinsicsProblem {
     type Config = PlanarIntrinsicsConfig;
     type Input = PlanarDataset;
-    type State = PlanarState;
     type Output = PlanarIntrinsicsEstimate;
     type Export = PlanarIntrinsicsExport;
 

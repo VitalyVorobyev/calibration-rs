@@ -17,7 +17,7 @@ use vision_calibration_optim::{
 
 pub use crate::rig_family::SensorMode;
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigExtrinsicsState;
 
@@ -266,10 +266,13 @@ pub struct RigExtrinsicsExport {
 #[derive(Debug)]
 pub struct RigExtrinsicsProblem;
 
+impl ProblemState for RigExtrinsicsProblem {
+    type State = RigExtrinsicsState;
+}
+
 impl ProblemType for RigExtrinsicsProblem {
     type Config = RigExtrinsicsConfig;
     type Input = RigExtrinsicsInput;
-    type State = RigExtrinsicsState;
     type Output = RigExtrinsicsOutput;
     type Export = RigExtrinsicsExport;
 

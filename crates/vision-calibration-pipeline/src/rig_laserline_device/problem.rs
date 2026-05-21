@@ -13,7 +13,7 @@ use vision_calibration_optim::{
     compute_rig_laserline_feature_residuals,
 };
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigLaserlineDeviceState;
 
@@ -143,10 +143,13 @@ pub struct RigLaserlineDeviceExport {
 #[derive(Debug)]
 pub struct RigLaserlineDeviceProblem;
 
+impl ProblemState for RigLaserlineDeviceProblem {
+    type State = RigLaserlineDeviceState;
+}
+
 impl ProblemType for RigLaserlineDeviceProblem {
     type Config = RigLaserlineDeviceConfig;
     type Input = RigLaserlineDeviceInput;
-    type State = RigLaserlineDeviceState;
     type Output = RigLaserlineEstimate;
     type Export = RigLaserlineDeviceExport;
 

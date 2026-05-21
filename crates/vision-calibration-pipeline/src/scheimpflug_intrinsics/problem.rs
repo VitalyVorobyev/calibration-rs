@@ -8,7 +8,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{RobustLoss, SolveReport};
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::ScheimpflugIntrinsicsState;
 
@@ -127,10 +127,13 @@ pub struct ScheimpflugIntrinsicsExport {
     pub per_feature_residuals: PerFeatureResiduals,
 }
 
+impl ProblemState for ScheimpflugIntrinsicsProblem {
+    type State = ScheimpflugIntrinsicsState;
+}
+
 impl ProblemType for ScheimpflugIntrinsicsProblem {
     type Config = ScheimpflugIntrinsicsConfig;
     type Input = ScheimpflugIntrinsicsInput;
-    type State = ScheimpflugIntrinsicsState;
     type Output = ScheimpflugIntrinsicsResult;
     type Export = ScheimpflugIntrinsicsExport;
 

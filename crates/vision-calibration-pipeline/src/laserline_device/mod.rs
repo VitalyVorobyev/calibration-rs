@@ -13,7 +13,6 @@ pub use problem::{
     LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput, LaserlineDeviceProblem,
     LaserlineDeviceSolverConfig,
 };
-pub use state::LaserlineDeviceState;
 #[allow(deprecated)]
 pub use steps::step_set_init;
 pub use steps::{
