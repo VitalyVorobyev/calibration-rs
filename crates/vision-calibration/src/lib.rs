@@ -622,6 +622,11 @@ pub mod core {
 /// Re-exports everything from `vision_calibration_linear`.
 pub mod linear {
     pub use vision_calibration_linear::*;
+
+    pub mod prelude {
+        //! Curated, most-used items from `vision-calibration-linear`.
+        pub use vision_calibration_linear::prelude::*;
+    }
 }
 
 /// Per-feature residual helpers from `vision-calibration-optim` re-exported
