@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use vision_calibration_core::{
     CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, PinholeCamera, PlanarDataset, Pt2, Real,
 };
-use vision_calibration_linear::{
+use vision_calibration_linear::prelude::{
     IterativeIntrinsicsOptions, dlt_homography, estimate_intrinsics_iterative,
     estimate_planar_pose_from_h,
 };
@@ -82,7 +82,7 @@ mod tests {
     use vision_calibration_core::{
         BrownConrady5, FxFyCxCySkew, View, make_pinhole_camera, synthetic::planar,
     };
-    use vision_calibration_linear::DistortionFitOptions;
+    use vision_calibration_linear::distortion_fit::DistortionFitOptions;
 
     fn make_test_dataset() -> PlanarDataset {
         let cam_gt = make_pinhole_camera(

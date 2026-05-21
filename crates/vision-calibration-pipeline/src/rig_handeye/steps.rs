@@ -9,9 +9,9 @@ use vision_calibration_core::{
     BrownConrady5, CameraFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta, PinholeCamera,
     Real, ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
-use vision_calibration_linear::estimate_extrinsics_from_cam_target_poses;
+use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
+use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use vision_calibration_linear::prelude::*;
-use vision_calibration_linear::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeScheimpflugDataset,
     HandEyeScheimpflugParams, HandEyeScheimpflugSolveOptions, HandEyeSolveOptions,

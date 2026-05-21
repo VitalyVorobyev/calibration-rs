@@ -6,7 +6,8 @@ use vision_calibration_core::{
     BrownConrady5, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, Iso3,
     ProjectionParams, Real, ScheimpflugParams, SensorParams,
 };
-use vision_calibration_linear::{DistortionFitOptions, IterativeIntrinsicsOptions};
+use vision_calibration_linear::distortion_fit::DistortionFitOptions;
+use vision_calibration_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
 use vision_calibration_optim::{
     BackendSolveOptions, ScheimpflugFixMask as OptimScheimpflugFixMask,
     ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,

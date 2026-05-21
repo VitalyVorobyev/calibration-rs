@@ -63,9 +63,9 @@ use vision_calibration_core::{Mat3, Mat4, Pt2, Pt3, Real};
 ///
 /// # Used By
 ///
-/// - Homography estimation ([`HomographySolver`](crate::HomographySolver))
-/// - Essential matrix estimation ([`essential_5point`](crate::essential_5point))
-/// - Camera matrix DLT ([`dlt_camera_matrix`](crate::dlt_camera_matrix))
+/// - Homography estimation ([`HomographySolver`](crate::homography::HomographySolver))
+/// - Essential matrix estimation ([`essential_5point`](crate::epipolar::essential_5point))
+/// - Camera matrix DLT ([`dlt_camera_matrix`](crate::camera_matrix::dlt_camera_matrix))
 ///
 /// # References
 ///
@@ -136,7 +136,7 @@ pub fn normalize_points_2d(points: &[Pt2]) -> Option<(Vec<Pt2>, Mat3)> {
 ///
 /// # Used By
 ///
-/// - Camera matrix DLT ([`dlt_camera_matrix`](crate::dlt_camera_matrix))
+/// - Camera matrix DLT ([`dlt_camera_matrix`](crate::camera_matrix::dlt_camera_matrix))
 ///
 /// # References
 ///
