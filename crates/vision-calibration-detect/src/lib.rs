@@ -40,11 +40,23 @@ pub use chessboard::{ChessboardConfig, ChessboardDetector};
 
 use serde_json::Value;
 
+/// Sealed-trait guard: prevents downstream crates from implementing
+/// [`Detector`]. The detector set is closed and crate-owned.
+mod sealed {
+    /// Private supertrait of [`Detector`](super::Detector). Only types in
+    /// this crate can name it, so only this crate can implement `Detector`.
+    pub trait Sealed {}
+}
+
 /// Minimal detector interface used by the runner. Configs are passed
 /// in type-erased JSON form so dispatch (and the cache key derivation)
 /// can be data-driven from the dataset manifest without monomorphising
 /// over every detector.
-pub trait Detector: Send + Sync {
+///
+/// This trait is **sealed**: it is implemented only by the built-in
+/// detectors in `vision-calibration-detect` and cannot be implemented
+/// by downstream crates.
+pub trait Detector: sealed::Sealed + Send + Sync {
     /// Stable, lowercase name (`"chessboard"`, `"charuco"`, …).
     fn name(&self) -> &'static str;
 

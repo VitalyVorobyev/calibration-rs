@@ -86,11 +86,23 @@ pub use vision_calibration_pipeline::Error;
 /// Brown-Conrady camera together with two Scheimpflug tilt parameters.
 pub mod scheimpflug_intrinsics {
     pub use vision_calibration_pipeline::scheimpflug_intrinsics::{
-        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, ScheimpflugFixMask,
-        ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsExport, ScheimpflugIntrinsicsInput,
-        ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem, ScheimpflugIntrinsicsResult,
-        ScheimpflugIntrinsicsState, ScheimpflugManualInit, run_calibration, step_init,
-        step_optimize, step_set_init,
+        IntrinsicsInitOptions,
+        IntrinsicsOptimizeOptions,
+        ScheimpflugFixMask,
+        ScheimpflugIntrinsicsConfig,
+        ScheimpflugIntrinsicsExport,
+        // Typed step results (Phase 1c of 0.5.0 API revision)
+        ScheimpflugIntrinsicsInitResult,
+        ScheimpflugIntrinsicsInput,
+        ScheimpflugIntrinsicsOptimizeResult,
+        ScheimpflugIntrinsicsParams,
+        ScheimpflugIntrinsicsProblem,
+        ScheimpflugIntrinsicsResult,
+        ScheimpflugManualInit,
+        run_calibration,
+        step_init,
+        step_init_with_seed,
+        step_optimize,
     };
 }
 
@@ -105,6 +117,21 @@ pub mod session {
     pub use vision_calibration_pipeline::session::{
         CalibrationSession, ExportRecord, InvalidationPolicy, LogEntry, ProblemType,
         SessionMetadata,
+    };
+}
+
+/// Step-option types shared across problem modules.
+///
+/// The intrinsics and hand-eye step-option structs are identical across every
+/// problem that exposes the corresponding step. They are defined once here; the
+/// per-problem modules re-export the ones they use, so both
+/// `vision_calibration::common::IntrinsicsInitOptions` and
+/// `vision_calibration::planar_intrinsics::IntrinsicsInitOptions` resolve to the
+/// same type.
+pub mod common {
+    pub use vision_calibration_pipeline::common::{
+        HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
+        IntrinsicsOptimizeOptions,
     };
 }
 
@@ -139,6 +166,8 @@ pub mod planar_intrinsics {
         FilterOptions,
         IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions,
+        // Typed step results (Phase 1a of 0.5.0 API revision)
+        PlanarInitResult,
         // Problem type and config
         PlanarIntrinsicsConfig,
         // Re-exports from vision-calibration-optim
@@ -149,14 +178,14 @@ pub mod planar_intrinsics {
         PlanarIntrinsicsSolveOptions,
         // Manual init seed (ADR 0011)
         PlanarManualInit,
-        PlanarState,
+        PlanarOptimizeResult,
         // Step functions
         run_calibration,
         run_calibration_with_filtering,
         step_filter,
         step_init,
+        step_init_with_seed,
         step_optimize,
-        step_set_init,
     };
 }
 
@@ -197,21 +226,25 @@ pub mod single_cam_handeye {
         IntrinsicsOptimizeOptions,
         SingleCamHandeyeConfig,
         SingleCamHandeyeExport,
+        // Typed step results (Phase 1a of 0.5.0 API revision)
+        SingleCamHandeyeInitResult,
         SingleCamHandeyeInput,
         // Manual init seeds (ADR 0011)
         SingleCamHandeyeManualInit,
+        SingleCamHandeyeOptimizeResult,
         SingleCamHandeyeProblem,
-        SingleCamHandeyeState,
         SingleCamHandeyeView,
+        SingleCamIntrinsicsInitResult,
         SingleCamIntrinsicsManualInit,
+        SingleCamIntrinsicsOptimizeResult,
         // Step functions
         run_calibration,
         step_handeye_init,
+        step_handeye_init_with_seed,
         step_handeye_optimize,
         step_intrinsics_init,
+        step_intrinsics_init_with_seed,
         step_intrinsics_optimize,
-        step_set_handeye_init,
-        step_set_intrinsics_init,
     };
 }
 
@@ -239,11 +272,24 @@ pub mod single_cam_handeye {
 /// ```
 pub mod laserline_device {
     pub use vision_calibration_pipeline::laserline_device::{
-        DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceConfig, LaserlineDeviceExport,
-        LaserlineDeviceInitConfig, LaserlineDeviceInput, LaserlineDeviceManualInit,
-        LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput, LaserlineDeviceProblem,
-        LaserlineDeviceSolverConfig, LaserlineDeviceState, run_calibration, step_init,
-        step_optimize, step_set_init,
+        DeviceInitOptions,
+        DeviceOptimizeOptions,
+        LaserlineDeviceConfig,
+        LaserlineDeviceExport,
+        LaserlineDeviceInitConfig,
+        // Typed step results (Phase 1c of 0.5.0 API revision)
+        LaserlineDeviceInitResult,
+        LaserlineDeviceInput,
+        LaserlineDeviceManualInit,
+        LaserlineDeviceOptimizeConfig,
+        LaserlineDeviceOptimizeResult,
+        LaserlineDeviceOutput,
+        LaserlineDeviceProblem,
+        LaserlineDeviceSolverConfig,
+        run_calibration,
+        step_init,
+        step_init_with_seed,
+        step_optimize,
     };
 }
 
@@ -288,19 +334,23 @@ pub mod rig_extrinsics {
         // Output (pinhole or Scheimpflug variant; A6 unified rig family)
         RigExtrinsicsOutput,
         RigExtrinsicsProblem,
-        RigExtrinsicsState,
+        // Typed step results (Phase 1a of 0.5.0 API revision)
+        RigInitResult,
+        RigIntrinsicsInitAllResult,
         RigIntrinsicsManualInit,
+        RigIntrinsicsOptimizeAllResult,
         RigOptimizeOptions,
+        RigOptimizeResult,
         // Sensor flavour selector (pinhole vs Scheimpflug)
         SensorMode,
         // Step functions
         run_calibration,
         step_intrinsics_init_all,
+        step_intrinsics_init_all_with_seed,
         step_intrinsics_optimize_all,
         step_rig_init,
+        step_rig_init_with_seed,
         step_rig_optimize,
-        step_set_intrinsics_init_all,
-        step_set_rig_init,
     };
 }
 
@@ -342,33 +392,39 @@ pub mod rig_handeye {
         RigHandeyeBaConfig,
         RigHandeyeConfig,
         RigHandeyeExport,
+        // Typed step results (Phase 1a of 0.5.0 API revision)
+        RigHandeyeHandeyeInitResult,
         // Manual init seeds (ADR 0011)
         RigHandeyeHandeyeManualInit,
+        RigHandeyeHandeyeOptimizeResult,
         RigHandeyeInitConfig,
         RigHandeyeInput,
         RigHandeyeIntrinsicsConfig,
+        RigHandeyeIntrinsicsInitAllResult,
         RigHandeyeIntrinsicsManualInit,
+        RigHandeyeIntrinsicsOptimizeAllResult,
         // Output (pinhole or Scheimpflug variant; A6 unified rig family)
         RigHandeyeOutput,
         RigHandeyeProblem,
         RigHandeyeRigConfig,
+        RigHandeyeRigInitResult,
         RigHandeyeRigManualInit,
+        RigHandeyeRigOptimizeResult,
         RigHandeyeSolverConfig,
-        RigHandeyeState,
         RigOptimizeOptions,
         // Sensor flavour selector (pinhole vs Scheimpflug)
         SensorMode,
         // Step functions
         run_calibration,
         step_handeye_init,
+        step_handeye_init_with_seed,
         step_handeye_optimize,
         step_intrinsics_init_all,
+        step_intrinsics_init_all_with_seed,
         step_intrinsics_optimize_all,
         step_rig_init,
+        step_rig_init_with_seed,
         step_rig_optimize,
-        step_set_handeye_init,
-        step_set_intrinsics_init_all,
-        step_set_rig_init,
     };
 }
 
@@ -380,151 +436,18 @@ pub mod rig_handeye {
 pub mod rig_laserline_device {
     pub use vision_calibration_pipeline::rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
-        RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem, RigLaserlineDeviceState,
-        RigUpstreamCalibration, StepOptions, run_calibration, step_init, step_optimize,
-        step_set_init,
+        RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem, RigUpstreamCalibration,
+        StepOptions, pixel_to_gripper_point, run_calibration, step_init, step_init_with_seed,
+        step_optimize,
     };
 }
 
 /// Map a laser pixel in a specific camera to a 3D point in the robot gripper frame.
-///
-/// Given:
-/// - `cam_idx`: which camera of the rig captured the pixel.
-/// - `pixel`: observed pixel on the laser line.
-/// - `rig_cal`: upstream rig + Scheimpflug hand-eye calibration.
-/// - `laser_planes_rig`: laser planes (one per camera) expressed in rig frame.
-/// - `base_se3_gripper`: the robot gripper pose at the time the pixel was
-///   observed. Required for `EyeToHand` (where the rig is fixed in base and
-///   the gripper frame depends on the robot pose); ignored for `EyeInHand`.
-///
-/// Returns the 3D point in gripper (robot flange) frame:
-///
-/// 1. Undistort `pixel` to a normalized camera-frame ray using the full
-///    pinhole + Brown-Conrady + Scheimpflug chain (inverted).
-/// 2. Transform the ray into rig frame via `cam_se3_rig[cam_idx].inverse()`.
-/// 3. Intersect the ray with `laser_planes_rig[cam_idx]` (in rig frame).
-/// 4. Map the rig-frame point into the gripper frame using the hand-eye
-///    transform plus, for `EyeToHand`, the provided robot pose.
-///
-/// # Errors
-///
-/// Returns [`Error`] if `cam_idx` is out of range, if the ray never intersects
-/// the plane, if undistortion fails, or if `base_se3_gripper` is missing in
-/// `EyeToHand` mode.
-pub fn pixel_to_gripper_point(
-    cam_idx: usize,
-    pixel: vision_calibration_core::Pt2,
-    rig_cal: &rig_handeye::RigHandeyeExport,
-    laser_planes_rig: &[vision_calibration_optim::LaserPlane],
-    base_se3_gripper: Option<vision_calibration_core::Iso3>,
-) -> Result<vision_calibration_core::Pt3, Error> {
-    use vision_calibration_core::{DistortionModel, Mat3, Pt2, Pt3, SensorModel, Vec3};
-    use vision_calibration_optim::HandEyeMode;
-
-    let sensors = rig_cal
-        .sensors
-        .as_ref()
-        .ok_or_else(|| Error::InvalidInput {
-            reason: "pixel_to_gripper_point requires a Scheimpflug rig handeye export \
-                 (sensors field populated); pinhole rigs are not yet supported"
-                .to_string(),
-        })?;
-
-    let n_cams = rig_cal.cameras.len();
-    if cam_idx >= n_cams {
-        return Err(Error::InvalidInput {
-            reason: format!("cam_idx {cam_idx} out of range (num_cameras = {n_cams})"),
-        });
-    }
-    if laser_planes_rig.len() != n_cams {
-        return Err(Error::InvalidInput {
-            reason: format!(
-                "laser_planes_rig has {} entries, expected {n_cams}",
-                laser_planes_rig.len()
-            ),
-        });
-    }
-    if cam_idx >= sensors.len() || cam_idx >= rig_cal.cam_se3_rig.len() {
-        return Err(Error::InvalidInput {
-            reason: "rig calibration missing per-cam data".to_string(),
-        });
-    }
-
-    let cam = &rig_cal.cameras[cam_idx];
-    let sensor = &sensors[cam_idx];
-
-    // Undistort pixel to a normalized camera-frame direction by inverting the full
-    // chain: pixel -> sensor (after Scheimpflug) -> normalized (after distortion) -> ray.
-    let k_matrix = Mat3::new(
-        cam.k.fx, cam.k.skew, cam.k.cx, 0.0, cam.k.fy, cam.k.cy, 0.0, 0.0, 1.0,
-    );
-    let k_inv = k_matrix
-        .try_inverse()
-        .ok_or_else(|| Error::Numerical("intrinsics matrix is singular".to_string()))?;
-    let uv_h: Vec3 = Vec3::new(pixel.x, pixel.y, 1.0);
-    let sensor_h: Vec3 = k_inv * uv_h;
-    if sensor_h.z.abs() < 1e-12 {
-        return Err(Error::Numerical(
-            "pixel projects to infinity after K^-1".to_string(),
-        ));
-    }
-    let sensor_pt: Pt2 = Pt2::new(sensor_h.x / sensor_h.z, sensor_h.y / sensor_h.z);
-    // Invert Scheimpflug sensor (sensor -> distorted normalized).
-    let compiled_sensor = sensor.compile();
-    let distorted_pt = compiled_sensor.sensor_to_normalized(&sensor_pt);
-    // Invert distortion (distorted -> undistorted normalized).
-    let normalized = cam.dist.undistort(&distorted_pt);
-    // Ray direction in camera frame: (x_n, y_n, 1).
-    let dir_cam = Vec3::new(normalized.x, normalized.y, 1.0);
-
-    // Transform ray origin/direction from camera to rig.
-    let cam_to_rig = rig_cal.cam_se3_rig[cam_idx].inverse();
-    let origin_rig = cam_to_rig.translation.vector;
-    let dir_rig = cam_to_rig.rotation.transform_vector(&dir_cam);
-
-    // Intersect with laser plane (in rig frame): n · (o + t d) + d_plane = 0.
-    let plane = &laser_planes_rig[cam_idx];
-    let n = plane.normal.into_inner();
-    let denom = n.dot(&dir_rig);
-    if denom.abs() < 1e-12 {
-        return Err(Error::Numerical(
-            "ray is parallel to laser plane; no intersection".to_string(),
-        ));
-    }
-    let t = -(n.dot(&origin_rig) + plane.distance) / denom;
-    let p_rig: Vec3 = origin_rig + t * dir_rig;
-
-    // Map rig-frame point into the gripper frame. The chain depends on mode:
-    // - EyeInHand: rig is mounted on the gripper, so p_G = T_G_R * p_R where
-    //   T_G_R = gripper_se3_rig (the fixed hand-eye transform).
-    // - EyeToHand: rig is fixed in base, so p_G depends on the robot pose:
-    //   p_G = T_G_B * T_B_R * p_R where T_B_R = rig_se3_base.inverse() and
-    //   T_G_B = base_se3_gripper.inverse().
-    let p_rig_pt = Pt3::from(p_rig);
-    let p_gripper = match rig_cal.handeye_mode {
-        HandEyeMode::EyeInHand => rig_cal
-            .gripper_se3_rig
-            .ok_or_else(|| Error::InvalidInput {
-                reason: "EyeInHand export missing gripper_se3_rig".to_string(),
-            })?
-            .transform_point(&p_rig_pt),
-        HandEyeMode::EyeToHand => {
-            let rig_se3_base = rig_cal.rig_se3_base.ok_or_else(|| Error::InvalidInput {
-                reason: "EyeToHand export missing rig_se3_base".to_string(),
-            })?;
-            let base_se3_gripper = base_se3_gripper.ok_or_else(|| Error::InvalidInput {
-                reason: "EyeToHand mode requires `base_se3_gripper` to map into the \
-                         gripper frame; call pixel_to_rig_point for a pose-free result"
-                    .to_string(),
-            })?;
-            // p_base = rig_se3_base.inverse() * p_rig = T_B_R * p_rig
-            let p_base = rig_se3_base.inverse().transform_point(&p_rig_pt);
-            // p_gripper = base_se3_gripper.inverse() * p_base = T_G_B * p_base
-            base_se3_gripper.inverse().transform_point(&p_base)
-        }
-    };
-    Ok(p_gripper)
-}
+#[deprecated(
+    since = "0.5.0",
+    note = "moved to vision_calibration::rig_laserline_device::pixel_to_gripper_point"
+)]
+pub use crate::rig_laserline_device::pixel_to_gripper_point;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Foundation Crates (Advanced Users)
@@ -552,9 +475,20 @@ pub mod core {
 /// Includes homography estimation, Zhang's method, PnP solvers,
 /// triangulation, hand-eye solvers, and more.
 ///
-/// Re-exports everything from `vision_calibration_linear`.
+/// Re-exports the algorithm modules of `vision_calibration_linear` by name —
+/// items are reached via their owning module, e.g.
+/// `vision_calibration::linear::homography::dlt_homography`. The curated
+/// [`prelude`](linear::prelude) gathers the most-used items.
 pub mod linear {
-    pub use vision_calibration_linear::*;
+    pub use vision_calibration_linear::{
+        camera_matrix, distortion_fit, epipolar, extrinsics, handeye, homography,
+        iterative_intrinsics, laserline, math, planar_pose, pnp, triangulation, zhang_intrinsics,
+    };
+
+    pub mod prelude {
+        //! Curated, most-used items from `vision-calibration-linear`.
+        pub use vision_calibration_linear::prelude::*;
+    }
 }
 
 /// Per-feature residual helpers from `vision-calibration-optim` re-exported
@@ -565,20 +499,43 @@ pub use vision_calibration_optim::{
     handeye_observer_se3_target,
 };
 
-/// Non-linear optimization with backend-agnostic IR.
+/// Non-linear optimization vocabulary.
 ///
-/// Includes optimization problems, factors, and solver backends.
+/// `vision-calibration-optim` is the optimization-backend implementation
+/// crate; the typical consumer never touches it directly — they go through
+/// the per-problem `step_*` functions, which wrap it. This module re-exports
+/// only the small value/enum vocabulary a facade consumer legitimately names:
+/// the robust-loss selector, the laser-plane parameter type, the hand-eye
+/// mode enum, and the per-problem input-construction `*Meta`/`*View` types.
 ///
-/// Re-exports everything from `vision_calibration_optim`.
+/// The `compute_*_feature_residuals` helpers are re-exported at the facade
+/// crate root, not here.
 pub mod optim {
-    pub use vision_calibration_optim::*;
+    /// Hand-eye configuration mode (eye-in-hand vs eye-to-hand).
+    pub use vision_calibration_optim::HandEyeMode;
+    /// Laser-plane parameter type.
+    pub use vision_calibration_optim::LaserPlane;
+    /// Per-view metadata for laserline device input.
+    pub use vision_calibration_optim::LaserlineMeta;
+    /// Per-view observation type for laserline device input.
+    pub use vision_calibration_optim::LaserlineView;
+    /// Per-view robot-pose metadata for rig hand-eye input.
+    pub use vision_calibration_optim::RobotPoseMeta;
+    /// Robust loss (M-estimator) selector for optimization.
+    pub use vision_calibration_optim::RobustLoss;
 }
 
 /// Deterministic synthetic data generation for testing.
 ///
-/// Provides builders for creating synthetic calibration datasets.
+/// Provides builders for creating synthetic calibration datasets. The surface
+/// is a hand-picked subset of `vision_calibration_core::synthetic`: only the
+/// generator submodules genuinely useful to consumers are re-exported, not the
+/// whole module (which is primarily a test/example helper).
 pub mod synthetic {
-    pub use vision_calibration_core::synthetic::*;
+    /// Deterministic noise helpers (e.g. [`noise::UniformPixelNoise`]).
+    pub use vision_calibration_core::synthetic::noise;
+    /// Planar target generators: point grids, pose ramps, and projection helpers.
+    pub use vision_calibration_core::synthetic::planar;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

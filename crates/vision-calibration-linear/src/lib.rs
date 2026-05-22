@@ -28,7 +28,7 @@
 //!
 //! # Example
 //! ```no_run
-//! use vision_calibration_linear::HomographySolver;
+//! use vision_calibration_linear::homography::HomographySolver;
 //! use vision_calibration_core::Pt2;
 //!
 //! let world = vec![
@@ -69,20 +69,6 @@ pub mod planar_pose;
 pub mod pnp;
 pub mod triangulation;
 pub mod zhang_intrinsics;
-
-pub use camera_matrix::*;
-pub use distortion_fit::*;
-pub use epipolar::*;
-pub use extrinsics::*;
-pub use handeye::*;
-pub use homography::*;
-pub use iterative_intrinsics::*;
-pub use laserline::*;
-pub use math::*;
-pub use planar_pose::*;
-pub use pnp::*;
-pub use triangulation::*;
-pub use zhang_intrinsics::*;
 
 /// Minimal imports for common planar initialization workflows.
 pub mod prelude {

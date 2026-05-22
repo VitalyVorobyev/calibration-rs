@@ -15,10 +15,12 @@ use vision_calibration_core::{
     IntrinsicsFixMask, Mat3, NoMeta, PlanarDataset, Pt2, Pt3, Real, View,
     test_utils::{CalibrationView, pixel_from_normalized, undistort_pixel_normalized},
 };
-use vision_calibration_linear::{
-    DistortionFitOptions, HomographySolver, IterativeIntrinsicsOptions, PlanarIntrinsicsLinearInit,
-    estimate_intrinsics_iterative,
+use vision_calibration_linear::distortion_fit::DistortionFitOptions;
+use vision_calibration_linear::homography::HomographySolver;
+use vision_calibration_linear::iterative_intrinsics::{
+    IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
 };
+use vision_calibration_linear::zhang_intrinsics::PlanarIntrinsicsLinearInit;
 use vision_calibration_optim::BackendSolveOptions;
 use vision_calibration_optim::{
     PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RobustLoss, optimize_planar_intrinsics,
@@ -206,8 +208,10 @@ fn planar_intrinsics_real_data_improves_reprojection() {
 
         for (h, (world, undist_pixels)) in homographies.iter().zip(&undistorted_views) {
             // Estimate initial pose from homography
-            let pose = vision_calibration_linear::PlanarPoseSolver::from_homography(&k_init, h)
-                .expect("planar pose");
+            let pose = vision_calibration_linear::planar_pose::PlanarPoseSolver::from_homography(
+                &k_init, h,
+            )
+            .expect("planar pose");
 
             // Use original distorted pixels for optimization
             let points_3d: Vec<Pt3> = world
@@ -395,8 +399,9 @@ fn planar_intrinsics_parameter_fixing_works() {
     );
 
     for (h, _) in homographies.iter().zip(&nl_views) {
-        let pose = vision_calibration_linear::PlanarPoseSolver::from_homography(&k_init, h)
-            .expect("planar pose");
+        let pose =
+            vision_calibration_linear::planar_pose::PlanarPoseSolver::from_homography(&k_init, h)
+                .expect("planar pose");
         init_poses.push(pose);
     }
 
@@ -657,10 +662,14 @@ fn planar_intrinsics_with_iterative_linear_init() {
 
             let pixel_pts: Vec<Pt2> = det.corners.iter().map(|c| Pt2::new(c[2], c[3])).collect();
 
-            let h = vision_calibration_linear::HomographySolver::dlt(&board_pts, &pixel_pts)
-                .expect("homography");
-            let pose = vision_calibration_linear::PlanarPoseSolver::from_homography(&k_iter, &h)
-                .expect("pose");
+            let h = vision_calibration_linear::homography::HomographySolver::dlt(
+                &board_pts, &pixel_pts,
+            )
+            .expect("homography");
+            let pose = vision_calibration_linear::planar_pose::PlanarPoseSolver::from_homography(
+                &k_iter, &h,
+            )
+            .expect("pose");
             init_poses.push(pose);
 
             let points_3d: Vec<Pt3> = det

@@ -167,18 +167,17 @@ fn manifest_from_view_paths(
                     image_root_abs.display()
                 )
             })?;
-            frames.push(FrameRef {
-                pose: pose_idx,
-                camera: cam_idx,
-                path: rel.to_path_buf(),
-                roi: None,
-            });
+            let mut frame = FrameRef::default();
+            frame.pose = pose_idx;
+            frame.camera = cam_idx;
+            frame.path = rel.to_path_buf();
+            frames.push(frame);
         }
     }
-    Ok(ImageManifest {
-        root: PathBuf::from(manifest_root),
-        frames,
-    })
+    let mut manifest = ImageManifest::default();
+    manifest.root = PathBuf::from(manifest_root);
+    manifest.frames = frames;
+    Ok(manifest)
 }
 
 fn write_pretty(path: &Path, export: &RigExtrinsicsExport) -> Result<()> {

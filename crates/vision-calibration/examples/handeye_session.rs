@@ -86,9 +86,9 @@ fn main() -> Result<()> {
 
     // Step 1: Intrinsics initialization
     println!("--- Step 1: Intrinsics Initialization ---");
-    step_intrinsics_init(&mut session, None)?;
+    let intr_init = step_intrinsics_init(&mut session, None)?;
 
-    let init_cam = session.state.initial_camera.as_ref().unwrap();
+    let init_cam = &intr_init.camera;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         init_cam.k.fx, init_cam.k.fy, init_cam.k.cx, init_cam.k.cy
@@ -101,9 +101,9 @@ fn main() -> Result<()> {
 
     // Step 2: Intrinsics optimization
     println!("--- Step 2: Intrinsics Optimization ---");
-    step_intrinsics_optimize(&mut session, None)?;
+    let intr_opt = step_intrinsics_optimize(&mut session, None)?;
 
-    let opt_cam = session.state.optimized_camera.as_ref().unwrap();
+    let opt_cam = &intr_opt.camera;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         opt_cam.k.fx, opt_cam.k.fy, opt_cam.k.cx, opt_cam.k.cy
@@ -112,16 +112,21 @@ fn main() -> Result<()> {
         "  Distortion: k1={:.4}, k2={:.4}, p1={:.5}, p2={:.5}",
         opt_cam.dist.k1, opt_cam.dist.k2, opt_cam.dist.p1, opt_cam.dist.p2
     );
-    let reproj_err = session.state.intrinsics_reproj_error.unwrap_or(f64::NAN);
-    println!("  Reprojection error: {:.4} px", reproj_err);
+    println!("  Reprojection error: {:.4} px", intr_opt.mean_reproj_error);
     println!();
 
     // Step 3: Hand-eye initialization
     println!("--- Step 3: Hand-Eye Initialization (Tsai-Lenz) ---");
-    step_handeye_init(&mut session, None)?;
+    let he_init = step_handeye_init(&mut session, None)?;
 
-    let init_he = session.state.initial_gripper_se3_camera.as_ref().unwrap();
-    let init_target = session.state.initial_base_se3_target.as_ref().unwrap();
+    let init_he = he_init
+        .gripper_se3_camera
+        .as_ref()
+        .expect("EyeInHand mode populates gripper_se3_camera");
+    let init_target = he_init
+        .base_se3_target
+        .as_ref()
+        .expect("EyeInHand mode populates base_se3_target");
     println!("  Hand-eye |t|: {:.4}m", init_he.translation.vector.norm());
     println!(
         "  Target in base |t|: {:.4}m",
@@ -131,10 +136,12 @@ fn main() -> Result<()> {
 
     // Step 4: Hand-eye optimization
     println!("--- Step 4: Hand-Eye Optimization ---");
-    step_handeye_optimize(&mut session, None)?;
+    let he_opt = step_handeye_optimize(&mut session, None)?;
 
-    let reproj_err = session.state.handeye_reproj_error.unwrap_or(f64::NAN);
-    println!("  Final reprojection error: {:.4} px", reproj_err);
+    println!(
+        "  Final reprojection error: {:.4} px",
+        he_opt.mean_reproj_error
+    );
     println!();
 
     // Export and display final results

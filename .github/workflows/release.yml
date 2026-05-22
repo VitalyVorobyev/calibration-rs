@@ -58,16 +58,38 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
         run: |
           set -euo pipefail
+          # Dependency order: leaf crates first, facade last.
+          # `dataset` and `detect` have no internal deps but are
+          # non-optional dependencies of `pipeline`, so they must be
+          # on the registry before `pipeline` is published.
           crates=(
             vision-calibration-core
+            vision-calibration-dataset
+            vision-calibration-detect
             vision-calibration-linear
             vision-calibration-optim
             vision-calibration-pipeline
             vision-calibration
           )
 
+          metadata=$(cargo metadata --format-version 1 --no-deps)
+
           for crate in "${crates[@]}"; do
-            echo "Publishing ${crate}..."
+            version=$(echo "$metadata" \
+              | jq -r --arg c "$crate" '.packages[] | select(.name == $c) | .version')
+
+            # Idempotent: skip a version already on crates.io. Lets the
+            # first publish of a new crate be done manually (trusted
+            # publishing must be configured on an existing crate), and
+            # makes the job safe to re-run after a mid-release failure.
+            index_url="https://index.crates.io/${crate:0:2}/${crate:2:2}/${crate}"
+            if curl -sf "$index_url" \
+              | jq -e --arg v "$version" 'select(.vers == $v)' >/dev/null; then
+              echo "${crate} ${version} already on crates.io — skipping."
+              continue
+            fi
+
+            echo "Publishing ${crate} ${version}..."
             cargo publish -p "${crate}" --locked
             # Wait for index propagation before publishing dependents.
             sleep 20

@@ -122,12 +122,10 @@ pub fn write_fixture(out_dir: &Path) -> Result<FixtureSummary> {
             CorrespondenceView::new(points_3d, points_2d_noisy)
                 .map_err(|e| anyhow::anyhow!("view {view_idx}: {e}"))?,
         ));
-        frames.push(FrameRef {
-            pose: view_idx,
-            camera: 0,
-            path: PathBuf::from(rel_path),
-            roi: None,
-        });
+        let mut frame = FrameRef::default();
+        frame.pose = view_idx;
+        frame.path = PathBuf::from(rel_path);
+        frames.push(frame);
     }
 
     let dataset = PlanarDataset::new(views)?;
@@ -137,10 +135,10 @@ pub fn write_fixture(out_dir: &Path) -> Result<FixtureSummary> {
     step_optimize(&mut session, None)?;
 
     let mut export: PlanarIntrinsicsExport = session.export()?;
-    export.image_manifest = Some(ImageManifest {
-        root: PathBuf::from("images"),
-        frames,
-    });
+    let mut manifest = ImageManifest::default();
+    manifest.root = PathBuf::from("images");
+    manifest.frames = frames;
+    export.image_manifest = Some(manifest);
 
     let export_path = out_dir.join("export.json");
     let file = std::fs::File::create(&export_path)?;

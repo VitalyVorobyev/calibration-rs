@@ -13,7 +13,7 @@ use vision_calibration_optim::{
     HandEyeEstimate, HandEyeMode, RobustLoss, handeye_observer_se3_target,
 };
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::SingleCamHandeyeState;
 
@@ -238,10 +238,13 @@ pub struct SingleCamHandeyeExport {
 #[derive(Debug)]
 pub struct SingleCamHandeyeProblem;
 
+impl ProblemState for SingleCamHandeyeProblem {
+    type State = SingleCamHandeyeState;
+}
+
 impl ProblemType for SingleCamHandeyeProblem {
     type Config = SingleCamHandeyeConfig;
     type Input = SingleCamHandeyeInput;
-    type State = SingleCamHandeyeState;
     type Output = HandEyeEstimate;
     type Export = SingleCamHandeyeExport;
 
@@ -355,6 +358,9 @@ impl ProblemType for SingleCamHandeyeProblem {
         let target = compute_planar_target_residuals_views(&camera, &input.views, &cam_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
 
+        let mut per_feature_residuals = PerFeatureResiduals::default();
+        per_feature_residuals.target = target;
+        per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
         Ok(SingleCamHandeyeExport {
             camera,
             handeye_mode: config.handeye_mode,
@@ -365,12 +371,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             robot_deltas: output.robot_deltas.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
-            per_feature_residuals: PerFeatureResiduals {
-                target,
-                laser: Vec::new(),
-                target_hist_per_camera: Some(vec![target_hist]),
-                laser_hist_per_camera: None,
-            },
+            per_feature_residuals,
         })
     }
 }

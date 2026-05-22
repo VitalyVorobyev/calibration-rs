@@ -17,7 +17,7 @@ use vision_calibration_optim::{
 
 pub use crate::rig_family::SensorMode;
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigExtrinsicsState;
 
@@ -119,6 +119,7 @@ impl Default for RigExtrinsicsConfig {
 /// structurally similar but type-distinct optim estimates; this enum
 /// preserves both as `Self::Output` for [`RigExtrinsicsProblem`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum RigExtrinsicsOutput {
     /// Pinhole rig BA estimate.
     Pinhole(PinholeRigExtrinsicsEstimate),
@@ -265,10 +266,13 @@ pub struct RigExtrinsicsExport {
 #[derive(Debug)]
 pub struct RigExtrinsicsProblem;
 
+impl ProblemState for RigExtrinsicsProblem {
+    type State = RigExtrinsicsState;
+}
+
 impl ProblemType for RigExtrinsicsProblem {
     type Config = RigExtrinsicsConfig;
     type Input = RigExtrinsicsInput;
-    type State = RigExtrinsicsState;
     type Output = RigExtrinsicsOutput;
     type Export = RigExtrinsicsExport;
 
@@ -397,6 +401,9 @@ impl ProblemType for RigExtrinsicsProblem {
             })
             .collect();
 
+        let mut per_feature_residuals = PerFeatureResiduals::default();
+        per_feature_residuals.target = target;
+        per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
         Ok(RigExtrinsicsExport {
             cameras: output.cameras().to_vec(),
             sensors: output.sensors().map(|s| s.to_vec()),
@@ -404,12 +411,7 @@ impl ProblemType for RigExtrinsicsProblem {
             rig_se3_target,
             mean_reproj_error: output.mean_reproj_error(),
             per_cam_reproj_errors: output.per_cam_reproj_errors().to_vec(),
-            per_feature_residuals: PerFeatureResiduals {
-                target,
-                laser: Vec::new(),
-                target_hist_per_camera: Some(target_hist_per_camera),
-                laser_hist_per_camera: None,
-            },
+            per_feature_residuals,
             // Manifest is populated by callers that also wrote images for
             // the dataset; the pipeline itself never has image paths to
             // fill in. Mirrors the rig_handeye precedent.
@@ -612,7 +614,10 @@ mod tests {
                 cam_to_rig,
                 rig_from_target,
             },
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0, 0.0],
         });
@@ -695,7 +700,10 @@ mod tests {
                 cam_to_rig,
                 rig_from_target,
             },
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0, 0.0],
         });
@@ -768,7 +776,10 @@ mod tests {
                 cam_to_rig,
                 rig_from_target,
             },
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0, 0.0],
         });
@@ -801,22 +812,24 @@ mod tests {
         use vision_calibration_core::{FrameRef, ImageManifest, PixelRect};
 
         let mut export = make_minimal_export();
-        export.image_manifest = Some(ImageManifest {
-            root: std::path::PathBuf::from("."),
-            frames: (0..6)
-                .map(|cam| FrameRef {
-                    pose: 0,
-                    camera: cam,
-                    path: std::path::PathBuf::from("target_0.png"),
-                    roi: Some(PixelRect {
-                        x: (cam as u32) * 720,
-                        y: 0,
-                        w: 720,
-                        h: 540,
-                    }),
-                })
-                .collect(),
-        });
+        let frames: Vec<FrameRef> = (0..6)
+            .map(|cam| {
+                let mut roi = PixelRect::default();
+                roi.x = (cam as u32) * 720;
+                roi.w = 720;
+                roi.h = 540;
+                let mut frame = FrameRef::default();
+                frame.pose = 0;
+                frame.camera = cam;
+                frame.path = std::path::PathBuf::from("target_0.png");
+                frame.roi = Some(roi);
+                frame
+            })
+            .collect();
+        let mut manifest = ImageManifest::default();
+        manifest.root = std::path::PathBuf::from(".");
+        manifest.frames = frames;
+        export.image_manifest = Some(manifest);
 
         let json = serde_json::to_string(&export).unwrap();
         let restored: RigExtrinsicsExport = serde_json::from_str(&json).unwrap();

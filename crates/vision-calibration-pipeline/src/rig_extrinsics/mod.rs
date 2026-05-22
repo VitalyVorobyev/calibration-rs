@@ -64,10 +64,10 @@ pub use problem::{
     RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsOutput,
     RigExtrinsicsProblem, SensorMode,
 };
-pub use state::RigExtrinsicsState;
 pub use steps::{
-    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigExtrinsicsManualInit,
-    RigIntrinsicsManualInit, RigOptimizeOptions, run_calibration, step_intrinsics_init_all,
-    step_intrinsics_optimize_all, step_rig_init, step_rig_optimize, step_set_intrinsics_init_all,
-    step_set_rig_init,
+    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigExtrinsicsManualInit, RigInitResult,
+    RigIntrinsicsInitAllResult, RigIntrinsicsManualInit, RigIntrinsicsOptimizeAllResult,
+    RigOptimizeOptions, RigOptimizeResult, run_calibration, step_intrinsics_init_all,
+    step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init,
+    step_rig_init_with_seed, step_rig_optimize,
 };

@@ -242,15 +242,15 @@ pub fn compute_rig_laserline_feature_residuals(
                     laser_point_to_plane_residual_m(camera, &cam_se3_target, plane, px);
                 let residual_px =
                     line_endpoints.map(|line| point_line_distance([px.x, px.y], line));
-                out.push(LaserFeatureResidual {
-                    pose: view_idx,
-                    camera: cam_idx,
-                    feature: feature_idx,
-                    observed_px: [px.x, px.y],
-                    residual_m,
-                    residual_px,
-                    projected_line_px: line_endpoints,
-                });
+                let mut residual = LaserFeatureResidual::default();
+                residual.pose = view_idx;
+                residual.camera = cam_idx;
+                residual.feature = feature_idx;
+                residual.observed_px = [px.x, px.y];
+                residual.residual_m = residual_m;
+                residual.residual_px = residual_px;
+                residual.projected_line_px = line_endpoints;
+                out.push(residual);
             }
         }
     }

@@ -11,6 +11,10 @@ use rand::prelude::IndexedRandom;
 use rand::{SeedableRng, rngs::StdRng};
 
 /// Configuration parameters for the generic RANSAC engine.
+///
+/// Algorithm-internal scaffolding: this is the machinery the linear estimators
+/// use for robust fitting, not a curated part of the public calibration API.
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct RansacOptions {
     /// Maximum number of RANSAC iterations.
@@ -44,6 +48,9 @@ impl Default for RansacOptions {
 ///
 /// Check the `success` flag before using the model; if it is `false`, then
 /// `model` will be `None` and the other fields are unspecified.
+///
+/// Algorithm-internal scaffolding (see [`RansacOptions`]).
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct RansacResult<M> {
     /// Whether a consensus set satisfying the options was found.
@@ -73,6 +80,9 @@ impl<M> Default for RansacResult<M> {
 /// Generic estimator for RANSAC-like methods.
 ///
 /// Implement this for your geometric models: lines, planes, homographies, etc.
+///
+/// Algorithm-internal scaffolding (see [`RansacOptions`]).
+#[doc(hidden)]
 pub trait Estimator {
     /// Input datum type (for example one correspondence or measurement).
     type Datum;
@@ -158,6 +168,9 @@ fn is_better_model(
 /// insufficient data or no consensus model can be found within the iteration
 /// budget, it returns a [`RansacResult`] with `success == false` and
 /// `model == None`.
+///
+/// Algorithm-internal scaffolding (see [`RansacOptions`]).
+#[doc(hidden)]
 #[cfg_attr(
     feature = "tracing",
     tracing::instrument(

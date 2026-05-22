@@ -266,6 +266,7 @@ pub fn build_planar_input(
 
 /// Result of a Planar dataset conversion.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct PlanarRunResult {
     /// The IR ready to feed into `CalibrationSession::set_input`.
     pub dataset: PlanarDataset,

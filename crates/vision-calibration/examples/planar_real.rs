@@ -65,10 +65,10 @@ fn main() -> Result<()> {
 
     // Step-by-step calibration
     println!("--- Step 1: Initialization ---");
-    step_init(&mut session, None)?;
+    let init = step_init(&mut session, None)?;
 
-    let init_k = session.state.initial_intrinsics.as_ref().unwrap();
-    let init_dist = session.state.initial_distortion.as_ref().unwrap();
+    let init_k = &init.intrinsics;
+    let init_dist = &init.distortion;
     println!(
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         init_k.fx, init_k.fy, init_k.cx, init_k.cy
@@ -79,14 +79,10 @@ fn main() -> Result<()> {
     );
 
     println!("--- Step 2: Optimization ---");
-    step_optimize(&mut session, None)?;
+    let opt = step_optimize(&mut session, None)?;
 
-    let state = &session.state;
-    println!("  Final cost: {:.2e}", state.final_cost.unwrap());
-    println!(
-        "  Mean reprojection error: {:.4} px",
-        state.mean_reproj_error.unwrap()
-    );
+    println!("  Final cost: {:.2e}", opt.final_cost);
+    println!("  Mean reprojection error: {:.4} px", opt.mean_reproj_error);
     println!();
 
     // Export results
@@ -119,14 +115,11 @@ fn main() -> Result<()> {
     let mut session2 = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session2.set_input(dataset2)?;
 
-    run_calibration_with_filtering(
-        &mut session2,
-        FilterOptions {
-            max_reproj_error: 1.0, // Stricter threshold
-            min_points_per_view: 10,
-            remove_sparse_views: true,
-        },
-    )?;
+    let mut filter_opts = FilterOptions::default();
+    filter_opts.max_reproj_error = 1.0; // Stricter threshold
+    filter_opts.min_points_per_view = 10;
+    filter_opts.remove_sparse_views = true;
+    run_calibration_with_filtering(&mut session2, filter_opts)?;
 
     let export2 = session2.export()?;
     println!(

@@ -2,7 +2,7 @@
 //!
 //! Post-A6 layout: drives the unified `rig_handeye::RigHandeyeProblem` with
 //! `SensorMode::Scheimpflug`. Per-camera intrinsics + distortion + tilt seeds
-//! are supplied via `step_set_intrinsics_init_all` and the
+//! are supplied via `step_intrinsics_init_all_with_seed` and the
 //! `RigHandeyeIntrinsicsManualInit` struct (replacing the pre-A6
 //! `RigScheimpflugHandeyeIntrinsicsConfig::{initial_cameras, initial_sensors}`
 //! knobs). The narrow-FOV `(k1, p1, p2 free; k2, k3 fixed)` distortion mask is
@@ -31,12 +31,12 @@ use std::time::Instant;
 mod puzzle_viewer;
 
 use vision_calibration::{
-    pixel_to_gripper_point,
     rig_handeye::{
         RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem, SensorMode,
     },
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
+        pixel_to_gripper_point,
     },
     session::CalibrationSession,
 };
@@ -174,41 +174,35 @@ fn main() -> Result<()> {
         // Seed intrinsics + distortion + sensors per camera (homogeneous rig)
         // via the unified manual-init API. Replaces the pre-A6
         // `cfg.intrinsics.initial_cameras` / `initial_sensors` knobs.
-        rh::step_set_intrinsics_init_all(
-            &mut rig_session,
-            RigHandeyeIntrinsicsManualInit {
-                per_cam_intrinsics: Some(per_cam_intrinsics_seed),
-                per_cam_distortion: Some(per_cam_distortion_seed),
-                per_cam_sensors: Some(per_cam_sensors_seed),
-            },
-            None,
-        )?;
-        println!("  step_set_intrinsics_init_all: {:.2?}", step_t.elapsed());
-        if let Some(cams) = &rig_session.state.per_cam_intrinsics {
-            for (i, c) in cams.iter().enumerate() {
-                println!(
-                    "    [seeded] cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1}",
-                    c.k.fx, c.k.fy, c.k.cx, c.k.cy
-                );
-            }
+        let mut manual_init = RigHandeyeIntrinsicsManualInit::default();
+        manual_init.per_cam_intrinsics = Some(per_cam_intrinsics_seed);
+        manual_init.per_cam_distortion = Some(per_cam_distortion_seed);
+        manual_init.per_cam_sensors = Some(per_cam_sensors_seed);
+        let intr_init =
+            rh::step_intrinsics_init_all_with_seed(&mut rig_session, manual_init, None)?;
+        println!(
+            "  step_intrinsics_init_all_with_seed: {:.2?}",
+            step_t.elapsed()
+        );
+        for (i, c) in intr_init.per_cam_intrinsics.iter().enumerate() {
+            println!(
+                "    [seeded] cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1}",
+                c.k.fx, c.k.fy, c.k.cx, c.k.cy
+            );
         }
         let step_t = Instant::now();
-        rh::step_intrinsics_optimize_all(&mut rig_session, None)?;
+        let intr_opt = rh::step_intrinsics_optimize_all(&mut rig_session, None)?;
         println!("  step_intrinsics_optimize_all: {:.2?}", step_t.elapsed());
-        if let Some(errs) = &rig_session.state.per_cam_reproj_errors {
-            for (i, e) in errs.iter().enumerate() {
-                println!("    cam {i} intrinsics reproj = {e:?}");
-            }
+        for (i, e) in intr_opt.per_cam_reproj_errors.iter().enumerate() {
+            println!("    cam {i} intrinsics reproj = {e:?}");
         }
-        if let Some(cams) = &rig_session.state.per_cam_intrinsics {
-            for (i, c) in cams.iter().enumerate() {
-                println!(
-                    "    cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
-                    c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
-                );
-            }
+        for (i, c) in intr_opt.per_cam_intrinsics.iter().enumerate() {
+            println!(
+                "    cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
+                c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
+            );
         }
-        if let Some(sens) = &rig_session.state.per_cam_sensors {
+        if let Some(sens) = &intr_opt.per_cam_sensors {
             for (i, s) in sens.iter().enumerate() {
                 println!(
                     "    cam {i} tilt: tilt_x={:+.4} rad ({:+.3}°) tilt_y={:+.4} rad ({:+.3}°)",
@@ -220,29 +214,29 @@ fn main() -> Result<()> {
             }
         }
         let step_t = Instant::now();
-        rh::step_rig_init(&mut rig_session)?;
+        let _rig_init = rh::step_rig_init(&mut rig_session)?;
         println!("  step_rig_init: {:.2?}", step_t.elapsed());
         let step_t = Instant::now();
-        rh::step_rig_optimize(&mut rig_session, None)?;
+        let rig_opt = rh::step_rig_optimize(&mut rig_session, None)?;
         println!(
-            "  step_rig_optimize: {:.2?}, rig_reproj={:?}",
+            "  step_rig_optimize: {:.2?}, rig_reproj={:.4}",
             step_t.elapsed(),
-            rig_session.state.rig_ba_reproj_error
+            rig_opt.mean_reproj_error
         );
-        if let Some(per) = &rig_session.state.rig_ba_per_cam_reproj_errors {
-            for (i, e) in per.iter().enumerate() {
-                println!("    cam {i} rig reproj = {e:.3} px");
-            }
+        for (i, e) in rig_opt.per_cam_reproj_errors.iter().enumerate() {
+            println!("    cam {i} rig reproj = {e:.3} px");
         }
-        if let Some(cams) = &rig_session.state.per_cam_intrinsics {
-            for (i, c) in cams.iter().enumerate() {
-                println!(
-                    "    [after rig] cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
-                    c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
-                );
-            }
+        // The rig BA may refine per-camera intrinsics in-place (depending on
+        // `rig.refine_intrinsics_in_rig_ba`); pull the current values from the
+        // intrinsics-optimize result so the "after rig" line reflects the seed
+        // that fed the rig stage.
+        for (i, c) in intr_opt.per_cam_intrinsics.iter().enumerate() {
+            println!(
+                "    [after rig] cam {i}: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:+.4} k2={:+.4}",
+                c.k.fx, c.k.fy, c.k.cx, c.k.cy, c.dist.k1, c.dist.k2
+            );
         }
-        if let Some(sens) = &rig_session.state.per_cam_sensors {
+        if let Some(sens) = &intr_opt.per_cam_sensors {
             for (i, s) in sens.iter().enumerate() {
                 println!(
                     "    [after rig] cam {i} tilt: tilt_x={:+.4} ({:+.3}°) tilt_y={:+.4} ({:+.3}°)",
@@ -254,10 +248,10 @@ fn main() -> Result<()> {
             }
         }
         let step_t = Instant::now();
-        rh::step_handeye_init(&mut rig_session, None)?;
+        let _he_init = rh::step_handeye_init(&mut rig_session, None)?;
         println!("  step_handeye_init: {:.2?}", step_t.elapsed());
         let step_t = Instant::now();
-        rh::step_handeye_optimize(&mut rig_session, None)?;
+        let _he_opt = rh::step_handeye_optimize(&mut rig_session, None)?;
         println!("  step_handeye_optimize: {:.2?}", step_t.elapsed());
     }
     println!(
@@ -782,23 +776,22 @@ fn build_image_manifest(poses: &[PoseEntry], tile_w: u32, tile_h: u32) -> ImageM
     let mut frames = Vec::with_capacity(poses.len() * NUM_CAMERAS);
     for (pose_idx, pose) in poses.iter().enumerate() {
         for cam_idx in 0..NUM_CAMERAS {
-            frames.push(FrameRef {
-                pose: pose_idx,
-                camera: cam_idx,
-                path: PathBuf::from(&pose.target_image),
-                roi: Some(PixelRect {
-                    x: (cam_idx as u32) * tile_w,
-                    y: 0,
-                    w: tile_w,
-                    h: tile_h,
-                }),
-            });
+            let mut roi = PixelRect::default();
+            roi.x = (cam_idx as u32) * tile_w;
+            roi.w = tile_w;
+            roi.h = tile_h;
+            let mut frame = FrameRef::default();
+            frame.pose = pose_idx;
+            frame.camera = cam_idx;
+            frame.path = PathBuf::from(&pose.target_image);
+            frame.roi = Some(roi);
+            frames.push(frame);
         }
     }
-    ImageManifest {
-        root: PathBuf::from("."),
-        frames,
-    }
+    let mut manifest = ImageManifest::default();
+    manifest.root = PathBuf::from(".");
+    manifest.frames = frames;
+    manifest
 }
 
 fn build_datasets(data_dir: &Path, poses: &[PoseEntry]) -> Result<DetectedDatasets> {

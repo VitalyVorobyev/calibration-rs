@@ -32,6 +32,9 @@
 mod error;
 pub use error::Error;
 
+// Step-option types shared across problem modules.
+pub mod common;
+
 // Core session framework
 mod planar_family;
 mod rig_family;

@@ -32,7 +32,7 @@ use vision_calibration_core::{
     BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Iso3, Mat3, NoMeta,
     PinholeCamera, PlanarDataset, Pt2, Real, ScheimpflugParams, View, make_pinhole_camera,
 };
-use vision_calibration_linear::{
+use vision_calibration_linear::prelude::{
     IterativeIntrinsicsOptions, dlt_homography, estimate_intrinsics_iterative,
     estimate_planar_pose_from_h,
 };
@@ -442,7 +442,7 @@ mod tests {
         BrownConrady5, Camera, FxFyCxCySkew, Pinhole, ScheimpflugParams, View, make_pinhole_camera,
         synthetic::planar,
     };
-    use vision_calibration_linear::DistortionFitOptions;
+    use vision_calibration_linear::distortion_fit::DistortionFitOptions;
 
     /// `[cam][view] -> Option<View<NoMeta>>`.
     type PerCamViews = Vec<Vec<Option<View<NoMeta>>>>;

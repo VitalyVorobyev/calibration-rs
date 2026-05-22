@@ -6,7 +6,8 @@ use vision_calibration_core::{
     BrownConrady5, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, Iso3,
     ProjectionParams, Real, ScheimpflugParams, SensorParams,
 };
-use vision_calibration_linear::{DistortionFitOptions, IterativeIntrinsicsOptions};
+use vision_calibration_linear::distortion_fit::DistortionFitOptions;
+use vision_calibration_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
 use vision_calibration_optim::{
     BackendSolveOptions, ScheimpflugFixMask as OptimScheimpflugFixMask,
     ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,
@@ -24,12 +25,7 @@ use super::problem::{
     ScheimpflugIntrinsicsResult,
 };
 
-/// Options for the initialization step.
-#[derive(Debug, Clone, Default)]
-pub struct IntrinsicsInitOptions {
-    /// Override the number of iterative initialization rounds.
-    pub iterations: Option<usize>,
-}
+pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 
 /// Manual initialization seeds for Scheimpflug intrinsics calibration.
 ///
@@ -48,6 +44,7 @@ pub struct IntrinsicsInitOptions {
 ///
 /// See ADR 0011 for the design rationale.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ScheimpflugManualInit {
     /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
     pub intrinsics: Option<FxFyCxCySkew<Real>>,
@@ -62,13 +59,38 @@ pub struct ScheimpflugManualInit {
     pub poses: Option<Vec<Iso3>>,
 }
 
-/// Options for the optimization step.
-#[derive(Debug, Clone, Default)]
-pub struct IntrinsicsOptimizeOptions {
-    /// Override the maximum number of optimization iterations.
-    pub max_iters: Option<usize>,
-    /// Override solver verbosity.
-    pub verbosity: Option<usize>,
+// ─────────────────────────────────────────────────────────────────────────────
+// Step Results
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Typed return value of [`step_init`] / [`step_init_with_seed`].
+///
+/// Carries the seeded-or-fitted initial estimates. The same values continue to
+/// be written into `session.state` for backwards compatibility — see ADR 0011.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ScheimpflugIntrinsicsInitResult {
+    /// Initial pinhole intrinsics (fx, fy, cx, cy, skew).
+    pub intrinsics: FxFyCxCySkew<Real>,
+    /// Initial Brown–Conrady distortion coefficients.
+    pub distortion: BrownConrady5<Real>,
+    /// Initial Scheimpflug sensor tilt parameters.
+    pub sensor: ScheimpflugParams,
+    /// Initial per-view target poses (`camera_se3_target`).
+    pub poses: Vec<Iso3>,
+}
+
+/// Typed return value of [`step_optimize`].
+///
+/// Aggregates the optimization metrics that examples used to read out of
+/// `session.state` after the Scheimpflug-intrinsics solve.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ScheimpflugIntrinsicsOptimizeResult {
+    /// Final cost reported by the non-linear solver.
+    pub final_cost: f64,
+    /// Mean reprojection error in pixels.
+    pub mean_reproj_error: f64,
 }
 
 /// Initialize Scheimpflug intrinsics, distortion, sensor tilt, and per-view poses
@@ -85,11 +107,11 @@ pub struct IntrinsicsOptimizeOptions {
 /// - `init_iterations == 0` when running the bootstrap auto-fit.
 /// - Homography or auto-init computation fails.
 /// - `manual.poses` is `Some` but its length does not match the view count.
-pub fn step_set_init(
+pub fn step_init_with_seed(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     manual: ScheimpflugManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
+) -> Result<ScheimpflugIntrinsicsInitResult, Error> {
     session.validate()?;
     let dataset = session.require_input()?.clone();
 
@@ -229,7 +251,7 @@ pub fn step_set_init(
     session.state.initial_intrinsics = Some(intrinsics);
     session.state.initial_distortion = Some(distortion);
     session.state.initial_sensor = Some(sensor);
-    session.state.initial_poses = Some(poses);
+    session.state.initial_poses = Some(poses.clone());
     session.state.clear_optimization();
 
     let source = format_init_source(&manual_fields, &auto_fields);
@@ -244,7 +266,12 @@ pub fn step_set_init(
         ),
     );
 
-    Ok(())
+    Ok(ScheimpflugIntrinsicsInitResult {
+        intrinsics,
+        distortion,
+        sensor,
+        poses,
+    })
 }
 
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
@@ -259,19 +286,19 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 /// Initialize intrinsics, distortion, sensor tilt, and poses from observations
 /// using full auto-init.
 ///
-/// Convenience wrapper around [`step_set_init`] with `ScheimpflugManualInit::default()`.
+/// Convenience wrapper around [`step_init_with_seed`] with `ScheimpflugManualInit::default()`.
 pub fn step_init(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
-    step_set_init(session, ScheimpflugManualInit::default(), opts)
+) -> Result<ScheimpflugIntrinsicsInitResult, Error> {
+    step_init_with_seed(session, ScheimpflugManualInit::default(), opts)
 }
 
 /// Optimize Scheimpflug intrinsics, distortion, sensor tilt, and target poses.
 pub fn step_optimize(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<ScheimpflugIntrinsicsOptimizeResult, Error> {
     session.validate()?;
     let dataset = session.require_input()?.clone();
 
@@ -336,19 +363,21 @@ pub fn step_optimize(
         mean_reproj_error: estimate.mean_reproj_error,
     };
 
-    session.state.final_cost = Some(result.report.final_cost);
-    session.state.mean_reproj_error = Some(result.mean_reproj_error);
-    session.set_output(result.clone());
+    let final_cost = result.report.final_cost;
+    let mean_reproj_error = result.mean_reproj_error;
+    session.state.final_cost = Some(final_cost);
+    session.state.mean_reproj_error = Some(mean_reproj_error);
+    session.set_output(result);
 
     session.log_success_with_notes(
         "optimize",
-        format!(
-            "cost={:.2e}, reproj_err={:.3}px",
-            result.report.final_cost, result.mean_reproj_error
-        ),
+        format!("cost={final_cost:.2e}, reproj_err={mean_reproj_error:.3}px"),
     );
 
-    Ok(())
+    Ok(ScheimpflugIntrinsicsOptimizeResult {
+        final_cost,
+        mean_reproj_error,
+    })
 }
 
 /// Run full Scheimpflug calibration pipeline on a session: init -> optimize.
@@ -359,8 +388,8 @@ pub fn run_calibration(
     if let Some(cfg) = config {
         session.set_config(cfg)?;
     }
-    step_init(session, None)?;
-    step_optimize(session, None)?;
+    let _ = step_init(session, None)?;
+    let _ = step_optimize(session, None)?;
     Ok(())
 }
 
@@ -457,7 +486,7 @@ mod tests {
 
         let mut session_b = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
         session_b.set_input(make_dataset(sensor_gt)).expect("input");
-        step_set_init(&mut session_b, ScheimpflugManualInit::default(), None)
+        step_init_with_seed(&mut session_b, ScheimpflugManualInit::default(), None)
             .expect("step_set_init");
 
         let k_a = session_a.state.initial_intrinsics.unwrap();
@@ -487,7 +516,7 @@ mod tests {
             sensor: Some(sensor_gt),
             poses: None,
         };
-        step_set_init(&mut session, manual, None).expect("step_set_init");
+        step_init_with_seed(&mut session, manual, None).expect("step_set_init");
         step_optimize(&mut session, None).expect("step_optimize");
 
         let output = session.output().expect("output");
@@ -512,7 +541,7 @@ mod tests {
             poses: Some(vec![Iso3::identity()]),
             ..Default::default()
         };
-        let err = step_set_init(&mut session, manual, None).unwrap_err();
+        let err = step_init_with_seed(&mut session, manual, None).unwrap_err();
         assert!(
             err.to_string().contains("manual poses count"),
             "unexpected error: {}",

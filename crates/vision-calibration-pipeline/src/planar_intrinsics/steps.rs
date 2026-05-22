@@ -50,25 +50,7 @@ use super::problem::PlanarIntrinsicsProblem;
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Options for the initialization step.
-///
-/// These options override session config for a single step invocation.
-#[derive(Debug, Clone, Default)]
-pub struct IntrinsicsInitOptions {
-    /// Override the number of iterations for iterative estimation.
-    pub iterations: Option<usize>,
-}
-
-/// Options for the optimization step.
-///
-/// These options override session config for a single step invocation.
-#[derive(Debug, Clone, Default)]
-pub struct IntrinsicsOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
-}
+pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 
 /// Manual initialization seeds for planar intrinsics calibration.
 ///
@@ -88,6 +70,7 @@ pub struct IntrinsicsOptimizeOptions {
 ///
 /// See ADR 0011 for the design rationale.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PlanarManualInit {
     /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
     pub intrinsics: Option<FxFyCxCySkew<Real>>,
@@ -101,6 +84,7 @@ pub struct PlanarManualInit {
 
 /// Options for filtering observations based on reprojection error.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct FilterOptions {
     /// Maximum reprojection error threshold (pixels).
     /// Points with error above this are removed.
@@ -121,6 +105,42 @@ impl Default for FilterOptions {
             remove_sparse_views: true,
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step Results
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Typed return value of [`step_init`] / [`step_init_with_seed`].
+///
+/// Carries the seeded-or-fitted initial estimates that examples and downstream
+/// consumers used to read out of `session.state.initial_*` via `.as_ref().unwrap()`.
+/// The same values continue to be written into `session.state` for backwards
+/// compatibility — see ADR 0011.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PlanarInitResult {
+    /// Initial pinhole intrinsics (fx, fy, cx, cy, skew).
+    pub intrinsics: FxFyCxCySkew<Real>,
+    /// Initial Brown–Conrady distortion coefficients.
+    pub distortion: BrownConrady5<Real>,
+    /// Initial per-view target poses (`camera_se3_target`).
+    pub poses: Vec<Iso3>,
+}
+
+/// Typed return value of [`step_optimize`].
+///
+/// Aggregates the optimization metrics that examples used to read out of
+/// `session.state` after the planar-intrinsics solve.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PlanarOptimizeResult {
+    /// Final cost reported by the non-linear solver.
+    pub final_cost: f64,
+    /// Mean reprojection error in pixels.
+    pub mean_reproj_error: f64,
+    /// Number of solver iterations executed.
+    pub iterations: usize,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,11 +173,11 @@ impl Default for FilterOptions {
 /// - Input not set, or fewer than 3 views.
 /// - Homography or auto-init computation fails.
 /// - `manual.poses` is `Some` but its length does not match the view count.
-pub fn step_set_init(
+pub fn step_init_with_seed(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     manual: PlanarManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
+) -> Result<PlanarInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -267,7 +287,7 @@ pub fn step_set_init(
     session.state.homographies = Some(homographies);
     session.state.initial_intrinsics = Some(intrinsics);
     session.state.initial_distortion = Some(distortion);
-    session.state.initial_poses = Some(poses);
+    session.state.initial_poses = Some(poses.clone());
     session.state.clear_optimization();
 
     let source = format_init_source(&manual_fields, &auto_fields);
@@ -279,7 +299,11 @@ pub fn step_set_init(
         ),
     );
 
-    Ok(())
+    Ok(PlanarInitResult {
+        intrinsics,
+        distortion,
+        poses,
+    })
 }
 
 fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
@@ -293,7 +317,7 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 
 /// Initialize intrinsics and poses from observations using full auto-init.
 ///
-/// Convenience wrapper around [`step_set_init`] with `PlanarManualInit::default()`
+/// Convenience wrapper around [`step_init_with_seed`] with `PlanarManualInit::default()`
 /// (all-`None`). Auto-fits intrinsics + distortion via Zhang's method with iterative
 /// distortion, then recovers poses from homographies.
 ///
@@ -306,12 +330,12 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
 ///
 /// # Errors
 ///
-/// See [`step_set_init`].
+/// See [`step_init_with_seed`].
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
-    step_set_init(session, PlanarManualInit::default(), opts)
+) -> Result<PlanarInitResult, Error> {
+    step_init_with_seed(session, PlanarManualInit::default(), opts)
 }
 
 /// Optimize camera parameters using non-linear least squares.
@@ -336,7 +360,7 @@ pub fn step_init(
 pub fn step_optimize(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<PlanarOptimizeResult, Error> {
     // Validate preconditions
     session.validate()?;
     let input = session.require_input()?;
@@ -367,22 +391,27 @@ pub fn step_optimize(
     };
 
     // Update state
-    session.state.final_cost = Some(result.report.final_cost);
-    session.state.mean_reproj_error = Some(result.mean_reproj_error);
+    let final_cost = result.report.final_cost;
+    let mean_reproj_error = result.mean_reproj_error;
+    let iterations = result.report.num_iters;
+    session.state.final_cost = Some(final_cost);
+    session.state.mean_reproj_error = Some(mean_reproj_error);
+    session.state.iterations = Some(iterations);
 
     // Set output
-    session.set_output(result.clone());
+    session.set_output(result);
 
     // Log success
     session.log_success_with_notes(
         "optimize",
-        format!(
-            "cost={:.2e}, reproj_err={:.3}px",
-            result.report.final_cost, result.mean_reproj_error
-        ),
+        format!("cost={final_cost:.2e}, reproj_err={mean_reproj_error:.3}px"),
     );
 
-    Ok(())
+    Ok(PlanarOptimizeResult {
+        final_cost,
+        mean_reproj_error,
+        iterations,
+    })
 }
 
 /// Filter observations based on reprojection error.
@@ -511,8 +540,8 @@ pub fn step_filter(
 pub fn run_calibration(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
 ) -> Result<(), Error> {
-    step_init(session, None)?;
-    step_optimize(session, None)?;
+    let _ = step_init(session, None)?;
+    let _ = step_optimize(session, None)?;
     Ok(())
 }
 
@@ -534,15 +563,15 @@ pub fn run_calibration_with_filtering(
     filter_opts: FilterOptions,
 ) -> Result<(), Error> {
     // First pass
-    step_init(session, None)?;
-    step_optimize(session, None)?;
+    let _ = step_init(session, None)?;
+    let _ = step_optimize(session, None)?;
 
     // Filter outliers
     step_filter(session, filter_opts)?;
 
     // Second pass on cleaned data
-    step_init(session, None)?;
-    step_optimize(session, None)?;
+    let _ = step_init(session, None)?;
+    let _ = step_optimize(session, None)?;
 
     Ok(())
 }
@@ -740,10 +769,10 @@ mod tests {
 
         let mut session_b = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session_b.set_input(make_test_dataset()).unwrap();
-        step_set_init(&mut session_b, PlanarManualInit::default(), None).unwrap();
+        step_init_with_seed(&mut session_b, PlanarManualInit::default(), None).unwrap();
 
         // Both paths should produce identical state — step_init delegates to
-        // step_set_init with default fields.
+        // step_init_with_seed with default fields.
         let k_a = session_a.state.initial_intrinsics.unwrap();
         let k_b = session_b.state.initial_intrinsics.unwrap();
         assert!((k_a.fx - k_b.fx).abs() < 1e-9);
@@ -767,7 +796,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        step_set_init(&mut session, manual, None).unwrap();
+        step_init_with_seed(&mut session, manual, None).unwrap();
         step_optimize(&mut session, None).unwrap();
 
         let output = session.output().unwrap();
@@ -801,7 +830,7 @@ mod tests {
             distortion: Some(BrownConrady5::default()),
             poses: Some(auto_poses),
         };
-        step_set_init(&mut session, manual, None).unwrap();
+        step_init_with_seed(&mut session, manual, None).unwrap();
         step_optimize(&mut session, None).unwrap();
 
         let output = session.output().unwrap();
@@ -824,7 +853,7 @@ mod tests {
             poses: Some(vec![Iso3::identity()]),
             ..Default::default()
         };
-        let err = step_set_init(&mut session, manual, None).unwrap_err();
+        let err = step_init_with_seed(&mut session, manual, None).unwrap_err();
         assert!(
             err.to_string().contains("manual poses count"),
             "unexpected error: {}",
@@ -847,7 +876,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        step_set_init(&mut session, manual, None).unwrap();
+        step_init_with_seed(&mut session, manual, None).unwrap();
 
         let init_entry = session
             .log

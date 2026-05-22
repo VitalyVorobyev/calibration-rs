@@ -18,6 +18,7 @@ use super::problem::RigLaserlineDeviceProblem;
 
 /// Options controlling both step functions.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct StepOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
@@ -35,6 +36,7 @@ pub struct StepOptions {
 /// the linear plane fit is skipped entirely. Length must equal
 /// `input.dataset.num_cameras`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigLaserlineDeviceManualInit {
     /// Per-camera laser planes (camera frame). Overrides input-supplied seeds.
     pub planes_cam: Option<Vec<LaserPlane>>,
@@ -56,7 +58,7 @@ pub struct RigLaserlineDeviceManualInit {
 ///
 /// - Input not set.
 /// - `manual.planes_cam.len() != input.dataset.num_cameras`.
-pub fn step_set_init(
+pub fn step_init_with_seed(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
     manual: RigLaserlineDeviceManualInit,
 ) -> Result<(), Error> {
@@ -97,9 +99,9 @@ pub fn step_set_init(
 
 /// Initialize per-camera laser planes using the input-or-auto path.
 ///
-/// Convenience wrapper around [`step_set_init`] with default seeds.
+/// Convenience wrapper around [`step_init_with_seed`] with default seeds.
 pub fn step_init(session: &mut CalibrationSession<RigLaserlineDeviceProblem>) -> Result<(), Error> {
-    step_set_init(session, RigLaserlineDeviceManualInit::default())
+    step_init_with_seed(session, RigLaserlineDeviceManualInit::default())
 }
 
 fn linear_plane_init(

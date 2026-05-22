@@ -25,11 +25,11 @@ fn facade_modules_compile_with_glob_import() {
     let _planar_step_init: fn(
         &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
         Option<planar_intrinsics::IntrinsicsInitOptions>,
-    ) -> Result<(), Error> = planar_intrinsics::step_init;
+    ) -> Result<planar_intrinsics::PlanarInitResult, Error> = planar_intrinsics::step_init;
     let _planar_step_optimize: fn(
         &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
         Option<planar_intrinsics::IntrinsicsOptimizeOptions>,
-    ) -> Result<(), Error> = planar_intrinsics::step_optimize;
+    ) -> Result<planar_intrinsics::PlanarOptimizeResult, Error> = planar_intrinsics::step_optimize;
     let _planar_step_filter: fn(
         &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
         planar_intrinsics::FilterOptions,

@@ -227,17 +227,15 @@ fn planar_image_manifest(view_paths: &[PathBuf], base_dir: &Path) -> Result<Imag
                 base_abs.display()
             )
         })?;
-        frames.push(FrameRef {
-            pose,
-            camera: 0,
-            path: rel.to_path_buf(),
-            roi: None,
-        });
+        let mut frame = FrameRef::default();
+        frame.pose = pose;
+        frame.path = rel.to_path_buf();
+        frames.push(frame);
     }
-    Ok(ImageManifest {
-        root: PathBuf::from("."),
-        frames,
-    })
+    let mut manifest = ImageManifest::default();
+    manifest.root = PathBuf::from(".");
+    manifest.frames = frames;
+    Ok(manifest)
 }
 
 fn run_error_to_response(err: RunError) -> RunResponse {

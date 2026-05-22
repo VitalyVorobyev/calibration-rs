@@ -78,8 +78,8 @@ Unified facade crate that re-exports everything through a clean module hierarchy
 use vision_calibration::prelude::*;            // Minimal planar hello-world imports
 use vision_calibration::planar_intrinsics::*;  // Planar workflow
 use vision_calibration::core::*;               // Math types
-use vision_calibration::linear::*;             // Linear solvers
-use vision_calibration::optim::*;              // Optimization
+use vision_calibration::linear::homography;    // Linear solvers (per-module paths)
+use vision_calibration::optim::RobustLoss;     // Optimization vocabulary (hand-picked)
 ```
 
 ### vision-calibration-py

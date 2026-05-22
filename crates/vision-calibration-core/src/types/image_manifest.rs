@@ -54,6 +54,7 @@ use std::path::PathBuf;
 /// `root`. Both layers of indirection make exports portable across machines
 /// as long as the image directory is co-located with the export.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ImageManifest {
     /// Image root directory, relative to the export file's directory.
     pub root: PathBuf,
@@ -63,7 +64,8 @@ pub struct ImageManifest {
 }
 
 /// Reference to a single image (or sub-image) for one `(pose, camera)`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct FrameRef {
     /// Pose / view index in the input dataset.
     pub pose: usize,
@@ -86,7 +88,8 @@ pub struct FrameRef {
 }
 
 /// Inclusive-exclusive pixel rectangle: `[x, x+w) × [y, y+h)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PixelRect {
     /// Left edge in pixels.
     pub x: u32,

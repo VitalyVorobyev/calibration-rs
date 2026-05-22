@@ -13,7 +13,7 @@ pub type ScheimpflugInitialValues = (
 
 /// Intermediate state for the Scheimpflug intrinsics pipeline.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ScheimpflugIntrinsicsState {
+pub(crate) struct ScheimpflugIntrinsicsState {
     /// Initial intrinsics estimated from iterative linear initialization.
     pub initial_intrinsics: Option<FxFyCxCySkew<Real>>,
 
@@ -35,6 +35,7 @@ pub struct ScheimpflugIntrinsicsState {
 
 impl ScheimpflugIntrinsicsState {
     /// Check if initialization has been run.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn is_initialized(&self) -> bool {
         self.initial_intrinsics.is_some()
             && self.initial_distortion.is_some()
@@ -43,6 +44,7 @@ impl ScheimpflugIntrinsicsState {
     }
 
     /// Check if optimization has been run.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn is_optimized(&self) -> bool {
         self.final_cost.is_some()
     }
@@ -64,6 +66,7 @@ impl ScheimpflugIntrinsicsState {
     }
 
     /// Clear all intermediate state.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn clear(&mut self) {
         *self = Self::default();
     }

@@ -5,7 +5,7 @@ use vision_calibration_optim::LaserlineParams;
 
 /// Intermediate state for laserline device calibration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct LaserlineDeviceState {
+pub(crate) struct LaserlineDeviceState {
     /// Initial parameters estimated from linear steps.
     pub initial_params: Option<LaserlineParams>,
 
@@ -27,11 +27,13 @@ pub struct LaserlineDeviceState {
 
 impl LaserlineDeviceState {
     /// Check if initialization has been run.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn is_initialized(&self) -> bool {
         self.initial_params.is_some()
     }
 
     /// Check if optimization has been run.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn is_optimized(&self) -> bool {
         self.final_cost.is_some()
     }
@@ -46,6 +48,7 @@ impl LaserlineDeviceState {
     }
 
     /// Clear everything including initialization.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn clear(&mut self) {
         *self = Self::default();
     }

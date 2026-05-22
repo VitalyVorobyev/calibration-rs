@@ -15,7 +15,7 @@ use vision_calibration_core::{Iso3, PinholeCamera, ScheimpflugParams};
 /// - Initial rig extrinsics from linear estimation
 /// - Optimization metrics
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RigExtrinsicsState {
+pub(crate) struct RigExtrinsicsState {
     // ─────────────────────────────────────────────────────────────────────────
     // Per-camera intrinsics
     // ─────────────────────────────────────────────────────────────────────────
@@ -69,11 +69,13 @@ impl RigExtrinsicsState {
     }
 
     /// Check if rig BA has been run.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn has_rig_optimized(&self) -> bool {
         self.rig_ba_final_cost.is_some()
     }
 
     /// Clear rig-related results, keeping per-camera intrinsics and sensors.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn clear_rig(&mut self) {
         self.initial_cam_se3_rig = None;
         self.initial_rig_se3_target = None;
@@ -83,6 +85,7 @@ impl RigExtrinsicsState {
     }
 
     /// Clear everything.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn clear(&mut self) {
         *self = Self::default();
     }

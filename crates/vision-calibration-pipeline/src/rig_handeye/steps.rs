@@ -6,12 +6,12 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta, Real,
-    ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
+    BrownConrady5, CameraFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta, PinholeCamera,
+    Real, ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
-use vision_calibration_linear::estimate_extrinsics_from_cam_target_poses;
+use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
+use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use vision_calibration_linear::prelude::*;
-use vision_calibration_linear::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeScheimpflugDataset,
     HandEyeScheimpflugParams, HandEyeScheimpflugSolveOptions, HandEyeSolveOptions,
@@ -35,36 +35,18 @@ use super::problem::{RigHandeyeInput, RigHandeyeOutput, RigHandeyeProblem, Senso
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Options for per-camera intrinsics initialization.
-#[derive(Debug, Clone, Default)]
-pub struct IntrinsicsInitOptions {
-    /// Override the number of iterations.
-    pub iterations: Option<usize>,
-}
-
-/// Options for per-camera intrinsics optimization.
-#[derive(Debug, Clone, Default)]
-pub struct IntrinsicsOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
-}
+pub use crate::common::{
+    HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
+};
 
 /// Options for rig BA optimization.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct RigOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
-}
-
-/// Options for hand-eye initialization.
-#[derive(Debug, Clone, Default)]
-pub struct HandeyeInitOptions {
-    /// Override minimum motion angle (degrees).
-    pub min_motion_angle_deg: Option<f64>,
 }
 
 /// Manual seeds for the **per-camera intrinsics stage** of rig hand-eye
@@ -73,8 +55,11 @@ pub struct HandeyeInitOptions {
 /// `per_cam_sensors` is consulted only when [`SensorMode::Scheimpflug`] is
 /// configured; for [`SensorMode::Pinhole`] it is silently ignored.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeIntrinsicsManualInit {
+    /// Per-camera intrinsics seeds. `None` runs Zhang's per camera.
     pub per_cam_intrinsics: Option<Vec<FxFyCxCySkew<Real>>>,
+    /// Per-camera distortion seeds.
     pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
     /// Per-camera Scheimpflug sensor seeds (Scheimpflug mode only).
     #[serde(default)]
@@ -86,8 +71,11 @@ pub struct RigHandeyeIntrinsicsManualInit {
 /// `cam_se3_rig` and `rig_se3_target` are coupled per ADR 0011 — both must be
 /// `Some` or both `None`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeRigManualInit {
+    /// Per-camera `T_C_R` — camera-from-rig. `None` runs the linear extrinsics fit.
     pub cam_se3_rig: Option<Vec<Iso3>>,
+    /// Per-view `T_R_T` — rig-from-target. Must be paired with `cam_se3_rig`.
     pub rig_se3_target: Option<Vec<Iso3>>,
 }
 
@@ -103,20 +91,12 @@ pub struct RigHandeyeRigManualInit {
 /// The state stores both as mode-agnostic `initial_handeye` and
 /// `initial_mode_target_pose`, so this struct mirrors that shape directly.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RigHandeyeHandeyeManualInit {
     /// Mode-dependent hand-eye transform.
     pub handeye: Option<Iso3>,
     /// Mode-dependent target pose.
     pub mode_target_pose: Option<Iso3>,
-}
-
-/// Options for hand-eye optimization.
-#[derive(Debug, Clone, Default)]
-pub struct HandeyeOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -142,6 +122,92 @@ fn extract_camera_views(input: &RigHandeyeInput, cam_idx: usize) -> Vec<Option<V
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Step Results
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Typed return value of [`step_intrinsics_init_all`] /
+/// [`step_intrinsics_init_all_with_seed`] for rig hand-eye calibration.
+///
+/// Structurally similar to [`crate::rig_extrinsics::RigIntrinsicsInitAllResult`]
+/// but lives in this module so the two problem types can evolve independently.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RigHandeyeIntrinsicsInitAllResult {
+    /// Per-camera initial pinhole intrinsics + distortion.
+    pub per_cam_intrinsics: Vec<PinholeCamera>,
+    /// Per-camera Scheimpflug sensor parameters; `None` for pinhole rigs.
+    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
+    /// Per-camera target poses: `[view][cam] -> Option<Iso3>` (`camera_se3_target`).
+    /// Inner `None` marks views where that camera did not observe the target.
+    pub per_cam_target_poses: Vec<Vec<Option<Iso3>>>,
+}
+
+/// Typed return value of [`step_intrinsics_optimize_all`] for rig hand-eye
+/// calibration.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RigHandeyeIntrinsicsOptimizeAllResult {
+    /// Per-camera refined pinhole intrinsics + distortion.
+    pub per_cam_intrinsics: Vec<PinholeCamera>,
+    /// Per-camera refined Scheimpflug sensor parameters; `None` for pinhole rigs.
+    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
+    /// Per-camera mean reprojection error in pixels.
+    pub per_cam_reproj_errors: Vec<f64>,
+}
+
+/// Typed return value of [`step_rig_init`] / [`step_rig_init_with_seed`] for rig
+/// hand-eye calibration.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RigHandeyeRigInitResult {
+    /// Initial per-camera `T_C_R` — camera-from-rig (reference camera is identity).
+    pub initial_cam_se3_rig: Vec<Iso3>,
+    /// Initial per-view `T_R_T` — rig-from-target.
+    pub initial_rig_se3_target: Vec<Iso3>,
+}
+
+/// Typed return value of [`step_rig_optimize`] for rig hand-eye calibration.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RigHandeyeRigOptimizeResult {
+    /// Mean reprojection error in pixels across the whole rig after rig BA.
+    pub mean_reproj_error: f64,
+    /// Per-camera mean reprojection error in pixels after rig BA.
+    pub per_cam_reproj_errors: Vec<f64>,
+}
+
+/// Typed return value of [`step_handeye_init`] / [`step_handeye_init_with_seed`].
+///
+/// The interpretation of both fields is mode-dependent — see
+/// [`RigHandeyeHandeyeManualInit`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RigHandeyeHandeyeInitResult {
+    /// Mode-dependent initial hand-eye transform.
+    ///
+    /// - `EyeInHand`: `gripper_se3_rig` (`T_G_R`).
+    /// - `EyeToHand`: `rig_se3_base` (`T_R_B`).
+    pub initial_handeye: Iso3,
+    /// Mode-dependent fixed target pose. The state field models a genuine
+    /// "may or may not be populated in this mode" situation; this result
+    /// preserves the same shape.
+    ///
+    /// - `EyeInHand`: `base_se3_target` (`T_B_T`).
+    /// - `EyeToHand`: `gripper_se3_target` (`T_G_T`).
+    pub initial_mode_target_pose: Option<Iso3>,
+}
+
+/// Typed return value of [`step_handeye_optimize`] for rig hand-eye calibration.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RigHandeyeHandeyeOptimizeResult {
+    /// Mean reprojection error in pixels after the final hand-eye BA.
+    pub mean_reproj_error: f64,
+    /// Final solver cost from the hand-eye BA.
+    pub final_cost: f64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Step Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -153,11 +219,11 @@ fn extract_camera_views(input: &RigHandeyeInput, cam_idx: usize) -> Vec<Option<V
 ///
 /// - Input not set
 /// - Any camera has fewer than 3 views with observations
-pub fn step_set_intrinsics_init_all(
+pub fn step_intrinsics_init_all_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     manual: RigHandeyeIntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
+) -> Result<RigHandeyeIntrinsicsInitAllResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
     let opts = opts.unwrap_or_default();
@@ -203,9 +269,13 @@ pub fn step_set_intrinsics_init_all(
         flavour,
     )?;
 
-    session.state.per_cam_intrinsics = Some(bootstrap.bundle.cameras);
-    session.state.per_cam_sensors = bootstrap.bundle.scheimpflug;
-    session.state.per_cam_target_poses = Some(bootstrap.per_cam_target_poses);
+    let per_cam_intrinsics = bootstrap.bundle.cameras;
+    let per_cam_sensors = bootstrap.bundle.scheimpflug;
+    let per_cam_target_poses = bootstrap.per_cam_target_poses;
+
+    session.state.per_cam_intrinsics = Some(per_cam_intrinsics.clone());
+    session.state.per_cam_sensors = per_cam_sensors.clone();
+    session.state.per_cam_target_poses = Some(per_cam_target_poses.clone());
 
     let source = format_init_source(&bootstrap.manual_fields, &bootstrap.auto_fields);
     session.log_success_with_notes(
@@ -213,14 +283,21 @@ pub fn step_set_intrinsics_init_all(
         format!("initialized {num_cameras} cameras {source}"),
     );
 
-    Ok(())
+    Ok(RigHandeyeIntrinsicsInitAllResult {
+        per_cam_intrinsics,
+        per_cam_sensors,
+        per_cam_target_poses,
+    })
 }
 
+/// Initialize intrinsics for all cameras using full auto-init (Zhang's per camera).
+///
+/// Convenience wrapper around [`step_intrinsics_init_all_with_seed`] with default seeds.
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<(), Error> {
-    step_set_intrinsics_init_all(session, RigHandeyeIntrinsicsManualInit::default(), opts)
+) -> Result<RigHandeyeIntrinsicsInitAllResult, Error> {
+    step_intrinsics_init_all_with_seed(session, RigHandeyeIntrinsicsManualInit::default(), opts)
 }
 
 /// Optimize intrinsics for all cameras.
@@ -237,7 +314,7 @@ pub fn step_intrinsics_init_all(
 pub fn step_intrinsics_optimize_all(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<RigHandeyeIntrinsicsOptimizeAllResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -391,8 +468,8 @@ pub fn step_intrinsics_optimize_all(
         }
     }
 
-    session.state.per_cam_intrinsics = Some(optimized_cameras);
-    session.state.per_cam_sensors = optimized_sensors;
+    session.state.per_cam_intrinsics = Some(optimized_cameras.clone());
+    session.state.per_cam_sensors = optimized_sensors.clone();
     session.state.per_cam_target_poses = Some(per_cam_target_poses);
     session.state.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
 
@@ -403,7 +480,11 @@ pub fn step_intrinsics_optimize_all(
         format!("avg_reproj_err={avg_error:.3}px"),
     );
 
-    Ok(())
+    Ok(RigHandeyeIntrinsicsOptimizeAllResult {
+        per_cam_intrinsics: optimized_cameras,
+        per_cam_sensors: optimized_sensors,
+        per_cam_reproj_errors,
+    })
 }
 
 /// Initialize rig extrinsics from per-camera target poses.
@@ -417,10 +498,10 @@ pub fn step_intrinsics_optimize_all(
 /// - Input not set
 /// - Per-camera intrinsics not computed
 /// - Insufficient overlapping views between cameras
-pub fn step_set_rig_init(
+pub fn step_rig_init_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     manual: RigHandeyeRigManualInit,
-) -> Result<(), Error> {
+) -> Result<RigHandeyeRigInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -489,8 +570,8 @@ pub fn step_set_rig_init(
         }
     };
 
-    session.state.initial_cam_se3_rig = Some(cam_se3_rig);
-    session.state.initial_rig_se3_target = Some(rig_se3_target);
+    session.state.initial_cam_se3_rig = Some(cam_se3_rig.clone());
+    session.state.initial_rig_se3_target = Some(rig_se3_target.clone());
 
     let source = format_init_source(&manual_fields, &auto_fields);
     session.log_success_with_notes(
@@ -501,11 +582,19 @@ pub fn step_set_rig_init(
         ),
     );
 
-    Ok(())
+    Ok(RigHandeyeRigInitResult {
+        initial_cam_se3_rig: cam_se3_rig,
+        initial_rig_se3_target: rig_se3_target,
+    })
 }
 
-pub fn step_rig_init(session: &mut CalibrationSession<RigHandeyeProblem>) -> Result<(), Error> {
-    step_set_rig_init(session, RigHandeyeRigManualInit::default())
+/// Initialize rig extrinsics using full auto-init (linear extrinsics fit).
+///
+/// Convenience wrapper around [`step_rig_init_with_seed`] with default seeds.
+pub fn step_rig_init(
+    session: &mut CalibrationSession<RigHandeyeProblem>,
+) -> Result<RigHandeyeRigInitResult, Error> {
+    step_rig_init_with_seed(session, RigHandeyeRigManualInit::default())
 }
 
 /// Optimize rig extrinsics using bundle adjustment.
@@ -525,7 +614,7 @@ pub fn step_rig_init(session: &mut CalibrationSession<RigHandeyeProblem>) -> Res
 pub fn step_rig_optimize(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<RigOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<RigHandeyeRigOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -719,9 +808,12 @@ pub fn step_rig_optimize(
     };
 
     let cam_se3_rig: Vec<Iso3> = opt.cam_to_rig.iter().map(|t| t.inverse()).collect();
+    let mean_reproj_error = opt.mean_reproj_error;
+    let per_cam_reproj_errors = opt.per_cam_reproj_errors.clone();
+    let final_cost = opt.final_cost;
     session.state.rig_ba_cam_se3_rig = Some(cam_se3_rig);
     session.state.rig_ba_rig_se3_target = Some(opt.rig_from_target);
-    session.state.rig_ba_reproj_error = Some(opt.mean_reproj_error);
+    session.state.rig_ba_reproj_error = Some(mean_reproj_error);
     session.state.rig_ba_per_cam_reproj_errors = Some(opt.per_cam_reproj_errors);
     session.state.per_cam_intrinsics = Some(opt.cameras);
     if opt.sensors.is_some() {
@@ -730,13 +822,13 @@ pub fn step_rig_optimize(
 
     session.log_success_with_notes(
         "rig_optimize",
-        format!(
-            "final_cost={:.2e}, mean_reproj_err={:.3}px",
-            opt.final_cost, opt.mean_reproj_error
-        ),
+        format!("final_cost={final_cost:.2e}, mean_reproj_err={mean_reproj_error:.3}px"),
     );
 
-    Ok(())
+    Ok(RigHandeyeRigOptimizeResult {
+        mean_reproj_error,
+        per_cam_reproj_errors,
+    })
 }
 
 /// Initialize hand-eye transform from robot poses and rig poses.
@@ -750,11 +842,11 @@ pub fn step_rig_optimize(
 /// - Input not set
 /// - Rig optimization not run
 /// - Linear hand-eye estimation fails
-pub fn step_set_handeye_init(
+pub fn step_handeye_init_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     manual: RigHandeyeHandeyeManualInit,
     opts: Option<HandeyeInitOptions>,
-) -> Result<(), Error> {
+) -> Result<RigHandeyeHandeyeInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -847,14 +939,20 @@ pub fn step_set_handeye_init(
         ),
     );
 
-    Ok(())
+    Ok(RigHandeyeHandeyeInitResult {
+        initial_handeye: handeye,
+        initial_mode_target_pose: Some(mode_target_pose),
+    })
 }
 
+/// Initialize hand-eye transform using the linear Tsai-Lenz DLT path.
+///
+/// Convenience wrapper around [`step_handeye_init_with_seed`] with default seeds.
 pub fn step_handeye_init(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<HandeyeInitOptions>,
-) -> Result<(), Error> {
-    step_set_handeye_init(session, RigHandeyeHandeyeManualInit::default(), opts)
+) -> Result<RigHandeyeHandeyeInitResult, Error> {
+    step_handeye_init_with_seed(session, RigHandeyeHandeyeManualInit::default(), opts)
 }
 
 /// Optimize hand-eye calibration using bundle adjustment.
@@ -876,7 +974,7 @@ pub fn step_handeye_init(
 pub fn step_handeye_optimize(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<HandeyeOptimizeOptions>,
-) -> Result<(), Error> {
+) -> Result<RigHandeyeHandeyeOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?.clone();
 
@@ -1017,14 +1115,18 @@ pub fn step_handeye_optimize(
     };
 
     let final_cost = output.final_cost();
+    let mean_reproj_error = final_cost.sqrt();
     session.state.final_cost = Some(final_cost);
-    session.state.final_reproj_error = Some(final_cost.sqrt());
+    session.state.final_reproj_error = Some(mean_reproj_error);
 
     session.set_output(output);
 
     session.log_success_with_notes("handeye_optimize", format!("final_cost={final_cost:.2e}"));
 
-    Ok(())
+    Ok(RigHandeyeHandeyeOptimizeResult {
+        mean_reproj_error,
+        final_cost,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1040,12 +1142,12 @@ pub fn step_handeye_optimize(
 ///
 /// Any error from the constituent steps.
 pub fn run_calibration(session: &mut CalibrationSession<RigHandeyeProblem>) -> Result<(), Error> {
-    step_intrinsics_init_all(session, None)?;
-    step_intrinsics_optimize_all(session, None)?;
-    step_rig_init(session)?;
-    step_rig_optimize(session, None)?;
-    step_handeye_init(session, None)?;
-    step_handeye_optimize(session, None)?;
+    let _ = step_intrinsics_init_all(session, None)?;
+    let _ = step_intrinsics_optimize_all(session, None)?;
+    let _ = step_rig_init(session)?;
+    let _ = step_rig_optimize(session, None)?;
+    let _ = step_handeye_init(session, None)?;
+    let _ = step_handeye_optimize(session, None)?;
     Ok(())
 }
 
@@ -1279,7 +1381,7 @@ mod tests {
             handeye: Some(t_r_b),
             mode_target_pose: None,
         };
-        step_set_handeye_init(&mut session, manual, None).unwrap();
+        step_handeye_init_with_seed(&mut session, manual, None).unwrap();
 
         let recovered = session.state.initial_mode_target_pose.unwrap();
         let dt = (recovered.translation.vector - t_g_t.translation.vector).norm();

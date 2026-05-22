@@ -14,7 +14,7 @@ use vision_calibration_core::{Iso3, PinholeCamera};
 /// - Hand-eye initialization
 /// - Optimization metrics
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SingleCamHandeyeState {
+pub(crate) struct SingleCamHandeyeState {
     // ─────────────────────────────────────────────────────────────────────────
     // From intrinsics initialization
     // ─────────────────────────────────────────────────────────────────────────
@@ -78,11 +78,13 @@ impl SingleCamHandeyeState {
     }
 
     /// Check if hand-eye optimization has been run.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn has_handeye_optimized(&self) -> bool {
         self.handeye_final_cost.is_some()
     }
 
     /// Clear hand-eye results, keeping intrinsics.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn clear_handeye(&mut self) {
         self.initial_gripper_se3_camera = None;
         self.initial_camera_se3_base = None;
@@ -93,6 +95,7 @@ impl SingleCamHandeyeState {
     }
 
     /// Clear everything.
+    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
     pub fn clear(&mut self) {
         *self = Self::default();
     }

@@ -157,16 +157,20 @@ impl OptimBackend for TinySolverBackend {
         opts: &BackendSolveOptions,
     ) -> Result<BackendSolution> {
         let (problem, initial_map) = self.compile(ir, initial)?;
-        let solution = solve_levenberg_marquardt(&problem, &initial_map, opts)
-            .ok_or_else(|| anyhow!("tiny-solver failed to converge"))?;
+        let LmSolution { params, num_iters } =
+            solve_levenberg_marquardt(&problem, &initial_map, opts)
+                .ok_or_else(|| anyhow!("tiny-solver failed to converge"))?;
 
-        let param_blocks = problem.initialize_parameter_blocks(&solution);
+        let param_blocks = problem.initialize_parameter_blocks(&params);
         let residuals = problem.compute_residuals(&param_blocks, true);
         let final_cost = 0.5 * residuals.as_ref().squared_norm_l2();
 
         Ok(BackendSolution {
-            params: solution,
-            solve_report: SolveReport { final_cost },
+            params,
+            solve_report: SolveReport {
+                final_cost,
+                num_iters,
+            },
         })
     }
 }
@@ -195,18 +199,28 @@ fn to_optimizer_options(opts: &BackendSolveOptions) -> OptimizerOptions {
     options
 }
 
+/// Outcome of a Levenberg-Marquardt solve: optimized parameters plus the
+/// number of outer iterations executed.
+struct LmSolution {
+    params: HashMap<String, DVector<f64>>,
+    num_iters: usize,
+}
+
 fn solve_levenberg_marquardt(
     problem: &Problem,
     initial: &HashMap<String, DVector<f64>>,
     opts: &BackendSolveOptions,
-) -> Option<HashMap<String, DVector<f64>>> {
+) -> Option<LmSolution> {
     let opt_options = to_optimizer_options(opts);
     let mut parameter_blocks = problem.initialize_parameter_blocks(initial);
     let variable_name_to_col_idx_dict =
         problem.get_variable_name_to_col_idx_dict(&parameter_blocks);
     let total_variable_dimension = total_variable_dimension(&parameter_blocks);
     if total_variable_dimension == 0 {
-        return Some(params_from_blocks(&parameter_blocks));
+        return Some(LmSolution {
+            params: params_from_blocks(&parameter_blocks),
+            num_iters: 0,
+        });
     }
 
     let symbolic_structure = problem.build_symbolic_structure(
@@ -222,7 +236,9 @@ fn solve_levenberg_marquardt(
         return None;
     }
 
+    let mut num_iters = 0usize;
     for outer_iter in 0..opt_options.max_iteration {
+        num_iters = outer_iter + 1;
         let last_error = current_error;
         let (residuals, mut jac) = problem.compute_residual_and_jacobian(
             &parameter_blocks,
@@ -325,7 +341,10 @@ fn solve_levenberg_marquardt(
         }
     }
 
-    Some(params_from_blocks(&parameter_blocks))
+    Some(LmSolution {
+        params: params_from_blocks(&parameter_blocks),
+        num_iters,
+    })
 }
 
 fn make_linear_solver(linear_solver_type: LinearSolverType) -> Box<dyn SparseLinearSolver> {
@@ -1164,9 +1183,14 @@ mod tests {
         };
         let solution = solve_levenberg_marquardt(&problem, &initial, &opts)
             .expect("LM should recover after increasing damping");
-        let solved_blocks = problem.initialize_parameter_blocks(&solution);
+        let solved_blocks = problem.initialize_parameter_blocks(&solution.params);
         let solved_error = compute_error(&problem, &solved_blocks);
-        let x = solution["x"][0];
+        let x = solution.params["x"][0];
+        assert!(
+            solution.num_iters > 0 && solution.num_iters <= opts.max_iters,
+            "iteration count should be within bounds, got {}",
+            solution.num_iters
+        );
 
         assert!(
             solved_error < initial_error * 1e-8,

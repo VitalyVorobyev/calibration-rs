@@ -13,8 +13,7 @@ pub use problem::{
     LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput, LaserlineDeviceProblem,
     LaserlineDeviceSolverConfig,
 };
-pub use state::LaserlineDeviceState;
 pub use steps::{
-    DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceManualInit, run_calibration,
-    step_init, step_optimize, step_set_init,
+    DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceInitResult, LaserlineDeviceManualInit,
+    LaserlineDeviceOptimizeResult, run_calibration, step_init, step_init_with_seed, step_optimize,
 };

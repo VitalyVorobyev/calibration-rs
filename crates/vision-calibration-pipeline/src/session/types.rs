@@ -7,6 +7,7 @@ use std::time::SystemTime;
 
 /// Metadata about a calibration session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SessionMetadata {
     /// Problem type identifier (from `ProblemType::name()`).
     pub problem_type: String,
@@ -59,6 +60,7 @@ impl SessionMetadata {
 /// Captures basic information about operations performed on a session.
 /// Intended for debugging and audit trail, not for replay/undo.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LogEntry {
     /// Unix timestamp of the operation (seconds since epoch).
     pub timestamp: u64,

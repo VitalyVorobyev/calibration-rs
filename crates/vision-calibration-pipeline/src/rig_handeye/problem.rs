@@ -7,19 +7,20 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     Camera, FeatureResidualHistogram, ImageManifest, Iso3, PerFeatureResiduals, Pinhole,
-    PinholeCamera, ScheimpflugParams, build_feature_histogram, compute_rig_target_residuals,
+    PinholeCamera, RigDataset, ScheimpflugParams, build_feature_histogram,
+    compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
     HandEyeEstimate as PinholeHandEyeEstimate, HandEyeMode,
-    HandEyeScheimpflugEstimate as ScheimpflugHandEyeEstimate, RigDataset, RobotPoseMeta,
-    RobustLoss, handeye_observer_se3_target,
+    HandEyeScheimpflugEstimate as ScheimpflugHandEyeEstimate, RobotPoseMeta, RobustLoss,
+    handeye_observer_se3_target,
 };
 #[cfg(test)]
 use vision_calibration_optim::{HandEyeParams, SolveReport};
 
 pub use crate::rig_family::SensorMode;
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigHandeyeState;
 
@@ -193,6 +194,7 @@ impl Default for RigHandeyeBaConfig {
 /// structurally similar but type-distinct optim estimates; this enum
 /// preserves both as `Self::Output` for [`RigHandeyeProblem`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum RigHandeyeOutput {
     /// Pinhole hand-eye BA estimate.
     Pinhole(PinholeHandEyeEstimate),
@@ -396,10 +398,13 @@ pub struct RigHandeyeExport {
 #[derive(Debug)]
 pub struct RigHandeyeProblem;
 
+impl ProblemState for RigHandeyeProblem {
+    type State = RigHandeyeState;
+}
+
 impl ProblemType for RigHandeyeProblem {
     type Config = RigHandeyeConfig;
     type Input = RigHandeyeInput;
-    type State = RigHandeyeState;
     type Output = RigHandeyeOutput;
     type Export = RigHandeyeExport;
 
@@ -560,6 +565,9 @@ impl ProblemType for RigHandeyeProblem {
             })
             .collect();
 
+        let mut per_feature_residuals = PerFeatureResiduals::default();
+        per_feature_residuals.target = target;
+        per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
         Ok(RigHandeyeExport {
             cameras: output.cameras().to_vec(),
             sensors: output.sensors().map(|s| s.to_vec()),
@@ -573,12 +581,7 @@ impl ProblemType for RigHandeyeProblem {
             robot_deltas: output.robot_deltas().map(|d| d.to_vec()),
             mean_reproj_error: output.mean_reproj_error(),
             per_cam_reproj_errors: output.per_cam_reproj_errors().to_vec(),
-            per_feature_residuals: PerFeatureResiduals {
-                target,
-                laser: Vec::new(),
-                target_hist_per_camera: Some(target_hist_per_camera),
-                laser_hist_per_camera: None,
-            },
+            per_feature_residuals,
             // Manifest is populated by callers that also wrote images for
             // the dataset (e.g. the puzzle 130×130 example); the pipeline
             // itself never has image paths to fill in.
@@ -738,7 +741,10 @@ mod tests {
                 handeye: Iso3::identity(),
                 target_poses: vec![Iso3::identity()],
             },
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             robot_deltas: None,
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0],
@@ -881,22 +887,24 @@ mod tests {
         };
         let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
         let mut export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
-        export.image_manifest = Some(ImageManifest {
-            root: std::path::PathBuf::from("."),
-            frames: (0..6)
-                .map(|cam| FrameRef {
-                    pose: 0,
-                    camera: cam,
-                    path: std::path::PathBuf::from("target_0.png"),
-                    roi: Some(PixelRect {
-                        x: (cam as u32) * 720,
-                        y: 0,
-                        w: 720,
-                        h: 540,
-                    }),
-                })
-                .collect(),
-        });
+        let frames: Vec<FrameRef> = (0..6)
+            .map(|cam| {
+                let mut roi = PixelRect::default();
+                roi.x = (cam as u32) * 720;
+                roi.w = 720;
+                roi.h = 540;
+                let mut frame = FrameRef::default();
+                frame.pose = 0;
+                frame.camera = cam;
+                frame.path = std::path::PathBuf::from("target_0.png");
+                frame.roi = Some(roi);
+                frame
+            })
+            .collect();
+        let mut manifest = ImageManifest::default();
+        manifest.root = std::path::PathBuf::from(".");
+        manifest.frames = frames;
+        export.image_manifest = Some(manifest);
 
         let json = serde_json::to_string(&export).unwrap();
         let restored: RigHandeyeExport = serde_json::from_str(&json).unwrap();

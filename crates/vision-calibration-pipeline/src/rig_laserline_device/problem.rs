@@ -13,7 +13,7 @@ use vision_calibration_optim::{
     compute_rig_laserline_feature_residuals,
 };
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigLaserlineDeviceState;
 
@@ -143,10 +143,13 @@ pub struct RigLaserlineDeviceExport {
 #[derive(Debug)]
 pub struct RigLaserlineDeviceProblem;
 
+impl ProblemState for RigLaserlineDeviceProblem {
+    type State = RigLaserlineDeviceState;
+}
+
 impl ProblemType for RigLaserlineDeviceProblem {
     type Config = RigLaserlineDeviceConfig;
     type Input = RigLaserlineDeviceInput;
-    type State = RigLaserlineDeviceState;
     type Output = RigLaserlineEstimate;
     type Export = RigLaserlineDeviceExport;
 
@@ -274,16 +277,16 @@ impl ProblemType for RigLaserlineDeviceProblem {
             })
             .collect();
 
+        let mut per_feature_residuals = PerFeatureResiduals::default();
+        per_feature_residuals.target = target;
+        per_feature_residuals.laser = laser;
+        per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
+        per_feature_residuals.laser_hist_per_camera = Some(laser_hist_per_camera);
         Ok(RigLaserlineDeviceExport {
             laser_planes_rig: output.laser_planes_rig.clone(),
             laser_planes_cam: output.laser_planes_cam.clone(),
             per_camera_stats: output.per_camera_stats.clone(),
-            per_feature_residuals: PerFeatureResiduals {
-                target,
-                laser,
-                target_hist_per_camera: Some(target_hist_per_camera),
-                laser_hist_per_camera: Some(laser_hist_per_camera),
-            },
+            per_feature_residuals,
             // Manifest is populated by callers that wrote images for the
             // dataset; the pipeline never has image paths to fill in.
             image_manifest: None,
@@ -334,22 +337,24 @@ mod tests {
         use vision_calibration_core::{FrameRef, ImageManifest, PixelRect};
 
         let mut export = make_minimal_export();
-        export.image_manifest = Some(ImageManifest {
-            root: std::path::PathBuf::from("."),
-            frames: (0..6)
-                .map(|cam| FrameRef {
-                    pose: 0,
-                    camera: cam,
-                    path: std::path::PathBuf::from("target_0.png"),
-                    roi: Some(PixelRect {
-                        x: (cam as u32) * 720,
-                        y: 0,
-                        w: 720,
-                        h: 540,
-                    }),
-                })
-                .collect(),
-        });
+        let frames: Vec<FrameRef> = (0..6)
+            .map(|cam| {
+                let mut roi = PixelRect::default();
+                roi.x = (cam as u32) * 720;
+                roi.w = 720;
+                roi.h = 540;
+                let mut frame = FrameRef::default();
+                frame.pose = 0;
+                frame.camera = cam;
+                frame.path = std::path::PathBuf::from("target_0.png");
+                frame.roi = Some(roi);
+                frame
+            })
+            .collect();
+        let mut manifest = ImageManifest::default();
+        manifest.root = std::path::PathBuf::from(".");
+        manifest.frames = frames;
+        export.image_manifest = Some(manifest);
 
         let json = serde_json::to_string(&export).unwrap();
         let restored: RigLaserlineDeviceExport = serde_json::from_str(&json).unwrap();

@@ -5,10 +5,12 @@ use vision_calibration_core::{
     BrownConrady5, CorrespondenceView, Iso3, Mat3, Mat4, NoMeta, PlanarDataset, Pt2, Pt3, Real,
     test_utils::{CalibrationView, CornerInfo, ViewDetections, build_corner_info},
 };
-use vision_calibration_linear::{
-    EpipolarSolver, HomographySolver, Mat34, PlanarIntrinsicsLinearInit, PlanarPoseSolver,
-    triangulate_point_linear,
-};
+use vision_calibration_linear::camera_matrix::Mat34;
+use vision_calibration_linear::epipolar::EpipolarSolver;
+use vision_calibration_linear::homography::HomographySolver;
+use vision_calibration_linear::planar_pose::PlanarPoseSolver;
+use vision_calibration_linear::triangulation::triangulate_point_linear;
+use vision_calibration_linear::zhang_intrinsics::PlanarIntrinsicsLinearInit;
 
 #[derive(Debug, Deserialize)]
 struct StereoData {
@@ -387,7 +389,7 @@ fn stereo_triangulation_recovers_board_points() {
 }
 
 use vision_calibration_core::View;
-use vision_calibration_linear::DistortionFitOptions;
+use vision_calibration_linear::distortion_fit::DistortionFitOptions;
 use vision_calibration_linear::iterative_intrinsics::{
     IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
 };

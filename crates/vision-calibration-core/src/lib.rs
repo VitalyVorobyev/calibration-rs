@@ -64,19 +64,39 @@ mod ransac;
 pub mod synthetic;
 /// Test utilities for cross-crate calibration testing.
 ///
-/// This module is public to allow usage in integration tests across
-/// the workspace, but is not intended for production use.
+/// Gated behind the unstable, internal `test-utils` feature so it is not part
+/// of the published API surface. Enabled only by workspace test suites; do not
+/// rely on it from production code.
+#[cfg(feature = "test-utils")]
+#[doc(hidden)]
 pub mod test_utils;
 /// Common types for observations, results, and options.
 mod types;
 mod view;
 
 pub use error::Error;
-pub use math::*;
-pub use models::*;
-pub use ransac::*;
-pub use types::*;
-pub use view::*;
+
+// Crate-root public surface, re-exported explicitly from the (private) modules.
+// Each list reproduces every item the corresponding `pub use <module>::*;` glob
+// used to flatten into the crate root. Keep these lists curated: adding a new
+// `pub` item to a private module no longer silently widens the public API.
+pub use math::{
+    Iso3, Mat3, Mat4, Pt2, Pt3, Real, Vec2, Vec3, coordinate_utils, distort_to_pixel,
+    from_homogeneous, normalized_to_pixel, pixel_to_normalized, to_homogeneous, undistort_pixel,
+};
+pub use models::{
+    AnyDistortion, AnyIntrinsics, AnyProjection, AnySensor, BrownConrady5, Camera, CameraModel,
+    CameraParams, CameraProject, DistortionModel, DistortionParams, FxFyCxCySkew, HomographySensor,
+    IdentitySensor, IntrinsicsModel, IntrinsicsParams, NoDistortion, Pinhole, ProjectionModel,
+    ProjectionParams, Ray, ScheimpflugParams, SensorModel, SensorParams,
+};
+pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
+pub use types::{
+    CameraFixMask, CorrespondenceView, DistortionFixMask, FeatureResidualHistogram, FrameRef,
+    ImageManifest, IntrinsicsFixMask, LaserFeatureResidual, PerFeatureResiduals, PixelRect,
+    REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, TargetFeatureResidual,
+};
+pub use view::{NoMeta, PlanarDataset, RigDataset, RigView, RigViewObs, View};
 
 /// Concrete pinhole camera alias used across single-camera workflows.
 ///

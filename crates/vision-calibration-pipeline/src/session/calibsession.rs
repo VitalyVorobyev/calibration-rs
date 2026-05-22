@@ -44,7 +44,9 @@ use super::types::{ExportRecord, LogEntry, SessionMetadata};
 #[serde(bound = "P: ProblemType")]
 pub struct CalibrationSession<P: ProblemType> {
     /// Session metadata (problem type, schema version, timestamps, description).
-    pub metadata: SessionMetadata,
+    ///
+    /// Crate-private — consumers read [`Self::metadata`](Self::metadata).
+    pub(crate) metadata: SessionMetadata,
 
     /// Configuration parameters (always present, defaults if not explicitly set).
     pub config: P::Config,
@@ -53,7 +55,11 @@ pub struct CalibrationSession<P: ProblemType> {
     input: Option<P::Input>,
 
     /// Problem-specific intermediate state (default until computed).
-    pub state: P::State,
+    ///
+    /// Internal pipeline scratch space — crate-private. Consumers read typed
+    /// `step_*` return values, [`Self::log`](Self::log),
+    /// [`Self::metadata`](Self::metadata), or `export()` instead.
+    pub(crate) state: P::State,
 
     /// Final calibration output. `None` until computed.
     output: Option<P::Output>,
@@ -62,7 +68,9 @@ pub struct CalibrationSession<P: ProblemType> {
     pub exports: Vec<ExportRecord<P::Export>>,
 
     /// Operation log (lightweight audit trail).
-    pub log: Vec<LogEntry>,
+    ///
+    /// Crate-private — consumers read [`Self::log`](Self::log).
+    pub(crate) log: Vec<LogEntry>,
 }
 
 impl<P: ProblemType> CalibrationSession<P> {
@@ -374,6 +382,17 @@ impl<P: ProblemType> CalibrationSession<P> {
         self.metadata.touch();
     }
 
+    /// Immutable view of the operation log (lightweight audit trail).
+    pub fn log(&self) -> &[LogEntry] {
+        &self.log
+    }
+
+    /// Immutable view of the session metadata (problem type, schema version,
+    /// timestamps, description).
+    pub fn metadata(&self) -> &SessionMetadata {
+        &self.metadata
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Reset
     // ─────────────────────────────────────────────────────────────────────────
@@ -467,6 +486,7 @@ impl<P: ProblemType> Default for CalibrationSession<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::problem_type::ProblemState;
     use serde::{Deserialize, Serialize};
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -502,10 +522,13 @@ mod tests {
     #[derive(Debug)]
     struct MockProblem;
 
+    impl ProblemState for MockProblem {
+        type State = MockState;
+    }
+
     impl ProblemType for MockProblem {
         type Config = MockConfig;
         type Input = MockInput;
-        type State = MockState;
         type Output = MockOutput;
         type Export = MockExport;
 

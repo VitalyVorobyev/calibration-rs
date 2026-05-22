@@ -8,7 +8,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{RobustLoss, SolveReport};
 
-use crate::session::{InvalidationPolicy, ProblemType};
+use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::ScheimpflugIntrinsicsState;
 
@@ -98,6 +98,7 @@ pub struct ScheimpflugIntrinsicsParams {
 
 /// Calibration output including parameters, solver report, and summary metrics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ScheimpflugIntrinsicsResult {
     /// Estimated parameters.
     pub params: ScheimpflugIntrinsicsParams,
@@ -126,10 +127,13 @@ pub struct ScheimpflugIntrinsicsExport {
     pub per_feature_residuals: PerFeatureResiduals,
 }
 
+impl ProblemState for ScheimpflugIntrinsicsProblem {
+    type State = ScheimpflugIntrinsicsState;
+}
+
 impl ProblemType for ScheimpflugIntrinsicsProblem {
     type Config = ScheimpflugIntrinsicsConfig;
     type Input = ScheimpflugIntrinsicsInput;
-    type State = ScheimpflugIntrinsicsState;
     type Output = ScheimpflugIntrinsicsResult;
     type Export = ScheimpflugIntrinsicsExport;
 
@@ -190,17 +194,15 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
             compute_planar_target_residuals(&camera, input, &output.params.camera_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
 
+        let mut per_feature_residuals = PerFeatureResiduals::default();
+        per_feature_residuals.target = target;
+        per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
         Ok(ScheimpflugIntrinsicsExport {
             params: output.params.clone(),
             report: output.report.clone(),
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: vec![output.mean_reproj_error],
-            per_feature_residuals: PerFeatureResiduals {
-                target,
-                laser: Vec::new(),
-                target_hist_per_camera: Some(vec![target_hist]),
-                laser_hist_per_camera: None,
-            },
+            per_feature_residuals,
         })
     }
 }
@@ -345,7 +347,10 @@ mod tests {
                 },
                 camera_se3_target: vec![Iso3::identity()],
             },
-            report: SolveReport { final_cost: 1.0 },
+            report: SolveReport {
+                final_cost: 1.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.25,
         };
 
