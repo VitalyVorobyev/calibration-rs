@@ -393,11 +393,10 @@ pub fn step_optimize(
     // Update state
     let final_cost = result.report.final_cost;
     let mean_reproj_error = result.mean_reproj_error;
-    // `SolveReport` currently does not expose an iteration count; the
-    // state field is kept for future use (see `PlanarState::iterations`).
-    let iterations = session.state.iterations.unwrap_or(0);
+    let iterations = result.report.num_iters;
     session.state.final_cost = Some(final_cost);
     session.state.mean_reproj_error = Some(mean_reproj_error);
+    session.state.iterations = Some(iterations);
 
     // Set output
     session.set_output(result);

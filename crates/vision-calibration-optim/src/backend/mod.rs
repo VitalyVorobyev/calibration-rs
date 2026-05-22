@@ -60,8 +60,10 @@ pub enum LinearSolverKind {
 pub struct SolveReport {
     /// Final objective value reported by backend.
     pub final_cost: f64,
+    /// Number of outer solver iterations executed.
+    #[serde(default)]
+    pub num_iters: usize,
     // strongly consider adding:
-    // pub num_iters: usize,
     // pub status: SolveStatus,
     // pub time_ms: u64,
 }

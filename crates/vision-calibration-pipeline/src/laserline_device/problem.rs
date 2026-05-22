@@ -406,7 +406,10 @@ mod tests {
         let params = LaserlineParams::new(intrinsics, distortion, sensor, poses, plane).unwrap();
         let estimate = LaserlineEstimate {
             params,
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
         };
         let stats = LaserlineStats {
             mean_reproj_error: 0.0,
@@ -507,7 +510,10 @@ mod tests {
         let output = LaserlineDeviceOutput {
             estimate: LaserlineEstimate {
                 params,
-                report: SolveReport { final_cost: 0.0 },
+                report: SolveReport {
+                    final_cost: 0.0,
+                    num_iters: 0,
+                },
             },
             stats: LaserlineStats {
                 mean_reproj_error: 0.0,

@@ -449,6 +449,7 @@ mod tests {
             params,
             report: SolveReport {
                 final_cost: 1.23e-3,
+                num_iters: 0,
             },
             mean_reproj_error: 0.42,
         };
@@ -540,7 +541,10 @@ mod tests {
             PlanarIntrinsicsParams::new(camera, vec![pose, pose, pose]).expect("valid params");
         let output = PlanarIntrinsicsEstimate {
             params,
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.0,
         };
 
@@ -604,7 +608,10 @@ mod tests {
         let params = PlanarIntrinsicsParams::new(camera, vec![pose]).expect("valid params");
         let output = PlanarIntrinsicsEstimate {
             params,
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.0,
         };
         let export =
@@ -654,7 +661,10 @@ mod tests {
                 .expect("valid params");
         let mut export = PlanarIntrinsicsExport {
             params,
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0],
             per_feature_residuals: PerFeatureResiduals::default(),

@@ -347,7 +347,10 @@ mod tests {
                 },
                 camera_se3_target: vec![Iso3::identity()],
             },
-            report: SolveReport { final_cost: 1.0 },
+            report: SolveReport {
+                final_cost: 1.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.25,
         };
 

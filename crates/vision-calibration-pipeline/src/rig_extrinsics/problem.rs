@@ -614,7 +614,10 @@ mod tests {
                 cam_to_rig,
                 rig_from_target,
             },
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0, 0.0],
         });
@@ -697,7 +700,10 @@ mod tests {
                 cam_to_rig,
                 rig_from_target,
             },
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0, 0.0],
         });
@@ -770,7 +776,10 @@ mod tests {
                 cam_to_rig,
                 rig_from_target,
             },
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0, 0.0],
         });

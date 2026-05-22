@@ -741,7 +741,10 @@ mod tests {
                 handeye: Iso3::identity(),
                 target_poses: vec![Iso3::identity()],
             },
-            report: SolveReport { final_cost: 0.0 },
+            report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
             robot_deltas: None,
             mean_reproj_error: 0.0,
             per_cam_reproj_errors: vec![0.0],
