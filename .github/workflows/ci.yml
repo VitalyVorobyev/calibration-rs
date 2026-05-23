@@ -37,14 +37,14 @@ jobs:
         run: cargo doc --no-deps --workspace
 
   msrv:
-    name: MSRV (1.88)
+    name: MSRV (1.93)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust 1.88
-        uses: dtolnay/rust-toolchain@1.88
+      - name: Install Rust 1.93
+        uses: dtolnay/rust-toolchain@1.93
 
       - name: Cargo build (MSRV)
         run: cargo build --workspace --all-features --locked

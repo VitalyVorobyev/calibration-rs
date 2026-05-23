@@ -5,7 +5,7 @@ version = "0.5.1"
 edition = "2024"
 license = "MIT"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
-rust-version = "1.88"
+rust-version = "1.93"
 publish = false
 
 [workspace]

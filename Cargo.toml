@@ -20,10 +20,10 @@ resolver = "2"
 [workspace.package]
 version = "0.5.1"
 edition = "2024"
-# MSRV is 1.88. Some transitive deps are pinned in Cargo.lock below their
-# latest release to stay MSRV-compatible. Before running `cargo update`,
-# read docs/MSRV.md — running it blindly will re-break the 1.88 CI job.
-rust-version = "1.88"
+# MSRV is 1.93. Bumped from 1.88 on 2026-05-23 to drop the
+# `fixed`/`kiddo` lockfile pins that kept breaking under `cargo update`.
+# See docs/MSRV.md.
+rust-version = "1.93"
 license = "MIT"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
 homepage = "https://vitalyvorobyev.github.io/calibration-rs"

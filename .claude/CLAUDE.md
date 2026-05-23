@@ -116,12 +116,10 @@ python3 -m compileall crates/vision-calibration-py/python/vision_calibration
 
 ## MSRV
 
-Workspace MSRV: **1.88**. Some transitive deps (`fixed`, `kiddo`) are
-pinned in `Cargo.lock` below their latest release to stay compatible.
-**Do not run `cargo update` without reading `docs/MSRV.md`** — it will
-silently bump deps past 1.88 and break the `MSRV (1.88)` CI job. The
-job uses `--locked` so drift fails at PR time, but the lockfile must
-be re-pinned manually after any update.
+Workspace MSRV: **1.93** (raised from 1.88 on 2026-05-23). No
+transitive deps are pinned for MSRV reasons; `cargo update` is safe.
+CI gate: `MSRV (1.93)` in `.github/workflows/ci.yml`. See
+`docs/MSRV.md` for history and bump policy.
 
 ## Releasing — version-source lockstep
 
