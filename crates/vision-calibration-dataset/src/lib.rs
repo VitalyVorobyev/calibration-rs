@@ -7,8 +7,8 @@
 //! user put it and the manifest just points at it.
 //!
 //! See ADR 0016 for the design rationale, and ADR 0019 for the
-//! fail-fast-on-ambiguity contract that the [`_unresolved`] field
-//! enables.
+//! fail-fast-on-ambiguity contract that the [`DatasetSpec::unresolved`]
+//! field enables.
 //!
 //! # Tiered fields
 //!
@@ -17,7 +17,7 @@
 //! structure / sample data) or `human_or_doc_required` (the AI is
 //! forbidden from guessing — it must read documentation or ask the
 //! user). When inference fails, the field is left `null` and the
-//! field path is recorded in [`DatasetSpec::_unresolved`]; the runner
+//! field path is recorded in [`DatasetSpec::unresolved`]; the runner
 //! refuses to proceed until that list is empty.
 //!
 //! Tier metadata is encoded as the `x-calib-tier` schema extension so

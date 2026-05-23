@@ -262,7 +262,7 @@ pub enum Topology {
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum PosePairing {
     /// All cameras have the same number of images, paired by index
-    /// (image[i] from cam0 ↔ image[i] from cam1 ↔ pose[i]).
+    /// (`image[i]` from cam0 ↔ `image[i]` from cam1 ↔ `pose[i]`).
     ByIndex,
     /// A regex applied to filenames extracts a shared "view token"
     /// (e.g. timestamp or pose id). All cameras and the pose file

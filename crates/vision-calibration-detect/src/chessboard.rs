@@ -18,7 +18,7 @@ use crate::{Detector, Feature};
 
 /// Chessboard detector configuration. Mirrors the shape of the
 /// chessboard variant in
-/// [`vision_calibration_dataset::TargetSpec`] so the dispatcher can
+/// `vision_calibration_dataset::TargetSpec` so the dispatcher can
 /// translate one to the other directly.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
