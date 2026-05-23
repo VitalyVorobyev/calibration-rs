@@ -48,7 +48,7 @@ schemars = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
 image = { version = "0.25" }
-calib-targets = "0.8"
+calib-targets = "0.9"
 glob = "0.3"
 rand = { version = "0.10" }
 tracing = { version = "0.1" }

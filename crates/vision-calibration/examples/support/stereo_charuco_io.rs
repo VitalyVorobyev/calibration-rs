@@ -15,8 +15,6 @@ pub const BOARD_CELL_SIZE_MM: f64 = 0.00135;
 pub const BOARD_MARKER_SIZE_REL: f32 = 0.75;
 pub const BOARD_DICTIONARY_NAME: &str = "DICT_4X4_1000";
 
-const GRAPH_MAX_SPACING_PX: f32 = 120.0;
-
 /// Summary of ChArUco stereo dataset loading.
 #[derive(Debug, Clone)]
 pub struct StereoCharucoDatasetSummary {
@@ -45,9 +43,7 @@ pub fn make_charuco_detector_params() -> CharucoParams {
         marker_layout: MarkerLayout::OpenCvCharuco,
     };
 
-    let mut params = CharucoParams::for_board(&board);
-    params.chessboard.cell_size_hint = Some(GRAPH_MAX_SPACING_PX);
-    params
+    CharucoParams::for_board(&board)
 }
 
 /// Load stereo ChArUco dataset from `base_dir/cam1` and `base_dir/cam2`.
@@ -206,10 +202,8 @@ fn detection_to_view_data(
 ) -> Result<Option<CorrespondenceView>> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();
-    for corner in detection.detection.corners {
-        let Some(target) = corner.target_position else {
-            continue;
-        };
+    for corner in detection.corners {
+        let target = corner.target_position;
         points_3d.push(Pt3::new(target.x as f64, target.y as f64, 0.0));
         points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
     }

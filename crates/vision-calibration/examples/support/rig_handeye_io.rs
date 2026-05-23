@@ -4,8 +4,8 @@
 //! robot poses for hand-eye calibration scenarios.
 
 use anyhow::{Context, Result, ensure};
-use calib_targets::chessboard::{Detection as ChessboardDetection, DetectorParams};
-use calib_targets::detect;
+use calib_targets::chessboard::{ChessboardDetection, DetectorParams};
+use calib_targets::detect::{self, default_chess_config};
 use image::ImageReader;
 use std::path::Path;
 use vision_calibration::core::{CorrespondenceView, Iso3, Pt3, Real, Vec2};
@@ -158,7 +158,7 @@ fn detect_view(
         .with_context(|| format!("failed to decode {}", path.display()))?
         .to_luma8();
 
-    let detection = detect::detect_chessboard(&img, board_params);
+    let detection = detect::detect_chessboard(&img, &default_chess_config(), board_params);
     let Some(detection) = detection else {
         return Ok(None);
     };
@@ -171,10 +171,8 @@ fn detection_to_view_data(
 ) -> Result<CorrespondenceView> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();
-    for corner in detection.target.corners {
-        let Some(grid) = corner.grid else {
-            continue;
-        };
+    for corner in detection.corners {
+        let grid = corner.grid;
         points_3d.push(Pt3::new(
             grid.i as Real * square_size_m,
             grid.j as Real * square_size_m,
