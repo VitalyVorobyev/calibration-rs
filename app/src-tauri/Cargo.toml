@@ -6,7 +6,7 @@ authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/VitalyVorobyev/calibration-rs"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.93"
 publish = false
 
 # This crate is intentionally NOT a member of the root Cargo workspace

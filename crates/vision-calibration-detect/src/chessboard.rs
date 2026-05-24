@@ -7,7 +7,7 @@
 
 use anyhow::{Result, anyhow};
 use calib_targets::chessboard::DetectorParams as ChessboardDetectorParams;
-use calib_targets::detect;
+use calib_targets::detect::{self, default_chess_config};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -18,7 +18,7 @@ use crate::{Detector, Feature};
 
 /// Chessboard detector configuration. Mirrors the shape of the
 /// chessboard variant in
-/// [`vision_calibration_dataset::TargetSpec`] so the dispatcher can
+/// `vision_calibration_dataset::TargetSpec` so the dispatcher can
 /// translate one to the other directly.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
@@ -53,12 +53,13 @@ impl Detector for ChessboardDetector {
         // The underlying detector auto-labels corners from
         // intersection clustering — `rows`/`cols` from our config are
         // used only for output validation, not as input parameters.
-        // ChESS corner config is fixed inside `detect::detect_chessboard`
-        // (uses `default_chess_config()`); callers needing custom ChESS
-        // parameters must drop down to `chessboard::Detector::detect`.
+        // We pass `default_chess_config()` for the ChESS corner stage;
+        // callers needing custom ChESS parameters must drop down to
+        // `chessboard::Detector::detect` directly.
         let board_params = ChessboardDetectorParams::default();
+        let chess_cfg = default_chess_config();
 
-        let detection = detect::detect_chessboard(&luma, &board_params);
+        let detection = detect::detect_chessboard(&luma, &chess_cfg, &board_params);
         let Some(detection) = detection else {
             return Ok(Vec::new());
         };
@@ -69,8 +70,8 @@ impl Detector for ChessboardDetector {
         let max_i = cfg.rows as i32;
         let max_j = cfg.cols as i32;
         let mut features = Vec::new();
-        for corner in detection.target.corners {
-            let Some(grid) = corner.grid else { continue };
+        for corner in detection.corners {
+            let grid = corner.grid;
             if grid.i < 0 || grid.j < 0 || grid.i >= max_i || grid.j >= max_j {
                 continue;
             }

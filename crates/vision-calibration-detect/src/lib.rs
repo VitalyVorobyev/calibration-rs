@@ -11,7 +11,7 @@
 //! ```
 //!
 //! The dispatcher (in `vision-calibration-pipeline`) maps a
-//! [`vision_calibration_dataset::TargetSpec`] to a `(name, config_json)`
+//! `vision_calibration_dataset::TargetSpec` to a `(name, config_json)`
 //! pair and calls into a registered detector. Cached features are keyed
 //! on `(image_content_hash, detector_name, canonical_config_hash)` so
 //! re-running with the same images and same detector params is free

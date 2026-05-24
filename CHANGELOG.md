@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-05-23
+
+### Fixed
+- **Docs publishing (`publish-docs.yml`).** Repair 7 rustdoc broken
+  intra-doc-links in `vision-calibration-dataset` and
+  `vision-calibration-detect` (both new crates in `0.5.0`) that
+  surfaced as hard errors under `RUSTDOCFLAGS=-D warnings`. The
+  workflow ran cleanly under the older `0.4.x` workspace because the
+  affected files did not exist. No public API change.
+- **PyPI release pipeline (`release-pypi.yml`).** Re-sync
+  `crates/vision-calibration-py/pyproject.toml` `project.version` with
+  the workspace version. The mismatch (pyproject was stuck at `0.3.0`
+  while the workspace shipped `0.4.0` and `0.5.0`) tripped the
+  `Verify tag/version sync` gate, so the wheel/sdist build and PyPI
+  upload were skipped for both prior tags. Wheels for `0.5.1` are the
+  first PyPI upload since `0.3.0`.
+
 ## [0.5.0] - 2026-05-21
 
 `0.5.0` bundles two pre-1.0 breaking efforts plus the first desktop

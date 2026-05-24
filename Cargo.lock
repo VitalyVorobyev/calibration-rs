@@ -174,9 +174,9 @@ dependencies = [
 
 [[package]]
 name = "autocfg"
-version = "1.5.0"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
+checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "av-scenechange"
@@ -274,24 +274,24 @@ dependencies = [
 
 [[package]]
 name = "box-image-pyramid"
-version = "0.8.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87aa24dde918ca16f7456406a93fe76918ba55cc78fbd7b8aac42cf41810afc5"
+checksum = "c276dec39b2cd785b656a046611e2a568c9b29c381309e67b2238eca45a749e8"
 dependencies = [
  "rayon",
 ]
 
 [[package]]
 name = "built"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4ad8f11f288f48ca24471bbd51ac257aaeaaa07adae295591266b792902ae64"
+checksum = "5c0e531d93d39c34eef561e929e8a7f86d77a5af08aac4f6d6e39976c51858e9"
 
 [[package]]
 name = "bumpalo"
-version = "3.20.2"
+version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
+checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "bytemuck"
@@ -333,9 +333,9 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "calib-targets"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1db8d8448709b972efa2ef7efd8b4738cf06971713c837bc9c0082a98f57b4d5"
+checksum = "1e2e057daa83f6bf9e8f39bb2391de33572f84e5b295bb7b3d421c33a791033a"
 dependencies = [
  "calib-targets-aruco",
  "calib-targets-charuco",
@@ -354,9 +354,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-aruco"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d990b6bd5696a0ab2b322a81d2e4d5148dc84d629e57977638637afd8991fc88"
+checksum = "6be5b9594bf3edd7a70c467f3b73619f194482f9f9f95c46ca19a428625c528f"
 dependencies = [
  "calib-targets-core",
  "log",
@@ -367,9 +367,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-charuco"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7af66c739d481175bdd12e7d16ee7aadc67165b0d2c7bcebe5456eb240c6789b"
+checksum = "55dcc0fa646774e8860d36e0b1b0764e061ee4773c3d3d7748e638dfb3f18da7"
 dependencies = [
  "calib-targets-aruco",
  "calib-targets-chessboard",
@@ -385,9 +385,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-chessboard"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "163b2769a687f46e681dafccb409d21feec422b098f63398e184a6630842e780"
+checksum = "259af022e610119bd8203defb7dc4b862ee5d3cdecadfa80078ffe2208c81809"
 dependencies = [
  "calib-targets-core",
  "kiddo",
@@ -400,9 +400,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-core"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92f9ad4b23e73fdb29124d26d74267f34686648181a919867431d2c89ea5eeea"
+checksum = "a5212e14ccf1c5f93454bc669231ce619297b727f9c134d1fb9814e52beef8dd"
 dependencies = [
  "chess-corners",
  "log",
@@ -415,9 +415,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-marker"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d74422dd07522178073cf222ed491e22064b1c03391aea4bd9c4b2b52a17c84"
+checksum = "bacd9e2ecb59c79a083a9241ad5624ff6a146c65b40500851c15ccf8308c6f9f"
 dependencies = [
  "calib-targets-chessboard",
  "calib-targets-core",
@@ -430,9 +430,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-print"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "533ee6c6ba56e730254dc811a7099397e9d9c0c3b021f6ae8ccf80d8610d717f"
+checksum = "5dcfb5467e876d3356fd76e85e8452c8a531ba8fccf5c115491c59e2885d1b41"
 dependencies = [
  "calib-targets-aruco",
  "calib-targets-charuco",
@@ -447,12 +447,13 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-puzzleboard"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7edd0b32560c320d657250e9907b4bcdc1a0f88da95a40865a09a7dbb1b9f9fe"
+checksum = "ff8608ecafdafd5a6176961dd478669840ea0673d15520824940ce7b8a8588be"
 dependencies = [
  "calib-targets-chessboard",
  "calib-targets-core",
+ "chess-corners",
  "nalgebra",
  "projective-grid",
  "serde",
@@ -491,9 +492,9 @@ dependencies = [
 
 [[package]]
 name = "chess-corners"
-version = "0.8.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec0f69e08802e9ec95a13a51f883c774d999d004fd866a1c4c14655edbd524af"
+checksum = "c2f37e99c9bb594553e04c51d375eeeb036577de197e22d02b620173519feabf"
 dependencies = [
  "box-image-pyramid",
  "chess-corners-core",
@@ -506,9 +507,9 @@ dependencies = [
 
 [[package]]
 name = "chess-corners-core"
-version = "0.8.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c71f1f26caffa180c4574c220746db2655b77825cb8b34aaa6fe2f3a9b87a7b1"
+checksum = "a8743fedd7808d42530bbcec6cce00ccd4bb59d24920bbe9ac7d76451aa0d639"
 dependencies = [
  "log",
  "rayon",
@@ -517,9 +518,9 @@ dependencies = [
 
 [[package]]
 name = "chess-corners-ml"
-version = "0.8.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b709a0831849b936ae970515c000cfa0ede4a2410db08263d4402d5aa79156ce"
+checksum = "d65cbf14f2af7d328a4d70a447921447c45a9ef865fe608096656c7a40e3a484"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -568,9 +569,9 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cmov"
-version = "0.4.6"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d5ce5728ecb5285a5dd35f02a6a8e34e0828e0b38e8e632e249a3fe3f320211"
+checksum = "3f88a43d011fc4a6876cb7344703e297c71dda42494fee094d5f7c76bf13f746"
 
 [[package]]
 name = "color_quant"
@@ -770,9 +771,9 @@ checksum = "e1d926b4d407d372f141f93bb444696142c29d32962ccbd3531117cf3aa0bfa9"
 
 [[package]]
 name = "either"
-version = "1.15.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 
 [[package]]
 name = "enum-as-inner"
@@ -963,9 +964,9 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fixed"
-version = "1.30.0"
+version = "1.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c566da967934c6c7ee0458a9773de9b2a685bd2ce26a3b28ddfc740e640182f5"
+checksum = "9af2cbf772fa6d1c11358f92ef554cb6b386201210bcf0e91fb7fba8a907fb40"
 dependencies = [
  "az",
  "bytemuck",
@@ -1481,9 +1482,9 @@ dependencies = [
 
 [[package]]
 name = "kiddo"
-version = "5.2.4"
+version = "5.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07ab03cc75e18eb1eec59f4037e2e17ce9d13920f0013b0719dea613d9414e4e"
+checksum = "5053bc2cb3ed5739b2ef170e00d40ecca487612fa0ee1535a912424ac18d2bb2"
 dependencies = [
  "aligned-vec",
  "array-init",
@@ -2216,9 +2217,9 @@ dependencies = [
 
 [[package]]
 name = "projective-grid"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4821fcfd313fe1fbb525a156a0ee5360b7dcf89245348f1061ef89e7c127246b"
+checksum = "04c6ff1a535e642c2e3729c31677556ec2351db090c685906f09da8b6b35790a"
 dependencies = [
  "delaunator",
  "kiddo",
@@ -2818,9 +2819,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.149"
+version = "1.0.150"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
+checksum = "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
 dependencies = [
  "itoa",
  "memchr",
@@ -3418,7 +3419,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vision-calibration"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "calib-targets",
@@ -3433,7 +3434,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "nalgebra",
@@ -3447,7 +3448,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-dataset"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "schemars",
  "serde",
@@ -3457,7 +3458,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-detect"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "calib-targets",
@@ -3471,7 +3472,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-linear"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "log",
@@ -3484,7 +3485,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-optim"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "faer",
@@ -3501,7 +3502,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-pipeline"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "glob",
@@ -3521,7 +3522,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-py"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "pyo3",
@@ -3567,9 +3568,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.121"
+version = "0.2.122"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49ace1d07c165b0864824eee619580c4689389afa9dc9ed3a4c75040d82e6790"
+checksum = "3ed04576f974d2b2fba0f38c51dbc5518011e38c36bf1143164be765528fd409"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -3580,9 +3581,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.121"
+version = "0.2.122"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e68e6f4afd367a562002c05637acb8578ff2dea1943df76afb9e83d177c8578"
+checksum = "916151b09da36bd82f6615cbf3a419e2f0ba23a03c6160e8e92eb6bd4aa1dec6"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -3590,9 +3591,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.121"
+version = "0.2.122"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d95a9ec35c64b2a7cb35d3fead40c4238d0940c86d107136999567a4703259f2"
+checksum = "299047362ccbfce148b67ab7e73349f77748e00c8296f9542adfad2ad82c5c5e"
 dependencies = [
  "bumpalo",
  "proc-macro2",
@@ -3603,9 +3604,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.121"
+version = "0.2.122"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4e0100b01e9f0d03189a92b96772a1fb998639d981193d7dbab487302513441"
+checksum = "9a929b2c61f11ba3e9bc35b50c1f25cb38e0e892c0c231ae2b8cf78d5dad4437"
 dependencies = [
  "unicode-ident",
 ]

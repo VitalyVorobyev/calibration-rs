@@ -116,12 +116,58 @@ python3 -m compileall crates/vision-calibration-py/python/vision_calibration
 
 ## MSRV
 
-Workspace MSRV: **1.88**. Some transitive deps (`fixed`, `kiddo`) are
-pinned in `Cargo.lock` below their latest release to stay compatible.
-**Do not run `cargo update` without reading `docs/MSRV.md`** — it will
-silently bump deps past 1.88 and break the `MSRV (1.88)` CI job. The
-job uses `--locked` so drift fails at PR time, but the lockfile must
-be re-pinned manually after any update.
+Workspace MSRV: **1.93** (raised from 1.88 on 2026-05-23). No
+transitive deps are pinned for MSRV reasons; `cargo update` is safe.
+CI gate: `MSRV (1.93)` in `.github/workflows/ci.yml`. See
+`docs/MSRV.md` for history and bump policy.
+
+## Releasing — version-source lockstep
+
+Four version sources must move together on every bump. The PR that
+prepares a release (the one that the release tag will point at) must
+update **all four** in the same commit, or the release tag will wedge
+in CI:
+
+1. `Cargo.toml` `workspace.package.version` (line ~21).
+2. `Cargo.toml` `[workspace.dependencies]` path-dep pins for the seven
+   workspace crates (`vision-calibration*`, lines ~33–39).
+3. `crates/vision-calibration-py/pyproject.toml` `project.version` —
+   the one that `release-pypi.yml`'s `Verify tag/version sync` job
+   reads directly. **Not** wired into `[workspace.package]`.
+4. `crates/vision-calibration-examples-private/Cargo.toml` (1 package
+   version + 4 path-dep pins). Out of the publish set but still
+   compiled in CI.
+
+`Cargo.lock` refreshes by running `cargo build --workspace` once after
+the `.toml` edits — only the workspace crate `version` strings change
+(no dep resolution).
+
+**Why this section exists.** `0.4.0` and `0.5.0` shipped to crates.io
+but never reached PyPI: each release missed the `pyproject.toml` bump,
+which tripped the `release-pypi.yml` verify gate and skipped the
+wheel build / upload. `0.5.1` repaired this; see the fix commit for
+the full failure map.
+
+**Pre-tag local check** (catches the four most common release breakages
+before the tag is pushed):
+
+```bash
+# All four version sources must print the same vX.Y.Z.
+grep -RHn 'version = "' Cargo.toml \
+    crates/vision-calibration-py/pyproject.toml \
+    crates/vision-calibration-examples-private/Cargo.toml \
+  | grep -v 'edition\|rust-version'
+
+# The publish-docs.yml gate (RUSTDOCFLAGS=-D warnings) only runs on
+# push-to-main, not on PRs. Run it locally before tagging — it catches
+# broken intra-doc-links that the ci.yml `cargo doc` step swallows.
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+
+# Confirm the pyo3 build still passes — the release-pypi.yml verify
+# job also rebuilds the extension before the wheel jobs fan out.
+maturin develop -m crates/vision-calibration-py/Cargo.toml
+python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
+```
 
 ## Planning
 

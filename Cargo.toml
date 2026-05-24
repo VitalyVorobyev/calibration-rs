@@ -18,25 +18,25 @@ exclude = ["app"]
 resolver = "2"
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
-# MSRV is 1.88. Some transitive deps are pinned in Cargo.lock below their
-# latest release to stay MSRV-compatible. Before running `cargo update`,
-# read docs/MSRV.md — running it blindly will re-break the 1.88 CI job.
-rust-version = "1.88"
+# MSRV is 1.93. Bumped from 1.88 on 2026-05-23 to drop the
+# `fixed`/`kiddo` lockfile pins that kept breaking under `cargo update`.
+# See docs/MSRV.md.
+rust-version = "1.93"
 license = "MIT"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
 homepage = "https://vitalyvorobyev.github.io/calibration-rs"
 repository = "https://github.com/VitalyVorobyev/calibration-rs"
 
 [workspace.dependencies]
-vision-calibration = { path = "./crates/vision-calibration", version = "0.5.0" }
-vision-calibration-core = { path = "./crates/vision-calibration-core", version = "0.5.0" }
-vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.5.0" }
-vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.5.0" }
-vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.5.0" }
-vision-calibration-dataset = { path = "./crates/vision-calibration-dataset", version = "0.5.0" }
-vision-calibration-detect = { path = "./crates/vision-calibration-detect", version = "0.5.0" }
+vision-calibration = { path = "./crates/vision-calibration", version = "0.5.1" }
+vision-calibration-core = { path = "./crates/vision-calibration-core", version = "0.5.1" }
+vision-calibration-linear = { path = "./crates/vision-calibration-linear", version = "0.5.1" }
+vision-calibration-optim = { path = "./crates/vision-calibration-optim", version = "0.5.1" }
+vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.5.1" }
+vision-calibration-dataset = { path = "./crates/vision-calibration-dataset", version = "0.5.1" }
+vision-calibration-detect = { path = "./crates/vision-calibration-detect", version = "0.5.1" }
 
 anyhow = "1"
 thiserror = "2"
@@ -48,7 +48,7 @@ schemars = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
 image = { version = "0.25" }
-calib-targets = "0.8"
+calib-targets = "0.9"
 glob = "0.3"
 rand = { version = "0.10" }
 tracing = { version = "0.1" }

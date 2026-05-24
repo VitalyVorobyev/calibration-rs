@@ -141,7 +141,7 @@ in-house dense matcher, no full SfM.
 ### Track D — Earn v1.0 (continuous ratchet)
 
 - **D1** Typed errors only — no `String`-typed escape hatches in public APIs.
-- **D2** Doc-warning-free, MSRV 1.88 frozen.
+- **D2** Doc-warning-free, MSRV pinned at v1.0 cut (currently 1.93).
 - **D3** Python binding parity audited at every minor version bump.
 - **D4** v1.0 release once the puzzle rig runs green end-to-end via the Tauri app,
   PR #28 + the diagnose viewer + C4 have all landed, and the API has been stable across two minor
