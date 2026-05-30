@@ -8,6 +8,7 @@ members = [
     "crates/vision-calibration-pipeline",
     "crates/vision-calibration-dataset",
     "crates/vision-calibration-detect",
+    "crates/vision-calibration-bench",
     "xtask",
 ]
 # `app/src-tauri/` is its own crate — it pulls in the Tauri build-time
@@ -37,6 +38,7 @@ vision-calibration-optim = { path = "./crates/vision-calibration-optim", version
 vision-calibration-pipeline = { path = "./crates/vision-calibration-pipeline", version = "0.5.1" }
 vision-calibration-dataset = { path = "./crates/vision-calibration-dataset", version = "0.5.1" }
 vision-calibration-detect = { path = "./crates/vision-calibration-detect", version = "0.5.1" }
+vision-calibration-bench = { path = "./crates/vision-calibration-bench", version = "0.5.1" }
 
 anyhow = "1"
 thiserror = "2"

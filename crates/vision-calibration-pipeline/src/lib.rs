@@ -35,6 +35,9 @@ pub use error::Error;
 // Step-option types shared across problem modules.
 pub mod common;
 
+// Multi-level reprojection-error analysis (pure library; no I/O).
+pub mod analysis;
+
 // Core session framework
 mod planar_family;
 mod rig_family;

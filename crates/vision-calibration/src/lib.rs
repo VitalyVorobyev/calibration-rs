@@ -563,3 +563,8 @@ pub mod prelude {
         make_pinhole_camera,
     };
 }
+
+/// Multi-level reprojection-error analysis (re-exported from the pipeline).
+pub mod analysis {
+    pub use vision_calibration_pipeline::analysis::*;
+}
