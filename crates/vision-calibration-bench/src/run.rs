@@ -8,7 +8,9 @@
 //! divergence between them is visible in the record.
 
 #[cfg(feature = "tier-b")]
-pub use tier_b::{run_planar_intrinsics, run_rig_extrinsics, run_single_cam_handeye};
+pub use tier_b::{
+    run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, run_single_cam_handeye,
+};
 
 #[cfg(feature = "tier-b")]
 pub mod tier_b {
@@ -21,18 +23,27 @@ pub mod tier_b {
     use anyhow::{Context, Result};
     use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
     use vision_calibration::analysis::{
-        planar_intrinsics_report, rig_extrinsics_report, single_cam_handeye_report,
+        planar_intrinsics_report, rig_extrinsics_report, rig_handeye_report,
+        single_cam_handeye_report,
     };
     use vision_calibration::core::{
         CorrespondenceView, Iso3, NoMeta, RigDataset, RigView, RigViewObs,
     };
-    use vision_calibration::optim::HandEyeMode;
+    use vision_calibration::optim::{HandEyeMode, RobotPoseMeta};
     use vision_calibration::planar_intrinsics::{
         PlanarIntrinsicsProblem, step_init, step_optimize,
     };
     use vision_calibration::rig_extrinsics::{
         RigExtrinsicsProblem, step_intrinsics_init_all, step_intrinsics_optimize_all,
         step_rig_init, step_rig_optimize,
+    };
+    // Rig hand-eye step fns share names with the rig-extrinsics ones, so alias.
+    use vision_calibration::rig_handeye::{
+        RigHandeyeProblem, step_handeye_init as rh_handeye_init,
+        step_handeye_optimize as rh_handeye_optimize,
+        step_intrinsics_init_all as rh_intrinsics_init_all,
+        step_intrinsics_optimize_all as rh_intrinsics_optimize_all, step_rig_init as rh_rig_init,
+        step_rig_optimize as rh_rig_optimize,
     };
     use vision_calibration::session::CalibrationSession;
     use vision_calibration::single_cam_handeye::{
@@ -680,6 +691,242 @@ pub mod tier_b {
         })
     }
 
+    /// Run a multi-camera rig hand-eye calibration for `entry` and build a
+    /// [`BenchRecord`].
+    ///
+    /// Generalizes the rig path to N cameras mounted on a robot end-effector
+    /// (DS8: two JAI BB-500 + a Creative Senz3D, pinhole). Unlike
+    /// [`run_rig_extrinsics`], cameras are paired **by sorted image index**, not
+    /// filename suffix — DS8's cameras use incompatible naming
+    /// (`imageN.png` vs `colorFrame_0_NNNNN.png`) but are frame-synchronized, so
+    /// view `i` is `(cam0[i], cam1[i], …, pose i)`; a camera that did not detect
+    /// the board in that frame contributes `None`. Robot poses are loaded per the
+    /// entry's [`crate::registry::PoseSource`] (`format` + `units`). Runs the full
+    /// six-step rig hand-eye pipeline (intrinsics → rig → hand-eye) with default
+    /// options (so robot-pose refinement is on), then exports.
+    pub fn run_rig_handeye(entry: &BenchEntry) -> Result<BenchRecord> {
+        anyhow::ensure!(
+            entry.problem == ProblemKind::RigHandeye,
+            "run_rig_handeye called for {:?}",
+            entry.problem
+        );
+        let board = entry
+            .board
+            .as_ref()
+            .context("rig_handeye entry needs a `board` geometry")?;
+        anyhow::ensure!(
+            entry.cameras.len() >= 2,
+            "rig_handeye expects >= 2 cameras, got {}",
+            entry.cameras.len()
+        );
+        let pose_src = entry
+            .robot_poses
+            .as_ref()
+            .context("rig_handeye entry needs `robot_poses`")?;
+        let detector = detector_for(board)?;
+        let robot_poses = load_robot_poses_for(pose_src, &entry.data_root.join(&pose_src.path))?;
+
+        // ── Detection (per camera, image-order) ─────────────────────────────
+        let detect_start = Instant::now();
+        let mut per_cam_dets: Vec<Vec<Option<CorrespondenceView>>> = Vec::new();
+        let mut detect_stats: Vec<DetectionStat> = Vec::new();
+        let mut max_corners_per_image = 0usize;
+        for cam in &entry.cameras {
+            let folder = entry.data_root.join(&cam.folder);
+            let paths = glob_sorted_images(&folder, &cam.filename_glob)?;
+            anyhow::ensure!(
+                !paths.is_empty(),
+                "no images matched {}/{} under {}",
+                cam.folder,
+                cam.filename_glob,
+                entry.data_root.display()
+            );
+            let mut dets: Vec<Option<CorrespondenceView>> = Vec::with_capacity(paths.len());
+            let mut images_used = 0usize;
+            let mut features_detected = 0usize;
+            for path in &paths {
+                let img = load_image(path)?;
+                match detector.detect(&img) {
+                    Ok(Some(view)) => {
+                        images_used += 1;
+                        features_detected += view.len();
+                        max_corners_per_image = max_corners_per_image.max(view.len());
+                        dets.push(Some(view));
+                    }
+                    Ok(None) => dets.push(None),
+                    Err(e) => {
+                        return Err(e.context(format!("detection failed for {}", path.display())));
+                    }
+                }
+            }
+            detect_stats.push(DetectionStat {
+                camera_id: cam.id.clone(),
+                images_total: paths.len(),
+                images_used,
+                features_detected,
+                features_expected: 0, // filled once full-board count is known
+                coverage_pct: 0.0,
+                detect_ms: 0,
+            });
+            per_cam_dets.push(dets);
+        }
+        let detection_ms = detect_start.elapsed().as_millis() as u64;
+
+        // Pair by index: view i = (cam0[i], …, camN[i], pose i), bounded by the
+        // shortest camera and the pose count.
+        let n_cam = entry.cameras.len();
+        let n_views = per_cam_dets
+            .iter()
+            .map(|d| d.len())
+            .min()
+            .unwrap_or(0)
+            .min(robot_poses.len());
+        anyhow::ensure!(
+            n_views >= 3,
+            "need >= 3 paired views (min over cameras/poses), got {n_views}"
+        );
+
+        let mut rig_views: Vec<RigView<RobotPoseMeta>> = Vec::with_capacity(n_views);
+        let mut usable_per_cam = vec![0usize; n_cam];
+        for v in 0..n_views {
+            let mut cams: Vec<Option<CorrespondenceView>> = Vec::with_capacity(n_cam);
+            let mut any = false;
+            for (ci, dets) in per_cam_dets.iter().enumerate() {
+                let view = dets[v].clone();
+                if view.is_some() {
+                    usable_per_cam[ci] += 1;
+                    any = true;
+                }
+                cams.push(view);
+            }
+            if any {
+                rig_views.push(RigView {
+                    meta: RobotPoseMeta {
+                        base_se3_gripper: robot_poses[v],
+                    },
+                    obs: RigViewObs { cameras: cams },
+                });
+            }
+        }
+        for (ci, &u) in usable_per_cam.iter().enumerate() {
+            anyhow::ensure!(
+                u >= 3,
+                "need >= 3 usable views for camera {} ({}), got {} \
+                 (low-res/color cameras may detect the board poorly)",
+                ci,
+                entry.cameras[ci].id,
+                u
+            );
+        }
+
+        let features_per_board = max_corners_per_image.max(board.rows * board.cols);
+
+        // ── Calibration ─────────────────────────────────────────────────────
+        let input = RigDataset::new(rig_views, n_cam)
+            .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
+        let dataset_for_report = input.clone();
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+        session.set_input(input).context("set_input failed")?;
+
+        let init_start = Instant::now();
+        let init_ok = rh_intrinsics_init_all(&mut session, None).is_ok();
+        anyhow::ensure!(init_ok, "step_intrinsics_init_all failed for {}", entry.id);
+        let init_ms = init_start.elapsed().as_millis() as u64;
+
+        let opt_start = Instant::now();
+        let _ = rh_intrinsics_optimize_all(&mut session, None)
+            .context("step_intrinsics_optimize_all failed")?;
+        let _ = rh_rig_init(&mut session).context("step_rig_init failed")?;
+        let _ = rh_rig_optimize(&mut session, None).context("step_rig_optimize failed")?;
+        let _ = rh_handeye_init(&mut session, None).context("step_handeye_init failed")?;
+        let _ = rh_handeye_optimize(&mut session, None).context("step_handeye_optimize failed")?;
+        let optimize_ms = opt_start.elapsed().as_millis() as u64;
+
+        let export = session.export().context("session.export failed")?;
+
+        // ── Fit metrics (per-camera split of the export's per-feature errors) ─
+        let mut per_cam_errs: Vec<Vec<f64>> = vec![Vec::new(); n_cam];
+        let mut all_errors: Vec<f64> = Vec::new();
+        for r in &export.per_feature_residuals.target {
+            if let Some(e) = r.error_px {
+                all_errors.push(e);
+                if r.camera < n_cam {
+                    per_cam_errs[r.camera].push(e);
+                }
+            }
+        }
+        let overall = ReprojectionStats::from_errors(&all_errors);
+        let per_camera: Vec<ReprojectionStats> = per_cam_errs
+            .iter()
+            .map(|errs| ReprojectionStats::from_errors(errs))
+            .collect();
+        let per_camera_hist = export
+            .per_feature_residuals
+            .target_hist_per_camera
+            .clone()
+            .unwrap_or_else(|| vec![FeatureResidualHistogram::default(); n_cam]);
+        let fit = Fit {
+            overall,
+            per_camera,
+            per_camera_hist,
+            reported_mean_reproj_px: export.mean_reproj_error,
+            reported_per_cam_px: export.per_cam_reproj_errors.clone(),
+        };
+
+        // Finalize detection coverage now that the full-board count is known.
+        let mut total_detected = 0usize;
+        let mut total_expected = 0usize;
+        for stat in &mut detect_stats {
+            let expected = stat.images_used * features_per_board;
+            stat.features_expected = expected;
+            stat.coverage_pct = if expected > 0 {
+                100.0 * stat.features_detected as f64 / expected as f64
+            } else {
+                0.0
+            };
+            stat.detect_ms = detection_ms;
+            total_detected += stat.features_detected;
+            total_expected += expected;
+        }
+        let detection = Detection {
+            per_camera: detect_stats,
+            total_detected,
+            total_expected,
+        };
+
+        let convergence = Convergence {
+            init_ok,
+            converged: true,
+            report: synth_report(export.mean_reproj_error),
+        };
+        let total_ms = init_ms
+            .saturating_add(optimize_ms)
+            .saturating_add(detection_ms);
+        let timing = Timing {
+            init_ms,
+            optimize_ms,
+            total_ms,
+            detection_ms,
+        };
+
+        // Hierarchical report: Intrinsic floor (free per-(cam,view) PnP) +
+        // HandEye level (board pose through the robot + hand-eye chain).
+        let reproj_report = rig_handeye_report(&export, &dataset_for_report).ok();
+
+        Ok(BenchRecord {
+            ident: placeholder_ident(entry, "rig_handeye"),
+            convergence,
+            fit,
+            generalization: None,
+            stability: None,
+            detection: Some(detection),
+            laser: None,
+            delta_to_prior: None,
+            timing,
+            reproj_report,
+        })
+    }
+
     /// Synthesize a [`SolveReport`] for the record's [`Convergence`].
     ///
     /// The rig and hand-eye exports do not surface the solver's final cost /
@@ -757,29 +1004,26 @@ pub mod tier_b {
         }
     }
 
-    /// Parse one row-major 4×4 robot-pose line into an [`Iso3`].
+    /// Build an [`Iso3`] from 16 row-major 4×4 values, scaling the translation.
     ///
-    /// Verbatim port of `support/handeye_io.rs::parse_pose_line`: 16 values,
-    /// row-major; rotation from the upper-left 3×3, translation from the 4th
-    /// column. The resulting `Iso3` is the `base_se3_gripper` the example feeds
-    /// as the EyeInHand robot-pose prior.
-    fn parse_pose_line(line: &str, idx: usize) -> Result<Iso3> {
-        let values: Vec<f64> = line
-            .split_whitespace()
-            .map(|v| v.parse::<f64>())
-            .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("invalid float in robot pose line {}", idx + 1))?;
+    /// Rotation comes from the upper-left 3×3, translation from the 4th column
+    /// scaled by `trans_scale` (`1.0` for metres, `1e-3` for millimetre files).
+    /// The result is the `base_se3_gripper` (EyeInHand robot-pose prior).
+    fn build_pose_from_4x4(values: &[f64], trans_scale: f64) -> Result<Iso3> {
         anyhow::ensure!(
             values.len() == 16,
-            "robot pose line {} expected 16 values, got {}",
-            idx + 1,
+            "expected 16 values for a 4x4 pose, got {}",
             values.len()
         );
         let r = Matrix3::new(
             values[0], values[1], values[2], values[4], values[5], values[6], values[8], values[9],
             values[10],
         );
-        let t = Vector3::new(values[3], values[7], values[11]);
+        let t = Vector3::new(
+            values[3] * trans_scale,
+            values[7] * trans_scale,
+            values[11] * trans_scale,
+        );
         let rot = Rotation3::from_matrix_unchecked(r);
         Ok(Iso3::from_parts(
             Translation3::from(t),
@@ -787,7 +1031,21 @@ pub mod tier_b {
         ))
     }
 
-    /// Load all robot poses from a whitespace-delimited 4×4-per-line file.
+    /// Parse one row-major 4×4 robot-pose line into an [`Iso3`] (translation in
+    /// the file's native metres).
+    ///
+    /// Port of `support/handeye_io.rs::parse_pose_line`.
+    fn parse_pose_line(line: &str, idx: usize) -> Result<Iso3> {
+        let values: Vec<f64> = line
+            .split_whitespace()
+            .map(|v| v.parse::<f64>())
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("invalid float in robot pose line {}", idx + 1))?;
+        build_pose_from_4x4(&values, 1.0).with_context(|| format!("robot pose line {}", idx + 1))
+    }
+
+    /// Load robot poses from a whitespace-delimited 4×4-per-line file
+    /// (`rowmajor4x4`, translation in metres). Used by the kuka single-cam path.
     fn load_robot_poses(path: &PathBuf) -> Result<Vec<Iso3>> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read robot poses from {}", path.display()))?;
@@ -805,6 +1063,67 @@ pub mod tier_b {
             path.display()
         );
         Ok(poses)
+    }
+
+    /// Load robot poses from a counted-block file: a leading integer count, then
+    /// that many row-major 4×4 matrices as whitespace-separated values (DS8's
+    /// `robot_cali.txt`). `trans_scale` converts translations to metres.
+    fn load_robot_poses_counted(path: &PathBuf, trans_scale: f64) -> Result<Vec<Iso3>> {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read robot poses from {}", path.display()))?;
+        let mut tokens = text.split_whitespace();
+        let count: usize = tokens
+            .next()
+            .context("counted pose file is empty")?
+            .parse()
+            .context("first token of a counted pose file must be the pose count")?;
+        let vals: Vec<f64> = tokens
+            .map(|v| v.parse::<f64>())
+            .collect::<Result<Vec<_>, _>>()
+            .context("invalid float in counted pose file")?;
+        anyhow::ensure!(
+            vals.len() >= count * 16,
+            "counted pose file declares {} poses ({} values) but has {}",
+            count,
+            count * 16,
+            vals.len()
+        );
+        let mut poses = Vec::with_capacity(count);
+        for k in 0..count {
+            poses.push(build_pose_from_4x4(
+                &vals[k * 16..k * 16 + 16],
+                trans_scale,
+            )?);
+        }
+        Ok(poses)
+    }
+
+    /// Load robot poses for an entry, dispatching on
+    /// [`crate::registry::PoseSource::format`] and scaling by `units`.
+    fn load_robot_poses_for(
+        pose_src: &crate::registry::PoseSource,
+        path: &PathBuf,
+    ) -> Result<Vec<Iso3>> {
+        let trans_scale = match pose_src.units.as_deref() {
+            Some("mm") => 1.0e-3,
+            Some("m") | None => 1.0,
+            Some(other) => anyhow::bail!("unsupported pose units '{other}' (use 'mm' or 'm')"),
+        };
+        match pose_src.format.as_str() {
+            "counted4x4" => load_robot_poses_counted(path, trans_scale),
+            "rowmajor4x4" => {
+                let mut poses = load_robot_poses(path)?;
+                if trans_scale != 1.0 {
+                    for p in &mut poses {
+                        p.translation.vector *= trans_scale;
+                    }
+                }
+                Ok(poses)
+            }
+            other => anyhow::bail!(
+                "unsupported robot-pose format '{other}' (use 'rowmajor4x4' or 'counted4x4')"
+            ),
+        }
     }
 
     /// Build an [`Ident`] with the run-intrinsic fields filled and the

@@ -226,10 +226,17 @@ pub struct BoardGeometry {
 pub struct PoseSource {
     /// Path to the pose file.
     pub path: PathBuf,
-    /// File format (e.g. `"csv"`, `"json"`).
+    /// File format. Supported by the Tier-B runners:
+    /// - `"rowmajor4x4"` — one row-major 4×4 matrix per line (16 values).
+    /// - `"counted4x4"` — a leading integer count, then that many 4×4 matrices
+    ///   as whitespace-separated values (4 lines × 4 values each).
     pub format: String,
     /// Pose convention (e.g. `"base_se3_gripper"`).
     pub convention: String,
+    /// Translation units in the file. `"mm"` scales translations by `1e-3` to
+    /// metres; `"m"` or omitted leaves them unscaled. Rotation is unaffected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units: Option<String>,
 }
 
 /// Manual initialization seed.
@@ -354,6 +361,7 @@ mod tests {
                 path: PathBuf::from("poses.csv"),
                 format: "csv".into(),
                 convention: "base_se3_gripper".into(),
+                units: None,
             }),
             prior_export: Some(PathBuf::from("prior.json")),
             fixture: Some(PathBuf::from("fixtures/puzzle.json")),

@@ -57,6 +57,7 @@ use vision_calibration_linear::pnp::PnpSolver;
 use crate::Error;
 use crate::planar_intrinsics::PlanarIntrinsicsExport;
 use crate::rig_extrinsics::RigExtrinsicsExport;
+use crate::rig_handeye::RigHandeyeExport;
 use crate::single_cam_handeye::{SingleCamHandeyeExport, SingleCamHandeyeView};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -331,28 +332,8 @@ pub fn rig_extrinsics_report<M>(
     dataset: &RigDataset<M>,
 ) -> Result<ReprojReport, Error> {
     let ncam = export.cameras.len();
-    let mut intrinsic = Vec::new();
-    for (cam_idx, cam) in export.cameras.iter().enumerate() {
-        let k = cam.k;
-        for (view_idx, view) in dataset.views.iter().enumerate() {
-            let Some(obs) = view.obs.cameras.get(cam_idx).and_then(|c| c.as_ref()) else {
-                continue;
-            };
-            let Some(pose) = intrinsic_floor_view(cam, &k, &obs.points_3d, &obs.points_2d) else {
-                continue;
-            };
-            push_view_residuals(
-                &mut intrinsic,
-                cam,
-                &pose,
-                &obs.points_3d,
-                &obs.points_2d,
-                view_idx,
-                cam_idx,
-            );
-        }
-    }
     let num_views = dataset.views.len();
+    let intrinsic = intrinsic_floor_rig(&export.cameras, dataset);
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
 
@@ -368,6 +349,76 @@ pub fn rig_extrinsics_report<M>(
         num_views.max(max_pose(&rig_residuals) + 1),
     );
     Ok(ReprojReport::from_levels(vec![intrinsic_level, rig_level]))
+}
+
+/// Build a [`ReprojReport`] for a multi-camera rig hand-eye calibration.
+///
+/// Two levels: the `Intrinsic` floor (free per-`(camera, view)` PnP pose) and the
+/// `HandEye` level (the export's own residuals, board pose from the robot pose
+/// composed with the hand-eye chain). The gap localizes camera / detection error
+/// versus the rig + robot + hand-eye chain — the multi-camera analogue of the
+/// single-camera hand-eye diagnostic.
+///
+/// A separate `RigExtrinsic` level is intentionally omitted: the export's
+/// `rig_se3_target` is itself derived from the hand-eye chain, so reprojecting
+/// through `cam_se3_rig * rig_se3_target` would reproduce the `HandEye` level
+/// exactly. For Scheimpflug rigs only the pinhole core in `export.cameras` seeds
+/// the intrinsic floor; the configured tilt is still reflected in the
+/// export-provided hand-eye residuals.
+pub fn rig_handeye_report<M>(
+    export: &RigHandeyeExport,
+    dataset: &RigDataset<M>,
+) -> Result<ReprojReport, Error> {
+    let ncam = export.cameras.len();
+    let num_views = dataset.views.len();
+
+    let intrinsic = intrinsic_floor_rig(&export.cameras, dataset);
+    let intrinsic_level =
+        LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
+
+    let handeye_residuals = export.per_feature_residuals.target.clone();
+    let handeye_level = LevelReport::from_residuals(
+        ReprojLevel::HandEye,
+        handeye_residuals.clone(),
+        ncam,
+        num_views.max(max_pose(&handeye_residuals) + 1),
+    );
+    Ok(ReprojReport::from_levels(vec![
+        intrinsic_level,
+        handeye_level,
+    ]))
+}
+
+/// Intrinsic floor for a rig dataset: a free per-`(camera, view)` board pose
+/// recovered by PnP (homography seed for planar targets, EPnP fallback) +
+/// pose-only refinement, using each camera's final calibrated intrinsics. Shared
+/// by [`rig_extrinsics_report`] and [`rig_handeye_report`].
+fn intrinsic_floor_rig<M>(
+    cameras: &[PinholeCamera],
+    dataset: &RigDataset<M>,
+) -> Vec<TargetFeatureResidual> {
+    let mut out = Vec::new();
+    for (cam_idx, cam) in cameras.iter().enumerate() {
+        let k = cam.k;
+        for (view_idx, view) in dataset.views.iter().enumerate() {
+            let Some(obs) = view.obs.cameras.get(cam_idx).and_then(|c| c.as_ref()) else {
+                continue;
+            };
+            let Some(pose) = intrinsic_floor_view(cam, &k, &obs.points_3d, &obs.points_2d) else {
+                continue;
+            };
+            push_view_residuals(
+                &mut out,
+                cam,
+                &pose,
+                &obs.points_3d,
+                &obs.points_2d,
+                view_idx,
+                cam_idx,
+            );
+        }
+    }
+    out
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

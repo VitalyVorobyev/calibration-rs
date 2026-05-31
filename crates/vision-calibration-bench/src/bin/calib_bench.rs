@@ -137,7 +137,7 @@ fn cmd_run(args: &RunArgs) -> Result<()> {
 fn run_dataset(entry: &vision_calibration_bench::registry::BenchEntry) -> Result<()> {
     use vision_calibration_bench::registry::ProblemKind;
     use vision_calibration_bench::run::{
-        run_planar_intrinsics, run_rig_extrinsics, run_single_cam_handeye,
+        run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, run_single_cam_handeye,
     };
 
     // Resolve a relative data_root against the workspace root (derived from
@@ -153,6 +153,7 @@ fn run_dataset(entry: &vision_calibration_bench::registry::BenchEntry) -> Result
         ProblemKind::PlanarIntrinsics => run_planar_intrinsics(&entry)?,
         ProblemKind::RigExtrinsics => run_rig_extrinsics(&entry)?,
         ProblemKind::SingleCamHandeye => run_single_cam_handeye(&entry)?,
+        ProblemKind::RigHandeye => run_rig_handeye(&entry)?,
         other => {
             anyhow::bail!("problem kind {other:?} is not yet wired into `calib-bench run`");
         }
