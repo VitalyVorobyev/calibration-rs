@@ -219,6 +219,10 @@ pub struct BoardGeometry {
     /// Board layout descriptor (e.g. `"checkerboard"`, `"charuco"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<String>,
+    /// Marker-to-cell size ratio for ChArUco boards (e.g. `0.75`).
+    /// Defaults to `0.75` when absent (the OpenCV ChArUco default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_size_rel: Option<f32>,
 }
 
 /// Source of robot poses for hand-eye problems.
@@ -348,6 +352,7 @@ mod tests {
                 cell_size_m: 0.01,
                 dictionary: Some("DICT_4X4_50".into()),
                 layout: Some("charuco".into()),
+                marker_size_rel: None,
             }),
             cameras: vec![CameraLayout {
                 id: "cam0".into(),

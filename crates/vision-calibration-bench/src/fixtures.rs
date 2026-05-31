@@ -156,6 +156,7 @@ mod tests {
             cell_size_m: 0.01,
             dictionary: None,
             layout: Some("checkerboard".into()),
+            marker_size_rel: None,
         }
     }
 

@@ -506,16 +506,22 @@ pub mod tier_b {
     /// Run a single-camera hand-eye calibration for `entry` and build a
     /// [`BenchRecord`].
     ///
-    /// Mirrors `crates/vision-calibration/examples/handeye_session.rs`: loads
-    /// the robot poses (row-major 4×4 per line, the `base_se3_gripper` /
-    /// EyeInHand convention parsed exactly as the example's
-    /// `support/handeye_io.rs`), then for image `i` (`{i+1:02}.png`) detects the
-    /// chessboard and pairs it with pose `i`; views with no board are skipped,
-    /// shifting later poses' image index but keeping the pose↔image alignment
-    /// the example relies on (image `NN.png` pairs with pose row `NN`). Runs
-    /// `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init`
-    /// → `step_handeye_optimize`, then exports. The board square size is read
-    /// from the registry `board.cell_size_m`.
+    /// Supports two pose-pairing modes, dispatched on
+    /// [`crate::registry::PoseSource::format`]:
+    ///
+    /// - **`"rowmajor4x4"` (legacy)**: mirrors
+    ///   `crates/vision-calibration/examples/handeye_session.rs`. Loads the
+    ///   robot poses (row-major 4×4 per line) and pairs image `{i+1:02}.png`
+    ///   with pose row `i`. Board is detected with a chessboard detector.
+    ///
+    /// - **`"snap_list_json"`**: loads `poses.json` as a JSON list of snap
+    ///   objects (`{target_image, tcp2base, …}`), iterates in file order, and
+    ///   loads the named `target_image` from the camera folder. Board detector
+    ///   is chosen from `board.layout` (ChArUco or chessboard).
+    ///
+    /// In both modes, views with no board are skipped, runs
+    /// `step_intrinsics_init` → `step_intrinsics_optimize` →
+    /// `step_handeye_init` → `step_handeye_optimize`, then exports.
     pub fn run_single_cam_handeye(entry: &BenchEntry) -> Result<BenchRecord> {
         anyhow::ensure!(
             entry.problem == ProblemKind::SingleCamHandeye,
@@ -536,29 +542,42 @@ pub mod tier_b {
             .robot_poses
             .as_ref()
             .context("single_cam_handeye entry needs `robot_poses`")?;
-        let square_size_m = board.cell_size_m;
 
-        let robot_poses = load_robot_poses(&entry.data_root.join(&pose_src.path))?;
+        let trans_scale = match pose_src.units.as_deref() {
+            Some("mm") => 1.0e-3,
+            Some("m") | None => 1.0,
+            Some(other) => anyhow::bail!("unsupported pose units '{other}' (use 'mm' or 'm')"),
+        };
 
-        // ── Detection (image i ↔ pose i, mirroring handeye_session.rs) ──────
-        let folder = entry.data_root.join(&cam.folder);
+        // ── Detection (pairing mode depends on pose format) ─────────────────
         let detect_start = Instant::now();
         let mut views: Vec<SingleCamHandeyeView> = Vec::new();
         let mut features_detected = 0usize;
         let mut max_corners_per_image = 0usize;
         let mut images_used = 0usize;
-        for (idx, robot_pose) in robot_poses.iter().enumerate() {
-            let image_index = idx + 1;
-            let img_path = folder.join(format!("{image_index:02}.png"));
-            anyhow::ensure!(
-                img_path.exists(),
-                "missing image {} for pose row {}",
-                img_path.display(),
-                image_index
-            );
-            let img = load_image(&img_path)?;
-            match detect_chessboard_view(&img, board.rows, board.cols, square_size_m) {
-                Ok(Some(view)) => {
+        let total_poses: usize;
+
+        if pose_src.format == "snap_list_json" {
+            // ── snap_list_json path: named image files ───────────────────────
+            let snap_pairs =
+                load_snap_list_json(&entry.data_root.join(&pose_src.path), trans_scale)?;
+            total_poses = snap_pairs.len();
+            let detector = detector_for(board)?;
+            let cam_root = if cam.folder.is_empty() {
+                entry.data_root.clone()
+            } else {
+                entry.data_root.join(&cam.folder)
+            };
+            for (target_image, robot_pose) in &snap_pairs {
+                let img_path = cam_root.join(target_image);
+                anyhow::ensure!(
+                    img_path.exists(),
+                    "missing image {} (from snap_list_json)",
+                    img_path.display()
+                );
+                let img = load_image(&img_path)?;
+                let img = apply_tile(&img, cam.tile);
+                if let Some(view) = detector.detect(&img)? {
                     images_used += 1;
                     features_detected += view.len();
                     max_corners_per_image = max_corners_per_image.max(view.len());
@@ -569,9 +588,41 @@ pub mod tier_b {
                         },
                     });
                 }
-                Ok(None) => {}
-                Err(e) => {
-                    return Err(e.context(format!("detection failed for {}", img_path.display())));
+            }
+        } else {
+            // ── Legacy rowmajor4x4 path (kuka_1) ────────────────────────────
+            let robot_poses = load_robot_poses(&entry.data_root.join(&pose_src.path))?;
+            total_poses = robot_poses.len();
+            let square_size_m = board.cell_size_m;
+            let folder = entry.data_root.join(&cam.folder);
+            for (idx, robot_pose) in robot_poses.iter().enumerate() {
+                let image_index = idx + 1;
+                let img_path = folder.join(format!("{image_index:02}.png"));
+                anyhow::ensure!(
+                    img_path.exists(),
+                    "missing image {} for pose row {}",
+                    img_path.display(),
+                    image_index
+                );
+                let img = load_image(&img_path)?;
+                match detect_chessboard_view(&img, board.rows, board.cols, square_size_m) {
+                    Ok(Some(view)) => {
+                        images_used += 1;
+                        features_detected += view.len();
+                        max_corners_per_image = max_corners_per_image.max(view.len());
+                        views.push(SingleCamHandeyeView {
+                            obs: view,
+                            meta: HandeyeMeta {
+                                base_se3_gripper: *robot_pose,
+                            },
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        return Err(
+                            e.context(format!("detection failed for {}", img_path.display()))
+                        );
+                    }
                 }
             }
         }
@@ -592,7 +643,7 @@ pub mod tier_b {
         let detection = Detection {
             per_camera: vec![DetectionStat {
                 camera_id: cam.id.clone(),
-                images_total: robot_poses.len(),
+                images_total: total_poses,
                 images_used,
                 features_detected,
                 features_expected,
@@ -746,6 +797,10 @@ pub mod tier_b {
             let mut features_detected = 0usize;
             for path in &paths {
                 let img = load_image(path)?;
+                // Tiled rigs (e.g. 6 cameras side-by-side in one frame) crop each
+                // camera's ROI from the shared image; `tile` is `None` for the
+                // one-file-per-camera rigs (DS8), leaving the image untouched.
+                let img = apply_tile(&img, cam.tile);
                 match detector.detect(&img) {
                     Ok(Some(view)) => {
                         images_used += 1;
@@ -927,6 +982,18 @@ pub mod tier_b {
         })
     }
 
+    /// Crop a loaded image to a tile ROI `[x, y, w, h]`, if specified.
+    ///
+    /// Used when a single image file contains multiple cameras side-by-side;
+    /// each camera's [`crate::registry::CameraLayout::tile`] selects its slice.
+    /// Returns the original image unmodified when `tile` is `None`.
+    fn apply_tile(img: &image::DynamicImage, tile: Option<[u32; 4]>) -> image::DynamicImage {
+        match tile {
+            Some([x, y, w, h]) => img.crop_imm(x, y, w, h),
+            None => img.clone(),
+        }
+    }
+
     /// Synthesize a [`SolveReport`] for the record's [`Convergence`].
     ///
     /// The rig and hand-eye exports do not surface the solver's final cost /
@@ -977,9 +1044,9 @@ pub mod tier_b {
     /// Resolve the per-image detector for a rig from its board geometry.
     ///
     /// `layout` selects the detector: `"charuco"` builds a ChArUco detector from
-    /// the board's rows/cols/cell-size/dictionary; anything else (incl. the
-    /// `"checkerboard"` default) uses the chessboard detector with the board's
-    /// metric cell size.
+    /// the board's rows/cols/cell-size/dictionary/marker_size_rel; anything else
+    /// (incl. the `"checkerboard"` default) uses the chessboard detector with the
+    /// board's metric cell size.
     fn detector_for(board: &BoardGeometry) -> Result<DetectorKind> {
         let layout = board.layout.as_deref().unwrap_or("checkerboard");
         if layout.eq_ignore_ascii_case("charuco") {
@@ -987,13 +1054,14 @@ pub mod tier_b {
                 .dictionary
                 .as_deref()
                 .context("charuco board needs a `dictionary`")?;
-            // Marker scale is not in `BoardGeometry`; the stereo_charuco example
-            // uses 0.75, the OpenCV ChArUco default. Hard-code it to match.
+            // Marker scale: from BoardGeometry if present, else the OpenCV
+            // ChArUco default (0.75) used by the stereo_charuco example.
+            let marker_scale = board.marker_size_rel.unwrap_or(0.75);
             let params = charuco_params_for(
                 board.rows as u32,
                 board.cols as u32,
                 board.cell_size_m,
-                0.75,
+                marker_scale,
                 dict,
             )?;
             Ok(DetectorKind::Charuco(Box::new(params)))
@@ -1098,6 +1166,54 @@ pub mod tier_b {
         Ok(poses)
     }
 
+    /// Deserialise one entry from `poses.json` (snap_list_json format).
+    #[derive(serde::Deserialize)]
+    struct SnapEntry {
+        target_image: String,
+        /// Row-major 4×4 homogeneous matrix: tcp→base (= `base_se3_gripper`).
+        tcp2base: [[f64; 4]; 4],
+    }
+
+    /// Load robot poses from a JSON list of snap objects (`poses.json`).
+    ///
+    /// Returns `(target_image_filename, base_se3_gripper)` pairs in file order.
+    /// `trans_scale` converts the translation column to metres (`1e-3` for mm).
+    /// Rotation is taken from the upper-left 3×3 and re-normalised via
+    /// `UnitQuaternion::from_rotation_matrix` to guard against floating-point
+    /// near-orthogonality.
+    fn load_snap_list_json(path: &PathBuf, trans_scale: f64) -> Result<Vec<(String, Iso3)>> {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read snap list from {}", path.display()))?;
+        let entries: Vec<SnapEntry> = serde_json::from_str(&text)
+            .with_context(|| format!("failed to parse snap list JSON {}", path.display()))?;
+        anyhow::ensure!(
+            !entries.is_empty(),
+            "snap list JSON {} is empty",
+            path.display()
+        );
+        let mut out = Vec::with_capacity(entries.len());
+        for e in &entries {
+            let m = &e.tcp2base;
+            // Upper-left 3×3 is the rotation.
+            let r = Matrix3::new(
+                m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2],
+            );
+            // 4th column (column-major index 3) is the translation.
+            let t = Vector3::new(
+                m[0][3] * trans_scale,
+                m[1][3] * trans_scale,
+                m[2][3] * trans_scale,
+            );
+            let rot = Rotation3::from_matrix_unchecked(r);
+            let iso = Iso3::from_parts(
+                Translation3::from(t),
+                UnitQuaternion::from_rotation_matrix(&rot),
+            );
+            out.push((e.target_image.clone(), iso));
+        }
+        Ok(out)
+    }
+
     /// Load robot poses for an entry, dispatching on
     /// [`crate::registry::PoseSource::format`] and scaling by `units`.
     fn load_robot_poses_for(
@@ -1120,8 +1236,18 @@ pub mod tier_b {
                 }
                 Ok(poses)
             }
+            // Snap-list JSON pairs each pose with a `target_image`; for the rig
+            // path (index-pairing) we drop the names and return poses in file
+            // order. The registry's per-camera glob must natural-sort to the same
+            // order as this list (e.g. `target_*.png` ↔ `target_0..N`), exactly
+            // as the counted/rowmajor formats already assume pose `i` ↔ frame `i`.
+            "snap_list_json" => Ok(load_snap_list_json(path, trans_scale)?
+                .into_iter()
+                .map(|(_image, pose)| pose)
+                .collect()),
             other => anyhow::bail!(
-                "unsupported robot-pose format '{other}' (use 'rowmajor4x4' or 'counted4x4')"
+                "unsupported robot-pose format '{other}' \
+                 (use 'rowmajor4x4', 'counted4x4', or 'snap_list_json')"
             ),
         }
     }
