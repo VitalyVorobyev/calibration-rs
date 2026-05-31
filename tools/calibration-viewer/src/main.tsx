@@ -768,6 +768,14 @@ function RobotCorrectionPanel({ corrections }: { corrections: BenchRecord['robot
           <Metric label="Translation max" value={`${corrections.max_trans_mm.toFixed(3)} mm`} />
           <Metric label="Rotation mean" value={`${corrections.mean_rot_deg.toFixed(4)} deg`} />
           <Metric label="Rotation max" value={`${corrections.max_rot_deg.toFixed(4)} deg`} />
+          <Metric
+            label="Prior check"
+            value={
+              corrections.max_trans_prior_ratio || corrections.max_rot_prior_ratio
+                ? `${corrections.exceeds_prior ? 'exceeds' : 'within'} · T x${formatScalar(corrections.max_trans_prior_ratio ?? 0)} · R x${formatScalar(corrections.max_rot_prior_ratio ?? 0)}`
+                : 'no priors'
+            }
+          />
         </>
       )}
     </section>

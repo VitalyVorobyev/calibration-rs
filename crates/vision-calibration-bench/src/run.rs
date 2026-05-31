@@ -23,8 +23,8 @@ pub mod tier_b {
     use anyhow::{Context, Result};
     use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
     use vision_calibration::analysis::{
-        planar_intrinsics_report, rig_extrinsics_report, rig_handeye_report,
-        single_cam_handeye_report,
+        RigStageReprojection, planar_intrinsics_report, rig_extrinsics_report,
+        rig_handeye_report_with_rig_stage, single_cam_handeye_report,
     };
     use vision_calibration::core::{
         CorrespondenceView, Iso3, NoMeta, RigDataset, RigView, RigViewObs,
@@ -62,8 +62,8 @@ pub mod tier_b {
     };
 
     use crate::detect::{
-        DetectorKind, charuco_params_for, detect_chessboard_view, glob_sorted_images, load_image,
-        puzzleboard_params_for,
+        DetectorKind, charuco_params_for, chess_config_for_override, detect_chessboard_view,
+        glob_sorted_images, load_image, puzzleboard_params_for,
     };
     #[cfg(feature = "laser")]
     use crate::record::LaserCamStat;
@@ -73,7 +73,7 @@ pub mod tier_b {
         ResidualSidecar, RobotCorrectionSummary, ScheimpflugArtifact, Timing, TransformArtifact,
         compact_reproj_report,
     };
-    use crate::registry::{BenchEntry, BoardGeometry, CameraLayout, ProblemKind};
+    use crate::registry::{BenchEntry, BoardGeometry, CameraLayout, DetectorOverride, ProblemKind};
 
     /// Lightweight per-dataset stage profile for diagnosing detector/extractor
     /// cost before running a full calibration solve.
@@ -192,6 +192,7 @@ pub mod tier_b {
         let mut images_used = 0usize;
         let mut features_detected = 0usize;
         let mut max_corners_per_image = 0usize;
+        let chess_config = chess_config_for_override(entry.detector.as_ref());
         for (image_idx, path) in paths.iter().enumerate() {
             progress_images(entry, "detect", &cam.id, image_idx, paths.len());
             let img = load_image(path)?;
@@ -201,6 +202,7 @@ pub mod tier_b {
                 board.cols,
                 board.cell_size_m,
                 board.strict_grid,
+                &chess_config,
             ) {
                 Ok(Some(view)) => {
                     images_used += 1;
@@ -387,7 +389,7 @@ pub mod tier_b {
             "rig_extrinsics currently expects exactly two cameras, got {}",
             entry.cameras.len()
         );
-        let detector = detector_for(board)?;
+        let detector = detector_for(board, entry.detector.as_ref())?;
 
         // ── Detection (per camera, then pair by filename suffix) ────────────
         progress(
@@ -690,7 +692,7 @@ pub mod tier_b {
                 normalize_robot_pose_convention(robot_pose, &pose_src.convention)?;
             }
             total_poses = snap_pairs.len();
-            let detector = detector_for(board)?;
+            let detector = detector_for(board, entry.detector.as_ref())?;
             let cam_root = if cam.folder.is_empty() {
                 entry.data_root.clone()
             } else {
@@ -729,6 +731,7 @@ pub mod tier_b {
             total_poses = robot_poses.len();
             let square_size_m = board.cell_size_m;
             let folder = entry.data_root.join(&cam.folder);
+            let chess_config = chess_config_for_override(entry.detector.as_ref());
             progress(
                 entry,
                 format!("detecting {} pose images for {}", robot_poses.len(), cam.id),
@@ -750,6 +753,7 @@ pub mod tier_b {
                     board.cols,
                     square_size_m,
                     board.strict_grid,
+                    &chess_config,
                 ) {
                     Ok(Some(view)) => {
                         images_used += 1;
@@ -814,6 +818,8 @@ pub mod tier_b {
         if let Some(overrides) = &entry.single_cam_handeye {
             overrides.apply_to(&mut config);
         }
+        let robot_rot_sigma = config.robot_rot_sigma;
+        let robot_trans_sigma = config.robot_trans_sigma;
         session
             .set_config(config)
             .context("set single_cam_handeye config failed")?;
@@ -888,10 +894,13 @@ pub mod tier_b {
             entry,
             single_cam_handeye_report(&export, &views_for_report).ok(),
         );
-        let robot_corrections = export
-            .robot_deltas
-            .as_deref()
-            .and_then(RobotCorrectionSummary::from_deltas);
+        let robot_corrections = export.robot_deltas.as_deref().and_then(|deltas| {
+            RobotCorrectionSummary::from_deltas_with_priors(
+                deltas,
+                Some(robot_rot_sigma),
+                Some(robot_trans_sigma),
+            )
+        });
 
         Ok(BenchRecord {
             ident: placeholder_ident(entry, "single_cam_handeye"),
@@ -942,7 +951,7 @@ pub mod tier_b {
             .robot_poses
             .as_ref()
             .context("rig_handeye entry needs `robot_poses`")?;
-        let detector = detector_for(board)?;
+        let detector = detector_for(board, entry.detector.as_ref())?;
         let robot_poses = load_robot_poses_for(pose_src, &entry.data_root.join(&pose_src.path))?;
 
         // ── Detection (per camera, image-order) ─────────────────────────────
@@ -1063,6 +1072,8 @@ pub mod tier_b {
         if let Some(overrides) = &entry.rig_handeye {
             overrides.apply_to(&mut config);
         }
+        let robot_rot_sigma = config.handeye_ba.robot_rot_sigma;
+        let robot_trans_sigma = config.handeye_ba.robot_trans_sigma;
         let input = RigDataset::new(rig_views, n_cam)
             .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
         let dataset_for_report = input.clone();
@@ -1083,7 +1094,8 @@ pub mod tier_b {
         let _ = rh_intrinsics_optimize_all(&mut session, None)
             .context("step_intrinsics_optimize_all failed")?;
         let _ = rh_rig_init(&mut session).context("step_rig_init failed")?;
-        let _ = rh_rig_optimize(&mut session, None).context("step_rig_optimize failed")?;
+        let rig_stage_output =
+            rh_rig_optimize(&mut session, None).context("step_rig_optimize failed")?;
         let _ = rh_handeye_init(&mut session, None).context("step_handeye_init failed")?;
         let _ = rh_handeye_optimize(&mut session, None).context("step_handeye_optimize failed")?;
         let optimize_ms = opt_start.elapsed().as_millis() as u64;
@@ -1159,12 +1171,21 @@ pub mod tier_b {
 
         // Hierarchical report: Intrinsic floor (free per-(cam,view) PnP) +
         // HandEye level (board pose through the robot + hand-eye chain).
-        let (reproj_report, residual_sidecar) =
-            split_reproj_report(entry, rig_handeye_report(&export, &dataset_for_report).ok());
-        let robot_corrections = export
-            .robot_deltas
-            .as_deref()
-            .and_then(RobotCorrectionSummary::from_deltas);
+        let rig_stage = RigStageReprojection {
+            cam_se3_rig: rig_stage_output.cam_se3_rig,
+            rig_se3_target: rig_stage_output.rig_se3_target,
+        };
+        let (reproj_report, residual_sidecar) = split_reproj_report(
+            entry,
+            rig_handeye_report_with_rig_stage(&export, &dataset_for_report, &rig_stage).ok(),
+        );
+        let robot_corrections = export.robot_deltas.as_deref().and_then(|deltas| {
+            RobotCorrectionSummary::from_deltas_with_priors(
+                deltas,
+                Some(robot_rot_sigma),
+                Some(robot_trans_sigma),
+            )
+        });
 
         Ok(BenchRecord {
             ident: placeholder_ident(entry, "rig_handeye"),
@@ -1196,7 +1217,7 @@ pub mod tier_b {
             .board
             .as_ref()
             .context("stage profiling needs a `board` geometry")?;
-        let detector = detector_for(board)?;
+        let detector = detector_for(board, entry.detector.as_ref())?;
         let detector_name = board
             .layout
             .as_deref()
@@ -1602,8 +1623,12 @@ pub mod tier_b {
     /// the board's rows/cols/cell-size/dictionary/marker_size_rel; anything else
     /// (incl. the `"checkerboard"` default) uses the chessboard detector with the
     /// board's metric cell size.
-    fn detector_for(board: &BoardGeometry) -> Result<DetectorKind> {
+    fn detector_for(
+        board: &BoardGeometry,
+        detector_override: Option<&DetectorOverride>,
+    ) -> Result<DetectorKind> {
         let layout = board.layout.as_deref().unwrap_or("checkerboard");
+        let chess_config = chess_config_for_override(detector_override);
         if layout.eq_ignore_ascii_case("charuco") {
             let dict = board
                 .dictionary
@@ -1619,7 +1644,10 @@ pub mod tier_b {
                 marker_scale,
                 dict,
             )?;
-            Ok(DetectorKind::Charuco(Box::new(params)))
+            Ok(DetectorKind::Charuco {
+                params: Box::new(params),
+                chess_config,
+            })
         } else if layout.eq_ignore_ascii_case("puzzleboard") {
             let params =
                 puzzleboard_params_for(board.rows as u32, board.cols as u32, board.cell_size_m)?;
@@ -1630,6 +1658,7 @@ pub mod tier_b {
                 cols: board.cols,
                 require_known_grid: board.strict_grid,
                 square_size_m: board.cell_size_m,
+                chess_config,
             })
         }
     }
@@ -2104,7 +2133,7 @@ pub mod tier_b {
                 strict_grid: false,
             };
 
-            let detector = detector_for(&board).expect("detector");
+            let detector = detector_for(&board, None).expect("detector");
             match detector {
                 DetectorKind::Puzzleboard(params) => {
                     assert_eq!(params.board.rows, 130);

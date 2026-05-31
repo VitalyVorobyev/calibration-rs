@@ -11,7 +11,11 @@
 use super::*;
 
 use nalgebra::{SVector, Translation3, UnitQuaternion, Vector3};
-use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, make_pinhole_camera};
+use vision_calibration_core::{
+    BrownConrady5, CorrespondenceView, FxFyCxCySkew, NoMeta, PerFeatureResiduals, RigView,
+    RigViewObs, compute_rig_target_residuals, make_pinhole_camera,
+};
+use vision_calibration_optim::HandEyeMode;
 
 /// Tiny deterministic xorshift64* RNG — keeps the synthetic noise reproducible
 /// without a `rand` dependency.
@@ -198,4 +202,61 @@ fn report_serde_roundtrip() {
     assert_eq!(back.levels.len(), 1);
     assert_eq!(back.levels[0].level, ReprojLevel::Intrinsic);
     assert!((back.headline_px - report.headline_px).abs() < 1e-12);
+}
+
+#[test]
+fn rig_handeye_report_with_rig_stage_has_three_levels() {
+    let camera = test_camera();
+    let pts3 = board(3, 3, 0.03);
+    let rig_se3_target = vec![pose_in_front(0.0, 0.0, 0.7, 0.04)];
+    let cam_se3_rig = vec![Iso3::identity(), Iso3::identity()];
+    let observed = project_all(&camera, &rig_se3_target[0], &pts3);
+    let obs = CorrespondenceView::new(pts3.clone(), observed).unwrap();
+    let dataset = RigDataset::new(
+        vec![RigView {
+            meta: NoMeta,
+            obs: RigViewObs {
+                cameras: vec![Some(obs.clone()), Some(obs)],
+            },
+        }],
+        2,
+    )
+    .unwrap();
+    let cameras = vec![camera.clone(), camera.clone()];
+    let target = compute_rig_target_residuals(&cameras, &dataset, &cam_se3_rig, &rig_se3_target)
+        .expect("residuals");
+    let mut per_feature_residuals = PerFeatureResiduals::default();
+    per_feature_residuals.target = target;
+    let export = RigHandeyeExport {
+        cameras,
+        sensors: None,
+        cam_se3_rig: cam_se3_rig.clone(),
+        rig_se3_target: rig_se3_target.clone(),
+        handeye_mode: HandEyeMode::EyeToHand,
+        gripper_se3_rig: None,
+        rig_se3_base: Some(Iso3::identity()),
+        base_se3_target: None,
+        gripper_se3_target: Some(Iso3::identity()),
+        robot_deltas: None,
+        mean_reproj_error: 0.0,
+        per_cam_reproj_errors: vec![0.0, 0.0],
+        per_feature_residuals,
+        image_manifest: None,
+    };
+    let rig_stage = RigStageReprojection {
+        cam_se3_rig,
+        rig_se3_target,
+    };
+
+    let report = rig_handeye_report_with_rig_stage(&export, &dataset, &rig_stage).unwrap();
+    let levels: Vec<_> = report.levels.iter().map(|level| level.level).collect();
+    assert_eq!(
+        levels,
+        vec![
+            ReprojLevel::Intrinsic,
+            ReprojLevel::RigExtrinsic,
+            ReprojLevel::HandEye
+        ]
+    );
+    assert_eq!(report.headline_px, report.levels[2].overall.mean);
 }

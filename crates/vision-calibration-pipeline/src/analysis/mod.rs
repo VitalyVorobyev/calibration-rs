@@ -47,8 +47,8 @@ use serde::{Deserialize, Serialize};
 use nalgebra::{Matrix2x6, Matrix6, SVector, Vector2, Vector6};
 
 use vision_calibration_core::{
-    CameraProject, FxFyCxCySkew, Iso3, PinholeCamera, Pt2, Pt3, RigDataset, TargetFeatureResidual,
-    View,
+    Camera, CameraProject, FxFyCxCySkew, Iso3, Pinhole, PinholeCamera, Pt2, Pt3, RigDataset,
+    TargetFeatureResidual, View, compute_rig_target_residuals,
 };
 use vision_calibration_linear::homography::HomographySolver;
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
@@ -236,6 +236,16 @@ pub struct ReprojReport {
     pub levels: Vec<LevelReport>,
 }
 
+/// Rig-stage poses used to evaluate a rig-hand-eye solve before the robot /
+/// hand-eye chain constrains the target pose.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RigStageReprojection {
+    /// Per-camera extrinsics `cam_se3_rig` (`T_C_R`) from rig BA.
+    pub cam_se3_rig: Vec<Iso3>,
+    /// Per-view target poses `rig_se3_target` (`T_R_T`) from rig BA.
+    pub rig_se3_target: Vec<Iso3>,
+}
+
 impl ReprojReport {
     /// Assemble a report from an ordered list of levels and set `headline_px`
     /// from the most-constrained available level.
@@ -359,12 +369,11 @@ pub fn rig_extrinsics_report<M>(
 /// versus the rig + robot + hand-eye chain — the multi-camera analogue of the
 /// single-camera hand-eye diagnostic.
 ///
-/// A separate `RigExtrinsic` level is intentionally omitted: the export's
-/// `rig_se3_target` is itself derived from the hand-eye chain, so reprojecting
-/// through `cam_se3_rig * rig_se3_target` would reproduce the `HandEye` level
-/// exactly. For Scheimpflug rigs only the pinhole core in `export.cameras` seeds
-/// the intrinsic floor; the configured tilt is still reflected in the
-/// export-provided hand-eye residuals.
+/// A separate `RigExtrinsic` level is omitted by this legacy builder because
+/// the export's `rig_se3_target` is itself derived from the hand-eye chain, so
+/// reprojecting through `cam_se3_rig * rig_se3_target` would reproduce the
+/// `HandEye` level exactly. Use [`rig_handeye_report_with_rig_stage`] when the
+/// caller has retained the rig-BA poses.
 pub fn rig_handeye_report<M>(
     export: &RigHandeyeExport,
     dataset: &RigDataset<M>,
@@ -385,6 +394,43 @@ pub fn rig_handeye_report<M>(
     );
     Ok(ReprojReport::from_levels(vec![
         intrinsic_level,
+        handeye_level,
+    ]))
+}
+
+/// Build a [`ReprojReport`] for a multi-camera rig hand-eye calibration,
+/// including the rig-BA constrained level before the robot / hand-eye chain is
+/// applied.
+pub fn rig_handeye_report_with_rig_stage<M>(
+    export: &RigHandeyeExport,
+    dataset: &RigDataset<M>,
+    rig_stage: &RigStageReprojection,
+) -> Result<ReprojReport, Error> {
+    let ncam = export.cameras.len();
+    let num_views = dataset.views.len();
+
+    let intrinsic = intrinsic_floor_rig(&export.cameras, dataset);
+    let intrinsic_level =
+        LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
+
+    let rig_residuals = rig_handeye_rig_stage_residuals(export, dataset, rig_stage)?;
+    let rig_level = LevelReport::from_residuals(
+        ReprojLevel::RigExtrinsic,
+        rig_residuals.clone(),
+        ncam,
+        num_views.max(max_pose(&rig_residuals) + 1),
+    );
+
+    let handeye_residuals = export.per_feature_residuals.target.clone();
+    let handeye_level = LevelReport::from_residuals(
+        ReprojLevel::HandEye,
+        handeye_residuals.clone(),
+        ncam,
+        num_views.max(max_pose(&handeye_residuals) + 1),
+    );
+    Ok(ReprojReport::from_levels(vec![
+        intrinsic_level,
+        rig_level,
         handeye_level,
     ]))
 }
@@ -667,6 +713,43 @@ fn rig_constrained_residuals<M>(
         }
     }
     out
+}
+
+fn rig_handeye_rig_stage_residuals<M>(
+    export: &RigHandeyeExport,
+    dataset: &RigDataset<M>,
+    rig_stage: &RigStageReprojection,
+) -> Result<Vec<TargetFeatureResidual>, Error> {
+    if let Some(sensors) = &export.sensors {
+        if sensors.len() != export.cameras.len() {
+            return Err(Error::invalid_input(format!(
+                "Scheimpflug sensor count {} != camera count {}",
+                sensors.len(),
+                export.cameras.len()
+            )));
+        }
+        let scheimpflug_cameras: Vec<_> = export
+            .cameras
+            .iter()
+            .zip(sensors.iter())
+            .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
+            .collect();
+        compute_rig_target_residuals(
+            &scheimpflug_cameras,
+            dataset,
+            &rig_stage.cam_se3_rig,
+            &rig_stage.rig_se3_target,
+        )
+        .map_err(Error::from)
+    } else {
+        compute_rig_target_residuals(
+            &export.cameras,
+            dataset,
+            &rig_stage.cam_se3_rig,
+            &rig_stage.rig_se3_target,
+        )
+        .map_err(Error::from)
+    }
 }
 
 #[cfg(test)]

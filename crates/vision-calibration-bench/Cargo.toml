@@ -13,7 +13,7 @@ publish = false
 [features]
 default = ["tier-a"]
 tier-a = []
-tier-b = ["dep:calib-targets", "dep:image", "dep:glob"]
+tier-b = ["dep:calib-targets", "dep:chess-corners", "dep:image", "dep:glob"]
 laser = ["dep:vision-metrology"]
 
 [[bin]]
@@ -37,6 +37,7 @@ nalgebra = { workspace = true }
 
 # Tier-B (full pipeline: detector + image I/O) — gated behind `tier-b`.
 calib-targets = { workspace = true, optional = true }
+chess-corners = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 glob = { workspace = true, optional = true }
 vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.git", tag = "v0.1.0", optional = true }

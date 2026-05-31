@@ -199,6 +199,11 @@ export interface RobotCorrectionSummary {
   max_rot_deg: number;
   mean_trans_mm: number;
   max_trans_mm: number;
+  prior_rot_deg?: number | null;
+  prior_trans_mm?: number | null;
+  max_rot_prior_ratio?: number | null;
+  max_trans_prior_ratio?: number | null;
+  exceeds_prior?: boolean;
 }
 
 export interface IntrinsicsArtifact {

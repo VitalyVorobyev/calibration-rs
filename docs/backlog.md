@@ -30,3 +30,8 @@ a short report under `docs/report/` and a task-scoped commit.
   Completed 2026-05-31. Writes script-generated benchmark JSON to `/tmp` so
   Vite can serve it through `/@fs`, and verifies `kuka_1` succeeds through the
   plain chessboard topological detector path.
+- [x] BENCH-W2H - ChArUco rig-hand-eye correction.
+  Completed 2026-05-31. Adds typed ChESS detector threshold overrides, wires
+  the private ChArUco rig to EyeToHand Scheimpflug staged BA, reports
+  Intrinsic/RigExtrinsic/HandEye levels for rig hand-eye, and flags robot-pose
+  corrections that exceed configured priors.

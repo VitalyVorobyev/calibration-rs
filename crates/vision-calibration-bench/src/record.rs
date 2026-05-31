@@ -159,6 +159,21 @@ pub struct RobotCorrectionSummary {
     pub mean_trans_mm: f64,
     /// Maximum translation correction magnitude in millimetres.
     pub max_trans_mm: f64,
+    /// Rotation prior sigma in degrees, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prior_rot_deg: Option<f64>,
+    /// Translation prior sigma in millimetres, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prior_trans_mm: Option<f64>,
+    /// Maximum rotation correction divided by the prior sigma.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_rot_prior_ratio: Option<f64>,
+    /// Maximum translation correction divided by the prior sigma.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_trans_prior_ratio: Option<f64>,
+    /// Whether any maximum correction exceeds its configured prior sigma.
+    #[serde(default)]
+    pub exceeds_prior: bool,
 }
 
 /// Compact calibration artifacts intended for report viewers.
@@ -241,6 +256,16 @@ impl RobotCorrectionSummary {
     /// Build a magnitude summary from se(3) deltas `[rx, ry, rz, tx, ty, tz]`,
     /// where rotation is in radians and translation is in metres.
     pub fn from_deltas(deltas: &[[f64; 6]]) -> Option<Self> {
+        Self::from_deltas_with_priors(deltas, None, None)
+    }
+
+    /// Build a magnitude summary and compare maxima to prior sigmas when
+    /// supplied. Rotation prior is radians; translation prior is metres.
+    pub fn from_deltas_with_priors(
+        deltas: &[[f64; 6]],
+        robot_rot_sigma: Option<f64>,
+        robot_trans_sigma: Option<f64>,
+    ) -> Option<Self> {
         if deltas.is_empty() {
             return None;
         }
@@ -258,12 +283,29 @@ impl RobotCorrectionSummary {
             max_trans = max_trans.max(trans);
         }
         let n = deltas.len() as f64;
+        let prior_rot_deg = robot_rot_sigma.map(f64::to_degrees);
+        let prior_trans_mm = robot_trans_sigma.map(|v| v * 1000.0);
+        let max_rot_deg = max_rot.to_degrees();
+        let max_trans_mm = max_trans * 1000.0;
+        let max_rot_prior_ratio = prior_rot_deg
+            .filter(|v| *v > 0.0)
+            .map(|prior| max_rot_deg / prior);
+        let max_trans_prior_ratio = prior_trans_mm
+            .filter(|v| *v > 0.0)
+            .map(|prior| max_trans_mm / prior);
+        let exceeds_prior = max_rot_prior_ratio.is_some_and(|ratio| ratio > 1.0)
+            || max_trans_prior_ratio.is_some_and(|ratio| ratio > 1.0);
         Some(Self {
             count: deltas.len(),
             mean_rot_deg: (sum_rot / n).to_degrees(),
-            max_rot_deg: max_rot.to_degrees(),
+            max_rot_deg,
             mean_trans_mm: (sum_trans / n) * 1000.0,
-            max_trans_mm: max_trans * 1000.0,
+            max_trans_mm,
+            prior_rot_deg,
+            prior_trans_mm,
+            max_rot_prior_ratio,
+            max_trans_prior_ratio,
+            exceeds_prior,
         })
     }
 }
@@ -652,6 +694,11 @@ mod tests {
                 max_rot_deg: 0.2,
                 mean_trans_mm: 0.5,
                 max_trans_mm: 0.8,
+                prior_rot_deg: Some(0.5),
+                prior_trans_mm: Some(1.0),
+                max_rot_prior_ratio: Some(0.4),
+                max_trans_prior_ratio: Some(0.8),
+                exceeds_prior: false,
             }),
             artifacts: Some(CalibrationArtifacts {
                 spatial_unit: "mm".into(),
@@ -797,16 +844,24 @@ mod tests {
 
     #[test]
     fn robot_correction_summary_uses_degrees_and_mm() {
-        let summary = RobotCorrectionSummary::from_deltas(&[
+        let deltas = [
             [0.0, 0.0, 1.0_f64.to_radians(), 0.001, 0.0, 0.0],
             [0.0, 2.0_f64.to_radians(), 0.0, 0.0, 0.003, 0.004],
-        ])
+        ];
+        let summary = RobotCorrectionSummary::from_deltas_with_priors(
+            &deltas,
+            Some(1.0_f64.to_radians()),
+            Some(0.004),
+        )
         .expect("summary");
         assert_eq!(summary.count, 2);
         assert!((summary.mean_rot_deg - 1.5).abs() < 1.0e-12);
         assert!((summary.max_rot_deg - 2.0).abs() < 1.0e-12);
         assert!((summary.mean_trans_mm - 3.0).abs() < 1.0e-12);
         assert!((summary.max_trans_mm - 5.0).abs() < 1.0e-12);
+        assert!(summary.exceeds_prior);
+        assert!((summary.max_rot_prior_ratio.unwrap() - 2.0).abs() < 1.0e-12);
+        assert!((summary.max_trans_prior_ratio.unwrap() - 1.25).abs() < 1.0e-12);
     }
 
     fn residual(camera: usize, pose: usize, error_px: f64) -> TargetFeatureResidual {

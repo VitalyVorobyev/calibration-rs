@@ -15,6 +15,7 @@
 //! [`BenchEntry`]/[`BenchRegistry`] can. The roundtrip tests assert equality by
 //! comparing re-serialized JSON instead.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -195,12 +196,39 @@ pub struct CameraLayout {
 }
 
 /// Detector configuration override.
-///
-/// Free-form for now (`serde_json::Value`); a typed shape arrives in a later
-/// phase once the detector config schema settles.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct DetectorOverride(pub serde_json::Value);
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct DetectorOverride {
+    /// ChESS corner extractor options shared by chessboard-like detectors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chess_corners: Option<ChessCornersDetectorOverride>,
+    /// Preserve older free-form detector keys that the benchmark does not
+    /// interpret yet.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// ChESS corner extractor overrides.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ChessCornersDetectorOverride {
+    /// Acceptance threshold mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_mode: Option<BenchChessThresholdMode>,
+    /// Acceptance threshold value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_value: Option<f32>,
+}
+
+/// Registry ChESS threshold mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BenchChessThresholdMode {
+    /// Threshold in native ChESS response units.
+    Absolute,
+    /// Threshold as a fraction of the image maximum response.
+    Relative,
+}
 
 /// Laser configuration for laserline problems.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -277,6 +305,12 @@ pub struct HandeyeBaOverride {
     /// Enable/disable per-view robot pose refinement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refine_robot_poses: Option<bool>,
+    /// Enable/disable rig-extrinsic refinement in final rig hand-eye BA.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refine_cam_se3_rig_in_handeye_ba: Option<bool>,
+    /// Enable/disable Scheimpflug tilt refinement in final rig hand-eye BA.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refine_scheimpflug_in_handeye_ba: Option<bool>,
     /// Robot rotation prior sigma in radians.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub robot_rot_sigma: Option<f64>,
@@ -532,6 +566,12 @@ fn apply_rig_ba(ba: &HandeyeBaOverride, config: &mut RigHandeyeConfig) {
     if let Some(refine) = ba.refine_robot_poses {
         config.handeye_ba.refine_robot_poses = refine;
     }
+    if let Some(refine) = ba.refine_cam_se3_rig_in_handeye_ba {
+        config.handeye_ba.refine_cam_se3_rig_in_handeye_ba = refine;
+    }
+    if let Some(refine) = ba.refine_scheimpflug_in_handeye_ba {
+        config.handeye_ba.refine_scheimpflug_in_handeye_ba = refine;
+    }
     if let Some(sigma) = ba.robot_rot_sigma {
         config.handeye_ba.robot_rot_sigma = sigma;
     }
@@ -633,7 +673,10 @@ mod tests {
             problem: ProblemKind::RigHandeye,
             data_root: PathBuf::from("/data/puzzle"),
             spec: Some(SpecRef::Inline(Box::new(sample_spec()))),
-            detector: Some(DetectorOverride(serde_json::json!({"refine": true}))),
+            detector: Some(DetectorOverride {
+                chess_corners: None,
+                extra: BTreeMap::from([("refine".into(), serde_json::json!(true))]),
+            }),
             laser: None,
             board: Some(BoardGeometry {
                 rows: 13,
@@ -685,6 +728,8 @@ mod tests {
                 refine_intrinsics_in_rig_ba: Some(false),
                 handeye_ba: Some(HandeyeBaOverride {
                     refine_robot_poses: Some(true),
+                    refine_cam_se3_rig_in_handeye_ba: Some(false),
+                    refine_scheimpflug_in_handeye_ba: Some(false),
                     robot_rot_sigma: None,
                     robot_trans_sigma: None,
                 }),
@@ -751,6 +796,54 @@ mod tests {
         assert_eq!(cfg.solver.max_iters, 200);
         assert_eq!(cfg.solver.robust_loss, RobustLoss::Huber { scale: 1.0 });
         assert!(cfg.handeye_ba.refine_robot_poses);
+        assert!(!cfg.handeye_ba.refine_cam_se3_rig_in_handeye_ba);
+        assert!(!cfg.handeye_ba.refine_scheimpflug_in_handeye_ba);
+    }
+
+    #[test]
+    fn charuco_3536_override_maps_physical_setup() {
+        let json = r#"
+        {
+          "sensor": {
+            "kind": "scheimpflug",
+            "init_tilt_x": 0.0,
+            "init_tilt_y": 0.0,
+            "fix_scheimpflug_in_intrinsics": { "tilt_x": false, "tilt_y": false },
+            "distortion_mask_in_percam_ba": {
+              "k1": false, "k2": false, "k3": false, "p1": true, "p2": true
+            },
+            "refine_scheimpflug_in_rig_ba": true
+          },
+          "handeye_mode": "eye_to_hand",
+          "refine_intrinsics_in_rig_ba": true,
+          "handeye_ba": {
+            "refine_robot_poses": true,
+            "refine_cam_se3_rig_in_handeye_ba": false,
+            "refine_scheimpflug_in_handeye_ba": false
+          }
+        }
+        "#;
+        let override_cfg: RigHandeyeOverride = serde_json::from_str(json).expect("override");
+        let mut cfg = RigHandeyeConfig::default();
+        override_cfg.apply_to(&mut cfg);
+
+        assert_eq!(cfg.handeye_init.handeye_mode, HandEyeMode::EyeToHand);
+        assert!(cfg.rig.refine_intrinsics_in_rig_ba);
+        assert!(!cfg.handeye_ba.refine_cam_se3_rig_in_handeye_ba);
+        assert!(!cfg.handeye_ba.refine_scheimpflug_in_handeye_ba);
+        match cfg.sensor {
+            SensorMode::Scheimpflug {
+                distortion_mask_in_percam_ba,
+                refine_scheimpflug_in_rig_ba,
+                ..
+            } => {
+                assert!(distortion_mask_in_percam_ba.p1);
+                assert!(distortion_mask_in_percam_ba.p2);
+                assert!(refine_scheimpflug_in_rig_ba);
+            }
+            SensorMode::Pinhole => panic!("expected Scheimpflug sensor"),
+            _ => panic!("expected Scheimpflug sensor"),
+        }
     }
 
     #[test]

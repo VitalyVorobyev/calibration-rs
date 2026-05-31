@@ -11,12 +11,16 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use calib_targets::aruco::builtins;
-use calib_targets::charuco::{CharucoBoardSpec, CharucoParams, MarkerLayout};
+use calib_targets::charuco::{CharucoBoardSpec, CharucoDetector, CharucoParams, MarkerLayout};
 use calib_targets::chessboard::{ChessboardDetection, DetectorParams, GraphBuildAlgorithm};
+use calib_targets::core::DetectorConfig;
 use calib_targets::detect::{self, default_chess_config};
 use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
+use chess_corners::Threshold;
 use image::imageops::FilterType;
 use vision_calibration_core::{CorrespondenceView, Pt2, Pt3};
+
+use crate::registry::{BenchChessThresholdMode, DetectorOverride};
 
 /// Which detector a rig camera uses to find target features in an image.
 ///
@@ -40,11 +44,18 @@ pub enum DetectorKind {
         require_known_grid: bool,
         /// Metric square (cell) size in metres.
         square_size_m: f64,
+        /// ChESS corner detector configuration.
+        chess_config: DetectorConfig,
     },
     /// `calib-targets` ChArUco detector, parameterised by a board spec. Mirrors
     /// `stereo_charuco_session`'s detector exactly (same dict, marker scale,
     /// `OpenCvCharuco` layout) so bench numbers reproduce the example.
-    Charuco(Box<CharucoParams>),
+    Charuco {
+        /// ChArUco detector parameters.
+        params: Box<CharucoParams>,
+        /// ChESS corner detector configuration.
+        chess_config: DetectorConfig,
+    },
     /// `calib-targets` PuzzleBoard detector in known-board mode. `rows`/`cols`
     /// are square counts; output 3D points are centred in the printed board
     /// frame and expressed in metres.
@@ -61,11 +72,46 @@ impl DetectorKind {
                 cols,
                 require_known_grid,
                 square_size_m,
-            } => detect_chessboard_view(img, *rows, *cols, *square_size_m, *require_known_grid),
-            DetectorKind::Charuco(params) => detect_charuco_view(img, params),
+                chess_config,
+            } => detect_chessboard_view(
+                img,
+                *rows,
+                *cols,
+                *square_size_m,
+                *require_known_grid,
+                chess_config,
+            ),
+            DetectorKind::Charuco {
+                params,
+                chess_config,
+            } => detect_charuco_view(img, params, chess_config),
             DetectorKind::Puzzleboard(params) => detect_puzzleboard_view(img, params),
         }
     }
+}
+
+/// Build the ChESS corner detector config for a benchmark detector override.
+pub fn chess_config_for_override(detector: Option<&DetectorOverride>) -> DetectorConfig {
+    let mut config = default_chess_config();
+    let Some(override_cfg) = detector.and_then(|d| d.chess_corners.as_ref()) else {
+        return config;
+    };
+    if override_cfg.threshold_mode.is_none() && override_cfg.threshold_value.is_none() {
+        return config;
+    }
+
+    let (current_mode, current_value) = match config.threshold {
+        Threshold::Absolute(v) => (BenchChessThresholdMode::Absolute, v),
+        Threshold::Relative(v) => (BenchChessThresholdMode::Relative, v),
+        _ => (BenchChessThresholdMode::Absolute, 15.0),
+    };
+    let mode = override_cfg.threshold_mode.unwrap_or(current_mode);
+    let value = override_cfg.threshold_value.unwrap_or(current_value);
+    config = config.with_threshold(match mode {
+        BenchChessThresholdMode::Absolute => Threshold::Absolute(value),
+        BenchChessThresholdMode::Relative => Threshold::Relative(value),
+    });
+    config
 }
 
 /// Build the ChArUco detector parameters used by `stereo_charuco_session`.
@@ -122,9 +168,12 @@ pub fn puzzleboard_params_for(rows: u32, cols: u32, cell_size_m: f64) -> Result<
 pub fn detect_charuco_view(
     img: &image::DynamicImage,
     params: &CharucoParams,
+    chess_config: &DetectorConfig,
 ) -> Result<Option<CorrespondenceView>> {
     let luma = img.to_luma8();
-    let detection = match detect::detect_charuco(&luma, params) {
+    let corners = detect::detect_corners(&luma, chess_config);
+    let detector = CharucoDetector::new(params.clone())?;
+    let detection = match detector.detect(&detect::gray_view(&luma), &corners) {
         Ok(detection) => detection,
         Err(_) => return Ok(None),
     };
@@ -223,10 +272,11 @@ pub fn detect_chessboard_view(
     cols: usize,
     square_size_m: f64,
     require_known_grid: bool,
+    chess_config: &DetectorConfig,
 ) -> Result<Option<CorrespondenceView>> {
     let luma = img.to_luma8();
     let params = topological_chessboard_params();
-    let Some(detection) = detect::detect_chessboard(&luma, &default_chess_config(), &params) else {
+    let Some(detection) = detect::detect_chessboard(&luma, chess_config, &params) else {
         return Ok(None);
     };
     if require_known_grid && !detection_matches_known_grid(&detection, rows, cols) {
@@ -366,6 +416,7 @@ fn take_digits(it: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registry::ChessCornersDetectorOverride;
 
     #[test]
     fn natural_cmp_orders_numeric_suffixes() {
@@ -376,6 +427,22 @@ mod tests {
         ];
         v.sort_by(|a, b| natural_cmp(a, b));
         assert_eq!(v, vec!["Im_L_1.png", "Im_L_2.png", "Im_L_10.png"]);
+    }
+
+    #[test]
+    fn chess_corner_override_applies_absolute_threshold() {
+        let detector = DetectorOverride {
+            chess_corners: Some(ChessCornersDetectorOverride {
+                threshold_mode: Some(BenchChessThresholdMode::Absolute),
+                threshold_value: Some(30.0),
+            }),
+            extra: Default::default(),
+        };
+
+        let config = chess_config_for_override(Some(&detector));
+        assert!(
+            matches!(config.threshold, Threshold::Absolute(v) if (v - 30.0).abs() < f32::EPSILON)
+        );
     }
 
     #[test]

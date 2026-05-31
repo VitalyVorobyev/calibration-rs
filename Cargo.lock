@@ -3438,6 +3438,7 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "calib-targets",
+ "chess-corners",
  "clap",
  "glob",
  "image",

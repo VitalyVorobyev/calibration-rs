@@ -359,15 +359,21 @@ fn render_markdown_report(record: &BenchRecord) -> String {
 
     if let Some(robot) = &record.robot_corrections {
         out.push_str("\n## Robot Pose Corrections\n\n");
-        out.push_str("| count | mean rot | max rot | mean trans | max trans |\n");
-        out.push_str("|---:|---:|---:|---:|---:|\n");
+        out.push_str("| count | mean rot | max rot | mean trans | max trans | prior flag |\n");
+        out.push_str("|---:|---:|---:|---:|---:|---|\n");
+        let flag = if robot.exceeds_prior {
+            "exceeds prior"
+        } else {
+            "within prior"
+        };
         out.push_str(&format!(
-            "| {} | {:.3} deg | {:.3} deg | {:.3} mm | {:.3} mm |\n",
+            "| {} | {:.3} deg | {:.3} deg | {:.3} mm | {:.3} mm | {} |\n",
             robot.count,
             robot.mean_rot_deg,
             robot.max_rot_deg,
             robot.mean_trans_mm,
-            robot.max_trans_mm
+            robot.max_trans_mm,
+            flag
         ));
     }
 
@@ -432,12 +438,18 @@ fn cmd_diagnose_handeye(args: &DiagnoseHandeyeArgs) -> Result<()> {
                 let robot_trans = record
                     .robot_corrections
                     .as_ref()
-                    .map(|r| format!("{:.3}/{:.3} mm", r.mean_trans_mm, r.max_trans_mm))
+                    .map(|r| {
+                        let flag = if r.exceeds_prior { " !" } else { "" };
+                        format!("{:.3}/{:.3} mm{}", r.mean_trans_mm, r.max_trans_mm, flag)
+                    })
                     .unwrap_or_else(|| "-".to_string());
                 let robot_rot = record
                     .robot_corrections
                     .as_ref()
-                    .map(|r| format!("{:.3}/{:.3} deg", r.mean_rot_deg, r.max_rot_deg))
+                    .map(|r| {
+                        let flag = if r.exceeds_prior { " !" } else { "" };
+                        format!("{:.3}/{:.3} deg{}", r.mean_rot_deg, r.max_rot_deg, flag)
+                    })
                     .unwrap_or_else(|| "-".to_string());
                 println!(
                     "| {} | ok | {} | {} | {} | {} | {} |  |",
@@ -483,6 +495,11 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
     );
     cases.push(("loose_robot_prior", loose));
 
+    let mut final_rig_refine = entry.clone();
+    if set_final_rig_refine(&mut final_rig_refine) {
+        cases.push(("final_rig_tilt_refine", final_rig_refine));
+    }
+
     if entry.robot_poses.is_some() {
         let mut inverse = entry.clone();
         invert_robot_pose_convention(&mut inverse);
@@ -496,6 +513,20 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
     }
 
     cases
+}
+
+fn set_final_rig_refine(entry: &mut BenchEntry) -> bool {
+    if !matches!(entry.problem, ProblemKind::RigHandeye) {
+        return false;
+    }
+    let overrides = entry
+        .rig_handeye
+        .get_or_insert_with(RigHandeyeOverride::default);
+    let mut ba = overrides.handeye_ba.clone().unwrap_or_default();
+    ba.refine_cam_se3_rig_in_handeye_ba = Some(true);
+    ba.refine_scheimpflug_in_handeye_ba = Some(true);
+    overrides.handeye_ba = Some(ba);
+    true
 }
 
 fn invert_robot_pose_convention(entry: &mut BenchEntry) {
@@ -548,6 +579,8 @@ fn set_robot_ba(
 ) {
     let ba = HandeyeBaOverride {
         refine_robot_poses,
+        refine_cam_se3_rig_in_handeye_ba: None,
+        refine_scheimpflug_in_handeye_ba: None,
         robot_rot_sigma,
         robot_trans_sigma,
     };
@@ -701,6 +734,11 @@ mod tests {
                 max_rot_deg: 0.2,
                 mean_trans_mm: 0.4,
                 max_trans_mm: 0.8,
+                prior_rot_deg: Some(0.5),
+                prior_trans_mm: Some(1.0),
+                max_rot_prior_ratio: Some(0.4),
+                max_trans_prior_ratio: Some(0.8),
+                exceeds_prior: false,
             }),
             artifacts: None,
             delta_to_prior: None,
