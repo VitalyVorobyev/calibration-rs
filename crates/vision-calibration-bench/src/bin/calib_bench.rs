@@ -93,6 +93,8 @@ struct DiagnoseArgs {
 enum DiagnoseCommand {
     /// Run fixed hand-eye configuration sweeps.
     Handeye(DiagnoseHandeyeArgs),
+    /// Profile detector and extractor stages without running calibration.
+    Stages(DiagnoseStagesArgs),
 }
 
 /// Arguments for `diagnose handeye`.
@@ -104,6 +106,20 @@ struct DiagnoseHandeyeArgs {
     /// Path to the bench registry JSON.
     #[arg(long)]
     registry: Option<PathBuf>,
+}
+
+/// Arguments for `diagnose stages`.
+#[derive(Parser)]
+struct DiagnoseStagesArgs {
+    /// Dataset id to diagnose.
+    #[arg(long)]
+    dataset: String,
+    /// Path to the bench registry JSON.
+    #[arg(long)]
+    registry: Option<PathBuf>,
+    /// Limit profiled images per camera.
+    #[arg(long)]
+    max_images: Option<usize>,
 }
 
 /// Default registry path: `<crate>/registry/public.json`.
@@ -184,6 +200,14 @@ fn load_entry(dataset: &str, registry_path: Option<&Path>) -> Result<BenchEntry>
     })
 }
 
+fn resolve_entry_data_root(mut entry: BenchEntry) -> BenchEntry {
+    if entry.data_root.is_relative() {
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        entry.data_root = workspace_root.join(&entry.data_root);
+    }
+    entry
+}
+
 /// Route a dataset to the runner matching its [`ProblemKind`], inject
 /// provenance, and print the resulting record.
 ///
@@ -199,11 +223,7 @@ fn run_dataset_record(entry: &BenchEntry) -> Result<BenchRecord> {
     // Resolve a relative data_root against the workspace root (derived from
     // `CARGO_MANIFEST_DIR` = `<root>/crates/<crate>`) so the harness works
     // regardless of the caller's CWD.
-    let mut entry = entry.clone();
-    if entry.data_root.is_relative() {
-        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        entry.data_root = workspace_root.join(&entry.data_root);
-    }
+    let entry = resolve_entry_data_root(entry.clone());
 
     let mut record = match entry.problem {
         ProblemKind::PlanarIntrinsics => run_planar_intrinsics(&entry)?,
@@ -337,6 +357,20 @@ fn render_markdown_report(record: &BenchRecord) -> String {
         }
     }
 
+    if let Some(robot) = &record.robot_corrections {
+        out.push_str("\n## Robot Pose Corrections\n\n");
+        out.push_str("| count | mean rot | max rot | mean trans | max trans |\n");
+        out.push_str("|---:|---:|---:|---:|---:|\n");
+        out.push_str(&format!(
+            "| {} | {:.3} deg | {:.3} deg | {:.3} mm | {:.3} mm |\n",
+            robot.count,
+            robot.mean_rot_deg,
+            robot.max_rot_deg,
+            robot.mean_trans_mm,
+            robot.max_trans_mm
+        ));
+    }
+
     out
 }
 
@@ -348,7 +382,31 @@ fn fmt_opt(v: Option<f64>) -> String {
 fn cmd_diagnose(args: &DiagnoseArgs) -> Result<()> {
     match &args.command {
         DiagnoseCommand::Handeye(args) => cmd_diagnose_handeye(args),
+        DiagnoseCommand::Stages(args) => cmd_diagnose_stages(args),
     }
+}
+
+fn cmd_diagnose_stages(args: &DiagnoseStagesArgs) -> Result<()> {
+    let entry = resolve_entry_data_root(load_entry(&args.dataset, args.registry.as_deref())?);
+    let profile = profile_dataset_stages(&entry, args.max_images)?;
+    println!("{}", serde_json::to_string_pretty(&profile)?);
+    Ok(())
+}
+
+#[cfg(feature = "tier-b")]
+fn profile_dataset_stages(
+    entry: &BenchEntry,
+    max_images: Option<usize>,
+) -> Result<vision_calibration_bench::run::tier_b::DatasetStageProfile> {
+    vision_calibration_bench::run::tier_b::profile_dataset_stages(entry, max_images)
+}
+
+#[cfg(not(feature = "tier-b"))]
+fn profile_dataset_stages(
+    _entry: &BenchEntry,
+    _max_images: Option<usize>,
+) -> Result<serde_json::Value> {
+    anyhow::bail!("diagnose stages requires --features tier-b")
 }
 
 fn cmd_diagnose_handeye(args: &DiagnoseHandeyeArgs) -> Result<()> {
@@ -363,23 +421,37 @@ fn cmd_diagnose_handeye(args: &DiagnoseHandeyeArgs) -> Result<()> {
 
     let cases = handeye_cases(&entry);
     println!("# Hand-Eye Diagnostic: {}\n", entry.id);
-    println!("| case | status | intrinsic mean | hand-eye mean | ratio | note |");
-    println!("|---|---|---:|---:|---:|---|");
+    println!(
+        "| case | status | intrinsic mean | hand-eye mean | ratio | robot trans mean/max | robot rot mean/max | note |"
+    );
+    println!("|---|---|---:|---:|---:|---:|---:|---|");
     for (name, case_entry) in cases {
         match run_dataset_record(&case_entry) {
             Ok(record) => {
                 let (floor, constrained) = handeye_level_means(&record);
+                let robot_trans = record
+                    .robot_corrections
+                    .as_ref()
+                    .map(|r| format!("{:.3}/{:.3} mm", r.mean_trans_mm, r.max_trans_mm))
+                    .unwrap_or_else(|| "-".to_string());
+                let robot_rot = record
+                    .robot_corrections
+                    .as_ref()
+                    .map(|r| format!("{:.3}/{:.3} deg", r.mean_rot_deg, r.max_rot_deg))
+                    .unwrap_or_else(|| "-".to_string());
                 println!(
-                    "| {} | ok | {} | {} | {} |  |",
+                    "| {} | ok | {} | {} | {} | {} | {} |  |",
                     name,
                     fmt_opt(floor),
                     fmt_opt(constrained),
-                    fmt_ratio(constrained, floor)
+                    fmt_ratio(constrained, floor),
+                    robot_trans,
+                    robot_rot
                 );
             }
             Err(err) => {
                 println!(
-                    "| {} | fail | - | - | - | {} |",
+                    "| {} | fail | - | - | - | - | - | {} |",
                     name,
                     escape_md(&err.to_string())
                 );
@@ -498,7 +570,8 @@ mod tests {
     use super::*;
     use vision_calibration_bench::record::{
         BENCH_SCHEMA_VERSION, CompactLevelReport, CompactReprojReport, Convergence, Detection,
-        DetectionStat, Fit, Ident, LaserCamStat, LaserMetrics, ReprojLevelGap, Timing,
+        DetectionStat, Fit, Ident, LaserCamStat, LaserMetrics, ReprojLevelGap,
+        RobotCorrectionSummary, Timing,
     };
     use vision_calibration_core::{FeatureResidualHistogram, ReprojectionStats};
     use vision_calibration_optim::SolveReport;
@@ -571,6 +644,13 @@ mod tests {
                 total_images_used: 2,
                 extract_ms: 3,
             }),
+            robot_corrections: Some(RobotCorrectionSummary {
+                count: 2,
+                mean_rot_deg: 0.1,
+                max_rot_deg: 0.2,
+                mean_trans_mm: 0.4,
+                max_trans_mm: 0.8,
+            }),
             delta_to_prior: None,
             timing: Timing {
                 init_ms: 1,
@@ -618,5 +698,6 @@ mod tests {
         assert!(md.contains("## Level Gaps"));
         assert!(md.contains("## Detection"));
         assert!(md.contains("## Laser Extraction"));
+        assert!(md.contains("## Robot Pose Corrections"));
     }
 }

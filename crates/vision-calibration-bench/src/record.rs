@@ -51,6 +51,9 @@ pub struct BenchRecord {
     pub detection: Option<Detection>,
     /// Laser-plane metrics, if this is a laserline problem.
     pub laser: Option<LaserMetrics>,
+    /// Per-view robot-pose correction magnitudes, if robot-pose refinement ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub robot_corrections: Option<RobotCorrectionSummary>,
     /// Change versus a frozen prior calibration, if a prior was supplied.
     pub delta_to_prior: Option<DeltaToPrior>,
     /// Wall-clock timing breakdown.
@@ -133,6 +136,56 @@ pub struct ResidualSidecarLevel {
     pub level: ReprojLevel,
     /// Full per-feature residual records.
     pub residuals: Vec<TargetFeatureResidual>,
+}
+
+/// Summary of optimized per-view robot-pose corrections.
+///
+/// Rotation is reported as the norm of the se(3) rotation vector in degrees;
+/// translation is reported as the norm of the se(3) translation vector in
+/// millimetres. The source optimizer stores translation internally in metres.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RobotCorrectionSummary {
+    /// Number of per-view corrections.
+    pub count: usize,
+    /// Average rotation correction magnitude in degrees.
+    pub mean_rot_deg: f64,
+    /// Maximum rotation correction magnitude in degrees.
+    pub max_rot_deg: f64,
+    /// Average translation correction magnitude in millimetres.
+    pub mean_trans_mm: f64,
+    /// Maximum translation correction magnitude in millimetres.
+    pub max_trans_mm: f64,
+}
+
+impl RobotCorrectionSummary {
+    /// Build a magnitude summary from se(3) deltas `[rx, ry, rz, tx, ty, tz]`,
+    /// where rotation is in radians and translation is in metres.
+    pub fn from_deltas(deltas: &[[f64; 6]]) -> Option<Self> {
+        if deltas.is_empty() {
+            return None;
+        }
+
+        let mut sum_rot = 0.0;
+        let mut max_rot = 0.0_f64;
+        let mut sum_trans = 0.0;
+        let mut max_trans = 0.0_f64;
+        for delta in deltas {
+            let rot = (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
+            let trans = (delta[3] * delta[3] + delta[4] * delta[4] + delta[5] * delta[5]).sqrt();
+            sum_rot += rot;
+            max_rot = max_rot.max(rot);
+            sum_trans += trans;
+            max_trans = max_trans.max(trans);
+        }
+        let n = deltas.len() as f64;
+        Some(Self {
+            count: deltas.len(),
+            mean_rot_deg: (sum_rot / n).to_degrees(),
+            max_rot_deg: max_rot.to_degrees(),
+            mean_trans_mm: (sum_trans / n) * 1000.0,
+            max_trans_mm: max_trans * 1000.0,
+        })
+    }
 }
 
 /// Split a full pipeline [`ReprojReport`] into the compact in-record shape and
@@ -513,6 +566,13 @@ mod tests {
                 total_images_used: 20,
                 extract_ms: 90,
             }),
+            robot_corrections: Some(RobotCorrectionSummary {
+                count: 2,
+                mean_rot_deg: 0.1,
+                max_rot_deg: 0.2,
+                mean_trans_mm: 0.5,
+                max_trans_mm: 0.8,
+            }),
             delta_to_prior: Some(DeltaToPrior {
                 params: vec![ParamDelta {
                     name: "fx".into(),
@@ -556,6 +616,7 @@ mod tests {
         record.stability = None;
         record.detection = None;
         record.laser = None;
+        record.robot_corrections = None;
         record.delta_to_prior = None;
         assert_json_roundtrip(&record);
     }
@@ -619,6 +680,20 @@ mod tests {
         );
         assert_eq!(compact.gaps.len(), 1);
         assert!(compact.gaps[0].ratio_to_intrinsic.unwrap() > 1.0);
+    }
+
+    #[test]
+    fn robot_correction_summary_uses_degrees_and_mm() {
+        let summary = RobotCorrectionSummary::from_deltas(&[
+            [0.0, 0.0, 1.0_f64.to_radians(), 0.001, 0.0, 0.0],
+            [0.0, 2.0_f64.to_radians(), 0.0, 0.0, 0.003, 0.004],
+        ])
+        .expect("summary");
+        assert_eq!(summary.count, 2);
+        assert!((summary.mean_rot_deg - 1.5).abs() < 1.0e-12);
+        assert!((summary.max_rot_deg - 2.0).abs() < 1.0e-12);
+        assert!((summary.mean_trans_mm - 3.0).abs() < 1.0e-12);
+        assert!((summary.max_trans_mm - 5.0).abs() < 1.0e-12);
     }
 
     fn residual(camera: usize, pose: usize, error_px: f64) -> TargetFeatureResidual {

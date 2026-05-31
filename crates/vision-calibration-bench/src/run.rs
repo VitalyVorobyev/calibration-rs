@@ -68,9 +68,80 @@ pub mod tier_b {
     use crate::record::LaserCamStat;
     use crate::record::{
         BENCH_SCHEMA_VERSION, BenchRecord, Convergence, Detection, DetectionStat, Fit, Ident,
-        LaserMetrics, ResidualSidecar, Timing, compact_reproj_report,
+        LaserMetrics, ResidualSidecar, RobotCorrectionSummary, Timing, compact_reproj_report,
     };
     use crate::registry::{BenchEntry, BoardGeometry, ProblemKind};
+
+    /// Lightweight per-dataset stage profile for diagnosing detector/extractor
+    /// cost before running a full calibration solve.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct DatasetStageProfile {
+        /// Dataset id.
+        pub dataset_id: String,
+        /// Problem kind.
+        pub problem: ProblemKind,
+        /// Number of cameras in the registry entry.
+        pub camera_count: usize,
+        /// Number of robot/target poses found when a pose source exists.
+        pub pose_count: Option<usize>,
+        /// Maximum images profiled per camera.
+        pub max_images_per_camera: Option<usize>,
+        /// Target detector profile.
+        pub target_detection: TargetDetectionProfile,
+        /// Laser extraction profile, when the dataset declares laser data and
+        /// the binary was built with the `laser` feature.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub laser_extraction: Option<LaserExtractionProfile>,
+    }
+
+    /// Target detector timing/count profile.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct TargetDetectionProfile {
+        /// Board layout used to select the detector.
+        pub detector: String,
+        /// Expected full-board feature count.
+        pub expected_features_per_board: usize,
+        /// Total wall-clock time in milliseconds.
+        pub total_ms: u64,
+        /// Per-camera target detection profiles.
+        pub per_camera: Vec<ProfileCameraStat>,
+    }
+
+    /// Laser extractor timing/count profile.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct LaserExtractionProfile {
+        /// Whether the laser feature was enabled in this binary.
+        pub enabled: bool,
+        /// Total wall-clock time in milliseconds.
+        pub total_ms: u64,
+        /// Per-camera laser extraction profiles.
+        pub per_camera: Vec<ProfileCameraStat>,
+    }
+
+    /// Per-camera profile summary.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct ProfileCameraStat {
+        /// Camera id.
+        pub camera_id: String,
+        /// Number of images available to this stage.
+        pub images_total: usize,
+        /// Number of images actually profiled.
+        pub images_profiled: usize,
+        /// Number of images with a non-empty detection/extraction.
+        pub images_used: usize,
+        /// Total features or laser pixels detected.
+        pub points_total: usize,
+        /// Maximum features or laser pixels detected in one image.
+        pub points_max: usize,
+        /// Total image load/decode/tile time in milliseconds.
+        pub load_ms: u64,
+        /// Total detector/extractor time in milliseconds.
+        pub stage_ms: u64,
+        /// Mean detector/extractor time per profiled image.
+        pub mean_stage_ms: f64,
+        /// Max detector/extractor time for one image.
+        pub max_stage_ms: u64,
+    }
 
     /// Run a single-camera planar-intrinsics calibration for `entry` and build a
     /// [`BenchRecord`].
@@ -148,7 +219,7 @@ pub mod tier_b {
         // the manifest count would yield a >100% coverage figure.) The declared
         // `board.rows`/`board.cols` are still threaded through to
         // `detect_chessboard_view` for API symmetry.
-        let features_per_board = max_corners_per_image.max(board.rows * board.cols);
+        let features_per_board = max_corners_per_image.max(board_feature_count(board));
         let features_expected = images_used * features_per_board;
         let coverage_pct = if features_expected > 0 {
             100.0 * features_detected as f64 / features_expected as f64
@@ -253,6 +324,7 @@ pub mod tier_b {
             stability: None,
             detection: Some(detection),
             laser: None,
+            robot_corrections: None,
             delta_to_prior: None,
             timing,
             reproj_report,
@@ -398,7 +470,7 @@ pub mod tier_b {
             );
         }
 
-        let features_per_board = max_corners_per_image.max(board.rows * board.cols);
+        let features_per_board = max_corners_per_image.max(board_feature_count(board));
 
         // ── Calibration ────────────────────────────────────────────────────
         let input = RigDataset::new(rig_views, entry.cameras.len())
@@ -512,6 +584,7 @@ pub mod tier_b {
             stability: None,
             detection: Some(detection),
             laser: None,
+            robot_corrections: None,
             delta_to_prior: None,
             timing,
             reproj_report,
@@ -653,7 +726,7 @@ pub mod tier_b {
             views.len()
         );
 
-        let features_per_board = max_corners_per_image.max(board.rows * board.cols);
+        let features_per_board = max_corners_per_image.max(board_feature_count(board));
         let features_expected = images_used * features_per_board;
         let coverage_pct = if features_expected > 0 {
             100.0 * features_detected as f64 / features_expected as f64
@@ -757,6 +830,10 @@ pub mod tier_b {
             entry,
             single_cam_handeye_report(&export, &views_for_report).ok(),
         );
+        let robot_corrections = export
+            .robot_deltas
+            .as_deref()
+            .and_then(RobotCorrectionSummary::from_deltas);
 
         Ok(BenchRecord {
             ident: placeholder_ident(entry, "single_cam_handeye"),
@@ -766,6 +843,7 @@ pub mod tier_b {
             stability: None,
             detection: Some(detection),
             laser: None,
+            robot_corrections,
             delta_to_prior: None,
             timing,
             reproj_report,
@@ -905,7 +983,7 @@ pub mod tier_b {
             );
         }
 
-        let features_per_board = max_corners_per_image.max(board.rows * board.cols);
+        let features_per_board = max_corners_per_image.max(board_feature_count(board));
         let laser = extract_laser_metrics(entry)?;
 
         // ── Calibration ─────────────────────────────────────────────────────
@@ -1009,6 +1087,10 @@ pub mod tier_b {
         // HandEye level (board pose through the robot + hand-eye chain).
         let (reproj_report, residual_sidecar) =
             split_reproj_report(entry, rig_handeye_report(&export, &dataset_for_report).ok());
+        let robot_corrections = export
+            .robot_deltas
+            .as_deref()
+            .and_then(RobotCorrectionSummary::from_deltas);
 
         Ok(BenchRecord {
             ident: placeholder_ident(entry, "rig_handeye"),
@@ -1018,11 +1100,194 @@ pub mod tier_b {
             stability: None,
             detection: Some(detection),
             laser,
+            robot_corrections,
             delta_to_prior: None,
             timing,
             reproj_report,
             residual_sidecar,
         })
+    }
+
+    /// Profile target detection and laser extraction without running a solver.
+    ///
+    /// This intentionally keeps the diagnostic scoped to I/O + detector stages:
+    /// if a puzzle dataset is already slow here, the full calibration path will
+    /// not reach initialization quickly enough to be a useful first diagnostic.
+    pub fn profile_dataset_stages(
+        entry: &BenchEntry,
+        max_images_per_camera: Option<usize>,
+    ) -> Result<DatasetStageProfile> {
+        let board = entry
+            .board
+            .as_ref()
+            .context("stage profiling needs a `board` geometry")?;
+        let detector = detector_for(board)?;
+        let detector_name = board
+            .layout
+            .as_deref()
+            .unwrap_or("checkerboard")
+            .to_string();
+        let profile_limit = max_images_per_camera.unwrap_or(usize::MAX);
+        let target_start = Instant::now();
+        let mut target_per_camera = Vec::with_capacity(entry.cameras.len());
+
+        for cam in &entry.cameras {
+            let folder = entry.data_root.join(&cam.folder);
+            let paths = glob_sorted_images(&folder, &cam.filename_glob)?;
+            let selected: Vec<_> = paths.iter().take(profile_limit).collect();
+            let mut images_used = 0usize;
+            let mut points_total = 0usize;
+            let mut points_max = 0usize;
+            let mut load_ms = 0u64;
+            let mut stage_ms = 0u64;
+            let mut max_stage_ms = 0u64;
+
+            for path in &selected {
+                let load_start = Instant::now();
+                let img = load_image(path)?;
+                let img = apply_tile(&img, cam.tile);
+                load_ms = load_ms.saturating_add(load_start.elapsed().as_millis() as u64);
+
+                let stage_start = Instant::now();
+                let detection = detector.detect(&img)?;
+                let elapsed = stage_start.elapsed().as_millis() as u64;
+                stage_ms = stage_ms.saturating_add(elapsed);
+                max_stage_ms = max_stage_ms.max(elapsed);
+                if let Some(view) = detection {
+                    images_used += 1;
+                    points_total += view.len();
+                    points_max = points_max.max(view.len());
+                }
+            }
+            target_per_camera.push(ProfileCameraStat {
+                camera_id: cam.id.clone(),
+                images_total: paths.len(),
+                images_profiled: selected.len(),
+                images_used,
+                points_total,
+                points_max,
+                load_ms,
+                stage_ms,
+                mean_stage_ms: mean_ms(stage_ms, selected.len()),
+                max_stage_ms,
+            });
+        }
+
+        let laser_extraction = profile_laser_extraction(entry, profile_limit)?;
+        let pose_count = entry
+            .robot_poses
+            .as_ref()
+            .and_then(|pose_src| count_robot_poses(entry, pose_src).ok());
+
+        Ok(DatasetStageProfile {
+            dataset_id: entry.id.clone(),
+            problem: entry.problem,
+            camera_count: entry.cameras.len(),
+            pose_count,
+            max_images_per_camera,
+            target_detection: TargetDetectionProfile {
+                detector: detector_name,
+                expected_features_per_board: board_feature_count(board),
+                total_ms: target_start.elapsed().as_millis() as u64,
+                per_camera: target_per_camera,
+            },
+            laser_extraction,
+        })
+    }
+
+    fn mean_ms(total_ms: u64, count: usize) -> f64 {
+        if count == 0 {
+            0.0
+        } else {
+            total_ms as f64 / count as f64
+        }
+    }
+
+    fn count_robot_poses(
+        entry: &BenchEntry,
+        pose_src: &crate::registry::PoseSource,
+    ) -> Result<usize> {
+        let path = entry.data_root.join(&pose_src.path);
+        match pose_src.format.as_str() {
+            "snap_list_json" => Ok(load_snap_list_json(&path, 1.0)?.len()),
+            "counted4x4" | "rowmajor4x4" => Ok(load_robot_poses_for(pose_src, &path)?.len()),
+            other => anyhow::bail!("unsupported robot-pose format '{other}'"),
+        }
+    }
+
+    #[cfg(not(feature = "laser"))]
+    fn profile_laser_extraction(
+        entry: &BenchEntry,
+        _profile_limit: usize,
+    ) -> Result<Option<LaserExtractionProfile>> {
+        if entry.laser.is_some() {
+            return Ok(Some(LaserExtractionProfile {
+                enabled: false,
+                total_ms: 0,
+                per_camera: Vec::new(),
+            }));
+        }
+        Ok(None)
+    }
+
+    #[cfg(feature = "laser")]
+    fn profile_laser_extraction(
+        entry: &BenchEntry,
+        profile_limit: usize,
+    ) -> Result<Option<LaserExtractionProfile>> {
+        if entry.laser.is_none() {
+            return Ok(None);
+        }
+
+        let paths = laser_image_paths(entry)?;
+        let selected: Vec<_> = paths.iter().take(profile_limit).collect();
+        let total_start = Instant::now();
+        let mut per_camera = Vec::with_capacity(entry.cameras.len());
+        for cam in &entry.cameras {
+            let mut images_used = 0usize;
+            let mut points_total = 0usize;
+            let mut points_max = 0usize;
+            let mut load_ms = 0u64;
+            let mut stage_ms = 0u64;
+            let mut max_stage_ms = 0u64;
+
+            for path in &selected {
+                let load_start = Instant::now();
+                let img = load_image(path)?;
+                let img = apply_tile(&img, cam.tile);
+                load_ms = load_ms.saturating_add(load_start.elapsed().as_millis() as u64);
+
+                let stage_start = Instant::now();
+                let point_count = extract_laser_points(&img);
+                let elapsed = stage_start.elapsed().as_millis() as u64;
+                stage_ms = stage_ms.saturating_add(elapsed);
+                max_stage_ms = max_stage_ms.max(elapsed);
+                if point_count > 0 {
+                    images_used += 1;
+                    points_total += point_count;
+                    points_max = points_max.max(point_count);
+                }
+            }
+
+            per_camera.push(ProfileCameraStat {
+                camera_id: cam.id.clone(),
+                images_total: paths.len(),
+                images_profiled: selected.len(),
+                images_used,
+                points_total,
+                points_max,
+                load_ms,
+                stage_ms,
+                mean_stage_ms: mean_ms(stage_ms, selected.len()),
+                max_stage_ms,
+            });
+        }
+
+        Ok(Some(LaserExtractionProfile {
+            enabled: true,
+            total_ms: total_start.elapsed().as_millis() as u64,
+            per_camera,
+        }))
     }
 
     fn split_reproj_report(
@@ -1251,6 +1516,18 @@ pub mod tier_b {
             Ok(DetectorKind::Chessboard {
                 square_size_m: board.cell_size_m,
             })
+        }
+    }
+
+    /// Expected full-board feature count in the same semantics as the selected
+    /// detector. PuzzleBoard registry dimensions are square counts, so the
+    /// actual inner-corner grid is `(rows - 1) * (cols - 1)`.
+    fn board_feature_count(board: &BoardGeometry) -> usize {
+        match board.layout.as_deref() {
+            Some(layout) if layout.eq_ignore_ascii_case("puzzleboard") => {
+                board.rows.saturating_sub(1) * board.cols.saturating_sub(1)
+            }
+            _ => board.rows * board.cols,
         }
     }
 
