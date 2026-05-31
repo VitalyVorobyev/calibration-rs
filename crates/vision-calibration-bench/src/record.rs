@@ -19,16 +19,20 @@
 //! laser metrics).
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{FeatureResidualHistogram, ReprojectionStats};
+use vision_calibration_core::{FeatureResidualHistogram, ReprojectionStats, TargetFeatureResidual};
 use vision_calibration_optim::SolveReport;
-use vision_calibration_pipeline::analysis::ReprojReport;
+use vision_calibration_pipeline::analysis::{LevelStats, ReprojLevel, ReprojReport};
 
 /// Schema version for [`BenchRecord`]. Bump on any breaking layout change so
 /// frozen records carry a version stamp ([`Ident::bench_schema_version`]).
 ///
-/// v2 adds [`BenchRecord::reproj_report`] (the hierarchical multi-level
-/// reprojection report: intrinsic floor → rig-extrinsic → hand-eye).
-pub const BENCH_SCHEMA_VERSION: u32 = 2;
+/// v3 replaces the full in-record [`ReprojReport`] with a compact report and a
+/// transient optional [`ResidualSidecar`]. Full residual vectors are written
+/// only when the CLI is asked for a sidecar.
+pub const BENCH_SCHEMA_VERSION: u32 = 3;
+
+/// Maximum per-level outliers kept inside compact benchmark records.
+pub const DEFAULT_TOP_OUTLIER_LIMIT: usize = 16;
 
 /// One benchmark run's full metric record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,11 +55,169 @@ pub struct BenchRecord {
     pub delta_to_prior: Option<DeltaToPrior>,
     /// Wall-clock timing breakdown.
     pub timing: Timing,
-    /// Hierarchical multi-level reprojection report (intrinsic floor →
-    /// rig-extrinsic → hand-eye), if computed. The level deltas localize the
-    /// error source (detection / camera model vs. rig vs. robot chain).
+    /// Compact hierarchical multi-level reprojection report (intrinsic floor →
+    /// rig-extrinsic → hand-eye), if computed. Full residual vectors live in
+    /// [`Self::residual_sidecar`] during the process run and are not serialized
+    /// into the default record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reproj_report: Option<ReprojReport>,
+    pub reproj_report: Option<CompactReprojReport>,
+    /// Optional full residual sidecar, carried in memory only so the CLI can
+    /// write it when `--residuals-out` is provided.
+    #[serde(skip)]
+    pub residual_sidecar: Option<ResidualSidecar>,
+}
+
+/// Compact version of [`ReprojReport`] suitable for default JSON output.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CompactReprojReport {
+    /// The most-constrained level's mean error in pixels.
+    pub headline_px: f64,
+    /// Compact per-level summaries, ordered least-constrained first.
+    pub levels: Vec<CompactLevelReport>,
+    /// Adjacent level gaps, plus ratios against the previous level and floor.
+    pub gaps: Vec<ReprojLevelGap>,
+}
+
+/// Compact summary of one reprojection constraint level.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CompactLevelReport {
+    /// Constraint level.
+    pub level: ReprojLevel,
+    /// Aggregate statistics over finite residuals.
+    pub overall: LevelStats,
+    /// Per-camera aggregates.
+    pub per_camera: Vec<LevelStats>,
+    /// Per-view aggregates.
+    pub per_view: Vec<LevelStats>,
+    /// Number of residual records before compacting.
+    pub residual_count: usize,
+    /// Bounded list of worst residuals for immediate diagnosis.
+    pub top_outliers: Vec<TargetFeatureResidual>,
+}
+
+/// Gap between two adjacent reprojection levels.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ReprojLevelGap {
+    /// Less-constrained source level.
+    pub from: ReprojLevel,
+    /// More-constrained target level.
+    pub to: ReprojLevel,
+    /// Difference in mean error, `to.mean - from.mean`.
+    pub mean_delta_px: f64,
+    /// Ratio `to.mean / from.mean`, or `None` when the denominator is zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ratio_to_previous: Option<f64>,
+    /// Ratio `to.mean / intrinsic.mean`, or `None` when the intrinsic floor is
+    /// absent or zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ratio_to_intrinsic: Option<f64>,
+}
+
+/// Full residual sidecar emitted only on request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResidualSidecar {
+    /// Sidecar schema version. Kept in lockstep with [`BENCH_SCHEMA_VERSION`].
+    pub bench_schema_version: u32,
+    /// Dataset identifier.
+    pub dataset_id: String,
+    /// Headline reprojection error in pixels.
+    pub headline_px: f64,
+    /// Full residual vectors per level.
+    pub levels: Vec<ResidualSidecarLevel>,
+}
+
+/// Full residuals for one reprojection level.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResidualSidecarLevel {
+    /// Constraint level.
+    pub level: ReprojLevel,
+    /// Full per-feature residual records.
+    pub residuals: Vec<TargetFeatureResidual>,
+}
+
+/// Split a full pipeline [`ReprojReport`] into the compact in-record shape and
+/// an optional sidecar that preserves every per-feature residual.
+pub fn compact_reproj_report(
+    dataset_id: &str,
+    report: ReprojReport,
+) -> (CompactReprojReport, ResidualSidecar) {
+    compact_reproj_report_with_limit(dataset_id, report, DEFAULT_TOP_OUTLIER_LIMIT)
+}
+
+/// Same as [`compact_reproj_report`], with an explicit outlier limit for tests.
+pub fn compact_reproj_report_with_limit(
+    dataset_id: &str,
+    report: ReprojReport,
+    top_outlier_limit: usize,
+) -> (CompactReprojReport, ResidualSidecar) {
+    let headline_px = report.headline_px;
+    let intrinsic_mean = report
+        .levels
+        .iter()
+        .find(|level| level.level == ReprojLevel::Intrinsic)
+        .map(|level| level.overall.mean)
+        .filter(|v| *v > 0.0);
+
+    let mut compact_levels = Vec::with_capacity(report.levels.len());
+    let mut sidecar_levels = Vec::with_capacity(report.levels.len());
+    for level in report.levels {
+        let mut top_outliers = level.residuals.clone();
+        top_outliers.sort_by(|a, b| {
+            let ae = a.error_px.unwrap_or(f64::NEG_INFINITY);
+            let be = b.error_px.unwrap_or(f64::NEG_INFINITY);
+            be.total_cmp(&ae)
+        });
+        top_outliers.truncate(top_outlier_limit);
+
+        let residual_count = level.residuals.len();
+        sidecar_levels.push(ResidualSidecarLevel {
+            level: level.level,
+            residuals: level.residuals,
+        });
+        compact_levels.push(CompactLevelReport {
+            level: level.level,
+            overall: level.overall,
+            per_camera: level.per_camera,
+            per_view: level.per_view,
+            residual_count,
+            top_outliers,
+        });
+    }
+
+    let mut gaps = Vec::new();
+    for pair in compact_levels.windows(2) {
+        let from = &pair[0];
+        let to = &pair[1];
+        gaps.push(ReprojLevelGap {
+            from: from.level,
+            to: to.level,
+            mean_delta_px: to.overall.mean - from.overall.mean,
+            ratio_to_previous: ratio(to.overall.mean, from.overall.mean),
+            ratio_to_intrinsic: intrinsic_mean.and_then(|floor| ratio(to.overall.mean, floor)),
+        });
+    }
+
+    (
+        CompactReprojReport {
+            headline_px,
+            levels: compact_levels,
+            gaps,
+        },
+        ResidualSidecar {
+            bench_schema_version: BENCH_SCHEMA_VERSION,
+            dataset_id: dataset_id.to_string(),
+            headline_px,
+            levels: sidecar_levels,
+        },
+    )
+}
+
+fn ratio(num: f64, den: f64) -> Option<f64> {
+    if den > 0.0 && num.is_finite() && den.is_finite() {
+        Some(num / den)
+    } else {
+        None
+    }
 }
 
 /// Identity and provenance of a benchmark run.
@@ -197,22 +359,41 @@ pub struct DetectionStat {
     pub detect_ms: u64,
 }
 
-/// Laser-plane metrics across cameras.
+/// Laser-plane and extraction metrics across cameras.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserMetrics {
     /// Per-camera laser statistics.
     pub per_camera: Vec<LaserCamStat>,
+    /// Total extracted laser pixels across cameras.
+    pub total_points: usize,
+    /// Total images with non-empty laser extraction.
+    pub total_images_used: usize,
+    /// Total extraction time in milliseconds.
+    pub extract_ms: u64,
 }
 
 /// Laser metrics for a single camera.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaserCamStat {
-    /// Plane residuals in metres (reusing the reprojection stats container).
-    pub plane_residual_m: ReprojectionStats,
-    /// Plane residuals in pixels.
-    pub plane_residual_px: ReprojectionStats,
-    /// Inlier ratio of laser points to the fitted plane (0–1).
-    pub inlier_ratio: f64,
+    /// Camera identifier.
+    pub camera_id: String,
+    /// Laser images available for this camera.
+    pub images_total: usize,
+    /// Laser images with at least one extracted point.
+    pub images_used: usize,
+    /// Extracted laser pixels.
+    pub points_extracted: usize,
+    /// Extraction time in milliseconds.
+    pub extract_ms: u64,
+    /// Plane residuals in metres, once a plane fit is available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plane_residual_m: Option<ReprojectionStats>,
+    /// Laser-line residuals in pixels, once a pixel-space fit is available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_residual_px: Option<ReprojectionStats>,
+    /// Inlier ratio of laser points to the fitted plane (0–1), once available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inlier_ratio: Option<f64>,
 }
 
 /// Change in calibration parameters versus a frozen prior.
@@ -319,10 +500,18 @@ mod tests {
             }),
             laser: Some(LaserMetrics {
                 per_camera: vec![LaserCamStat {
-                    plane_residual_m: stats,
-                    plane_residual_px: stats,
-                    inlier_ratio: 0.98,
+                    camera_id: "cam0".into(),
+                    images_total: 20,
+                    images_used: 20,
+                    points_extracted: 14_400,
+                    extract_ms: 90,
+                    plane_residual_m: Some(stats),
+                    line_residual_px: Some(stats),
+                    inlier_ratio: Some(0.98),
                 }],
+                total_points: 14_400,
+                total_images_used: 20,
+                extract_ms: 90,
             }),
             delta_to_prior: Some(DeltaToPrior {
                 params: vec![ParamDelta {
@@ -340,6 +529,7 @@ mod tests {
                 detection_ms: 1200,
             },
             reproj_report: None,
+            residual_sidecar: None,
         }
     }
 
@@ -368,5 +558,77 @@ mod tests {
         record.laser = None;
         record.delta_to_prior = None;
         assert_json_roundtrip(&record);
+    }
+
+    #[test]
+    fn compact_report_keeps_outliers_and_sidecar() {
+        let residuals = vec![
+            residual(0, 0, 0.1),
+            residual(0, 1, 2.0),
+            residual(1, 0, 1.0),
+        ];
+        let level = vision_calibration_pipeline::analysis::LevelReport {
+            level: ReprojLevel::Intrinsic,
+            overall: LevelStats::from_residuals(&residuals),
+            per_camera: vec![LevelStats::from_residuals(&residuals[..2])],
+            per_view: vec![LevelStats::from_residuals(&residuals)],
+            residuals,
+        };
+        let report = ReprojReport {
+            headline_px: level.overall.mean,
+            levels: vec![level],
+        };
+
+        let (compact, sidecar) = compact_reproj_report_with_limit("ds", report, 2);
+        assert_eq!(compact.levels[0].residual_count, 3);
+        assert_eq!(compact.levels[0].top_outliers.len(), 2);
+        assert_eq!(compact.levels[0].top_outliers[0].error_px, Some(2.0));
+        assert_eq!(sidecar.dataset_id, "ds");
+        assert_eq!(sidecar.levels[0].residuals.len(), 3);
+    }
+
+    #[test]
+    fn compact_report_headline_matches_most_constrained_level() {
+        let intrinsic_residuals = vec![residual(0, 0, 0.1), residual(0, 1, 0.2)];
+        let handeye_residuals = vec![residual(0, 0, 1.1), residual(0, 1, 1.3)];
+        let intrinsic = vision_calibration_pipeline::analysis::LevelReport {
+            level: ReprojLevel::Intrinsic,
+            overall: LevelStats::from_residuals(&intrinsic_residuals),
+            per_camera: vec![LevelStats::from_residuals(&intrinsic_residuals)],
+            per_view: vec![LevelStats::from_residuals(&intrinsic_residuals)],
+            residuals: intrinsic_residuals,
+        };
+        let handeye = vision_calibration_pipeline::analysis::LevelReport {
+            level: ReprojLevel::HandEye,
+            overall: LevelStats::from_residuals(&handeye_residuals),
+            per_camera: vec![LevelStats::from_residuals(&handeye_residuals)],
+            per_view: vec![LevelStats::from_residuals(&handeye_residuals)],
+            residuals: handeye_residuals,
+        };
+        let expected_headline = handeye.overall.mean;
+        let report = ReprojReport {
+            headline_px: expected_headline,
+            levels: vec![intrinsic, handeye],
+        };
+
+        let (compact, _sidecar) = compact_reproj_report_with_limit("handeye", report, 4);
+        assert_eq!(compact.headline_px, expected_headline);
+        assert_eq!(
+            compact.headline_px,
+            compact.levels.last().expect("level").overall.mean
+        );
+        assert_eq!(compact.gaps.len(), 1);
+        assert!(compact.gaps[0].ratio_to_intrinsic.unwrap() > 1.0);
+    }
+
+    fn residual(camera: usize, pose: usize, error_px: f64) -> TargetFeatureResidual {
+        let mut residual = TargetFeatureResidual::default();
+        residual.camera = camera;
+        residual.pose = pose;
+        residual.feature = 0;
+        residual.observed_px = [0.0, 0.0];
+        residual.projected_px = Some([error_px, 0.0]);
+        residual.error_px = Some(error_px);
+        residual
     }
 }

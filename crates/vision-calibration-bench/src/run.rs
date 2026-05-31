@@ -39,7 +39,7 @@ pub mod tier_b {
     };
     // Rig hand-eye step fns share names with the rig-extrinsics ones, so alias.
     use vision_calibration::rig_handeye::{
-        RigHandeyeProblem, step_handeye_init as rh_handeye_init,
+        RigHandeyeConfig, RigHandeyeProblem, step_handeye_init as rh_handeye_init,
         step_handeye_optimize as rh_handeye_optimize,
         step_intrinsics_init_all as rh_intrinsics_init_all,
         step_intrinsics_optimize_all as rh_intrinsics_optimize_all, step_rig_init as rh_rig_init,
@@ -47,20 +47,28 @@ pub mod tier_b {
     };
     use vision_calibration::session::CalibrationSession;
     use vision_calibration::single_cam_handeye::{
-        HandeyeMeta, SingleCamHandeyeInput, SingleCamHandeyeProblem, SingleCamHandeyeView,
-        step_handeye_init, step_handeye_optimize, step_intrinsics_init, step_intrinsics_optimize,
+        HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeInput, SingleCamHandeyeProblem,
+        SingleCamHandeyeView, step_handeye_init, step_handeye_optimize, step_intrinsics_init,
+        step_intrinsics_optimize,
     };
     use vision_calibration_core::{
         FeatureResidualHistogram, PlanarDataset, ReprojectionStats, View,
     };
     use vision_calibration_optim::SolveReport;
+    #[cfg(feature = "laser")]
+    use vision_metrology::{
+        ColAccess, Edge1DConfig, ImageView, LaserExtractConfig, LaserExtractor, ScanAxis,
+    };
 
     use crate::detect::{
         DetectorKind, charuco_params_for, detect_chessboard_view, glob_sorted_images, load_image,
+        puzzleboard_params_for,
     };
+    #[cfg(feature = "laser")]
+    use crate::record::LaserCamStat;
     use crate::record::{
         BENCH_SCHEMA_VERSION, BenchRecord, Convergence, Detection, DetectionStat, Fit, Ident,
-        Timing,
+        LaserMetrics, ResidualSidecar, Timing, compact_reproj_report,
     };
     use crate::registry::{BenchEntry, BoardGeometry, ProblemKind};
 
@@ -232,7 +240,10 @@ pub mod tier_b {
         // Hierarchical reprojection report. Planar intrinsics has a single
         // (Intrinsic) level whose mean equals the headline; the report adds the
         // per-camera / per-view breakdown.
-        let reproj_report = planar_intrinsics_report(&export, &views_for_report).ok();
+        let (reproj_report, residual_sidecar) = split_reproj_report(
+            entry,
+            planar_intrinsics_report(&export, &views_for_report).ok(),
+        );
 
         Ok(BenchRecord {
             ident: placeholder_ident(entry, "planar_intrinsics"),
@@ -245,6 +256,7 @@ pub mod tier_b {
             delta_to_prior: None,
             timing,
             reproj_report,
+            residual_sidecar,
         })
     }
 
@@ -487,7 +499,10 @@ pub mod tier_b {
 
         // Hierarchical reprojection report: Intrinsic floor (free per-(cam,view)
         // PnP pose) + RigExtrinsic level (shared board pose through the rig).
-        let reproj_report = rig_extrinsics_report(&export, &dataset_for_report).ok();
+        let (reproj_report, residual_sidecar) = split_reproj_report(
+            entry,
+            rig_extrinsics_report(&export, &dataset_for_report).ok(),
+        );
 
         Ok(BenchRecord {
             ident: placeholder_ident(entry, "rig_extrinsics"),
@@ -500,6 +515,7 @@ pub mod tier_b {
             delta_to_prior: None,
             timing,
             reproj_report,
+            residual_sidecar,
         })
     }
 
@@ -559,8 +575,11 @@ pub mod tier_b {
 
         if pose_src.format == "snap_list_json" {
             // ── snap_list_json path: named image files ───────────────────────
-            let snap_pairs =
+            let mut snap_pairs =
                 load_snap_list_json(&entry.data_root.join(&pose_src.path), trans_scale)?;
+            for (_target_image, robot_pose) in &mut snap_pairs {
+                normalize_robot_pose_convention(robot_pose, &pose_src.convention)?;
+            }
             total_poses = snap_pairs.len();
             let detector = detector_for(board)?;
             let cam_root = if cam.folder.is_empty() {
@@ -591,7 +610,8 @@ pub mod tier_b {
             }
         } else {
             // ── Legacy rowmajor4x4 path (kuka_1) ────────────────────────────
-            let robot_poses = load_robot_poses(&entry.data_root.join(&pose_src.path))?;
+            let robot_poses =
+                load_robot_poses_for(pose_src, &entry.data_root.join(&pose_src.path))?;
             total_poses = robot_poses.len();
             let square_size_m = board.cell_size_m;
             let folder = entry.data_root.join(&cam.folder);
@@ -661,6 +681,13 @@ pub mod tier_b {
         let input =
             SingleCamHandeyeInput::new(views).map_err(|e| anyhow::anyhow!("set_input: {e}"))?;
         let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
+        let mut config = SingleCamHandeyeConfig::default();
+        if let Some(overrides) = &entry.single_cam_handeye {
+            overrides.apply_to(&mut config);
+        }
+        session
+            .set_config(config)
+            .context("set single_cam_handeye config failed")?;
         session.set_input(input).context("set_input failed")?;
 
         let init_start = Instant::now();
@@ -726,7 +753,10 @@ pub mod tier_b {
         // Hierarchical reprojection report: Intrinsic floor (free per-view PnP
         // pose) + HandEye level (board pose through robot + hand-eye chain). The
         // gap between the two localizes the kuka-style "why is it 1.2 px" error.
-        let reproj_report = single_cam_handeye_report(&export, &views_for_report).ok();
+        let (reproj_report, residual_sidecar) = split_reproj_report(
+            entry,
+            single_cam_handeye_report(&export, &views_for_report).ok(),
+        );
 
         Ok(BenchRecord {
             ident: placeholder_ident(entry, "single_cam_handeye"),
@@ -739,6 +769,7 @@ pub mod tier_b {
             delta_to_prior: None,
             timing,
             reproj_report,
+            residual_sidecar,
         })
     }
 
@@ -875,12 +906,20 @@ pub mod tier_b {
         }
 
         let features_per_board = max_corners_per_image.max(board.rows * board.cols);
+        let laser = extract_laser_metrics(entry)?;
 
         // ── Calibration ─────────────────────────────────────────────────────
         let input = RigDataset::new(rig_views, n_cam)
             .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
         let dataset_for_report = input.clone();
         let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+        let mut config = RigHandeyeConfig::default();
+        if let Some(overrides) = &entry.rig_handeye {
+            overrides.apply_to(&mut config);
+        }
+        session
+            .set_config(config)
+            .context("set rig_handeye config failed")?;
         session.set_input(input).context("set_input failed")?;
 
         let init_start = Instant::now();
@@ -954,9 +993,11 @@ pub mod tier_b {
             converged: true,
             report: synth_report(export.mean_reproj_error),
         };
+        let laser_ms = laser.as_ref().map(|m| m.extract_ms).unwrap_or(0);
         let total_ms = init_ms
             .saturating_add(optimize_ms)
-            .saturating_add(detection_ms);
+            .saturating_add(detection_ms)
+            .saturating_add(laser_ms);
         let timing = Timing {
             init_ms,
             optimize_ms,
@@ -966,7 +1007,8 @@ pub mod tier_b {
 
         // Hierarchical report: Intrinsic floor (free per-(cam,view) PnP) +
         // HandEye level (board pose through the robot + hand-eye chain).
-        let reproj_report = rig_handeye_report(&export, &dataset_for_report).ok();
+        let (reproj_report, residual_sidecar) =
+            split_reproj_report(entry, rig_handeye_report(&export, &dataset_for_report).ok());
 
         Ok(BenchRecord {
             ident: placeholder_ident(entry, "rig_handeye"),
@@ -975,11 +1017,28 @@ pub mod tier_b {
             generalization: None,
             stability: None,
             detection: Some(detection),
-            laser: None,
+            laser,
             delta_to_prior: None,
             timing,
             reproj_report,
+            residual_sidecar,
         })
+    }
+
+    fn split_reproj_report(
+        entry: &BenchEntry,
+        report: Option<vision_calibration::analysis::ReprojReport>,
+    ) -> (
+        Option<crate::record::CompactReprojReport>,
+        Option<ResidualSidecar>,
+    ) {
+        match report {
+            Some(report) => {
+                let (compact, sidecar) = compact_reproj_report(&entry.id, report);
+                (Some(compact), Some(sidecar))
+            }
+            None => (None, None),
+        }
     }
 
     /// Crop a loaded image to a tile ROI `[x, y, w, h]`, if specified.
@@ -992,6 +1051,125 @@ pub mod tier_b {
             Some([x, y, w, h]) => img.crop_imm(x, y, w, h),
             None => img.clone(),
         }
+    }
+
+    #[cfg(not(feature = "laser"))]
+    fn extract_laser_metrics(entry: &BenchEntry) -> Result<Option<LaserMetrics>> {
+        if entry.laser.is_some() {
+            anyhow::bail!(
+                "dataset '{}' declares laser data; rebuild with --features 'tier-b laser'",
+                entry.id
+            );
+        }
+        Ok(None)
+    }
+
+    #[cfg(feature = "laser")]
+    fn extract_laser_metrics(entry: &BenchEntry) -> Result<Option<LaserMetrics>> {
+        if entry.laser.is_none() {
+            return Ok(None);
+        }
+        let paths = laser_image_paths(entry)?;
+        if paths.is_empty() {
+            return Ok(None);
+        }
+
+        let mut per_camera = Vec::with_capacity(entry.cameras.len());
+        let mut total_points = 0usize;
+        let mut total_images_used = 0usize;
+        let total_start = Instant::now();
+
+        for cam in &entry.cameras {
+            let cam_start = Instant::now();
+            let mut images_used = 0usize;
+            let mut points_extracted = 0usize;
+            for path in &paths {
+                let img = load_image(path)?;
+                let img = apply_tile(&img, cam.tile);
+                let point_count = extract_laser_points(&img);
+                if point_count > 0 {
+                    images_used += 1;
+                    points_extracted += point_count;
+                }
+            }
+            total_points += points_extracted;
+            total_images_used += images_used;
+            per_camera.push(LaserCamStat {
+                camera_id: cam.id.clone(),
+                images_total: paths.len(),
+                images_used,
+                points_extracted,
+                extract_ms: cam_start.elapsed().as_millis() as u64,
+                plane_residual_m: None,
+                line_residual_px: None,
+                inlier_ratio: None,
+            });
+        }
+
+        Ok(Some(LaserMetrics {
+            per_camera,
+            total_points,
+            total_images_used,
+            extract_ms: total_start.elapsed().as_millis() as u64,
+        }))
+    }
+
+    #[cfg(feature = "laser")]
+    fn extract_laser_points(img: &image::DynamicImage) -> usize {
+        let luma = img.to_luma8();
+        let width = luma.width() as usize;
+        let height = luma.height() as usize;
+        let Ok(view) = ImageView::<u8>::from_slice(width, height, width, luma.as_raw()) else {
+            return 0;
+        };
+        let cfg = LaserExtractConfig {
+            axis: ScanAxis::Cols {
+                access: ColAccess::Gather,
+            },
+            edge_cfg: Edge1DConfig {
+                sigma: 1.2,
+                pos_thresh: 4.0,
+                neg_thresh: 4.0,
+                ..Edge1DConfig::default()
+            },
+            ..LaserExtractConfig::default()
+        };
+        let mut extractor = LaserExtractor::new(cfg.edge_cfg.sigma);
+        extractor
+            .extract_line_u8(&view, 0..width, &cfg, None)
+            .points
+            .len()
+    }
+
+    #[cfg(feature = "laser")]
+    #[derive(serde::Deserialize)]
+    struct LaserPoseEntry {
+        laser_image: Option<String>,
+        #[serde(rename = "type")]
+        snap_type: Option<String>,
+    }
+
+    #[cfg(feature = "laser")]
+    fn laser_image_paths(entry: &BenchEntry) -> Result<Vec<PathBuf>> {
+        if let Some(pose_src) = &entry.robot_poses
+            && pose_src.format == "snap_list_json"
+        {
+            let path = entry.data_root.join(&pose_src.path);
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("failed to read laser pose list {}", path.display()))?;
+            let entries: Vec<LaserPoseEntry> = serde_json::from_str(&text)
+                .with_context(|| format!("failed to parse laser pose list {}", path.display()))?;
+            let paths: Vec<PathBuf> = entries
+                .into_iter()
+                .filter(|entry| entry.snap_type.as_deref() == Some("double_snap"))
+                .filter_map(|entry| entry.laser_image)
+                .map(|image| entry.data_root.join(image))
+                .collect();
+            if !paths.is_empty() {
+                return Ok(paths);
+            }
+        }
+        glob_sorted_images(&entry.data_root, "laser_*.png")
     }
 
     /// Synthesize a [`SolveReport`] for the record's [`Convergence`].
@@ -1065,6 +1243,10 @@ pub mod tier_b {
                 dict,
             )?;
             Ok(DetectorKind::Charuco(Box::new(params)))
+        } else if layout.eq_ignore_ascii_case("puzzleboard") {
+            let params =
+                puzzleboard_params_for(board.rows as u32, board.cols as u32, board.cell_size_m)?;
+            Ok(DetectorKind::Puzzleboard(Box::new(params)))
         } else {
             Ok(DetectorKind::Chessboard {
                 square_size_m: board.cell_size_m,
@@ -1225,7 +1407,7 @@ pub mod tier_b {
             Some("m") | None => 1.0,
             Some(other) => anyhow::bail!("unsupported pose units '{other}' (use 'mm' or 'm')"),
         };
-        match pose_src.format.as_str() {
+        let mut poses = match pose_src.format.as_str() {
             "counted4x4" => load_robot_poses_counted(path, trans_scale),
             "rowmajor4x4" => {
                 let mut poses = load_robot_poses(path)?;
@@ -1249,7 +1431,31 @@ pub mod tier_b {
                 "unsupported robot-pose format '{other}' \
                  (use 'rowmajor4x4', 'counted4x4', or 'snap_list_json')"
             ),
+        }?;
+
+        apply_robot_pose_convention(&mut poses, &pose_src.convention)?;
+        Ok(poses)
+    }
+
+    fn apply_robot_pose_convention(poses: &mut [Iso3], convention: &str) -> Result<()> {
+        for pose in poses {
+            normalize_robot_pose_convention(pose, convention)?;
         }
+        Ok(())
+    }
+
+    fn normalize_robot_pose_convention(pose: &mut Iso3, convention: &str) -> Result<()> {
+        match convention {
+            "base_se3_gripper" => {}
+            "gripper_se3_base" => {
+                *pose = pose.inverse();
+            }
+            other => anyhow::bail!(
+                "unsupported robot-pose convention '{other}' \
+                 (use 'base_se3_gripper' or 'gripper_se3_base')"
+            ),
+        }
+        Ok(())
     }
 
     /// Build an [`Ident`] with the run-intrinsic fields filled and the
@@ -1265,6 +1471,32 @@ pub mod tier_b {
             config_hash: 0,
             bench_schema_version: BENCH_SCHEMA_VERSION,
             features: Vec::new(),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn detector_for_puzzleboard_layout_dispatches() {
+            let board = BoardGeometry {
+                rows: 130,
+                cols: 130,
+                cell_size_m: 0.001014,
+                dictionary: None,
+                layout: Some("puzzleboard".to_string()),
+                marker_size_rel: None,
+            };
+
+            let detector = detector_for(&board).expect("detector");
+            match detector {
+                DetectorKind::Puzzleboard(params) => {
+                    assert_eq!(params.board.rows, 130);
+                    assert_eq!(params.board.cols, 130);
+                }
+                _ => panic!("expected puzzleboard detector"),
+            }
         }
     }
 }

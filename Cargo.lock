@@ -3450,6 +3450,7 @@ dependencies = [
  "vision-calibration-dataset",
  "vision-calibration-optim",
  "vision-calibration-pipeline",
+ "vision-metrology",
 ]
 
 [[package]]
@@ -3550,6 +3551,66 @@ dependencies = [
  "pythonize",
  "serde",
  "vision-calibration",
+]
+
+[[package]]
+name = "vision-metrology"
+version = "0.1.0"
+source = "git+https://github.com/VitalyVorobyev/vision-metrology.git?tag=v0.1.0#c1547f8212d2811cad186f7588f6f5f25af3e6be"
+dependencies = [
+ "vm-contour",
+ "vm-core",
+ "vm-edge",
+ "vm-laser",
+ "vm-morph",
+ "vm-pyr",
+]
+
+[[package]]
+name = "vm-contour"
+version = "0.1.0"
+source = "git+https://github.com/VitalyVorobyev/vision-metrology.git?tag=v0.1.0#c1547f8212d2811cad186f7588f6f5f25af3e6be"
+dependencies = [
+ "vm-core",
+ "vm-edge",
+]
+
+[[package]]
+name = "vm-core"
+version = "0.1.0"
+source = "git+https://github.com/VitalyVorobyev/vision-metrology.git?tag=v0.1.0#c1547f8212d2811cad186f7588f6f5f25af3e6be"
+
+[[package]]
+name = "vm-edge"
+version = "0.1.0"
+source = "git+https://github.com/VitalyVorobyev/vision-metrology.git?tag=v0.1.0#c1547f8212d2811cad186f7588f6f5f25af3e6be"
+dependencies = [
+ "vm-core",
+]
+
+[[package]]
+name = "vm-laser"
+version = "0.1.0"
+source = "git+https://github.com/VitalyVorobyev/vision-metrology.git?tag=v0.1.0#c1547f8212d2811cad186f7588f6f5f25af3e6be"
+dependencies = [
+ "vm-core",
+ "vm-edge",
+]
+
+[[package]]
+name = "vm-morph"
+version = "0.1.0"
+source = "git+https://github.com/VitalyVorobyev/vision-metrology.git?tag=v0.1.0#c1547f8212d2811cad186f7588f6f5f25af3e6be"
+dependencies = [
+ "vm-core",
+]
+
+[[package]]
+name = "vm-pyr"
+version = "0.1.0"
+source = "git+https://github.com/VitalyVorobyev/vision-metrology.git?tag=v0.1.0#c1547f8212d2811cad186f7588f6f5f25af3e6be"
+dependencies = [
+ "vm-core",
 ]
 
 [[package]]

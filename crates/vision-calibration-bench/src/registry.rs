@@ -19,7 +19,11 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::DistortionFixMask;
 use vision_calibration_dataset::DatasetSpec;
+use vision_calibration_optim::{HandEyeMode, RobustLoss, ScheimpflugFixMask};
+use vision_calibration_pipeline::rig_handeye::{RigHandeyeConfig, SensorMode};
+use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
 
 /// Top-level benchmark registry: the full set of datasets the harness knows.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -94,6 +98,12 @@ pub struct BenchEntry {
     /// Manual initialization seed, if the problem needs one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<ManualInitSeed>,
+    /// Single-camera hand-eye configuration overrides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub single_cam_handeye: Option<SingleCamHandeyeOverride>,
+    /// Rig hand-eye configuration overrides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rig_handeye: Option<RigHandeyeOverride>,
     /// Stability-sampling configuration.
     #[serde(default)]
     pub stability: StabilityCfg,
@@ -251,6 +261,275 @@ pub struct PoseSource {
 #[serde(transparent)]
 pub struct ManualInitSeed(pub serde_json::Value);
 
+/// Shared hand-eye bundle-adjustment overrides.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HandeyeBaOverride {
+    /// Enable/disable per-view robot pose refinement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refine_robot_poses: Option<bool>,
+    /// Robot rotation prior sigma in radians.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub robot_rot_sigma: Option<f64>,
+    /// Robot translation prior sigma in metres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub robot_trans_sigma: Option<f64>,
+}
+
+/// Single-camera hand-eye config overrides.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SingleCamHandeyeOverride {
+    /// Hand-eye mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handeye_mode: Option<BenchHandEyeMode>,
+    /// Solver max iterations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_iters: Option<usize>,
+    /// Robust loss.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub robust_loss: Option<BenchRobustLoss>,
+    /// Bundle-adjustment robot-pose settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handeye_ba: Option<HandeyeBaOverride>,
+}
+
+/// Rig hand-eye config overrides.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RigHandeyeOverride {
+    /// Sensor flavour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensor: Option<BenchSensorMode>,
+    /// Hand-eye mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handeye_mode: Option<BenchHandEyeMode>,
+    /// Solver max iterations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_iters: Option<usize>,
+    /// Robust loss.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub robust_loss: Option<BenchRobustLoss>,
+    /// Re-refine intrinsics in rig BA.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refine_intrinsics_in_rig_ba: Option<bool>,
+    /// Bundle-adjustment robot-pose settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handeye_ba: Option<HandeyeBaOverride>,
+}
+
+/// Registry hand-eye mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BenchHandEyeMode {
+    /// Camera mounted on the gripper.
+    EyeInHand,
+    /// Camera fixed in workspace / rig sees robot-held target.
+    EyeToHand,
+}
+
+impl From<BenchHandEyeMode> for HandEyeMode {
+    fn from(value: BenchHandEyeMode) -> Self {
+        match value {
+            BenchHandEyeMode::EyeInHand => HandEyeMode::EyeInHand,
+            BenchHandEyeMode::EyeToHand => HandEyeMode::EyeToHand,
+        }
+    }
+}
+
+/// Registry robust-loss override.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BenchRobustLoss {
+    /// Plain squared residuals.
+    None,
+    /// Huber loss.
+    Huber {
+        /// Scale parameter.
+        scale: f64,
+    },
+    /// Cauchy loss.
+    Cauchy {
+        /// Scale parameter.
+        scale: f64,
+    },
+    /// Arctangent loss.
+    Arctan {
+        /// Scale parameter.
+        scale: f64,
+    },
+}
+
+impl From<BenchRobustLoss> for RobustLoss {
+    fn from(value: BenchRobustLoss) -> Self {
+        match value {
+            BenchRobustLoss::None => RobustLoss::None,
+            BenchRobustLoss::Huber { scale } => RobustLoss::Huber { scale },
+            BenchRobustLoss::Cauchy { scale } => RobustLoss::Cauchy { scale },
+            BenchRobustLoss::Arctan { scale } => RobustLoss::Arctan { scale },
+        }
+    }
+}
+
+/// Registry sensor mode.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BenchSensorMode {
+    /// Pinhole + Brown-Conrady.
+    Pinhole,
+    /// Scheimpflug tilted sensor.
+    Scheimpflug {
+        /// Initial tilt around X in radians.
+        #[serde(default)]
+        init_tilt_x: f64,
+        /// Initial tilt around Y in radians.
+        #[serde(default)]
+        init_tilt_y: f64,
+        /// Scheimpflug fix mask during per-camera intrinsics.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fix_scheimpflug_in_intrinsics: Option<BenchScheimpflugFixMask>,
+        /// Distortion mask during per-camera BA.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        distortion_mask_in_percam_ba: Option<BenchDistortionFixMask>,
+        /// Re-refine Scheimpflug parameters in rig BA.
+        #[serde(default)]
+        refine_scheimpflug_in_rig_ba: bool,
+    },
+}
+
+impl From<BenchSensorMode> for SensorMode {
+    fn from(value: BenchSensorMode) -> Self {
+        match value {
+            BenchSensorMode::Pinhole => SensorMode::Pinhole,
+            BenchSensorMode::Scheimpflug {
+                init_tilt_x,
+                init_tilt_y,
+                fix_scheimpflug_in_intrinsics,
+                distortion_mask_in_percam_ba,
+                refine_scheimpflug_in_rig_ba,
+            } => SensorMode::Scheimpflug {
+                init_tilt_x,
+                init_tilt_y,
+                fix_scheimpflug_in_intrinsics: fix_scheimpflug_in_intrinsics
+                    .map(Into::into)
+                    .unwrap_or_default(),
+                distortion_mask_in_percam_ba: distortion_mask_in_percam_ba
+                    .map(Into::into)
+                    .unwrap_or_default(),
+                refine_scheimpflug_in_rig_ba,
+            },
+        }
+    }
+}
+
+/// Registry Scheimpflug fix mask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct BenchScheimpflugFixMask {
+    /// Keep `tilt_x` fixed.
+    pub tilt_x: bool,
+    /// Keep `tilt_y` fixed.
+    pub tilt_y: bool,
+}
+
+impl From<BenchScheimpflugFixMask> for ScheimpflugFixMask {
+    fn from(value: BenchScheimpflugFixMask) -> Self {
+        Self {
+            tilt_x: value.tilt_x,
+            tilt_y: value.tilt_y,
+        }
+    }
+}
+
+/// Registry distortion fix mask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct BenchDistortionFixMask {
+    /// Fix k1.
+    pub k1: bool,
+    /// Fix k2.
+    pub k2: bool,
+    /// Fix k3.
+    pub k3: bool,
+    /// Fix p1.
+    pub p1: bool,
+    /// Fix p2.
+    pub p2: bool,
+}
+
+impl From<BenchDistortionFixMask> for DistortionFixMask {
+    fn from(value: BenchDistortionFixMask) -> Self {
+        Self {
+            k1: value.k1,
+            k2: value.k2,
+            k3: value.k3,
+            p1: value.p1,
+            p2: value.p2,
+        }
+    }
+}
+
+impl SingleCamHandeyeOverride {
+    /// Apply overrides to a default single-camera hand-eye config.
+    pub fn apply_to(&self, config: &mut SingleCamHandeyeConfig) {
+        if let Some(mode) = self.handeye_mode {
+            config.handeye_mode = mode.into();
+        }
+        if let Some(max_iters) = self.max_iters {
+            config.max_iters = max_iters;
+        }
+        if let Some(loss) = self.robust_loss {
+            config.robust_loss = loss.into();
+        }
+        if let Some(ba) = &self.handeye_ba {
+            apply_single_ba(ba, config);
+        }
+    }
+}
+
+impl RigHandeyeOverride {
+    /// Apply overrides to a default rig hand-eye config.
+    pub fn apply_to(&self, config: &mut RigHandeyeConfig) {
+        if let Some(sensor) = self.sensor {
+            config.sensor = sensor.into();
+        }
+        if let Some(mode) = self.handeye_mode {
+            config.handeye_init.handeye_mode = mode.into();
+        }
+        if let Some(max_iters) = self.max_iters {
+            config.solver.max_iters = max_iters;
+        }
+        if let Some(loss) = self.robust_loss {
+            config.solver.robust_loss = loss.into();
+        }
+        if let Some(refine) = self.refine_intrinsics_in_rig_ba {
+            config.rig.refine_intrinsics_in_rig_ba = refine;
+        }
+        if let Some(ba) = &self.handeye_ba {
+            apply_rig_ba(ba, config);
+        }
+    }
+}
+
+fn apply_single_ba(ba: &HandeyeBaOverride, config: &mut SingleCamHandeyeConfig) {
+    if let Some(refine) = ba.refine_robot_poses {
+        config.refine_robot_poses = refine;
+    }
+    if let Some(sigma) = ba.robot_rot_sigma {
+        config.robot_rot_sigma = sigma;
+    }
+    if let Some(sigma) = ba.robot_trans_sigma {
+        config.robot_trans_sigma = sigma;
+    }
+}
+
+fn apply_rig_ba(ba: &HandeyeBaOverride, config: &mut RigHandeyeConfig) {
+    if let Some(refine) = ba.refine_robot_poses {
+        config.handeye_ba.refine_robot_poses = refine;
+    }
+    if let Some(sigma) = ba.robot_rot_sigma {
+        config.handeye_ba.robot_rot_sigma = sigma;
+    }
+    if let Some(sigma) = ba.robot_trans_sigma {
+        config.handeye_ba.robot_trans_sigma = sigma;
+    }
+}
+
 /// Stability-sampling configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct StabilityCfg {
@@ -371,6 +650,34 @@ mod tests {
             prior_export: Some(PathBuf::from("prior.json")),
             fixture: Some(PathBuf::from("fixtures/puzzle.json")),
             seed: Some(ManualInitSeed(serde_json::json!({"fx": 1000.0}))),
+            single_cam_handeye: None,
+            rig_handeye: Some(RigHandeyeOverride {
+                sensor: Some(BenchSensorMode::Scheimpflug {
+                    init_tilt_x: 0.0,
+                    init_tilt_y: 0.0,
+                    fix_scheimpflug_in_intrinsics: Some(BenchScheimpflugFixMask {
+                        tilt_x: false,
+                        tilt_y: true,
+                    }),
+                    distortion_mask_in_percam_ba: Some(BenchDistortionFixMask {
+                        k1: false,
+                        k2: true,
+                        k3: true,
+                        p1: false,
+                        p2: false,
+                    }),
+                    refine_scheimpflug_in_rig_ba: false,
+                }),
+                handeye_mode: Some(BenchHandEyeMode::EyeToHand),
+                max_iters: Some(200),
+                robust_loss: Some(BenchRobustLoss::Huber { scale: 1.0 }),
+                refine_intrinsics_in_rig_ba: Some(false),
+                handeye_ba: Some(HandeyeBaOverride {
+                    refine_robot_poses: Some(true),
+                    robot_rot_sigma: None,
+                    robot_trans_sigma: None,
+                }),
+            }),
             stability: StabilityCfg::default(),
             crossval: CrossvalCfg::default(),
             notes: Some("real-data acceptance".into()),
@@ -419,5 +726,19 @@ mod tests {
         let back: BenchEntry = serde_json::from_str(&json).expect("deserialize");
         let json2 = serde_json::to_string(&back).expect("re-serialize");
         assert_eq!(json, json2);
+    }
+
+    #[test]
+    fn rig_handeye_override_applies_to_default_config() {
+        let entry = sample_entry();
+        let override_cfg = entry.rig_handeye.as_ref().expect("sample override");
+        let mut cfg = RigHandeyeConfig::default();
+        override_cfg.apply_to(&mut cfg);
+
+        assert!(matches!(cfg.sensor, SensorMode::Scheimpflug { .. }));
+        assert_eq!(cfg.handeye_init.handeye_mode, HandEyeMode::EyeToHand);
+        assert_eq!(cfg.solver.max_iters, 200);
+        assert_eq!(cfg.solver.robust_loss, RobustLoss::Huber { scale: 1.0 });
+        assert!(cfg.handeye_ba.refine_robot_poses);
     }
 }

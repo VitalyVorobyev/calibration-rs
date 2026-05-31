@@ -14,6 +14,8 @@ use calib_targets::aruco::builtins;
 use calib_targets::charuco::{CharucoBoardSpec, CharucoParams, MarkerLayout};
 use calib_targets::chessboard::{ChessboardDetection, DetectorParams};
 use calib_targets::detect::{self, default_chess_config};
+use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
+use image::imageops::FilterType;
 use vision_calibration_core::{CorrespondenceView, Pt2, Pt3};
 
 /// Which detector a rig camera uses to find target features in an image.
@@ -36,6 +38,10 @@ pub enum DetectorKind {
     /// `stereo_charuco_session`'s detector exactly (same dict, marker scale,
     /// `OpenCvCharuco` layout) so bench numbers reproduce the example.
     Charuco(Box<CharucoParams>),
+    /// `calib-targets` PuzzleBoard detector in known-board mode. `rows`/`cols`
+    /// are square counts; output 3D points are centred in the printed board
+    /// frame and expressed in metres.
+    Puzzleboard(Box<PuzzleBoardParams>),
 }
 
 impl DetectorKind {
@@ -47,6 +53,7 @@ impl DetectorKind {
                 detect_chessboard_view(img, 0, 0, *square_size_m)
             }
             DetectorKind::Charuco(params) => detect_charuco_view(img, params),
+            DetectorKind::Puzzleboard(params) => detect_puzzleboard_view(img, params),
         }
     }
 }
@@ -80,6 +87,20 @@ pub fn charuco_params_for(
     Ok(CharucoParams::for_board(&board))
 }
 
+/// Build PuzzleBoard detector parameters for a known printed board.
+///
+/// `rows`/`cols` are square counts, and `cell_size_m` is converted to the
+/// millimetre unit expected by `calib-targets-puzzleboard`.
+pub fn puzzleboard_params_for(rows: u32, cols: u32, cell_size_m: f64) -> Result<PuzzleBoardParams> {
+    let cell_size_mm = (cell_size_m * 1000.0) as f32;
+    let spec = PuzzleBoardSpec::with_origin(rows, cols, cell_size_mm, 0, 0)
+        .map_err(|e| anyhow::anyhow!("puzzleboard spec: {e}"))?;
+    let mut params = PuzzleBoardParams::for_board(&spec);
+    params.decode.search_all_components = false;
+    params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
+    Ok(params)
+}
+
 /// Detect ChArUco corners in one decoded image and build a [`CorrespondenceView`].
 ///
 /// Thin port of `stereo_charuco_io.rs::detect_view` + `detection_to_view_data`:
@@ -107,6 +128,65 @@ pub fn detect_charuco_view(
     }
 
     if points_3d.len() < 4 {
+        return Ok(None);
+    }
+
+    Ok(Some(
+        CorrespondenceView::new(points_3d, points_2d).map_err(|e| anyhow::anyhow!("{e}"))?,
+    ))
+}
+
+/// Detect a PuzzleBoard in one decoded image and build a [`CorrespondenceView`].
+///
+/// Mirrors the private 130x130 example's known-board path: resize 2x before
+/// detection, force `FixedBoard` via [`puzzleboard_params_for`], drop decoded
+/// corners outside the declared printed board, and convert target coordinates
+/// from millimetres to centred metres.
+pub fn detect_puzzleboard_view(
+    img: &image::DynamicImage,
+    params: &PuzzleBoardParams,
+) -> Result<Option<CorrespondenceView>> {
+    const UPSCALE: u32 = 2;
+    let luma = img.to_luma8();
+    let detection_image = image::imageops::resize(
+        &luma,
+        luma.width() * UPSCALE,
+        luma.height() * UPSCALE,
+        FilterType::Triangle,
+    );
+    let result = match detect::detect_puzzleboard(&detection_image, params) {
+        Ok(result) => result,
+        Err(_) => return Ok(None),
+    };
+
+    let rows = params.board.rows;
+    let cols = params.board.cols;
+    let cell_size_mm = params.board.cell_size as f64;
+    let origin_x_mm = 0.5 * (cols.saturating_sub(1) as f64) * cell_size_mm;
+    let origin_y_mm = 0.5 * (rows.saturating_sub(1) as f64) * cell_size_mm;
+    let max_x_mm = cols.saturating_sub(1) as f64 * cell_size_mm;
+    let max_y_mm = rows.saturating_sub(1) as f64 * cell_size_mm;
+
+    let mut points_3d = Vec::with_capacity(result.corners.len());
+    let mut points_2d = Vec::with_capacity(result.corners.len());
+    for corner in &result.corners {
+        let x_mm = corner.target_position.x as f64;
+        let y_mm = corner.target_position.y as f64;
+        if !(0.0..=max_x_mm).contains(&x_mm) || !(0.0..=max_y_mm).contains(&y_mm) {
+            continue;
+        }
+        points_3d.push(Pt3::new(
+            (x_mm - origin_x_mm) * 1.0e-3,
+            (y_mm - origin_y_mm) * 1.0e-3,
+            0.0,
+        ));
+        points_2d.push(Pt2::new(
+            corner.position.x as f64 / UPSCALE as f64,
+            corner.position.y as f64 / UPSCALE as f64,
+        ));
+    }
+
+    if points_3d.len() < 8 {
         return Ok(None);
     }
 
@@ -261,5 +341,18 @@ mod tests {
         ];
         v.sort_by(|a, b| natural_cmp(a, b));
         assert_eq!(v, vec!["Im_L_1.png", "Im_L_2.png", "Im_L_10.png"]);
+    }
+
+    #[test]
+    fn puzzleboard_params_use_fixed_known_board_mode() {
+        let params = puzzleboard_params_for(130, 130, 0.001014).expect("params");
+        assert_eq!(params.board.rows, 130);
+        assert_eq!(params.board.cols, 130);
+        assert!((params.board.cell_size - 1.014).abs() < 1.0e-6);
+        assert!(!params.decode.search_all_components);
+        assert!(matches!(
+            params.decode.search_mode,
+            PuzzleBoardSearchMode::FixedBoard
+        ));
     }
 }

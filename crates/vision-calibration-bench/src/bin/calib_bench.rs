@@ -1,8 +1,14 @@
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use vision_calibration_bench::registry::load_registry;
+use vision_calibration_bench::record::BenchRecord;
+use vision_calibration_bench::registry::{
+    BenchEntry, HandeyeBaOverride, ProblemKind, RigHandeyeOverride, SingleCamHandeyeOverride,
+    load_registry,
+};
+use vision_calibration_pipeline::analysis::ReprojLevel;
 
 /// Calibration benchmarking harness.
 ///
@@ -27,6 +33,8 @@ enum Command {
     FreezeFixtures(FreezeFixturesArgs),
     /// List all datasets registered in the bench registry.
     List(ListArgs),
+    /// Run deterministic diagnostic sweeps.
+    Diagnose(DiagnoseArgs),
 }
 
 /// Arguments for the `run` subcommand.
@@ -39,6 +47,10 @@ struct RunArgs {
     /// `registry/public.json`.
     #[arg(long)]
     registry: Option<PathBuf>,
+    /// Optional path to write full per-feature residuals. The default record
+    /// printed to stdout stays compact.
+    #[arg(long)]
+    residuals_out: Option<PathBuf>,
 }
 
 /// Arguments for the `report` subcommand.
@@ -67,6 +79,31 @@ struct FreezeFixturesArgs {
 struct ListArgs {
     /// Show only datasets matching this tier (e.g. "a", "b").
     tier: Option<String>,
+}
+
+/// Arguments for diagnostic commands.
+#[derive(Parser)]
+struct DiagnoseArgs {
+    #[command(subcommand)]
+    command: DiagnoseCommand,
+}
+
+/// Diagnostic command variants.
+#[derive(Subcommand)]
+enum DiagnoseCommand {
+    /// Run fixed hand-eye configuration sweeps.
+    Handeye(DiagnoseHandeyeArgs),
+}
+
+/// Arguments for `diagnose handeye`.
+#[derive(Parser)]
+struct DiagnoseHandeyeArgs {
+    /// Dataset id to diagnose.
+    #[arg(long)]
+    dataset: String,
+    /// Path to the bench registry JSON.
+    #[arg(long)]
+    registry: Option<PathBuf>,
 }
 
 /// Default registry path: `<crate>/registry/public.json`.
@@ -113,18 +150,38 @@ fn active_features() -> Vec<String> {
 }
 
 fn cmd_run(args: &RunArgs) -> Result<()> {
-    let registry_path = args.registry.clone().unwrap_or_else(default_registry_path);
+    let entry = load_entry(&args.dataset, args.registry.as_deref())?;
+    let record = run_dataset_record(&entry)?;
+
+    if let Some(path) = &args.residuals_out {
+        let sidecar = record
+            .residual_sidecar
+            .as_ref()
+            .context("run did not produce a residual sidecar")?;
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create {}", parent.display()))?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(sidecar)?)
+            .with_context(|| format!("write residual sidecar {}", path.display()))?;
+    }
+
+    println!("{}", serde_json::to_string_pretty(&record)?);
+    Ok(())
+}
+
+fn load_entry(dataset: &str, registry_path: Option<&Path>) -> Result<BenchEntry> {
+    let registry_path = registry_path
+        .map(PathBuf::from)
+        .unwrap_or_else(default_registry_path);
     let registry = load_registry(&registry_path)?;
-    let entry = registry.find(&args.dataset).with_context(|| {
+    registry.find(dataset).cloned().with_context(|| {
         format!(
             "dataset '{}' not found in {}",
-            args.dataset,
+            dataset,
             registry_path.display()
         )
-    })?;
-
-    run_dataset(entry)?;
-    Ok(())
+    })
 }
 
 /// Route a dataset to the runner matching its [`ProblemKind`], inject
@@ -134,8 +191,7 @@ fn cmd_run(args: &RunArgs) -> Result<()> {
 /// other kinds print a clear "not yet wired" message and return Ok so the CLI
 /// stays usable while the remaining runners land.
 #[cfg(feature = "tier-b")]
-fn run_dataset(entry: &vision_calibration_bench::registry::BenchEntry) -> Result<()> {
-    use vision_calibration_bench::registry::ProblemKind;
+fn run_dataset_record(entry: &BenchEntry) -> Result<BenchRecord> {
     use vision_calibration_bench::run::{
         run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, run_single_cam_handeye,
     };
@@ -165,23 +221,264 @@ fn run_dataset(entry: &vision_calibration_bench::registry::BenchEntry) -> Result
     record.ident.config_hash = 0;
     record.ident.features = active_features();
 
-    println!("{}", serde_json::to_string_pretty(&record)?);
-    Ok(())
+    Ok(record)
 }
 
 #[cfg(not(feature = "tier-b"))]
-fn run_dataset(_entry: &vision_calibration_bench::registry::BenchEntry) -> Result<()> {
-    println!("run requires --features tier-b");
+fn run_dataset_record(_entry: &BenchEntry) -> Result<BenchRecord> {
+    anyhow::bail!("run requires --features tier-b")
+}
+
+fn cmd_report(args: &ReportArgs) -> Result<()> {
+    let record = read_record(args.record.as_deref())?;
+    println!("{}", render_markdown_report(&record));
     Ok(())
+}
+
+fn read_record(path: Option<&str>) -> Result<BenchRecord> {
+    let mut text = String::new();
+    match path {
+        Some(path) => {
+            text = std::fs::read_to_string(path).with_context(|| format!("read {path}"))?;
+        }
+        None => {
+            std::io::stdin()
+                .read_to_string(&mut text)
+                .context("read BenchRecord JSON from stdin")?;
+        }
+    }
+    serde_json::from_str(&text).context("parse BenchRecord JSON")
+}
+
+fn render_markdown_report(record: &BenchRecord) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "# Benchmark Report: {}\n\n",
+        record.ident.dataset_id
+    ));
+    out.push_str(&format!(
+        "- problem: `{}`\n- converged: `{}`\n- reported mean reprojection: {:.5} px\n",
+        record.ident.problem, record.convergence.converged, record.fit.reported_mean_reproj_px
+    ));
+    out.push_str(&format!(
+        "- timing: init={} ms, optimize={} ms, detection={} ms, total={} ms\n",
+        record.timing.init_ms,
+        record.timing.optimize_ms,
+        record.timing.detection_ms,
+        record.timing.total_ms
+    ));
+
+    if let Some(report) = &record.reproj_report {
+        out.push_str("\n## Reprojection Levels\n\n");
+        out.push_str("| level | mean | rms | p95 | max | count |\n");
+        out.push_str("|---|---:|---:|---:|---:|---:|\n");
+        for level in &report.levels {
+            out.push_str(&format!(
+                "| {:?} | {:.5} | {:.5} | {:.5} | {:.5} | {} |\n",
+                level.level,
+                level.overall.mean,
+                level.overall.rms,
+                level.overall.p95,
+                level.overall.max,
+                level.overall.count
+            ));
+        }
+        if !report.gaps.is_empty() {
+            out.push_str("\n## Level Gaps\n\n");
+            out.push_str("| from | to | delta px | ratio prev | ratio floor |\n");
+            out.push_str("|---|---|---:|---:|---:|\n");
+            for gap in &report.gaps {
+                out.push_str(&format!(
+                    "| {:?} | {:?} | {:.5} | {} | {} |\n",
+                    gap.from,
+                    gap.to,
+                    gap.mean_delta_px,
+                    fmt_opt(gap.ratio_to_previous),
+                    fmt_opt(gap.ratio_to_intrinsic)
+                ));
+            }
+        }
+    }
+
+    if let Some(detection) = &record.detection {
+        out.push_str("\n## Detection\n\n");
+        out.push_str("| camera | used / total | features | coverage |\n");
+        out.push_str("|---|---:|---:|---:|\n");
+        for stat in &detection.per_camera {
+            out.push_str(&format!(
+                "| {} | {} / {} | {} / {} | {:.2}% |\n",
+                stat.camera_id,
+                stat.images_used,
+                stat.images_total,
+                stat.features_detected,
+                stat.features_expected,
+                stat.coverage_pct
+            ));
+        }
+    }
+
+    if let Some(laser) = &record.laser {
+        out.push_str("\n## Laser Extraction\n\n");
+        out.push_str(&format!(
+            "- total points: {}\n- images used: {}\n- extraction: {} ms\n\n",
+            laser.total_points, laser.total_images_used, laser.extract_ms
+        ));
+        out.push_str("| camera | used / total | points | extract ms |\n");
+        out.push_str("|---|---:|---:|---:|\n");
+        for stat in &laser.per_camera {
+            out.push_str(&format!(
+                "| {} | {} / {} | {} | {} |\n",
+                stat.camera_id,
+                stat.images_used,
+                stat.images_total,
+                stat.points_extracted,
+                stat.extract_ms
+            ));
+        }
+    }
+
+    out
+}
+
+fn fmt_opt(v: Option<f64>) -> String {
+    v.map(|v| format!("{v:.3}"))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn cmd_diagnose(args: &DiagnoseArgs) -> Result<()> {
+    match &args.command {
+        DiagnoseCommand::Handeye(args) => cmd_diagnose_handeye(args),
+    }
+}
+
+fn cmd_diagnose_handeye(args: &DiagnoseHandeyeArgs) -> Result<()> {
+    let entry = load_entry(&args.dataset, args.registry.as_deref())?;
+    anyhow::ensure!(
+        matches!(
+            entry.problem,
+            ProblemKind::SingleCamHandeye | ProblemKind::RigHandeye
+        ),
+        "diagnose handeye supports single_cam_handeye and rig_handeye datasets"
+    );
+
+    let cases = handeye_cases(&entry);
+    println!("# Hand-Eye Diagnostic: {}\n", entry.id);
+    println!("| case | status | intrinsic mean | hand-eye mean | ratio | note |");
+    println!("|---|---|---:|---:|---:|---|");
+    for (name, case_entry) in cases {
+        match run_dataset_record(&case_entry) {
+            Ok(record) => {
+                let (floor, constrained) = handeye_level_means(&record);
+                println!(
+                    "| {} | ok | {} | {} | {} |  |",
+                    name,
+                    fmt_opt(floor),
+                    fmt_opt(constrained),
+                    fmt_ratio(constrained, floor)
+                );
+            }
+            Err(err) => {
+                println!(
+                    "| {} | fail | - | - | - | {} |",
+                    name,
+                    escape_md(&err.to_string())
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
+    let mut cases = Vec::new();
+    cases.push(("default", entry.clone()));
+
+    let mut no_refine = entry.clone();
+    set_robot_ba(&mut no_refine, Some(false), None, None);
+    cases.push(("robot_refine_off", no_refine));
+
+    let mut loose = entry.clone();
+    set_robot_ba(
+        &mut loose,
+        Some(true),
+        Some(5.0_f64.to_radians()),
+        Some(0.010),
+    );
+    cases.push(("loose_robot_prior", loose));
+
+    if entry.robot_poses.is_some() {
+        let mut inverse = entry.clone();
+        if let Some(src) = inverse.robot_poses.as_mut() {
+            src.convention = "gripper_se3_base".to_string();
+        }
+        cases.push(("pose_convention_inverted", inverse));
+    }
+
+    cases
+}
+
+fn set_robot_ba(
+    entry: &mut BenchEntry,
+    refine_robot_poses: Option<bool>,
+    robot_rot_sigma: Option<f64>,
+    robot_trans_sigma: Option<f64>,
+) {
+    let ba = HandeyeBaOverride {
+        refine_robot_poses,
+        robot_rot_sigma,
+        robot_trans_sigma,
+    };
+    match entry.problem {
+        ProblemKind::SingleCamHandeye => {
+            let overrides = entry
+                .single_cam_handeye
+                .get_or_insert_with(SingleCamHandeyeOverride::default);
+            overrides.handeye_ba = Some(ba);
+        }
+        ProblemKind::RigHandeye => {
+            let overrides = entry
+                .rig_handeye
+                .get_or_insert_with(RigHandeyeOverride::default);
+            overrides.handeye_ba = Some(ba);
+        }
+        _ => {}
+    }
+}
+
+fn handeye_level_means(record: &BenchRecord) -> (Option<f64>, Option<f64>) {
+    let Some(report) = &record.reproj_report else {
+        return (None, None);
+    };
+    let floor = report
+        .levels
+        .iter()
+        .find(|l| l.level == ReprojLevel::Intrinsic)
+        .map(|l| l.overall.mean);
+    let constrained = report
+        .levels
+        .iter()
+        .rev()
+        .find(|l| l.level == ReprojLevel::HandEye)
+        .map(|l| l.overall.mean);
+    (floor, constrained)
+}
+
+fn fmt_ratio(num: Option<f64>, den: Option<f64>) -> String {
+    match (num, den) {
+        (Some(num), Some(den)) if den > 0.0 => format!("{:.3}", num / den),
+        _ => "-".to_string(),
+    }
+}
+
+fn escape_md(s: &str) -> String {
+    s.replace('|', "\\|").replace('\n', " ")
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Run(args) => cmd_run(&args)?,
-        Command::Report(_args) => {
-            println!("report: not implemented yet");
-        }
+        Command::Report(args) => cmd_report(&args)?,
         Command::Compare(_args) => {
             println!("compare: not implemented yet");
         }
@@ -191,6 +488,135 @@ fn main() -> Result<()> {
         Command::List(_args) => {
             println!("list: not implemented yet");
         }
+        Command::Diagnose(args) => cmd_diagnose(&args)?,
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vision_calibration_bench::record::{
+        BENCH_SCHEMA_VERSION, CompactLevelReport, CompactReprojReport, Convergence, Detection,
+        DetectionStat, Fit, Ident, LaserCamStat, LaserMetrics, ReprojLevelGap, Timing,
+    };
+    use vision_calibration_core::{FeatureResidualHistogram, ReprojectionStats};
+    use vision_calibration_optim::SolveReport;
+    use vision_calibration_pipeline::analysis::LevelStats;
+
+    #[test]
+    fn report_renderer_includes_quality_sections() {
+        let stats = ReprojectionStats::from_errors(&[0.8, 1.0, 1.2]);
+        let level_stats = LevelStats {
+            mean: 1.0,
+            median: 1.0,
+            rms: 1.01,
+            p95: 1.19,
+            max: 1.2,
+            count: 3,
+        };
+        let record = BenchRecord {
+            ident: Ident {
+                dataset_id: "ds".to_string(),
+                problem: "rig_handeye".to_string(),
+                tier: "b".to_string(),
+                git_sha: "abc".to_string(),
+                timestamp_rfc3339: "0".to_string(),
+                config_hash: 0,
+                bench_schema_version: BENCH_SCHEMA_VERSION,
+                features: vec!["tier-b".to_string()],
+            },
+            convergence: Convergence {
+                init_ok: true,
+                converged: true,
+                report: SolveReport {
+                    final_cost: 1.0,
+                    num_iters: 2,
+                },
+            },
+            fit: Fit {
+                overall: stats,
+                per_camera: vec![stats],
+                per_camera_hist: vec![FeatureResidualHistogram::default()],
+                reported_mean_reproj_px: 1.2,
+                reported_per_cam_px: vec![1.2],
+            },
+            generalization: None,
+            stability: None,
+            detection: Some(Detection {
+                per_camera: vec![DetectionStat {
+                    camera_id: "cam0".to_string(),
+                    images_total: 2,
+                    images_used: 1,
+                    features_detected: 130,
+                    features_expected: 260,
+                    coverage_pct: 50.0,
+                    detect_ms: 7,
+                }],
+                total_detected: 130,
+                total_expected: 260,
+            }),
+            laser: Some(LaserMetrics {
+                per_camera: vec![LaserCamStat {
+                    camera_id: "cam0".to_string(),
+                    images_total: 2,
+                    images_used: 2,
+                    points_extracted: 42,
+                    extract_ms: 3,
+                    plane_residual_m: None,
+                    line_residual_px: None,
+                    inlier_ratio: None,
+                }],
+                total_points: 42,
+                total_images_used: 2,
+                extract_ms: 3,
+            }),
+            delta_to_prior: None,
+            timing: Timing {
+                init_ms: 1,
+                optimize_ms: 2,
+                total_ms: 10,
+                detection_ms: 7,
+            },
+            reproj_report: Some(CompactReprojReport {
+                headline_px: 1.2,
+                levels: vec![
+                    CompactLevelReport {
+                        level: ReprojLevel::Intrinsic,
+                        overall: level_stats,
+                        per_camera: vec![level_stats],
+                        per_view: vec![level_stats],
+                        residual_count: 3,
+                        top_outliers: Vec::new(),
+                    },
+                    CompactLevelReport {
+                        level: ReprojLevel::HandEye,
+                        overall: LevelStats {
+                            mean: 1.2,
+                            ..level_stats
+                        },
+                        per_camera: vec![level_stats],
+                        per_view: vec![level_stats],
+                        residual_count: 3,
+                        top_outliers: Vec::new(),
+                    },
+                ],
+                gaps: vec![ReprojLevelGap {
+                    from: ReprojLevel::Intrinsic,
+                    to: ReprojLevel::HandEye,
+                    mean_delta_px: 0.2,
+                    ratio_to_previous: Some(1.2),
+                    ratio_to_intrinsic: Some(1.2),
+                }],
+            }),
+            residual_sidecar: None,
+        };
+
+        let md = render_markdown_report(&record);
+        assert!(md.contains("# Benchmark Report: ds"));
+        assert!(md.contains("## Reprojection Levels"));
+        assert!(md.contains("## Level Gaps"));
+        assert!(md.contains("## Detection"));
+        assert!(md.contains("## Laser Extraction"));
+    }
 }
