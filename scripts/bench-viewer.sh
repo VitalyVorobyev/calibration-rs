@@ -20,7 +20,9 @@ if ! grep -q "\"id\"[[:space:]]*:[[:space:]]*\"$dataset\"" "$public_registry"; t
   fi
 fi
 
-out="${TMPDIR:-/tmp}/calib-bench-${dataset}.json"
+# Vite is configured to serve /tmp through /@fs. macOS TMPDIR points at
+# /var/folders/... which Vite rejects with 403 unless explicitly allowed.
+out="/tmp/calib-bench-${dataset}.json"
 port="${CALIB_VIEWER_PORT:-5173}"
 viewer="$root/tools/calibration-viewer"
 

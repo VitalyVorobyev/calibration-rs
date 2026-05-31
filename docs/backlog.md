@@ -26,3 +26,7 @@ a short report under `docs/report/` and a task-scoped commit.
   dataset runs, calibration artifact output for the dashboard, topological
   chessboard dispatch for simple checkerboards, and corrects DS8 to physical
   EyeInHand with `gripper_se3_base` robot-pose convention.
+- [x] BENCH-W2G - Fix viewer temp output path and validate KUKA topological chessboard run.
+  Completed 2026-05-31. Writes script-generated benchmark JSON to `/tmp` so
+  Vite can serve it through `/@fs`, and verifies `kuka_1` succeeds through the
+  plain chessboard topological detector path.
