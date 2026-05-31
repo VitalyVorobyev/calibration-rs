@@ -24,12 +24,14 @@ import {
   parseBenchRecord,
   resolveAssetUrl,
   type BenchRecord,
+  type CameraArtifact,
   type CompactLevelReport,
   type CameraRecord,
   type LaserCamStat,
   type LaserFeatureRecord,
   type ReprojLevelGap,
   type TargetFeatureRecord,
+  type TransformArtifact,
   type ViewerManifest,
   type ViewerStage,
 } from './schema';
@@ -410,6 +412,7 @@ function BenchDashboard({ record }: { record: BenchRecord }) {
         <div className="bench-main-column">
           <QualityLadder levels={levels} gaps={record.reproj_report?.gaps ?? []} />
           <CameraQualityTable record={record} finalLevel={finalLevel} />
+          <CalibrationArtifactsPanel record={record} />
           <WorstViewTable finalLevel={finalLevel} />
           <WorstOutlierTable finalLevel={finalLevel} />
         </div>
@@ -541,6 +544,133 @@ function CameraQualityTable({ record, finalLevel }: { record: BenchRecord; final
         </table>
       </div>
     </section>
+  );
+}
+
+function CalibrationArtifactsPanel({ record }: { record: BenchRecord }) {
+  const artifacts = record.artifacts;
+  const transforms = artifacts?.transforms ?? [];
+  const handeye = transforms.filter((t) => !t.name.includes('_view'));
+  const poseRows = transforms.filter((t) => t.name.includes('_view')).slice(0, 12);
+
+  return (
+    <section className="bench-panel artifacts-panel">
+      <SectionTitle icon={<Box size={16} />} label="Calibration Artifacts" />
+      {!artifacts ? (
+        <p className="muted">No calibration artifacts are present in this record.</p>
+      ) : (
+        <>
+          <div className="artifact-camera-grid">
+            {artifacts.cameras.map((camera) => (
+              <CameraArtifactCard key={camera.camera_id} camera={camera} />
+            ))}
+          </div>
+          <TransformTable
+            title="Rig And Hand-Eye Transforms"
+            transforms={handeye}
+            empty="No rig or hand-eye transforms are present."
+          />
+          <TransformTable
+            title="Pose Samples"
+            transforms={poseRows}
+            empty="No per-view poses are present."
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
+function CameraArtifactCard({ camera }: { camera: CameraArtifact }) {
+  const k = camera.camera_matrix_px;
+  return (
+    <div className="artifact-card">
+      <div className="artifact-card-head">
+        <strong>{camera.camera_id}</strong>
+        <span>{camera.distortion_model}</span>
+      </div>
+      <Matrix3View rows={k} />
+      <div className="artifact-scalar-grid">
+        <Metric label="fx" value={formatScalar(camera.intrinsics_px.fx)} />
+        <Metric label="fy" value={formatScalar(camera.intrinsics_px.fy)} />
+        <Metric label="cx" value={formatScalar(camera.intrinsics_px.cx)} />
+        <Metric label="cy" value={formatScalar(camera.intrinsics_px.cy)} />
+        <Metric label="skew" value={formatScalar(camera.intrinsics_px.skew)} />
+      </div>
+      <div className="distortion-line">
+        <span>k1 {formatScalar(camera.distortion.k1)}</span>
+        <span>k2 {formatScalar(camera.distortion.k2)}</span>
+        <span>k3 {formatScalar(camera.distortion.k3)}</span>
+        <span>p1 {formatScalar(camera.distortion.p1)}</span>
+        <span>p2 {formatScalar(camera.distortion.p2)}</span>
+      </div>
+      {camera.scheimpflug && (
+        <div className="distortion-line">
+          <span>tilt x {formatScalar(camera.scheimpflug.tilt_x_rad)} rad</span>
+          <span>tilt y {formatScalar(camera.scheimpflug.tilt_y_rad)} rad</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Matrix3View({ rows }: { rows: CameraArtifact['camera_matrix_px'] }) {
+  return (
+    <div className="matrix3">
+      {rows.flatMap((row, rowIndex) => row.map((value, colIndex) => (
+        <span key={`${rowIndex}-${colIndex}`}>{formatScalar(value)}</span>
+      )))}
+    </div>
+  );
+}
+
+function TransformTable({
+  title,
+  transforms,
+  empty,
+}: {
+  title: string;
+  transforms: TransformArtifact[];
+  empty: string;
+}) {
+  return (
+    <div className="artifact-section">
+      <h3>{title}</h3>
+      {transforms.length === 0 ? (
+        <p className="muted">{empty}</p>
+      ) : (
+        <div className="bench-table-wrap">
+          <table className="bench-table transform-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Frames</th>
+                <th>tx</th>
+                <th>ty</th>
+                <th>tz</th>
+                <th>rx</th>
+                <th>ry</th>
+                <th>rz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transforms.map((t) => (
+                <tr key={t.name}>
+                  <td>{t.name}</td>
+                  <td>{t.from_frame} → {t.to_frame}</td>
+                  <td>{t.translation_mm[0].toFixed(3)} mm</td>
+                  <td>{t.translation_mm[1].toFixed(3)} mm</td>
+                  <td>{t.translation_mm[2].toFixed(3)} mm</td>
+                  <td>{t.rotation_rotvec_deg[0].toFixed(4)} deg</td>
+                  <td>{t.rotation_rotvec_deg[1].toFixed(4)} deg</td>
+                  <td>{t.rotation_rotvec_deg[2].toFixed(4)} deg</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 

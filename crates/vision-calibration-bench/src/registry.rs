@@ -754,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn ds8_registry_uses_known_grid_and_eye_to_hand() {
+    fn ds8_registry_uses_known_grid_eye_in_hand_and_gripper_from_base() {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("registry/public.json");
         let registry = load_registry(&path).expect("public registry");
         let ds8 = registry
@@ -769,7 +769,11 @@ mod tests {
         assert!(board.strict_grid);
         assert_eq!(
             ds8.rig_handeye.as_ref().and_then(|cfg| cfg.handeye_mode),
-            Some(BenchHandEyeMode::EyeToHand)
+            None
+        );
+        assert_eq!(
+            ds8.robot_poses.as_ref().map(|src| src.convention.as_str()),
+            Some("gripper_se3_base")
         );
     }
 }

@@ -201,6 +201,52 @@ export interface RobotCorrectionSummary {
   max_trans_mm: number;
 }
 
+export interface IntrinsicsArtifact {
+  fx: number;
+  fy: number;
+  cx: number;
+  cy: number;
+  skew: number;
+}
+
+export interface DistortionArtifact {
+  k1: number;
+  k2: number;
+  k3: number;
+  p1: number;
+  p2: number;
+}
+
+export interface ScheimpflugArtifact {
+  tilt_x_rad: number;
+  tilt_y_rad: number;
+}
+
+export interface CameraArtifact {
+  camera_id: string;
+  camera_matrix_px: [[number, number, number], [number, number, number], [number, number, number]];
+  intrinsics_px: IntrinsicsArtifact;
+  distortion_model: string;
+  distortion: DistortionArtifact;
+  scheimpflug?: ScheimpflugArtifact | null;
+}
+
+export interface TransformArtifact {
+  name: string;
+  to_frame: string;
+  from_frame: string;
+  translation_mm: Vec3;
+  rotation_quat_xyzw: Vec4;
+  rotation_rotvec_deg: Vec3;
+}
+
+export interface CalibrationArtifacts {
+  spatial_unit: string;
+  angle_unit: string;
+  cameras: CameraArtifact[];
+  transforms: TransformArtifact[];
+}
+
 export interface BenchTiming {
   init_ms: number;
   optimize_ms: number;
@@ -240,6 +286,7 @@ export interface BenchRecord {
   detection?: DetectionSummary | null;
   laser?: LaserMetrics | null;
   robot_corrections?: RobotCorrectionSummary | null;
+  artifacts?: CalibrationArtifacts | null;
   delta_to_prior?: unknown | null;
   timing: BenchTiming;
   reproj_report?: CompactReprojReport | null;
@@ -327,6 +374,15 @@ export function parseBenchRecord(value: unknown): BenchRecord {
       requireArray<LevelStats>(level.per_camera, `reproj_report ${level.level} per_camera`);
       requireArray<LevelStats>(level.per_view, `reproj_report ${level.level} per_view`);
       requireArray<TargetFeatureRecord>(level.top_outliers, `reproj_report ${level.level} top_outliers`);
+    }
+  }
+  if (record.artifacts) {
+    requireArray<CameraArtifact>(record.artifacts.cameras, 'artifacts.cameras');
+    requireArray<TransformArtifact>(record.artifacts.transforms, 'artifacts.transforms');
+    for (const camera of record.artifacts.cameras) {
+      if (!camera.camera_id || !isVec(camera.camera_matrix_px?.[0], 3)) {
+        throw new Error('each artifact camera requires camera_id and camera_matrix_px');
+      }
     }
   }
   return record;

@@ -485,13 +485,23 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
 
     if entry.robot_poses.is_some() {
         let mut inverse = entry.clone();
-        if let Some(src) = inverse.robot_poses.as_mut() {
-            src.convention = "gripper_se3_base".to_string();
-        }
+        invert_robot_pose_convention(&mut inverse);
         cases.push(("pose_convention_inverted", inverse));
+
+        let mut alternate_inverse = entry.clone();
+        if set_alternate_handeye_mode(&mut alternate_inverse) {
+            invert_robot_pose_convention(&mut alternate_inverse);
+            cases.push(("alternate_mode_inverted_pose", alternate_inverse));
+        }
     }
 
     cases
+}
+
+fn invert_robot_pose_convention(entry: &mut BenchEntry) {
+    if let Some(src) = entry.robot_poses.as_mut() {
+        src.convention = "gripper_se3_base".to_string();
+    }
 }
 
 fn set_alternate_handeye_mode(entry: &mut BenchEntry) -> bool {
@@ -692,6 +702,7 @@ mod tests {
                 mean_trans_mm: 0.4,
                 max_trans_mm: 0.8,
             }),
+            artifacts: None,
             delta_to_prior: None,
             timing: Timing {
                 init_ms: 1,

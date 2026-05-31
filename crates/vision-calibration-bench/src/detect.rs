@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use calib_targets::aruco::builtins;
 use calib_targets::charuco::{CharucoBoardSpec, CharucoParams, MarkerLayout};
-use calib_targets::chessboard::{ChessboardDetection, DetectorParams};
+use calib_targets::chessboard::{ChessboardDetection, DetectorParams, GraphBuildAlgorithm};
 use calib_targets::detect::{self, default_chess_config};
 use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
 use image::imageops::FilterType;
@@ -225,7 +225,7 @@ pub fn detect_chessboard_view(
     require_known_grid: bool,
 ) -> Result<Option<CorrespondenceView>> {
     let luma = img.to_luma8();
-    let params = DetectorParams::default();
+    let params = topological_chessboard_params();
     let Some(detection) = detect::detect_chessboard(&luma, &default_chess_config(), &params) else {
         return Ok(None);
     };
@@ -233,6 +233,12 @@ pub fn detect_chessboard_view(
         return Ok(None);
     }
     Ok(Some(detection_to_view(detection, square_size_m)?))
+}
+
+fn topological_chessboard_params() -> DetectorParams {
+    let mut params = DetectorParams::default();
+    params.graph_build_algorithm = GraphBuildAlgorithm::Topological;
+    params
 }
 
 fn detection_matches_known_grid(detection: &ChessboardDetection, rows: usize, cols: usize) -> bool {

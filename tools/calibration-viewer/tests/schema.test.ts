@@ -116,6 +116,26 @@ const benchRecord: BenchRecord = {
     mean_trans_mm: 0.2,
     max_trans_mm: 0.4,
   },
+  artifacts: {
+    spatial_unit: 'mm',
+    angle_unit: 'deg',
+    cameras: [{
+      camera_id: 'cam0',
+      camera_matrix_px: [[800, 0, 320], [0, 801, 240], [0, 0, 1]],
+      intrinsics_px: { fx: 800, fy: 801, cx: 320, cy: 240, skew: 0 },
+      distortion_model: 'brown_conrady5',
+      distortion: { k1: -0.1, k2: 0.02, k3: 0, p1: 0.001, p2: -0.001 },
+      scheimpflug: null,
+    }],
+    transforms: [{
+      name: 'cam0_se3_rig',
+      to_frame: 'cam0',
+      from_frame: 'rig',
+      translation_mm: [1, 2, 3],
+      rotation_quat_xyzw: [0, 0, 0, 1],
+      rotation_rotvec_deg: [0, 0, 0],
+    }],
+  },
   delta_to_prior: null,
   timing: {
     init_ms: 2,
@@ -200,6 +220,7 @@ describe('benchmark record schema', () => {
   it('accepts compact v3 benchmark records', () => {
     expect(looksLikeBenchRecord(benchRecord)).toBe(true);
     expect(parseBenchRecord(benchRecord).reproj_report?.headline_px).toBe(0.25);
+    expect(parseBenchRecord(benchRecord).artifacts?.cameras[0].camera_matrix_px[0][0]).toBe(800);
   });
 
   it('rejects unsupported benchmark schemas', () => {

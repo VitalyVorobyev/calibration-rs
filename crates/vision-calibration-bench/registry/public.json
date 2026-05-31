@@ -91,13 +91,10 @@
       "robot_poses": {
         "path": "robot_cali.txt",
         "format": "counted4x4",
-        "convention": "base_se3_gripper",
+        "convention": "gripper_se3_base",
         "units": "mm"
       },
-      "rig_handeye": {
-        "handeye_mode": "eye_to_hand"
-      },
-      "notes": "3-camera rig hand-eye (2x JAI BB-500 + Creative Senz3D color), board 10x14 @52mm, robot_cali.txt counted 4x4 in mm; no oracle"
+      "notes": "3-camera rig hand-eye (2x JAI BB-500 + Creative Senz3D color), board 10x14 @52mm, robot_cali.txt counted 4x4 in mm and stores gripper_se3_base; no oracle"
     }
   ]
 }

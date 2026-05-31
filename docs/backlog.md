@@ -17,7 +17,12 @@ a short report under `docs/report/` and a task-scoped commit.
   exposes `diagnose stages` for target/laser timing, and records current
   hand-eye and private ChArUco quality findings.
 - [x] BENCH-W2E - Fix DS8 hand-eye mode and known-grid checkerboard handling.
-  Completed 2026-05-31. Confirms DS8 uses a 10x14 checkerboard with 52 mm
-  cells, rejects partial/local-grid checkerboard detections for this dataset,
-  switches DS8 to eye-to-hand, and extends hand-eye diagnostics with an
-  alternate-mode comparison.
+  Completed 2026-05-31, superseded by BENCH-W2F on the mode interpretation.
+  Confirms DS8 uses a 10x14 checkerboard with 52 mm cells, rejects partial /
+  local-grid checkerboard detections for this dataset, and extends hand-eye
+  diagnostics with alternate-mode comparison.
+- [x] BENCH-W2F - Benchmark viewer script, progress, artifacts, topological chessboard, and DS8 pose convention.
+  Completed 2026-05-31. Adds `scripts/bench-viewer.sh`, stderr progress during
+  dataset runs, calibration artifact output for the dashboard, topological
+  chessboard dispatch for simple checkerboards, and corrects DS8 to physical
+  EyeInHand with `gripper_se3_base` robot-pose convention.

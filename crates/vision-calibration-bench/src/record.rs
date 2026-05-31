@@ -54,6 +54,10 @@ pub struct BenchRecord {
     /// Per-view robot-pose correction magnitudes, if robot-pose refinement ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub robot_corrections: Option<RobotCorrectionSummary>,
+    /// Calibration artifacts for dashboard inspection: camera matrices,
+    /// distortion coefficients, sensor tilt, and named SE(3) transforms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifacts: Option<CalibrationArtifacts>,
     /// Change versus a frozen prior calibration, if a prior was supplied.
     pub delta_to_prior: Option<DeltaToPrior>,
     /// Wall-clock timing breakdown.
@@ -155,6 +159,82 @@ pub struct RobotCorrectionSummary {
     pub mean_trans_mm: f64,
     /// Maximum translation correction magnitude in millimetres.
     pub max_trans_mm: f64,
+}
+
+/// Compact calibration artifacts intended for report viewers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CalibrationArtifacts {
+    /// Unit used for transform translations in this section.
+    pub spatial_unit: String,
+    /// Unit used for rotation-vector display values.
+    pub angle_unit: String,
+    /// Per-camera intrinsics and distortion.
+    pub cameras: Vec<CameraArtifact>,
+    /// Named SE(3) transforms. Each transform maps points from
+    /// [`TransformArtifact::from_frame`] into [`TransformArtifact::to_frame`].
+    pub transforms: Vec<TransformArtifact>,
+}
+
+/// One camera's calibrated model.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CameraArtifact {
+    /// Stable camera id from the dataset registry.
+    pub camera_id: String,
+    /// Pinhole camera matrix in pixels.
+    pub camera_matrix_px: [[f64; 3]; 3],
+    /// Scalar intrinsic parameters in pixels.
+    pub intrinsics_px: IntrinsicsArtifact,
+    /// Distortion model name.
+    pub distortion_model: String,
+    /// Brown-Conrady distortion coefficients.
+    pub distortion: DistortionArtifact,
+    /// Scheimpflug tilt parameters, when the run used a tilted sensor model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheimpflug: Option<ScheimpflugArtifact>,
+}
+
+/// Scalar pinhole intrinsic parameters.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct IntrinsicsArtifact {
+    pub fx: f64,
+    pub fy: f64,
+    pub cx: f64,
+    pub cy: f64,
+    pub skew: f64,
+}
+
+/// Brown-Conrady 5-parameter distortion model.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DistortionArtifact {
+    pub k1: f64,
+    pub k2: f64,
+    pub k3: f64,
+    pub p1: f64,
+    pub p2: f64,
+}
+
+/// Scheimpflug sensor tilt artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ScheimpflugArtifact {
+    pub tilt_x_rad: f64,
+    pub tilt_y_rad: f64,
+}
+
+/// Named SE(3) transform artifact.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TransformArtifact {
+    /// Field-like transform name, e.g. `cam0_se3_rig`.
+    pub name: String,
+    /// Destination frame. The transform maps `from_frame` points into this frame.
+    pub to_frame: String,
+    /// Source frame. The transform maps points from this frame into `to_frame`.
+    pub from_frame: String,
+    /// Translation vector in millimetres.
+    pub translation_mm: [f64; 3],
+    /// Unit quaternion `[x, y, z, w]`.
+    pub rotation_quat_xyzw: [f64; 4],
+    /// Rotation vector in degrees.
+    pub rotation_rotvec_deg: [f64; 3],
 }
 
 impl RobotCorrectionSummary {
@@ -573,6 +653,38 @@ mod tests {
                 mean_trans_mm: 0.5,
                 max_trans_mm: 0.8,
             }),
+            artifacts: Some(CalibrationArtifacts {
+                spatial_unit: "mm".into(),
+                angle_unit: "deg".into(),
+                cameras: vec![CameraArtifact {
+                    camera_id: "cam0".into(),
+                    camera_matrix_px: [[1000.0, 0.0, 500.0], [0.0, 1000.0, 400.0], [0.0, 0.0, 1.0]],
+                    intrinsics_px: IntrinsicsArtifact {
+                        fx: 1000.0,
+                        fy: 1000.0,
+                        cx: 500.0,
+                        cy: 400.0,
+                        skew: 0.0,
+                    },
+                    distortion_model: "brown_conrady5".into(),
+                    distortion: DistortionArtifact {
+                        k1: 0.1,
+                        k2: -0.01,
+                        k3: 0.0,
+                        p1: 0.0,
+                        p2: 0.0,
+                    },
+                    scheimpflug: None,
+                }],
+                transforms: vec![TransformArtifact {
+                    name: "camera0_se3_target_view0".into(),
+                    to_frame: "camera0".into(),
+                    from_frame: "target/view_0".into(),
+                    translation_mm: [0.0, 0.0, 500.0],
+                    rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+                    rotation_rotvec_deg: [0.0, 0.0, 0.0],
+                }],
+            }),
             delta_to_prior: Some(DeltaToPrior {
                 params: vec![ParamDelta {
                     name: "fx".into(),
@@ -617,6 +729,7 @@ mod tests {
         record.detection = None;
         record.laser = None;
         record.robot_corrections = None;
+        record.artifacts = None;
         record.delta_to_prior = None;
         assert_json_roundtrip(&record);
     }

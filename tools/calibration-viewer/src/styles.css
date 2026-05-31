@@ -322,6 +322,107 @@ h1 {
   font-size: 13px;
 }
 
+.artifacts-panel {
+  gap: 14px;
+}
+
+.artifact-camera-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.artifact-card {
+  background: #f8faf9;
+  border: 1px solid #e3e8e5;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.artifact-card-head {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.artifact-card-head strong {
+  color: #1f2925;
+  font-size: 14px;
+}
+
+.artifact-card-head span,
+.distortion-line span,
+.artifact-section h3 {
+  color: #667871;
+  font-size: 12px;
+}
+
+.matrix3 {
+  background: #ffffff;
+  border: 1px solid #e3e8e5;
+  border-radius: 6px;
+  display: grid;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  gap: 1px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.matrix3 span {
+  background: #ffffff;
+  color: #1f2925;
+  padding: 7px 8px;
+  text-align: right;
+}
+
+.artifact-scalar-grid {
+  display: grid;
+  gap: 6px 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.artifact-scalar-grid .metric {
+  min-width: 0;
+}
+
+.distortion-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.distortion-line span {
+  background: #ffffff;
+  border: 1px solid #e3e8e5;
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+.artifact-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.artifact-section h3 {
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.transform-table td:first-child {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
 .mini-list {
   display: flex;
   flex-direction: column;

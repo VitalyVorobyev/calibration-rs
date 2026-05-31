@@ -31,28 +31,29 @@ pub mod tier_b {
     };
     use vision_calibration::optim::{HandEyeMode, RobotPoseMeta};
     use vision_calibration::planar_intrinsics::{
-        PlanarIntrinsicsProblem, step_init, step_optimize,
+        PlanarIntrinsicsExport, PlanarIntrinsicsProblem, step_init, step_optimize,
     };
     use vision_calibration::rig_extrinsics::{
-        RigExtrinsicsProblem, step_intrinsics_init_all, step_intrinsics_optimize_all,
-        step_rig_init, step_rig_optimize,
+        RigExtrinsicsExport, RigExtrinsicsProblem, step_intrinsics_init_all,
+        step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
     };
     // Rig hand-eye step fns share names with the rig-extrinsics ones, so alias.
     use vision_calibration::rig_handeye::{
-        RigHandeyeConfig, RigHandeyeProblem, step_handeye_init as rh_handeye_init,
-        step_handeye_optimize as rh_handeye_optimize,
+        RigHandeyeConfig, RigHandeyeExport, RigHandeyeProblem,
+        step_handeye_init as rh_handeye_init, step_handeye_optimize as rh_handeye_optimize,
         step_intrinsics_init_all as rh_intrinsics_init_all,
         step_intrinsics_optimize_all as rh_intrinsics_optimize_all, step_rig_init as rh_rig_init,
         step_rig_optimize as rh_rig_optimize,
     };
     use vision_calibration::session::CalibrationSession;
     use vision_calibration::single_cam_handeye::{
-        HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeInput, SingleCamHandeyeProblem,
-        SingleCamHandeyeView, step_handeye_init, step_handeye_optimize, step_intrinsics_init,
-        step_intrinsics_optimize,
+        HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
+        SingleCamHandeyeProblem, SingleCamHandeyeView, step_handeye_init, step_handeye_optimize,
+        step_intrinsics_init, step_intrinsics_optimize,
     };
     use vision_calibration_core::{
-        FeatureResidualHistogram, PlanarDataset, ReprojectionStats, View,
+        FeatureResidualHistogram, PinholeCamera, PlanarDataset, ReprojectionStats,
+        ScheimpflugParams, View,
     };
     use vision_calibration_optim::SolveReport;
     #[cfg(feature = "laser")]
@@ -67,10 +68,12 @@ pub mod tier_b {
     #[cfg(feature = "laser")]
     use crate::record::LaserCamStat;
     use crate::record::{
-        BENCH_SCHEMA_VERSION, BenchRecord, Convergence, Detection, DetectionStat, Fit, Ident,
-        LaserMetrics, ResidualSidecar, RobotCorrectionSummary, Timing, compact_reproj_report,
+        BENCH_SCHEMA_VERSION, BenchRecord, CalibrationArtifacts, CameraArtifact, Convergence,
+        Detection, DetectionStat, DistortionArtifact, Fit, Ident, IntrinsicsArtifact, LaserMetrics,
+        ResidualSidecar, RobotCorrectionSummary, ScheimpflugArtifact, Timing, TransformArtifact,
+        compact_reproj_report,
     };
-    use crate::registry::{BenchEntry, BoardGeometry, ProblemKind};
+    use crate::registry::{BenchEntry, BoardGeometry, CameraLayout, ProblemKind};
 
     /// Lightweight per-dataset stage profile for diagnosing detector/extractor
     /// cost before running a full calibration solve.
@@ -180,12 +183,17 @@ pub mod tier_b {
         );
 
         // ── Detection ──────────────────────────────────────────────────────
+        progress(
+            entry,
+            format!("detecting {} images for {}", paths.len(), cam.id),
+        );
         let detect_start = Instant::now();
         let mut views = Vec::new();
         let mut images_used = 0usize;
         let mut features_detected = 0usize;
         let mut max_corners_per_image = 0usize;
-        for path in &paths {
+        for (image_idx, path) in paths.iter().enumerate() {
+            progress_images(entry, "detect", &cam.id, image_idx, paths.len());
             let img = load_image(path)?;
             match detect_chessboard_view(
                 &img,
@@ -209,6 +217,13 @@ pub mod tier_b {
             }
         }
         let detection_ms = detect_start.elapsed().as_millis() as u64;
+        progress(
+            entry,
+            format!(
+                "detection finished: {images_used}/{} images, {features_detected} features, {detection_ms} ms",
+                paths.len()
+            ),
+        );
 
         anyhow::ensure!(
             views.len() >= 3,
@@ -251,11 +266,13 @@ pub mod tier_b {
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(dataset).context("set_input failed")?;
 
+        progress(entry, "initializing planar intrinsics");
         let init_start = Instant::now();
         let init_ok = step_init(&mut session, None).is_ok();
         let init_ms = init_start.elapsed().as_millis() as u64;
         anyhow::ensure!(init_ok, "step_init failed for {}", entry.id);
 
+        progress(entry, "optimizing planar intrinsics");
         let opt_start = Instant::now();
         let _ = step_optimize(&mut session, None).context("step_optimize failed")?;
         let optimize_ms = opt_start.elapsed().as_millis() as u64;
@@ -327,6 +344,7 @@ pub mod tier_b {
             detection: Some(detection),
             laser: None,
             robot_corrections: None,
+            artifacts: Some(artifacts_from_planar(&cam.id, &export)),
             delta_to_prior: None,
             timing,
             reproj_report,
@@ -372,6 +390,10 @@ pub mod tier_b {
         let detector = detector_for(board)?;
 
         // ── Detection (per camera, then pair by filename suffix) ────────────
+        progress(
+            entry,
+            format!("detecting target in {} cameras", entry.cameras.len()),
+        );
         let detect_start = Instant::now();
         let mut per_cam_views: Vec<Vec<(String, Option<CorrespondenceView>)>> = Vec::new();
         let mut detect_stats: Vec<DetectionStat> = Vec::new();
@@ -389,7 +411,12 @@ pub mod tier_b {
             let mut views: Vec<(String, Option<CorrespondenceView>)> = Vec::new();
             let mut images_used = 0usize;
             let mut features_detected = 0usize;
-            for path in &paths {
+            progress(
+                entry,
+                format!("detecting {} images for {}", paths.len(), cam.id),
+            );
+            for (image_idx, path) in paths.iter().enumerate() {
+                progress_images(entry, "detect", &cam.id, image_idx, paths.len());
                 let key = pairing_key(path);
                 let img = load_image(path)?;
                 match detector.detect(&img) {
@@ -419,6 +446,10 @@ pub mod tier_b {
             per_cam_views.push(views);
         }
         let detection_ms = detect_start.elapsed().as_millis() as u64;
+        progress(
+            entry,
+            format!("target detection finished in {detection_ms} ms"),
+        );
 
         // Pair views: collect the suffix keys present in *every* camera, in the
         // first camera's order. (`stereo_session` pairs the index intersection;
@@ -483,11 +514,13 @@ pub mod tier_b {
         let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
         session.set_input(input).context("set_input failed")?;
 
+        progress(entry, "initializing per-camera intrinsics");
         let init_start = Instant::now();
         let init_ok = step_intrinsics_init_all(&mut session, None).is_ok();
         anyhow::ensure!(init_ok, "step_intrinsics_init_all failed for {}", entry.id);
         let init_ms = init_start.elapsed().as_millis() as u64;
 
+        progress(entry, "optimizing intrinsics and rig extrinsics");
         let opt_start = Instant::now();
         let _ = step_intrinsics_optimize_all(&mut session, None)
             .context("step_intrinsics_optimize_all failed")?;
@@ -587,6 +620,7 @@ pub mod tier_b {
             detection: Some(detection),
             laser: None,
             robot_corrections: None,
+            artifacts: Some(artifacts_from_rig_extrinsics(&entry.cameras, &export)),
             delta_to_prior: None,
             timing,
             reproj_report,
@@ -662,7 +696,12 @@ pub mod tier_b {
             } else {
                 entry.data_root.join(&cam.folder)
             };
-            for (target_image, robot_pose) in &snap_pairs {
+            progress(
+                entry,
+                format!("detecting {} snap images for {}", snap_pairs.len(), cam.id),
+            );
+            for (image_idx, (target_image, robot_pose)) in snap_pairs.iter().enumerate() {
+                progress_images(entry, "detect", &cam.id, image_idx, snap_pairs.len());
                 let img_path = cam_root.join(target_image);
                 anyhow::ensure!(
                     img_path.exists(),
@@ -690,7 +729,12 @@ pub mod tier_b {
             total_poses = robot_poses.len();
             let square_size_m = board.cell_size_m;
             let folder = entry.data_root.join(&cam.folder);
+            progress(
+                entry,
+                format!("detecting {} pose images for {}", robot_poses.len(), cam.id),
+            );
             for (idx, robot_pose) in robot_poses.iter().enumerate() {
+                progress_images(entry, "detect", &cam.id, idx, robot_poses.len());
                 let image_index = idx + 1;
                 let img_path = folder.join(format!("{image_index:02}.png"));
                 anyhow::ensure!(
@@ -728,6 +772,10 @@ pub mod tier_b {
             }
         }
         let detection_ms = detect_start.elapsed().as_millis() as u64;
+        progress(
+            entry,
+            format!("target detection finished in {detection_ms} ms"),
+        );
         anyhow::ensure!(
             views.len() >= 3,
             "need >= 3 detected views for single-cam hand-eye, got {}",
@@ -771,11 +819,13 @@ pub mod tier_b {
             .context("set single_cam_handeye config failed")?;
         session.set_input(input).context("set_input failed")?;
 
+        progress(entry, "initializing single-camera intrinsics");
         let init_start = Instant::now();
         let init_ok = step_intrinsics_init(&mut session, None).is_ok();
         anyhow::ensure!(init_ok, "step_intrinsics_init failed for {}", entry.id);
         let init_ms = init_start.elapsed().as_millis() as u64;
 
+        progress(entry, "optimizing intrinsics and hand-eye");
         let opt_start = Instant::now();
         let _ = step_intrinsics_optimize(&mut session, None)
             .context("step_intrinsics_optimize failed")?;
@@ -852,6 +902,7 @@ pub mod tier_b {
             detection: Some(detection),
             laser: None,
             robot_corrections,
+            artifacts: Some(artifacts_from_single_cam(&cam.id, &export)),
             delta_to_prior: None,
             timing,
             reproj_report,
@@ -895,6 +946,10 @@ pub mod tier_b {
         let robot_poses = load_robot_poses_for(pose_src, &entry.data_root.join(&pose_src.path))?;
 
         // ── Detection (per camera, image-order) ─────────────────────────────
+        progress(
+            entry,
+            format!("detecting target in {} cameras", entry.cameras.len()),
+        );
         let detect_start = Instant::now();
         let mut per_cam_dets: Vec<Vec<Option<CorrespondenceView>>> = Vec::new();
         let mut detect_stats: Vec<DetectionStat> = Vec::new();
@@ -912,7 +967,12 @@ pub mod tier_b {
             let mut dets: Vec<Option<CorrespondenceView>> = Vec::with_capacity(paths.len());
             let mut images_used = 0usize;
             let mut features_detected = 0usize;
-            for path in &paths {
+            progress(
+                entry,
+                format!("detecting {} images for {}", paths.len(), cam.id),
+            );
+            for (image_idx, path) in paths.iter().enumerate() {
+                progress_images(entry, "detect", &cam.id, image_idx, paths.len());
                 let img = load_image(path)?;
                 // Tiled rigs (e.g. 6 cameras side-by-side in one frame) crop each
                 // camera's ROI from the shared image; `tile` is `None` for the
@@ -943,6 +1003,10 @@ pub mod tier_b {
             per_cam_dets.push(dets);
         }
         let detection_ms = detect_start.elapsed().as_millis() as u64;
+        progress(
+            entry,
+            format!("target detection finished in {detection_ms} ms"),
+        );
 
         // Pair by index: view i = (cam0[i], …, camN[i], pose i), bounded by the
         // shortest camera and the pose count.
@@ -1008,11 +1072,13 @@ pub mod tier_b {
             .context("set rig_handeye config failed")?;
         session.set_input(input).context("set_input failed")?;
 
+        progress(entry, "initializing per-camera intrinsics");
         let init_start = Instant::now();
         let init_ok = rh_intrinsics_init_all(&mut session, None).is_ok();
         anyhow::ensure!(init_ok, "step_intrinsics_init_all failed for {}", entry.id);
         let init_ms = init_start.elapsed().as_millis() as u64;
 
+        progress(entry, "optimizing intrinsics, rig, and hand-eye");
         let opt_start = Instant::now();
         let _ = rh_intrinsics_optimize_all(&mut session, None)
             .context("step_intrinsics_optimize_all failed")?;
@@ -1109,6 +1175,7 @@ pub mod tier_b {
             detection: Some(detection),
             laser,
             robot_corrections,
+            artifacts: Some(artifacts_from_rig_handeye(&entry.cameras, &export)),
             delta_to_prior: None,
             timing,
             reproj_report,
@@ -1208,6 +1275,25 @@ pub mod tier_b {
             0.0
         } else {
             total_ms as f64 / count as f64
+        }
+    }
+
+    fn progress(entry: &BenchEntry, message: impl std::fmt::Display) {
+        if std::env::var_os("CALIB_BENCH_QUIET").is_none() {
+            eprintln!("[calib-bench:{}] {message}", entry.id);
+        }
+    }
+
+    fn progress_images(
+        entry: &BenchEntry,
+        stage: &str,
+        camera_id: &str,
+        image_idx: usize,
+        total: usize,
+    ) {
+        let n = image_idx + 1;
+        if n == 1 || n == total || n.is_multiple_of(10) {
+            progress(entry, format!("{stage} {camera_id}: {n}/{total} images"));
         }
     }
 
@@ -1347,6 +1433,14 @@ pub mod tier_b {
             return Ok(None);
         }
 
+        progress(
+            entry,
+            format!(
+                "extracting laser lines from {} images across {} cameras",
+                paths.len(),
+                entry.cameras.len()
+            ),
+        );
         let mut per_camera = Vec::with_capacity(entry.cameras.len());
         let mut total_points = 0usize;
         let mut total_images_used = 0usize;
@@ -1356,7 +1450,8 @@ pub mod tier_b {
             let cam_start = Instant::now();
             let mut images_used = 0usize;
             let mut points_extracted = 0usize;
-            for path in &paths {
+            for (image_idx, path) in paths.iter().enumerate() {
+                progress_images(entry, "laser", &cam.id, image_idx, paths.len());
                 let img = load_image(path)?;
                 let img = apply_tile(&img, cam.tile);
                 let point_count = extract_laser_points(&img);
@@ -1365,6 +1460,15 @@ pub mod tier_b {
                     points_extracted += point_count;
                 }
             }
+            let extract_ms = cam_start.elapsed().as_millis() as u64;
+            progress(
+                entry,
+                format!(
+                    "laser {}: {images_used}/{} images, {points_extracted} points, {extract_ms} ms",
+                    cam.id,
+                    paths.len()
+                ),
+            );
             total_points += points_extracted;
             total_images_used += images_used;
             per_camera.push(LaserCamStat {
@@ -1372,7 +1476,7 @@ pub mod tier_b {
                 images_total: paths.len(),
                 images_used,
                 points_extracted,
-                extract_ms: cam_start.elapsed().as_millis() as u64,
+                extract_ms,
                 plane_residual_m: None,
                 line_residual_px: None,
                 inlier_ratio: None,
@@ -1744,6 +1848,228 @@ pub mod tier_b {
             ),
         }
         Ok(())
+    }
+
+    fn artifacts_from_planar(
+        camera_id: &str,
+        export: &PlanarIntrinsicsExport,
+    ) -> CalibrationArtifacts {
+        let mut artifacts = CalibrationArtifacts {
+            spatial_unit: "mm".to_string(),
+            angle_unit: "deg".to_string(),
+            cameras: vec![camera_artifact(camera_id, &export.params.camera, None)],
+            transforms: Vec::new(),
+        };
+        for (view_idx, pose) in export.params.camera_se3_target.iter().enumerate() {
+            artifacts.transforms.push(transform_artifact(
+                format!("{camera_id}_se3_target_view{view_idx}"),
+                camera_id,
+                format!("target/view_{view_idx}"),
+                pose,
+            ));
+        }
+        artifacts
+    }
+
+    fn artifacts_from_single_cam(
+        camera_id: &str,
+        export: &SingleCamHandeyeExport,
+    ) -> CalibrationArtifacts {
+        let mut artifacts = CalibrationArtifacts {
+            spatial_unit: "mm".to_string(),
+            angle_unit: "deg".to_string(),
+            cameras: vec![camera_artifact(camera_id, &export.camera, None)],
+            transforms: Vec::new(),
+        };
+        if let Some(t) = &export.gripper_se3_camera {
+            artifacts.transforms.push(transform_artifact(
+                "gripper_se3_camera",
+                "gripper",
+                camera_id,
+                t,
+            ));
+        }
+        if let Some(t) = &export.camera_se3_base {
+            artifacts
+                .transforms
+                .push(transform_artifact("camera_se3_base", camera_id, "base", t));
+        }
+        if let Some(t) = &export.base_se3_target {
+            artifacts
+                .transforms
+                .push(transform_artifact("base_se3_target", "base", "target", t));
+        }
+        if let Some(t) = &export.gripper_se3_target {
+            artifacts.transforms.push(transform_artifact(
+                "gripper_se3_target",
+                "gripper",
+                "target",
+                t,
+            ));
+        }
+        artifacts
+    }
+
+    fn artifacts_from_rig_extrinsics(
+        cameras: &[CameraLayout],
+        export: &RigExtrinsicsExport,
+    ) -> CalibrationArtifacts {
+        let mut artifacts = CalibrationArtifacts {
+            spatial_unit: "mm".to_string(),
+            angle_unit: "deg".to_string(),
+            cameras: camera_artifacts(cameras, &export.cameras, export.sensors.as_deref()),
+            transforms: Vec::new(),
+        };
+        for (cam_idx, pose) in export.cam_se3_rig.iter().enumerate() {
+            let camera_id = camera_id(cameras, cam_idx);
+            artifacts.transforms.push(transform_artifact(
+                format!("{camera_id}_se3_rig"),
+                camera_id,
+                "rig",
+                pose,
+            ));
+        }
+        for (view_idx, pose) in export.rig_se3_target.iter().enumerate() {
+            artifacts.transforms.push(transform_artifact(
+                format!("rig_se3_target_view{view_idx}"),
+                "rig",
+                format!("target/view_{view_idx}"),
+                pose,
+            ));
+        }
+        artifacts
+    }
+
+    fn artifacts_from_rig_handeye(
+        cameras: &[CameraLayout],
+        export: &RigHandeyeExport,
+    ) -> CalibrationArtifacts {
+        let mut artifacts = CalibrationArtifacts {
+            spatial_unit: "mm".to_string(),
+            angle_unit: "deg".to_string(),
+            cameras: camera_artifacts(cameras, &export.cameras, export.sensors.as_deref()),
+            transforms: Vec::new(),
+        };
+        for (cam_idx, pose) in export.cam_se3_rig.iter().enumerate() {
+            let camera_id = camera_id(cameras, cam_idx);
+            artifacts.transforms.push(transform_artifact(
+                format!("{camera_id}_se3_rig"),
+                camera_id,
+                "rig",
+                pose,
+            ));
+        }
+        if let Some(t) = &export.gripper_se3_rig {
+            artifacts
+                .transforms
+                .push(transform_artifact("gripper_se3_rig", "gripper", "rig", t));
+        }
+        if let Some(t) = &export.rig_se3_base {
+            artifacts
+                .transforms
+                .push(transform_artifact("rig_se3_base", "rig", "base", t));
+        }
+        if let Some(t) = &export.base_se3_target {
+            artifacts
+                .transforms
+                .push(transform_artifact("base_se3_target", "base", "target", t));
+        }
+        if let Some(t) = &export.gripper_se3_target {
+            artifacts.transforms.push(transform_artifact(
+                "gripper_se3_target",
+                "gripper",
+                "target",
+                t,
+            ));
+        }
+        for (view_idx, pose) in export.rig_se3_target.iter().enumerate() {
+            artifacts.transforms.push(transform_artifact(
+                format!("rig_se3_target_view{view_idx}"),
+                "rig",
+                format!("target/view_{view_idx}"),
+                pose,
+            ));
+        }
+        artifacts
+    }
+
+    fn camera_artifacts(
+        layouts: &[CameraLayout],
+        cameras: &[PinholeCamera],
+        sensors: Option<&[ScheimpflugParams]>,
+    ) -> Vec<CameraArtifact> {
+        cameras
+            .iter()
+            .enumerate()
+            .map(|(idx, camera)| {
+                camera_artifact(
+                    camera_id(layouts, idx),
+                    camera,
+                    sensors.and_then(|s| s.get(idx)),
+                )
+            })
+            .collect()
+    }
+
+    fn camera_id(layouts: &[CameraLayout], index: usize) -> &str {
+        layouts
+            .get(index)
+            .map(|layout| layout.id.as_str())
+            .unwrap_or("camera")
+    }
+
+    fn camera_artifact(
+        camera_id: &str,
+        camera: &PinholeCamera,
+        sensor: Option<&ScheimpflugParams>,
+    ) -> CameraArtifact {
+        let k = camera.k;
+        let d = camera.dist;
+        CameraArtifact {
+            camera_id: camera_id.to_string(),
+            camera_matrix_px: [[k.fx, k.skew, k.cx], [0.0, k.fy, k.cy], [0.0, 0.0, 1.0]],
+            intrinsics_px: IntrinsicsArtifact {
+                fx: k.fx,
+                fy: k.fy,
+                cx: k.cx,
+                cy: k.cy,
+                skew: k.skew,
+            },
+            distortion_model: "brown_conrady5".to_string(),
+            distortion: DistortionArtifact {
+                k1: d.k1,
+                k2: d.k2,
+                k3: d.k3,
+                p1: d.p1,
+                p2: d.p2,
+            },
+            scheimpflug: sensor.map(|s| ScheimpflugArtifact {
+                tilt_x_rad: s.tilt_x,
+                tilt_y_rad: s.tilt_y,
+            }),
+        }
+    }
+
+    fn transform_artifact(
+        name: impl Into<String>,
+        to_frame: impl Into<String>,
+        from_frame: impl Into<String>,
+        transform: &Iso3,
+    ) -> TransformArtifact {
+        let q = transform.rotation.quaternion();
+        let rv = transform.rotation.scaled_axis();
+        TransformArtifact {
+            name: name.into(),
+            to_frame: to_frame.into(),
+            from_frame: from_frame.into(),
+            translation_mm: [
+                transform.translation.vector.x * 1000.0,
+                transform.translation.vector.y * 1000.0,
+                transform.translation.vector.z * 1000.0,
+            ],
+            rotation_quat_xyzw: [q.i, q.j, q.k, q.w],
+            rotation_rotvec_deg: [rv.x.to_degrees(), rv.y.to_degrees(), rv.z.to_degrees()],
+        }
     }
 
     /// Build an [`Ident`] with the run-intrinsic fields filled and the
