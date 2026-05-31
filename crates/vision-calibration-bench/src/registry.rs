@@ -233,6 +233,16 @@ pub struct BoardGeometry {
     /// Defaults to `0.75` when absent (the OpenCV ChArUco default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub marker_size_rel: Option<f32>,
+    /// Require checkerboard detections to match the declared rows/cols exactly.
+    ///
+    /// This is important for hand-eye datasets where partial, locally indexed
+    /// checkerboard detections move the target coordinate frame between views.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub strict_grid: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Source of robot poses for hand-eye problems.
@@ -632,6 +642,7 @@ mod tests {
                 dictionary: Some("DICT_4X4_50".into()),
                 layout: Some("charuco".into()),
                 marker_size_rel: None,
+                strict_grid: false,
             }),
             cameras: vec![CameraLayout {
                 id: "cam0".into(),
@@ -740,5 +751,25 @@ mod tests {
         assert_eq!(cfg.solver.max_iters, 200);
         assert_eq!(cfg.solver.robust_loss, RobustLoss::Huber { scale: 1.0 });
         assert!(cfg.handeye_ba.refine_robot_poses);
+    }
+
+    #[test]
+    fn ds8_registry_uses_known_grid_and_eye_to_hand() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("registry/public.json");
+        let registry = load_registry(&path).expect("public registry");
+        let ds8 = registry
+            .datasets
+            .iter()
+            .find(|entry| entry.id == "ds8")
+            .expect("ds8 entry");
+        let board = ds8.board.as_ref().expect("ds8 board");
+        assert_eq!(board.rows, 10);
+        assert_eq!(board.cols, 14);
+        assert!((board.cell_size_m - 0.052).abs() < 1.0e-12);
+        assert!(board.strict_grid);
+        assert_eq!(
+            ds8.rig_handeye.as_ref().and_then(|cfg| cfg.handeye_mode),
+            Some(BenchHandEyeMode::EyeToHand)
+        );
     }
 }

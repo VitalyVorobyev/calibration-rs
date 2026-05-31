@@ -5,8 +5,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use vision_calibration_bench::record::BenchRecord;
 use vision_calibration_bench::registry::{
-    BenchEntry, HandeyeBaOverride, ProblemKind, RigHandeyeOverride, SingleCamHandeyeOverride,
-    load_registry,
+    BenchEntry, BenchHandEyeMode, HandeyeBaOverride, ProblemKind, RigHandeyeOverride,
+    SingleCamHandeyeOverride, load_registry,
 };
 use vision_calibration_pipeline::analysis::ReprojLevel;
 
@@ -465,6 +465,11 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
     let mut cases = Vec::new();
     cases.push(("default", entry.clone()));
 
+    let mut alternate_mode = entry.clone();
+    if set_alternate_handeye_mode(&mut alternate_mode) {
+        cases.push(("alternate_handeye_mode", alternate_mode));
+    }
+
     let mut no_refine = entry.clone();
     set_robot_ba(&mut no_refine, Some(false), None, None);
     cases.push(("robot_refine_off", no_refine));
@@ -487,6 +492,42 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
     }
 
     cases
+}
+
+fn set_alternate_handeye_mode(entry: &mut BenchEntry) -> bool {
+    match entry.problem {
+        ProblemKind::SingleCamHandeye => {
+            let overrides = entry
+                .single_cam_handeye
+                .get_or_insert_with(SingleCamHandeyeOverride::default);
+            overrides.handeye_mode = Some(
+                match overrides
+                    .handeye_mode
+                    .unwrap_or(BenchHandEyeMode::EyeInHand)
+                {
+                    BenchHandEyeMode::EyeInHand => BenchHandEyeMode::EyeToHand,
+                    BenchHandEyeMode::EyeToHand => BenchHandEyeMode::EyeInHand,
+                },
+            );
+            true
+        }
+        ProblemKind::RigHandeye => {
+            let overrides = entry
+                .rig_handeye
+                .get_or_insert_with(RigHandeyeOverride::default);
+            overrides.handeye_mode = Some(
+                match overrides
+                    .handeye_mode
+                    .unwrap_or(BenchHandEyeMode::EyeInHand)
+                {
+                    BenchHandEyeMode::EyeInHand => BenchHandEyeMode::EyeToHand,
+                    BenchHandEyeMode::EyeToHand => BenchHandEyeMode::EyeInHand,
+                },
+            );
+            true
+        }
+        _ => false,
+    }
 }
 
 fn set_robot_ba(

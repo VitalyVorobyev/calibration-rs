@@ -187,7 +187,13 @@ pub mod tier_b {
         let mut max_corners_per_image = 0usize;
         for path in &paths {
             let img = load_image(path)?;
-            match detect_chessboard_view(&img, board.rows, board.cols, board.cell_size_m) {
+            match detect_chessboard_view(
+                &img,
+                board.rows,
+                board.cols,
+                board.cell_size_m,
+                board.strict_grid,
+            ) {
                 Ok(Some(view)) => {
                     images_used += 1;
                     features_detected += view.len();
@@ -210,15 +216,11 @@ pub mod tier_b {
             views.len()
         );
 
-        // Coverage denominator: the full-board corner count. We take the max
-        // corners seen in any single image rather than the registry's declared
-        // `rows*cols`, because the `calib-targets` chessboard detector
-        // auto-discovers the interior-corner grid and can disagree with a
-        // hand-written manifest. (For `stereo_left` the detector finds a 10x11
-        // = 110-corner grid while dataset_left.toml declares 7x11 = 77; using
-        // the manifest count would yield a >100% coverage figure.) The declared
-        // `board.rows`/`board.cols` are still threaded through to
-        // `detect_chessboard_view` for API symmetry.
+        // Coverage denominator: the full-board corner count. For loose
+        // checkerboard datasets we take the max corners seen in any single
+        // image because old manifests can disagree with the auto-discovered
+        // grid. Strict-grid datasets use the declared board size because every
+        // accepted detection has already been validated against it.
         let features_per_board = max_corners_per_image.max(board_feature_count(board));
         let features_expected = images_used * features_per_board;
         let coverage_pct = if features_expected > 0 {
@@ -698,7 +700,13 @@ pub mod tier_b {
                     image_index
                 );
                 let img = load_image(&img_path)?;
-                match detect_chessboard_view(&img, board.rows, board.cols, square_size_m) {
+                match detect_chessboard_view(
+                    &img,
+                    board.rows,
+                    board.cols,
+                    square_size_m,
+                    board.strict_grid,
+                ) {
                     Ok(Some(view)) => {
                         images_used += 1;
                         features_detected += view.len();
@@ -987,14 +995,14 @@ pub mod tier_b {
         let laser = extract_laser_metrics(entry)?;
 
         // ── Calibration ─────────────────────────────────────────────────────
-        let input = RigDataset::new(rig_views, n_cam)
-            .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
-        let dataset_for_report = input.clone();
-        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         let mut config = RigHandeyeConfig::default();
         if let Some(overrides) = &entry.rig_handeye {
             overrides.apply_to(&mut config);
         }
+        let input = RigDataset::new(rig_views, n_cam)
+            .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
+        let dataset_for_report = input.clone();
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session
             .set_config(config)
             .context("set rig_handeye config failed")?;
@@ -1514,6 +1522,9 @@ pub mod tier_b {
             Ok(DetectorKind::Puzzleboard(Box::new(params)))
         } else {
             Ok(DetectorKind::Chessboard {
+                rows: board.rows,
+                cols: board.cols,
+                require_known_grid: board.strict_grid,
                 square_size_m: board.cell_size_m,
             })
         }
@@ -1764,6 +1775,7 @@ pub mod tier_b {
                 dictionary: None,
                 layout: Some("puzzleboard".to_string()),
                 marker_size_rel: None,
+                strict_grid: false,
             };
 
             let detector = detector_for(&board).expect("detector");

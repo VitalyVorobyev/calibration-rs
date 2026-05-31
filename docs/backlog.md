@@ -16,3 +16,8 @@ a short report under `docs/report/` and a task-scoped commit.
   calibration viewer, reports robot-pose correction magnitudes in mm/degrees,
   exposes `diagnose stages` for target/laser timing, and records current
   hand-eye and private ChArUco quality findings.
+- [x] BENCH-W2E - Fix DS8 hand-eye mode and known-grid checkerboard handling.
+  Completed 2026-05-31. Confirms DS8 uses a 10x14 checkerboard with 52 mm
+  cells, rejects partial/local-grid checkerboard detections for this dataset,
+  switches DS8 to eye-to-hand, and extends hand-eye diagnostics with an
+  alternate-mode comparison.

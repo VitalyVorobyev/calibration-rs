@@ -82,7 +82,7 @@
       "tiers": ["b"],
       "problem": "rig_handeye",
       "data_root": "data/DS8",
-      "board": { "rows": 10, "cols": 14, "cell_size_m": 0.052, "layout": "checkerboard" },
+      "board": { "rows": 10, "cols": 14, "cell_size_m": 0.052, "layout": "checkerboard", "strict_grid": true },
       "cameras": [
         { "id": "camera0", "folder": "images/camera0", "filename_glob": "*.png" },
         { "id": "camera1", "folder": "images/camera1", "filename_glob": "*.png" },
@@ -93,6 +93,9 @@
         "format": "counted4x4",
         "convention": "base_se3_gripper",
         "units": "mm"
+      },
+      "rig_handeye": {
+        "handeye_mode": "eye_to_hand"
       },
       "notes": "3-camera rig hand-eye (2x JAI BB-500 + Creative Senz3D color), board 10x14 @52mm, robot_cali.txt counted 4x4 in mm; no oracle"
     }

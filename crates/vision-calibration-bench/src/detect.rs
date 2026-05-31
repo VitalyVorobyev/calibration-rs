@@ -28,9 +28,16 @@ use vision_calibration_core::{CorrespondenceView, Pt2, Pt3};
 #[derive(Clone)]
 pub enum DetectorKind {
     /// `calib-targets` chessboard detector. `square_size_m` is the metric cell
-    /// pitch; the detector auto-discovers the interior-corner grid (rows/cols
-    /// are not passed, matching the examples).
+    /// pitch; the detector auto-discovers the interior-corner grid, and
+    /// `require_known_grid` can reject detections that do not match the
+    /// registry dimensions exactly.
     Chessboard {
+        /// Expected interior-corner rows.
+        rows: usize,
+        /// Expected interior-corner columns.
+        cols: usize,
+        /// Reject detections that do not match the known grid exactly.
+        require_known_grid: bool,
         /// Metric square (cell) size in metres.
         square_size_m: f64,
     },
@@ -49,9 +56,12 @@ impl DetectorKind {
     /// no usable board is found (so the caller counts a skipped image).
     pub fn detect(&self, img: &image::DynamicImage) -> Result<Option<CorrespondenceView>> {
         match self {
-            DetectorKind::Chessboard { square_size_m } => {
-                detect_chessboard_view(img, 0, 0, *square_size_m)
-            }
+            DetectorKind::Chessboard {
+                rows,
+                cols,
+                require_known_grid,
+                square_size_m,
+            } => detect_chessboard_view(img, *rows, *cols, *square_size_m, *require_known_grid),
             DetectorKind::Charuco(params) => detect_charuco_view(img, params),
             DetectorKind::Puzzleboard(params) => detect_puzzleboard_view(img, params),
         }
@@ -203,22 +213,41 @@ pub fn detect_puzzleboard_view(
 /// to a metric `(i*square, j*square, 0)` target point and its pixel position.
 ///
 /// Returns `Ok(None)` when no board is found (so the caller can count it as a
-/// skipped image), `Ok(Some(view))` on success. `rows`/`cols` are accepted for
-/// API symmetry with the registry's [`crate::registry::BoardGeometry`] but the
-/// `calib-targets` detector discovers the grid itself; they are not passed to
-/// the detector (matching the example).
+/// skipped image), `Ok(Some(view))` on success. When `require_known_grid` is
+/// true, detections must contain exactly `rows * cols` corners spanning the
+/// declared grid. This prevents partial, locally indexed chessboard detections
+/// from moving the target frame between hand-eye views.
 pub fn detect_chessboard_view(
     img: &image::DynamicImage,
-    _rows: usize,
-    _cols: usize,
+    rows: usize,
+    cols: usize,
     square_size_m: f64,
+    require_known_grid: bool,
 ) -> Result<Option<CorrespondenceView>> {
     let luma = img.to_luma8();
     let params = DetectorParams::default();
     let Some(detection) = detect::detect_chessboard(&luma, &default_chess_config(), &params) else {
         return Ok(None);
     };
+    if require_known_grid && !detection_matches_known_grid(&detection, rows, cols) {
+        return Ok(None);
+    }
     Ok(Some(detection_to_view(detection, square_size_m)?))
+}
+
+fn detection_matches_known_grid(detection: &ChessboardDetection, rows: usize, cols: usize) -> bool {
+    if detection.corners.len() != rows * cols {
+        return false;
+    }
+    let max_i = detection.corners.iter().map(|c| c.grid.i).max();
+    let max_j = detection.corners.iter().map(|c| c.grid.j).max();
+    matches!(
+        (max_i, max_j),
+        (Some(i), Some(j)) if i >= 0
+            && j >= 0
+            && (i as usize) + 1 == cols
+            && (j as usize) + 1 == rows
+    )
 }
 
 /// Map a [`ChessboardDetection`] to a [`CorrespondenceView`] using the board's

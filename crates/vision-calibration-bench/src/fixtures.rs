@@ -157,6 +157,7 @@ mod tests {
             dictionary: None,
             layout: Some("checkerboard".into()),
             marker_size_rel: None,
+            strict_grid: false,
         }
     }
 
