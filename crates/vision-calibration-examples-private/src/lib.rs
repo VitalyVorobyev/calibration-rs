@@ -11,7 +11,9 @@ use std::path::Path;
 use vision_calibration_core::{CorrespondenceView, Iso3, Pt2, Pt3, Real};
 
 use calib_targets::{
-    detect::detect_puzzleboard,
+    aruco::builtins,
+    charuco::{CharucoBoardSpec, CharucoDetector, CharucoParams, MarkerLayout},
+    detect::{self, detect_puzzleboard},
     puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec},
 };
 
@@ -132,23 +134,22 @@ pub fn detect_target(
     let origin_y_mm = 0.5 * (rows.saturating_sub(1) as f64) * cell_size_mm;
     let max_x_mm = cols.saturating_sub(1) as f64 * cell_size_mm;
     let max_y_mm = rows.saturating_sub(1) as f64 * cell_size_mm;
-    for corner in &result.detection.corners {
-        if let (Some(_id), Some(t)) = (corner.id, corner.target_position) {
-            let x_mm = t.x as f64;
-            let y_mm = t.y as f64;
-            if !(0.0..=max_x_mm).contains(&x_mm) || !(0.0..=max_y_mm).contains(&y_mm) {
-                continue;
-            }
-            pts_3d.push(Pt3::new(
-                ((x_mm - origin_x_mm) / 1000.0) as Real,
-                ((y_mm - origin_y_mm) / 1000.0) as Real,
-                0.0,
-            ));
-            pts_2d.push(Pt2::new(
-                (corner.position.x / TARGET_DETECT_UPSCALE as f32) as Real,
-                (corner.position.y / TARGET_DETECT_UPSCALE as f32) as Real,
-            ));
+    for corner in &result.corners {
+        let t = corner.target_position;
+        let x_mm = t.x as f64;
+        let y_mm = t.y as f64;
+        if !(0.0..=max_x_mm).contains(&x_mm) || !(0.0..=max_y_mm).contains(&y_mm) {
+            continue;
         }
+        pts_3d.push(Pt3::new(
+            ((x_mm - origin_x_mm) / 1000.0) as Real,
+            ((y_mm - origin_y_mm) / 1000.0) as Real,
+            0.0,
+        ));
+        pts_2d.push(Pt2::new(
+            (corner.position.x / TARGET_DETECT_UPSCALE as f32) as Real,
+            (corner.position.y / TARGET_DETECT_UPSCALE as f32) as Real,
+        ));
     }
 
     if pts_3d.len() < 8 {
@@ -158,6 +159,61 @@ pub fn detect_target(
         ));
     }
     CorrespondenceView::new(pts_3d, pts_2d).map_err(|e| anyhow!("correspondence: {e}"))
+}
+
+/// Detect a ChArUco board in a tile and build a [`CorrespondenceView`] with
+/// 3D points in meters (Z=0) in the board frame.
+///
+/// Thin port of `vision-calibration-bench/src/detect.rs::detect_charuco_view`
+/// (same dictionary handling, `OpenCvCharuco` marker layout, ChESS corner
+/// pre-detection) so rtv3d numbers reproduce against the bench harness.
+/// ChArUco detections are sparse — only decoded cells contribute corners.
+pub fn detect_charuco(
+    tile: &GrayImage,
+    rows: u32,
+    cols: u32,
+    cell_size_mm: f64,
+    marker_size_rel: f32,
+    dictionary: &str,
+) -> Result<CorrespondenceView> {
+    let dict = match dictionary {
+        "DICT_4X4_1000" => builtins::DICT_4X4_1000,
+        other => return Err(anyhow!("unsupported ChArUco dictionary '{other}'")),
+    };
+    let board = CharucoBoardSpec {
+        rows,
+        cols,
+        cell_size: (cell_size_mm / 1000.0) as f32,
+        marker_size_rel,
+        dictionary: dict,
+        marker_layout: MarkerLayout::OpenCvCharuco,
+    };
+    let params = CharucoParams::for_board(&board);
+    let chess_config = detect::default_chess_config();
+    let corners = detect::detect_corners(tile, &chess_config);
+    let detector = CharucoDetector::new(params).map_err(|e| anyhow!("charuco detector: {e}"))?;
+    let detection = detector
+        .detect(&detect::gray_view(tile), &corners)
+        .map_err(|e| anyhow!("charuco detect: {e}"))?;
+
+    let mut points_3d = Vec::with_capacity(detection.corners.len());
+    let mut points_2d = Vec::with_capacity(detection.corners.len());
+    for corner in detection.corners {
+        let target = corner.target_position;
+        points_3d.push(Pt3::new(target.x as f64, target.y as f64, 0.0));
+        points_2d.push(Pt2::new(
+            corner.position.x as f64,
+            corner.position.y as f64,
+        ));
+    }
+
+    if points_3d.len() < 8 {
+        return Err(anyhow!(
+            "charuco detection too sparse: {} corners",
+            points_3d.len()
+        ));
+    }
+    CorrespondenceView::new(points_3d, points_2d).map_err(|e| anyhow!("correspondence: {e}"))
 }
 
 /// Extract a laser line in a tile as subpixel 2D points.

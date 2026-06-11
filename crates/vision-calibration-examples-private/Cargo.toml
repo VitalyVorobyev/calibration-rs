@@ -21,7 +21,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 image = { version = "0.25" }
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
-calib-targets = "0.8"
+calib-targets = "0.9"
 vision-metrology = { path = "../../../vision-metrology/crates/vision-metrology" }
 vm-primitives = { path = "../../../vision-metrology/crates/vm-primitives" }
 
