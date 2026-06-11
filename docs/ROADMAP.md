@@ -3,11 +3,11 @@
 Canonical short-form summary of the multi-quarter direction. Detailed reasoning per track
 lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
 
-## Status (as of 2026-05-02)
+## Status (as of 2026-06-11)
 
-- **Version line:** 0.x. v1.0 (= stable public API) is deferred until the API has been
-  stable across two minor releases without breaking changes. Pre-1.0 means breaking changes
-  are acceptable.
+- **Version line:** 0.x (latest release 0.5.1). v1.0 (= stable public API) is deferred
+  until the API has been stable across two minor releases without breaking changes.
+  Pre-1.0 means breaking changes are acceptable.
 - **Active branch:** `main`.
 - **Track A — Calibration core: COMPLETE.** A1 (manual init), A2 (per-feature
   residuals), A4 (Scheimpflug EyeToHand) shipped. A3 closed (false premise — the
@@ -16,18 +16,20 @@ lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
   axis refactor) shipped via PRs #36 + #37 + #38; see
   [ADR 0013](adrs/0013-rig-family-sensor-axis-refactor.md).
 - **Track B — Tauri viewer:** B0 (PR #40), B0.5/B0.6 (PR #42), B1 (PR #43), B2
-  (PR #44) **SHIPPED**. The `app/` shell now hosts four workspaces (Diagnose, 3D,
-  Epipolar, Run-stub). After a 2026-05-02 grill the user committed to evolving the
-  app into the **primary calibration tool** (Track B is no longer "post-B0 enrichments
-  TBD" — see the B-track section below for the committed sub-phasing).
+  (PR #44), **B3a + B3b (PR #45) SHIPPED**. The `app/` shell hosts four workspaces
+  (Diagnose, 3D, Epipolar, Run); the Run workspace covers PlanarIntrinsics +
+  chessboard end-to-end. Bench crate + multi-level reprojection report shipped
+  (PR #49). A 2026-06-11 review (see
+  [workspace review](report/2026-06-11-workspace-review.md)) confirmed the
+  extend-don't-rebuild verdict for the app.
+- **New tracks (2026-06-11):** V (real-data validation on the rtv3d datasets),
+  O (apex-solver optimization backend), M (camera-model expansion — supersedes the
+  former "new camera models out of scope" line).
 - **In-flight PRs:**
   [#28 mvg](https://github.com/VitalyVorobyev/calibration-rs/pull/28) — multiple-view
-  geometry crate split (Track C, deferred until the B3 series stabilises);
-  [#45 B3a foundation](https://github.com/VitalyVorobyev/calibration-rs/pull/45) —
-  schema-driven configs, `DatasetSpec`, detection cache, fail-fast contract
-  (ADRs 0016–0019).
+  geometry crate split (Track C, deferred until the B3 series stabilises).
 
-## Four tracks
+## Tracks
 
 ### Track A — Calibration core (DONE)
 
@@ -103,6 +105,15 @@ puzzleboard / ringgrid) are supported.
   per-problem-type `DatasetSpec → *Input` converters; manifest
   sweep finish on `SingleCamHandeyeExport`,
   `ScheimpflugIntrinsicsExport`, and `LaserlineDeviceExport`.
+  **Sequencing (2026-06-11): RigHandeye + RigLaserlineDevice + charuco
+  detector first** — they serve the V-track (rtv3d) directly.
+- **B-laser — laserline visualization.** Laser-pixel overlay in
+  Diagnose; laser plane-fit residuals (point-to-plane mm) alongside
+  reprojection residuals; laser planes rendered in the 3D rig viewer.
+  No laser data is visible anywhere in the app today.
+- **B-explore — dataset exploration.** Browse a dataset *before*
+  calibrating: image grid per camera/pose, detection overlay from the
+  cache, board coverage map. Today the app only visualizes exports.
 - **B3d — manifest UX.** AI-driven `generate-manifest` CLI binary
   (heuristic-only v0: regex / file-extension / vendor signature /
   README scraping). Tauri "Sniff folder" command. `_unresolved` UX
@@ -120,6 +131,63 @@ puzzleboard / ringgrid) are supported.
   key configuration).
 - Init-failure diagnosis sweeps (perturbed re-runs).
 - Signed installers per OS.
+- Infra ratchet: ts-rs (or specta) TS codegen replacing hand-written
+  wire types + an export discriminator tag; `resource_dir`-based
+  presets; Vitest unit + Playwright smoke tests.
+
+### Track V — Real-data validation: rtv3d (NEW 2026-06-11, top priority)
+
+Prove the library functional on the rtv3d sensor — 6 laser-plane-triangulation
+devices (Scheimpflug camera + laser projector), `privatedata/rtv3d_1` (target +
+laser) and `rtv3d_2` (target only). Each ships a legacy-system `artifacts.json`
+oracle to beat (cams 0–4: 1.6–2.8 px reproj, 0.03–0.05 mm plane σ; cam 5 is
+degenerate in the oracle — fx=51, 127 px). Full inventory and oracle schema in
+the [2026-06-11 workspace review](report/2026-06-11-workspace-review.md).
+
+- **V1** `rtv3d_rig` example in `examples-private` (clone of
+  `puzzle_130x130_rig`): ChArUco 22×22 detection, EyeInHand
+  `RigHandeye(Scheimpflug)`, oracle comparison tables, empirical 4.8 vs 5.2 mm
+  cell-size resolution. Validate on rtv3d_2 (no laser).
+- **V2** rtv3d_1 full pipeline: + laser detection on the 4 `double_snap` poses,
+  `RigLaserlineDevice`, joint BA; laser-plane comparison vs oracle
+  (origin/xaxis/yaxis → normal+distance conversion).
+- **V3** Beat-the-oracle report (`docs/report/`): per-camera reproj < oracle on
+  cams 0–4; sane cam 5 (fx ∈ [1500, 2500], reproj < 10 px); extrinsics within
+  2° / 5 mm; plane normals within 0.5°, distances within 1 mm, σ < oracle.
+- **V4** Bench registry entries (`registry/private.json`) for both datasets →
+  regression tracking; full RigLaserlineDevice-in-bench as follow-up.
+
+### Track O — Optimization backends (NEW 2026-06-11)
+
+`OptimBackend` (ADR 0008) gets a second real implementation:
+[apex-solver](https://crates.io/crates/apex-solver) 1.3 (LM/GN/DogLeg, Lie-group
+support), behind an `apex-solver` cargo feature in `vision-calibration-optim`.
+
+- **O1** `ApexSolverBackend` implementing `OptimBackend`, mirroring
+  `compile_factor` from the tiny-solver backend. Pre-verify: whether apex-solver
+  accepts generic factors (its API is graph-flavored), SE3 quaternion order vs
+  our `[qx,qy,qz,qw,tx,ty,tz]` (round-trip unit test), S2 manifold availability
+  (fallback: R3 + renormalize), robust-loss coverage.
+- **O2** Backend A/B in bench: param parity < 1e-4 on synthetic IR, final cost
+  within 0.1 % on bench datasets, timing comparison on rtv3d_1.
+- **O3** Drop the `BackendKind::Ceres` stub.
+
+### Track M — Camera-model expansion (NEW 2026-06-11)
+
+Supersedes the former "new camera models out of scope" rule — all four models
+below are user-requested. Gated on M0: the `FactorKind` IR currently enumerates
+projection × distortion × sensor × chain combinations, so new models multiply
+variants (workspace review finding F1).
+
+- **M0** Factor generification: one reprojection-factor family per *chain*,
+  camera model as data (seed: the dyn-safe `CameraProject` trait in core). Also
+  resolves the `PinholeCamera`-typed residual helper (finding F3) and unblocks
+  pinhole rig laserline (finding F4).
+- **M1** Rational distortion k4–k6 (distortion slot only; OpenCV rational model).
+- **M2** Thin-prism s1–s4 (composes with Scheimpflug; metrology lenses).
+- **M3** Division model (cheap, invertible; self-calibration friendly).
+- **M4** Kannala-Brandt fisheye (new projection slot + linear-init changes —
+  the biggest lift; last).
 
 ### Track C — MVG (postponed; depends on diagnose viewer done)
 
@@ -149,18 +217,16 @@ in-house dense matcher, no full SfM.
 
 ## Load-bearing path
 
-**B0 → B0.5 → B1 → B2 (DONE) → B3a foundation (in flight) → B3b runner +
-Run workspace → B3c coverage (all 8 problem types + 4 detectors) → B3d
-manifest UX → B3e iteration polish → C-track resumes.** Track A is done;
-the B-track is now committed to making the app self-contained rather than
-treating post-B0 work as discretionary. C is parallelizable once B3c
-lands (the viewer can render arbitrary exports the runner produces); D
-is a continuous ratchet.
+**V1 → V2 → V3 (prove the library on rtv3d) → V4 + B3c coverage (rig +
+laserline + charuco first) → B-laser visualization → B3d manifest UX →
+B3e polish.** O1/O2 (apex-solver) and M0 (factor generification) are
+parallelizable with the V-track; M1–M4 follow M0. C resumes once B3c
+lands; D is a continuous ratchet.
 
 ## Out of scope (explicit)
 
-- New camera models (fisheye / Kannala-Brandt, omnidirectional, double-sphere, telecentric,
-  spline). Defer until a concrete project demands one.
+- Camera models beyond the M-track set (omnidirectional / MEI, double-sphere,
+  telecentric, spline). Defer until a concrete project demands one.
 - In-house dense stereo matching. External (`opencv-rust` SGBM) only.
 - Full structure-from-motion (incremental SfM, pose graph, loop closure).
 - `rerun.io` / `egui` as the UI.
