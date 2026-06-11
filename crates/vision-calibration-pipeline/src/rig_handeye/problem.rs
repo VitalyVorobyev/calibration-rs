@@ -717,6 +717,14 @@ mod tests {
     }
 
     #[test]
+    fn final_handeye_ba_defaults_keep_intrinsics_and_rig_fixed() {
+        let config = RigHandeyeConfig::default();
+        assert!(!config.rig.refine_intrinsics_in_rig_ba);
+        assert!(!config.handeye_ba.refine_cam_se3_rig_in_handeye_ba);
+        assert!(!config.handeye_ba.refine_scheimpflug_in_handeye_ba);
+    }
+
+    #[test]
     fn problem_name_and_version() {
         assert_eq!(RigHandeyeProblem::name(), "rig_handeye_v2");
         assert_eq!(RigHandeyeProblem::schema_version(), 1);

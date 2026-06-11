@@ -5,6 +5,11 @@ DS8
 *.pyc
 data/stereo_charuco
 REVIEW.md
+crates/vision-calibration-bench/registry/private.json
+# Internal — benchmark progress reports, planning docs, task tracker
+docs/report/
+docs/internal/
+docs/backlog.md
 # `app/src-tauri/` is a binary (the diagnose viewer) — the rest of the
 # workspace is libraries. Binaries pin their dep tree via Cargo.lock, so
 # override the global ignore for that one path.

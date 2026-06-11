@@ -174,6 +174,10 @@ pub struct RigHandeyeRigOptimizeResult {
     pub mean_reproj_error: f64,
     /// Per-camera mean reprojection error in pixels after rig BA.
     pub per_cam_reproj_errors: Vec<f64>,
+    /// Optimized per-camera `T_C_R` — camera-from-rig.
+    pub cam_se3_rig: Vec<Iso3>,
+    /// Optimized per-view `T_R_T` — rig-from-target.
+    pub rig_se3_target: Vec<Iso3>,
 }
 
 /// Typed return value of [`step_handeye_init`] / [`step_handeye_init_with_seed`].
@@ -828,6 +832,16 @@ pub fn step_rig_optimize(
     Ok(RigHandeyeRigOptimizeResult {
         mean_reproj_error,
         per_cam_reproj_errors,
+        cam_se3_rig: session
+            .state
+            .rig_ba_cam_se3_rig
+            .clone()
+            .ok_or_else(|| Error::not_available("cam_se3_rig from rig BA"))?,
+        rig_se3_target: session
+            .state
+            .rig_ba_rig_se3_target
+            .clone()
+            .ok_or_else(|| Error::not_available("rig_se3_target from rig BA"))?,
     })
 }
 

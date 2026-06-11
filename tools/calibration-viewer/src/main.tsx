@@ -20,10 +20,18 @@ import * as THREE from 'three';
 import { composeTransforms, formatMm, formatPx, transformToPose, vec3 } from './geometry';
 import {
   parseManifest,
+  looksLikeBenchRecord,
+  parseBenchRecord,
   resolveAssetUrl,
+  type BenchRecord,
+  type CameraArtifact,
+  type CompactLevelReport,
   type CameraRecord,
+  type LaserCamStat,
   type LaserFeatureRecord,
+  type ReprojLevelGap,
   type TargetFeatureRecord,
+  type TransformArtifact,
   type ViewerManifest,
   type ViewerStage,
 } from './schema';
@@ -31,18 +39,29 @@ import './styles.css';
 
 type ImageMode = 'target' | 'laser';
 
-interface LoadedManifest {
+interface LoadedViewerManifest {
+  kind: 'viewer';
   manifest: ViewerManifest;
   manifestUrl: string;
 }
 
-function defaultManifestUrl(): string {
+interface LoadedBenchRecord {
+  kind: 'bench';
+  record: BenchRecord;
+  recordUrl: string;
+}
+
+type LoadedData = LoadedViewerManifest | LoadedBenchRecord;
+
+function defaultDataUrl(): string {
   const params = new URLSearchParams(window.location.search);
+  const benchUrl = params.get('bench');
+  if (benchUrl) return benchUrl;
   return params.get('manifest') ?? '/viewer-data/puzzle/viewer_manifest.json';
 }
 
 function App() {
-  const [loaded, setLoaded] = useState<LoadedManifest | null>(null);
+  const [loaded, setLoaded] = useState<LoadedData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [stageId, setStageId] = useState('stage4');
@@ -54,7 +73,7 @@ function App() {
   const [showBoards, setShowBoards] = useState(true);
   const [showRobot, setShowRobot] = useState(false);
 
-  async function loadManifest(url: string) {
+  async function loadDataUrl(url: string) {
     setLoading(true);
     setError(null);
     try {
@@ -62,11 +81,7 @@ function App() {
       if (!response.ok) {
         throw new Error(`${response.status} ${response.statusText}`);
       }
-      const parsed = parseManifest(await response.json());
-      setLoaded({ manifest: parsed, manifestUrl: new URL(url, window.location.href).toString() });
-      setStageId(parsed.stages.at(-1)?.id ?? parsed.stages[0].id);
-      setPoseIndex(parsed.poses[0]?.index ?? 0);
-      setCameraIndex(0);
+      applyLoaded(parseLoadedJson(await response.json(), new URL(url, window.location.href).toString()));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -75,9 +90,18 @@ function App() {
   }
 
   useEffect(() => {
-    void loadManifest(defaultManifestUrl());
+    void loadDataUrl(defaultDataUrl());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function applyLoaded(next: LoadedData) {
+    setLoaded(next);
+    if (next.kind === 'viewer') {
+      setStageId(next.manifest.stages.at(-1)?.id ?? next.manifest.stages[0].id);
+      setPoseIndex(next.manifest.poses[0]?.index ?? 0);
+      setCameraIndex(0);
+    }
+  }
 
   async function loadFromFolder(files: FileList | null) {
     if (!files) return;
@@ -94,10 +118,7 @@ function App() {
         blobMap.set(file.webkitRelativePath || file.name, URL.createObjectURL(file));
       }
       const folderUrl = `folder://${manifestFile.webkitRelativePath || manifestFile.name}`;
-      setLoaded({ manifest: patchFolderUrls(parsed, blobMap), manifestUrl: folderUrl });
-      setStageId(parsed.stages.at(-1)?.id ?? parsed.stages[0].id);
-      setPoseIndex(parsed.poses[0]?.index ?? 0);
-      setCameraIndex(0);
+      applyLoaded({ kind: 'viewer', manifest: patchFolderUrls(parsed, blobMap), manifestUrl: folderUrl });
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -106,22 +127,51 @@ function App() {
     }
   }
 
-  const manifest = loaded?.manifest;
+  async function loadFromJsonFile(file: File | null) {
+    if (!file) return;
+    setLoading(true);
+    try {
+      applyLoaded(parseLoadedJson(JSON.parse(await file.text()), `file://${file.name}`));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const manifest = loaded?.kind === 'viewer' ? loaded.manifest : undefined;
+  const manifestUrl = loaded?.kind === 'viewer' ? loaded.manifestUrl : '';
   const stage = manifest?.stages.find((s) => s.id === stageId) ?? manifest?.stages.at(-1);
   const pose = manifest?.poses.find((p) => p.index === poseIndex) ?? manifest?.poses[0];
+  const title = loaded?.kind === 'bench'
+    ? loaded.record.ident.dataset_id
+    : manifest?.dataset.name ?? 'No report loaded';
+  const eyebrow = loaded?.kind === 'bench'
+    ? 'Benchmark Quality Dashboard'
+    : 'Calibration Geometry Inspector';
 
   return (
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <div className="eyebrow">Calibration Geometry Inspector</div>
-          <h1>{manifest?.dataset.name ?? 'No manifest loaded'}</h1>
+          <div className="eyebrow">{eyebrow}</div>
+          <h1>{title}</h1>
         </div>
         <div className="load-controls">
-          <button onClick={() => loadManifest(defaultManifestUrl())} disabled={loading}>
+          <button onClick={() => loadDataUrl(defaultDataUrl())} disabled={loading}>
             {loading ? <Loader2 className="spin" size={16} /> : <FolderOpen size={16} />}
             Load URL
           </button>
+          <label className="file-button">
+            <BarChart3 size={16} />
+            Open JSON
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={(event) => void loadFromJsonFile(event.currentTarget.files?.[0] ?? null)}
+            />
+          </label>
           <label className="file-button">
             <FolderOpen size={16} />
             Open Folder
@@ -143,8 +193,10 @@ function App() {
         </div>
       )}
 
-      {!manifest || !stage || !pose ? (
-        <EmptyState loading={loading} onLoad={() => loadManifest(defaultManifestUrl())} />
+      {loaded?.kind === 'bench' ? (
+        <BenchDashboard record={loaded.record} />
+      ) : !manifest || !stage || !pose ? (
+        <EmptyState loading={loading} onLoad={() => loadDataUrl(defaultDataUrl())} />
       ) : (
         <main className="workbench">
           <aside className="sidebar">
@@ -224,7 +276,7 @@ function App() {
 
             <ImageInspector
               manifest={manifest}
-              manifestUrl={loaded.manifestUrl}
+              manifestUrl={manifestUrl}
               stage={stage}
               poseIndex={poseIndex}
               cameraIndex={cameraIndex}
@@ -245,6 +297,14 @@ function App() {
       )}
     </div>
   );
+}
+
+function parseLoadedJson(value: unknown, url: string): LoadedData {
+  if (looksLikeBenchRecord(value)) {
+    return { kind: 'bench', record: parseBenchRecord(value), recordUrl: url };
+  }
+  const manifest = parseManifest(value);
+  return { kind: 'viewer', manifest, manifestUrl: url };
 }
 
 function patchFolderUrls(manifest: ViewerManifest, blobMap: Map<string, string>): ViewerManifest {
@@ -276,6 +336,536 @@ function EmptyState({ loading, onLoad }: { loading: boolean; onLoad: () => void 
       </button>
     </main>
   );
+}
+
+function BenchDashboard({ record }: { record: BenchRecord }) {
+  const levels = record.reproj_report?.levels ?? [];
+  const finalLevel = levels.at(-1);
+  const floorLevel = levels.find((level) => level.level === 'intrinsic');
+  const finalGap = record.reproj_report?.gaps.at(-1);
+  const headline = record.reproj_report?.headline_px ?? record.fit.reported_mean_reproj_px;
+  const detectionCoverage = coveragePct(record.detection?.total_detected, record.detection?.total_expected);
+  const status = record.convergence.init_ok
+    ? record.convergence.converged ? 'Converged' : 'Optimizer stopped'
+    : 'Initialization failed';
+  const statusClass = record.convergence.init_ok && record.convergence.converged ? 'good' : 'bad';
+
+  return (
+    <main className="bench-dashboard">
+      <section className="bench-hero">
+        <div>
+          <div className="eyebrow">Workspace Data Benchmark</div>
+          <h2>{problemLabel(record.ident.problem)}</h2>
+          <div className="bench-meta">
+            <span>{record.ident.dataset_id}</span>
+            <span>Tier {record.ident.tier.toUpperCase()}</span>
+            <span>{pipelineLabel(levels)}</span>
+            <span>{shortSha(record.ident.git_sha)}</span>
+          </div>
+        </div>
+        <div className={`bench-status ${statusClass}`}>
+          <strong>{status}</strong>
+          <span>{record.convergence.report.num_iters} iters · cost {formatScalar(record.convergence.report.final_cost)}</span>
+        </div>
+      </section>
+
+      <section className="bench-kpi-grid">
+        <BenchKpi
+          icon={<BarChart3 size={18} />}
+          label="Headline reprojection"
+          value={formatPx(headline)}
+          detail={finalLevel ? `${levelLabel(finalLevel.level)} · ${finalLevel.overall.count.toLocaleString()} residuals` : 'fit summary'}
+        />
+        <BenchKpi
+          icon={<Layers size={18} />}
+          label="Intrinsic floor"
+          value={floorLevel ? formatPx(floorLevel.overall.mean) : 'n/a'}
+          detail={floorLevel ? `${formatPx(floorLevel.overall.p95)} p95` : 'no level report'}
+        />
+        <BenchKpi
+          icon={<AlertCircle size={18} />}
+          label="Final level gap"
+          value={finalGap ? `x${formatScalar(finalGap.ratio_to_intrinsic ?? finalGap.ratio_to_previous ?? 0)}` : 'n/a'}
+          detail={finalGap ? `${formatPx(finalGap.mean_delta_px)} over ${levelLabel(finalGap.from)}` : 'no chain gap'}
+        />
+        <BenchKpi
+          icon={<Camera size={18} />}
+          label="Detection coverage"
+          value={detectionCoverage == null ? 'n/a' : `${detectionCoverage.toFixed(1)}%`}
+          detail={record.detection ? `${record.detection.total_detected.toLocaleString()} / ${record.detection.total_expected.toLocaleString()} features` : 'not measured'}
+        />
+        <BenchKpi
+          icon={<Box size={18} />}
+          label="Robot correction"
+          value={record.robot_corrections ? `${record.robot_corrections.max_trans_mm.toFixed(2)} mm` : 'fixed'}
+          detail={record.robot_corrections ? `${record.robot_corrections.max_rot_deg.toFixed(3)} deg max` : 'no per-view deltas'}
+        />
+        <BenchKpi
+          icon={<Loader2 size={18} />}
+          label="Runtime"
+          value={formatMs(record.timing.total_ms)}
+          detail={`${formatMs(record.timing.detection_ms)} detection · ${formatMs(record.timing.optimize_ms)} optimize`}
+        />
+      </section>
+
+      <section className="bench-layout">
+        <div className="bench-main-column">
+          <QualityLadder levels={levels} gaps={record.reproj_report?.gaps ?? []} />
+          <CameraQualityTable record={record} finalLevel={finalLevel} />
+          <CalibrationArtifactsPanel record={record} />
+          <WorstViewTable finalLevel={finalLevel} />
+          <WorstOutlierTable finalLevel={finalLevel} />
+        </div>
+        <aside className="bench-side-column">
+          <RunTiming timing={record.timing} />
+          <RobotCorrectionPanel corrections={record.robot_corrections ?? null} />
+          <LaserPanel laser={record.laser ?? null} />
+        </aside>
+      </section>
+    </main>
+  );
+}
+
+function BenchKpi({
+  icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <section className="bench-kpi">
+      <div className="bench-kpi-icon">{icon}</div>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <small>{detail}</small>
+      </div>
+    </section>
+  );
+}
+
+function QualityLadder({ levels, gaps }: { levels: CompactLevelReport[]; gaps: ReprojLevelGap[] }) {
+  if (levels.length === 0) {
+    return (
+      <section className="bench-panel">
+        <SectionTitle icon={<Layers size={16} />} label="Pipeline Quality" />
+        <p className="muted">No compact reprojection levels are present in this record.</p>
+      </section>
+    );
+  }
+  return (
+    <section className="bench-panel">
+      <SectionTitle icon={<Layers size={16} />} label="Pipeline Quality" />
+      <div className="bench-table-wrap">
+        <table className="bench-table">
+          <thead>
+            <tr>
+              <th>Level</th>
+              <th>Mean</th>
+              <th>RMS</th>
+              <th>P95</th>
+              <th>Max</th>
+              <th>Count</th>
+              <th>Gap</th>
+            </tr>
+          </thead>
+          <tbody>
+            {levels.map((level) => {
+              const gap = gaps.find((candidate) => candidate.to === level.level);
+              return (
+                <tr key={level.level}>
+                  <td>{levelLabel(level.level)}</td>
+                  <td>{formatPx(level.overall.mean)}</td>
+                  <td>{formatPx(level.overall.rms)}</td>
+                  <td>{formatPx(level.overall.p95)}</td>
+                  <td>{formatPx(level.overall.max)}</td>
+                  <td>{level.overall.count.toLocaleString()}</td>
+                  <td>{gap ? `${formatPx(gap.mean_delta_px)} · x${formatScalar(gap.ratio_to_intrinsic ?? gap.ratio_to_previous ?? 0)}` : 'floor'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function CameraQualityTable({ record, finalLevel }: { record: BenchRecord; finalLevel?: CompactLevelReport }) {
+  const cameraCount = Math.max(
+    record.fit.per_camera.length,
+    record.detection?.per_camera.length ?? 0,
+    finalLevel?.per_camera.length ?? 0,
+    record.laser?.per_camera.length ?? 0,
+  );
+  const rows = Array.from({ length: cameraCount }, (_, index) => {
+    const detection = record.detection?.per_camera[index];
+    const laser = record.laser?.per_camera[index];
+    return {
+      id: detection?.camera_id ?? laser?.camera_id ?? `cam${index}`,
+      fit: record.fit.per_camera[index],
+      final: finalLevel?.per_camera[index],
+      detection,
+      laser,
+    };
+  });
+  return (
+    <section className="bench-panel">
+      <SectionTitle icon={<Camera size={16} />} label="Per-Camera Quality" />
+      <div className="bench-table-wrap">
+        <table className="bench-table">
+          <thead>
+            <tr>
+              <th>Camera</th>
+              <th>Fit mean</th>
+              <th>Final mean</th>
+              <th>Final max</th>
+              <th>Coverage</th>
+              <th>Laser points</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td>{row.id}</td>
+                <td>{row.fit ? formatPx(row.fit.mean) : 'n/a'}</td>
+                <td>{row.final ? formatPx(row.final.mean) : 'n/a'}</td>
+                <td>{row.final ? formatPx(row.final.max) : 'n/a'}</td>
+                <td>{row.detection ? `${row.detection.coverage_pct.toFixed(1)}%` : 'n/a'}</td>
+                <td>{row.laser ? row.laser.points_extracted.toLocaleString() : 'n/a'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function CalibrationArtifactsPanel({ record }: { record: BenchRecord }) {
+  const artifacts = record.artifacts;
+  const transforms = artifacts?.transforms ?? [];
+  const handeye = transforms.filter((t) => !t.name.includes('_view'));
+  const poseRows = transforms.filter((t) => t.name.includes('_view')).slice(0, 12);
+
+  return (
+    <section className="bench-panel artifacts-panel">
+      <SectionTitle icon={<Box size={16} />} label="Calibration Artifacts" />
+      {!artifacts ? (
+        <p className="muted">No calibration artifacts are present in this record.</p>
+      ) : (
+        <>
+          <div className="artifact-camera-grid">
+            {artifacts.cameras.map((camera) => (
+              <CameraArtifactCard key={camera.camera_id} camera={camera} />
+            ))}
+          </div>
+          <TransformTable
+            title="Rig And Hand-Eye Transforms"
+            transforms={handeye}
+            empty="No rig or hand-eye transforms are present."
+          />
+          <TransformTable
+            title="Pose Samples"
+            transforms={poseRows}
+            empty="No per-view poses are present."
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
+function CameraArtifactCard({ camera }: { camera: CameraArtifact }) {
+  const k = camera.camera_matrix_px;
+  return (
+    <div className="artifact-card">
+      <div className="artifact-card-head">
+        <strong>{camera.camera_id}</strong>
+        <span>{camera.distortion_model}</span>
+      </div>
+      <Matrix3View rows={k} />
+      <div className="artifact-scalar-grid">
+        <Metric label="fx" value={formatScalar(camera.intrinsics_px.fx)} />
+        <Metric label="fy" value={formatScalar(camera.intrinsics_px.fy)} />
+        <Metric label="cx" value={formatScalar(camera.intrinsics_px.cx)} />
+        <Metric label="cy" value={formatScalar(camera.intrinsics_px.cy)} />
+        <Metric label="skew" value={formatScalar(camera.intrinsics_px.skew)} />
+      </div>
+      <div className="distortion-line">
+        <span>k1 {formatScalar(camera.distortion.k1)}</span>
+        <span>k2 {formatScalar(camera.distortion.k2)}</span>
+        <span>k3 {formatScalar(camera.distortion.k3)}</span>
+        <span>p1 {formatScalar(camera.distortion.p1)}</span>
+        <span>p2 {formatScalar(camera.distortion.p2)}</span>
+      </div>
+      {camera.scheimpflug && (
+        <div className="distortion-line">
+          <span>tilt x {formatScalar(camera.scheimpflug.tilt_x_rad)} rad</span>
+          <span>tilt y {formatScalar(camera.scheimpflug.tilt_y_rad)} rad</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Matrix3View({ rows }: { rows: CameraArtifact['camera_matrix_px'] }) {
+  return (
+    <div className="matrix3">
+      {rows.flatMap((row, rowIndex) => row.map((value, colIndex) => (
+        <span key={`${rowIndex}-${colIndex}`}>{formatScalar(value)}</span>
+      )))}
+    </div>
+  );
+}
+
+function TransformTable({
+  title,
+  transforms,
+  empty,
+}: {
+  title: string;
+  transforms: TransformArtifact[];
+  empty: string;
+}) {
+  return (
+    <div className="artifact-section">
+      <h3>{title}</h3>
+      {transforms.length === 0 ? (
+        <p className="muted">{empty}</p>
+      ) : (
+        <div className="bench-table-wrap">
+          <table className="bench-table transform-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Frames</th>
+                <th>tx</th>
+                <th>ty</th>
+                <th>tz</th>
+                <th>rx</th>
+                <th>ry</th>
+                <th>rz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transforms.map((t) => (
+                <tr key={t.name}>
+                  <td>{t.name}</td>
+                  <td>{t.from_frame} → {t.to_frame}</td>
+                  <td>{t.translation_mm[0].toFixed(3)} mm</td>
+                  <td>{t.translation_mm[1].toFixed(3)} mm</td>
+                  <td>{t.translation_mm[2].toFixed(3)} mm</td>
+                  <td>{t.rotation_rotvec_deg[0].toFixed(4)} deg</td>
+                  <td>{t.rotation_rotvec_deg[1].toFixed(4)} deg</td>
+                  <td>{t.rotation_rotvec_deg[2].toFixed(4)} deg</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorstViewTable({ finalLevel }: { finalLevel?: CompactLevelReport }) {
+  const rows = useMemo(
+    () => (finalLevel?.per_view ?? [])
+      .map((stats, index) => ({ stats, index }))
+      .sort((a, b) => b.stats.max - a.stats.max)
+      .slice(0, 8),
+    [finalLevel],
+  );
+  return (
+    <section className="bench-panel">
+      <SectionTitle icon={<BarChart3 size={16} />} label="Worst Views" />
+      {rows.length === 0 ? (
+        <p className="muted">No per-view statistics are present.</p>
+      ) : (
+        <div className="bench-table-wrap">
+          <table className="bench-table">
+            <thead>
+              <tr>
+                <th>View</th>
+                <th>Mean</th>
+                <th>P95</th>
+                <th>Max</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.index}>
+                  <td>{row.index}</td>
+                  <td>{formatPx(row.stats.mean)}</td>
+                  <td>{formatPx(row.stats.p95)}</td>
+                  <td>{formatPx(row.stats.max)}</td>
+                  <td>{row.stats.count.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WorstOutlierTable({ finalLevel }: { finalLevel?: CompactLevelReport }) {
+  const outliers = useMemo(
+    () => [...(finalLevel?.top_outliers ?? [])]
+      .sort((a, b) => (b.error_px ?? 0) - (a.error_px ?? 0))
+      .slice(0, 10),
+    [finalLevel],
+  );
+  return (
+    <section className="bench-panel">
+      <SectionTitle icon={<AlertCircle size={16} />} label="Top Feature Outliers" />
+      {outliers.length === 0 ? (
+        <p className="muted">No compact outliers are present.</p>
+      ) : (
+        <div className="bench-outlier-grid">
+          {outliers.map((feature) => (
+            <div key={`${feature.pose}-${feature.camera}-${feature.feature}`} className="bench-outlier">
+              <span>P{feature.pose} · C{feature.camera} · #{feature.feature}</span>
+              <strong>{formatPx(feature.error_px ?? 0)}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RunTiming({ timing }: { timing: BenchRecord['timing'] }) {
+  return (
+    <section className="bench-panel">
+      <SectionTitle icon={<Loader2 size={16} />} label="Timing" />
+      <Metric label="Initialization" value={formatMs(timing.init_ms)} />
+      <Metric label="Optimization" value={formatMs(timing.optimize_ms)} />
+      <Metric label="Detection" value={formatMs(timing.detection_ms)} />
+      <Metric label="Total" value={formatMs(timing.total_ms)} />
+    </section>
+  );
+}
+
+function RobotCorrectionPanel({ corrections }: { corrections: BenchRecord['robot_corrections'] | null }) {
+  return (
+    <section className="bench-panel">
+      <SectionTitle icon={<Box size={16} />} label="Robot Pose Corrections" />
+      {!corrections ? (
+        <p className="muted">No robot-pose deltas were optimized.</p>
+      ) : (
+        <>
+          <Metric label="Views" value={corrections.count.toLocaleString()} />
+          <Metric label="Translation mean" value={`${corrections.mean_trans_mm.toFixed(3)} mm`} />
+          <Metric label="Translation max" value={`${corrections.max_trans_mm.toFixed(3)} mm`} />
+          <Metric label="Rotation mean" value={`${corrections.mean_rot_deg.toFixed(4)} deg`} />
+          <Metric label="Rotation max" value={`${corrections.max_rot_deg.toFixed(4)} deg`} />
+          <Metric
+            label="Prior check"
+            value={
+              corrections.max_trans_prior_ratio || corrections.max_rot_prior_ratio
+                ? `${corrections.exceeds_prior ? 'exceeds' : 'within'} · T x${formatScalar(corrections.max_trans_prior_ratio ?? 0)} · R x${formatScalar(corrections.max_rot_prior_ratio ?? 0)}`
+                : 'no priors'
+            }
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
+function LaserPanel({ laser }: { laser: BenchRecord['laser'] | null }) {
+  return (
+    <section className="bench-panel">
+      <SectionTitle icon={<Layers size={16} />} label="Laser Extraction" />
+      {!laser ? (
+        <p className="muted">No laser metrics are present.</p>
+      ) : (
+        <>
+          <Metric label="Pixels" value={laser.total_points.toLocaleString()} />
+          <Metric label="Images used" value={laser.total_images_used.toLocaleString()} />
+          <Metric label="Extraction time" value={formatMs(laser.extract_ms)} />
+          <div className="mini-list">
+            {laser.per_camera.map((camera) => (
+              <LaserCameraLine key={camera.camera_id} camera={camera} />
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function LaserCameraLine({ camera }: { camera: LaserCamStat }) {
+  const residual = camera.line_residual_px?.mean != null
+    ? formatPx(camera.line_residual_px.mean)
+    : camera.plane_residual_m?.mean != null
+      ? formatMm(camera.plane_residual_m.mean)
+      : 'n/a';
+  return (
+    <div className="mini-list-row">
+      <span>{camera.camera_id}</span>
+      <strong>{camera.points_extracted.toLocaleString()}</strong>
+      <small>{residual}</small>
+    </div>
+  );
+}
+
+function coveragePct(detected?: number, expected?: number): number | null {
+  if (!expected || expected <= 0 || detected == null) return null;
+  return (detected / expected) * 100;
+}
+
+function formatMs(value: number): string {
+  if (!Number.isFinite(value)) return 'n/a';
+  if (value >= 1000) return `${(value / 1000).toFixed(2)} s`;
+  return `${Math.round(value)} ms`;
+}
+
+function formatScalar(value: number): string {
+  if (!Number.isFinite(value)) return 'n/a';
+  if (Math.abs(value) >= 1000 || Math.abs(value) < 0.001) return value.toExponential(2);
+  return value.toFixed(3);
+}
+
+function levelLabel(level: string): string {
+  switch (level) {
+    case 'intrinsic':
+      return 'Intrinsic';
+    case 'rig_extrinsic':
+      return 'Rig extrinsic';
+    case 'hand_eye':
+      return 'Hand-eye';
+    case 'laser':
+      return 'Laser';
+    default:
+      return level;
+  }
+}
+
+function problemLabel(problem: string): string {
+  return problem
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function pipelineLabel(levels: CompactLevelReport[]): string {
+  if (levels.length === 0) return 'fit only';
+  return levels.map((level) => levelLabel(level.level)).join(' → ');
+}
+
+function shortSha(sha: string): string {
+  if (!sha || sha === 'unknown') return 'unknown git';
+  return sha.slice(0, 8);
 }
 
 function SectionTitle({ icon, label }: { icon: React.ReactNode; label: string }) {

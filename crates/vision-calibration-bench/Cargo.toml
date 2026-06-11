@@ -1,0 +1,43 @@
+[package]
+name = "vision-calibration-bench"
+description = "Benchmarking harness for calibration-rs: dataset registry, metric records, stability and cross-validation testing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["tier-a"]
+tier-a = []
+tier-b = ["dep:calib-targets", "dep:chess-corners", "dep:image", "dep:glob"]
+laser = ["dep:vision-metrology"]
+
+[[bin]]
+name = "calib-bench"
+path = "src/bin/calib_bench.rs"
+
+[dependencies]
+vision-calibration = { workspace = true }
+vision-calibration-core = { workspace = true }
+vision-calibration-optim = { workspace = true }
+vision-calibration-dataset = { workspace = true }
+vision-calibration-pipeline = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+rand = { workspace = true }
+# Robot-pose parsing for the Tier-B hand-eye runner (row-major 4x4 -> Iso3).
+# Math-only; already a transitive dep, pulled in directly here.
+nalgebra = { workspace = true }
+
+# Tier-B (full pipeline: detector + image I/O) — gated behind `tier-b`.
+calib-targets = { workspace = true, optional = true }
+chess-corners = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+glob = { workspace = true, optional = true }
+vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.git", tag = "v0.1.0", optional = true }
