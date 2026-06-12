@@ -4,15 +4,18 @@ import { useMemo } from "react";
 import { Vector3 } from "three";
 import { cameraPositionInRig, iso3FromWire } from "../../lib/se3";
 import { useStore } from "../../store";
-import type { AnyExport } from "../../store/types";
+import type { AnyExport, Iso3Wire, LaserPlaneWire } from "../../store/types";
 import type { TargetFeatureResidual } from "../../types";
 import { CameraFrustum } from "./CameraFrustum";
+import { LaserPlane } from "./LaserPlane";
 import { TargetBoard } from "./TargetBoard";
 import { useThemeColors } from "./useThemeColors";
 
 interface SceneProps {
   data: AnyExport;
   showAllPoses: boolean;
+  /** Render `laser_planes_rig` as bounded translucent quads. */
+  showLaserPlanes: boolean;
   /** Per-camera image dimensions (pixels). Built from the manifest's
    * ROI metadata in the workspace; falls back to a sensible default
    * when a camera has no manifest entry. The frustum aspect ratio
@@ -33,6 +36,7 @@ const FAR_DEPTH_M = 0.05; // 5 cm — long enough to read on the puzzle
 export function Scene({
   data,
   showAllPoses,
+  showLaserPlanes,
   cameraDimensions,
   fallbackImage,
 }: SceneProps) {
@@ -40,6 +44,7 @@ export function Scene({
   const cameras = data.cameras ?? [];
   const camSe3Rig = data.cam_se3_rig ?? [];
   const rigSe3Target = data.rig_se3_target ?? [];
+  const laserPlanesRig = data.laser_planes_rig ?? [];
   const cameraA = useStore((s) => s.cameraA);
   const selectedPose = useStore((s) => s.selectedPose);
   const setCamera = useStore((s) => s.setCamera);
@@ -69,6 +74,15 @@ export function Scene({
   const visiblePoses: number[] = showAllPoses
     ? rigSe3Target.map((_, i) => i)
     : [selectedPose].filter((i) => i >= 0 && i < rigSe3Target.length);
+
+  // Anchor + size each laser plane around its owning camera (plane i
+  // belongs to camera i): the quad is centred on the camera position
+  // projected onto the plane, sized from the camera↔plane distance —
+  // the natural scale of the device's measurement volume.
+  const laserQuads = useMemo(
+    () => computeLaserQuads(laserPlanesRig, camSe3Rig),
+    [laserPlanesRig, camSe3Rig],
+  );
 
   return (
     <Canvas
@@ -109,6 +123,19 @@ export function Scene({
         );
       })}
 
+      {showLaserPlanes &&
+        laserQuads.map((quad, i) => (
+          <LaserPlane
+            key={`laser-plane-${i}`}
+            plane={quad.plane}
+            anchor={quad.anchor}
+            halfExtent={quad.halfExtent}
+            color={i === cameraA ? colors.active : colors.inactive}
+            active={i === cameraA}
+            onSelect={() => setCamera(i, "A")}
+          />
+        ))}
+
       {visiblePoses.map((poseIdx) => {
         const pose = rigSe3Target[poseIdx];
         if (!pose) return null;
@@ -136,6 +163,53 @@ export function Scene({
       />
     </Canvas>
   );
+}
+
+interface LaserQuad {
+  plane: LaserPlaneWire;
+  anchor: [number, number, number];
+  halfExtent: number;
+}
+
+const LASER_QUAD_MIN_HALF_EXTENT_M = 0.05;
+const LASER_QUAD_MAX_HALF_EXTENT_M = 0.3;
+const LASER_QUAD_FALLBACK_HALF_EXTENT_M = 0.15;
+
+/** Anchor each plane at its camera's position projected onto the plane
+ * and size it from the camera-to-plane distance (clamped) — keeps the
+ * quad in the device's working volume regardless of where the plane's
+ * closest point to the rig origin lands. */
+function computeLaserQuads(
+  planes: LaserPlaneWire[],
+  camSe3Rig: Iso3Wire[],
+): LaserQuad[] {
+  return planes.map((plane, i) => {
+    const n = new Vector3(...plane.normal).normalize();
+    const camPose = camSe3Rig[i];
+    if (!camPose) {
+      // No owning camera — fall back to the plane's closest point to
+      // the rig origin with a fixed extent.
+      const anchor = n.clone().multiplyScalar(-plane.distance);
+      return {
+        plane,
+        anchor: [anchor.x, anchor.y, anchor.z],
+        halfExtent: LASER_QUAD_FALLBACK_HALF_EXTENT_M,
+      };
+    }
+    const [px, py, pz] = cameraPositionInRig(camPose);
+    const p = new Vector3(px, py, pz);
+    const signed = n.dot(p) + plane.distance;
+    const anchor = p.clone().addScaledVector(n, -signed);
+    const halfExtent = Math.min(
+      LASER_QUAD_MAX_HALF_EXTENT_M,
+      Math.max(LASER_QUAD_MIN_HALF_EXTENT_M, 1.5 * Math.abs(signed)),
+    );
+    return {
+      plane,
+      anchor: [anchor.x, anchor.y, anchor.z],
+      halfExtent,
+    };
+  });
 }
 
 interface FitResult {

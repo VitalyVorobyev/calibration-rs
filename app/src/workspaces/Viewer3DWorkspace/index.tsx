@@ -26,6 +26,7 @@ export function Viewer3DWorkspace() {
   const selectedPose = useStore((s) => s.selectedPose);
   const setSelectedPose = useStore((s) => s.setSelectedPose);
   const [showAllPoses, setShowAllPoses] = useState(false);
+  const [showLaserPlanes, setShowLaserPlanes] = useState(true);
   const [referenceCamera, setReferenceCamera] = useState<number>(0);
 
   const cameraDimensions = useMemo(
@@ -60,6 +61,7 @@ export function Viewer3DWorkspace() {
 
   const numCameras = camerasArr.length;
   const numPoses = rigSe3Target.length;
+  const hasLaserPlanes = (data.laser_planes_rig?.length ?? 0) > 0;
   const cameraIndices = Array.from({ length: numCameras }, (_, i) => i);
   const poseIndices = Array.from({ length: numPoses }, (_, i) => i);
 
@@ -102,6 +104,18 @@ export function Viewer3DWorkspace() {
           >
             {showAllPoses ? "All poses ✓" : "All poses"}
           </button>
+          {hasLaserPlanes && (
+            <button
+              type="button"
+              onClick={() => setShowLaserPlanes((v) => !v)}
+              className={`h-7 px-2 font-mono text-[11px] ${
+                showLaserPlanes ? "border-brand text-brand" : ""
+              }`}
+              title="Toggle the calibrated laser planes (rig frame)"
+            >
+              {showLaserPlanes ? "Laser planes ✓" : "Laser planes"}
+            </button>
+          )}
           <span className="font-mono text-[11px] text-muted-foreground">
             {exportKindLabel(kind)}
           </span>
@@ -113,6 +127,7 @@ export function Viewer3DWorkspace() {
           <Scene
             data={data}
             showAllPoses={showAllPoses}
+            showLaserPlanes={hasLaserPlanes && showLaserPlanes}
             cameraDimensions={cameraDimensions}
             fallbackImage={{ width: 1024, height: 768 }}
           />
