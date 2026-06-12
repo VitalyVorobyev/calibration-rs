@@ -4,7 +4,7 @@
 //! used by `rig_extrinsics`, `rig_handeye`, `rig_laserline_device`, and their
 //! Scheimpflug siblings.
 //!
-//! Per the Track A `rig_family` refactor, the shared abstraction is
+//! Per ADR 0013, the shared abstraction is
 //! sensor-axis-only: each workflow module keeps its own `state.rs`,
 //! `problem.rs`, and `steps.rs` and consumes these helpers for sensor-aware
 //! bootstrap. The workflow axis (extrinsics-only / hand-eye / laser-plane)
@@ -16,15 +16,6 @@
 //!
 //! Mirrors the [`crate::planar_family`] precedent (single-camera planar
 //! bootstrap helpers).
-//!
-//! ## Roadmap
-//!
-//! - **A6.1** — Introduce types + `bootstrap_rig_intrinsics` (this file). No
-//!   migration of existing rig modules.
-//! - **A6.2** — Migrate `rig_extrinsics` + collapse `rig_scheimpflug_extrinsics`
-//!   into it.
-//! - **A6.3** — Same for `rig_handeye` family.
-//! - **A6.4** — `rig_laserline_device` (if non-trivial) + ADR + roadmap hygiene.
 
 use crate::Error;
 use serde::{Deserialize, Serialize};

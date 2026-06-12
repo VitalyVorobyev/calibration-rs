@@ -6,7 +6,10 @@
 
 use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
-use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
+use crate::ir::{
+    CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
+    RobustLoss,
+};
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
@@ -251,7 +254,9 @@ fn build_rig_extrinsics_scheimpflug_ir(
                             rig_pose_id,
                         ],
                         loss: opts.robust_loss,
-                        factor: FactorKind::ReprojPointPinhole4Dist5Scheimpflug2TwoSE3 {
+                        factor: FactorKind::ReprojPoint {
+                            model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                            chain: ReprojChain::TwoSe3,
                             pw: [pw.x, pw.y, pw.z],
                             uv: [uv.x, uv.y],
                             w: obs.weight(pt_idx),

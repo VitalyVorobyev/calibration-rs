@@ -46,11 +46,15 @@ impl RigHandeyeExport {
     /// recorded in this export (`base_se3_target` for `EyeInHand`); pass
     /// `vec![target_pose; num_views]`.
     ///
+    /// Pinhole rigs (`self.sensors == None`) are supported: zero Scheimpflug
+    /// tilt is exactly the identity sensor mapping, and the rig laserline
+    /// bundle always freezes the sensor parameters, so each camera gets
+    /// `ScheimpflugParams::default()` (zero tilt).
+    ///
     /// # Errors
     ///
-    /// Returns [`Error::InvalidInput`] if `self.sensors` is `None` (pinhole
-    /// rig). The downstream laserline calibration currently requires
-    /// Scheimpflug sensor parameters; pinhole rigs are not yet supported.
+    /// Returns [`Error::InvalidInput`] if a populated `sensors` field has a
+    /// different camera count than `cameras`.
     ///
     /// # Example
     ///
@@ -63,23 +67,30 @@ impl RigHandeyeExport {
     /// # let target_pose: Iso3 = Iso3::identity();
     /// let upstream: RigUpstreamCalibration = handeye_export
     ///     .to_upstream_calibration(vec![target_pose; num_views])
-    ///     .expect("Scheimpflug rig handeye export");
+    ///     .expect("consistent rig handeye export");
     /// ```
     pub fn to_upstream_calibration(
         &self,
         rig_se3_target: Vec<Iso3>,
     ) -> Result<RigUpstreamCalibration, Error> {
-        let sensors = self.sensors.as_ref().ok_or_else(|| {
-            Error::invalid_input(
-                "to_upstream_calibration requires a Scheimpflug rig handeye export \
-                 (sensors field populated); pinhole rigs are not yet supported \
-                 by rig_laserline_device",
-            )
-        })?;
+        let sensors = match &self.sensors {
+            Some(sensors) => {
+                if sensors.len() != self.cameras.len() {
+                    return Err(Error::invalid_input(format!(
+                        "sensor count {} != camera count {}",
+                        sensors.len(),
+                        self.cameras.len()
+                    )));
+                }
+                sensors.clone()
+            }
+            // Pinhole rig: zero tilt is exactly the identity sensor.
+            None => vec![ScheimpflugParams::default(); self.cameras.len()],
+        };
         Ok(RigUpstreamCalibration {
             intrinsics: self.cameras.iter().map(|c| c.k).collect(),
             distortion: self.cameras.iter().map(|c| c.dist).collect(),
-            sensors: sensors.clone(),
+            sensors,
             cam_se3_rig: self.cam_se3_rig.clone(),
             rig_se3_target,
         })

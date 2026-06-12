@@ -48,17 +48,22 @@ For each `ResidualBlock`:
 
 ### Factor Compilation
 
-Each `FactorKind` maps to a specific generic function call:
+`compile_factor` matches the factor's `CameraModelDesc` against the
+`dispatch_camera_model!` table once and monomorphizes a generic factor
+struct over the selected kernel types; the chain is evaluated as data inside
+the residual:
 
 ```
-FactorKind::ReprojPointPinhole4Dist5 { pw, uv, w }
-    → reproj_residual_pinhole4_dist5_se3_generic(intr, dist, pose, pw, uv, w)
+FactorKind::ReprojPoint { model: PINHOLE4_DIST5, chain, pw, uv, w }
+    → TinyReprojFactor::<PinholeKernel, BrownConrady5Kernel, IdentitySensorKernel>
+      (calls reproj_residual_model_generic::<P, D, S, T>(chain, params, pw, uv, w))
 
-FactorKind::LaserLineDist2D { laser_pixel, w }
-    → laser_line_dist_normalized_generic(intr, dist, pose, plane_normal, plane_distance, laser_pixel, w)
+FactorKind::LaserLineDistance { model, chain, laser_pixel, w }
+    → TinyLaserLineFactor::<BrownConrady5Kernel, Scheimpflug2Kernel>
+      (calls laser_line_distance_model_generic::<D, S, T>(chain, params, laser_pixel, w))
 
 FactorKind::Se3TangentPrior { sqrt_info }
-    → se3_tangent_prior_generic(pose, sqrt_info)
+    → TinySe3TangentPriorFactor (element-wise scaled tangent residual)
 ```
 
 ## Solver Options

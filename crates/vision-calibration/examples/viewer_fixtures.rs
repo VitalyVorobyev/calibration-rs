@@ -3,12 +3,12 @@
 //! Walks the public datasets in `data/`, runs the calibration pipeline,
 //! and writes a `viewer_export.json` for each one with the
 //! `image_manifest` field populated against the actual image paths used
-//! by the dataset loader. The B0 / B1 / B2 desktop workspaces (Diagnose
-//! / 3D viewer / Epipolar) are then opened against these JSON files.
+//! by the dataset loader. The desktop app workspaces (Diagnose,
+//! 3D viewer, Epipolar) are then opened against these JSON files.
 //!
 //! Run with: `cargo run -p vision-calibration --example viewer_fixtures`
 //!
-//! Datasets covered (rig exports the new B1 + B2 workspaces consume):
+//! Datasets covered (rig exports the 3D viewer + Epipolar workspaces consume):
 //! - `data/stereo/imgs/` — stereo rig (7×11 chessboard, 30 mm)
 //! - `data/stereo_charuco/` — stereo rig (22×22 ChArUco, 1.35 mm)
 //!

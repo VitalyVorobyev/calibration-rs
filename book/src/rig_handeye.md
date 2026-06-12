@@ -54,7 +54,7 @@ Joint optimization of all parameters:
 - `"handeye"` (7D, SE3): rig-to-gripper
 - `"target"` (7D, SE3): base-to-target
 
-**Factor**: `ReprojPointPinhole4Dist5HandEye` per observation, which composes the full transform chain.
+**Factor**: one `ReprojPoint` with the `HandEye` chain per observation, which composes the full transform chain.
 
 ## Complete Example
 

@@ -11,7 +11,8 @@
 use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
 use crate::ir::{
-    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
+    CameraModelDesc, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ReprojChain,
+    ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
@@ -602,14 +603,16 @@ fn build_handeye_scheimpflug_ir(
                                 robot_delta_id,
                             ],
                             loss: opts.robust_loss,
-                            factor:
-                                FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta {
-                                    pw: [pw.x, pw.y, pw.z],
-                                    uv: [uv.x, uv.y],
-                                    w: obs.weight(pt_idx),
-                                    base_to_gripper_se3: robot_se3_array,
+                            factor: FactorKind::ReprojPoint {
+                                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                                chain: ReprojChain::HandEyeRobotDelta {
+                                    base_se3_gripper: robot_se3_array,
                                     mode: dataset.mode,
                                 },
+                                pw: [pw.x, pw.y, pw.z],
+                                uv: [uv.x, uv.y],
+                                w: obs.weight(pt_idx),
+                            },
                             residual_dim: 2,
                         }
                     } else {
@@ -623,12 +626,15 @@ fn build_handeye_scheimpflug_ir(
                                 target_id,
                             ],
                             loss: opts.robust_loss,
-                            factor: FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEye {
+                            factor: FactorKind::ReprojPoint {
+                                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                                chain: ReprojChain::HandEye {
+                                    base_se3_gripper: robot_se3_array,
+                                    mode: dataset.mode,
+                                },
                                 pw: [pw.x, pw.y, pw.z],
                                 uv: [uv.x, uv.y],
                                 w: obs.weight(pt_idx),
-                                base_to_gripper_se3: robot_se3_array,
-                                mode: dataset.mode,
                             },
                             residual_dim: 2,
                         }

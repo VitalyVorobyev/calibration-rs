@@ -260,7 +260,7 @@ fn main() -> Result<()> {
     );
 
     let mut rig_export = rig_session.export()?;
-    // ADR 0014 / B0.5: ship an `image_manifest` so the diagnose viewer can
+    // ADR 0014: ship an `image_manifest` so the diagnose viewer can
     // pull per-tile pixels straight from the source PNGs. Each pose stores
     // a single 4320×540 strip; emit one `FrameRef` per (pose, camera) using
     // ROI to slice the camera's 720×540 tile out of that strip.
@@ -765,7 +765,7 @@ fn print_robot_delta_summary(label: &str, deltas: Option<&[[f64; 6]]>) {
 }
 
 /// Build the [`ImageManifest`] that ships with `export.json` so the
-/// diagnose viewer (Track B) can locate the per-camera tile for every
+/// diagnose viewer can locate the per-camera tile for every
 /// `(pose, camera)` slot. The puzzle 130×130 rig stores all six camera
 /// views of a pose as a single horizontal strip; each `FrameRef` points
 /// at that strip with an ROI carving out a 720×540 tile. `root` is `.`

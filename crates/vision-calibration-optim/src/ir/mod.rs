@@ -3,7 +3,8 @@
 mod types;
 
 pub use types::{
-    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
+    CameraModelDesc, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind,
+    ParamSlotSpec, ProblemIR, ProjectionKind, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
 };
 
 #[cfg(test)]

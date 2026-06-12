@@ -100,11 +100,11 @@ Every arithmetic operation on `T` values propagates derivatives automatically th
 The backend wraps each generic residual function in a solver-specific factor struct that implements the solver's cost function interface:
 
 ```
-FactorKind::ReprojPointPinhole4Dist5 { pw, uv, w }
-    ↓ (compile step)
+FactorKind::ReprojPoint { model: PINHOLE4_DIST5, chain: SinglePose, pw, uv, w }
+    ↓ (compile step — kernel types selected from the descriptor)
 TinySolverFactor {
     evaluate: |params| {
-        reproj_residual_pinhole4_dist5_se3_generic(
+        reproj_residual_model_generic::<PinholeKernel, BrownConrady5Kernel, IdentitySensorKernel, T>(
             params["cam"], params["dist"], params["pose/k"],
             pw, uv, w
         )

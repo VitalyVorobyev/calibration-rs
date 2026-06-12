@@ -3,7 +3,9 @@
 //! Maps observed laser pixels into 3D points using an upstream Scheimpflug rig
 //! hand-eye calibration together with per-camera laser planes.
 
-use vision_calibration_core::{DistortionModel, Iso3, Mat3, Pt2, Pt3, SensorModel, Vec3};
+use vision_calibration_core::{
+    DistortionModel, Iso3, Mat3, Pt2, Pt3, ScheimpflugParams, SensorModel, Vec3,
+};
 use vision_calibration_optim::{HandEyeMode, LaserPlane};
 
 use crate::Error;
@@ -41,16 +43,13 @@ pub fn pixel_to_gripper_point(
     laser_planes_rig: &[LaserPlane],
     base_se3_gripper: Option<Iso3>,
 ) -> Result<Pt3, Error> {
-    let sensors = rig_cal
-        .sensors
-        .as_ref()
-        .ok_or_else(|| Error::InvalidInput {
-            reason: "pixel_to_gripper_point requires a Scheimpflug rig handeye export \
-                 (sensors field populated); pinhole rigs are not yet supported"
-                .to_string(),
-        })?;
-
     let n_cams = rig_cal.cameras.len();
+    // Pinhole rig: zero Scheimpflug tilt is exactly the identity sensor.
+    let sensors = match &rig_cal.sensors {
+        Some(sensors) => sensors.clone(),
+        None => vec![ScheimpflugParams::default(); n_cams],
+    };
+
     if cam_idx >= n_cams {
         return Err(Error::InvalidInput {
             reason: format!("cam_idx {cam_idx} out of range (num_cameras = {n_cams})"),

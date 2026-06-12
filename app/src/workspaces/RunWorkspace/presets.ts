@@ -1,4 +1,4 @@
-/** Built-in preset registry for the Run workspace (B3b).
+/** Built-in preset registry for the Run workspace.
  *
  * Each enabled preset carries the absolute path to its TOML manifest and
  * enough metadata to render a meaningful card without reading the file.
@@ -7,11 +7,11 @@
  *
  * DEV NOTE: Manifest paths are hard-coded against the repo root at
  * `/Users/vitalyvorobyev/vision/calibration-rs`. This is intentional
- * scaffolding for local development; B3d will replace it with
- * bundle-asset resolution via Tauri's `resource_dir` API.
+ * scaffolding for local development, to be replaced with bundle-asset
+ * resolution via Tauri's `resource_dir` API.
  */
 
-// Absolute path to the repo root — replace this constant in B3d when
+// Absolute path to the repo root — replace this constant when
 // bundle-asset resolution ships.
 const REPO_ROOT = "/Users/vitalyvorobyev/vision/calibration-rs";
 
@@ -42,7 +42,7 @@ export interface DisabledPreset {
   imageCount: number | null;
   /** One-line explanation shown on the card. */
   disabledReason: string;
-  /** Release milestone badge text. */
+  /** Short badge text for the planned capability. */
   milestone: string;
 }
 
@@ -83,8 +83,8 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "chessboard",
     targetSummary: "chessboard 7×11, 30 mm",
     imageCount: null,
-    disabledReason: "Multi-camera rig topology ships in B3c.",
-    milestone: "B3c",
+    disabledReason: "Multi-camera rig topology is not wired into Run yet.",
+    milestone: "planned",
   },
 
   // ── Disabled: stereo-charuco ────────────────────────────────────────────
@@ -97,8 +97,8 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "charuco",
     targetSummary: "ChArUco DICT_4X4_50",
     imageCount: null,
-    disabledReason: "ChArUco detector integration ships in B3c.",
-    milestone: "B3c",
+    disabledReason: "ChArUco detector integration is not wired into Run yet.",
+    milestone: "planned",
   },
 
   // ── Disabled: KUKA handeye ───────────────────────────────────────────────
@@ -111,8 +111,8 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "chessboard",
     targetSummary: "chessboard, robot poses CSV",
     imageCount: null,
-    disabledReason: "Hand-eye calibration topology ships in B3c.",
-    milestone: "B3c",
+    disabledReason: "Hand-eye calibration topology is not wired into Run yet.",
+    milestone: "planned",
   },
 
   // ── Disabled: DS8 Scheimpflug ────────────────────────────────────────────
@@ -125,7 +125,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "puzzleboard",
     targetSummary: "puzzleboard puzzle_130x130",
     imageCount: null,
-    disabledReason: "Scheimpflug topology + puzzleboard detector ship in B3c.",
-    milestone: "B3c",
+    disabledReason: "Scheimpflug topology + puzzleboard detector are not wired into Run yet.",
+    milestone: "planned",
   },
 ];

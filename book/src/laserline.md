@@ -143,4 +143,4 @@ println!("Laser error: {:.4}", export.stats.mean_laser_error);
 
 ## Scheimpflug Support
 
-For laser profilers with tilted sensors, the sensor model parameters $(\tau_x, \tau_y)$ are jointly optimized. The `ReprojPointPinhole4Dist5Scheimpflug2` factor handles the extended camera model.
+For laser profilers with tilted sensors, the sensor model parameters $(\tau_x, \tau_y)$ are jointly optimized. The reprojection factor's `PINHOLE4_DIST5_SCHEIMPFLUG2` camera-model descriptor selects the extended projection chain.
