@@ -112,10 +112,14 @@ puzzleboard / ringgrid) are supported.
     runner (+`default_config_cmd`), TS topology selector + presets.
     Covers PlanarIntrinsics, ScheimpflugIntrinsics (incl. its export's
     `image_manifest`), RigExtrinsics, RigHandeye.
-  - **B3c-2 (next):** SingleCamHandeye (~free after B3c-1's pose
-    loader; kuka_1 needs a pose-file conversion), laser topologies
-    (need the laser-frame manifest ADR), puzzleboard + ringgrid
-    detectors, bench/examples-private charuco dedup.
+  - **B3c-2 (in flight):** SingleCamHandeye **shipped 2026-06-12** —
+    `rowmajor4x4` headerless pose-file format (`DatasetSpec`), shared
+    pose-to-view matching, `build_single_cam_handeye_input`,
+    `image_manifest` on `SingleCamHandeyeExport`, Tauri dispatch arm,
+    KUKA preset enabled over the committed `data/kuka_1` manifest
+    (no pose-file conversion needed after all). Remainder: laser
+    topologies (need the laser-frame manifest ADR), puzzleboard +
+    ringgrid detectors, bench/examples-private charuco dedup.
 - **B-laser — laserline visualization.** Laser-pixel overlay in
   Diagnose; laser plane-fit residuals (point-to-plane mm) alongside
   reprojection residuals; laser planes rendered in the 3D rig viewer.

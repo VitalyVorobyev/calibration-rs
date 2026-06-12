@@ -17,8 +17,8 @@ use serde_json::Value;
 
 use vision_calibration_core::Iso3;
 use vision_calibration_dataset::{
-    PoseConvention, RobotPoseFormat, RobotPoseSource, RotationFormat, TransformConvention,
-    TranslationUnits,
+    DatasetSpec, PoseConvention, PosePairing, RobotPoseFormat, RobotPoseSource, RotationFormat,
+    TransformConvention, TranslationUnits,
 };
 
 use super::RunError;
@@ -46,6 +46,17 @@ pub(crate) fn load_robot_poses(
         base_dir.join(&source.path)
     };
     let text = std::fs::read_to_string(&path)?;
+
+    // The headerless matrix format has no column mapping — parse it
+    // directly instead of funnelling through `RawRow`.
+    if source.format == RobotPoseFormat::Rowmajor4x4 {
+        return text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .enumerate()
+            .map(|(i, line)| parse_matrix_row(line, i, convention, &path))
+            .collect();
+    }
 
     let rows: Vec<RawRow> = match source.format {
         RobotPoseFormat::Csv => parse_csv_rows(&text, &path)?,
@@ -75,6 +86,9 @@ pub(crate) fn load_robot_poses(
                 object_to_row(v, i, &path)
             })
             .collect::<Result<_, _>>()?,
+        RobotPoseFormat::Rowmajor4x4 => {
+            unreachable!("handled by the early return above")
+        }
     };
 
     rows.iter()
@@ -172,7 +186,10 @@ fn parse_pose_row(
     convention: &PoseConvention,
     path: &Path,
 ) -> Result<ParsedPose, RunError> {
-    let columns = &source.columns;
+    let columns = source.columns.as_ref().expect(
+        "validate guarantees a columns mapping for the tabular pose formats, \
+         and Rowmajor4x4 never reaches this row parser",
+    );
     let get = |name: &str| -> Result<&str, RunError> {
         row.fields
             .get(name)
@@ -235,6 +252,158 @@ fn parse_pose_row(
 
     Ok(ParsedPose {
         id,
+        base_se3_gripper,
+    })
+}
+
+/// Match one robot pose to every kept view, identified by its pairing
+/// token. Shared by the rig and single-camera hand-eye converters.
+///
+/// - `by_index`: poses pair with *paired* views (pre-drop): pose `i`
+///   belongs to view token `i` even when that view was later dropped,
+///   so the pose count must equal `total_views`.
+/// - `shared_filename_token`: poses pair by their `pose_id` column
+///   equalling the view token; requires a `pose_id` mapping and
+///   unique ids.
+///
+/// Returns one `T_B_G` per token, in token order.
+pub(crate) fn match_poses_to_tokens(
+    tokens: &[String],
+    poses: &[ParsedPose],
+    spec: &DatasetSpec,
+    total_views: usize,
+) -> Result<Vec<Iso3>, RunError> {
+    let pairing = spec
+        .pose_pairing
+        .as_ref()
+        .expect("converters require pose_pairing before matching poses");
+
+    match pairing {
+        PosePairing::ByIndex => {
+            if poses.len() != total_views {
+                return Err(RunError::PoseCountMismatch {
+                    poses: poses.len(),
+                    views: total_views,
+                });
+            }
+            tokens
+                .iter()
+                .map(|token| {
+                    let index: usize = token
+                        .parse()
+                        .expect("by_index pairing tokens are stringified indices");
+                    Ok(poses[index].base_se3_gripper)
+                })
+                .collect()
+        }
+        PosePairing::SharedFilenameToken { .. } => {
+            if spec
+                .robot_poses
+                .as_ref()
+                .and_then(|s| s.columns.as_ref())
+                .is_none_or(|c| c.pose_id.is_none())
+            {
+                return Err(RunError::AskUser {
+                    field: "robot_poses.columns.pose_id".into(),
+                    prompt: "shared_filename_token pairing needs a pose_id column mapping \
+                             so each pose row can be matched to its view token."
+                        .into(),
+                    suggestions: vec![],
+                });
+            }
+            // Collecting straight into a HashMap would silently keep only
+            // the last row for a repeated pose_id, attaching an arbitrary
+            // pose to the matching view. A duplicate id is an ambiguous
+            // manifest, so reject it up front like a missing token.
+            let mut by_id: std::collections::HashMap<&str, &ParsedPose> =
+                std::collections::HashMap::with_capacity(poses.len());
+            for pose in poses {
+                if let Some(id) = pose.id.as_deref()
+                    && by_id.insert(id, pose).is_some()
+                {
+                    return Err(RunError::PairingTokenMismatch {
+                        message: format!(
+                            "duplicate pose_id {id:?} in the robot-pose table; each \
+                             pose_id must be unique so views pair unambiguously"
+                        ),
+                    });
+                }
+            }
+            tokens
+                .iter()
+                .map(|token| {
+                    let pose = by_id.get(token.as_str()).ok_or_else(|| {
+                        RunError::PairingTokenMismatch {
+                            message: format!(
+                                "no pose row with pose_id {token:?} (the cameras produced a \
+                                 view with this token)"
+                            ),
+                        }
+                    })?;
+                    Ok(pose.base_se3_gripper)
+                })
+                .collect()
+        }
+    }
+}
+
+/// Parse one headerless `rowmajor4x4` line: 16 whitespace-separated
+/// floats forming a row-major 4×4 homogeneous transform. Rotation is
+/// re-orthonormalized (KUKA exports carry float noise); translation
+/// comes from the matrix's fourth column, scaled by the declared
+/// units. `id` is always `None` — a headerless file has no pose-id
+/// column, so only `by_index` pairing can consume it.
+fn parse_matrix_row(
+    line: &str,
+    index: usize,
+    convention: &PoseConvention,
+    path: &Path,
+) -> Result<ParsedPose, RunError> {
+    let values: Vec<f64> = line
+        .split_whitespace()
+        .map(|tok| {
+            tok.parse::<f64>().map_err(|_| RunError::PoseParse {
+                path: path.to_path_buf(),
+                row: index,
+                message: format!("{tok:?} is not a number"),
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    if values.len() != 16 {
+        return Err(RunError::PoseParse {
+            path: path.to_path_buf(),
+            row: index,
+            message: format!(
+                "rowmajor4x4 expects 16 whitespace-separated values per line, got {}",
+                values.len()
+            ),
+        });
+    }
+
+    // The validator pinned `rotation_format` to `Matrix4x4RowMajor`,
+    // so the shared rotation builder applies directly.
+    let rotation =
+        rotation_from_values(RotationFormat::Matrix4x4RowMajor, &values).map_err(|message| {
+            RunError::PoseParse {
+                path: path.to_path_buf(),
+                row: index,
+                message,
+            }
+        })?;
+    let scale = match convention.translation_units {
+        TranslationUnits::M => 1.0,
+        TranslationUnits::Mm => 1e-3,
+    };
+    let translation = Vector3::new(values[3] * scale, values[7] * scale, values[11] * scale);
+
+    let pose = Iso3::from_parts(translation.into(), rotation);
+    let base_se3_gripper = match convention.transform {
+        TransformConvention::TBaseTcp | TransformConvention::TWorldTcp => pose,
+        TransformConvention::TTcpBase | TransformConvention::TTcpWorld => pose.inverse(),
+    };
+
+    Ok(ParsedPose {
+        id: None,
         base_se3_gripper,
     })
 }
@@ -358,7 +527,7 @@ mod tests {
         RobotPoseSource {
             path: path.to_path_buf(),
             format,
-            columns,
+            columns: Some(columns),
         }
     }
 
@@ -465,6 +634,113 @@ mod tests {
         let got = &poses[0].base_se3_gripper;
         assert!((got.translation.vector - t_b_g.translation.vector).norm() < 1e-9);
         assert!(got.rotation.angle_to(&t_b_g.rotation) < 1e-9);
+    }
+
+    fn matrix_source(path: &Path) -> RobotPoseSource {
+        RobotPoseSource {
+            path: path.to_path_buf(),
+            format: RobotPoseFormat::Rowmajor4x4,
+            columns: None,
+        }
+    }
+
+    #[test]
+    fn rowmajor4x4_parses_kuka_style_lines() {
+        // Two near-identity rows with KUKA-grade float noise in the
+        // rotation block (mirrors data/kuka_1/RobotPosesVec.txt).
+        let text = "1.000000000\t0.000012689\t0.000002112\t1.204997681\t\
+                    -0.000012689\t1.000000000\t-0.000003979\t-0.808000305\t\
+                    -0.000002112\t0.000003979\t1.000000000\t0.523998047\t\
+                    0.000000000\t0.000000000\t0.000000000\t1.000000000\n\
+                    \n\
+                    1 0 0 0.5  0 1 0 -0.6  0 0 1 0.7  0 0 0 1\n";
+        let (_dir, path) = write_temp(text, "txt");
+        let conv = convention(
+            TransformConvention::TBaseTcp,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::M,
+        );
+        let poses = load_robot_poses(&matrix_source(&path), &conv, path.parent().unwrap()).unwrap();
+        assert_eq!(poses.len(), 2, "blank lines are skipped");
+        let p0 = &poses[0].base_se3_gripper;
+        assert!(
+            (p0.translation.vector - Vector3::new(1.204997681, -0.808000305, 0.523998047)).norm()
+                < 1e-12
+        );
+        // Noisy rotation re-orthonormalizes to near-identity.
+        assert!(p0.rotation.angle() < 1e-4);
+        assert!(poses.iter().all(|p| p.id.is_none()), "headerless ⇒ no ids");
+        assert!((poses[1].base_se3_gripper.translation.y + 0.6).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rowmajor4x4_applies_units_and_inversion() {
+        let q = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), 0.7);
+        let t_b_g = Iso3::from_parts(Vector3::new(0.4, -0.1, 1.2).into(), q);
+        let t_g_b = t_b_g.inverse();
+        let m = t_g_b.to_homogeneous();
+        // Row-major flatten, translation in millimetres.
+        let mut row = String::new();
+        for r in 0..4 {
+            for c in 0..4 {
+                let v = if c == 3 && r < 3 {
+                    m[(r, c)] * 1000.0
+                } else {
+                    m[(r, c)]
+                };
+                row.push_str(&format!("{v:.9} "));
+            }
+        }
+        let (_dir, path) = write_temp(&row, "txt");
+        let conv = convention(
+            TransformConvention::TTcpBase,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::Mm,
+        );
+        let poses = load_robot_poses(&matrix_source(&path), &conv, path.parent().unwrap()).unwrap();
+        let got = &poses[0].base_se3_gripper;
+        assert!((got.translation.vector - t_b_g.translation.vector).norm() < 1e-6);
+        assert!(got.rotation.angle_to(&t_b_g.rotation) < 1e-6);
+    }
+
+    #[test]
+    fn rowmajor4x4_wrong_value_count_is_actionable() {
+        let (_dir, path) = write_temp("1 0 0 0 1 0 0 0 1\n", "txt");
+        let conv = convention(
+            TransformConvention::TBaseTcp,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::M,
+        );
+        let err =
+            load_robot_poses(&matrix_source(&path), &conv, path.parent().unwrap()).unwrap_err();
+        match err {
+            RunError::PoseParse { row, message, .. } => {
+                assert_eq!(row, 0);
+                assert!(
+                    message.contains("16") && message.contains("9"),
+                    "got: {message}"
+                );
+            }
+            other => panic!("expected PoseParse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rowmajor4x4_non_numeric_token_is_actionable() {
+        let (_dir, path) = write_temp("1 0 0 oops 0 1 0 0 0 0 1 0 0 0 0 1\n", "txt");
+        let conv = convention(
+            TransformConvention::TBaseTcp,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::M,
+        );
+        let err =
+            load_robot_poses(&matrix_source(&path), &conv, path.parent().unwrap()).unwrap_err();
+        match err {
+            RunError::PoseParse { message, .. } => {
+                assert!(message.contains("oops"), "got: {message}");
+            }
+            other => panic!("expected PoseParse, got {other:?}"),
+        }
     }
 
     #[test]

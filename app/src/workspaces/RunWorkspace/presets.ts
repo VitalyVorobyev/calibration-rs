@@ -109,18 +109,16 @@ export const BUILTIN_PRESETS: Preset[] = [
     manifestPath: `${REPO_ROOT}/data/stereo_charuco/dataset_rig.toml`,
   },
 
-  // ── Disabled: KUKA handeye ───────────────────────────────────────────────
+  // ── Enabled: KUKA handeye (committed dataset) ────────────────────────────
   {
     id: "kuka-handeye",
-    disabled: true,
     name: "KUKA handeye",
     group: "kuka_1 dataset",
     topology: "SingleCamHandeye",
     targetKind: "chessboard",
-    targetSummary: "chessboard, robot poses CSV",
-    imageCount: null,
-    disabledReason: "Hand-eye calibration topology is not wired into Run yet.",
-    milestone: "planned",
+    targetSummary: "chessboard 17×28, 20 mm · robot poses 4×4",
+    imageCount: 30,
+    manifestPath: `${REPO_ROOT}/data/kuka_1/dataset.toml`,
   },
 
   // ── Disabled: DS8 Scheimpflug ────────────────────────────────────────────
