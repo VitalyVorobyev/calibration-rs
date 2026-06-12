@@ -9,7 +9,10 @@ use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_b
 use crate::factors::laserline::{
     laser_line_dist_normalized_generic, laser_plane_pixel_residual_generic,
 };
-use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
+use crate::ir::{
+    CameraModelDesc, FactorKind, FixedMask, LaserChain, ManifoldKind, ProblemIR, ReprojChain,
+    ResidualBlock, RobustLoss,
+};
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::laser_plane::LaserPlane;
@@ -758,7 +761,9 @@ fn build_laserline_ir(
             ir.add_residual_block(ResidualBlock {
                 params: vec![intrinsics_id, distortion_id, sensor_id, pose_id],
                 loss: opts.calib_loss,
-                factor: FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 {
+                factor: FactorKind::ReprojPoint {
+                    model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                    chain: ReprojChain::SinglePose,
                     pw: [pt_3d.x, pt_3d.y, pt_3d.z],
                     uv: [pt_2d.x, pt_2d.y],
                     w,
@@ -773,11 +778,15 @@ fn build_laserline_ir(
 
             // Select factor type based on options
             let factor = match opts.laser_residual_type {
-                LaserlineResidualType::PointToPlane => FactorKind::LaserPlanePixel {
+                LaserlineResidualType::PointToPlane => FactorKind::LaserPointToPlane {
+                    model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                    chain: LaserChain::SinglePose,
                     laser_pixel: [laser_pixel.x, laser_pixel.y],
                     w,
                 },
-                LaserlineResidualType::LineDistNormalized => FactorKind::LaserLineDist2D {
+                LaserlineResidualType::LineDistNormalized => FactorKind::LaserLineDistance {
+                    model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                    chain: LaserChain::SinglePose,
                     laser_pixel: [laser_pixel.x, laser_pixel.y],
                     w,
                 },

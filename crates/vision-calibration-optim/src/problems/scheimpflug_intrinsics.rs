@@ -7,8 +7,7 @@ use crate::params::distortion::unpack_distortion;
 use crate::params::intrinsics::unpack_intrinsics;
 use crate::params::pose_se3::se3_dvec_to_iso3;
 use crate::problems::planar_family_shared::{
-    PlanarReprojectionFactorModel, PlanarReprojectionIrOptions, PlanarSensorIrOptions,
-    build_planar_reprojection_ir,
+    PlanarReprojectionIrOptions, PlanarSensorIrOptions, build_planar_reprojection_ir,
 };
 use anyhow::{Result as AnyhowResult, anyhow, ensure};
 use nalgebra::DVectorView;
@@ -127,7 +126,7 @@ fn build_scheimpflug_intrinsics_ir(
                 params: initial.sensor,
                 fix_indices: opts.fix_scheimpflug.as_flags(),
             }),
-            factor_model: PlanarReprojectionFactorModel::PinholeDistortionScheimpflug,
+            model: crate::ir::CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
         },
     )
 }
