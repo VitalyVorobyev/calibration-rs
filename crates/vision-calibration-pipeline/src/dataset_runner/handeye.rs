@@ -223,6 +223,7 @@ mod tests {
                     paths: image_paths.iter().map(PathBuf::from).collect(),
                 },
                 roi_xywh: None,
+                laser_images: None,
             }],
             target: TargetSpec::Chessboard {
                 rows: 9,
@@ -233,7 +234,10 @@ mod tests {
                 path: PathBuf::from("poses.txt"),
                 format: RobotPoseFormat::Rowmajor4x4,
                 columns: None,
+                matrix_field: None,
             }),
+            laser: None,
+            upstream_calibration: None,
             topology: Topology::SingleCamHandeye,
             pose_pairing: Some(PosePairing::ByIndex),
             pose_convention: Some(PoseConvention {
@@ -366,6 +370,7 @@ mod tests {
                 tz: "tz".into(),
                 rotation: vec!["qx".into(), "qy".into(), "qz".into(), "qw".into()],
             }),
+            matrix_field: None,
         });
         spec.pose_convention = Some(PoseConvention {
             transform: TransformConvention::TBaseTcp,

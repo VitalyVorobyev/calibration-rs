@@ -3,8 +3,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    Camera, PerFeatureResiduals, Pinhole, ScheimpflugParams, build_feature_histogram,
-    compute_planar_target_residuals_views,
+    Camera, ImageManifest, PerFeatureResiduals, Pinhole, ScheimpflugParams,
+    build_feature_histogram, compute_planar_target_residuals_views,
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
@@ -200,6 +200,14 @@ pub struct LaserlineDeviceExport {
     /// `Some(vec![one_entry])`.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
+
+    /// Optional image manifest (ADR 0014, viewer-side contract). One
+    /// frame per accepted view (pose = kept-view index, camera = 0),
+    /// pointing at the *target* image; laser-frame entries are
+    /// deferred to B-laser. `None` means "no images shipped"; the
+    /// calibration pipeline never reads this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_manifest: Option<ImageManifest>,
 }
 
 impl ProblemState for LaserlineDeviceProblem {
@@ -294,6 +302,9 @@ impl ProblemType for LaserlineDeviceProblem {
             mean_reproj_error: output.stats.mean_reproj_error,
             per_cam_reproj_errors: vec![output.stats.mean_reproj_error],
             per_feature_residuals,
+            // Manifest is populated by callers that have image paths;
+            // the pipeline never does.
+            image_manifest: None,
         })
     }
 }

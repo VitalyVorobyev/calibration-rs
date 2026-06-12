@@ -36,6 +36,11 @@ vision-calibration-core = { path = "../../crates/vision-calibration-core" }
 vision-calibration-pipeline = { path = "../../crates/vision-calibration-pipeline" }
 vision-calibration-dataset = { path = "../../crates/vision-calibration-dataset" }
 vision-calibration-detect = { path = "../../crates/vision-calibration-detect" }
+# Laser-line extraction (ADR 0021). vision-metrology is not on
+# crates.io, so the published pipeline crates only define the
+# `LaserPixelExtractor` trait; this (unpublished) app provides the
+# implementation. Same pin as vision-calibration-bench.
+vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.git", tag = "v0.1.0" }
 dirs = "5"
 
 [dev-dependencies]

@@ -17,6 +17,7 @@
 mod commands;
 mod epipolar;
 mod export_cache;
+mod laser;
 mod run;
 
 use export_cache::ExportCache;

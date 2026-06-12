@@ -141,6 +141,7 @@ mod tests {
                 id: "cam0".into(),
                 images: ImagePattern::List { paths: vec![] },
                 roi_xywh: None,
+                laser_images: None,
             }],
             target: TargetSpec::Chessboard {
                 rows: 9,
@@ -148,6 +149,8 @@ mod tests {
                 square_size_m: 0.025,
             },
             robot_poses: None,
+            laser: None,
+            upstream_calibration: None,
             topology: Topology::PlanarIntrinsics,
             pose_pairing: None,
             pose_convention: None,
@@ -164,6 +167,7 @@ mod tests {
             id: "cam1".into(),
             images: ImagePattern::List { paths: vec![] },
             roi_xywh: None,
+            laser_images: None,
         });
         let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
         let err = build_planar_input(&spec, Path::new("/tmp"), &cache, false).unwrap_err();

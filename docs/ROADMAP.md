@@ -117,13 +117,31 @@ puzzleboard / ringgrid) are supported.
     pose-to-view matching, `build_single_cam_handeye_input`,
     `image_manifest` on `SingleCamHandeyeExport`, Tauri dispatch arm,
     KUKA preset enabled over the committed `data/kuka_1` manifest
-    (no pose-file conversion needed after all). Remainder: laser
-    topologies (need the laser-frame manifest ADR), puzzleboard +
-    ringgrid detectors, bench/examples-private charuco dedup.
+    (no pose-file conversion needed after all).
+  - **B3c-3 (2026-06-12): laser topologies SHIPPED** —
+    [ADR 0021](adrs/0021-laser-frame-manifest.md): `laser_images` per
+    camera + `[laser]` extraction spec + `upstream_calibration` +
+    `matrix_field` pose shape in `DatasetSpec`; injected
+    `LaserPixelExtractor` (vision-metrology is not on crates.io — the
+    app implements it, published crates only define the trait);
+    `build_laserline_device_input` / `build_rig_laserline_device_input`
+    (frozen `RigHandeyeExport` → per-view `rig_se3_target` via the
+    hand-eye chain); both Tauri dispatch arms; `image_manifest` on
+    `LaserlineDeviceExport`; rtv3d presets with per-preset
+    `configOverrides`. Two-stage rtv3d acceptance
+    (`rtv3d_laser_end_to_end`): hand-eye 1.56 px, all six planes at
+    0.85–1.15 mm point-to-plane against the frozen upstream (sub-0.1 mm
+    needs the V5 joint-BA runner). Remainder of B3c: puzzleboard +
+    ringgrid detectors, bench/examples-private charuco dedup; in-app
+    "save export to file" (needed to run the two-stage laser flow
+    without leaving the app) moves to B3e.
 - **B-laser — laserline visualization.** Laser-pixel overlay in
   Diagnose; laser plane-fit residuals (point-to-plane mm) alongside
   reprojection residuals; laser planes rendered in the 3D rig viewer.
-  No laser data is visible anywhere in the app today.
+  The laser topologies *run* in the app since B3c-3 (and the laser
+  exports carry `per_feature_residuals.laser`), but no laser pixels or
+  planes are rendered anywhere yet; `ImageManifest` also still lacks
+  laser-frame entries (ADR 0021 §5).
 - **B-explore — dataset exploration.** Browse a dataset *before*
   calibrating: image grid per camera/pose, detection overlay from the
   cache, board coverage map. Today the app only visualizes exports.

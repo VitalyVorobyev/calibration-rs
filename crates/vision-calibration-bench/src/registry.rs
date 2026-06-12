@@ -650,6 +650,7 @@ mod tests {
                     pattern: "cam0/*.png".into(),
                 },
                 roi_xywh: None,
+                laser_images: None,
             }],
             target: TargetSpec::Chessboard {
                 rows: 7,
@@ -657,6 +658,8 @@ mod tests {
                 square_size_m: 0.03,
             },
             robot_poses: None,
+            laser: None,
+            upstream_calibration: None,
             topology: Topology::RigHandeye,
             pose_pairing: None,
             pose_convention: None,

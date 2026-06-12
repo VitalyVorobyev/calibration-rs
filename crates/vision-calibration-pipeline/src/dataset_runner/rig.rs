@@ -93,14 +93,18 @@ pub fn build_rig_handeye_input(
     finish(views, spec.cameras.len(), core.view_paths, core.total_views)
 }
 
-/// Kept views (observations + pairing token), pre-meta.
-struct RigCore {
-    views: Vec<(RigViewObs, String)>,
-    view_paths: Vec<Vec<Option<PathBuf>>>,
-    total_views: usize,
+/// Kept views (observations + pairing token), pre-meta. Shared with
+/// the rig laserline converter (`laser.rs`), which pairs laser frames
+/// against `all_tokens` and attaches laser pixels to the kept views.
+pub(super) struct RigCore {
+    pub(super) views: Vec<(RigViewObs, String)>,
+    pub(super) view_paths: Vec<Vec<Option<PathBuf>>>,
+    /// Tokens of *all* paired views, pre-drop, in view order.
+    pub(super) all_tokens: Vec<String>,
+    pub(super) total_views: usize,
 }
 
-fn build_rig_core(
+pub(super) fn build_rig_core(
     spec: &DatasetSpec,
     base_dir: &Path,
     cache: &dyn DetectionCache,
@@ -202,6 +206,7 @@ fn build_rig_core(
     Ok(RigCore {
         views,
         view_paths,
+        all_tokens: paired.tokens,
         total_views,
     })
 }
@@ -301,6 +306,7 @@ mod tests {
                         paths: paths.iter().map(PathBuf::from).collect(),
                     },
                     roi_xywh: None,
+                    laser_images: None,
                 })
                 .collect(),
             target: TargetSpec::Chessboard {
@@ -309,6 +315,8 @@ mod tests {
                 square_size_m: 0.025,
             },
             robot_poses: None,
+            laser: None,
+            upstream_calibration: None,
             topology: Topology::RigExtrinsics,
             pose_pairing: Some(PosePairing::ByIndex),
             pose_convention: None,
@@ -428,6 +436,7 @@ mod tests {
                 tz: "tz".into(),
                 rotation: vec!["qx".into(), "qy".into(), "qz".into(), "qw".into()],
             }),
+            matrix_field: None,
         });
         spec.pose_convention = Some(PoseConvention {
             transform: TransformConvention::TBaseTcp,

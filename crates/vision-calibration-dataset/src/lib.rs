@@ -30,8 +30,8 @@ mod spec;
 mod validator;
 
 pub use spec::{
-    CameraSource, DatasetSpec, ImagePattern, PoseColumnMap, PoseConvention, PosePairing,
-    RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec, Topology, TransformConvention,
-    TranslationUnits,
+    CameraSource, DatasetSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis, PoseColumnMap,
+    PoseConvention, PosePairing, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
+    Topology, TransformConvention, TranslationUnits,
 };
 pub use validator::{ValidationError, validate};

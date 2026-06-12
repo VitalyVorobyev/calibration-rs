@@ -12,6 +12,17 @@
           "$ref": "#/$defs/ImagePattern",
           "description": "Glob pattern (e.g. `\"cam0/*.png\"`) or explicit list of image\npaths, relative to the manifest's directory unless absolute."
         },
+        "laser_images": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImagePattern"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Laser-frame image source for the laser topologies (ADR 0021).\nOne laser image per view, captured by the same sensor with the\nline projector on; `roi_xywh` applies to laser frames too.\nLaser images pair with target views through `pose_pairing`."
+        },
         "roi_xywh": {
           "description": "Optional rectangular ROI in source-image pixels — `[x, y, w, h]`.\nWhen set, only the cropped region is fed to the detector and\nstored in the export's image manifest.",
           "items": {
@@ -74,6 +85,58 @@
             "paths"
           ],
           "type": "object"
+        }
+      ]
+    },
+    "LaserExtractionSpec": {
+      "additionalProperties": false,
+      "description": "Laser-line extraction parameters (ADR 0021). Consumed by the\nrunner's injected `LaserPixelExtractor`; hashed (canonical JSON)\ninto the detection-cache key so edits re-extract.",
+      "properties": {
+        "min_points": {
+          "default": 20,
+          "description": "Minimum extracted points for a usable laser view. Views below\nthe bar are dropped (single camera) or become gap slots (rig).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "neg_thresh": {
+          "default": 4.0,
+          "description": "Negative-edge response threshold.",
+          "format": "double",
+          "type": "number"
+        },
+        "pos_thresh": {
+          "default": 4.0,
+          "description": "Positive-edge response threshold.",
+          "format": "double",
+          "type": "number"
+        },
+        "scan_axis": {
+          "$ref": "#/$defs/LaserScanAxis",
+          "default": "cols",
+          "description": "Scan direction. `cols` walks image columns (one point per\ncolumn; for laser lines running mostly left-to-right), `rows`\nwalks image rows."
+        },
+        "sigma": {
+          "default": 1.2,
+          "description": "Gaussian derivative sigma in pixels for the edge detector.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "LaserScanAxis": {
+      "description": "Laser scan direction.",
+      "oneOf": [
+        {
+          "const": "cols",
+          "description": "One detection per image column.",
+          "type": "string"
+        },
+        {
+          "const": "rows",
+          "description": "One detection per image row.",
+          "type": "string"
         }
       ]
     },
@@ -219,11 +282,18 @@
               "type": "null"
             }
           ],
-          "description": "Column / field mapping from the user's file to the canonical\nfields the converter consumes. Required for the tabular formats\n(`csv` / `json` / `jsonl`); must be absent for `rowmajor4x4`,\nwhose 16-values-per-line layout is fixed."
+          "description": "Column / field mapping from the user's file to the canonical\nfields the converter consumes. Required for the tabular formats\n(`csv` / `json` / `jsonl`) unless `matrix_field` is set; must be\nabsent for `rowmajor4x4`, whose 16-values-per-line layout is\nfixed."
         },
         "format": {
           "$ref": "#/$defs/RobotPoseFormat",
           "description": "File-format selector."
+        },
+        "matrix_field": {
+          "description": "For `json` / `jsonl` files whose rows store the whole pose as a\nsingle nested 4×4 (or flat-16) array field, names that field\n(e.g. `\"tcp2base\"`). Mutually exclusive with `columns`; requires\n`pose_convention.rotation_format = matrix4x4_row_major`.\nTranslation comes from the matrix's fourth column, scaled by\n`translation_units`. No `pose_id` ⇒ `by_index` pairing only.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "path": {
           "description": "Path to the pose file, relative to the manifest directory\nunless absolute.",
@@ -538,6 +608,17 @@
         "null"
       ]
     },
+    "laser": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LaserExtractionSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Laser-line extraction parameters for the laser topologies.\n`None` means defaults (ADR 0021) — extraction tuning has safe\ndefaults and is not a fail-fast ambiguity. Rejected on\nnon-laser topologies."
+    },
     "pose_convention": {
       "anyOf": [
         {
@@ -578,6 +659,13 @@
     "topology": {
       "$ref": "#/$defs/Topology",
       "description": "Calibration topology — selects which problem type the runner\nwill dispatch to."
+    },
+    "upstream_calibration": {
+      "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`Topology::RigLaserlineDevice`, rejected elsewhere.",
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "version": {
       "default": 1,

@@ -4,10 +4,9 @@
 //! per-problem `*Config`, dispatches on the manifest's topology to the
 //! right `CalibrationSession`, runs detection (cached) + calibration on
 //! a `tauri::async_runtime::spawn_blocking` task, and returns the
-//! export plus run metrics. Supported topologies: `PlanarIntrinsics`,
-//! `ScheimpflugIntrinsics`, `SingleCamHandeye`, `RigExtrinsics`,
-//! `RigHandeye`. The laser topologies await the laser-frame manifest
-//! design.
+//! export plus run metrics. All seven topologies are supported; the
+//! laser topologies (ADR 0021) extract laser-line pixels through
+//! [`crate::laser::VmLaserExtractor`].
 //!
 //! Per ADR 0019, ambiguity that the runtime cannot auto-resolve is
 //! surfaced as a structured `RunResponse::AskUser` so the Run workspace
@@ -23,10 +22,13 @@ use vision_calibration_core::{FrameRef, ImageManifest, PlanarDataset, RigDataset
 use vision_calibration_dataset::{DatasetSpec, Topology};
 use vision_calibration_detect::FsDetectionCache;
 use vision_calibration_pipeline::dataset_runner::{
-    RunError, build_planar_input, build_rig_extrinsics_input, build_rig_handeye_input,
-    build_single_cam_handeye_input,
+    RunError, build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
+    build_rig_handeye_input, build_rig_laserline_device_input, build_single_cam_handeye_input,
 };
-use vision_calibration_pipeline::laserline_device::LaserlineDeviceConfig;
+use vision_calibration_pipeline::laserline_device::{
+    LaserlineDeviceConfig, LaserlineDeviceProblem,
+    run_calibration as run_laserline_device_calibration,
+};
 use vision_calibration_pipeline::planar_intrinsics::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, run_calibration as run_planar_calibration,
 };
@@ -36,7 +38,10 @@ use vision_calibration_pipeline::rig_extrinsics::{
 use vision_calibration_pipeline::rig_handeye::{
     RigHandeyeConfig, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
 };
-use vision_calibration_pipeline::rig_laserline_device::RigLaserlineDeviceConfig;
+use vision_calibration_pipeline::rig_laserline_device::{
+    RigLaserlineDeviceConfig, RigLaserlineDeviceProblem,
+    run_calibration as run_rig_laserline_device_calibration,
+};
 use vision_calibration_pipeline::scheimpflug_intrinsics::{
     ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
     run_calibration as run_scheimpflug_calibration,
@@ -203,14 +208,11 @@ fn run_blocking(
         Topology::SingleCamHandeye => {
             run_single_cam_handeye_topology(&spec, config_json, base_dir, &detection_cache, started)
         }
-        other @ (Topology::LaserlineDevice | Topology::RigLaserlineDevice) => {
-            RunResponse::Failed {
-                category: "unsupported_topology".into(),
-                message: format!(
-                    "topology {other:?} is not wired into the Run workspace yet \
-                     (the laser topologies land with the laser-frame manifest design)"
-                ),
-            }
+        Topology::LaserlineDevice => {
+            run_laserline_topology(&spec, config_json, base_dir, &detection_cache, started)
+        }
+        Topology::RigLaserlineDevice => {
+            run_rig_laserline_topology(&spec, config_json, base_dir, &detection_cache, started)
         }
     }
 }
@@ -334,11 +336,10 @@ fn run_single_cam_handeye_topology(
     detection_cache: &FsDetectionCache,
     started: Instant,
 ) -> RunResponse {
-    let handeye_run =
-        match build_single_cam_handeye_input(spec, base_dir, detection_cache, false) {
-            Ok(r) => r,
-            Err(e) => return run_error_to_response(e),
-        };
+    let handeye_run = match build_single_cam_handeye_input(spec, base_dir, detection_cache, false) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
     let cache_used = handeye_run.usable_views > 0; // refined in B3e with hit/miss counts
     let usable_views = handeye_run.usable_views;
     let total_views = handeye_run.total_views;
@@ -357,6 +358,98 @@ fn run_single_cam_handeye_topology(
         &mut export,
         planar_image_manifest(&handeye_run.view_paths, base_dir),
     ) {
+        return *boxed;
+    }
+
+    RunResponse::Ok(RunSuccess {
+        export,
+        duration_ms: started.elapsed().as_millis() as u64,
+        usable_views,
+        total_views,
+        cache_used,
+    })
+}
+
+fn run_laserline_topology(
+    spec: &DatasetSpec,
+    config_json: serde_json::Value,
+    base_dir: &Path,
+    detection_cache: &FsDetectionCache,
+    started: Instant,
+) -> RunResponse {
+    let laser_run = match build_laserline_device_input(
+        spec,
+        base_dir,
+        detection_cache,
+        &crate::laser::VmLaserExtractor,
+        false,
+    ) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
+    let cache_used = laser_run.usable_views > 0; // refined in B3e with hit/miss counts
+    let usable_views = laser_run.usable_views;
+    let total_views = laser_run.total_views;
+
+    let mut export =
+        match run_session::<LaserlineDeviceProblem>(laser_run.input, config_json, |session| {
+            run_laserline_device_calibration(session, None)
+        }) {
+            Ok(v) => v,
+            Err(boxed) => return *boxed,
+        };
+    // Single camera ⇒ the planar manifest shape (pose = kept-view
+    // index, camera = 0) over the *target* frames; laser-frame
+    // manifest entries are deferred to B-laser (ADR 0021 §5).
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        planar_image_manifest(&laser_run.view_paths, base_dir),
+    ) {
+        return *boxed;
+    }
+
+    RunResponse::Ok(RunSuccess {
+        export,
+        duration_ms: started.elapsed().as_millis() as u64,
+        usable_views,
+        total_views,
+        cache_used,
+    })
+}
+
+fn run_rig_laserline_topology(
+    spec: &DatasetSpec,
+    config_json: serde_json::Value,
+    base_dir: &Path,
+    detection_cache: &FsDetectionCache,
+    started: Instant,
+) -> RunResponse {
+    let laser_run = match build_rig_laserline_device_input(
+        spec,
+        base_dir,
+        detection_cache,
+        &crate::laser::VmLaserExtractor,
+        false,
+    ) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
+    let cache_used = laser_run.usable_views > 0; // refined in B3e with hit/miss counts
+    let usable_views = laser_run.usable_views;
+    let total_views = laser_run.total_views;
+    let view_paths = laser_run.view_paths.clone();
+
+    let mut export = match run_session::<RigLaserlineDeviceProblem>(
+        laser_run.input,
+        config_json,
+        run_rig_laserline_device_calibration,
+    ) {
+        Ok(v) => v,
+        Err(boxed) => return *boxed,
+    };
+    if let Err(boxed) =
+        splice_image_manifest(&mut export, rig_image_manifest(&view_paths, base_dir))
+    {
         return *boxed;
     }
 
@@ -515,6 +608,10 @@ fn error_category(err: &RunError) -> &'static str {
         RunError::Cache(_) => "cache",
         RunError::AskUser { .. } => "ask_user",
         RunError::InsufficientUsableViews { .. } => "insufficient_views",
+        RunError::LaserPairing { .. } => "view_pairing",
+        RunError::LaserExtraction { .. } => "detection",
+        RunError::InsufficientLaserViews { .. } => "insufficient_views",
+        RunError::UpstreamCalibration { .. } => "upstream_calibration",
     }
 }
 
@@ -552,23 +649,31 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn unsupported_topologies_name_the_roadmap() {
-        for topology in ["laserline_device", "rig_laserline_device"] {
+    fn laser_topologies_dispatch_and_fail_validation_without_laser_images() {
+        // The laser arms are wired (ADR 0021); a manifest without
+        // laser_images must now fail *validation*, not dispatch.
+        for (topology, num_cams) in [("laserline_device", 1), ("rig_laserline_device", 2)] {
+            let cameras: Vec<_> = (0..num_cams)
+                .map(|i| json!({"id": format!("cam{i}"), "images": {"kind": "glob", "pattern": "*.png"}}))
+                .collect();
             let manifest = json!({
                 "version": 1,
                 "topology": topology,
-                "cameras": [
-                    {"id": "cam0", "images": {"kind": "glob", "pattern": "*.png"}},
-                ],
+                "cameras": cameras,
                 "target": {"kind": "chessboard", "rows": 9, "cols": 6, "square_size_m": 0.025},
+                "robot_poses": {"path": "poses.txt", "format": "rowmajor4x4"},
+                "pose_convention": {
+                    "transform": "t_base_tcp",
+                    "rotation_format": "matrix4x4_row_major",
+                    "translation_units": "m",
+                },
             });
             let response = run_blocking(manifest, json!({}), "/tmp");
             match response {
-                RunResponse::Failed { category, message } => {
-                    assert_eq!(category, "unsupported_topology");
-                    assert!(message.contains("not wired"), "got: {message}");
+                RunResponse::ValidationFailed { message } => {
+                    assert!(message.contains("laser_images"), "{topology}: {message}");
                 }
-                _ => panic!("expected Failed for {topology}"),
+                other => panic!("expected ValidationFailed for {topology}, got {other:?}"),
             }
         }
     }
@@ -684,6 +789,91 @@ mod tests {
             );
             assert!(s.export["cameras"].is_array(), "rig export has cameras[]");
         }
+    }
+
+    /// Two-stage laser acceptance over the local rtv3d dataset
+    /// (6-camera Scheimpflug rig, tiled strips, ChArUco + laser
+    /// frames): rig hand-eye first, then `RigLaserlineDevice` with the
+    /// stage-1 export as the frozen upstream — exactly the user
+    /// workflow the laser slice ships (ADR 0021). Skips when
+    /// `privatedata/rtv3d` is absent (gitignored, local-only).
+    #[test]
+    #[ignore = "needs the local privatedata/rtv3d dataset; 6-cam detection + two solves"]
+    fn rtv3d_laser_end_to_end() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let data_dir = repo_root.join("privatedata/rtv3d");
+        if !data_dir.exists() {
+            eprintln!("skipping: {} not present", data_dir.display());
+            return;
+        }
+        let read_manifest = |name: &str| -> serde_json::Value {
+            let raw = std::fs::read_to_string(data_dir.join(name)).unwrap();
+            serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap()
+        };
+        let dir = data_dir.to_string_lossy().to_string();
+
+        // ── Stage 1: rig hand-eye (Scheimpflug, EyeToHand) ────────────────
+        // Same overrides the rtv3d_rig example settled on; every one is
+        // plain config JSON, i.e. reachable from the app's ConfigForm.
+        let mut config = default_config_cmd("rig_handeye".into()).unwrap();
+        config["sensor"] = json!({"kind": "Scheimpflug"});
+        config["handeye_init"]["handeye_mode"] = json!("EyeToHand");
+        config["solver"]["max_iters"] = json!(200);
+        config["solver"]["robust_loss"] = json!({"Huber": {"scale": 1.0}});
+        let handeye = match run_blocking(read_manifest("dataset_rig_handeye.toml"), config, &dir) {
+            RunResponse::Ok(s) => s,
+            other => panic!("rig handeye stage: expected Ok, got {other:?}"),
+        };
+        assert!(
+            handeye.usable_views >= 10,
+            "rig handeye: {} usable views",
+            handeye.usable_views
+        );
+        // The hand-eye stage lands at ~1.5-2 px on rtv3d (the example's
+        // own hand-eye stage shows 1.6-2.1 px per camera; sub-pixel
+        // needs the downstream joint BA). The oracle is ~2.2 px.
+        let mean_px = handeye.export["mean_reproj_error"].as_f64().unwrap();
+        assert!(mean_px < 2.2, "rig handeye mean reproj {mean_px:.3} px");
+        std::fs::write(
+            data_dir.join("rig_handeye_export.json"),
+            serde_json::to_string(&handeye.export).unwrap(),
+        )
+        .unwrap();
+
+        // ── Stage 2: rig laserline over the frozen export ─────────────────
+        // PointToPlane keeps the residual in metres (the example's
+        // stage-3 choice), so the σ gate below is unit-meaningful.
+        let mut laser_config = default_config_cmd("rig_laserline_device".into()).unwrap();
+        laser_config["max_iters"] = json!(200);
+        laser_config["laser_residual_type"] = json!("PointToPlane");
+        let laser = match run_blocking(read_manifest("dataset_laser.toml"), laser_config, &dir) {
+            RunResponse::Ok(s) => s,
+            other => panic!("rig laserline stage: expected Ok, got {other:?}"),
+        };
+        let planes = laser.export["laser_planes_cam"].as_array().unwrap();
+        assert_eq!(planes.len(), 6, "one laser plane per camera");
+        let stats = laser.export["per_camera_stats"].as_array().unwrap();
+        assert_eq!(stats.len(), 6);
+        for (cam, s) in stats.iter().enumerate() {
+            // Plane-fit sanity gate, not an oracle-beating gate: with
+            // the upstream frozen at ~1.5 px the plane fit lands near
+            // ~1 mm; sub-0.1 mm needs the joint BA (V5, out of scope
+            // here). 2 mm flags a broken plane / wrong chain.
+            let laser_err = s["mean_laser_error"].as_f64().unwrap();
+            eprintln!("cam {cam}: mean point-to-plane {:.4} mm", laser_err * 1e3);
+            assert!(
+                laser_err < 2e-3,
+                "cam {cam}: mean laser residual {laser_err:.6} m"
+            );
+        }
+        assert!(
+            laser.export["image_manifest"]["frames"].is_array(),
+            "laser export carries the target-frame manifest"
+        );
+        eprintln!(
+            "rtv3d laser E2E: handeye {mean_px:.3} px over {} views; laser stage {} views in {} ms",
+            handeye.usable_views, laser.usable_views, laser.duration_ms
+        );
     }
 
     /// End-to-end hand-eye run over the committed `data/kuka_1` dataset

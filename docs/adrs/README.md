@@ -41,3 +41,4 @@ Status legend:
 - [0018 - Schema-Driven UI for Configs and Dataset Manifests](0018-schema-driven-ui.md)
 - [0019 - Fail Fast on Ambiguity (`AskUser` runtime contract)](0019-fail-fast-on-ambiguity.md)
 - [0020 - Camera Model as Data in the Factor IR](0020-camera-model-as-data-factor-ir.md)
+- [0021 - Laser-Frame Dataset Manifest](0021-laser-frame-manifest.md)
