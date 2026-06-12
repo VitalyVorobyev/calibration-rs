@@ -11,12 +11,14 @@
  *   6. Advanced JSON editor — third collapsible, lowest priority.
  *   7. Status banner — sticky top-of-workspace during / after a run.
  *
- * PR 1 wires up PlanarIntrinsics + chessboard only; the IA is designed
- * to accommodate all 8 topologies + 4 detectors without structural change.
+ * B3c wires PlanarIntrinsics, ScheimpflugIntrinsics, RigExtrinsics and
+ * RigHandeye end-to-end; the config schema follows the manifest's
+ * topology (see `topologies.ts`). Laser topologies + SingleCamHandeye
+ * render with a disabled Run button until their runners ship.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as TOML from "toml";
 
@@ -24,16 +26,15 @@ import { ConfigForm, type JsonSchema } from "../../lib/configForm";
 import { runCalibration, type RunResponse } from "../../lib/runCalibration";
 import { isTauriContext } from "../../lib/tauri";
 import datasetSchemaJson from "../../schemas/dataset_spec.json";
-import planarConfigSchemaJson from "../../schemas/planar_intrinsics_config.json";
 import { useStore } from "../../store";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { PresetCard } from "./PresetCard";
 import { BUILTIN_PRESETS, type EnabledPreset } from "./presets";
+import { topologyInfo } from "./topologies";
 
-// schemars-emitted JSON Schemas; cast through unknown since both shapes
+// schemars-emitted JSON Schema; cast through unknown since both shapes
 // are JSON-compatible (our JsonSchema interface is intentionally loose).
 const datasetSchema = datasetSchemaJson as unknown as JsonSchema;
-const planarConfigSchema = planarConfigSchemaJson as unknown as JsonSchema;
 
 // ── Default form values ──────────────────────────────────────────────────────
 
@@ -54,6 +55,9 @@ const DEFAULT_DATASET: unknown = {
   topology: "planar_intrinsics",
 };
 
+// Browser-context fallback only — inside Tauri the defaults come from
+// `default_config_cmd` (Rust `Config::default()`), the single source
+// of truth.
 const DEFAULT_PLANAR_CONFIG: unknown = {
   init_iterations: 2,
   fix_k3_in_init: true,
@@ -66,6 +70,25 @@ const DEFAULT_PLANAR_CONFIG: unknown = {
   fix_distortion: { k1: false, k2: false, k3: true, p1: false, p2: false },
   fix_poses: [],
 };
+
+/** Topology of a manifest value, defaulting to planar. */
+function topologyOf(manifest: unknown): string {
+  const m = manifest as Record<string, unknown> | null;
+  return typeof m?.topology === "string" ? m.topology : "planar_intrinsics";
+}
+
+/** Default config for a topology: Rust-side defaults inside Tauri,
+ * a static fallback in plain-browser dev. */
+async function fetchDefaultConfig(topology: string, inTauri: boolean): Promise<unknown> {
+  if (inTauri) {
+    try {
+      return await invoke<unknown>("default_config_cmd", { topology });
+    } catch {
+      // Fall through to the static fallback (e.g. unknown topology).
+    }
+  }
+  return topology === "planar_intrinsics" ? DEFAULT_PLANAR_CONFIG : {};
+}
 
 // ── Run status ───────────────────────────────────────────────────────────────
 
@@ -105,6 +128,34 @@ export function RunWorkspace() {
   const jsonEditorRef = useRef<HTMLTextAreaElement>(null);
 
   const isRunning = status.kind === "running";
+
+  // ── Topology-driven config schema + defaults ─────────────────────────────
+
+  const topology = topologyOf(manifest);
+  const info = topologyInfo(topology);
+
+  // When the manifest's topology changes (form edit, JSON blur, preset
+  // load), swap the config schema and reset the config to that
+  // topology's defaults.
+  const prevTopologyRef = useRef(topology);
+  useEffect(() => {
+    if (prevTopologyRef.current === topology) return;
+    prevTopologyRef.current = topology;
+    let cancelled = false;
+    void fetchDefaultConfig(topology, inTauri).then((defaults) => {
+      if (cancelled) return;
+      setConfig(defaults);
+      if (jsonEditorRef.current) {
+        jsonEditorRef.current.value = JSON.stringify({ manifest, config: defaults }, null, 2);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // `manifest` is intentionally read, not depended on: this effect
+    // only fires on topology *changes*.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topology, inTauri]);
 
   // ── Derived summary strings for collapsible headers ──────────────────────
 
@@ -153,16 +204,19 @@ export function RunWorkspace() {
       setManifestDir(dir);
       setManifestPath(preset.manifestPath);
       setManifest(parsed);
-      // Reset config to defaults when switching presets (the config is
-      // topology-specific; PlanarIntrinsics is the only one wired up today).
-      setConfig(DEFAULT_PLANAR_CONFIG);
+      // Reset config to the preset topology's defaults (the topology
+      // effect above only fires on topology *changes*, and switching
+      // between same-topology presets must still reset).
+      const defaults = await fetchDefaultConfig(topologyOf(parsed), inTauri);
+      prevTopologyRef.current = topologyOf(parsed);
+      setConfig(defaults);
       setActivePresetId(preset.id);
       setGridExpanded(false);
       setStatus({ kind: "idle" });
 
       // Sync the JSON textarea if it happens to be mounted.
       if (jsonEditorRef.current) {
-        jsonEditorRef.current.value = JSON.stringify({ manifest: parsed, config: DEFAULT_PLANAR_CONFIG }, null, 2);
+        jsonEditorRef.current.value = JSON.stringify({ manifest: parsed, config: defaults }, null, 2);
       }
     } catch (e) {
       setStatus({
@@ -296,21 +350,27 @@ export function RunWorkspace() {
         <div className="flex flex-col gap-0.5">
           <h2 className="text-sm font-semibold tracking-tight">Run calibration</h2>
           <p className="font-mono text-[11px] text-muted-foreground">
-            PlanarIntrinsics + chessboard, end-to-end
+            {info.label} + {targetKindOf(manifest)}, end-to-end
+            {!info.supported && info.unsupportedReason ? ` — ${info.unsupportedReason}` : ""}
           </p>
         </div>
 
         <button
           type="button"
           onClick={handleRun}
-          disabled={isRunning || !manifestDir}
+          disabled={isRunning || !manifestDir || !info.supported}
+          title={!info.supported ? info.unsupportedReason : undefined}
           className={[
             "h-9 rounded-md px-5 text-[13px] font-semibold transition-colors",
-            isRunning || !manifestDir
+            isRunning || !manifestDir || !info.supported
               ? "cursor-not-allowed bg-bg-soft text-muted-foreground border border-border"
               : "bg-brand text-white hover:opacity-90",
           ].join(" ")}
-          style={isRunning || !manifestDir ? undefined : { backgroundColor: "var(--brand)" }}
+          style={
+            isRunning || !manifestDir || !info.supported
+              ? undefined
+              : { backgroundColor: "var(--brand)" }
+          }
         >
           {isRunning ? "Running…" : "Run"}
         </button>
@@ -359,12 +419,18 @@ export function RunWorkspace() {
 
       {/* 5. Calibration config section */}
       <CollapsibleSection title="Calibration config" summary={configSummary}>
-        <ConfigForm
-          schema={planarConfigSchema}
-          value={config}
-          onChange={setConfig}
-          rootLabel="config"
-        />
+        {info.schema ? (
+          <ConfigForm
+            schema={info.schema}
+            value={config}
+            onChange={setConfig}
+            rootLabel="config"
+          />
+        ) : (
+          <p className="text-[12px] text-muted-foreground">
+            {info.unsupportedReason ?? `No config form for topology "${topology}" yet.`}
+          </p>
+        )}
       </CollapsibleSection>
 
       {/* 6. Advanced JSON editor */}
@@ -384,6 +450,12 @@ export function RunWorkspace() {
       </CollapsibleSection>
     </div>
   );
+}
+
+function targetKindOf(manifest: unknown): string {
+  const m = manifest as Record<string, unknown> | null;
+  const target = m?.target as Record<string, unknown> | undefined;
+  return typeof target?.kind === "string" ? target.kind : "?";
 }
 
 function robustLossLabel(value: unknown): string {

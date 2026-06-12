@@ -582,4 +582,63 @@ mod tests {
         assert!(export["image_manifest"].is_object());
         assert_eq!(export["image_manifest"]["root"], ".");
     }
+
+    /// Run one local-data preset end-to-end through `run_blocking` and
+    /// return the success payload. Skips (returns `None`) when the
+    /// dataset is absent — `data/stereo*` are gitignored, local-only.
+    fn run_local_preset(rel_manifest: &str) -> Option<RunSuccess> {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest_path = repo_root.join(rel_manifest);
+        if !manifest_path.exists() {
+            eprintln!("skipping: {} not present", manifest_path.display());
+            return None;
+        }
+        let raw = std::fs::read_to_string(&manifest_path).unwrap();
+        let manifest: serde_json::Value =
+            serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap();
+        let topology = manifest["topology"].as_str().unwrap().to_string();
+        let config = default_config_cmd(topology).unwrap();
+        let dir = manifest_path
+            .parent()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        match run_blocking(manifest, config, &dir) {
+            RunResponse::Ok(success) => Some(success),
+            other => panic!("{rel_manifest}: expected Ok, got {other:?}"),
+        }
+    }
+
+    /// Local-only end-to-end acceptance over the gitignored bundled
+    /// datasets. Run manually:
+    /// `cargo test -p calibration-diagnose -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs the local data/stereo + data/stereo_charuco datasets"]
+    fn local_presets_end_to_end() {
+        if let Some(s) = run_local_preset("data/stereo/dataset_rig.toml") {
+            assert!(
+                s.usable_views >= 10,
+                "stereo rig: {} usable",
+                s.usable_views
+            );
+            assert!(s.export["cameras"].is_array(), "rig export has cameras[]");
+            assert!(s.export["image_manifest"]["frames"].is_array());
+        }
+        if let Some(s) = run_local_preset("data/stereo_charuco/dataset_cam1.toml") {
+            assert!(
+                s.usable_views >= 10,
+                "charuco cam1: {} usable",
+                s.usable_views
+            );
+            assert!(s.export["image_manifest"]["frames"].is_array());
+        }
+        if let Some(s) = run_local_preset("data/stereo_charuco/dataset_rig.toml") {
+            assert!(
+                s.usable_views >= 10,
+                "charuco rig: {} usable",
+                s.usable_views
+            );
+            assert!(s.export["cameras"].is_array(), "rig export has cameras[]");
+        }
+    }
 }
