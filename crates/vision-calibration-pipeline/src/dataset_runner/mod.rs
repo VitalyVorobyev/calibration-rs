@@ -1,10 +1,18 @@
-//! Dataset-driven runner: takes a [`DatasetSpec`] manifest plus a
+//! Dataset-driven runner: takes a
+//! [`DatasetSpec`](vision_calibration_dataset::DatasetSpec) manifest plus a
 //! per-problem `*Config` and produces the existing `*Input` IR by
 //! running detection (cached) on the per-camera images.
 //!
-//! PR 1 wires up `PlanarIntrinsics` only. PR 2 extends to the other
-//! seven problem types via the same `(spec, config, &cache) → *Input`
-//! shape.
+//! Converters:
+//! - [`build_planar_input`] — `PlanarIntrinsics` / `ScheimpflugIntrinsics`
+//!   (both consume a `PlanarDataset`).
+//! - [`build_rig_extrinsics_input`] — `RigExtrinsics` (`RigDataset<NoMeta>`).
+//! - [`build_rig_handeye_input`] — `RigHandeye`
+//!   (`RigDataset<RobotPoseMeta>`, robot poses loaded from the manifest's
+//!   [`RobotPoseSource`](vision_calibration_dataset::RobotPoseSource)).
+//!
+//! The laser topologies (`LaserlineDevice`, `RigLaserlineDevice`) await
+//! the laser-frame manifest design; `SingleCamHandeye` follows in B3c-2.
 //!
 //! Per ADR 0019, any ambiguity that cannot be auto-resolved at
 //! conversion time is surfaced as a [`RunError::AskUser`] event so
@@ -15,14 +23,21 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 use thiserror::Error;
 
-use vision_calibration_core::{CorrespondenceView, NoMeta, PlanarDataset, Pt2, Pt3, View};
-use vision_calibration_dataset::{
-    DatasetSpec, ImagePattern, TargetSpec, Topology, ValidationError, validate,
-};
+use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
+use vision_calibration_dataset::{ImagePattern, TargetSpec, Topology, ValidationError};
 use vision_calibration_detect::{
     CacheKey, CachedFeatures, CharucoDetector, ChessboardDetector, DetectionCache, Detector,
     Feature, validate_charuco_layout,
 };
+
+mod pairing;
+mod planar;
+mod poses;
+mod rig;
+
+pub use pairing::PairedViews;
+pub use planar::{PlanarRunResult, build_planar_input};
+pub use rig::{RigRunResult, build_rig_extrinsics_input, build_rig_handeye_input};
 
 /// Errors produced by the dataset-driven runner.
 #[derive(Debug, Error)]
@@ -32,9 +47,10 @@ pub enum RunError {
     #[error("manifest validation failed: {0}")]
     Validation(#[from] ValidationError),
 
-    /// Topology is not yet supported by the runner. PR 1 ships with
-    /// `PlanarIntrinsics` only; PR 2 lifts this restriction.
-    #[error("topology {topology:?} is not yet supported by the dataset runner")]
+    /// Topology is not supported by this converter (e.g. a rig manifest
+    /// handed to the planar converter, or a topology whose converter
+    /// has not shipped yet).
+    #[error("topology {topology:?} is not supported by this converter")]
     UnsupportedTopology {
         /// The offending topology.
         topology: Topology,
@@ -78,6 +94,51 @@ pub enum RunError {
         /// Underlying glob compile error.
         #[source]
         source: glob::PatternError,
+    },
+
+    /// Cameras expanded to different image counts under `by_index`
+    /// pairing, where every camera must contribute one image per view.
+    #[error("by_index pairing requires equal image counts per camera, got {counts:?}")]
+    ViewCountMismatch {
+        /// `(camera_id, image_count)` per camera, in manifest order.
+        counts: Vec<(String, usize)>,
+    },
+
+    /// Robot pose count does not match the paired view count.
+    #[error("pose file has {poses} poses but the cameras paired into {views} views")]
+    PoseCountMismatch {
+        /// Number of poses parsed from the pose file.
+        poses: usize,
+        /// Number of paired views.
+        views: usize,
+    },
+
+    /// A row of the robot pose file failed to parse.
+    #[error("pose file {path}, row {row}: {message}")]
+    PoseParse {
+        /// The pose file.
+        path: PathBuf,
+        /// Zero-based data-row index (header excluded for CSV).
+        row: usize,
+        /// What went wrong.
+        message: String,
+    },
+
+    /// The `shared_filename_token` regex failed to compile.
+    #[error("pose pairing regex {regex:?} failed to compile: {message}")]
+    BadPairingRegex {
+        /// The offending regex source.
+        regex: String,
+        /// Compile error text.
+        message: String,
+    },
+
+    /// Filename-token pairing failed: a filename did not match the
+    /// regex, the named group was missing, or token sets are unusable.
+    #[error("filename-token pairing failed: {message}")]
+    PairingTokenMismatch {
+        /// Human-readable description (names the offending file/token).
+        message: String,
     },
 
     /// I/O failure while reading/writing the cache or images.
@@ -127,7 +188,7 @@ pub enum RunError {
     /// actionable error rather than a deep optim panic.
     #[error("camera {camera_id:?}: only {usable}/{total} views had >= 4 features")]
     InsufficientUsableViews {
-        /// Camera id (single camera for `PlanarIntrinsics`).
+        /// Camera id.
         camera_id: String,
         /// Number of views with at least 4 detected features.
         usable: usize,
@@ -137,160 +198,7 @@ pub enum RunError {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Public API
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Convert a Planar manifest + config + cache into the existing
-/// [`PlanarDataset`] IR. Returns the dataset plus a per-view list of
-/// the source image paths (for downstream `image_manifest`
-/// population).
-pub fn build_planar_input(
-    spec: &DatasetSpec,
-    base_dir: &Path,
-    cache: &dyn DetectionCache,
-    force_redetect: bool,
-) -> Result<PlanarRunResult, RunError> {
-    // Order matters: gate on topology + target before touching the
-    // filesystem so users with broken globs still see helpful
-    // "wrong topology" or "wrong target" errors first.
-    if spec.topology != Topology::PlanarIntrinsics {
-        return Err(RunError::UnsupportedTopology {
-            topology: spec.topology,
-        });
-    }
-    let (detector_name, detector_config) = target_to_detector_config(&spec.target)?;
-    let detector = pick_detector(detector_name)?;
-    validate(spec)?;
-
-    // PlanarIntrinsics has the validator-enforced invariant of exactly
-    // one camera, so `cameras[0]` is the only camera — no silent
-    // truncation.
-    let camera = spec
-        .cameras
-        .first()
-        .expect("validate guarantees exactly one camera for PlanarIntrinsics");
-    let images = expand_camera_images(camera, base_dir)?;
-    if images.is_empty() {
-        return Err(RunError::EmptyImageMatch {
-            camera_id: camera.id.clone(),
-            pattern: pattern_repr(&camera.images),
-            base: base_dir.to_path_buf(),
-        });
-    }
-
-    let mut views: Vec<View<NoMeta>> = Vec::new();
-    let mut view_paths: Vec<PathBuf> = Vec::new();
-    let mut usable = 0usize;
-    let total = images.len();
-
-    // ROI is part of what determines detection output, so it has to be
-    // part of the cache key. We splice it into the key-side config and
-    // leave the actual `detector_config` untouched (the detector itself
-    // doesn't know about ROI — the runner crops the image first).
-    let roi = camera.roi_xywh;
-    let key_config = augment_config_with_roi(&detector_config, roi);
-
-    for image_path in &images {
-        let bytes = std::fs::read(image_path)?;
-        let key = CacheKey::from_inputs(&bytes, detector_name, &key_config);
-
-        let cached: Option<CachedFeatures> = if force_redetect {
-            None
-        } else {
-            cache.get(&key)?
-        };
-
-        let features = match cached {
-            Some(entry) => entry.features,
-            None => {
-                let img = image::load_from_memory(&bytes).map_err(|e| RunError::Decode {
-                    path: image_path.clone(),
-                    source: e,
-                })?;
-                let img_for_detect = if let Some([x, y, w, h]) = roi {
-                    img.crop_imm(x, y, w, h)
-                } else {
-                    img
-                };
-                let mut detected = detector
-                    .detect_json(&img_for_detect, &detector_config)
-                    .map_err(|e| RunError::Detection {
-                        detector: detector_name.to_string(),
-                        path: image_path.clone(),
-                        source: e,
-                    })?;
-                // Detected pixels are in the cropped frame; lift them
-                // back into source-image coordinates so the rest of
-                // the pipeline (and the export's `image_manifest`)
-                // stays in one consistent coordinate system.
-                if let Some([x, y, _w, _h]) = roi {
-                    let dx = x as f64;
-                    let dy = y as f64;
-                    for f in detected.iter_mut() {
-                        f.image_xy[0] += dx;
-                        f.image_xy[1] += dy;
-                    }
-                }
-                cache.put(
-                    &key,
-                    &CachedFeatures {
-                        features: detected.clone(),
-                    },
-                )?;
-                detected
-            }
-        };
-
-        if features.len() < 4 {
-            // Too few features for a homography — drop the view but
-            // keep walking so we can surface a meaningful error if
-            // _everything_ failed.
-            continue;
-        }
-        usable += 1;
-        views.push(features_to_view(&features)?);
-        view_paths.push(image_path.clone());
-    }
-
-    if views.is_empty() {
-        return Err(RunError::InsufficientUsableViews {
-            camera_id: camera.id.clone(),
-            usable,
-            total,
-        });
-    }
-
-    let dataset = PlanarDataset::new(views).expect(
-        "PlanarDataset::new failed after we already filtered to >=4 \
-         features per view; this indicates a regression in the core \
-         crate's invariants",
-    );
-
-    Ok(PlanarRunResult {
-        dataset,
-        view_paths,
-        usable_views: usable,
-        total_views: total,
-    })
-}
-
-/// Result of a Planar dataset conversion.
-#[derive(Debug)]
-#[non_exhaustive]
-pub struct PlanarRunResult {
-    /// The IR ready to feed into `CalibrationSession::set_input`.
-    pub dataset: PlanarDataset,
-    /// One source image path per accepted view, in the same order.
-    /// Used to populate the export's `image_manifest` after the solve.
-    pub view_paths: Vec<PathBuf>,
-    /// Number of views where detection produced ≥4 features.
-    pub usable_views: usize,
-    /// Total number of images attempted.
-    pub total_views: usize,
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
+// Shared helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn target_to_detector_config(target: &TargetSpec) -> Result<(&'static str, Value), RunError> {
@@ -372,7 +280,10 @@ fn expand_camera_images(
                 .filter_map(|r| r.ok())
                 .filter(|p| p.is_file())
                 .collect();
-            paths.sort();
+            // Natural sort keeps `Im_2` before `Im_10` so `by_index`
+            // pairing matches the acquisition order of non-zero-padded
+            // filename schemes.
+            paths.sort_by(|a, b| natural_cmp(&a.to_string_lossy(), &b.to_string_lossy()));
             Ok(paths)
         }
         ImagePattern::List { paths } => {
@@ -388,6 +299,58 @@ fn expand_camera_images(
             Ok(resolved)
         }
     }
+}
+
+/// Natural (numeric-aware) string comparison: splits each string into
+/// runs of digits and non-digits, comparing digit runs by numeric
+/// value. Keeps `Im_2` < `Im_10`, matching the bench harness's
+/// ordering (`vision-calibration-bench/src/detect.rs`).
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let mut ai = a.chars().peekable();
+    let mut bi = b.chars().peekable();
+    loop {
+        match (ai.peek().copied(), bi.peek().copied()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(ca), Some(cb)) => {
+                if ca.is_ascii_digit() && cb.is_ascii_digit() {
+                    let na: String = take_digits(&mut ai);
+                    let nb: String = take_digits(&mut bi);
+                    // Compare by numeric value; fall back to string
+                    // length then lexically for runs too long for u128.
+                    let cmp = match (na.parse::<u128>(), nb.parse::<u128>()) {
+                        (Ok(x), Ok(y)) => x.cmp(&y),
+                        _ => na.len().cmp(&nb.len()).then_with(|| na.cmp(&nb)),
+                    };
+                    if cmp != Ordering::Equal {
+                        return cmp;
+                    }
+                } else {
+                    let cmp = ca.cmp(&cb);
+                    if cmp != Ordering::Equal {
+                        return cmp;
+                    }
+                    ai.next();
+                    bi.next();
+                }
+            }
+        }
+    }
+}
+
+fn take_digits(it: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut s = String::new();
+    while let Some(&c) = it.peek() {
+        if c.is_ascii_digit() {
+            s.push(c);
+            it.next();
+        } else {
+            break;
+        }
+    }
+    s
 }
 
 /// Splice a `_roi` field into the detector's canonical config JSON so
@@ -411,79 +374,91 @@ fn pattern_repr(p: &ImagePattern) -> String {
     }
 }
 
+/// Run one image through the cache-or-detect path shared by every
+/// converter: read bytes → cache lookup → on miss, decode, crop to
+/// ROI, detect, lift pixels back to source coordinates, store.
+///
+/// Returns the features plus whether they came from the cache.
+#[allow(clippy::too_many_arguments)]
+fn detect_features(
+    detector: &dyn Detector,
+    detector_name: &str,
+    detector_config: &Value,
+    key_config: &Value,
+    roi: Option<[u32; 4]>,
+    image_path: &Path,
+    cache: &dyn DetectionCache,
+    force_redetect: bool,
+) -> Result<(Vec<Feature>, bool), RunError> {
+    let bytes = std::fs::read(image_path)?;
+    let key = CacheKey::from_inputs(&bytes, detector_name, key_config);
+
+    let cached: Option<CachedFeatures> = if force_redetect {
+        None
+    } else {
+        cache.get(&key)?
+    };
+    if let Some(entry) = cached {
+        return Ok((entry.features, true));
+    }
+
+    let img = image::load_from_memory(&bytes).map_err(|e| RunError::Decode {
+        path: image_path.to_path_buf(),
+        source: e,
+    })?;
+    let img_for_detect = if let Some([x, y, w, h]) = roi {
+        img.crop_imm(x, y, w, h)
+    } else {
+        img
+    };
+    let mut detected = detector
+        .detect_json(&img_for_detect, detector_config)
+        .map_err(|e| RunError::Detection {
+            detector: detector_name.to_string(),
+            path: image_path.to_path_buf(),
+            source: e,
+        })?;
+    // Detected pixels are in the cropped frame; lift them back into
+    // source-image coordinates so the rest of the pipeline (and the
+    // export's `image_manifest`) stays in one consistent coordinate
+    // system.
+    if let Some([x, y, _w, _h]) = roi {
+        let dx = x as f64;
+        let dy = y as f64;
+        for f in detected.iter_mut() {
+            f.image_xy[0] += dx;
+            f.image_xy[1] += dy;
+        }
+    }
+    cache.put(
+        &key,
+        &CachedFeatures {
+            features: detected.clone(),
+        },
+    )?;
+    Ok((detected, false))
+}
+
 fn features_to_view(features: &[Feature]) -> Result<View<NoMeta>, RunError> {
+    Ok(View::without_meta(features_to_obs(features)))
+}
+
+fn features_to_obs(features: &[Feature]) -> CorrespondenceView {
     let mut points_3d = Vec::with_capacity(features.len());
     let mut points_2d = Vec::with_capacity(features.len());
     for f in features {
         points_3d.push(Pt3::new(f.world_xyz[0], f.world_xyz[1], f.world_xyz[2]));
         points_2d.push(Pt2::new(f.image_xy[0], f.image_xy[1]));
     }
-    let cv = CorrespondenceView::new(points_3d, points_2d).expect(
+    CorrespondenceView::new(points_3d, points_2d).expect(
         "Feature vectors are non-empty and equal-length by construction; \
          CorrespondenceView::new only fails on mismatched lengths.",
-    );
-    Ok(View::without_meta(cv))
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration_dataset::{CameraSource, ImagePattern, TargetSpec, Topology};
-    use vision_calibration_detect::FsDetectionCache;
-
-    fn planar_spec_for_globless_test() -> DatasetSpec {
-        DatasetSpec {
-            version: 1,
-            cameras: vec![CameraSource {
-                id: "cam0".into(),
-                images: ImagePattern::List { paths: vec![] },
-                roi_xywh: None,
-            }],
-            target: TargetSpec::Chessboard {
-                rows: 9,
-                cols: 6,
-                square_size_m: 0.025,
-            },
-            robot_poses: None,
-            topology: Topology::PlanarIntrinsics,
-            pose_pairing: None,
-            pose_convention: None,
-            unresolved: vec![],
-            description: None,
-        }
-    }
-
-    #[test]
-    fn rejects_non_planar_topology() {
-        let mut spec = planar_spec_for_globless_test();
-        spec.topology = Topology::RigExtrinsics;
-        spec.cameras.push(CameraSource {
-            id: "cam1".into(),
-            images: ImagePattern::List { paths: vec![] },
-            roi_xywh: None,
-        });
-        let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
-        let err = build_planar_input(&spec, Path::new("/tmp"), &cache, false).unwrap_err();
-        assert!(matches!(err, RunError::UnsupportedTopology { .. }));
-    }
-
-    #[test]
-    fn rejects_unsupported_target() {
-        let mut spec = planar_spec_for_globless_test();
-        spec.target = TargetSpec::Ringgrid {
-            rows: 5,
-            cols: 5,
-            spacing_m: 0.02,
-            inner_radius_m: 0.004,
-            outer_radius_m: 0.008,
-        };
-        spec.cameras[0].images = ImagePattern::Glob {
-            pattern: "*.png".into(),
-        };
-        let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
-        let err = build_planar_input(&spec, Path::new("/tmp"), &cache, false).unwrap_err();
-        assert!(matches!(err, RunError::UnsupportedTarget { .. }));
-    }
 
     #[test]
     fn charuco_target_maps_to_detector_config() {
@@ -549,22 +524,13 @@ mod tests {
     }
 
     #[test]
-    fn empty_image_match_is_actionable() {
-        let mut spec = planar_spec_for_globless_test();
-        spec.cameras[0].images = ImagePattern::Glob {
-            pattern: "**/no_such_pattern_should_match_*.png".into(),
-        };
-        let tmp = tempdir_or_skip();
-        let cache = FsDetectionCache::new(tmp.path().join("cache"));
-        let err = build_planar_input(&spec, tmp.path(), &cache, false).unwrap_err();
-        match err {
-            RunError::EmptyImageMatch { camera_id, .. } => assert_eq!(camera_id, "cam0"),
-            other => panic!("expected EmptyImageMatch, got {other:?}"),
-        }
-    }
-
-    fn tempdir_or_skip() -> tempfile::TempDir {
-        tempfile::tempdir().expect("tempdir")
+    fn natural_sort_orders_numeric_runs() {
+        let mut names = vec!["Im_10.png", "Im_2.png", "Im_1.png", "Im_20.png"];
+        names.sort_by(|a, b| natural_cmp(a, b));
+        assert_eq!(
+            names,
+            vec!["Im_1.png", "Im_2.png", "Im_10.png", "Im_20.png"]
+        );
     }
 
     #[test]

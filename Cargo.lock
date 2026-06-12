@@ -3530,6 +3530,7 @@ dependencies = [
  "glob",
  "image",
  "nalgebra",
+ "regex",
  "schemars",
  "serde",
  "serde_json",
