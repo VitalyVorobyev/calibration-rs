@@ -5,9 +5,9 @@
 //! right `CalibrationSession`, runs detection (cached) + calibration on
 //! a `tauri::async_runtime::spawn_blocking` task, and returns the
 //! export plus run metrics. Supported topologies: `PlanarIntrinsics`,
-//! `ScheimpflugIntrinsics`, `RigExtrinsics`, `RigHandeye`. The laser
-//! topologies await the laser-frame manifest design; `SingleCamHandeye`
-//! follows in B3c-2.
+//! `ScheimpflugIntrinsics`, `SingleCamHandeye`, `RigExtrinsics`,
+//! `RigHandeye`. The laser topologies await the laser-frame manifest
+//! design.
 //!
 //! Per ADR 0019, ambiguity that the runtime cannot auto-resolve is
 //! surfaced as a structured `RunResponse::AskUser` so the Run workspace
@@ -24,6 +24,7 @@ use vision_calibration_dataset::{DatasetSpec, Topology};
 use vision_calibration_detect::FsDetectionCache;
 use vision_calibration_pipeline::dataset_runner::{
     RunError, build_planar_input, build_rig_extrinsics_input, build_rig_handeye_input,
+    build_single_cam_handeye_input,
 };
 use vision_calibration_pipeline::laserline_device::LaserlineDeviceConfig;
 use vision_calibration_pipeline::planar_intrinsics::{
@@ -41,7 +42,10 @@ use vision_calibration_pipeline::scheimpflug_intrinsics::{
     run_calibration as run_scheimpflug_calibration,
 };
 use vision_calibration_pipeline::session::{CalibrationSession, ProblemType};
-use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
+use vision_calibration_pipeline::single_cam_handeye::{
+    SingleCamHandeyeConfig, SingleCamHandeyeProblem,
+    run_calibration as run_single_cam_handeye_calibration,
+};
 
 use crate::export_cache::ExportCache;
 
@@ -196,16 +200,18 @@ fn run_blocking(
             build_rig_handeye_input,
             run_rig_handeye_calibration,
         ),
-        other @ (Topology::SingleCamHandeye
-        | Topology::LaserlineDevice
-        | Topology::RigLaserlineDevice) => RunResponse::Failed {
-            category: "unsupported_topology".into(),
-            message: format!(
-                "topology {other:?} is not wired into the Run workspace yet \
-                 (the laser topologies land with the laser-frame manifest \
-                 design; single_cam_handeye follows in B3c-2)"
-            ),
-        },
+        Topology::SingleCamHandeye => {
+            run_single_cam_handeye_topology(&spec, config_json, base_dir, &detection_cache, started)
+        }
+        other @ (Topology::LaserlineDevice | Topology::RigLaserlineDevice) => {
+            RunResponse::Failed {
+                category: "unsupported_topology".into(),
+                message: format!(
+                    "topology {other:?} is not wired into the Run workspace yet \
+                     (the laser topologies land with the laser-frame manifest design)"
+                ),
+            }
+        }
     }
 }
 
@@ -317,6 +323,48 @@ where
         duration_ms: started.elapsed().as_millis() as u64,
         usable_views: planar_run.usable_views,
         total_views: planar_run.total_views,
+        cache_used,
+    })
+}
+
+fn run_single_cam_handeye_topology(
+    spec: &DatasetSpec,
+    config_json: serde_json::Value,
+    base_dir: &Path,
+    detection_cache: &FsDetectionCache,
+    started: Instant,
+) -> RunResponse {
+    let handeye_run =
+        match build_single_cam_handeye_input(spec, base_dir, detection_cache, false) {
+            Ok(r) => r,
+            Err(e) => return run_error_to_response(e),
+        };
+    let cache_used = handeye_run.usable_views > 0; // refined in B3e with hit/miss counts
+    let usable_views = handeye_run.usable_views;
+    let total_views = handeye_run.total_views;
+
+    let mut export = match run_session::<SingleCamHandeyeProblem>(
+        handeye_run.input,
+        config_json,
+        run_single_cam_handeye_calibration,
+    ) {
+        Ok(v) => v,
+        Err(boxed) => return *boxed,
+    };
+    // Single camera ⇒ the planar manifest shape (pose = kept-view
+    // index, camera = 0) applies directly.
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        planar_image_manifest(&handeye_run.view_paths, base_dir),
+    ) {
+        return *boxed;
+    }
+
+    RunResponse::Ok(RunSuccess {
+        export,
+        duration_ms: started.elapsed().as_millis() as u64,
+        usable_views,
+        total_views,
         cache_used,
     })
 }
@@ -505,11 +553,7 @@ mod tests {
 
     #[test]
     fn unsupported_topologies_name_the_roadmap() {
-        for topology in [
-            "single_cam_handeye",
-            "laserline_device",
-            "rig_laserline_device",
-        ] {
+        for topology in ["laserline_device", "rig_laserline_device"] {
             let manifest = json!({
                 "version": 1,
                 "topology": topology,
@@ -640,5 +684,25 @@ mod tests {
             );
             assert!(s.export["cameras"].is_array(), "rig export has cameras[]");
         }
+    }
+
+    /// End-to-end hand-eye run over the committed `data/kuka_1` dataset
+    /// (30 chessboard views + rowmajor4x4 robot poses). Ignored for
+    /// time, not data availability — kuka_1 ships with the repo.
+    #[test]
+    #[ignore = "full detection + solve takes tens of seconds; run with --ignored"]
+    fn kuka_handeye_end_to_end() {
+        let s = run_local_preset("data/kuka_1/dataset.toml")
+            .expect("data/kuka_1 is committed; the manifest must be present");
+        assert!(s.usable_views >= 20, "kuka_1: {} usable", s.usable_views);
+        assert_eq!(s.total_views, 30);
+        let mean_px = s.export["mean_reproj_error"].as_f64().unwrap();
+        assert!(
+            mean_px < 2.0,
+            "kuka_1 mean reprojection error {mean_px:.3} px (expected ~1.2)"
+        );
+        assert!(s.export["gripper_se3_camera"].is_object(), "eye-in-hand");
+        let frames = s.export["image_manifest"]["frames"].as_array().unwrap();
+        assert_eq!(frames.len(), s.usable_views);
     }
 }

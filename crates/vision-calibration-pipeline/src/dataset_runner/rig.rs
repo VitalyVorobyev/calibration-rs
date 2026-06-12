@@ -13,12 +13,12 @@
 use std::path::{Path, PathBuf};
 
 use vision_calibration_core::{CorrespondenceView, NoMeta, RigDataset, RigView, RigViewObs};
-use vision_calibration_dataset::{DatasetSpec, PosePairing, Topology, validate};
+use vision_calibration_dataset::{DatasetSpec, Topology, validate};
 use vision_calibration_detect::DetectionCache;
 use vision_calibration_optim::RobotPoseMeta;
 
 use super::pairing::pair_views;
-use super::poses::{ParsedPose, load_robot_poses};
+use super::poses::{ParsedPose, load_robot_poses, match_poses_to_tokens};
 use super::{
     RunError, augment_config_with_roi, detect_features, expand_camera_images, features_to_obs,
     pattern_repr, pick_detector, target_to_detector_config,
@@ -206,97 +206,24 @@ fn build_rig_core(
     })
 }
 
-/// Attach one robot pose to every kept view.
+/// Attach one robot pose to every kept view (matching logic shared
+/// with the single-camera hand-eye converter in `poses.rs`).
 fn pair_poses_to_views(
     views: Vec<(RigViewObs, String)>,
     poses: &[ParsedPose],
     spec: &DatasetSpec,
     total_views: usize,
 ) -> Result<Vec<RigView<RobotPoseMeta>>, RunError> {
-    let pairing = spec
-        .pose_pairing
-        .as_ref()
-        .expect("build_rig_core already required pose_pairing");
-
-    match pairing {
-        PosePairing::ByIndex => {
-            // Poses pair with *paired* views (pre-drop): pose[i] belongs
-            // to view token i even when that view was later dropped.
-            if poses.len() != total_views {
-                return Err(RunError::PoseCountMismatch {
-                    poses: poses.len(),
-                    views: total_views,
-                });
-            }
-            views
-                .into_iter()
-                .map(|(obs, token)| {
-                    let index: usize = token
-                        .parse()
-                        .expect("by_index pairing tokens are stringified indices");
-                    Ok(RigView {
-                        obs,
-                        meta: RobotPoseMeta {
-                            base_se3_gripper: poses[index].base_se3_gripper,
-                        },
-                    })
-                })
-                .collect()
-        }
-        PosePairing::SharedFilenameToken { .. } => {
-            // Poses pair by their pose_id column equalling the view token.
-            if spec
-                .robot_poses
-                .as_ref()
-                .is_none_or(|s| s.columns.pose_id.is_none())
-            {
-                return Err(RunError::AskUser {
-                    field: "robot_poses.columns.pose_id".into(),
-                    prompt: "shared_filename_token pairing needs a pose_id column mapping \
-                             so each pose row can be matched to its view token."
-                        .into(),
-                    suggestions: vec![],
-                });
-            }
-            // Collecting straight into a HashMap would silently keep only
-            // the last row for a repeated pose_id, attaching an arbitrary
-            // pose to the matching view. A duplicate id is an ambiguous
-            // manifest, so reject it up front like a missing token.
-            let mut by_id: std::collections::HashMap<&str, &ParsedPose> =
-                std::collections::HashMap::with_capacity(poses.len());
-            for pose in poses {
-                if let Some(id) = pose.id.as_deref()
-                    && by_id.insert(id, pose).is_some()
-                {
-                    return Err(RunError::PairingTokenMismatch {
-                        message: format!(
-                            "duplicate pose_id {id:?} in the robot-pose table; each \
-                             pose_id must be unique so views pair unambiguously"
-                        ),
-                    });
-                }
-            }
-            views
-                .into_iter()
-                .map(|(obs, token)| {
-                    let pose = by_id.get(token.as_str()).ok_or_else(|| {
-                        RunError::PairingTokenMismatch {
-                            message: format!(
-                                "no pose row with pose_id {token:?} (the cameras produced a \
-                                 view with this token)"
-                            ),
-                        }
-                    })?;
-                    Ok(RigView {
-                        obs,
-                        meta: RobotPoseMeta {
-                            base_se3_gripper: pose.base_se3_gripper,
-                        },
-                    })
-                })
-                .collect()
-        }
-    }
+    let tokens: Vec<String> = views.iter().map(|(_, token)| token.clone()).collect();
+    let matched = match_poses_to_tokens(&tokens, poses, spec, total_views)?;
+    Ok(views
+        .into_iter()
+        .zip(matched)
+        .map(|((obs, _token), base_se3_gripper)| RigView {
+            obs,
+            meta: RobotPoseMeta { base_se3_gripper },
+        })
+        .collect())
 }
 
 fn finish<Meta>(
@@ -324,7 +251,7 @@ mod tests {
     use serde_json::json;
     use std::io::Write;
     use vision_calibration_dataset::{
-        CameraSource, ImagePattern, PoseColumnMap, PoseConvention, RobotPoseFormat,
+        CameraSource, ImagePattern, PoseColumnMap, PoseConvention, PosePairing, RobotPoseFormat,
         RobotPoseSource, RotationFormat, TargetSpec, TransformConvention, TranslationUnits,
     };
     use vision_calibration_detect::{CacheKey, CachedFeatures, Feature, FsDetectionCache};
@@ -494,13 +421,13 @@ mod tests {
         spec.robot_poses = Some(RobotPoseSource {
             path: PathBuf::from("poses.csv"),
             format: RobotPoseFormat::Csv,
-            columns: PoseColumnMap {
+            columns: Some(PoseColumnMap {
                 pose_id: None,
                 tx: "tx".into(),
                 ty: "ty".into(),
                 tz: "tz".into(),
                 rotation: vec!["qx".into(), "qy".into(), "qz".into(), "qw".into()],
-            },
+            }),
         });
         spec.pose_convention = Some(PoseConvention {
             transform: TransformConvention::TBaseTcp,
@@ -623,7 +550,7 @@ mod tests {
             group: "view".into(),
         });
         if let Some(rp) = &mut spec.robot_poses {
-            rp.columns.pose_id = Some("view".into());
+            rp.columns.as_mut().unwrap().pose_id = Some("view".into());
         }
         let result = build_rig_handeye_input(&spec, tmp.path(), &cache, false).unwrap();
         assert_eq!(result.dataset.num_views(), 2);
@@ -668,7 +595,7 @@ mod tests {
             group: "view".into(),
         });
         if let Some(rp) = &mut spec.robot_poses {
-            rp.columns.pose_id = Some("view".into());
+            rp.columns.as_mut().unwrap().pose_id = Some("view".into());
         }
         let err = build_rig_handeye_input(&spec, tmp.path(), &cache, false).unwrap_err();
         match err {

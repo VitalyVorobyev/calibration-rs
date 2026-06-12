@@ -1,0 +1,33 @@
+# KUKA single-camera hand-eye dataset (eye-in-hand).
+#
+# 30 chessboard views (`01.png`–`30.png`); `RobotPosesVec.txt` carries
+# one row-major 4×4 `T_base_tcp` homogeneous matrix per line, in
+# metres. Image `NN.png` pairs with pose row `NN` (by_index after
+# natural sort). Board: 17×28 interior corners, 20 mm squares
+# (`squaresize.txt`; mirrors the bench registry entry `kuka_1`).
+
+version = 1
+topology = "single_cam_handeye"
+description = "kuka_1"
+
+[[cameras]]
+id = "cam0"
+images = { kind = "glob", pattern = "*.png" }
+
+[target]
+kind = "chessboard"
+rows = 17
+cols = 28
+square_size_m = 0.02
+
+[robot_poses]
+path = "RobotPosesVec.txt"
+format = "rowmajor4x4"
+
+[pose_pairing]
+kind = "by_index"
+
+[pose_convention]
+transform = "t_base_tcp"
+rotation_format = "matrix4x4_row_major"
+translation_units = "m"

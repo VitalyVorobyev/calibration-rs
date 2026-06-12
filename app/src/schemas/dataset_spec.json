@@ -198,6 +198,11 @@
           "const": "jsonl",
           "description": "JSONL (one JSON object per line).",
           "type": "string"
+        },
+        {
+          "const": "rowmajor4x4",
+          "description": "Headerless text: each non-empty line is 16 whitespace-separated\nfloats forming a row-major 4×4 homogeneous transform (KUKA-style\nexports). Requires `pose_convention.rotation_format =\n\"matrix4x4_row_major\"` and no `columns` mapping.",
+          "type": "string"
         }
       ]
     },
@@ -206,8 +211,15 @@
       "description": "Where and how robot poses are stored on disk.",
       "properties": {
         "columns": {
-          "$ref": "#/$defs/PoseColumnMap",
-          "description": "Column / field mapping from the user's file to the canonical\nfields the converter consumes."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoseColumnMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Column / field mapping from the user's file to the canonical\nfields the converter consumes. Required for the tabular formats\n(`csv` / `json` / `jsonl`); must be absent for `rowmajor4x4`,\nwhose 16-values-per-line layout is fixed."
         },
         "format": {
           "$ref": "#/$defs/RobotPoseFormat",
@@ -220,8 +232,7 @@
       },
       "required": [
         "path",
-        "format",
-        "columns"
+        "format"
       ],
       "type": "object"
     },

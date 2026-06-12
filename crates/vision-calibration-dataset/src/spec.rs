@@ -186,12 +186,15 @@ pub struct RobotPoseSource {
     /// File-format selector.
     pub format: RobotPoseFormat,
     /// Column / field mapping from the user's file to the canonical
-    /// fields the converter consumes.
-    pub columns: PoseColumnMap,
+    /// fields the converter consumes. Required for the tabular formats
+    /// (`csv` / `json` / `jsonl`); must be absent for `rowmajor4x4`,
+    /// whose 16-values-per-line layout is fixed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub columns: Option<PoseColumnMap>,
 }
 
 /// Robot-pose file format.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum RobotPoseFormat {
@@ -201,6 +204,11 @@ pub enum RobotPoseFormat {
     Json,
     /// JSONL (one JSON object per line).
     Jsonl,
+    /// Headerless text: each non-empty line is 16 whitespace-separated
+    /// floats forming a row-major 4×4 homogeneous transform (KUKA-style
+    /// exports). Requires `pose_convention.rotation_format =
+    /// "matrix4x4_row_major"` and no `columns` mapping.
+    Rowmajor4x4,
 }
 
 /// Mapping from user-defined column / field names to the canonical

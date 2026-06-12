@@ -1,7 +1,9 @@
 //! Manifest validation. Catches structural errors that would
 //! otherwise surface as a fail-fast `AskUser` event downstream.
 
-use crate::spec::{DatasetSpec, ImagePattern, RobotPoseSource, RotationFormat, Topology};
+use crate::spec::{
+    DatasetSpec, ImagePattern, RobotPoseFormat, RobotPoseSource, RotationFormat, Topology,
+};
 use thiserror::Error;
 
 /// Validation failure modes.
@@ -56,6 +58,23 @@ pub enum ValidationError {
         got: usize,
         /// How many were expected.
         expected: usize,
+    },
+
+    /// A tabular pose format (csv / json / jsonl) needs a `columns`
+    /// mapping to find the pose fields, but none was given.
+    #[error("pose format {format:?} requires a columns mapping but none was given")]
+    MissingPoseColumns {
+        /// The declared pose-file format.
+        format: RobotPoseFormat,
+    },
+
+    /// The headerless `rowmajor4x4` format has a fixed 16-values-per-line
+    /// layout; a `columns` mapping or a non-matrix rotation format would
+    /// be silently ignored, so both are rejected up front (ADR 0019).
+    #[error("pose format rowmajor4x4 {problem}")]
+    BadMatrixPoseConfig {
+        /// What is inconsistent (human-readable).
+        problem: String,
     },
 
     /// An ROI rectangle has zero width or height.
@@ -162,8 +181,30 @@ fn validate_pose_columns(
         // if `pose_convention` is `None` while `robot_poses` is set.
         return Ok(());
     };
+
+    if robot.format == RobotPoseFormat::Rowmajor4x4 {
+        if robot.columns.is_some() {
+            return Err(ValidationError::BadMatrixPoseConfig {
+                problem: "is headerless (16 values per line); remove the columns mapping".into(),
+            });
+        }
+        if format != RotationFormat::Matrix4x4RowMajor {
+            return Err(ValidationError::BadMatrixPoseConfig {
+                problem: format!(
+                    "requires pose_convention.rotation_format = matrix4x4_row_major, got {format:?}"
+                ),
+            });
+        }
+        return Ok(());
+    }
+
+    let Some(columns) = &robot.columns else {
+        return Err(ValidationError::MissingPoseColumns {
+            format: robot.format,
+        });
+    };
     let expected = expected_rotation_columns(format);
-    let got = robot.columns.rotation.len();
+    let got = columns.rotation.len();
     if got != expected {
         return Err(ValidationError::BadRotationColumnCount {
             format,
@@ -295,14 +336,14 @@ mod tests {
         let robot = RobotPoseSource {
             path: "poses.csv".into(),
             format: RobotPoseFormat::Csv,
-            columns: PoseColumnMap {
+            columns: Some(PoseColumnMap {
                 pose_id: None,
                 tx: "x".into(),
                 ty: "y".into(),
                 tz: "z".into(),
                 // QuatXyzw needs 4 columns; supply 3 to trigger.
                 rotation: vec!["rx".into(), "ry".into(), "rz".into()],
-            },
+            }),
         };
         let convention = PoseConvention {
             transform: TransformConvention::TBaseTcp,
@@ -322,6 +363,86 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    fn handeye_spec_with(robot: RobotPoseSource, rotation_format: RotationFormat) -> DatasetSpec {
+        let mut spec = planar_chessboard_minimal();
+        spec.topology = Topology::SingleCamHandeye;
+        spec.robot_poses = Some(robot);
+        spec.pose_convention = Some(PoseConvention {
+            transform: TransformConvention::TBaseTcp,
+            rotation_format,
+            translation_units: TranslationUnits::M,
+        });
+        spec
+    }
+
+    #[test]
+    fn tabular_format_requires_columns() {
+        let robot = RobotPoseSource {
+            path: "poses.csv".into(),
+            format: RobotPoseFormat::Csv,
+            columns: None,
+        };
+        let err = validate(&handeye_spec_with(robot, RotationFormat::QuatXyzw)).unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::MissingPoseColumns {
+                format: RobotPoseFormat::Csv
+            }
+        ));
+    }
+
+    #[test]
+    fn rowmajor4x4_validates_without_columns() {
+        let robot = RobotPoseSource {
+            path: "RobotPosesVec.txt".into(),
+            format: RobotPoseFormat::Rowmajor4x4,
+            columns: None,
+        };
+        validate(&handeye_spec_with(robot, RotationFormat::Matrix4x4RowMajor)).unwrap();
+    }
+
+    #[test]
+    fn rowmajor4x4_rejects_columns_mapping() {
+        let robot = RobotPoseSource {
+            path: "RobotPosesVec.txt".into(),
+            format: RobotPoseFormat::Rowmajor4x4,
+            columns: Some(PoseColumnMap {
+                pose_id: None,
+                tx: "x".into(),
+                ty: "y".into(),
+                tz: "z".into(),
+                rotation: vec![],
+            }),
+        };
+        let err =
+            validate(&handeye_spec_with(robot, RotationFormat::Matrix4x4RowMajor)).unwrap_err();
+        match err {
+            ValidationError::BadMatrixPoseConfig { problem } => {
+                assert!(problem.contains("columns"), "got: {problem}");
+            }
+            other => panic!("expected BadMatrixPoseConfig, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rowmajor4x4_rejects_non_matrix_rotation_format() {
+        let robot = RobotPoseSource {
+            path: "RobotPosesVec.txt".into(),
+            format: RobotPoseFormat::Rowmajor4x4,
+            columns: None,
+        };
+        let err = validate(&handeye_spec_with(robot, RotationFormat::QuatXyzw)).unwrap_err();
+        match err {
+            ValidationError::BadMatrixPoseConfig { problem } => {
+                assert!(
+                    problem.contains("matrix4x4_row_major"),
+                    "error must name the required format, got: {problem}"
+                );
+            }
+            other => panic!("expected BadMatrixPoseConfig, got {other:?}"),
+        }
     }
 
     #[test]

@@ -10,9 +10,11 @@
 //! - [`build_rig_handeye_input`] — `RigHandeye`
 //!   (`RigDataset<RobotPoseMeta>`, robot poses loaded from the manifest's
 //!   [`RobotPoseSource`](vision_calibration_dataset::RobotPoseSource)).
+//! - [`build_single_cam_handeye_input`] — `SingleCamHandeye`
+//!   (`SingleCamHandeyeInput`, single camera + robot poses).
 //!
 //! The laser topologies (`LaserlineDevice`, `RigLaserlineDevice`) await
-//! the laser-frame manifest design; `SingleCamHandeye` follows in B3c-2.
+//! the laser-frame manifest design.
 //!
 //! Per ADR 0019, any ambiguity that cannot be auto-resolved at
 //! conversion time is surfaced as a [`RunError::AskUser`] event so
@@ -30,11 +32,13 @@ use vision_calibration_detect::{
     Feature, validate_charuco_layout,
 };
 
+mod handeye;
 mod pairing;
 mod planar;
 mod poses;
 mod rig;
 
+pub use handeye::{HandeyeRunResult, build_single_cam_handeye_input};
 pub use pairing::PairedViews;
 pub use planar::{PlanarRunResult, build_planar_input};
 pub use rig::{RigRunResult, build_rig_extrinsics_input, build_rig_handeye_input};

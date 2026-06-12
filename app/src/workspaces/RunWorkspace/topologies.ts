@@ -12,11 +12,13 @@ import planarConfigSchemaJson from "../../schemas/planar_intrinsics_config.json"
 import rigExtrinsicsConfigSchemaJson from "../../schemas/rig_extrinsics_config.json";
 import rigHandeyeConfigSchemaJson from "../../schemas/rig_handeye_config.json";
 import scheimpflugConfigSchemaJson from "../../schemas/scheimpflug_intrinsics_config.json";
+import singleCamHandeyeConfigSchemaJson from "../../schemas/single_cam_handeye_config.json";
 
 // schemars-emitted JSON Schemas; cast through unknown since both shapes
 // are JSON-compatible (our JsonSchema interface is intentionally loose).
 const planarConfigSchema = planarConfigSchemaJson as unknown as JsonSchema;
 const scheimpflugConfigSchema = scheimpflugConfigSchemaJson as unknown as JsonSchema;
+const singleCamHandeyeConfigSchema = singleCamHandeyeConfigSchemaJson as unknown as JsonSchema;
 const rigExtrinsicsConfigSchema = rigExtrinsicsConfigSchemaJson as unknown as JsonSchema;
 const rigHandeyeConfigSchema = rigHandeyeConfigSchemaJson as unknown as JsonSchema;
 
@@ -45,9 +47,8 @@ export const TOPOLOGY_INFO: Record<string, TopologyInfo> = {
   },
   single_cam_handeye: {
     label: "SingleCamHandeye",
-    schema: null,
-    supported: false,
-    unsupportedReason: "SingleCamHandeye lands in B3c-2.",
+    schema: singleCamHandeyeConfigSchema,
+    supported: true,
   },
   laserline_device: {
     label: "LaserlineDevice",
