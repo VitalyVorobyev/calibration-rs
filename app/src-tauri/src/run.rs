@@ -18,7 +18,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use vision_calibration_core::{FrameRef, ImageManifest, PlanarDataset, RigDataset};
+use vision_calibration_core::{FrameKind, FrameRef, ImageManifest, PlanarDataset, RigDataset};
 use vision_calibration_dataset::{DatasetSpec, Topology};
 use vision_calibration_detect::FsDetectionCache;
 use vision_calibration_pipeline::dataset_runner::{
@@ -398,12 +398,12 @@ fn run_laserline_topology(
             Ok(v) => v,
             Err(boxed) => return *boxed,
         };
-    // Single camera ⇒ the planar manifest shape (pose = kept-view
-    // index, camera = 0) over the *target* frames; laser-frame
-    // manifest entries are deferred to B-laser (ADR 0021 §5).
+    // Single camera ⇒ planar manifest shape (pose = kept-view index,
+    // camera = 0) for the target frames, plus the aligned laser frames
+    // (ADR 0021 §5).
     if let Err(boxed) = splice_image_manifest(
         &mut export,
-        planar_image_manifest(&laser_run.view_paths, base_dir),
+        laserline_image_manifest(&laser_run.view_paths, &laser_run.laser_paths, base_dir),
     ) {
         return *boxed;
     }
@@ -438,6 +438,7 @@ fn run_rig_laserline_topology(
     let usable_views = laser_run.usable_views;
     let total_views = laser_run.total_views;
     let view_paths = laser_run.view_paths.clone();
+    let laser_paths = laser_run.laser_paths.clone();
 
     let mut export = match run_session::<RigLaserlineDeviceProblem>(
         laser_run.input,
@@ -447,9 +448,10 @@ fn run_rig_laserline_topology(
         Ok(v) => v,
         Err(boxed) => return *boxed,
     };
-    if let Err(boxed) =
-        splice_image_manifest(&mut export, rig_image_manifest(&view_paths, base_dir))
-    {
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        rig_laserline_image_manifest(&view_paths, &laser_paths, base_dir),
+    ) {
         return *boxed;
     }
 
@@ -519,6 +521,57 @@ fn planar_image_manifest(view_paths: &[PathBuf], base_dir: &Path) -> Result<Imag
     Ok(manifest_from_frames(frames))
 }
 
+/// Single-camera laser manifest: target frames (kind omitted in JSON)
+/// plus one laser frame per kept view (ADR 0021 §5). `view_paths` and
+/// `laser_paths` are aligned by kept-view index.
+fn laserline_image_manifest(
+    view_paths: &[PathBuf],
+    laser_paths: &[PathBuf],
+    base_dir: &Path,
+) -> Result<ImageManifest, String> {
+    let base_abs = canonical_base(base_dir)?;
+    let mut frames = Vec::with_capacity(view_paths.len() + laser_paths.len());
+    for (pose, path) in view_paths.iter().enumerate() {
+        frames.push(frame_ref(pose, 0, path, &base_abs)?);
+    }
+    for (pose, path) in laser_paths.iter().enumerate() {
+        frames.push(frame_ref_of_kind(pose, 0, path, &base_abs, FrameKind::Laser)?);
+    }
+    Ok(manifest_from_frames(frames))
+}
+
+/// Rig laser manifest: target frames plus laser frames per
+/// `(view, camera)` slot that contributed a usable laser observation.
+fn rig_laserline_image_manifest(
+    view_paths: &[Vec<Option<PathBuf>>],
+    laser_paths: &[Vec<Option<PathBuf>>],
+    base_dir: &Path,
+) -> Result<ImageManifest, String> {
+    let base_abs = canonical_base(base_dir)?;
+    let mut frames = Vec::new();
+    for (pose, cameras) in view_paths.iter().enumerate() {
+        for (camera, maybe_path) in cameras.iter().enumerate() {
+            if let Some(path) = maybe_path {
+                frames.push(frame_ref(pose, camera, path, &base_abs)?);
+            }
+        }
+    }
+    for (pose, cameras) in laser_paths.iter().enumerate() {
+        for (camera, maybe_path) in cameras.iter().enumerate() {
+            if let Some(path) = maybe_path {
+                frames.push(frame_ref_of_kind(
+                    pose,
+                    camera,
+                    path,
+                    &base_abs,
+                    FrameKind::Laser,
+                )?);
+            }
+        }
+    }
+    Ok(manifest_from_frames(frames))
+}
+
 /// Build a rig manifest from `view_paths[view][camera]` — one frame
 /// per `(view, camera)` slot that contributed a usable observation.
 fn rig_image_manifest(
@@ -558,6 +611,18 @@ fn frame_ref(pose: usize, camera: usize, path: &Path, base_abs: &Path) -> Result
     frame.pose = pose;
     frame.camera = camera;
     frame.path = rel.to_path_buf();
+    Ok(frame)
+}
+
+fn frame_ref_of_kind(
+    pose: usize,
+    camera: usize,
+    path: &Path,
+    base_abs: &Path,
+    kind: FrameKind,
+) -> Result<FrameRef, String> {
+    let mut frame = frame_ref(pose, camera, path, base_abs)?;
+    frame.kind = kind;
     Ok(frame)
 }
 
@@ -720,6 +785,43 @@ mod tests {
             !manifest.frames.iter().any(|f| f.pose == 1 && f.camera == 1),
             "None slots must not produce frames"
         );
+    }
+
+    #[test]
+    fn laser_manifests_emit_both_frame_kinds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        std::fs::create_dir_all(base.join("cam0")).unwrap();
+        for name in ["cam0/t0.png", "cam0/t1.png", "cam0/l0.png", "cam0/l1.png"] {
+            std::fs::write(base.join(name), b"x").unwrap();
+        }
+
+        // Single-camera: target + laser frames aligned by kept-view index.
+        let manifest = laserline_image_manifest(
+            &[base.join("cam0/t0.png"), base.join("cam0/t1.png")],
+            &[base.join("cam0/l0.png"), base.join("cam0/l1.png")],
+            base,
+        )
+        .unwrap();
+        assert_eq!(manifest.target_frames().count(), 2);
+        assert_eq!(manifest.laser_frames().count(), 2);
+        let laser = manifest.frame_of_kind(1, 0, FrameKind::Laser).unwrap();
+        assert_eq!(laser.path, PathBuf::from("cam0/l1.png"));
+        // `frame()` stays target-only despite the laser entry for (1, 0).
+        assert_eq!(
+            manifest.frame(1, 0).unwrap().path,
+            PathBuf::from("cam0/t1.png")
+        );
+
+        // Rig: None laser slots produce no frames.
+        let manifest = rig_laserline_image_manifest(
+            &[vec![Some(base.join("cam0/t0.png"))]],
+            &[vec![None]],
+            base,
+        )
+        .unwrap();
+        assert_eq!(manifest.laser_frames().count(), 0);
+        assert_eq!(manifest.target_frames().count(), 1);
     }
 
     #[test]

@@ -63,6 +63,34 @@ pub struct ImageManifest {
     pub frames: Vec<FrameRef>,
 }
 
+/// What a frame depicts, distinguishing target images from laser-on images.
+///
+/// Laser problem types capture two images per `(pose, camera)` slot: one of
+/// the calibration target and one with the laser line on. Both can appear in
+/// the same [`ImageManifest`], discriminated by [`FrameRef::kind`]
+/// (ADR 0021 §5).
+///
+/// Serialized in `snake_case`; absent in JSON means [`FrameKind::Target`],
+/// which keeps pre-existing exports byte-stable and forward-readable.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrameKind {
+    /// Image of the calibration target (chessboard / ChArUco / …).
+    #[default]
+    Target,
+    /// Image with the laser line on; residuals of flavor
+    /// `PerFeatureResiduals.laser` plot onto frames of this kind.
+    Laser,
+}
+
+impl FrameKind {
+    /// `true` for [`FrameKind::Target`]. Used as `skip_serializing_if` so the
+    /// default kind never appears in JSON.
+    pub fn is_target(&self) -> bool {
+        *self == FrameKind::Target
+    }
+}
+
 /// Reference to a single image (or sub-image) for one `(pose, camera)`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -85,6 +113,10 @@ pub struct FrameRef {
     /// drawing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub roi: Option<PixelRect>,
+    /// What the frame depicts. Absent in JSON means [`FrameKind::Target`],
+    /// so exports written before ADR 0021 §5 deserialize unchanged.
+    #[serde(default, skip_serializing_if = "FrameKind::is_target")]
+    pub kind: FrameKind,
 }
 
 /// Inclusive-exclusive pixel rectangle: `[x, x+w) × [y, y+h)`.
@@ -102,14 +134,33 @@ pub struct PixelRect {
 }
 
 impl ImageManifest {
-    /// Find the frame for a given `(pose, camera)` pair, if any.
+    /// Find the **target** frame for a given `(pose, camera)` pair, if any.
+    ///
+    /// Equivalent to [`frame_of_kind`](Self::frame_of_kind) with
+    /// [`FrameKind::Target`] — the historical behavior, kept target-only so
+    /// manifests that also carry laser frames stay unambiguous.
+    pub fn frame(&self, pose: usize, camera: usize) -> Option<&FrameRef> {
+        self.frame_of_kind(pose, camera, FrameKind::Target)
+    }
+
+    /// Find the frame of a given kind for a `(pose, camera)` pair, if any.
     ///
     /// Linear scan; first match wins. Returns `None` if the manifest has
-    /// no entry for that slot.
-    pub fn frame(&self, pose: usize, camera: usize) -> Option<&FrameRef> {
+    /// no entry of that kind for that slot.
+    pub fn frame_of_kind(&self, pose: usize, camera: usize, kind: FrameKind) -> Option<&FrameRef> {
         self.frames
             .iter()
-            .find(|f| f.pose == pose && f.camera == camera)
+            .find(|f| f.pose == pose && f.camera == camera && f.kind == kind)
+    }
+
+    /// Iterate over frames of kind [`FrameKind::Target`].
+    pub fn target_frames(&self) -> impl Iterator<Item = &FrameRef> {
+        self.frames.iter().filter(|f| f.kind == FrameKind::Target)
+    }
+
+    /// Iterate over frames of kind [`FrameKind::Laser`].
+    pub fn laser_frames(&self) -> impl Iterator<Item = &FrameRef> {
+        self.frames.iter().filter(|f| f.kind == FrameKind::Laser)
     }
 }
 
@@ -126,6 +177,7 @@ mod tests {
                     camera: 0,
                     path: PathBuf::from("pose_0_cam_0.png"),
                     roi: None,
+                    kind: FrameKind::Target,
                 },
                 FrameRef {
                     pose: 1,
@@ -137,6 +189,7 @@ mod tests {
                         w: 720,
                         h: 540,
                     }),
+                    kind: FrameKind::Target,
                 },
                 FrameRef {
                     pose: 1,
@@ -148,6 +201,14 @@ mod tests {
                         w: 720,
                         h: 540,
                     }),
+                    kind: FrameKind::Target,
+                },
+                FrameRef {
+                    pose: 0,
+                    camera: 0,
+                    path: PathBuf::from("laser_pose_0_cam_0.png"),
+                    roi: None,
+                    kind: FrameKind::Laser,
                 },
             ],
         }
@@ -166,6 +227,69 @@ mod tests {
         let m = sample();
         assert!(m.frame(2, 0).is_none());
         assert!(m.frame(0, 5).is_none());
+    }
+
+    #[test]
+    fn frame_lookup_is_target_only() {
+        let m = sample();
+        // (0, 0) has both a target and a laser frame; `frame()` must return
+        // the target one.
+        assert_eq!(
+            m.frame(0, 0).unwrap().path,
+            PathBuf::from("pose_0_cam_0.png")
+        );
+    }
+
+    #[test]
+    fn frame_of_kind_finds_laser_frame() {
+        let m = sample();
+        let f = m.frame_of_kind(0, 0, FrameKind::Laser).unwrap();
+        assert_eq!(f.path, PathBuf::from("laser_pose_0_cam_0.png"));
+        // No laser frame for pose 1.
+        assert!(m.frame_of_kind(1, 0, FrameKind::Laser).is_none());
+    }
+
+    #[test]
+    fn kind_iterators_partition_frames() {
+        let m = sample();
+        assert_eq!(m.target_frames().count(), 3);
+        assert_eq!(m.laser_frames().count(), 1);
+        assert_eq!(
+            m.target_frames().count() + m.laser_frames().count(),
+            m.frames.len()
+        );
+    }
+
+    #[test]
+    fn kind_serde_back_compat() {
+        // Target kind never appears in JSON.
+        let target = FrameRef {
+            pose: 0,
+            camera: 0,
+            path: PathBuf::from("a.png"),
+            roi: None,
+            kind: FrameKind::Target,
+        };
+        let json = serde_json::to_string(&target).unwrap();
+        assert!(
+            !json.contains("kind"),
+            "default kind must be omitted: {json}"
+        );
+
+        // Laser kind serializes in snake_case and round-trips.
+        let laser = FrameRef {
+            kind: FrameKind::Laser,
+            ..target.clone()
+        };
+        let json = serde_json::to_string(&laser).unwrap();
+        assert!(json.contains("\"kind\":\"laser\""), "got: {json}");
+        let restored: FrameRef = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, laser);
+
+        // Pre-ADR-0021§5 JSON (no `kind` field) deserializes as Target.
+        let legacy: FrameRef =
+            serde_json::from_str(r#"{"pose":3,"camera":1,"path":"b.png"}"#).unwrap();
+        assert_eq!(legacy.kind, FrameKind::Target);
     }
 
     #[test]

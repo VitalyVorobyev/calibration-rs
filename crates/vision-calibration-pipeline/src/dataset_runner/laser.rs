@@ -92,6 +92,10 @@ pub struct RigLaserlineRunResult {
     /// and camera; `None` where the camera contributed no usable
     /// target observation.
     pub view_paths: Vec<Vec<Option<PathBuf>>>,
+    /// `laser_paths[view][camera]` — *laser* image path per kept view
+    /// and camera, aligned with `view_paths`; `None` where the camera
+    /// contributed no usable laser observation.
+    pub laser_paths: Vec<Vec<Option<PathBuf>>>,
     /// Number of kept views (≥1 camera with ≥4 target features).
     pub usable_views: usize,
     /// Total number of paired views attempted.
@@ -282,12 +286,15 @@ pub fn build_rig_laserline_device_input(
         .map(|c| laser_key_config(&laser_spec, c.roi_xywh))
         .collect();
     let mut laser_per_view: Vec<Vec<Option<Vec<Pt2>>>> = Vec::with_capacity(core.views.len());
+    let mut laser_paths: Vec<Vec<Option<PathBuf>>> = Vec::with_capacity(core.views.len());
     let mut per_camera_usable = vec![0usize; num_cameras];
     for (_obs, token) in &core.views {
         let mut slots: Vec<Option<Vec<Pt2>>> = Vec::with_capacity(num_cameras);
+        let mut path_slots: Vec<Option<PathBuf>> = Vec::with_capacity(num_cameras);
         for cam_idx in 0..num_cameras {
             let Some(laser_path) = laser_by_token[cam_idx].get(token) else {
                 slots.push(None);
+                path_slots.push(None);
                 continue;
             };
             let pixels = extract_laser_pixels(
@@ -301,12 +308,15 @@ pub fn build_rig_laserline_device_input(
             )?;
             if pixels.len() < laser_spec.min_points as usize {
                 slots.push(None);
+                path_slots.push(None);
                 continue;
             }
             per_camera_usable[cam_idx] += 1;
             slots.push(Some(pixels));
+            path_slots.push(Some(laser_path.clone()));
         }
         laser_per_view.push(slots);
+        laser_paths.push(path_slots);
     }
     for (cam_idx, usable) in per_camera_usable.iter().enumerate() {
         if *usable == 0 {
@@ -389,6 +399,7 @@ pub fn build_rig_laserline_device_input(
             initial_planes_cam: None,
         },
         view_paths: core.view_paths,
+        laser_paths,
         usable_views,
         total_views: core.total_views,
     })
@@ -1061,6 +1072,15 @@ mod tests {
         let result =
             build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
         assert_eq!((result.usable_views, result.total_views), (3, 3));
+        // Laser image paths are captured per (view, camera), aligned
+        // with view_paths, for the export's image_manifest.
+        assert_eq!(result.laser_paths.len(), 3);
+        assert!(
+            result.laser_paths[2][1]
+                .as_ref()
+                .unwrap()
+                .ends_with("cam1/laser_2.png")
+        );
         let input = &result.input;
         assert_eq!(input.dataset.num_cameras, 2);
         assert_eq!(input.dataset.num_views(), 3);
