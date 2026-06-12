@@ -5,7 +5,7 @@
  * string arrays. Anything outside that subset falls back to a raw JSON
  * textarea so the user is never blocked by a schema feature we haven't
  * polished yet. ~250 LoC; rich array / number-range / file-picker
- * widgets land in B3e.
+ * widgets are future work.
  */
 import { useMemo } from "react";
 

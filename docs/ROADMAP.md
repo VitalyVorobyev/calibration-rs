@@ -19,10 +19,9 @@ lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
   (PR #44), **B3a + B3b (PR #45) SHIPPED**. The `app/` shell hosts four workspaces
   (Diagnose, 3D, Epipolar, Run); the Run workspace covers PlanarIntrinsics +
   chessboard end-to-end. Bench crate + multi-level reprojection report shipped
-  (PR #49). A 2026-06-11 review (see
-  [workspace review](report/2026-06-11-workspace-review.md)) confirmed the
+  (PR #49). A 2026-06-11 workspace review (internal) confirmed the
   extend-don't-rebuild verdict for the app.
-- **New tracks (2026-06-11):** V (real-data validation on the rtv3d datasets),
+- **New tracks (2026-06-11):** V (real-data validation on the private rtv3d dataset),
   O (apex-solver optimization backend), M (camera-model expansion — supersedes the
   former "new camera models out of scope" line).
 - **In-flight PRs:**
@@ -135,27 +134,26 @@ puzzleboard / ringgrid) are supported.
   wire types + an export discriminator tag; `resource_dir`-based
   presets; Vitest unit + Playwright smoke tests.
 
-### Track V — Real-data validation: rtv3d (NEW 2026-06-11, top priority)
+### Track V — Real-data validation: rtv3d (V1–V4 DONE 2026-06-11)
 
-Prove the library functional on the rtv3d sensor — 6 laser-plane-triangulation
-devices (Scheimpflug camera + laser projector), `privatedata/rtv3d_1` (target +
-laser) and `rtv3d_2` (target only). Each ships a legacy-system `artifacts.json`
-oracle to beat (cams 0–4: 1.6–2.8 px reproj, 0.03–0.05 mm plane σ; cam 5 is
-degenerate in the oracle — fx=51, 127 px). Full inventory and oracle schema in
-the [2026-06-11 workspace review](report/2026-06-11-workspace-review.md).
+Prove the library functional on the rtv3d sensor — a private dataset from a
+6-device laser-plane-triangulation head (Scheimpflug camera + laser projector
+per device), with a legacy-system oracle calibration to beat.
 
-- **V1** `rtv3d_rig` example in `examples-private` (clone of
-  `puzzle_130x130_rig`): ChArUco 22×22 detection, EyeInHand
-  `RigHandeye(Scheimpflug)`, oracle comparison tables, empirical 4.8 vs 5.2 mm
-  cell-size resolution. Validate on rtv3d_2 (no laser).
-- **V2** rtv3d_1 full pipeline: + laser detection on the 4 `double_snap` poses,
-  `RigLaserlineDevice`, joint BA; laser-plane comparison vs oracle
-  (origin/xaxis/yaxis → normal+distance conversion).
-- **V3** Beat-the-oracle report (`docs/report/`): per-camera reproj < oracle on
-  cams 0–4; sane cam 5 (fx ∈ [1500, 2500], reproj < 10 px); extrinsics within
-  2° / 5 mm; plane normals within 0.5°, distances within 1 mm, σ < oracle.
-- **V4** Bench registry entries (`registry/private.json`) for both datasets →
-  regression tracking; full RigLaserlineDevice-in-bench as follow-up.
+- **V1 (DONE)** `rtv3d_rig` example in `examples-private`: ChArUco detection,
+  `RigHandeye(Scheimpflug)`, oracle comparison tables. The empirical
+  convention checks settled hand-eye mode (EyeToHand) and cell size.
+- **V2 (DONE)** Full pipeline: laser detection, `RigLaserlineDevice`, joint
+  BA; laser-plane comparison vs the oracle.
+- **V3 (DONE)** Beat-the-oracle validation: all pass criteria met
+  (per-camera reprojection below the oracle, sane recovery of the camera the
+  oracle solved degenerately, plane-fit σ below the oracle on all planes).
+- **V4 (DONE)** Bench registry entry (`registry/private.json`, local-only) →
+  regression tracking.
+- **V5** Full `RigLaserlineDevice` + joint-BA runner in the bench (today the
+  bench only profiles laser extraction).
+- **V6** Settle the dataset's absolute scale against the head's mechanical
+  camera spacing.
 
 ### Track O — Optimization backends (NEW 2026-06-11)
 
@@ -169,20 +167,19 @@ support), behind an `apex-solver` cargo feature in `vision-calibration-optim`.
   our `[qx,qy,qz,qw,tx,ty,tz]` (round-trip unit test), S2 manifold availability
   (fallback: R3 + renormalize), robust-loss coverage.
 - **O2** Backend A/B in bench: param parity < 1e-4 on synthetic IR, final cost
-  within 0.1 % on bench datasets, timing comparison on rtv3d_1.
+  within 0.1 % on bench datasets, timing comparison on rtv3d.
 - **O3** Drop the `BackendKind::Ceres` stub.
 
 ### Track M — Camera-model expansion (NEW 2026-06-11)
 
 Supersedes the former "new camera models out of scope" rule — all four models
-below are user-requested. Gated on M0: the `FactorKind` IR currently enumerates
-projection × distortion × sensor × chain combinations, so new models multiply
-variants (workspace review finding F1).
+below are user-requested. Gated on M0: the `FactorKind` IR used to enumerate
+projection × distortion × sensor × chain combinations, so new models would
+have multiplied variants.
 
 - **M0** Factor generification: one reprojection-factor family per *chain*,
-  camera model as data (seed: the dyn-safe `CameraProject` trait in core). Also
-  resolves the `PinholeCamera`-typed residual helper (finding F3) and unblocks
-  pinhole rig laserline (finding F4).
+  camera model as data. Also folds the export-path residual helper into the
+  generic `CameraProject` path and unblocks pinhole rig laserline.
 - **M1** Rational distortion k4–k6 (distortion slot only; OpenCV rational model).
 - **M2** Thin-prism s1–s4 (composes with Scheimpflug; metrology lenses).
 - **M3** Division model (cheap, invertible; self-calibration friendly).

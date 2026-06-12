@@ -1,6 +1,6 @@
 //! Planar intrinsics calibration with synthesized PNGs + image manifest.
 //!
-//! Source of truth for the v0 diagnose-UI fixture (Track B / ADR 0014).
+//! Source of truth for the diagnose-UI fixture (ADR 0014).
 //! All generation logic lives in [`synthetic_images`] so the regression
 //! test (`tests/planar_synthetic_with_images.rs`) can call the same
 //! function with a tempdir and assert on the output without spawning a

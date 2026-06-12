@@ -1,4 +1,4 @@
-//! End-to-end proof that ADR 0011 manual init (PR #32) works on real data.
+//! End-to-end proof that ADR 0011 manual init works on real data.
 //!
 //! Loads `data/stereo_charuco/`, then runs the rig-extrinsics pipeline three
 //! ways and compares results:

@@ -457,7 +457,7 @@ mod tests {
 
     #[test]
     fn export_uses_scheimpflug_sensor_for_target_residuals() {
-        // Regression test for Codex P1 on PR #33: target reprojection
+        // Regression test: target reprojection
         // residuals must use the calibrated Scheimpflug sensor, not a plain
         // pinhole. The setup constructs ground-truth pixels with a non-zero
         // Scheimpflug tilt; if the export rebuilds a sensor-less PinholeCamera

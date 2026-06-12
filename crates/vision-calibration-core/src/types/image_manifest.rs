@@ -1,7 +1,7 @@
-//! Per-export image manifest for the diagnose UI (Track B / ADR 0014).
+//! Per-export image manifest for the diagnose UI (ADR 0014).
 //!
 //! `ImageManifest` is an optional addition to selected `*Export` types that
-//! lets a downstream viewer (the planned Tauri/React diagnose UI; ad-hoc
+//! lets a downstream viewer (the Tauri/React diagnose UI; ad-hoc
 //! viewers; CI screenshot tools) locate the source image for each
 //! `(pose, camera)` slot referenced by [`PerFeatureResiduals`].
 //!

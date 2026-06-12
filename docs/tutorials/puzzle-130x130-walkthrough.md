@@ -176,4 +176,4 @@ stack.
   workspace is split into `core` / `linear` / `optim` / `pipeline` /
   facade.
 - [Roadmap](../ROADMAP.md) — where the puzzle rig sits in the broader
-  4-track plan.
+  plan.

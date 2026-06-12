@@ -1,4 +1,4 @@
-/** Run workspace (B3b redesign).
+/** Run workspace.
  *
  * Information architecture (approved plan):
  *   1. Header strip — title, active topology/detector subtitle, Run button.
@@ -154,7 +154,7 @@ export function RunWorkspace() {
       setManifestPath(preset.manifestPath);
       setManifest(parsed);
       // Reset config to defaults when switching presets (the config is
-      // topology-specific; PlanarIntrinsics is the only one in B3b).
+      // topology-specific; PlanarIntrinsics is the only one wired up today).
       setConfig(DEFAULT_PLANAR_CONFIG);
       setActivePresetId(preset.id);
       setGridExpanded(false);
