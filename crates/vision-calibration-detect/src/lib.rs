@@ -38,7 +38,7 @@ pub use cache::{
 pub use feature::Feature;
 
 #[cfg(feature = "charuco")]
-pub use charuco::{CharucoConfig, CharucoDetector, validate_dictionary};
+pub use charuco::{CharucoConfig, CharucoDetector, validate_charuco_layout, validate_dictionary};
 #[cfg(feature = "chessboard")]
 pub use chessboard::{ChessboardConfig, ChessboardDetector};
 

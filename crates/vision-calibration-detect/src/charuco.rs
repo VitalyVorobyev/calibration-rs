@@ -13,7 +13,8 @@
 use anyhow::{Result, anyhow};
 use calib_targets::aruco::builtins;
 use calib_targets::charuco::{
-    CharucoBoardSpec, CharucoDetector as CtCharucoDetector, CharucoParams, MarkerLayout,
+    CharucoBoard, CharucoBoardSpec, CharucoDetector as CtCharucoDetector, CharucoParams,
+    MarkerLayout,
 };
 use calib_targets::detect::{self, default_chess_config};
 use serde::{Deserialize, Serialize};
@@ -62,8 +63,38 @@ pub fn validate_dictionary(name: &str) -> Result<()> {
     }
 }
 
+/// Validate a full ChArUco board layout before any image I/O: the
+/// dictionary name must be known *and* hold enough marker codes for the
+/// requested `rows × cols` OpenCV layout. A larger board needs more
+/// markers (e.g. a 12×12 board needs 72, which `DICT_4X4_50` cannot
+/// supply), so validating the name alone is not enough — that lets an
+/// impossible board reach detection with a guaranteed-empty result. This
+/// subsumes [`validate_dictionary`]: an unknown name fails here too.
+/// Geometry (square/marker size) is checked separately by the detector.
+pub fn validate_charuco_layout(rows: u32, cols: u32, dictionary: &str) -> Result<()> {
+    let dictionary = builtins::builtin_dictionary(dictionary).ok_or_else(|| {
+        anyhow!(
+            "unknown ArUco dictionary {dictionary:?}; supported: {}",
+            builtins::BUILTIN_DICTIONARY_NAMES.join(", ")
+        )
+    })?;
+    // Unit geometry: `CharucoBoard::new` only inspects rows/cols and the
+    // dictionary capacity here; cell/marker size are placeholders.
+    let spec = CharucoBoardSpec {
+        rows,
+        cols,
+        cell_size: 1.0,
+        marker_size_rel: 0.5,
+        dictionary,
+        marker_layout: MarkerLayout::OpenCvCharuco,
+    };
+    CharucoBoard::new(spec)
+        .map(|_| ())
+        .map_err(|e| anyhow!("invalid charuco board: {e}"))
+}
+
 fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams> {
-    validate_dictionary(&cfg.dictionary)?;
+    validate_charuco_layout(cfg.rows, cfg.cols, &cfg.dictionary)?;
     let dictionary = builtins::builtin_dictionary(&cfg.dictionary)
         .expect("validated above; builtin lookup is deterministic");
     if !(cfg.marker_size_m > 0.0 && cfg.marker_size_m <= cfg.square_size_m) {
@@ -202,6 +233,27 @@ mod tests {
             msg.contains("unknown ArUco dictionary") && msg.contains("DICT_4X4_50"),
             "error should name the bad dictionary and list supported ones, got: {msg}"
         );
+    }
+
+    #[test]
+    fn dictionary_too_small_for_board_rejected() {
+        // 12×12 needs 72 markers; DICT_4X4_50 only has 50.
+        assert!(validate_charuco_layout(8, 8, "DICT_4X4_50").is_ok());
+        let err = validate_charuco_layout(12, 12, "DICT_4X4_50").unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("72") && msg.contains("50"),
+            "expected a needs-72/has-50 capacity error, got: {msg}"
+        );
+
+        // The detector itself must also reject the impossible board
+        // rather than silently returning no features.
+        let img = image::DynamicImage::new_luma8(64, 64);
+        let mut cfg = board_config();
+        cfg["rows"] = json!(12);
+        cfg["cols"] = json!(12);
+        let err = CharucoDetector.detect_json(&img, &cfg).unwrap_err();
+        assert!(format!("{err}").contains("charuco board"));
     }
 
     #[test]

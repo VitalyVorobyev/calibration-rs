@@ -21,7 +21,7 @@ use vision_calibration_dataset::{
 };
 use vision_calibration_detect::{
     CacheKey, CachedFeatures, CharucoDetector, ChessboardDetector, DetectionCache, Detector,
-    Feature, validate_dictionary,
+    Feature, validate_charuco_layout,
 };
 
 /// Errors produced by the dataset-driven runner.
@@ -314,9 +314,13 @@ fn target_to_detector_config(target: &TargetSpec) -> Result<(&'static str, Value
             marker_size_m,
             dictionary,
         } => {
-            // Fail fast on a manifest typo before touching the filesystem.
-            validate_dictionary(dictionary).map_err(|e| RunError::InvalidTargetConfig {
-                message: e.to_string(),
+            // Fail fast before touching the filesystem on a manifest typo
+            // (unknown dictionary) or an impossible board whose layout
+            // needs more markers than the dictionary holds.
+            validate_charuco_layout(*rows, *cols, dictionary).map_err(|e| {
+                RunError::InvalidTargetConfig {
+                    message: e.to_string(),
+                }
             })?;
             Ok((
                 "charuco",
@@ -483,16 +487,18 @@ mod tests {
 
     #[test]
     fn charuco_target_maps_to_detector_config() {
+        // 12×12 needs 72 markers, so the dictionary must hold at least
+        // that many (DICT_4X4_50 would be rejected — see the capacity test).
         let target = TargetSpec::Charuco {
             rows: 12,
             cols: 12,
             square_size_m: 0.020,
             marker_size_m: 0.015,
-            dictionary: "DICT_4X4_50".into(),
+            dictionary: "DICT_4X4_100".into(),
         };
         let (name, config) = target_to_detector_config(&target).unwrap();
         assert_eq!(name, "charuco");
-        assert_eq!(config["dictionary"], "DICT_4X4_50");
+        assert_eq!(config["dictionary"], "DICT_4X4_100");
         assert_eq!(config["marker_size_m"], 0.015);
         // The mapped config must deserialize into the detector's own
         // config struct — guards the field-name contract between the
@@ -513,6 +519,30 @@ mod tests {
         match err {
             RunError::InvalidTargetConfig { message } => {
                 assert!(message.contains("DICT_TYPO_99"), "got: {message}");
+            }
+            other => panic!("expected InvalidTargetConfig, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn charuco_dictionary_too_small_for_board_fails_before_io() {
+        // A 12×12 board needs 72 markers in the OpenCV layout; DICT_4X4_50
+        // only holds 50, so the manifest is impossible and must be
+        // rejected up front rather than reaching a guaranteed-empty detect.
+        let target = TargetSpec::Charuco {
+            rows: 12,
+            cols: 12,
+            square_size_m: 0.020,
+            marker_size_m: 0.015,
+            dictionary: "DICT_4X4_50".into(),
+        };
+        let err = target_to_detector_config(&target).unwrap_err();
+        match err {
+            RunError::InvalidTargetConfig { message } => {
+                assert!(
+                    message.contains("72") && message.contains("50"),
+                    "expected a needs-72/has-50 capacity error, got: {message}"
+                );
             }
             other => panic!("expected InvalidTargetConfig, got {other:?}"),
         }
