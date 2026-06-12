@@ -144,20 +144,18 @@ mod backend;
 mod error;
 mod factors;
 mod ir;
-mod math;
 mod params;
 mod problems;
 
 pub use error::Error;
-
-pub use math::*;
 
 pub use crate::backend::{
     BackendKind, BackendSolution, BackendSolveOptions, SolveReport, solve_with_backend,
 };
 
 pub use crate::ir::{
-    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
+    CameraModelDesc, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind,
+    ParamSlotSpec, ProblemIR, ProjectionKind, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
 };
 
 pub use crate::params::distortion::{DISTORTION_DIM, pack_distortion};

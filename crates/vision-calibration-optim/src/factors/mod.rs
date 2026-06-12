@@ -39,5 +39,6 @@
 //! - [`reprojection_model`] - Pinhole camera reprojection with optional Brown-Conrady distortion
 //! - [`laserline`] - Laser plane residuals for laserline calibration
 
+pub(crate) mod camera_kernels;
 pub mod laserline;
 pub mod reprojection_model;

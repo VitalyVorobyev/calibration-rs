@@ -1,4 +1,4 @@
-//! Run a calibration problem end-to-end and return a [`BenchRecord`] with
+//! Run a calibration problem end-to-end and return a [`crate::record::BenchRecord`] with
 //! captured metrics.
 //!
 //! Tier-A would replay a frozen fixture through the math/serde path; that lands

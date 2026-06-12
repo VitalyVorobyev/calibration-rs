@@ -228,3 +228,73 @@ fn json_roundtrip_for_config() {
     let json = serde_json::to_string(&config).unwrap();
     let _: RigLaserlineDeviceConfig = serde_json::from_str(&json).unwrap();
 }
+
+/// A pinhole rig hand-eye export (`sensors == None`) converts to an upstream
+/// calibration with zero-tilt sensors, and the full rig laserline pipeline
+/// converges on it: zero Scheimpflug tilt is exactly the identity sensor and
+/// the laser bundle freezes sensor parameters.
+#[test]
+fn pinhole_upstream_converges_rig_laserline() {
+    use vision_calibration_core::PerFeatureResiduals;
+    use vision_calibration_optim::HandEyeMode;
+    use vision_calibration_pipeline::rig_handeye::RigHandeyeExport;
+
+    let (dataset, upstream, planes_rig_gt) = make_dataset();
+
+    // Rebuild the same upstream through a pinhole RigHandeyeExport.
+    // The export type is #[non_exhaustive]; construct it through serde like a
+    // downstream consumer loading a stored pinhole export would.
+    let cameras: Vec<_> = upstream
+        .intrinsics
+        .iter()
+        .zip(&upstream.distortion)
+        .map(|(k, dist)| vision_calibration_core::make_pinhole_camera(*k, *dist))
+        .collect();
+    let export: RigHandeyeExport = serde_json::from_value(serde_json::json!({
+        "cameras": cameras,
+        "sensors": null, // pinhole rig
+        "cam_se3_rig": upstream.cam_se3_rig,
+        "rig_se3_target": upstream.rig_se3_target,
+        "handeye_mode": HandEyeMode::EyeInHand,
+        "gripper_se3_rig": Isometry3::<f64>::identity(),
+        "rig_se3_base": null,
+        "base_se3_target": Isometry3::<f64>::identity(),
+        "gripper_se3_target": null,
+        "robot_deltas": null,
+        "mean_reproj_error": 0.0,
+        "per_cam_reproj_errors": [0.0, 0.0],
+        "per_feature_residuals": PerFeatureResiduals::default(),
+    }))
+    .expect("synthesize pinhole export");
+
+    let converted = export
+        .to_upstream_calibration(upstream.rig_se3_target.clone())
+        .expect("pinhole export must convert");
+    assert_eq!(converted.sensors.len(), 2);
+    for sensor in &converted.sensors {
+        assert_eq!(sensor.tilt_x, 0.0);
+        assert_eq!(sensor.tilt_y, 0.0);
+    }
+
+    let input = RigLaserlineDeviceInput {
+        dataset,
+        upstream: converted,
+        initial_planes_cam: None,
+    };
+    let mut session = CalibrationSession::<RigLaserlineDeviceProblem>::new();
+    session.set_input(input).unwrap();
+    run_calibration(&mut session).unwrap();
+    let result = session.export().unwrap();
+
+    for (cam_idx, (gt, got)) in planes_rig_gt
+        .iter()
+        .zip(&result.laser_planes_rig)
+        .enumerate()
+    {
+        let n_dot = gt.normal.dot(&got.normal);
+        let ang = n_dot.abs().min(1.0).acos();
+        let d_err = (gt.distance - got.distance).abs();
+        assert!(ang < 0.01, "cam{cam_idx} normal error {ang:.4} rad");
+        assert!(d_err < 0.01, "cam{cam_idx} distance error {d_err:.4}");
+    }
+}

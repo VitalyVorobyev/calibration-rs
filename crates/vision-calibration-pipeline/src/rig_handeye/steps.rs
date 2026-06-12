@@ -1354,7 +1354,7 @@ mod tests {
 
     #[test]
     fn step_set_handeye_init_eye_to_hand_recovers_target_on_gripper() {
-        // Regression test for Codex P1 on PR #32: in EyeToHand mode the
+        // Regression test: in EyeToHand mode the
         // auto-derive of `mode_target_pose` from a manual `handeye` seed must
         // use `handeye.inverse()`, since `handeye = T_R_B` and the chain is
         // T_R_T = T_R_B * T_B_G * T_G_T, so T_G_T = T_B_G^-1 * T_R_B^-1 * T_R_T.

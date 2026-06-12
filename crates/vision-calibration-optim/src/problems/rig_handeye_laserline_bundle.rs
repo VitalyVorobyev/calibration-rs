@@ -20,7 +20,8 @@
 use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
 use crate::ir::{
-    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
+    CameraModelDesc, FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind, ProblemIR,
+    ReprojChain, ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
@@ -447,11 +448,10 @@ fn compute_stats(
     params: &RigHandeyeLaserlineParams,
     robot_deltas: Option<&[[Real; 6]]>,
 ) -> (f64, Vec<RigHandeyeLaserlinePerCamStats>) {
+    use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
     use crate::factors::laserline::{
-        laser_line_dist_normalized_rig_handeye_residual_generic,
-        laser_plane_pixel_rig_handeye_residual_generic,
+        laser_line_distance_model_generic, laser_point_to_plane_model_generic,
     };
-    use crate::factors::reprojection_model::RobotPoseData;
 
     let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCySkew<Real>>> = params
         .cameras
@@ -551,38 +551,32 @@ fn compute_stats(
         // this is independent of which one was used as the cost.
         for (cam_idx, laser_slot) in view.obs.laser_pixels.iter().enumerate() {
             let Some(pixels) = laser_slot else { continue };
-            let robot_data = RobotPoseData {
-                robot_se3: robot_arr,
+            let chain = LaserChain::RigHandEye {
+                base_se3_gripper: robot_arr,
                 mode: dataset.mode,
             };
+            let chain_params = [
+                intr_dvecs[cam_idx].clone(),
+                dist_dvecs[cam_idx].clone(),
+                sensor_dvecs[cam_idx].clone(),
+                extr_dvecs[cam_idx].clone(),
+                handeye_dv.clone(),
+                target_ref_dv.clone(),
+                plane_n_dvecs[cam_idx].clone(),
+                plane_d_dvecs[cam_idx].clone(),
+            ];
             for px in pixels {
                 let laser_px = [px.x, px.y];
-                let r_m = laser_plane_pixel_rig_handeye_residual_generic::<f64>(
-                    intr_dvecs[cam_idx].as_view(),
-                    dist_dvecs[cam_idx].as_view(),
-                    sensor_dvecs[cam_idx].as_view(),
-                    extr_dvecs[cam_idx].as_view(),
-                    handeye_dv.as_view(),
-                    target_ref_dv.as_view(),
-                    plane_n_dvecs[cam_idx].as_view(),
-                    plane_d_dvecs[cam_idx].as_view(),
-                    robot_data,
-                    laser_px,
-                    1.0,
-                );
-                let r_px = laser_line_dist_normalized_rig_handeye_residual_generic::<f64>(
-                    intr_dvecs[cam_idx].as_view(),
-                    dist_dvecs[cam_idx].as_view(),
-                    sensor_dvecs[cam_idx].as_view(),
-                    extr_dvecs[cam_idx].as_view(),
-                    handeye_dv.as_view(),
-                    target_ref_dv.as_view(),
-                    plane_n_dvecs[cam_idx].as_view(),
-                    plane_d_dvecs[cam_idx].as_view(),
-                    robot_data,
-                    laser_px,
-                    1.0,
-                );
+                let r_m = laser_point_to_plane_model_generic::<
+                    BrownConrady5Kernel,
+                    Scheimpflug2Kernel,
+                    f64,
+                >(&chain, &chain_params, laser_px, 1.0);
+                let r_px = laser_line_distance_model_generic::<
+                    BrownConrady5Kernel,
+                    Scheimpflug2Kernel,
+                    f64,
+                >(&chain, &chain_params, laser_px, 1.0);
                 let m = r_m[0];
                 let p = r_px[0];
                 if m.is_finite() && p.is_finite() && m.abs() < 1e5 && p.abs() < 1e5 {
@@ -905,14 +899,16 @@ fn build_ir(
                                 robot_delta_id,
                             ],
                             loss: opts.calib_loss,
-                            factor:
-                                FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta {
-                                    pw: [pw.x, pw.y, pw.z],
-                                    uv: [uv.x, uv.y],
-                                    w: obs.weight(pt_idx) * opts.calib_weight,
-                                    base_to_gripper_se3: robot_arr,
+                            factor: FactorKind::ReprojPoint {
+                                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                                chain: ReprojChain::HandEyeRobotDelta {
+                                    base_se3_gripper: robot_arr,
                                     mode: dataset.mode,
                                 },
+                                pw: [pw.x, pw.y, pw.z],
+                                uv: [uv.x, uv.y],
+                                w: obs.weight(pt_idx) * opts.calib_weight,
+                            },
                             residual_dim: 2,
                         }
                     } else {
@@ -926,12 +922,15 @@ fn build_ir(
                                 target_ref_id,
                             ],
                             loss: opts.calib_loss,
-                            factor: FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEye {
+                            factor: FactorKind::ReprojPoint {
+                                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                                chain: ReprojChain::HandEye {
+                                    base_se3_gripper: robot_arr,
+                                    mode: dataset.mode,
+                                },
                                 pw: [pw.x, pw.y, pw.z],
                                 uv: [uv.x, uv.y],
                                 w: obs.weight(pt_idx) * opts.calib_weight,
-                                base_to_gripper_se3: robot_arr,
-                                mode: dataset.mode,
                             },
                             residual_dim: 2,
                         }
@@ -944,36 +943,29 @@ fn build_ir(
             if let Some(pixels) = pixels_slot {
                 for px in pixels {
                     let laser_px = [px.x, px.y];
+                    let chain = if robot_delta_id.is_some() {
+                        LaserChain::RigHandEyeRobotDelta {
+                            base_se3_gripper: robot_arr,
+                            mode: dataset.mode,
+                        }
+                    } else {
+                        LaserChain::RigHandEye {
+                            base_se3_gripper: robot_arr,
+                            mode: dataset.mode,
+                        }
+                    };
                     let factor = match opts.laser_residual_type {
-                        LaserlineResidualType::PointToPlane if robot_delta_id.is_some() => {
-                            FactorKind::LaserPlanePixelRigHandEyeRobotDelta {
-                                laser_pixel: laser_px,
-                                robot_se3: robot_arr,
-                                mode: dataset.mode,
-                                w: opts.laser_weight,
-                            }
-                        }
-                        LaserlineResidualType::PointToPlane => {
-                            FactorKind::LaserPlanePixelRigHandEye {
-                                laser_pixel: laser_px,
-                                robot_se3: robot_arr,
-                                mode: dataset.mode,
-                                w: opts.laser_weight,
-                            }
-                        }
-                        LaserlineResidualType::LineDistNormalized if robot_delta_id.is_some() => {
-                            FactorKind::LaserLineDist2DRigHandEyeRobotDelta {
-                                laser_pixel: laser_px,
-                                robot_se3: robot_arr,
-                                mode: dataset.mode,
-                                w: opts.laser_weight,
-                            }
-                        }
+                        LaserlineResidualType::PointToPlane => FactorKind::LaserPointToPlane {
+                            model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                            chain,
+                            laser_pixel: laser_px,
+                            w: opts.laser_weight,
+                        },
                         LaserlineResidualType::LineDistNormalized => {
-                            FactorKind::LaserLineDist2DRigHandEye {
+                            FactorKind::LaserLineDistance {
+                                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                                chain,
                                 laser_pixel: laser_px,
-                                robot_se3: robot_arr,
-                                mode: dataset.mode,
                                 w: opts.laser_weight,
                             }
                         }

@@ -65,7 +65,7 @@ Joint non-linear optimization of all parameters:
 - `"handeye"` (7D, SE3): gripper-to-camera transform
 - `"target"` (7D, SE3): base-to-target transform
 
-**Residual blocks**: `ReprojPointPinhole4Dist5HandEye` per observation.
+**Residual blocks**: one `ReprojPoint { model: PINHOLE4_DIST5, chain: HandEye { .. }, .. }` per observation.
 
 The robot poses are **not optimized** — they are known constants from the robot kinematics (passed as per-residual data).
 

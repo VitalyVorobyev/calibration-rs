@@ -95,64 +95,81 @@ The `params` vector references `ParamBlock`s by their `ParamId`. The ordering mu
 
 ## FactorKind
 
-An enum of all supported residual computations:
+A factor is one of four residual families. The camera model and pose chain
+are **data** carried by the factor, not separate enum variants:
 
 ```rust
 pub enum FactorKind {
-    // Reprojection factors — all carry per-observation data
-    ReprojPointPinhole4 { pw: [f64; 3], uv: [f64; 2], w: f64 },
-    ReprojPointPinhole4Dist5 { pw: [f64; 3], uv: [f64; 2], w: f64 },
-    ReprojPointPinhole4Dist5Scheimpflug2 { pw: [f64; 3], uv: [f64; 2], w: f64 },
-    ReprojPointPinhole4Dist5TwoSE3 { pw: [f64; 3], uv: [f64; 2], w: f64 },
-    ReprojPointPinhole4Dist5HandEye {
+    /// 2D pixel reprojection residual.
+    ReprojPoint {
+        model: CameraModelDesc,
+        chain: ReprojChain,
         pw: [f64; 3], uv: [f64; 2], w: f64,
-        base_to_gripper_se3: [f64; 7], mode: HandEyeMode,
     },
-    ReprojPointPinhole4Dist5HandEyeRobotDelta {
-        pw: [f64; 3], uv: [f64; 2], w: f64,
-        base_to_gripper_se3: [f64; 7], mode: HandEyeMode,
+    /// 1D point-to-plane laser residual (meters).
+    LaserPointToPlane {
+        model: CameraModelDesc,
+        chain: LaserChain,
+        laser_pixel: [f64; 2], w: f64,
     },
-
-    // Laser factors
-    LaserPlanePixel { laser_pixel: [f64; 2], w: f64 },
-    LaserLineDist2D { laser_pixel: [f64; 2], w: f64 },
-
-    // Prior factors
+    /// 1D line-distance laser residual (pixels).
+    LaserLineDistance {
+        model: CameraModelDesc,
+        chain: LaserChain,
+        laser_pixel: [f64; 2], w: f64,
+    },
+    /// Zero-mean prior on a 6D se(3) tangent block.
     Se3TangentPrior { sqrt_info: [f64; 6] },
 }
 ```
 
-Each variant carries the **per-residual data** (3D point coordinates, observed pixel, weight, etc.) that is not part of the optimizable parameters. The factor also specifies which parameter blocks it expects and validates their dimensions.
+Each factor also carries the **per-residual data** (3D point coordinates,
+observed pixel, weight, measured robot pose, …) that is not part of the
+optimizable parameters.
 
-### Reprojection Factors
+### Camera model as data
 
-All reprojection factors compute the pixel residual:
+```rust
+pub struct CameraModelDesc {
+    pub projection: ProjectionKind, // Pinhole               → intrinsics (dim 4)
+    pub distortion: DistortionKind, // None | BrownConrady5  → dim 0 | 5
+    pub sensor: SensorKind,         // None | Scheimpflug2   → dim 0 | 2
+}
+```
 
-$$\mathbf{r} = \pi(\boldsymbol{\theta}, \mathbf{P}) - \mathbf{p}_{\text{obs}}$$
+A slot with dimension 0 contributes no parameter block. The backend maps the
+descriptor to zero-sized kernel types and monomorphizes the residual over
+them once per factor — autodiff stays generic over the scalar type with no
+per-evaluation model dispatch. Adding a camera model later (rational
+distortion, thin-prism, division, fisheye projection) adds a descriptor
+variant + kernel + one dispatch row; no new factor kinds.
 
-The variants differ in which parameters are involved:
+### Chains as data
 
-| Factor | Parameters | Residual dim |
-|--------|-----------|-------------|
-| `ReprojPointPinhole4` | [intrinsics, pose] | 2 |
-| `ReprojPointPinhole4Dist5` | [intrinsics, distortion, pose] | 2 |
-| `ReprojPointPinhole4Dist5Scheimpflug2` | [intrinsics, distortion, sensor, pose] | 2 |
-| `ReprojPointPinhole4Dist5TwoSE3` | [intrinsics, distortion, extrinsics, rig_pose] | 2 |
-| `ReprojPointPinhole4Dist5HandEye` | [intrinsics, distortion, extrinsics, handeye, target_pose] | 2 |
-| `ReprojPointPinhole4Dist5HandEyeRobotDelta` | [intrinsics, distortion, extrinsics, handeye, target_pose, robot_delta] | 2 |
+`ReprojChain` selects the pose chain and the trailing parameter blocks:
 
-### Laser Factors
+| Chain | Chain blocks | Transform |
+|-------|-------------|-----------|
+| `SinglePose` | [pose] | $P_c = T \cdot P_w$ |
+| `TwoSe3` | [extrinsics, pose] | $P_c = T_{extr}^{-1} T_{pose} P_w$ |
+| `HandEye { base_se3_gripper, mode }` | [extrinsics, handeye, target] | mode-dependent hand-eye chain |
+| `HandEyeRobotDelta { … }` | [extrinsics, handeye, target, robot_delta] | hand-eye + per-view se(3) correction |
 
-| Factor | Parameters | Residual dim | Description |
-|--------|-----------|-------------|-------------|
-| `LaserPlanePixel` | [intrinsics, distortion, pose, plane] | 1 | Point-to-plane 3D distance |
-| `LaserLineDist2D` | [intrinsics, distortion, pose, plane] | 1 | Line distance in normalized plane |
+`LaserChain` mirrors this for the laser families (`SinglePose`,
+`RigHandEye`, `RigHandEyeRobotDelta`); every laser chain ends with the
+`plane_normal` (S², dim 3) and `plane_distance` (dim 1) blocks, with
+`robot_delta` last when present.
 
-### Prior Factors
+### Layout-derived validation
 
-| Factor | Parameters | Residual dim | Description |
-|--------|-----------|-------------|-------------|
-| `Se3TangentPrior` | [se3_param] | 6 | Zero-mean Gaussian prior on SE(3) tangent |
+`FactorKind::param_layout()` derives the full expected block list —
+`[intrinsics, distortion?, sensor?, <chain blocks…>]` — as
+`Vec<ParamSlotSpec { dim, manifold, role }>`. Validation is a single zip of
+this layout against the referenced parameter blocks; there are no
+per-variant validation arms to maintain.
+
+See the [Factor Catalog](factor_catalog.md) for the full chain math and
+residual definitions.
 
 ## Validation
 
@@ -178,7 +195,7 @@ Parameters:
   - "pose/0"..."pose/9": dim=7, SE3
 
 Residuals: 480 blocks
-  - Each: ReprojPointPinhole4Dist5 { pw, uv, w=1.0 }
+  - Each: ReprojPoint { model: PINHOLE4_DIST5, chain: SinglePose, pw, uv, w=1.0 }
   - Params: [cam_id, dist_id, pose_k_id]
   - Residual dim: 2
 

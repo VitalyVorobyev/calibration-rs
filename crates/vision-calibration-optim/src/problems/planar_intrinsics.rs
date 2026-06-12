@@ -10,7 +10,7 @@ use crate::params::distortion::unpack_distortion;
 use crate::params::intrinsics::unpack_intrinsics;
 use crate::params::pose_se3::se3_dvec_to_iso3;
 use crate::problems::planar_family_shared::{
-    PlanarReprojectionFactorModel, PlanarReprojectionIrOptions, build_planar_reprojection_ir,
+    PlanarReprojectionIrOptions, build_planar_reprojection_ir,
 };
 use anyhow::{Result as AnyhowResult, anyhow};
 use serde::{Deserialize, Serialize};
@@ -141,7 +141,7 @@ fn build_planar_intrinsics_ir(
             fix_distortion_indices: opts.fix_distortion.to_indices(),
             fix_pose_indices: opts.fix_poses.clone(),
             sensor: None,
-            factor_model: PlanarReprojectionFactorModel::PinholeDistortion,
+            model: crate::ir::CameraModelDesc::PINHOLE4_DIST5,
         },
     )
 }
@@ -240,7 +240,9 @@ mod tests {
         let residual = ResidualBlock {
             params: vec![cam_id, crate::ir::ParamId(42)],
             loss: RobustLoss::None,
-            factor: FactorKind::ReprojPointPinhole4 {
+            factor: FactorKind::ReprojPoint {
+                model: crate::ir::CameraModelDesc::PINHOLE4,
+                chain: crate::ir::ReprojChain::SinglePose,
                 pw: [0.0, 0.0, 0.0],
                 uv: [0.0, 0.0],
                 w: 1.0,

@@ -1,16 +1,18 @@
-//! End-to-end rig calibration on the rtv3d datasets (V1/V2 in the roadmap).
+//! End-to-end rig calibration on the rtv3d dataset.
 //!
 //! The rtv3d sensor is six laser-plane-triangulation devices: each device is a
 //! Scheimpflug-optics camera plus a laser plane projector. A pose stores all
 //! six camera views as one 4320×540 horizontal strip (6 tiles of 720×540).
 //! The calibration target is a ChArUco 22×22 board (DICT_4X4_1000,
-//! marker_size_rel 0.75); the sensor rides the robot flange (EyeInHand).
+//! marker_size_rel 0.75). Hand-eye mode is EyeToHand — the empirical
+//! convention check (3× lower rigid-robot hand-eye residual) overrules the
+//! EyeInHand claim in the dataset's own `dataset.json`.
 //!
 //! Pipeline:
 //! 1. Detect the ChArUco board in each of the 6 per-camera tiles per pose;
-//!    detect laser lines on `double_snap` poses (rtv3d_1 only — rtv3d_2 has
-//!    no laser images).
-//! 2. `RigHandeyeProblem` with `SensorMode::Scheimpflug`, EyeInHand
+//!    detect laser lines on `double_snap` poses (skipped when the dataset
+//!    ships no laser images).
+//! 2. `RigHandeyeProblem` with `SensorMode::Scheimpflug`, EyeToHand
 //!    (intrinsics → rig → hand-eye).
 //! 3. `RigLaserlineDeviceProblem` consuming the frozen upstream rig
 //!    calibration to recover the 6 laser planes (skipped without laser data).
@@ -19,7 +21,7 @@
 //!    `artifacts.json` (camera 5 is degenerate there: fx=51, 127 px reproj).
 //!
 //! Environment:
-//! - `RTV3D_DATA_DIR`  — dataset directory (default `privatedata/rtv3d_1`).
+//! - `RTV3D_DATA_DIR`  — dataset directory (default `privatedata/rtv3d`).
 //! - `CELL_SIZE_MM`    — ChArUco cell pitch (default 5.2). The dataset ships
 //!   conflicting specs (4.8 vs 5.2); run both and let the extrinsic
 //!   translation norms / plane distances against the oracle discriminate.
@@ -28,7 +30,7 @@
 //!   the generic seed because the oracle entry is degenerate).
 //!
 //! Run:
-//! `RTV3D_DATA_DIR=privatedata/rtv3d_1 cargo run --manifest-path
+//! `RTV3D_DATA_DIR=privatedata/rtv3d cargo run --manifest-path
 //! crates/vision-calibration-examples-private/Cargo.toml --example rtv3d_rig
 //! --release`
 
@@ -39,8 +41,7 @@ use std::time::Instant;
 
 use vision_calibration::{
     rig_handeye::{
-        self as rh, RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem,
-        SensorMode,
+        self as rh, RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem, SensorMode,
     },
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
@@ -69,7 +70,7 @@ const DICTIONARY: &str = "DICT_4X4_1000";
 
 fn main() -> Result<()> {
     let data_dir = PathBuf::from(
-        std::env::var("RTV3D_DATA_DIR").unwrap_or_else(|_| "privatedata/rtv3d_1".to_string()),
+        std::env::var("RTV3D_DATA_DIR").unwrap_or_else(|_| "privatedata/rtv3d".to_string()),
     );
     let cell_size_mm: f64 = std::env::var("CELL_SIZE_MM")
         .ok()
@@ -120,13 +121,13 @@ fn main() -> Result<()> {
     cfg.solver.max_iters = 200;
     cfg.solver.verbosity = 1;
     cfg.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
-    // The rtv3d sensor is mounted on the robot flange; the ChArUco target is
-    // fixed in the world → EyeInHand.
-    // `RTV3D_HANDEYE=eye_to_hand` overrides the EyeInHand default (empirical
-    // convention check — `dataset.json` says EyeInHand).
+    // EyeToHand: established by the empirical convention check (3× lower
+    // rigid-robot hand-eye residual than EyeInHand, overruling the EyeInHand
+    // claim in `dataset.json`). `RTV3D_HANDEYE=eye_in_hand` re-runs that
+    // comparison.
     cfg.handeye_init.handeye_mode = match std::env::var("RTV3D_HANDEYE").as_deref() {
-        Ok("eye_to_hand") => HandEyeMode::EyeToHand,
-        _ => HandEyeMode::EyeInHand,
+        Ok("eye_in_hand") => HandEyeMode::EyeInHand,
+        _ => HandEyeMode::EyeToHand,
     };
     // `RTV3D_REFINE_ROBOT=0` disables robot-pose deltas. With rigid robot
     // poses the hand-eye residual is directly sensitive to the board scale,
@@ -241,7 +242,7 @@ fn main() -> Result<()> {
         println!("  rig_se3_base: |t|={:.4} m", he.translation.vector.norm());
     }
 
-    // ─── Stage 3: rig laserline calibration (rtv3d_1 only) ─────────────────
+    // ─── Stage 3: rig laserline calibration (needs laser images) ───────────
     let mut laser_planes_cam: Option<Vec<LaserPlane>> = None;
     let mut joint_stats_sigma_mm: Option<Vec<f64>> = None;
     let mut joint_reproj_px: Option<Vec<f64>> = None;
@@ -454,7 +455,6 @@ struct DetectedDatasets {
     laser_pose_indices: Vec<usize>,
 }
 
-
 fn build_datasets(
     data_dir: &Path,
     poses: &[PoseEntry],
@@ -502,12 +502,11 @@ fn build_datasets(
         });
 
         let mut laser_pixels: Vec<Option<Vec<Pt2>>> = vec![None; NUM_CAMERAS];
-        // rtv3d_2 lists laser_image names in poses.json but ships no laser
-        // files — guard on file existence, not just the snap type.
+        // poses.json may list laser_image names for poses whose laser files
+        // were never shipped — guard on file existence, not just the snap type.
         let laser_path = data_dir.join(&pose.laser_image);
         if pose.has_laser() && laser_path.is_file() {
-            let laser_img =
-                load_gray(&laser_path).with_context(|| format!("pose {i} laser"))?;
+            let laser_img = load_gray(&laser_path).with_context(|| format!("pose {i} laser"))?;
             let laser_tiles = split_horizontal(&laser_img, NUM_CAMERAS);
             laser_pixels = laser_tiles
                 .iter()
@@ -608,7 +607,10 @@ fn build_intrinsics_seed(
                 // The oracle's cam 5 is degenerate (fx=51) — keep the generic
                 // seed there.
                 if cam.fx < 500.0 {
-                    eprintln!("oracle cam {i} looks degenerate (fx={}); generic seed", cam.fx);
+                    eprintln!(
+                        "oracle cam {i} looks degenerate (fx={}); generic seed",
+                        cam.fx
+                    );
                     continue;
                 }
                 intrinsics[i] = FxFyCxCySkew {
@@ -732,11 +734,9 @@ fn load_oracle(path: &Path) -> Result<Oracle> {
         }
         let xaxis = nalgebra::Vector3::new(plane.xaxis[0][0], plane.xaxis[1][0], plane.xaxis[2][0]);
         let yaxis = nalgebra::Vector3::new(plane.yaxis[0][0], plane.yaxis[1][0], plane.yaxis[2][0]);
-        let origin_m = nalgebra::Vector3::new(
-            plane.origin[0][0],
-            plane.origin[1][0],
-            plane.origin[2][0],
-        ) * 1.0e-3;
+        let origin_m =
+            nalgebra::Vector3::new(plane.origin[0][0], plane.origin[1][0], plane.origin[2][0])
+                * 1.0e-3;
         let normal = xaxis.cross(&yaxis).normalize();
         cameras.push(OracleCamera {
             fx: intr.matrix[0][0],
@@ -814,9 +814,7 @@ fn compare_to_oracle(
     }
 
     println!("\nreprojection error (px):");
-    println!(
-        "  cam | ours (intrinsics) | ours (handeye) | ours (joint BA) | oracle | beat?"
-    );
+    println!("  cam | ours (intrinsics) | ours (handeye) | ours (joint BA) | oracle | beat?");
     let mut reproj_pass = true;
     for i in 0..NUM_CAMERAS {
         let ours_intr = intr_reproj.get(i).copied();

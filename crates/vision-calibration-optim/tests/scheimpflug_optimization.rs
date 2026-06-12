@@ -11,9 +11,9 @@ use vision_calibration_core::{
     BrownConrady5, Camera, FxFyCxCySkew, Pinhole, Pt3, Real, ScheimpflugParams,
 };
 use vision_calibration_optim::{
-    BackendKind, BackendSolveOptions, DISTORTION_DIM, FactorKind, FixedMask, INTRINSICS_DIM,
-    ManifoldKind, ProblemIR, ResidualBlock, RobustLoss, iso3_to_se3_dvec, pack_distortion,
-    pack_intrinsics, solve_with_backend,
+    BackendKind, BackendSolveOptions, CameraModelDesc, DISTORTION_DIM, FactorKind, FixedMask,
+    INTRINSICS_DIM, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock, RobustLoss,
+    iso3_to_se3_dvec, pack_distortion, pack_intrinsics, solve_with_backend,
 };
 
 #[test]
@@ -155,7 +155,9 @@ fn scheimpflug_optimization_synthetic() {
         initial_map.insert(pose_key, iso3_to_se3_dvec(&poses_init[view_idx]));
 
         for (pw, uv) in points_3d.iter().zip(points_2d.iter()) {
-            let factor = FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 {
+            let factor = FactorKind::ReprojPoint {
+                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                chain: ReprojChain::SinglePose,
                 pw: [pw.x, pw.y, pw.z],
                 uv: [uv.x, uv.y],
                 w: 1.0,

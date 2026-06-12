@@ -5,16 +5,13 @@ use vision_calibration_core::{
     BrownConrady5, FxFyCxCySkew, Iso3, PlanarDataset, Real, ScheimpflugParams,
 };
 
-use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss};
+use crate::ir::{
+    CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
+    RobustLoss,
+};
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum PlanarReprojectionFactorModel {
-    PinholeDistortion,
-    PinholeDistortionScheimpflug,
-}
 
 #[derive(Debug, Clone)]
 pub(crate) struct PlanarReprojectionIrOptions {
@@ -23,7 +20,7 @@ pub(crate) struct PlanarReprojectionIrOptions {
     pub fix_distortion_indices: Vec<usize>,
     pub fix_pose_indices: Vec<usize>,
     pub sensor: Option<PlanarSensorIrOptions>,
-    pub factor_model: PlanarReprojectionFactorModel,
+    pub model: CameraModelDesc,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -128,27 +125,19 @@ pub(crate) fn build_planar_reprojection_ir(
             .zip(view.obs.points_2d.iter())
             .enumerate()
         {
-            let (params, factor) = match opts.factor_model {
-                PlanarReprojectionFactorModel::PinholeDistortion => (
-                    vec![cam_id, dist_id, pose_id],
-                    FactorKind::ReprojPointPinhole4Dist5 {
-                        pw: [pw.x, pw.y, pw.z],
-                        uv: [uv.x, uv.y],
-                        w: view.obs.weight(point_idx),
-                    },
-                ),
-                PlanarReprojectionFactorModel::PinholeDistortionScheimpflug => {
-                    let sensor_id = sensor_id
-                        .expect("internal invariant: sensor_id required for scheimpflug model");
-                    (
-                        vec![cam_id, dist_id, sensor_id, pose_id],
-                        FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 {
-                            pw: [pw.x, pw.y, pw.z],
-                            uv: [uv.x, uv.y],
-                            w: view.obs.weight(point_idx),
-                        },
-                    )
-                }
+            let mut params = vec![cam_id, dist_id];
+            if opts.model.sensor.dim() > 0 {
+                let sensor_id = sensor_id
+                    .expect("internal invariant: sensor_id required for a sensor-bearing model");
+                params.push(sensor_id);
+            }
+            params.push(pose_id);
+            let factor = FactorKind::ReprojPoint {
+                model: opts.model,
+                chain: ReprojChain::SinglePose,
+                pw: [pw.x, pw.y, pw.z],
+                uv: [uv.x, uv.y],
+                w: view.obs.weight(point_idx),
             };
             ir.add_residual_block(ResidualBlock {
                 params,

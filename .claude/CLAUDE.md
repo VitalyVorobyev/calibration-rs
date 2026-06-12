@@ -74,7 +74,7 @@ step_optimize(&mut session, None)?;
 let result = session.export()?;
 ```
 
-Seven problem types (post A6 sensor-axis collapse, see [ADR 0013](../docs/adrs/0013-rig-family-sensor-axis-refactor.md)): `PlanarIntrinsics`, `ScheimpflugIntrinsics`, `SingleCamHandeye`, `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`, and `RigLaserlineDevice`. The two rig problem types (`RigExtrinsics`, `RigHandeye`) cover both pinhole and Scheimpflug rigs via `RigExtrinsicsConfig::sensor` / `RigHandeyeConfig::sensor` (`SensorMode::Pinhole` | `SensorMode::Scheimpflug { … }`). `RigLaserlineDevice` accepts a frozen Scheimpflug rig hand-eye export as upstream calibration.
+Seven problem types (post A6 sensor-axis collapse, see [ADR 0013](../docs/adrs/0013-rig-family-sensor-axis-refactor.md)): `PlanarIntrinsics`, `ScheimpflugIntrinsics`, `SingleCamHandeye`, `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`, and `RigLaserlineDevice`. The two rig problem types (`RigExtrinsics`, `RigHandeye`) cover both pinhole and Scheimpflug rigs via `RigExtrinsicsConfig::sensor` / `RigHandeyeConfig::sensor` (`SensorMode::Pinhole` | `SensorMode::Scheimpflug { … }`). `RigLaserlineDevice` accepts a frozen rig hand-eye export (pinhole or Scheimpflug) as upstream calibration.
 
 ## Optimization IR (ADR 0008)
 
