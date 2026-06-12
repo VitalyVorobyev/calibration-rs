@@ -2,14 +2,19 @@ use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
 use crate::backend::{
     BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend, SolveReport,
 };
+use crate::factors::camera_kernels::{
+    BrownConrady5Kernel, DistortionKernel, IdentitySensorKernel, NoDistortionKernel, PinholeKernel,
+    ProjectionKernel, Scheimpflug2Kernel, SensorKernel,
+};
 use crate::factors::laserline::{
     laser_line_dist_normalized_generic, laser_line_dist_normalized_rig_handeye_residual_generic,
     laser_line_dist_normalized_rig_handeye_robot_delta_residual_generic,
-    laser_plane_pixel_residual_generic, laser_plane_pixel_rig_handeye_residual_generic,
-    laser_plane_pixel_rig_handeye_robot_delta_residual_generic,
+    laser_line_distance_model_generic, laser_plane_pixel_residual_generic,
+    laser_plane_pixel_rig_handeye_residual_generic,
+    laser_plane_pixel_rig_handeye_robot_delta_residual_generic, laser_point_to_plane_model_generic,
 };
 use crate::factors::reprojection_model::{
-    RobotPoseData, reproj_residual_pinhole4_dist5_handeye_generic,
+    RobotPoseData, reproj_residual_model_generic, reproj_residual_pinhole4_dist5_handeye_generic,
     reproj_residual_pinhole4_dist5_handeye_robot_delta_generic,
     reproj_residual_pinhole4_dist5_scheimpflug2_handeye_generic,
     reproj_residual_pinhole4_dist5_scheimpflug2_handeye_robot_delta_generic,
@@ -18,12 +23,16 @@ use crate::factors::reprojection_model::{
     reproj_residual_pinhole4_dist5_se3_generic, reproj_residual_pinhole4_dist5_two_se3_generic,
     reproj_residual_pinhole4_se3_generic,
 };
-use crate::ir::{FactorKind, HandEyeMode, ManifoldKind, ProblemIR, RobustLoss};
+use crate::ir::{
+    DistortionKind, FactorKind, HandEyeMode, LaserChain, ManifoldKind, ProblemIR, ProjectionKind,
+    ReprojChain, RobustLoss, SensorKind,
+};
 use anyhow::{Result, anyhow, ensure};
 use faer::sparse::Triplet;
 use faer_ext::IntoNalgebra;
 use nalgebra::DVector;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::ops::Mul;
 use std::sync::Arc;
 use tiny_solver::factors::Factor;
@@ -453,6 +462,30 @@ type CompiledFactor = (
     Option<Box<dyn Loss + Send>>,
 );
 
+/// Camera-model dispatch table: maps a [`CameraModelDesc`](crate::ir::CameraModelDesc)
+/// to concrete kernel types and expands `$mk!(P, D, S)` for the matched row.
+///
+/// Adding a camera model = one descriptor enum variant + one kernel type +
+/// one row here. Chains are factor data and do not multiply rows.
+macro_rules! dispatch_camera_model {
+    ($model:expr, $mk:ident) => {
+        match ($model.projection, $model.distortion, $model.sensor) {
+            (ProjectionKind::Pinhole, DistortionKind::None, SensorKind::None) => {
+                $mk!(PinholeKernel, NoDistortionKernel, IdentitySensorKernel)
+            }
+            (ProjectionKind::Pinhole, DistortionKind::BrownConrady5, SensorKind::None) => {
+                $mk!(PinholeKernel, BrownConrady5Kernel, IdentitySensorKernel)
+            }
+            (ProjectionKind::Pinhole, DistortionKind::None, SensorKind::Scheimpflug2) => {
+                $mk!(PinholeKernel, NoDistortionKernel, Scheimpflug2Kernel)
+            }
+            (ProjectionKind::Pinhole, DistortionKind::BrownConrady5, SensorKind::Scheimpflug2) => {
+                $mk!(PinholeKernel, BrownConrady5Kernel, Scheimpflug2Kernel)
+            }
+        }
+    };
+}
+
 fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor> {
     let loss = compile_loss(residual.loss)?;
     match &residual.factor {
@@ -636,7 +669,148 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor>
             };
             Ok((Box::new(factor), loss))
         }
+        FactorKind::ReprojPoint {
+            model,
+            chain,
+            pw,
+            uv,
+            w,
+        } => {
+            macro_rules! mk {
+                ($P:ty, $D:ty, $S:ty) => {
+                    Box::new(TinyReprojFactor::<$P, $D, $S> {
+                        chain: *chain,
+                        pw: *pw,
+                        uv: *uv,
+                        w: *w,
+                        _kernels: PhantomData,
+                    }) as Box<dyn tiny_solver::factors::FactorImpl + Send>
+                };
+            }
+            let factor = dispatch_camera_model!(model, mk);
+            Ok((factor, loss))
+        }
+        FactorKind::LaserPointToPlane {
+            model,
+            chain,
+            laser_pixel,
+            w,
+        } => {
+            macro_rules! mk {
+                ($P:ty, $D:ty, $S:ty) => {
+                    Box::new(TinyLaserPlaneFactor::<$D, $S> {
+                        chain: *chain,
+                        laser_pixel: *laser_pixel,
+                        w: *w,
+                        _kernels: PhantomData,
+                    }) as Box<dyn tiny_solver::factors::FactorImpl + Send>
+                };
+            }
+            let factor = dispatch_camera_model!(model, mk);
+            Ok((factor, loss))
+        }
+        FactorKind::LaserLineDistance {
+            model,
+            chain,
+            laser_pixel,
+            w,
+        } => {
+            macro_rules! mk {
+                ($P:ty, $D:ty, $S:ty) => {
+                    Box::new(TinyLaserLineFactor::<$D, $S> {
+                        chain: *chain,
+                        laser_pixel: *laser_pixel,
+                        w: *w,
+                        _kernels: PhantomData,
+                    }) as Box<dyn tiny_solver::factors::FactorImpl + Send>
+                };
+            }
+            let factor = dispatch_camera_model!(model, mk);
+            Ok((factor, loss))
+        }
         other => Err(anyhow!("factor kind {:?} not supported", other)),
+    }
+}
+
+/// Marker tying a factor struct to its camera-model kernel types without
+/// storing them (the `fn() -> K` form keeps the struct `Send + Sync`).
+type KernelMarker<K> = PhantomData<fn() -> K>;
+
+#[derive(Debug, Clone)]
+struct TinyReprojFactor<P, D, S> {
+    chain: ReprojChain,
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+    _kernels: KernelMarker<(P, D, S)>,
+}
+
+impl<P, D, S, T> Factor<T> for TinyReprojFactor<P, D, S>
+where
+    P: ProjectionKernel,
+    D: DistortionKernel,
+    S: SensorKernel,
+    T: nalgebra::RealField,
+{
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        let r = reproj_residual_model_generic::<P, D, S, T>(
+            &self.chain,
+            params,
+            self.pw,
+            self.uv,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyLaserPlaneFactor<D, S> {
+    chain: LaserChain,
+    laser_pixel: [f64; 2],
+    w: f64,
+    _kernels: KernelMarker<(D, S)>,
+}
+
+impl<D, S, T> Factor<T> for TinyLaserPlaneFactor<D, S>
+where
+    D: DistortionKernel,
+    S: SensorKernel,
+    T: nalgebra::RealField,
+{
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        let r = laser_point_to_plane_model_generic::<D, S, T>(
+            &self.chain,
+            params,
+            self.laser_pixel,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TinyLaserLineFactor<D, S> {
+    chain: LaserChain,
+    laser_pixel: [f64; 2],
+    w: f64,
+    _kernels: KernelMarker<(D, S)>,
+}
+
+impl<D, S, T> Factor<T> for TinyLaserLineFactor<D, S>
+where
+    D: DistortionKernel,
+    S: SensorKernel,
+    T: nalgebra::RealField,
+{
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        let r = laser_line_distance_model_generic::<D, S, T>(
+            &self.chain,
+            params,
+            self.laser_pixel,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
     }
 }
 
@@ -1200,5 +1374,285 @@ mod tests {
             (x - 1.0).abs() < 1e-6,
             "positive initial point should converge to the positive root, got {x}"
         );
+    }
+
+    use crate::ir::{CameraModelDesc, FixedMask, ParamSlotSpec, ResidualBlock};
+
+    /// Compile an IR and evaluate its stacked residual vector at the initial
+    /// parameter values.
+    fn eval_residuals(ir: &ProblemIR, initial: &HashMap<String, DVector<f64>>) -> DVector<f64> {
+        let backend = TinySolverBackend;
+        let (problem, init) = backend.compile(ir, initial).expect("compile IR");
+        let blocks = problem.initialize_parameter_blocks(&init);
+        let residuals = problem.compute_residuals(&blocks, true);
+        residuals.as_ref().into_nalgebra().column(0).clone_owned()
+    }
+
+    fn values_for_role(role: &str) -> DVector<f64> {
+        match role {
+            "intrinsics" => DVector::from_row_slice(&[812.3, 798.7, 645.2, 357.9]),
+            "distortion" => DVector::from_row_slice(&[-0.11, 0.07, 0.012, 0.0015, -0.0023]),
+            "sensor" => DVector::from_row_slice(&[0.021, -0.013]),
+            "camera_se3_target" | "pose" => {
+                DVector::from_row_slice(&[0.051, -0.022, 0.041, 0.997_55, 0.41, 0.21, 0.92])
+            }
+            "extrinsics" | "cam_se3_rig" => {
+                DVector::from_row_slice(&[0.021, 0.034, -0.012, 0.999_03, 0.12, -0.05, 0.83])
+            }
+            "handeye" => {
+                DVector::from_row_slice(&[-0.031, 0.018, 0.009, 0.999_24, 0.08, -0.04, 1.12])
+            }
+            "target" | "target_ref" => {
+                DVector::from_row_slice(&[0.04, 0.05, -0.02, 0.997_7, 0.3, 0.4, 0.7])
+            }
+            "robot_delta" => {
+                DVector::from_row_slice(&[0.0012, -0.0021, 0.0033, 0.0006, -0.0011, 0.0024])
+            }
+            "plane_normal" => {
+                let n = nalgebra::Vector3::new(0.09, 0.17, 1.0).normalize();
+                DVector::from_row_slice(&[n.x, n.y, n.z])
+            }
+            "plane_distance" => DVector::from_row_slice(&[-0.33]),
+            other => panic!("no fixture value for role {other}"),
+        }
+    }
+
+    /// Build a 1-residual IR for `factor` whose blocks follow `layout`, plus
+    /// the matching initial-value map.
+    fn one_residual_ir(
+        factor: FactorKind,
+        layout: &[ParamSlotSpec],
+    ) -> (ProblemIR, HashMap<String, DVector<f64>>) {
+        let mut ir = ProblemIR::new();
+        let mut initial = HashMap::new();
+        let params: Vec<_> = layout
+            .iter()
+            .enumerate()
+            .map(|(i, slot)| {
+                let name = format!("{}_{i}", slot.role);
+                initial.insert(name.clone(), values_for_role(slot.role));
+                ir.add_param_block(name, slot.dim, slot.manifold, FixedMask::all_free(), None)
+            })
+            .collect();
+        ir.add_residual_block(ResidualBlock {
+            params,
+            loss: RobustLoss::None,
+            residual_dim: factor.residual_dim(),
+            factor,
+        });
+        (ir, initial)
+    }
+
+    /// Every legacy enumerated factor must produce the same residuals through
+    /// the backend as its descriptor-based replacement (the lone z-guard
+    /// divergence of `ReprojPointPinhole4` is bounded below 1e-5 px).
+    #[test]
+    fn descriptor_factors_match_legacy_through_backend() {
+        let pw = [0.113, -0.072, 0.004];
+        let uv = [684.2, 341.7];
+        let w = 1.7;
+        let laser_pixel = [702.0, 391.0];
+        let robot_se3 = [0.024, 0.011, 0.032, 0.999_15, 0.51, -0.22, 0.78];
+        let mode = HandEyeMode::EyeToHand;
+
+        let d5 = CameraModelDesc::PINHOLE4_DIST5;
+        let d5s2 = CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2;
+
+        let reproj = |model, chain| FactorKind::ReprojPoint {
+            model,
+            chain,
+            pw,
+            uv,
+            w,
+        };
+        let he = ReprojChain::HandEye {
+            base_se3_gripper: robot_se3,
+            mode,
+        };
+        let hed = ReprojChain::HandEyeRobotDelta {
+            base_se3_gripper: robot_se3,
+            mode,
+        };
+        let laser_he = LaserChain::RigHandEye {
+            base_se3_gripper: robot_se3,
+            mode,
+        };
+        let laser_hed = LaserChain::RigHandEyeRobotDelta {
+            base_se3_gripper: robot_se3,
+            mode,
+        };
+
+        let pairs: Vec<(FactorKind, FactorKind, f64)> = vec![
+            (
+                FactorKind::ReprojPointPinhole4 { pw, uv, w },
+                reproj(CameraModelDesc::PINHOLE4, ReprojChain::SinglePose),
+                1e-5, // legacy z+eps guard vs unified clamp
+            ),
+            (
+                FactorKind::ReprojPointPinhole4Dist5 { pw, uv, w },
+                reproj(d5, ReprojChain::SinglePose),
+                0.0,
+            ),
+            (
+                FactorKind::ReprojPointPinhole4Dist5Scheimpflug2 { pw, uv, w },
+                reproj(d5s2, ReprojChain::SinglePose),
+                0.0,
+            ),
+            (
+                FactorKind::ReprojPointPinhole4Dist5TwoSE3 { pw, uv, w },
+                reproj(d5, ReprojChain::TwoSe3),
+                0.0,
+            ),
+            (
+                FactorKind::ReprojPointPinhole4Dist5Scheimpflug2TwoSE3 { pw, uv, w },
+                reproj(d5s2, ReprojChain::TwoSe3),
+                0.0,
+            ),
+            (
+                FactorKind::ReprojPointPinhole4Dist5HandEye {
+                    pw,
+                    uv,
+                    w,
+                    base_to_gripper_se3: robot_se3,
+                    mode,
+                },
+                reproj(d5, he),
+                0.0,
+            ),
+            (
+                FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEye {
+                    pw,
+                    uv,
+                    w,
+                    base_to_gripper_se3: robot_se3,
+                    mode,
+                },
+                reproj(d5s2, he),
+                0.0,
+            ),
+            (
+                FactorKind::ReprojPointPinhole4Dist5HandEyeRobotDelta {
+                    pw,
+                    uv,
+                    w,
+                    base_to_gripper_se3: robot_se3,
+                    mode,
+                },
+                reproj(d5, hed),
+                0.0,
+            ),
+            (
+                FactorKind::ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta {
+                    pw,
+                    uv,
+                    w,
+                    base_to_gripper_se3: robot_se3,
+                    mode,
+                },
+                reproj(d5s2, hed),
+                0.0,
+            ),
+            (
+                FactorKind::LaserPlanePixel { laser_pixel, w },
+                FactorKind::LaserPointToPlane {
+                    model: d5s2,
+                    chain: LaserChain::SinglePose,
+                    laser_pixel,
+                    w,
+                },
+                0.0,
+            ),
+            (
+                FactorKind::LaserLineDist2D { laser_pixel, w },
+                FactorKind::LaserLineDistance {
+                    model: d5s2,
+                    chain: LaserChain::SinglePose,
+                    laser_pixel,
+                    w,
+                },
+                0.0,
+            ),
+            (
+                FactorKind::LaserPlanePixelRigHandEye {
+                    laser_pixel,
+                    robot_se3,
+                    mode,
+                    w,
+                },
+                FactorKind::LaserPointToPlane {
+                    model: d5s2,
+                    chain: laser_he,
+                    laser_pixel,
+                    w,
+                },
+                0.0,
+            ),
+            (
+                FactorKind::LaserLineDist2DRigHandEye {
+                    laser_pixel,
+                    robot_se3,
+                    mode,
+                    w,
+                },
+                FactorKind::LaserLineDistance {
+                    model: d5s2,
+                    chain: laser_he,
+                    laser_pixel,
+                    w,
+                },
+                0.0,
+            ),
+            (
+                FactorKind::LaserPlanePixelRigHandEyeRobotDelta {
+                    laser_pixel,
+                    robot_se3,
+                    mode,
+                    w,
+                },
+                FactorKind::LaserPointToPlane {
+                    model: d5s2,
+                    chain: laser_hed,
+                    laser_pixel,
+                    w,
+                },
+                0.0,
+            ),
+            (
+                FactorKind::LaserLineDist2DRigHandEyeRobotDelta {
+                    laser_pixel,
+                    robot_se3,
+                    mode,
+                    w,
+                },
+                FactorKind::LaserLineDistance {
+                    model: d5s2,
+                    chain: laser_hed,
+                    laser_pixel,
+                    w,
+                },
+                0.0,
+            ),
+        ];
+
+        for (legacy, new, tol) in pairs {
+            let layout = new.param_layout().expect("descriptor factor layout");
+            let (ir_new, init_new) = one_residual_ir(new.clone(), &layout);
+            let (ir_old, init_old) = one_residual_ir(legacy.clone(), &layout);
+            let r_new = eval_residuals(&ir_new, &init_new);
+            let r_old = eval_residuals(&ir_old, &init_old);
+            assert_eq!(r_new.len(), r_old.len(), "residual dims for {legacy:?}");
+            if tol == 0.0 {
+                assert_eq!(
+                    r_old, r_new,
+                    "legacy {legacy:?} and descriptor {new:?} must match bit-for-bit"
+                );
+            } else {
+                let max_diff = (&r_old - &r_new).abs().max();
+                assert!(
+                    max_diff < tol,
+                    "legacy {legacy:?} vs descriptor {new:?} diff {max_diff} exceeds {tol}"
+                );
+            }
+        }
     }
 }

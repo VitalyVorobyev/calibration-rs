@@ -1,7 +1,11 @@
 //! Backend-independent reprojection residual models.
 
+use crate::factors::camera_kernels::{DistortionKernel, ProjectionKernel, SensorKernel};
+use crate::ir::ReprojChain;
 use crate::math::projection::project_pinhole;
-use nalgebra::{DVectorView, Matrix3, Quaternion, RealField, SVector, UnitQuaternion, Vector3};
+use nalgebra::{
+    DVector, DVectorView, Matrix3, Quaternion, RealField, SVector, UnitQuaternion, Vector3,
+};
 
 /// Observation data for reprojection residuals.
 ///
@@ -83,7 +87,7 @@ pub(crate) fn reproj_residual_pinhole4_se3_generic<T: RealField>(
 /// This implements the Brown-Conrady distortion model with radial (k1, k2, k3)
 /// and tangential (p1, p2) coefficients. The function is generic over `RealField`
 /// to support automatic differentiation.
-fn distort_brown_conrady_generic<T: RealField>(
+pub(crate) fn distort_brown_conrady_generic<T: RealField>(
     x: T,
     y: T,
     k1: T,
@@ -1088,6 +1092,178 @@ pub(crate) fn reproj_residual_pinhole4_dist5_handeye_robot_delta_generic<T: Real
     )
 }
 
+/// Extract `(rotation, translation)` from an SE3 parameter block
+/// `[qx, qy, qz, qw, tx, ty, tz]`.
+pub(crate) fn se3_from_block<T: RealField>(v: &DVector<T>) -> (UnitQuaternion<T>, Vector3<T>) {
+    debug_assert!(v.len() == 7, "SE3 block must have 7 params");
+    let q = UnitQuaternion::from_quaternion(Quaternion::new(
+        v[3].clone(),
+        v[0].clone(),
+        v[1].clone(),
+        v[2].clone(),
+    ));
+    let t = Vector3::new(v[4].clone(), v[5].clone(), v[6].clone());
+    (q, t)
+}
+
+/// Lift a measured SE3 `[qx, qy, qz, qw, tx, ty, tz]` into the scalar type.
+pub(crate) fn se3_from_f64_array<T: RealField>(a: &[f64; 7]) -> (UnitQuaternion<T>, Vector3<T>) {
+    let q = UnitQuaternion::from_quaternion(Quaternion::new(
+        T::from_f64(a[3]).unwrap(),
+        T::from_f64(a[0]).unwrap(),
+        T::from_f64(a[1]).unwrap(),
+        T::from_f64(a[2]).unwrap(),
+    ));
+    let t = Vector3::new(
+        T::from_f64(a[4]).unwrap(),
+        T::from_f64(a[5]).unwrap(),
+        T::from_f64(a[6]).unwrap(),
+    );
+    (q, t)
+}
+
+/// Transform a target-frame point into the camera frame through a
+/// [`ReprojChain`].
+///
+/// `blocks` are the chain's parameter blocks in IR order (camera blocks
+/// already stripped). The point is pushed through the chain step by step,
+/// matching the per-chain operation order of the enumerated kernels exactly.
+pub(crate) fn reproj_chain_transform<T: RealField>(
+    chain: &ReprojChain,
+    blocks: &[DVector<T>],
+    pw: [f64; 3],
+) -> Vector3<T> {
+    let pw_t = Vector3::new(
+        T::from_f64(pw[0]).unwrap(),
+        T::from_f64(pw[1]).unwrap(),
+        T::from_f64(pw[2]).unwrap(),
+    );
+    match chain {
+        ReprojChain::SinglePose => {
+            debug_assert!(blocks.len() == 1, "SinglePose chain expects 1 block");
+            let (rot, t) = se3_from_block(&blocks[0]);
+            rot.transform_vector(&pw_t) + t
+        }
+        ReprojChain::TwoSe3 => {
+            debug_assert!(blocks.len() == 2, "TwoSe3 chain expects 2 blocks");
+            let (extr_q, extr_t) = se3_from_block(&blocks[0]);
+            let (pose_q, pose_t) = se3_from_block(&blocks[1]);
+            let p_rig = pose_q.transform_vector(&pw_t) + pose_t;
+            extr_q.inverse_transform_vector(&(p_rig - extr_t))
+        }
+        ReprojChain::HandEye {
+            base_se3_gripper,
+            mode,
+        } => {
+            debug_assert!(blocks.len() == 3, "HandEye chain expects 3 blocks");
+            let (robot_q, robot_t) = se3_from_f64_array::<T>(base_se3_gripper);
+            handeye_chain_transform(
+                &blocks[0], &blocks[1], &blocks[2], robot_q, robot_t, *mode, &pw_t,
+            )
+        }
+        ReprojChain::HandEyeRobotDelta {
+            base_se3_gripper,
+            mode,
+        } => {
+            debug_assert!(
+                blocks.len() == 4,
+                "HandEyeRobotDelta chain expects 4 blocks"
+            );
+            let (robot_q, robot_t) = se3_from_f64_array::<T>(base_se3_gripper);
+            let (delta_q, delta_t) = se3_exp(blocks[3].as_view());
+            let robot_q = delta_q.clone() * robot_q;
+            let robot_t = delta_q.transform_vector(&robot_t) + delta_t;
+            handeye_chain_transform(
+                &blocks[0], &blocks[1], &blocks[2], robot_q, robot_t, *mode, &pw_t,
+            )
+        }
+    }
+}
+
+/// Shared hand-eye chain: target -> (robot, hand-eye per mode) -> rig -> camera.
+fn handeye_chain_transform<T: RealField>(
+    extr: &DVector<T>,
+    handeye: &DVector<T>,
+    target: &DVector<T>,
+    robot_q: UnitQuaternion<T>,
+    robot_t: Vector3<T>,
+    mode: crate::ir::HandEyeMode,
+    pw_t: &Vector3<T>,
+) -> Vector3<T> {
+    let (extr_q, extr_t) = se3_from_block(extr);
+    let (handeye_q, handeye_t) = se3_from_block(handeye);
+    let (target_q, target_t) = se3_from_block(target);
+    match mode {
+        crate::ir::HandEyeMode::EyeInHand => {
+            // target -> robot_base -> gripper -> rig -> camera
+            let p_base = target_q.transform_vector(pw_t) + target_t.clone();
+            let p_gripper = robot_q.inverse_transform_vector(&(p_base - robot_t.clone()));
+            let p_rig = handeye_q.inverse_transform_vector(&(p_gripper - handeye_t.clone()));
+            extr_q.inverse_transform_vector(&(p_rig - extr_t.clone()))
+        }
+        crate::ir::HandEyeMode::EyeToHand => {
+            // target -> gripper -> robot_base -> rig -> camera
+            let p_gripper = target_q.transform_vector(pw_t) + target_t.clone();
+            let p_base = robot_q.transform_vector(&p_gripper) + robot_t.clone();
+            let p_rig = handeye_q.transform_vector(&p_base) + handeye_t.clone();
+            extr_q.inverse_transform_vector(&(p_rig - extr_t.clone()))
+        }
+    }
+}
+
+/// Reprojection residual generic over the camera-model kernels and pose chain.
+///
+/// `params` is the full IR-ordered block list: `[intrinsics, distortion?,
+/// sensor?, <chain blocks>]`, with the optional blocks present exactly when
+/// the corresponding kernel dimension is non-zero.
+pub(crate) fn reproj_residual_model_generic<P, D, S, T>(
+    chain: &ReprojChain,
+    params: &[DVector<T>],
+    pw: [f64; 3],
+    uv: [f64; 2],
+    w: f64,
+) -> SVector<T, 2>
+where
+    P: ProjectionKernel,
+    D: DistortionKernel,
+    S: SensorKernel,
+    T: RealField,
+{
+    let mut idx = 1;
+    let dist = (D::DIM > 0).then(|| {
+        let v = params[idx].as_view();
+        idx += 1;
+        v
+    });
+    let sensor = (S::DIM > 0).then(|| {
+        let v = params[idx].as_view();
+        idx += 1;
+        v
+    });
+
+    let p_camera = reproj_chain_transform(chain, &params[idx..], pw);
+    let (x_norm, y_norm) = P::normalize(&p_camera);
+    let (x_dist, y_dist) = D::distort(dist, x_norm, y_norm);
+    let (x_sensor, y_sensor) = S::to_sensor(sensor, x_dist, y_dist);
+
+    let intr = &params[0];
+    debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
+    let fx = intr[0].clone();
+    let fy = intr[1].clone();
+    let cx = intr[2].clone();
+    let cy = intr[3].clone();
+    let u_proj = fx * x_sensor + cx;
+    let v_proj = fy * y_sensor + cy;
+
+    let sqrt_w = T::from_f64(w.sqrt()).unwrap();
+    let u_meas = T::from_f64(uv[0]).unwrap();
+    let v_meas = T::from_f64(uv[1]).unwrap();
+    SVector::<T, 2>::new(
+        (u_meas - u_proj) * sqrt_w.clone(),
+        (v_meas - v_proj) * sqrt_w,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1281,5 +1457,338 @@ mod tests {
         // Tolerances are looser due to floating point precision in generic operations
         assert!(diff_u < 1e-6, "u residuals should match, diff={diff_u}");
         assert!(diff_v < 1e-6, "v residuals should match, diff={diff_v}");
+    }
+
+    // ─── Old-vs-new kernel equivalence (descriptor-based generic kernel) ────
+    //
+    // The clamp-based legacy kernels must agree bit-for-bit with
+    // `reproj_residual_model_generic`; the lone `project_pinhole` z-guard
+    // divergence (Pinhole4) is bounded far below test tolerances.
+
+    use crate::factors::camera_kernels::{
+        BrownConrady5Kernel, IdentitySensorKernel, NoDistortionKernel, PinholeKernel,
+        Scheimpflug2Kernel,
+    };
+    use crate::ir::HandEyeMode;
+
+    #[allow(clippy::type_complexity)]
+    fn eq_fixture() -> (
+        DVector<f64>,
+        DVector<f64>,
+        DVector<f64>,
+        Vec<DVector<f64>>,
+        ObservationData,
+    ) {
+        let intr = DVector::from_row_slice(&[812.3, 798.7, 645.2, 357.9]);
+        let dist = DVector::from_row_slice(&[-0.11, 0.07, 0.012, 0.0015, -0.0023]);
+        let sensor = DVector::from_row_slice(&[0.021, -0.013]);
+        let poses = vec![
+            DVector::from_row_slice(&[0.021, 0.034, -0.012, 0.999_03, 0.12, -0.05, 0.83]),
+            DVector::from_row_slice(&[0.051, -0.022, 0.041, 0.997_55, 0.41, 0.21, 0.92]),
+            DVector::from_row_slice(&[-0.031, 0.018, 0.009, 0.999_24, 0.08, -0.04, 1.12]),
+        ];
+        let obs = ObservationData {
+            pw: [0.113, -0.072, 0.004],
+            uv: [684.2, 341.7],
+            w: 1.7,
+        };
+        (intr, dist, sensor, poses, obs)
+    }
+
+    #[test]
+    fn model_generic_matches_legacy_single_pose() {
+        let (intr, dist, sensor, poses, obs) = eq_fixture();
+        let pose = &poses[0];
+
+        // Pinhole4Dist5 — bit-identical.
+        let old: SVector<f64, 2> = reproj_residual_pinhole4_dist5_se3_generic(
+            intr.as_view(),
+            dist.as_view(),
+            pose.as_view(),
+            obs.pw,
+            obs.uv,
+            obs.w,
+        );
+        let new = reproj_residual_model_generic::<
+            PinholeKernel,
+            BrownConrady5Kernel,
+            IdentitySensorKernel,
+            f64,
+        >(
+            &ReprojChain::SinglePose,
+            &[intr.clone(), dist.clone(), pose.clone()],
+            obs.pw,
+            obs.uv,
+            obs.w,
+        );
+        assert_eq!(old, new, "Pinhole4Dist5/SinglePose must be bit-identical");
+
+        // Pinhole4Dist5Scheimpflug2 — bit-identical.
+        let old: SVector<f64, 2> = reproj_residual_pinhole4_dist5_scheimpflug2_se3_generic(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            pose.as_view(),
+            obs.pw,
+            obs.uv,
+            obs.w,
+        );
+        let new = reproj_residual_model_generic::<
+            PinholeKernel,
+            BrownConrady5Kernel,
+            Scheimpflug2Kernel,
+            f64,
+        >(
+            &ReprojChain::SinglePose,
+            &[intr.clone(), dist.clone(), sensor.clone(), pose.clone()],
+            obs.pw,
+            obs.uv,
+            obs.w,
+        );
+        assert_eq!(
+            old, new,
+            "Pinhole4Dist5Scheimpflug2/SinglePose must be bit-identical"
+        );
+
+        // Pinhole4 (no distortion) — the legacy kernel normalizes via
+        // `project_pinhole` (z + 1e-9) while the unified kernel clamps; the
+        // drift is bounded by ~1e-9 relative in normalized coordinates.
+        let old: SVector<f64, 2> = reproj_residual_pinhole4_se3_generic(
+            intr.as_view(),
+            pose.as_view(),
+            obs.pw,
+            obs.uv,
+            obs.w,
+        );
+        let new = reproj_residual_model_generic::<
+            PinholeKernel,
+            NoDistortionKernel,
+            IdentitySensorKernel,
+            f64,
+        >(
+            &ReprojChain::SinglePose,
+            &[intr.clone(), pose.clone()],
+            obs.pw,
+            obs.uv,
+            obs.w,
+        );
+        assert!(
+            (old[0] - new[0]).abs() < 1e-5 && (old[1] - new[1]).abs() < 1e-5,
+            "Pinhole4/SinglePose z-guard drift exceeds bound: old={old:?} new={new:?}"
+        );
+    }
+
+    #[test]
+    fn model_generic_matches_legacy_two_se3() {
+        let (intr, dist, sensor, poses, obs) = eq_fixture();
+        let extr = &poses[0];
+        let pose = &poses[1];
+
+        let old: SVector<f64, 2> = reproj_residual_pinhole4_dist5_two_se3_generic(
+            intr.as_view(),
+            dist.as_view(),
+            extr.as_view(),
+            pose.as_view(),
+            &obs,
+        );
+        let new = reproj_residual_model_generic::<
+            PinholeKernel,
+            BrownConrady5Kernel,
+            IdentitySensorKernel,
+            f64,
+        >(
+            &ReprojChain::TwoSe3,
+            &[intr.clone(), dist.clone(), extr.clone(), pose.clone()],
+            obs.pw,
+            obs.uv,
+            obs.w,
+        );
+        assert_eq!(old, new, "Pinhole4Dist5/TwoSe3 must be bit-identical");
+
+        let old: SVector<f64, 2> = reproj_residual_pinhole4_dist5_scheimpflug2_two_se3_generic(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            extr.as_view(),
+            pose.as_view(),
+            &obs,
+        );
+        let new = reproj_residual_model_generic::<
+            PinholeKernel,
+            BrownConrady5Kernel,
+            Scheimpflug2Kernel,
+            f64,
+        >(
+            &ReprojChain::TwoSe3,
+            &[
+                intr.clone(),
+                dist.clone(),
+                sensor.clone(),
+                extr.clone(),
+                pose.clone(),
+            ],
+            obs.pw,
+            obs.uv,
+            obs.w,
+        );
+        assert_eq!(
+            old, new,
+            "Pinhole4Dist5Scheimpflug2/TwoSe3 must be bit-identical"
+        );
+    }
+
+    #[test]
+    fn model_generic_matches_legacy_handeye_all_modes() {
+        let (intr, dist, sensor, poses, obs) = eq_fixture();
+        let extr = &poses[0];
+        let handeye = &poses[1];
+        let target = &poses[2];
+        let robot_se3 = [0.024, 0.011, 0.032, 0.999_15, 0.51, -0.22, 0.78];
+        let delta = DVector::from_row_slice(&[0.0012, -0.0021, 0.0033, 0.0006, -0.0011, 0.0024]);
+
+        for mode in [HandEyeMode::EyeInHand, HandEyeMode::EyeToHand] {
+            let robot = RobotPoseData { robot_se3, mode };
+
+            // HandEye, pinhole sensor.
+            let old: SVector<f64, 2> = reproj_residual_pinhole4_dist5_handeye_generic(
+                intr.as_view(),
+                dist.as_view(),
+                extr.as_view(),
+                handeye.as_view(),
+                target.as_view(),
+                &robot,
+                &obs,
+            );
+            let chain = ReprojChain::HandEye {
+                base_se3_gripper: robot_se3,
+                mode,
+            };
+            let new = reproj_residual_model_generic::<
+                PinholeKernel,
+                BrownConrady5Kernel,
+                IdentitySensorKernel,
+                f64,
+            >(
+                &chain,
+                &[
+                    intr.clone(),
+                    dist.clone(),
+                    extr.clone(),
+                    handeye.clone(),
+                    target.clone(),
+                ],
+                obs.pw,
+                obs.uv,
+                obs.w,
+            );
+            assert_eq!(old, new, "HandEye {mode:?} must be bit-identical");
+
+            // HandEye, Scheimpflug sensor.
+            let old: SVector<f64, 2> = reproj_residual_pinhole4_dist5_scheimpflug2_handeye_generic(
+                intr.as_view(),
+                dist.as_view(),
+                sensor.as_view(),
+                extr.as_view(),
+                handeye.as_view(),
+                target.as_view(),
+                &robot,
+                &obs,
+            );
+            let new = reproj_residual_model_generic::<
+                PinholeKernel,
+                BrownConrady5Kernel,
+                Scheimpflug2Kernel,
+                f64,
+            >(
+                &chain,
+                &[
+                    intr.clone(),
+                    dist.clone(),
+                    sensor.clone(),
+                    extr.clone(),
+                    handeye.clone(),
+                    target.clone(),
+                ],
+                obs.pw,
+                obs.uv,
+                obs.w,
+            );
+            assert_eq!(
+                old, new,
+                "Scheimpflug2 HandEye {mode:?} must be bit-identical"
+            );
+
+            // HandEyeRobotDelta, both sensors.
+            let data = HandEyeRobotDeltaData { robot, obs };
+            let chain_delta = ReprojChain::HandEyeRobotDelta {
+                base_se3_gripper: robot_se3,
+                mode,
+            };
+            let old: SVector<f64, 2> = reproj_residual_pinhole4_dist5_handeye_robot_delta_generic(
+                intr.as_view(),
+                dist.as_view(),
+                extr.as_view(),
+                handeye.as_view(),
+                target.as_view(),
+                delta.as_view(),
+                &data,
+            );
+            let new = reproj_residual_model_generic::<
+                PinholeKernel,
+                BrownConrady5Kernel,
+                IdentitySensorKernel,
+                f64,
+            >(
+                &chain_delta,
+                &[
+                    intr.clone(),
+                    dist.clone(),
+                    extr.clone(),
+                    handeye.clone(),
+                    target.clone(),
+                    delta.clone(),
+                ],
+                obs.pw,
+                obs.uv,
+                obs.w,
+            );
+            assert_eq!(old, new, "HandEyeRobotDelta {mode:?} must be bit-identical");
+
+            let old: SVector<f64, 2> =
+                reproj_residual_pinhole4_dist5_scheimpflug2_handeye_robot_delta_generic(
+                    intr.as_view(),
+                    dist.as_view(),
+                    sensor.as_view(),
+                    extr.as_view(),
+                    handeye.as_view(),
+                    target.as_view(),
+                    delta.as_view(),
+                    &data,
+                );
+            let new = reproj_residual_model_generic::<
+                PinholeKernel,
+                BrownConrady5Kernel,
+                Scheimpflug2Kernel,
+                f64,
+            >(
+                &chain_delta,
+                &[
+                    intr.clone(),
+                    dist.clone(),
+                    sensor.clone(),
+                    extr.clone(),
+                    handeye.clone(),
+                    target.clone(),
+                    delta.clone(),
+                ],
+                obs.pw,
+                obs.uv,
+                obs.w,
+            );
+            assert_eq!(
+                old, new,
+                "Scheimpflug2 HandEyeRobotDelta {mode:?} must be bit-identical"
+            );
+        }
     }
 }

@@ -14,39 +14,46 @@
 //!   and target reference pose all move under a single cost with the laser
 //!   geometry constraint.
 
-use crate::factors::reprojection_model::{
-    RobotPoseData, apply_scheimpflug_inverse_generic, se3_exp,
+use crate::factors::camera_kernels::{
+    BrownConrady5Kernel, DistortionKernel, Scheimpflug2Kernel, SensorKernel,
 };
-use crate::ir::HandEyeMode;
-use nalgebra::{DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector2, Vector3};
+use crate::factors::reprojection_model::{RobotPoseData, se3_exp};
+use crate::ir::{HandEyeMode, LaserChain};
+use nalgebra::{
+    DVector, DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector2, Vector3,
+};
 
 /// Undistort a pixel to normalized coordinates using a fixed-point iteration.
 ///
 /// Returns `(x_u, y_u)` in normalized camera coordinates.
+#[cfg(test)]
 fn undistort_pixel_to_normalized<T: RealField>(
     intr: DVectorView<'_, T>,
     dist: DVectorView<'_, T>,
     sensor: DVectorView<'_, T>,
     laser_pixel: [f64; 2],
 ) -> (T, T) {
+    undistort_pixel_to_normalized_model::<BrownConrady5Kernel, Scheimpflug2Kernel, T>(
+        intr,
+        Some(dist),
+        Some(sensor),
+        laser_pixel,
+    )
+}
+
+/// Model-generic pixel back-projection: pixel -> sensor-plane normalized ->
+/// distorted normalized (sensor inverse) -> undistorted normalized.
+fn undistort_pixel_to_normalized_model<D: DistortionKernel, S: SensorKernel, T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: Option<DVectorView<'_, T>>,
+    sensor: Option<DVectorView<'_, T>>,
+    laser_pixel: [f64; 2],
+) -> (T, T) {
     debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
-    debug_assert!(dist.len() >= 5, "distortion must have 5 params");
-    debug_assert!(sensor.len() >= 2, "sensor must have 2 params");
-    // Extract intrinsics
     let fx = intr[0].clone();
     let fy = intr[1].clone();
     let cx = intr[2].clone();
     let cy = intr[3].clone();
-
-    let tau_x = sensor[0].clone();
-    let tau_y = sensor[1].clone();
-
-    // Extract distortion
-    let k1 = dist[0].clone();
-    let k2 = dist[1].clone();
-    let k3 = dist[2].clone();
-    let p1 = dist[3].clone();
-    let p2 = dist[4].clone();
 
     let u_px = T::from_f64(laser_pixel[0]).unwrap();
     let v_px = T::from_f64(laser_pixel[1]).unwrap();
@@ -55,30 +62,9 @@ fn undistort_pixel_to_normalized<T: RealField>(
     let x_s = (u_px - cx) / fx;
     let y_s = (v_px - cy) / fy;
 
-    // Map back to distorted normalized plane using inverse Scheimpflug transform
-    let (x_d, y_d) = apply_scheimpflug_inverse_generic(x_s, y_s, tau_x, tau_y);
-
-    // Fixed-point iteration to invert distortion
-    let mut x_u = x_d.clone();
-    let mut y_u = y_d.clone();
-    for _ in 0..5 {
-        let r2 = x_u.clone() * x_u.clone() + y_u.clone() * y_u.clone();
-        let r4 = r2.clone() * r2.clone();
-        let r6 = r4.clone() * r2.clone();
-
-        let radial = T::one() + k1.clone() * r2.clone() + k2.clone() * r4.clone() + k3.clone() * r6;
-        let xy = x_u.clone() * y_u.clone();
-        let two = T::from_f64(2.0).unwrap();
-        let dx_t = two.clone() * p1.clone() * xy.clone()
-            + p2.clone() * (r2.clone() + two.clone() * x_u.clone() * x_u.clone());
-        let dy_t = p1.clone() * (r2.clone() + two.clone() * y_u.clone() * y_u.clone())
-            + two.clone() * p2.clone() * xy;
-
-        x_u = (x_d.clone() - dx_t) / radial.clone();
-        y_u = (y_d.clone() - dy_t) / radial;
-    }
-
-    (x_u, y_u)
+    // Map back to the distorted normalized plane, then invert distortion.
+    let (x_d, y_d) = S::to_normalized(sensor, x_s, y_s);
+    D::undistort(dist, x_d, y_d)
 }
 
 /// Generic residual for laser plane constraint (point-to-plane distance).
@@ -115,9 +101,31 @@ pub(crate) fn laser_plane_pixel_residual_generic<T: RealField>(
     laser_pixel: [f64; 2],
     w: f64,
 ) -> SVector<T, 1> {
+    laser_point_to_plane_core::<BrownConrady5Kernel, Scheimpflug2Kernel, T>(
+        intr,
+        Some(dist),
+        Some(sensor),
+        pose,
+        plane_normal,
+        plane_distance,
+        laser_pixel,
+        w,
+    )
+}
+
+/// Model-generic core of the point-to-plane laser residual.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn laser_point_to_plane_core<D: DistortionKernel, S: SensorKernel, T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: Option<DVectorView<'_, T>>,
+    sensor: Option<DVectorView<'_, T>>,
+    pose: DVectorView<'_, T>,
+    plane_normal: DVectorView<'_, T>,
+    plane_distance: DVectorView<'_, T>,
+    laser_pixel: [f64; 2],
+    w: f64,
+) -> SVector<T, 1> {
     debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
-    debug_assert!(dist.len() >= 5, "distortion must have 5 params");
-    debug_assert!(sensor.len() >= 2, "sensor must have 2 params");
     debug_assert!(pose.len() == 7, "pose must have 7 params (SE3)");
     debug_assert!(plane_normal.len() == 3, "plane normal must have 3 params");
     debug_assert!(
@@ -139,7 +147,8 @@ pub(crate) fn laser_plane_pixel_residual_generic<T: RealField>(
     let pose_t = Vector3::new(pose_tx, pose_ty, pose_tz);
 
     // 1. Undistort pixel to normalized coordinates
-    let (x_u, y_u) = undistort_pixel_to_normalized(intr, dist, sensor, laser_pixel);
+    let (x_u, y_u) =
+        undistort_pixel_to_normalized_model::<D, S, T>(intr, dist, sensor, laser_pixel);
 
     // 2. Back-project to ray in camera frame (ray on z=1 plane)
     let ray_dir_camera = Vector3::new(x_u, y_u, T::one()).normalize();
@@ -313,9 +322,31 @@ pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
     laser_pixel: [f64; 2],
     w: f64,
 ) -> SVector<T, 1> {
+    laser_line_dist_core::<BrownConrady5Kernel, Scheimpflug2Kernel, T>(
+        intr,
+        Some(dist),
+        Some(sensor),
+        pose,
+        plane_normal,
+        plane_distance,
+        laser_pixel,
+        w,
+    )
+}
+
+/// Model-generic core of the line-distance laser residual.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn laser_line_dist_core<D: DistortionKernel, S: SensorKernel, T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: Option<DVectorView<'_, T>>,
+    sensor: Option<DVectorView<'_, T>>,
+    pose: DVectorView<'_, T>,
+    plane_normal: DVectorView<'_, T>,
+    plane_distance: DVectorView<'_, T>,
+    laser_pixel: [f64; 2],
+    w: f64,
+) -> SVector<T, 1> {
     debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
-    debug_assert!(dist.len() >= 5, "distortion must have 5 params");
-    debug_assert!(sensor.len() >= 2, "sensor must have 2 params");
     debug_assert!(pose.len() == 7, "pose must have 7 params (SE3)");
     debug_assert!(plane_normal.len() == 3, "plane normal must have 3 params");
     debug_assert!(
@@ -386,7 +417,8 @@ pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
     let (p0_norm, v_norm) = project_line_to_normalized_plane(&p0_3d, &v_3d_unit);
 
     // 5. Undistort laser pixel to normalized coordinates
-    let (x_u, y_u) = undistort_pixel_to_normalized(intr, dist, sensor, laser_pixel);
+    let (x_u, y_u) =
+        undistort_pixel_to_normalized_model::<D, S, T>(intr, dist, sensor, laser_pixel);
 
     // 6. Compute perpendicular distance from pixel to line (2D geometry)
     // Line: p0_norm + t * v_norm
@@ -720,6 +752,136 @@ pub(crate) fn laser_line_dist_normalized_rig_handeye_robot_delta_residual_generi
         pose.as_view(),
         plane_normal,
         plane_distance,
+        laser_pixel,
+        w,
+    )
+}
+
+/// Resolve a [`LaserChain`]'s pose and plane blocks against the IR-ordered
+/// chain block slice, composing the rig/hand-eye pose when needed.
+///
+/// Returns `(pose, plane_normal_index, plane_distance_index)` where `pose` is
+/// an owned 7D SE3 vector and the indices are into `blocks`.
+fn resolve_laser_chain_pose<T: RealField>(
+    chain: &LaserChain,
+    blocks: &[DVector<T>],
+) -> (DVector<T>, usize, usize) {
+    match chain {
+        LaserChain::SinglePose => {
+            debug_assert!(blocks.len() == 3, "SinglePose laser chain expects 3 blocks");
+            (blocks[0].clone(), 1, 2)
+        }
+        LaserChain::RigHandEye {
+            base_se3_gripper,
+            mode,
+        } => {
+            debug_assert!(blocks.len() == 5, "RigHandEye laser chain expects 5 blocks");
+            let (rot, t) = compose_cam_se3_target_with_delta_generic(
+                blocks[0].as_view(),
+                blocks[1].as_view(),
+                blocks[2].as_view(),
+                *base_se3_gripper,
+                None,
+                *mode,
+            );
+            (se3_from_rot_trans(&rot, &t), 3, 4)
+        }
+        LaserChain::RigHandEyeRobotDelta {
+            base_se3_gripper,
+            mode,
+        } => {
+            debug_assert!(
+                blocks.len() == 6,
+                "RigHandEyeRobotDelta laser chain expects 6 blocks"
+            );
+            let (rot, t) = compose_cam_se3_target_with_delta_generic(
+                blocks[0].as_view(),
+                blocks[1].as_view(),
+                blocks[2].as_view(),
+                *base_se3_gripper,
+                Some(blocks[5].as_view()),
+                *mode,
+            );
+            (se3_from_rot_trans(&rot, &t), 3, 4)
+        }
+    }
+}
+
+/// Point-to-plane laser residual generic over camera-model kernels and chain.
+///
+/// `params` is the full IR-ordered block list: `[intrinsics, distortion?,
+/// sensor?, <chain blocks>]`.
+pub(crate) fn laser_point_to_plane_model_generic<D, S, T>(
+    chain: &LaserChain,
+    params: &[DVector<T>],
+    laser_pixel: [f64; 2],
+    w: f64,
+) -> SVector<T, 1>
+where
+    D: DistortionKernel,
+    S: SensorKernel,
+    T: RealField,
+{
+    let mut idx = 1;
+    let dist = (D::DIM > 0).then(|| {
+        let v = params[idx].as_view();
+        idx += 1;
+        v
+    });
+    let sensor = (S::DIM > 0).then(|| {
+        let v = params[idx].as_view();
+        idx += 1;
+        v
+    });
+    let blocks = &params[idx..];
+    let (pose, n_idx, d_idx) = resolve_laser_chain_pose(chain, blocks);
+    laser_point_to_plane_core::<D, S, T>(
+        params[0].as_view(),
+        dist,
+        sensor,
+        pose.as_view(),
+        blocks[n_idx].as_view(),
+        blocks[d_idx].as_view(),
+        laser_pixel,
+        w,
+    )
+}
+
+/// Line-distance laser residual generic over camera-model kernels and chain.
+///
+/// `params` is the full IR-ordered block list: `[intrinsics, distortion?,
+/// sensor?, <chain blocks>]`.
+pub(crate) fn laser_line_distance_model_generic<D, S, T>(
+    chain: &LaserChain,
+    params: &[DVector<T>],
+    laser_pixel: [f64; 2],
+    w: f64,
+) -> SVector<T, 1>
+where
+    D: DistortionKernel,
+    S: SensorKernel,
+    T: RealField,
+{
+    let mut idx = 1;
+    let dist = (D::DIM > 0).then(|| {
+        let v = params[idx].as_view();
+        idx += 1;
+        v
+    });
+    let sensor = (S::DIM > 0).then(|| {
+        let v = params[idx].as_view();
+        idx += 1;
+        v
+    });
+    let blocks = &params[idx..];
+    let (pose, n_idx, d_idx) = resolve_laser_chain_pose(chain, blocks);
+    laser_line_dist_core::<D, S, T>(
+        params[0].as_view(),
+        dist,
+        sensor,
+        pose.as_view(),
+        blocks[n_idx].as_view(),
+        blocks[d_idx].as_view(),
         laser_pixel,
         w,
     )
@@ -1301,5 +1463,226 @@ mod tests {
             w,
         );
         assert!((line_delta[0] - line_corrected[0]).abs() < 1e-10);
+    }
+
+    /// The chain-aware model-generic entry points must agree exactly with the
+    /// legacy per-variant wrappers for every laser chain (they share the same
+    /// core; this pins the params-slice plumbing).
+    #[test]
+    fn model_generic_matches_legacy_laser_wrappers() {
+        use nalgebra::{Isometry3, Translation3, UnitQuaternion as UQ};
+
+        let intr = DVector::from_vec(vec![910.0, 895.0, 642.0, 358.0]);
+        let dist = DVector::from_vec(vec![0.04, -0.09, 0.01, 0.001, -0.002]);
+        let sensor = DVector::from_vec(vec![0.018, -0.011]);
+        let plane_normal = {
+            let n = nalgebra::Vector3::new(0.09, 0.17, 1.0).normalize();
+            DVector::from_vec(vec![n.x, n.y, n.z])
+        };
+        let plane_distance = DVector::from_vec(vec![-0.33]);
+        let laser_pixel = [702.0, 391.0];
+        let w = 2.5;
+
+        let pack = |iso: &Isometry3<f64>| -> DVector<f64> {
+            let q = iso.rotation.into_inner();
+            DVector::from_vec(vec![
+                q.i,
+                q.j,
+                q.k,
+                q.w,
+                iso.translation.vector.x,
+                iso.translation.vector.y,
+                iso.translation.vector.z,
+            ])
+        };
+        let cam_to_rig_iso: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(0.06, -0.02, 0.11),
+            UQ::from_axis_angle(&Vector3::y_axis(), 0.22_f64),
+        );
+        let handeye_iso: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(-0.03, 0.02, 0.07),
+            UQ::from_axis_angle(&Vector3::x_axis(), -0.12_f64),
+        );
+        let target_ref_iso: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(0.21, 0.14, 0.45),
+            UQ::from_axis_angle(&Vector3::z_axis(), 0.31_f64),
+        );
+        let pose_iso: Isometry3<f64> = Isometry3::from_parts(
+            Translation3::new(0.02, 0.05, 0.52),
+            UQ::from_axis_angle(&Vector3::x_axis(), 0.15_f64),
+        );
+        let cam_to_rig = pack(&cam_to_rig_iso);
+        let handeye = pack(&handeye_iso);
+        let target_ref = pack(&target_ref_iso);
+        let pose = pack(&pose_iso);
+        let robot_se3 = [0.02, 0.01, 0.03, 0.999_3, 0.5, -0.2, 0.8];
+        let delta = DVector::from_vec(vec![0.002, -0.001, 0.003, 0.0004, -0.0007, 0.0009]);
+        let mode = HandEyeMode::EyeToHand;
+        let robot_data = RobotPoseData { robot_se3, mode };
+
+        // SinglePose.
+        let old = laser_plane_pixel_residual_generic::<f64>(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            pose.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            laser_pixel,
+            w,
+        );
+        let params = [
+            intr.clone(),
+            dist.clone(),
+            sensor.clone(),
+            pose.clone(),
+            plane_normal.clone(),
+            plane_distance.clone(),
+        ];
+        let new = laser_point_to_plane_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+            &LaserChain::SinglePose,
+            &params,
+            laser_pixel,
+            w,
+        );
+        assert_eq!(old, new, "SinglePose point-to-plane must be identical");
+
+        let old = laser_line_dist_normalized_generic::<f64>(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            pose.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            laser_pixel,
+            w,
+        );
+        let new = laser_line_distance_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+            &LaserChain::SinglePose,
+            &params,
+            laser_pixel,
+            w,
+        );
+        assert_eq!(old, new, "SinglePose line-dist must be identical");
+
+        // RigHandEye.
+        let chain = LaserChain::RigHandEye {
+            base_se3_gripper: robot_se3,
+            mode,
+        };
+        let params = [
+            intr.clone(),
+            dist.clone(),
+            sensor.clone(),
+            cam_to_rig.clone(),
+            handeye.clone(),
+            target_ref.clone(),
+            plane_normal.clone(),
+            plane_distance.clone(),
+        ];
+        let old = laser_plane_pixel_rig_handeye_residual_generic::<f64>(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            cam_to_rig.as_view(),
+            handeye.as_view(),
+            target_ref.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            robot_data,
+            laser_pixel,
+            w,
+        );
+        let new = laser_point_to_plane_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+            &chain,
+            &params,
+            laser_pixel,
+            w,
+        );
+        assert_eq!(old, new, "RigHandEye point-to-plane must be identical");
+
+        let old = laser_line_dist_normalized_rig_handeye_residual_generic::<f64>(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            cam_to_rig.as_view(),
+            handeye.as_view(),
+            target_ref.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            robot_data,
+            laser_pixel,
+            w,
+        );
+        let new = laser_line_distance_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+            &chain,
+            &params,
+            laser_pixel,
+            w,
+        );
+        assert_eq!(old, new, "RigHandEye line-dist must be identical");
+
+        // RigHandEyeRobotDelta.
+        let chain = LaserChain::RigHandEyeRobotDelta {
+            base_se3_gripper: robot_se3,
+            mode,
+        };
+        let params = [
+            intr.clone(),
+            dist.clone(),
+            sensor.clone(),
+            cam_to_rig.clone(),
+            handeye.clone(),
+            target_ref.clone(),
+            plane_normal.clone(),
+            plane_distance.clone(),
+            delta.clone(),
+        ];
+        let old = laser_plane_pixel_rig_handeye_robot_delta_residual_generic::<f64>(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            cam_to_rig.as_view(),
+            handeye.as_view(),
+            target_ref.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            delta.as_view(),
+            robot_data,
+            laser_pixel,
+            w,
+        );
+        let new = laser_point_to_plane_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+            &chain,
+            &params,
+            laser_pixel,
+            w,
+        );
+        assert_eq!(
+            old, new,
+            "RigHandEyeRobotDelta point-to-plane must be identical"
+        );
+
+        let old = laser_line_dist_normalized_rig_handeye_robot_delta_residual_generic::<f64>(
+            intr.as_view(),
+            dist.as_view(),
+            sensor.as_view(),
+            cam_to_rig.as_view(),
+            handeye.as_view(),
+            target_ref.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            delta.as_view(),
+            robot_data,
+            laser_pixel,
+            w,
+        );
+        let new = laser_line_distance_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+            &chain,
+            &params,
+            laser_pixel,
+            w,
+        );
+        assert_eq!(old, new, "RigHandEyeRobotDelta line-dist must be identical");
     }
 }
