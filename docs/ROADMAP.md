@@ -170,16 +170,19 @@ support), behind an `apex-solver` cargo feature in `vision-calibration-optim`.
   within 0.1 % on bench datasets, timing comparison on rtv3d.
 - **O3** Drop the `BackendKind::Ceres` stub.
 
-### Track M — Camera-model expansion (NEW 2026-06-11)
+### Track M — Camera-model expansion (M0 DONE 2026-06-12)
 
 Supersedes the former "new camera models out of scope" rule — all four models
-below are user-requested. Gated on M0: the `FactorKind` IR used to enumerate
-projection × distortion × sensor × chain combinations, so new models would
-have multiplied variants.
+below are user-requested. The gate was M0: the `FactorKind` IR used to
+enumerate projection × distortion × sensor × chain combinations, so new
+models would have multiplied variants.
 
-- **M0** Factor generification: one reprojection-factor family per *chain*,
-  camera model as data. Also folds the export-path residual helper into the
-  generic `CameraProject` path and unblocks pinhole rig laserline.
+- **M0 (DONE)** Factor generification
+  ([ADR 0020](adrs/0020-camera-model-as-data-factor-ir.md)): one factor
+  family per residual type, camera model and chain as data, layout-derived
+  validation, kernel monomorphization in the backend. Also folded the
+  export-path residual helper into the generic `CameraProject` path and
+  unblocked pinhole rig laserline.
 - **M1** Rational distortion k4–k6 (distortion slot only; OpenCV rational model).
 - **M2** Thin-prism s1–s4 (composes with Scheimpflug; metrology lenses).
 - **M3** Division model (cheap, invertible; self-calibration friendly).
@@ -216,8 +219,9 @@ in-house dense matcher, no full SfM.
 
 **V1 → V2 → V3 (prove the library on rtv3d) → V4 + B3c coverage (rig +
 laserline + charuco first) → B-laser visualization → B3d manifest UX →
-B3e polish.** O1/O2 (apex-solver) and M0 (factor generification) are
-parallelizable with the V-track; M1–M4 follow M0. C resumes once B3c
+B3e polish.** O1/O2 (apex-solver) are
+parallelizable with the V-track; M0 (factor generification) is done and
+M1–M4 can proceed. C resumes once B3c
 lands; D is a continuous ratchet.
 
 ## Out of scope (explicit)

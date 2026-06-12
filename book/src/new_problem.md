@@ -4,13 +4,22 @@ This chapter walks through adding a new optimization problem to `vision-calibrat
 
 ## Overview
 
-Adding a new problem requires these steps:
+Most new problems compose the **existing** factor families (`ReprojPoint`,
+`LaserPointToPlane`, `LaserLineDistance`, `Se3TangentPrior`) with a
+`CameraModelDesc` and a chain — in that case skip straight to Step 3 and emit
+the existing factors from your builder. The steps below cover the rarer case
+of a genuinely **new residual family**:
 
 1. Define the generic residual function in `factors/`
 2. Add a `FactorKind` variant in `ir/types.rs`
 3. Create a problem builder in `problems/`
 4. Integrate with the backend in `backend/tiny_solver_backend.rs`
 5. Write tests with synthetic ground truth
+
+(Adding a new **camera model** is a different, smaller recipe: one descriptor
+enum variant + one kernel type + one dispatch-table row; see
+[ADR 0020](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/adrs/0020-camera-model-as-data-factor-ir.md)
+and the [Factor Catalog](factor_catalog.md).)
 
 ## Step 1: Generic Residual Function
 
@@ -57,17 +66,17 @@ pub enum FactorKind {
 }
 ```
 
-Add validation in the `validate` method:
+Describe its parameter layout in `param_layout()` — validation is derived
+from the layout, so there is no separate validation arm to write:
 
 ```rust
-FactorKind::MyNewFactor { .. } => {
-    ensure!(params.len() == 2, "MyNewFactor requires 2 param blocks");
-    ensure!(params[0].dim == 4, "param_a must be dim 4");
-    ensure!(params[1].dim == 7, "param_b must be dim 7 (SE3)");
-}
+FactorKind::MyNewFactor { .. } => vec![
+    ParamSlotSpec { dim: 4, manifold: ManifoldKind::Euclidean, role: "param_a" },
+    ParamSlotSpec { dim: 7, manifold: ManifoldKind::SE3, role: "param_b" },
+],
 ```
 
-Update the `residual_dim()` method:
+Update the `residual_dim()` and `name()` methods:
 
 ```rust
 FactorKind::MyNewFactor { .. } => 2,
@@ -130,20 +139,39 @@ pub fn build_my_problem_ir(
 
 ## Step 4: Backend Integration
 
-In `crates/vision-calibration-optim/src/backend/tiny_solver_backend.rs`, add a match arm in `compile_factor()`:
+In `crates/vision-calibration-optim/src/backend/tiny_solver_backend.rs`, add
+a factor struct implementing tiny-solver's `Factor<T>` plus a match arm in
+`compile_factor()`:
 
 ```rust
-FactorKind::MyNewFactor { constant_data, w } => {
-    let constant_data = *constant_data;
-    let w = *w;
-    Box::new(move |params: &[DVectorView<'_, T>]| {
-        my_residual_generic(
-            params[0], params[1],
-            constant_data, w,
-        ).as_slice().to_vec()
-    })
+#[derive(Debug, Clone)]
+struct TinyMyNewFactor {
+    constant_data: [f64; 3],
+    w: f64,
 }
+
+impl<T: nalgebra::RealField> Factor<T> for TinyMyNewFactor {
+    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+        let r = my_residual_generic(
+            params[0].as_view(),
+            params[1].as_view(),
+            self.constant_data,
+            self.w,
+        );
+        DVector::from_row_slice(r.as_slice())
+    }
+}
+
+// in compile_factor():
+FactorKind::MyNewFactor { constant_data, w } => Ok((
+    Box::new(TinyMyNewFactor { constant_data: *constant_data, w: *w }),
+    loss,
+)),
 ```
+
+If the new family is camera-model-aware, make the struct generic over the
+kernel types and construct it through the `dispatch_camera_model!` table the
+way `TinyReprojFactor<P, D, S>` is.
 
 ## Step 5: Tests
 

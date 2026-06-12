@@ -23,7 +23,7 @@ where $T_{C_k, R} = (T_{R, C_k})^{-1}$.
 
 $$\min \sum_{k=1}^{C} \sum_{v=1}^{M} \sum_{j=1}^{N_{kv}} \left\| \pi\!\left(K_k, \mathbf{d}_k, T_{C_k, R} \cdot T_{R, T}^{(v)}, \mathbf{P}_j\right) - \mathbf{p}_{kvj} \right\|^2$$
 
-This jointly optimizes all cameras' parameters and all rig geometry. Each observation depends on two SE(3) transforms composed together (the `ReprojPointPinhole4Dist5TwoSE3` factor).
+This jointly optimizes all cameras' parameters and all rig geometry. Each observation depends on two SE(3) transforms composed together (a `ReprojPoint` factor with the `TwoSe3` chain).
 
 ## 4-Step Pipeline
 
@@ -57,7 +57,7 @@ Joint optimization of all parameters:
 - `"extrinsics/k"` (7D, SE3): per-camera camera-to-rig transforms
 - `"rig_pose/v"` (7D, SE3): per-view rig-to-target poses
 
-**Residual blocks**: `ReprojPointPinhole4Dist5TwoSE3` per observation.
+**Residual blocks**: one `ReprojPoint { model: PINHOLE4_DIST5, chain: TwoSe3, .. }` per observation.
 
 **Fixed parameters**: The reference camera's extrinsics are fixed at identity (gauge freedom).
 

@@ -1,155 +1,179 @@
 # Factor Catalog Reference
 
-This chapter is a complete reference for all factor types (residual computations) supported by the optimization IR. Each factor defines a residual function connecting specific parameter blocks.
+This chapter is a complete reference for the factor kinds (residual
+computations) supported by the optimization IR. A factor is described along
+three independent axes carried **as data**, not baked into variant names:
 
-## Reprojection Factors
+1. **Camera model** (`CameraModelDesc`) — which projection / distortion /
+   sensor kernels apply and which leading parameter blocks exist.
+2. **Pose chain** (`ReprojChain` / `LaserChain`) — how a target-frame point
+   reaches the camera frame and which trailing parameter blocks exist.
+3. **Residual family** (the `FactorKind` variant) — what is measured.
 
-All reprojection factors compute the weighted pixel residual:
+```rust,ignore
+pub enum FactorKind {
+    ReprojPoint       { model: CameraModelDesc, chain: ReprojChain, pw: [f64; 3], uv: [f64; 2], w: f64 },
+    LaserPointToPlane { model: CameraModelDesc, chain: LaserChain, laser_pixel: [f64; 2], w: f64 },
+    LaserLineDistance { model: CameraModelDesc, chain: LaserChain, laser_pixel: [f64; 2], w: f64 },
+    Se3TangentPrior   { sqrt_info: [f64; 6] },
+}
+```
 
-$$\mathbf{r} = w \cdot \left( \pi(\boldsymbol{\theta}, \mathbf{P}_w) - \mathbf{p}_{\text{obs}} \right) \in \mathbb{R}^2$$
+## Camera-Model Descriptor
 
-They differ in the transform chain from world point to pixel.
+```rust,ignore
+pub struct CameraModelDesc {
+    pub projection: ProjectionKind, // Pinhole               → intrinsics block (dim 4)
+    pub distortion: DistortionKind, // None | BrownConrady5  → distortion block (dim 0 | 5)
+    pub sensor: SensorKind,         // None | Scheimpflug2   → sensor block (dim 0 | 2)
+}
+```
 
-### ReprojPointPinhole4
+A slot with dimension 0 contributes **no parameter block**. The expected
+layout of every factor is therefore derived, never hand-listed:
 
-**Parameters**: `[intrinsics(4), pose(7)]`
+```text
+[intrinsics, distortion?, sensor?, <chain blocks…>]
+```
 
-**Transform chain**: $\mathbf{P}_c = T \cdot \mathbf{P}_w$, then pinhole projection with intrinsics only (no distortion).
+`FactorKind::param_layout()` returns this layout as
+`Vec<ParamSlotSpec { dim, manifold, role }>`, and `ProblemIR::validate`
+checks each referenced block against it. Common descriptors are available as
+constants: `CameraModelDesc::PINHOLE4`, `::PINHOLE4_DIST5`,
+`::PINHOLE4_DIST5_SCHEIMPFLUG2`.
 
-**Use case**: Distortion-free cameras or when distortion is handled externally.
+Each descriptor maps to zero-sized **kernel types** (one per slot) whose
+static methods are generic over the autodiff scalar `T: RealField`. The
+backend matches the descriptor once per factor and monomorphizes the residual
+over the kernels — there is no per-evaluation dispatch on the camera-model
+axis. Adding a camera model means one descriptor variant, one kernel type,
+and one row in the backend dispatch table (see
+[Adding a New Solver Backend](new_backend.md)).
 
----
+## Reprojection Chains
 
-### ReprojPointPinhole4Dist5
+`ReprojPoint` computes the weighted pixel residual
 
-**Parameters**: `[intrinsics(4), distortion(5), pose(7)]`
+$$\mathbf{r} = \sqrt{w} \cdot \left( \mathbf{p}_{\text{obs}} - \pi(\boldsymbol{\theta}, \mathbf{P}_c) \right) \in \mathbb{R}^2$$
 
-**Transform chain**: $\mathbf{P}_c = T \cdot \mathbf{P}_w$, then pinhole + Brown-Conrady distortion + intrinsics.
+where $\pi$ is the camera model selected by the descriptor and
+$\mathbf{P}_c$ comes from the chain:
 
-**Use case**: Standard single-camera calibration (planar intrinsics).
+### `ReprojChain::SinglePose`
 
----
+**Chain blocks**: `[camera_se3_target(7)]`
 
-### ReprojPointPinhole4Dist5Scheimpflug2
+$$\mathbf{P}_c = T_{C,T} \cdot \mathbf{P}_w$$
 
-**Parameters**: `[intrinsics(4), distortion(5), sensor(2), pose(7)]`
+**Use case**: single-camera calibration (planar / Scheimpflug intrinsics,
+laserline device bundles).
 
-**Transform chain**: $\mathbf{P}_c = T \cdot \mathbf{P}_w$, then pinhole + distortion + Scheimpflug tilt + intrinsics.
+### `ReprojChain::TwoSe3`
 
-**Use case**: Laser profilers with tilted sensors.
+**Chain blocks**: `[extrinsics(7), pose(7)]`
 
----
+$$\mathbf{P}_c = T_{\text{extr}}^{-1} \cdot T_{\text{pose}} \cdot \mathbf{P}_w$$
 
-### ReprojPointPinhole4Dist5TwoSE3
+where `extrinsics` maps camera → rig and `pose` maps target → rig.
 
-**Parameters**: `[intrinsics(4), distortion(5), extrinsics(7), rig_pose(7)]`
+**Use case**: multi-camera rig extrinsics.
 
-**Transform chain**:
+### `ReprojChain::HandEye { base_se3_gripper, mode }`
 
-$$\mathbf{P}_c = T_{\text{extrinsics}} \cdot T_{\text{rig\_pose}} \cdot \mathbf{P}_w$$
+**Chain blocks**: `[extrinsics(7), handeye(7), target(7)]`
 
-The camera pose is composed from two SE(3) transforms: the camera-to-rig extrinsics and the rig-to-target pose.
+**Chain data**: the measured robot pose $T_{B,G}$ and the [`HandEyeMode`].
 
-**Use case**: Multi-camera rig calibration.
+Eye-in-hand:
+$$T_{C,T} = T_{\text{extr}}^{-1} \cdot T_{\text{handeye}}^{-1} \cdot T_{B,G}^{-1} \cdot T_{\text{target}}$$
 
----
+Eye-to-hand:
+$$T_{C,T} = T_{\text{extr}}^{-1} \cdot T_{\text{handeye}} \cdot T_{B,G} \cdot T_{\text{target}}$$
 
-### ReprojPointPinhole4Dist5HandEye
+For single-camera hand-eye, $T_{\text{extr}} = I$.
 
-**Parameters**: `[intrinsics(4), distortion(5), extrinsics(7), handeye(7), target_pose(7)]`
+**Use case**: hand-eye calibration (camera on robot arm, or rig observing a
+robot-mounted target).
 
-**Per-residual data**: `robot_pose` ($T_{B,G}$, known from robot kinematics)
+### `ReprojChain::HandEyeRobotDelta { base_se3_gripper, mode }`
 
-**Transform chain** (eye-in-hand):
+**Chain blocks**: `[extrinsics(7), handeye(7), target(7), robot_delta(6)]`
 
-$$T_{C,T} = T_{\text{extrinsics}} \cdot T_{\text{handeye}}^{-1} \cdot T_{\text{robot}}^{-1} \cdot T_{\text{target}}$$
+Same as `HandEye`, but with a per-view se(3) tangent correction applied to
+the robot pose:
 
-Then project $\mathbf{P}_c = T_{C,T} \cdot \mathbf{P}_w$.
-
-For single-camera hand-eye, $T_{\text{extrinsics}} = I$.
-
-**Use case**: Hand-eye calibration (camera on robot arm).
-
----
-
-### ReprojPointPinhole4Dist5HandEyeRobotDelta
-
-**Parameters**: `[intrinsics(4), distortion(5), extrinsics(7), handeye(7), target_pose(7), robot_delta(7)]`
-
-**Per-residual data**: `robot_pose`
-
-**Transform chain**: Same as HandEye, but with a per-view SE(3) correction $\Delta T$ applied to the robot pose:
-
-$$T_{\text{robot}}' = T_{\text{robot}} \cdot \exp(\boldsymbol{\xi}_{\text{delta}})$$
+$$T_{B,G}' = \exp(\boldsymbol{\xi}_{\text{delta}}) \cdot T_{B,G}$$
 
 The correction is regularized by an `Se3TangentPrior` factor.
 
-**Use case**: Hand-eye calibration with imprecise robot kinematics (accounts for robot pose uncertainty).
-
----
+**Use case**: hand-eye calibration with imprecise robot kinematics.
 
 ## Laser Factors
 
-Both laser factors have residual dimension 1 and connect `[intrinsics(4), distortion(5), pose(7), plane(3+1)]`.
+Both laser families have residual dimension 1. Their chains mirror the
+reprojection chains but end with the laser-plane blocks
+`[plane_normal(3, S²), plane_distance(1)]`; a robot-delta block, when
+present, always comes last:
 
-### LaserPlanePixel
+- `LaserChain::SinglePose` — blocks `[camera_se3_target, plane_normal, plane_distance]`.
+- `LaserChain::RigHandEye { base_se3_gripper, mode }` — blocks
+  `[cam_se3_rig, handeye, target_ref, plane_normal, plane_distance]`; the
+  per-view pose is composed exactly like the hand-eye reprojection chain.
+- `LaserChain::RigHandEyeRobotDelta { … }` — adds `robot_delta(6)` last.
+
+### LaserPointToPlane
 
 **Computation**:
-1. Undistort laser pixel to normalized coordinates
+1. Undistort the laser pixel to normalized coordinates (inverting sensor and
+   distortion kernels)
 2. Back-project to a ray in camera frame
-3. Intersect ray with target plane (known from pose)
-4. Compute 3D point in camera frame
-5. Measure signed distance from 3D point to laser plane
+3. Intersect the ray with the target plane (Z = 0 in the target frame)
+4. Compute the 3D point in camera frame
+5. Measure the signed distance from the 3D point to the laser plane
 
-**Residual**: $r = \sqrt{w} \cdot (\hat{\mathbf{n}}^T \mathbf{P}_c - d)$ — distance in meters.
+**Residual**: $r = \sqrt{w} \cdot (\hat{\mathbf{n}}^T \mathbf{P}_c + d)$ — distance in meters.
 
----
-
-### LaserLineDist2D
+### LaserLineDistance
 
 **Computation**:
-1. Compute 3D intersection line of laser plane and target plane (in camera frame)
+1. Compute the 3D intersection line of laser plane and target plane (camera frame)
 2. Project this line onto the $Z = 1$ normalized camera plane
-3. Undistort laser pixel to normalized coordinates
-4. Measure perpendicular distance from pixel to projected line (2D geometry)
+3. Undistort the laser pixel to normalized coordinates
+4. Measure the perpendicular distance from pixel to projected line (2D geometry)
 5. Scale by $\sqrt{f_x \cdot f_y}$ for pixel-comparable units
 
 **Residual**: $r = \sqrt{w} \cdot d_{\perp} \cdot \sqrt{f_x f_y}$ — distance in effective pixels.
 
-**Advantages over LaserPlanePixel**: Undistortion done once per pixel (not per-iteration), residuals in pixel units (directly comparable to reprojection error), simpler 2D geometry.
+**Advantages over LaserPointToPlane**: residuals in pixel units (directly
+comparable to reprojection error) and simpler 2D geometry.
 
-**Default**: This is the recommended laser residual type.
-
----
+**Default**: this is the recommended laser residual type
+(`LaserlineResidualType::LineDistNormalized`).
 
 ## Prior Factors
 
 ### Se3TangentPrior
 
-**Parameters**: `[se3_param(7)]`
+**Parameters**: `[robot_delta(6)]` (Euclidean se(3) tangent block)
 
-**Computation**: Maps the SE(3) parameter to its tangent vector (via logarithm map) and divides by the prior standard deviations:
+**Computation**: element-wise scaling of the tangent block by the diagonal
+square-root information:
 
-$$\mathbf{r} = \begin{bmatrix} \boldsymbol{\omega} / \sigma_{\text{rot}} \\ \mathbf{v} / \sigma_{\text{trans}} \end{bmatrix} \in \mathbb{R}^6$$
+$$\mathbf{r} = \operatorname{diag}(\mathbf{s}) \cdot \boldsymbol{\xi} \in \mathbb{R}^6$$
 
-where $[\boldsymbol{\omega}, \mathbf{v}] = \log(T)$ is the 6D tangent vector.
-
-**Use case**: Zero-mean Gaussian prior on SE(3) parameters. Applied to robot pose corrections (`robot_delta`) to penalize deviations from the nominal robot kinematics.
-
-**Effect**: Adds a regularization term $\frac{1}{2} \left( \frac{\|\boldsymbol{\omega}\|^2}{\sigma_r^2} + \frac{\|\mathbf{v}\|^2}{\sigma_t^2} \right)$ to the cost function.
-
----
+**Use case**: zero-mean Gaussian prior on robot pose corrections
+(`robot_delta`) to penalize deviations from the nominal robot kinematics.
 
 ## Summary Table
 
-| Factor | Params | Res. dim | Units | Domain |
-|--------|--------|---------|-------|--------|
-| ReprojPointPinhole4 | 2 blocks | 2 | pixels | Simple pinhole |
-| ReprojPointPinhole4Dist5 | 3 blocks | 2 | pixels | Standard calibration |
-| ReprojPointPinhole4Dist5Scheimpflug2 | 4 blocks | 2 | pixels | Tilted sensor |
-| ReprojPointPinhole4Dist5TwoSE3 | 4 blocks | 2 | pixels | Multi-camera rig |
-| ReprojPointPinhole4Dist5HandEye | 5 blocks | 2 | pixels | Hand-eye |
-| ReprojPointPinhole4Dist5HandEyeRobotDelta | 6 blocks | 2 | pixels | Hand-eye + robot refinement |
-| LaserPlanePixel | 4 blocks | 1 | meters | Laser triangulation |
-| LaserLineDist2D | 4 blocks | 1 | pixels | Laser triangulation |
-| Se3TangentPrior | 1 block | 6 | normalized | Regularization |
+| Factor | Blocks | Res. dim | Units |
+|--------|--------|---------|-------|
+| `ReprojPoint` | camera blocks + 1–4 chain blocks | 2 | pixels |
+| `LaserPointToPlane` | camera blocks + 3–6 chain blocks | 1 | meters |
+| `LaserLineDistance` | camera blocks + 3–6 chain blocks | 1 | pixels |
+| `Se3TangentPrior` | 1 | 6 | normalized |
+
+Camera blocks = 1 (intrinsics) + 1 if the descriptor has distortion + 1 if it
+has a sensor. For example, `ReprojPoint` with `PINHOLE4_DIST5_SCHEIMPFLUG2`
+and `HandEyeRobotDelta` connects 7 blocks:
+`[intrinsics, distortion, sensor, extrinsics, handeye, target, robot_delta]`.

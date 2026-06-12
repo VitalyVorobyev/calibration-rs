@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING (`vision-calibration-optim`): camera model as data in the
+  factor IR** ([ADR 0020](docs/adrs/0020-camera-model-as-data-factor-ir.md)).
+  The 18 enumerated `FactorKind` variants
+  (`ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta`, …) are
+  replaced by four families — `ReprojPoint`, `LaserPointToPlane`,
+  `LaserLineDistance`, `Se3TangentPrior` — that carry a
+  `CameraModelDesc` (projection × distortion × sensor) and a
+  `ReprojChain`/`LaserChain` as data. Parameter layouts and validation
+  are derived from the descriptors; the backend monomorphizes residual
+  kernels once per factor through a single dispatch table. Numerics
+  are bit-identical on every production path (pinned by golden-value
+  tests). Adding a future camera model is one descriptor variant + one
+  kernel + one dispatch row instead of new variants per chain. The
+  unused `math::projection` helpers were removed.
+
+### Added
+- **Pinhole rig laserline support.**
+  `RigHandeyeExport::to_upstream_calibration` and
+  `pixel_to_gripper_point` accept pinhole rig hand-eye exports
+  (`sensors == None`), substituting exact zero-tilt sensors.
+
+### Fixed
+- The `laserline_device` export path computes target residuals through
+  the shared generic `compute_planar_target_residuals_views` helper
+  instead of a stale inlined projection loop.
+
 ## [0.5.1] - 2026-05-23
 
 ### Fixed

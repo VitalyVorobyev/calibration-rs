@@ -54,7 +54,9 @@ All based on `nalgebra` with `f64` precision:
 | `ParamBlock` | Parameter group (id, name, dim, manifold, fixed) |
 | `ResidualBlock` | Residual definition (params, loss, factor) |
 | `ParamId` | Unique parameter identifier |
-| `FactorKind` | Residual computation type (enum) |
+| `FactorKind` | Residual family (reprojection / laser / prior) with camera model + chain as data |
+| `CameraModelDesc` | Projection × distortion × sensor descriptor carried by factors |
+| `ReprojChain` / `LaserChain` | Pose-chain descriptors carried by factors |
 | `ManifoldKind` | Parameter geometry (Euclidean, SE3, SO3, S2) |
 | `RobustLoss` | Loss function (None, Huber, Cauchy, Arctan) |
 
