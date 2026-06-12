@@ -448,11 +448,10 @@ fn compute_stats(
     params: &RigHandeyeLaserlineParams,
     robot_deltas: Option<&[[Real; 6]]>,
 ) -> (f64, Vec<RigHandeyeLaserlinePerCamStats>) {
+    use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
     use crate::factors::laserline::{
-        laser_line_dist_normalized_rig_handeye_residual_generic,
-        laser_plane_pixel_rig_handeye_residual_generic,
+        laser_line_distance_model_generic, laser_point_to_plane_model_generic,
     };
-    use crate::factors::reprojection_model::RobotPoseData;
 
     let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCySkew<Real>>> = params
         .cameras
@@ -552,38 +551,32 @@ fn compute_stats(
         // this is independent of which one was used as the cost.
         for (cam_idx, laser_slot) in view.obs.laser_pixels.iter().enumerate() {
             let Some(pixels) = laser_slot else { continue };
-            let robot_data = RobotPoseData {
-                robot_se3: robot_arr,
+            let chain = LaserChain::RigHandEye {
+                base_se3_gripper: robot_arr,
                 mode: dataset.mode,
             };
+            let chain_params = [
+                intr_dvecs[cam_idx].clone(),
+                dist_dvecs[cam_idx].clone(),
+                sensor_dvecs[cam_idx].clone(),
+                extr_dvecs[cam_idx].clone(),
+                handeye_dv.clone(),
+                target_ref_dv.clone(),
+                plane_n_dvecs[cam_idx].clone(),
+                plane_d_dvecs[cam_idx].clone(),
+            ];
             for px in pixels {
                 let laser_px = [px.x, px.y];
-                let r_m = laser_plane_pixel_rig_handeye_residual_generic::<f64>(
-                    intr_dvecs[cam_idx].as_view(),
-                    dist_dvecs[cam_idx].as_view(),
-                    sensor_dvecs[cam_idx].as_view(),
-                    extr_dvecs[cam_idx].as_view(),
-                    handeye_dv.as_view(),
-                    target_ref_dv.as_view(),
-                    plane_n_dvecs[cam_idx].as_view(),
-                    plane_d_dvecs[cam_idx].as_view(),
-                    robot_data,
-                    laser_px,
-                    1.0,
-                );
-                let r_px = laser_line_dist_normalized_rig_handeye_residual_generic::<f64>(
-                    intr_dvecs[cam_idx].as_view(),
-                    dist_dvecs[cam_idx].as_view(),
-                    sensor_dvecs[cam_idx].as_view(),
-                    extr_dvecs[cam_idx].as_view(),
-                    handeye_dv.as_view(),
-                    target_ref_dv.as_view(),
-                    plane_n_dvecs[cam_idx].as_view(),
-                    plane_d_dvecs[cam_idx].as_view(),
-                    robot_data,
-                    laser_px,
-                    1.0,
-                );
+                let r_m = laser_point_to_plane_model_generic::<
+                    BrownConrady5Kernel,
+                    Scheimpflug2Kernel,
+                    f64,
+                >(&chain, &chain_params, laser_px, 1.0);
+                let r_px = laser_line_distance_model_generic::<
+                    BrownConrady5Kernel,
+                    Scheimpflug2Kernel,
+                    f64,
+                >(&chain, &chain_params, laser_px, 1.0);
                 let m = r_m[0];
                 let p = r_px[0];
                 if m.is_finite() && p.is_finite() && m.abs() < 1e5 && p.abs() < 1e5 {

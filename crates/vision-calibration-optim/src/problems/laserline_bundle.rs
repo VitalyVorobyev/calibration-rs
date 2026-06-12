@@ -6,9 +6,8 @@
 
 use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
-use crate::factors::laserline::{
-    laser_line_dist_normalized_generic, laser_plane_pixel_residual_generic,
-};
+use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
+use crate::factors::laserline::{laser_line_dist_core, laser_point_to_plane_core};
 use crate::ir::{
     CameraModelDesc, FactorKind, FixedMask, LaserChain, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
@@ -295,26 +294,30 @@ pub fn compute_laserline_stats(
         let mut view_laser_count = 0usize;
         for laser_pixel in &view.meta.laser_pixels {
             let residual = match residual_type {
-                LaserlineResidualType::PointToPlane => laser_plane_pixel_residual_generic(
-                    intr_vec.as_view(),
-                    dist_vec.as_view(),
-                    sensor_vec.as_view(),
-                    pose_vec.as_view(),
-                    plane_normal.as_view(),
-                    plane_distance.as_view(),
-                    [laser_pixel.x, laser_pixel.y],
-                    1.0,
-                )[0],
-                LaserlineResidualType::LineDistNormalized => laser_line_dist_normalized_generic(
-                    intr_vec.as_view(),
-                    dist_vec.as_view(),
-                    sensor_vec.as_view(),
-                    pose_vec.as_view(),
-                    plane_normal.as_view(),
-                    plane_distance.as_view(),
-                    [laser_pixel.x, laser_pixel.y],
-                    1.0,
-                )[0],
+                LaserlineResidualType::PointToPlane => {
+                    laser_point_to_plane_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+                        intr_vec.as_view(),
+                        Some(dist_vec.as_view()),
+                        Some(sensor_vec.as_view()),
+                        pose_vec.as_view(),
+                        plane_normal.as_view(),
+                        plane_distance.as_view(),
+                        [laser_pixel.x, laser_pixel.y],
+                        1.0,
+                    )[0]
+                }
+                LaserlineResidualType::LineDistNormalized => {
+                    laser_line_dist_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+                        intr_vec.as_view(),
+                        Some(dist_vec.as_view()),
+                        Some(sensor_vec.as_view()),
+                        pose_vec.as_view(),
+                        plane_normal.as_view(),
+                        plane_distance.as_view(),
+                        [laser_pixel.x, laser_pixel.y],
+                        1.0,
+                    )[0]
+                }
             };
             view_laser_sum += residual.abs();
             view_laser_count += 1;

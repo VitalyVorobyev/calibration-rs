@@ -5,41 +5,22 @@
 //! 1. Point-to-plane distance: ray-target intersection then distance to laser plane
 //! 2. Line-distance in normalized plane: projects laser-target line to normalized plane
 //!
-//! Both come in two flavours:
-//! - Single-pose (`*_residual_generic`): the residual takes a direct
-//!   `cam_se3_target` SE3 parameter block.
-//! - Rig + hand-eye (`*_rig_handeye_residual_generic`): the residual composes
-//!   `cam_se3_target` from (`cam_to_rig`, `handeye`, `target_ref`, robot pose)
-//!   according to [`HandEyeMode`], so that rig extrinsics, hand-eye transform,
-//!   and target reference pose all move under a single cost with the laser
-//!   geometry constraint.
+//! Both are generic over the camera-model kernels (distortion + sensor) and a
+//! [`LaserChain`]:
+//! - [`LaserChain::SinglePose`]: the residual takes a direct `cam_se3_target`
+//!   SE3 parameter block.
+//! - [`LaserChain::RigHandEye`] / [`LaserChain::RigHandEyeRobotDelta`]: the
+//!   residual composes `cam_se3_target` from (`cam_se3_rig`, `handeye`,
+//!   `target_ref`, robot pose) according to [`HandEyeMode`], so that rig
+//!   extrinsics, hand-eye transform, and target reference pose all move under
+//!   a single cost with the laser geometry constraint.
 
-use crate::factors::camera_kernels::{
-    BrownConrady5Kernel, DistortionKernel, Scheimpflug2Kernel, SensorKernel,
-};
-use crate::factors::reprojection_model::{RobotPoseData, se3_exp};
+use crate::factors::camera_kernels::{DistortionKernel, SensorKernel};
+use crate::factors::reprojection_model::se3_exp;
 use crate::ir::{HandEyeMode, LaserChain};
 use nalgebra::{
     DVector, DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector2, Vector3,
 };
-
-/// Undistort a pixel to normalized coordinates using a fixed-point iteration.
-///
-/// Returns `(x_u, y_u)` in normalized camera coordinates.
-#[cfg(test)]
-fn undistort_pixel_to_normalized<T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: DVectorView<'_, T>,
-    sensor: DVectorView<'_, T>,
-    laser_pixel: [f64; 2],
-) -> (T, T) {
-    undistort_pixel_to_normalized_model::<BrownConrady5Kernel, Scheimpflug2Kernel, T>(
-        intr,
-        Some(dist),
-        Some(sensor),
-        laser_pixel,
-    )
-}
 
 /// Model-generic pixel back-projection: pixel -> sensor-plane normalized ->
 /// distorted normalized (sensor inverse) -> undistorted normalized.
@@ -90,29 +71,6 @@ fn undistort_pixel_to_normalized_model<D: DistortionKernel, S: SensorKernel, T: 
 /// # Returns
 ///
 /// 1D residual scaled by sqrt(w): [distance * sqrt(w)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn laser_plane_pixel_residual_generic<T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: DVectorView<'_, T>,
-    sensor: DVectorView<'_, T>,
-    pose: DVectorView<'_, T>,
-    plane_normal: DVectorView<'_, T>,
-    plane_distance: DVectorView<'_, T>,
-    laser_pixel: [f64; 2],
-    w: f64,
-) -> SVector<T, 1> {
-    laser_point_to_plane_core::<BrownConrady5Kernel, Scheimpflug2Kernel, T>(
-        intr,
-        Some(dist),
-        Some(sensor),
-        pose,
-        plane_normal,
-        plane_distance,
-        laser_pixel,
-        w,
-    )
-}
-
 /// Model-generic core of the point-to-plane laser residual.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn laser_point_to_plane_core<D: DistortionKernel, S: SensorKernel, T: RealField>(
@@ -311,29 +269,6 @@ fn project_line_to_normalized_plane<T: RealField>(
 /// # Returns
 ///
 /// 1D residual scaled by sqrt(w): [distance_pixels * sqrt(w)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn laser_line_dist_normalized_generic<T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: DVectorView<'_, T>,
-    sensor: DVectorView<'_, T>,
-    pose: DVectorView<'_, T>,
-    plane_normal: DVectorView<'_, T>,
-    plane_distance: DVectorView<'_, T>,
-    laser_pixel: [f64; 2],
-    w: f64,
-) -> SVector<T, 1> {
-    laser_line_dist_core::<BrownConrady5Kernel, Scheimpflug2Kernel, T>(
-        intr,
-        Some(dist),
-        Some(sensor),
-        pose,
-        plane_normal,
-        plane_distance,
-        laser_pixel,
-        w,
-    )
-}
-
 /// Model-generic core of the line-distance laser residual.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn laser_line_dist_core<D: DistortionKernel, S: SensorKernel, T: RealField>(
@@ -444,14 +379,15 @@ pub(crate) fn laser_line_dist_core<D: DistortionKernel, S: SensorKernel, T: Real
 
 /// Build `cam_se3_target` from the hand-eye chain for a rig-level laser factor.
 ///
-/// Inputs are the SE3 param blocks and the per-view robot pose data; output is
-/// the composed `(rotation, translation)` that maps points in the target frame
-/// into the camera frame, identical to the pose the single-camera
-/// `laser_*_residual_generic` functions consume directly.
+/// Inputs are the SE3 param blocks, the per-view robot pose, and an optional
+/// 6D se(3) robot-pose correction (applied as `exp(delta) * T_B_G`); output
+/// is the composed `(rotation, translation)` that maps points in the target
+/// frame into the camera frame, identical to the pose the single-camera laser
+/// cores consume directly.
 ///
-/// The chain matches `reproj_residual_pinhole4_dist5_scheimpflug2_handeye_*`
-/// so a rig-level target-corner reprojection and a rig-level laser-line
-/// residual share the exact same chain semantics.
+/// The chain matches the hand-eye reprojection chains so a rig-level
+/// target-corner reprojection and a rig-level laser residual share the exact
+/// same chain semantics.
 ///
 /// - `cam_to_rig`: 7D SE3 `T_rig_from_cam`.
 /// - `handeye`:   7D SE3 — `gripper_se3_rig` (EyeInHand) or `rig_se3_base`
@@ -459,19 +395,6 @@ pub(crate) fn laser_line_dist_core<D: DistortionKernel, S: SensorKernel, T: Real
 /// - `target_ref`: 7D SE3 — `base_se3_target` (EyeInHand) or
 ///   `gripper_se3_target` (EyeToHand).
 /// - `robot_se3`: known `base_se3_gripper` for this view.
-#[allow(clippy::too_many_arguments)]
-fn compose_cam_se3_target_generic<T: RealField>(
-    cam_to_rig: DVectorView<'_, T>,
-    handeye: DVectorView<'_, T>,
-    target_ref: DVectorView<'_, T>,
-    robot_se3: [f64; 7],
-    mode: HandEyeMode,
-) -> (UnitQuaternion<T>, Vector3<T>) {
-    compose_cam_se3_target_with_delta_generic(
-        cam_to_rig, handeye, target_ref, robot_se3, None, mode,
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
 fn compose_cam_se3_target_with_delta_generic<T: RealField>(
     cam_to_rig: DVectorView<'_, T>,
@@ -592,169 +515,6 @@ fn se3_from_rot_trans<T: RealField>(
         t.y.clone(),
         t.z.clone(),
     ])
-}
-
-/// Rig + hand-eye version of [`laser_plane_pixel_residual_generic`].
-///
-/// Composes `cam_se3_target` from (`cam_to_rig`, `handeye`, `target_ref`,
-/// `robot_data.robot_se3`) via the mode-dependent chain, then delegates to the
-/// single-camera point-to-plane residual. Residual is 1D (meters, signed
-/// distance from laser-target ray intersection to the laser plane).
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn laser_plane_pixel_rig_handeye_residual_generic<T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: DVectorView<'_, T>,
-    sensor: DVectorView<'_, T>,
-    cam_to_rig: DVectorView<'_, T>,
-    handeye: DVectorView<'_, T>,
-    target_ref: DVectorView<'_, T>,
-    plane_normal: DVectorView<'_, T>,
-    plane_distance: DVectorView<'_, T>,
-    robot_data: RobotPoseData,
-    laser_pixel: [f64; 2],
-    w: f64,
-) -> SVector<T, 1> {
-    let (rot, t) = compose_cam_se3_target_generic(
-        cam_to_rig,
-        handeye,
-        target_ref,
-        robot_data.robot_se3,
-        robot_data.mode,
-    );
-    let pose = se3_from_rot_trans(&rot, &t);
-    laser_plane_pixel_residual_generic(
-        intr,
-        dist,
-        sensor,
-        pose.as_view(),
-        plane_normal,
-        plane_distance,
-        laser_pixel,
-        w,
-    )
-}
-
-/// Rig + hand-eye + robot-delta version of [`laser_plane_pixel_residual_generic`].
-///
-/// `robot_delta` is a 6D se(3) tangent correction applied as
-/// `exp(delta) * T_B_G`, matching the Scheimpflug hand-eye reprojection
-/// robot-delta factor.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn laser_plane_pixel_rig_handeye_robot_delta_residual_generic<T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: DVectorView<'_, T>,
-    sensor: DVectorView<'_, T>,
-    cam_to_rig: DVectorView<'_, T>,
-    handeye: DVectorView<'_, T>,
-    target_ref: DVectorView<'_, T>,
-    plane_normal: DVectorView<'_, T>,
-    plane_distance: DVectorView<'_, T>,
-    robot_delta: DVectorView<'_, T>,
-    robot_data: RobotPoseData,
-    laser_pixel: [f64; 2],
-    w: f64,
-) -> SVector<T, 1> {
-    let (rot, t) = compose_cam_se3_target_with_delta_generic(
-        cam_to_rig,
-        handeye,
-        target_ref,
-        robot_data.robot_se3,
-        Some(robot_delta),
-        robot_data.mode,
-    );
-    let pose = se3_from_rot_trans(&rot, &t);
-    laser_plane_pixel_residual_generic(
-        intr,
-        dist,
-        sensor,
-        pose.as_view(),
-        plane_normal,
-        plane_distance,
-        laser_pixel,
-        w,
-    )
-}
-
-/// Rig + hand-eye version of [`laser_line_dist_normalized_generic`].
-///
-/// Composes `cam_se3_target` from (`cam_to_rig`, `handeye`, `target_ref`,
-/// `robot_data.robot_se3`) via the mode-dependent chain, then delegates to the
-/// single-camera line-distance-in-normalized-plane residual. Residual is 1D
-/// (pixels, perpendicular distance from the undistorted laser pixel to the
-/// projected laser-target intersection line, scaled by sqrt(fx*fy)).
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn laser_line_dist_normalized_rig_handeye_residual_generic<T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: DVectorView<'_, T>,
-    sensor: DVectorView<'_, T>,
-    cam_to_rig: DVectorView<'_, T>,
-    handeye: DVectorView<'_, T>,
-    target_ref: DVectorView<'_, T>,
-    plane_normal: DVectorView<'_, T>,
-    plane_distance: DVectorView<'_, T>,
-    robot_data: RobotPoseData,
-    laser_pixel: [f64; 2],
-    w: f64,
-) -> SVector<T, 1> {
-    let (rot, t) = compose_cam_se3_target_generic(
-        cam_to_rig,
-        handeye,
-        target_ref,
-        robot_data.robot_se3,
-        robot_data.mode,
-    );
-    let pose = se3_from_rot_trans(&rot, &t);
-    laser_line_dist_normalized_generic(
-        intr,
-        dist,
-        sensor,
-        pose.as_view(),
-        plane_normal,
-        plane_distance,
-        laser_pixel,
-        w,
-    )
-}
-
-/// Rig + hand-eye + robot-delta version of [`laser_line_dist_normalized_generic`].
-///
-/// `robot_delta` is a 6D se(3) tangent correction applied as
-/// `exp(delta) * T_B_G`, matching the Scheimpflug hand-eye reprojection
-/// robot-delta factor.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn laser_line_dist_normalized_rig_handeye_robot_delta_residual_generic<T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: DVectorView<'_, T>,
-    sensor: DVectorView<'_, T>,
-    cam_to_rig: DVectorView<'_, T>,
-    handeye: DVectorView<'_, T>,
-    target_ref: DVectorView<'_, T>,
-    plane_normal: DVectorView<'_, T>,
-    plane_distance: DVectorView<'_, T>,
-    robot_delta: DVectorView<'_, T>,
-    robot_data: RobotPoseData,
-    laser_pixel: [f64; 2],
-    w: f64,
-) -> SVector<T, 1> {
-    let (rot, t) = compose_cam_se3_target_with_delta_generic(
-        cam_to_rig,
-        handeye,
-        target_ref,
-        robot_data.robot_se3,
-        Some(robot_delta),
-        robot_data.mode,
-    );
-    let pose = se3_from_rot_trans(&rot, &t);
-    laser_line_dist_normalized_generic(
-        intr,
-        dist,
-        sensor,
-        pose.as_view(),
-        plane_normal,
-        plane_distance,
-        laser_pixel,
-        w,
-    )
 }
 
 /// Resolve a [`LaserChain`]'s pose and plane blocks against the IR-ordered
@@ -890,8 +650,35 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
     use crate::factors::reprojection_model::apply_scheimpflug_generic;
-    use nalgebra::DVector;
+    use nalgebra::{DVector, Isometry3, Translation3, UnitQuaternion as UQ};
+
+    fn pack(iso: &Isometry3<f64>) -> DVector<f64> {
+        let q = iso.rotation.into_inner();
+        DVector::from_vec(vec![
+            q.i,
+            q.j,
+            q.k,
+            q.w,
+            iso.translation.vector.x,
+            iso.translation.vector.y,
+            iso.translation.vector.z,
+        ])
+    }
+
+    fn pack_arr(iso: &Isometry3<f64>) -> [f64; 7] {
+        let q = iso.rotation.into_inner();
+        [
+            q.i,
+            q.j,
+            q.k,
+            q.w,
+            iso.translation.vector.x,
+            iso.translation.vector.y,
+            iso.translation.vector.z,
+        ]
+    }
 
     #[test]
     fn laser_residual_smoke_test() {
@@ -908,18 +695,15 @@ mod tests {
         let plane_distance = DVector::from_vec(vec![-0.5]);
 
         // Pixel at center (will project to z=0 in target frame since pose is identity)
-        let pixel = [640.0, 360.0];
-        let w = 1.0;
-
-        let residual = laser_plane_pixel_residual_generic(
+        let residual = laser_point_to_plane_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
             intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
+            Some(dist.as_view()),
+            Some(sensor.as_view()),
             pose.as_view(),
             plane_normal.as_view(),
             plane_distance.as_view(),
-            pixel,
-            w,
+            [640.0, 360.0],
+            1.0,
         );
 
         // Ray from center pixel goes through (0,0,0) in target frame
@@ -932,51 +716,31 @@ mod tests {
     }
 
     #[test]
-    fn laser_line_dist_normalized_smoke_test() {
-        // Smoke test: laser plane intersecting with target plane
+    fn laser_line_dist_smoke_test() {
         let intr = DVector::from_vec(vec![800.0, 800.0, 640.0, 360.0]);
-        let dist = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 0.0]); // No distortion
-        let sensor = DVector::from_vec(vec![0.0, 0.0]); // Identity sensor
-
-        // Non-identity pose: camera looking at target from distance
-        // Camera at (0, 0, 0.5), looking down at target at (0, 0, 0)
-        // Rotation: identity (no rotation), Translation: (0, 0, 0.5)
+        let dist = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 0.0]);
+        let sensor = DVector::from_vec(vec![0.0, 0.0]);
         let pose = DVector::from_vec(vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5]);
-
-        // Laser plane: tilted, passing through camera frame
-        // Normal: [0.1, 0, 1] (tilted), distance: -0.4 (40cm in front)
         let normal = nalgebra::Vector3::new(0.1, 0.0, 1.0).normalize();
         let plane_normal = DVector::from_vec(vec![normal.x, normal.y, normal.z]);
         let plane_distance = DVector::from_vec(vec![-0.4]);
 
-        // Pixel at center
-        let pixel = [640.0, 360.0];
-        let w = 1.0;
-
-        let residual = laser_line_dist_normalized_generic(
+        let residual = laser_line_dist_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
             intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
+            Some(dist.as_view()),
+            Some(sensor.as_view()),
             pose.as_view(),
             plane_normal.as_view(),
             plane_distance.as_view(),
-            pixel,
-            w,
+            [640.0, 360.0],
+            1.0,
         );
 
-        // Residual should be finite (not NaN or Inf)
-        // The magnitude depends on geometry - we just verify it's computed correctly
         let res: f64 = residual[0];
-        assert!(
-            res.is_finite(),
-            "residual should be finite (not NaN/Inf): {}",
-            res
-        );
-        // Sanity check: should be less than image width (reasonable for pixel distance)
+        assert!(res.is_finite(), "residual should be finite: {res}");
         assert!(
             res.abs() < 10000.0,
-            "residual magnitude unreasonable: {}",
-            res
+            "residual magnitude unreasonable: {res}"
         );
     }
 
@@ -986,12 +750,13 @@ mod tests {
         let dist = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 0.0]);
         let sensor = DVector::from_vec(vec![0.0, 0.0]);
 
-        let (x_u, y_u): (f64, f64) = undistort_pixel_to_normalized(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            [640.0, 360.0],
-        );
+        let (x_u, y_u): (f64, f64) =
+            undistort_pixel_to_normalized_model::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+                intr.as_view(),
+                Some(dist.as_view()),
+                Some(sensor.as_view()),
+                [640.0, 360.0],
+            );
 
         assert!(x_u.abs() < 1e-12_f64, "x_u should be 0 for principal point");
         assert!(y_u.abs() < 1e-12_f64, "y_u should be 0 for principal point");
@@ -1011,7 +776,12 @@ mod tests {
         let v = intr[1] * y_sensor + intr[3];
 
         let (x_u, y_u): (f64, f64) =
-            undistort_pixel_to_normalized(intr.as_view(), dist.as_view(), sensor.as_view(), [u, v]);
+            undistort_pixel_to_normalized_model::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+                intr.as_view(),
+                Some(dist.as_view()),
+                Some(sensor.as_view()),
+                [u, v],
+            );
 
         assert!((x_u - x_norm).abs() < 1e-8, "x_u mismatch: {}", x_u);
         assert!((y_u - y_norm).abs() < 1e-8, "y_u mismatch: {}", y_u);
@@ -1019,7 +789,6 @@ mod tests {
 
     #[test]
     fn test_line_projection_geometry() {
-        // Test the helper function for line projection
         use nalgebra::Vector3;
 
         // Simple case: line parallel to XY plane at z=1
@@ -1028,19 +797,14 @@ mod tests {
 
         let (p0_norm, v_norm) = project_line_to_normalized_plane(&p0, &v);
 
-        // Origin should project to (1.0/1.0, 0.5/1.0) = (1.0, 0.5)
         assert!((p0_norm.x - 1.0_f64).abs() < 1e-10);
         assert!((p0_norm.y - 0.5_f64).abs() < 1e-10);
-
-        // Direction should remain along x (1, 0) since line is at constant z
         assert!((v_norm.x - 1.0_f64).abs() < 1e-10);
         assert!(v_norm.y.abs() < 1e-10_f64);
     }
 
     #[test]
     fn test_compute_line_origin_simple() {
-        // Test plane intersection: XY plane (z=0) and YZ plane (x=0)
-        // Should intersect along y-axis (x=0, z=0)
         use nalgebra::Vector3;
 
         let n1 = Vector3::new(0.0, 0.0, 1.0); // XY plane normal
@@ -1051,29 +815,27 @@ mod tests {
 
         let p0 = compute_line_origin(&n1, &d1, &n2, &d2, &v);
 
-        // Point should satisfy both planes
         let plane1_dist: f64 = n1.dot(&p0) + d1;
         let plane2_dist: f64 = n2.dot(&p0) + d2;
         assert!(plane1_dist.abs() < 1e-10);
         assert!(plane2_dist.abs() < 1e-10);
-        // And should have x=0, z=0
         assert!(p0.x.abs() < 1e-10);
         assert!(p0.z.abs() < 1e-10);
     }
 
     /// Compose ground-truth `cam_se3_target` via the hand-eye chain in each
-    /// mode and check that `compose_cam_se3_target_generic` produces the
-    /// same transform. This pins down chain semantics and guards against
-    /// flipped inverses.
+    /// mode and check that `compose_cam_se3_target_with_delta_generic`
+    /// produces the same transform. This pins down chain semantics and guards
+    /// against flipped inverses.
     ///
-    /// Conventions (mirror `reproj_residual_pinhole4_dist5_scheimpflug2_handeye_*`):
+    /// Conventions (mirror the hand-eye reprojection chains):
     /// - `cam_to_rig` param ≡ T_rig_from_cam (forward maps cam→rig).
     /// - EyeInHand: `handeye` = T_gripper_from_rig; `target_ref` = T_base_from_target.
     /// - EyeToHand: `handeye` = T_rig_from_base;    `target_ref` = T_gripper_from_target.
     /// - Robot data: `robot_se3` = T_base_from_gripper (as published by the robot).
     #[test]
     fn compose_cam_se3_target_matches_explicit_chain() {
-        use nalgebra::{Isometry3, Translation3, UnitQuaternion as UQ, Vector3 as V3};
+        use nalgebra::Vector3 as V3;
 
         let rot_xyz = |rx: f64, ry: f64, rz: f64| -> UQ<f64> {
             UQ::from_axis_angle(&Vector3::x_axis(), rx)
@@ -1081,8 +843,6 @@ mod tests {
                 * UQ::from_axis_angle(&Vector3::z_axis(), rz)
         };
 
-        // Arbitrary non-identity transforms, distinct enough to catch
-        // convention mix-ups.
         let t_rig_from_cam: Isometry3<f64> = Isometry3::from_parts(
             Translation3::new(0.10, -0.05, 0.20),
             rot_xyz(0.1, -0.2, 0.3),
@@ -1096,48 +856,22 @@ mod tests {
         let t_base_from_gripper: Isometry3<f64> =
             Isometry3::from_parts(Translation3::new(0.50, 0.10, 0.20), rot_xyz(0.2, 0.2, 0.2));
 
-        // Helper to pack an Isometry3 into [qx,qy,qz,qw,tx,ty,tz].
-        let pack = |iso: &Isometry3<f64>| -> DVector<f64> {
-            let q = iso.rotation.into_inner();
-            DVector::from_vec(vec![
-                q.i,
-                q.j,
-                q.k,
-                q.w,
-                iso.translation.vector.x,
-                iso.translation.vector.y,
-                iso.translation.vector.z,
-            ])
-        };
-        let pack_arr = |iso: &Isometry3<f64>| -> [f64; 7] {
-            let q = iso.rotation.into_inner();
-            [
-                q.i,
-                q.j,
-                q.k,
-                q.w,
-                iso.translation.vector.x,
-                iso.translation.vector.y,
-                iso.translation.vector.z,
-            ]
-        };
-
         let cam_to_rig = pack(&t_rig_from_cam);
         let handeye = pack(&handeye_iso);
         let target_ref = pack(&target_ref_iso);
         let robot_arr = pack_arr(&t_base_from_gripper);
 
         // --- EyeInHand --- T_C_T = T_C_R * T_R_G * T_G_B * T_B_T
-        //                       = t_rig_from_cam^-1 * handeye^-1 * robot^-1 * target_ref
         let t_ct_eih: Isometry3<f64> = t_rig_from_cam.inverse()
             * handeye_iso.inverse()
             * t_base_from_gripper.inverse()
             * target_ref_iso;
-        let (r, t) = compose_cam_se3_target_generic::<f64>(
+        let (r, t) = compose_cam_se3_target_with_delta_generic::<f64>(
             cam_to_rig.as_view(),
             handeye.as_view(),
             target_ref.as_view(),
             robot_arr,
+            None,
             HandEyeMode::EyeInHand,
         );
         for pw in [[0.01, 0.02, 0.0], [-0.03, 0.04, 0.1], [0.0, 0.0, 0.0]] {
@@ -1153,14 +887,14 @@ mod tests {
         }
 
         // --- EyeToHand --- T_C_T = T_C_R * T_R_B * T_B_G * T_G_T
-        //                       = t_rig_from_cam^-1 * handeye * robot * target_ref
         let t_ct_eth: Isometry3<f64> =
             t_rig_from_cam.inverse() * handeye_iso * t_base_from_gripper * target_ref_iso;
-        let (r2, t2) = compose_cam_se3_target_generic::<f64>(
+        let (r2, t2) = compose_cam_se3_target_with_delta_generic::<f64>(
             cam_to_rig.as_view(),
             handeye.as_view(),
             target_ref.as_view(),
             robot_arr,
+            None,
             HandEyeMode::EyeToHand,
         );
         for pw in [[0.01, 0.02, 0.0], [-0.03, 0.04, 0.1], [0.0, 0.0, 0.0]] {
@@ -1176,13 +910,11 @@ mod tests {
         }
     }
 
-    /// Ground-truth laser-plane pixel residual via the rig/hand-eye composition
-    /// must equal the single-camera residual when we pass the same composed
-    /// `cam_se3_target` directly — in both modes, with both residual types.
+    /// The rig/hand-eye chain residual must equal the single-pose residual
+    /// evaluated at the explicitly composed `cam_se3_target` — in both modes,
+    /// for both residual types.
     #[test]
     fn rig_handeye_residuals_match_single_camera_via_composition() {
-        use nalgebra::{Isometry3, Translation3, UnitQuaternion as UQ};
-
         let intr = DVector::from_vec(vec![900.0, 900.0, 640.0, 360.0]);
         let dist = DVector::from_vec(vec![0.05, -0.1, 0.0, 0.0, 0.0]);
         let sensor = DVector::from_vec(vec![0.02, -0.01]);
@@ -1211,34 +943,6 @@ mod tests {
             UQ::from_axis_angle(&Vector3::y_axis(), 0.2_f64),
         );
 
-        let pack = |iso: &Isometry3<f64>| -> DVector<f64> {
-            let q = iso.rotation.into_inner();
-            DVector::from_vec(vec![
-                q.i,
-                q.j,
-                q.k,
-                q.w,
-                iso.translation.vector.x,
-                iso.translation.vector.y,
-                iso.translation.vector.z,
-            ])
-        };
-        let pack_arr = |iso: &Isometry3<f64>| -> [f64; 7] {
-            let q = iso.rotation.into_inner();
-            [
-                q.i,
-                q.j,
-                q.k,
-                q.w,
-                iso.translation.vector.x,
-                iso.translation.vector.y,
-                iso.translation.vector.z,
-            ]
-        };
-
-        let cam_to_rig_dv = pack(&t_rig_from_cam);
-        let handeye_dv = pack(&handeye_iso);
-        let target_ref_dv = pack(&target_ref_iso);
         let robot_arr = pack_arr(&t_base_from_gripper);
 
         for mode in [HandEyeMode::EyeInHand, HandEyeMode::EyeToHand] {
@@ -1254,36 +958,37 @@ mod tests {
                 }
             };
             let pose_dv = pack(&cam_se3_target);
-
-            let robot_data = RobotPoseData {
-                robot_se3: robot_arr,
+            let chain = LaserChain::RigHandEye {
+                base_se3_gripper: robot_arr,
                 mode,
             };
+            let chain_params = [
+                intr.clone(),
+                dist.clone(),
+                sensor.clone(),
+                pack(&t_rig_from_cam),
+                pack(&handeye_iso),
+                pack(&target_ref_iso),
+                plane_normal.clone(),
+                plane_distance.clone(),
+            ];
 
             // Point-to-plane variant.
-            let r_single = laser_plane_pixel_residual_generic::<f64>(
+            let r_single = laser_point_to_plane_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
                 intr.as_view(),
-                dist.as_view(),
-                sensor.as_view(),
+                Some(dist.as_view()),
+                Some(sensor.as_view()),
                 pose_dv.as_view(),
                 plane_normal.as_view(),
                 plane_distance.as_view(),
                 laser_pixel,
                 w,
             );
-            let r_rig = laser_plane_pixel_rig_handeye_residual_generic::<f64>(
-                intr.as_view(),
-                dist.as_view(),
-                sensor.as_view(),
-                cam_to_rig_dv.as_view(),
-                handeye_dv.as_view(),
-                target_ref_dv.as_view(),
-                plane_normal.as_view(),
-                plane_distance.as_view(),
-                robot_data,
-                laser_pixel,
-                w,
-            );
+            let r_rig = laser_point_to_plane_model_generic::<
+                BrownConrady5Kernel,
+                Scheimpflug2Kernel,
+                f64,
+            >(&chain, &chain_params, laser_pixel, w);
             assert!(
                 (r_single[0] - r_rig[0]).abs() < 1e-10,
                 "PointToPlane mismatch mode={:?}: single={} rig={}",
@@ -1292,30 +997,22 @@ mod tests {
                 r_rig[0]
             );
 
-            // Line-distance in normalized plane variant.
-            let r_single_ln = laser_line_dist_normalized_generic::<f64>(
+            // Line-distance variant.
+            let r_single_ln = laser_line_dist_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
                 intr.as_view(),
-                dist.as_view(),
-                sensor.as_view(),
+                Some(dist.as_view()),
+                Some(sensor.as_view()),
                 pose_dv.as_view(),
                 plane_normal.as_view(),
                 plane_distance.as_view(),
                 laser_pixel,
                 w,
             );
-            let r_rig_ln = laser_line_dist_normalized_rig_handeye_residual_generic::<f64>(
-                intr.as_view(),
-                dist.as_view(),
-                sensor.as_view(),
-                cam_to_rig_dv.as_view(),
-                handeye_dv.as_view(),
-                target_ref_dv.as_view(),
-                plane_normal.as_view(),
-                plane_distance.as_view(),
-                robot_data,
-                laser_pixel,
-                w,
-            );
+            let r_rig_ln = laser_line_distance_model_generic::<
+                BrownConrady5Kernel,
+                Scheimpflug2Kernel,
+                f64,
+            >(&chain, &chain_params, laser_pixel, w);
             assert!(
                 (r_single_ln[0] - r_rig_ln[0]).abs() < 1e-10,
                 "LineDistNormalized mismatch mode={:?}: single={} rig={}",
@@ -1326,10 +1023,10 @@ mod tests {
         }
     }
 
+    /// The robot-delta chain must equal the no-delta chain evaluated at the
+    /// explicitly corrected robot pose (`exp(delta) * T_B_G`).
     #[test]
     fn rig_handeye_robot_delta_laser_residual_matches_corrected_robot_pose() {
-        use nalgebra::{Isometry3, Translation3, UnitQuaternion as UQ};
-
         let intr = DVector::from_vec(vec![900.0, 880.0, 640.0, 360.0]);
         let dist = DVector::from_vec(vec![0.03, -0.02, 0.0, 0.001, -0.001]);
         let sensor = DVector::from_vec(vec![0.015, -0.008]);
@@ -1359,31 +1056,6 @@ mod tests {
         );
         let delta = DVector::from_vec(vec![0.003, -0.002, 0.004, 0.0005, -0.0004, 0.0003]);
 
-        let pack = |iso: &Isometry3<f64>| -> DVector<f64> {
-            let q = iso.rotation.into_inner();
-            DVector::from_vec(vec![
-                q.i,
-                q.j,
-                q.k,
-                q.w,
-                iso.translation.vector.x,
-                iso.translation.vector.y,
-                iso.translation.vector.z,
-            ])
-        };
-        let pack_arr = |iso: &Isometry3<f64>| -> [f64; 7] {
-            let q = iso.rotation.into_inner();
-            [
-                q.i,
-                q.j,
-                q.k,
-                q.w,
-                iso.translation.vector.x,
-                iso.translation.vector.y,
-                iso.translation.vector.z,
-            ]
-        };
-
         let (delta_q, delta_t) = se3_exp(delta.as_view());
         let corrected_robot = Isometry3::from_parts(
             Translation3::from(
@@ -1392,297 +1064,50 @@ mod tests {
             delta_q * base_se3_gripper.rotation,
         );
 
-        let cam_to_rig_dv = pack(&t_rig_from_cam);
-        let handeye_dv = pack(&rig_se3_base);
-        let target_ref_dv = pack(&gripper_se3_target);
-        let robot_arr = pack_arr(&base_se3_gripper);
-        let corrected_robot_arr = pack_arr(&corrected_robot);
-        let robot_data = RobotPoseData {
-            robot_se3: robot_arr,
-            mode: HandEyeMode::EyeToHand,
+        let mode = HandEyeMode::EyeToHand;
+        let chain_delta = LaserChain::RigHandEyeRobotDelta {
+            base_se3_gripper: pack_arr(&base_se3_gripper),
+            mode,
         };
-        let corrected_robot_data = RobotPoseData {
-            robot_se3: corrected_robot_arr,
-            mode: HandEyeMode::EyeToHand,
+        let chain_corrected = LaserChain::RigHandEye {
+            base_se3_gripper: pack_arr(&corrected_robot),
+            mode,
         };
+        let base_params = [
+            intr.clone(),
+            dist.clone(),
+            sensor.clone(),
+            pack(&t_rig_from_cam),
+            pack(&rig_se3_base),
+            pack(&gripper_se3_target),
+            plane_normal.clone(),
+            plane_distance.clone(),
+        ];
+        let mut delta_params = base_params.to_vec();
+        delta_params.push(delta.clone());
 
-        let p2p_delta = laser_plane_pixel_rig_handeye_robot_delta_residual_generic::<f64>(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            cam_to_rig_dv.as_view(),
-            handeye_dv.as_view(),
-            target_ref_dv.as_view(),
-            plane_normal.as_view(),
-            plane_distance.as_view(),
-            delta.as_view(),
-            robot_data,
-            laser_pixel,
-            w,
-        );
-        let p2p_corrected = laser_plane_pixel_rig_handeye_residual_generic::<f64>(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            cam_to_rig_dv.as_view(),
-            handeye_dv.as_view(),
-            target_ref_dv.as_view(),
-            plane_normal.as_view(),
-            plane_distance.as_view(),
-            corrected_robot_data,
-            laser_pixel,
-            w,
-        );
+        let p2p_delta = laser_point_to_plane_model_generic::<
+            BrownConrady5Kernel,
+            Scheimpflug2Kernel,
+            f64,
+        >(&chain_delta, &delta_params, laser_pixel, w);
+        let p2p_corrected = laser_point_to_plane_model_generic::<
+            BrownConrady5Kernel,
+            Scheimpflug2Kernel,
+            f64,
+        >(&chain_corrected, &base_params, laser_pixel, w);
         assert!((p2p_delta[0] - p2p_corrected[0]).abs() < 1e-10);
 
-        let line_delta = laser_line_dist_normalized_rig_handeye_robot_delta_residual_generic::<f64>(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            cam_to_rig_dv.as_view(),
-            handeye_dv.as_view(),
-            target_ref_dv.as_view(),
-            plane_normal.as_view(),
-            plane_distance.as_view(),
-            delta.as_view(),
-            robot_data,
-            laser_pixel,
-            w,
-        );
-        let line_corrected = laser_line_dist_normalized_rig_handeye_residual_generic::<f64>(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            cam_to_rig_dv.as_view(),
-            handeye_dv.as_view(),
-            target_ref_dv.as_view(),
-            plane_normal.as_view(),
-            plane_distance.as_view(),
-            corrected_robot_data,
-            laser_pixel,
-            w,
-        );
+        let line_delta = laser_line_distance_model_generic::<
+            BrownConrady5Kernel,
+            Scheimpflug2Kernel,
+            f64,
+        >(&chain_delta, &delta_params, laser_pixel, w);
+        let line_corrected = laser_line_distance_model_generic::<
+            BrownConrady5Kernel,
+            Scheimpflug2Kernel,
+            f64,
+        >(&chain_corrected, &base_params, laser_pixel, w);
         assert!((line_delta[0] - line_corrected[0]).abs() < 1e-10);
-    }
-
-    /// The chain-aware model-generic entry points must agree exactly with the
-    /// legacy per-variant wrappers for every laser chain (they share the same
-    /// core; this pins the params-slice plumbing).
-    #[test]
-    fn model_generic_matches_legacy_laser_wrappers() {
-        use nalgebra::{Isometry3, Translation3, UnitQuaternion as UQ};
-
-        let intr = DVector::from_vec(vec![910.0, 895.0, 642.0, 358.0]);
-        let dist = DVector::from_vec(vec![0.04, -0.09, 0.01, 0.001, -0.002]);
-        let sensor = DVector::from_vec(vec![0.018, -0.011]);
-        let plane_normal = {
-            let n = nalgebra::Vector3::new(0.09, 0.17, 1.0).normalize();
-            DVector::from_vec(vec![n.x, n.y, n.z])
-        };
-        let plane_distance = DVector::from_vec(vec![-0.33]);
-        let laser_pixel = [702.0, 391.0];
-        let w = 2.5;
-
-        let pack = |iso: &Isometry3<f64>| -> DVector<f64> {
-            let q = iso.rotation.into_inner();
-            DVector::from_vec(vec![
-                q.i,
-                q.j,
-                q.k,
-                q.w,
-                iso.translation.vector.x,
-                iso.translation.vector.y,
-                iso.translation.vector.z,
-            ])
-        };
-        let cam_to_rig_iso: Isometry3<f64> = Isometry3::from_parts(
-            Translation3::new(0.06, -0.02, 0.11),
-            UQ::from_axis_angle(&Vector3::y_axis(), 0.22_f64),
-        );
-        let handeye_iso: Isometry3<f64> = Isometry3::from_parts(
-            Translation3::new(-0.03, 0.02, 0.07),
-            UQ::from_axis_angle(&Vector3::x_axis(), -0.12_f64),
-        );
-        let target_ref_iso: Isometry3<f64> = Isometry3::from_parts(
-            Translation3::new(0.21, 0.14, 0.45),
-            UQ::from_axis_angle(&Vector3::z_axis(), 0.31_f64),
-        );
-        let pose_iso: Isometry3<f64> = Isometry3::from_parts(
-            Translation3::new(0.02, 0.05, 0.52),
-            UQ::from_axis_angle(&Vector3::x_axis(), 0.15_f64),
-        );
-        let cam_to_rig = pack(&cam_to_rig_iso);
-        let handeye = pack(&handeye_iso);
-        let target_ref = pack(&target_ref_iso);
-        let pose = pack(&pose_iso);
-        let robot_se3 = [0.02, 0.01, 0.03, 0.999_3, 0.5, -0.2, 0.8];
-        let delta = DVector::from_vec(vec![0.002, -0.001, 0.003, 0.0004, -0.0007, 0.0009]);
-        let mode = HandEyeMode::EyeToHand;
-        let robot_data = RobotPoseData { robot_se3, mode };
-
-        // SinglePose.
-        let old = laser_plane_pixel_residual_generic::<f64>(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            pose.as_view(),
-            plane_normal.as_view(),
-            plane_distance.as_view(),
-            laser_pixel,
-            w,
-        );
-        let params = [
-            intr.clone(),
-            dist.clone(),
-            sensor.clone(),
-            pose.clone(),
-            plane_normal.clone(),
-            plane_distance.clone(),
-        ];
-        let new = laser_point_to_plane_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-            &LaserChain::SinglePose,
-            &params,
-            laser_pixel,
-            w,
-        );
-        assert_eq!(old, new, "SinglePose point-to-plane must be identical");
-
-        let old = laser_line_dist_normalized_generic::<f64>(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            pose.as_view(),
-            plane_normal.as_view(),
-            plane_distance.as_view(),
-            laser_pixel,
-            w,
-        );
-        let new = laser_line_distance_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-            &LaserChain::SinglePose,
-            &params,
-            laser_pixel,
-            w,
-        );
-        assert_eq!(old, new, "SinglePose line-dist must be identical");
-
-        // RigHandEye.
-        let chain = LaserChain::RigHandEye {
-            base_se3_gripper: robot_se3,
-            mode,
-        };
-        let params = [
-            intr.clone(),
-            dist.clone(),
-            sensor.clone(),
-            cam_to_rig.clone(),
-            handeye.clone(),
-            target_ref.clone(),
-            plane_normal.clone(),
-            plane_distance.clone(),
-        ];
-        let old = laser_plane_pixel_rig_handeye_residual_generic::<f64>(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            cam_to_rig.as_view(),
-            handeye.as_view(),
-            target_ref.as_view(),
-            plane_normal.as_view(),
-            plane_distance.as_view(),
-            robot_data,
-            laser_pixel,
-            w,
-        );
-        let new = laser_point_to_plane_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-            &chain,
-            &params,
-            laser_pixel,
-            w,
-        );
-        assert_eq!(old, new, "RigHandEye point-to-plane must be identical");
-
-        let old = laser_line_dist_normalized_rig_handeye_residual_generic::<f64>(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            cam_to_rig.as_view(),
-            handeye.as_view(),
-            target_ref.as_view(),
-            plane_normal.as_view(),
-            plane_distance.as_view(),
-            robot_data,
-            laser_pixel,
-            w,
-        );
-        let new = laser_line_distance_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-            &chain,
-            &params,
-            laser_pixel,
-            w,
-        );
-        assert_eq!(old, new, "RigHandEye line-dist must be identical");
-
-        // RigHandEyeRobotDelta.
-        let chain = LaserChain::RigHandEyeRobotDelta {
-            base_se3_gripper: robot_se3,
-            mode,
-        };
-        let params = [
-            intr.clone(),
-            dist.clone(),
-            sensor.clone(),
-            cam_to_rig.clone(),
-            handeye.clone(),
-            target_ref.clone(),
-            plane_normal.clone(),
-            plane_distance.clone(),
-            delta.clone(),
-        ];
-        let old = laser_plane_pixel_rig_handeye_robot_delta_residual_generic::<f64>(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            cam_to_rig.as_view(),
-            handeye.as_view(),
-            target_ref.as_view(),
-            plane_normal.as_view(),
-            plane_distance.as_view(),
-            delta.as_view(),
-            robot_data,
-            laser_pixel,
-            w,
-        );
-        let new = laser_point_to_plane_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-            &chain,
-            &params,
-            laser_pixel,
-            w,
-        );
-        assert_eq!(
-            old, new,
-            "RigHandEyeRobotDelta point-to-plane must be identical"
-        );
-
-        let old = laser_line_dist_normalized_rig_handeye_robot_delta_residual_generic::<f64>(
-            intr.as_view(),
-            dist.as_view(),
-            sensor.as_view(),
-            cam_to_rig.as_view(),
-            handeye.as_view(),
-            target_ref.as_view(),
-            plane_normal.as_view(),
-            plane_distance.as_view(),
-            delta.as_view(),
-            robot_data,
-            laser_pixel,
-            w,
-        );
-        let new = laser_line_distance_model_generic::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-            &chain,
-            &params,
-            laser_pixel,
-            w,
-        );
-        assert_eq!(old, new, "RigHandEyeRobotDelta line-dist must be identical");
     }
 }

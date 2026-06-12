@@ -144,13 +144,10 @@ mod backend;
 mod error;
 mod factors;
 mod ir;
-mod math;
 mod params;
 mod problems;
 
 pub use error::Error;
-
-pub use math::*;
 
 pub use crate::backend::{
     BackendKind, BackendSolution, BackendSolveOptions, SolveReport, solve_with_backend,
