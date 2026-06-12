@@ -258,10 +258,24 @@ fn pair_poses_to_views(
                     suggestions: vec![],
                 });
             }
-            let by_id: std::collections::HashMap<&str, &ParsedPose> = poses
-                .iter()
-                .filter_map(|p| p.id.as_deref().map(|id| (id, p)))
-                .collect();
+            // Collecting straight into a HashMap would silently keep only
+            // the last row for a repeated pose_id, attaching an arbitrary
+            // pose to the matching view. A duplicate id is an ambiguous
+            // manifest, so reject it up front like a missing token.
+            let mut by_id: std::collections::HashMap<&str, &ParsedPose> =
+                std::collections::HashMap::with_capacity(poses.len());
+            for pose in poses {
+                if let Some(id) = pose.id.as_deref()
+                    && by_id.insert(id, pose).is_some()
+                {
+                    return Err(RunError::PairingTokenMismatch {
+                        message: format!(
+                            "duplicate pose_id {id:?} in the robot-pose table; each \
+                             pose_id must be unique so views pair unambiguously"
+                        ),
+                    });
+                }
+            }
             views
                 .into_iter()
                 .map(|(obs, token)| {
@@ -621,5 +635,50 @@ mod tests {
             .map(|v| v.meta.base_se3_gripper.translation.x)
             .collect();
         assert_eq!(xs, vec![0.1, 0.2]);
+    }
+
+    #[test]
+    fn token_pairing_rejects_duplicate_pose_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        for cam in 0..2 {
+            for view in 0..2 {
+                seed_image(
+                    tmp.path(),
+                    &cache,
+                    &format!("cam{cam}/img_{view}.png"),
+                    grid_features(6),
+                );
+            }
+        }
+        // Two rows share pose_id "0" — an ambiguous table that must be
+        // rejected rather than silently keeping the last row.
+        let csv = "view,tx,ty,tz,qx,qy,qz,qw\n\
+                   0,0.1,0,0,0,0,0,1\n\
+                   0,0.9,0,0,0,0,0,1";
+        let mut spec = handeye_spec_with_poses(tmp.path(), csv);
+        spec.cameras[0].images = ImagePattern::List {
+            paths: vec!["cam0/img_0.png".into(), "cam0/img_1.png".into()],
+        };
+        spec.cameras[1].images = ImagePattern::List {
+            paths: vec!["cam1/img_0.png".into(), "cam1/img_1.png".into()],
+        };
+        spec.pose_pairing = Some(PosePairing::SharedFilenameToken {
+            regex: r"^img_(?<view>\d+)\.png$".into(),
+            group: "view".into(),
+        });
+        if let Some(rp) = &mut spec.robot_poses {
+            rp.columns.pose_id = Some("view".into());
+        }
+        let err = build_rig_handeye_input(&spec, tmp.path(), &cache, false).unwrap_err();
+        match err {
+            RunError::PairingTokenMismatch { message } => {
+                assert!(
+                    message.contains("duplicate pose_id") && message.contains('0'),
+                    "got: {message}"
+                );
+            }
+            other => panic!("expected PairingTokenMismatch, got {other:?}"),
+        }
     }
 }
