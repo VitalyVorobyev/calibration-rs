@@ -3,8 +3,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraParams, DistortionFixMask, IntrinsicsFixMask, Iso3, PerFeatureResiduals, PlanarDataset,
-    build_feature_histogram, compute_planar_target_residuals,
+    CameraParams, DistortionFixMask, ImageManifest, IntrinsicsFixMask, Iso3, PerFeatureResiduals,
+    PlanarDataset, build_feature_histogram, compute_planar_target_residuals,
 };
 use vision_calibration_optim::{RobustLoss, SolveReport};
 
@@ -125,6 +125,12 @@ pub struct ScheimpflugIntrinsicsExport {
     /// `Some(vec![one_entry])`.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
+    /// Optional pointer to the source images behind this export. When
+    /// populated, downstream viewers (the diagnose UI) can locate the
+    /// source image for each view. `None` means "no images shipped";
+    /// the calibration pipeline never reads this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_manifest: Option<ImageManifest>,
 }
 
 impl ProblemState for ScheimpflugIntrinsicsProblem {
@@ -203,6 +209,9 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
             mean_reproj_error: output.mean_reproj_error,
             per_cam_reproj_errors: vec![output.mean_reproj_error],
             per_feature_residuals,
+            // Populated by callers that know the source image paths
+            // (e.g. the Tauri runner); the pipeline itself never does.
+            image_manifest: None,
         })
     }
 }
