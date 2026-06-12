@@ -3,8 +3,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    Camera, PerFeatureResiduals, Pinhole, ScheimpflugParams, TargetFeatureResidual,
-    build_feature_histogram,
+    Camera, PerFeatureResiduals, Pinhole, ScheimpflugParams, build_feature_histogram,
+    compute_planar_target_residuals_views,
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
@@ -270,11 +270,6 @@ impl ProblemType for LaserlineDeviceProblem {
         // residuals match the projection model the optimizer used. Skipping
         // the sensor here would mis-report errors for any non-identity
         // Scheimpflug calibration.
-        //
-        // Inlined projection loop because the core helper
-        // `compute_planar_target_residuals_views` is currently typed against
-        // PinholeCamera. PR #34 (follow-ups) generifies it over a
-        // CameraProject trait so this can be replaced with one helper call.
         let params = &output.estimate.params;
         let camera = Camera::new(
             Pinhole,
@@ -282,39 +277,7 @@ impl ProblemType for LaserlineDeviceProblem {
             params.sensor.compile(),
             params.intrinsics,
         );
-        if params.poses.len() != input.len() {
-            return Err(Error::invalid_input(format!(
-                "camera_se3_target count {} != view count {}",
-                params.poses.len(),
-                input.len()
-            )));
-        }
-        let mut target = Vec::new();
-        for (view_idx, view) in input.iter().enumerate() {
-            let pose = params.poses[view_idx];
-            for (feature_idx, (p3d, p2d)) in view
-                .obs
-                .points_3d
-                .iter()
-                .zip(view.obs.points_2d.iter())
-                .enumerate()
-            {
-                let p_cam = pose * p3d;
-                let (projected_px, error_px) = match camera.project_point_c(&p_cam.coords) {
-                    Some(proj) => (Some([proj.x, proj.y]), Some((proj - *p2d).norm())),
-                    None => (None, None),
-                };
-                let mut residual = TargetFeatureResidual::default();
-                residual.pose = view_idx;
-                residual.camera = 0;
-                residual.feature = feature_idx;
-                residual.target_xyz_m = [p3d.x, p3d.y, p3d.z];
-                residual.observed_px = [p2d.x, p2d.y];
-                residual.projected_px = projected_px;
-                residual.error_px = error_px;
-                target.push(residual);
-            }
-        }
+        let target = compute_planar_target_residuals_views(&camera, input, &params.poses)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
 
         let laser = compute_laserline_feature_residuals(input, params)?;
