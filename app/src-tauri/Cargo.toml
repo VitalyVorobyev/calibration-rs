@@ -38,6 +38,9 @@ vision-calibration-dataset = { path = "../../crates/vision-calibration-dataset" 
 vision-calibration-detect = { path = "../../crates/vision-calibration-detect" }
 dirs = "5"
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 # Avoid touching the embed_plist build hooks unless explicitly running
 # `cargo tauri build`. `tauri dev` enables what it needs from the CLI.

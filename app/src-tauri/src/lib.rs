@@ -37,6 +37,7 @@ pub fn run() {
             commands::compute_epipolar_overlay_undistorted,
             commands::undistort_points,
             run::run_calibration_cmd,
+            run::default_config_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("failed to launch calibration-diagnose");
