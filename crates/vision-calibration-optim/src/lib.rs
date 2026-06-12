@@ -157,7 +157,8 @@ pub use crate::backend::{
 };
 
 pub use crate::ir::{
-    FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ResidualBlock, RobustLoss,
+    CameraModelDesc, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind,
+    ParamSlotSpec, ProblemIR, ProjectionKind, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
 };
 
 pub use crate::params::distortion::{DISTORTION_DIM, pack_distortion};
