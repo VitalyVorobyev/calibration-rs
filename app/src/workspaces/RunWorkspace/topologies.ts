@@ -8,9 +8,11 @@
  */
 import type { JsonSchema } from "../../lib/configForm";
 
+import laserlineDeviceConfigSchemaJson from "../../schemas/laserline_device_config.json";
 import planarConfigSchemaJson from "../../schemas/planar_intrinsics_config.json";
 import rigExtrinsicsConfigSchemaJson from "../../schemas/rig_extrinsics_config.json";
 import rigHandeyeConfigSchemaJson from "../../schemas/rig_handeye_config.json";
+import rigLaserlineDeviceConfigSchemaJson from "../../schemas/rig_laserline_device_config.json";
 import scheimpflugConfigSchemaJson from "../../schemas/scheimpflug_intrinsics_config.json";
 import singleCamHandeyeConfigSchemaJson from "../../schemas/single_cam_handeye_config.json";
 
@@ -19,8 +21,11 @@ import singleCamHandeyeConfigSchemaJson from "../../schemas/single_cam_handeye_c
 const planarConfigSchema = planarConfigSchemaJson as unknown as JsonSchema;
 const scheimpflugConfigSchema = scheimpflugConfigSchemaJson as unknown as JsonSchema;
 const singleCamHandeyeConfigSchema = singleCamHandeyeConfigSchemaJson as unknown as JsonSchema;
+const laserlineDeviceConfigSchema = laserlineDeviceConfigSchemaJson as unknown as JsonSchema;
 const rigExtrinsicsConfigSchema = rigExtrinsicsConfigSchemaJson as unknown as JsonSchema;
 const rigHandeyeConfigSchema = rigHandeyeConfigSchemaJson as unknown as JsonSchema;
+const rigLaserlineDeviceConfigSchema =
+  rigLaserlineDeviceConfigSchemaJson as unknown as JsonSchema;
 
 export interface TopologyInfo {
   /** Human-readable label for headers and summaries. */
@@ -52,9 +57,8 @@ export const TOPOLOGY_INFO: Record<string, TopologyInfo> = {
   },
   laserline_device: {
     label: "LaserlineDevice",
-    schema: null,
-    supported: false,
-    unsupportedReason: "Laser topologies await the laser-frame manifest design.",
+    schema: laserlineDeviceConfigSchema,
+    supported: true,
   },
   rig_extrinsics: {
     label: "RigExtrinsics",
@@ -68,9 +72,8 @@ export const TOPOLOGY_INFO: Record<string, TopologyInfo> = {
   },
   rig_laserline_device: {
     label: "RigLaserlineDevice",
-    schema: null,
-    supported: false,
-    unsupportedReason: "Laser topologies await the laser-frame manifest design.",
+    schema: rigLaserlineDeviceConfigSchema,
+    supported: true,
   },
 };
 

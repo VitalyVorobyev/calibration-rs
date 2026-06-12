@@ -29,7 +29,7 @@ import datasetSchemaJson from "../../schemas/dataset_spec.json";
 import { useStore } from "../../store";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { PresetCard } from "./PresetCard";
-import { BUILTIN_PRESETS, type EnabledPreset } from "./presets";
+import { BUILTIN_PRESETS, mergeConfig, type EnabledPreset } from "./presets";
 import { topologyInfo } from "./topologies";
 
 // schemars-emitted JSON Schema; cast through unknown since both shapes
@@ -206,8 +206,13 @@ export function RunWorkspace() {
       setManifest(parsed);
       // Reset config to the preset topology's defaults (the topology
       // effect above only fires on topology *changes*, and switching
-      // between same-topology presets must still reset).
-      const defaults = await fetchDefaultConfig(topologyOf(parsed), inTauri);
+      // between same-topology presets must still reset), then apply
+      // the preset's overrides — datasets like rtv3d need non-default
+      // config (Scheimpflug sensors, EyeToHand).
+      let defaults = await fetchDefaultConfig(topologyOf(parsed), inTauri);
+      if (preset.configOverrides) {
+        defaults = mergeConfig(defaults, preset.configOverrides);
+      }
       prevTopologyRef.current = topologyOf(parsed);
       setConfig(defaults);
       setActivePresetId(preset.id);

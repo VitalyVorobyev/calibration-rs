@@ -58,33 +58,36 @@ pub(crate) fn load_robot_poses(
             .collect();
     }
 
-    let rows: Vec<RawRow> = match source.format {
-        RobotPoseFormat::Csv => parse_csv_rows(&text, &path)?,
-        RobotPoseFormat::Json => {
-            let values: Vec<Value> =
-                serde_json::from_str(&text).map_err(|e| RunError::PoseParse {
-                    path: path.clone(),
-                    row: 0,
-                    message: format!("not a JSON array of objects: {e}"),
-                })?;
-            values
-                .into_iter()
-                .enumerate()
-                .map(|(i, v)| object_to_row(v, i, &path))
-                .collect::<Result<_, _>>()?
-        }
-        RobotPoseFormat::Jsonl => text
-            .lines()
-            .filter(|l| !l.trim().is_empty())
+    // The matrix-field shape (one nested 4×4 array per row) doesn't
+    // fit the string-valued `RawRow` funnel — handle it directly. The
+    // validator pinned the format to json/jsonl and the rotation
+    // format to matrix4x4_row_major.
+    if let Some(field) = &source.matrix_field {
+        return json_values(source.format, &text, &path)?
+            .into_iter()
             .enumerate()
-            .map(|(i, line)| {
-                let v: Value = serde_json::from_str(line).map_err(|e| RunError::PoseParse {
+            .map(|(i, v)| {
+                let matrix = v.get(field).ok_or_else(|| RunError::PoseParse {
                     path: path.clone(),
                     row: i,
-                    message: format!("invalid JSON object: {e}"),
+                    message: format!("matrix_field {field:?} not found in this row"),
                 })?;
-                object_to_row(v, i, &path)
+                let flat = flatten_matrix4x4(matrix).map_err(|message| RunError::PoseParse {
+                    path: path.clone(),
+                    row: i,
+                    message,
+                })?;
+                pose_from_matrix_values(&flat, i, convention, &path)
             })
+            .collect();
+    }
+
+    let rows: Vec<RawRow> = match source.format {
+        RobotPoseFormat::Csv => parse_csv_rows(&text, &path)?,
+        RobotPoseFormat::Json | RobotPoseFormat::Jsonl => json_values(source.format, &text, &path)?
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| object_to_row(v, i, &path))
             .collect::<Result<_, _>>()?,
         RobotPoseFormat::Rowmajor4x4 => {
             unreachable!("handled by the early return above")
@@ -95,6 +98,68 @@ pub(crate) fn load_robot_poses(
         .enumerate()
         .map(|(i, row)| parse_pose_row(row, i, source, convention, &path))
         .collect()
+}
+
+/// Parse a json (array of objects) or jsonl (object per line) file
+/// into raw row values.
+fn json_values(format: RobotPoseFormat, text: &str, path: &Path) -> Result<Vec<Value>, RunError> {
+    match format {
+        RobotPoseFormat::Json => {
+            serde_json::from_str::<Vec<Value>>(text).map_err(|e| RunError::PoseParse {
+                path: path.to_path_buf(),
+                row: 0,
+                message: format!("not a JSON array of objects: {e}"),
+            })
+        }
+        RobotPoseFormat::Jsonl => text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .enumerate()
+            .map(|(i, line)| {
+                serde_json::from_str(line).map_err(|e| RunError::PoseParse {
+                    path: path.to_path_buf(),
+                    row: i,
+                    message: format!("invalid JSON object: {e}"),
+                })
+            })
+            .collect(),
+        RobotPoseFormat::Csv | RobotPoseFormat::Rowmajor4x4 => {
+            unreachable!("json_values is only called for json/jsonl formats")
+        }
+    }
+}
+
+/// Flatten a nested `[[f64; 4]; 4]` or flat `[f64; 16]` JSON array into
+/// 16 row-major values.
+fn flatten_matrix4x4(value: &Value) -> Result<Vec<f64>, String> {
+    let Value::Array(outer) = value else {
+        return Err(format!("expected a 4×4 or flat-16 array, got {value}"));
+    };
+    let mut flat = Vec::with_capacity(16);
+    if outer.len() == 4 && outer.iter().all(|v| v.is_array()) {
+        for row in outer {
+            let Value::Array(cells) = row else {
+                unreachable!("all-array check above");
+            };
+            if cells.len() != 4 {
+                return Err(format!(
+                    "nested matrix row has {} cells, expected 4",
+                    cells.len()
+                ));
+            }
+            for c in cells {
+                flat.push(c.as_f64().ok_or_else(|| format!("{c} is not a number"))?);
+            }
+        }
+    } else {
+        for c in outer {
+            flat.push(c.as_f64().ok_or_else(|| format!("{c} is not a number"))?);
+        }
+    }
+    if flat.len() != 16 {
+        return Err(format!("matrix has {} values, expected 16", flat.len()));
+    }
+    Ok(flat)
 }
 
 /// One raw row: column name → string value. CSV and JSON funnel into
@@ -379,11 +444,24 @@ fn parse_matrix_row(
             ),
         });
     }
+    pose_from_matrix_values(&values, index, convention, path)
+}
 
-    // The validator pinned `rotation_format` to `Matrix4x4RowMajor`,
-    // so the shared rotation builder applies directly.
+/// Normalize 16 row-major matrix values into a `ParsedPose`. Shared by
+/// the headerless `rowmajor4x4` format and the json `matrix_field`
+/// shape; both pin `rotation_format` to `Matrix4x4RowMajor` in the
+/// validator. Translation comes from the matrix's fourth column,
+/// scaled by the declared units. `id` is always `None` — neither shape
+/// carries a pose-id column, so only `by_index` pairing can consume
+/// them.
+fn pose_from_matrix_values(
+    values: &[f64],
+    index: usize,
+    convention: &PoseConvention,
+    path: &Path,
+) -> Result<ParsedPose, RunError> {
     let rotation =
-        rotation_from_values(RotationFormat::Matrix4x4RowMajor, &values).map_err(|message| {
+        rotation_from_values(RotationFormat::Matrix4x4RowMajor, values).map_err(|message| {
             RunError::PoseParse {
                 path: path.to_path_buf(),
                 row: index,
@@ -528,6 +606,7 @@ mod tests {
             path: path.to_path_buf(),
             format,
             columns: Some(columns),
+            matrix_field: None,
         }
     }
 
@@ -641,6 +720,7 @@ mod tests {
             path: path.to_path_buf(),
             format: RobotPoseFormat::Rowmajor4x4,
             columns: None,
+            matrix_field: None,
         }
     }
 
@@ -829,5 +909,79 @@ mod tests {
         );
         let err = load_robot_poses(&src, &conv, path.parent().unwrap()).unwrap_err();
         assert!(format!("{err}").contains("quoted CSV"));
+    }
+
+    // ── matrix_field (ADR 0021) ─────────────────────────────────────────
+
+    fn matrix_field_source(path: &Path, format: RobotPoseFormat) -> RobotPoseSource {
+        RobotPoseSource {
+            path: path.to_path_buf(),
+            format,
+            columns: None,
+            matrix_field: Some("tcp2base".into()),
+        }
+    }
+
+    #[test]
+    fn matrix_field_nested_4x4_mm_roundtrip() {
+        // rtv3d shape: nested 4×4 array, translation in millimetres,
+        // tcp2base = T_B_G directly (TBaseTcp).
+        let json = r#"[
+            {"tcp2base": [[1,0,0,290.0],[0,1,0,15.0],[0,0,1,110.0],[0,0,0,1]],
+             "target_image": "target_0.png", "type": "double_snap"}
+        ]"#;
+        let (_dir, path) = write_temp(json, "json");
+        let src = matrix_field_source(&path, RobotPoseFormat::Json);
+        let conv = convention(
+            TransformConvention::TBaseTcp,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::Mm,
+        );
+        let poses = load_robot_poses(&src, &conv, path.parent().unwrap()).unwrap();
+        assert_eq!(poses.len(), 1);
+        let p = &poses[0].base_se3_gripper;
+        assert!((p.translation.vector - Vector3::new(0.29, 0.015, 0.11)).norm() < 1e-12);
+        assert!(p.rotation.angle() < 1e-12);
+        assert!(poses[0].id.is_none(), "matrix rows carry no pose_id");
+    }
+
+    #[test]
+    fn matrix_field_flat_16_jsonl() {
+        let jsonl = r#"{"tcp2base": [1,0,0,0.5, 0,1,0,0, 0,0,1,0, 0,0,0,1]}"#;
+        let (_dir, path) = write_temp(jsonl, "jsonl");
+        let src = matrix_field_source(&path, RobotPoseFormat::Jsonl);
+        let conv = convention(
+            TransformConvention::TBaseTcp,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::M,
+        );
+        let poses = load_robot_poses(&src, &conv, path.parent().unwrap()).unwrap();
+        assert_eq!(poses.len(), 1);
+        assert!((poses[0].base_se3_gripper.translation.x - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn matrix_field_missing_or_malformed_is_actionable() {
+        let json = r#"[{"pose": [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]}]"#;
+        let (_dir, path) = write_temp(json, "json");
+        let src = matrix_field_source(&path, RobotPoseFormat::Json);
+        let conv = convention(
+            TransformConvention::TBaseTcp,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::M,
+        );
+        let err = load_robot_poses(&src, &conv, path.parent().unwrap()).unwrap_err();
+        match err {
+            RunError::PoseParse { message, .. } => {
+                assert!(message.contains("tcp2base"), "got: {message}");
+            }
+            other => panic!("expected PoseParse, got {other:?}"),
+        }
+
+        let json = r#"[{"tcp2base": [[1,0,0],[0,1,0],[0,0,1]]}]"#;
+        let (_dir2, path2) = write_temp(json, "json");
+        let src2 = matrix_field_source(&path2, RobotPoseFormat::Json);
+        let err2 = load_robot_poses(&src2, &conv, path2.parent().unwrap()).unwrap_err();
+        assert!(matches!(err2, RunError::PoseParse { .. }));
     }
 }

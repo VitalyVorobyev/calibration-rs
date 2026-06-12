@@ -12,9 +12,10 @@
 //!   [`RobotPoseSource`](vision_calibration_dataset::RobotPoseSource)).
 //! - [`build_single_cam_handeye_input`] — `SingleCamHandeye`
 //!   (`SingleCamHandeyeInput`, single camera + robot poses).
-//!
-//! The laser topologies (`LaserlineDevice`, `RigLaserlineDevice`) await
-//! the laser-frame manifest design.
+//! - [`build_laserline_device_input`] / [`build_rig_laserline_device_input`]
+//!   — the laser topologies (ADR 0021). Laser-line extraction is
+//!   *injected* via the open [`LaserPixelExtractor`] trait because the
+//!   reference implementation (`vision-metrology`) is not on crates.io.
 //!
 //! Per ADR 0019, any ambiguity that cannot be auto-resolved at
 //! conversion time is surfaced as a [`RunError::AskUser`] event so
@@ -33,12 +34,17 @@ use vision_calibration_detect::{
 };
 
 mod handeye;
+mod laser;
 mod pairing;
 mod planar;
 mod poses;
 mod rig;
 
 pub use handeye::{HandeyeRunResult, build_single_cam_handeye_input};
+pub use laser::{
+    LaserPixelExtractor, LaserlineRunResult, RigLaserlineRunResult, build_laserline_device_input,
+    build_rig_laserline_device_input,
+};
 pub use pairing::PairedViews;
 pub use planar::{PlanarRunResult, build_planar_input};
 pub use rig::{RigRunResult, build_rig_extrinsics_input, build_rig_handeye_input};
@@ -199,6 +205,47 @@ pub enum RunError {
         /// Total number of images attempted.
         total: usize,
     },
+
+    /// Laser images could not be aligned with target views (count
+    /// mismatch under `by_index`, or a laser filename token with no
+    /// matching target view).
+    #[error("laser pairing failed: {message}")]
+    LaserPairing {
+        /// Human-readable description (names the offending camera/file).
+        message: String,
+    },
+
+    /// The injected laser extractor failed on a specific image.
+    #[error("laser extraction failed on {path}: {source}")]
+    LaserExtraction {
+        /// Offending laser image.
+        path: PathBuf,
+        /// Underlying error.
+        #[source]
+        source: anyhow::Error,
+    },
+
+    /// A camera has no usable laser observations — its laser plane
+    /// would be unconstrained.
+    #[error("camera {camera_id:?}: only {usable}/{total} views had >= min_points laser pixels")]
+    InsufficientLaserViews {
+        /// Camera id.
+        camera_id: String,
+        /// Number of views meeting the `min_points` bar.
+        usable: usize,
+        /// Total number of paired views attempted.
+        total: usize,
+    },
+
+    /// The frozen upstream rig hand-eye export could not be loaded or
+    /// is inconsistent with this manifest.
+    #[error("upstream calibration {path}: {message}")]
+    UpstreamCalibration {
+        /// The export file referenced by `upstream_calibration`.
+        path: PathBuf,
+        /// What went wrong (parse error, camera-count mismatch, …).
+        message: String,
+    },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -268,7 +315,17 @@ fn expand_camera_images(
     camera: &vision_calibration_dataset::CameraSource,
     base_dir: &Path,
 ) -> Result<Vec<PathBuf>, RunError> {
-    match &camera.images {
+    expand_image_pattern(&camera.images, &camera.id, base_dir)
+}
+
+/// Expand a glob/list image pattern into natural-sorted absolute paths.
+/// Shared by the target (`images`) and laser (`laser_images`) sources.
+fn expand_image_pattern(
+    images: &ImagePattern,
+    camera_id: &str,
+    base_dir: &Path,
+) -> Result<Vec<PathBuf>, RunError> {
+    match images {
         ImagePattern::Glob { pattern } => {
             let resolved = if Path::new(pattern).is_absolute() {
                 pattern.clone()
@@ -276,7 +333,7 @@ fn expand_camera_images(
                 base_dir.join(pattern).to_string_lossy().to_string()
             };
             let entries = glob::glob(&resolved).map_err(|e| RunError::BadGlob {
-                camera_id: camera.id.clone(),
+                camera_id: camera_id.to_string(),
                 pattern: pattern.clone(),
                 source: e,
             })?;

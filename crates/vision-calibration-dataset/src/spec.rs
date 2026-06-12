@@ -40,6 +40,19 @@ pub struct DatasetSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub robot_poses: Option<RobotPoseSource>,
 
+    /// Laser-line extraction parameters for the laser topologies.
+    /// `None` means defaults (ADR 0021) — extraction tuning has safe
+    /// defaults and is not a fail-fast ambiguity. Rejected on
+    /// non-laser topologies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub laser: Option<LaserExtractionSpec>,
+
+    /// Path to a frozen upstream `RigHandeyeExport` JSON, relative to
+    /// the manifest directory unless absolute. Required for
+    /// `Topology::RigLaserlineDevice`, rejected elsewhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_calibration: Option<PathBuf>,
+
     /// Calibration topology — selects which problem type the runner
     /// will dispatch to.
     pub topology: Topology,
@@ -92,6 +105,13 @@ pub struct CameraSource {
     /// stored in the export's image manifest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub roi_xywh: Option<[u32; 4]>,
+
+    /// Laser-frame image source for the laser topologies (ADR 0021).
+    /// One laser image per view, captured by the same sensor with the
+    /// line projector on; `roi_xywh` applies to laser frames too.
+    /// Laser images pair with target views through `pose_pairing`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub laser_images: Option<ImagePattern>,
 }
 
 /// How image paths for a camera are listed.
@@ -110,6 +130,59 @@ pub enum ImagePattern {
         /// Paths relative to the manifest directory unless absolute.
         paths: Vec<PathBuf>,
     },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Laser extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Laser-line extraction parameters (ADR 0021). Consumed by the
+/// runner's injected `LaserPixelExtractor`; hashed (canonical JSON)
+/// into the detection-cache key so edits re-extract.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct LaserExtractionSpec {
+    /// Scan direction. `cols` walks image columns (one point per
+    /// column; for laser lines running mostly left-to-right), `rows`
+    /// walks image rows.
+    pub scan_axis: LaserScanAxis,
+    /// Gaussian derivative sigma in pixels for the edge detector.
+    pub sigma: f64,
+    /// Positive-edge response threshold.
+    pub pos_thresh: f64,
+    /// Negative-edge response threshold.
+    pub neg_thresh: f64,
+    /// Minimum extracted points for a usable laser view. Views below
+    /// the bar are dropped (single camera) or become gap slots (rig).
+    /// Must be at least 2 (a line needs two points); 0/1 would let an
+    /// empty extraction pass as usable and leave the plane
+    /// unconstrained.
+    #[cfg_attr(feature = "schemars", schemars(range(min = 2)))]
+    pub min_points: u32,
+}
+
+impl Default for LaserExtractionSpec {
+    fn default() -> Self {
+        Self {
+            scan_axis: LaserScanAxis::Cols,
+            sigma: 1.2,
+            pos_thresh: 4.0,
+            neg_thresh: 4.0,
+            min_points: 20,
+        }
+    }
+}
+
+/// Laser scan direction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum LaserScanAxis {
+    /// One detection per image column.
+    Cols,
+    /// One detection per image row.
+    Rows,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,10 +260,19 @@ pub struct RobotPoseSource {
     pub format: RobotPoseFormat,
     /// Column / field mapping from the user's file to the canonical
     /// fields the converter consumes. Required for the tabular formats
-    /// (`csv` / `json` / `jsonl`); must be absent for `rowmajor4x4`,
-    /// whose 16-values-per-line layout is fixed.
+    /// (`csv` / `json` / `jsonl`) unless `matrix_field` is set; must be
+    /// absent for `rowmajor4x4`, whose 16-values-per-line layout is
+    /// fixed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub columns: Option<PoseColumnMap>,
+    /// For `json` / `jsonl` files whose rows store the whole pose as a
+    /// single nested 4×4 (or flat-16) array field, names that field
+    /// (e.g. `"tcp2base"`). Mutually exclusive with `columns`; requires
+    /// `pose_convention.rotation_format = matrix4x4_row_major`.
+    /// Translation comes from the matrix's fourth column, scaled by
+    /// `translation_units`. No `pose_id` ⇒ `by_index` pairing only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matrix_field: Option<String>,
 }
 
 /// Robot-pose file format.

@@ -13,6 +13,7 @@ authoritative reference and stays green in CI.
 | Seed prior knowledge into the pipeline (datasheet K, factory tilts, mechanical drawings) | [Manual initialization](./manual-init.md) | [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs) |
 | Drill into per-corner reprojection errors (diagnose mode) | [Per-feature residuals](./per-feature-residuals.md) | [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs) (Run A printout) |
 | Calibrate a Scheimpflug rig + laser device end-to-end on real data | [Puzzle 130×130 walkthrough](./puzzle-130x130-walkthrough.md) | [`puzzle_130x130_rig.rs`](../../crates/vision-calibration-examples-private/examples/puzzle_130x130_rig.rs) (private dataset) |
+| Describe a laser dataset in `dataset.toml` and run it through the app | [Laser dataset manifest](./laser-dataset-manifest.md) | `rtv3d_laser_end_to_end` test in [`app/src-tauri/src/run.rs`](../../app/src-tauri/src/run.rs) (private dataset) |
 
 ## Structure
 
