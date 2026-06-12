@@ -144,7 +144,7 @@
       "description": "How per-camera image lists align across views and (optionally)\nalign with robot poses.",
       "oneOf": [
         {
-          "description": "All cameras have the same number of images, paired by index\n(image[i] from cam0 ↔ image[i] from cam1 ↔ pose[i]).",
+          "description": "All cameras have the same number of images, paired by index\n(`image[i]` from cam0 ↔ `image[i]` from cam1 ↔ `pose[i]`).",
           "properties": {
             "kind": {
               "const": "by_index",

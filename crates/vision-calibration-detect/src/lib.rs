@@ -27,6 +27,8 @@
 pub mod cache;
 mod feature;
 
+#[cfg(feature = "charuco")]
+mod charuco;
 #[cfg(feature = "chessboard")]
 mod chessboard;
 
@@ -35,6 +37,8 @@ pub use cache::{
 };
 pub use feature::Feature;
 
+#[cfg(feature = "charuco")]
+pub use charuco::{CharucoConfig, CharucoDetector, validate_charuco_layout, validate_dictionary};
 #[cfg(feature = "chessboard")]
 pub use chessboard::{ChessboardConfig, ChessboardDetector};
 

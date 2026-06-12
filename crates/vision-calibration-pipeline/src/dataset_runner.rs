@@ -20,7 +20,8 @@ use vision_calibration_dataset::{
     DatasetSpec, ImagePattern, TargetSpec, Topology, ValidationError, validate,
 };
 use vision_calibration_detect::{
-    CacheKey, CachedFeatures, ChessboardDetector, DetectionCache, Detector, Feature,
+    CacheKey, CachedFeatures, CharucoDetector, ChessboardDetector, DetectionCache, Detector,
+    Feature, validate_charuco_layout,
 };
 
 /// Errors produced by the dataset-driven runner.
@@ -44,6 +45,15 @@ pub enum RunError {
     UnsupportedTarget {
         /// Discriminator from the manifest (e.g. `"ringgrid"`).
         kind: String,
+    },
+
+    /// Target config carries an invalid value (e.g. an unknown ArUco
+    /// dictionary name). Caught before any image I/O so manifest typos
+    /// fail fast.
+    #[error("invalid target config: {message}")]
+    InvalidTargetConfig {
+        /// Human-readable description of the bad field/value.
+        message: String,
     },
 
     /// Glob pattern produced no matches. The user almost certainly
@@ -297,9 +307,32 @@ fn target_to_detector_config(target: &TargetSpec) -> Result<(&'static str, Value
                 "square_size_m": *square_size_m,
             }),
         )),
-        TargetSpec::Charuco { .. } => Err(RunError::UnsupportedTarget {
-            kind: "charuco".to_string(),
-        }),
+        TargetSpec::Charuco {
+            rows,
+            cols,
+            square_size_m,
+            marker_size_m,
+            dictionary,
+        } => {
+            // Fail fast before touching the filesystem on a manifest typo
+            // (unknown dictionary) or an impossible board whose layout
+            // needs more markers than the dictionary holds.
+            validate_charuco_layout(*rows, *cols, dictionary).map_err(|e| {
+                RunError::InvalidTargetConfig {
+                    message: e.to_string(),
+                }
+            })?;
+            Ok((
+                "charuco",
+                json!({
+                    "rows": *rows,
+                    "cols": *cols,
+                    "square_size_m": *square_size_m,
+                    "marker_size_m": *marker_size_m,
+                    "dictionary": dictionary,
+                }),
+            ))
+        }
         TargetSpec::Puzzleboard { .. } => Err(RunError::UnsupportedTarget {
             kind: "puzzleboard".to_string(),
         }),
@@ -312,6 +345,7 @@ fn target_to_detector_config(target: &TargetSpec) -> Result<(&'static str, Value
 fn pick_detector(name: &str) -> Result<Box<dyn Detector>, RunError> {
     match name {
         "chessboard" => Ok(Box::new(ChessboardDetector)),
+        "charuco" => Ok(Box::new(CharucoDetector)),
         other => Err(RunError::UnsupportedTarget {
             kind: other.to_string(),
         }),
@@ -436,12 +470,12 @@ mod tests {
     #[test]
     fn rejects_unsupported_target() {
         let mut spec = planar_spec_for_globless_test();
-        spec.target = TargetSpec::Charuco {
-            rows: 9,
-            cols: 6,
-            square_size_m: 0.025,
-            marker_size_m: 0.018,
-            dictionary: "DICT_4X4_50".into(),
+        spec.target = TargetSpec::Ringgrid {
+            rows: 5,
+            cols: 5,
+            spacing_m: 0.02,
+            inner_radius_m: 0.004,
+            outer_radius_m: 0.008,
         };
         spec.cameras[0].images = ImagePattern::Glob {
             pattern: "*.png".into(),
@@ -449,6 +483,69 @@ mod tests {
         let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
         let err = build_planar_input(&spec, Path::new("/tmp"), &cache, false).unwrap_err();
         assert!(matches!(err, RunError::UnsupportedTarget { .. }));
+    }
+
+    #[test]
+    fn charuco_target_maps_to_detector_config() {
+        // 12×12 needs 72 markers, so the dictionary must hold at least
+        // that many (DICT_4X4_50 would be rejected — see the capacity test).
+        let target = TargetSpec::Charuco {
+            rows: 12,
+            cols: 12,
+            square_size_m: 0.020,
+            marker_size_m: 0.015,
+            dictionary: "DICT_4X4_100".into(),
+        };
+        let (name, config) = target_to_detector_config(&target).unwrap();
+        assert_eq!(name, "charuco");
+        assert_eq!(config["dictionary"], "DICT_4X4_100");
+        assert_eq!(config["marker_size_m"], 0.015);
+        // The mapped config must deserialize into the detector's own
+        // config struct — guards the field-name contract between the
+        // manifest and the detect crate.
+        pick_detector(name).unwrap();
+    }
+
+    #[test]
+    fn charuco_bad_dictionary_fails_before_io() {
+        let target = TargetSpec::Charuco {
+            rows: 12,
+            cols: 12,
+            square_size_m: 0.020,
+            marker_size_m: 0.015,
+            dictionary: "DICT_TYPO_99".into(),
+        };
+        let err = target_to_detector_config(&target).unwrap_err();
+        match err {
+            RunError::InvalidTargetConfig { message } => {
+                assert!(message.contains("DICT_TYPO_99"), "got: {message}");
+            }
+            other => panic!("expected InvalidTargetConfig, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn charuco_dictionary_too_small_for_board_fails_before_io() {
+        // A 12×12 board needs 72 markers in the OpenCV layout; DICT_4X4_50
+        // only holds 50, so the manifest is impossible and must be
+        // rejected up front rather than reaching a guaranteed-empty detect.
+        let target = TargetSpec::Charuco {
+            rows: 12,
+            cols: 12,
+            square_size_m: 0.020,
+            marker_size_m: 0.015,
+            dictionary: "DICT_4X4_50".into(),
+        };
+        let err = target_to_detector_config(&target).unwrap_err();
+        match err {
+            RunError::InvalidTargetConfig { message } => {
+                assert!(
+                    message.contains("72") && message.contains("50"),
+                    "expected a needs-72/has-50 capacity error, got: {message}"
+                );
+            }
+            other => panic!("expected InvalidTargetConfig, got {other:?}"),
+        }
     }
 
     #[test]
