@@ -73,32 +73,40 @@ export const BUILTIN_PRESETS: Preset[] = [
     manifestPath: `${REPO_ROOT}/data/stereo/dataset_right.toml`,
   },
 
-  // ── Disabled: stereo rig ────────────────────────────────────────────────
+  // ── Enabled: stereo rig ─────────────────────────────────────────────────
   {
     id: "stereo-rig",
-    disabled: true,
     name: "Stereo rig",
     group: "Bundled stereo dataset",
     topology: "RigExtrinsics",
     targetKind: "chessboard",
-    targetSummary: "chessboard 7×11, 30 mm",
-    imageCount: null,
-    disabledReason: "Multi-camera rig topology is not wired into Run yet.",
-    milestone: "planned",
+    targetSummary: "chessboard 7×11, 30 mm · 2 cameras",
+    imageCount: 20,
+    manifestPath: `${REPO_ROOT}/data/stereo/dataset_rig.toml`,
   },
 
-  // ── Disabled: stereo-charuco ────────────────────────────────────────────
+  // ── Enabled: stereo-charuco (single camera) ─────────────────────────────
   {
     id: "stereo-charuco",
-    disabled: true,
-    name: "Stereo · ChArUco",
-    group: "Bundled stereo dataset",
+    name: "ChArUco · cam1",
+    group: "Stereo ChArUco dataset",
     topology: "PlanarIntrinsics",
     targetKind: "charuco",
-    targetSummary: "ChArUco DICT_4X4_50",
-    imageCount: null,
-    disabledReason: "ChArUco detector integration is not wired into Run yet.",
-    milestone: "planned",
+    targetSummary: "ChArUco 22×22, 1.35 mm, DICT_4X4_1000",
+    imageCount: 28,
+    manifestPath: `${REPO_ROOT}/data/stereo_charuco/dataset_cam1.toml`,
+  },
+
+  // ── Enabled: stereo-charuco rig (token pairing) ─────────────────────────
+  {
+    id: "stereo-charuco-rig",
+    name: "ChArUco rig",
+    group: "Stereo ChArUco dataset",
+    topology: "RigExtrinsics",
+    targetKind: "charuco",
+    targetSummary: "ChArUco 22×22 · 2 cameras · token pairing",
+    imageCount: 27,
+    manifestPath: `${REPO_ROOT}/data/stereo_charuco/dataset_rig.toml`,
   },
 
   // ── Disabled: KUKA handeye ───────────────────────────────────────────────
@@ -125,7 +133,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "puzzleboard",
     targetSummary: "puzzleboard puzzle_130x130",
     imageCount: null,
-    disabledReason: "Scheimpflug topology + puzzleboard detector are not wired into Run yet.",
+    disabledReason: "The puzzleboard detector is not wired into Run yet (the Scheimpflug topology itself is).",
     milestone: "planned",
   },
 ];

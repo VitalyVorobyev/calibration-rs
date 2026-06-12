@@ -106,6 +106,16 @@ puzzleboard / ringgrid) are supported.
   `ScheimpflugIntrinsicsExport`, and `LaserlineDeviceExport`.
   **Sequencing (2026-06-11): RigHandeye + RigLaserlineDevice + charuco
   detector first** — they serve the V-track (rtv3d) directly.
+  - **B3c-1 (2026-06-12, PRs #51–#54):** charuco detector
+    (`vision-calibration-detect`), robot-pose loading + view pairing +
+    rig converters in `dataset_runner`, topology dispatch in the Tauri
+    runner (+`default_config_cmd`), TS topology selector + presets.
+    Covers PlanarIntrinsics, ScheimpflugIntrinsics (incl. its export's
+    `image_manifest`), RigExtrinsics, RigHandeye.
+  - **B3c-2 (next):** SingleCamHandeye (~free after B3c-1's pose
+    loader; kuka_1 needs a pose-file conversion), laser topologies
+    (need the laser-frame manifest ADR), puzzleboard + ringgrid
+    detectors, bench/examples-private charuco dedup.
 - **B-laser — laserline visualization.** Laser-pixel overlay in
   Diagnose; laser plane-fit residuals (point-to-plane mm) alongside
   reprojection residuals; laser planes rendered in the 3D rig viewer.

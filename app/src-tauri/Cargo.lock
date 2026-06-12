@@ -623,6 +623,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tempfile",
+ "toml 0.8.2",
  "vision-calibration",
  "vision-calibration-core",
  "vision-calibration-dataset",
