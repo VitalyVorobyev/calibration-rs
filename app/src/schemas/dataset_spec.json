@@ -94,9 +94,9 @@
       "properties": {
         "min_points": {
           "default": 20,
-          "description": "Minimum extracted points for a usable laser view. Views below\nthe bar are dropped (single camera) or become gap slots (rig).",
+          "description": "Minimum extracted points for a usable laser view. Views below\nthe bar are dropped (single camera) or become gap slots (rig).\nMust be at least 2 (a line needs two points); 0/1 would let an\nempty extraction pass as usable and leave the plane\nunconstrained.",
           "format": "uint32",
-          "minimum": 0,
+          "minimum": 2,
           "type": "integer"
         },
         "neg_thresh": {

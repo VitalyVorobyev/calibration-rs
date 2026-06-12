@@ -155,6 +155,10 @@ pub struct LaserExtractionSpec {
     pub neg_thresh: f64,
     /// Minimum extracted points for a usable laser view. Views below
     /// the bar are dropped (single camera) or become gap slots (rig).
+    /// Must be at least 2 (a line needs two points); 0/1 would let an
+    /// empty extraction pass as usable and leave the plane
+    /// unconstrained.
+    #[cfg_attr(feature = "schemars", schemars(range(min = 2)))]
     pub min_points: u32,
 }
 

@@ -60,12 +60,38 @@ impl CacheKey {
     }
 
     /// Filename-safe encoding (`<image>-<detector>-<config>.json`).
+    ///
+    /// The detector segment is sanitized so the result is a legal file
+    /// name on every supported OS — notably Windows/NTFS, which rejects
+    /// `< > : " / \ | ? *`. Laser namespaces use a `laser:<name>` form
+    /// (ADR 0021), so the `:` must be stripped or the on-disk cache
+    /// write fails with `ERROR_INVALID_NAME` (OS error 87).
     pub fn file_name(&self) -> String {
         format!(
             "{:016x}-{}-{:016x}.json",
-            self.image_hash, self.detector, self.config_hash
+            self.image_hash,
+            sanitize_detector(&self.detector),
+            self.config_hash
         )
     }
+}
+
+/// Replace any character that is not alphanumeric, `_`, `-`, or `.`
+/// with `_`, so the detector id is a portable file-name segment. The
+/// detector ids are a controlled, in-tree set of stable strings, so
+/// this mapping stays injective in practice — there is no
+/// `laser:fake`/`laser_fake` pair to collide.
+fn sanitize_detector(detector: &str) -> String {
+    detector
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// Hash raw image bytes with FNV-1a (64-bit). Cheap, allocation-free,
@@ -216,6 +242,34 @@ mod tests {
         let back = cache.get(&key).unwrap().expect("cache hit expected");
         assert_eq!(back.features.len(), 1);
         assert_eq!(back.features[0].image_xy, [10.0, 20.0]);
+    }
+
+    #[test]
+    fn file_name_is_windows_safe_for_laser_namespace() {
+        // `laser:<name>` namespaces (ADR 0021) must not leak the colon
+        // into the file name — NTFS rejects it (OS error 87).
+        let key = CacheKey::from_inputs(b"img", "laser:fake", &json!({}));
+        let name = key.file_name();
+        assert!(
+            !name.contains(':'),
+            "detector segment must be sanitized, got {name}"
+        );
+        assert!(name.contains("laser_fake"), "got {name}");
+    }
+
+    #[test]
+    fn fs_cache_roundtrip_with_colon_detector() {
+        let dir = tempdir().unwrap();
+        let cache = FsDetectionCache::new(dir.path());
+        let key = CacheKey::from_inputs(b"img", "laser:fake", &json!({"x": 1}));
+        let entry = CachedFeatures {
+            features: vec![Feature {
+                image_xy: [1.0, 2.0],
+                world_xyz: [0.0, 0.0, 0.0],
+            }],
+        };
+        cache.put(&key, &entry).unwrap();
+        assert_eq!(cache.get(&key).unwrap().unwrap().features.len(), 1);
     }
 
     #[test]

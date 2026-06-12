@@ -245,6 +245,18 @@ fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
                 laser.pos_thresh, laser.neg_thresh
             )));
         }
+        // `min_points == 0` makes the runner's `pixels.len() <
+        // min_points` drop-bar vacuously false, so an empty extraction
+        // counts as a usable view (rig path even increments
+        // `per_camera_usable`) and the laser plane is left
+        // unconstrained — a misleading "success". Require at least the
+        // two points a line needs.
+        if laser.min_points < 2 {
+            return Err(ValidationError::BadLaserExtraction(format!(
+                "min_points must be at least 2, got {}",
+                laser.min_points
+            )));
+        }
     }
 
     match spec.topology {
@@ -754,6 +766,26 @@ mod tests {
             validate(&spec).unwrap_err(),
             ValidationError::BadLaserExtraction(_)
         ));
+    }
+
+    #[test]
+    fn zero_min_points_rejected() {
+        // A zero (or one) drop-bar would let empty extractions pass as
+        // usable views, leaving the laser plane unconstrained.
+        for min_points in [0, 1] {
+            let mut spec = laserline_minimal();
+            spec.laser = Some(crate::spec::LaserExtractionSpec {
+                min_points,
+                ..Default::default()
+            });
+            assert!(
+                matches!(
+                    validate(&spec).unwrap_err(),
+                    ValidationError::BadLaserExtraction(_)
+                ),
+                "min_points={min_points} should be rejected"
+            );
+        }
     }
 
     #[test]
