@@ -74,7 +74,8 @@ export interface PerFeatureResiduals {
 export interface PlanarExport {
   per_feature_residuals: PerFeatureResiduals;
   image_manifest?: ImageManifest;
-  mean_reproj_error: number;
+  /** Optional on the wire — older export files may omit it. */
+  mean_reproj_error?: number;
 }
 
 /** Tauri command response from `load_export`. */

@@ -308,7 +308,7 @@ export function DiagnoseWorkspace() {
             {linked ? "Linked" : "Unlinked"}
           </button>
         )}
-        {data && (
+        {data && typeof data.mean_reproj_error === "number" && (
           <span className="ml-auto font-mono text-xs text-muted-foreground">
             mean reproj: {data.mean_reproj_error.toFixed(3)} px
           </span>

@@ -219,6 +219,20 @@ fn pipeline_converges_rig_laserline() {
             stats.mean_reproj_error
         );
     }
+
+    // Viewer contract: the export echoes the frozen upstream rig
+    // geometry so the diagnose / 3D workspaces can render it without
+    // the hand-eye export (B-laser). Same field names as
+    // RigHandeyeExport.
+    assert_eq!(export.cameras.len(), 2);
+    assert_eq!(export.cam_se3_rig.len(), 2);
+    assert_eq!(export.sensors.as_ref().map(Vec::len), Some(2));
+    assert_eq!(export.rig_se3_target.len(), 4, "one T_R_T per view");
+    assert!(
+        export.mean_reproj_error.is_finite() && export.mean_reproj_error < 1.0,
+        "export-level mean reproj: {}",
+        export.mean_reproj_error
+    );
 }
 
 #[test]

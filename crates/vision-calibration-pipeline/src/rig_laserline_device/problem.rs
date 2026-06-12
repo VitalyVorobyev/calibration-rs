@@ -5,8 +5,8 @@ use crate::rig_handeye::RigHandeyeExport;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCySkew, ImageManifest, Iso3, NoMeta,
-    PerFeatureResiduals, Pinhole, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams,
-    build_feature_histogram, compute_rig_target_residuals,
+    PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset, RigView, RigViewObs,
+    ScheimpflugParams, build_feature_histogram, compute_rig_target_residuals, make_pinhole_camera,
 };
 use vision_calibration_optim::{
     LaserPlane, LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
@@ -132,6 +132,28 @@ pub struct RigLaserlineDeviceExport {
     pub laser_planes_cam: Vec<LaserPlane>,
     /// Per-camera stats (reprojection + laser residuals).
     pub per_camera_stats: Vec<LaserlineStats>,
+
+    /// Frozen upstream cameras (pinhole part), echoed so the export is
+    /// self-contained for downstream viewers (3D rig scene, epipolar) —
+    /// same field names as `RigHandeyeExport`. Empty on pre-B-laser
+    /// exports (`serde(default)`).
+    #[serde(default)]
+    pub cameras: Vec<PinholeCamera>,
+    /// Frozen upstream Scheimpflug sensor parameters (zero tilt for
+    /// pinhole rigs), aligned with `cameras`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensors: Option<Vec<ScheimpflugParams>>,
+    /// Frozen upstream per-camera extrinsics `T_C_R`.
+    #[serde(default)]
+    pub cam_se3_rig: Vec<Iso3>,
+    /// Frozen upstream per-view rig poses `T_R_T`.
+    #[serde(default)]
+    pub rig_se3_target: Vec<Iso3>,
+    /// Mean target reprojection error (pixels) against the frozen
+    /// upstream. Diagnostic echo — this problem type does not optimize
+    /// reprojection.
+    #[serde(default)]
+    pub mean_reproj_error: f64,
     /// Per-feature reprojection + laser residuals (ADR 0012). Multi-camera
     /// rig: `target` covers per-corner reprojection (when present) and
     /// `laser` covers per-pixel laser distances. Both per-camera histograms
@@ -288,6 +310,18 @@ impl ProblemType for RigLaserlineDeviceProblem {
             })
             .collect();
 
+        // Mean over all finite per-feature reprojection errors — the
+        // viewer-facing headline number (against the frozen upstream).
+        let (err_sum, err_count) = target
+            .iter()
+            .filter_map(|r| r.error_px)
+            .fold((0.0, 0usize), |(s, c), e| (s + e, c + 1));
+        let mean_reproj_error = if err_count > 0 {
+            err_sum / err_count as f64
+        } else {
+            0.0
+        };
+
         let mut per_feature_residuals = PerFeatureResiduals::default();
         per_feature_residuals.target = target;
         per_feature_residuals.laser = laser;
@@ -297,6 +331,13 @@ impl ProblemType for RigLaserlineDeviceProblem {
             laser_planes_rig: output.laser_planes_rig.clone(),
             laser_planes_cam: output.laser_planes_cam.clone(),
             per_camera_stats: output.per_camera_stats.clone(),
+            cameras: (0..n)
+                .map(|c| make_pinhole_camera(upstream.intrinsics[c], upstream.distortion[c]))
+                .collect(),
+            sensors: Some(upstream.sensors.clone()),
+            cam_se3_rig: upstream.cam_se3_rig.clone(),
+            rig_se3_target: upstream.rig_se3_target.clone(),
+            mean_reproj_error,
             per_feature_residuals,
             // Manifest is populated by callers that wrote images for the
             // dataset; the pipeline never has image paths to fill in.
@@ -318,6 +359,11 @@ mod tests {
             laser_planes_rig: Vec::new(),
             laser_planes_cam: Vec::new(),
             per_camera_stats: Vec::new(),
+            cameras: Vec::new(),
+            sensors: None,
+            cam_se3_rig: Vec::new(),
+            rig_se3_target: Vec::new(),
+            mean_reproj_error: 0.0,
             per_feature_residuals: PerFeatureResiduals::default(),
             image_manifest: None,
         }

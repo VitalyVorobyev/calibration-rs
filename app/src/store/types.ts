@@ -68,7 +68,10 @@ export interface LaserPlaneWire {
 export interface AnyExport {
   per_feature_residuals: PerFeatureResiduals;
   image_manifest?: ImageManifest;
-  mean_reproj_error: number;
+  /** All current exports carry this, but treat it as optional: exports
+   * written before their type gained the field (e.g. pre-B-laser
+   * rig_laserline_device) omit it on the wire. */
+  mean_reproj_error?: number;
   /** Present on rig_extrinsics, rig_handeye, rig_laserline_device. */
   cameras?: PinholeCameraWire[];
   cam_se3_rig?: Iso3Wire[];

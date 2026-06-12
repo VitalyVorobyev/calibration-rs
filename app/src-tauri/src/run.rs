@@ -962,6 +962,16 @@ mod tests {
         .unwrap();
         let planes = laser.export["laser_planes_cam"].as_array().unwrap();
         assert_eq!(planes.len(), 6, "one laser plane per camera");
+        // Viewer contract: the export must be self-contained for the
+        // 3D / diagnose workspaces (frozen upstream echo + headline
+        // reprojection number).
+        assert_eq!(laser.export["cameras"].as_array().unwrap().len(), 6);
+        assert_eq!(laser.export["cam_se3_rig"].as_array().unwrap().len(), 6);
+        assert_eq!(
+            laser.export["rig_se3_target"].as_array().unwrap().len(),
+            laser.usable_views
+        );
+        assert!(laser.export["mean_reproj_error"].is_number());
         let stats = laser.export["per_camera_stats"].as_array().unwrap();
         assert_eq!(stats.len(), 6);
         for (cam, s) in stats.iter().enumerate() {
