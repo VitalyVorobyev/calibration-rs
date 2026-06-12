@@ -968,10 +968,26 @@ mod tests {
                 "cam {cam}: mean laser residual {laser_err:.6} m"
             );
         }
+        // The manifest must carry both frame kinds (ADR 0021 §5): the
+        // target frames for the reprojection overlay and the laser
+        // frames Diagnose's laser view plots residuals onto.
+        let frames = laser.export["image_manifest"]["frames"].as_array().unwrap();
+        let n_laser = frames.iter().filter(|f| f["kind"] == "laser").count();
+        let n_target = frames.len() - n_laser;
+        assert!(n_target > 0, "manifest carries target frames");
         assert!(
-            laser.export["image_manifest"]["frames"].is_array(),
-            "laser export carries the target-frame manifest"
+            n_laser > 0,
+            "manifest carries laser-kind frames ({} total)",
+            frames.len()
         );
+        let laser_residuals = laser.export["per_feature_residuals"]["laser"]
+            .as_array()
+            .unwrap();
+        assert!(
+            !laser_residuals.is_empty(),
+            "laser export carries per-pixel laser residuals"
+        );
+        eprintln!("manifest: {n_target} target + {n_laser} laser frames");
         eprintln!(
             "rtv3d laser E2E: handeye {mean_px:.3} px over {} views; laser stage {} views in {} ms",
             handeye.usable_views, laser.usable_views, laser.duration_ms
