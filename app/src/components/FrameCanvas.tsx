@@ -9,6 +9,7 @@ import {
 } from "react";
 import type {
   FrameKey,
+  LaserFeatureResidual,
   TargetFeatureResidual,
   ViewportTransform,
 } from "../types";
@@ -19,6 +20,11 @@ interface FrameCanvasProps {
   /** Target residuals for the loaded export; filtered down to
    * `frame.{pose, camera}` before drawing. */
   residuals: TargetFeatureResidual[];
+  /** Laser residuals to plot instead of target arrows — pass them when
+   * `frame` is a laser-kind frame (with `residuals={[]}`). Observed
+   * pixels are colored by point-to-plane distance; the projected laser
+   * line is drawn from the first record that carries endpoints. */
+  laserResiduals?: LaserFeatureResidual[];
   /** Decoded image element. `null` while loading. */
   image: HTMLImageElement | null;
   /** Controlled transform. When provided, the canvas treats it as
@@ -65,6 +71,7 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
     {
       frame,
       residuals,
+      laserResiduals,
       image,
       transform: controlled,
       onTransformChange,
@@ -262,7 +269,10 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
       const sh = roi?.h ?? image.naturalHeight;
       ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
       drawResidualArrows(ctx, residuals, frame, transform.scale);
-    }, [image, container, transform, roi, residuals, frame]);
+      if (laserResiduals) {
+        drawLaserOverlay(ctx, laserResiduals, frame, transform.scale);
+      }
+    }, [image, container, transform, roi, residuals, laserResiduals, frame]);
 
     return (
       <div
@@ -366,4 +376,49 @@ export function colorForError(err: number): string {
   if (err < 5) return "#f1c40f";
   if (err < 10) return "#e67e22";
   return "#e74c3c";
+}
+
+/** Color scale for laser point-to-plane distance in millimeters.
+ * Thresholds follow the device norm (<0.2 mm plane σ is healthy);
+ * same palette as `colorForError` so the two legends read alike. */
+export function colorForLaserError(mm: number): string {
+  if (mm < 0.2) return "#1abc9c";
+  if (mm < 0.5) return "#2ecc71";
+  if (mm < 1.0) return "#f1c40f";
+  if (mm < 2.0) return "#e67e22";
+  return "#e74c3c";
+}
+
+function drawLaserOverlay(
+  ctx: CanvasRenderingContext2D,
+  all: LaserFeatureResidual[],
+  frame: FrameKey,
+  scale: number,
+) {
+  const records = all.filter(
+    (r) => r.pose === frame.pose && r.camera === frame.camera,
+  );
+  const inv = 1 / scale;
+
+  // Projected laser line: identical endpoints on every record of the
+  // view, so the first carrier suffices.
+  const line = records.find((r) => r.projected_line_px)?.projected_line_px;
+  if (line) {
+    ctx.strokeStyle = "rgba(64, 156, 255, 0.6)";
+    ctx.lineWidth = 1.5 * inv;
+    ctx.beginPath();
+    ctx.moveTo(line[0][0], line[0][1]);
+    ctx.lineTo(line[1][0], line[1][1]);
+    ctx.stroke();
+  }
+
+  for (const r of records) {
+    ctx.fillStyle =
+      r.residual_m != null
+        ? colorForLaserError(Math.abs(r.residual_m) * 1e3)
+        : "rgba(255,255,255,0.4)";
+    ctx.beginPath();
+    ctx.arc(r.observed_px[0], r.observed_px[1], 1.4 * inv, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }

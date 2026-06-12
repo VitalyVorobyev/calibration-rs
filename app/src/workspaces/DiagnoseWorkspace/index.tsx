@@ -7,6 +7,7 @@ import {
   FrameCanvas,
   type FrameCanvasHandle,
   colorForError,
+  colorForLaserError,
 } from "../../components/FrameCanvas";
 import { Histogram } from "../../components/Histogram";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
@@ -17,14 +18,25 @@ import {
 } from "../../hooks/useImageData";
 import { useKeyboardNav } from "../../hooks/useKeyboardNav";
 import { useStore } from "../../store";
-import type { CursorReadout, FrameKey, TargetFeatureResidual } from "../../types";
+import type {
+  CursorReadout,
+  FeatureResidualHistogram,
+  FrameKey,
+  LaserFeatureResidual,
+  TargetFeatureResidual,
+} from "../../types";
 
 const HISTOGRAM_BINS = 64;
+
+/** Stable empty array so laser view doesn't retrigger the canvas draw
+ * effect with a fresh `[]` identity on every render. */
+const NO_TARGET_RESIDUALS: TargetFeatureResidual[] = [];
 
 export function DiagnoseWorkspace() {
   // Cross-workspace state from the store.
   const data = useStore((s) => s.data);
   const frames = useStore((s) => s.frames);
+  const laserFrames = useStore((s) => s.laserFrames);
   const poseValues = useStore((s) => s.poseValues);
   const cameraValues = useStore((s) => s.cameraValues);
   const selectedPose = useStore((s) => s.selectedPose);
@@ -40,6 +52,10 @@ export function DiagnoseWorkspace() {
   // exist in the other workspaces.
   const [compare, setCompare] = useState<boolean>(false);
   const [linked, setLinked] = useState<boolean>(true);
+  // Laser view plots per_feature_residuals.laser onto the laser-kind
+  // frame for the active (pose, camera). Mutually exclusive with
+  // compare mode — both repurpose the single canvas area.
+  const [laserView, setLaserView] = useState<boolean>(false);
   const [activePane, setActivePane] = useState<"left" | "right">("left");
   const [cursor, setCursor] = useState<CursorReadout | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,22 +78,47 @@ export function DiagnoseWorkspace() {
     );
   }, [frames, selectedPoseB, cameraB]);
 
-  const imageData = useImageData(frame, setError);
+  const laserResiduals = useMemo<LaserFeatureResidual[]>(
+    () => data?.per_feature_residuals.laser ?? [],
+    [data],
+  );
+  const hasLaser = laserFrames.length > 0 || laserResiduals.length > 0;
+
+  // Loading a non-laser export while laser view is active would strand
+  // the workspace on a mode with no data — drop back to target view.
+  useEffect(() => {
+    if (!hasLaser) setLaserView(false);
+  }, [hasLaser]);
+
+  const laserFrame = useMemo<FrameKey | null>(() => {
+    return (
+      laserFrames.find(
+        (f) => f.pose === selectedPose && f.camera === cameraA,
+      ) ?? null
+    );
+  }, [laserFrames, selectedPose, cameraA]);
+
+  // The frame the canvas actually shows: the laser frame in laser view
+  // (when one exists for the slot), the target frame otherwise.
+  const showLaser = laserView && !compare;
+  const activeFrame = showLaser ? laserFrame : frame;
+
+  const imageData = useImageData(activeFrame, setError);
 
   // Static ROI histogram — recomputed only when the frame's image data
   // changes, which is the cheap path. (A viewport-tracking variant
   // can come later; for diagnostic use the static distribution is
   // more stable to read.)
   const roiHistogram = useMemo<number[] | null>(() => {
-    if (!imageData || !frame) return null;
-    const r = frame.roi ?? {
+    if (!imageData || !activeFrame) return null;
+    const r = activeFrame.roi ?? {
       x: 0,
       y: 0,
       w: imageData.naturalWidth,
       h: imageData.naturalHeight,
     };
     return rectHistogram(imageData, r, HISTOGRAM_BINS);
-  }, [imageData, frame]);
+  }, [imageData, activeFrame]);
 
   const cursorBin = useMemo<number | null>(() => {
     if (!cursor || cursor.intensity == null) return null;
@@ -89,7 +130,7 @@ export function DiagnoseWorkspace() {
   // (x, y) no longer maps to the new image.
   useEffect(() => {
     setCursor(null);
-  }, [frame?.abs_path]);
+  }, [activeFrame?.abs_path]);
 
   const handleCursor = useCallback(
     (c: { x: number; y: number } | null) => {
@@ -97,7 +138,7 @@ export function DiagnoseWorkspace() {
         setCursor(null);
         return;
       }
-      const roi = frame?.roi;
+      const roi = activeFrame?.roi;
       const srcX = (roi?.x ?? 0) + c.x;
       const srcY = (roi?.y ?? 0) + c.y;
       setCursor({
@@ -106,7 +147,7 @@ export function DiagnoseWorkspace() {
         intensity: getPixelLum(imageData, srcX, srcY),
       });
     },
-    [imageData, frame],
+    [imageData, activeFrame],
   );
 
   const onPoseStep = useCallback(
@@ -224,13 +265,35 @@ export function DiagnoseWorkspace() {
         {data && (
           <button
             type="button"
-            onClick={() => setCompare((v) => !v)}
+            onClick={() => {
+              setCompare((v) => {
+                if (!v) setLaserView(false);
+                return !v;
+              });
+            }}
             className={`h-7 px-2 font-mono text-[11px] ${
               compare ? "border-brand text-brand" : ""
             }`}
             title="Toggle compare mode"
           >
             {compare ? "Compare ✓" : "Compare"}
+          </button>
+        )}
+        {data && hasLaser && (
+          <button
+            type="button"
+            onClick={() => {
+              setLaserView((v) => {
+                if (!v) setCompare(false);
+                return !v;
+              });
+            }}
+            className={`h-7 px-2 font-mono text-[11px] ${
+              laserView ? "border-brand text-brand" : ""
+            }`}
+            title="Show the laser frame with point-to-plane residuals"
+          >
+            {laserView ? "Laser ✓" : "Laser"}
           </button>
         )}
         {data && compare && (
@@ -271,15 +334,21 @@ export function DiagnoseWorkspace() {
             onError={setError}
             innerRef={compareHandleRef}
           />
-        ) : data && frame ? (
+        ) : data && activeFrame ? (
           <FrameCanvas
             ref={canvasHandleRef}
-            frame={frame}
-            residuals={data.per_feature_residuals.target}
+            frame={activeFrame}
+            residuals={showLaser ? NO_TARGET_RESIDUALS : data.per_feature_residuals.target}
+            laserResiduals={showLaser ? laserResiduals : undefined}
             image={imageData?.image ?? null}
             onCursor={handleCursor}
             onError={setError}
           />
+        ) : data && showLaser ? (
+          <div className="m-auto text-[13px] text-muted-foreground">
+            No laser frame in the manifest for pose {selectedPose} · cam{" "}
+            {cameraA}.
+          </div>
         ) : (
           <div className="m-auto text-[13px] text-muted-foreground">
             Open an <code>export.json</code> from a calibration run with an
@@ -289,18 +358,33 @@ export function DiagnoseWorkspace() {
         )}
       </div>
 
-      {data && frame && (
+      {data && activeFrame && (
         // Reserve a stable height so the panel doesn't shimmy when the
         // histogram briefly drops out during a frame switch (imageData
         // unloads → roiHistogram becomes null until the next decode).
         // The histogram block always mounts; its bins go empty during
         // the gap and re-fill once decode lands.
         <div className="flex min-h-[3.25rem] flex-wrap items-center gap-x-4 gap-y-2">
-          <ResidualLegend
-            residuals={data.per_feature_residuals.target.filter(
-              (r) => r.pose === frame.pose && r.camera === frame.camera,
-            )}
-          />
+          {showLaser ? (
+            <LaserResidualLegend
+              residuals={laserResiduals.filter(
+                (r) =>
+                  r.pose === activeFrame.pose &&
+                  r.camera === activeFrame.camera,
+              )}
+              hist={
+                data.per_feature_residuals.laser_hist_per_camera?.[cameraA]
+              }
+            />
+          ) : (
+            <ResidualLegend
+              residuals={data.per_feature_residuals.target.filter(
+                (r) =>
+                  r.pose === activeFrame.pose &&
+                  r.camera === activeFrame.camera,
+              )}
+            />
+          )}
           <div className="flex items-center gap-2">
             <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               histogram
@@ -356,6 +440,50 @@ function ResidualLegend({
         <Swatch err={20} label="≥10" />
       </span>
     </div>
+  );
+}
+
+function LaserResidualLegend({
+  residuals,
+  hist,
+}: {
+  residuals: LaserFeatureResidual[];
+  hist?: FeatureResidualHistogram | null;
+}) {
+  const mm = residuals
+    .map((r) => r.residual_m)
+    .filter((d): d is number => typeof d === "number")
+    .map((d) => Math.abs(d) * 1e3);
+  const mean = mm.length > 0 ? mm.reduce((a, b) => a + b, 0) / mm.length : 0;
+  const max = mm.length > 0 ? Math.max(...mm) : 0;
+  const missed = residuals.length - mm.length;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-muted-foreground">
+      <span>laser pts {residuals.length}</span>
+      <span>no-intersect {missed}</span>
+      <span>mean {mean.toFixed(3)} mm</span>
+      <span>max {max.toFixed(3)} mm</span>
+      {hist && <span>cam px-mean {hist.mean.toFixed(3)}</span>}
+      <span className="flex items-center gap-2">
+        <LaserSwatch mm={0.1} label="<0.2" />
+        <LaserSwatch mm={0.3} label="<0.5" />
+        <LaserSwatch mm={0.7} label="<1" />
+        <LaserSwatch mm={1.5} label="<2" />
+        <LaserSwatch mm={3} label="≥2" />
+      </span>
+    </div>
+  );
+}
+
+function LaserSwatch({ mm, label }: { mm: number; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span
+        className="inline-block h-2 w-2 rounded-[2px]"
+        style={{ background: colorForLaserError(mm) }}
+      />
+      {label}
+    </span>
   );
 }
 

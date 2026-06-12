@@ -11,11 +11,16 @@ export interface PixelRect {
   h: number;
 }
 
+/** What a frame depicts (ADR 0021 §5). Absent on the wire means
+ * "target" — exports written before the discriminator omit it. */
+export type FrameKind = "target" | "laser";
+
 export interface FrameRef {
   pose: number;
   camera: number;
   path: string;
   roi?: PixelRect;
+  kind?: FrameKind;
 }
 
 export interface ImageManifest {
@@ -33,10 +38,36 @@ export interface TargetFeatureResidual {
   error_px?: number | null;
 }
 
+/** Per-laser-pixel residual record (laser problem types only). */
+export interface LaserFeatureResidual {
+  pose: number;
+  camera: number;
+  feature: number;
+  observed_px: [number, number];
+  /** Point-to-plane distance in meters; null when the back-projected
+   * ray does not intersect the target plane. */
+  residual_m?: number | null;
+  /** Distance to the projected laser line in undistorted pixel space. */
+  residual_px?: number | null;
+  /** Two endpoints of the projected laser line in image space. */
+  projected_line_px?: [[number, number], [number, number]] | null;
+}
+
+/** Aggregate residual histogram (fixed [<=1, <=2, <=5, <=10, >10] px buckets). */
+export interface FeatureResidualHistogram {
+  bucket_edges_px: [number, number, number, number];
+  counts: [number, number, number, number, number];
+  count: number;
+  mean: number;
+  max: number;
+}
+
 export interface PerFeatureResiduals {
   target: TargetFeatureResidual[];
-  // laser, target_hist_per_camera, laser_hist_per_camera exist on the
-  // wire but the v0 viewer does not consume them.
+  /** Per-laser-pixel records; absent/empty on non-laser problem types. */
+  laser?: LaserFeatureResidual[];
+  target_hist_per_camera?: FeatureResidualHistogram[] | null;
+  laser_hist_per_camera?: FeatureResidualHistogram[] | null;
 }
 
 /** The subset of PlanarIntrinsicsExport the viewer reads. */

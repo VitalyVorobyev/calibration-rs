@@ -51,6 +51,15 @@ export interface PinholeCameraWire {
   dist?: BrownConrady5Wire;
 }
 
+/** Laser plane wire format (`vision_calibration_optim::LaserPlane`):
+ * `{ normal: [nx, ny, nz], distance: d }` with a unit normal and the
+ * plane equation `n · p + d = 0`. Frame depends on the carrying field
+ * (`laser_planes_rig` = rig frame, `laser_planes_cam` = per-camera). */
+export interface LaserPlaneWire {
+  normal: [number, number, number];
+  distance: number;
+}
+
 /** Loose union over the seven calibration export shapes. The viewer
  * (B1.0) only consumes the residuals + manifest + mean reprojection
  * error; rig-only fields (cameras, cam_se3_rig, rig_se3_target) are
@@ -69,8 +78,10 @@ export interface AnyExport {
   camera_se3_target?: Iso3Wire[];
   /** rig_handeye / single_cam_handeye carry mode-tagged hand-eye fields. */
   handeye_mode?: string;
-  /** rig_laserline_device-only. */
-  laser_planes_rig?: unknown[];
+  /** rig_laserline_device-only: per-camera laser planes in rig frame. */
+  laser_planes_rig?: LaserPlaneWire[];
+  /** rig_laserline_device-only: the same planes in each camera's frame. */
+  laser_planes_cam?: LaserPlaneWire[];
 }
 
 /** Tauri command response shape from `load_export`. */

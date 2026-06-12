@@ -201,10 +201,10 @@ pub struct LaserlineDeviceExport {
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
 
-    /// Optional image manifest (ADR 0014, viewer-side contract). One
-    /// frame per accepted view (pose = kept-view index, camera = 0),
-    /// pointing at the *target* image; laser-frame entries are
-    /// deferred to B-laser. `None` means "no images shipped"; the
+    /// Optional image manifest (ADR 0014, viewer-side contract). Per
+    /// accepted view (pose = kept-view index, camera = 0): one frame
+    /// for the *target* image plus one of kind `laser` for the laser
+    /// image (ADR 0021 §5). `None` means "no images shipped"; the
     /// calibration pipeline never reads this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,

@@ -21,6 +21,9 @@ function nextInWrap(arr: number[], current: number, delta: number): number {
 
 interface MaterializedExport {
   frames: FrameKey[];
+  /** Laser-kind frames (ADR 0021 §5), kept out of `frames` so pose /
+   * camera navigation stays driven by the target observations. */
+  laserFrames: FrameKey[];
   poseValues: number[];
   cameraValues: number[];
   posesByCamera: Map<number, number[]>;
@@ -41,13 +44,19 @@ function materializeExport(data: AnyExport, exportDir: string):
     };
   }
   const root = joinPath(exportDir, manifest.root);
-  const frames: FrameKey[] = manifest.frames.map((f) => ({
+  const toKey = (f: (typeof manifest.frames)[number]): FrameKey => ({
     pose: f.pose,
     camera: f.camera,
     label: `pose ${f.pose} · cam ${f.camera}`,
     abs_path: joinPath(root, f.path),
     roi: f.roi,
-  }));
+  });
+  const frames: FrameKey[] = manifest.frames
+    .filter((f) => (f.kind ?? "target") === "target")
+    .map(toKey);
+  const laserFrames: FrameKey[] = manifest.frames
+    .filter((f) => f.kind === "laser")
+    .map(toKey);
   if (frames.length === 0) {
     return {
       ok: false,
@@ -91,6 +100,7 @@ function materializeExport(data: AnyExport, exportDir: string):
     ok: true,
     value: {
       frames,
+      laserFrames,
       poseValues,
       cameraValues,
       posesByCamera,
@@ -107,6 +117,8 @@ export interface ExportSlice {
   data: AnyExport | null;
   kind: ExportKind | null;
   frames: FrameKey[];
+  /** Laser-kind manifest frames; empty for non-laser exports. */
+  laserFrames: FrameKey[];
   poseValues: number[];
   cameraValues: number[];
   posesByCamera: Map<number, number[]>;
@@ -152,6 +164,7 @@ export const useStore = create<AppState>()(
     data: null,
     kind: null,
     frames: [],
+    laserFrames: [],
     poseValues: [],
     cameraValues: [],
     posesByCamera: new Map(),
@@ -198,6 +211,7 @@ export const useStore = create<AppState>()(
         data,
         kind: inferExportKind(data),
         frames: materialized.value.frames,
+        laserFrames: materialized.value.laserFrames,
         poseValues: materialized.value.poseValues,
         cameraValues: materialized.value.cameraValues,
         posesByCamera: materialized.value.posesByCamera,
@@ -225,6 +239,7 @@ export const useStore = create<AppState>()(
         data,
         kind: inferExportKind(data),
         frames: materialized.value.frames,
+        laserFrames: materialized.value.laserFrames,
         poseValues: materialized.value.poseValues,
         cameraValues: materialized.value.cameraValues,
         posesByCamera: materialized.value.posesByCamera,
@@ -246,6 +261,7 @@ export const useStore = create<AppState>()(
         data: null,
         kind: null,
         frames: [],
+        laserFrames: [],
         poseValues: [],
         cameraValues: [],
         posesByCamera: new Map(),
