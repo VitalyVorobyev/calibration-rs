@@ -952,6 +952,14 @@ mod tests {
             RunResponse::Ok(s) => s,
             other => panic!("rig laserline stage: expected Ok, got {other:?}"),
         };
+        // Persist the stage-2 export so the app can open it (laser
+        // overlay + 3D planes). Stop-gap until B3e ships in-app
+        // "save export to file".
+        std::fs::write(
+            data_dir.join("rig_laserline_export.json"),
+            serde_json::to_string(&laser.export).unwrap(),
+        )
+        .unwrap();
         let planes = laser.export["laser_planes_cam"].as_array().unwrap();
         assert_eq!(planes.len(), 6, "one laser plane per camera");
         let stats = laser.export["per_camera_stats"].as_array().unwrap();
