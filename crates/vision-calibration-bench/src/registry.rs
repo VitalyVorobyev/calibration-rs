@@ -153,6 +153,8 @@ pub enum ProblemKind {
     RigExtrinsics,
     /// Multi-camera rig hand-eye.
     RigHandeye,
+    /// Joint multi-camera rig hand-eye + laserline.
+    RigHandeyeLaserline,
     /// Single laserline device.
     LaserlineDevice,
     /// Multi-camera rig laserline device.
@@ -642,6 +644,7 @@ mod tests {
             Topology::SingleCamHandeye => ProblemKind::SingleCamHandeye,
             Topology::RigExtrinsics => ProblemKind::RigExtrinsics,
             Topology::RigHandeye => ProblemKind::RigHandeye,
+            Topology::RigHandeyeLaserline => ProblemKind::RigHandeyeLaserline,
             Topology::LaserlineDevice => ProblemKind::LaserlineDevice,
             Topology::RigLaserlineDevice => ProblemKind::RigLaserlineDevice,
         }

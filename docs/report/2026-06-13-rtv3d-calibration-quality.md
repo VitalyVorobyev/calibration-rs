@@ -70,3 +70,6 @@ read than the translucent full-plane quads.
 - PASS: `cargo xtask emit-schemas --check`
 - PASS: `npm --prefix app run build`
 - PASS: `cargo test --manifest-path app/src-tauri/Cargo.toml rtv3d_laser_end_to_end -- --ignored --nocapture`
+- PASS: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- PASS: `cargo test --workspace --all-features`
+- PASS: `cargo run -p vision-calibration-bench --features 'tier-b laser' --bin calib-bench -- run --dataset rtv3d --registry crates/vision-calibration-bench/registry/private.json`
