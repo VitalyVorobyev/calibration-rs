@@ -135,13 +135,16 @@ puzzleboard / ringgrid) are supported.
     ringgrid detectors, bench/examples-private charuco dedup; in-app
     "save export to file" (needed to run the two-stage laser flow
     without leaving the app) moves to B3e.
-- **B-laser — laserline visualization.** Laser-pixel overlay in
-  Diagnose; laser plane-fit residuals (point-to-plane mm) alongside
-  reprojection residuals; laser planes rendered in the 3D rig viewer.
-  The laser topologies *run* in the app since B3c-3 (and the laser
-  exports carry `per_feature_residuals.laser`), but no laser pixels or
-  planes are rendered anywhere yet; `ImageManifest` also still lacks
-  laser-frame entries (ADR 0021 §5).
+- **B-laser — laserline visualization (SHIPPED 2026-06-12).**
+  `FrameRef.kind` discriminator closes ADR 0021 §5: both laser
+  topologies now splice laser-kind frames into their export manifests.
+  Diagnose gains a Laser view — observed pixels colored by
+  point-to-plane distance (thresholds at the 0.2 mm device norm),
+  projected laser line overlay, mm-domain stats legend. The 3D rig
+  viewer renders `laser_planes_rig` as bounded translucent quads
+  anchored at each owning camera. Follow-ups: laser plane for the
+  single-cam `LaserlineDeviceExport` in 3D (viewer is rig-only),
+  laser-pixel overlay in compare mode.
 - **B-explore — dataset exploration.** Browse a dataset *before*
   calibrating: image grid per camera/pose, detection overlay from the
   cache, board coverage map. Today the app only visualizes exports.

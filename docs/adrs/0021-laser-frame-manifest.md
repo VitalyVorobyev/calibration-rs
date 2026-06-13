@@ -116,10 +116,15 @@ Pinhole rigs work (zero Scheimpflug tilt = identity sensor).
 
 `LaserlineDeviceExport` gains `image_manifest` (the last `*Export`
 without one). Both laser exports get the manifest spliced by the Tauri
-runner from the **target** frames. Laser-frame entries in
-`ImageManifest` are deferred to B-laser (the visualization slice) —
-`FrameRef` has no frame-kind discriminator yet, and nothing renders
-laser pixels today.
+runner from the **target** frames.
+
+**Laser-frame entries (implemented in B-laser).** `FrameRef` carries a
+`kind: FrameKind` discriminator (`target` | `laser`), serialized in
+snake_case and omitted for `target`, so pre-existing exports stay
+byte-stable and deserialize unchanged. The Tauri runner splices laser
+frames (aligned with the kept-view target frames) into both laser
+exports; the Diagnose workspace plots
+`per_feature_residuals.laser` onto frames of kind `laser`.
 
 ## Consequences
 

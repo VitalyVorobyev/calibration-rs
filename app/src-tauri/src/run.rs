@@ -18,7 +18,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use vision_calibration_core::{FrameRef, ImageManifest, PlanarDataset, RigDataset};
+use vision_calibration_core::{FrameKind, FrameRef, ImageManifest, PlanarDataset, RigDataset};
 use vision_calibration_dataset::{DatasetSpec, Topology};
 use vision_calibration_detect::FsDetectionCache;
 use vision_calibration_pipeline::dataset_runner::{
@@ -398,12 +398,12 @@ fn run_laserline_topology(
             Ok(v) => v,
             Err(boxed) => return *boxed,
         };
-    // Single camera ⇒ the planar manifest shape (pose = kept-view
-    // index, camera = 0) over the *target* frames; laser-frame
-    // manifest entries are deferred to B-laser (ADR 0021 §5).
+    // Single camera ⇒ planar manifest shape (pose = kept-view index,
+    // camera = 0) for the target frames, plus the aligned laser frames
+    // (ADR 0021 §5).
     if let Err(boxed) = splice_image_manifest(
         &mut export,
-        planar_image_manifest(&laser_run.view_paths, base_dir),
+        laserline_image_manifest(&laser_run.view_paths, &laser_run.laser_paths, base_dir),
     ) {
         return *boxed;
     }
@@ -438,6 +438,7 @@ fn run_rig_laserline_topology(
     let usable_views = laser_run.usable_views;
     let total_views = laser_run.total_views;
     let view_paths = laser_run.view_paths.clone();
+    let laser_paths = laser_run.laser_paths.clone();
 
     let mut export = match run_session::<RigLaserlineDeviceProblem>(
         laser_run.input,
@@ -447,9 +448,10 @@ fn run_rig_laserline_topology(
         Ok(v) => v,
         Err(boxed) => return *boxed,
     };
-    if let Err(boxed) =
-        splice_image_manifest(&mut export, rig_image_manifest(&view_paths, base_dir))
-    {
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        rig_laserline_image_manifest(&view_paths, &laser_paths, base_dir),
+    ) {
         return *boxed;
     }
 
@@ -519,6 +521,57 @@ fn planar_image_manifest(view_paths: &[PathBuf], base_dir: &Path) -> Result<Imag
     Ok(manifest_from_frames(frames))
 }
 
+/// Single-camera laser manifest: target frames (kind omitted in JSON)
+/// plus one laser frame per kept view (ADR 0021 §5). `view_paths` and
+/// `laser_paths` are aligned by kept-view index.
+fn laserline_image_manifest(
+    view_paths: &[PathBuf],
+    laser_paths: &[PathBuf],
+    base_dir: &Path,
+) -> Result<ImageManifest, String> {
+    let base_abs = canonical_base(base_dir)?;
+    let mut frames = Vec::with_capacity(view_paths.len() + laser_paths.len());
+    for (pose, path) in view_paths.iter().enumerate() {
+        frames.push(frame_ref(pose, 0, path, &base_abs)?);
+    }
+    for (pose, path) in laser_paths.iter().enumerate() {
+        frames.push(frame_ref_of_kind(pose, 0, path, &base_abs, FrameKind::Laser)?);
+    }
+    Ok(manifest_from_frames(frames))
+}
+
+/// Rig laser manifest: target frames plus laser frames per
+/// `(view, camera)` slot that contributed a usable laser observation.
+fn rig_laserline_image_manifest(
+    view_paths: &[Vec<Option<PathBuf>>],
+    laser_paths: &[Vec<Option<PathBuf>>],
+    base_dir: &Path,
+) -> Result<ImageManifest, String> {
+    let base_abs = canonical_base(base_dir)?;
+    let mut frames = Vec::new();
+    for (pose, cameras) in view_paths.iter().enumerate() {
+        for (camera, maybe_path) in cameras.iter().enumerate() {
+            if let Some(path) = maybe_path {
+                frames.push(frame_ref(pose, camera, path, &base_abs)?);
+            }
+        }
+    }
+    for (pose, cameras) in laser_paths.iter().enumerate() {
+        for (camera, maybe_path) in cameras.iter().enumerate() {
+            if let Some(path) = maybe_path {
+                frames.push(frame_ref_of_kind(
+                    pose,
+                    camera,
+                    path,
+                    &base_abs,
+                    FrameKind::Laser,
+                )?);
+            }
+        }
+    }
+    Ok(manifest_from_frames(frames))
+}
+
 /// Build a rig manifest from `view_paths[view][camera]` — one frame
 /// per `(view, camera)` slot that contributed a usable observation.
 fn rig_image_manifest(
@@ -558,6 +611,18 @@ fn frame_ref(pose: usize, camera: usize, path: &Path, base_abs: &Path) -> Result
     frame.pose = pose;
     frame.camera = camera;
     frame.path = rel.to_path_buf();
+    Ok(frame)
+}
+
+fn frame_ref_of_kind(
+    pose: usize,
+    camera: usize,
+    path: &Path,
+    base_abs: &Path,
+    kind: FrameKind,
+) -> Result<FrameRef, String> {
+    let mut frame = frame_ref(pose, camera, path, base_abs)?;
+    frame.kind = kind;
     Ok(frame)
 }
 
@@ -723,6 +788,43 @@ mod tests {
     }
 
     #[test]
+    fn laser_manifests_emit_both_frame_kinds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        std::fs::create_dir_all(base.join("cam0")).unwrap();
+        for name in ["cam0/t0.png", "cam0/t1.png", "cam0/l0.png", "cam0/l1.png"] {
+            std::fs::write(base.join(name), b"x").unwrap();
+        }
+
+        // Single-camera: target + laser frames aligned by kept-view index.
+        let manifest = laserline_image_manifest(
+            &[base.join("cam0/t0.png"), base.join("cam0/t1.png")],
+            &[base.join("cam0/l0.png"), base.join("cam0/l1.png")],
+            base,
+        )
+        .unwrap();
+        assert_eq!(manifest.target_frames().count(), 2);
+        assert_eq!(manifest.laser_frames().count(), 2);
+        let laser = manifest.frame_of_kind(1, 0, FrameKind::Laser).unwrap();
+        assert_eq!(laser.path, PathBuf::from("cam0/l1.png"));
+        // `frame()` stays target-only despite the laser entry for (1, 0).
+        assert_eq!(
+            manifest.frame(1, 0).unwrap().path,
+            PathBuf::from("cam0/t1.png")
+        );
+
+        // Rig: None laser slots produce no frames.
+        let manifest = rig_laserline_image_manifest(
+            &[vec![Some(base.join("cam0/t0.png"))]],
+            &[vec![None]],
+            base,
+        )
+        .unwrap();
+        assert_eq!(manifest.laser_frames().count(), 0);
+        assert_eq!(manifest.target_frames().count(), 1);
+    }
+
+    #[test]
     fn image_manifest_splice_lands_in_export_json() {
         let mut export = json!({"params": {}, "report": {}});
         let mut manifest = ImageManifest::default();
@@ -850,8 +952,26 @@ mod tests {
             RunResponse::Ok(s) => s,
             other => panic!("rig laserline stage: expected Ok, got {other:?}"),
         };
+        // Persist the stage-2 export so the app can open it (laser
+        // overlay + 3D planes). Stop-gap until B3e ships in-app
+        // "save export to file".
+        std::fs::write(
+            data_dir.join("rig_laserline_export.json"),
+            serde_json::to_string(&laser.export).unwrap(),
+        )
+        .unwrap();
         let planes = laser.export["laser_planes_cam"].as_array().unwrap();
         assert_eq!(planes.len(), 6, "one laser plane per camera");
+        // Viewer contract: the export must be self-contained for the
+        // 3D / diagnose workspaces (frozen upstream echo + headline
+        // reprojection number).
+        assert_eq!(laser.export["cameras"].as_array().unwrap().len(), 6);
+        assert_eq!(laser.export["cam_se3_rig"].as_array().unwrap().len(), 6);
+        assert_eq!(
+            laser.export["rig_se3_target"].as_array().unwrap().len(),
+            laser.usable_views
+        );
+        assert!(laser.export["mean_reproj_error"].is_number());
         let stats = laser.export["per_camera_stats"].as_array().unwrap();
         assert_eq!(stats.len(), 6);
         for (cam, s) in stats.iter().enumerate() {
@@ -866,10 +986,26 @@ mod tests {
                 "cam {cam}: mean laser residual {laser_err:.6} m"
             );
         }
+        // The manifest must carry both frame kinds (ADR 0021 §5): the
+        // target frames for the reprojection overlay and the laser
+        // frames Diagnose's laser view plots residuals onto.
+        let frames = laser.export["image_manifest"]["frames"].as_array().unwrap();
+        let n_laser = frames.iter().filter(|f| f["kind"] == "laser").count();
+        let n_target = frames.len() - n_laser;
+        assert!(n_target > 0, "manifest carries target frames");
         assert!(
-            laser.export["image_manifest"]["frames"].is_array(),
-            "laser export carries the target-frame manifest"
+            n_laser > 0,
+            "manifest carries laser-kind frames ({} total)",
+            frames.len()
         );
+        let laser_residuals = laser.export["per_feature_residuals"]["laser"]
+            .as_array()
+            .unwrap();
+        assert!(
+            !laser_residuals.is_empty(),
+            "laser export carries per-pixel laser residuals"
+        );
+        eprintln!("manifest: {n_target} target + {n_laser} laser frames");
         eprintln!(
             "rtv3d laser E2E: handeye {mean_px:.3} px over {} views; laser stage {} views in {} ms",
             handeye.usable_views, laser.usable_views, laser.duration_ms

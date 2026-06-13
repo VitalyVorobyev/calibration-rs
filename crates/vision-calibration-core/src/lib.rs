@@ -92,9 +92,9 @@ pub use models::{
 };
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 pub use types::{
-    CameraFixMask, CorrespondenceView, DistortionFixMask, FeatureResidualHistogram, FrameRef,
-    ImageManifest, IntrinsicsFixMask, LaserFeatureResidual, PerFeatureResiduals, PixelRect,
-    REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, TargetFeatureResidual,
+    CameraFixMask, CorrespondenceView, DistortionFixMask, FeatureResidualHistogram, FrameKind,
+    FrameRef, ImageManifest, IntrinsicsFixMask, LaserFeatureResidual, PerFeatureResiduals,
+    PixelRect, REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, TargetFeatureResidual,
 };
 pub use view::{NoMeta, PlanarDataset, RigDataset, RigView, RigViewObs, View};
 
