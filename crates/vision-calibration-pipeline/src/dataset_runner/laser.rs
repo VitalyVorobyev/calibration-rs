@@ -27,10 +27,14 @@ use vision_calibration_dataset::{
     DatasetSpec, ImagePattern, LaserExtractionSpec, PosePairing, Topology, validate,
 };
 use vision_calibration_detect::{CacheKey, CachedFeatures, DetectionCache, Feature};
-use vision_calibration_optim::{HandEyeMode, LaserlineMeta, RigLaserlineDataset, RigLaserlineView};
+use vision_calibration_optim::{
+    HandEyeMode, LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView,
+    RobotPoseMeta,
+};
 
 use crate::laserline_device::LaserlineDeviceInput;
 use crate::rig_handeye::RigHandeyeExport;
+use crate::rig_handeye_laserline::RigHandeyeLaserlineInput;
 use crate::rig_laserline_device::RigLaserlineDeviceInput;
 
 use super::pairing::pair_views;
@@ -96,6 +100,22 @@ pub struct RigLaserlineRunResult {
     /// `laser_paths[view][camera]` — *laser* image path per kept view
     /// and camera, aligned with `view_paths`; `None` where the camera
     /// contributed no usable laser observation.
+    pub laser_paths: Vec<Vec<Option<PathBuf>>>,
+    /// Number of kept views (≥1 camera with ≥4 target features).
+    pub usable_views: usize,
+    /// Total number of paired views attempted.
+    pub total_views: usize,
+}
+
+/// Result of a joint rig hand-eye laserline dataset conversion.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct RigHandeyeLaserlineRunResult {
+    /// The IR ready to feed into `RigHandeyeLaserlineProblem`.
+    pub input: RigHandeyeLaserlineInput,
+    /// `view_paths[view][camera]` — target image path per kept view.
+    pub view_paths: Vec<Vec<Option<PathBuf>>>,
+    /// `laser_paths[view][camera]` — laser image path per kept view.
     pub laser_paths: Vec<Vec<Option<PathBuf>>>,
     /// Number of kept views (≥1 camera with ≥4 target features).
     pub usable_views: usize,
@@ -410,6 +430,127 @@ pub fn build_rig_laserline_device_input(
             upstream,
             initial_planes_cam: None,
         },
+        view_paths: core.view_paths,
+        laser_paths,
+        usable_views,
+        total_views: core.total_views,
+    })
+}
+
+/// Convert a manifest into a joint rig hand-eye laserline input.
+pub fn build_rig_handeye_laserline_input(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    cache: &dyn DetectionCache,
+    laser_extractor: &dyn LaserPixelExtractor,
+    force_redetect: bool,
+) -> Result<RigHandeyeLaserlineRunResult, RunError> {
+    if spec.topology != Topology::RigHandeyeLaserline {
+        return Err(RunError::UnsupportedTopology {
+            topology: spec.topology,
+        });
+    }
+    let core = build_rig_core(spec, base_dir, cache, force_redetect)?;
+    let num_cameras = spec.cameras.len();
+    let pairing = spec
+        .pose_pairing
+        .as_ref()
+        .expect("build_rig_core checked pose_pairing");
+
+    let laser_spec = spec.laser.unwrap_or_default();
+    let mut laser_by_token: Vec<HashMap<String, PathBuf>> = Vec::with_capacity(num_cameras);
+    for camera in &spec.cameras {
+        let laser_images = camera
+            .laser_images
+            .as_ref()
+            .expect("validate guarantees laser_images for RigHandeyeLaserline");
+        laser_by_token.push(laser_paths_by_token(
+            laser_images,
+            &camera.id,
+            pairing,
+            &core.all_tokens,
+            base_dir,
+        )?);
+    }
+
+    let laser_key_configs: Vec<Value> = spec
+        .cameras
+        .iter()
+        .map(|c| laser_key_config(&laser_spec, c.roi_xywh))
+        .collect();
+    let mut laser_per_view: Vec<Vec<Option<Vec<Pt2>>>> = Vec::with_capacity(core.views.len());
+    let mut laser_paths: Vec<Vec<Option<PathBuf>>> = Vec::with_capacity(core.views.len());
+    let mut per_camera_usable = vec![0usize; num_cameras];
+    for (_obs, token) in &core.views {
+        let mut slots: Vec<Option<Vec<Pt2>>> = Vec::with_capacity(num_cameras);
+        let mut path_slots: Vec<Option<PathBuf>> = Vec::with_capacity(num_cameras);
+        for cam_idx in 0..num_cameras {
+            let Some(laser_path) = laser_by_token[cam_idx].get(token) else {
+                slots.push(None);
+                path_slots.push(None);
+                continue;
+            };
+            let pixels = extract_laser_pixels(
+                laser_extractor,
+                &laser_spec,
+                &laser_key_configs[cam_idx],
+                spec.cameras[cam_idx].roi_xywh,
+                laser_path,
+                cache,
+                force_redetect,
+            )?;
+            if pixels.len() < laser_spec.min_points as usize {
+                slots.push(None);
+                path_slots.push(None);
+                continue;
+            }
+            per_camera_usable[cam_idx] += 1;
+            slots.push(Some(pixels));
+            path_slots.push(Some(laser_path.clone()));
+        }
+        laser_per_view.push(slots);
+        laser_paths.push(path_slots);
+    }
+    for (cam_idx, usable) in per_camera_usable.iter().enumerate() {
+        if *usable == 0 {
+            return Err(RunError::InsufficientLaserViews {
+                camera_id: spec.cameras[cam_idx].id.clone(),
+                usable: 0,
+                total: core.views.len(),
+            });
+        }
+    }
+
+    let source = spec
+        .robot_poses
+        .as_ref()
+        .expect("validate guarantees robot_poses for RigHandeyeLaserline");
+    let convention = spec
+        .pose_convention
+        .as_ref()
+        .expect("validate guarantees pose_convention for RigHandeyeLaserline");
+    let poses = load_robot_poses(source, convention, base_dir)?;
+    let kept_tokens: Vec<String> = core.views.iter().map(|(_, t)| t.clone()).collect();
+    let matched = match_poses_to_tokens(&kept_tokens, &poses, spec, core.total_views)?;
+
+    let views: Vec<RigHandeyeLaserlineView> = core
+        .views
+        .into_iter()
+        .zip(laser_per_view)
+        .zip(matched)
+        .map(
+            |(((obs, _token), laser_pixels), base_se3_gripper)| RigHandeyeLaserlineView {
+                obs: RigLaserlineView {
+                    cameras: obs.cameras,
+                    laser_pixels,
+                },
+                meta: RobotPoseMeta { base_se3_gripper },
+            },
+        )
+        .collect();
+    let usable_views = views.len();
+    Ok(RigHandeyeLaserlineRunResult {
+        input: RigHandeyeLaserlineInput { views, num_cameras },
         view_paths: core.view_paths,
         laser_paths,
         usable_views,
@@ -1224,6 +1365,43 @@ mod tests {
     }
 
     #[test]
+    fn rig_handeye_laserline_builds_joint_input_without_upstream() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        seed_rig_views(tmp.path(), &cache, 3);
+        let mut spec = rig_laserline_spec(tmp.path(), 3);
+        spec.topology = Topology::RigHandeyeLaserline;
+        spec.upstream_calibration = None;
+        let fake = FakeLaser::new(30);
+
+        let result =
+            build_rig_handeye_laserline_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
+        assert_eq!((result.usable_views, result.total_views), (3, 3));
+        assert_eq!(result.input.num_cameras, 2);
+        assert_eq!(result.input.num_views(), 3);
+        assert_eq!(result.view_paths.len(), 3);
+        assert_eq!(result.laser_paths.len(), 3);
+        assert_eq!(
+            result.input.views[2].obs.laser_pixels[1]
+                .as_ref()
+                .unwrap()
+                .len(),
+            30
+        );
+        assert!(
+            (result.input.views[1]
+                .meta
+                .base_se3_gripper
+                .translation
+                .vector
+                .x
+                - 0.2)
+                .abs()
+                < 1e-12
+        );
+    }
+
+    #[test]
     fn rig_laserline_preserves_upstream_rig_target_poses() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
@@ -1354,6 +1532,10 @@ mod tests {
         ));
         assert!(matches!(
             build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap_err(),
+            RunError::UnsupportedTopology { .. }
+        ));
+        assert!(matches!(
+            build_rig_handeye_laserline_input(&spec, tmp.path(), &cache, &fake, false).unwrap_err(),
             RunError::UnsupportedTopology { .. }
         ));
     }

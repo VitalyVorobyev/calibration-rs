@@ -87,7 +87,7 @@ export function EpipolarWorkspace() {
   if (!isRig) {
     return (
       <Empty
-        body={`Epipolar geometry only applies to rig exports (rig_extrinsics, rig_handeye, rig_laserline_device). The current export is ${exportKindLabel(
+        body={`Epipolar geometry only applies to rig exports (rig_extrinsics, rig_handeye, rig_handeye_laserline, rig_laserline_device). The current export is ${exportKindLabel(
           kind,
         )}.`}
       />

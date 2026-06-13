@@ -31,7 +31,7 @@ sensors, `p1/p2 = 0`, free `tau_x/tau_y` in the per-camera stage, and centered
 | run | reprojection | laser point-to-plane | note |
 |---|---:|---:|---|
 | app seeded hand-eye export | 1.617 px mean | n/a | ignored Tauri rtv3d test with threshold/manual-init parity |
-| app frozen laser export | 54.265 px mean | 1.422–1.728 mm mean | two-stage frozen upstream path is geometrically inconsistent for reprojection |
+| app frozen upstream diagnostic (before pose preservation) | 54.265 px mean | 1.422-1.728 mm mean | old app path recomputed target poses from raw robot poses and ignored upstream optimized per-view poses/deltas |
 | bench V5 joint BA | 1.193 px mean / 1.207 px RMS / 8.085 px max | 0.018–0.035 mm RMS | 4 usable laser views, 10,797 laser points |
 | best known joint BA floor | 1.16 px mean | 0.017–0.031 mm σ | 2026-06-11 private example run |
 
@@ -85,9 +85,8 @@ does not by itself prove the absolute scale question tracked by V6.
 
 - Run the new `calib-bench diagnose handeye` sweep on rtv3d to isolate seed,
   threshold, `p1/p2`, `tau`, and robot-pose sensitivities.
-- Add a first-class app joint-BA run/export path; the current app laser preset
-  remains a frozen-upstream two-stage solve even though it now shares the V5
-  detector/seed assumptions.
+- Keep the frozen-upstream app path as a diagnostic only; the quality preset
+  should use the first-class joint hand-eye laserline app path.
 - If detector and robot-pose variants do not move the floor, prioritize M2
   thin-prism support for Scheimpflug optics before adding more local tuning.
 

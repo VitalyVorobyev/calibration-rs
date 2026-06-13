@@ -54,7 +54,9 @@ pub struct DatasetSpec {
 
     /// Path to a frozen upstream `RigHandeyeExport` JSON, relative to
     /// the manifest directory unless absolute. Required for
-    /// `Topology::RigLaserlineDevice`, rejected elsewhere.
+    /// `Topology::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye
+    /// laserline calibration computes its own hand-eye warm start and does not
+    /// use this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upstream_calibration: Option<PathBuf>,
 
@@ -382,6 +384,8 @@ pub enum Topology {
     RigExtrinsics,
     /// Multi-camera rig + robot — `RigHandeyeProblem`.
     RigHandeye,
+    /// Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.
+    RigHandeyeLaserline,
     /// Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.
     RigLaserlineDevice,
 }

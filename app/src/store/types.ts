@@ -10,6 +10,7 @@ export type ExportKind =
   | "laserline_device"
   | "rig_extrinsics"
   | "rig_handeye"
+  | "rig_handeye_laserline"
   | "rig_laserline_device"
   | "unknown";
 
@@ -72,18 +73,18 @@ export interface AnyExport {
    * written before their type gained the field (e.g. pre-B-laser
    * rig_laserline_device) omit it on the wire. */
   mean_reproj_error?: number;
-  /** Present on rig_extrinsics, rig_handeye, rig_laserline_device. */
+  /** Present on rig_extrinsics, rig_handeye, rig_handeye_laserline, rig_laserline_device. */
   cameras?: PinholeCameraWire[];
   cam_se3_rig?: Iso3Wire[];
   rig_se3_target?: Iso3Wire[];
   /** Present on planar_intrinsics, scheimpflug_intrinsics, single_cam_handeye, laserline_device. */
   camera?: PinholeCameraWire;
   camera_se3_target?: Iso3Wire[];
-  /** rig_handeye / single_cam_handeye carry mode-tagged hand-eye fields. */
+  /** rig_handeye / rig_handeye_laserline / single_cam_handeye carry mode-tagged hand-eye fields. */
   handeye_mode?: string;
-  /** rig_laserline_device-only: per-camera laser planes in rig frame. */
+  /** Laser rig exports: per-camera laser planes in rig frame. */
   laser_planes_rig?: LaserPlaneWire[];
-  /** rig_laserline_device-only: the same planes in each camera's frame. */
+  /** Laser rig exports: the same planes in each camera's frame. */
   laser_planes_cam?: LaserPlaneWire[];
 }
 

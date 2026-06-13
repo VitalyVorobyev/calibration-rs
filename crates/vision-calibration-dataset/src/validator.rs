@@ -213,7 +213,7 @@ fn validate_detector_override(spec: &DatasetSpec) -> Result<(), ValidationError>
 fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
     let uses_laser = matches!(
         spec.topology,
-        Topology::LaserlineDevice | Topology::RigLaserlineDevice
+        Topology::LaserlineDevice | Topology::RigLaserlineDevice | Topology::RigHandeyeLaserline
     );
 
     if !uses_laser {
@@ -286,9 +286,11 @@ fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
                 topology: spec.topology,
             })
         }
-        Topology::LaserlineDevice if spec.upstream_calibration.is_some() => {
-            // Single-camera laserline calibrates its own intrinsics —
-            // an upstream export here means the wrong topology.
+        Topology::LaserlineDevice | Topology::RigHandeyeLaserline
+            if spec.upstream_calibration.is_some() =>
+        {
+            // These topologies calibrate their own upstream geometry — an
+            // upstream export here means the wrong topology.
             Err(ValidationError::FieldUnusedByTopology {
                 topology: spec.topology,
                 field: "upstream_calibration".into(),
@@ -301,7 +303,10 @@ fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
 fn topology_needs_robot(t: Topology) -> bool {
     matches!(
         t,
-        Topology::SingleCamHandeye | Topology::RigHandeye | Topology::RigLaserlineDevice
+        Topology::SingleCamHandeye
+            | Topology::RigHandeye
+            | Topology::RigLaserlineDevice
+            | Topology::RigHandeyeLaserline
     )
 }
 
@@ -316,9 +321,10 @@ fn topology_camera_range(t: Topology) -> (usize, usize) {
         | Topology::LaserlineDevice => (1, 1),
         // Rig topologies need at least two cameras; the upper bound is
         // unconstrained (puzzle 130×130 ships with 6).
-        Topology::RigExtrinsics | Topology::RigHandeye | Topology::RigLaserlineDevice => {
-            (2, usize::MAX)
-        }
+        Topology::RigExtrinsics
+        | Topology::RigHandeye
+        | Topology::RigLaserlineDevice
+        | Topology::RigHandeyeLaserline => (2, usize::MAX),
     }
 }
 
@@ -730,10 +736,18 @@ mod tests {
         spec
     }
 
+    fn rig_handeye_laserline_minimal() -> DatasetSpec {
+        let mut spec = rig_laserline_minimal();
+        spec.topology = Topology::RigHandeyeLaserline;
+        spec.upstream_calibration = None;
+        spec
+    }
+
     #[test]
     fn laserline_manifests_validate() {
         validate(&laserline_minimal()).unwrap();
         validate(&rig_laserline_minimal()).unwrap();
+        validate(&rig_handeye_laserline_minimal()).unwrap();
     }
 
     #[test]
@@ -808,6 +822,25 @@ mod tests {
             }
             other => panic!("expected FieldUnusedByTopology, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rig_handeye_laserline_rejects_upstream_but_requires_robot() {
+        let mut spec = rig_handeye_laserline_minimal();
+        spec.upstream_calibration = Some("export.json".into());
+        match validate(&spec).unwrap_err() {
+            ValidationError::FieldUnusedByTopology { field, .. } => {
+                assert_eq!(field, "upstream_calibration");
+            }
+            other => panic!("expected FieldUnusedByTopology, got {other:?}"),
+        }
+
+        let mut spec = rig_handeye_laserline_minimal();
+        spec.robot_poses = None;
+        assert!(matches!(
+            validate(&spec).unwrap_err(),
+            ValidationError::MissingRobotPoses { .. }
+        ));
     }
 
     #[test]

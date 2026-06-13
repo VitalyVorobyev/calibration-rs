@@ -17,6 +17,7 @@ use vision_calibration_pipeline::laserline_device::LaserlineDeviceConfig;
 use vision_calibration_pipeline::planar_intrinsics::PlanarIntrinsicsConfig;
 use vision_calibration_pipeline::rig_extrinsics::RigExtrinsicsConfig;
 use vision_calibration_pipeline::rig_handeye::RigHandeyeConfig;
+use vision_calibration_pipeline::rig_handeye_laserline::RigHandeyeLaserlineConfig;
 use vision_calibration_pipeline::rig_laserline_device::RigLaserlineDeviceConfig;
 use vision_calibration_pipeline::scheimpflug_intrinsics::ScheimpflugIntrinsicsConfig;
 use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
@@ -48,6 +49,10 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
             schema_value::<RigExtrinsicsConfig>(),
         ),
         ("rig_handeye_config", schema_value::<RigHandeyeConfig>()),
+        (
+            "rig_handeye_laserline_config",
+            schema_value::<RigHandeyeLaserlineConfig>(),
+        ),
         (
             "rig_laserline_device_config",
             schema_value::<RigLaserlineDeviceConfig>(),

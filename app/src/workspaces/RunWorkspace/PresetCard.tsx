@@ -125,6 +125,7 @@ function topologyColor(topology: string): string {
       return "bg-[var(--color-accent,_#a78bfa)]/[0.12] text-[var(--color-accent,_#a78bfa)]";
     case "RigExtrinsics":
     case "RigHandeye":
+    case "RigHandeyeLaserline":
     case "RigLaserlineDevice":
       return "bg-[var(--color-success,_#22c55e)]/[0.12] text-[var(--color-success,_#22c55e)]";
     case "SingleCamHandeye":

@@ -44,7 +44,8 @@ mod rig;
 
 pub use handeye::{HandeyeRunResult, build_single_cam_handeye_input};
 pub use laser::{
-    LaserPixelExtractor, LaserlineRunResult, RigLaserlineRunResult, build_laserline_device_input,
+    LaserPixelExtractor, LaserlineRunResult, RigHandeyeLaserlineRunResult, RigLaserlineRunResult,
+    build_laserline_device_input, build_rig_handeye_laserline_input,
     build_rig_laserline_device_input,
 };
 pub use pairing::PairedViews;

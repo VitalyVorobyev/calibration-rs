@@ -12,6 +12,7 @@ import laserlineDeviceConfigSchemaJson from "../../schemas/laserline_device_conf
 import planarConfigSchemaJson from "../../schemas/planar_intrinsics_config.json";
 import rigExtrinsicsConfigSchemaJson from "../../schemas/rig_extrinsics_config.json";
 import rigHandeyeConfigSchemaJson from "../../schemas/rig_handeye_config.json";
+import rigHandeyeLaserlineConfigSchemaJson from "../../schemas/rig_handeye_laserline_config.json";
 import rigLaserlineDeviceConfigSchemaJson from "../../schemas/rig_laserline_device_config.json";
 import scheimpflugConfigSchemaJson from "../../schemas/scheimpflug_intrinsics_config.json";
 import singleCamHandeyeConfigSchemaJson from "../../schemas/single_cam_handeye_config.json";
@@ -24,6 +25,8 @@ const singleCamHandeyeConfigSchema = singleCamHandeyeConfigSchemaJson as unknown
 const laserlineDeviceConfigSchema = laserlineDeviceConfigSchemaJson as unknown as JsonSchema;
 const rigExtrinsicsConfigSchema = rigExtrinsicsConfigSchemaJson as unknown as JsonSchema;
 const rigHandeyeConfigSchema = rigHandeyeConfigSchemaJson as unknown as JsonSchema;
+const rigHandeyeLaserlineConfigSchema =
+  rigHandeyeLaserlineConfigSchemaJson as unknown as JsonSchema;
 const rigLaserlineDeviceConfigSchema =
   rigLaserlineDeviceConfigSchemaJson as unknown as JsonSchema;
 
@@ -68,6 +71,11 @@ export const TOPOLOGY_INFO: Record<string, TopologyInfo> = {
   rig_handeye: {
     label: "RigHandeye",
     schema: rigHandeyeConfigSchema,
+    supported: true,
+  },
+  rig_handeye_laserline: {
+    label: "RigHandeyeLaserline",
+    schema: rigHandeyeLaserlineConfigSchema,
     supported: true,
   },
   rig_laserline_device: {

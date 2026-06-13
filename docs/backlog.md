@@ -46,6 +46,13 @@ review.
   `RigLaserlineDevice` now prefers upstream `rig_se3_target` by view token and
   applies upstream robot deltas in the legacy chain fallback, fixing the
   coherent 54 px reprojection drift seen in the rtv3d laser preset.
+- [x] RTV3D-JOINT-LASERLINE-APP - Add app/pipeline joint rig hand-eye
+  laserline topology. Completed 2026-06-13 —
+  [report](report/2026-06-13-RTV3D-JOINT-LASERLINE-APP-joint-app-topology.md).
+  The rtv3d laser preset now runs `RigHandeye -> RigLaserlineDevice ->
+  optimize_rig_handeye_laserline` directly from `dataset_laser.toml`.
+  The shipped preset fixes `cx/cy` in joint BA to avoid the nonphysical
+  principal-point valley observed in the all-20-pose app run.
 - [ ] V6-SCALE - Settle rtv3d absolute scale: get the mechanical camera
   spacing of the head (our hexagon: 90.1 mm at 5.2 mm cells; oracle implies
   ~98.5 mm). If 98.5 mm is right the true cell is ≈5.69 mm and both shipped

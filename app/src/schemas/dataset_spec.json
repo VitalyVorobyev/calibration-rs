@@ -595,6 +595,11 @@
           "type": "string"
         },
         {
+          "const": "rig_handeye_laserline",
+          "description": "Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.",
+          "type": "string"
+        },
+        {
           "const": "rig_laserline_device",
           "description": "Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.",
           "type": "string"
@@ -731,7 +736,7 @@
       "description": "Calibration topology — selects which problem type the runner\nwill dispatch to."
     },
     "upstream_calibration": {
-      "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`Topology::RigLaserlineDevice`, rejected elsewhere.",
+      "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`Topology::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye\nlaserline calibration computes its own hand-eye warm start and does not\nuse this field.",
       "type": [
         "string",
         "null"

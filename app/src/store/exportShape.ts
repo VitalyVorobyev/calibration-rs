@@ -9,6 +9,9 @@ import type { AnyExport, ExportKind } from "./types";
  * exports also expose top-level `camera`-prefixed legacy fields. */
 export function inferExportKind(data: AnyExport): ExportKind {
   const d = data as unknown as Record<string, unknown>;
+  if (Array.isArray(d.laser_planes_rig) && d.handeye_mode != null) {
+    return "rig_handeye_laserline";
+  }
   if (Array.isArray(d.laser_planes_rig)) return "rig_laserline_device";
   if (Array.isArray(d.cameras) && d.handeye_mode != null) return "rig_handeye";
   if (Array.isArray(d.cameras)) return "rig_extrinsics";
@@ -40,6 +43,8 @@ export function exportKindLabel(kind: ExportKind): string {
       return "Rig extrinsics";
     case "rig_handeye":
       return "Rig hand-eye";
+    case "rig_handeye_laserline":
+      return "Rig hand-eye + laserline";
     case "rig_laserline_device":
       return "Rig + laserline";
     case "unknown":
