@@ -53,6 +53,11 @@ review.
   optimize_rig_handeye_laserline` directly from `dataset_laser.toml`.
   The shipped preset fixes `cx/cy` in joint BA to avoid the nonphysical
   principal-point valley observed in the all-20-pose app run.
+- [x] RTV3D-LASER-CUTS - Render active-pose target-plane intersections for
+  the six laser planes in the 3D viewer. Completed 2026-06-13 —
+  [report](report/2026-06-13-RTV3D-LASER-CUTS-viewer-laser-cuts.md).
+  The viewer now draws clipped colored line segments on the selected board,
+  while the translucent full laser-plane quads remain optional.
 - [ ] V6-SCALE - Settle rtv3d absolute scale: get the mechanical camera
   spacing of the head (our hexagon: 90.1 mm at 5.2 mm cells; oracle implies
   ~98.5 mm). If 98.5 mm is right the true cell is ≈5.69 mm and both shipped

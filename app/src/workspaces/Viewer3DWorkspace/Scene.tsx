@@ -8,6 +8,7 @@ import type { AnyExport, Iso3Wire, LaserPlaneWire } from "../../store/types";
 import type { TargetFeatureResidual } from "../../types";
 import { CameraFrustum } from "./CameraFrustum";
 import { LaserPlane } from "./LaserPlane";
+import { LaserTargetCuts } from "./LaserTargetCuts";
 import { TargetBoard } from "./TargetBoard";
 import { useThemeColors } from "./useThemeColors";
 
@@ -74,6 +75,12 @@ export function Scene({
   const visiblePoses: number[] = showAllPoses
     ? rigSe3Target.map((_, i) => i)
     : [selectedPose].filter((i) => i >= 0 && i < rigSe3Target.length);
+  const activePose =
+    selectedPose >= 0 && selectedPose < rigSe3Target.length
+      ? rigSe3Target[selectedPose]
+      : null;
+  const activePoseResiduals =
+    selectedPose >= 0 ? residualsByPose.get(selectedPose) ?? [] : [];
 
   // Anchor + size each laser plane around its owning camera (plane i
   // belongs to camera i): the quad is centred on the camera position
@@ -152,6 +159,14 @@ export function Scene({
           />
         );
       })}
+
+      {activePose && laserPlanesRig.length > 0 && (
+        <LaserTargetCuts
+          rigSe3Target={activePose}
+          residuals={activePoseResiduals}
+          planesRig={laserPlanesRig}
+        />
+      )}
 
       <OrbitControls
         target={fit.target}
