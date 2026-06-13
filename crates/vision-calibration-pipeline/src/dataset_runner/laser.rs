@@ -19,6 +19,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use nalgebra::{Translation3, UnitQuaternion, Vector3};
 use serde_json::Value;
 
 use vision_calibration_core::{Iso3, Pt2, View};
@@ -343,8 +344,9 @@ pub fn build_rig_laserline_device_input(
     let kept_tokens: Vec<String> = core.views.iter().map(|(_, t)| t.clone()).collect();
     let matched = match_poses_to_tokens(&kept_tokens, &poses, spec, core.total_views)?;
 
-    // Frozen upstream rig hand-eye export → per-view rig_se3_target
-    // through the hand-eye chain (ADR 0021 §4).
+    // Frozen upstream rig hand-eye export → per-view rig_se3_target.
+    // Prefer the upstream export's optimized target poses; older exports
+    // fall back to the hand-eye chain.
     let upstream_path = spec
         .upstream_calibration
         .as_ref()
@@ -366,8 +368,18 @@ pub fn build_rig_laserline_device_input(
     }
     let rig_se3_target: Vec<Iso3> = matched
         .iter()
-        .map(|base_se3_gripper| {
-            rig_se3_target_from_chain(&export, base_se3_gripper, &upstream_path)
+        .zip(kept_tokens.iter())
+        .enumerate()
+        .map(|(view_idx, (base_se3_gripper, token))| {
+            rig_se3_target_from_upstream(
+                &export,
+                base_se3_gripper,
+                token,
+                view_idx,
+                core.views.len(),
+                core.total_views,
+                &upstream_path,
+            )
         })
         .collect::<Result<_, _>>()?;
     let upstream = export
@@ -574,6 +586,118 @@ fn load_upstream_export(path: &Path) -> Result<RigHandeyeExport, RunError> {
 ///
 /// - `EyeInHand`:  `T_R_T = T_G_R⁻¹ · T_B_G⁻¹ · T_B_T`
 /// - `EyeToHand`:  `T_R_T = T_R_B · T_B_G · T_G_T`
+fn rig_se3_target_from_upstream(
+    export: &RigHandeyeExport,
+    base_se3_gripper: &Iso3,
+    token: &str,
+    kept_idx: usize,
+    kept_views: usize,
+    total_views: usize,
+    path: &Path,
+) -> Result<Iso3, RunError> {
+    if !export.rig_se3_target.is_empty() {
+        if export.rig_se3_target.len() == total_views {
+            let idx = token.parse::<usize>().map_err(|_| RunError::UpstreamCalibration {
+                path: path.to_path_buf(),
+                message: format!(
+                    "upstream rig_se3_target has {total_views} entries but view token {token:?} \
+                     is not an index"
+                ),
+            })?;
+            return export.rig_se3_target.get(idx).copied().ok_or_else(|| {
+                RunError::UpstreamCalibration {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "view token {token:?} resolved to index {idx}, outside upstream \
+                         rig_se3_target length {}",
+                        export.rig_se3_target.len()
+                    ),
+                }
+            });
+        }
+        if export.rig_se3_target.len() == kept_views {
+            return Ok(export.rig_se3_target[kept_idx]);
+        }
+        return Err(RunError::UpstreamCalibration {
+            path: path.to_path_buf(),
+            message: format!(
+                "upstream rig_se3_target has {} entries, but this run has {kept_views} kept \
+                 views and {total_views} total paired views",
+                export.rig_se3_target.len()
+            ),
+        });
+    }
+
+    let base_se3_gripper = corrected_robot_pose(
+        *base_se3_gripper,
+        robot_delta_for_view(export, token, kept_idx, kept_views, total_views, path)?,
+    );
+    rig_se3_target_from_chain(export, &base_se3_gripper, path)
+}
+
+fn robot_delta_for_view(
+    export: &RigHandeyeExport,
+    token: &str,
+    kept_idx: usize,
+    kept_views: usize,
+    total_views: usize,
+    path: &Path,
+) -> Result<Option<[f64; 6]>, RunError> {
+    let Some(deltas) = export.robot_deltas.as_ref() else {
+        return Ok(None);
+    };
+    if deltas.len() == total_views {
+        let idx = token
+            .parse::<usize>()
+            .map_err(|_| RunError::UpstreamCalibration {
+                path: path.to_path_buf(),
+                message: format!(
+                    "upstream robot_deltas has {total_views} entries but view token {token:?} \
+                 is not an index"
+                ),
+            })?;
+        return deltas
+            .get(idx)
+            .copied()
+            .map(Some)
+            .ok_or_else(|| RunError::UpstreamCalibration {
+                path: path.to_path_buf(),
+                message: format!(
+                    "view token {token:?} resolved to index {idx}, outside upstream \
+                     robot_deltas length {}",
+                    deltas.len()
+                ),
+            });
+    }
+    if deltas.len() == kept_views {
+        return Ok(Some(deltas[kept_idx]));
+    }
+    Err(RunError::UpstreamCalibration {
+        path: path.to_path_buf(),
+        message: format!(
+            "upstream robot_deltas has {} entries, but this run has {kept_views} kept views \
+             and {total_views} total paired views",
+            deltas.len()
+        ),
+    })
+}
+
+fn corrected_robot_pose(robot_pose: Iso3, delta: Option<[f64; 6]>) -> Iso3 {
+    let Some(delta) = delta else {
+        return robot_pose;
+    };
+    let rot_vec = Vector3::new(delta[0], delta[1], delta[2]);
+    let trans_vec = Vector3::new(delta[3], delta[4], delta[5]);
+    let angle = rot_vec.norm();
+    let delta_rot = if angle > 1e-12 {
+        UnitQuaternion::from_axis_angle(&nalgebra::Unit::new_normalize(rot_vec), angle)
+    } else {
+        UnitQuaternion::identity()
+    };
+    let delta_iso = Iso3::from_parts(Translation3::from(trans_vec), delta_rot);
+    delta_iso * robot_pose
+}
+
 fn rig_se3_target_from_chain(
     export: &RigHandeyeExport,
     base_se3_gripper: &Iso3,
@@ -1097,6 +1221,59 @@ mod tests {
             "got {t:?}"
         );
         assert!(input.initial_planes_cam.is_none());
+    }
+
+    #[test]
+    fn rig_laserline_preserves_upstream_rig_target_poses() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        seed_rig_views(tmp.path(), &cache, 3);
+        let spec = rig_laserline_spec(tmp.path(), 3);
+        let mut upstream = upstream_export(2);
+        upstream.rig_se3_target = vec![
+            Iso3::translation(1.0, 0.0, 1.0),
+            Iso3::translation(2.0, 0.0, 1.0),
+            Iso3::translation(3.0, 0.0, 1.0),
+        ];
+        upstream.base_se3_target = Some(Iso3::translation(0.0, 0.0, 9.0));
+        std::fs::write(
+            tmp.path().join("rig_handeye_export.json"),
+            serde_json::to_string(&upstream).unwrap(),
+        )
+        .unwrap();
+
+        let fake = FakeLaser::new(30);
+        let result =
+            build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
+        let t = result.input.upstream.rig_se3_target[1].translation.vector;
+        assert!(
+            (t - nalgebra::Vector3::new(2.0, 0.0, 1.0)).norm() < 1e-12,
+            "got {t:?}"
+        );
+    }
+
+    #[test]
+    fn rig_laserline_fallback_chain_applies_upstream_robot_deltas() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        seed_rig_views(tmp.path(), &cache, 3);
+        let spec = rig_laserline_spec(tmp.path(), 3);
+        let mut upstream = upstream_export(2);
+        upstream.robot_deltas = Some(vec![[0.0; 6], [0.0, 0.0, 0.0, 0.05, 0.0, 0.0], [0.0; 6]]);
+        std::fs::write(
+            tmp.path().join("rig_handeye_export.json"),
+            serde_json::to_string(&upstream).unwrap(),
+        )
+        .unwrap();
+
+        let fake = FakeLaser::new(30);
+        let result =
+            build_rig_laserline_device_input(&spec, tmp.path(), &cache, &fake, false).unwrap();
+        let t = result.input.upstream.rig_se3_target[1].translation.vector;
+        assert!(
+            (t - nalgebra::Vector3::new(-0.25, 0.0, 1.0)).norm() < 1e-12,
+            "got {t:?}"
+        );
     }
 
     #[test]

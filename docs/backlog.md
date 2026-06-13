@@ -40,6 +40,12 @@ review.
   diagnostic sweeps. Local V5 floor: 1.19 px mean reprojection, laser
   point-to-plane RMS 0.018–0.035 mm over 10,797 points. Laser criterion passes;
   reprojection remains above the 0.4 px target.
+- [x] RTV3D-FROZEN-LASER-POSES - Preserve optimized upstream hand-eye target
+  poses in the frozen rig-laserline app path. Completed 2026-06-13 —
+  [report](report/2026-06-13-RTV3D-FROZEN-LASER-POSES-frozen-rig-laserline-poses.md).
+  `RigLaserlineDevice` now prefers upstream `rig_se3_target` by view token and
+  applies upstream robot deltas in the legacy chain fallback, fixing the
+  coherent 54 px reprojection drift seen in the rtv3d laser preset.
 - [ ] V6-SCALE - Settle rtv3d absolute scale: get the mechanical camera
   spacing of the head (our hexagon: 90.1 mm at 5.2 mm cells; oracle implies
   ~98.5 mm). If 98.5 mm is right the true cell is ≈5.69 mm and both shipped
