@@ -1,5 +1,50 @@
 {
   "$defs": {
+    "BrownConrady5": {
+      "description": "Brown-Conrady 5-parameter radial-tangential distortion model.",
+      "properties": {
+        "iters": {
+          "description": "Iterations for undistortion.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "k1": {
+          "description": "Radial coefficient k1.",
+          "format": "double",
+          "type": "number"
+        },
+        "k2": {
+          "description": "Radial coefficient k2.",
+          "format": "double",
+          "type": "number"
+        },
+        "k3": {
+          "description": "Radial coefficient k3.",
+          "format": "double",
+          "type": "number"
+        },
+        "p1": {
+          "description": "Tangential coefficient p1.",
+          "format": "double",
+          "type": "number"
+        },
+        "p2": {
+          "description": "Tangential coefficient p2.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "k1",
+        "k2",
+        "k3",
+        "p1",
+        "p2",
+        "iters"
+      ],
+      "type": "object"
+    },
     "DistortionFixMask": {
       "description": "Mask for fixing distortion parameters during optimization.\n\nSupports Brown-Conrady distortion model with:\n- Radial coefficients: k1, k2, k3\n- Tangential coefficients: p1, p2\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Default\n\nBy default, `k3` is fixed because it often causes overfitting with\ntypical calibration data. Only enable k3 optimization for wide-angle\nlenses or with high-quality calibration data.\n\n# Example\n\n```\nuse vision_calibration_core::DistortionFixMask;\n\n// Default: k3 fixed, others free\nlet mask = DistortionFixMask::default();\nassert!(!mask.k1);\nassert!(mask.k3); // k3 fixed by default\n\n// Fix tangential distortion\nlet mask = DistortionFixMask {\n    p1: true,\n    p2: true,\n    ..Default::default()\n};\n```",
       "properties": {
@@ -30,6 +75,44 @@
         "k3",
         "p1",
         "p2"
+      ],
+      "type": "object"
+    },
+    "FxFyCxCySkew": {
+      "description": "Standard pinhole intrinsics with optional skew.",
+      "properties": {
+        "cx": {
+          "description": "Principal point X coordinate in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "cy": {
+          "description": "Principal point Y coordinate in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "fx": {
+          "description": "Focal length in pixels along X.",
+          "format": "double",
+          "type": "number"
+        },
+        "fy": {
+          "description": "Focal length in pixels along Y.",
+          "format": "double",
+          "type": "number"
+        },
+        "skew": {
+          "description": "Skew term (typically 0).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "fx",
+        "fy",
+        "cx",
+        "cy",
+        "skew"
       ],
       "type": "object"
     },
@@ -119,6 +202,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "manual_init": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RigHandeyeIntrinsicsManualInit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional manual seeds for the per-camera intrinsics stage."
+        },
         "zero_skew": {
           "description": "Enforce zero skew.",
           "type": "boolean"
@@ -130,6 +224,43 @@
         "fix_tangential",
         "zero_skew"
       ],
+      "type": "object"
+    },
+    "RigHandeyeIntrinsicsManualInit": {
+      "description": "Manual seeds for the **per-camera intrinsics stage** of rig hand-eye\ncalibration. See `rig_extrinsics::RigIntrinsicsManualInit` for semantics.\n\n`per_cam_sensors` is consulted only when [`SensorMode::Scheimpflug`] is\nconfigured; for [`SensorMode::Pinhole`] it is ignored.",
+      "properties": {
+        "per_cam_distortion": {
+          "description": "Per-camera distortion seeds.",
+          "items": {
+            "$ref": "#/$defs/BrownConrady5"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "per_cam_intrinsics": {
+          "description": "Per-camera intrinsics seeds. `None` runs Zhang's method per camera.",
+          "items": {
+            "$ref": "#/$defs/FxFyCxCySkew"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "per_cam_sensors": {
+          "default": null,
+          "description": "Per-camera Scheimpflug sensor seeds (Scheimpflug mode only).",
+          "items": {
+            "$ref": "#/$defs/ScheimpflugParams"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "RigHandeyeRigConfig": {
@@ -273,6 +404,26 @@
         "tilt_y": {
           "description": "Keep `tilt_y` fixed during optimization.",
           "type": "boolean"
+        }
+      },
+      "required": [
+        "tilt_x",
+        "tilt_y"
+      ],
+      "type": "object"
+    },
+    "ScheimpflugParams": {
+      "description": "Scheimpflug tilt parameters (OpenCV-compatible).",
+      "properties": {
+        "tilt_x": {
+          "description": "Tilt around X axis in radians (alias: tau_x).",
+          "format": "double",
+          "type": "number"
+        },
+        "tilt_y": {
+          "description": "Tilt around Y axis in radians (alias: tau_y).",
+          "format": "double",
+          "type": "number"
         }
       },
       "required": [

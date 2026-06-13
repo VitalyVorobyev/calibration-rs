@@ -7,13 +7,14 @@
 
 use anyhow::{Result, anyhow};
 use calib_targets::chessboard::DetectorParams as ChessboardDetectorParams;
-use calib_targets::detect::{self, default_chess_config};
+use calib_targets::detect;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
+use crate::chess_options::{ChessCornersConfig, chess_config_for_override};
 use crate::{Detector, Feature};
 
 /// Chessboard detector configuration. Mirrors the shape of the
@@ -32,6 +33,9 @@ pub struct ChessboardConfig {
     /// corner from grid index `(i, j)` to its 3D point
     /// `(i * square_size_m, j * square_size_m, 0)`.
     pub square_size_m: f64,
+    /// Optional ChESS corner-stage overrides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chess_corners: Option<ChessCornersConfig>,
 }
 
 /// Stateless chessboard detector instance.
@@ -53,11 +57,8 @@ impl Detector for ChessboardDetector {
         // The underlying detector auto-labels corners from
         // intersection clustering — `rows`/`cols` from our config are
         // used only for output validation, not as input parameters.
-        // We pass `default_chess_config()` for the ChESS corner stage;
-        // callers needing custom ChESS parameters must drop down to
-        // `chessboard::Detector::detect` directly.
         let board_params = ChessboardDetectorParams::default();
-        let chess_cfg = default_chess_config();
+        let chess_cfg = chess_config_for_override(cfg.chess_corners);
 
         let detection = detect::detect_chessboard(&luma, &chess_cfg, &board_params);
         let Some(detection) = detection else {

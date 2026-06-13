@@ -36,6 +36,12 @@ export interface EnabledPreset {
    * sensors and EyeToHand). Keys mirror the Rust `*Config` JSON.
    */
   configOverrides?: Record<string, unknown>;
+  /**
+   * Optional manifest patch deep-merged over the loaded TOML manifest
+   * before the run. Used for detector options that belong to
+   * `DatasetSpec`, not the calibration config.
+   */
+  manifestOverrides?: Record<string, unknown>;
 }
 
 /** Recursively merge `patch` over `base` (objects only; arrays and
@@ -78,6 +84,37 @@ export interface DisabledPreset {
 }
 
 export type Preset = EnabledPreset | DisabledPreset;
+
+const RTV3D_MANIFEST_OVERRIDES = {
+  detector: {
+    chess_corners: {
+      threshold_mode: "absolute",
+      threshold_value: 30.0,
+    },
+  },
+};
+
+const RTV3D_CAMERA_SEEDS = Array.from({ length: 6 }, () => ({
+  fx: 2000.0,
+  fy: 2000.0,
+  cx: 360.0,
+  cy: 270.0,
+  skew: 0.0,
+}));
+
+const RTV3D_DISTORTION_SEEDS = Array.from({ length: 6 }, () => ({
+  k1: 0.0,
+  k2: 0.0,
+  k3: 0.0,
+  p1: 0.0,
+  p2: 0.0,
+  iters: 8,
+}));
+
+const RTV3D_SENSOR_SEEDS = Array.from({ length: 6 }, () => ({
+  tilt_x: 0.0,
+  tilt_y: 0.0,
+}));
 
 export const BUILTIN_PRESETS: Preset[] = [
   // ── Enabled: stereo-left ────────────────────────────────────────────────
@@ -162,9 +199,35 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetSummary: "ChArUco 22×22, 5.2 mm · 6 tiled cameras · EyeToHand",
     imageCount: 20,
     manifestPath: `${REPO_ROOT}/privatedata/rtv3d/dataset_rig_handeye.toml`,
+    manifestOverrides: RTV3D_MANIFEST_OVERRIDES,
     configOverrides: {
-      sensor: { kind: "Scheimpflug" },
+      intrinsics: {
+        fix_tangential: true,
+        manual_init: {
+          per_cam_intrinsics: RTV3D_CAMERA_SEEDS,
+          per_cam_distortion: RTV3D_DISTORTION_SEEDS,
+          per_cam_sensors: RTV3D_SENSOR_SEEDS,
+        },
+      },
+      sensor: {
+        kind: "Scheimpflug",
+        init_tilt_x: 0.0,
+        init_tilt_y: 0.0,
+        fix_scheimpflug_in_intrinsics: { tilt_x: false, tilt_y: false },
+        distortion_mask_in_percam_ba: {
+          k1: false,
+          k2: false,
+          k3: true,
+          p1: true,
+          p2: true,
+        },
+        refine_scheimpflug_in_rig_ba: false,
+      },
+      rig: {
+        refine_intrinsics_in_rig_ba: false,
+      },
       handeye_init: { handeye_mode: "EyeToHand" },
+      handeye_ba: { refine_robot_poses: true },
       solver: { max_iters: 200, robust_loss: { Huber: { scale: 1.0 } } },
     },
   },
@@ -180,6 +243,7 @@ export const BUILTIN_PRESETS: Preset[] = [
       "6 laser planes over the frozen hand-eye export (run the hand-eye preset first; needs rig_handeye_export.json)",
     imageCount: 20,
     manifestPath: `${REPO_ROOT}/privatedata/rtv3d/dataset_laser.toml`,
+    manifestOverrides: RTV3D_MANIFEST_OVERRIDES,
     configOverrides: {
       max_iters: 200,
       laser_residual_type: "PointToPlane",

@@ -5,8 +5,10 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use vision_calibration_bench::record::BenchRecord;
 use vision_calibration_bench::registry::{
-    BenchEntry, BenchHandEyeMode, HandeyeBaOverride, ProblemKind, RigHandeyeOverride,
-    SingleCamHandeyeOverride, load_registry,
+    BenchChessThresholdMode, BenchDistortionFixMask, BenchEntry, BenchHandEyeMode,
+    BenchScheimpflugFixMask, BenchSensorMode, ChessCornersDetectorOverride, DetectorOverride,
+    HandeyeBaOverride, ManualInitSeed, ProblemKind, RigHandeyeOverride, SingleCamHandeyeOverride,
+    load_registry,
 };
 use vision_calibration_pipeline::analysis::ReprojLevel;
 
@@ -500,6 +502,35 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
         cases.push(("final_rig_tilt_refine", final_rig_refine));
     }
 
+    if matches!(entry.problem, ProblemKind::RigHandeye) {
+        let mut unseeded = entry.clone();
+        unseeded.seed = Some(ManualInitSeed(serde_json::json!({})));
+        cases.push(("manual_seed_off", unseeded));
+
+        let mut seeded = entry.clone();
+        seeded.seed = Some(rtv3d_nominal_seed(entry));
+        set_rig_fix_tangential(&mut seeded, true);
+        cases.push(("manual_seed_fx2000_centered", seeded));
+
+        for threshold in [20.0_f32, 30.0, 40.0] {
+            let mut threshold_case = entry.clone();
+            set_chess_threshold(&mut threshold_case, threshold);
+            cases.push((threshold_case_name(threshold), threshold_case));
+        }
+
+        let mut tangential_fixed = entry.clone();
+        set_rig_distortion_and_tilt_masks(&mut tangential_fixed, true, false);
+        cases.push(("p1p2_fixed_tau_free", tangential_fixed));
+
+        let mut tangential_free = entry.clone();
+        set_rig_distortion_and_tilt_masks(&mut tangential_free, false, false);
+        cases.push(("p1p2_free_tau_free", tangential_free));
+
+        let mut tau_fixed = entry.clone();
+        set_rig_distortion_and_tilt_masks(&mut tau_fixed, true, true);
+        cases.push(("p1p2_fixed_tau_fixed", tau_fixed));
+    }
+
     if entry.robot_poses.is_some() {
         let mut inverse = entry.clone();
         invert_robot_pose_convention(&mut inverse);
@@ -513,6 +544,95 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
     }
 
     cases
+}
+
+fn threshold_case_name(threshold: f32) -> &'static str {
+    match threshold as i32 {
+        20 => "chess_abs20",
+        30 => "chess_abs30",
+        40 => "chess_abs40",
+        _ => "chess_abs_custom",
+    }
+}
+
+fn set_chess_threshold(entry: &mut BenchEntry, threshold: f32) {
+    entry
+        .detector
+        .get_or_insert_with(DetectorOverride::default)
+        .chess_corners = Some(ChessCornersDetectorOverride {
+        threshold_mode: Some(BenchChessThresholdMode::Absolute),
+        threshold_value: Some(threshold),
+    });
+}
+
+fn set_rig_fix_tangential(entry: &mut BenchEntry, fix_tangential: bool) {
+    let overrides = entry
+        .rig_handeye
+        .get_or_insert_with(RigHandeyeOverride::default);
+    overrides.fix_tangential = Some(fix_tangential);
+}
+
+fn set_rig_distortion_and_tilt_masks(
+    entry: &mut BenchEntry,
+    fix_tangential: bool,
+    fix_scheimpflug: bool,
+) {
+    set_rig_fix_tangential(entry, fix_tangential);
+    let overrides = entry
+        .rig_handeye
+        .get_or_insert_with(RigHandeyeOverride::default);
+    overrides.sensor = Some(BenchSensorMode::Scheimpflug {
+        init_tilt_x: 0.0,
+        init_tilt_y: 0.0,
+        fix_scheimpflug_in_intrinsics: Some(BenchScheimpflugFixMask {
+            tilt_x: fix_scheimpflug,
+            tilt_y: fix_scheimpflug,
+        }),
+        distortion_mask_in_percam_ba: Some(BenchDistortionFixMask {
+            k1: false,
+            k2: false,
+            k3: true,
+            p1: fix_tangential,
+            p2: fix_tangential,
+        }),
+        refine_scheimpflug_in_rig_ba: false,
+    });
+}
+
+fn rtv3d_nominal_seed(entry: &BenchEntry) -> ManualInitSeed {
+    let (cx, cy) = entry
+        .cameras
+        .first()
+        .and_then(|cam| cam.tile)
+        .map(|[_x, _y, w, h]| (f64::from(w) * 0.5, f64::from(h) * 0.5))
+        .or_else(|| {
+            entry
+                .cameras
+                .first()
+                .and_then(|cam| cam.expected_size)
+                .map(|[w, h]| (f64::from(w) * 0.5, f64::from(h) * 0.5))
+        })
+        .unwrap_or((360.0, 270.0));
+    let intrinsics: Vec<_> = entry
+        .cameras
+        .iter()
+        .map(|_| serde_json::json!({"fx": 2000.0, "fy": 2000.0, "cx": cx, "cy": cy, "skew": 0.0}))
+        .collect();
+    let distortion: Vec<_> = entry
+        .cameras
+        .iter()
+        .map(|_| serde_json::json!({"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}))
+        .collect();
+    let sensors: Vec<_> = entry
+        .cameras
+        .iter()
+        .map(|_| serde_json::json!({"tilt_x": 0.0, "tilt_y": 0.0}))
+        .collect();
+    ManualInitSeed(serde_json::json!({
+        "per_cam_intrinsics": intrinsics,
+        "per_cam_distortion": distortion,
+        "per_cam_sensors": sensors,
+    }))
 }
 
 fn set_final_rig_refine(entry: &mut BenchEntry) -> bool {

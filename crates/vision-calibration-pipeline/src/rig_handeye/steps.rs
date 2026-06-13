@@ -6,8 +6,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, NoMeta, PinholeCamera,
-    Real, ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
+    CameraFixMask, IntrinsicsFixMask, Iso3, NoMeta, PinholeCamera, ScheimpflugParams, View,
+    compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
 use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
@@ -29,7 +29,10 @@ use crate::rig_family::{
 };
 use crate::session::CalibrationSession;
 
-use super::problem::{RigHandeyeInput, RigHandeyeOutput, RigHandeyeProblem, SensorMode};
+use super::problem::{
+    RigHandeyeInput, RigHandeyeIntrinsicsManualInit, RigHandeyeOutput, RigHandeyeProblem,
+    SensorMode,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Options
@@ -47,23 +50,6 @@ pub struct RigOptimizeOptions {
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
-}
-
-/// Manual seeds for the **per-camera intrinsics stage** of rig hand-eye
-/// calibration. See `rig_extrinsics::RigIntrinsicsManualInit` for semantics.
-///
-/// `per_cam_sensors` is consulted only when [`SensorMode::Scheimpflug`] is
-/// configured; for [`SensorMode::Pinhole`] it is silently ignored.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct RigHandeyeIntrinsicsManualInit {
-    /// Per-camera intrinsics seeds. `None` runs Zhang's per camera.
-    pub per_cam_intrinsics: Option<Vec<FxFyCxCySkew<Real>>>,
-    /// Per-camera distortion seeds.
-    pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
-    /// Per-camera Scheimpflug sensor seeds (Scheimpflug mode only).
-    #[serde(default)]
-    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
 
 /// Manual seeds for the **rig extrinsics stage** of rig hand-eye calibration.
@@ -1156,7 +1142,13 @@ pub fn step_handeye_optimize(
 ///
 /// Any error from the constituent steps.
 pub fn run_calibration(session: &mut CalibrationSession<RigHandeyeProblem>) -> Result<(), Error> {
-    let _ = step_intrinsics_init_all(session, None)?;
+    let manual = session
+        .config
+        .intrinsics
+        .manual_init
+        .clone()
+        .unwrap_or_default();
+    let _ = step_intrinsics_init_all_with_seed(session, manual, None)?;
     let _ = step_intrinsics_optimize_all(session, None)?;
     let _ = step_rig_init(session)?;
     let _ = step_rig_optimize(session, None)?;
@@ -1350,6 +1342,53 @@ mod tests {
             .unwrap();
 
         assert!(session.has_output());
+    }
+
+    #[test]
+    fn run_calibration_uses_configured_intrinsics_manual_init() {
+        let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+        session.set_input(make_test_input()).unwrap();
+        session
+            .set_config(super::super::problem::RigHandeyeConfig {
+                intrinsics: super::super::problem::RigHandeyeIntrinsicsConfig {
+                    manual_init: Some(RigHandeyeIntrinsicsManualInit {
+                        per_cam_intrinsics: Some(vec![
+                            FxFyCxCySkew {
+                                fx: 800.0,
+                                fy: 780.0,
+                                cx: 640.0,
+                                cy: 360.0,
+                                skew: 0.0,
+                            },
+                            FxFyCxCySkew {
+                                fx: 810.0,
+                                fy: 790.0,
+                                cx: 640.0,
+                                cy: 360.0,
+                                skew: 0.0,
+                            },
+                        ]),
+                        per_cam_distortion: Some(vec![
+                            BrownConrady5::default(),
+                            BrownConrady5::default(),
+                        ]),
+                        per_cam_sensors: None,
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .unwrap();
+
+        run_calibration(&mut session).unwrap();
+        let notes = session.log()[0]
+            .notes
+            .as_ref()
+            .expect("intrinsics init logs seed provenance");
+        assert!(
+            notes.contains("manual: per_cam_intrinsics, per_cam_distortion"),
+            "unexpected intrinsics-init notes: {notes}"
+        );
     }
 
     #[test]

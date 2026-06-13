@@ -52,7 +52,7 @@ pub fn build_single_cam_handeye_input(
             topology: spec.topology,
         });
     }
-    let (detector_name, detector_config) = target_to_detector_config(&spec.target)?;
+    let (detector_name, detector_config) = target_to_detector_config(spec)?;
     let detector = pick_detector(detector_name)?;
     validate(spec)?;
 
@@ -230,6 +230,7 @@ mod tests {
                 cols: 6,
                 square_size_m: 0.025,
             },
+            detector: None,
             robot_poses: Some(RobotPoseSource {
                 path: PathBuf::from("poses.txt"),
                 format: RobotPoseFormat::Rowmajor4x4,

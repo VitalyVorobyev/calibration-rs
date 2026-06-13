@@ -35,6 +35,11 @@ pub struct DatasetSpec {
     /// Calibration-target specification. Tagged enum on `kind`.
     pub target: TargetSpec,
 
+    /// Detector-stage overrides shared by target families. Defaults
+    /// preserve the detector's built-in behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detector: Option<DetectorSpec>,
+
     /// Robot-pose source for hand-eye topologies. `None` for
     /// pure-intrinsics calibrations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -242,6 +247,46 @@ pub enum TargetSpec {
         /// Outer ring radius in metres.
         outer_radius_m: f64,
     },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Detector overrides
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Target-detector overrides. These options affect feature detection
+/// only; they are hashed into the detection-cache key by the runner.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct DetectorSpec {
+    /// ChESS corner extractor options shared by chessboard-like
+    /// detectors (plain chessboard and ChArUco).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chess_corners: Option<ChessCornersDetectorSpec>,
+}
+
+/// ChESS corner extractor overrides.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct ChessCornersDetectorSpec {
+    /// Acceptance threshold mode. `None` keeps the detector default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_mode: Option<ChessThresholdMode>,
+    /// Acceptance threshold value. `None` keeps the detector default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_value: Option<f32>,
+}
+
+/// ChESS threshold interpretation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ChessThresholdMode {
+    /// Threshold in native ChESS response units.
+    Absolute,
+    /// Threshold as a fraction of the image maximum response.
+    Relative,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

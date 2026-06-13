@@ -39,11 +39,15 @@ pub mod tier_b {
     };
     // Rig hand-eye step fns share names with the rig-extrinsics ones, so alias.
     use vision_calibration::rig_handeye::{
-        RigHandeyeConfig, RigHandeyeExport, RigHandeyeProblem,
+        RigHandeyeConfig, RigHandeyeExport, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem,
         step_handeye_init as rh_handeye_init, step_handeye_optimize as rh_handeye_optimize,
-        step_intrinsics_init_all as rh_intrinsics_init_all,
+        step_intrinsics_init_all_with_seed as rh_intrinsics_init_all_with_seed,
         step_intrinsics_optimize_all as rh_intrinsics_optimize_all, step_rig_init as rh_rig_init,
         step_rig_optimize as rh_rig_optimize,
+    };
+    use vision_calibration::rig_laserline_device::{
+        RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
+        run_calibration as run_rig_laserline_device_calibration,
     };
     use vision_calibration::session::CalibrationSession;
     use vision_calibration::single_cam_handeye::{
@@ -52,10 +56,15 @@ pub mod tier_b {
         step_intrinsics_init, step_intrinsics_optimize,
     };
     use vision_calibration_core::{
-        FeatureResidualHistogram, PinholeCamera, PlanarDataset, ReprojectionStats,
-        ScheimpflugParams, View,
+        BrownConrady5, CameraFixMask, DistortionFixMask, FeatureResidualHistogram, FxFyCxCySkew,
+        IntrinsicsFixMask, PinholeCamera, PlanarDataset, Pt2, ReprojectionStats, ScheimpflugParams,
+        View,
     };
-    use vision_calibration_optim::SolveReport;
+    use vision_calibration_optim::{
+        BackendSolveOptions, LaserlineResidualType, RigHandeyeLaserlineDataset,
+        RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
+        RigLaserlineView, ScheimpflugFixMask, SolveReport, optimize_rig_handeye_laserline,
+    };
     #[cfg(feature = "laser")]
     use vision_metrology::{
         ColAccess, Edge1DConfig, ImageView, LaserExtractConfig, LaserExtractor, ScanAxis,
@@ -144,6 +153,21 @@ pub mod tier_b {
         pub mean_stage_ms: f64,
         /// Max detector/extractor time for one image.
         pub max_stage_ms: u64,
+    }
+
+    #[derive(Debug, Clone)]
+    struct LaserObservationSet {
+        views: Vec<RigLaserlineView>,
+        robot_poses: Vec<Iso3>,
+        view_indices: Vec<usize>,
+        metrics: LaserMetrics,
+    }
+
+    #[derive(Debug, Clone)]
+    struct JointV5Result {
+        mean_reproj_error_px: f64,
+        per_cam_stats: Vec<RigHandeyeLaserlinePerCamStats>,
+        laser_metrics: LaserMetrics,
     }
 
     /// Run a single-camera planar-intrinsics calibration for `entry` and build a
@@ -961,6 +985,7 @@ pub mod tier_b {
         );
         let detect_start = Instant::now();
         let mut per_cam_dets: Vec<Vec<Option<CorrespondenceView>>> = Vec::new();
+        let mut per_cam_paths: Vec<Vec<PathBuf>> = Vec::new();
         let mut detect_stats: Vec<DetectionStat> = Vec::new();
         let mut max_corners_per_image = 0usize;
         for cam in &entry.cameras {
@@ -1010,6 +1035,7 @@ pub mod tier_b {
                 detect_ms: 0,
             });
             per_cam_dets.push(dets);
+            per_cam_paths.push(paths);
         }
         let detection_ms = detect_start.elapsed().as_millis() as u64;
         progress(
@@ -1065,15 +1091,34 @@ pub mod tier_b {
         }
 
         let features_per_board = max_corners_per_image.max(board_feature_count(board));
-        let laser = extract_laser_metrics(entry)?;
+        let laser_observations = extract_laser_observations(
+            entry,
+            &per_cam_dets,
+            &per_cam_paths,
+            &robot_poses,
+            n_views,
+        )?;
+        let mut laser = laser_observations.as_ref().map(|obs| obs.metrics.clone());
 
         // ── Calibration ─────────────────────────────────────────────────────
         let mut config = RigHandeyeConfig::default();
         if let Some(overrides) = &entry.rig_handeye {
             overrides.apply_to(&mut config);
         }
+        if let Some(seed) = &entry.seed {
+            let manual: RigHandeyeIntrinsicsManualInit = serde_json::from_value(seed.0.clone())
+                .with_context(|| {
+                    format!("failed to parse rig hand-eye manual seed for {}", entry.id)
+                })?;
+            config.intrinsics.manual_init = Some(manual);
+        }
+        if config.intrinsics.manual_init.is_none() && entry.id == "rtv3d" {
+            config.intrinsics.manual_init = Some(rtv3d_manual_intrinsics_seed(entry));
+            config.intrinsics.fix_tangential = true;
+        }
         let robot_rot_sigma = config.handeye_ba.robot_rot_sigma;
         let robot_trans_sigma = config.handeye_ba.robot_trans_sigma;
+        let manual_intrinsics = config.intrinsics.manual_init.clone().unwrap_or_default();
         let input = RigDataset::new(rig_views, n_cam)
             .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
         let dataset_for_report = input.clone();
@@ -1085,7 +1130,8 @@ pub mod tier_b {
 
         progress(entry, "initializing per-camera intrinsics");
         let init_start = Instant::now();
-        let init_ok = rh_intrinsics_init_all(&mut session, None).is_ok();
+        let init_ok =
+            rh_intrinsics_init_all_with_seed(&mut session, manual_intrinsics, None).is_ok();
         anyhow::ensure!(init_ok, "step_intrinsics_init_all failed for {}", entry.id);
         let init_ms = init_start.elapsed().as_millis() as u64;
 
@@ -1101,6 +1147,16 @@ pub mod tier_b {
         let optimize_ms = opt_start.elapsed().as_millis() as u64;
 
         let export = session.export().context("session.export failed")?;
+        let joint_result = run_rig_handeye_laserline_v5(
+            entry,
+            &export,
+            laser_observations,
+            robot_rot_sigma,
+            robot_trans_sigma,
+        )?;
+        if let Some(joint) = &joint_result {
+            laser = Some(joint.laser_metrics.clone());
+        }
 
         // ── Fit metrics (per-camera split of the export's per-feature errors) ─
         let mut per_cam_errs: Vec<Vec<f64>> = vec![Vec::new(); n_cam];
@@ -1123,13 +1179,27 @@ pub mod tier_b {
             .target_hist_per_camera
             .clone()
             .unwrap_or_else(|| vec![FeatureResidualHistogram::default(); n_cam]);
-        let fit = Fit {
+        let mut fit = Fit {
             overall,
             per_camera,
             per_camera_hist,
             reported_mean_reproj_px: export.mean_reproj_error,
             reported_per_cam_px: export.per_cam_reproj_errors.clone(),
         };
+        if let Some(joint) = &joint_result {
+            fit.overall = reproj_stats_from_joint(&joint.per_cam_stats);
+            fit.per_camera = joint
+                .per_cam_stats
+                .iter()
+                .map(reproj_stats_from_joint_cam)
+                .collect();
+            fit.reported_mean_reproj_px = joint.mean_reproj_error_px;
+            fit.reported_per_cam_px = joint
+                .per_cam_stats
+                .iter()
+                .map(|s| s.mean_reproj_error_px)
+                .collect();
+        }
 
         // Finalize detection coverage now that the full-board count is known.
         let mut total_detected = 0usize;
@@ -1155,7 +1225,12 @@ pub mod tier_b {
         let convergence = Convergence {
             init_ok,
             converged: true,
-            report: synth_report(export.mean_reproj_error),
+            report: synth_report(
+                joint_result
+                    .as_ref()
+                    .map(|j| j.mean_reproj_error_px)
+                    .unwrap_or(export.mean_reproj_error),
+            ),
         };
         let laser_ms = laser.as_ref().map(|m| m.extract_ms).unwrap_or(0);
         let total_ms = init_ms
@@ -1433,8 +1508,54 @@ pub mod tier_b {
         }
     }
 
+    fn rtv3d_manual_intrinsics_seed(entry: &BenchEntry) -> RigHandeyeIntrinsicsManualInit {
+        let (cx, cy) = entry
+            .cameras
+            .first()
+            .and_then(|cam| cam.tile)
+            .map(|[_x, _y, w, h]| (w as f64 * 0.5, h as f64 * 0.5))
+            .unwrap_or((360.0, 270.0));
+        let n = entry.cameras.len();
+        let mut seed = RigHandeyeIntrinsicsManualInit::default();
+        seed.per_cam_intrinsics = Some(vec![
+            FxFyCxCySkew {
+                fx: 2000.0,
+                fy: 2000.0,
+                cx,
+                cy,
+                skew: 0.0,
+            };
+            n
+        ]);
+        seed.per_cam_distortion = Some(vec![
+            BrownConrady5 {
+                k1: 0.0,
+                k2: 0.0,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            };
+            n
+        ]);
+        seed.per_cam_sensors = Some(vec![
+            ScheimpflugParams {
+                tilt_x: 0.0,
+                tilt_y: 0.0,
+            };
+            n
+        ]);
+        seed
+    }
+
     #[cfg(not(feature = "laser"))]
-    fn extract_laser_metrics(entry: &BenchEntry) -> Result<Option<LaserMetrics>> {
+    fn extract_laser_observations(
+        entry: &BenchEntry,
+        _per_cam_dets: &[Vec<Option<CorrespondenceView>>],
+        _per_cam_paths: &[Vec<PathBuf>],
+        _robot_poses: &[Iso3],
+        _n_views: usize,
+    ) -> Result<Option<LaserObservationSet>> {
         if entry.laser.is_some() {
             anyhow::bail!(
                 "dataset '{}' declares laser data; rebuild with --features 'tier-b laser'",
@@ -1445,80 +1566,132 @@ pub mod tier_b {
     }
 
     #[cfg(feature = "laser")]
-    fn extract_laser_metrics(entry: &BenchEntry) -> Result<Option<LaserMetrics>> {
+    fn extract_laser_observations(
+        entry: &BenchEntry,
+        per_cam_dets: &[Vec<Option<CorrespondenceView>>],
+        per_cam_paths: &[Vec<PathBuf>],
+        robot_poses: &[Iso3],
+        n_views: usize,
+    ) -> Result<Option<LaserObservationSet>> {
         if entry.laser.is_none() {
             return Ok(None);
         }
-        let paths = laser_image_paths(entry)?;
-        if paths.is_empty() {
+        let keyed_lasers = laser_image_paths_by_target(entry)?;
+        let indexed_lasers = if keyed_lasers.is_empty() {
+            laser_image_paths(entry)?
+        } else {
+            Vec::new()
+        };
+        if keyed_lasers.is_empty() && indexed_lasers.is_empty() {
             return Ok(None);
         }
 
-        progress(
-            entry,
-            format!(
-                "extracting laser lines from {} images across {} cameras",
-                paths.len(),
-                entry.cameras.len()
-            ),
-        );
-        let mut per_camera = Vec::with_capacity(entry.cameras.len());
+        progress(entry, "extracting laser observations for V5 joint BA");
+        let n_cam = entry.cameras.len();
+        let mut per_cam_images_used = vec![0usize; n_cam];
+        let mut per_cam_points = vec![0usize; n_cam];
+        let mut per_cam_ms = vec![0u64; n_cam];
         let mut total_points = 0usize;
         let mut total_images_used = 0usize;
+        let mut candidate_views = 0usize;
         let total_start = Instant::now();
+        let mut views = Vec::new();
+        let mut laser_robot_poses = Vec::new();
+        let mut laser_view_indices = Vec::new();
 
-        for cam in &entry.cameras {
-            let cam_start = Instant::now();
-            let mut images_used = 0usize;
-            let mut points_extracted = 0usize;
-            for (image_idx, path) in paths.iter().enumerate() {
-                progress_images(entry, "laser", &cam.id, image_idx, paths.len());
-                let img = load_image(path)?;
-                let img = apply_tile(&img, cam.tile);
-                let point_count = extract_laser_points(&img);
-                if point_count > 0 {
-                    images_used += 1;
-                    points_extracted += point_count;
+        for view_idx in 0..n_views {
+            let laser_path = if keyed_lasers.is_empty() {
+                indexed_lasers.get(view_idx)
+            } else {
+                let target_name = per_cam_paths[0][view_idx]
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default();
+                keyed_lasers.get(target_name)
+            };
+            let Some(laser_path) = laser_path else {
+                continue;
+            };
+            candidate_views += 1;
+            progress_images(entry, "laser", "all", candidate_views - 1, n_views);
+            let img = load_image(laser_path)?;
+            let mut laser_pixels = Vec::with_capacity(n_cam);
+            let mut any_laser = false;
+            for (cam_idx, cam) in entry.cameras.iter().enumerate() {
+                let cam_start = Instant::now();
+                let tile = apply_tile(&img, cam.tile);
+                let pixels = extract_laser_pixels(&tile);
+                per_cam_ms[cam_idx] =
+                    per_cam_ms[cam_idx].saturating_add(cam_start.elapsed().as_millis() as u64);
+                if pixels.is_empty() {
+                    laser_pixels.push(None);
+                } else {
+                    any_laser = true;
+                    per_cam_images_used[cam_idx] += 1;
+                    per_cam_points[cam_idx] += pixels.len();
+                    total_points += pixels.len();
+                    laser_pixels.push(Some(pixels));
                 }
             }
-            let extract_ms = cam_start.elapsed().as_millis() as u64;
-            progress(
-                entry,
-                format!(
-                    "laser {}: {images_used}/{} images, {points_extracted} points, {extract_ms} ms",
-                    cam.id,
-                    paths.len()
-                ),
-            );
-            total_points += points_extracted;
-            total_images_used += images_used;
-            per_camera.push(LaserCamStat {
+            if any_laser {
+                total_images_used += 1;
+                views.push(RigLaserlineView {
+                    cameras: per_cam_dets
+                        .iter()
+                        .map(|dets| dets[view_idx].clone())
+                        .collect(),
+                    laser_pixels,
+                });
+                laser_robot_poses.push(robot_poses[view_idx]);
+                laser_view_indices.push(view_idx);
+            }
+        }
+
+        if views.is_empty() {
+            return Ok(None);
+        }
+
+        let per_camera = entry
+            .cameras
+            .iter()
+            .enumerate()
+            .map(|(cam_idx, cam)| LaserCamStat {
                 camera_id: cam.id.clone(),
-                images_total: paths.len(),
-                images_used,
-                points_extracted,
-                extract_ms,
+                images_total: candidate_views,
+                images_used: per_cam_images_used[cam_idx],
+                points_extracted: per_cam_points[cam_idx],
+                extract_ms: per_cam_ms[cam_idx],
                 plane_residual_m: None,
                 line_residual_px: None,
                 inlier_ratio: None,
-            });
-        }
+            })
+            .collect();
 
-        Ok(Some(LaserMetrics {
-            per_camera,
-            total_points,
-            total_images_used,
-            extract_ms: total_start.elapsed().as_millis() as u64,
+        Ok(Some(LaserObservationSet {
+            views,
+            robot_poses: laser_robot_poses,
+            view_indices: laser_view_indices,
+            metrics: LaserMetrics {
+                per_camera,
+                total_points,
+                total_images_used,
+                extract_ms: total_start.elapsed().as_millis() as u64,
+            },
         }))
     }
 
     #[cfg(feature = "laser")]
     fn extract_laser_points(img: &image::DynamicImage) -> usize {
+        extract_laser_pixels(img).len()
+    }
+
+    #[cfg(feature = "laser")]
+    fn extract_laser_pixels(img: &image::DynamicImage) -> Vec<Pt2> {
         let luma = img.to_luma8();
         let width = luma.width() as usize;
         let height = luma.height() as usize;
         let Ok(view) = ImageView::<u8>::from_slice(width, height, width, luma.as_raw()) else {
-            return 0;
+            return Vec::new();
         };
         let cfg = LaserExtractConfig {
             axis: ScanAxis::Cols {
@@ -1536,15 +1709,48 @@ pub mod tier_b {
         extractor
             .extract_line_u8(&view, 0..width, &cfg, None)
             .points
-            .len()
+            .into_iter()
+            .map(|p| Pt2::new(p.x as f64, p.y as f64))
+            .collect()
     }
 
     #[cfg(feature = "laser")]
     #[derive(serde::Deserialize)]
     struct LaserPoseEntry {
+        target_image: Option<String>,
         laser_image: Option<String>,
         #[serde(rename = "type")]
         snap_type: Option<String>,
+    }
+
+    #[cfg(feature = "laser")]
+    fn laser_image_paths_by_target(
+        entry: &BenchEntry,
+    ) -> Result<std::collections::BTreeMap<String, PathBuf>> {
+        let Some(pose_src) = &entry.robot_poses else {
+            return Ok(std::collections::BTreeMap::new());
+        };
+        if pose_src.format != "snap_list_json" {
+            return Ok(std::collections::BTreeMap::new());
+        }
+        let path = entry.data_root.join(&pose_src.path);
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read laser pose list {}", path.display()))?;
+        let entries: Vec<LaserPoseEntry> = serde_json::from_str(&text)
+            .with_context(|| format!("failed to parse laser pose list {}", path.display()))?;
+        Ok(entries
+            .into_iter()
+            .filter(|entry| entry.snap_type.as_deref() == Some("double_snap"))
+            .filter_map(|entry| Some((entry.target_image?, entry.laser_image?)))
+            .map(|(target, laser)| {
+                let target_name = Path::new(&target)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&target)
+                    .to_string();
+                (target_name, entry.data_root.join(laser))
+            })
+            .collect())
     }
 
     #[cfg(feature = "laser")]
@@ -1568,6 +1774,247 @@ pub mod tier_b {
             }
         }
         glob_sorted_images(&entry.data_root, "laser_*.png")
+    }
+
+    fn run_rig_handeye_laserline_v5(
+        entry: &BenchEntry,
+        rig_export: &RigHandeyeExport,
+        observations: Option<LaserObservationSet>,
+        robot_rot_sigma: f64,
+        robot_trans_sigma: f64,
+    ) -> Result<Option<JointV5Result>> {
+        let Some(observations) = observations else {
+            return Ok(None);
+        };
+        if observations.views.is_empty() {
+            return Ok(None);
+        }
+
+        progress(
+            entry,
+            format!(
+                "V5 laserline + joint BA over {} laser views",
+                observations.views.len()
+            ),
+        );
+        let n_cam = entry.cameras.len();
+        let laserline_dataset =
+            vision_calibration_optim::RigLaserlineDataset::new(observations.views.clone(), n_cam)
+                .map_err(|e| anyhow::anyhow!("build RigLaserlineDataset: {e}"))?;
+        let rig_se3_target: Vec<Iso3> = observations
+            .robot_poses
+            .iter()
+            .map(|pose| rig_target_for_handeye_mode(rig_export, *pose))
+            .collect::<Result<Vec<_>>>()?;
+        let upstream = rig_export
+            .to_upstream_calibration(rig_se3_target)
+            .context("build rig laserline upstream from rig hand-eye export")?;
+        let laserline_input = RigLaserlineDeviceInput {
+            dataset: laserline_dataset.clone(),
+            upstream,
+            initial_planes_cam: None,
+        };
+
+        let mut laser_session =
+            CalibrationSession::<RigLaserlineDeviceProblem>::with_description("bench_v5_laser");
+        laser_session
+            .set_input(laserline_input)
+            .context("set laserline input failed")?;
+        let mut laser_cfg = RigLaserlineDeviceConfig::default();
+        laser_cfg.max_iters = Some(200);
+        laser_cfg.verbosity = Some(0);
+        laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
+        laser_session
+            .set_config(laser_cfg)
+            .context("set laserline config failed")?;
+        run_rig_laserline_device_calibration(&mut laser_session)
+            .context("RigLaserlineDevice V5 stage failed")?;
+        let laser_export = laser_session
+            .export()
+            .context("export V5 laserline stage failed")?;
+
+        let mut laser_metrics = observations.metrics;
+        apply_laserline_stage_stats(&mut laser_metrics, &laser_export.per_camera_stats);
+
+        let initial_robot_deltas = rig_export.robot_deltas.as_ref().map(|deltas| {
+            observations
+                .view_indices
+                .iter()
+                .filter_map(|&idx| deltas.get(idx).copied())
+                .collect::<Vec<_>>()
+        });
+        let initial_robot_deltas =
+            initial_robot_deltas.filter(|deltas| deltas.len() == observations.views.len());
+
+        let joint_dataset = RigHandeyeLaserlineDataset::from_rig_dataset(
+            laserline_dataset,
+            observations.robot_poses,
+            rig_export.handeye_mode,
+        )
+        .map_err(|e| anyhow::anyhow!("build RigHandeyeLaserlineDataset: {e}"))?;
+
+        let handeye = match rig_export.handeye_mode {
+            HandEyeMode::EyeInHand => rig_export
+                .gripper_se3_rig
+                .context("EyeInHand rig export missing gripper_se3_rig")?,
+            HandEyeMode::EyeToHand => rig_export
+                .rig_se3_base
+                .context("EyeToHand rig export missing rig_se3_base")?,
+        };
+        let target_ref = match rig_export.handeye_mode {
+            HandEyeMode::EyeInHand => rig_export
+                .base_se3_target
+                .context("EyeInHand rig export missing base_se3_target")?,
+            HandEyeMode::EyeToHand => rig_export
+                .gripper_se3_target
+                .context("EyeToHand rig export missing gripper_se3_target")?,
+        };
+        let sensors = rig_export
+            .sensors
+            .clone()
+            .unwrap_or_else(|| vec![ScheimpflugParams::default(); n_cam]);
+        let joint_initial = RigHandeyeLaserlineParams {
+            cameras: rig_export.cameras.clone(),
+            sensors,
+            cam_to_rig: rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
+            handeye,
+            target_ref,
+            planes_cam: laser_export.laser_planes_cam.clone(),
+        };
+
+        let cam_fix = CameraFixMask {
+            intrinsics: IntrinsicsFixMask::all_free(),
+            distortion: DistortionFixMask {
+                k1: false,
+                k2: false,
+                k3: true,
+                p1: true,
+                p2: true,
+            },
+        };
+        let joint_opts = RigHandeyeLaserlineSolveOptions {
+            laser_residual_type: LaserlineResidualType::PointToPlane,
+            laser_weight: 1.0e4,
+            calib_weight: 1.0,
+            refine_robot_poses: true,
+            robot_rot_sigma,
+            robot_trans_sigma,
+            initial_robot_deltas,
+            fix_intrinsics: vec![cam_fix; n_cam],
+            fix_extrinsics: (0..n_cam).map(|i| i == 0).collect(),
+            fix_scheimpflug: vec![
+                ScheimpflugFixMask {
+                    tilt_x: true,
+                    tilt_y: true,
+                };
+                n_cam
+            ],
+            ..Default::default()
+        };
+        let backend_opts = BackendSolveOptions {
+            max_iters: 30,
+            verbosity: 0,
+            ..Default::default()
+        };
+        let joint_est =
+            optimize_rig_handeye_laserline(joint_dataset, joint_initial, joint_opts, backend_opts)
+                .context("final V5 optimize_rig_handeye_laserline failed")?;
+        apply_joint_laser_stats(&mut laser_metrics, &joint_est.per_cam_stats);
+
+        Ok(Some(JointV5Result {
+            mean_reproj_error_px: joint_est.mean_reproj_error_px,
+            per_cam_stats: joint_est.per_cam_stats,
+            laser_metrics,
+        }))
+    }
+
+    fn rig_target_for_handeye_mode(
+        export: &RigHandeyeExport,
+        base_se3_gripper: Iso3,
+    ) -> Result<Iso3> {
+        match export.handeye_mode {
+            HandEyeMode::EyeInHand => {
+                let gripper_se3_rig = export
+                    .gripper_se3_rig
+                    .context("EyeInHand rig export missing gripper_se3_rig")?;
+                let base_se3_target = export
+                    .base_se3_target
+                    .context("EyeInHand rig export missing base_se3_target")?;
+                Ok(gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target)
+            }
+            HandEyeMode::EyeToHand => {
+                let rig_se3_base = export
+                    .rig_se3_base
+                    .context("EyeToHand rig export missing rig_se3_base")?;
+                let gripper_se3_target = export
+                    .gripper_se3_target
+                    .context("EyeToHand rig export missing gripper_se3_target")?;
+                Ok(rig_se3_base * base_se3_gripper * gripper_se3_target)
+            }
+        }
+    }
+
+    fn apply_laserline_stage_stats(
+        metrics: &mut LaserMetrics,
+        stats: &[vision_calibration_optim::LaserlineStats],
+    ) {
+        for (metric, stat) in metrics.per_camera.iter_mut().zip(stats) {
+            metric.plane_residual_m =
+                Some(ReprojectionStats::from_errors(&stat.per_view_laser_errors));
+        }
+    }
+
+    fn apply_joint_laser_stats(
+        metrics: &mut LaserMetrics,
+        stats: &[RigHandeyeLaserlinePerCamStats],
+    ) {
+        for (metric, stat) in metrics.per_camera.iter_mut().zip(stats) {
+            metric.plane_residual_m = Some(ReprojectionStats::from_summary(
+                stat.mean_laser_err_m,
+                stat.mean_laser_err_m,
+                stat.max_laser_err_m,
+                stat.laser_count,
+            ));
+            metric.line_residual_px = Some(ReprojectionStats::from_summary(
+                stat.mean_laser_err_px,
+                stat.mean_laser_err_px,
+                stat.max_laser_err_px,
+                stat.laser_count,
+            ));
+            metric.inlier_ratio = Some(1.0);
+        }
+    }
+
+    fn reproj_stats_from_joint(stats: &[RigHandeyeLaserlinePerCamStats]) -> ReprojectionStats {
+        let total_count: usize = stats.iter().map(|s| s.reproj_count).sum();
+        if total_count == 0 {
+            return ReprojectionStats::from_errors(&[]);
+        }
+        let mean = stats
+            .iter()
+            .map(|s| s.mean_reproj_error_px * s.reproj_count as f64)
+            .sum::<f64>()
+            / total_count as f64;
+        let rms = (stats
+            .iter()
+            .map(|s| s.mean_reproj_error_px.powi(2) * s.reproj_count as f64)
+            .sum::<f64>()
+            / total_count as f64)
+            .sqrt();
+        let max = stats
+            .iter()
+            .map(|s| s.max_reproj_error_px)
+            .fold(0.0_f64, f64::max);
+        ReprojectionStats::from_summary(mean, rms, max, total_count)
+    }
+
+    fn reproj_stats_from_joint_cam(stat: &RigHandeyeLaserlinePerCamStats) -> ReprojectionStats {
+        ReprojectionStats::from_summary(
+            stat.mean_reproj_error_px,
+            stat.mean_reproj_error_px,
+            stat.max_reproj_error_px,
+            stat.reproj_count,
+        )
     }
 
     /// Synthesize a [`SolveReport`] for the record's [`Convergence`].

@@ -354,6 +354,9 @@ pub struct RigHandeyeOverride {
     /// Re-refine intrinsics in rig BA.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refine_intrinsics_in_rig_ba: Option<bool>,
+    /// Fix tangential distortion (`p1`, `p2`) during per-camera intrinsics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix_tangential: Option<bool>,
     /// Bundle-adjustment robot-pose settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handeye_ba: Option<HandeyeBaOverride>,
@@ -544,6 +547,9 @@ impl RigHandeyeOverride {
         if let Some(refine) = self.refine_intrinsics_in_rig_ba {
             config.rig.refine_intrinsics_in_rig_ba = refine;
         }
+        if let Some(fix_tangential) = self.fix_tangential {
+            config.intrinsics.fix_tangential = fix_tangential;
+        }
         if let Some(ba) = &self.handeye_ba {
             apply_rig_ba(ba, config);
         }
@@ -657,6 +663,7 @@ mod tests {
                 cols: 11,
                 square_size_m: 0.03,
             },
+            detector: None,
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
@@ -729,6 +736,7 @@ mod tests {
                 max_iters: Some(200),
                 robust_loss: Some(BenchRobustLoss::Huber { scale: 1.0 }),
                 refine_intrinsics_in_rig_ba: Some(false),
+                fix_tangential: Some(true),
                 handeye_ba: Some(HandeyeBaOverride {
                     refine_robot_poses: Some(true),
                     refine_cam_se3_rig_in_handeye_ba: Some(false),

@@ -11,6 +11,7 @@ pub trait IntrinsicsModel<S: RealField + Copy> {
 
 /// Standard pinhole intrinsics with optional skew.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct FxFyCxCySkew<S: RealField + Copy> {
     /// Focal length in pixels along X.
     pub fx: S,

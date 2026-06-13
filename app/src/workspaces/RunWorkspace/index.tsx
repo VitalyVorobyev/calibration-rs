@@ -196,6 +196,9 @@ export function RunWorkspace() {
       const raw = await invoke<string>("load_text_file", { path: preset.manifestPath });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TOML.parse returns any
       const parsed: any = TOML.parse(raw);
+      const manifestWithOverrides = preset.manifestOverrides
+        ? mergeConfig(parsed, preset.manifestOverrides)
+        : parsed;
 
       // Derive manifestDir from the manifest file path.
       const sep = preset.manifestPath.includes("\\") ? "\\" : "/";
@@ -203,17 +206,17 @@ export function RunWorkspace() {
 
       setManifestDir(dir);
       setManifestPath(preset.manifestPath);
-      setManifest(parsed);
+      setManifest(manifestWithOverrides);
       // Reset config to the preset topology's defaults (the topology
       // effect above only fires on topology *changes*, and switching
       // between same-topology presets must still reset), then apply
       // the preset's overrides — datasets like rtv3d need non-default
       // config (Scheimpflug sensors, EyeToHand).
-      let defaults = await fetchDefaultConfig(topologyOf(parsed), inTauri);
+      let defaults = await fetchDefaultConfig(topologyOf(manifestWithOverrides), inTauri);
       if (preset.configOverrides) {
         defaults = mergeConfig(defaults, preset.configOverrides);
       }
-      prevTopologyRef.current = topologyOf(parsed);
+      prevTopologyRef.current = topologyOf(manifestWithOverrides);
       setConfig(defaults);
       setActivePresetId(preset.id);
       setGridExpanded(false);
@@ -221,7 +224,7 @@ export function RunWorkspace() {
 
       // Sync the JSON textarea if it happens to be mounted.
       if (jsonEditorRef.current) {
-        jsonEditorRef.current.value = JSON.stringify({ manifest: parsed, config: defaults }, null, 2);
+        jsonEditorRef.current.value = JSON.stringify({ manifest: manifestWithOverrides, config: defaults }, null, 2);
       }
     } catch (e) {
       setStatus({

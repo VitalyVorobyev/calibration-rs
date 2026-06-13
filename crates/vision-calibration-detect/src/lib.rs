@@ -29,6 +29,8 @@ mod feature;
 
 #[cfg(feature = "charuco")]
 mod charuco;
+#[cfg(any(feature = "charuco", feature = "chessboard"))]
+mod chess_options;
 #[cfg(feature = "chessboard")]
 mod chessboard;
 
@@ -39,6 +41,8 @@ pub use feature::Feature;
 
 #[cfg(feature = "charuco")]
 pub use charuco::{CharucoConfig, CharucoDetector, validate_charuco_layout, validate_dictionary};
+#[cfg(any(feature = "charuco", feature = "chessboard"))]
+pub use chess_options::{ChessCornersConfig, ChessThresholdMode};
 #[cfg(feature = "chessboard")]
 pub use chessboard::{ChessboardConfig, ChessboardDetector};
 

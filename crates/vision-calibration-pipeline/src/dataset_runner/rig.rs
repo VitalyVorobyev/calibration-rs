@@ -112,7 +112,7 @@ pub(super) fn build_rig_core(
 ) -> Result<RigCore, RunError> {
     // Same gate ordering as the planar converter: target + validation
     // + pairing config before any filesystem access.
-    let (detector_name, detector_config) = target_to_detector_config(&spec.target)?;
+    let (detector_name, detector_config) = target_to_detector_config(spec)?;
     let detector = pick_detector(detector_name)?;
     validate(spec)?;
 
@@ -314,6 +314,7 @@ mod tests {
                 cols: 6,
                 square_size_m: 0.025,
             },
+            detector: None,
             robot_poses: None,
             laser: None,
             upstream_calibration: None,

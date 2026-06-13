@@ -769,6 +769,17 @@ mod tests {
     }
 
     #[test]
+    fn v5_laser_joint_record_shape_is_present() {
+        let record = sample_record();
+        let laser = record.laser.as_ref().expect("sample carries laser metrics");
+        let cam = &laser.per_camera[0];
+        assert!(cam.plane_residual_m.is_some());
+        assert!(cam.line_residual_px.is_some());
+        assert!(record.robot_corrections.is_some());
+        assert_eq!(record.fit.reported_per_cam_px.len(), 2);
+    }
+
+    #[test]
     fn bench_record_minimal_options_none() {
         let mut record = sample_record();
         record.generalization = None;

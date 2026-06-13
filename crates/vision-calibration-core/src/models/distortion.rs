@@ -25,6 +25,7 @@ impl<S: RealField + Copy> DistortionModel<S> for NoDistortion {
 
 /// Brown-Conrady 5-parameter radial-tangential distortion model.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BrownConrady5<S: RealField> {
     /// Radial coefficient k1.
     pub k1: S,

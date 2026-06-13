@@ -199,6 +199,16 @@ pub struct ReprojectionStats {
 }
 
 impl ReprojectionStats {
+    /// Build statistics from already aggregated values.
+    pub fn from_summary(mean: f64, rms: f64, max: f64, count: usize) -> Self {
+        Self {
+            mean,
+            rms,
+            max,
+            count,
+        }
+    }
+
     /// Compute statistics from a collection of errors.
     pub fn from_errors(errors: &[f64]) -> Self {
         if errors.is_empty() {

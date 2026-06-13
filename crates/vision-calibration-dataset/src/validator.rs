@@ -118,6 +118,10 @@ pub enum ValidationError {
     /// Laser extraction parameters are out of range.
     #[error("laser extraction: {0}")]
     BadLaserExtraction(String),
+
+    /// Detector override parameters are out of range.
+    #[error("detector override: {0}")]
+    BadDetectorOverride(String),
 }
 
 /// Validate the structural invariants of a manifest. Does not touch
@@ -174,6 +178,8 @@ pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
         }
     }
 
+    validate_detector_override(spec)?;
+
     validate_laser_fields(spec)?;
 
     if let Some(robot) = &spec.robot_poses {
@@ -183,6 +189,21 @@ pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
         )?;
     }
 
+    Ok(())
+}
+
+fn validate_detector_override(spec: &DatasetSpec) -> Result<(), ValidationError> {
+    let Some(detector) = &spec.detector else {
+        return Ok(());
+    };
+    if let Some(chess) = &detector.chess_corners
+        && let Some(value) = chess.threshold_value
+        && value <= 0.0
+    {
+        return Err(ValidationError::BadDetectorOverride(format!(
+            "chess_corners.threshold_value must be positive, got {value}"
+        )));
+    }
     Ok(())
 }
 
@@ -392,9 +413,9 @@ fn expected_rotation_columns(format: RotationFormat) -> usize {
 mod tests {
     use super::*;
     use crate::spec::{
-        CameraSource, DatasetSpec, ImagePattern, PoseColumnMap, PoseConvention, RobotPoseFormat,
-        RobotPoseSource, RotationFormat, TargetSpec, Topology, TransformConvention,
-        TranslationUnits,
+        CameraSource, ChessCornersDetectorSpec, ChessThresholdMode, DatasetSpec, DetectorSpec,
+        ImagePattern, PoseColumnMap, PoseConvention, RobotPoseFormat, RobotPoseSource,
+        RotationFormat, TargetSpec, Topology, TransformConvention, TranslationUnits,
     };
 
     fn planar_chessboard_minimal() -> DatasetSpec {
@@ -413,6 +434,7 @@ mod tests {
                 cols: 6,
                 square_size_m: 0.025,
             },
+            detector: None,
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
@@ -623,6 +645,39 @@ mod tests {
         spec.cameras[0].roi_xywh = Some([0, 0, 0, 480]);
         let err = validate(&spec).unwrap_err();
         assert!(matches!(err, ValidationError::DegenerateRoi { .. }));
+    }
+
+    #[test]
+    fn detector_chess_threshold_roundtrips() {
+        let mut spec = planar_chessboard_minimal();
+        spec.detector = Some(DetectorSpec {
+            chess_corners: Some(ChessCornersDetectorSpec {
+                threshold_mode: Some(ChessThresholdMode::Absolute),
+                threshold_value: Some(30.0),
+            }),
+        });
+        validate(&spec).unwrap();
+
+        let s = serde_json::to_string(&spec).unwrap();
+        assert!(s.contains("chess_corners"));
+        assert!(s.contains("threshold_mode"));
+        let back: DatasetSpec = serde_json::from_str(&s).unwrap();
+        let chess = back.detector.unwrap().chess_corners.unwrap();
+        assert_eq!(chess.threshold_mode, Some(ChessThresholdMode::Absolute));
+        assert_eq!(chess.threshold_value, Some(30.0));
+    }
+
+    #[test]
+    fn detector_chess_threshold_must_be_positive() {
+        let mut spec = planar_chessboard_minimal();
+        spec.detector = Some(DetectorSpec {
+            chess_corners: Some(ChessCornersDetectorSpec {
+                threshold_mode: Some(ChessThresholdMode::Absolute),
+                threshold_value: Some(0.0),
+            }),
+        });
+        let err = validate(&spec).unwrap_err();
+        assert!(matches!(err, ValidationError::BadDetectorOverride(_)));
     }
 
     #[test]

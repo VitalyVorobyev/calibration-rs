@@ -118,7 +118,7 @@ pub fn build_laserline_device_input(
             topology: spec.topology,
         });
     }
-    let (detector_name, detector_config) = target_to_detector_config(&spec.target)?;
+    let (detector_name, detector_config) = target_to_detector_config(spec)?;
     let detector = pick_detector(detector_name)?;
     validate(spec)?;
 
@@ -499,10 +499,9 @@ fn laser_paths_by_token(
 }
 
 /// Run one laser image through the cache-or-extract path: read bytes →
-/// cache lookup → on miss, decode, crop to ROI, extract, lift pixels
-/// back to source coordinates, store. Mirrors `detect_features`; laser
-/// pixels are cached as `Feature`s with a zero-filled (meaningless)
-/// `world_xyz`.
+/// cache lookup → on miss, decode, crop to ROI, extract in the camera
+/// pixel frame, store. Mirrors `detect_features`; laser pixels are
+/// cached as `Feature`s with a zero-filled (meaningless) `world_xyz`.
 fn extract_laser_pixels(
     extractor: &dyn LaserPixelExtractor,
     laser_spec: &LaserExtractionSpec,
@@ -538,20 +537,12 @@ fn extract_laser_pixels(
     } else {
         img
     };
-    let mut points = extractor
+    let points = extractor
         .extract(&img_for_extract, laser_spec)
         .map_err(|e| RunError::LaserExtraction {
             path: image_path.to_path_buf(),
             source: e,
         })?;
-    // Extracted pixels are in the cropped frame; lift them back into
-    // source-image coordinates like the target detection path.
-    if let Some([x, y, _w, _h]) = roi {
-        for p in points.iter_mut() {
-            p[0] += x as f64;
-            p[1] += y as f64;
-        }
-    }
     cache.put(
         &key,
         &CachedFeatures {
@@ -735,6 +726,7 @@ mod tests {
                 cols: 6,
                 square_size_m: 0.025,
             },
+            detector: None,
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
@@ -910,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn real_extraction_path_lifts_roi_and_caches() {
+    fn real_extraction_path_keeps_roi_local_pixels_and_caches() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = FsDetectionCache::new(tmp.path().join("cache"));
         // A real decodable PNG so the miss path reaches the extractor.
@@ -936,11 +928,11 @@ mod tests {
         .unwrap();
         assert_eq!(pixels.len(), 25);
         // FakeLaser emits x = i, y = 100 in the cropped frame; the
-        // runner must lift back to source coordinates.
-        assert_eq!((pixels[0].x, pixels[0].y), (10.0, 120.0));
+        // runner keeps that ROI-local camera coordinate frame.
+        assert_eq!((pixels[0].x, pixels[0].y), (0.0, 100.0));
         assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
 
-        // Second call must be served from the cache, lift preserved.
+        // Second call must be served from the cache, ROI-local frame preserved.
         let again = extract_laser_pixels(
             &fake,
             &laser_spec,
@@ -952,7 +944,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
-        assert_eq!((again[0].x, again[0].y), (10.0, 120.0));
+        assert_eq!((again[0].x, again[0].y), (0.0, 100.0));
     }
 
     // ── Rig converter ───────────────────────────────────────────────────
@@ -1023,6 +1015,7 @@ mod tests {
                 cols: 6,
                 square_size_m: 0.025,
             },
+            detector: None,
             robot_poses: Some(RobotPoseSource {
                 path: PathBuf::from("poses.txt"),
                 format: RobotPoseFormat::Rowmajor4x4,

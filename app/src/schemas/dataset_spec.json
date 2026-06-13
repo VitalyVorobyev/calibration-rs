@@ -44,6 +44,65 @@
       ],
       "type": "object"
     },
+    "ChessCornersDetectorSpec": {
+      "additionalProperties": false,
+      "description": "ChESS corner extractor overrides.",
+      "properties": {
+        "threshold_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChessThresholdMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Acceptance threshold mode. `None` keeps the detector default."
+        },
+        "threshold_value": {
+          "description": "Acceptance threshold value. `None` keeps the detector default.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ChessThresholdMode": {
+      "description": "ChESS threshold interpretation.",
+      "oneOf": [
+        {
+          "const": "absolute",
+          "description": "Threshold in native ChESS response units.",
+          "type": "string"
+        },
+        {
+          "const": "relative",
+          "description": "Threshold as a fraction of the image maximum response.",
+          "type": "string"
+        }
+      ]
+    },
+    "DetectorSpec": {
+      "additionalProperties": false,
+      "description": "Target-detector overrides. These options affect feature detection\nonly; they are hashed into the detection-cache key by the runner.",
+      "properties": {
+        "chess_corners": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChessCornersDetectorSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ChESS corner extractor options shared by chessboard-like\ndetectors (plain chessboard and ChArUco)."
+        }
+      },
+      "type": "object"
+    },
     "ImagePattern": {
       "description": "How image paths for a camera are listed.",
       "oneOf": [
@@ -607,6 +666,17 @@
         "string",
         "null"
       ]
+    },
+    "detector": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DetectorSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Detector-stage overrides shared by target families. Defaults\npreserve the detector's built-in behavior."
     },
     "laser": {
       "anyOf": [
