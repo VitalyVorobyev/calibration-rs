@@ -15,6 +15,24 @@ authoritative reference and stays green in CI.
 | Calibrate a Scheimpflug rig + laser device end-to-end on real data | [Puzzle 130×130 walkthrough](./puzzle-130x130-walkthrough.md) | [`puzzle_130x130_rig.rs`](../../crates/vision-calibration-examples-private/examples/puzzle_130x130_rig.rs) (private dataset) |
 | Describe a laser dataset in `dataset.toml` and run it through the app | [Laser dataset manifest](./laser-dataset-manifest.md) | `rtv3d_laser_end_to_end` test in [`app/src-tauri/src/run.rs`](../../app/src-tauri/src/run.rs) (private dataset) |
 
+## Target detectors
+
+All four calibration-target detectors are wired end-to-end (as of 2026-06-14);
+the target type is chosen by the `[target]` table's `kind` in `dataset.toml`
+(or the Run workspace's schema-driven manifest form). Detection is cached and
+dispatched server-side — no per-detector code path to learn.
+
+| `kind` | Manifest fields | Notes |
+|---|---|---|
+| `chessboard` | `rows`, `cols` (interior corners), `square_size_m` | Plain checkerboard. |
+| `charuco` | `rows`, `cols` (squares), `square_size_m`, `marker_size_m`, `dictionary` | Sparse — only decoded cells contribute corners. |
+| `puzzleboard` | `layout` (`"puzzle_<R>x<C>"`), `cell_size_m` | Self-identifying; a single partial view is globally consistent. |
+| `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m` | Coded **hex-lattice** of ring markers — `long_row_cols` is the longest (even) row; shorter rows derive from the lattice. |
+
+Optional ChESS corner-stage overrides (`[detector.chess_corners]`,
+`threshold_mode` / `threshold_value`) apply to the chess-based detectors
+(chessboard / charuco) and are hashed into the detection-cache key.
+
 ## Structure
 
 Each tutorial is self-contained and follows the same outline:

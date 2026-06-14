@@ -1,5 +1,5 @@
 //! Dataset-driven runner: takes a
-//! [`DatasetSpec`](vision_calibration_dataset::DatasetSpec) manifest plus a
+//! [`DatasetSpec`] manifest plus a
 //! per-problem `*Config` and produces the existing `*Input` IR by
 //! running detection (cached) on the per-camera images.
 //!
@@ -32,7 +32,7 @@ use vision_calibration_dataset::{
 };
 use vision_calibration_detect::{
     CacheKey, CachedFeatures, CharucoDetector, ChessboardDetector, DetectionCache, Detector,
-    Feature, validate_charuco_layout,
+    Feature, PuzzleboardDetector, RinggridDetector, validate_charuco_layout,
 };
 
 mod handeye;
@@ -320,12 +320,42 @@ fn detector_config_for_target(target: &TargetSpec) -> Result<(&'static str, Valu
                 }),
             ))
         }
-        TargetSpec::Puzzleboard { .. } => Err(RunError::UnsupportedTarget {
-            kind: "puzzleboard".to_string(),
-        }),
-        TargetSpec::Ringgrid { .. } => Err(RunError::UnsupportedTarget {
-            kind: "ringgrid".to_string(),
-        }),
+        TargetSpec::Puzzleboard {
+            layout,
+            cell_size_m,
+        } => {
+            // The manifest names a layout (`"puzzle_130x130"`); the
+            // detector needs explicit dimensions. Resolve here so a typo
+            // fails before any image I/O (ADR 0019).
+            let (rows, cols) = parse_puzzleboard_layout(layout)
+                .map_err(|message| RunError::InvalidTargetConfig { message })?;
+            Ok((
+                "puzzleboard",
+                json!({
+                    "rows": rows,
+                    "cols": cols,
+                    "cell_size_m": *cell_size_m,
+                }),
+            ))
+        }
+        TargetSpec::Ringgrid {
+            pitch_m,
+            rows,
+            long_row_cols,
+            marker_outer_radius_m,
+            marker_inner_radius_m,
+            marker_ring_width_m,
+        } => Ok((
+            "ringgrid",
+            json!({
+                "pitch_m": *pitch_m,
+                "rows": *rows,
+                "long_row_cols": *long_row_cols,
+                "marker_outer_radius_m": *marker_outer_radius_m,
+                "marker_inner_radius_m": *marker_inner_radius_m,
+                "marker_ring_width_m": *marker_ring_width_m,
+            }),
+        )),
     }
 }
 
@@ -333,10 +363,41 @@ fn pick_detector(name: &str) -> Result<Box<dyn Detector>, RunError> {
     match name {
         "chessboard" => Ok(Box::new(ChessboardDetector)),
         "charuco" => Ok(Box::new(CharucoDetector)),
+        "puzzleboard" => Ok(Box::new(PuzzleboardDetector)),
+        "ringgrid" => Ok(Box::new(RinggridDetector)),
         other => Err(RunError::UnsupportedTarget {
             kind: other.to_string(),
         }),
     }
+}
+
+/// Resolve a PuzzleBoard `layout` name to `(rows, cols)`.
+///
+/// Accepts `"<rows>x<cols>"` with an optional `"puzzle_"` prefix and a
+/// case-insensitive separator (e.g. `"puzzle_130x130"` or `"130X130"`).
+/// PuzzleBoards are parametric in their cell count, so the dimensions are
+/// the only thing the detector needs; encoding them in the name keeps the
+/// manifest self-describing without a separate layout registry.
+fn parse_puzzleboard_layout(layout: &str) -> Result<(u32, u32), String> {
+    let body = layout
+        .trim()
+        .strip_prefix("puzzle_")
+        .unwrap_or_else(|| layout.trim());
+    let (rows, cols) = body
+        .split_once(['x', 'X'])
+        .ok_or_else(|| format!("puzzleboard layout {layout:?} must be \"<rows>x<cols>\""))?;
+    let rows: u32 = rows
+        .parse()
+        .map_err(|_| format!("puzzleboard layout {layout:?} has a non-numeric rows count"))?;
+    let cols: u32 = cols
+        .parse()
+        .map_err(|_| format!("puzzleboard layout {layout:?} has a non-numeric cols count"))?;
+    if rows == 0 || cols == 0 {
+        return Err(format!(
+            "puzzleboard layout {layout:?} must have non-zero dimensions"
+        ));
+    }
+    Ok((rows, cols))
 }
 
 fn expand_camera_images(
@@ -648,6 +709,77 @@ mod tests {
         let (_name, config) = target_to_detector_config(&spec).unwrap();
         assert_eq!(config["chess_corners"]["threshold_mode"], "absolute");
         assert_eq!(config["chess_corners"]["threshold_value"], 30.0);
+    }
+
+    #[test]
+    fn puzzleboard_target_maps_to_detector_config() {
+        let target = TargetSpec::Puzzleboard {
+            layout: "puzzle_130x130".into(),
+            cell_size_m: 0.0052,
+        };
+        let spec = spec_for_target(target);
+        let (name, config) = target_to_detector_config(&spec).unwrap();
+        assert_eq!(name, "puzzleboard");
+        assert_eq!(config["rows"], 130);
+        assert_eq!(config["cols"], 130);
+        assert_eq!(config["cell_size_m"], 0.0052);
+        // The mapped config must deserialize into the detector's own
+        // config struct — guards the field-name contract between the
+        // manifest dispatcher and the detect crate.
+        let _cfg: vision_calibration_detect::PuzzleboardConfig =
+            serde_json::from_value(config).unwrap();
+        pick_detector(name).unwrap();
+    }
+
+    #[test]
+    fn puzzleboard_bad_layout_fails_before_io() {
+        let target = TargetSpec::Puzzleboard {
+            layout: "not-a-grid".into(),
+            cell_size_m: 0.0052,
+        };
+        let spec = spec_for_target(target);
+        let err = target_to_detector_config(&spec).unwrap_err();
+        match err {
+            RunError::InvalidTargetConfig { message } => {
+                assert!(message.contains("not-a-grid"), "got: {message}");
+            }
+            other => panic!("expected InvalidTargetConfig, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ringgrid_target_maps_to_detector_config() {
+        let target = TargetSpec::Ringgrid {
+            pitch_m: 0.02,
+            rows: 5,
+            long_row_cols: 5,
+            marker_outer_radius_m: 0.006,
+            marker_inner_radius_m: 0.003,
+            marker_ring_width_m: 0.001,
+        };
+        let spec = spec_for_target(target);
+        let (name, config) = target_to_detector_config(&spec).unwrap();
+        assert_eq!(name, "ringgrid");
+        assert_eq!(config["long_row_cols"], 5);
+        assert_eq!(config["marker_outer_radius_m"], 0.006);
+        // Field-name contract guard between the dispatcher and the detect crate.
+        let _cfg: vision_calibration_detect::RinggridConfig =
+            serde_json::from_value(config).unwrap();
+        pick_detector(name).unwrap();
+    }
+
+    #[test]
+    fn parse_puzzleboard_layout_accepts_known_forms() {
+        assert_eq!(
+            parse_puzzleboard_layout("puzzle_130x130").unwrap(),
+            (130, 130)
+        );
+        assert_eq!(parse_puzzleboard_layout("130x130").unwrap(), (130, 130));
+        assert_eq!(parse_puzzleboard_layout("12X9").unwrap(), (12, 9));
+        assert_eq!(parse_puzzleboard_layout("  puzzle_8x8 ").unwrap(), (8, 8));
+        assert!(parse_puzzleboard_layout("puzzle_0x10").is_err());
+        assert!(parse_puzzleboard_layout("puzzle_10").is_err());
+        assert!(parse_puzzleboard_layout("puzzle_axb").is_err());
     }
 
     #[test]

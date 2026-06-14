@@ -3,7 +3,7 @@
 Canonical short-form summary of the multi-quarter direction. Detailed reasoning per track
 lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
 
-## Status (as of 2026-06-11)
+## Status (as of 2026-06-14)
 
 - **Version line:** 0.x (latest release 0.5.1). v1.0 (= stable public API) is deferred
   until the API has been stable across two minor releases without breaking changes.
@@ -20,7 +20,11 @@ lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
   (Diagnose, 3D, Epipolar, Run); the Run workspace covers PlanarIntrinsics +
   chessboard end-to-end. Bench crate + multi-level reprojection report shipped
   (PR #49). A 2026-06-11 workspace review (internal) confirmed the
-  extend-don't-rebuild verdict for the app.
+  extend-don't-rebuild verdict for the app. **B3c coverage completed
+  2026-06-14:** B3c-1/2/3 wired the 8 topologies + charuco/laser; B3c-4 added
+  the puzzleboard + ring-grid detectors, so **all four target detectors now
+  calibrate end-to-end** (charuco dedup deferred, see backlog). B3d (manifest
+  UX) is next.
 - **New tracks (2026-06-11):** V (real-data validation on the private rtv3d dataset),
   O (apex-solver optimization backend), M (camera-model expansion — supersedes the
   former "new camera models out of scope" line).
@@ -131,10 +135,17 @@ puzzleboard / ringgrid) are supported.
     `configOverrides`. Two-stage rtv3d acceptance
     (`rtv3d_laser_end_to_end`): hand-eye 1.56 px, all six planes at
     0.85–1.15 mm point-to-plane against the frozen upstream (sub-0.1 mm
-    needs the V5 joint-BA runner). Remainder of B3c: puzzleboard +
-    ringgrid detectors, bench/examples-private charuco dedup; in-app
-    "save export to file" (needed to run the two-stage laser flow
-    without leaving the app) moves to B3e.
+    needs the V5 joint-BA runner).
+  - **B3c-4 (2026-06-14): detector coverage complete** — puzzleboard
+    (`calib-targets`) and coded ring-grid (`ringgrid` 0.6) detectors added
+    to `vision-calibration-detect` behind the sealed `Detector` trait;
+    `dataset_runner` dispatches `TargetSpec::Puzzleboard` (named-layout
+    resolver) and `TargetSpec::Ringgrid` (realigned to the real hex-lattice
+    `BoardLayout` model). **All four target detectors (chessboard / charuco /
+    puzzleboard / ringgrid) now calibrate end-to-end**, the Run workspace
+    surfaces them schema-driven. Charuco dedup is deferred (its numeric gate
+    needs the private golden datasets, absent from CI). In-app "save export
+    to file" remains in B3e.
 - **B-laser — laserline visualization (SHIPPED 2026-06-12).**
   `FrameRef.kind` discriminator closes ADR 0021 §5: both laser
   topologies now splice laser-kind frames into their export manifests.
@@ -253,11 +264,12 @@ in-house dense matcher, no full SfM.
 ## Load-bearing path
 
 **V1 → V2 → V3 (prove the library on rtv3d) → V4 + B3c coverage (rig +
-laserline + charuco first) → B-laser visualization → B3d manifest UX →
-B3e polish.** O1/O2 (apex-solver) are
-parallelizable with the V-track; M0 (factor generification) is done and
-M1–M4 can proceed. C resumes once B3c
-lands; D is a continuous ratchet.
+laserline + charuco first) → B-laser visualization → B3c-4 (all four target
+detectors) → B3d manifest UX → B3e polish.** B3c coverage is complete as of
+2026-06-14 (all 8 topologies + all 4 detectors wired); **B3d is the next
+load-bearing step.** O1/O2 (apex-solver) are parallelizable with the V-track;
+M0 (factor generification) is done and M1–M4 can proceed. C resumes now that
+B3c has landed; D is a continuous ratchet.
 
 ## Out of scope (explicit)
 

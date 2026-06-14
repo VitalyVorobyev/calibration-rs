@@ -236,18 +236,23 @@ pub enum TargetSpec {
         /// Edge length of one cell in metres.
         cell_size_m: f64,
     },
-    /// Ringgrid target (ringgrid crate).
+    /// Coded ring-grid target (the `ringgrid` crate). The board is a
+    /// hex-lattice of self-identifying ring markers; its geometry mirrors
+    /// `ringgrid::BoardLayout` so the manifest fully determines detection.
     Ringgrid {
-        /// Number of rings along the rows axis.
+        /// Center-to-center spacing between adjacent markers in metres.
+        pitch_m: f64,
+        /// Number of marker rows.
         rows: u32,
-        /// Number of rings along the cols axis.
-        cols: u32,
-        /// Centre-to-centre spacing of adjacent rings in metres.
-        spacing_m: f64,
-        /// Inner ring radius in metres.
-        inner_radius_m: f64,
+        /// Number of columns in the longest (even-indexed) row. Shorter
+        /// rows are derived by the hex-lattice layout.
+        long_row_cols: u32,
         /// Outer ring radius in metres.
-        outer_radius_m: f64,
+        marker_outer_radius_m: f64,
+        /// Inner ring radius in metres.
+        marker_inner_radius_m: f64,
+        /// Width of each ring band in metres.
+        marker_ring_width_m: f64,
     },
 }
 

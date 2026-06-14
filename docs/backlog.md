@@ -120,6 +120,30 @@ review.
 
 ## B — app (extend; sequencing serves V-track)
 
+- [x] B3C-PUZZLEBOARD - PuzzleBoard detector. Completed 2026-06-14 —
+  [report](report/2026-06-14-B3C-PUZZLEBOARD-puzzleboard-detector.md).
+  `PuzzleboardDetector` wraps `calib-targets` `detect_puzzleboard` behind the
+  sealed `Detector` trait + `puzzleboard` feature; `dataset_runner` resolves
+  the `"puzzle_<R>x<C>"` layout name to dimensions and dispatches it (was
+  `UnsupportedTarget`). Synthetic-board detection + dispatch tests green.
+- [x] B3C-RINGGRID - Coded ring-grid detector. Completed 2026-06-14 —
+  [report](report/2026-06-14-B3C-RINGGRID-ringgrid-detector.md).
+  `RinggridDetector` wraps `ringgrid` 0.6 (crates.io) behind the sealed
+  `Detector` trait + `ringgrid` feature; `dataset_runner` dispatches
+  `TargetSpec::Ringgrid`. `TargetSpec::Ringgrid` realigned (breaking) to the
+  real hex-lattice `BoardLayout` model (`pitch`/`rows`/`long_row_cols`/radii/
+  ring-width); schema regenerated. All four target detectors now calibrate
+  end-to-end. Synthetic-board detection + dispatch tests green.
+- [ ] B3C-CHARUCO-DEDUP - **Deferred 2026-06-14** (blocked on verification).
+  Consolidate the three charuco detection paths (`detect/src/charuco.rs`
+  canonical, `examples-private::detect_charuco`, `bench::detect_charuco_view`)
+  onto one shared detection call. The clean design (bench/examples delegate to
+  the detect crate and adapt `Vec<Feature>` → `CorrespondenceView`) is known,
+  but its gate — bench + examples residual numbers unchanged — cannot be
+  verified without the private golden datasets (`/data/*`, registry
+  `private.json`), which are absent from CI and dev checkouts. Resume on a
+  machine with the private data, or after a committed charuco fixture exists.
+  `detect/src/charuco.rs` now documents the canonical-authority boundary.
 - [ ] B3C-RIG - Run-workspace coverage for `RigExtrinsics`, `RigHandeye`,
   `RigLaserlineDevice` + charuco detector wiring
   (`app/src-tauri/src/run.rs:131` topology dispatch).

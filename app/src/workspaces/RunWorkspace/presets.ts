@@ -308,7 +308,8 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "puzzleboard",
     targetSummary: "puzzleboard puzzle_130x130",
     imageCount: null,
-    disabledReason: "The puzzleboard detector is not wired into Run yet (the Scheimpflug topology itself is).",
-    milestone: "planned",
+    disabledReason:
+      "Puzzleboard detection is now wired (B3C-PUZZLEBOARD); this card stays disabled until a DS8 puzzleboard manifest is committed — the DS8 data ships without a dataset.toml. Any puzzleboard/ringgrid dataset can already be run via the manifest editor.",
+    milestone: "needs manifest",
   },
 ];
