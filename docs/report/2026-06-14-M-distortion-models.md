@@ -52,9 +52,20 @@ unsupervised batch.
 - **Rational** has a numerator/denominator correlation (k1↔k4 partially trade
   off); the synthetic 3-view recovery lands ~2.4 % on k1/k2 (intrinsics still
   sub-0.5 px). It needs wider field coverage than BC5.
-- **Division** has a gradient-zero degenerate point at `lambda = 0`; any solve
-  must seed `lambda` with a rough non-zero prior (the integration test seeds
-  −0.05).
+- **Division** had a gradient-zero degenerate point at `lambda = 0`: the naive
+  distort returned an exact identity, so autodiff saw a zero Jacobian column and
+  a `lambda=0` seed could never move (codex P2). Fixed by rationalizing the
+  closed form to `scale = 2/(1+√(1−4λr²))` — no `λ` in the denominator, analytic
+  at `λ=0` with `∂scale/∂λ = r²`. The integration test now seeds `lambda=0.0`
+  and recovers it.
+- **Rational / thin-prism inverse is FOV-limited.** `undistort` uses a
+  radial-division fixed point (`x_u = (x_d − tangential[− prism]) / radial`),
+  contracting within the calibrated FOV (normalized radius ≲ ~1.2) but
+  oscillating for extreme wide-FOV inputs (radius ≳ ~1.3), the same limitation
+  as OpenCV `undistortPoints` (codex P2). Documented in-code; a robust
+  Newton / 1D-radial inverse is tracked under `M-WIRE` (deferred to when the
+  models are wired and the required FOV is concrete). A strong-pincushion
+  (radius ~1.0) regression test guards the in-FOV path.
 
 ## Tests
 

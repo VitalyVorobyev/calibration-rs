@@ -127,6 +127,12 @@ review.
   degeneracy + Rational k1↔k4 correlation), variable-dim pack/unpack, export
   reconstruction per model, schema regen, app selector. Touches validated
   calibration paths — do supervised, not in an autonomous batch.
+  - **Robust wide-FOV inverse** (sub-item): the rational/thin-prism runtime +
+    kernel `undistort` use a radial-division fixed point that is contracting
+    only within the calibrated FOV (radius ≲ ~1.2), matching OpenCV
+    `undistortPoints`; it oscillates for extreme wide-FOV inputs (codex P2 on
+    PR #61). Replace with a Newton / 1D-radial solve when these models are wired
+    (their required FOV + tangential handling become concrete then).
 - [ ] M4-FISHEYE - Kannala-Brandt equidistant k1–k4: new `ProjectionModel`
   impl (first beyond `Pinhole`), linear-init changes (Zhang assumptions
   don't hold at large FOV), synthetic wide-FOV tests.

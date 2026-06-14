@@ -145,8 +145,13 @@ impl<S: RealField + Copy> DistortionModel<S> for RationalPolynomial<S> {
     fn undistort(&self, n_dist: &Point2<S>) -> Point2<S> {
         // Stable fixed point `x_u = (x_d - tangential) / radial` (matching the
         // optimizer kernel). The plain `x -= distort(x) - x_d` update has an
-        // identity Jacobian and can diverge for strong pincushion/wide-FOV
-        // coefficients; dividing by the radial factor keeps it contracting.
+        // identity Jacobian and can diverge for strong coefficients; dividing by
+        // the radial factor keeps it contracting within the calibrated field of
+        // view (normalized radius up to ~1.2). It is NOT guaranteed to converge
+        // for extreme wide-FOV inputs (radius >~ 1.3 with strong terms), where
+        // the map is still invertible but the fixed point oscillates — same
+        // limitation as OpenCV `undistortPoints`. A robust wide-FOV inverse
+        // (Newton / 1D-radial solve) is tracked under backlog `M-WIRE`.
         let xd = n_dist.x;
         let yd = n_dist.y;
         let mut x = xd;
