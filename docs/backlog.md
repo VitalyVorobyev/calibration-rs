@@ -137,6 +137,26 @@ review.
   impl (first beyond `Pinhole`), linear-init changes (Zhang assumptions
   don't hold at large FOV), synthetic wide-FOV tests.
 
+## C — MVG (multiple-view geometry)
+
+- [x] C1-CRATES - Land `vision-geometry` + `vision-mvg`. Completed 2026-06-14 —
+  [report](report/2026-06-14-C1-mvg-crates.md). Ported fresh and additively from
+  the stale `mvg` branch source (NOT a branch merge): `vision-geometry`
+  (deterministic solvers: epipolar/homography/triangulation/camera-matrix, 20
+  tests) + `vision-mvg` (pipelines/robust/pose-recovery, optional `refine`
+  feature, 31 tests), both `publish = false`. `vision-calibration-linear`
+  untouched (zero regression). [ADR 0015](adrs/0015-mvg-ceiling.md) caps the
+  ceiling (no dense matcher, no full SfM).
+- [ ] C1-FOLLOWUP - De-duplicate `vision-calibration-linear` onto
+  `vision-geometry` (have `linear` depend on the new crate, delete the moved
+  solvers). Deferred from C1 to keep landing additive; do supervised with the
+  numeric pins on both sides as the gate. Also: promote both crates to the
+  crates.io publish set + release version-lockstep when the API stabilises;
+  PyO3 bindings (deferred per A5); close the stale `mvg` branch / PR #28.
+- [ ] C2-TRIANGULATION - N-view triangulation + nonlinear refinement.
+- [ ] C3-BA - Bundle adjustment with frozen intrinsics, free poses, free
+  structure.
+
 ## B — app (extend; sequencing serves V-track)
 
 - [x] B3C-PUZZLEBOARD - PuzzleBoard detector. Completed 2026-06-14 —

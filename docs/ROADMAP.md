@@ -32,9 +32,11 @@ lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
 - **New tracks (2026-06-11):** V (real-data validation on the private rtv3d dataset),
   O (apex-solver optimization backend), M (camera-model expansion — supersedes the
   former "new camera models out of scope" line).
-- **In-flight PRs:**
-  [#28 mvg](https://github.com/VitalyVorobyev/calibration-rs/pull/28) — multiple-view
-  geometry crate split (Track C, deferred until the B3 series stabilises).
+- **In-flight PRs:** none blocking. The MVG crate split (formerly PR #28 /
+  `mvg` branch) was **superseded** by a fresh additive port — `vision-geometry`
+  + `vision-mvg` landed on `main` 2026-06-14 (C1), see
+  [ADR 0015](adrs/0015-mvg-ceiling.md). The stale `mvg` branch / PR #28 can be
+  closed.
 
 ## Tracks
 
@@ -257,14 +259,20 @@ models would have multiplied variants.
 - **M4** Kannala-Brandt fisheye (new projection slot + linear-init changes —
   the biggest lift; last).
 
-### Track C — MVG (postponed; depends on diagnose viewer done)
+### Track C — MVG (C1 landed 2026-06-14)
 
-PR #28 splits two-view geometry into `vision-geometry` (deterministic solvers) and
-`vision-mvg` (pipelines, robust estimation). Post-merge the track extends to multi-view
-geometry over already-calibrated rigs. ADR 0015 will cap the ceiling explicitly: no
-in-house dense matcher, no full SfM.
+Two-view geometry is split into `vision-geometry` (deterministic solvers) and
+`vision-mvg` (pipelines, robust estimation). The track extends to multi-view
+geometry over already-calibrated rigs.
+[ADR 0015](adrs/0015-mvg-ceiling.md) caps the ceiling explicitly: no in-house
+dense matcher, no full SfM.
 
-- **C1** Land PR #28.
+- **C1 — DONE (2026-06-14).** Rather than merge the stale `mvg` branch (~136
+  commits behind, predating four current crates + a conflicting
+  `vision-calibration-linear` refactor), the two crates were **ported fresh and
+  additively** onto `main`: `vision-geometry` (20 tests) + `vision-mvg` (31
+  tests), both `publish = false`, no change to `vision-calibration-linear`. The
+  `linear`→`vision-geometry` de-duplication is a deliberate follow-up; ADR 0015.
 - **C2** N-view triangulation + nonlinear refinement.
 - **C3** Bundle adjustment with frozen intrinsics, free poses, free structure.
 - **C4** Stereo rectification — including **Scheimpflug-aware rectification** (genuinely
