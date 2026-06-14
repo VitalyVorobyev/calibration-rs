@@ -248,10 +248,11 @@ fn division_optimization_synthetic() {
     }
 
     let intrinsics_init = perturbed_intrinsics();
-    // Perturb lambda: start at a small non-zero value so the gradient is non-degenerate.
-    // Starting exactly at 0.0 gives a zero gradient in the lambda direction (quadratic
-    // minimum at the zero locus), so the solver never leaves the "no distortion" basin.
-    let lambda_init: f64 = -0.05;
+    // Seed lambda at exactly 0.0 (the natural distortion-free seed). The rationalized
+    // distort form `2/(1 + √(1 - 4λr²))` is analytic at λ = 0 with ∂scale/∂λ = r², so
+    // autodiff yields a non-zero Jacobian column and the solver recovers lambda from
+    // zero — this guards the codex P2 (zero-Jacobian degeneracy at λ = 0).
+    let lambda_init: f64 = 0.0;
 
     let poses_init = perturbed_poses(&poses_gt);
 

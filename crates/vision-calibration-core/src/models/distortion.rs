@@ -249,8 +249,11 @@ impl<S: RealField + Copy> DistortionModel<S> for ThinPrism<S> {
 ///
 /// - **Distort** (undistorted → distorted, via quadratic):
 ///   `scale = (1 − sqrt(1 − 4·lambda·r_u²)) / (2·lambda·r_u²)`,
-///   `(x_d, y_d) = (x_u · scale, y_u · scale)`.
-///   Near-zero `lambda` or `r_u²` reduce to the identity.
+///   `(x_d, y_d) = (x_u · scale, y_u · scale)`. Evaluated in the rationalized
+///   form `scale = 2 / (1 + sqrt(1 − 4·lambda·r_u²))`, which has no `lambda` in
+///   the denominator and stays analytic at `lambda = 0` (`scale → 1`,
+///   `∂scale/∂lambda → r_u²`), so the parameter remains observable from a
+///   zero seed under autodiff.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Division<S: RealField> {
@@ -264,19 +267,15 @@ impl<S: RealField + Copy> DistortionModel<S> for Division<S> {
         let y = n_undist.y;
         let r_u2 = x * x + y * y;
 
-        let eps = S::from_f64(1e-15).unwrap();
-
-        // Near-zero lambda or near-zero radius → identity.
-        if self.lambda.abs() < eps || r_u2 < eps {
-            return *n_undist;
-        }
-
-        let disc = S::one() - (S::one() + S::one() + S::one() + S::one()) * self.lambda * r_u2;
-        // Clamp discriminant to avoid sqrt of negative (physically implausible inputs).
+        let four = S::from_f64(4.0).unwrap();
+        // disc = 1 - 4·λ·r_u²; clamp ≥ 0 for inputs beyond the invertible range.
+        let disc = S::one() - four * self.lambda * r_u2;
         let disc = if disc < S::zero() { S::zero() } else { disc };
 
-        let two_lambda_r2 = (S::one() + S::one()) * self.lambda * r_u2;
-        let scale = (S::one() - disc.sqrt()) / two_lambda_r2;
+        // scale = (1 - √disc)/(2·λ·r_u²), rationalized to 2/(1 + √disc): no λ in
+        // the denominator, analytic at λ = 0 (scale → 1, ∂scale/∂λ → r_u²).
+        let two = S::one() + S::one();
+        let scale = two / (S::one() + disc.sqrt());
 
         Point2::new(x * scale, y * scale)
     }

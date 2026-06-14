@@ -276,23 +276,20 @@ impl DistortionKernel for DivisionKernel {
         let lambda = d[0].clone();
 
         let r_u2 = x.clone() * x.clone() + y.clone() * y.clone();
-        let eps = T::from_f64(1e-15).unwrap();
-
-        // Near-zero lambda or radius → identity.
-        if lambda.clone().abs() < eps.clone() || r_u2.clone() < eps {
-            return (x, y);
-        }
-
         let four = T::from_f64(4.0).unwrap();
-        let two = T::from_f64(2.0).unwrap();
-        let disc = T::one() - four * lambda.clone() * r_u2.clone();
+        // disc = 1 - 4·λ·r_u²; clamp ≥ 0 for inputs beyond the model's
+        // invertible range (large positive λ).
+        let disc = T::one() - four * lambda * r_u2;
         let disc = if disc.clone() < T::zero() {
             T::zero()
         } else {
             disc
         };
 
-        let scale = (T::one() - disc.sqrt()) / (two * lambda * r_u2);
+        // scale = (1 - √disc)/(2·λ·r_u²), rationalized to 2/(1 + √disc): no λ in
+        // the denominator and analytic at λ = 0 (scale → 1, ∂scale/∂λ → r_u²), so
+        // autodiff keeps a non-zero Jacobian column for a zero-initialized lambda.
+        let scale = T::from_f64(2.0).unwrap() / (T::one() + disc.sqrt());
         (x * scale.clone(), y * scale)
     }
 
