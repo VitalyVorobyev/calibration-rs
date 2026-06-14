@@ -1,20 +1,24 @@
 /** Run workspace.
  *
  * Information architecture (approved plan):
- *   1. Header strip — title, active topology/detector subtitle, Run button.
+ *   1. Header strip — title, topology/detector subtitle, "Sniff folder" +
+ *      Run buttons.
  *   2. Quick-start panel — preset card grid. Collapses to a compact
  *      "preset: name ✓  change" row once a preset is applied.
  *   3. Compact paths strip — folder + manifest paths (font-mono, muted).
  *      Visible once a manifest dir is known.
+ *   3b. Unresolved-fields notice — shown when the manifest carries
+ *      `_unresolved` (e.g. from a sniffed folder); blocks Run (ADR 0019).
  *   4. Manifest section — collapsible, schema-driven ConfigForm.
  *   5. Calibration config section — collapsible, schema-driven ConfigForm.
  *   6. Advanced JSON editor — third collapsible, lowest priority.
  *   7. Status banner — sticky top-of-workspace during / after a run.
+ *      Runner `ask_user` ambiguities surface as a modal (AskUserModal).
  *
- * B3c wires PlanarIntrinsics, ScheimpflugIntrinsics, RigExtrinsics and
- * RigHandeye end-to-end; the config schema follows the manifest's
- * topology (see `topologies.ts`). Laser topologies + SingleCamHandeye
- * render with a disabled Run button until their runners ship.
+ * All 8 topologies + 4 detectors run end-to-end (B3c). B3d adds "Sniff
+ * folder" → heuristic manifest (the `sniff_folder` Tauri command), with the
+ * fields the sniffer can't determine left in `_unresolved` and surfaced as
+ * red badges + a blocked Run until the user fills and clears them.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -27,7 +31,14 @@ import { runCalibration, type RunResponse } from "../../lib/runCalibration";
 import { isTauriContext } from "../../lib/tauri";
 import datasetSchemaJson from "../../schemas/dataset_spec.json";
 import { useStore } from "../../store";
+import { AskUserModal } from "./AskUserModal";
 import { CollapsibleSection } from "./CollapsibleSection";
+import {
+  applyAskUserChoice,
+  clearUnresolved,
+  hintFor,
+  unresolvedPaths,
+} from "./manifestFields";
 import { PresetCard } from "./PresetCard";
 import { BUILTIN_PRESETS, mergeConfig, type EnabledPreset } from "./presets";
 import { topologyInfo } from "./topologies";
@@ -133,6 +144,19 @@ export function RunWorkspace() {
 
   const topology = topologyOf(manifest);
   const info = topologyInfo(topology);
+
+  // Fields the sniffer/runner could not determine. A non-empty list blocks
+  // Run until the user fills them in and clears them (ADR 0019).
+  const unresolved = useMemo<string[]>(() => unresolvedPaths(manifest), [manifest]);
+  const hasUnresolved = unresolved.length > 0;
+  const runBlocked = isRunning || !manifestDir || !info.supported || hasUnresolved;
+  const runBlockReason = !info.supported
+    ? info.unsupportedReason
+    : hasUnresolved
+      ? `Resolve ${unresolved.length} unresolved manifest field${unresolved.length !== 1 ? "s" : ""} first`
+      : !manifestDir
+        ? "Set a dataset folder first"
+        : undefined;
 
   // When the manifest's topology changes (form edit, JSON blur, preset
   // load), swap the config schema and reset the config to that
@@ -254,6 +278,51 @@ export function RunWorkspace() {
     }
   };
 
+  // Pick a foreign dataset folder and heuristically infer a manifest
+  // (B3d). The sniffer leaves fields it can't determine in `_unresolved`,
+  // which drives the red badge + blocked Run below.
+  const handleSniffFolder = async () => {
+    if (!inTauri) {
+      setStatus({ kind: "error", category: "no_tauri", message: "Folder sniffing requires Tauri (bun run tauri dev)." });
+      return;
+    }
+    try {
+      const picked = await open({ directory: true, multiple: false, title: "Pick a dataset folder to sniff" });
+      if (typeof picked !== "string") return;
+      const spec = await invoke<Record<string, unknown>>("sniff_folder", { folder: picked });
+
+      setManifestDir(picked);
+      setManifestPath(null);
+      setManifest(spec);
+      const defaults = await fetchDefaultConfig(topologyOf(spec), inTauri);
+      prevTopologyRef.current = topologyOf(spec);
+      setConfig(defaults);
+      setActivePresetId(null);
+      setGridExpanded(false);
+      setStatus({ kind: "idle" });
+
+      if (jsonEditorRef.current) {
+        jsonEditorRef.current.value = JSON.stringify({ manifest: spec, config: defaults }, null, 2);
+      }
+    } catch (e) {
+      setStatus({ kind: "error", category: "sniff", message: `Sniff failed: ${String(e)}` });
+    }
+  };
+
+  // Mark one `_unresolved` field as handled (the user filled it in the form).
+  const handleResolveField = (path: string) => {
+    setManifest((prev: unknown) => clearUnresolved(prev, path));
+  };
+
+  // Apply an AskUser modal choice into the manifest, then dismiss so the
+  // user can review and re-run.
+  const handleAskUserApply = (choice: string) => {
+    if (status.kind !== "ask_user") return;
+    const field = status.field;
+    setManifest((prev: unknown) => applyAskUserChoice(prev, field, choice));
+    setStatus({ kind: "idle" });
+  };
+
   const handlePickManifest = async () => {
     if (!inTauri) {
       setStatus({ kind: "error", category: "no_tauri", message: "File picker requires Tauri (bun run tauri dev)." });
@@ -363,25 +432,33 @@ export function RunWorkspace() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleRun}
-          disabled={isRunning || !manifestDir || !info.supported}
-          title={!info.supported ? info.unsupportedReason : undefined}
-          className={[
-            "h-9 rounded-md px-5 text-[13px] font-semibold transition-colors",
-            isRunning || !manifestDir || !info.supported
-              ? "cursor-not-allowed bg-bg-soft text-muted-foreground border border-border"
-              : "bg-brand text-white hover:opacity-90",
-          ].join(" ")}
-          style={
-            isRunning || !manifestDir || !info.supported
-              ? undefined
-              : { backgroundColor: "var(--brand)" }
-          }
-        >
-          {isRunning ? "Running…" : "Run"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleSniffFolder}
+            disabled={isRunning}
+            title="Pick a dataset folder and auto-generate a manifest"
+            className="h-9 rounded-md border border-border bg-bg px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-bg-soft disabled:cursor-not-allowed disabled:text-muted-foreground"
+          >
+            Sniff folder
+          </button>
+
+          <button
+            type="button"
+            onClick={handleRun}
+            disabled={runBlocked}
+            title={runBlockReason}
+            className={[
+              "h-9 rounded-md px-5 text-[13px] font-semibold transition-colors",
+              runBlocked
+                ? "cursor-not-allowed bg-bg-soft text-muted-foreground border border-border"
+                : "bg-brand text-white hover:opacity-90",
+            ].join(" ")}
+            style={runBlocked ? undefined : { backgroundColor: "var(--brand)" }}
+          >
+            {isRunning ? "Running…" : "Run"}
+          </button>
+        </div>
       </header>
 
       {/* 7. Status banner — sticky at top of content */}
@@ -411,11 +488,19 @@ export function RunWorkspace() {
         />
       )}
 
+      {/* 3b. Unresolved-fields notice — sniffed manifests block Run until
+          every domain-knowledge field is filled and cleared (ADR 0019). */}
+      {hasUnresolved && (
+        <UnresolvedNotice paths={unresolved} onResolve={handleResolveField} />
+      )}
+
       {/* 4. Manifest section */}
       <CollapsibleSection
         title="Manifest"
         summary={manifestSummary}
-        badge={manifestDir ? undefined : "unset"}
+        defaultOpen={hasUnresolved}
+        badge={hasUnresolved ? `${unresolved.length} unresolved` : manifestDir ? undefined : "unset"}
+        badgeVariant={hasUnresolved ? "destructive" : "default"}
       >
         <ConfigForm
           schema={datasetSchema}
@@ -456,6 +541,62 @@ export function RunWorkspace() {
           <code className="font-mono">config</code> keys are required at the top level.
         </p>
       </CollapsibleSection>
+
+      {/* AskUser modal — runner ambiguity that needs a choice (ADR 0019). */}
+      {status.kind === "ask_user" && (
+        <AskUserModal
+          field={status.field}
+          prompt={status.prompt}
+          suggestions={status.suggestions}
+          onApply={handleAskUserApply}
+          onDismiss={() => setStatus({ kind: "idle" })}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Unresolved-fields notice ───────────────────────────────────────────────────
+
+interface UnresolvedNoticeProps {
+  paths: string[];
+  onResolve: (path: string) => void;
+}
+
+function UnresolvedNotice({ paths, onResolve }: UnresolvedNoticeProps) {
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-md border px-3 py-2.5 text-[12px]"
+      style={{
+        borderColor: "var(--color-destructive, #ef4444)",
+        backgroundColor: "color-mix(in srgb, var(--color-destructive, #ef4444) 7%, transparent)",
+      }}
+    >
+      <p className="font-semibold" style={{ color: "var(--color-destructive, #ef4444)" }}>
+        {paths.length} field{paths.length !== 1 ? "s" : ""} need your input before this dataset can run
+      </p>
+      <p className="text-[11px] text-muted-foreground">
+        The sniffer left these blank rather than guess. Fill each one in the Manifest
+        form below, then mark it resolved.
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {paths.map((path) => (
+          <li key={path} className="flex items-start gap-2">
+            <code className="mt-0.5 shrink-0 font-mono text-[11px] text-foreground">{path}</code>
+            <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+              {hintFor(path) ?? "Provide a value in the Manifest form."}
+            </span>
+            <button
+              type="button"
+              onClick={() => onResolve(path)}
+              className="shrink-0 rounded border border-border bg-bg px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+              title="Remove this field from _unresolved once you've filled it in"
+            >
+              mark resolved
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -648,19 +789,8 @@ function StatusBanner({ status }: { status: RunStatus }) {
     );
   }
 
-  if (status.kind === "ask_user") {
-    return (
-      <div className="rounded-md border border-border bg-bg-soft px-3 py-2.5 text-[12px]">
-        <p className="font-semibold text-foreground">Need your input on <code className="font-mono">{status.field}</code></p>
-        <p className="mt-1 text-muted-foreground">{status.prompt}</p>
-        {status.suggestions.length > 0 && (
-          <p className="mt-1 font-mono text-muted-foreground">
-            Suggestions: {status.suggestions.join(", ")}
-          </p>
-        )}
-      </div>
-    );
-  }
+  // `ask_user` is presented as a modal (see AskUserModal), not an inline banner.
+  if (status.kind === "ask_user") return null;
 
   // Error
   return (

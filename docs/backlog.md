@@ -162,11 +162,16 @@ review.
   feature → TOML) and Tauri `sniff_folder` command share the one inference.
   Acceptance: round-trips `data/kuka_1` (single_cam_handeye + rowmajor4x4
   poses) and `data/stereo` (rig_extrinsics, topology flagged).
-- [ ] B3D-UX - Frontend manifest UX (B3d-2): "Sniff folder" button, red
-  `_unresolved` badge on the Manifest section, Run blocked while
-  `_unresolved` non-empty, `AskUserModal` replacing the inline AskUser
-  banner (suggestion buttons + free-text), vendor-aware suggestion labels at
-  the runner AskUser raise sites.
+- [x] B3D-UX - Frontend manifest UX (B3d-2). Completed 2026-06-14 —
+  [report](report/2026-06-14-B3D-UX-manifest-sniff-unresolved-askuser.md).
+  "Sniff folder" button (calls the `sniff_folder` command), `UnresolvedNotice`
+  strip with vendor-aware field hints + per-field "mark resolved", red
+  `N unresolved` badge on the Manifest section (new `badgeVariant`), Run
+  blocked while `_unresolved` non-empty, and `AskUserModal` replacing the
+  inline AskUser banner (click-to-apply suggestion buttons + free-text).
+  Vendor hints live front-end-side (`FIELD_HINTS`) so runner suggestions stay
+  raw click-to-apply values; no pipeline change. `bun run build` + `tsc -b`
+  green.
 - [ ] B-LASER - Laserline visualization: laser-pixel overlay in Diagnose,
   point-to-plane residuals (mm) panel, laser planes in the 3D rig viewer.
 - [ ] B-EXPLORE - Pre-calibration dataset exploration: per-camera/pose image

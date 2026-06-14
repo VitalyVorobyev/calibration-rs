@@ -14,6 +14,8 @@
  *               default so parent doesn't need to track per-section state
  * children    — section body (any React node)
  * badge       — optional text rendered as a small badge after the title
+ * badgeVariant — badge color: "default" (brand) or "destructive" (red,
+ *               e.g. unresolved manifest fields)
  */
 import { useState } from "react";
 
@@ -23,6 +25,7 @@ interface CollapsibleSectionProps {
   defaultOpen?: boolean;
   children: React.ReactNode;
   badge?: string;
+  badgeVariant?: "default" | "destructive";
 }
 
 export function CollapsibleSection({
@@ -31,6 +34,7 @@ export function CollapsibleSection({
   defaultOpen = false,
   children,
   badge,
+  badgeVariant = "default",
 }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -53,7 +57,14 @@ export function CollapsibleSection({
             {title}
           </span>
           {badge && (
-            <span className="rounded-full bg-brand/[0.12] px-1.5 py-px text-[10px] font-medium text-brand">
+            <span
+              className={[
+                "rounded-full px-1.5 py-px text-[10px] font-medium",
+                badgeVariant === "destructive"
+                  ? "bg-[color-mix(in_srgb,var(--color-destructive,#ef4444)_16%,transparent)] text-[var(--color-destructive,#ef4444)]"
+                  : "bg-brand/[0.12] text-brand",
+              ].join(" ")}
+            >
               {badge}
             </span>
           )}
