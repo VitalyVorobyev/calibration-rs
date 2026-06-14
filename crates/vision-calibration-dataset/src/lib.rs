@@ -26,9 +26,11 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod sniff;
 mod spec;
 mod validator;
 
+pub use sniff::{SniffError, sniff_folder};
 pub use spec::{
     CameraSource, ChessCornersDetectorSpec, ChessThresholdMode, DatasetSpec, DetectorSpec,
     ImagePattern, LaserExtractionSpec, LaserScanAxis, PoseColumnMap, PoseConvention, PosePairing,

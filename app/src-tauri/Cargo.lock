@@ -372,6 +372,12 @@ dependencies = [
 
 [[package]]
 name = "box-image-pyramid"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9df10ad1e3a240711ead31880fec6b0535f1d7b63d00a6b492cd03e2b1b6cfd4"
+
+[[package]]
+name = "box-image-pyramid"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c276dec39b2cd785b656a046611e2a568c9b29c381309e67b2238eca45a749e8"
@@ -495,7 +501,7 @@ dependencies = [
  "clap",
  "image",
  "nalgebra",
- "projective-grid",
+ "projective-grid 0.9.0",
  "thiserror 2.0.18",
 ]
 
@@ -524,7 +530,7 @@ dependencies = [
  "chess-corners",
  "log",
  "nalgebra",
- "projective-grid",
+ "projective-grid 0.9.0",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -540,7 +546,7 @@ dependencies = [
  "kiddo",
  "log",
  "nalgebra",
- "projective-grid",
+ "projective-grid 0.9.0",
  "serde",
  "thiserror 2.0.18",
 ]
@@ -554,7 +560,7 @@ dependencies = [
  "chess-corners",
  "log",
  "nalgebra",
- "projective-grid",
+ "projective-grid 0.9.0",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -602,7 +608,7 @@ dependencies = [
  "calib-targets-core",
  "chess-corners",
  "nalgebra",
- "projective-grid",
+ "projective-grid 0.9.0",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -736,7 +742,7 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2f37e99c9bb594553e04c51d375eeeb036577de197e22d02b620173519feabf"
 dependencies = [
- "box-image-pyramid",
+ "box-image-pyramid 0.11.0",
  "chess-corners-core",
  "chess-corners-ml",
  "image",
@@ -4179,6 +4185,18 @@ dependencies = [
 
 [[package]]
 name = "projective-grid"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85c309be7859234ef1fbe943e4be1af38062c60343e8e46989493a1d5a20fe72"
+dependencies = [
+ "kiddo",
+ "nalgebra",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "projective-grid"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04c6ff1a535e642c2e3729c31677556ec2351db090c685906f09da8b6b35790a"
@@ -4302,6 +4320,17 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "radsym"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e7a42afc1f831c6601e9a37a97b3f3a07529f074f771c23e68b9cbb66e9fd40"
+dependencies = [
+ "box-image-pyramid 0.4.2",
+ "nalgebra",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "rand"
@@ -4648,6 +4677,25 @@ name = "rgb"
 version = "0.8.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
+
+[[package]]
+name = "ringgrid"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3165014cdd5129232f400ef26120def921c4f8e1ac7b7bb4a51da6ec788241e7"
+dependencies = [
+ "approx",
+ "image",
+ "nalgebra",
+ "png 0.18.1",
+ "projective-grid 0.5.3",
+ "radsym",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "tracing",
+ "web-time",
+]
 
 [[package]]
 name = "robust"
@@ -6423,6 +6471,7 @@ dependencies = [
  "calib-targets",
  "chess-corners",
  "image",
+ "ringgrid",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -6703,6 +6752,16 @@ name = "web-sys"
 version = "0.3.97"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2eadbac71025cd7b0834f20d1fe8472e8495821b4e9801eb0a60bd1f19827602"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

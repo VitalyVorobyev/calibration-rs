@@ -144,9 +144,29 @@ review.
   `private.json`), which are absent from CI and dev checkouts. Resume on a
   machine with the private data, or after a committed charuco fixture exists.
   `detect/src/charuco.rs` now documents the canonical-authority boundary.
-- [ ] B3C-RIG - Run-workspace coverage for `RigExtrinsics`, `RigHandeye`,
-  `RigLaserlineDevice` + charuco detector wiring
-  (`app/src-tauri/src/run.rs:131` topology dispatch).
+- [x] B3C-RIG - Run-workspace coverage for `RigExtrinsics`, `RigHandeye`,
+  `RigLaserlineDevice` + charuco detector wiring. **Already shipped** in
+  B3c-1 + B3c-3 (2026-06-12); checkbox was stale. Verified 2026-06-14:
+  `app/src-tauri/src/run.rs` dispatches all 8 topologies via an exhaustive
+  `match` (no stub), `dataset_runner` exposes all seven `build_*_input`
+  converters + all four detectors, and `RunWorkspace/topologies.ts` exposes
+  every topology with `supported: true`. No code change needed.
+- [x] B3D-SNIFF - Heuristic dataset folder → `DatasetSpec` sniffer (B3d-1).
+  Completed 2026-06-14 —
+  [report](report/2026-06-14-B3D-SNIFF-heuristic-manifest-sniffer.md).
+  `vision_calibration_dataset::sniff_folder` walks a dataset directory and
+  infers only structurally-unambiguous fields (camera dirs/globs, robot-pose
+  file format, `by_index` pairing), leaving board geometry / target kind /
+  frame convention / ambiguous topology at placeholders with their dotted
+  paths in `_unresolved` (ADR 0019). New `generate-manifest` CLI (`cli`
+  feature → TOML) and Tauri `sniff_folder` command share the one inference.
+  Acceptance: round-trips `data/kuka_1` (single_cam_handeye + rowmajor4x4
+  poses) and `data/stereo` (rig_extrinsics, topology flagged).
+- [ ] B3D-UX - Frontend manifest UX (B3d-2): "Sniff folder" button, red
+  `_unresolved` badge on the Manifest section, Run blocked while
+  `_unresolved` non-empty, `AskUserModal` replacing the inline AskUser
+  banner (suggestion buttons + free-text), vendor-aware suggestion labels at
+  the runner AskUser raise sites.
 - [ ] B-LASER - Laserline visualization: laser-pixel overlay in Diagnose,
   point-to-plane residuals (mm) panel, laser planes in the 3D rig viewer.
 - [ ] B-EXPLORE - Pre-calibration dataset exploration: per-camera/pose image

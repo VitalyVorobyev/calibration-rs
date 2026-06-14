@@ -159,11 +159,20 @@ puzzleboard / ringgrid) are supported.
 - **B-explore — dataset exploration.** Browse a dataset *before*
   calibrating: image grid per camera/pose, detection overlay from the
   cache, board coverage map. Today the app only visualizes exports.
-- **B3d — manifest UX.** AI-driven `generate-manifest` CLI binary
-  (heuristic-only v0: regex / file-extension / vendor signature /
-  README scraping). Tauri "Sniff folder" command. `_unresolved` UX
-  (red badges, blocked Run button). `AskUser` modal component.
-  Frame-convention validator with vendor-aware error messages.
+- **B3d — manifest UX (in flight).**
+  - **B3d-1 (2026-06-14): heuristic sniffer SHIPPED** —
+    `vision_calibration_dataset::sniff_folder` walks a dataset folder and
+    emits a `DatasetSpec` skeleton, inferring only structurally-unambiguous
+    fields (camera dirs/globs, robot-pose file format, `by_index` pairing)
+    and leaving board geometry / target kind / frame convention / ambiguous
+    topology at placeholders with their dotted paths in `_unresolved`
+    (ADR 0019, no silent guessing). The `generate-manifest` CLI (`cli`
+    feature → TOML) and the app's Tauri `sniff_folder` command share the one
+    inference. Acceptance round-trips `data/kuka_1` + `data/stereo`.
+    Heuristic-only v0 (no LLM / README scraping yet).
+  - **B3d-2 (next): manifest UX.** "Sniff folder" button, `_unresolved` red
+    badges + blocked Run button, `AskUser` modal component, frame-convention
+    validator with vendor-aware error messages.
 - **B3e — iteration polish.** Cancellability for long solves;
   progress event streaming; multi-pose residual stats panel;
   cross-camera residual matrix; experiments directory storing
