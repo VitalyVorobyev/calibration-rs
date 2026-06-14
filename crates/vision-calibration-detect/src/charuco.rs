@@ -5,10 +5,16 @@
 //! or unidentified cells simply produce no feature — so the per-view feature
 //! count varies; the runner decides whether a view is usable.
 //!
-//! Canonical impl note: `vision-calibration-bench/src/detect.rs::detect_charuco_view`
-//! and the `examples-private` helper carry near-identical calib-targets glue
-//! with different output shapes. This is the canonical app-facing version;
-//! dedup of the other two is tracked as B3c follow-up.
+//! Canonical authority: this is the single app-facing ChArUco detector.
+//! `vision-calibration-bench/src/detect.rs::detect_charuco_view` and the
+//! `examples-private` helper carry parallel calib-targets glue that emits
+//! `CorrespondenceView` for the offline solvers (a different consumer than
+//! the app's `Feature`/cache path). Collapsing all three onto one detection
+//! call is desirable but **deferred** (B3C-CHARUCO-DEDUP): its correctness
+//! gate is "bench + examples residual numbers unchanged", and those paths
+//! are validated only against private golden datasets that are absent from
+//! CI and this workspace — so a shared-path refactor cannot be numerically
+//! verified here. See `docs/backlog.md`.
 
 use anyhow::{Result, anyhow};
 use calib_targets::aruco::builtins;
