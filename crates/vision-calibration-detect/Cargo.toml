@@ -12,10 +12,11 @@ homepage.workspace = true
 repository.workspace = true
 
 [features]
-default = ["chessboard", "charuco", "puzzleboard"]
+default = ["chessboard", "charuco", "puzzleboard", "ringgrid"]
 chessboard = ["dep:calib-targets", "dep:chess-corners"]
 charuco = ["dep:calib-targets", "dep:chess-corners"]
 puzzleboard = ["dep:calib-targets"]
+ringgrid = ["dep:ringgrid"]
 schemars = ["dep:schemars"]
 
 [dependencies]
@@ -27,6 +28,7 @@ image = { workspace = true }
 schemars = { workspace = true, optional = true }
 calib-targets = { workspace = true, optional = true }
 chess-corners = { workspace = true, optional = true }
+ringgrid = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3"

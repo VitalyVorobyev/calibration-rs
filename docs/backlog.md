@@ -126,9 +126,14 @@ review.
   sealed `Detector` trait + `puzzleboard` feature; `dataset_runner` resolves
   the `"puzzle_<R>x<C>"` layout name to dimensions and dispatches it (was
   `UnsupportedTarget`). Synthetic-board detection + dispatch tests green.
-- [ ] B3C-RINGGRID - Ringgrid detector wrapping `ringgrid` 0.6 (crates.io)
-  behind a `ringgrid` feature + `dataset_runner` dispatch for
-  `TargetSpec::Ringgrid`. Second of the two B3c-remainder detectors.
+- [x] B3C-RINGGRID - Coded ring-grid detector. Completed 2026-06-14 —
+  [report](report/2026-06-14-B3C-RINGGRID-ringgrid-detector.md).
+  `RinggridDetector` wraps `ringgrid` 0.6 (crates.io) behind the sealed
+  `Detector` trait + `ringgrid` feature; `dataset_runner` dispatches
+  `TargetSpec::Ringgrid`. `TargetSpec::Ringgrid` realigned (breaking) to the
+  real hex-lattice `BoardLayout` model (`pitch`/`rows`/`long_row_cols`/radii/
+  ring-width); schema regenerated. All four target detectors now calibrate
+  end-to-end. Synthetic-board detection + dispatch tests green.
 - [ ] B3C-CHARUCO-DEDUP - Consolidate the three charuco detection paths
   (`detect/src/charuco.rs` canonical, `examples-private::detect_charuco`,
   `bench::detect_charuco_view`) onto one shared core. Numerics-preserving:

@@ -191,24 +191,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_target() {
-        let mut spec = planar_spec_for_globless_test();
-        spec.target = TargetSpec::Ringgrid {
-            rows: 5,
-            cols: 5,
-            spacing_m: 0.02,
-            inner_radius_m: 0.004,
-            outer_radius_m: 0.008,
-        };
-        spec.cameras[0].images = ImagePattern::Glob {
-            pattern: "*.png".into(),
-        };
-        let cache = FsDetectionCache::new(std::env::temp_dir().join("calib-test-cache"));
-        let err = build_planar_input(&spec, Path::new("/tmp"), &cache, false).unwrap_err();
-        assert!(matches!(err, RunError::UnsupportedTarget { .. }));
-    }
-
-    #[test]
     fn empty_image_match_is_actionable() {
         let mut spec = planar_spec_for_globless_test();
         spec.cameras[0].images = ImagePattern::Glob {

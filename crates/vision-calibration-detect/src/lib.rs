@@ -35,6 +35,8 @@ mod chess_options;
 mod chessboard;
 #[cfg(feature = "puzzleboard")]
 mod puzzleboard;
+#[cfg(feature = "ringgrid")]
+mod ringgrid;
 
 pub use cache::{
     CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache, hash_image_bytes,
@@ -49,6 +51,8 @@ pub use chess_options::{ChessCornersConfig, ChessThresholdMode};
 pub use chessboard::{ChessboardConfig, ChessboardDetector};
 #[cfg(feature = "puzzleboard")]
 pub use puzzleboard::{PuzzleboardConfig, PuzzleboardDetector};
+#[cfg(feature = "ringgrid")]
+pub use ringgrid::{RinggridConfig, RinggridDetector};
 
 use serde_json::Value;
 

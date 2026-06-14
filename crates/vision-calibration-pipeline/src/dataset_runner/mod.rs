@@ -32,7 +32,7 @@ use vision_calibration_dataset::{
 };
 use vision_calibration_detect::{
     CacheKey, CachedFeatures, CharucoDetector, ChessboardDetector, DetectionCache, Detector,
-    Feature, PuzzleboardDetector, validate_charuco_layout,
+    Feature, PuzzleboardDetector, RinggridDetector, validate_charuco_layout,
 };
 
 mod handeye;
@@ -338,9 +338,24 @@ fn detector_config_for_target(target: &TargetSpec) -> Result<(&'static str, Valu
                 }),
             ))
         }
-        TargetSpec::Ringgrid { .. } => Err(RunError::UnsupportedTarget {
-            kind: "ringgrid".to_string(),
-        }),
+        TargetSpec::Ringgrid {
+            pitch_m,
+            rows,
+            long_row_cols,
+            marker_outer_radius_m,
+            marker_inner_radius_m,
+            marker_ring_width_m,
+        } => Ok((
+            "ringgrid",
+            json!({
+                "pitch_m": *pitch_m,
+                "rows": *rows,
+                "long_row_cols": *long_row_cols,
+                "marker_outer_radius_m": *marker_outer_radius_m,
+                "marker_inner_radius_m": *marker_inner_radius_m,
+                "marker_ring_width_m": *marker_ring_width_m,
+            }),
+        )),
     }
 }
 
@@ -349,6 +364,7 @@ fn pick_detector(name: &str) -> Result<Box<dyn Detector>, RunError> {
         "chessboard" => Ok(Box::new(ChessboardDetector)),
         "charuco" => Ok(Box::new(CharucoDetector)),
         "puzzleboard" => Ok(Box::new(PuzzleboardDetector)),
+        "ringgrid" => Ok(Box::new(RinggridDetector)),
         other => Err(RunError::UnsupportedTarget {
             kind: other.to_string(),
         }),
@@ -729,6 +745,27 @@ mod tests {
             }
             other => panic!("expected InvalidTargetConfig, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn ringgrid_target_maps_to_detector_config() {
+        let target = TargetSpec::Ringgrid {
+            pitch_m: 0.02,
+            rows: 5,
+            long_row_cols: 5,
+            marker_outer_radius_m: 0.006,
+            marker_inner_radius_m: 0.003,
+            marker_ring_width_m: 0.001,
+        };
+        let spec = spec_for_target(target);
+        let (name, config) = target_to_detector_config(&spec).unwrap();
+        assert_eq!(name, "ringgrid");
+        assert_eq!(config["long_row_cols"], 5);
+        assert_eq!(config["marker_outer_radius_m"], 0.006);
+        // Field-name contract guard between the dispatcher and the detect crate.
+        let _cfg: vision_calibration_detect::RinggridConfig =
+            serde_json::from_value(config).unwrap();
+        pick_detector(name).unwrap();
     }
 
     #[test]

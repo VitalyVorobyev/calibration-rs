@@ -515,47 +515,53 @@
           "type": "object"
         },
         {
-          "description": "Ringgrid target (ringgrid crate).",
+          "description": "Coded ring-grid target (the `ringgrid` crate). The board is a\nhex-lattice of self-identifying ring markers; its geometry mirrors\n`ringgrid::BoardLayout` so the manifest fully determines detection.",
           "properties": {
-            "cols": {
-              "description": "Number of rings along the cols axis.",
-              "format": "uint32",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "inner_radius_m": {
-              "description": "Inner ring radius in metres.",
-              "format": "double",
-              "type": "number"
-            },
             "kind": {
               "const": "ringgrid",
               "type": "string"
             },
-            "outer_radius_m": {
-              "description": "Outer ring radius in metres.",
-              "format": "double",
-              "type": "number"
-            },
-            "rows": {
-              "description": "Number of rings along the rows axis.",
+            "long_row_cols": {
+              "description": "Number of columns in the longest (even-indexed) row. Shorter\nrows are derived by the hex-lattice layout.",
               "format": "uint32",
               "minimum": 0,
               "type": "integer"
             },
-            "spacing_m": {
-              "description": "Centre-to-centre spacing of adjacent rings in metres.",
+            "marker_inner_radius_m": {
+              "description": "Inner ring radius in metres.",
               "format": "double",
               "type": "number"
+            },
+            "marker_outer_radius_m": {
+              "description": "Outer ring radius in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "marker_ring_width_m": {
+              "description": "Width of each ring band in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "pitch_m": {
+              "description": "Center-to-center spacing between adjacent markers in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "rows": {
+              "description": "Number of marker rows.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
             }
           },
           "required": [
             "kind",
+            "pitch_m",
             "rows",
-            "cols",
-            "spacing_m",
-            "inner_radius_m",
-            "outer_radius_m"
+            "long_row_cols",
+            "marker_outer_radius_m",
+            "marker_inner_radius_m",
+            "marker_ring_width_m"
           ],
           "type": "object"
         }
