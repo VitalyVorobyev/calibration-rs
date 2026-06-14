@@ -73,7 +73,7 @@ pub fn sniff_folder(root: &Path) -> Result<DatasetSpec, SniffError> {
     let mut unresolved: Vec<String> = Vec::new();
 
     // Robot poses — inferred only from a recognisable pose file.
-    let pose = detect_pose_file(root, &others)?;
+    let pose = detect_pose_file(root, &others);
 
     // Topology: choose the most likely problem type from camera count and
     // pose presence; flag `topology` unresolved when the choice is genuinely
@@ -262,16 +262,18 @@ fn group_cameras(images: &[ImageFile]) -> Vec<CameraGroup> {
     for (dir, imgs) in by_dir {
         let ext = dominant_ext(&imgs);
         let glob = glob_for(&dir, &ext);
+        // Count only the images the emitted `*.{ext}` glob will actually
+        // expand to, not every image in the directory. Otherwise a mixed-
+        // extension group (e.g. 3 PNG + 1 JPG) would report 4 and could be
+        // paired `by_index` against a 4-long stream the glob only fills with
+        // 3 — a count mismatch the runner hits later.
+        let count = imgs.iter().filter(|img| img.ext == ext).count();
         let id = if single {
             "cam0".to_string()
         } else {
             unique_id(leaf_name(&dir), &mut used_ids)
         };
-        groups.push(CameraGroup {
-            id,
-            glob,
-            count: imgs.len(),
-        });
+        groups.push(CameraGroup { id, glob, count });
     }
     groups
 }
@@ -332,8 +334,10 @@ struct PoseFile {
 /// Find and classify a robot-pose file among the non-image files. A file is
 /// a pose candidate only if its name contains `pose` (case-insensitive) —
 /// this deliberately excludes `*.json` exports, `dataset.toml` manifests,
-/// and other numeric sidecars. The lexicographically first match wins.
-fn detect_pose_file(root: &Path, others: &[PathBuf]) -> Result<Option<PoseFile>, SniffError> {
+/// and other numeric sidecars. Candidates are tried in lexicographic order;
+/// any that is not readable UTF-8 text (e.g. a binary `pose_cache.npy`) is
+/// skipped in favor of the next, since the name match is only heuristic.
+fn detect_pose_file(root: &Path, others: &[PathBuf]) -> Option<PoseFile> {
     let mut candidates: Vec<&PathBuf> = others
         .iter()
         .filter(|rel| {
@@ -344,46 +348,45 @@ fn detect_pose_file(root: &Path, others: &[PathBuf]) -> Result<Option<PoseFile>,
         .collect();
     candidates.sort();
 
-    let Some(rel) = candidates.into_iter().next() else {
-        return Ok(None);
-    };
+    for rel in candidates {
+        // Skip binary / unreadable sidecars rather than aborting the sniff.
+        let Ok(contents) = std::fs::read_to_string(root.join(rel)) else {
+            continue;
+        };
+        let nonempty: Vec<&str> = contents.lines().filter(|l| !l.trim().is_empty()).collect();
+        let ext = rel
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
 
-    let abs = root.join(rel);
-    let contents = std::fs::read_to_string(&abs).map_err(|source| SniffError::Io {
-        path: abs.clone(),
-        source,
-    })?;
-    let nonempty: Vec<&str> = contents.lines().filter(|l| !l.trim().is_empty()).collect();
-    let ext = rel
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .unwrap_or_default();
+        let format = match ext.as_str() {
+            "csv" => RobotPoseFormat::Csv,
+            "json" => RobotPoseFormat::Json,
+            "jsonl" => RobotPoseFormat::Jsonl,
+            // Headerless text: a 16-float first line is a row-major 4x4 export.
+            _ if is_rowmajor4x4_line(nonempty.first().copied().unwrap_or("")) => {
+                RobotPoseFormat::Rowmajor4x4
+            }
+            _ => RobotPoseFormat::Csv,
+        };
 
-    let format = match ext.as_str() {
-        "csv" => RobotPoseFormat::Csv,
-        "json" => RobotPoseFormat::Json,
-        "jsonl" => RobotPoseFormat::Jsonl,
-        // Headerless text: a 16-float first line is a row-major 4x4 export.
-        _ if is_rowmajor4x4_line(nonempty.first().copied().unwrap_or("")) => {
-            RobotPoseFormat::Rowmajor4x4
-        }
-        _ => RobotPoseFormat::Csv,
-    };
+        // The pose count drives by-index pairing. For rowmajor4x4 each
+        // non-empty line is one pose; for CSV the header row is not a pose.
+        let count = match format {
+            RobotPoseFormat::Rowmajor4x4 => nonempty.len(),
+            RobotPoseFormat::Csv => nonempty.len().saturating_sub(1),
+            RobotPoseFormat::Json | RobotPoseFormat::Jsonl => nonempty.len(),
+        };
 
-    // The pose count drives by-index pairing. For rowmajor4x4 each non-empty
-    // line is one pose; for CSV the header row is not a pose.
-    let count = match format {
-        RobotPoseFormat::Rowmajor4x4 => nonempty.len(),
-        RobotPoseFormat::Csv => nonempty.len().saturating_sub(1),
-        RobotPoseFormat::Json | RobotPoseFormat::Jsonl => nonempty.len(),
-    };
+        return Some(PoseFile {
+            rel: rel.clone(),
+            format,
+            count,
+        });
+    }
 
-    Ok(Some(PoseFile {
-        rel: rel.clone(),
-        format,
-        count,
-    }))
+    None
 }
 
 /// Is this line 16 whitespace-separated floats (a flattened row-major 4x4)?
@@ -422,6 +425,12 @@ mod tests {
             let p = self.path.join(rel);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(&p, contents).unwrap();
+        }
+
+        fn write_bytes(&self, rel: &str, bytes: &[u8]) {
+            let p = self.path.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, bytes).unwrap();
         }
     }
 
@@ -521,6 +530,42 @@ mod tests {
     }
 
     #[test]
+    fn mixed_extension_counts_by_dominant_glob() {
+        // camA mixes 3 PNG + 1 stray JPG; the glob is `*.png` so the pairing
+        // count must be 3 (PNG only), matching camB's 3 — otherwise the count
+        // would be 4 and pairing would (wrongly) be flagged inconsistent.
+        let dir = TempDir::new("mixedext");
+        for i in 0..3 {
+            dir.touch(&format!("a/{i}.png"));
+        }
+        dir.touch("a/stray.jpg");
+        for i in 0..3 {
+            dir.touch(&format!("b/{i}.png"));
+        }
+
+        let spec = sniff_folder(&dir.path).unwrap();
+        assert_eq!(cam_glob(&spec, "a"), "a/*.png");
+        assert!(matches!(spec.pose_pairing, Some(PosePairing::ByIndex)));
+        assert!(!spec.unresolved.contains(&"pose_pairing".to_string()));
+    }
+
+    #[test]
+    fn binary_pose_sidecar_is_skipped() {
+        // A non-UTF-8 sidecar whose name contains "pose" sorts before the real
+        // pose file; it must be skipped, not abort the whole sniff.
+        let dir = TempDir::new("binpose");
+        dir.touch("img.png");
+        dir.write_bytes("camera_pose.npy", &[0x93, b'N', 0xff, 0xfe, 0x00, 0x01]);
+        let row = "1 0 0 0.5\t0 1 0 0\t0 0 1 0\t0 0 0 1\n";
+        dir.write("robot_poses.txt", row);
+
+        let spec = sniff_folder(&dir.path).unwrap();
+        let poses = spec.robot_poses.as_ref().expect("real pose file used");
+        assert_eq!(poses.path, PathBuf::from("robot_poses.txt"));
+        assert_eq!(poses.format, RobotPoseFormat::Rowmajor4x4);
+    }
+
+    #[test]
     fn empty_folder_errors() {
         let dir = TempDir::new("empty");
         assert!(matches!(
@@ -550,22 +595,33 @@ mod tests {
         assert_eq!(back.cameras.len(), 1);
     }
 
-    // ── Acceptance against committed fixtures (skipped when absent) ──────────
+    // ── Acceptance against committed fixtures ───────────────────────────────
+    //
+    // Skipped when the fixture's images aren't present: `data/kuka_1` ships
+    // its 30 PNGs, but `data/stereo` only commits its `.toml` sidecars (the
+    // image tree is gitignored), so its sniff yields `NoCameras` in CI.
 
-    fn repo_data(rel: &str) -> Option<PathBuf> {
-        // tests run from the crate dir; the workspace data/ lives two up.
-        let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+    /// The fixture's `DatasetSpec`, or `None` when its directory or images
+    /// aren't present in this checkout.
+    fn sniff_repo_data(rel: &str) -> Option<DatasetSpec> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../data")
             .join(rel);
-        p.is_dir().then_some(p)
+        if !root.is_dir() {
+            return None;
+        }
+        match sniff_folder(&root) {
+            Ok(spec) => Some(spec),
+            Err(SniffError::NoCameras(_)) => None, // images not committed (CI)
+            Err(e) => panic!("unexpected sniff error for {rel}: {e}"),
+        }
     }
 
     #[test]
     fn acceptance_kuka_1() {
-        let Some(root) = repo_data("kuka_1") else {
-            return; // private/large fixture not present in this checkout
+        let Some(spec) = sniff_repo_data("kuka_1") else {
+            return;
         };
-        let spec = sniff_folder(&root).unwrap();
         assert_eq!(spec.cameras.len(), 1);
         assert_eq!(cam_glob(&spec, "cam0"), "*.png");
         assert_eq!(spec.topology, Topology::SingleCamHandeye);
@@ -577,10 +633,9 @@ mod tests {
 
     #[test]
     fn acceptance_stereo() {
-        let Some(root) = repo_data("stereo") else {
+        let Some(spec) = sniff_repo_data("stereo") else {
             return;
         };
-        let spec = sniff_folder(&root).unwrap();
         assert_eq!(spec.cameras.len(), 2);
         assert_eq!(cam_glob(&spec, "leftcamera"), "imgs/leftcamera/*.png");
         assert_eq!(cam_glob(&spec, "rightcamera"), "imgs/rightcamera/*.png");
