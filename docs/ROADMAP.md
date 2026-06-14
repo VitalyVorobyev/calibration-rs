@@ -23,8 +23,12 @@ lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
   extend-don't-rebuild verdict for the app. **B3c coverage completed
   2026-06-14:** B3c-1/2/3 wired the 8 topologies + charuco/laser; B3c-4 added
   the puzzleboard + ring-grid detectors, so **all four target detectors now
-  calibrate end-to-end** (charuco dedup deferred, see backlog). B3d (manifest
-  UX) is next.
+  calibrate end-to-end** (charuco dedup deferred, see backlog). **B3d
+  (manifest UX) completed 2026-06-14:** the `sniff_folder` heuristic + CLI
+  (B3d-1) and the "Sniff folder" / `_unresolved` / AskUser-modal front end
+  (B3d-2) let the user point at a foreign folder and edit an auto-generated
+  manifest. B-explore (pre-calibration dataset browse) + B-infra (TS codegen,
+  tests) are the remaining app slices.
 - **New tracks (2026-06-11):** V (real-data validation on the private rtv3d dataset),
   O (apex-solver optimization backend), M (camera-model expansion — supersedes the
   former "new camera models out of scope" line).
@@ -159,11 +163,24 @@ puzzleboard / ringgrid) are supported.
 - **B-explore — dataset exploration.** Browse a dataset *before*
   calibrating: image grid per camera/pose, detection overlay from the
   cache, board coverage map. Today the app only visualizes exports.
-- **B3d — manifest UX.** AI-driven `generate-manifest` CLI binary
-  (heuristic-only v0: regex / file-extension / vendor signature /
-  README scraping). Tauri "Sniff folder" command. `_unresolved` UX
-  (red badges, blocked Run button). `AskUser` modal component.
-  Frame-convention validator with vendor-aware error messages.
+- **B3d — manifest UX (in flight).**
+  - **B3d-1 (2026-06-14): heuristic sniffer SHIPPED** —
+    `vision_calibration_dataset::sniff_folder` walks a dataset folder and
+    emits a `DatasetSpec` skeleton, inferring only structurally-unambiguous
+    fields (camera dirs/globs, robot-pose file format, `by_index` pairing)
+    and leaving board geometry / target kind / frame convention / ambiguous
+    topology at placeholders with their dotted paths in `_unresolved`
+    (ADR 0019, no silent guessing). The `generate-manifest` CLI (`cli`
+    feature → TOML) and the app's Tauri `sniff_folder` command share the one
+    inference. Acceptance round-trips `data/kuka_1` + `data/stereo`.
+    Heuristic-only v0 (no LLM / README scraping yet).
+  - **B3d-2 (2026-06-14): manifest UX SHIPPED** — "Sniff folder" button
+    (calls `sniff_folder`), `UnresolvedNotice` with vendor-aware field hints
+    + per-field "mark resolved", red `_unresolved` badge + blocked Run, and
+    an `AskUserModal` (click-to-apply suggestion buttons + free-text)
+    replacing the inline AskUser banner. Vendor guidance lives front-end-side
+    so runner suggestions stay raw click-to-apply values. B3d complete; B-explore
+    / B-infra are the remaining app slices.
 - **B3e — iteration polish.** Cancellability for long solves;
   progress event streaming; multi-pose residual stats panel;
   cross-camera residual matrix; experiments directory storing
@@ -265,10 +282,12 @@ in-house dense matcher, no full SfM.
 
 **V1 → V2 → V3 (prove the library on rtv3d) → V4 + B3c coverage (rig +
 laserline + charuco first) → B-laser visualization → B3c-4 (all four target
-detectors) → B3d manifest UX → B3e polish.** B3c coverage is complete as of
-2026-06-14 (all 8 topologies + all 4 detectors wired); **B3d is the next
-load-bearing step.** O1/O2 (apex-solver) are parallelizable with the V-track;
-M0 (factor generification) is done and M1–M4 can proceed. C resumes now that
+detectors) → B3d manifest UX → B3e polish.** B3c coverage **and** B3d
+manifest UX are complete as of 2026-06-14 (all 8 topologies + all 4 detectors
+wired; sniff-folder → editable auto-manifest shipped). **B-explore /
+B-infra / B3e are the remaining app slices**; the load-bearing app path is no
+longer blocking. O1/O2 (apex-solver) are parallelizable with the V-track; M0
+(factor generification) is done and M1–M4 can proceed. C resumes now that
 B3c has landed; D is a continuous ratchet.
 
 ## Out of scope (explicit)

@@ -81,6 +81,22 @@ pub async fn load_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))
 }
 
+/// Heuristically infer a `DatasetSpec` from a dataset folder (B3d).
+///
+/// Walks `folder`, groups images into cameras, detects a robot-pose file,
+/// and guesses the topology — leaving every field it cannot determine at a
+/// placeholder and recording the dotted path in the manifest's `_unresolved`
+/// array. The frontend loads the returned JSON straight into the Run
+/// workspace's manifest form; the non-empty `_unresolved` list drives the red
+/// badges and blocks Run until the user fills and clears them (ADR 0019).
+/// This is the same inference the `generate-manifest` CLI uses.
+#[tauri::command]
+pub async fn sniff_folder(folder: String) -> Result<serde_json::Value, String> {
+    let spec = vision_calibration_dataset::sniff_folder(std::path::Path::new(&folder))
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&spec).map_err(|e| format!("serialize manifest: {e}"))
+}
+
 /// Read an image file and return it as a `data:` URL the webview can use
 /// directly. PNG is the only format the v0 fixture writes; the MIME type
 /// is inferred from the extension.
