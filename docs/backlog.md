@@ -108,12 +108,31 @@ review.
   near-duplicate problem-builder pairs (`handeye`/`handeye_scheimpflug`,
   `rig_extrinsics`/`rig_extrinsics_scheimpflug`) into one builder
   parameterized by `CameraModelDesc` — out of M0 scope.
-- [ ] M1-RATIONAL - Rational distortion k4–k6 (OpenCV rational model):
-  new `DistortionModel` impl + `AnyDistortion`/`DistortionParams` variants,
-  fix-mask plumbing, undistort fixed-point check, synthetic GT tests.
-- [ ] M2-THINPRISM - Thin-prism s1–s4; compose with Scheimpflug sensor;
-  metrology-lens synthetic tests.
-- [ ] M3-DIVISION - Division model (1–2 params, analytically invertible).
+- [x] M1-RATIONAL / M2-THINPRISM / M3-DIVISION — **additive layer done
+  2026-06-14** —
+  [report](report/2026-06-14-M-distortion-models.md). `RationalPolynomial`
+  (k1–k6,p1,p2), `ThinPrism` (BC5+s1–s4), and `Division` (Fitzgibbon `lambda`,
+  closed-form inverse) added at the core runtime model + optim IR/backend
+  layers: new `DistortionParams`/`AnyDistortion` variants, `DistortionKind`
+  variants, `CameraModelDesc::PINHOLE4_{RATIONAL8,THINPRISM9,DIVISION1}`
+  (+`_SCHEIMPFLUG2`), ZST kernels, 6 dispatch rows, synthetic-GT + roundtrip
+  tests. **Strictly additive** — no pipeline/builder/export change, BC5
+  production paths byte-identical. Usable via `CameraParams` and hand-built
+  `ProblemIR`.
+- [ ] M-WIRE - Pipeline-selection plumbing for the new distortion models:
+  user-facing distortion-model choice through `PlanarIntrinsicsConfig` /
+  `ScheimpflugIntrinsicsConfig` into the problem builders (which hardcode
+  `CameraModelDesc::PINHOLE4_DIST5*`). Requires: generalize the BC5-hardwired
+  `DistortionFixMask`, model-aware init seeds (note Division's `lambda=0`
+  degeneracy + Rational k1↔k4 correlation), variable-dim pack/unpack, export
+  reconstruction per model, schema regen, app selector. Touches validated
+  calibration paths — do supervised, not in an autonomous batch.
+  - **Robust wide-FOV inverse** (sub-item): the rational/thin-prism runtime +
+    kernel `undistort` use a radial-division fixed point that is contracting
+    only within the calibrated FOV (radius ≲ ~1.2), matching OpenCV
+    `undistortPoints`; it oscillates for extreme wide-FOV inputs (codex P2 on
+    PR #61). Replace with a Newton / 1D-radial solve when these models are wired
+    (their required FOV + tangential handling become concrete then).
 - [ ] M4-FISHEYE - Kannala-Brandt equidistant k1–k4: new `ProjectionModel`
   impl (first beyond `Pinhole`), linear-init changes (Zhang assumptions
   don't hold at large FOV), synthetic wide-FOV tests.

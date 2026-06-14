@@ -246,9 +246,14 @@ models would have multiplied variants.
   validation, kernel monomorphization in the backend. Also folded the
   export-path residual helper into the generic `CameraProject` path and
   unblocked pinhole rig laserline.
-- **M1** Rational distortion k4–k6 (distortion slot only; OpenCV rational model).
-- **M2** Thin-prism s1–s4 (composes with Scheimpflug; metrology lenses).
-- **M3** Division model (cheap, invertible; self-calibration friendly).
+- **M1/M2/M3 — additive layer DONE (2026-06-14).** Rational k4–k6 (OpenCV),
+  thin-prism s1–s4, and the Fitzgibbon division model are implemented at the
+  core runtime model + optim IR/backend layers (new `DistortionParams` /
+  `AnyDistortion` / `DistortionKind` variants, `CameraModelDesc` constants, ZST
+  kernels, dispatch rows, synthetic-GT tests). Strictly additive — the
+  Brown-Conrady production paths are unchanged. Remaining: **M-WIRE**, the
+  user-facing pipeline-selection plumbing (config → builder, fix-mask
+  generalization, per-model init/pack/export), deferred to a supervised slice.
 - **M4** Kannala-Brandt fisheye (new projection slot + linear-init changes —
   the biggest lift; last).
 

@@ -38,6 +38,84 @@ pub(crate) fn distort_brown_conrady_generic<T: RealField>(
     (x.clone() * radial.clone() + x_tan, y * radial + y_tan)
 }
 
+/// Apply rational polynomial distortion to normalized coordinates (generic for autodiff).
+///
+/// Implements the OpenCV rational model with numerator coefficients `(k1,k2,k3)`,
+/// denominator coefficients `(k4,k5,k6)`, and tangential coefficients `(p1,p2)`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn distort_rational_generic<T: RealField>(
+    x: T,
+    y: T,
+    k1: T,
+    k2: T,
+    k3: T,
+    k4: T,
+    k5: T,
+    k6: T,
+    p1: T,
+    p2: T,
+) -> (T, T) {
+    let r2 = x.clone() * x.clone() + y.clone() * y.clone();
+    let r4 = r2.clone() * r2.clone();
+    let r6 = r4.clone() * r2.clone();
+
+    let num = T::one() + k1 * r2.clone() + k2 * r4.clone() + k3 * r6.clone();
+    let den = T::one() + k4 * r2.clone() + k5 * r4 + k6 * r6;
+    let radial = num / den;
+
+    let two = T::one() + T::one();
+    let x2 = x.clone() * x.clone();
+    let y2 = y.clone() * y.clone();
+    let xy = x.clone() * y.clone();
+
+    let x_tan =
+        two.clone() * p1.clone() * xy.clone() + p2.clone() * (r2.clone() + two.clone() * x2);
+    let y_tan = p1 * (r2 + two.clone() * y2) + two * p2 * xy;
+
+    (x.clone() * radial.clone() + x_tan, y * radial + y_tan)
+}
+
+/// Apply thin-prism distortion to normalized coordinates (generic for autodiff).
+///
+/// Extends Brown-Conrady with four thin-prism coefficients `(s1,s2,s3,s4)`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn distort_thin_prism_generic<T: RealField>(
+    x: T,
+    y: T,
+    k1: T,
+    k2: T,
+    k3: T,
+    p1: T,
+    p2: T,
+    s1: T,
+    s2: T,
+    s3: T,
+    s4: T,
+) -> (T, T) {
+    let r2 = x.clone() * x.clone() + y.clone() * y.clone();
+    let r4 = r2.clone() * r2.clone();
+    let r6 = r4.clone() * r2.clone();
+
+    let radial = T::one() + k1 * r2.clone() + k2 * r4.clone() + k3 * r6;
+
+    let two = T::one() + T::one();
+    let x2 = x.clone() * x.clone();
+    let y2 = y.clone() * y.clone();
+    let xy = x.clone() * y.clone();
+
+    let x_tan =
+        two.clone() * p1.clone() * xy.clone() + p2.clone() * (r2.clone() + two.clone() * x2);
+    let y_tan = p1 * (r2.clone() + two.clone() * y2) + two * p2 * xy;
+
+    let prism_x = s1 * r2.clone() + s2 * r4.clone();
+    let prism_y = s3 * r2 + s4 * r4;
+
+    (
+        x.clone() * radial.clone() + x_tan + prism_x,
+        y * radial + y_tan + prism_y,
+    )
+}
+
 fn skew_matrix<T: RealField>(w: &Vector3<T>) -> Matrix3<T> {
     Matrix3::new(
         T::zero(),
@@ -362,8 +440,8 @@ where
 mod tests {
     use super::*;
     use crate::factors::camera_kernels::{
-        BrownConrady5Kernel, IdentitySensorKernel, NoDistortionKernel, PinholeKernel,
-        Scheimpflug2Kernel,
+        BrownConrady5Kernel, DivisionKernel, IdentitySensorKernel, NoDistortionKernel,
+        PinholeKernel, RationalKernel, Scheimpflug2Kernel, ThinPrismKernel,
     };
     use crate::ir::HandEyeMode;
     use nalgebra::DVector;
@@ -457,6 +535,117 @@ mod tests {
         assert_eq!(
             r_nodist, r_zerodist,
             "zero Brown-Conrady coefficients must be an exact identity"
+        );
+    }
+
+    /// Zero rational polynomial coefficients must produce the same result as no distortion.
+    #[test]
+    fn zero_rational_matches_no_distortion() {
+        let (intr, _, poses) = fixture_blocks();
+        let dist_zero = DVector::from_row_slice(&[0.0; 8]);
+        let pose = &poses[0];
+
+        let r_nodist = reproj_residual_model_generic::<
+            PinholeKernel,
+            NoDistortionKernel,
+            IdentitySensorKernel,
+            f64,
+        >(
+            &ReprojChain::SinglePose,
+            &[intr.clone(), pose.clone()],
+            PW,
+            UV,
+            W,
+        );
+        let r_zerodist = reproj_residual_model_generic::<
+            PinholeKernel,
+            RationalKernel,
+            IdentitySensorKernel,
+            f64,
+        >(
+            &ReprojChain::SinglePose,
+            &[intr, dist_zero, pose.clone()],
+            PW,
+            UV,
+            W,
+        );
+        assert_eq!(
+            r_nodist, r_zerodist,
+            "zero rational coefficients must be an exact identity"
+        );
+    }
+
+    /// Zero thin-prism coefficients must produce the same result as no distortion.
+    #[test]
+    fn zero_thin_prism_matches_no_distortion() {
+        let (intr, _, poses) = fixture_blocks();
+        let dist_zero = DVector::from_row_slice(&[0.0; 9]);
+        let pose = &poses[0];
+
+        let r_nodist = reproj_residual_model_generic::<
+            PinholeKernel,
+            NoDistortionKernel,
+            IdentitySensorKernel,
+            f64,
+        >(
+            &ReprojChain::SinglePose,
+            &[intr.clone(), pose.clone()],
+            PW,
+            UV,
+            W,
+        );
+        let r_zerodist = reproj_residual_model_generic::<
+            PinholeKernel,
+            ThinPrismKernel,
+            IdentitySensorKernel,
+            f64,
+        >(
+            &ReprojChain::SinglePose,
+            &[intr, dist_zero, pose.clone()],
+            PW,
+            UV,
+            W,
+        );
+        assert_eq!(
+            r_nodist, r_zerodist,
+            "zero thin-prism coefficients must be an exact identity"
+        );
+    }
+
+    /// Zero division lambda must produce the same result as no distortion.
+    #[test]
+    fn zero_division_matches_no_distortion() {
+        let (intr, _, poses) = fixture_blocks();
+        let dist_zero = DVector::from_row_slice(&[0.0_f64]);
+        let pose = &poses[0];
+
+        let r_nodist = reproj_residual_model_generic::<
+            PinholeKernel,
+            NoDistortionKernel,
+            IdentitySensorKernel,
+            f64,
+        >(
+            &ReprojChain::SinglePose,
+            &[intr.clone(), pose.clone()],
+            PW,
+            UV,
+            W,
+        );
+        let r_zerodist = reproj_residual_model_generic::<
+            PinholeKernel,
+            DivisionKernel,
+            IdentitySensorKernel,
+            f64,
+        >(
+            &ReprojChain::SinglePose,
+            &[intr, dist_zero, pose.clone()],
+            PW,
+            UV,
+            W,
+        );
+        assert_eq!(
+            r_nodist, r_zerodist,
+            "zero division lambda must be an exact identity"
         );
     }
 
