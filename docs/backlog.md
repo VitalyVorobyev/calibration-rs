@@ -58,15 +58,26 @@ review.
   [report](report/2026-06-13-RTV3D-LASER-CUTS-viewer-laser-cuts.md).
   The viewer now draws clipped colored line segments on the selected board,
   while the translucent full laser-plane quads remain optional.
+- [x] RTV3D-INTRINSICS-FOCUS - Isolate per-camera rtv3d Scheimpflug intrinsic
+  calibration and repair Scheimpflug-aware intrinsic-floor reporting.
+  Completed 2026-06-14 —
+  [report](report/2026-06-14-RTV3D-INTRINSICS-FOCUS-scheimpflug-intrinsics.md).
+  `calib-bench diagnose intrinsics` now runs target detection only, then a
+  staged/multistart Scheimpflug intrinsic solve with centered `cx/cy`,
+  `p1/p2/k3` fixed, and diagnostic-only model variants. Threshold 30 improves
+  the rtv3d floor, but all six cameras still fail the raw `<0.4 px` gate
+  (best centered means: 0.747–1.199 px), pointing to detector/target/model
+  floor rather than rig-chain error.
 - [ ] V6-SCALE - Settle rtv3d absolute scale: get the mechanical camera
   spacing of the head (our hexagon: 90.1 mm at 5.2 mm cells; oracle implies
   ~98.5 mm). If 98.5 mm is right the true cell is ≈5.69 mm and both shipped
   board specs are wrong.
 - [ ] V7-RTV3D-INTRINSICS-FLOOR - Drive the rtv3d reprojection floor below
-  0.4 px or prove the blocking model/data term. Run the new hand-eye
-  diagnostic sweep (seed on/off, ChESS threshold, p1/p2, Scheimpflug tilt,
-  robot-pose priors), then decide whether the next fix is detector quality,
-  robot-pose modeling, joint-BA weighting, or the M2 thin-prism camera model.
+  0.4 px or prove the blocking model/data term. Follow up from
+  RTV3D-INTRINSICS-FOCUS: inspect ChArUco corner localization quality and
+  target/print/blur effects first, then test richer lens terms (M2 thin-prism
+  or rational) only if detector residual vector fields remain structured after
+  cleaning detections.
 
 ## O — apex-solver backend
 
