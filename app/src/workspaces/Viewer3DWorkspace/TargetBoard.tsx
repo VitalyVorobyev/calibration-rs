@@ -85,14 +85,14 @@ export function TargetBoard({
   );
 }
 
-interface Bbox2 {
+export interface Bbox2 {
   x0: number;
   y0: number;
   x1: number;
   y1: number;
 }
 
-function computeBoardBbox(residuals: TargetFeatureResidual[]): Bbox2 {
+export function computeBoardBbox(residuals: TargetFeatureResidual[]): Bbox2 {
   if (residuals.length === 0) {
     // Fallback when residuals don't carry geometry — a 100 mm × 100 mm
     // square centred on the target origin.

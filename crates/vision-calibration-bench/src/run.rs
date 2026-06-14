@@ -9,7 +9,8 @@
 
 #[cfg(feature = "tier-b")]
 pub use tier_b::{
-    run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, run_single_cam_handeye,
+    diagnose_intrinsics, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
+    run_single_cam_handeye,
 };
 
 #[cfg(feature = "tier-b")]
@@ -39,11 +40,15 @@ pub mod tier_b {
     };
     // Rig hand-eye step fns share names with the rig-extrinsics ones, so alias.
     use vision_calibration::rig_handeye::{
-        RigHandeyeConfig, RigHandeyeExport, RigHandeyeProblem,
+        RigHandeyeConfig, RigHandeyeExport, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem,
         step_handeye_init as rh_handeye_init, step_handeye_optimize as rh_handeye_optimize,
-        step_intrinsics_init_all as rh_intrinsics_init_all,
+        step_intrinsics_init_all_with_seed as rh_intrinsics_init_all_with_seed,
         step_intrinsics_optimize_all as rh_intrinsics_optimize_all, step_rig_init as rh_rig_init,
         step_rig_optimize as rh_rig_optimize,
+    };
+    use vision_calibration::rig_laserline_device::{
+        RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
+        run_calibration as run_rig_laserline_device_calibration,
     };
     use vision_calibration::session::CalibrationSession;
     use vision_calibration::single_cam_handeye::{
@@ -52,10 +57,18 @@ pub mod tier_b {
         step_intrinsics_init, step_intrinsics_optimize,
     };
     use vision_calibration_core::{
-        FeatureResidualHistogram, PinholeCamera, PlanarDataset, ReprojectionStats,
-        ScheimpflugParams, View,
+        BrownConrady5, Camera, CameraFixMask, DistortionFixMask, FeatureResidualHistogram,
+        FxFyCxCySkew, IntrinsicsFixMask, Pinhole, PinholeCamera, PlanarDataset, Pt2,
+        ReprojectionStats, ScheimpflugParams, TargetFeatureResidual, View,
+        compute_planar_target_residuals,
     };
-    use vision_calibration_optim::SolveReport;
+    use vision_calibration_optim::{
+        BackendSolveOptions, LaserlineResidualType, RigHandeyeLaserlineDataset,
+        RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
+        RigLaserlineView, RobustLoss, ScheimpflugFixMask, ScheimpflugIntrinsicsParams,
+        ScheimpflugIntrinsicsSolveOptions, SolveReport, optimize_rig_handeye_laserline,
+        optimize_scheimpflug_intrinsics,
+    };
     #[cfg(feature = "laser")]
     use vision_metrology::{
         ColAccess, Edge1DConfig, ImageView, LaserExtractConfig, LaserExtractor, ScanAxis,
@@ -144,6 +157,183 @@ pub mod tier_b {
         pub mean_stage_ms: f64,
         /// Max detector/extractor time for one image.
         pub max_stage_ms: u64,
+    }
+
+    /// Private rtv3d-focused per-camera intrinsics diagnostic report.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct IntrinsicsDiagnoseReport {
+        /// Dataset id.
+        pub dataset_id: String,
+        /// Raw all-corner mean gate in pixels.
+        pub gate_px: f64,
+        /// Default ChESS threshold used by the registry/detector path, when known.
+        pub chess_threshold_abs: Option<f32>,
+        /// Per-camera intrinsic solve diagnostics.
+        pub cameras: Vec<IntrinsicsCameraReport>,
+        /// True only when every camera's gate case passes.
+        pub pass: bool,
+    }
+
+    /// Per-camera diagnostic result.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct IntrinsicsCameraReport {
+        /// Camera id from the bench registry.
+        pub camera_id: String,
+        /// ROI-local image size `[width, height]`.
+        pub image_size: [u32; 2],
+        /// Number of matched images for this camera.
+        pub images_total: usize,
+        /// Number of images with accepted target detections.
+        pub images_used: usize,
+        /// Total detected target features.
+        pub features_detected: usize,
+        /// Whether all observed points lie inside `[0,width] x [0,height]`.
+        pub roi_local_coordinates: bool,
+        /// Best centered/fixed-principal-point solve used for the quality gate.
+        pub gate_case: IntrinsicsCaseReport,
+        /// Additional non-gating model-variant diagnostics, only populated when
+        /// the centered gate case fails.
+        pub diagnostic_cases: Vec<IntrinsicsCaseReport>,
+        /// Per-pose residual statistics for the gate case.
+        pub per_pose: Vec<IntrinsicsPoseStats>,
+        /// Largest residuals for drill-down.
+        pub top_outliers: Vec<IntrinsicsOutlier>,
+    }
+
+    /// One staged solve result.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct IntrinsicsCaseReport {
+        /// Case label.
+        pub case: String,
+        /// Whether this case is allowed to satisfy the official gate.
+        pub accepted_for_gate: bool,
+        /// Whether the raw all-corner mean is below the gate.
+        pub passed_gate: bool,
+        /// Seed that initialized the solve.
+        pub seed: IntrinsicsSeed,
+        /// Refined camera parameters.
+        pub params: IntrinsicsParamReport,
+        /// Raw residual distribution from per-feature recomputation.
+        pub stats: IntrinsicsResidualStats,
+        /// Mean reported by `optimize_scheimpflug_intrinsics`.
+        pub solver_mean_reproj_error: f64,
+        /// Absolute difference between solver-reported and direct raw means.
+        pub mean_crosscheck_abs_diff: f64,
+        /// Backend solve summary from the final polish stage.
+        pub solve_report: SolveReport,
+        /// Optional note for non-gating diagnostics.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub note: Option<String>,
+    }
+
+    /// Intrinsic seed used for a staged solve.
+    #[derive(Debug, Clone, Copy, serde::Serialize)]
+    pub struct IntrinsicsSeed {
+        /// Initial `fx` and `fy` value.
+        pub focal_px: f64,
+        /// Initial/fixed principal point x.
+        pub cx: f64,
+        /// Initial/fixed principal point y.
+        pub cy: f64,
+        /// Initial Scheimpflug tilt around x.
+        pub tau_x: f64,
+        /// Initial Scheimpflug tilt around y.
+        pub tau_y: f64,
+    }
+
+    /// Refined camera parameters used in the diagnostic output.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct IntrinsicsParamReport {
+        pub fx: f64,
+        pub fy: f64,
+        pub cx: f64,
+        pub cy: f64,
+        pub skew: f64,
+        pub k1: f64,
+        pub k2: f64,
+        pub k3: f64,
+        pub p1: f64,
+        pub p2: f64,
+        pub tau_x: f64,
+        pub tau_y: f64,
+    }
+
+    /// Residual distribution for raw Euclidean reprojection errors.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct IntrinsicsResidualStats {
+        pub mean: f64,
+        pub rms: f64,
+        pub median: f64,
+        pub p90: f64,
+        pub p95: f64,
+        pub p99: f64,
+        pub max: f64,
+        pub count: usize,
+        pub count_le_0_4: usize,
+        pub count_le_1: usize,
+        pub count_gt_2: usize,
+        pub count_gt_5: usize,
+        /// Diagnostic only; never used to satisfy the quality gate.
+        pub trimmed_mean_95: f64,
+    }
+
+    /// Residual statistics for one target pose/view.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct IntrinsicsPoseStats {
+        pub pose: usize,
+        pub stats: IntrinsicsResidualStats,
+    }
+
+    /// One large-residual feature for drill-down.
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct IntrinsicsOutlier {
+        pub pose: usize,
+        pub feature: usize,
+        pub target_xyz_m: [f64; 3],
+        pub observed_px: [f64; 2],
+        pub projected_px: Option<[f64; 2]>,
+        pub error_px: f64,
+    }
+
+    #[derive(Debug, Clone)]
+    struct LaserObservationSet {
+        views: Vec<RigLaserlineView>,
+        robot_poses: Vec<Iso3>,
+        view_indices: Vec<usize>,
+        metrics: LaserMetrics,
+    }
+
+    #[derive(Debug, Clone)]
+    struct DetectedIntrinsicsCamera {
+        camera_id: String,
+        image_size: [u32; 2],
+        images_total: usize,
+        images_used: usize,
+        features_detected: usize,
+        roi_local_coordinates: bool,
+        dataset: PlanarDataset,
+    }
+
+    #[derive(Debug, Clone)]
+    struct StagedIntrinsicsSolve {
+        report: IntrinsicsCaseReport,
+        params: ScheimpflugIntrinsicsParams,
+        residuals: Vec<TargetFeatureResidual>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct IntrinsicsVariantConfig {
+        case: &'static str,
+        fix_intrinsics: IntrinsicsFixMask,
+        fix_distortion: DistortionFixMask,
+        note: Option<String>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct JointV5Result {
+        mean_reproj_error_px: f64,
+        per_cam_stats: Vec<RigHandeyeLaserlinePerCamStats>,
+        laser_metrics: LaserMetrics,
     }
 
     /// Run a single-camera planar-intrinsics calibration for `entry` and build a
@@ -961,6 +1151,7 @@ pub mod tier_b {
         );
         let detect_start = Instant::now();
         let mut per_cam_dets: Vec<Vec<Option<CorrespondenceView>>> = Vec::new();
+        let mut per_cam_paths: Vec<Vec<PathBuf>> = Vec::new();
         let mut detect_stats: Vec<DetectionStat> = Vec::new();
         let mut max_corners_per_image = 0usize;
         for cam in &entry.cameras {
@@ -1010,6 +1201,7 @@ pub mod tier_b {
                 detect_ms: 0,
             });
             per_cam_dets.push(dets);
+            per_cam_paths.push(paths);
         }
         let detection_ms = detect_start.elapsed().as_millis() as u64;
         progress(
@@ -1065,15 +1257,34 @@ pub mod tier_b {
         }
 
         let features_per_board = max_corners_per_image.max(board_feature_count(board));
-        let laser = extract_laser_metrics(entry)?;
+        let laser_observations = extract_laser_observations(
+            entry,
+            &per_cam_dets,
+            &per_cam_paths,
+            &robot_poses,
+            n_views,
+        )?;
+        let mut laser = laser_observations.as_ref().map(|obs| obs.metrics.clone());
 
         // ── Calibration ─────────────────────────────────────────────────────
         let mut config = RigHandeyeConfig::default();
         if let Some(overrides) = &entry.rig_handeye {
             overrides.apply_to(&mut config);
         }
+        if let Some(seed) = &entry.seed {
+            let manual: RigHandeyeIntrinsicsManualInit = serde_json::from_value(seed.0.clone())
+                .with_context(|| {
+                    format!("failed to parse rig hand-eye manual seed for {}", entry.id)
+                })?;
+            config.intrinsics.manual_init = Some(manual);
+        }
+        if config.intrinsics.manual_init.is_none() && entry.id == "rtv3d" {
+            config.intrinsics.manual_init = Some(rtv3d_manual_intrinsics_seed(entry));
+            config.intrinsics.fix_tangential = true;
+        }
         let robot_rot_sigma = config.handeye_ba.robot_rot_sigma;
         let robot_trans_sigma = config.handeye_ba.robot_trans_sigma;
+        let manual_intrinsics = config.intrinsics.manual_init.clone().unwrap_or_default();
         let input = RigDataset::new(rig_views, n_cam)
             .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
         let dataset_for_report = input.clone();
@@ -1085,7 +1296,8 @@ pub mod tier_b {
 
         progress(entry, "initializing per-camera intrinsics");
         let init_start = Instant::now();
-        let init_ok = rh_intrinsics_init_all(&mut session, None).is_ok();
+        let init_ok =
+            rh_intrinsics_init_all_with_seed(&mut session, manual_intrinsics, None).is_ok();
         anyhow::ensure!(init_ok, "step_intrinsics_init_all failed for {}", entry.id);
         let init_ms = init_start.elapsed().as_millis() as u64;
 
@@ -1101,6 +1313,16 @@ pub mod tier_b {
         let optimize_ms = opt_start.elapsed().as_millis() as u64;
 
         let export = session.export().context("session.export failed")?;
+        let joint_result = run_rig_handeye_laserline_v5(
+            entry,
+            &export,
+            laser_observations,
+            robot_rot_sigma,
+            robot_trans_sigma,
+        )?;
+        if let Some(joint) = &joint_result {
+            laser = Some(joint.laser_metrics.clone());
+        }
 
         // ── Fit metrics (per-camera split of the export's per-feature errors) ─
         let mut per_cam_errs: Vec<Vec<f64>> = vec![Vec::new(); n_cam];
@@ -1123,13 +1345,27 @@ pub mod tier_b {
             .target_hist_per_camera
             .clone()
             .unwrap_or_else(|| vec![FeatureResidualHistogram::default(); n_cam]);
-        let fit = Fit {
+        let mut fit = Fit {
             overall,
             per_camera,
             per_camera_hist,
             reported_mean_reproj_px: export.mean_reproj_error,
             reported_per_cam_px: export.per_cam_reproj_errors.clone(),
         };
+        if let Some(joint) = &joint_result {
+            fit.overall = reproj_stats_from_joint(&joint.per_cam_stats);
+            fit.per_camera = joint
+                .per_cam_stats
+                .iter()
+                .map(reproj_stats_from_joint_cam)
+                .collect();
+            fit.reported_mean_reproj_px = joint.mean_reproj_error_px;
+            fit.reported_per_cam_px = joint
+                .per_cam_stats
+                .iter()
+                .map(|s| s.mean_reproj_error_px)
+                .collect();
+        }
 
         // Finalize detection coverage now that the full-board count is known.
         let mut total_detected = 0usize;
@@ -1155,7 +1391,12 @@ pub mod tier_b {
         let convergence = Convergence {
             init_ok,
             converged: true,
-            report: synth_report(export.mean_reproj_error),
+            report: synth_report(
+                joint_result
+                    .as_ref()
+                    .map(|j| j.mean_reproj_error_px)
+                    .unwrap_or(export.mean_reproj_error),
+            ),
         };
         let laser_ms = laser.as_ref().map(|m| m.extract_ms).unwrap_or(0);
         let total_ms = init_ms
@@ -1202,6 +1443,739 @@ pub mod tier_b {
             reproj_report,
             residual_sidecar,
         })
+    }
+
+    /// Diagnose per-camera Scheimpflug intrinsics only: detect the calibration
+    /// target, run staged multistart single-camera solves, and report raw
+    /// all-corner reprojection distributions.
+    pub fn diagnose_intrinsics(entry: &BenchEntry) -> Result<IntrinsicsDiagnoseReport> {
+        const GATE_PX: f64 = 0.4;
+
+        let board = entry
+            .board
+            .as_ref()
+            .context("diagnose intrinsics needs a `board` geometry")?;
+        anyhow::ensure!(
+            !entry.cameras.is_empty(),
+            "diagnose intrinsics needs at least one camera"
+        );
+        let detector_override = intrinsics_detector_override(entry);
+        let detector = detector_for(board, Some(&detector_override))?;
+
+        progress(
+            entry,
+            format!(
+                "diagnosing Scheimpflug intrinsics for {} cameras",
+                entry.cameras.len()
+            ),
+        );
+
+        let mut camera_reports = Vec::with_capacity(entry.cameras.len());
+        for cam in &entry.cameras {
+            progress(entry, format!("detecting intrinsic dataset for {}", cam.id));
+            let detected = detect_intrinsics_camera(entry, board, cam, &detector)?;
+            anyhow::ensure!(
+                detected.dataset.num_views() >= 3,
+                "need >= 3 detected views for {}, got {}",
+                cam.id,
+                detected.dataset.num_views()
+            );
+            let center = (
+                f64::from(detected.image_size[0]) * 0.5,
+                f64::from(detected.image_size[1]) * 0.5,
+            );
+            let seeds = default_intrinsics_seeds(center.0, center.1);
+            progress(
+                entry,
+                format!(
+                    "{}: solving {} centered Scheimpflug seeds",
+                    cam.id,
+                    seeds.len()
+                ),
+            );
+            let gate_solve = solve_centered_multistart(&detected.dataset, &seeds, GATE_PX)
+                .with_context(|| format!("centered multistart failed for {}", cam.id))?;
+            let mut diagnostic_cases = Vec::new();
+            if !gate_solve.report.passed_gate {
+                progress(
+                    entry,
+                    format!(
+                        "{}: gate mean {:.4} px; running diagnostic model variants",
+                        cam.id, gate_solve.report.stats.mean
+                    ),
+                );
+                diagnostic_cases = solve_intrinsics_diagnostic_variants(
+                    &detected.dataset,
+                    &gate_solve,
+                    center,
+                    GATE_PX,
+                )?
+                .into_iter()
+                .map(|solve| solve.report)
+                .collect();
+            }
+            let top_outliers = top_intrinsics_outliers(&gate_solve.residuals, 25);
+            let per_pose = intrinsics_pose_stats(&gate_solve.residuals);
+            camera_reports.push(IntrinsicsCameraReport {
+                camera_id: detected.camera_id,
+                image_size: detected.image_size,
+                images_total: detected.images_total,
+                images_used: detected.images_used,
+                features_detected: detected.features_detected,
+                roi_local_coordinates: detected.roi_local_coordinates,
+                gate_case: gate_solve.report,
+                diagnostic_cases,
+                per_pose,
+                top_outliers,
+            });
+        }
+
+        let pass = camera_reports
+            .iter()
+            .all(|camera| camera.gate_case.accepted_for_gate && camera.gate_case.passed_gate);
+        Ok(IntrinsicsDiagnoseReport {
+            dataset_id: entry.id.clone(),
+            gate_px: GATE_PX,
+            chess_threshold_abs: chess_threshold_abs(Some(&detector_override)),
+            cameras: camera_reports,
+            pass,
+        })
+    }
+
+    fn intrinsics_detector_override(entry: &BenchEntry) -> DetectorOverride {
+        let mut detector = entry.detector.clone().unwrap_or_default();
+        let needs_default = detector
+            .chess_corners
+            .as_ref()
+            .map(|chess| chess.threshold_mode.is_none() && chess.threshold_value.is_none())
+            .unwrap_or(true);
+        if needs_default {
+            detector.chess_corners = Some(crate::registry::ChessCornersDetectorOverride {
+                threshold_mode: Some(crate::registry::BenchChessThresholdMode::Absolute),
+                threshold_value: Some(30.0),
+            });
+        }
+        detector
+    }
+
+    fn detect_intrinsics_camera(
+        entry: &BenchEntry,
+        board: &BoardGeometry,
+        cam: &CameraLayout,
+        detector: &DetectorKind,
+    ) -> Result<DetectedIntrinsicsCamera> {
+        let folder = entry.data_root.join(&cam.folder);
+        let paths = glob_sorted_images(&folder, &cam.filename_glob)?;
+        anyhow::ensure!(
+            !paths.is_empty(),
+            "no images matched {}/{} under {}",
+            cam.folder,
+            cam.filename_glob,
+            entry.data_root.display()
+        );
+
+        let mut views = Vec::new();
+        let mut image_size = None;
+        let mut images_used = 0usize;
+        let mut features_detected = 0usize;
+        for (image_idx, path) in paths.iter().enumerate() {
+            progress_images(entry, "detect-intrinsics", &cam.id, image_idx, paths.len());
+            let img = load_image(path)?;
+            let img = apply_tile(&img, cam.tile);
+            let size = [img.width(), img.height()];
+            if let Some(prev) = image_size {
+                anyhow::ensure!(
+                    prev == size,
+                    "{} image size changed from {:?} to {:?}",
+                    cam.id,
+                    prev,
+                    size
+                );
+            }
+            image_size = Some(size);
+            match detector.detect(&img) {
+                Ok(Some(view)) => {
+                    images_used += 1;
+                    features_detected += view.len();
+                    views.push(View::without_meta(view));
+                }
+                Ok(None) => {}
+                Err(e) => return Err(e.context(format!("detection failed for {}", path.display()))),
+            }
+        }
+
+        let image_size = image_size
+            .or_else(|| cam.tile.map(|[_x, _y, w, h]| [w, h]))
+            .or(cam.expected_size)
+            .context("could not determine image size")?;
+        let roi_local_coordinates = views_are_roi_local(&views, image_size);
+        let dataset = PlanarDataset::new(views).context("failed to build PlanarDataset")?;
+        let features_per_board = board_feature_count(board);
+        progress(
+            entry,
+            format!(
+                "{} detections: {images_used}/{} images, {features_detected} features (full board {})",
+                cam.id,
+                paths.len(),
+                features_per_board
+            ),
+        );
+        Ok(DetectedIntrinsicsCamera {
+            camera_id: cam.id.clone(),
+            image_size,
+            images_total: paths.len(),
+            images_used,
+            features_detected,
+            roi_local_coordinates,
+            dataset,
+        })
+    }
+
+    fn views_are_roi_local<M>(views: &[View<M>], image_size: [u32; 2]) -> bool {
+        let w = f64::from(image_size[0]);
+        let h = f64::from(image_size[1]);
+        views.iter().all(|view| {
+            view.obs.points_2d.iter().all(|p| {
+                p.x.is_finite()
+                    && p.y.is_finite()
+                    && p.x >= 0.0
+                    && p.x <= w
+                    && p.y >= 0.0
+                    && p.y <= h
+            })
+        })
+    }
+
+    fn default_intrinsics_seeds(cx: f64, cy: f64) -> Vec<IntrinsicsSeed> {
+        let mut seeds = Vec::new();
+        for focal_px in [1600.0, 1800.0, 2000.0, 2200.0] {
+            for tau_x in [-0.12, -0.08, -0.04, 0.0, 0.04] {
+                for tau_y in [-0.02, 0.0, 0.02] {
+                    seeds.push(IntrinsicsSeed {
+                        focal_px,
+                        cx,
+                        cy,
+                        tau_x,
+                        tau_y,
+                    });
+                }
+            }
+        }
+        seeds
+    }
+
+    fn solve_centered_multistart(
+        dataset: &PlanarDataset,
+        seeds: &[IntrinsicsSeed],
+        gate_px: f64,
+    ) -> Result<StagedIntrinsicsSolve> {
+        let mut best: Option<StagedIntrinsicsSolve> = None;
+        let mut failures = Vec::new();
+        for &seed in seeds {
+            match solve_centered_seed(dataset, seed, gate_px) {
+                Ok(solve) => {
+                    let replace = best
+                        .as_ref()
+                        .map(|b| solve.report.stats.mean < b.report.stats.mean)
+                        .unwrap_or(true);
+                    if replace {
+                        best = Some(solve);
+                    }
+                }
+                Err(err) => failures.push(format!(
+                    "f={:.0} tau=({:.3},{:.3}): {err}",
+                    seed.focal_px, seed.tau_x, seed.tau_y
+                )),
+            }
+        }
+        best.with_context(|| {
+            let sample = failures.into_iter().take(5).collect::<Vec<_>>().join("; ");
+            format!("all centered intrinsic seeds failed: {sample}")
+        })
+    }
+
+    fn solve_centered_seed(
+        dataset: &PlanarDataset,
+        seed: IntrinsicsSeed,
+        gate_px: f64,
+    ) -> Result<StagedIntrinsicsSolve> {
+        let initial = initial_intrinsics_params(dataset, seed)?;
+        let stage_a = optimize_scheimpflug_intrinsics(
+            dataset,
+            &initial,
+            ScheimpflugIntrinsicsSolveOptions {
+                robust_loss: RobustLoss::None,
+                fix_intrinsics: IntrinsicsFixMask::all_fixed(),
+                fix_distortion: DistortionFixMask::all_fixed(),
+                fix_scheimpflug: ScheimpflugFixMask {
+                    tilt_x: true,
+                    tilt_y: true,
+                },
+                fix_poses: Vec::new(),
+            },
+            BackendSolveOptions {
+                max_iters: 30,
+                verbosity: 0,
+                ..Default::default()
+            },
+        )
+        .context("stage A pose-only Scheimpflug polish failed")?;
+
+        let centered_opts = ScheimpflugIntrinsicsSolveOptions {
+            robust_loss: RobustLoss::Huber { scale: 1.0 },
+            fix_intrinsics: IntrinsicsFixMask {
+                fx: false,
+                fy: false,
+                cx: true,
+                cy: true,
+            },
+            fix_distortion: DistortionFixMask {
+                k1: false,
+                k2: false,
+                k3: true,
+                p1: true,
+                p2: true,
+            },
+            fix_scheimpflug: ScheimpflugFixMask {
+                tilt_x: false,
+                tilt_y: false,
+            },
+            fix_poses: Vec::new(),
+        };
+        let stage_b = optimize_scheimpflug_intrinsics(
+            dataset,
+            &stage_a.params,
+            centered_opts.clone(),
+            BackendSolveOptions {
+                max_iters: 100,
+                verbosity: 0,
+                ..Default::default()
+            },
+        )
+        .context("stage B robust centered Scheimpflug solve failed")?;
+
+        let stage_c = optimize_scheimpflug_intrinsics(
+            dataset,
+            &stage_b.params,
+            ScheimpflugIntrinsicsSolveOptions {
+                robust_loss: RobustLoss::None,
+                ..centered_opts
+            },
+            BackendSolveOptions {
+                max_iters: 50,
+                verbosity: 0,
+                ..Default::default()
+            },
+        )
+        .context("stage C L2 centered Scheimpflug polish failed")?;
+
+        staged_case_from_estimate(
+            dataset,
+            seed,
+            "centered_p1p2_k3_fixed",
+            true,
+            gate_px,
+            stage_c,
+            None,
+        )
+    }
+
+    fn initial_intrinsics_params(
+        dataset: &PlanarDataset,
+        seed: IntrinsicsSeed,
+    ) -> Result<ScheimpflugIntrinsicsParams> {
+        let intrinsics = FxFyCxCySkew {
+            fx: seed.focal_px,
+            fy: seed.focal_px,
+            cx: seed.cx,
+            cy: seed.cy,
+            skew: 0.0,
+        };
+        let distortion = BrownConrady5 {
+            k1: 0.0,
+            k2: 0.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+        let sensor = ScheimpflugParams {
+            tilt_x: seed.tau_x,
+            tilt_y: seed.tau_y,
+        };
+        let poses = initial_poses_for_dataset(dataset, &intrinsics)?;
+        ScheimpflugIntrinsicsParams::new(intrinsics, distortion, sensor, poses)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    fn initial_poses_for_dataset(
+        dataset: &PlanarDataset,
+        k: &FxFyCxCySkew<f64>,
+    ) -> Result<Vec<Iso3>> {
+        let mut poses = Vec::with_capacity(dataset.views.len());
+        for (view_idx, view) in dataset.views.iter().enumerate() {
+            let obs_3d = &view.obs.points_3d;
+            let obs_2d = &view.obs.points_2d;
+            anyhow::ensure!(
+                obs_3d.len() >= 4 && obs_3d.len() == obs_2d.len(),
+                "view {view_idx} has invalid correspondence count"
+            );
+            let max_z = obs_3d.iter().fold(0.0_f64, |m, p| m.max(p.z.abs()));
+            let pose = if max_z < 1e-6 {
+                let world2d: Vec<Pt2> = obs_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
+                let h =
+                    vision_calibration::linear::homography::HomographySolver::dlt(&world2d, obs_2d)
+                        .with_context(|| format!("homography seed failed for view {view_idx}"))?;
+                vision_calibration::linear::planar_pose::estimate_planar_pose_from_h(
+                    &k.k_matrix(),
+                    &h,
+                )
+                .with_context(|| format!("planar pose seed failed for view {view_idx}"))?
+            } else {
+                vision_calibration::linear::pnp::PnpSolver::epnp(obs_3d, obs_2d, k)
+                    .with_context(|| format!("EPnP seed failed for view {view_idx}"))?
+            };
+            poses.push(pose);
+        }
+        Ok(poses)
+    }
+
+    fn solve_intrinsics_diagnostic_variants(
+        dataset: &PlanarDataset,
+        gate_solve: &StagedIntrinsicsSolve,
+        center: (f64, f64),
+        gate_px: f64,
+    ) -> Result<Vec<StagedIntrinsicsSolve>> {
+        let seed = gate_solve.report.seed;
+        let mut out = Vec::new();
+        let cxy = solve_intrinsics_variant(
+            dataset,
+            seed,
+            &gate_solve.params,
+            gate_px,
+            IntrinsicsVariantConfig {
+                case: "diagnostic_cxcy_free",
+                fix_intrinsics: IntrinsicsFixMask {
+                    fx: false,
+                    fy: false,
+                    cx: false,
+                    cy: false,
+                },
+                fix_distortion: DistortionFixMask {
+                    k1: false,
+                    k2: false,
+                    k3: true,
+                    p1: true,
+                    p2: true,
+                },
+                note: Some(
+                    "diagnostic only: cx/cy released; gate still uses centered solution"
+                        .to_string(),
+                ),
+            },
+        )?;
+        let cxy_dx = (cxy.report.params.cx - center.0).abs();
+        let cxy_dy = (cxy.report.params.cy - center.1).abs();
+        let cxy = if cxy_dx > 40.0 || cxy_dy > 40.0 {
+            let mut cxy = cxy;
+            cxy.report.note = Some(format!(
+                "diagnostic only: principal point moved {:.2}/{:.2} px from center",
+                cxy_dx, cxy_dy
+            ));
+            cxy
+        } else {
+            cxy
+        };
+        out.push(cxy);
+
+        out.push(solve_intrinsics_variant(
+            dataset,
+            seed,
+            &gate_solve.params,
+            gate_px,
+            IntrinsicsVariantConfig {
+                case: "diagnostic_k3_free",
+                fix_intrinsics: IntrinsicsFixMask {
+                    fx: false,
+                    fy: false,
+                    cx: true,
+                    cy: true,
+                },
+                fix_distortion: DistortionFixMask {
+                    k1: false,
+                    k2: false,
+                    k3: false,
+                    p1: true,
+                    p2: true,
+                },
+                note: Some("diagnostic only: k3 released".to_string()),
+            },
+        )?);
+
+        out.push(solve_intrinsics_variant(
+            dataset,
+            seed,
+            &gate_solve.params,
+            gate_px,
+            IntrinsicsVariantConfig {
+                case: "diagnostic_p1p2_free",
+                fix_intrinsics: IntrinsicsFixMask {
+                    fx: false,
+                    fy: false,
+                    cx: true,
+                    cy: true,
+                },
+                fix_distortion: DistortionFixMask {
+                    k1: false,
+                    k2: false,
+                    k3: true,
+                    p1: false,
+                    p2: false,
+                },
+                note: Some(
+                    "diagnostic only: p1/p2 released to test missing model terms".to_string(),
+                ),
+            },
+        )?);
+
+        Ok(out)
+    }
+
+    fn solve_intrinsics_variant(
+        dataset: &PlanarDataset,
+        seed: IntrinsicsSeed,
+        initial: &ScheimpflugIntrinsicsParams,
+        gate_px: f64,
+        config: IntrinsicsVariantConfig,
+    ) -> Result<StagedIntrinsicsSolve> {
+        let opts = ScheimpflugIntrinsicsSolveOptions {
+            robust_loss: RobustLoss::Huber { scale: 1.0 },
+            fix_intrinsics: config.fix_intrinsics,
+            fix_distortion: config.fix_distortion,
+            fix_scheimpflug: ScheimpflugFixMask {
+                tilt_x: false,
+                tilt_y: false,
+            },
+            fix_poses: Vec::new(),
+        };
+        let robust = optimize_scheimpflug_intrinsics(
+            dataset,
+            initial,
+            opts.clone(),
+            BackendSolveOptions {
+                max_iters: 100,
+                verbosity: 0,
+                ..Default::default()
+            },
+        )
+        .with_context(|| format!("{} robust solve failed", config.case))?;
+        let polished = optimize_scheimpflug_intrinsics(
+            dataset,
+            &robust.params,
+            ScheimpflugIntrinsicsSolveOptions {
+                robust_loss: RobustLoss::None,
+                ..opts
+            },
+            BackendSolveOptions {
+                max_iters: 50,
+                verbosity: 0,
+                ..Default::default()
+            },
+        )
+        .with_context(|| format!("{} L2 polish failed", config.case))?;
+        staged_case_from_estimate(
+            dataset,
+            seed,
+            config.case,
+            false,
+            gate_px,
+            polished,
+            config.note,
+        )
+    }
+
+    fn staged_case_from_estimate(
+        dataset: &PlanarDataset,
+        seed: IntrinsicsSeed,
+        case: &str,
+        accepted_for_gate: bool,
+        gate_px: f64,
+        estimate: vision_calibration_optim::ScheimpflugIntrinsicsEstimate,
+        note: Option<String>,
+    ) -> Result<StagedIntrinsicsSolve> {
+        let camera = Camera::new(
+            Pinhole,
+            estimate.params.distortion,
+            estimate.params.sensor.compile(),
+            estimate.params.intrinsics,
+        );
+        let residuals =
+            compute_planar_target_residuals(&camera, dataset, &estimate.params.camera_se3_target)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let stats = intrinsics_stats_from_residuals(&residuals);
+        let diff = (stats.mean - estimate.mean_reproj_error).abs();
+        anyhow::ensure!(
+            diff <= 1e-9,
+            "{case}: direct raw mean {:.12} != solver mean {:.12} (diff {diff:.3e})",
+            stats.mean,
+            estimate.mean_reproj_error
+        );
+        let params = IntrinsicsParamReport {
+            fx: estimate.params.intrinsics.fx,
+            fy: estimate.params.intrinsics.fy,
+            cx: estimate.params.intrinsics.cx,
+            cy: estimate.params.intrinsics.cy,
+            skew: estimate.params.intrinsics.skew,
+            k1: estimate.params.distortion.k1,
+            k2: estimate.params.distortion.k2,
+            k3: estimate.params.distortion.k3,
+            p1: estimate.params.distortion.p1,
+            p2: estimate.params.distortion.p2,
+            tau_x: estimate.params.sensor.tilt_x,
+            tau_y: estimate.params.sensor.tilt_y,
+        };
+        let report = IntrinsicsCaseReport {
+            case: case.to_string(),
+            accepted_for_gate,
+            passed_gate: stats.mean < gate_px,
+            seed,
+            params,
+            stats,
+            solver_mean_reproj_error: estimate.mean_reproj_error,
+            mean_crosscheck_abs_diff: diff,
+            solve_report: estimate.report,
+            note,
+        };
+        Ok(StagedIntrinsicsSolve {
+            report,
+            params: estimate.params,
+            residuals,
+        })
+    }
+
+    fn intrinsics_stats_from_residuals(
+        residuals: &[TargetFeatureResidual],
+    ) -> IntrinsicsResidualStats {
+        let mut errors: Vec<f64> = residuals
+            .iter()
+            .filter_map(|r| r.error_px)
+            .filter(|e| e.is_finite())
+            .collect();
+        intrinsics_stats_from_errors(&mut errors)
+    }
+
+    fn intrinsics_stats_from_errors(errors: &mut [f64]) -> IntrinsicsResidualStats {
+        if errors.is_empty() {
+            return IntrinsicsResidualStats {
+                mean: 0.0,
+                rms: 0.0,
+                median: 0.0,
+                p90: 0.0,
+                p95: 0.0,
+                p99: 0.0,
+                max: 0.0,
+                count: 0,
+                count_le_0_4: 0,
+                count_le_1: 0,
+                count_gt_2: 0,
+                count_gt_5: 0,
+                trimmed_mean_95: 0.0,
+            };
+        }
+        let sum: f64 = errors.iter().sum();
+        let sum_sq: f64 = errors.iter().map(|e| e * e).sum();
+        let count_le_0_4 = errors.iter().filter(|e| **e <= 0.4).count();
+        let count_le_1 = errors.iter().filter(|e| **e <= 1.0).count();
+        let count_gt_2 = errors.iter().filter(|e| **e > 2.0).count();
+        let count_gt_5 = errors.iter().filter(|e| **e > 5.0).count();
+        errors.sort_by(|a, b| a.total_cmp(b));
+        let count = errors.len();
+        let trimmed_count = ((count as f64) * 0.95).ceil().clamp(1.0, count as f64) as usize;
+        let trimmed_mean_95 = errors[..trimmed_count].iter().sum::<f64>() / trimmed_count as f64;
+        IntrinsicsResidualStats {
+            mean: sum / count as f64,
+            rms: (sum_sq / count as f64).sqrt(),
+            median: percentile_sorted(errors, 0.5),
+            p90: percentile_sorted(errors, 0.90),
+            p95: percentile_sorted(errors, 0.95),
+            p99: percentile_sorted(errors, 0.99),
+            max: errors[count - 1],
+            count,
+            count_le_0_4,
+            count_le_1,
+            count_gt_2,
+            count_gt_5,
+            trimmed_mean_95,
+        }
+    }
+
+    fn percentile_sorted(sorted: &[f64], q: f64) -> f64 {
+        debug_assert!(!sorted.is_empty());
+        if sorted.len() == 1 {
+            return sorted[0];
+        }
+        let rank = q * (sorted.len() as f64 - 1.0);
+        let lo = rank.floor() as usize;
+        let hi = rank.ceil() as usize;
+        let frac = rank - lo as f64;
+        sorted[lo] * (1.0 - frac) + sorted[hi] * frac
+    }
+
+    fn top_intrinsics_outliers(
+        residuals: &[TargetFeatureResidual],
+        limit: usize,
+    ) -> Vec<IntrinsicsOutlier> {
+        let mut finite: Vec<_> = residuals
+            .iter()
+            .filter_map(|r| r.error_px.filter(|e| e.is_finite()).map(|e| (e, r)))
+            .collect();
+        finite.sort_by(|(a, _), (b, _)| b.total_cmp(a));
+        finite
+            .into_iter()
+            .take(limit)
+            .map(|(error_px, r)| IntrinsicsOutlier {
+                pose: r.pose,
+                feature: r.feature,
+                target_xyz_m: r.target_xyz_m,
+                observed_px: r.observed_px,
+                projected_px: r.projected_px,
+                error_px,
+            })
+            .collect()
+    }
+
+    fn intrinsics_pose_stats(residuals: &[TargetFeatureResidual]) -> Vec<IntrinsicsPoseStats> {
+        let pose_count = residuals
+            .iter()
+            .map(|residual| residual.pose)
+            .max()
+            .map(|idx| idx + 1)
+            .unwrap_or(0);
+        let mut per_pose = vec![Vec::new(); pose_count];
+        for residual in residuals {
+            if let Some(error) = residual.error_px.filter(|e| e.is_finite())
+                && let Some(slot) = per_pose.get_mut(residual.pose)
+            {
+                slot.push(error);
+            }
+        }
+        per_pose
+            .into_iter()
+            .enumerate()
+            .map(|(pose, mut errors)| IntrinsicsPoseStats {
+                pose,
+                stats: intrinsics_stats_from_errors(&mut errors),
+            })
+            .collect()
+    }
+
+    fn chess_threshold_abs(detector: Option<&DetectorOverride>) -> Option<f32> {
+        let chess = detector.and_then(|d| d.chess_corners.as_ref())?;
+        match chess.threshold_mode {
+            Some(crate::registry::BenchChessThresholdMode::Absolute) => chess.threshold_value,
+            None => chess.threshold_value,
+            Some(crate::registry::BenchChessThresholdMode::Relative) => None,
+        }
     }
 
     /// Profile target detection and laser extraction without running a solver.
@@ -1433,8 +2407,54 @@ pub mod tier_b {
         }
     }
 
+    fn rtv3d_manual_intrinsics_seed(entry: &BenchEntry) -> RigHandeyeIntrinsicsManualInit {
+        let (cx, cy) = entry
+            .cameras
+            .first()
+            .and_then(|cam| cam.tile)
+            .map(|[_x, _y, w, h]| (w as f64 * 0.5, h as f64 * 0.5))
+            .unwrap_or((360.0, 270.0));
+        let n = entry.cameras.len();
+        let mut seed = RigHandeyeIntrinsicsManualInit::default();
+        seed.per_cam_intrinsics = Some(vec![
+            FxFyCxCySkew {
+                fx: 2000.0,
+                fy: 2000.0,
+                cx,
+                cy,
+                skew: 0.0,
+            };
+            n
+        ]);
+        seed.per_cam_distortion = Some(vec![
+            BrownConrady5 {
+                k1: 0.0,
+                k2: 0.0,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            };
+            n
+        ]);
+        seed.per_cam_sensors = Some(vec![
+            ScheimpflugParams {
+                tilt_x: 0.0,
+                tilt_y: 0.0,
+            };
+            n
+        ]);
+        seed
+    }
+
     #[cfg(not(feature = "laser"))]
-    fn extract_laser_metrics(entry: &BenchEntry) -> Result<Option<LaserMetrics>> {
+    fn extract_laser_observations(
+        entry: &BenchEntry,
+        _per_cam_dets: &[Vec<Option<CorrespondenceView>>],
+        _per_cam_paths: &[Vec<PathBuf>],
+        _robot_poses: &[Iso3],
+        _n_views: usize,
+    ) -> Result<Option<LaserObservationSet>> {
         if entry.laser.is_some() {
             anyhow::bail!(
                 "dataset '{}' declares laser data; rebuild with --features 'tier-b laser'",
@@ -1445,80 +2465,132 @@ pub mod tier_b {
     }
 
     #[cfg(feature = "laser")]
-    fn extract_laser_metrics(entry: &BenchEntry) -> Result<Option<LaserMetrics>> {
+    fn extract_laser_observations(
+        entry: &BenchEntry,
+        per_cam_dets: &[Vec<Option<CorrespondenceView>>],
+        per_cam_paths: &[Vec<PathBuf>],
+        robot_poses: &[Iso3],
+        n_views: usize,
+    ) -> Result<Option<LaserObservationSet>> {
         if entry.laser.is_none() {
             return Ok(None);
         }
-        let paths = laser_image_paths(entry)?;
-        if paths.is_empty() {
+        let keyed_lasers = laser_image_paths_by_target(entry)?;
+        let indexed_lasers = if keyed_lasers.is_empty() {
+            laser_image_paths(entry)?
+        } else {
+            Vec::new()
+        };
+        if keyed_lasers.is_empty() && indexed_lasers.is_empty() {
             return Ok(None);
         }
 
-        progress(
-            entry,
-            format!(
-                "extracting laser lines from {} images across {} cameras",
-                paths.len(),
-                entry.cameras.len()
-            ),
-        );
-        let mut per_camera = Vec::with_capacity(entry.cameras.len());
+        progress(entry, "extracting laser observations for V5 joint BA");
+        let n_cam = entry.cameras.len();
+        let mut per_cam_images_used = vec![0usize; n_cam];
+        let mut per_cam_points = vec![0usize; n_cam];
+        let mut per_cam_ms = vec![0u64; n_cam];
         let mut total_points = 0usize;
         let mut total_images_used = 0usize;
+        let mut candidate_views = 0usize;
         let total_start = Instant::now();
+        let mut views = Vec::new();
+        let mut laser_robot_poses = Vec::new();
+        let mut laser_view_indices = Vec::new();
 
-        for cam in &entry.cameras {
-            let cam_start = Instant::now();
-            let mut images_used = 0usize;
-            let mut points_extracted = 0usize;
-            for (image_idx, path) in paths.iter().enumerate() {
-                progress_images(entry, "laser", &cam.id, image_idx, paths.len());
-                let img = load_image(path)?;
-                let img = apply_tile(&img, cam.tile);
-                let point_count = extract_laser_points(&img);
-                if point_count > 0 {
-                    images_used += 1;
-                    points_extracted += point_count;
+        for view_idx in 0..n_views {
+            let laser_path = if keyed_lasers.is_empty() {
+                indexed_lasers.get(view_idx)
+            } else {
+                let target_name = per_cam_paths[0][view_idx]
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default();
+                keyed_lasers.get(target_name)
+            };
+            let Some(laser_path) = laser_path else {
+                continue;
+            };
+            candidate_views += 1;
+            progress_images(entry, "laser", "all", candidate_views - 1, n_views);
+            let img = load_image(laser_path)?;
+            let mut laser_pixels = Vec::with_capacity(n_cam);
+            let mut any_laser = false;
+            for (cam_idx, cam) in entry.cameras.iter().enumerate() {
+                let cam_start = Instant::now();
+                let tile = apply_tile(&img, cam.tile);
+                let pixels = extract_laser_pixels(&tile);
+                per_cam_ms[cam_idx] =
+                    per_cam_ms[cam_idx].saturating_add(cam_start.elapsed().as_millis() as u64);
+                if pixels.is_empty() {
+                    laser_pixels.push(None);
+                } else {
+                    any_laser = true;
+                    per_cam_images_used[cam_idx] += 1;
+                    per_cam_points[cam_idx] += pixels.len();
+                    total_points += pixels.len();
+                    laser_pixels.push(Some(pixels));
                 }
             }
-            let extract_ms = cam_start.elapsed().as_millis() as u64;
-            progress(
-                entry,
-                format!(
-                    "laser {}: {images_used}/{} images, {points_extracted} points, {extract_ms} ms",
-                    cam.id,
-                    paths.len()
-                ),
-            );
-            total_points += points_extracted;
-            total_images_used += images_used;
-            per_camera.push(LaserCamStat {
+            if any_laser {
+                total_images_used += 1;
+                views.push(RigLaserlineView {
+                    cameras: per_cam_dets
+                        .iter()
+                        .map(|dets| dets[view_idx].clone())
+                        .collect(),
+                    laser_pixels,
+                });
+                laser_robot_poses.push(robot_poses[view_idx]);
+                laser_view_indices.push(view_idx);
+            }
+        }
+
+        if views.is_empty() {
+            return Ok(None);
+        }
+
+        let per_camera = entry
+            .cameras
+            .iter()
+            .enumerate()
+            .map(|(cam_idx, cam)| LaserCamStat {
                 camera_id: cam.id.clone(),
-                images_total: paths.len(),
-                images_used,
-                points_extracted,
-                extract_ms,
+                images_total: candidate_views,
+                images_used: per_cam_images_used[cam_idx],
+                points_extracted: per_cam_points[cam_idx],
+                extract_ms: per_cam_ms[cam_idx],
                 plane_residual_m: None,
                 line_residual_px: None,
                 inlier_ratio: None,
-            });
-        }
+            })
+            .collect();
 
-        Ok(Some(LaserMetrics {
-            per_camera,
-            total_points,
-            total_images_used,
-            extract_ms: total_start.elapsed().as_millis() as u64,
+        Ok(Some(LaserObservationSet {
+            views,
+            robot_poses: laser_robot_poses,
+            view_indices: laser_view_indices,
+            metrics: LaserMetrics {
+                per_camera,
+                total_points,
+                total_images_used,
+                extract_ms: total_start.elapsed().as_millis() as u64,
+            },
         }))
     }
 
     #[cfg(feature = "laser")]
     fn extract_laser_points(img: &image::DynamicImage) -> usize {
+        extract_laser_pixels(img).len()
+    }
+
+    #[cfg(feature = "laser")]
+    fn extract_laser_pixels(img: &image::DynamicImage) -> Vec<Pt2> {
         let luma = img.to_luma8();
         let width = luma.width() as usize;
         let height = luma.height() as usize;
         let Ok(view) = ImageView::<u8>::from_slice(width, height, width, luma.as_raw()) else {
-            return 0;
+            return Vec::new();
         };
         let cfg = LaserExtractConfig {
             axis: ScanAxis::Cols {
@@ -1536,15 +2608,48 @@ pub mod tier_b {
         extractor
             .extract_line_u8(&view, 0..width, &cfg, None)
             .points
-            .len()
+            .into_iter()
+            .map(|p| Pt2::new(p.x as f64, p.y as f64))
+            .collect()
     }
 
     #[cfg(feature = "laser")]
     #[derive(serde::Deserialize)]
     struct LaserPoseEntry {
+        target_image: Option<String>,
         laser_image: Option<String>,
         #[serde(rename = "type")]
         snap_type: Option<String>,
+    }
+
+    #[cfg(feature = "laser")]
+    fn laser_image_paths_by_target(
+        entry: &BenchEntry,
+    ) -> Result<std::collections::BTreeMap<String, PathBuf>> {
+        let Some(pose_src) = &entry.robot_poses else {
+            return Ok(std::collections::BTreeMap::new());
+        };
+        if pose_src.format != "snap_list_json" {
+            return Ok(std::collections::BTreeMap::new());
+        }
+        let path = entry.data_root.join(&pose_src.path);
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read laser pose list {}", path.display()))?;
+        let entries: Vec<LaserPoseEntry> = serde_json::from_str(&text)
+            .with_context(|| format!("failed to parse laser pose list {}", path.display()))?;
+        Ok(entries
+            .into_iter()
+            .filter(|entry| entry.snap_type.as_deref() == Some("double_snap"))
+            .filter_map(|entry| Some((entry.target_image?, entry.laser_image?)))
+            .map(|(target, laser)| {
+                let target_name = Path::new(&target)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&target)
+                    .to_string();
+                (target_name, entry.data_root.join(laser))
+            })
+            .collect())
     }
 
     #[cfg(feature = "laser")]
@@ -1568,6 +2673,247 @@ pub mod tier_b {
             }
         }
         glob_sorted_images(&entry.data_root, "laser_*.png")
+    }
+
+    fn run_rig_handeye_laserline_v5(
+        entry: &BenchEntry,
+        rig_export: &RigHandeyeExport,
+        observations: Option<LaserObservationSet>,
+        robot_rot_sigma: f64,
+        robot_trans_sigma: f64,
+    ) -> Result<Option<JointV5Result>> {
+        let Some(observations) = observations else {
+            return Ok(None);
+        };
+        if observations.views.is_empty() {
+            return Ok(None);
+        }
+
+        progress(
+            entry,
+            format!(
+                "V5 laserline + joint BA over {} laser views",
+                observations.views.len()
+            ),
+        );
+        let n_cam = entry.cameras.len();
+        let laserline_dataset =
+            vision_calibration_optim::RigLaserlineDataset::new(observations.views.clone(), n_cam)
+                .map_err(|e| anyhow::anyhow!("build RigLaserlineDataset: {e}"))?;
+        let rig_se3_target: Vec<Iso3> = observations
+            .robot_poses
+            .iter()
+            .map(|pose| rig_target_for_handeye_mode(rig_export, *pose))
+            .collect::<Result<Vec<_>>>()?;
+        let upstream = rig_export
+            .to_upstream_calibration(rig_se3_target)
+            .context("build rig laserline upstream from rig hand-eye export")?;
+        let laserline_input = RigLaserlineDeviceInput {
+            dataset: laserline_dataset.clone(),
+            upstream,
+            initial_planes_cam: None,
+        };
+
+        let mut laser_session =
+            CalibrationSession::<RigLaserlineDeviceProblem>::with_description("bench_v5_laser");
+        laser_session
+            .set_input(laserline_input)
+            .context("set laserline input failed")?;
+        let mut laser_cfg = RigLaserlineDeviceConfig::default();
+        laser_cfg.max_iters = Some(200);
+        laser_cfg.verbosity = Some(0);
+        laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
+        laser_session
+            .set_config(laser_cfg)
+            .context("set laserline config failed")?;
+        run_rig_laserline_device_calibration(&mut laser_session)
+            .context("RigLaserlineDevice V5 stage failed")?;
+        let laser_export = laser_session
+            .export()
+            .context("export V5 laserline stage failed")?;
+
+        let mut laser_metrics = observations.metrics;
+        apply_laserline_stage_stats(&mut laser_metrics, &laser_export.per_camera_stats);
+
+        let initial_robot_deltas = rig_export.robot_deltas.as_ref().map(|deltas| {
+            observations
+                .view_indices
+                .iter()
+                .filter_map(|&idx| deltas.get(idx).copied())
+                .collect::<Vec<_>>()
+        });
+        let initial_robot_deltas =
+            initial_robot_deltas.filter(|deltas| deltas.len() == observations.views.len());
+
+        let joint_dataset = RigHandeyeLaserlineDataset::from_rig_dataset(
+            laserline_dataset,
+            observations.robot_poses,
+            rig_export.handeye_mode,
+        )
+        .map_err(|e| anyhow::anyhow!("build RigHandeyeLaserlineDataset: {e}"))?;
+
+        let handeye = match rig_export.handeye_mode {
+            HandEyeMode::EyeInHand => rig_export
+                .gripper_se3_rig
+                .context("EyeInHand rig export missing gripper_se3_rig")?,
+            HandEyeMode::EyeToHand => rig_export
+                .rig_se3_base
+                .context("EyeToHand rig export missing rig_se3_base")?,
+        };
+        let target_ref = match rig_export.handeye_mode {
+            HandEyeMode::EyeInHand => rig_export
+                .base_se3_target
+                .context("EyeInHand rig export missing base_se3_target")?,
+            HandEyeMode::EyeToHand => rig_export
+                .gripper_se3_target
+                .context("EyeToHand rig export missing gripper_se3_target")?,
+        };
+        let sensors = rig_export
+            .sensors
+            .clone()
+            .unwrap_or_else(|| vec![ScheimpflugParams::default(); n_cam]);
+        let joint_initial = RigHandeyeLaserlineParams {
+            cameras: rig_export.cameras.clone(),
+            sensors,
+            cam_to_rig: rig_export.cam_se3_rig.iter().map(|t| t.inverse()).collect(),
+            handeye,
+            target_ref,
+            planes_cam: laser_export.laser_planes_cam.clone(),
+        };
+
+        let cam_fix = CameraFixMask {
+            intrinsics: IntrinsicsFixMask::all_free(),
+            distortion: DistortionFixMask {
+                k1: false,
+                k2: false,
+                k3: true,
+                p1: true,
+                p2: true,
+            },
+        };
+        let joint_opts = RigHandeyeLaserlineSolveOptions {
+            laser_residual_type: LaserlineResidualType::PointToPlane,
+            laser_weight: 1.0e4,
+            calib_weight: 1.0,
+            refine_robot_poses: true,
+            robot_rot_sigma,
+            robot_trans_sigma,
+            initial_robot_deltas,
+            fix_intrinsics: vec![cam_fix; n_cam],
+            fix_extrinsics: (0..n_cam).map(|i| i == 0).collect(),
+            fix_scheimpflug: vec![
+                ScheimpflugFixMask {
+                    tilt_x: true,
+                    tilt_y: true,
+                };
+                n_cam
+            ],
+            ..Default::default()
+        };
+        let backend_opts = BackendSolveOptions {
+            max_iters: 30,
+            verbosity: 0,
+            ..Default::default()
+        };
+        let joint_est =
+            optimize_rig_handeye_laserline(joint_dataset, joint_initial, joint_opts, backend_opts)
+                .context("final V5 optimize_rig_handeye_laserline failed")?;
+        apply_joint_laser_stats(&mut laser_metrics, &joint_est.per_cam_stats);
+
+        Ok(Some(JointV5Result {
+            mean_reproj_error_px: joint_est.mean_reproj_error_px,
+            per_cam_stats: joint_est.per_cam_stats,
+            laser_metrics,
+        }))
+    }
+
+    fn rig_target_for_handeye_mode(
+        export: &RigHandeyeExport,
+        base_se3_gripper: Iso3,
+    ) -> Result<Iso3> {
+        match export.handeye_mode {
+            HandEyeMode::EyeInHand => {
+                let gripper_se3_rig = export
+                    .gripper_se3_rig
+                    .context("EyeInHand rig export missing gripper_se3_rig")?;
+                let base_se3_target = export
+                    .base_se3_target
+                    .context("EyeInHand rig export missing base_se3_target")?;
+                Ok(gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target)
+            }
+            HandEyeMode::EyeToHand => {
+                let rig_se3_base = export
+                    .rig_se3_base
+                    .context("EyeToHand rig export missing rig_se3_base")?;
+                let gripper_se3_target = export
+                    .gripper_se3_target
+                    .context("EyeToHand rig export missing gripper_se3_target")?;
+                Ok(rig_se3_base * base_se3_gripper * gripper_se3_target)
+            }
+        }
+    }
+
+    fn apply_laserline_stage_stats(
+        metrics: &mut LaserMetrics,
+        stats: &[vision_calibration_optim::LaserlineStats],
+    ) {
+        for (metric, stat) in metrics.per_camera.iter_mut().zip(stats) {
+            metric.plane_residual_m =
+                Some(ReprojectionStats::from_errors(&stat.per_view_laser_errors));
+        }
+    }
+
+    fn apply_joint_laser_stats(
+        metrics: &mut LaserMetrics,
+        stats: &[RigHandeyeLaserlinePerCamStats],
+    ) {
+        for (metric, stat) in metrics.per_camera.iter_mut().zip(stats) {
+            metric.plane_residual_m = Some(ReprojectionStats::from_summary(
+                stat.mean_laser_err_m,
+                stat.mean_laser_err_m,
+                stat.max_laser_err_m,
+                stat.laser_count,
+            ));
+            metric.line_residual_px = Some(ReprojectionStats::from_summary(
+                stat.mean_laser_err_px,
+                stat.mean_laser_err_px,
+                stat.max_laser_err_px,
+                stat.laser_count,
+            ));
+            metric.inlier_ratio = Some(1.0);
+        }
+    }
+
+    fn reproj_stats_from_joint(stats: &[RigHandeyeLaserlinePerCamStats]) -> ReprojectionStats {
+        let total_count: usize = stats.iter().map(|s| s.reproj_count).sum();
+        if total_count == 0 {
+            return ReprojectionStats::from_errors(&[]);
+        }
+        let mean = stats
+            .iter()
+            .map(|s| s.mean_reproj_error_px * s.reproj_count as f64)
+            .sum::<f64>()
+            / total_count as f64;
+        let rms = (stats
+            .iter()
+            .map(|s| s.mean_reproj_error_px.powi(2) * s.reproj_count as f64)
+            .sum::<f64>()
+            / total_count as f64)
+            .sqrt();
+        let max = stats
+            .iter()
+            .map(|s| s.max_reproj_error_px)
+            .fold(0.0_f64, f64::max);
+        ReprojectionStats::from_summary(mean, rms, max, total_count)
+    }
+
+    fn reproj_stats_from_joint_cam(stat: &RigHandeyeLaserlinePerCamStats) -> ReprojectionStats {
+        ReprojectionStats::from_summary(
+            stat.mean_reproj_error_px,
+            stat.mean_reproj_error_px,
+            stat.max_reproj_error_px,
+            stat.reproj_count,
+        )
     }
 
     /// Synthesize a [`SolveReport`] for the record's [`Convergence`].
@@ -2120,6 +3466,7 @@ pub mod tier_b {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use vision_calibration_core::{CameraProject, Pt3};
 
         #[test]
         fn detector_for_puzzleboard_layout_dispatches() {
@@ -2141,6 +3488,173 @@ pub mod tier_b {
                 }
                 _ => panic!("expected puzzleboard detector"),
             }
+        }
+
+        #[test]
+        fn staged_multistart_recovers_synthetic_scheimpflug_intrinsics() {
+            let dataset = synthetic_scheimpflug_dataset();
+            let seeds = [
+                IntrinsicsSeed {
+                    focal_px: 1600.0,
+                    cx: 360.0,
+                    cy: 270.0,
+                    tau_x: 0.04,
+                    tau_y: 0.02,
+                },
+                IntrinsicsSeed {
+                    focal_px: 2200.0,
+                    cx: 360.0,
+                    cy: 270.0,
+                    tau_x: -0.12,
+                    tau_y: 0.0,
+                },
+            ];
+
+            let solve = solve_centered_multistart(&dataset, &seeds, 0.4).expect("synthetic solve");
+            assert!(
+                solve.report.stats.mean < 0.05,
+                "synthetic Scheimpflug solve should reach near-zero raw mean, got {}",
+                solve.report.stats.mean
+            );
+            assert!(solve.report.mean_crosscheck_abs_diff <= 1e-9);
+            assert_eq!(solve.report.params.cx, 360.0);
+            assert_eq!(solve.report.params.cy, 270.0);
+            assert_eq!(solve.report.params.k3, 0.0);
+            assert_eq!(solve.report.params.p1, 0.0);
+            assert_eq!(solve.report.params.p2, 0.0);
+        }
+
+        #[test]
+        fn intrinsics_diagnose_json_shape_is_stable() {
+            let mut errors = vec![0.2, 0.4, 0.8, 2.5, 5.5];
+            let stats = intrinsics_stats_from_errors(&mut errors);
+            let report = IntrinsicsDiagnoseReport {
+                dataset_id: "synthetic".to_string(),
+                gate_px: 0.4,
+                chess_threshold_abs: Some(30.0),
+                pass: false,
+                cameras: vec![IntrinsicsCameraReport {
+                    camera_id: "cam0".to_string(),
+                    image_size: [720, 540],
+                    images_total: 2,
+                    images_used: 2,
+                    features_detected: 5,
+                    roi_local_coordinates: true,
+                    gate_case: IntrinsicsCaseReport {
+                        case: "centered_p1p2_k3_fixed".to_string(),
+                        accepted_for_gate: true,
+                        passed_gate: false,
+                        seed: IntrinsicsSeed {
+                            focal_px: 2000.0,
+                            cx: 360.0,
+                            cy: 270.0,
+                            tau_x: -0.08,
+                            tau_y: 0.0,
+                        },
+                        params: IntrinsicsParamReport {
+                            fx: 2000.0,
+                            fy: 1990.0,
+                            cx: 360.0,
+                            cy: 270.0,
+                            skew: 0.0,
+                            k1: -0.1,
+                            k2: 0.2,
+                            k3: 0.0,
+                            p1: 0.0,
+                            p2: 0.0,
+                            tau_x: -0.08,
+                            tau_y: 0.0,
+                        },
+                        stats: stats.clone(),
+                        solver_mean_reproj_error: stats.mean,
+                        mean_crosscheck_abs_diff: 0.0,
+                        solve_report: SolveReport {
+                            final_cost: 1.0,
+                            num_iters: 3,
+                        },
+                        note: None,
+                    },
+                    diagnostic_cases: Vec::new(),
+                    per_pose: vec![IntrinsicsPoseStats {
+                        pose: 0,
+                        stats: stats.clone(),
+                    }],
+                    top_outliers: Vec::new(),
+                }],
+            };
+
+            let value = serde_json::to_value(&report).expect("json");
+            assert_eq!(value["dataset_id"], "synthetic");
+            assert_eq!(value["gate_px"], 0.4);
+            assert_eq!(value["cameras"][0]["gate_case"]["stats"]["count"], 5);
+            assert_eq!(value["cameras"][0]["gate_case"]["params"]["tau_x"], -0.08);
+            assert_eq!(value["cameras"][0]["gate_case"]["seed"]["focal_px"], 2000.0);
+            assert_eq!(value["cameras"][0]["per_pose"][0]["pose"], 0);
+            assert_eq!(value["cameras"][0]["per_pose"][0]["stats"]["count"], 5);
+        }
+
+        fn synthetic_scheimpflug_dataset() -> PlanarDataset {
+            let points = synthetic_board(7, 9, 0.0052);
+            let k = FxFyCxCySkew {
+                fx: 1950.0,
+                fy: 1900.0,
+                cx: 360.0,
+                cy: 270.0,
+                skew: 0.0,
+            };
+            let dist = BrownConrady5 {
+                k1: -0.14,
+                k2: 0.06,
+                k3: 0.0,
+                p1: 0.0,
+                p2: 0.0,
+                iters: 8,
+            };
+            let sensor = ScheimpflugParams {
+                tilt_x: -0.08,
+                tilt_y: 0.01,
+            };
+            let camera = Camera::new(Pinhole, dist, sensor.compile(), k);
+            let poses = [
+                synthetic_pose(-0.05, 0.03, 0.01, -0.022, -0.016, 0.19),
+                synthetic_pose(0.08, -0.04, 0.02, -0.020, -0.014, 0.21),
+                synthetic_pose(-0.03, -0.08, -0.02, -0.024, -0.017, 0.18),
+                synthetic_pose(0.04, 0.06, 0.04, -0.019, -0.018, 0.22),
+                synthetic_pose(-0.07, 0.01, -0.03, -0.023, -0.015, 0.20),
+            ];
+            let views = poses
+                .iter()
+                .map(|pose| {
+                    let image: Vec<_> = points
+                        .iter()
+                        .map(|p| {
+                            let p_cam = pose * p;
+                            camera
+                                .project_camera_point(&p_cam.coords)
+                                .expect("synthetic point projects")
+                        })
+                        .collect();
+                    View::without_meta(
+                        CorrespondenceView::new(points.clone(), image).expect("view"),
+                    )
+                })
+                .collect();
+            PlanarDataset::new(views).expect("dataset")
+        }
+
+        fn synthetic_board(rows: usize, cols: usize, pitch: f64) -> Vec<Pt3> {
+            let mut points = Vec::with_capacity(rows * cols);
+            for r in 0..rows {
+                for c in 0..cols {
+                    points.push(Pt3::new(c as f64 * pitch, r as f64 * pitch, 0.0));
+                }
+            }
+            points
+        }
+
+        fn synthetic_pose(rx: f64, ry: f64, rz: f64, tx: f64, ty: f64, tz: f64) -> Iso3 {
+            let rot = UnitQuaternion::from_scaled_axis(Vector3::new(rx, ry, rz));
+            Iso3::from_parts(Translation3::new(tx, ty, tz), rot)
         }
     }
 }

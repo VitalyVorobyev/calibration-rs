@@ -27,7 +27,9 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
-use vision_calibration_dataset::{ImagePattern, TargetSpec, Topology, ValidationError};
+use vision_calibration_dataset::{
+    ChessThresholdMode, DatasetSpec, ImagePattern, TargetSpec, Topology, ValidationError,
+};
 use vision_calibration_detect::{
     CacheKey, CachedFeatures, CharucoDetector, ChessboardDetector, DetectionCache, Detector,
     Feature, validate_charuco_layout,
@@ -42,7 +44,8 @@ mod rig;
 
 pub use handeye::{HandeyeRunResult, build_single_cam_handeye_input};
 pub use laser::{
-    LaserPixelExtractor, LaserlineRunResult, RigLaserlineRunResult, build_laserline_device_input,
+    LaserPixelExtractor, LaserlineRunResult, RigHandeyeLaserlineRunResult, RigLaserlineRunResult,
+    build_laserline_device_input, build_rig_handeye_laserline_input,
     build_rig_laserline_device_input,
 };
 pub use pairing::PairedViews;
@@ -252,7 +255,32 @@ pub enum RunError {
 // Shared helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn target_to_detector_config(target: &TargetSpec) -> Result<(&'static str, Value), RunError> {
+fn target_to_detector_config(spec: &DatasetSpec) -> Result<(&'static str, Value), RunError> {
+    let (name, mut config) = detector_config_for_target(&spec.target)?;
+    if let Some(chess) = spec.detector.and_then(|d| d.chess_corners)
+        && let Value::Object(map) = &mut config
+    {
+        let mut chess_json = serde_json::Map::new();
+        if let Some(mode) = chess.threshold_mode {
+            chess_json.insert(
+                "threshold_mode".to_string(),
+                json!(match mode {
+                    ChessThresholdMode::Absolute => "absolute",
+                    ChessThresholdMode::Relative => "relative",
+                }),
+            );
+        }
+        if let Some(value) = chess.threshold_value {
+            chess_json.insert("threshold_value".to_string(), json!(value));
+        }
+        if !chess_json.is_empty() {
+            map.insert("chess_corners".to_string(), Value::Object(chess_json));
+        }
+    }
+    Ok((name, config))
+}
+
+fn detector_config_for_target(target: &TargetSpec) -> Result<(&'static str, Value), RunError> {
     match target {
         TargetSpec::Chessboard {
             rows,
@@ -414,9 +442,10 @@ fn take_digits(it: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
     s
 }
 
-/// Splice a `_roi` field into the detector's canonical config JSON so
-/// the cache key changes whenever the user edits the ROI. The detector
-/// itself never sees `_roi` — the runner crops the image upstream.
+/// Splice ROI-only metadata into the detector's canonical config JSON
+/// so the cache key changes whenever the user edits the ROI or the
+/// ROI-local coordinate contract changes. The detector itself never
+/// sees these fields — the runner crops the image upstream.
 fn augment_config_with_roi(detector_config: &Value, roi: Option<[u32; 4]>) -> Value {
     let Some(roi) = roi else {
         return detector_config.clone();
@@ -424,6 +453,7 @@ fn augment_config_with_roi(detector_config: &Value, roi: Option<[u32; 4]>) -> Va
     let mut copy = detector_config.clone();
     if let Value::Object(map) = &mut copy {
         map.insert("_roi".to_string(), json!([roi[0], roi[1], roi[2], roi[3]]));
+        map.insert("_coord_frame".to_string(), json!("roi_local_v2"));
     }
     copy
 }
@@ -437,7 +467,7 @@ fn pattern_repr(p: &ImagePattern) -> String {
 
 /// Run one image through the cache-or-detect path shared by every
 /// converter: read bytes → cache lookup → on miss, decode, crop to
-/// ROI, detect, lift pixels back to source coordinates, store.
+/// ROI, detect in the camera pixel frame, store.
 ///
 /// Returns the features plus whether they came from the cache.
 #[allow(clippy::too_many_arguments)]
@@ -472,25 +502,13 @@ fn detect_features(
     } else {
         img
     };
-    let mut detected = detector
+    let detected = detector
         .detect_json(&img_for_detect, detector_config)
         .map_err(|e| RunError::Detection {
             detector: detector_name.to_string(),
             path: image_path.to_path_buf(),
             source: e,
         })?;
-    // Detected pixels are in the cropped frame; lift them back into
-    // source-image coordinates so the rest of the pipeline (and the
-    // export's `image_manifest`) stays in one consistent coordinate
-    // system.
-    if let Some([x, y, _w, _h]) = roi {
-        let dx = x as f64;
-        let dy = y as f64;
-        for f in detected.iter_mut() {
-            f.image_xy[0] += dx;
-            f.image_xy[1] += dy;
-        }
-    }
     cache.put(
         &key,
         &CachedFeatures {
@@ -520,6 +538,31 @@ fn features_to_obs(features: &[Feature]) -> CorrespondenceView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vision_calibration_dataset::{
+        CameraSource, ChessCornersDetectorSpec, DetectorSpec, ImagePattern,
+    };
+
+    fn spec_for_target(target: TargetSpec) -> DatasetSpec {
+        DatasetSpec {
+            version: 1,
+            cameras: vec![CameraSource {
+                id: "cam0".into(),
+                images: ImagePattern::List { paths: vec![] },
+                roi_xywh: None,
+                laser_images: None,
+            }],
+            target,
+            detector: None,
+            robot_poses: None,
+            laser: None,
+            upstream_calibration: None,
+            topology: Topology::PlanarIntrinsics,
+            pose_pairing: None,
+            pose_convention: None,
+            unresolved: vec![],
+            description: None,
+        }
+    }
 
     #[test]
     fn charuco_target_maps_to_detector_config() {
@@ -532,7 +575,8 @@ mod tests {
             marker_size_m: 0.015,
             dictionary: "DICT_4X4_100".into(),
         };
-        let (name, config) = target_to_detector_config(&target).unwrap();
+        let spec = spec_for_target(target);
+        let (name, config) = target_to_detector_config(&spec).unwrap();
         assert_eq!(name, "charuco");
         assert_eq!(config["dictionary"], "DICT_4X4_100");
         assert_eq!(config["marker_size_m"], 0.015);
@@ -551,7 +595,8 @@ mod tests {
             marker_size_m: 0.015,
             dictionary: "DICT_TYPO_99".into(),
         };
-        let err = target_to_detector_config(&target).unwrap_err();
+        let spec = spec_for_target(target);
+        let err = target_to_detector_config(&spec).unwrap_err();
         match err {
             RunError::InvalidTargetConfig { message } => {
                 assert!(message.contains("DICT_TYPO_99"), "got: {message}");
@@ -572,7 +617,8 @@ mod tests {
             marker_size_m: 0.015,
             dictionary: "DICT_4X4_50".into(),
         };
-        let err = target_to_detector_config(&target).unwrap_err();
+        let spec = spec_for_target(target);
+        let err = target_to_detector_config(&spec).unwrap_err();
         match err {
             RunError::InvalidTargetConfig { message } => {
                 assert!(
@@ -582,6 +628,26 @@ mod tests {
             }
             other => panic!("expected InvalidTargetConfig, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn detector_override_maps_to_chess_corners_config() {
+        let mut spec = spec_for_target(TargetSpec::Charuco {
+            rows: 8,
+            cols: 8,
+            square_size_m: 0.020,
+            marker_size_m: 0.015,
+            dictionary: "DICT_4X4_50".into(),
+        });
+        spec.detector = Some(DetectorSpec {
+            chess_corners: Some(ChessCornersDetectorSpec {
+                threshold_mode: Some(ChessThresholdMode::Absolute),
+                threshold_value: Some(30.0),
+            }),
+        });
+        let (_name, config) = target_to_detector_config(&spec).unwrap();
+        assert_eq!(config["chess_corners"]["threshold_mode"], "absolute");
+        assert_eq!(config["chess_corners"]["threshold_value"], 30.0);
     }
 
     #[test]
@@ -629,6 +695,8 @@ mod tests {
         let augmented = augment_config_with_roi(&detector_config, Some([0, 0, 64, 64]));
         assert_ne!(detector_config, augmented);
         assert!(augmented.get("_roi").is_some());
+        assert_eq!(augmented["_coord_frame"], "roi_local_v2");
         assert!(detector_config.get("_roi").is_none());
+        assert!(detector_config.get("_coord_frame").is_none());
     }
 }

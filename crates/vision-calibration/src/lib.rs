@@ -442,6 +442,15 @@ pub mod rig_laserline_device {
     };
 }
 
+/// Joint rig hand-eye + laserline calibration.
+pub mod rig_handeye_laserline {
+    pub use vision_calibration_pipeline::rig_handeye_laserline::{
+        JointCameraFixMask, RigHandeyeLaserlineBaConfig, RigHandeyeLaserlineConfig,
+        RigHandeyeLaserlineExport, RigHandeyeLaserlineInput, RigHandeyeLaserlineOutput,
+        RigHandeyeLaserlineProblem, run_calibration,
+    };
+}
+
 /// Map a laser pixel in a specific camera to a 3D point in the robot gripper frame.
 #[deprecated(
     since = "0.5.0",

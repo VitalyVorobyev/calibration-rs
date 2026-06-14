@@ -118,6 +118,10 @@ pub enum ValidationError {
     /// Laser extraction parameters are out of range.
     #[error("laser extraction: {0}")]
     BadLaserExtraction(String),
+
+    /// Detector override parameters are out of range.
+    #[error("detector override: {0}")]
+    BadDetectorOverride(String),
 }
 
 /// Validate the structural invariants of a manifest. Does not touch
@@ -174,6 +178,8 @@ pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
         }
     }
 
+    validate_detector_override(spec)?;
+
     validate_laser_fields(spec)?;
 
     if let Some(robot) = &spec.robot_poses {
@@ -186,13 +192,28 @@ pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
     Ok(())
 }
 
+fn validate_detector_override(spec: &DatasetSpec) -> Result<(), ValidationError> {
+    let Some(detector) = &spec.detector else {
+        return Ok(());
+    };
+    if let Some(chess) = &detector.chess_corners
+        && let Some(value) = chess.threshold_value
+        && value <= 0.0
+    {
+        return Err(ValidationError::BadDetectorOverride(format!(
+            "chess_corners.threshold_value must be positive, got {value}"
+        )));
+    }
+    Ok(())
+}
+
 /// Laser-field rules (ADR 0021): laser topologies require laser
 /// sources everywhere; non-laser topologies must not carry any of the
 /// laser-only fields (an ignored field is a fail-fast event).
 fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
     let uses_laser = matches!(
         spec.topology,
-        Topology::LaserlineDevice | Topology::RigLaserlineDevice
+        Topology::LaserlineDevice | Topology::RigLaserlineDevice | Topology::RigHandeyeLaserline
     );
 
     if !uses_laser {
@@ -265,9 +286,11 @@ fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
                 topology: spec.topology,
             })
         }
-        Topology::LaserlineDevice if spec.upstream_calibration.is_some() => {
-            // Single-camera laserline calibrates its own intrinsics —
-            // an upstream export here means the wrong topology.
+        Topology::LaserlineDevice | Topology::RigHandeyeLaserline
+            if spec.upstream_calibration.is_some() =>
+        {
+            // These topologies calibrate their own upstream geometry — an
+            // upstream export here means the wrong topology.
             Err(ValidationError::FieldUnusedByTopology {
                 topology: spec.topology,
                 field: "upstream_calibration".into(),
@@ -280,7 +303,10 @@ fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
 fn topology_needs_robot(t: Topology) -> bool {
     matches!(
         t,
-        Topology::SingleCamHandeye | Topology::RigHandeye | Topology::RigLaserlineDevice
+        Topology::SingleCamHandeye
+            | Topology::RigHandeye
+            | Topology::RigLaserlineDevice
+            | Topology::RigHandeyeLaserline
     )
 }
 
@@ -295,9 +321,10 @@ fn topology_camera_range(t: Topology) -> (usize, usize) {
         | Topology::LaserlineDevice => (1, 1),
         // Rig topologies need at least two cameras; the upper bound is
         // unconstrained (puzzle 130×130 ships with 6).
-        Topology::RigExtrinsics | Topology::RigHandeye | Topology::RigLaserlineDevice => {
-            (2, usize::MAX)
-        }
+        Topology::RigExtrinsics
+        | Topology::RigHandeye
+        | Topology::RigLaserlineDevice
+        | Topology::RigHandeyeLaserline => (2, usize::MAX),
     }
 }
 
@@ -392,9 +419,9 @@ fn expected_rotation_columns(format: RotationFormat) -> usize {
 mod tests {
     use super::*;
     use crate::spec::{
-        CameraSource, DatasetSpec, ImagePattern, PoseColumnMap, PoseConvention, RobotPoseFormat,
-        RobotPoseSource, RotationFormat, TargetSpec, Topology, TransformConvention,
-        TranslationUnits,
+        CameraSource, ChessCornersDetectorSpec, ChessThresholdMode, DatasetSpec, DetectorSpec,
+        ImagePattern, PoseColumnMap, PoseConvention, RobotPoseFormat, RobotPoseSource,
+        RotationFormat, TargetSpec, Topology, TransformConvention, TranslationUnits,
     };
 
     fn planar_chessboard_minimal() -> DatasetSpec {
@@ -413,6 +440,7 @@ mod tests {
                 cols: 6,
                 square_size_m: 0.025,
             },
+            detector: None,
             robot_poses: None,
             laser: None,
             upstream_calibration: None,
@@ -626,6 +654,39 @@ mod tests {
     }
 
     #[test]
+    fn detector_chess_threshold_roundtrips() {
+        let mut spec = planar_chessboard_minimal();
+        spec.detector = Some(DetectorSpec {
+            chess_corners: Some(ChessCornersDetectorSpec {
+                threshold_mode: Some(ChessThresholdMode::Absolute),
+                threshold_value: Some(30.0),
+            }),
+        });
+        validate(&spec).unwrap();
+
+        let s = serde_json::to_string(&spec).unwrap();
+        assert!(s.contains("chess_corners"));
+        assert!(s.contains("threshold_mode"));
+        let back: DatasetSpec = serde_json::from_str(&s).unwrap();
+        let chess = back.detector.unwrap().chess_corners.unwrap();
+        assert_eq!(chess.threshold_mode, Some(ChessThresholdMode::Absolute));
+        assert_eq!(chess.threshold_value, Some(30.0));
+    }
+
+    #[test]
+    fn detector_chess_threshold_must_be_positive() {
+        let mut spec = planar_chessboard_minimal();
+        spec.detector = Some(DetectorSpec {
+            chess_corners: Some(ChessCornersDetectorSpec {
+                threshold_mode: Some(ChessThresholdMode::Absolute),
+                threshold_value: Some(0.0),
+            }),
+        });
+        let err = validate(&spec).unwrap_err();
+        assert!(matches!(err, ValidationError::BadDetectorOverride(_)));
+    }
+
+    #[test]
     fn json_roundtrip_minimal() {
         let spec = planar_chessboard_minimal();
         let s = serde_json::to_string(&spec).unwrap();
@@ -675,10 +736,18 @@ mod tests {
         spec
     }
 
+    fn rig_handeye_laserline_minimal() -> DatasetSpec {
+        let mut spec = rig_laserline_minimal();
+        spec.topology = Topology::RigHandeyeLaserline;
+        spec.upstream_calibration = None;
+        spec
+    }
+
     #[test]
     fn laserline_manifests_validate() {
         validate(&laserline_minimal()).unwrap();
         validate(&rig_laserline_minimal()).unwrap();
+        validate(&rig_handeye_laserline_minimal()).unwrap();
     }
 
     #[test]
@@ -753,6 +822,25 @@ mod tests {
             }
             other => panic!("expected FieldUnusedByTopology, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rig_handeye_laserline_rejects_upstream_but_requires_robot() {
+        let mut spec = rig_handeye_laserline_minimal();
+        spec.upstream_calibration = Some("export.json".into());
+        match validate(&spec).unwrap_err() {
+            ValidationError::FieldUnusedByTopology { field, .. } => {
+                assert_eq!(field, "upstream_calibration");
+            }
+            other => panic!("expected FieldUnusedByTopology, got {other:?}"),
+        }
+
+        let mut spec = rig_handeye_laserline_minimal();
+        spec.robot_poses = None;
+        assert!(matches!(
+            validate(&spec).unwrap_err(),
+            ValidationError::MissingRobotPoses { .. }
+        ));
     }
 
     #[test]

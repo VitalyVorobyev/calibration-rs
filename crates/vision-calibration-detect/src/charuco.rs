@@ -16,13 +16,14 @@ use calib_targets::charuco::{
     CharucoBoard, CharucoBoardSpec, CharucoDetector as CtCharucoDetector, CharucoParams,
     MarkerLayout,
 };
-use calib_targets::detect::{self, default_chess_config};
+use calib_targets::detect;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
+use crate::chess_options::{ChessCornersConfig, chess_config_for_override};
 use crate::{Detector, Feature};
 
 /// ChArUco detector configuration. Mirrors the shape of the charuco
@@ -47,6 +48,9 @@ pub struct CharucoConfig {
     /// ArUco dictionary identifier (e.g. `"DICT_4X4_50"`). Validated
     /// against the embedded builtin set; see [`validate_dictionary`].
     pub dictionary: String,
+    /// Optional ChESS corner-stage overrides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chess_corners: Option<ChessCornersConfig>,
 }
 
 /// Check `name` against the ArUco dictionaries embedded in
@@ -132,10 +136,9 @@ impl Detector for CharucoDetector {
         let params = params_for(&cfg)?;
         let luma = image.to_luma8();
 
-        // ChESS corner pre-detection feeds the ChArUco identifier; we
-        // use the default corner-stage config, matching the chessboard
-        // detector's choice.
-        let corners = detect::detect_corners(&luma, &default_chess_config());
+        // ChESS corner pre-detection feeds the ChArUco identifier.
+        let chess_cfg = chess_config_for_override(cfg.chess_corners);
+        let corners = detect::detect_corners(&luma, &chess_cfg);
         let detector = CtCharucoDetector::new(params)?;
         // A failed board identification (too few markers, no board in
         // frame) is "no features", not an error — same semantics as

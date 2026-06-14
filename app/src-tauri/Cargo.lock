@@ -6421,6 +6421,7 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "calib-targets",
+ "chess-corners",
  "image",
  "serde",
  "serde_json",

@@ -18,12 +18,15 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use vision_calibration_core::{FrameKind, FrameRef, ImageManifest, PlanarDataset, RigDataset};
+use vision_calibration_core::{
+    FrameKind, FrameRef, ImageManifest, PixelRect, PlanarDataset, RigDataset,
+};
 use vision_calibration_dataset::{DatasetSpec, Topology};
 use vision_calibration_detect::FsDetectionCache;
 use vision_calibration_pipeline::dataset_runner::{
     RunError, build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
-    build_rig_handeye_input, build_rig_laserline_device_input, build_single_cam_handeye_input,
+    build_rig_handeye_input, build_rig_handeye_laserline_input, build_rig_laserline_device_input,
+    build_single_cam_handeye_input,
 };
 use vision_calibration_pipeline::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceProblem,
@@ -37,6 +40,10 @@ use vision_calibration_pipeline::rig_extrinsics::{
 };
 use vision_calibration_pipeline::rig_handeye::{
     RigHandeyeConfig, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
+};
+use vision_calibration_pipeline::rig_handeye_laserline::{
+    RigHandeyeLaserlineConfig, RigHandeyeLaserlineProblem,
+    run_calibration as run_rig_handeye_laserline_calibration,
 };
 use vision_calibration_pipeline::rig_laserline_device::{
     RigLaserlineDeviceConfig, RigLaserlineDeviceProblem,
@@ -146,6 +153,7 @@ pub fn default_config_cmd(topology: String) -> Result<serde_json::Value, String>
         "laserline_device" => serde_json::to_value(LaserlineDeviceConfig::default()),
         "rig_extrinsics" => serde_json::to_value(RigExtrinsicsConfig::default()),
         "rig_handeye" => serde_json::to_value(RigHandeyeConfig::default()),
+        "rig_handeye_laserline" => serde_json::to_value(RigHandeyeLaserlineConfig::default()),
         "rig_laserline_device" => serde_json::to_value(RigLaserlineDeviceConfig::default()),
         other => return Err(format!("unknown topology {other:?}")),
     };
@@ -213,6 +221,15 @@ fn run_blocking(
         }
         Topology::RigLaserlineDevice => {
             run_rig_laserline_topology(&spec, config_json, base_dir, &detection_cache, started)
+        }
+        Topology::RigHandeyeLaserline => {
+            run_rig_handeye_laserline_topology(
+                &spec,
+                config_json,
+                base_dir,
+                &detection_cache,
+                started,
+            )
         }
     }
 }
@@ -315,7 +332,7 @@ where
     };
     if let Err(boxed) = splice_image_manifest(
         &mut export,
-        planar_image_manifest(&planar_run.view_paths, base_dir),
+        planar_image_manifest(&planar_run.view_paths, base_dir, spec.cameras[0].roi_xywh),
     ) {
         return *boxed;
     }
@@ -356,7 +373,7 @@ fn run_single_cam_handeye_topology(
     // index, camera = 0) applies directly.
     if let Err(boxed) = splice_image_manifest(
         &mut export,
-        planar_image_manifest(&handeye_run.view_paths, base_dir),
+        planar_image_manifest(&handeye_run.view_paths, base_dir, spec.cameras[0].roi_xywh),
     ) {
         return *boxed;
     }
@@ -403,7 +420,12 @@ fn run_laserline_topology(
     // (ADR 0021 §5).
     if let Err(boxed) = splice_image_manifest(
         &mut export,
-        laserline_image_manifest(&laser_run.view_paths, &laser_run.laser_paths, base_dir),
+        laserline_image_manifest(
+            &laser_run.view_paths,
+            &laser_run.laser_paths,
+            base_dir,
+            spec.cameras[0].roi_xywh,
+        ),
     ) {
         return *boxed;
     }
@@ -450,7 +472,54 @@ fn run_rig_laserline_topology(
     };
     if let Err(boxed) = splice_image_manifest(
         &mut export,
-        rig_laserline_image_manifest(&view_paths, &laser_paths, base_dir),
+        rig_laserline_image_manifest(&view_paths, &laser_paths, base_dir, spec),
+    ) {
+        return *boxed;
+    }
+
+    RunResponse::Ok(RunSuccess {
+        export,
+        duration_ms: started.elapsed().as_millis() as u64,
+        usable_views,
+        total_views,
+        cache_used,
+    })
+}
+
+fn run_rig_handeye_laserline_topology(
+    spec: &DatasetSpec,
+    config_json: serde_json::Value,
+    base_dir: &Path,
+    detection_cache: &FsDetectionCache,
+    started: Instant,
+) -> RunResponse {
+    let joint_run = match build_rig_handeye_laserline_input(
+        spec,
+        base_dir,
+        detection_cache,
+        &crate::laser::VmLaserExtractor,
+        false,
+    ) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
+    let cache_used = joint_run.usable_views > 0;
+    let usable_views = joint_run.usable_views;
+    let total_views = joint_run.total_views;
+    let view_paths = joint_run.view_paths.clone();
+    let laser_paths = joint_run.laser_paths.clone();
+
+    let mut export = match run_session::<RigHandeyeLaserlineProblem>(
+        joint_run.input,
+        config_json,
+        run_rig_handeye_laserline_calibration,
+    ) {
+        Ok(v) => v,
+        Err(boxed) => return *boxed,
+    };
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        rig_laserline_image_manifest(&view_paths, &laser_paths, base_dir, spec),
     ) {
         return *boxed;
     }
@@ -498,7 +567,7 @@ where
     };
     if let Err(boxed) = splice_image_manifest(
         &mut export,
-        rig_image_manifest(&rig_run.view_paths, base_dir),
+        rig_image_manifest(&rig_run.view_paths, base_dir, spec),
     ) {
         return *boxed;
     }
@@ -512,11 +581,15 @@ where
     })
 }
 
-fn planar_image_manifest(view_paths: &[PathBuf], base_dir: &Path) -> Result<ImageManifest, String> {
+fn planar_image_manifest(
+    view_paths: &[PathBuf],
+    base_dir: &Path,
+    roi: Option<[u32; 4]>,
+) -> Result<ImageManifest, String> {
     let base_abs = canonical_base(base_dir)?;
     let mut frames = Vec::with_capacity(view_paths.len());
     for (pose, path) in view_paths.iter().enumerate() {
-        frames.push(frame_ref(pose, 0, path, &base_abs)?);
+        frames.push(frame_ref(pose, 0, path, &base_abs, roi)?);
     }
     Ok(manifest_from_frames(frames))
 }
@@ -528,14 +601,22 @@ fn laserline_image_manifest(
     view_paths: &[PathBuf],
     laser_paths: &[PathBuf],
     base_dir: &Path,
+    roi: Option<[u32; 4]>,
 ) -> Result<ImageManifest, String> {
     let base_abs = canonical_base(base_dir)?;
     let mut frames = Vec::with_capacity(view_paths.len() + laser_paths.len());
     for (pose, path) in view_paths.iter().enumerate() {
-        frames.push(frame_ref(pose, 0, path, &base_abs)?);
+        frames.push(frame_ref(pose, 0, path, &base_abs, roi)?);
     }
     for (pose, path) in laser_paths.iter().enumerate() {
-        frames.push(frame_ref_of_kind(pose, 0, path, &base_abs, FrameKind::Laser)?);
+        frames.push(frame_ref_of_kind(
+            pose,
+            0,
+            path,
+            &base_abs,
+            FrameKind::Laser,
+            roi,
+        )?);
     }
     Ok(manifest_from_frames(frames))
 }
@@ -546,13 +627,20 @@ fn rig_laserline_image_manifest(
     view_paths: &[Vec<Option<PathBuf>>],
     laser_paths: &[Vec<Option<PathBuf>>],
     base_dir: &Path,
+    spec: &DatasetSpec,
 ) -> Result<ImageManifest, String> {
     let base_abs = canonical_base(base_dir)?;
     let mut frames = Vec::new();
     for (pose, cameras) in view_paths.iter().enumerate() {
         for (camera, maybe_path) in cameras.iter().enumerate() {
             if let Some(path) = maybe_path {
-                frames.push(frame_ref(pose, camera, path, &base_abs)?);
+                frames.push(frame_ref(
+                    pose,
+                    camera,
+                    path,
+                    &base_abs,
+                    spec.cameras[camera].roi_xywh,
+                )?);
             }
         }
     }
@@ -565,6 +653,7 @@ fn rig_laserline_image_manifest(
                     path,
                     &base_abs,
                     FrameKind::Laser,
+                    spec.cameras[camera].roi_xywh,
                 )?);
             }
         }
@@ -577,13 +666,20 @@ fn rig_laserline_image_manifest(
 fn rig_image_manifest(
     view_paths: &[Vec<Option<PathBuf>>],
     base_dir: &Path,
+    spec: &DatasetSpec,
 ) -> Result<ImageManifest, String> {
     let base_abs = canonical_base(base_dir)?;
     let mut frames = Vec::new();
     for (pose, cameras) in view_paths.iter().enumerate() {
         for (camera, maybe_path) in cameras.iter().enumerate() {
             if let Some(path) = maybe_path {
-                frames.push(frame_ref(pose, camera, path, &base_abs)?);
+                frames.push(frame_ref(
+                    pose,
+                    camera,
+                    path,
+                    &base_abs,
+                    spec.cameras[camera].roi_xywh,
+                )?);
             }
         }
     }
@@ -596,7 +692,13 @@ fn canonical_base(base_dir: &Path) -> Result<PathBuf, String> {
         .map_err(|e| format!("canonicalize manifest dir {}: {e}", base_dir.display()))
 }
 
-fn frame_ref(pose: usize, camera: usize, path: &Path, base_abs: &Path) -> Result<FrameRef, String> {
+fn frame_ref(
+    pose: usize,
+    camera: usize,
+    path: &Path,
+    base_abs: &Path,
+    roi: Option<[u32; 4]>,
+) -> Result<FrameRef, String> {
     let abs = path
         .canonicalize()
         .map_err(|e| format!("canonicalize image path {}: {e}", path.display()))?;
@@ -611,6 +713,7 @@ fn frame_ref(pose: usize, camera: usize, path: &Path, base_abs: &Path) -> Result
     frame.pose = pose;
     frame.camera = camera;
     frame.path = rel.to_path_buf();
+    frame.roi = roi.map(pixel_rect);
     Ok(frame)
 }
 
@@ -620,10 +723,20 @@ fn frame_ref_of_kind(
     path: &Path,
     base_abs: &Path,
     kind: FrameKind,
+    roi: Option<[u32; 4]>,
 ) -> Result<FrameRef, String> {
-    let mut frame = frame_ref(pose, camera, path, base_abs)?;
+    let mut frame = frame_ref(pose, camera, path, base_abs, roi)?;
     frame.kind = kind;
     Ok(frame)
+}
+
+fn pixel_rect([x, y, w, h]: [u32; 4]) -> PixelRect {
+    let mut rect = PixelRect::default();
+    rect.x = x;
+    rect.y = y;
+    rect.w = w;
+    rect.h = h;
+    rect
 }
 
 fn manifest_from_frames(frames: Vec<FrameRef>) -> ImageManifest {
@@ -712,6 +825,65 @@ fn slug(input: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+    use vision_calibration_dataset::{CameraSource, ImagePattern, PosePairing, TargetSpec};
+
+    fn rtv3d_detector_override() -> serde_json::Value {
+        json!({
+            "chess_corners": {
+                "threshold_mode": "absolute",
+                "threshold_value": 30.0,
+            }
+        })
+    }
+
+    fn rtv3d_manual_intrinsics_init() -> serde_json::Value {
+        let intrinsics: Vec<_> = (0..6)
+            .map(|_| json!({"fx": 2000.0, "fy": 2000.0, "cx": 360.0, "cy": 270.0, "skew": 0.0}))
+            .collect();
+        let distortion: Vec<_> = (0..6)
+            .map(|_| json!({"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}))
+            .collect();
+        let sensors: Vec<_> = (0..6)
+            .map(|_| json!({"tilt_x": 0.0, "tilt_y": 0.0}))
+            .collect();
+        json!({
+            "per_cam_intrinsics": intrinsics,
+            "per_cam_distortion": distortion,
+            "per_cam_sensors": sensors,
+        })
+    }
+
+    fn spec_with_rois(rois: &[Option<[u32; 4]>]) -> DatasetSpec {
+        DatasetSpec {
+            version: 1,
+            cameras: rois
+                .iter()
+                .enumerate()
+                .map(|(i, roi)| CameraSource {
+                    id: format!("cam{i}"),
+                    images: ImagePattern::Glob {
+                        pattern: format!("cam{i}/*.png"),
+                    },
+                    roi_xywh: *roi,
+                    laser_images: None,
+                })
+                .collect(),
+            target: TargetSpec::Chessboard {
+                rows: 9,
+                cols: 6,
+                square_size_m: 0.025,
+            },
+            detector: None,
+            robot_poses: None,
+            laser: None,
+            upstream_calibration: None,
+            topology: Topology::RigExtrinsics,
+            pose_pairing: Some(PosePairing::ByIndex),
+            pose_convention: None,
+            unresolved: vec![],
+            description: None,
+        }
+    }
 
     #[test]
     fn laser_topologies_dispatch_and_fail_validation_without_laser_images() {
@@ -775,11 +947,13 @@ mod tests {
             vec![Some(base.join("cam0/a.png")), Some(base.join("cam1/a.png"))],
             vec![Some(base.join("cam0/b.png")), None], // cam1 missed view 1
         ];
-        let manifest = rig_image_manifest(&view_paths, base).unwrap();
+        let spec = spec_with_rois(&[Some([0, 0, 720, 540]), Some([720, 0, 720, 540])]);
+        let manifest = rig_image_manifest(&view_paths, base, &spec).unwrap();
         assert_eq!(manifest.frames.len(), 3);
         let f = &manifest.frames[2];
         assert_eq!((f.pose, f.camera), (1, 0));
         assert_eq!(f.path, PathBuf::from("cam0/b.png"));
+        assert_eq!(f.roi, Some(pixel_rect([0, 0, 720, 540])));
         // No frame for the None slot.
         assert!(
             !manifest.frames.iter().any(|f| f.pose == 1 && f.camera == 1),
@@ -801,12 +975,14 @@ mod tests {
             &[base.join("cam0/t0.png"), base.join("cam0/t1.png")],
             &[base.join("cam0/l0.png"), base.join("cam0/l1.png")],
             base,
+            Some([5, 6, 32, 24]),
         )
         .unwrap();
         assert_eq!(manifest.target_frames().count(), 2);
         assert_eq!(manifest.laser_frames().count(), 2);
         let laser = manifest.frame_of_kind(1, 0, FrameKind::Laser).unwrap();
         assert_eq!(laser.path, PathBuf::from("cam0/l1.png"));
+        assert_eq!(laser.roi, Some(pixel_rect([5, 6, 32, 24])));
         // `frame()` stays target-only despite the laser entry for (1, 0).
         assert_eq!(
             manifest.frame(1, 0).unwrap().path,
@@ -818,6 +994,7 @@ mod tests {
             &[vec![Some(base.join("cam0/t0.png"))]],
             &[vec![None]],
             base,
+            &spec_with_rois(&[Some([5, 6, 32, 24])]),
         )
         .unwrap();
         assert_eq!(manifest.laser_frames().count(), 0);
@@ -893,11 +1070,11 @@ mod tests {
         }
     }
 
-    /// Two-stage laser acceptance over the local rtv3d dataset
+    /// Frozen-upstream laser diagnostic over the local rtv3d dataset
     /// (6-camera Scheimpflug rig, tiled strips, ChArUco + laser
     /// frames): rig hand-eye first, then `RigLaserlineDevice` with the
     /// stage-1 export as the frozen upstream — exactly the user
-    /// workflow the laser slice ships (ADR 0021). Skips when
+    /// diagnostic path the laser slice ships (ADR 0021). Skips when
     /// `privatedata/rtv3d` is absent (gitignored, local-only).
     #[test]
     #[ignore = "needs the local privatedata/rtv3d dataset; 6-cam detection + two solves"]
@@ -910,19 +1087,41 @@ mod tests {
         }
         let read_manifest = |name: &str| -> serde_json::Value {
             let raw = std::fs::read_to_string(data_dir.join(name)).unwrap();
-            serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap()
+            let mut manifest: serde_json::Value =
+                serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap();
+            manifest["detector"] = rtv3d_detector_override();
+            manifest
         };
         let dir = data_dir.to_string_lossy().to_string();
 
         // ── Stage 1: rig hand-eye (Scheimpflug, EyeToHand) ────────────────
         // Same overrides the rtv3d_rig example settled on; every one is
         // plain config JSON, i.e. reachable from the app's ConfigForm.
-        let mut config = default_config_cmd("rig_handeye".into()).unwrap();
-        config["sensor"] = json!({"kind": "Scheimpflug"});
-        config["handeye_init"]["handeye_mode"] = json!("EyeToHand");
-        config["solver"]["max_iters"] = json!(200);
-        config["solver"]["robust_loss"] = json!({"Huber": {"scale": 1.0}});
-        let handeye = match run_blocking(read_manifest("dataset_rig_handeye.toml"), config, &dir) {
+        let mut handeye_config = default_config_cmd("rig_handeye".into()).unwrap();
+        handeye_config["intrinsics"]["fix_tangential"] = json!(true);
+        handeye_config["intrinsics"]["manual_init"] = rtv3d_manual_intrinsics_init();
+        handeye_config["sensor"] = json!({
+            "kind": "Scheimpflug",
+            "fix_scheimpflug_in_intrinsics": {"tilt_x": false, "tilt_y": false},
+            "distortion_mask_in_percam_ba": {
+                "k1": false,
+                "k2": false,
+                "k3": true,
+                "p1": true,
+                "p2": true,
+            },
+            "refine_scheimpflug_in_rig_ba": false,
+        });
+        handeye_config["rig"]["refine_intrinsics_in_rig_ba"] = json!(false);
+        handeye_config["handeye_init"]["handeye_mode"] = json!("EyeToHand");
+        handeye_config["handeye_ba"]["refine_robot_poses"] = json!(true);
+        handeye_config["solver"]["max_iters"] = json!(200);
+        handeye_config["solver"]["robust_loss"] = json!({"Huber": {"scale": 1.0}});
+        let handeye = match run_blocking(
+            read_manifest("dataset_rig_handeye.toml"),
+            handeye_config.clone(),
+            &dir,
+        ) {
             RunResponse::Ok(s) => s,
             other => panic!("rig handeye stage: expected Ok, got {other:?}"),
         };
@@ -942,7 +1141,7 @@ mod tests {
         )
         .unwrap();
 
-        // ── Stage 2: rig laserline over the frozen export ─────────────────
+        // ── Stage 2: rig laserline over the frozen upstream diagnostic ────
         // PointToPlane keeps the residual in metres (the example's
         // stage-3 choice), so the σ gate below is unit-meaningful.
         let mut laser_config = default_config_cmd("rig_laserline_device".into()).unwrap();
@@ -971,7 +1170,11 @@ mod tests {
             laser.export["rig_se3_target"].as_array().unwrap().len(),
             laser.usable_views
         );
-        assert!(laser.export["mean_reproj_error"].is_number());
+        let frozen_mean_px = laser.export["mean_reproj_error"].as_f64().unwrap();
+        assert!(
+            frozen_mean_px < 2.2,
+            "frozen laser diagnostic mean reproj {frozen_mean_px:.3} px"
+        );
         let stats = laser.export["per_camera_stats"].as_array().unwrap();
         assert_eq!(stats.len(), 6);
         for (cam, s) in stats.iter().enumerate() {
@@ -1009,6 +1212,63 @@ mod tests {
         eprintln!(
             "rtv3d laser E2E: handeye {mean_px:.3} px over {} views; laser stage {} views in {} ms",
             handeye.usable_views, laser.usable_views, laser.duration_ms
+        );
+
+        // ── Stage 3: joint app quality path (V5 parity) ───────────────────
+        let mut joint_manifest = read_manifest("dataset_laser.toml");
+        joint_manifest["topology"] = json!("rig_handeye_laserline");
+        joint_manifest["upstream_calibration"] = serde_json::Value::Null;
+        let mut joint_config = default_config_cmd("rig_handeye_laserline".into()).unwrap();
+        joint_config["handeye"] = handeye_config;
+        joint_config["laserline_init"]["max_iters"] = json!(200);
+        joint_config["laserline_init"]["laser_residual_type"] = json!("PointToPlane");
+        joint_config["joint_ba"]["max_iters"] = json!(30);
+        joint_config["joint_ba"]["laser_residual_type"] = json!("PointToPlane");
+        joint_config["joint_ba"]["calib_weight"] = json!(1.0);
+        joint_config["joint_ba"]["laser_weight"] = json!(10000.0);
+        joint_config["joint_ba"]["refine_robot_poses"] = json!(true);
+        joint_config["joint_ba"]["fix_first_camera_extrinsic"] = json!(true);
+        joint_config["joint_ba"]["fix_scheimpflug_tilt"] = json!(true);
+        joint_config["joint_ba"]["default_camera_fix"] = json!({
+            "intrinsics": {"fx": false, "fy": false, "cx": true, "cy": true},
+            "distortion": {
+                "k1": false,
+                "k2": false,
+                "k3": true,
+                "p1": true,
+                "p2": true,
+            },
+        });
+        let joint = match run_blocking(joint_manifest, joint_config, &dir) {
+            RunResponse::Ok(s) => s,
+            other => panic!("joint rig handeye laserline stage: expected Ok, got {other:?}"),
+        };
+        std::fs::write(
+            data_dir.join("rig_handeye_laserline_export.json"),
+            serde_json::to_string(&joint.export).unwrap(),
+        )
+        .unwrap();
+        let joint_mean_px = joint.export["mean_reproj_error"].as_f64().unwrap();
+        assert!(
+            joint_mean_px < 1.35,
+            "joint rig hand-eye laserline mean reproj {joint_mean_px:.3} px"
+        );
+        let joint_stats = joint.export["per_camera_stats"].as_array().unwrap();
+        assert_eq!(joint_stats.len(), 6);
+        for (cam, s) in joint_stats.iter().enumerate() {
+            let laser_err = s["mean_laser_err_m"].as_f64().unwrap();
+            eprintln!(
+                "joint cam {cam}: mean point-to-plane {:.4} mm",
+                laser_err * 1e3
+            );
+            assert!(
+                laser_err < 0.1e-3,
+                "joint cam {cam}: mean laser residual {laser_err:.6} m"
+            );
+        }
+        eprintln!(
+            "rtv3d joint E2E: reproj {joint_mean_px:.3} px over {} views in {} ms",
+            joint.usable_views, joint.duration_ms
         );
     }
 

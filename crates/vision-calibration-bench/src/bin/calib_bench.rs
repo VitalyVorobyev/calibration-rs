@@ -5,8 +5,10 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use vision_calibration_bench::record::BenchRecord;
 use vision_calibration_bench::registry::{
-    BenchEntry, BenchHandEyeMode, HandeyeBaOverride, ProblemKind, RigHandeyeOverride,
-    SingleCamHandeyeOverride, load_registry,
+    BenchChessThresholdMode, BenchDistortionFixMask, BenchEntry, BenchHandEyeMode,
+    BenchScheimpflugFixMask, BenchSensorMode, ChessCornersDetectorOverride, DetectorOverride,
+    HandeyeBaOverride, ManualInitSeed, ProblemKind, RigHandeyeOverride, SingleCamHandeyeOverride,
+    load_registry,
 };
 use vision_calibration_pipeline::analysis::ReprojLevel;
 
@@ -93,6 +95,8 @@ struct DiagnoseArgs {
 enum DiagnoseCommand {
     /// Run fixed hand-eye configuration sweeps.
     Handeye(DiagnoseHandeyeArgs),
+    /// Diagnose per-camera Scheimpflug intrinsic floors.
+    Intrinsics(DiagnoseIntrinsicsArgs),
     /// Profile detector and extractor stages without running calibration.
     Stages(DiagnoseStagesArgs),
 }
@@ -106,6 +110,20 @@ struct DiagnoseHandeyeArgs {
     /// Path to the bench registry JSON.
     #[arg(long)]
     registry: Option<PathBuf>,
+}
+
+/// Arguments for `diagnose intrinsics`.
+#[derive(Parser)]
+struct DiagnoseIntrinsicsArgs {
+    /// Dataset id to diagnose.
+    #[arg(long)]
+    dataset: String,
+    /// Path to the bench registry JSON.
+    #[arg(long)]
+    registry: Option<PathBuf>,
+    /// Optional path to write the full JSON report.
+    #[arg(long)]
+    json_out: Option<PathBuf>,
 }
 
 /// Arguments for `diagnose stages`.
@@ -388,8 +406,155 @@ fn fmt_opt(v: Option<f64>) -> String {
 fn cmd_diagnose(args: &DiagnoseArgs) -> Result<()> {
     match &args.command {
         DiagnoseCommand::Handeye(args) => cmd_diagnose_handeye(args),
+        DiagnoseCommand::Intrinsics(args) => cmd_diagnose_intrinsics(args),
         DiagnoseCommand::Stages(args) => cmd_diagnose_stages(args),
     }
+}
+
+fn cmd_diagnose_intrinsics(args: &DiagnoseIntrinsicsArgs) -> Result<()> {
+    let entry = resolve_entry_data_root(load_entry(&args.dataset, args.registry.as_deref())?);
+    let report = diagnose_intrinsics(&entry)?;
+    if let Some(path) = &args.json_out {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create {}", parent.display()))?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(&report)?)
+            .with_context(|| format!("write {}", path.display()))?;
+    }
+    println!("{}", render_intrinsics_diagnose_report(&report));
+    Ok(())
+}
+
+#[cfg(feature = "tier-b")]
+fn diagnose_intrinsics(
+    entry: &BenchEntry,
+) -> Result<vision_calibration_bench::run::tier_b::IntrinsicsDiagnoseReport> {
+    vision_calibration_bench::run::tier_b::diagnose_intrinsics(entry)
+}
+
+#[cfg(not(feature = "tier-b"))]
+fn diagnose_intrinsics(_entry: &BenchEntry) -> Result<serde_json::Value> {
+    anyhow::bail!("diagnose intrinsics requires --features tier-b")
+}
+
+#[cfg(feature = "tier-b")]
+fn render_intrinsics_diagnose_report(
+    report: &vision_calibration_bench::run::tier_b::IntrinsicsDiagnoseReport,
+) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "# Intrinsics Diagnostic: {}\n\n",
+        report.dataset_id
+    ));
+    out.push_str(&format!(
+        "- gate: raw all-corner mean < {:.3} px\n- ChESS threshold: {}\n- pass: `{}`\n\n",
+        report.gate_px,
+        report
+            .chess_threshold_abs
+            .map(|v| format!("absolute {v:.1}"))
+            .unwrap_or_else(|| "registry/default".to_string()),
+        report.pass
+    ));
+    out.push_str("| camera | size | used | mean | rms | median | p95 | p99 | max | <=0.4 | <=1 | >2 | >5 | fx | fy | cx | cy | k1 | k2 | k3 | p1 | p2 | tau_x | tau_y | seed |\n");
+    out.push_str("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|\n");
+    for camera in &report.cameras {
+        let case = &camera.gate_case;
+        let s = &case.stats;
+        let p = &case.params;
+        out.push_str(&format!(
+            "| {} | {}x{} | {}/{} | {:.5} | {:.5} | {:.5} | {:.5} | {:.5} | {:.5} | {} | {} | {} | {} | {:.2} | {:.2} | {:.2} | {:.2} | {:.5} | {:.5} | {:.5} | {:.5} | {:.5} | {:.5} | {:.5} | f{:.0},tx{:.2},ty{:.2} |\n",
+            camera.camera_id,
+            camera.image_size[0],
+            camera.image_size[1],
+            camera.images_used,
+            camera.images_total,
+            s.mean,
+            s.rms,
+            s.median,
+            s.p95,
+            s.p99,
+            s.max,
+            s.count_le_0_4,
+            s.count_le_1,
+            s.count_gt_2,
+            s.count_gt_5,
+            p.fx,
+            p.fy,
+            p.cx,
+            p.cy,
+            p.k1,
+            p.k2,
+            p.k3,
+            p.p1,
+            p.p2,
+            p.tau_x,
+            p.tau_y,
+            case.seed.focal_px,
+            case.seed.tau_x,
+            case.seed.tau_y
+        ));
+    }
+
+    let diagnostic_count: usize = report
+        .cameras
+        .iter()
+        .map(|camera| camera.diagnostic_cases.len())
+        .sum();
+    if diagnostic_count > 0 {
+        out.push_str("\n## Diagnostic Variants\n\n");
+        out.push_str("| camera | case | mean | p95 | max | cx | cy | k3 | p1 | p2 | tau_x | tau_y | note |\n");
+        out.push_str("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|\n");
+        for camera in &report.cameras {
+            for case in &camera.diagnostic_cases {
+                let s = &case.stats;
+                let p = &case.params;
+                out.push_str(&format!(
+                    "| {} | {} | {:.5} | {:.5} | {:.5} | {:.2} | {:.2} | {:.5} | {:.5} | {:.5} | {:.5} | {:.5} | {} |\n",
+                    camera.camera_id,
+                    case.case,
+                    s.mean,
+                    s.p95,
+                    s.max,
+                    p.cx,
+                    p.cy,
+                    p.k3,
+                    p.p1,
+                    p.p2,
+                    p.tau_x,
+                    p.tau_y,
+                    case.note.as_deref().unwrap_or("")
+                ));
+            }
+        }
+    }
+
+    out.push_str("\n## Worst Poses\n\n");
+    out.push_str("| camera | pose | mean | p95 | max | count |\n");
+    out.push_str("|---|---:|---:|---:|---:|---:|\n");
+    for camera in &report.cameras {
+        if let Some(pose) = camera
+            .per_pose
+            .iter()
+            .max_by(|a, b| a.stats.mean.total_cmp(&b.stats.mean))
+        {
+            out.push_str(&format!(
+                "| {} | {} | {:.5} | {:.5} | {:.5} | {} |\n",
+                camera.camera_id,
+                pose.pose,
+                pose.stats.mean,
+                pose.stats.p95,
+                pose.stats.max,
+                pose.stats.count
+            ));
+        }
+    }
+    out
+}
+
+#[cfg(not(feature = "tier-b"))]
+fn render_intrinsics_diagnose_report(report: &serde_json::Value) -> String {
+    serde_json::to_string_pretty(report).unwrap_or_else(|_| "{}".to_string())
 }
 
 fn cmd_diagnose_stages(args: &DiagnoseStagesArgs) -> Result<()> {
@@ -500,6 +665,35 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
         cases.push(("final_rig_tilt_refine", final_rig_refine));
     }
 
+    if matches!(entry.problem, ProblemKind::RigHandeye) {
+        let mut unseeded = entry.clone();
+        unseeded.seed = Some(ManualInitSeed(serde_json::json!({})));
+        cases.push(("manual_seed_off", unseeded));
+
+        let mut seeded = entry.clone();
+        seeded.seed = Some(rtv3d_nominal_seed(entry));
+        set_rig_fix_tangential(&mut seeded, true);
+        cases.push(("manual_seed_fx2000_centered", seeded));
+
+        for threshold in [20.0_f32, 30.0, 40.0] {
+            let mut threshold_case = entry.clone();
+            set_chess_threshold(&mut threshold_case, threshold);
+            cases.push((threshold_case_name(threshold), threshold_case));
+        }
+
+        let mut tangential_fixed = entry.clone();
+        set_rig_distortion_and_tilt_masks(&mut tangential_fixed, true, false);
+        cases.push(("p1p2_fixed_tau_free", tangential_fixed));
+
+        let mut tangential_free = entry.clone();
+        set_rig_distortion_and_tilt_masks(&mut tangential_free, false, false);
+        cases.push(("p1p2_free_tau_free", tangential_free));
+
+        let mut tau_fixed = entry.clone();
+        set_rig_distortion_and_tilt_masks(&mut tau_fixed, true, true);
+        cases.push(("p1p2_fixed_tau_fixed", tau_fixed));
+    }
+
     if entry.robot_poses.is_some() {
         let mut inverse = entry.clone();
         invert_robot_pose_convention(&mut inverse);
@@ -513,6 +707,95 @@ fn handeye_cases(entry: &BenchEntry) -> Vec<(&'static str, BenchEntry)> {
     }
 
     cases
+}
+
+fn threshold_case_name(threshold: f32) -> &'static str {
+    match threshold as i32 {
+        20 => "chess_abs20",
+        30 => "chess_abs30",
+        40 => "chess_abs40",
+        _ => "chess_abs_custom",
+    }
+}
+
+fn set_chess_threshold(entry: &mut BenchEntry, threshold: f32) {
+    entry
+        .detector
+        .get_or_insert_with(DetectorOverride::default)
+        .chess_corners = Some(ChessCornersDetectorOverride {
+        threshold_mode: Some(BenchChessThresholdMode::Absolute),
+        threshold_value: Some(threshold),
+    });
+}
+
+fn set_rig_fix_tangential(entry: &mut BenchEntry, fix_tangential: bool) {
+    let overrides = entry
+        .rig_handeye
+        .get_or_insert_with(RigHandeyeOverride::default);
+    overrides.fix_tangential = Some(fix_tangential);
+}
+
+fn set_rig_distortion_and_tilt_masks(
+    entry: &mut BenchEntry,
+    fix_tangential: bool,
+    fix_scheimpflug: bool,
+) {
+    set_rig_fix_tangential(entry, fix_tangential);
+    let overrides = entry
+        .rig_handeye
+        .get_or_insert_with(RigHandeyeOverride::default);
+    overrides.sensor = Some(BenchSensorMode::Scheimpflug {
+        init_tilt_x: 0.0,
+        init_tilt_y: 0.0,
+        fix_scheimpflug_in_intrinsics: Some(BenchScheimpflugFixMask {
+            tilt_x: fix_scheimpflug,
+            tilt_y: fix_scheimpflug,
+        }),
+        distortion_mask_in_percam_ba: Some(BenchDistortionFixMask {
+            k1: false,
+            k2: false,
+            k3: true,
+            p1: fix_tangential,
+            p2: fix_tangential,
+        }),
+        refine_scheimpflug_in_rig_ba: false,
+    });
+}
+
+fn rtv3d_nominal_seed(entry: &BenchEntry) -> ManualInitSeed {
+    let (cx, cy) = entry
+        .cameras
+        .first()
+        .and_then(|cam| cam.tile)
+        .map(|[_x, _y, w, h]| (f64::from(w) * 0.5, f64::from(h) * 0.5))
+        .or_else(|| {
+            entry
+                .cameras
+                .first()
+                .and_then(|cam| cam.expected_size)
+                .map(|[w, h]| (f64::from(w) * 0.5, f64::from(h) * 0.5))
+        })
+        .unwrap_or((360.0, 270.0));
+    let intrinsics: Vec<_> = entry
+        .cameras
+        .iter()
+        .map(|_| serde_json::json!({"fx": 2000.0, "fy": 2000.0, "cx": cx, "cy": cy, "skew": 0.0}))
+        .collect();
+    let distortion: Vec<_> = entry
+        .cameras
+        .iter()
+        .map(|_| serde_json::json!({"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}))
+        .collect();
+    let sensors: Vec<_> = entry
+        .cameras
+        .iter()
+        .map(|_| serde_json::json!({"tilt_x": 0.0, "tilt_y": 0.0}))
+        .collect();
+    ManualInitSeed(serde_json::json!({
+        "per_cam_intrinsics": intrinsics,
+        "per_cam_distortion": distortion,
+        "per_cam_sensors": sensors,
+    }))
 }
 
 fn set_final_rig_refine(entry: &mut BenchEntry) -> bool {

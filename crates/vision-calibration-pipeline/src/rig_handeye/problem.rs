@@ -6,9 +6,9 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    Camera, FeatureResidualHistogram, ImageManifest, Iso3, PerFeatureResiduals, Pinhole,
-    PinholeCamera, RigDataset, ScheimpflugParams, build_feature_histogram,
-    compute_rig_target_residuals,
+    BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCySkew, ImageManifest, Iso3,
+    PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset, ScheimpflugParams,
+    build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
     HandEyeEstimate as PinholeHandEyeEstimate, HandEyeMode,
@@ -74,6 +74,9 @@ pub struct RigHandeyeIntrinsicsConfig {
     pub fix_tangential: bool,
     /// Enforce zero skew.
     pub zero_skew: bool,
+    /// Optional manual seeds for the per-camera intrinsics stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manual_init: Option<RigHandeyeIntrinsicsManualInit>,
 }
 
 impl Default for RigHandeyeIntrinsicsConfig {
@@ -83,8 +86,27 @@ impl Default for RigHandeyeIntrinsicsConfig {
             fix_k3: true,
             fix_tangential: false,
             zero_skew: true,
+            manual_init: None,
         }
     }
+}
+
+/// Manual seeds for the **per-camera intrinsics stage** of rig hand-eye
+/// calibration. See `rig_extrinsics::RigIntrinsicsManualInit` for semantics.
+///
+/// `per_cam_sensors` is consulted only when [`SensorMode::Scheimpflug`] is
+/// configured; for [`SensorMode::Pinhole`] it is ignored.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct RigHandeyeIntrinsicsManualInit {
+    /// Per-camera intrinsics seeds. `None` runs Zhang's method per camera.
+    pub per_cam_intrinsics: Option<Vec<FxFyCxCySkew<Real>>>,
+    /// Per-camera distortion seeds.
+    pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
+    /// Per-camera Scheimpflug sensor seeds (Scheimpflug mode only).
+    #[serde(default)]
+    pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
 
 /// Rig-specific options for rig hand-eye calibration.

@@ -35,6 +35,11 @@ pub struct DatasetSpec {
     /// Calibration-target specification. Tagged enum on `kind`.
     pub target: TargetSpec,
 
+    /// Detector-stage overrides shared by target families. Defaults
+    /// preserve the detector's built-in behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detector: Option<DetectorSpec>,
+
     /// Robot-pose source for hand-eye topologies. `None` for
     /// pure-intrinsics calibrations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -49,7 +54,9 @@ pub struct DatasetSpec {
 
     /// Path to a frozen upstream `RigHandeyeExport` JSON, relative to
     /// the manifest directory unless absolute. Required for
-    /// `Topology::RigLaserlineDevice`, rejected elsewhere.
+    /// `Topology::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye
+    /// laserline calibration computes its own hand-eye warm start and does not
+    /// use this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upstream_calibration: Option<PathBuf>,
 
@@ -245,6 +252,46 @@ pub enum TargetSpec {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Detector overrides
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Target-detector overrides. These options affect feature detection
+/// only; they are hashed into the detection-cache key by the runner.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct DetectorSpec {
+    /// ChESS corner extractor options shared by chessboard-like
+    /// detectors (plain chessboard and ChArUco).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chess_corners: Option<ChessCornersDetectorSpec>,
+}
+
+/// ChESS corner extractor overrides.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct ChessCornersDetectorSpec {
+    /// Acceptance threshold mode. `None` keeps the detector default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_mode: Option<ChessThresholdMode>,
+    /// Acceptance threshold value. `None` keeps the detector default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_value: Option<f32>,
+}
+
+/// ChESS threshold interpretation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ChessThresholdMode {
+    /// Threshold in native ChESS response units.
+    Absolute,
+    /// Threshold as a fraction of the image maximum response.
+    Relative,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Robot poses
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -337,6 +384,8 @@ pub enum Topology {
     RigExtrinsics,
     /// Multi-camera rig + robot — `RigHandeyeProblem`.
     RigHandeye,
+    /// Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.
+    RigHandeyeLaserline,
     /// Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.
     RigLaserlineDevice,
 }

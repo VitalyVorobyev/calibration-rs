@@ -44,6 +44,65 @@
       ],
       "type": "object"
     },
+    "ChessCornersDetectorSpec": {
+      "additionalProperties": false,
+      "description": "ChESS corner extractor overrides.",
+      "properties": {
+        "threshold_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChessThresholdMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Acceptance threshold mode. `None` keeps the detector default."
+        },
+        "threshold_value": {
+          "description": "Acceptance threshold value. `None` keeps the detector default.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ChessThresholdMode": {
+      "description": "ChESS threshold interpretation.",
+      "oneOf": [
+        {
+          "const": "absolute",
+          "description": "Threshold in native ChESS response units.",
+          "type": "string"
+        },
+        {
+          "const": "relative",
+          "description": "Threshold as a fraction of the image maximum response.",
+          "type": "string"
+        }
+      ]
+    },
+    "DetectorSpec": {
+      "additionalProperties": false,
+      "description": "Target-detector overrides. These options affect feature detection\nonly; they are hashed into the detection-cache key by the runner.",
+      "properties": {
+        "chess_corners": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChessCornersDetectorSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ChESS corner extractor options shared by chessboard-like\ndetectors (plain chessboard and ChArUco)."
+        }
+      },
+      "type": "object"
+    },
     "ImagePattern": {
       "description": "How image paths for a camera are listed.",
       "oneOf": [
@@ -536,6 +595,11 @@
           "type": "string"
         },
         {
+          "const": "rig_handeye_laserline",
+          "description": "Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.",
+          "type": "string"
+        },
+        {
           "const": "rig_laserline_device",
           "description": "Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.",
           "type": "string"
@@ -608,6 +672,17 @@
         "null"
       ]
     },
+    "detector": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DetectorSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Detector-stage overrides shared by target families. Defaults\npreserve the detector's built-in behavior."
+    },
     "laser": {
       "anyOf": [
         {
@@ -661,7 +736,7 @@
       "description": "Calibration topology — selects which problem type the runner\nwill dispatch to."
     },
     "upstream_calibration": {
-      "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`Topology::RigLaserlineDevice`, rejected elsewhere.",
+      "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`Topology::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye\nlaserline calibration computes its own hand-eye warm start and does not\nuse this field.",
       "type": [
         "string",
         "null"

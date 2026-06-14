@@ -73,16 +73,15 @@ mod steps;
 // Re-export types
 pub use problem::{
     RigHandeyeBaConfig, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInitConfig, RigHandeyeInput,
-    RigHandeyeIntrinsicsConfig, RigHandeyeOutput, RigHandeyeProblem, RigHandeyeRigConfig,
-    RigHandeyeSolverConfig, SensorMode,
+    RigHandeyeIntrinsicsConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeOutput,
+    RigHandeyeProblem, RigHandeyeRigConfig, RigHandeyeSolverConfig, SensorMode,
 };
 pub use steps::{
     HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
     RigHandeyeHandeyeInitResult, RigHandeyeHandeyeManualInit, RigHandeyeHandeyeOptimizeResult,
-    RigHandeyeIntrinsicsInitAllResult, RigHandeyeIntrinsicsManualInit,
-    RigHandeyeIntrinsicsOptimizeAllResult, RigHandeyeRigInitResult, RigHandeyeRigManualInit,
-    RigHandeyeRigOptimizeResult, RigOptimizeOptions, run_calibration, step_handeye_init,
-    step_handeye_init_with_seed, step_handeye_optimize, step_intrinsics_init_all,
-    step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init,
-    step_rig_init_with_seed, step_rig_optimize,
+    RigHandeyeIntrinsicsInitAllResult, RigHandeyeIntrinsicsOptimizeAllResult,
+    RigHandeyeRigInitResult, RigHandeyeRigManualInit, RigHandeyeRigOptimizeResult,
+    RigOptimizeOptions, run_calibration, step_handeye_init, step_handeye_init_with_seed,
+    step_handeye_optimize, step_intrinsics_init_all, step_intrinsics_init_all_with_seed,
+    step_intrinsics_optimize_all, step_rig_init, step_rig_init_with_seed, step_rig_optimize,
 };

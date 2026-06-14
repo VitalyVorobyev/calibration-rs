@@ -49,7 +49,7 @@ use vision_calibration_core::{
 /// - `laser_pixels[c]`: laser line pixels in camera `c` (may be `None` if no
 ///   laser image exists for this pose, e.g. `target_snap`-only views).
 /// - `meta.base_se3_gripper`: the robot pose for this view.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigHandeyeLaserlineDataset {
     /// Per-view per-camera observations + laser pixels + robot pose.
     pub views: Vec<RigHandeyeLaserlineView>,
@@ -60,7 +60,7 @@ pub struct RigHandeyeLaserlineDataset {
 }
 
 /// Per-view observations for [`RigHandeyeLaserlineDataset`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigHandeyeLaserlineView {
     /// Target corners + laser pixels per camera (same shape as
     /// [`RigLaserlineView`]).

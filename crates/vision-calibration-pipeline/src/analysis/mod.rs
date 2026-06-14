@@ -48,7 +48,7 @@ use nalgebra::{Matrix2x6, Matrix6, SVector, Vector2, Vector6};
 
 use vision_calibration_core::{
     Camera, CameraProject, FxFyCxCySkew, Iso3, Pinhole, PinholeCamera, Pt2, Pt3, RigDataset,
-    TargetFeatureResidual, View, compute_rig_target_residuals,
+    ScheimpflugParams, TargetFeatureResidual, View, compute_rig_target_residuals,
 };
 use vision_calibration_linear::homography::HomographySolver;
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
@@ -343,7 +343,8 @@ pub fn rig_extrinsics_report<M>(
 ) -> Result<ReprojReport, Error> {
     let ncam = export.cameras.len();
     let num_views = dataset.views.len();
-    let intrinsic = intrinsic_floor_rig(&export.cameras, dataset);
+    let intrinsic =
+        intrinsic_floor_rig_from_export(&export.cameras, export.sensors.as_deref(), dataset)?;
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
 
@@ -381,7 +382,8 @@ pub fn rig_handeye_report<M>(
     let ncam = export.cameras.len();
     let num_views = dataset.views.len();
 
-    let intrinsic = intrinsic_floor_rig(&export.cameras, dataset);
+    let intrinsic =
+        intrinsic_floor_rig_from_export(&export.cameras, export.sensors.as_deref(), dataset)?;
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
 
@@ -409,7 +411,8 @@ pub fn rig_handeye_report_with_rig_stage<M>(
     let ncam = export.cameras.len();
     let num_views = dataset.views.len();
 
-    let intrinsic = intrinsic_floor_rig(&export.cameras, dataset);
+    let intrinsic =
+        intrinsic_floor_rig_from_export(&export.cameras, export.sensors.as_deref(), dataset)?;
     let intrinsic_level =
         LevelReport::from_residuals(ReprojLevel::Intrinsic, intrinsic, ncam, num_views);
 
@@ -439,18 +442,53 @@ pub fn rig_handeye_report_with_rig_stage<M>(
 /// recovered by PnP (homography seed for planar targets, EPnP fallback) +
 /// pose-only refinement, using each camera's final calibrated intrinsics. Shared
 /// by [`rig_extrinsics_report`] and [`rig_handeye_report`].
-fn intrinsic_floor_rig<M>(
+fn intrinsic_floor_rig_from_export<M>(
     cameras: &[PinholeCamera],
+    sensors: Option<&[ScheimpflugParams]>,
     dataset: &RigDataset<M>,
-) -> Vec<TargetFeatureResidual> {
+) -> Result<Vec<TargetFeatureResidual>, Error> {
+    let camera_ks: Vec<_> = cameras.iter().map(|camera| camera.k).collect();
+    if let Some(sensors) = sensors {
+        if sensors.len() != cameras.len() {
+            return Err(Error::invalid_input(format!(
+                "Scheimpflug sensor count {} != camera count {}",
+                sensors.len(),
+                cameras.len()
+            )));
+        }
+        let scheimpflug_cameras: Vec<_> = cameras
+            .iter()
+            .zip(sensors.iter())
+            .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
+            .collect();
+        Ok(intrinsic_floor_rig(
+            &scheimpflug_cameras,
+            &camera_ks,
+            dataset,
+        ))
+    } else {
+        Ok(intrinsic_floor_rig(cameras, &camera_ks, dataset))
+    }
+}
+
+fn intrinsic_floor_rig<C, M>(
+    cameras: &[C],
+    camera_ks: &[FxFyCxCySkew<f64>],
+    dataset: &RigDataset<M>,
+) -> Vec<TargetFeatureResidual>
+where
+    C: CameraProject,
+{
     let mut out = Vec::new();
     for (cam_idx, cam) in cameras.iter().enumerate() {
-        let k = cam.k;
+        let Some(k) = camera_ks.get(cam_idx) else {
+            continue;
+        };
         for (view_idx, view) in dataset.views.iter().enumerate() {
             let Some(obs) = view.obs.cameras.get(cam_idx).and_then(|c| c.as_ref()) else {
                 continue;
             };
-            let Some(pose) = intrinsic_floor_view(cam, &k, &obs.points_3d, &obs.points_2d) else {
+            let Some(pose) = intrinsic_floor_view(cam, k, &obs.points_3d, &obs.points_2d) else {
                 continue;
             };
             push_view_residuals(
@@ -478,12 +516,15 @@ fn intrinsic_floor_rig<M>(
 /// the slightly looser DLT/EPnP solution.
 ///
 /// Returns `None` when there are fewer than four corners or EPnP fails.
-fn intrinsic_floor_view(
-    camera: &PinholeCamera,
+fn intrinsic_floor_view<C>(
+    camera: &C,
     k: &FxFyCxCySkew<f64>,
     obs_3d: &[Pt3],
     obs_2d: &[Pt2],
-) -> Option<Iso3> {
+) -> Option<Iso3>
+where
+    C: CameraProject,
+{
     if obs_3d.len() < 4 || obs_3d.len() != obs_2d.len() {
         return None;
     }
@@ -510,7 +551,10 @@ fn intrinsic_floor_view(
 /// seeded from `seed`. A fixed small iteration count with a step-improvement
 /// guard; returns the best pose seen. The EPnP seed is already close, so this
 /// only polishes it to the reprojection minimum.
-fn refine_pose_only(camera: &PinholeCamera, seed: &Iso3, obs_3d: &[Pt3], obs_2d: &[Pt2]) -> Iso3 {
+fn refine_pose_only<C>(camera: &C, seed: &Iso3, obs_3d: &[Pt3], obs_2d: &[Pt2]) -> Iso3
+where
+    C: CameraProject,
+{
     const MAX_ITERS: usize = 10;
     const EPS: f64 = 1e-6;
 
@@ -607,12 +651,15 @@ fn max_pose(residuals: &[TargetFeatureResidual]) -> usize {
 }
 
 /// Intrinsic floor for a generic single-camera view slice.
-fn intrinsic_floor_single_cam<M>(
-    camera: &PinholeCamera,
+fn intrinsic_floor_single_cam<C, M>(
+    camera: &C,
     k: &FxFyCxCySkew<f64>,
     views: &[View<M>],
     cam_idx: usize,
-) -> Vec<TargetFeatureResidual> {
+) -> Vec<TargetFeatureResidual>
+where
+    C: CameraProject,
+{
     let mut out = Vec::new();
     for (view_idx, view) in views.iter().enumerate() {
         let p3d = &view.obs.points_3d;
@@ -626,12 +673,15 @@ fn intrinsic_floor_single_cam<M>(
 }
 
 /// Intrinsic floor over hand-eye views (single camera).
-fn intrinsic_floor_handeye(
-    camera: &PinholeCamera,
+fn intrinsic_floor_handeye<C>(
+    camera: &C,
     k: &FxFyCxCySkew<f64>,
     views: &[SingleCamHandeyeView],
     cam_idx: usize,
-) -> Vec<TargetFeatureResidual> {
+) -> Vec<TargetFeatureResidual>
+where
+    C: CameraProject,
+{
     let mut out = Vec::new();
     for (view_idx, view) in views.iter().enumerate() {
         let p3d = &view.obs.points_3d;
@@ -653,7 +703,7 @@ fn intrinsic_floor_handeye(
 #[allow(clippy::field_reassign_with_default)]
 fn push_view_residuals(
     out: &mut Vec<TargetFeatureResidual>,
-    camera: &PinholeCamera,
+    camera: &impl CameraProject,
     camera_se3_target: &Iso3,
     obs_3d: &[Pt3],
     obs_2d: &[Pt2],

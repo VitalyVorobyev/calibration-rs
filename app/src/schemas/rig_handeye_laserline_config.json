@@ -131,6 +131,67 @@
         }
       ]
     },
+    "IntrinsicsFixMask": {
+      "description": "Mask for fixing intrinsics parameters during optimization.\n\nEach field corresponds to a component of the camera matrix K:\n```text\nK = | fx   skew  cx |\n    | 0    fy    cy |\n    | 0    0     1  |\n```\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Example\n\n```\nuse vision_calibration_core::IntrinsicsFixMask;\n\n// Fix only the principal point\nlet mask = IntrinsicsFixMask {\n    cx: true,\n    cy: true,\n    ..Default::default()\n};\n\nassert!(!mask.fx); // fx will be optimized\nassert!(mask.cx);  // cx is fixed\n```",
+      "properties": {
+        "cx": {
+          "description": "Fix principal point x component.",
+          "type": "boolean"
+        },
+        "cy": {
+          "description": "Fix principal point y component.",
+          "type": "boolean"
+        },
+        "fx": {
+          "description": "Fix focal length x component.",
+          "type": "boolean"
+        },
+        "fy": {
+          "description": "Fix focal length y component.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fx",
+        "fy",
+        "cx",
+        "cy"
+      ],
+      "type": "object"
+    },
+    "JointCameraFixMask": {
+      "description": "Camera fix mask for the joint BA JSON config.",
+      "properties": {
+        "distortion": {
+          "$ref": "#/$defs/DistortionFixMask",
+          "description": "Brown-Conrady distortion fix mask."
+        },
+        "intrinsics": {
+          "$ref": "#/$defs/IntrinsicsFixMask",
+          "description": "Intrinsic fix mask."
+        }
+      },
+      "required": [
+        "intrinsics",
+        "distortion"
+      ],
+      "type": "object"
+    },
+    "LaserlineResidualType": {
+      "description": "Type of laser plane residual to use.",
+      "oneOf": [
+        {
+          "const": "PointToPlane",
+          "description": "Point-to-plane distance (original approach).\n\nUndistorts pixel, back-projects to 3D ray, intersects with target plane,\ncomputes 3D point in camera frame, measures signed distance to laser plane.\nResidual: 1D distance in meters.",
+          "type": "string"
+        },
+        {
+          "const": "LineDistNormalized",
+          "description": "Line-distance in normalized plane (alternative approach).\n\nComputes 3D intersection line of laser plane and target plane, projects\nline onto z=1 normalized camera plane, undistorts laser pixels to normalized\ncoordinates, measures perpendicular distance from pixel to projected line,\nscales by sqrt(fx*fy) for pixel-comparable residual.\nResidual: 1D distance in pixels.",
+          "type": "string"
+        }
+      ]
+    },
     "RigHandeyeBaConfig": {
       "description": "Hand-eye bundle-adjustment options.",
       "properties": {
@@ -163,6 +224,46 @@
         "robot_rot_sigma",
         "robot_trans_sigma",
         "refine_cam_se3_rig_in_handeye_ba"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeConfig": {
+      "description": "Configuration for multi-camera rig hand-eye calibration.\n\nShared between pinhole and Scheimpflug rigs; the [`SensorMode`] field\n`sensor` selects the sensor flavour.",
+      "properties": {
+        "handeye_ba": {
+          "$ref": "#/$defs/RigHandeyeBaConfig",
+          "description": "Final hand-eye bundle-adjustment options."
+        },
+        "handeye_init": {
+          "$ref": "#/$defs/RigHandeyeInitConfig",
+          "description": "Hand-eye linear initialization options."
+        },
+        "intrinsics": {
+          "$ref": "#/$defs/RigHandeyeIntrinsicsConfig",
+          "description": "Per-camera intrinsics initialization options."
+        },
+        "rig": {
+          "$ref": "#/$defs/RigHandeyeRigConfig",
+          "description": "Rig and gauge options."
+        },
+        "sensor": {
+          "$ref": "#/$defs/SensorMode",
+          "default": {
+            "kind": "Pinhole"
+          },
+          "description": "Sensor flavour (pinhole or Scheimpflug). Default is `Pinhole`."
+        },
+        "solver": {
+          "$ref": "#/$defs/RigHandeyeSolverConfig",
+          "description": "Shared solver settings for optimization stages."
+        }
+      },
+      "required": [
+        "intrinsics",
+        "rig",
+        "handeye_init",
+        "solver",
+        "handeye_ba"
       ],
       "type": "object"
     },
@@ -263,6 +364,97 @@
       },
       "type": "object"
     },
+    "RigHandeyeLaserlineBaConfig": {
+      "description": "Final joint BA options.",
+      "properties": {
+        "calib_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss applied to target residuals."
+        },
+        "calib_weight": {
+          "description": "Weight for target corner residuals.",
+          "format": "double",
+          "type": "number"
+        },
+        "default_camera_fix": {
+          "$ref": "#/$defs/JointCameraFixMask",
+          "description": "Default camera parameter fix mask applied to every camera."
+        },
+        "fix_first_camera_extrinsic": {
+          "description": "Fix the reference camera extrinsic for rig gauge stability.",
+          "type": "boolean"
+        },
+        "fix_handeye": {
+          "description": "Fix the hand-eye transform during the joint stage.",
+          "type": "boolean"
+        },
+        "fix_scheimpflug_tilt": {
+          "description": "Fix Scheimpflug tilt parameters during the joint stage.",
+          "type": "boolean"
+        },
+        "fix_target_ref": {
+          "description": "Fix the target reference pose during the joint stage.",
+          "type": "boolean"
+        },
+        "laser_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss applied to laser residuals."
+        },
+        "laser_residual_type": {
+          "$ref": "#/$defs/LaserlineResidualType",
+          "description": "Which laser residual drives the joint solve."
+        },
+        "laser_weight": {
+          "description": "Weight for laser residuals.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_iters": {
+          "description": "Maximum solver iterations for the joint stage.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "refine_robot_poses": {
+          "description": "Refine per-view robot pose deltas.",
+          "type": "boolean"
+        },
+        "robot_rot_sigma": {
+          "description": "Robot rotation prior sigma (radians).",
+          "format": "double",
+          "type": "number"
+        },
+        "robot_trans_sigma": {
+          "description": "Robot translation prior sigma (meters).",
+          "format": "double",
+          "type": "number"
+        },
+        "verbosity": {
+          "description": "Solver verbosity for the joint stage.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_iters",
+        "verbosity",
+        "laser_residual_type",
+        "calib_loss",
+        "laser_loss",
+        "calib_weight",
+        "laser_weight",
+        "default_camera_fix",
+        "fix_first_camera_extrinsic",
+        "fix_scheimpflug_tilt",
+        "fix_handeye",
+        "fix_target_ref",
+        "refine_robot_poses",
+        "robot_rot_sigma",
+        "robot_trans_sigma"
+      ],
+      "type": "object"
+    },
     "RigHandeyeRigConfig": {
       "description": "Rig-specific options for rig hand-eye calibration.",
       "properties": {
@@ -312,6 +504,37 @@
         "max_iters",
         "verbosity",
         "robust_loss"
+      ],
+      "type": "object"
+    },
+    "RigLaserlineDeviceConfig": {
+      "description": "Configuration for rig laserline calibration.",
+      "properties": {
+        "laser_residual_type": {
+          "$ref": "#/$defs/LaserlineResidualType",
+          "description": "Laser residual type (point-to-plane vs line-distance)."
+        },
+        "max_iters": {
+          "description": "Maximum solver iterations.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "verbosity": {
+          "description": "Verbosity level.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "laser_residual_type"
       ],
       "type": "object"
     },
@@ -501,43 +724,26 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Configuration for multi-camera rig hand-eye calibration.\n\nShared between pinhole and Scheimpflug rigs; the [`SensorMode`] field\n`sensor` selects the sensor flavour.",
+  "description": "Configuration for joint rig hand-eye laserline calibration.",
   "properties": {
-    "handeye_ba": {
-      "$ref": "#/$defs/RigHandeyeBaConfig",
-      "description": "Final hand-eye bundle-adjustment options."
+    "handeye": {
+      "$ref": "#/$defs/RigHandeyeConfig",
+      "description": "Warm-start rig hand-eye stage."
     },
-    "handeye_init": {
-      "$ref": "#/$defs/RigHandeyeInitConfig",
-      "description": "Hand-eye linear initialization options."
+    "joint_ba": {
+      "$ref": "#/$defs/RigHandeyeLaserlineBaConfig",
+      "description": "Final joint bundle adjustment stage."
     },
-    "intrinsics": {
-      "$ref": "#/$defs/RigHandeyeIntrinsicsConfig",
-      "description": "Per-camera intrinsics initialization options."
-    },
-    "rig": {
-      "$ref": "#/$defs/RigHandeyeRigConfig",
-      "description": "Rig and gauge options."
-    },
-    "sensor": {
-      "$ref": "#/$defs/SensorMode",
-      "default": {
-        "kind": "Pinhole"
-      },
-      "description": "Sensor flavour (pinhole or Scheimpflug). Default is `Pinhole`."
-    },
-    "solver": {
-      "$ref": "#/$defs/RigHandeyeSolverConfig",
-      "description": "Shared solver settings for optimization stages."
+    "laserline_init": {
+      "$ref": "#/$defs/RigLaserlineDeviceConfig",
+      "description": "Frozen-geometry laser plane initialization stage."
     }
   },
   "required": [
-    "intrinsics",
-    "rig",
-    "handeye_init",
-    "solver",
-    "handeye_ba"
+    "handeye",
+    "laserline_init",
+    "joint_ba"
   ],
-  "title": "RigHandeyeConfig",
+  "title": "RigHandeyeLaserlineConfig",
   "type": "object"
 }

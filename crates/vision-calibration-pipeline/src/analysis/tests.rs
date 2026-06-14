@@ -69,7 +69,7 @@ fn pose_in_front(tx: f64, ty: f64, tz: f64, tilt: f64) -> Iso3 {
     Iso3::from_parts(Translation3::new(tx, ty, tz), rot)
 }
 
-fn project_all(camera: &PinholeCamera, pose: &Iso3, pts: &[Pt3]) -> Vec<Pt2> {
+fn project_all(camera: &impl CameraProject, pose: &Iso3, pts: &[Pt3]) -> Vec<Pt2> {
     pts.iter()
         .map(|p| {
             let pc = pose * p;
@@ -78,6 +78,59 @@ fn project_all(camera: &PinholeCamera, pose: &Iso3, pts: &[Pt3]) -> Vec<Pt2> {
                 .expect("point projects in front of camera")
         })
         .collect()
+}
+
+#[test]
+fn intrinsic_floor_uses_scheimpflug_sensor_when_present() {
+    let pinhole = test_camera();
+    let sensor = ScheimpflugParams {
+        tilt_x: 0.08,
+        tilt_y: -0.01,
+    };
+    let scheimpflug = Camera::new(Pinhole, pinhole.dist, sensor.compile(), pinhole.k);
+    let pts3 = board(7, 9, 0.03);
+    let true_pose = pose_in_front(-0.05, -0.04, 0.62, 0.09);
+    let observed = project_all(&scheimpflug, &true_pose, &pts3);
+
+    let pose_pinhole = intrinsic_floor_view(&pinhole, &pinhole.k, &pts3, &observed)
+        .expect("pinhole floor pose solves");
+    let pose_scheimpflug = intrinsic_floor_view(&scheimpflug, &pinhole.k, &pts3, &observed)
+        .expect("scheimpflug floor pose solves");
+
+    let mut pinhole_floor = Vec::new();
+    push_view_residuals(
+        &mut pinhole_floor,
+        &pinhole,
+        &pose_pinhole,
+        &pts3,
+        &observed,
+        0,
+        0,
+    );
+    let mut scheimpflug_floor = Vec::new();
+    push_view_residuals(
+        &mut scheimpflug_floor,
+        &scheimpflug,
+        &pose_scheimpflug,
+        &pts3,
+        &observed,
+        0,
+        0,
+    );
+
+    let pinhole_stats = LevelStats::from_residuals(&pinhole_floor);
+    let scheimpflug_stats = LevelStats::from_residuals(&scheimpflug_floor);
+    assert!(
+        scheimpflug_stats.mean < 1e-3,
+        "tilted-sensor synthetic data should have near-zero Scheimpflug floor, got {}",
+        scheimpflug_stats.mean
+    );
+    assert!(
+        pinhole_stats.mean > scheimpflug_stats.mean + 0.1,
+        "pinhole-only floor should disagree on tilted data: pinhole {} vs scheimpflug {}",
+        pinhole_stats.mean,
+        scheimpflug_stats.mean
+    );
 }
 
 /// The intrinsic floor recovers the injected pixel-noise level: with a correct
