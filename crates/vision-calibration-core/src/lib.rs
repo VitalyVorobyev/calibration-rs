@@ -86,9 +86,10 @@ pub use math::{
 };
 pub use models::{
     AnyDistortion, AnyIntrinsics, AnyProjection, AnySensor, BrownConrady5, Camera, CameraModel,
-    CameraParams, CameraProject, DistortionModel, DistortionParams, FxFyCxCySkew, HomographySensor,
-    IdentitySensor, IntrinsicsModel, IntrinsicsParams, NoDistortion, Pinhole, ProjectionModel,
-    ProjectionParams, Ray, ScheimpflugParams, SensorModel, SensorParams,
+    CameraParams, CameraProject, DistortionModel, DistortionParams, Division, FxFyCxCySkew,
+    HomographySensor, IdentitySensor, IntrinsicsModel, IntrinsicsParams, NoDistortion, Pinhole,
+    ProjectionModel, ProjectionParams, RationalPolynomial, Ray, ScheimpflugParams, SensorModel,
+    SensorParams, ThinPrism,
 };
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 pub use types::{

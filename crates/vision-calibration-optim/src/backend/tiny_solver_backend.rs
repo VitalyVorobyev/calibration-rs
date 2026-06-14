@@ -3,8 +3,9 @@ use crate::backend::{
     BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend, SolveReport,
 };
 use crate::factors::camera_kernels::{
-    BrownConrady5Kernel, DistortionKernel, IdentitySensorKernel, NoDistortionKernel, PinholeKernel,
-    ProjectionKernel, Scheimpflug2Kernel, SensorKernel,
+    BrownConrady5Kernel, DistortionKernel, DivisionKernel, IdentitySensorKernel,
+    NoDistortionKernel, PinholeKernel, ProjectionKernel, RationalKernel, Scheimpflug2Kernel,
+    SensorKernel, ThinPrismKernel,
 };
 use crate::factors::laserline::{
     laser_line_distance_model_generic, laser_point_to_plane_model_generic,
@@ -468,6 +469,24 @@ macro_rules! dispatch_camera_model {
             }
             (ProjectionKind::Pinhole, DistortionKind::BrownConrady5, SensorKind::Scheimpflug2) => {
                 $mk!(PinholeKernel, BrownConrady5Kernel, Scheimpflug2Kernel)
+            }
+            (ProjectionKind::Pinhole, DistortionKind::Rational8, SensorKind::None) => {
+                $mk!(PinholeKernel, RationalKernel, IdentitySensorKernel)
+            }
+            (ProjectionKind::Pinhole, DistortionKind::Rational8, SensorKind::Scheimpflug2) => {
+                $mk!(PinholeKernel, RationalKernel, Scheimpflug2Kernel)
+            }
+            (ProjectionKind::Pinhole, DistortionKind::ThinPrism9, SensorKind::None) => {
+                $mk!(PinholeKernel, ThinPrismKernel, IdentitySensorKernel)
+            }
+            (ProjectionKind::Pinhole, DistortionKind::ThinPrism9, SensorKind::Scheimpflug2) => {
+                $mk!(PinholeKernel, ThinPrismKernel, Scheimpflug2Kernel)
+            }
+            (ProjectionKind::Pinhole, DistortionKind::Division1, SensorKind::None) => {
+                $mk!(PinholeKernel, DivisionKernel, IdentitySensorKernel)
+            }
+            (ProjectionKind::Pinhole, DistortionKind::Division1, SensorKind::Scheimpflug2) => {
+                $mk!(PinholeKernel, DivisionKernel, Scheimpflug2Kernel)
             }
         }
     };

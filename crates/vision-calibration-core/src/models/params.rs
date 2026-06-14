@@ -2,8 +2,8 @@ use nalgebra::Matrix3;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BrownConrady5, Camera, FxFyCxCySkew, HomographySensor, IdentitySensor, NoDistortion, Pinhole,
-    ProjectionModel, ScheimpflugParams, SensorModel,
+    BrownConrady5, Camera, Division, FxFyCxCySkew, HomographySensor, IdentitySensor, NoDistortion,
+    Pinhole, ProjectionModel, RationalPolynomial, ScheimpflugParams, SensorModel, ThinPrism,
 };
 use crate::Real;
 
@@ -26,6 +26,23 @@ pub enum DistortionParams {
         /// Flattened Brown-Conrady coefficients.
         #[serde(flatten)]
         params: BrownConrady5<Real>,
+    },
+    /// OpenCV rational polynomial 8-parameter model.
+    Rational {
+        /// Flattened rational polynomial coefficients.
+        #[serde(flatten)]
+        params: RationalPolynomial<Real>,
+    },
+    /// Brown-Conrady + thin-prism 9-parameter model.
+    ThinPrism {
+        /// Flattened thin-prism coefficients.
+        #[serde(flatten)]
+        params: ThinPrism<Real>,
+    },
+    /// Fitzgibbon single-parameter division model.
+    Division {
+        /// Division distortion coefficient.
+        lambda: Real,
     },
 }
 
@@ -88,6 +105,9 @@ impl CameraParams {
         let dist = match self.distortion {
             DistortionParams::None => AnyDistortion::None(NoDistortion),
             DistortionParams::BrownConrady5 { params } => AnyDistortion::BrownConrady5(params),
+            DistortionParams::Rational { params } => AnyDistortion::Rational(params),
+            DistortionParams::ThinPrism { params } => AnyDistortion::ThinPrism(params),
+            DistortionParams::Division { lambda } => AnyDistortion::Division(Division { lambda }),
         };
 
         let sensor = match &self.sensor {
@@ -135,8 +155,16 @@ impl ProjectionModel<Real> for AnyProjection {
 #[derive(Clone, Debug)]
 #[doc(hidden)]
 pub enum AnyDistortion {
+    /// Identity (no distortion).
     None(NoDistortion),
+    /// Brown-Conrady 5-parameter model.
     BrownConrady5(BrownConrady5<Real>),
+    /// Rational polynomial 8-parameter model.
+    Rational(RationalPolynomial<Real>),
+    /// Thin-prism 9-parameter model.
+    ThinPrism(ThinPrism<Real>),
+    /// Division 1-parameter model.
+    Division(Division<Real>),
 }
 
 impl super::DistortionModel<Real> for AnyDistortion {
@@ -144,6 +172,9 @@ impl super::DistortionModel<Real> for AnyDistortion {
         match self {
             AnyDistortion::None(m) => m.distort(n),
             AnyDistortion::BrownConrady5(m) => m.distort(n),
+            AnyDistortion::Rational(m) => m.distort(n),
+            AnyDistortion::ThinPrism(m) => m.distort(n),
+            AnyDistortion::Division(m) => m.distort(n),
         }
     }
 
@@ -151,6 +182,9 @@ impl super::DistortionModel<Real> for AnyDistortion {
         match self {
             AnyDistortion::None(m) => m.undistort(n),
             AnyDistortion::BrownConrady5(m) => m.undistort(n),
+            AnyDistortion::Rational(m) => m.undistort(n),
+            AnyDistortion::ThinPrism(m) => m.undistort(n),
+            AnyDistortion::Division(m) => m.undistort(n),
         }
     }
 }
@@ -245,6 +279,15 @@ mod tests {
                 assert_eq!(params.iters, 4);
             }
             DistortionParams::None => panic!("expected BrownConrady5 params, got None"),
+            DistortionParams::Rational { .. } => {
+                panic!("expected BrownConrady5 params, got Rational")
+            }
+            DistortionParams::ThinPrism { .. } => {
+                panic!("expected BrownConrady5 params, got ThinPrism")
+            }
+            DistortionParams::Division { .. } => {
+                panic!("expected BrownConrady5 params, got Division")
+            }
         }
     }
 }

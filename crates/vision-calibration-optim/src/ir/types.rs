@@ -167,6 +167,12 @@ pub enum DistortionKind {
     None,
     /// Brown-Conrady `[k1, k2, k3, p1, p2]`.
     BrownConrady5,
+    /// Rational polynomial `[k1, k2, k3, k4, k5, k6, p1, p2]`.
+    Rational8,
+    /// Brown-Conrady + thin-prism `[k1, k2, k3, p1, p2, s1, s2, s3, s4]`.
+    ThinPrism9,
+    /// Fitzgibbon division model `[lambda]`.
+    Division1,
 }
 
 impl DistortionKind {
@@ -175,6 +181,9 @@ impl DistortionKind {
         match self {
             DistortionKind::None => 0,
             DistortionKind::BrownConrady5 => 5,
+            DistortionKind::Rational8 => 8,
+            DistortionKind::ThinPrism9 => 9,
+            DistortionKind::Division1 => 1,
         }
     }
 }
@@ -233,6 +242,42 @@ impl CameraModelDesc {
     pub const PINHOLE4_DIST5_SCHEIMPFLUG2: Self = Self {
         projection: ProjectionKind::Pinhole,
         distortion: DistortionKind::BrownConrady5,
+        sensor: SensorKind::Scheimpflug2,
+    };
+    /// Pinhole with rational polynomial 8-parameter distortion.
+    pub const PINHOLE4_RATIONAL8: Self = Self {
+        projection: ProjectionKind::Pinhole,
+        distortion: DistortionKind::Rational8,
+        sensor: SensorKind::None,
+    };
+    /// Pinhole with rational polynomial 8-parameter distortion and a Scheimpflug sensor.
+    pub const PINHOLE4_RATIONAL8_SCHEIMPFLUG2: Self = Self {
+        projection: ProjectionKind::Pinhole,
+        distortion: DistortionKind::Rational8,
+        sensor: SensorKind::Scheimpflug2,
+    };
+    /// Pinhole with thin-prism 9-parameter distortion.
+    pub const PINHOLE4_THINPRISM9: Self = Self {
+        projection: ProjectionKind::Pinhole,
+        distortion: DistortionKind::ThinPrism9,
+        sensor: SensorKind::None,
+    };
+    /// Pinhole with thin-prism 9-parameter distortion and a Scheimpflug sensor.
+    pub const PINHOLE4_THINPRISM9_SCHEIMPFLUG2: Self = Self {
+        projection: ProjectionKind::Pinhole,
+        distortion: DistortionKind::ThinPrism9,
+        sensor: SensorKind::Scheimpflug2,
+    };
+    /// Pinhole with Fitzgibbon division 1-parameter distortion.
+    pub const PINHOLE4_DIVISION1: Self = Self {
+        projection: ProjectionKind::Pinhole,
+        distortion: DistortionKind::Division1,
+        sensor: SensorKind::None,
+    };
+    /// Pinhole with Fitzgibbon division 1-parameter distortion and a Scheimpflug sensor.
+    pub const PINHOLE4_DIVISION1_SCHEIMPFLUG2: Self = Self {
+        projection: ProjectionKind::Pinhole,
+        distortion: DistortionKind::Division1,
         sensor: SensorKind::Scheimpflug2,
     };
 
