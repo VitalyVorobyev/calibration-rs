@@ -143,16 +143,32 @@ impl<S: RealField + Copy> DistortionModel<S> for RationalPolynomial<S> {
     }
 
     fn undistort(&self, n_dist: &Point2<S>) -> Point2<S> {
-        let mut x = n_dist.x;
-        let mut y = n_dist.y;
+        // Stable fixed point `x_u = (x_d - tangential) / radial` (matching the
+        // optimizer kernel). The plain `x -= distort(x) - x_d` update has an
+        // identity Jacobian and can diverge for strong pincushion/wide-FOV
+        // coefficients; dividing by the radial factor keeps it contracting.
+        let xd = n_dist.x;
+        let yd = n_dist.y;
+        let mut x = xd;
+        let mut y = yd;
+        let two = S::one() + S::one();
 
         let iters = if self.iters == 0 { 10 } else { self.iters };
         for _ in 0..iters {
-            let (xd, yd) = self.distort_impl(x, y);
-            let ex = xd - n_dist.x;
-            let ey = yd - n_dist.y;
-            x -= ex;
-            y -= ey;
+            let r2 = x * x + y * y;
+            let r4 = r2 * r2;
+            let r6 = r4 * r2;
+
+            let num = S::one() + self.k1 * r2 + self.k2 * r4 + self.k3 * r6;
+            let den = S::one() + self.k4 * r2 + self.k5 * r4 + self.k6 * r6;
+            let radial = num / den;
+
+            let xy = x * y;
+            let x_tan = two * self.p1 * xy + self.p2 * (r2 + two * x * x);
+            let y_tan = self.p1 * (r2 + two * y * y) + two * self.p2 * xy;
+
+            x = (xd - x_tan) / radial;
+            y = (yd - y_tan) / radial;
         }
         Point2::new(x, y)
     }
@@ -223,16 +239,32 @@ impl<S: RealField + Copy> DistortionModel<S> for ThinPrism<S> {
     }
 
     fn undistort(&self, n_dist: &Point2<S>) -> Point2<S> {
-        let mut x = n_dist.x;
-        let mut y = n_dist.y;
+        // Stable fixed point `x_u = (x_d - tangential - prism) / radial`
+        // (matching the optimizer kernel); see `RationalPolynomial::undistort`
+        // for why the plain subtraction update is avoided.
+        let xd = n_dist.x;
+        let yd = n_dist.y;
+        let mut x = xd;
+        let mut y = yd;
+        let two = S::one() + S::one();
 
         let iters = if self.iters == 0 { 10 } else { self.iters };
         for _ in 0..iters {
-            let (xd, yd) = self.distort_impl(x, y);
-            let ex = xd - n_dist.x;
-            let ey = yd - n_dist.y;
-            x -= ex;
-            y -= ey;
+            let r2 = x * x + y * y;
+            let r4 = r2 * r2;
+            let r6 = r4 * r2;
+
+            let radial = S::one() + self.k1 * r2 + self.k2 * r4 + self.k3 * r6;
+
+            let xy = x * y;
+            let x_tan = two * self.p1 * xy + self.p2 * (r2 + two * x * x);
+            let y_tan = self.p1 * (r2 + two * y * y) + two * self.p2 * xy;
+
+            let prism_x = self.s1 * r2 + self.s2 * r4;
+            let prism_y = self.s3 * r2 + self.s4 * r4;
+
+            x = (xd - x_tan - prism_x) / radial;
+            y = (yd - y_tan - prism_y) / radial;
         }
         Point2::new(x, y)
     }
@@ -342,6 +374,40 @@ mod tests {
                 (u.x - x).abs() < 1e-4 && (u.y - y).abs() < 1e-4,
                 "rational roundtrip failed at ({x},{y}): d={d:?} u={u:?}"
             );
+        }
+    }
+
+    /// Codex P2 guard: a strong positive-k1 pincushion at normalized radius ~1
+    /// must round-trip through the iterative inverse without diverging or NaN.
+    /// The previous `x -= distort(x) - x_d` update overshot badly here.
+    #[test]
+    fn rational_undistort_stable_strong_pincushion() {
+        let m = RationalPolynomial {
+            k1: 0.3,
+            k2: 0.05,
+            k3: 0.0,
+            k4: 0.0,
+            k5: 0.0,
+            k6: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 20,
+        };
+        let vals: [f64; 5] = [-0.7, -0.4, 0.0, 0.4, 0.7]; // radius up to ~1.0
+        for &x in &vals {
+            for &y in &vals {
+                let p = Point2::new(x, y);
+                let d = m.distort(&p);
+                let u = m.undistort(&d);
+                assert!(
+                    u.x.is_finite() && u.y.is_finite(),
+                    "non-finite undistort at ({x},{y}): {u:?}"
+                );
+                assert!(
+                    (u.x - x).abs() < 1e-3 && (u.y - y).abs() < 1e-3,
+                    "strong-pincushion roundtrip failed at ({x},{y}): d={d:?} u={u:?}"
+                );
+            }
         }
     }
 
