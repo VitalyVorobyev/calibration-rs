@@ -137,13 +137,25 @@ mod tests {
     fn detects_synthetic_board() {
         let img = synthetic_board_image();
         let features = RinggridDetector.detect_json(&img, &board_config()).unwrap();
+        // A conservative floor: a 5×5 hex board carries ~23 markers, but
+        // adaptive-scale detection on a small synthetic render is not
+        // guaranteed to decode every one; ≥4 is enough to confirm the
+        // wrapping decodes + maps markers to metric board coordinates.
         assert!(
             features.len() >= 4,
             "expected >= 4 decoded markers on a clean frontal board, got {}",
             features.len()
         );
+        // Board coordinates are metric (board span ~0.1 m for this config);
+        // a sub-metre bound guards the mm→m conversion — an unconverted
+        // result would land in the tens-of-metres range.
         for f in &features {
             assert_eq!(f.world_xyz[2], 0.0, "target is planar");
+            assert!(
+                f.world_xyz[0].abs() < 1.0 && f.world_xyz[1].abs() < 1.0,
+                "mapped marker {:?} is not in plausible metric range (mm→m bug?)",
+                f.world_xyz
+            );
         }
     }
 
@@ -176,5 +188,13 @@ mod tests {
         let img = image::DynamicImage::new_luma8(64, 64);
         let features = RinggridDetector.detect_json(&img, &board_config()).unwrap();
         assert!(features.is_empty(), "blank image should yield no features");
+    }
+
+    #[test]
+    fn config_json_roundtrip() {
+        let cfg: RinggridConfig = serde_json::from_value(board_config()).unwrap();
+        let back: RinggridConfig =
+            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(cfg, back);
     }
 }

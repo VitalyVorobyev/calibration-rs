@@ -187,4 +187,12 @@ mod tests {
             .unwrap();
         assert!(features.is_empty(), "blank image should yield no features");
     }
+
+    #[test]
+    fn config_json_roundtrip() {
+        let cfg: PuzzleboardConfig = serde_json::from_value(board_config()).unwrap();
+        let back: PuzzleboardConfig =
+            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(cfg, back);
+    }
 }

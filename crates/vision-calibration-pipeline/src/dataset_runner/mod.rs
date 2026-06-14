@@ -1,5 +1,5 @@
 //! Dataset-driven runner: takes a
-//! [`DatasetSpec`](vision_calibration_dataset::DatasetSpec) manifest plus a
+//! [`DatasetSpec`] manifest plus a
 //! per-problem `*Config` and produces the existing `*Input` IR by
 //! running detection (cached) on the per-camera images.
 //!
