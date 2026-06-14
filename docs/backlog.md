@@ -120,6 +120,19 @@ review.
 
 ## B — app (extend; sequencing serves V-track)
 
+- [x] B3C-PUZZLEBOARD - PuzzleBoard detector. Completed 2026-06-14 —
+  [report](report/2026-06-14-B3C-PUZZLEBOARD-puzzleboard-detector.md).
+  `PuzzleboardDetector` wraps `calib-targets` `detect_puzzleboard` behind the
+  sealed `Detector` trait + `puzzleboard` feature; `dataset_runner` resolves
+  the `"puzzle_<R>x<C>"` layout name to dimensions and dispatches it (was
+  `UnsupportedTarget`). Synthetic-board detection + dispatch tests green.
+- [ ] B3C-RINGGRID - Ringgrid detector wrapping `ringgrid` 0.6 (crates.io)
+  behind a `ringgrid` feature + `dataset_runner` dispatch for
+  `TargetSpec::Ringgrid`. Second of the two B3c-remainder detectors.
+- [ ] B3C-CHARUCO-DEDUP - Consolidate the three charuco detection paths
+  (`detect/src/charuco.rs` canonical, `examples-private::detect_charuco`,
+  `bench::detect_charuco_view`) onto one shared core. Numerics-preserving:
+  bench + examples residual numbers must be unchanged.
 - [ ] B3C-RIG - Run-workspace coverage for `RigExtrinsics`, `RigHandeye`,
   `RigLaserlineDevice` + charuco detector wiring
   (`app/src-tauri/src/run.rs:131` topology dispatch).

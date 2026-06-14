@@ -33,6 +33,8 @@ mod charuco;
 mod chess_options;
 #[cfg(feature = "chessboard")]
 mod chessboard;
+#[cfg(feature = "puzzleboard")]
+mod puzzleboard;
 
 pub use cache::{
     CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache, hash_image_bytes,
@@ -45,6 +47,8 @@ pub use charuco::{CharucoConfig, CharucoDetector, validate_charuco_layout, valid
 pub use chess_options::{ChessCornersConfig, ChessThresholdMode};
 #[cfg(feature = "chessboard")]
 pub use chessboard::{ChessboardConfig, ChessboardDetector};
+#[cfg(feature = "puzzleboard")]
+pub use puzzleboard::{PuzzleboardConfig, PuzzleboardDetector};
 
 use serde_json::Value;
 

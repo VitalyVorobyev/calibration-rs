@@ -12,9 +12,10 @@ homepage.workspace = true
 repository.workspace = true
 
 [features]
-default = ["chessboard", "charuco"]
+default = ["chessboard", "charuco", "puzzleboard"]
 chessboard = ["dep:calib-targets", "dep:chess-corners"]
 charuco = ["dep:calib-targets", "dep:chess-corners"]
+puzzleboard = ["dep:calib-targets"]
 schemars = ["dep:schemars"]
 
 [dependencies]
