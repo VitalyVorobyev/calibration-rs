@@ -31,8 +31,43 @@ pub(crate) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
 /// Returns four possible `(R, t)` pairs; the correct one can be selected by
 /// cheirality checks on triangulated points. The translation is unit-length
 /// (direction only).
+///
+/// Returns `Err` if `E` is zero, rank-deficient beyond the expected rank-2
+/// structure, or otherwise degenerate (e.g. a pure-rotation-derived E has
+/// both valid singular values identical but the ratio `σ₂ / σ₁` departs from
+/// the expected `~1`; a zero E has `σ₁ ≈ 0`).
+///
+/// A valid E has singular values ≈ (σ, σ, 0) after the essential-constraint
+/// projection. The check is: after projection,
+/// `σ₁ > ε` (non-zero) and `σ₂ / σ₁ > 0.1` (both leading values are
+/// meaningfully positive — not a rank-1 or rank-0 matrix).
 pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>> {
     let e = enforce_essential_constraints(e)?;
+
+    // Rank / degeneracy check on the projected E.
+    // A valid essential matrix after projection has σ₀ ≈ σ₁ > 0, σ₂ = 0.
+    // Detect two failure modes:
+    //   (a) Zero or near-zero E: σ₀ ≈ 0  → translation is unobservable.
+    //   (b) Rank-1 E: σ₁ / σ₀ ≪ 1       → fabricated translation direction.
+    {
+        let sv = e.svd(false, false).singular_values;
+        let s0 = sv[0];
+        let s1 = sv[1];
+        if s0 < 1e-10 {
+            anyhow::bail!(
+                "degenerate essential matrix: near-zero norm after projection \
+                 (translation is unobservable — pure rotation or rank-deficient E)"
+            );
+        }
+        if s1 / s0 < 0.1 {
+            anyhow::bail!(
+                "degenerate essential matrix: rank-deficient after projection \
+                 (σ₁/σ₀ = {:.4} < 0.1; translation direction is unobservable)",
+                s1 / s0
+            );
+        }
+    }
+
     let svd = e.svd(true, true);
     let mut u = svd.u.ok_or(anyhow::anyhow!("SVD failed"))?;
     let mut v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
@@ -77,6 +112,32 @@ mod tests {
         Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
     }
 
+    /// Regression: zero E must return Err, not fabricate four poses.
+    #[test]
+    fn decompose_essential_rejects_zero_matrix() {
+        let e = Mat3::zeros();
+        assert!(
+            decompose_essential(&e).is_err(),
+            "zero essential matrix must return Err"
+        );
+    }
+
+    /// Regression: a pure-rotation-derived E = [t]×R with t=0 is all zeros
+    /// and must also be rejected.
+    #[test]
+    fn decompose_essential_rejects_pure_rotation_e() {
+        use nalgebra::Rotation3;
+        let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.2);
+        // t = 0 → E = [0]× R = 0
+        let t_zero = Vec3::zeros();
+        let e = skew(&t_zero) * rot.matrix();
+        assert!(
+            decompose_essential(&e).is_err(),
+            "pure-rotation E (t=0 ⟹ E=0) must return Err"
+        );
+    }
+
+    /// Sanity: an existing valid-E decomposition test must still pass after the guard.
     #[test]
     fn essential_decomposition_recovers_pose() {
         let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.2);

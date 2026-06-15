@@ -16,24 +16,46 @@ use vision_calibration_core::{
 
 /// Return `true` if all points are (approximately) collinear.
 ///
-/// Tests every triple; if any triple has a cross-product magnitude below
-/// `1e-6` (relative area threshold for normalized-ish coordinates) the
-/// point set is flagged as collinear.  Only three or more points can be
-/// collinear, so fewer than 3 points always return `false`.
+/// Anchors the reference direction on the **first distinct pair** of points
+/// (skipping duplicates of `pts[0]`). If all points are identical the set is
+/// trivially degenerate and `true` is returned. Otherwise every remaining
+/// point is tested: if any cross-product magnitude exceeds `1e-6` the set is
+/// not collinear.
+///
+/// Only three or more points can be collinear, so fewer than 3 points always
+/// return `false`.
 fn points_are_collinear(pts: &[Pt2]) -> bool {
     if pts.len() < 3 {
         return false;
     }
-    // Use the first two points to define the reference direction, then check
-    // all remaining points against it.  This is O(n) instead of O(n³) and
-    // is sufficient: if *any* triple that includes pts[0]–pts[1] as the base
-    // is collinear for ALL other points, the whole set is collinear.
+
     let p0 = pts[0];
-    let p1 = pts[1];
-    for p2 in pts.iter().skip(2) {
+
+    // Find the first point that is meaningfully different from pts[0].
+    // This avoids a zero baseline when the leading points are duplicates.
+    const SAME_PT_EPS: f64 = 1e-9;
+    let Some(p1) = pts
+        .iter()
+        .skip(1)
+        .find(|p| {
+            let dx = p.x - p0.x;
+            let dy = p.y - p0.y;
+            (dx * dx + dy * dy).sqrt() > SAME_PT_EPS
+        })
+        .copied()
+    else {
+        // All points are identical → degenerate.
+        return true;
+    };
+
+    // Test every other point against the p0–p1 baseline.
+    for p2 in pts.iter() {
+        if (p2.x - p0.x).hypot(p2.y - p0.y) <= SAME_PT_EPS {
+            continue; // duplicate of p0 — collinear by definition
+        }
         let cross = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
         if cross.abs() > 1e-6 {
-            return false; // found a non-collinear triple
+            return false; // found a non-collinear point
         }
     }
     true
@@ -308,6 +330,59 @@ mod tests {
         assert!(
             dlt_homography(&src, &dst).is_err(),
             "collinear dst points must produce Err"
+        );
+    }
+
+    /// Regression: pts[0] == pts[1] must NOT cause a false collinearity verdict.
+    ///
+    /// The old implementation anchored the reference direction on pts[0]–pts[1].
+    /// When those two are duplicates the baseline vector is zero, every cross
+    /// product evaluates to zero, and the entire (otherwise general-position)
+    /// set was wrongly flagged as collinear — causing `dlt_homography` to
+    /// reject valid overdetermined inputs.
+    #[test]
+    fn dlt_homography_accepts_duplicate_leading_points_in_general_position() {
+        // pts[0] and pts[1] are identical; the remaining points form a valid
+        // (non-collinear) set together with pts[0].  The duplicate does NOT
+        // make the whole set collinear.
+        let dup = Pt2::new(0.0, 0.0);
+        let src = vec![
+            dup,
+            dup, // duplicate of pts[0]
+            Pt2::new(1.0, 0.0),
+            Pt2::new(1.0, 1.0),
+            Pt2::new(0.0, 1.0),
+        ];
+        // Correspondences under a 2× scale homography.
+        let dst = vec![
+            Pt2::new(0.0, 0.0),
+            Pt2::new(0.0, 0.0), // duplicate too
+            Pt2::new(2.0, 0.0),
+            Pt2::new(2.0, 2.0),
+            Pt2::new(0.0, 2.0),
+        ];
+        let h = dlt_homography(&src, &dst)
+            .expect("duplicate leading point must not cause false collinearity rejection");
+        // The homography should approximate a 2× scale.
+        let s = h[(0, 0)];
+        assert!((s - 2.0).abs() < 1e-4, "unexpected scale: {}", s);
+    }
+
+    /// Regression: an all-identical point set is genuinely degenerate.
+    #[test]
+    fn dlt_homography_rejects_all_identical_src_points() {
+        let same = Pt2::new(1.0, 1.0);
+        let src = vec![same; 5];
+        let dst = vec![
+            Pt2::new(0.0, 0.0),
+            Pt2::new(3.0, 1.0),
+            Pt2::new(1.0, 4.0),
+            Pt2::new(5.0, 2.0),
+            Pt2::new(2.0, 6.0),
+        ];
+        assert!(
+            dlt_homography(&src, &dst).is_err(),
+            "all-identical src points must produce Err"
         );
     }
 

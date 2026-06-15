@@ -66,7 +66,20 @@ pub fn select_pose(
 ///
 /// Decomposes `E` into 4 candidate (R, t) pairs, then selects the one with
 /// the most points in front of both cameras.
+///
+/// Returns `Err` if the point slices have different lengths, if there are no
+/// correspondences, or if every candidate pose fails the cheirality check.
 pub fn recover_pose_from_essential(e: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<(Mat3, Vec3)> {
+    if pts1.len() != pts2.len() {
+        anyhow::bail!(
+            "point count mismatch: pts1 has {}, pts2 has {}",
+            pts1.len(),
+            pts2.len()
+        );
+    }
+    if pts1.is_empty() {
+        anyhow::bail!("need at least 1 correspondence for cheirality check, got 0");
+    }
     let candidates = vision_geometry::epipolar::decompose_essential(e)?;
     select_pose(&candidates, pts1, pts2)
         .map(|(r, t, _)| (r, t))
@@ -147,6 +160,38 @@ mod tests {
         assert!(
             (cos_t.abs() - 1.0).abs() < 1e-6,
             "translation direction error"
+        );
+    }
+
+    /// Regression: mismatched slice lengths must return Err, not silently truncate.
+    #[test]
+    fn recover_pose_from_essential_rejects_length_mismatch() {
+        let (r, t, pts1, pts2) = make_stereo_data();
+        let e = skew(&t) * r;
+        // Give pts2 one extra point — lengths differ by 1.
+        let mut pts2_long = pts2.clone();
+        pts2_long.push(Pt2::new(0.0, 0.0));
+        assert!(
+            recover_pose_from_essential(&e, &pts1, &pts2_long).is_err(),
+            "mismatched lengths must return Err"
+        );
+        // Symmetric: pts1 longer.
+        let mut pts1_long = pts1.clone();
+        pts1_long.push(Pt2::new(0.0, 0.0));
+        assert!(
+            recover_pose_from_essential(&e, &pts1_long, &pts2).is_err(),
+            "mismatched lengths must return Err"
+        );
+    }
+
+    /// Regression: empty slices must return Err.
+    #[test]
+    fn recover_pose_from_essential_rejects_empty_input() {
+        let (r, t, _pts1, _pts2) = make_stereo_data();
+        let e = skew(&t) * r;
+        assert!(
+            recover_pose_from_essential(&e, &[], &[]).is_err(),
+            "empty input must return Err"
         );
     }
 
