@@ -3699,6 +3699,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vision-geometry"
+version = "0.5.1"
+dependencies = [
+ "anyhow",
+ "nalgebra",
+ "vision-calibration-core",
+]
+
+[[package]]
 name = "vision-metrology"
 version = "0.1.0"
 source = "git+https://github.com/VitalyVorobyev/vision-metrology.git?tag=v0.1.0#c1547f8212d2811cad186f7588f6f5f25af3e6be"
@@ -3709,6 +3718,17 @@ dependencies = [
  "vm-laser",
  "vm-morph",
  "vm-pyr",
+]
+
+[[package]]
+name = "vision-mvg"
+version = "0.5.1"
+dependencies = [
+ "anyhow",
+ "nalgebra",
+ "tiny-solver",
+ "vision-calibration-core",
+ "vision-geometry",
 ]
 
 [[package]]

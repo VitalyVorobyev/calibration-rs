@@ -36,6 +36,7 @@ Status legend:
 - [0012 - Per-Feature Reprojection Residuals on Export Types](0012-per-feature-reprojection-residuals.md)
 - [0013 - rig_family Sensor-Axis Refactor (Pinhole + Scheimpflug Unification)](0013-rig-family-sensor-axis-refactor.md)
 - [0014 - Tauri 2 Desktop App for Calibration Diagnose (Track B Kickoff)](0014-tauri-desktop-app.md)
+- [0015 - Multiple-View Geometry Crates and Scope Ceiling](0015-mvg-ceiling.md)
 - [0016 - Canonical Dataset Manifest (`DatasetSpec`)](0016-dataset-manifest.md)
 - [0017 - Content-Addressed Detection Cache](0017-detection-cache.md)
 - [0018 - Schema-Driven UI for Configs and Dataset Manifests](0018-schema-driven-ui.md)

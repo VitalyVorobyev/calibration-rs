@@ -1,0 +1,25 @@
+[package]
+name = "vision-mvg"
+# Not yet published to crates.io — landed internally first (API not stable).
+# Promote to the publish set + release version-lockstep deliberately (see CLAUDE.md).
+publish = false
+readme = "README.md"
+description = "Multiple-view geometry: epipolar geometry, triangulation, homography, robust estimation"
+keywords = ["computer-vision", "geometry", "epipolar", "stereo", "triangulation"]
+categories = ["computer-vision"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[features]
+refine = ["dep:tiny-solver"]
+
+[dependencies]
+vision-calibration-core = { workspace = true }
+vision-geometry = { workspace = true }
+nalgebra = { workspace = true }
+anyhow = { workspace = true }
+tiny-solver = { workspace = true, optional = true }
