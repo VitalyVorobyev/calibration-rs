@@ -14,6 +14,31 @@ use vision_calibration_core::{
     Estimator, Mat3, Pt2, RansacOptions, from_homogeneous, ransac_fit, to_homogeneous,
 };
 
+/// Return `true` if all points are (approximately) collinear.
+///
+/// Tests every triple; if any triple has a cross-product magnitude below
+/// `1e-6` (relative area threshold for normalized-ish coordinates) the
+/// point set is flagged as collinear.  Only three or more points can be
+/// collinear, so fewer than 3 points always return `false`.
+fn points_are_collinear(pts: &[Pt2]) -> bool {
+    if pts.len() < 3 {
+        return false;
+    }
+    // Use the first two points to define the reference direction, then check
+    // all remaining points against it.  This is O(n) instead of O(n³) and
+    // is sufficient: if *any* triple that includes pts[0]–pts[1] as the base
+    // is collinear for ALL other points, the whole set is collinear.
+    let p0 = pts[0];
+    let p1 = pts[1];
+    for p2 in pts.iter().skip(2) {
+        let cross = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+        if cross.abs() > 1e-6 {
+            return false; // found a non-collinear triple
+        }
+    }
+    true
+}
+
 /// Estimate `H` such that `x' ~ H x` using normalized DLT.
 ///
 /// `src` and `dst` are corresponding 2D points. The returned homography
@@ -22,6 +47,24 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
     let n = src.len();
     if n < 4 || dst.len() != n {
         anyhow::bail!("need at least 4 point correspondences, got {}", n);
+    }
+
+    // Reject collinear configurations early: a valid homography requires at
+    // least 4 points in general position (no 3 collinear) in BOTH the source
+    // and destination sets.  Collinear src makes the design matrix rank < 8;
+    // collinear dst yields a degenerate (rank-2) homography that maps the
+    // entire plane to a line and cannot be reliably inverted or applied.
+    if points_are_collinear(src) {
+        anyhow::bail!(
+            "rank-deficient point configuration: source points are collinear \
+             (need 4 correspondences in general position, no 3 collinear)"
+        );
+    }
+    if points_are_collinear(dst) {
+        anyhow::bail!(
+            "rank-deficient point configuration: destination points are collinear \
+             (need 4 correspondences in general position, no 3 collinear)"
+        );
     }
 
     let (src_n, t_w) = normalize_points_2d(src)
@@ -65,6 +108,26 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
     }
 
     let svd = a_work.svd(true, true);
+
+    // Rank-deficiency check: for a well-posed homography the 2n×9 design
+    // matrix must have rank exactly 8 (a 1-D null space).  The SVD yields
+    // 9 singular values sorted descending.  We interrogate them *before*
+    // moving `v_t` out to avoid a partial-move borrow issue.
+    let sv = svd.singular_values.clone();
+    if sv[0] <= f64::EPSILON {
+        anyhow::bail!("degenerate (all-zero) homography design matrix");
+    }
+    // sv[7] is the second-smallest singular value.  For a valid
+    // configuration (4 points in general position) it is well above zero.
+    // For collinear input the null space is ≥2-D and sv[7] collapses
+    // toward zero like sv[8].
+    if sv[7] / sv[0] < 1e-7 {
+        anyhow::bail!(
+            "rank-deficient point configuration: homography is underdetermined \
+             (need 4 correspondences in general position, no 3 collinear)"
+        );
+    }
+
     let v_t = svd.v_t.ok_or_else(|| anyhow::anyhow!("svd failed"))?;
     let h_vec = v_t.row(v_t.nrows() - 1);
 
@@ -199,6 +262,53 @@ mod tests {
         let h = dlt_homography(&w, &img).unwrap();
         let s = h[(0, 0)];
         assert!((s - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn dlt_homography_rejects_collinear_src_points() {
+        // Source points all on the line y = 2x + 1 → collinear → Err.
+        let src: Vec<Pt2> = (0..5)
+            .map(|t| {
+                let x = t as f64;
+                Pt2::new(x, 2.0 * x + 1.0)
+            })
+            .collect();
+        // Destination points are in general position.
+        let dst = vec![
+            Pt2::new(0.0, 0.0),
+            Pt2::new(3.0, 1.0),
+            Pt2::new(1.0, 4.0),
+            Pt2::new(5.0, 2.0),
+            Pt2::new(2.0, 6.0),
+        ];
+        assert!(
+            dlt_homography(&src, &dst).is_err(),
+            "collinear src points must produce Err"
+        );
+    }
+
+    #[test]
+    fn dlt_homography_rejects_collinear_dst_points() {
+        // Destination points all on the line y = 3x.
+        // Source points form an irregular quadrilateral + one off-center
+        // interior point — all in general position (verified: no 3 collinear).
+        let src = vec![
+            Pt2::new(0.0, 0.0),
+            Pt2::new(5.0, 1.0),
+            Pt2::new(4.0, 4.0),
+            Pt2::new(1.0, 3.0),
+            Pt2::new(3.0, 1.5),
+        ];
+        let dst: Vec<Pt2> = (0..5)
+            .map(|t| {
+                let x = t as f64;
+                Pt2::new(x, 3.0 * x)
+            })
+            .collect();
+        assert!(
+            dlt_homography(&src, &dst).is_err(),
+            "collinear dst points must produce Err"
+        );
     }
 
     #[test]

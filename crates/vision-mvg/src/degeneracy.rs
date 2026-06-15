@@ -10,6 +10,14 @@
 use crate::types::Correspondence2D;
 use vision_calibration_core::{Mat3, Real, Vec3};
 
+/// Pure-rotation parallax threshold in degrees.
+///
+/// A median parallax below this value is treated as (approximately) pure
+/// rotation — i.e. essentially zero baseline.  The threshold is stricter than
+/// the 0.5° poor-baseline notion because pure rotation means *no* translation
+/// at all, not just a weak one.
+const PURE_ROTATION_PARALLAX_DEG: Real = 0.1;
+
 /// Diagnostics about a two-view scene configuration.
 #[derive(Debug, Clone)]
 pub struct SceneDiagnostics {
@@ -23,21 +31,35 @@ pub struct SceneDiagnostics {
     pub baseline_ratio: Real,
 }
 
-/// Detect a pure rotation from an essential matrix.
+/// Detect a pure rotation from triangulated parallax angles.
 ///
-/// A pure rotation has `t ≈ 0`, so the essential matrix `E = [t]× R ≈ 0`.
-/// For a proper essential matrix with translation, the singular values are
-/// `(σ, σ, 0)` with `σ > 0`. For pure rotation, all singular values are
-/// near zero.
+/// ## Why not use the essential matrix norm?
 ///
-/// Returns `true` if the Frobenius norm of E is below a threshold,
-/// indicating negligible translation.
-pub fn detect_pure_rotation(e: &Mat3) -> bool {
-    // Frobenius norm: sqrt(s1² + s2² + s3²). For a valid E this equals
-    // sqrt(2) * σ where σ is the repeated singular value. A near-zero
-    // norm means negligible translation.
-    let frob = e.norm();
-    frob < 1e-6
+/// The old approach (`‖E‖ < threshold`) was scale-dependent: essential
+/// matrices are defined only up to an arbitrary scale factor, so `E` and
+/// `1e-9 · E` encode the same geometry but have vastly different norms.
+/// A valid E scaled down by 1e-9 would be wrongly flagged as pure rotation.
+///
+/// ## Parallax is the scale-invariant signal
+///
+/// Pure rotation means the translation vector `t` is exactly zero.  When
+/// `t = 0`, all viewing rays from camera 1 and camera 2 to the same scene
+/// point are parallel — the parallax angle is zero.  The **median** parallax
+/// angle is therefore the correct, scale-invariant test:
+///
+/// - Returns `true` (pure rotation) when `parallax_angles` is empty (no
+///   triangulated points → no baseline evidence) or when the median angle
+///   is below `threshold_deg`.
+/// - Returns `false` otherwise (there is a non-trivial baseline).
+pub fn detect_pure_rotation(parallax_angles: &[Real], threshold_deg: Real) -> bool {
+    if parallax_angles.is_empty() {
+        // No triangulated points — we cannot confirm a baseline exists.
+        return true;
+    }
+    let mut sorted = parallax_angles.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median = sorted[sorted.len() / 2];
+    median < threshold_deg
 }
 
 /// Detect a planar scene by comparing homography and essential inlier counts.
@@ -76,11 +98,11 @@ pub fn detect_poor_baseline(parallax_angles: &[Real], threshold_deg: Real) -> bo
 
 /// Analyze a two-view scene for degeneracies.
 ///
-/// Given correspondences, the estimated essential matrix, and the recovered
-/// pose (R, t), returns diagnostics about the scene configuration.
-pub fn analyze_scene(corrs: &[Correspondence2D], e: &Mat3, r: &Mat3, t: &Vec3) -> SceneDiagnostics {
-    let is_pure_rotation = detect_pure_rotation(e);
-
+/// Given correspondences and the recovered pose (R, t), returns diagnostics
+/// about the scene configuration.  The essential matrix is not required: pure
+/// rotation is detected from the scale-invariant parallax signal rather than
+/// from `‖E‖` (see [`detect_pure_rotation`]).
+pub fn analyze_scene(corrs: &[Correspondence2D], r: &Mat3, t: &Vec3) -> SceneDiagnostics {
     // Triangulate to get parallax angles.
     let (pts1, pts2) = Correspondence2D::split(corrs);
     let parallax_angles: Vec<Real> =
@@ -97,6 +119,9 @@ pub fn analyze_scene(corrs: &[Correspondence2D], e: &Mat3, r: &Mat3, t: &Vec3) -
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         sorted[sorted.len() / 2]
     };
+
+    // Pure rotation: scale-invariant parallax test.
+    let is_pure_rotation = detect_pure_rotation(&parallax_angles, PURE_ROTATION_PARALLAX_DEG);
 
     // Estimate baseline ratio: ||t|| / median_depth.
     let baseline_ratio =
@@ -152,28 +177,26 @@ pub fn analyze_scene(corrs: &[Correspondence2D], e: &Mat3, r: &Mat3, t: &Vec3) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::Rotation3;
     use vision_calibration_core::{Pt2, Pt3};
 
-    fn skew(v: &Vec3) -> Mat3 {
-        Mat3::new(0.0, -v.z, v.y, v.z, 0.0, -v.x, -v.y, v.x, 0.0)
+    #[test]
+    fn detect_pure_rotation_true_for_low_parallax() {
+        // Small parallax angles → pure rotation.
+        let angles = &[0.001_f64, 0.002, 0.0015];
+        assert!(detect_pure_rotation(angles, 0.1));
     }
 
     #[test]
-    fn detect_pure_rotation_true_for_zero_translation() {
-        // E = [t]x * R with t ≈ 0 gives E ≈ 0.
-        let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.2);
-        let t = Vec3::new(0.0, 0.0, 0.0);
-        let e = skew(&t) * rot.matrix();
-        assert!(detect_pure_rotation(&e));
+    fn detect_pure_rotation_false_for_good_parallax() {
+        // Large parallax angles → not a pure rotation.
+        let angles = &[2.0_f64, 3.5, 1.8];
+        assert!(!detect_pure_rotation(angles, 0.1));
     }
 
     #[test]
-    fn detect_pure_rotation_false_for_good_baseline() {
-        let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.2);
-        let t = Vec3::new(0.3, 0.01, 0.005);
-        let e = skew(&t) * rot.matrix();
-        assert!(!detect_pure_rotation(&e));
+    fn detect_pure_rotation_true_for_empty_angles() {
+        // No triangulated points — cannot confirm a baseline → treat as pure rotation.
+        assert!(detect_pure_rotation(&[], 0.1));
     }
 
     #[test]
@@ -221,10 +244,10 @@ mod tests {
 
     #[test]
     fn analyze_scene_good_stereo() {
+        use nalgebra::Rotation3;
         let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
         let r = *rot.matrix();
         let t = Vec3::new(0.3, 0.01, 0.005);
-        let e = skew(&t) * r;
 
         let world = [
             Pt3::new(0.5, 0.3, 3.0),
@@ -249,7 +272,8 @@ mod tests {
             })
             .collect();
 
-        let diag = analyze_scene(&corrs, &e, &r, &t);
+        // analyze_scene no longer takes an essential matrix.
+        let diag = analyze_scene(&corrs, &r, &t);
         assert!(!diag.is_pure_rotation);
         assert!(diag.median_parallax_deg > 0.0);
         assert!(diag.baseline_ratio > 0.0);
