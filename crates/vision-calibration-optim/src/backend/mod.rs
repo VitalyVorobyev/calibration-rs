@@ -95,8 +95,6 @@ pub trait OptimBackend {
 pub enum BackendKind {
     /// tiny-solver Levenberg-Marquardt backend.
     TinySolver,
-    /// Placeholder for a Ceres backend.
-    Ceres,
 }
 
 /// Solve a problem using the selected backend.
@@ -105,7 +103,7 @@ pub enum BackendKind {
 ///
 /// # Errors
 ///
-/// Returns [`Error::Numerical`] if the solver fails or the requested backend is not available.
+/// Returns [`Error::Numerical`] if the solver fails.
 pub fn solve_with_backend(
     backend: BackendKind,
     ir: &ProblemIR,
@@ -116,6 +114,5 @@ pub fn solve_with_backend(
         BackendKind::TinySolver => TinySolverBackend
             .solve(ir, initial, opts)
             .map_err(Error::from),
-        BackendKind::Ceres => Err(Error::numerical("Ceres backend not implemented")),
     }
 }

@@ -79,21 +79,26 @@ review.
   or rational) only if detector residual vector fields remain structured after
   cleaning detections.
 
-## O — apex-solver backend
+## O — apex-solver backend (O1/O2 PARKED 2026-06-15; O3 DONE)
 
-- [ ] O1-BACKEND - `ApexSolverBackend` in
-  `optim/src/backend/apex_solver_backend.rs` behind an `apex-solver` cargo
-  feature; `BackendKind::ApexSolver` + dispatch arm; mirror `compile_factor`
-  from `tiny_solver_backend.rs`. Pre-verify before coding: does apex-solver
-  1.3 accept generic `Factor` impls (its API is graph-flavored)?; SE3
-  quaternion order vs IR `[qx,qy,qz,qw,tx,ty,tz]` (write a round-trip unit
-  test); S2 manifold availability (fallback: Euclidean R3 + renormalize);
-  Huber/Cauchy/Arctan loss coverage.
-- [ ] O2-AB - Backend A/B validation: synthetic IR param parity < 1e-4;
-  bench datasets final cost within 0.1 %, reproj within 0.01 px; timing
-  comparison on rtv3d; backend selector surfaced in `calib-bench`.
-- [ ] O3-CERES - Remove the `BackendKind::Ceres` stub (F2,
-  `optim/src/backend/mod.rs:119`).
+Pre-verify failed: apex-solver 1.3 is a hand-Jacobian factor-graph library, not
+autodiff-capable — fundamentally mismatched to our autodiff-first IR (ADR 0008 /
+M0 ADR 0020). Full findings:
+`docs/report/2026-06-14-O1-apex-solver-preverify.md`. Reviving Track O is a user
+call (pick an autodiff-capable optimizer, or keep tiny-solver as the sole
+backend).
+
+- [~] O1-BACKEND - **PARKED.** `ApexSolverBackend` blocked on the autodiff API
+  mismatch (no generic scalar / dual numbers; `Factor::linearize` takes a
+  caller-supplied Jacobian). Also missing: S2 manifold (we use one for
+  laser-plane normals), documented robust losses, documented SE3 quaternion
+  order. A numeric-difference bridge is possible but slower / less accurate and
+  needs hand-derived manifold Jacobians — not recommended unsupervised.
+- [~] O2-AB - **PARKED** (depends on O1).
+- [x] O3-CERES - **DONE 2026-06-15.** Removed the `BackendKind::Ceres` stub from
+  `optim/src/backend/mod.rs` plus the now-orphaned `Error::numerical` helper;
+  `BackendKind` is a single-variant enum and the dispatch has no unreachable
+  arm. Report: `docs/report/2026-06-15-O3-CERES-drop-ceres-stub.md`.
 
 ## M — camera models (gated on M0)
 

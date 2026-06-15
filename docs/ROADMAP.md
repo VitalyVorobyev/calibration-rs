@@ -220,20 +220,35 @@ per device), with a legacy-system oracle calibration to beat.
 - **V6** Settle the dataset's absolute scale against the head's mechanical
   camera spacing.
 
-### Track O — Optimization backends (NEW 2026-06-11)
+### Track O — Optimization backends (O1/O2 PARKED 2026-06-15; O3 DONE)
 
-`OptimBackend` (ADR 0008) gets a second real implementation:
+The premise was that `OptimBackend` (ADR 0008) gets a second real
+implementation:
 [apex-solver](https://crates.io/crates/apex-solver) 1.3 (LM/GN/DogLeg, Lie-group
 support), behind an `apex-solver` cargo feature in `vision-calibration-optim`.
 
-- **O1** `ApexSolverBackend` implementing `OptimBackend`, mirroring
-  `compile_factor` from the tiny-solver backend. Pre-verify: whether apex-solver
-  accepts generic factors (its API is graph-flavored), SE3 quaternion order vs
-  our `[qx,qy,qz,qw,tx,ty,tz]` (round-trip unit test), S2 manifold availability
-  (fallback: R3 + renormalize), robust-loss coverage.
-- **O2** Backend A/B in bench: param parity < 1e-4 on synthetic IR, final cost
-  within 0.1 % on bench datasets, timing comparison on rtv3d.
-- **O3** Drop the `BackendKind::Ceres` stub.
+The **O1 pre-verify gate failed** (report:
+`docs/report/2026-06-14-O1-apex-solver-preverify.md`). apex-solver 1.3 is a
+**hand-Jacobian factor-graph library** (`Factor::linearize` returns a
+caller-supplied Jacobian; no generic scalar / autodiff). Our IR (ADR 0008) and
+the M0 factor generification (ADR 0020) are **autodiff-first**
+(`fn residual<T: RealField>()`, monomorphized per `CameraModelDesc`), so wiring
+apex-solver would mean hand-deriving Jacobians for every factor family —
+defeating M0 and adding correctness risk at the geometry we most need to trust.
+Secondary gaps: no S2 / unit-vector manifold (we use one for laser-plane
+normals), no documented robust losses, undocumented SE3 quaternion order.
+
+- **O1 (PARKED)** `ApexSolverBackend` — blocked on the API mismatch above. A
+  numeric-difference bridge is technically possible but slower, less accurate,
+  and requires re-deriving manifold tangent Jacobians by hand; not recommended
+  unsupervised. Reviving Track O means **choosing an autodiff-capable** Rust
+  optimizer (e.g. a `factrs`/`num-dual` stack) or keeping tiny-solver as the
+  sole backend — a user call.
+- **O2 (PARKED)** Backend A/B validation — depends on O1.
+- **O3 (DONE 2026-06-15)** Dropped the dead `BackendKind::Ceres` stub from
+  `optim/src/backend/mod.rs` (and the now-orphaned `Error::numerical` helper).
+  `BackendKind` is now a single-variant enum; `solve_with_backend` no longer has
+  an unreachable "backend not available" arm.
 
 ### Track M — Camera-model expansion (M0 DONE 2026-06-12)
 
@@ -299,9 +314,10 @@ detectors) → B3d manifest UX → B3e polish.** B3c coverage **and** B3d
 manifest UX are complete as of 2026-06-14 (all 8 topologies + all 4 detectors
 wired; sniff-folder → editable auto-manifest shipped). **B-explore /
 B-infra / B3e are the remaining app slices**; the load-bearing app path is no
-longer blocking. O1/O2 (apex-solver) are parallelizable with the V-track; M0
-(factor generification) is done and M1–M4 can proceed. C resumes now that
-B3c has landed; D is a continuous ratchet.
+longer blocking. O1/O2 (apex-solver) are **parked** (autodiff API mismatch — see
+Track O); O3 landed. M0 (factor generification) is done and M1–M4 can proceed
+(M1–M3 additive layer landed). C1 (vision-geometry + vision-mvg) has landed; D
+is a continuous ratchet.
 
 ## Out of scope (explicit)
 
