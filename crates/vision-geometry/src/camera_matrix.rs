@@ -5,7 +5,7 @@
 
 use crate::math::{mat34_from_svd_row, normalize_points_2d, normalize_points_3d};
 use anyhow::Result;
-use nalgebra::{DMatrix, Matrix3x4};
+use nalgebra::{DMatrix, Matrix3, Matrix3x4};
 use vision_calibration_core::{Mat3, Pt2, Pt3, Real, Vec3};
 
 /// 3×4 camera projection matrix `P = K [R | t]`.
@@ -42,6 +42,33 @@ pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
     let (world_n, t_w) = normalize_points_3d(world).ok_or(anyhow::anyhow!(
         "degenerate point configuration for normalization"
     ))?;
+
+    // Coplanarity guard: if the normalized 3D points lie on (or very near) a
+    // plane, the 2n×12 DLT is underdetermined — a homography is the right
+    // estimator for that case.  We detect this by examining the singular values
+    // of the 3×3 scatter (sum of outer products of centred points): when
+    // σ_min / σ_max < 1e-6 the points are essentially coplanar.
+    {
+        // world_n is already centred by normalize_points_3d (centroid → origin).
+        let mut scatter = Matrix3::<Real>::zeros();
+        for p in &world_n {
+            let v = nalgebra::Vector3::new(p.x, p.y, p.z);
+            scatter += v * v.transpose();
+        }
+        let sv = scatter.svd(false, false).singular_values;
+        let s_max = sv[0]; // singular values are sorted descending
+        let s_min = sv[2];
+        if s_max <= Real::EPSILON {
+            anyhow::bail!("all 3D points coincide — cannot estimate a camera matrix");
+        }
+        if s_min / s_max < 1e-6 {
+            anyhow::bail!(
+                "coplanar or near-degenerate 3D point configuration: the 3×4 camera \
+                 DLT is underdetermined for planar points (estimate a homography instead)"
+            );
+        }
+    }
+
     let (image_n, t_i) = normalize_points_2d(image).ok_or(anyhow::anyhow!(
         "degenerate point configuration for normalization"
     ))?;
@@ -192,6 +219,25 @@ mod tests {
 
         let diff = (p_scaled - p_gt).norm();
         assert!(diff < 1e-6, "camera matrix diff too large: {}", diff);
+    }
+
+    #[test]
+    fn dlt_camera_matrix_rejects_coplanar_points() {
+        // All 3D points have z = 0 (the XY plane).  The DLT is underdetermined
+        // for planar configurations — the function must return Err.
+        let image: Vec<Pt2> = (0..8)
+            .map(|i| Pt2::new(i as Real * 10.0 + 100.0, i as Real * 5.0 + 200.0))
+            .collect();
+        let world: Vec<Pt3> = (0..8)
+            .map(|i| {
+                let fi = i as Real;
+                Pt3::new(fi * 0.1, fi * 0.07, 0.0) // all on z=0 plane
+            })
+            .collect();
+        assert!(
+            dlt_camera_matrix(&world, &image).is_err(),
+            "dlt_camera_matrix must reject coplanar 3D points"
+        );
     }
 
     #[test]

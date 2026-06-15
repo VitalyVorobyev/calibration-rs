@@ -59,16 +59,12 @@ impl Estimator for EssentialEstimator {
     const MIN_SAMPLES: usize = 5;
 
     fn fit(data: &[Self::Datum], sample_indices: &[usize]) -> Option<Self::Model> {
-        let mut pts1 = Vec::with_capacity(sample_indices.len());
-        let mut pts2 = Vec::with_capacity(sample_indices.len());
-        for &idx in sample_indices {
-            pts1.push(data[idx].pt1);
-            pts2.push(data[idx].pt2);
-        }
+        let n = sample_indices.len();
 
-        if sample_indices.len() == 5 {
-            // Minimal case: use the 5-point solver and pick the best candidate.
-            let candidates = vision_geometry::epipolar::essential_5point(&pts1, &pts2).ok()?;
+        // Shared helper: pick the candidate E that minimises the total Sampson
+        // distance over *all* sample_indices (not just the 5 used to construct
+        // the candidates).  Used for both the minimal and the 6-7 point paths.
+        let best_of = |candidates: Vec<Mat3>| -> Option<Mat3> {
             candidates.into_iter().min_by(|a, b| {
                 let sa: Real = sample_indices
                     .iter()
@@ -80,12 +76,25 @@ impl Estimator for EssentialEstimator {
                     .sum();
                 sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
             })
-        } else {
-            // Overdetermined case (refit on inliers): use the linear solver which
-            // accepts any number of points ≥ 5 and projects onto the essential
-            // manifold. This avoids the silent no-op when essential_5point
-            // receives more than 5 points.
+        };
+
+        if n >= 8 {
+            // Overdetermined case (refit on inliers): the linear solver has a
+            // 1-dimensional null space and projects onto the essential manifold.
+            let pts1: Vec<_> = sample_indices.iter().map(|&i| data[i].pt1).collect();
+            let pts2: Vec<_> = sample_indices.iter().map(|&i| data[i].pt2).collect();
             vision_geometry::epipolar::essential_linear(&pts1, &pts2).ok()
+        } else if n >= 5 {
+            // Minimal or near-minimal case (5, 6, or 7 points): use the 5-point
+            // solver on the first five correspondences, then score all candidates
+            // against the full sample_indices set to pick the best one.
+            // RANSAC guarantees n >= MIN_SAMPLES == 5, so n < 5 is unreachable.
+            let pts1: Vec<_> = sample_indices[..5].iter().map(|&i| data[i].pt1).collect();
+            let pts2: Vec<_> = sample_indices[..5].iter().map(|&i| data[i].pt2).collect();
+            let candidates = vision_geometry::epipolar::essential_5point(&pts1, &pts2).ok()?;
+            best_of(candidates)
+        } else {
+            None
         }
     }
 
@@ -484,5 +493,67 @@ mod tests {
             "translation direction error after refit: cos_t = {} (expected ~1.0)",
             cos_t
         );
+    }
+
+    /// Test that the 6-/7-point dispatch path in `EssentialEstimator::fit`
+    /// produces a valid essential matrix.
+    ///
+    /// We synthesise 7 calibrated correspondences from a known (R, t), call
+    /// `fit` directly with 7 indices, and verify:
+    ///   1. `fit` returns `Some` (not `None`).
+    ///   2. The epipolar residual `|x2ᵀ E x1|` is near-zero on all 7 points.
+    ///   3. The result lies on the essential manifold: singular values ≈ (σ, σ, 0).
+    #[test]
+    fn essential_fit_7pts_uses_5point_scored_on_all() {
+        let rot = Rotation3::from_euler_angles(0.08, -0.04, 0.15);
+        let r = *rot.matrix();
+        let t = Vec3::new(0.25, 0.05, 0.01);
+
+        // Build 7 clean calibrated correspondences.
+        let world = [
+            Pt3::new(0.4, 0.2, 3.0),
+            Pt3::new(-0.3, 0.1, 4.0),
+            Pt3::new(0.5, -0.2, 3.5),
+            Pt3::new(-0.2, -0.3, 2.8),
+            Pt3::new(0.1, 0.4, 4.5),
+            Pt3::new(0.3, -0.4, 5.0),
+            Pt3::new(-0.4, 0.3, 3.2),
+        ];
+
+        let corrs: Vec<Correspondence2D> = world
+            .iter()
+            .map(|pw| {
+                let pc1 = pw.coords;
+                let pc2 = r * pw.coords + t;
+                Correspondence2D::new(
+                    Pt2::new(pc1.x / pc1.z, pc1.y / pc1.z),
+                    Pt2::new(pc2.x / pc2.z, pc2.y / pc2.z),
+                )
+            })
+            .collect();
+
+        let indices: Vec<usize> = (0..7).collect();
+        let e =
+            EssentialEstimator::fit(&corrs, &indices).expect("fit with 7 points must return Some");
+
+        // 1. Epipolar residual near zero for all 7 points.
+        let e_norm = e.norm();
+        assert!(e_norm > 0.0, "fit returned zero matrix");
+        for c in &corrs {
+            let x1 = nalgebra::Vector3::new(c.pt1.x, c.pt1.y, 1.0);
+            let x2 = nalgebra::Vector3::new(c.pt2.x, c.pt2.y, 1.0);
+            let res = (x2.transpose() * e * x1)[0].abs() / e_norm;
+            assert!(res < 1e-5, "epipolar residual too large: {:.3e}", res);
+        }
+
+        // 2. Essential manifold check: singular values ≈ (σ, σ, 0).
+        let sv = e.svd(false, false).singular_values;
+        let s_avg = (sv[0] + sv[1]) * 0.5;
+        assert!(
+            (sv[0] / s_avg - 1.0).abs() < 1e-4,
+            "sv[0] not close to sv[1]: {:?}",
+            sv
+        );
+        assert!(sv[2] / s_avg < 1e-4, "sv[2] not near zero: {:?}", sv);
     }
 }

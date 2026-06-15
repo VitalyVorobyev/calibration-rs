@@ -141,10 +141,17 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     Ok(solutions.into_iter().map(|(_, e)| e).collect())
 }
 
-/// Linear (≥5-point) essential matrix estimator for overdetermined systems.
+/// Linear (≥8-point) essential matrix estimator for overdetermined systems.
 ///
 /// Inputs are **calibrated / normalized camera coordinates** (i.e. apply `K⁻¹`
-/// first). Requires `pts1.len() == pts2.len() >= 5`.
+/// first). Requires `pts1.len() == pts2.len() >= 8`.
+///
+/// **Why ≥8?** The 9-column epipolar design matrix has 9 unknowns. Its null
+/// space is 1-dimensional only when `rank(A) == 8`, which requires at least 8
+/// linearly independent rows. With 6 or 7 correspondences the null space has
+/// dimension ≥ 2 and the smallest-singular-value vector is an arbitrary element
+/// of that null space — the result would be a garbage essential matrix. Use
+/// [`essential_5point`] for the minimal (5-point) case.
 ///
 /// The algorithm:
 /// 1. Build the 9-column epipolar design matrix `A` (same as the 8-point
@@ -152,6 +159,9 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 ///    well-conditioned, so Hartley normalization is omitted).
 /// 2. Solve for the null-space vector (right singular vector of smallest
 ///    singular value) → reshape to 3×3 matrix `E_raw`.
+///    When `n == 8` the 8×9 matrix is padded to 9×9 with a zero row so that
+///    nalgebra's full SVD returns a 9×9 `Vᵀ`; the zero row leaves the null
+///    space unchanged (still 1-dimensional).
 /// 3. Project `E_raw` onto the essential manifold: SVD `E_raw = U Σ Vᵀ`;
 ///    replace singular values with `diag(1, 1, 0)` (up to an overall scale)
 ///    → `E = U diag(1,1,0) Vᵀ`.
@@ -165,8 +175,11 @@ pub fn essential_linear(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
             pts2.len()
         );
     }
-    if pts1.len() < 5 {
-        anyhow::bail!("Need at least 5 correspondences, got {}", pts1.len());
+    if pts1.len() < 8 {
+        anyhow::bail!(
+            "Need at least 8 correspondences for the linear essential solver, got {}",
+            pts1.len()
+        );
     }
 
     let n = pts1.len();
@@ -188,7 +201,10 @@ pub fn essential_linear(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
         a[(i, 8)] = 1.0;
     }
 
-    // Pad to square if we have fewer rows than columns (n < 9).
+    // Pad to 9×9 when n == 8 (the only case where nrows < ncols after the ≥8
+    // guard above). Adding one zero row leaves the null space unchanged: A has
+    // rank 8 → a 1-dimensional null space → the smallest right singular vector
+    // is uniquely defined.
     let mut a_work = a.clone();
     if a_work.nrows() < a_work.ncols() {
         let rows = a_work.nrows();
@@ -377,7 +393,9 @@ mod tests {
 
     #[test]
     fn essential_linear_rejects_too_few_points() {
-        let pts = vec![Pt2::new(0.0, 0.0); 4];
+        // The linear solver requires ≥8 correspondences (1-D null space).
+        // 7 points leave a ≥2-D null space → must be rejected.
+        let pts = vec![Pt2::new(0.0, 0.0); 7];
         assert!(essential_linear(&pts, &pts).is_err());
     }
 
