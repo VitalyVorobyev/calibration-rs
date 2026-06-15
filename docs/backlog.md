@@ -223,6 +223,21 @@ backend).
 - [ ] B-INFRA - ts-rs (or specta) codegen for wire types + export
   discriminator tag (F6); `resource_dir` presets
   (`RunWorkspace/presets.ts:16`); Vitest unit + Playwright smoke tests.
+  - [x] Vitest unit slice (2026-06-15) - Vitest scaffold (`vitest@4`,
+    `vitest.config.ts` node env, `test` / `test:watch` scripts) + pure-logic
+    coverage of `inferExportKind` (every probe branch + probe-order precedence),
+    `exportKindLabel` (exhaustive), and `mergeConfig` (deep-merge / array-replace
+    / type-disagreement / null-override / base-immutability). 18 tests. Safe
+    subset — no wire change. Report:
+    `docs/report/2026-06-15-B-INFRA-vitest-unit-slice.md`.
+  - [ ] ts-rs/specta codegen + export discriminator tag (F6) - DEFERRED: a
+    risky wire change that replaces the shape-probe in `inferExportKind` with a
+    Rust-emitted tag; needs supervised design (which exports gain the tag, how
+    `AnyExport` narrows). Tracked in the report's follow-ups.
+  - [ ] `resource_dir` preset resolution (`RunWorkspace/presets.ts:16`) -
+    replace the hard-coded `REPO_ROOT` with Tauri bundle-asset resolution.
+  - [ ] Playwright smoke tests - needs a Tauri/webview harness; out of the
+    pure-logic Vitest scope.
 
 ## Benchmark
 
