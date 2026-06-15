@@ -5,7 +5,7 @@
 //! overdetermined solver for use in RANSAC refit on large inlier sets.
 
 use super::polynomial::build_polynomial_system;
-use crate::math::mat3_from_svd_row;
+use crate::math::{dlt_rank_ok, mat3_from_svd_row};
 use anyhow::Result;
 use nalgebra::{DMatrix, SMatrix, linalg::Schur};
 use vision_calibration_core::{Mat3, Pt2, Real};
@@ -215,7 +215,19 @@ pub fn essential_linear(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     }
 
     let svd = a_work.svd(true, true);
+    let sv: Vec<Real> = svd.singular_values.iter().cloned().collect();
     let v_t = svd.v_t.ok_or_else(|| anyhow::anyhow!("SVD failed"))?;
+
+    // The 9-column epipolar design matrix must have rank exactly 8 (1-D null
+    // space).  Degenerate calibrated ray pairs (coincident or collinear rays)
+    // collapse sv[7] toward zero.
+    if !dlt_rank_ok(&sv, 9, 1, 1e-7) {
+        anyhow::bail!(
+            "rank-deficient essential system: correspondences are degenerate \
+             (e.g. coincident or collinear rays)"
+        );
+    }
+
     let e_vec = v_t.row(v_t.nrows() - 1);
 
     let mut e = Mat3::zeros();
@@ -388,6 +400,39 @@ mod tests {
             sv[2] / s_avg < 1e-6,
             "sv[2]/avg = {} (expected ~0.0)",
             sv[2] / s_avg
+        );
+    }
+
+    /// Regression: 8 identical (coincident) calibrated ray pairs must return Err.
+    ///
+    /// Coincident points collapse all but the first singular value of the 9-column
+    /// design matrix, making the null space ≥8-D.  The rank check must catch this
+    /// before the arbitrary last singular vector is used.
+    #[test]
+    fn essential_linear_rejects_coincident_rays() {
+        // All 8 ray pairs identical → the 9-column design matrix is rank 1.
+        let p = Pt2::new(0.1, 0.2);
+        let pts = vec![p; 8];
+        assert!(
+            essential_linear(&pts, &pts).is_err(),
+            "coincident ray pairs must return Err"
+        );
+    }
+
+    /// Regression: 8 collinear calibrated ray pairs must return Err.
+    ///
+    /// All rays lying on a common plane leave the epipolar design matrix rank-
+    /// deficient (null space ≥2-D), so the last singular vector is arbitrary.
+    #[test]
+    fn essential_linear_rejects_collinear_rays() {
+        // All 8 calibrated points on the line y = 0 (horizontal image line).
+        let pts1: Vec<Pt2> = (0..8)
+            .map(|i| Pt2::new(i as Real * 0.05 - 0.175, 0.0))
+            .collect();
+        let pts2: Vec<Pt2> = pts1.iter().map(|p| Pt2::new(p.x + 0.01, 0.0)).collect();
+        assert!(
+            essential_linear(&pts1, &pts2).is_err(),
+            "collinear ray pairs must return Err"
         );
     }
 

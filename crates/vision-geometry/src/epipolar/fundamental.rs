@@ -3,7 +3,7 @@
 //! Implements the normalized 8-point algorithm, the minimal 7-point solver,
 //! and RANSAC-based robust estimation for fundamental matrices.
 
-use crate::math::{mat3_from_svd_row, normalize_points_2d, solve_cubic_real};
+use crate::math::{dlt_rank_ok, mat3_from_svd_row, normalize_points_2d, solve_cubic_real};
 use anyhow::Result;
 use nalgebra::{DMatrix, SMatrix};
 use vision_calibration_core::{Estimator, Mat3, Pt2, RansacOptions, Real, ransac_fit};
@@ -53,7 +53,18 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     }
 
     let svd = a_work.svd(true, true);
+    let sv: Vec<Real> = svd.singular_values.iter().cloned().collect();
     let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+
+    // The 9-column epipolar design matrix must have rank exactly 8 (1-D null
+    // space).  Collinear or coincident points collapse sv[7] toward zero.
+    if !dlt_rank_ok(&sv, 9, 1, 1e-7) {
+        anyhow::bail!(
+            "rank-deficient 8-point system: points are collinear or degenerate \
+             (need 8 points in general position)"
+        );
+    }
+
     let f_vec = v_t.row(v_t.nrows() - 1);
 
     let mut f = Mat3::zeros();
@@ -126,9 +137,21 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     }
 
     let svd = a_work.svd(true, true);
+    let sv: Vec<Real> = svd.singular_values.iter().cloned().collect();
     let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
     if v_t.nrows() < 2 {
         anyhow::bail!("SVD failed: not enough nullspace vectors");
+    }
+
+    // The 7-point method intentionally uses a 2-D null space (it solves a
+    // cubic over two null vectors).  The 7th singular value (index 6) must
+    // be meaningfully positive — if it collapses the input is degenerate
+    // (e.g. all 7 points collinear) and both null vectors are arbitrary.
+    if !dlt_rank_ok(&sv, 9, 2, 1e-7) {
+        anyhow::bail!(
+            "rank-deficient 7-point system: points are collinear or degenerate \
+             (need 7 points in general position)"
+        );
     }
 
     let f1 = mat3_from_svd_row(&v_t, v_t.nrows() - 2);
@@ -435,47 +458,67 @@ mod tests {
         assert!(f.norm() > 0.0);
     }
 
+    /// Regression: 8 points all on a single image line in both views must return Err.
+    ///
+    /// Collinear configurations collapse the 8th singular value of the 9-column
+    /// design matrix toward zero (the null space becomes ≥2-D), so the last
+    /// singular vector is arbitrary.  The rank check must catch this.
+    #[test]
+    fn fundamental_8point_rejects_collinear_points() {
+        // Both image point sets on a single line: y = x.
+        let pts: Vec<Pt2> = (0..8)
+            .map(|i| {
+                let x = i as Real * 50.0 + 100.0;
+                Pt2::new(x, x)
+            })
+            .collect();
+        // Shift the second image set slightly along the same line direction.
+        let pts2: Vec<Pt2> = pts
+            .iter()
+            .map(|p| Pt2::new(p.x + 10.0, p.y + 10.0))
+            .collect();
+        assert!(
+            fundamental_8point(&pts, &pts2).is_err(),
+            "collinear 8-point input must return Err"
+        );
+    }
+
     #[test]
     fn fundamental_7point_returns_valid_solution() {
         let (_k, kmtx) = make_k();
 
-        let rot_l = Rotation3::identity();
-        let t_l = Translation3::new(0.0, 0.0, 0.0);
-        let rot_r = Rotation3::identity();
-        let t_r = Translation3::new(0.1, 0.0, 0.0);
+        // Use a non-coplanar set of 7 world points (varying x, y, AND z) so
+        // that the epipolar design matrix has rank 7 (2-D null space).
+        // A pure-z grid (all points at the same depth) is coplanar and yields a
+        // degenerate system for which dlt_rank_ok correctly returns false.
+        let rot_r = Rotation3::from_euler_angles(0.0, 0.05, 0.0);
+        let t_r = Translation3::new(0.15, 0.0, 0.0);
 
         let p_l = kmtx * Mat3::identity();
-        let p_r = kmtx * Mat3::identity();
+
+        let world: Vec<nalgebra::Point3<Real>> = vec![
+            nalgebra::Point3::new(0.0, 0.0, 2.0),
+            nalgebra::Point3::new(0.2, 0.0, 2.3),
+            nalgebra::Point3::new(-0.1, 0.15, 2.5),
+            nalgebra::Point3::new(0.3, -0.1, 1.8),
+            nalgebra::Point3::new(-0.2, 0.2, 3.0),
+            nalgebra::Point3::new(0.1, -0.2, 2.7),
+            nalgebra::Point3::new(-0.3, -0.1, 1.5),
+        ];
 
         let mut pts1 = Vec::new();
         let mut pts2 = Vec::new();
 
-        for z in 1..2 {
-            for y in 0..2 {
-                for x in 0..4 {
-                    let pw =
-                        nalgebra::Point3::new(x as Real * 0.1, y as Real * 0.1, z as Real * 0.5);
-                    let pc_l = rot_l * pw + t_l.vector;
-                    let pc_r = rot_r * pw + t_r.vector;
+        for pw in &world {
+            let xl = p_l * pw.coords;
+            let pc_r = rot_r * pw + t_r.vector;
+            let xr = kmtx * pc_r.coords;
 
-                    let xl = p_l * pc_l.coords;
-                    let xr = p_r * pc_r.coords;
-
-                    let u_l = xl.x / xl.z;
-                    let v_l = xl.y / xl.z;
-                    let u_r = xr.x / xr.z;
-                    let v_r = xr.y / xr.z;
-
-                    pts1.push(Pt2::new(u_l, v_l));
-                    pts2.push(Pt2::new(u_r, v_r));
-                }
-            }
+            pts1.push(Pt2::new(xl.x / xl.z, xl.y / xl.z));
+            pts2.push(Pt2::new(xr.x / xr.z, xr.y / xr.z));
         }
 
-        let pts1 = &pts1[..7];
-        let pts2 = &pts2[..7];
-
-        let sols = fundamental_7point(pts1, pts2).unwrap();
+        let sols = fundamental_7point(&pts1, &pts2).unwrap();
         assert!(!sols.is_empty());
 
         let mut best = f64::INFINITY;
@@ -491,5 +534,30 @@ mod tests {
         }
 
         assert!(best < 1e-6, "7-point residual too large: {}", best);
+    }
+
+    /// Regression: 7 points all on a single image line must return Err.
+    ///
+    /// Collinear 7-point input produces a rank-≤6 design matrix (vs the
+    /// required rank 7 for a 2-D null space), so the two "null" vectors are
+    /// arbitrary and the cubic has no meaningful roots.  The rank check
+    /// (`dlt_rank_ok` with `expected_null_dim=2`) must catch this.
+    #[test]
+    fn fundamental_7point_rejects_collinear_points() {
+        // All 7 points on the line y = 2x in both views.
+        let pts: Vec<Pt2> = (0..7)
+            .map(|i| {
+                let x = i as Real * 40.0 + 80.0;
+                Pt2::new(x, 2.0 * x)
+            })
+            .collect();
+        let pts2: Vec<Pt2> = pts
+            .iter()
+            .map(|p| Pt2::new(p.x + 15.0, p.y + 30.0))
+            .collect();
+        assert!(
+            fundamental_7point(&pts, &pts2).is_err(),
+            "collinear 7-point input must return Err"
+        );
     }
 }

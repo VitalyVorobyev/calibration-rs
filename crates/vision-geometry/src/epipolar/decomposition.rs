@@ -32,41 +32,40 @@ pub(crate) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
 /// cheirality checks on triangulated points. The translation is unit-length
 /// (direction only).
 ///
-/// Returns `Err` if `E` is zero, rank-deficient beyond the expected rank-2
-/// structure, or otherwise degenerate (e.g. a pure-rotation-derived E has
-/// both valid singular values identical but the ratio `σ₂ / σ₁` departs from
-/// the expected `~1`; a zero E has `σ₁ ≈ 0`).
+/// Returns `Err` if `E` is degenerate before the essential-constraint projection.
+/// The check is performed on the **raw** input matrix to catch rank-1 inputs such
+/// as `diag(1, 0, 0)` that would otherwise slip through to `(σ/2, σ/2, 0)` after
+/// projection and produce an arbitrary translation direction:
 ///
-/// A valid E has singular values ≈ (σ, σ, 0) after the essential-constraint
-/// projection. The check is: after projection,
-/// `σ₁ > ε` (non-zero) and `σ₂ / σ₁ > 0.1` (both leading values are
-/// meaningfully positive — not a rank-1 or rank-0 matrix).
+/// - `σ₀ < 1e-10` — near-zero matrix (pure rotation with `t = 0`, or all-zeros).
+/// - `σ₁ / σ₀ < 0.1` — rank-1 input; the second singular value has collapsed and
+///   the translation direction is unobservable.
+///
+/// A valid estimated `E` (even from a noisy 8-point solve) has raw `σ₀ ≈ σ₁ > 0`,
+/// so the threshold of 0.1 is conservative.
 pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>> {
-    let e = enforce_essential_constraints(e)?;
-
-    // Rank / degeneracy check on the projected E.
-    // A valid essential matrix after projection has σ₀ ≈ σ₁ > 0, σ₂ = 0.
-    // Detect two failure modes:
-    //   (a) Zero or near-zero E: σ₀ ≈ 0  → translation is unobservable.
-    //   (b) Rank-1 E: σ₁ / σ₀ ≪ 1       → fabricated translation direction.
+    // Degeneracy check on the RAW input — before projection.
+    // This catches rank-1 inputs like diag(1,0,0) that survive projection
+    // to (σ/2, σ/2, 0) and would yield an arbitrary translation direction.
     {
         let sv = e.svd(false, false).singular_values;
         let s0 = sv[0];
         let s1 = sv[1];
         if s0 < 1e-10 {
             anyhow::bail!(
-                "degenerate essential matrix: near-zero norm after projection \
-                 (translation is unobservable — pure rotation or rank-deficient E)"
+                "degenerate essential matrix: translation is unobservable \
+                 (rank-deficient or zero E)"
             );
         }
         if s1 / s0 < 0.1 {
             anyhow::bail!(
-                "degenerate essential matrix: rank-deficient after projection \
-                 (σ₁/σ₀ = {:.4} < 0.1; translation direction is unobservable)",
-                s1 / s0
+                "degenerate essential matrix: translation is unobservable \
+                 (rank-deficient or zero E)"
             );
         }
     }
+
+    let e = enforce_essential_constraints(e)?;
 
     let svd = e.svd(true, true);
     let mut u = svd.u.ok_or(anyhow::anyhow!("SVD failed"))?;
@@ -134,6 +133,23 @@ mod tests {
         assert!(
             decompose_essential(&e).is_err(),
             "pure-rotation E (t=0 ⟹ E=0) must return Err"
+        );
+    }
+
+    /// Regression: a rank-1 raw E such as `diag(1,0,0)` must return Err.
+    ///
+    /// The OLD guard checked singular values AFTER `enforce_essential_constraints`.
+    /// `diag(1,0,0)` has σ = (1,0,0); after projection it becomes `(0.5, 0.5, 0)`,
+    /// which passes the post-projection ratio check — a fabricated translation
+    /// direction is returned.  The new pre-projection check catches it.
+    #[test]
+    fn decompose_essential_rejects_rank1_diag_input() {
+        use nalgebra::Matrix3;
+        // diag(1,0,0) — rank 1, σ = (1, 0, 0).
+        let e = Matrix3::from_diagonal(&nalgebra::Vector3::new(1.0, 0.0, 0.0));
+        assert!(
+            decompose_essential(&e).is_err(),
+            "rank-1 diag(1,0,0) essential matrix must return Err"
         );
     }
 

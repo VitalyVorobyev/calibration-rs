@@ -7,6 +7,7 @@ use nalgebra::DMatrix;
 use vision_calibration_core::{Pt2, Pt3, Real};
 
 use crate::camera_matrix::Mat34;
+use crate::math::dlt_rank_ok;
 
 /// Linear triangulation from multiple views using DLT.
 ///
@@ -42,9 +43,20 @@ pub fn triangulate_point_linear(cameras: &[Mat34], points: &[Pt2]) -> Result<Pt3
     }
 
     let svd = a.svd(true, true);
+    let sv: Vec<Real> = svd.singular_values.iter().cloned().collect();
     let v_t = svd
         .v_t
         .ok_or_else(|| anyhow::anyhow!("svd failed during triangulation"))?;
+
+    // The 4-column DLT triangulation matrix is well-posed at rank 3 (1-D null
+    // space).  Identical cameras or coincident rays collapse sv[2] toward zero.
+    if !dlt_rank_ok(&sv, 4, 1, 1e-7) {
+        anyhow::bail!(
+            "zero-parallax / rank-deficient triangulation system \
+             (identical cameras or coincident rays)"
+        );
+    }
+
     let x_h = v_t.row(v_t.nrows() - 1);
 
     let w = x_h[3];
@@ -82,5 +94,24 @@ mod tests {
 
         let err = (est - pw).norm();
         assert!(err < 1e-6, "triangulation error too large: {}", err);
+    }
+
+    /// Regression: two identical cameras (zero baseline) must return Err.
+    ///
+    /// Identical projection matrices produce a rank-2 DLT system (sv[2] ≈ 0),
+    /// giving a 2-D null space — the recovered 3D point is arbitrary.
+    /// The `dlt_rank_ok` check (boundary index = 2) must catch this.
+    #[test]
+    fn triangulation_rejects_identical_cameras() {
+        // Same camera used twice — zero baseline, no parallax.
+        let cam = Mat34::new(
+            800.0, 0.0, 320.0, 0.0, 0.0, 800.0, 240.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+        );
+        let pw = Pt3::new(0.05, -0.02, 1.5);
+        let img = project(&cam, &pw);
+        assert!(
+            triangulate_point_linear(&[cam, cam], &[img, img]).is_err(),
+            "identical cameras (zero baseline) must return Err"
+        );
     }
 }
