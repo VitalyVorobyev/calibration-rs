@@ -71,7 +71,7 @@ pub fn detect_poor_baseline(parallax_angles: &[Real], threshold_deg: Real) -> bo
         .iter()
         .filter(|&&a| a > threshold_deg)
         .count();
-    good < parallax_angles.len() / 2
+    good * 2 < parallax_angles.len()
 }
 
 /// Analyze a two-view scene for degeneracies.
@@ -185,6 +185,29 @@ mod tests {
     #[test]
     fn detect_poor_baseline_false_for_good_parallax() {
         let angles = vec![2.0, 3.5, 1.8, 4.2, 2.7];
+        assert!(!detect_poor_baseline(&angles, 0.5));
+    }
+
+    // Regression tests for the integer-floor bug (good * 2 < len fix).
+    #[test]
+    fn detect_poor_baseline_single_bad_angle_is_true() {
+        // Single angle below threshold: good=0, len=1 → 0*2 < 1 → true.
+        // With the old code: 0 < 1/2 = 0 → false (wrong).
+        assert!(detect_poor_baseline(&[0.01], 0.5));
+    }
+
+    #[test]
+    fn detect_poor_baseline_one_good_of_three_is_true() {
+        // 1 of 3 angles good: good=1, len=3 → 1*2=2 < 3 → true (fewer than half).
+        // With the old code: 1 < 3/2=1 → false (wrong).
+        let angles = vec![0.01, 0.02, 2.0]; // only last is above 0.5 threshold
+        assert!(detect_poor_baseline(&angles, 0.5));
+    }
+
+    #[test]
+    fn detect_poor_baseline_all_good_is_false() {
+        // All angles above threshold → should return false.
+        let angles = vec![1.0, 2.0, 3.0, 4.0];
         assert!(!detect_poor_baseline(&angles, 0.5));
     }
 

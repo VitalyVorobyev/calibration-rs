@@ -3,7 +3,7 @@
 //! Implements the normalized 8-point algorithm, the minimal 7-point solver,
 //! and RANSAC-based robust estimation for fundamental matrices.
 
-use crate::math::{mat3_from_svd_row, solve_cubic_real};
+use crate::math::{mat3_from_svd_row, normalize_points_2d, solve_cubic_real};
 use anyhow::Result;
 use nalgebra::{DMatrix, SMatrix};
 use vision_calibration_core::{Estimator, Mat3, Pt2, RansacOptions, Real, ransac_fit};
@@ -19,10 +19,10 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
         return Err(anyhow::anyhow!("Not enough points"));
     }
 
-    let pts1_n = pts1.to_vec();
-    let pts2_n = pts2.to_vec();
-    let t1 = Mat3::identity();
-    let t2 = Mat3::identity();
+    let (pts1_n, t1) = normalize_points_2d(pts1)
+        .ok_or_else(|| anyhow::anyhow!("Degenerate point set (pts1): collinear or coincident"))?;
+    let (pts2_n, t2) = normalize_points_2d(pts2)
+        .ok_or_else(|| anyhow::anyhow!("Degenerate point set (pts2): collinear or coincident"))?;
 
     let mut a = DMatrix::<Real>::zeros(n, 9);
 
@@ -71,6 +71,7 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&s);
     f = u * s_mat * v_t;
 
+    // De-normalize: F_raw = T2^T * F_norm * T1
     f = t2.transpose() * f * t1;
 
     Ok(f)
@@ -92,10 +93,10 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
         anyhow::bail!("Point count mismatch: expected 7, got {}", pts1.len());
     }
 
-    let pts1_n = pts1.to_vec();
-    let pts2_n = pts2.to_vec();
-    let t1 = Mat3::identity();
-    let t2 = Mat3::identity();
+    let (pts1_n, t1) = normalize_points_2d(pts1)
+        .ok_or_else(|| anyhow::anyhow!("Degenerate point set (pts1): collinear or coincident"))?;
+    let (pts2_n, t2) = normalize_points_2d(pts2)
+        .ok_or_else(|| anyhow::anyhow!("Degenerate point set (pts2): collinear or coincident"))?;
 
     let mut a = DMatrix::<Real>::zeros(7, 9);
     for (i, (p1, p2)) in pts1_n.iter().zip(pts2_n.iter()).enumerate() {
@@ -259,6 +260,71 @@ mod tests {
             skew: 0.0,
         };
         (k, k.k_matrix())
+    }
+
+    /// Regression test: Hartley normalization is required for pixel coordinates.
+    ///
+    /// Without normalization the x'x columns (hundreds×hundreds) dominate the
+    /// 9-column design matrix, the SVD is ill-conditioned, and F fails the
+    /// epipolar constraint by orders of magnitude.  With normalization the
+    /// per-point residual |x2^T F x1| / ||F|| must be < 1e-6.
+    #[test]
+    fn fundamental_8point_epipolar_constraint_pixel_coords() {
+        let (_k, kmtx) = make_k();
+
+        // Camera 1 at origin, camera 2 translated along X by 0.5 m.
+        let rot_r = Rotation3::from_euler_angles(0.0, 0.0, 0.0);
+        let t_r = Translation3::new(0.5, 0.0, 0.0);
+
+        let mut pts1 = Vec::new();
+        let mut pts2 = Vec::new();
+
+        // Points at pixel scale (hundreds to ~1280×720 range).
+        for z in 1..4 {
+            for y in 0..4 {
+                for x in 0..4 {
+                    let pw = nalgebra::Point3::new(
+                        x as Real * 0.4 - 0.6,
+                        y as Real * 0.3 - 0.45,
+                        z as Real * 1.0 + 1.5,
+                    );
+                    // Camera 1 = world frame
+                    let xl = kmtx * pw.coords;
+                    // Camera 2 = shifted by t_r
+                    let pc_r = rot_r * pw + t_r.vector;
+                    let xr = kmtx * pc_r.coords;
+
+                    pts1.push(Pt2::new(xl.x / xl.z, xl.y / xl.z));
+                    pts2.push(Pt2::new(xr.x / xr.z, xr.y / xr.z));
+                }
+            }
+        }
+
+        // Pixel coordinates land in [~400, ~900] range — this is the regime
+        // where unnormalized DLT is numerically unstable.
+        assert!(pts1[0].x > 100.0, "Expected pixel-scale points");
+
+        let f = fundamental_8point(&pts1, &pts2).unwrap();
+        let f_norm = f.norm();
+        assert!(f_norm > 0.0);
+
+        // Verify epipolar constraint |x2^T F x1| / ||F|| is tight for all pts.
+        let mut max_residual: Real = 0.0;
+        for (p1, p2) in pts1.iter().zip(pts2.iter()) {
+            let x1 = nalgebra::Vector3::new(p1.x, p1.y, 1.0);
+            let x2 = nalgebra::Vector3::new(p2.x, p2.y, 1.0);
+            let val = (x2.transpose() * f * x1)[0];
+            let rel = val.abs() / f_norm;
+            if rel > max_residual {
+                max_residual = rel;
+            }
+        }
+        assert!(
+            max_residual < 1e-6,
+            "Epipolar residual |x2^T F x1| / ||F|| = {:.3e} (expected < 1e-6). \
+             This would be >> 1e-6 without Hartley normalization.",
+            max_residual
+        );
     }
 
     #[test]

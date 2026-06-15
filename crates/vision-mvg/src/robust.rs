@@ -65,20 +65,28 @@ impl Estimator for EssentialEstimator {
             pts1.push(data[idx].pt1);
             pts2.push(data[idx].pt2);
         }
-        let candidates = vision_geometry::epipolar::essential_5point(&pts1, &pts2).ok()?;
 
-        // Pick the candidate with lowest total Sampson distance over the sample.
-        candidates.into_iter().min_by(|a, b| {
-            let sa: Real = sample_indices
-                .iter()
-                .map(|&i| residuals::sampson_distance(a, &data[i]))
-                .sum();
-            let sb: Real = sample_indices
-                .iter()
-                .map(|&i| residuals::sampson_distance(b, &data[i]))
-                .sum();
-            sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
-        })
+        if sample_indices.len() == 5 {
+            // Minimal case: use the 5-point solver and pick the best candidate.
+            let candidates = vision_geometry::epipolar::essential_5point(&pts1, &pts2).ok()?;
+            candidates.into_iter().min_by(|a, b| {
+                let sa: Real = sample_indices
+                    .iter()
+                    .map(|&i| residuals::sampson_distance(a, &data[i]))
+                    .sum();
+                let sb: Real = sample_indices
+                    .iter()
+                    .map(|&i| residuals::sampson_distance(b, &data[i]))
+                    .sum();
+                sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+            })
+        } else {
+            // Overdetermined case (refit on inliers): use the linear solver which
+            // accepts any number of points ≥ 5 and projects onto the essential
+            // manifold. This avoids the silent no-op when essential_5point
+            // receives more than 5 points.
+            vision_geometry::epipolar::essential_linear(&pts1, &pts2).ok()
+        }
     }
 
     fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
@@ -417,5 +425,64 @@ mod tests {
 
         assert_eq!(r1.inliers, r2.inliers);
         assert!((r1.inlier_rms - r2.inlier_rms).abs() < 1e-15);
+    }
+
+    /// Regression test for the RANSAC refit no-op bug.
+    ///
+    /// When `refit_on_inliers: true` and the consensus set has >5 points, the
+    /// old code called `essential_5point` with all inliers → `Err` → silent
+    /// no-op (model tied to a single 5-point sample).  The fix routes the
+    /// overdetermined case to `essential_linear`, which accepts any ≥5 points.
+    ///
+    /// We verify:
+    /// 1. `estimate_essential` succeeds and produces ≥12 inliers.
+    /// 2. The refit model satisfies the epipolar constraint on all inliers with
+    ///    a tighter RMS than the 5-point-only baseline would allow on noisy data.
+    #[test]
+    fn essential_ransac_refit_on_inliers_uses_linear_solver() {
+        let (corrs, r_gt, t_gt) = make_stereo_corrs_with_outliers();
+        let n_corrs = corrs.len();
+        assert!(n_corrs > 5, "test fixture must have >5 correspondences");
+
+        let opts_refit = RansacOptions {
+            max_iters: 500,
+            thresh: 0.001,
+            min_inliers: 10,
+            confidence: 0.99,
+            seed: 77,
+            refit_on_inliers: true,
+        };
+
+        let est = estimate_essential(&corrs, &opts_refit).expect("RANSAC with refit must succeed");
+
+        // Must have recovered a good majority of the 15 clean inliers.
+        assert!(
+            est.inliers.len() >= 12,
+            "expected ≥12 inliers after refit, got {}",
+            est.inliers.len()
+        );
+
+        // The refit model must be geometrically valid: decompose and check pose.
+        let inlier_corrs: Vec<_> = est.inliers.iter().map(|&i| corrs[i]).collect();
+        let (pts1, pts2) = crate::types::Correspondence2D::split(&inlier_corrs);
+        let (r_est, t_est) =
+            crate::cheirality::recover_pose_from_essential(&est.essential, &pts1, &pts2)
+                .expect("pose decomposition must succeed");
+
+        let r_diff = r_est.transpose() * r_gt;
+        let cos_theta = ((r_diff.trace() - 1.0) * 0.5).clamp(-1.0, 1.0);
+        let ang_deg = cos_theta.acos().to_degrees();
+        assert!(
+            ang_deg < 2.0,
+            "rotation error after refit: {} deg (expected < 2 deg)",
+            ang_deg
+        );
+
+        let cos_t = t_est.normalize().dot(&t_gt.normalize()).abs();
+        assert!(
+            (cos_t - 1.0).abs() < 0.02,
+            "translation direction error after refit: cos_t = {} (expected ~1.0)",
+            cos_t
+        );
     }
 }

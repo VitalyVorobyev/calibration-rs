@@ -1,12 +1,13 @@
-//! Essential matrix estimation using the 5-point algorithm.
+//! Essential matrix estimation using the 5-point algorithm and a linear solver.
 //!
 //! Implements Nistér's minimal solver for essential matrices from five
-//! point correspondences in normalized coordinates.
+//! point correspondences in normalized coordinates, and a linear (≥5-point)
+//! overdetermined solver for use in RANSAC refit on large inlier sets.
 
 use super::polynomial::build_polynomial_system;
 use crate::math::mat3_from_svd_row;
 use anyhow::Result;
-use nalgebra::{DMatrix, linalg::Schur};
+use nalgebra::{DMatrix, SMatrix, linalg::Schur};
 use vision_calibration_core::{Mat3, Pt2, Real};
 
 /// 5-point algorithm for the essential matrix in normalized coordinates.
@@ -140,6 +141,89 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     Ok(solutions.into_iter().map(|(_, e)| e).collect())
 }
 
+/// Linear (≥5-point) essential matrix estimator for overdetermined systems.
+///
+/// Inputs are **calibrated / normalized camera coordinates** (i.e. apply `K⁻¹`
+/// first). Requires `pts1.len() == pts2.len() >= 5`.
+///
+/// The algorithm:
+/// 1. Build the 9-column epipolar design matrix `A` (same as the 8-point
+///    fundamental method, but operating on calibrated coords that are already
+///    well-conditioned, so Hartley normalization is omitted).
+/// 2. Solve for the null-space vector (right singular vector of smallest
+///    singular value) → reshape to 3×3 matrix `E_raw`.
+/// 3. Project `E_raw` onto the essential manifold: SVD `E_raw = U Σ Vᵀ`;
+///    replace singular values with `diag(1, 1, 0)` (up to an overall scale)
+///    → `E = U diag(1,1,0) Vᵀ`.
+///
+/// Returns the projected essential matrix, or `Err` if the SVD fails.
+pub fn essential_linear(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
+    if pts1.len() != pts2.len() {
+        anyhow::bail!(
+            "Point count mismatch: pts1 has {}, pts2 has {}",
+            pts1.len(),
+            pts2.len()
+        );
+    }
+    if pts1.len() < 5 {
+        anyhow::bail!("Need at least 5 correspondences, got {}", pts1.len());
+    }
+
+    let n = pts1.len();
+    let mut a = DMatrix::<Real>::zeros(n, 9);
+    for (i, (p1, p2)) in pts1.iter().zip(pts2.iter()).enumerate() {
+        let x = p1.x;
+        let y = p1.y;
+        let xp = p2.x;
+        let yp = p2.y;
+
+        a[(i, 0)] = xp * x;
+        a[(i, 1)] = xp * y;
+        a[(i, 2)] = xp;
+        a[(i, 3)] = yp * x;
+        a[(i, 4)] = yp * y;
+        a[(i, 5)] = yp;
+        a[(i, 6)] = x;
+        a[(i, 7)] = y;
+        a[(i, 8)] = 1.0;
+    }
+
+    // Pad to square if we have fewer rows than columns (n < 9).
+    let mut a_work = a.clone();
+    if a_work.nrows() < a_work.ncols() {
+        let rows = a_work.nrows();
+        let cols = a_work.ncols();
+        let mut a_pad = DMatrix::<Real>::zeros(cols, cols);
+        a_pad.view_mut((0, 0), (rows, cols)).copy_from(&a_work);
+        a_work = a_pad;
+    }
+
+    let svd = a_work.svd(true, true);
+    let v_t = svd.v_t.ok_or_else(|| anyhow::anyhow!("SVD failed"))?;
+    let e_vec = v_t.row(v_t.nrows() - 1);
+
+    let mut e = Mat3::zeros();
+    for r in 0..3 {
+        for c in 0..3 {
+            e[(r, c)] = e_vec[3 * r + c];
+        }
+    }
+
+    // Project onto the essential manifold: singular values → (1, 1, 0).
+    let svd_e = e.svd(true, true);
+    let u = svd_e.u.ok_or_else(|| anyhow::anyhow!("SVD failed on E"))?;
+    let v_t_e = svd_e
+        .v_t
+        .ok_or_else(|| anyhow::anyhow!("SVD failed on E"))?;
+    // Average the two largest singular values to enforce the (σ, σ, 0) constraint.
+    let sv = svd_e.singular_values;
+    let sigma = (sv[0] + sv[1]) * 0.5;
+    let s_ess = SMatrix::<Real, 3, 3>::from_diagonal(&nalgebra::Vector3::new(sigma, sigma, 0.0));
+    let e_proj = u * s_ess * v_t_e;
+
+    Ok(e_proj)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,5 +288,103 @@ mod tests {
             found_good_decomp,
             "5-point solver did not produce an E that decomposes to the correct pose"
         );
+    }
+
+    /// Helper: build synthetic calibrated correspondences from a known rotation + translation.
+    fn make_calibrated_corrs(
+        rot: &Rotation3<Real>,
+        t: &Vec3,
+        n_pts: usize,
+    ) -> (Vec<Pt2>, Vec<Pt2>) {
+        use vision_calibration_core::Pt3;
+
+        // Use a reproducible set of world points.
+        let world: Vec<Pt3> = (0..n_pts)
+            .map(|i| {
+                let fi = i as Real;
+                Pt3::new(
+                    0.15 * (fi * 0.7).sin(),
+                    0.12 * (fi * 0.5).cos(),
+                    2.0 + fi * 0.1,
+                )
+            })
+            .collect();
+
+        let pts1: Vec<Pt2> = world
+            .iter()
+            .map(|pw| Pt2::new(pw.x / pw.z, pw.y / pw.z))
+            .collect();
+        let pts2: Vec<Pt2> = world
+            .iter()
+            .map(|pw| {
+                let pc2 = rot * pw + t;
+                Pt2::new(pc2.x / pc2.z, pc2.y / pc2.z)
+            })
+            .collect();
+
+        (pts1, pts2)
+    }
+
+    #[test]
+    fn essential_linear_recovers_known_essential_from_8pts() {
+        let rot = Rotation3::from_euler_angles(0.1, -0.05, 0.2);
+        let t = Vec3::new(0.1, 0.02, 0.03);
+
+        let (pts1, pts2) = make_calibrated_corrs(&rot, &t, 8);
+
+        let e = essential_linear(&pts1, &pts2).unwrap();
+
+        // Epipolar constraint: |x2^T E x1| must be near-zero for all points.
+        let e_norm = e.norm();
+        assert!(e_norm > 0.0, "essential_linear returned zero matrix");
+
+        let mut max_residual: Real = 0.0;
+        for (p1, p2) in pts1.iter().zip(pts2.iter()) {
+            let x1 = nalgebra::Vector3::new(p1.x, p1.y, 1.0);
+            let x2 = nalgebra::Vector3::new(p2.x, p2.y, 1.0);
+            let val = (x2.transpose() * e * x1)[0].abs() / e_norm;
+            if val > max_residual {
+                max_residual = val;
+            }
+        }
+        assert!(
+            max_residual < 1e-6,
+            "Epipolar residual {:.3e} too large (expected < 1e-6)",
+            max_residual
+        );
+
+        // Essential manifold: singular values must satisfy (σ, σ, 0).
+        let svd = e.svd(false, false);
+        let sv = svd.singular_values;
+        // Normalized singular values: divide by the average of the two larger.
+        let s_avg = (sv[0] + sv[1]) * 0.5;
+        assert!(
+            (sv[0] / s_avg - 1.0).abs() < 1e-6,
+            "sv[0]/avg = {} (expected ~1.0)",
+            sv[0] / s_avg
+        );
+        assert!(
+            (sv[1] / s_avg - 1.0).abs() < 1e-6,
+            "sv[1]/avg = {} (expected ~1.0)",
+            sv[1] / s_avg
+        );
+        assert!(
+            sv[2] / s_avg < 1e-6,
+            "sv[2]/avg = {} (expected ~0.0)",
+            sv[2] / s_avg
+        );
+    }
+
+    #[test]
+    fn essential_linear_rejects_too_few_points() {
+        let pts = vec![Pt2::new(0.0, 0.0); 4];
+        assert!(essential_linear(&pts, &pts).is_err());
+    }
+
+    #[test]
+    fn essential_linear_rejects_mismatched_lengths() {
+        let p1 = vec![Pt2::new(0.0, 0.0); 6];
+        let p2 = vec![Pt2::new(0.0, 0.0); 5];
+        assert!(essential_linear(&p1, &p2).is_err());
     }
 }
