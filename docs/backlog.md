@@ -98,7 +98,7 @@ backend).
 - [x] O3-CERES - **DONE 2026-06-15.** Removed the `BackendKind::Ceres` stub from
   `optim/src/backend/mod.rs` plus the now-orphaned `Error::numerical` helper;
   `BackendKind` is a single-variant enum and the dispatch has no unreachable
-  arm.
+  arm. Report: `docs/report/2026-06-15-O3-CERES-drop-ceres-stub.md`.
 
 ## M — camera models (gated on M0)
 
