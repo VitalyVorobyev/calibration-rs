@@ -3,7 +3,7 @@
 //! Provides a normalized DLT solver for the 3×4 projection matrix `P` and an
 //! RQ decomposition to recover intrinsics and rotation.
 
-use crate::math::{mat34_from_svd_row, normalize_points_2d, normalize_points_3d};
+use crate::math::{dlt_rank_ok, mat34_from_svd_row, normalize_points_2d, normalize_points_3d};
 use anyhow::Result;
 use nalgebra::{DMatrix, Matrix3, Matrix3x4};
 use vision_calibration_core::{Mat3, Pt2, Pt3, Real, Vec3};
@@ -105,6 +105,17 @@ pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
     }
 
     let svd = a.svd(true, true);
+    // Rank guard: the 12-column DLT must have a 1-D null space. Inputs that pass
+    // the length and coplanarity checks can still be underdetermined — e.g. six
+    // correspondences with only five unique 3D↔2D pairs — leaving a >1-D null
+    // space whose smallest singular vector is arbitrary.
+    let sv: Vec<Real> = svd.singular_values.iter().cloned().collect();
+    if !dlt_rank_ok(&sv, 12, 1, 1e-7) {
+        anyhow::bail!(
+            "rank-deficient camera DLT system: fewer than 6 independent \
+             3D-2D correspondences (e.g. duplicate or collinear points)"
+        );
+    }
     let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
     let p_norm = mat34_from_svd_row(&v_t, v_t.nrows() - 1);
 
@@ -237,6 +248,37 @@ mod tests {
         assert!(
             dlt_camera_matrix(&world, &image).is_err(),
             "dlt_camera_matrix must reject coplanar 3D points"
+        );
+    }
+
+    #[test]
+    fn dlt_camera_matrix_rejects_underdetermined_duplicate_points() {
+        // Six correspondences but only FIVE unique 3D↔2D pairs (one duplicated).
+        // The points are non-coplanar (varying z) so they pass the coplanarity
+        // guard, but the 12-column design matrix has a >1-D null space → the
+        // rank guard must reject them instead of returning an arbitrary P.
+        let k = Mat3::new(900.0, 0.0, 640.0, 0.0, 880.0, 360.0, 0.0, 0.0, 1.0);
+        let rot = Rotation3::from_euler_angles(0.15, -0.05, 0.1);
+        let t = Translation3::new(0.1, -0.05, 1.2);
+        let r = rot.matrix();
+        let mut p_gt = Mat34::zeros();
+        p_gt.fixed_view_mut::<3, 3>(0, 0).copy_from(&(k * r));
+        p_gt.set_column(3, &(k * t.vector));
+
+        let unique = [
+            Pt3::new(0.0, 0.0, 2.0),
+            Pt3::new(0.4, 0.1, 2.3),
+            Pt3::new(0.1, 0.5, 1.8),
+            Pt3::new(-0.3, -0.2, 2.5),
+            Pt3::new(0.2, -0.4, 2.1),
+        ];
+        let mut world: Vec<Pt3> = unique.to_vec();
+        world.push(unique[0]); // duplicate → 6 points, only 5 unique
+        let image: Vec<Pt2> = world.iter().map(|pw| project(&p_gt, pw)).collect();
+
+        assert!(
+            dlt_camera_matrix(&world, &image).is_err(),
+            "underdetermined (duplicate-point) camera DLT must return Err"
         );
     }
 

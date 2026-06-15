@@ -80,6 +80,32 @@ pub fn triangulate_two_view(
     Ok(results)
 }
 
+/// Like [`triangulate_two_view`] but tolerant of per-point degeneracies.
+///
+/// Correspondences that fail to triangulate (e.g. a single on-baseline /
+/// zero-parallax outlier) are skipped instead of discarding the whole set.
+/// Returns the successfully triangulated points, which may be empty if none
+/// triangulate. The two slices must have equal length (callers pass
+/// [`Correspondence2D::split`](crate::types::Correspondence2D::split) output).
+pub fn triangulate_two_view_partial(
+    r: &Mat3,
+    t: &Vec3,
+    pts1: &[Pt2],
+    pts2: &[Pt2],
+) -> Vec<TriangulatedPoint> {
+    debug_assert_eq!(pts1.len(), pts2.len(), "point count mismatch");
+
+    let p1 = Mat34::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
+    let mut p2 = Mat34::zeros();
+    p2.fixed_view_mut::<3, 3>(0, 0).copy_from(r);
+    p2.set_column(3, t);
+
+    pts1.iter()
+        .zip(pts2.iter())
+        .filter_map(|(q1, q2)| triangulate_point_two_view(&p1, &p2, q1, q2).ok())
+        .collect()
+}
+
 /// Extract camera center from a projection matrix.
 ///
 /// For `P = [M | p₄]`, the camera center is `C = -M⁻¹ p₄`.
@@ -151,5 +177,47 @@ mod tests {
             "expected small parallax for narrow baseline, got {}",
             results[0].parallax_deg
         );
+    }
+
+    #[test]
+    fn triangulate_two_view_partial_skips_degenerate_points() {
+        // r = identity, t = 0 → p1 == p2 → every point's DLT is rank-deficient.
+        // The partial variant must return an empty vec WITHOUT erroring
+        // (contrast: triangulate_two_view is all-or-nothing and would fail).
+        let r = Mat3::identity();
+        let t = Vec3::zeros();
+        let pts1 = vec![Pt2::new(0.1, 0.2), Pt2::new(-0.3, 0.4)];
+        let pts2 = pts1.clone();
+        let got = triangulate_two_view_partial(&r, &t, &pts1, &pts2);
+        assert!(
+            got.is_empty(),
+            "degenerate (zero-baseline) points must be skipped, got {}",
+            got.len()
+        );
+    }
+
+    #[test]
+    fn triangulate_two_view_partial_keeps_good_points() {
+        let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
+        let r = *rot.matrix();
+        let t = Vec3::new(0.3, 0.01, 0.005);
+        let world = [
+            Pt3::new(0.5, 0.3, 3.0),
+            Pt3::new(-0.4, 0.2, 4.0),
+            Pt3::new(0.6, -0.3, 5.0),
+        ];
+        let pts1: Vec<Pt2> = world
+            .iter()
+            .map(|pw| Pt2::new(pw.x / pw.z, pw.y / pw.z))
+            .collect();
+        let pts2: Vec<Pt2> = world
+            .iter()
+            .map(|pw| {
+                let pc = r * pw.coords + t;
+                Pt2::new(pc.x / pc.z, pc.y / pc.z)
+            })
+            .collect();
+        let got = triangulate_two_view_partial(&r, &t, &pts1, &pts2);
+        assert_eq!(got.len(), 3, "all valid points must be retained");
     }
 }

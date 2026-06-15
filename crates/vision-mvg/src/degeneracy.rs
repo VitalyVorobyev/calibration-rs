@@ -103,14 +103,13 @@ pub fn detect_poor_baseline(parallax_angles: &[Real], threshold_deg: Real) -> bo
 /// rotation is detected from the scale-invariant parallax signal rather than
 /// from `‖E‖` (see [`detect_pure_rotation`]).
 pub fn analyze_scene(corrs: &[Correspondence2D], r: &Mat3, t: &Vec3) -> SceneDiagnostics {
-    // Triangulate to get parallax angles.
+    // Triangulate once, tolerating per-point degeneracies: a single bad
+    // correspondence (e.g. an on-baseline / zero-parallax outlier) must not
+    // discard the parallax evidence from all the others — that would falsely
+    // look like pure rotation with zero baseline.
     let (pts1, pts2) = Correspondence2D::split(corrs);
-    let parallax_angles: Vec<Real> =
-        if let Ok(tps) = crate::triangulation::triangulate_two_view(r, t, &pts1, &pts2) {
-            tps.iter().map(|tp| tp.parallax_deg).collect()
-        } else {
-            vec![]
-        };
+    let tps = crate::triangulation::triangulate_two_view_partial(r, t, &pts1, &pts2);
+    let parallax_angles: Vec<Real> = tps.iter().map(|tp| tp.parallax_deg).collect();
 
     let median_parallax_deg = if parallax_angles.is_empty() {
         0.0
@@ -123,28 +122,26 @@ pub fn analyze_scene(corrs: &[Correspondence2D], r: &Mat3, t: &Vec3) -> SceneDia
     // Pure rotation: scale-invariant parallax test.
     let is_pure_rotation = detect_pure_rotation(&parallax_angles, PURE_ROTATION_PARALLAX_DEG);
 
-    // Estimate baseline ratio: ||t|| / median_depth.
-    let baseline_ratio =
-        if let Ok(tps) = crate::triangulation::triangulate_two_view(r, t, &pts1, &pts2) {
-            let mut depths: Vec<Real> = tps
-                .iter()
-                .filter(|tp| tp.in_front)
-                .map(|tp| tp.point.z)
-                .collect();
-            if depths.is_empty() {
-                0.0
-            } else {
-                depths.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                let median_depth = depths[depths.len() / 2];
-                if median_depth.abs() > 1e-12 {
-                    t.norm() / median_depth
-                } else {
-                    0.0
-                }
-            }
-        } else {
+    // Estimate baseline ratio: ||t|| / median_depth, from the same per-point
+    // triangulation (points in front of both cameras).
+    let baseline_ratio = {
+        let mut depths: Vec<Real> = tps
+            .iter()
+            .filter(|tp| tp.in_front)
+            .map(|tp| tp.point.z)
+            .collect();
+        if depths.is_empty() {
             0.0
-        };
+        } else {
+            depths.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let median_depth = depths[depths.len() / 2];
+            if median_depth.abs() > 1e-12 {
+                t.norm() / median_depth
+            } else {
+                0.0
+            }
+        }
+    };
 
     // Planar detection heuristic: check if points lie on a plane.
     // Use the parallax angle distribution — planar scenes have very
@@ -275,6 +272,60 @@ mod tests {
         // analyze_scene no longer takes an essential matrix.
         let diag = analyze_scene(&corrs, &r, &t);
         assert!(!diag.is_pure_rotation);
+        assert!(diag.median_parallax_deg > 0.0);
+        assert!(diag.baseline_ratio > 0.0);
+    }
+
+    /// Regression: a single on-baseline (degenerate) correspondence must not
+    /// flip an otherwise good-baseline scene to "pure rotation". Before the
+    /// per-point-tolerant triangulation, one failing point discarded ALL
+    /// parallax evidence, leaving the scene wrongly classified.
+    #[test]
+    fn analyze_scene_one_degenerate_point_keeps_baseline() {
+        use nalgebra::Rotation3;
+        let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
+        let r = *rot.matrix();
+        let t = Vec3::new(0.3, 0.01, 0.005);
+
+        let world = [
+            Pt3::new(0.5, 0.3, 3.0),
+            Pt3::new(-0.4, 0.2, 4.0),
+            Pt3::new(0.6, -0.3, 5.0),
+            Pt3::new(-0.3, -0.4, 3.5),
+            Pt3::new(0.1, 0.6, 4.5),
+            Pt3::new(0.4, -0.5, 6.0),
+        ];
+        let mut corrs: Vec<Correspondence2D> = world
+            .iter()
+            .map(|pw| {
+                let pc1 = pw.coords;
+                let pc2 = r * pw.coords + t;
+                Correspondence2D::new(
+                    Pt2::new(pc1.x / pc1.z, pc1.y / pc1.z),
+                    Pt2::new(pc2.x / pc2.z, pc2.y / pc2.z),
+                )
+            })
+            .collect();
+
+        // A point on the baseline (line through both camera centers): its two
+        // viewing rays are collinear → triangulation is rank-deficient and the
+        // point is skipped. C1 = origin, C2 = -Rᵀt, so any λ·C2 lies on the line.
+        let c2 = -r.transpose() * t;
+        let bad = 3.0 * c2;
+        let pc2_bad = r * bad + t;
+        corrs.insert(
+            0,
+            Correspondence2D::new(
+                Pt2::new(bad.x / bad.z, bad.y / bad.z),
+                Pt2::new(pc2_bad.x / pc2_bad.z, pc2_bad.y / pc2_bad.z),
+            ),
+        );
+
+        let diag = analyze_scene(&corrs, &r, &t);
+        assert!(
+            !diag.is_pure_rotation,
+            "one degenerate point must not flip the scene to pure rotation"
+        );
         assert!(diag.median_parallax_deg > 0.0);
         assert!(diag.baseline_ratio > 0.0);
     }
