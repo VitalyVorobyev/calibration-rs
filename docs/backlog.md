@@ -163,14 +163,29 @@ Systemic causes:
   schema bump); `run_rig_extrinsics` (3 stages) and `run_rig_handeye` (5 stages)
   now time each optimize sub-stage instead of lumping them into `optimize_ms`,
   via a reusable `ms_since` helper. Serde back-compat/roundtrip test added.
-- [ ] P6-PERCAM-CONVERGENCE - From-scratch per-camera Scheimpflug init diverges
-  on the 2 harder `rtv3d_ref` cameras (cam 3 ~248 px, cam 4 ~52 px — the same
-  pair that ran `fx→0` pre-staging); the Phase 3 guard correctly rejects them.
-  Robustness, not performance: better linear seeds for ill-conditioned cameras
-  (cam 3 currently falls back to the distortion-free iteration-0 estimate), a
-  wider tilt sweep, or the gated Euclidean L2 prior (degeneracy "Rung 4").
-  **Blocks measuring the joint rig/hand-eye BA stages** (P2/P3), which the guard
-  stops short of. Report: `docs/report/2026-06-16-perf-from-scratch-rig-profiling.md`.
+- [ ] P6-PERCAM-CONVERGENCE - **Re-characterized 2026-06-16** (diagnosis:
+  [report](report/2026-06-16-P6-PERCAM-CONVERGENCE-diagnosis.md)). NOT a
+  cam-3/4-specific seeding bug: the from-scratch per-camera Scheimpflug solve
+  fails to reach the oracle basin on *all* cameras of the strong-distortion
+  (k1≈−0.43) + tilt (≈−5°) `rtv3d_ref` rig. Cams 0/2/5 land in a wrong-tilt local
+  minimum (~1.5 px, tilt≈0) that passes the 50 px guard; cams 3/4 run away
+  (`fx→0`/1987). Root cause = the *pinhole* linear init underestimates the focal
+  (~944 vs 1153) because tilt is mis-attributed to distortion, and the
+  tilt↔distortion↔focal degeneracy traps the LM. **Verified dead ends** (all
+  tried + reverted, synthetic test unaffected): the tilt sweep is a no-op (seed
+  washes out); box bounds on sweep/stage-2 pin bad cams at the bound edge → hard
+  non-convergence; a focal-scale sweep brings cam 4 under the guard but with
+  garbage params (illusory pass) and doesn't move any cam toward the oracle. Real
+  fix = **tilt-aware initialization** (estimate tilt from homography structure /
+  joint focal+tilt+distortion coarse search ranked by full-convergence reproj /
+  global solver) — a focused numerical-research effort, out of the Track P batch.
+  Note: P2/P3 joint-BA cost can be measured independently by seeding good
+  intrinsics (e.g. the V5 frozen path); from-scratch convergence is a separate
+  robustness goal. **Also surfaced:** the staged init (`a9a97ee`, validate-branch
+  only — absent on `main`) regressed a *small-tilt synthetic* facade test
+  (`vision-calibration tests/scheimpflug_intrinsics.rs::public_api_converges_on_synthetic_scheimpflug_dataset`,
+  `|tilt_x−0.01|<0.01`); pre-existing to the Track P batch, same root cause, must
+  be fixed with this item before the validate branch merges.
 
 ## M — camera models (gated on M0)
 
