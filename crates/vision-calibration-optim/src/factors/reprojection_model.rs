@@ -461,6 +461,24 @@ mod tests {
     const UV: [f64; 2] = [684.2, 341.7];
     const W: f64 = 1.7;
 
+    /// The optimizer's autodiff tilt matrix (this module) must equal core's
+    /// f64 Scheimpflug homography bit-for-bit, so the Jacobian path and the
+    /// forward model share one OpenCV-compatible convention.
+    #[test]
+    fn tilt_generic_matches_core_f64() {
+        for &(tx, ty) in &[(0.05, -0.03), (0.1, 0.1), (-0.12, 0.07), (0.2, -0.25)] {
+            let generic = tilt_projection_matrix_generic::<f64>(tx, ty);
+            let core = vision_calibration_core::ScheimpflugParams {
+                tilt_x: tx,
+                tilt_y: ty,
+            }
+            .compile()
+            .h;
+            let diff = (generic - core).abs().max();
+            assert!(diff < 1e-12, "(τx={tx}, τy={ty}) max abs diff {diff:e}");
+        }
+    }
+
     #[test]
     fn distortion_changes_projection() {
         let intr = DVector::from_row_slice(&[800.0, 800.0, 640.0, 360.0]);

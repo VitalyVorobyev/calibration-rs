@@ -8,7 +8,10 @@ use anyhow::{Context, Result, anyhow};
 use image::{GrayImage, ImageReader, imageops::FilterType};
 use serde::Deserialize;
 use std::path::Path;
-use vision_calibration_core::{CorrespondenceView, Iso3, Pt2, Pt3, Real};
+use vision_calibration_core::{
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, HomographySensor, Iso3, Pinhole, Pt2,
+    Pt3, Real, ScheimpflugParams,
+};
 
 use calib_targets::{
     aruco::builtins,
@@ -79,6 +82,136 @@ pub fn load_poses(path: &Path) -> Result<Vec<PoseEntry>> {
     let poses: Vec<PoseEntry> =
         serde_json::from_str(&s).with_context(|| format!("parse {:?}", path.display()))?;
     Ok(poses)
+}
+
+/// Full Scheimpflug camera (pinhole projection, Brown-Conrady distortion,
+/// tilted-sensor homography, fx/fy/cx/cy/skew intrinsics). Unlike the
+/// workspace's `PinholeCamera` alias (which uses an identity sensor and carries
+/// the Scheimpflug tilt in a side channel), this folds the tilt into the
+/// projection chain so `project_point` reprojects with the tilt applied.
+pub type ScheimpflugCamera =
+    Camera<Real, Pinhole, BrownConrady5<Real>, HomographySensor<f64>, FxFyCxCySkew<Real>>;
+
+/// One per-camera intrinsics block from a reference `artifacts.json`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RefIntrinsic {
+    /// OpenCV-layout distortion `[k1, k2, p1, p2, k3, tau_x, tau_y]` (7 coeffs).
+    pub distortion: Vec<f64>,
+    /// Image width in pixels.
+    pub frame_cols: u32,
+    /// Image height in pixels.
+    pub frame_rows: u32,
+    /// Row-major 3x3 camera matrix K.
+    pub matrix: [[f64; 3]; 3],
+    /// Reference per-camera reprojection error in pixels.
+    pub reprojection_error_pix: f64,
+}
+
+/// One per-camera extrinsics block (camera-to-sensor/rig pose) from a reference
+/// `artifacts.json`. Translation is in millimeters.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RefExtrinsic {
+    /// 4x4 row-major homogeneous transform `camera_se3_sensor` (mm).
+    pub camera_se3_sensor: [[f64; 4]; 4],
+    /// Reference per-camera reprojection error in pixels.
+    #[serde(default)]
+    pub reprojection_error_pix: f64,
+}
+
+/// Hand-eye block from a reference `artifacts.json`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RefHandeye {
+    /// Reference hand-eye quality score.
+    #[serde(default)]
+    pub quality_score: f64,
+    /// 4x4 row-major homogeneous transform `tcp_se3_sensor` (mm).
+    pub tcp_se3_sensor: [[f64; 4]; 4],
+}
+
+/// One laser plane from a reference `artifacts.json`, in the legacy
+/// origin/axes representation (columns are 3x1). Parsed for completeness; the
+/// laser stage is out of scope for the reprojection-parity harness.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RefLaserPlane {
+    /// Plane origin (3x1, mm).
+    pub origin: [[f64; 1]; 3],
+    /// In-plane x axis (3x1, unit).
+    pub xaxis: [[f64; 1]; 3],
+    /// In-plane y axis (3x1, unit).
+    pub yaxis: [[f64; 1]; 3],
+    /// Point-to-plane fit standard deviation in millimeters.
+    pub standard_deviation_mm: f64,
+}
+
+/// A parsed reference `artifacts.json` (the "QUICK"-system oracle).
+#[derive(Debug, Clone, Deserialize)]
+pub struct RefArtifacts {
+    /// Per-camera intrinsics.
+    pub intrinsic: Vec<RefIntrinsic>,
+    /// Per-camera extrinsics (`camera_se3_sensor`).
+    pub extrinsic: Vec<RefExtrinsic>,
+    /// Hand-eye calibration.
+    pub handeye: RefHandeye,
+    /// Per-camera laser planes.
+    #[serde(default)]
+    pub laserplanes: Vec<RefLaserPlane>,
+    /// Free-form metadata (date, device, ...).
+    #[serde(default)]
+    pub meta: serde_json::Value,
+    /// Number of cameras in the rig.
+    pub num_cameras: usize,
+}
+
+/// Load and parse a reference `artifacts.json`.
+pub fn load_ref_artifacts(path: &Path) -> Result<RefArtifacts> {
+    let s = std::fs::read_to_string(path).with_context(|| format!("read {:?}", path.display()))?;
+    let art: RefArtifacts =
+        serde_json::from_str(&s).with_context(|| format!("parse {:?}", path.display()))?;
+    Ok(art)
+}
+
+/// Split an OpenCV-layout 7-coefficient distortion vector
+/// `[k1, k2, p1, p2, k3, tau_x, tau_y]` into the workspace's separate
+/// Brown-Conrady and Scheimpflug parameter blocks.
+///
+/// This is the single choke point that reconciles the two coefficient orders:
+/// OpenCV places `k3` *after* the tangential terms `p1, p2`, whereas our
+/// [`BrownConrady5`] stores `k3` *before* them. The reorder happens here and
+/// nowhere else; the roundtrip test guards it.
+pub fn split_opencv_distortion(dist: &[f64]) -> Result<(BrownConrady5<Real>, ScheimpflugParams)> {
+    if dist.len() != 7 {
+        return Err(anyhow!(
+            "expected 7 distortion coeffs [k1,k2,p1,p2,k3,tau_x,tau_y], got {}",
+            dist.len()
+        ));
+    }
+    let bc = BrownConrady5 {
+        k1: dist[0],
+        k2: dist[1],
+        k3: dist[4],
+        p1: dist[2],
+        p2: dist[3],
+        iters: 10,
+    };
+    let tilt = ScheimpflugParams {
+        tilt_x: dist[5],
+        tilt_y: dist[6],
+    };
+    Ok((bc, tilt))
+}
+
+/// Build a frozen [`ScheimpflugCamera`] from a reference intrinsics block.
+pub fn intrinsic_to_camera(intr: &RefIntrinsic) -> Result<ScheimpflugCamera> {
+    let m = &intr.matrix;
+    let k = FxFyCxCySkew {
+        fx: m[0][0],
+        fy: m[1][1],
+        cx: m[0][2],
+        cy: m[1][2],
+        skew: m[0][1],
+    };
+    let (dist, tilt) = split_opencv_distortion(&intr.distortion)?;
+    Ok(Camera::new(Pinhole, dist, tilt.compile(), k))
 }
 
 /// Load a PNG as grayscale.
@@ -201,10 +334,7 @@ pub fn detect_charuco(
     for corner in detection.corners {
         let target = corner.target_position;
         points_3d.push(Pt3::new(target.x as f64, target.y as f64, 0.0));
-        points_2d.push(Pt2::new(
-            corner.position.x as f64,
-            corner.position.y as f64,
-        ));
+        points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
     }
 
     if points_3d.len() < 8 {
@@ -248,6 +378,27 @@ pub fn detect_laser(tile: &GrayImage) -> Vec<Pt2> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opencv_distortion_split_reorders_k3_past_tangentials() {
+        // Distinct sentinels so a wrong slot is unmistakable.
+        // OpenCV layout: [k1, k2, p1, p2, k3, tau_x, tau_y].
+        let d = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
+        let (bc, tilt) = split_opencv_distortion(&d).unwrap();
+        assert_eq!(bc.k1, 1.0);
+        assert_eq!(bc.k2, 2.0);
+        assert_eq!(bc.p1, 3.0, "p1 comes from OpenCV index 2");
+        assert_eq!(bc.p2, 4.0, "p2 comes from OpenCV index 3");
+        assert_eq!(bc.k3, 5.0, "k3 comes from OpenCV index 4, NOT index 2");
+        assert_eq!(tilt.tilt_x, 6.0);
+        assert_eq!(tilt.tilt_y, 7.0);
+    }
+
+    #[test]
+    fn opencv_distortion_split_rejects_wrong_length() {
+        assert!(split_opencv_distortion(&[0.0; 5]).is_err());
+        assert!(split_opencv_distortion(&[0.0; 8]).is_err());
+    }
 
     #[test]
     fn detect_laser_returns_at_most_one_point_per_column() {

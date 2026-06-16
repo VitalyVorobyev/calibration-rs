@@ -114,3 +114,94 @@ fn tilt_projection_matrix(tau_x: f64, tau_y: f64) -> Matrix3<f64> {
 
     proj_z * rot_xy
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::{Rotation3, Vector3};
+
+    /// Independent re-derivation of OpenCV's `computeTiltProjectionMatrix`.
+    ///
+    /// OpenCV builds the tilt rotation as `R = Ry(τy) · Rx(τx)` with the
+    /// *sensor-frame* sign convention
+    /// `Rx = [[1,0,0],[0,c,s],[0,-s,c]]`, `Ry = [[c,0,-s],[0,1,0],[s,0,c]]`,
+    /// which equal nalgebra's right-handed `from_axis_angle` evaluated at the
+    /// *negated* angle. We deliberately rebuild them through `Rotation3`
+    /// (a different code path than the impl's literal `Matrix3::new`) so the
+    /// test cross-checks the hand-written matrices rather than copying them.
+    fn opencv_tilt_reference(tau_x: f64, tau_y: f64) -> Matrix3<f64> {
+        let rx = *Rotation3::from_axis_angle(&Vector3::x_axis(), -tau_x).matrix();
+        let ry = *Rotation3::from_axis_angle(&Vector3::y_axis(), -tau_y).matrix();
+        let r = ry * rx;
+        let proj_z = Matrix3::new(
+            r[(2, 2)],
+            0.0,
+            -r[(0, 2)],
+            0.0,
+            r[(2, 2)],
+            -r[(1, 2)],
+            0.0,
+            0.0,
+            1.0,
+        );
+        proj_z * r
+    }
+
+    #[test]
+    fn tilt_matrix_matches_opencv_convention() {
+        // Synthetic τ pairs (radians) — not the private dataset's values.
+        for &(tx, ty) in &[
+            (0.0, 0.0),
+            (0.05, -0.03),
+            (0.1, 0.1),
+            (-0.12, 0.07),
+            (0.2, -0.25),
+        ] {
+            let got = tilt_projection_matrix(tx, ty);
+            let want = opencv_tilt_reference(tx, ty);
+            let diff = (got - want).abs().max();
+            assert!(
+                diff < 1e-12,
+                "tilt matrix mismatch at (τx={tx}, τy={ty}): max abs diff {diff:e}\n got = {got}\nwant = {want}"
+            );
+        }
+    }
+
+    #[test]
+    fn tilt_identity_at_zero() {
+        let h = tilt_projection_matrix(0.0, 0.0);
+        assert!((h - Matrix3::<f64>::identity()).abs().max() < 1e-15);
+    }
+
+    #[test]
+    fn optical_axis_maps_to_sensor_origin() {
+        // The optical-axis point (normalized origin) must land on the sensor
+        // origin for any tilt — an invariant independent of the matrix internals.
+        for &(tx, ty) in &[(0.05, -0.03), (0.1, 0.1), (-0.12, 0.07)] {
+            let sensor = ScheimpflugParams {
+                tilt_x: tx,
+                tilt_y: ty,
+            }
+            .compile();
+            let s = sensor.normalized_to_sensor(&Point2::new(0.0, 0.0));
+            assert!(
+                s.x.abs() < 1e-12 && s.y.abs() < 1e-12,
+                "(τx={tx}, τy={ty}) → {s:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sensor_roundtrip_is_identity() {
+        let sensor = ScheimpflugParams {
+            tilt_x: 0.08,
+            tilt_y: -0.06,
+        }
+        .compile();
+        for &(x, y) in &[(0.0, 0.0), (0.3, -0.2), (-0.45, 0.5)] {
+            let n = Point2::new(x, y);
+            let back = sensor.sensor_to_normalized(&sensor.normalized_to_sensor(&n));
+            assert!((back.x - x).abs() < 1e-12 && (back.y - y).abs() < 1e-12);
+        }
+    }
+}
