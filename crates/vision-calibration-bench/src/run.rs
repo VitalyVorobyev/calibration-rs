@@ -83,8 +83,8 @@ pub mod tier_b {
     use crate::record::{
         BENCH_SCHEMA_VERSION, BenchRecord, CalibrationArtifacts, CameraArtifact, Convergence,
         Detection, DetectionStat, DistortionArtifact, Fit, Ident, IntrinsicsArtifact, LaserMetrics,
-        ResidualSidecar, RobotCorrectionSummary, ScheimpflugArtifact, Timing, TransformArtifact,
-        compact_reproj_report,
+        ResidualSidecar, RobotCorrectionSummary, ScheimpflugArtifact, StageTiming, Timing,
+        TransformArtifact, compact_reproj_report,
     };
     use crate::registry::{BenchEntry, BoardGeometry, CameraLayout, DetectorOverride, ProblemKind};
 
@@ -336,6 +336,13 @@ pub mod tier_b {
         laser_metrics: LaserMetrics,
     }
 
+    /// Elapsed whole-milliseconds since `start` — DRYs the
+    /// `start.elapsed().as_millis() as u64` idiom repeated across the runners and
+    /// per-stage timers.
+    fn ms_since(start: Instant) -> u64 {
+        start.elapsed().as_millis() as u64
+    }
+
     /// Run a single-camera planar-intrinsics calibration for `entry` and build a
     /// [`BenchRecord`].
     ///
@@ -517,6 +524,7 @@ pub mod tier_b {
             optimize_ms,
             total_ms,
             detection_ms,
+            stages: None,
         };
 
         // Hierarchical reprojection report. Planar intrinsics has a single
@@ -713,12 +721,26 @@ pub mod tier_b {
         let init_ms = init_start.elapsed().as_millis() as u64;
 
         progress(entry, "optimizing intrinsics and rig extrinsics");
-        let opt_start = Instant::now();
+        let s = Instant::now();
         let _ = step_intrinsics_optimize_all(&mut session, None)
             .context("step_intrinsics_optimize_all failed")?;
+        let intrinsics_optimize_ms = ms_since(s);
+        let s = Instant::now();
         let _ = step_rig_init(&mut session).context("step_rig_init failed")?;
+        let rig_init_ms = ms_since(s);
+        let s = Instant::now();
         let _ = step_rig_optimize(&mut session, None).context("step_rig_optimize failed")?;
-        let optimize_ms = opt_start.elapsed().as_millis() as u64;
+        let rig_optimize_ms = ms_since(s);
+        let optimize_ms = intrinsics_optimize_ms
+            .saturating_add(rig_init_ms)
+            .saturating_add(rig_optimize_ms);
+        let stages = StageTiming {
+            intrinsics_init_ms: Some(init_ms),
+            intrinsics_optimize_ms: Some(intrinsics_optimize_ms),
+            rig_init_ms: Some(rig_init_ms),
+            rig_optimize_ms: Some(rig_optimize_ms),
+            ..StageTiming::default()
+        };
 
         let export = session.export().context("session.export failed")?;
 
@@ -794,6 +816,7 @@ pub mod tier_b {
             optimize_ms,
             total_ms,
             detection_ms,
+            stages: Some(stages),
         };
 
         // Hierarchical reprojection report: Intrinsic floor (free per-(cam,view)
@@ -1075,6 +1098,7 @@ pub mod tier_b {
             optimize_ms,
             total_ms,
             detection_ms,
+            stages: None,
         };
 
         // Hierarchical reprojection report: Intrinsic floor (free per-view PnP
@@ -1302,15 +1326,36 @@ pub mod tier_b {
         let init_ms = init_start.elapsed().as_millis() as u64;
 
         progress(entry, "optimizing intrinsics, rig, and hand-eye");
-        let opt_start = Instant::now();
+        let s = Instant::now();
         let _ = rh_intrinsics_optimize_all(&mut session, None)
             .context("step_intrinsics_optimize_all failed")?;
+        let intrinsics_optimize_ms = ms_since(s);
+        let s = Instant::now();
         let _ = rh_rig_init(&mut session).context("step_rig_init failed")?;
+        let rig_init_ms = ms_since(s);
+        let s = Instant::now();
         let rig_stage_output =
             rh_rig_optimize(&mut session, None).context("step_rig_optimize failed")?;
+        let rig_optimize_ms = ms_since(s);
+        let s = Instant::now();
         let _ = rh_handeye_init(&mut session, None).context("step_handeye_init failed")?;
+        let handeye_init_ms = ms_since(s);
+        let s = Instant::now();
         let _ = rh_handeye_optimize(&mut session, None).context("step_handeye_optimize failed")?;
-        let optimize_ms = opt_start.elapsed().as_millis() as u64;
+        let handeye_optimize_ms = ms_since(s);
+        let optimize_ms = intrinsics_optimize_ms
+            .saturating_add(rig_init_ms)
+            .saturating_add(rig_optimize_ms)
+            .saturating_add(handeye_init_ms)
+            .saturating_add(handeye_optimize_ms);
+        let stages = StageTiming {
+            intrinsics_init_ms: Some(init_ms),
+            intrinsics_optimize_ms: Some(intrinsics_optimize_ms),
+            rig_init_ms: Some(rig_init_ms),
+            rig_optimize_ms: Some(rig_optimize_ms),
+            handeye_init_ms: Some(handeye_init_ms),
+            handeye_optimize_ms: Some(handeye_optimize_ms),
+        };
 
         let export = session.export().context("session.export failed")?;
         let joint_result = run_rig_handeye_laserline_v5(
@@ -1408,6 +1453,7 @@ pub mod tier_b {
             optimize_ms,
             total_ms,
             detection_ms,
+            stages: Some(stages),
         };
 
         // Hierarchical report: Intrinsic floor (free per-(cam,view) PnP) +

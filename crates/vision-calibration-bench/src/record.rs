@@ -593,6 +593,36 @@ pub struct ParamDelta {
     pub rel_delta: f64,
 }
 
+/// Per-stage wall-clock breakdown (milliseconds) of the optimization phase for
+/// the multi-stage rig pipelines (`rig_extrinsics`, `rig_handeye`).
+///
+/// Each field is `None` for pipelines that do not run that stage, and the whole
+/// struct is `None` ([`Timing::stages`]) for the single-stage runners and for
+/// records written before this breakdown existed. The fields sum to
+/// [`Timing::optimize_ms`]. This split localizes where the joint BA spends its
+/// time (Track P / P3) instead of lumping every stage into one number.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StageTiming {
+    /// Per-camera intrinsics linear init.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intrinsics_init_ms: Option<u64>,
+    /// Per-camera intrinsics nonlinear optimization (staged for Scheimpflug).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intrinsics_optimize_ms: Option<u64>,
+    /// Rig-extrinsics linear init.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rig_init_ms: Option<u64>,
+    /// Rig-extrinsics bundle adjustment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rig_optimize_ms: Option<u64>,
+    /// Hand-eye linear init.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handeye_init_ms: Option<u64>,
+    /// Hand-eye bundle adjustment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handeye_optimize_ms: Option<u64>,
+}
+
 /// Wall-clock timing breakdown (all milliseconds).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Timing {
@@ -604,6 +634,10 @@ pub struct Timing {
     pub total_ms: u64,
     /// Time spent in detection (0 for Tier-A).
     pub detection_ms: u64,
+    /// Per-stage breakdown of the optimization phase (multi-stage rig
+    /// pipelines only); `None` for single-stage runners and pre-P5 records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stages: Option<StageTiming>,
 }
 
 #[cfg(test)]
@@ -746,6 +780,7 @@ mod tests {
                 optimize_ms: 120,
                 total_ms: 130,
                 detection_ms: 1200,
+                stages: None,
             },
             reproj_report: None,
             residual_sidecar: None,
@@ -766,6 +801,39 @@ mod tests {
     #[test]
     fn bench_record_roundtrips() {
         assert_json_roundtrip(&sample_record());
+    }
+
+    /// A pre-P5 record (no `stages` field) deserializes with `stages: None`, and
+    /// a record carrying per-stage timing round-trips intact.
+    #[test]
+    fn timing_stages_back_compat_and_roundtrip() {
+        // Legacy JSON without the `stages` key → None (serde default).
+        let legacy = r#"{"init_ms":5,"optimize_ms":120,"total_ms":130,"detection_ms":1200}"#;
+        let t: Timing = serde_json::from_str(legacy).unwrap();
+        assert_eq!(t.stages, None);
+
+        // A record with stages round-trips, and a None-stages record omits the
+        // key entirely (skip_serializing_if), staying byte-identical to legacy.
+        let with_stages = Timing {
+            init_ms: 9,
+            optimize_ms: 200,
+            total_ms: 309,
+            detection_ms: 100,
+            stages: Some(StageTiming {
+                intrinsics_optimize_ms: Some(80),
+                rig_optimize_ms: Some(120),
+                ..StageTiming::default()
+            }),
+        };
+        let json = serde_json::to_string(&with_stages).unwrap();
+        assert_eq!(serde_json::from_str::<Timing>(&json).unwrap(), with_stages);
+
+        let none_stages = Timing {
+            stages: None,
+            ..with_stages
+        };
+        let json_none = serde_json::to_string(&none_stages).unwrap();
+        assert!(!json_none.contains("stages"), "None stages must be omitted");
     }
 
     #[test]

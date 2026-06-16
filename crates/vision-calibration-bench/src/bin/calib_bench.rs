@@ -1030,6 +1030,7 @@ mod tests {
                 optimize_ms: 2,
                 total_ms: 10,
                 detection_ms: 7,
+                stages: None,
             },
             reproj_report: Some(CompactReprojReport {
                 headline_px: 1.2,

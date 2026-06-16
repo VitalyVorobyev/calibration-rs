@@ -149,8 +149,14 @@ Systemic causes:
 - [ ] P4-CRITERION - criterion benchmarks for the hot paths (homography DLT,
   distortion fit, one per-camera BA iteration, one joint-BA iteration) to guard
   against regressions and quantify P1–P3 gains. (`criterion-bench` skill.)
-- [ ] P5-STAGE-TIMING - Per-stage timing instrumentation in the pipeline (behind
-  `verbosity`) so future regressions surface without ad-hoc harnesses.
+- [x] P5-STAGE-TIMING - Per-stage timing instrumentation so future regressions
+  surface without ad-hoc harnesses. **Done 2026-06-16** —
+  [report](report/2026-06-16-P5-STAGE-TIMING-bench-per-stage.md): additive
+  `StageTiming` (6 optional per-stage `*_ms` fields) on the bench `Timing` struct
+  (`serde(default)` + `skip_serializing_if` → back-compat with v3 records, no
+  schema bump); `run_rig_extrinsics` (3 stages) and `run_rig_handeye` (5 stages)
+  now time each optimize sub-stage instead of lumping them into `optimize_ms`,
+  via a reusable `ms_since` helper. Serde back-compat/roundtrip test added.
 - [ ] P6-PERCAM-CONVERGENCE - From-scratch per-camera Scheimpflug init diverges
   on the 2 harder `rtv3d_ref` cameras (cam 3 ~248 px, cam 4 ~52 px — the same
   pair that ran `fx→0` pre-staging); the Phase 3 guard correctly rejects them.
