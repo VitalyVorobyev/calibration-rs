@@ -100,6 +100,60 @@ backend).
   `BackendKind` is a single-variant enum and the dispatch has no unreachable
   arm. Report: `docs/report/2026-06-15-O3-CERES-drop-ceres-stub.md`.
 
+## P — Performance & profiling
+
+Opened 2026-06-16 after the from-scratch Scheimpflug rig calibration
+(`rtv3d_ref_rig`) took 30+ min on the dense `puzzle_board` dataset (~200
+corners/view). Root-caused to dense linear-algebra hot paths, not the
+algorithms. Full profiling:
+`docs/report/2026-06-16-perf-from-scratch-rig-profiling.md`.
+
+Systemic causes:
+1. `nalgebra::svd(true, true)` is used pervasively (~20 sites) for both
+   null-space extraction and least-squares. On a tall/dense design matrix it
+   accumulates the U factor across thousands of rows — pathologically slow
+   (the homography DLT hung >15 min; the distortion fit hung >11 min).
+2. The `tiny-solver` backend recomputes an autodiff (dual-number) Jacobian over
+   every residual each LM iteration, re-evaluates all residuals on each of up to
+   32 damping retries, and is single-threaded.
+3. No data-density control for the joint rig/hand-eye BA — per-iteration cost
+   scales linearly with corner count, but extrinsics/hand-eye do not need full
+   corner density.
+
+- [~] P1-SVD-SWEEP - Replace `svd(true, true)` on large matrices with a method
+  that cannot hang on nalgebra's unbounded QR iteration: `AᵀA` + symmetric-eigen
+  (null-space) or ridge-regularized normal equations / QR (least-squares).
+  Centralize behind `math::null_space` / `solve_lstsq` helpers; guard non-finite
+  inputs and reject geometrically-bad results. **Done 2026-06-16:** homography
+  DLT (`homography.rs`, 9×9 `AᵀA` symmetric-eigen, NaN-safe) and distortion fit
+  (`distortion_fit.rs`, ridge normal-equations + non-finite-point guard) — the
+  two confirmed hangs; plus a view-tolerant best-effort iterative init
+  (`iterative_intrinsics.rs`). **Remaining:** `vision-geometry/homography.rs`,
+  `camera_matrix.rs:82`, `pnp/dlt.rs:116`, `epipolar/{fundamental,essential}.rs`,
+  `handeye.rs:228,385` — latent landmines for dense/large/NaN inputs.
+- [ ] P2-BA-DENSITY - Principled corner budget for the joint rig + hand-eye BA
+  (spatially-distributed subsample preserving coverage, or per-stage decimation
+  knobs). Extrinsics/hand-eye converge on a fraction of the corners; the
+  per-camera intrinsics stage already uses a cheap subsampled tilt sweep + a
+  full-data refine (`optimize_scheimpflug_intrinsics_staged`).
+- [ ] P3-BACKEND-COST - Profile the tiny-solver split (autodiff Jacobian vs
+  `JᵀJ` assembly vs linear solve vs per-retry residual re-eval). Evaluate
+  analytic Jacobians for the hot `ReprojPoint` factor, Jacobian/residual caching,
+  and parallel (rayon) residual + Jacobian evaluation.
+- [ ] P4-CRITERION - criterion benchmarks for the hot paths (homography DLT,
+  distortion fit, one per-camera BA iteration, one joint-BA iteration) to guard
+  against regressions and quantify P1–P3 gains. (`criterion-bench` skill.)
+- [ ] P5-STAGE-TIMING - Per-stage timing instrumentation in the pipeline (behind
+  `verbosity`) so future regressions surface without ad-hoc harnesses.
+- [ ] P6-PERCAM-CONVERGENCE - From-scratch per-camera Scheimpflug init diverges
+  on the 2 harder `rtv3d_ref` cameras (cam 3 ~248 px, cam 4 ~52 px — the same
+  pair that ran `fx→0` pre-staging); the Phase 3 guard correctly rejects them.
+  Robustness, not performance: better linear seeds for ill-conditioned cameras
+  (cam 3 currently falls back to the distortion-free iteration-0 estimate), a
+  wider tilt sweep, or the gated Euclidean L2 prior (degeneracy "Rung 4").
+  **Blocks measuring the joint rig/hand-eye BA stages** (P2/P3), which the guard
+  stops short of. Report: `docs/report/2026-06-16-perf-from-scratch-rig-profiling.md`.
+
 ## M — camera models (gated on M0)
 
 - [x] M0-GENERIFY - Factor generification (F1). Completed 2026-06-12
