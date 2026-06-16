@@ -30,3 +30,8 @@ vision-calibration-core = { workspace = true, features = ["test-utils"] }
 vision-calibration-linear = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "ba_iter"
+harness = false

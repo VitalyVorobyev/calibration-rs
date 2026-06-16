@@ -146,9 +146,15 @@ Systemic causes:
   `JᵀJ` assembly vs linear solve vs per-retry residual re-eval). Evaluate
   analytic Jacobians for the hot `ReprojPoint` factor, Jacobian/residual caching,
   and parallel (rayon) residual + Jacobian evaluation.
-- [ ] P4-CRITERION - criterion benchmarks for the hot paths (homography DLT,
-  distortion fit, one per-camera BA iteration, one joint-BA iteration) to guard
-  against regressions and quantify P1–P3 gains. (`criterion-bench` skill.)
+- [x] P4-CRITERION - criterion benchmarks for the hot paths to guard against
+  regressions and quantify P1–P3 gains. **Done 2026-06-16** —
+  [report](report/2026-06-16-P4-CRITERION-hot-path-benches.md): `criterion`
+  workspace dev-dep + `[[bench]]` targets; `linear/benches/linear_init.rs`
+  (homography DLT 225pts ~8.6µs — was a >15min hang, zhang-from-homographies,
+  distortion fit) and `optim/benches/ba_iter.rs` (one per-camera planar BA solve
+  ~16.9ms). Deterministic synthetic data; `cargo bench --no-run` is the
+  CI-friendly guard. The joint rig/hand-eye-BA iteration bench needs the rig
+  fixtures and is deferred (per-camera BA is the proxy until then).
 - [x] P5-STAGE-TIMING - Per-stage timing instrumentation so future regressions
   surface without ad-hoc harnesses. **Done 2026-06-16** —
   [report](report/2026-06-16-P5-STAGE-TIMING-bench-per-stage.md): additive
