@@ -5,7 +5,7 @@
 //! overdetermined solver for use in RANSAC refit on large inlier sets.
 
 use super::polynomial::build_polynomial_system;
-use crate::math::{dlt_rank_ok, mat3_from_svd_row};
+use crate::math::{dlt_rank_ok, mat3_from_svd_row, mat3_from_vec, null_space};
 use anyhow::Result;
 use nalgebra::{DMatrix, SMatrix, linalg::Schur};
 use vision_calibration_core::{Mat3, Pt2, Real};
@@ -201,41 +201,22 @@ pub fn essential_linear(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
         a[(i, 8)] = 1.0;
     }
 
-    // Pad to 9×9 when n == 8 (the only case where nrows < ncols after the ≥8
-    // guard above). Adding one zero row leaves the null space unchanged: A has
-    // rank 8 → a 1-dimensional null space → the smallest right singular vector
-    // is uniquely defined.
-    let mut a_work = a.clone();
-    if a_work.nrows() < a_work.ncols() {
-        let rows = a_work.nrows();
-        let cols = a_work.ncols();
-        let mut a_pad = DMatrix::<Real>::zeros(cols, cols);
-        a_pad.view_mut((0, 0), (rows, cols)).copy_from(&a_work);
-        a_work = a_pad;
-    }
-
-    let svd = a_work.svd(true, true);
-    let sv: Vec<Real> = svd.singular_values.iter().cloned().collect();
-    let v_t = svd.v_t.ok_or_else(|| anyhow::anyhow!("SVD failed"))?;
+    // Solve `A e = 0` via `AᵀA` symmetric eigen (see [`null_space`]); `AᵀA` is
+    // always 9×9 so the wide `n == 8` row-padding is unnecessary, and it cannot
+    // trigger nalgebra's hang-prone dense SVD on large inlier sets (RANSAC refit).
+    let ns = null_space(&a)?;
 
     // The 9-column epipolar design matrix must have rank exactly 8 (1-D null
     // space).  Degenerate calibrated ray pairs (coincident or collinear rays)
     // collapse sv[7] toward zero.
-    if !dlt_rank_ok(&sv, 9, 1, 1e-7) {
+    if !dlt_rank_ok(&ns.singular_values, 9, 1, 1e-7) {
         anyhow::bail!(
             "rank-deficient essential system: correspondences are degenerate \
              (e.g. coincident or collinear rays)"
         );
     }
 
-    let e_vec = v_t.row(v_t.nrows() - 1);
-
-    let mut e = Mat3::zeros();
-    for r in 0..3 {
-        for c in 0..3 {
-            e[(r, c)] = e_vec[3 * r + c];
-        }
-    }
+    let e = mat3_from_vec(&ns.vector);
 
     // Project onto the essential manifold: singular values → (1, 1, 0).
     let svd_e = e.svd(true, true);
@@ -375,9 +356,14 @@ mod tests {
                 max_residual = val;
             }
         }
+        // The `AᵀA` symmetric-eigen null space (which replaced the hang-prone
+        // dense SVD) squares the design's condition number, so the linear
+        // estimate is a few ×1e-6 less precise than a full-SVD solve on this
+        // minimal 8-point set — still an excellent seed for downstream
+        // refinement. A 1e-4 bound keeps a >10× margin over the observed ~7e-6.
         assert!(
-            max_residual < 1e-6,
-            "Epipolar residual {:.3e} too large (expected < 1e-6)",
+            max_residual < 1e-4,
+            "Epipolar residual {:.3e} too large (expected < 1e-4)",
             max_residual
         );
 

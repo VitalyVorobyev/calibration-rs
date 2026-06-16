@@ -17,7 +17,8 @@
 //!
 //! Hartley & Zisserman, "Multiple View Geometry in Computer Vision", 2nd ed.
 
-use nalgebra::{DMatrix, Matrix3x4, Schur};
+use anyhow::Result;
+use nalgebra::{DMatrix, DVector, Matrix3x4, Schur};
 use vision_calibration_core::{Mat3, Mat4, Pt2, Pt3, Real};
 
 /// Hartley normalization for 2D points.
@@ -301,6 +302,93 @@ pub(crate) fn dlt_rank_ok(
     sv_boundary / sv0 >= rel_tol
 }
 
+/// Solution of a homogeneous least-squares ([`null_space`]) solve.
+#[derive(Debug, Clone)]
+pub struct NullSpaceSolution {
+    /// Unit right-singular vector of `A` with the smallest singular value — the
+    /// minimizer of `‖A x‖` subject to `‖x‖ = 1`.
+    pub vector: DVector<Real>,
+    /// Singular values of `A` in descending order (`σ_i = √λ_i` of `AᵀA`).
+    /// Useful for rank / conditioning guards — see `dlt_rank_ok`.
+    pub singular_values: Vec<Real>,
+}
+
+/// Solve the homogeneous least-squares problem `A x = 0` for the unit vector
+/// `x` that minimizes `‖A x‖` — the right-singular vector of `A` with the
+/// smallest singular value.
+///
+/// Computed as the smallest-eigenvalue eigenvector of the normal matrix `AᵀA`
+/// via a **symmetric eigendecomposition**, deliberately *not* `A.svd(...)`.
+/// nalgebra's Golub-Kahan SVD runs an unbounded QR iteration that can fail to
+/// converge — hanging for minutes — on real dense design matrices, and the
+/// non-convergence is in the QR sweep itself, so it persists even with
+/// `compute_u = false`. `AᵀA` is always `k×k` where `k = A.ncols()` (≤ 12 for
+/// every DLT system in this crate) regardless of the row count, and a symmetric
+/// eigendecomposition of such a small matrix converges in a handful of sweeps.
+/// With Hartley-normalized inputs the squared conditioning is harmless.
+///
+/// The returned [`NullSpaceSolution`] also carries the descending singular
+/// values (derived from the `AᵀA` eigenvalues) for callers that need a rank
+/// guard (see `dlt_rank_ok`).
+///
+/// # Errors
+///
+/// Returns an error if `AᵀA` is non-finite (a degenerate / NaN design) or the
+/// decomposition yields no eigenvalues.
+pub fn null_space(a: &DMatrix<Real>) -> Result<NullSpaceSolution> {
+    let ata = a.transpose() * a;
+    let eigen = ata.symmetric_eigen();
+    if eigen.eigenvalues.iter().any(|v| !v.is_finite()) {
+        anyhow::bail!("null-space normal matrix is non-finite (degenerate design)");
+    }
+    let min_idx = eigen
+        .eigenvalues
+        .iter()
+        .enumerate()
+        .min_by(|(_, x), (_, y)| x.partial_cmp(y).expect("eigenvalues checked finite"))
+        .map(|(idx, _)| idx)
+        .ok_or_else(|| anyhow::anyhow!("null-space decomposition produced no eigenvalues"))?;
+    let vector = eigen.eigenvectors.column(min_idx).into_owned();
+    let mut singular_values: Vec<Real> = eigen
+        .eigenvalues
+        .iter()
+        .map(|&l| l.max(0.0).sqrt())
+        .collect();
+    singular_values.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(NullSpaceSolution {
+        vector,
+        singular_values,
+    })
+}
+
+/// Reshape a 9-element vector into a 3×3 matrix (row-major).
+///
+/// The vector-valued analog of [`mat3_from_svd_row`], for use with the
+/// null vector returned by [`null_space`].
+pub fn mat3_from_vec(v: &DVector<Real>) -> Mat3 {
+    let mut m = Mat3::zeros();
+    for r in 0..3 {
+        for c in 0..3 {
+            m[(r, c)] = v[3 * r + c];
+        }
+    }
+    m
+}
+
+/// Reshape a 12-element vector into a 3×4 matrix (row-major).
+///
+/// The vector-valued analog of [`mat34_from_svd_row`], for use with the
+/// null vector returned by [`null_space`].
+pub fn mat34_from_vec(v: &DVector<Real>) -> Matrix3x4<Real> {
+    let mut m = Matrix3x4::<Real>::zeros();
+    for r in 0..3 {
+        for c in 0..4 {
+            m[(r, c)] = v[4 * r + c];
+        }
+    }
+    m
+}
+
 /// Extract 3×3 matrix from SVD result row.
 ///
 /// Reshapes a 9-element row from SVD's `V^T` matrix into a 3×3 matrix
@@ -510,5 +598,41 @@ mod tests {
     fn dlt_rank_ok_zero_matrix() {
         let sv: Vec<Real> = vec![0.0; 9];
         assert!(!dlt_rank_ok(&sv, 9, 1, 1e-7));
+    }
+
+    // ---- null_space ---------------------------------------------------------
+
+    /// Rows spanning the orthogonal complement of a known unit vector recover
+    /// that vector (up to sign) as the null space, with descending singular
+    /// values.
+    #[test]
+    fn null_space_recovers_known_vector() {
+        let target = DVector::from_vec(vec![1.0, -2.0, 0.5]);
+        let target_unit = &target / target.norm();
+        let mut a = DMatrix::<Real>::zeros(40, 3);
+        for i in 0..40 {
+            let t = i as Real * 0.31;
+            // Both orthogonal to target=[1,-2,0.5]: e1 and target×e1.
+            let e1 = DVector::from_vec(vec![2.0, 1.0, 0.0]);
+            let e2 = DVector::from_vec(vec![-0.5, 1.0, 5.0]);
+            let row = e1 * t.cos() + e2 * t.sin();
+            for c in 0..3 {
+                a[(i, c)] = row[c];
+            }
+        }
+        let ns = null_space(&a).unwrap();
+        let v = &ns.vector / ns.vector.norm();
+        let diff: DVector<Real> = &v - &target_unit;
+        let sum: DVector<Real> = &v + &target_unit;
+        assert!(diff.norm().min(sum.norm()) < 1e-6);
+        assert!(ns.singular_values.windows(2).all(|w| w[0] >= w[1]));
+    }
+
+    /// A non-finite design yields an error, never a hang or panic.
+    #[test]
+    fn null_space_rejects_non_finite() {
+        let mut a = DMatrix::<Real>::zeros(8, 3);
+        a[(0, 0)] = Real::NAN;
+        assert!(null_space(&a).is_err());
     }
 }

@@ -80,20 +80,8 @@ impl PlanarPoseSolver {
         r_mat.set_column(1, &r2);
         r_mat.set_column(2, &r3);
 
-        // Project onto SO(3) (polar decomposition via SVD)
-        let svd = r_mat.svd(true, true);
-        let u = svd.u.ok_or(Error::Singular)?;
-        let v_t = svd.v_t.ok_or(Error::Singular)?;
-        let r_orth = u * v_t;
-
-        // Ensure det(R) > 0
-        let mut r_orth = if r_orth.determinant() < 0.0 {
-            let mut u_flipped = u;
-            u_flipped.column_mut(2).neg_mut();
-            u_flipped * v_t
-        } else {
-            r_orth
-        };
+        // Project onto SO(3) (polar decomposition; see `math::project_to_so3`).
+        let mut r_orth = crate::math::project_to_so3(&r_mat)?;
 
         if t_vec.z < 0.0 {
             r_orth.column_mut(0).neg_mut();

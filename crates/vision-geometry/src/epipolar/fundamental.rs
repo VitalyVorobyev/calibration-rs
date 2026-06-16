@@ -3,7 +3,10 @@
 //! Implements the normalized 8-point algorithm, the minimal 7-point solver,
 //! and RANSAC-based robust estimation for fundamental matrices.
 
-use crate::math::{dlt_rank_ok, mat3_from_svd_row, normalize_points_2d, solve_cubic_real};
+use crate::math::{
+    dlt_rank_ok, mat3_from_svd_row, mat3_from_vec, normalize_points_2d, null_space,
+    solve_cubic_real,
+};
 use anyhow::Result;
 use nalgebra::{DMatrix, SMatrix};
 use vision_calibration_core::{Estimator, Mat3, Pt2, RansacOptions, Real, ransac_fit};
@@ -43,36 +46,21 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
         a[(i, 8)] = 1.0;
     }
 
-    let mut a_work = a.clone();
-    if a_work.nrows() < a_work.ncols() {
-        let rows = a_work.nrows();
-        let cols = a_work.ncols();
-        let mut a_pad = DMatrix::<Real>::zeros(cols, cols);
-        a_pad.view_mut((0, 0), (rows, cols)).copy_from(&a_work);
-        a_work = a_pad;
-    }
-
-    let svd = a_work.svd(true, true);
-    let sv: Vec<Real> = svd.singular_values.iter().cloned().collect();
-    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    // Solve `A f = 0` via `AᵀA` symmetric eigen (see [`null_space`]); `AᵀA` is
+    // always 9×9 so the wide `n == 8` row-padding is unnecessary, and it cannot
+    // trigger nalgebra's hang-prone dense SVD.
+    let ns = null_space(&a)?;
 
     // The 9-column epipolar design matrix must have rank exactly 8 (1-D null
     // space).  Collinear or coincident points collapse sv[7] toward zero.
-    if !dlt_rank_ok(&sv, 9, 1, 1e-7) {
+    if !dlt_rank_ok(&ns.singular_values, 9, 1, 1e-7) {
         anyhow::bail!(
             "rank-deficient 8-point system: points are collinear or degenerate \
              (need 8 points in general position)"
         );
     }
 
-    let f_vec = v_t.row(v_t.nrows() - 1);
-
-    let mut f = Mat3::zeros();
-    for r in 0..3 {
-        for c in 0..3 {
-            f[(r, c)] = f_vec[3 * r + c];
-        }
-    }
+    let mut f = mat3_from_vec(&ns.vector);
 
     let svd_f = f.svd(true, true);
     let u = svd_f.u.ok_or(anyhow::anyhow!("SVD failed"))?;

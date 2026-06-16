@@ -120,17 +120,23 @@ Systemic causes:
    scales linearly with corner count, but extrinsics/hand-eye do not need full
    corner density.
 
-- [~] P1-SVD-SWEEP - Replace `svd(true, true)` on large matrices with a method
+- [x] P1-SVD-SWEEP - Replace `svd(true, true)` on large matrices with a method
   that cannot hang on nalgebra's unbounded QR iteration: `AᵀA` + symmetric-eigen
   (null-space) or ridge-regularized normal equations / QR (least-squares).
-  Centralize behind `math::null_space` / `solve_lstsq` helpers; guard non-finite
-  inputs and reject geometrically-bad results. **Done 2026-06-16:** homography
-  DLT (`homography.rs`, 9×9 `AᵀA` symmetric-eigen, NaN-safe) and distortion fit
-  (`distortion_fit.rs`, ridge normal-equations + non-finite-point guard) — the
-  two confirmed hangs; plus a view-tolerant best-effort iterative init
-  (`iterative_intrinsics.rs`). **Remaining:** `vision-geometry/homography.rs`,
-  `camera_matrix.rs:82`, `pnp/dlt.rs:116`, `epipolar/{fundamental,essential}.rs`,
-  `handeye.rs:228,385` — latent landmines for dense/large/NaN inputs.
+  Centralize behind `math::null_space` / `ridge_lstsq` / `project_to_so3`
+  helpers; guard non-finite inputs and reject geometrically-bad results.
+  **First pass 2026-06-16:** homography DLT and distortion fit (the two confirmed
+  hangs) + view-tolerant iterative init. **Sweep finished 2026-06-16** —
+  [report](report/2026-06-16-P1-SVD-SWEEP-finish-centralize.md): the 7 remaining
+  hang-risk null-space sites (`camera_matrix` + `pnp/dlt` + `pnp/epnp` +
+  `epipolar/{fundamental,essential}` across `linear` and `vision-geometry`,
+  including vision-geometry's insufficient `svd(false,true)` homography) and the
+  3 moderate sites (`handeye` rotation + `ridge_llsq`, `zhang_intrinsics`) now
+  route through `math::null_space` / `ridge_lstsq`; `project_to_so3` deduped
+  across 5 sites. All linear/geometry/mvg + downstream optim/pipeline (golden
+  pins) tests green; clippy + doc clean. **Left:** the small/bounded
+  `triangulation.rs` `2N×4` sites (`N` = view count); `linear`→`vision-geometry`
+  helper de-dup is C1-FOLLOWUP.
 - [ ] P2-BA-DENSITY - Principled corner budget for the joint rig + hand-eye BA
   (spatially-distributed subsample preserving coverage, or per-stage decimation
   knobs). Extrinsics/hand-eye converge on a fraction of the corners; the

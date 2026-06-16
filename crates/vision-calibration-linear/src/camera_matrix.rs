@@ -4,7 +4,7 @@
 //! RQ decomposition to recover intrinsics and rotation.
 
 use crate::Error;
-use crate::math::{mat34_from_svd_row, normalize_points_2d, normalize_points_3d};
+use crate::math::{mat34_from_vec, normalize_points_2d, normalize_points_3d, null_space};
 use nalgebra::{DMatrix, Matrix3x4};
 use vision_calibration_core::{Mat3, Pt2, Pt3, Real, Vec3};
 
@@ -79,9 +79,10 @@ pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34, Error> {
         a[(r1, 11)] = -v;
     }
 
-    let svd = a.svd(true, true);
-    let v_t = svd.v_t.ok_or(Error::Singular)?;
-    let p_norm = mat34_from_svd_row(&v_t, v_t.nrows() - 1);
+    // Solve `A p = 0` for the smallest right-singular vector via `AᵀA` symmetric
+    // eigen (see [`null_space`](crate::math::null_space)) — avoids nalgebra's
+    // hang-prone dense SVD on the tall `2N×12` design matrix.
+    let p_norm = mat34_from_vec(&null_space(&a)?.vector);
 
     let t_i_inv = t_i.try_inverse().ok_or(Error::Singular)?;
     let p = t_i_inv * p_norm * t_w;

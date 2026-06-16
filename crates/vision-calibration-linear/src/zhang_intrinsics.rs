@@ -80,11 +80,10 @@ impl PlanarIntrinsicsLinearInit {
             vmtx.row_mut(2 * k + 1).copy_from(&(v11 - v22).transpose());
         }
 
-        // Solve V b = 0 via SVD: take the singular vector corresponding to the
-        // smallest singular value.
-        let svd = vmtx.svd(true, true);
-        let v_t = svd.v_t.ok_or(Error::Singular)?;
-        let b = v_t.row(v_t.nrows() - 1); // last row
+        // Solve `V b = 0` for the smallest right-singular vector via `AᵀA`
+        // symmetric eigen (see `math::null_space`) — avoids nalgebra's
+        // hang-prone dense SVD on the `2M×6` design matrix.
+        let b = crate::math::null_space(&vmtx)?.vector;
 
         let b11 = b[0];
         let b12 = b[1];
