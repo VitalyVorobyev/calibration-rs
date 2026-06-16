@@ -1712,6 +1712,7 @@ pub mod tier_b {
                     tilt_y: true,
                 },
                 fix_poses: Vec::new(),
+                bounds: None,
             },
             BackendSolveOptions {
                 max_iters: 30,
@@ -1741,6 +1742,7 @@ pub mod tier_b {
                 tilt_y: false,
             },
             fix_poses: Vec::new(),
+            bounds: None,
         };
         let stage_b = optimize_scheimpflug_intrinsics(
             dataset,
@@ -1957,6 +1959,7 @@ pub mod tier_b {
                 tilt_y: false,
             },
             fix_poses: Vec::new(),
+            bounds: None,
         };
         let robust = optimize_scheimpflug_intrinsics(
             dataset,

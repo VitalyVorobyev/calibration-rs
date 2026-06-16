@@ -12,7 +12,7 @@ use vision_calibration_optim::{
     BackendSolveOptions, ScheimpflugFixMask as OptimScheimpflugFixMask,
     ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,
     ScheimpflugIntrinsicsSolveOptions as OptimScheimpflugIntrinsicsSolveOptions,
-    optimize_scheimpflug_intrinsics,
+    ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics_staged,
 };
 
 use crate::planar_family::{
@@ -336,13 +336,17 @@ pub fn step_optimize(
         } else {
             Vec::new()
         },
+        bounds: None,
     };
 
-    // Shared planar-family optimization path implemented in `vision-calibration-optim`.
-    let estimate = optimize_scheimpflug_intrinsics(
+    // Shared planar-family path in `vision-calibration-optim`. The staged
+    // multi-start init breaks the tilt/principal-point/distortion degeneracy
+    // that a cold `tilt = 0` solve falls into.
+    let estimate = optimize_scheimpflug_intrinsics_staged(
         &dataset,
         &initial,
         solve_opts,
+        &ScheimpflugStagedInitOptions::default(),
         BackendSolveOptions {
             max_iters,
             verbosity,

@@ -15,13 +15,13 @@ use vision_calibration_optim::{
     BackendSolveOptions, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigExtrinsicsParams,
     RigExtrinsicsScheimpflugParams, RigExtrinsicsScheimpflugSolveOptions,
     RigExtrinsicsSolveOptions, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions,
-    optimize_planar_intrinsics, optimize_rig_extrinsics, optimize_rig_extrinsics_scheimpflug,
-    optimize_scheimpflug_intrinsics,
+    ScheimpflugStagedInitOptions, optimize_planar_intrinsics, optimize_rig_extrinsics,
+    optimize_rig_extrinsics_scheimpflug, optimize_scheimpflug_intrinsics_staged,
 };
 
 use crate::rig_family::{
     RigIntrinsicsSeeds, SensorFlavour, bootstrap_rig_intrinsics, format_init_source,
-    views_to_planar_dataset,
+    guard_percam_reproj_errors, views_to_planar_dataset,
 };
 use crate::session::CalibrationSession;
 
@@ -404,6 +404,7 @@ pub fn step_intrinsics_optimize_all(
                     fix_distortion: *distortion_mask_in_percam_ba,
                     fix_scheimpflug: *fix_scheimpflug_in_intrinsics,
                     fix_poses: vec![0],
+                    bounds: None,
                 };
 
                 let backend_opts = BackendSolveOptions {
@@ -412,10 +413,14 @@ pub fn step_intrinsics_optimize_all(
                     ..Default::default()
                 };
 
-                let result = optimize_scheimpflug_intrinsics(
+                // Staged multi-start init breaks the tilt/principal-point/
+                // distortion degeneracy that a cold `tilt = 0` solve falls into
+                // (biased minima, or `fx → 0` runaway that poisons the rig).
+                let result = optimize_scheimpflug_intrinsics_staged(
                     &planar_dataset,
                     &initial_params,
                     solve_opts,
+                    &ScheimpflugStagedInitOptions::default(),
                     backend_opts,
                 )
                 .map_err(|e| {
@@ -441,6 +446,10 @@ pub fn step_intrinsics_optimize_all(
             }
         }
     }
+
+    // Fail fast on any diverged camera before its garbage intrinsics poison the
+    // linear rig init and the joint rig bundle adjustment.
+    guard_percam_reproj_errors(&per_cam_reproj_errors)?;
 
     session.state.per_cam_intrinsics = Some(optimized_cameras.clone());
     session.state.per_cam_sensors = optimized_sensors.clone();

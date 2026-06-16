@@ -426,6 +426,41 @@ pub(crate) fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
     }
 }
 
+/// Maximum per-camera mean reprojection error (px) tolerated before a camera's
+/// intrinsics solve is treated as diverged. Healthy per-camera intrinsics land
+/// well under a pixel; this generous ceiling only trips on a genuinely broken
+/// solve — non-finite, or the `fx → 0` runaway that reaches astronomical
+/// reprojection error.
+pub(crate) const MAX_PERCAM_REPROJ_ERROR_PX: f64 = 50.0;
+
+/// Fail fast if any camera's per-camera intrinsics solve diverged, naming the
+/// offenders. Without this guard a single garbage camera (non-finite or runaway
+/// reprojection error) silently poisons the linear rig init and the joint rig +
+/// hand-eye bundle adjustment downstream.
+///
+/// # Errors
+///
+/// Returns [`Error::Numerical`] listing every camera whose error is non-finite
+/// or exceeds [`MAX_PERCAM_REPROJ_ERROR_PX`].
+pub(crate) fn guard_percam_reproj_errors(errors: &[f64]) -> Result<(), Error> {
+    let bad: Vec<String> = errors
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| !e.is_finite() || **e > MAX_PERCAM_REPROJ_ERROR_PX)
+        .map(|(i, e)| format!("camera {i}: {e:.3} px"))
+        .collect();
+    if !bad.is_empty() {
+        return Err(Error::numerical(format!(
+            "per-camera intrinsics diverged for {} of {} cameras ({}); \
+             refusing to poison the rig solve — check detections/init for these cameras",
+            bad.len(),
+            errors.len(),
+            bad.join(", "),
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -757,5 +792,29 @@ mod tests {
         assert_eq!(k[(1, 0)], 0.0);
         assert_eq!(k[(2, 0)], 0.0);
         assert_eq!(k[(2, 1)], 0.0);
+    }
+
+    #[test]
+    fn percam_guard_passes_healthy_cameras() {
+        assert!(guard_percam_reproj_errors(&[0.31, 0.28, 0.27, 0.30]).is_ok());
+    }
+
+    #[test]
+    fn percam_guard_rejects_nonfinite_camera_naming_it() {
+        let err = guard_percam_reproj_errors(&[0.3, f64::INFINITY, 0.2])
+            .expect_err("a non-finite camera must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("camera 1"),
+            "error should name camera 1: {msg}"
+        );
+    }
+
+    #[test]
+    fn percam_guard_rejects_runaway_camera() {
+        // The classic `fx → 0` divergence reaches astronomical reprojection error.
+        let err = guard_percam_reproj_errors(&[0.3, 0.28, 6.1e21])
+            .expect_err("a runaway camera must be rejected");
+        assert!(err.to_string().contains("camera 2"));
     }
 }
