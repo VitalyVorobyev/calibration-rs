@@ -129,7 +129,11 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
         a_work = a_pad;
     }
 
-    let svd = a_work.svd(true, true);
+    // Only `singular_values` and `v_t` are consumed below, so skip U: for dense
+    // targets the design matrix is 2N×9 (N can exceed 200), and computing the
+    // economy U forces nalgebra to accumulate U-side Givens rotations across
+    // every (unbounded) Golub-Kahan sweep — the source of the multi-minute hang.
+    let svd = a_work.svd(false, true);
 
     // Rank-deficiency check: for a well-posed homography the 2n×9 design
     // matrix must have rank exactly 8 (a 1-D null space).  The SVD yields
