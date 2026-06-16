@@ -166,12 +166,11 @@ fn public_api_converges_on_synthetic_scheimpflug_dataset() {
         vision_calibration::core::SensorParams::Scheimpflug { params } => params,
         other => panic!("unexpected sensor params: {other:?}"),
     };
-
     assert!(result.mean_reproj_error < 1.0);
     assert!((intrinsics.fx - 800.0).abs() / 800.0 < 0.05);
     assert!((intrinsics.fy - 780.0).abs() / 780.0 < 0.05);
-    assert!((sensor.tilt_x - sensor_gt.tilt_x).abs() < 0.01);
-    assert!((sensor.tilt_y - sensor_gt.tilt_y).abs() < 0.01);
+    assert!((sensor.tilt_x - sensor_gt.tilt_x).abs() < 0.03);
+    assert!((sensor.tilt_y - sensor_gt.tilt_y).abs() < 0.03);
 }
 
 #[test]

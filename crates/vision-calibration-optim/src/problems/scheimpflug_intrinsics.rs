@@ -349,7 +349,7 @@ impl Default for ScheimpflugStagedInitOptions {
             sweep_max_iters: 20,
             sweep_max_corners_per_view: 60,
             refine_principal_point: true,
-            focal_bound_factor: (0.5, 2.0),
+            focal_bound_factor: (0.75, 1.5),
             principal_point_bound_focal_fraction: 0.15,
             tilt_bound: 0.30,
         }
@@ -406,6 +406,7 @@ fn frozen_pp_opts(
     loss: RobustLoss,
     fix_distortion: DistortionFixMask,
     fix_poses: Vec<usize>,
+    bounds: Option<ScheimpflugBounds>,
 ) -> ScheimpflugIntrinsicsSolveOptions {
     ScheimpflugIntrinsicsSolveOptions {
         robust_loss: loss,
@@ -418,7 +419,7 @@ fn frozen_pp_opts(
         fix_distortion,
         fix_scheimpflug: ScheimpflugFixMask::default(),
         fix_poses,
-        bounds: None,
+        bounds,
     }
 }
 
@@ -456,6 +457,7 @@ pub fn optimize_scheimpflug_intrinsics_staged(
     let fix_poses = final_opts.fix_poses.clone();
     let fix_distortion = final_opts.fix_distortion;
     let robust_loss = final_opts.robust_loss;
+    let init_bounds = ScheimpflugBounds::around(&initial.intrinsics, staged_opts);
 
     // ── Stage 1: cheap basin sweep on corner-subsampled data ────────────────
     // One short, principal-point-frozen solve per tilt seed — enough to rank the
@@ -473,7 +475,12 @@ pub fn optimize_scheimpflug_intrinsics_staged(
             match solve_stage(
                 &sweep_dataset,
                 &seed,
-                frozen_pp_opts(robust_loss, fix_distortion, fix_poses.clone()),
+                frozen_pp_opts(
+                    robust_loss,
+                    fix_distortion,
+                    fix_poses.clone(),
+                    Some(init_bounds),
+                ),
                 backend,
                 &backend_opts,
                 sweep_iters,
@@ -504,7 +511,12 @@ pub fn optimize_scheimpflug_intrinsics_staged(
     let r1 = solve_stage(
         dataset,
         &best.params,
-        frozen_pp_opts(RobustLoss::None, fix_distortion, fix_poses.clone()),
+        frozen_pp_opts(
+            RobustLoss::None,
+            fix_distortion,
+            fix_poses.clone(),
+            Some(init_bounds),
+        ),
         backend,
         &backend_opts,
         max_iters,
@@ -574,7 +586,11 @@ fn compute_mean_reproj_error(
         }
     }
 
-    if count == 0 { 0.0 } else { sum / count as f64 }
+    if count == 0 {
+        f64::INFINITY
+    } else {
+        sum / count as f64
+    }
 }
 
 #[cfg(test)]

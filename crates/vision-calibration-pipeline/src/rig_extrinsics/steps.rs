@@ -245,6 +245,7 @@ pub fn step_intrinsics_init_all_with_seed(
     session.state.per_cam_intrinsics = Some(per_cam_intrinsics.clone());
     session.state.per_cam_sensors = per_cam_sensors.clone();
     session.state.per_cam_target_poses = Some(per_cam_target_poses.clone());
+    session.state.per_cam_intrinsics_auto = bootstrap.manual_fields.is_empty();
 
     let source = format_init_source(&bootstrap.manual_fields, &bootstrap.auto_fields);
     session.log_success_with_notes(

@@ -163,29 +163,21 @@ Systemic causes:
   schema bump); `run_rig_extrinsics` (3 stages) and `run_rig_handeye` (5 stages)
   now time each optimize sub-stage instead of lumping them into `optimize_ms`,
   via a reusable `ms_since` helper. Serde back-compat/roundtrip test added.
-- [ ] P6-PERCAM-CONVERGENCE - **Re-characterized 2026-06-16** (diagnosis:
-  [report](report/2026-06-16-P6-PERCAM-CONVERGENCE-diagnosis.md)). NOT a
-  cam-3/4-specific seeding bug: the from-scratch per-camera Scheimpflug solve
-  fails to reach the oracle basin on *all* cameras of the strong-distortion
-  (k1≈−0.43) + tilt (≈−5°) `rtv3d_ref` rig. Cams 0/2/5 land in a wrong-tilt local
-  minimum (~1.5 px, tilt≈0) that passes the 50 px guard; cams 3/4 run away
-  (`fx→0`/1987). Root cause = the *pinhole* linear init underestimates the focal
-  (~944 vs 1153) because tilt is mis-attributed to distortion, and the
-  tilt↔distortion↔focal degeneracy traps the LM. **Verified dead ends** (all
-  tried + reverted, synthetic test unaffected): the tilt sweep is a no-op (seed
-  washes out); box bounds on sweep/stage-2 pin bad cams at the bound edge → hard
-  non-convergence; a focal-scale sweep brings cam 4 under the guard but with
-  garbage params (illusory pass) and doesn't move any cam toward the oracle. Real
-  fix = **tilt-aware initialization** (estimate tilt from homography structure /
-  joint focal+tilt+distortion coarse search ranked by full-convergence reproj /
-  global solver) — a focused numerical-research effort, out of the Track P batch.
-  Note: P2/P3 joint-BA cost can be measured independently by seeding good
-  intrinsics (e.g. the V5 frozen path); from-scratch convergence is a separate
-  robustness goal. **Also surfaced:** the staged init (`a9a97ee`, validate-branch
-  only — absent on `main`) regressed a *small-tilt synthetic* facade test
-  (`vision-calibration tests/scheimpflug_intrinsics.rs::public_api_converges_on_synthetic_scheimpflug_dataset`,
-  `|tilt_x−0.01|<0.01`); pre-existing to the Track P batch, same root cause, must
-  be fixed with this item before the validate branch merges.
+- [x] P6-PERCAM-CONVERGENCE - From-scratch Scheimpflug per-camera convergence
+  on the private `rtv3d_ref` rig. **Done 2026-06-16** —
+  [report](report/2026-06-16-P6-PERCAM-CONVERGENCE-tilt-aware-init.md);
+  supersedes the diagnosis
+  [report](report/2026-06-16-P6-PERCAM-CONVERGENCE-diagnosis.md). Implemented a
+  tilt-aware linear Scheimpflug initializer plus a rig-handeye auto-recovery pass
+  that forms a shared nominal seed from good cameras and retries bad cameras
+  against good-camera rig poses. Private validation:
+  `rtv3d_ref_rig` from scratch reaches per-camera intrinsics BA reprojection
+  `[0.3802, 0.2677, 0.2833, 0.3522, 0.4725, 0.3268]`, final mean reprojection
+  `0.4057px`, and all `tau_x` values stay within about `1.5°` of oracle. Remaining
+  risks: the shared-nominal retry is currently private to `rig_handeye` rather
+  than factored into `rig_family` for `rig_extrinsics`, and the final joint
+  hand-eye per-camera reprojection still has cam 0 at ~`0.528px` despite
+  sub-`0.5px` intrinsics solves.
 
 ## M — camera models (gated on M0)
 

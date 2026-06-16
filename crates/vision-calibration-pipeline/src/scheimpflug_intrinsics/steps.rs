@@ -7,7 +7,10 @@ use vision_calibration_core::{
     ProjectionParams, Real, ScheimpflugParams, SensorParams,
 };
 use vision_calibration_linear::distortion_fit::DistortionFitOptions;
-use vision_calibration_linear::iterative_intrinsics::IterativeIntrinsicsOptions;
+use vision_calibration_linear::scheimpflug_init::{
+    ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
+    estimate_scheimpflug_intrinsics_iterative,
+};
 use vision_calibration_optim::{
     BackendSolveOptions, ScheimpflugFixMask as OptimScheimpflugFixMask,
     ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,
@@ -15,9 +18,7 @@ use vision_calibration_optim::{
     ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics_staged,
 };
 
-use crate::planar_family::{
-    bootstrap_planar_intrinsics, estimate_view_homographies, recover_planar_poses_from_homographies,
-};
+use crate::planar_family::{estimate_view_homographies, recover_planar_poses_from_homographies};
 use crate::session::CalibrationSession;
 
 use super::problem::{
@@ -183,9 +184,9 @@ pub fn step_init_with_seed(
         }
         auto_fields.push("intrinsics");
 
-        let bootstrap = bootstrap_planar_intrinsics(
+        let bootstrap = estimate_scheimpflug_intrinsics_iterative(
             &dataset,
-            IterativeIntrinsicsOptions {
+            LinearScheimpflugIntrinsicsInitOptions {
                 iterations: init_iterations,
                 distortion_opts: DistortionFitOptions {
                     fix_k3: session.config.fix_k3_in_init,
@@ -193,6 +194,7 @@ pub fn step_init_with_seed(
                     iters: 8,
                 },
                 zero_skew: session.config.zero_skew,
+                ..Default::default()
             },
         )
         .map_err(|e| {
@@ -206,11 +208,7 @@ pub fn step_init_with_seed(
             }
             None => {
                 auto_fields.push("distortion");
-                // Workflow invariant: Scheimpflug pipelines fix tangential distortion.
-                let mut d = bootstrap.camera.dist;
-                d.p1 = 0.0;
-                d.p2 = 0.0;
-                d
+                bootstrap.camera.dist
             }
         };
 
@@ -221,7 +219,7 @@ pub fn step_init_with_seed(
             }
             None => {
                 auto_fields.push("sensor");
-                ScheimpflugParams::default()
+                bootstrap.sensor
             }
         };
 

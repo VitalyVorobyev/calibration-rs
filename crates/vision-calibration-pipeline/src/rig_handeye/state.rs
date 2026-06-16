@@ -35,6 +35,10 @@ pub(crate) struct RigHandeyeState {
     /// Per-camera mean reprojection error from intrinsics calibration.
     pub per_cam_reproj_errors: Option<Vec<f64>>,
 
+    /// True when the current per-camera intrinsics came from full auto-init.
+    #[serde(default)]
+    pub per_cam_intrinsics_auto: bool,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Rig extrinsics initialization
     // ─────────────────────────────────────────────────────────────────────────
