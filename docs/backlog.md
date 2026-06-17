@@ -134,9 +134,9 @@ Systemic causes:
   3 moderate sites (`handeye` rotation + `ridge_llsq`, `zhang_intrinsics`) now
   route through `math::null_space` / `ridge_lstsq`; `project_to_so3` deduped
   across 5 sites. All linear/geometry/mvg + downstream optim/pipeline (golden
-  pins) tests green; clippy + doc clean. **Left:** the small/bounded
-  `triangulation.rs` `2N×4` sites (`N` = view count); `linear`→`vision-geometry`
-  helper de-dup is C1-FOLLOWUP.
+  pins) tests green; clippy + doc clean. **Closed 2026-06-17:** the last
+  `triangulation.rs` `2N×4` site now routes through `core::linalg::null_space`
+  (done as part of C2); the shared-helper de-dup landed via C1-FOLLOWUP.
 - [ ] P2-BA-DENSITY - Principled corner budget for the joint rig + hand-eye BA
   (spatially-distributed subsample preserving coverage, or per-stage decimation
   knobs). Extrinsics/hand-eye converge on a fraction of the corners; the
@@ -274,7 +274,16 @@ Systemic causes:
     release version-lockstep when MVG is ready to be first-class; PyO3 bindings
     (deferred per A5). Not required by this dedup (no published crate depends on
     geometry).
-- [ ] C2-TRIANGULATION - N-view triangulation + nonlinear refinement.
+- [x] C2-TRIANGULATION - N-view triangulation + nonlinear refinement. **Done
+  2026-06-17.** `vision-geometry` already had N-view linear DLT; added
+  `triangulate_point` (linear init + self-contained Gauss-Newton reprojection
+  refinement, no external solver) and `refine_point`, and migrated
+  `triangulate_point_linear` off the raw `svd(true,true)` onto `core::linalg::null_space`
+  — closing the last P1 SVD-hang leftover (the `triangulation.rs` `2N×4` site).
+  `vision-mvg` gains `triangulate_nview` (refined N-view + RMS reprojection,
+  widest-baseline parallax, all-views cheirality diagnostics). Synthetic-GT
+  tests: 4-view noiseless recovery, refinement-improves-noisy-estimate,
+  degenerate-camera safety, count-mismatch guard.
 - [ ] C3-BA - Bundle adjustment with frozen intrinsics, free poses, free
   structure.
 

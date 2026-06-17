@@ -106,6 +106,67 @@ pub fn triangulate_two_view_partial(
         .collect()
 }
 
+/// Triangulate a single point from N ≥ 2 views with refinement and diagnostics.
+///
+/// `cameras` are 3×4 projection matrices and `points` their corresponding image
+/// coordinates. Uses [`vision_geometry::triangulation::triangulate_point`]
+/// (linear DLT + Gauss-Newton reprojection refinement), then reports:
+///
+/// - `reprojection_error`: RMS reprojection error over all views,
+/// - `parallax_deg`: the **widest** parallax angle across all camera-center
+///   pairs (the best-conditioned baseline; larger ⇒ better depth constraint),
+/// - `in_front`: whether the point has positive depth in **every** view.
+///
+/// # Errors
+///
+/// Returns an error if the camera/point counts disagree, fewer than 2 views are
+/// given, or the system is degenerate (see the linear solver).
+pub fn triangulate_nview(cameras: &[Mat34], points: &[Pt2]) -> Result<TriangulatedPoint> {
+    if cameras.len() != points.len() {
+        anyhow::bail!(
+            "camera/point count mismatch: {} vs {}",
+            cameras.len(),
+            points.len()
+        );
+    }
+
+    let pt3 = vision_geometry::triangulation::triangulate_point(cameras, points)?;
+    let xh = nalgebra::Vector4::new(pt3.x, pt3.y, pt3.z, 1.0);
+
+    // RMS reprojection error + all-views cheirality.
+    let mut sq_sum = 0.0;
+    let mut in_front = true;
+    for (cam, obs) in cameras.iter().zip(points.iter()) {
+        let x = cam * xh;
+        in_front &= x.z > 0.0;
+        let proj = Pt2::new(x.x / x.z, x.y / x.z);
+        sq_sum += (proj.x - obs.x).powi(2) + (proj.y - obs.y).powi(2);
+    }
+    let reprojection_error = (sq_sum / cameras.len() as f64).sqrt();
+
+    // Widest pairwise parallax: the best baseline angle subtended at the point.
+    let centers: Vec<vision_calibration_core::Pt3> = cameras.iter().map(camera_center).collect();
+    let mut parallax_deg = 0.0_f64;
+    for i in 0..centers.len() {
+        for j in (i + 1)..centers.len() {
+            let ray_i = (pt3 - centers[i]).normalize();
+            let ray_j = (pt3 - centers[j]).normalize();
+            let cos_angle = ray_i.dot(&ray_j).clamp(-1.0, 1.0);
+            let angle = cos_angle.acos().to_degrees();
+            if angle > parallax_deg {
+                parallax_deg = angle;
+            }
+        }
+    }
+
+    Ok(TriangulatedPoint {
+        point: pt3,
+        reprojection_error,
+        parallax_deg,
+        in_front,
+    })
+}
+
 /// Extract camera center from a projection matrix.
 ///
 /// For `P = [M | p₄]`, the camera center is `C = -M⁻¹ p₄`.
@@ -194,6 +255,44 @@ mod tests {
             "degenerate (zero-baseline) points must be skipped, got {}",
             got.len()
         );
+    }
+
+    fn camera_rt(rx: f64, ry: f64, rz: f64, t: Vec3) -> Mat34 {
+        let r = *Rotation3::from_euler_angles(rx, ry, rz).matrix();
+        let mut p = Mat34::zeros();
+        p.fixed_view_mut::<3, 3>(0, 0).copy_from(&r);
+        p.set_column(3, &t);
+        p
+    }
+
+    #[test]
+    fn triangulate_nview_noiseless_diagnostics() {
+        let cams = [
+            camera_rt(0.0, 0.0, 0.0, Vec3::new(0.0, 0.0, 0.0)),
+            camera_rt(0.02, -0.03, 0.01, Vec3::new(-0.4, 0.05, 0.02)),
+            camera_rt(-0.05, 0.04, 0.0, Vec3::new(0.3, -0.2, 0.1)),
+            camera_rt(0.01, 0.06, -0.02, Vec3::new(0.1, 0.35, -0.05)),
+        ];
+        let pw = Pt3::new(0.15, -0.1, 3.0);
+        let pts: Vec<Pt2> = cams
+            .iter()
+            .map(|c| {
+                let x = c * nalgebra::Vector4::new(pw.x, pw.y, pw.z, 1.0);
+                Pt2::new(x.x / x.z, x.y / x.z)
+            })
+            .collect();
+
+        let tp = triangulate_nview(&cams, &pts).unwrap();
+        assert!((tp.point - pw).norm() < 1e-9, "n-view 3D error too large");
+        assert!(tp.reprojection_error < 1e-8);
+        assert!(tp.in_front);
+        assert!(tp.parallax_deg > 0.0);
+    }
+
+    #[test]
+    fn triangulate_nview_rejects_count_mismatch() {
+        let cam = Mat34::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
+        assert!(triangulate_nview(&[cam, cam], &[Pt2::new(0.0, 0.0)]).is_err());
     }
 
     #[test]

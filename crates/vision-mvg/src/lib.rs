@@ -7,7 +7,7 @@
 //!   symmetric transfer error for homographies
 //! - **Cheirality**: pose disambiguation from essential matrix decomposition
 //! - **Pose recovery**: [`recover_relative_pose`] — end-to-end calibrated 2-view pose
-//! - **Triangulation**: two-view triangulation with diagnostics
+//! - **Triangulation**: two-view and N-view triangulation with diagnostics
 //!
 //! # Low-level solvers (re-exported from `vision-geometry`)
 //!

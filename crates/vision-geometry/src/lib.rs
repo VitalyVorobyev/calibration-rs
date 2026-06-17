@@ -7,10 +7,13 @@
 //!
 //! # Modules
 //!
-//! - [`math`] — Hartley normalization, polynomial solvers, SVD extraction helpers
+//! - [`math`] — DLT rank guard, plus a re-export of the shared linear-algebra
+//!   primitives (Hartley normalization, polynomial/null-space solvers) from
+//!   [`vision_calibration_core::linalg`]
 //! - [`epipolar`] — Fundamental and essential matrix estimation, decomposition
 //! - [`homography`] — Normalized DLT homography estimation with optional RANSAC
-//! - [`triangulation`] — Linear DLT triangulation from multiple views
+//! - [`triangulation`] — N-view triangulation: linear DLT + Gauss-Newton
+//!   reprojection refinement
 //! - [`camera_matrix`] — Camera projection matrix estimation and RQ decomposition
 //!
 //! # Coordinate Conventions
