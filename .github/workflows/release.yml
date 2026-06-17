@@ -87,13 +87,27 @@ jobs:
             version=$(echo "$metadata" \
               | jq -r --arg c "$crate" '.packages[] | select(.name == $c) | .version')
 
-            # Idempotent: skip a version already on crates.io. Lets the
-            # first publish of a new crate be done manually (trusted
-            # publishing must be configured on an existing crate), and
-            # makes the job safe to re-run after a mid-release failure.
+            # Look up this crate on the crates.io sparse index.
             index_url="https://index.crates.io/${crate:0:2}/${crate:2:2}/${crate}"
-            if curl -sf "$index_url" \
-              | jq -e --arg v "$version" 'select(.vers == $v)' >/dev/null; then
+            http_code=$(curl -s -o index_entry.json -w '%{http_code}' "$index_url")
+
+            # A 404 means the crate has never been published. crates.io
+            # trusted publishing can only be configured on a crate that
+            # already exists, so the OIDC token from crates-io-auth-action
+            # cannot authorize the very first upload. Skip with a warning
+            # rather than hard-failing the whole DAG: publish the first
+            # version manually, configure trusted publishing, then re-run.
+            if [ "$http_code" = "404" ]; then
+              echo "::warning::${crate} is not on crates.io yet — its first publish must be done manually, then configure trusted publishing. Skipping."
+              continue
+            elif [ "$http_code" != "200" ]; then
+              echo "crates.io index lookup for ${crate} returned HTTP ${http_code}" >&2
+              exit 1
+            fi
+
+            # Idempotent: skip a version already on crates.io. Makes the
+            # job safe to re-run after a mid-release failure.
+            if jq -e --arg v "$version" 'select(.vers == $v)' index_entry.json >/dev/null; then
               echo "${crate} ${version} already on crates.io — skipping."
               continue
             fi
