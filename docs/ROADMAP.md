@@ -265,6 +265,16 @@ joint-BA data density (P2), tiny-solver backend cost (P3 — analytic/cached/
 parallel Jacobians), criterion guards (P4), per-stage timing (P5). This track is
 the natural home for reviving an autodiff-capable second backend (see Track O).
 
+**Scheimpflug intrinsics — seeded init is the supported path (ADR 0022,
+2026-06-17).** From-scratch Scheimpflug *intrinsics* is unstable under the
+tilt↔focal↔distortion degeneracy and is now demoted to **experimental** (it logs a
+warning). The supported default seeds a coarse focal + the nominal Scheimpflug
+mount tilt and lets BA refine. The private `rtv3d_ref_intrinsics` harness
+calibrates all 6 cameras from one coarse seed and **every camera clears the hard
+≤ 0.5 px gate** (`[0.373, 0.267, 0.282, 0.473, 0.342, 0.321]` px). A reprojection
+error > 0.5 px is never accepted as success. P6's from-scratch *rig* path remains
+experimental.
+
 ### Track M — Camera-model expansion (M0 DONE 2026-06-12)
 
 Supersedes the former "new camera models out of scope" rule — all four models

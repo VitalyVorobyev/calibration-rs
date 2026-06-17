@@ -399,9 +399,7 @@ fn fit_zero_skew_k_and_tilt(
             lhs[(i, i)] += lambda;
         }
         let rhs = -(jac.transpose() * best_res);
-        let Some(mut step) = lhs.lu().solve(&rhs) else {
-            return None;
-        };
+        let mut step = lhs.lu().solve(&rhs)?;
         let step_norm = step.norm();
         if step_norm > 0.25 {
             step *= 0.25 / step_norm;

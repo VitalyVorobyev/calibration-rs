@@ -514,38 +514,37 @@ pub fn step_intrinsics_optimize_all(
         }
     }
 
-    if session.state.per_cam_intrinsics_auto {
-        if let SensorMode::Scheimpflug {
+    if session.state.per_cam_intrinsics_auto
+        && let SensorMode::Scheimpflug {
             fix_scheimpflug_in_intrinsics,
             distortion_mask_in_percam_ba,
             ..
         } = &config.sensor
-        {
-            let solve_opts = ScheimpflugIntrinsicsSolveOptions {
-                robust_loss: config.solver.robust_loss,
-                fix_intrinsics: IntrinsicsFixMask::default(),
-                fix_distortion: *distortion_mask_in_percam_ba,
-                fix_scheimpflug: *fix_scheimpflug_in_intrinsics,
-                fix_poses: vec![0],
-                bounds: None,
-            };
-            let backend_opts = BackendSolveOptions {
-                max_iters,
-                verbosity,
-                ..Default::default()
-            };
-            if let Some(sensors) = optimized_sensors.as_mut() {
-                recover_bad_scheimpflug_cameras_from_nominal(
-                    &scheimpflug_work_items,
-                    &mut optimized_cameras,
-                    sensors,
-                    &mut per_cam_reproj_errors,
-                    &mut per_cam_target_poses,
-                    solve_opts,
-                    backend_opts,
-                    config.rig.reference_camera_idx,
-                )?;
-            }
+    {
+        let solve_opts = ScheimpflugIntrinsicsSolveOptions {
+            robust_loss: config.solver.robust_loss,
+            fix_intrinsics: IntrinsicsFixMask::default(),
+            fix_distortion: *distortion_mask_in_percam_ba,
+            fix_scheimpflug: *fix_scheimpflug_in_intrinsics,
+            fix_poses: vec![0],
+            bounds: None,
+        };
+        let backend_opts = BackendSolveOptions {
+            max_iters,
+            verbosity,
+            ..Default::default()
+        };
+        if let Some(sensors) = optimized_sensors.as_mut() {
+            recover_bad_scheimpflug_cameras_from_nominal(
+                &scheimpflug_work_items,
+                &mut optimized_cameras,
+                sensors,
+                &mut per_cam_reproj_errors,
+                &mut per_cam_target_poses,
+                solve_opts,
+                backend_opts,
+                config.rig.reference_camera_idx,
+            )?;
         }
     }
 
@@ -572,6 +571,7 @@ pub fn step_intrinsics_optimize_all(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn optimize_scheimpflug_intrinsics_auto_multistart(
     cam_idx: usize,
     dataset: &PlanarDataset,
@@ -636,7 +636,7 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
         let staged = ScheimpflugStagedInitOptions {
             tilt_x_seeds: vec![params.sensor.tilt_x],
             tilt_y_seeds: vec![params.sensor.tilt_y],
-            sweep_max_iters: backend_opts.max_iters.min(20).max(1),
+            sweep_max_iters: backend_opts.max_iters.clamp(1, 20),
             ..Default::default()
         };
         match optimize_scheimpflug_intrinsics_staged(
@@ -684,6 +684,7 @@ const SCHEIMPFLUG_NOMINAL_TOP_LOCAL_CANDIDATES: usize = 10;
 const SCHEIMPFLUG_NOMINAL_RIG_EXPAND_SOURCE: usize = 80;
 const SCHEIMPFLUG_NOMINAL_TOP_RIG_CANDIDATES: usize = 6;
 
+#[allow(clippy::too_many_arguments)]
 fn recover_bad_scheimpflug_cameras_from_nominal(
     work_items: &[ScheimpflugCameraWork],
     cameras: &mut [PinholeCamera],
@@ -875,13 +876,14 @@ fn median_of(values: impl Iterator<Item = f64>) -> Option<f64> {
     }
     values.sort_by(f64::total_cmp);
     let mid = values.len() / 2;
-    Some(if values.len() % 2 == 0 {
+    Some(if values.len().is_multiple_of(2) {
         0.5 * (values[mid - 1] + values[mid])
     } else {
         values[mid]
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn recover_one_scheimpflug_camera_from_nominal(
     item: &ScheimpflugCameraWork,
     nominal: NominalScheimpflugSeed,
@@ -903,8 +905,8 @@ fn recover_one_scheimpflug_camera_from_nominal(
 
     for scored_seed in scored
         .iter()
-        .cloned()
         .take(SCHEIMPFLUG_NOMINAL_TOP_LOCAL_CANDIDATES)
+        .cloned()
     {
         let candidate = optimize_scheimpflug_intrinsics(
             &item.dataset,
@@ -972,14 +974,12 @@ fn recover_one_scheimpflug_camera_from_nominal(
                 num_views,
                 solve_opts,
                 backend_opts,
-            )? {
-                if candidate.mean_reproj_error.is_finite()
-                    && best.as_ref().is_none_or(|current| {
-                        candidate.mean_reproj_error < current.mean_reproj_error
-                    })
-                {
-                    best = Some(candidate);
-                }
+            )? && candidate.mean_reproj_error.is_finite()
+                && best
+                    .as_ref()
+                    .is_none_or(|current| candidate.mean_reproj_error < current.mean_reproj_error)
+            {
+                best = Some(candidate);
             }
         }
     }
@@ -1026,6 +1026,7 @@ fn score_bad_scheimpflug_seed_against_good_rig(
     (count > 0).then_some(sum / count as f64)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn optimize_bad_scheimpflug_camera_against_good_rig(
     item: &ScheimpflugCameraWork,
     candidate_params: &ScheimpflugIntrinsicsParams,
@@ -1287,17 +1288,12 @@ fn score_scheimpflug_seed(
         &params.intrinsics,
         &params.distortion,
         params.sensor,
-    ) {
-        if let Ok(params) = ScheimpflugIntrinsicsParams::new(
-            params.intrinsics,
-            params.distortion,
-            params.sensor,
-            poses,
-        ) {
-            let score = mean_scheimpflug_reproj(dataset, &params);
-            if score.is_finite() {
-                scored.push(ScoredScheimpflugSeed { score, params });
-            }
+    ) && let Ok(params) =
+        ScheimpflugIntrinsicsParams::new(params.intrinsics, params.distortion, params.sensor, poses)
+    {
+        let score = mean_scheimpflug_reproj(dataset, &params);
+        if score.is_finite() {
+            scored.push(ScoredScheimpflugSeed { score, params });
         }
     }
 }

@@ -72,7 +72,7 @@ fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
     (board_2d, pixel_2d)
 }
 
-fn intrinsics_k_matrix(k: &FxFyCxCySkew<Real>) -> Mat3 {
+pub(crate) fn intrinsics_k_matrix(k: &FxFyCxCySkew<Real>) -> Mat3 {
     Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
 }
 

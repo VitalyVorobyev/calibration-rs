@@ -80,8 +80,8 @@ impl ScheimpflugBounds {
 
     /// Generous bounds centered on a converged intrinsics estimate: focals
     /// within `[lo, hi]×` the estimate, principal point within a focal-scaled
-    /// window, and tilt within `±tilt_bound`. Wide enough not to bias a healthy
-    /// solve, tight enough to forbid the degenerate runaway.
+    /// window, and tilt within `tilt_center ± tilt_bound`. Wide enough not to
+    /// bias a healthy solve, tight enough to forbid the degenerate runaway.
     fn around(k: &FxFyCxCySkew<Real>, opts: &ScheimpflugStagedInitOptions) -> Self {
         let pp_x = opts.principal_point_bound_focal_fraction * k.fx;
         let pp_y = opts.principal_point_bound_focal_fraction * k.fy;
@@ -96,8 +96,14 @@ impl ScheimpflugBounds {
             )),
             cx: Some((k.cx - pp_x, k.cx + pp_x)),
             cy: Some((k.cy - pp_y, k.cy + pp_y)),
-            tilt_x: Some((-opts.tilt_bound, opts.tilt_bound)),
-            tilt_y: Some((-opts.tilt_bound, opts.tilt_bound)),
+            tilt_x: Some((
+                opts.tilt_center_x - opts.tilt_bound,
+                opts.tilt_center_x + opts.tilt_bound,
+            )),
+            tilt_y: Some((
+                opts.tilt_center_y - opts.tilt_bound,
+                opts.tilt_center_y + opts.tilt_bound,
+            )),
         }
     }
 }
@@ -337,8 +343,19 @@ pub struct ScheimpflugStagedInitOptions {
     pub focal_bound_factor: (f64, f64),
     /// Principal-point bound half-width as a fraction of the focal length.
     pub principal_point_bound_focal_fraction: f64,
-    /// Tilt magnitude bound (radians) for the final refine.
+    /// Tilt magnitude bound (radians) for the final refine, measured from
+    /// `tilt_center_x` / `tilt_center_y`. With the defaults (`tilt_center_*
+    /// = 0.0`) this produces the symmetric `(−tilt_bound, +tilt_bound)`
+    /// window used by the cold-start path. Set to the seeded mount angle for
+    /// warm-start use to keep the optimizer out of the degenerate high-tilt
+    /// basin that lies outside the physically realistic mount-angle range.
     pub tilt_bound: f64,
+    /// Center of the `tilt_x` bound window (radians). Default `0.0` gives
+    /// the cold-start symmetric window; set to the seeded `tilt_x` for the
+    /// warm-start path.
+    pub tilt_center_x: f64,
+    /// Center of the `tilt_y` bound window (radians). Default `0.0`.
+    pub tilt_center_y: f64,
 }
 
 impl Default for ScheimpflugStagedInitOptions {
@@ -352,6 +369,8 @@ impl Default for ScheimpflugStagedInitOptions {
             focal_bound_factor: (0.75, 1.5),
             principal_point_bound_focal_fraction: 0.15,
             tilt_bound: 0.30,
+            tilt_center_x: 0.0,
+            tilt_center_y: 0.0,
         }
     }
 }
@@ -506,13 +525,18 @@ pub fn optimize_scheimpflug_intrinsics_staged(
     })?;
 
     // ── Stage 2: refine the winning basin on the FULL data ──────────────────
-    // First with the principal point still frozen (L2, full budget) so the tilt
-    // and focal converge precisely against every corner.
+    // Principal point still frozen; focal, tilt, distortion, and poses free.
+    // Use the caller's robust loss (not None) so that corners that are badly
+    // explained by the current (biased, zero-distortion) model are
+    // down-weighted. L2 here would let a few strongly-distorted edge corners
+    // pull the tilt and focal toward a degenerate basin; robust loss keeps the
+    // optimization within the correct basin until distortion can absorb the
+    // large residuals.
     let r1 = solve_stage(
         dataset,
         &best.params,
         frozen_pp_opts(
-            RobustLoss::None,
+            robust_loss,
             fix_distortion,
             fix_poses.clone(),
             Some(init_bounds),
@@ -528,10 +552,20 @@ pub fn optimize_scheimpflug_intrinsics_staged(
 
     // ── Stage 3: bounded joint refine that frees the principal point ─────────
     // Box bounds forbid the `fx → 0 / cx → -1e19` runaway near the solution.
-    let bounds = ScheimpflugBounds::around(&r1.params.intrinsics, staged_opts);
+    //
+    // Crucially, we anchor the focal bounds to the *initial* seed (init_bounds),
+    // NOT to the Stage 2 result. If Stage 2 drifted toward its lower focal
+    // bound (due to a frozen pp bias or a poorly conditioned frozen-pp
+    // landscape), re-centering on Stage 2 would cascade the erosion further —
+    // Stage 3 would start from the wrong focal and its bounds would exclude the
+    // true focal. Anchoring to init_bounds keeps the correct focal range
+    // accessible regardless of Stage 2's behavior, letting Stage 3 (with the pp
+    // free) find the true optimum. For cameras where Stage 2 correctly converges
+    // near the seed focal, init_bounds and the old r1-centered bounds are nearly
+    // identical, so this change is a no-op for well-behaved cameras.
     let refine_opts = ScheimpflugIntrinsicsSolveOptions {
         robust_loss: RobustLoss::None,
-        bounds: Some(bounds),
+        bounds: Some(init_bounds),
         ..final_opts
     };
     match solve_stage(

@@ -178,6 +178,20 @@ Systemic causes:
   than factored into `rig_family` for `rig_extrinsics`, and the final joint
   hand-eye per-camera reprojection still has cam 0 at ~`0.528px` despite
   sub-`0.5px` intrinsics solves.
+- [x] P7-SCHEIMPFLUG-SEEDED-DEFAULT - Make **user-seeded** Scheimpflug *intrinsics*
+  the supported default and demote from-scratch to experimental (ADR 0022).
+  **Done 2026-06-17.** The seeded path now (a) trusts a user-provided mount-tilt
+  seed instead of the cold multi-start sweep, (b) frees the (non-existent) pose
+  gauge that previously pinned a distortion-biased homography pose off the optimum,
+  and (c) escapes the spurious `k1≈0` local minimum via a `k1` multi-start with
+  tilt fixed, then a bounded joint refine. New private harness `rtv3d_ref_intrinsics`
+  calibrates all 6 `rtv3d_ref` cameras from one coarse shared seed
+  (`fx=fy=1150, pp=(360,270), tilt_x=−0.087, distortion=0`) and **all pass the hard
+  ≤ 0.5 px gate** (`[0.373, 0.267, 0.282, 0.473, 0.342, 0.321]` px; cam 3 is the
+  tightest). Public CI guard: synthetic
+  `seeded_coarse_prior_converges_on_strong_tilt_distortion`. From-scratch
+  `step_init` now logs an experimental warning. **A reprojection error > 0.5 px is
+  never accepted as success** — the harness exits non-zero on any miss.
 
 ## M — camera models (gated on M0)
 

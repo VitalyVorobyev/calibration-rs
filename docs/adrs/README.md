@@ -43,3 +43,4 @@ Status legend:
 - [0019 - Fail Fast on Ambiguity (`AskUser` runtime contract)](0019-fail-fast-on-ambiguity.md)
 - [0020 - Camera Model as Data in the Factor IR](0020-camera-model-as-data-factor-ir.md)
 - [0021 - Laser-Frame Dataset Manifest](0021-laser-frame-manifest.md)
+- [0022 - Scheimpflug Intrinsics: User-Seeded Initialization is the Supported Default](0022-scheimpflug-intrinsics-seeded-default.md)

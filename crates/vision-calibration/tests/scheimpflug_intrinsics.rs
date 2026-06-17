@@ -6,7 +6,8 @@ use vision_calibration::core::{
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::scheimpflug_intrinsics::{
     ScheimpflugFixMask, ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
-    ScheimpflugIntrinsicsResult, run_calibration,
+    ScheimpflugIntrinsicsResult, ScheimpflugManualInit, run_calibration, step_init_with_seed,
+    step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
 
@@ -141,6 +142,174 @@ fn run_pipeline(
         .output()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("missing output after successful calibration"))
+}
+
+/// Poses that place the 0.25 m × 0.20 m board across the frame with enough
+/// angular diversity to make a ≈−5° sensor tilt observable. Translation centers
+/// the board on the optical axis (its origin is a corner, so shift by half its
+/// extent) at ~0.45–0.54 m.
+fn rtv3d_like_poses() -> Vec<Iso3> {
+    let (bx, by) = (-0.125, -0.10);
+    let specs = [
+        (0.0, 0.0, 0.45, 0.0, 0.0, 0.0),
+        (0.03, -0.02, 0.48, 0.12, -0.06, 0.0),
+        (-0.03, 0.02, 0.52, -0.10, 0.08, 0.03),
+        (0.02, 0.04, 0.46, 0.06, 0.14, -0.04),
+        (-0.05, -0.03, 0.50, -0.13, -0.05, 0.06),
+        (0.04, 0.01, 0.44, 0.10, 0.02, -0.02),
+        (-0.02, -0.05, 0.54, -0.04, -0.12, 0.05),
+        (0.05, 0.03, 0.47, 0.15, 0.07, 0.0),
+        (-0.04, 0.05, 0.49, -0.08, 0.11, -0.03),
+        (0.01, -0.04, 0.53, 0.03, -0.10, 0.04),
+        (0.03, 0.05, 0.45, 0.09, 0.13, 0.02),
+        (-0.05, 0.0, 0.51, -0.14, 0.0, -0.05),
+    ];
+    specs
+        .iter()
+        .map(|&(tx, ty, tz, rx, ry, rz)| {
+            Iso3::from_parts(
+                Translation3::new(bx + tx, by + ty, tz),
+                Rotation3::from_euler_angles(rx, ry, rz).into(),
+            )
+        })
+        .collect()
+}
+
+/// rtv3d_ref-like synthetic dataset: strong radial distortion (k1 ≈ −0.43) plus
+/// a ≈−5° Scheimpflug tilt — the regime where Zhang-from-scratch underestimates
+/// the focal and the LM settles into a wrong tilt/focal basin (see ADR 0022 and
+/// the P6 diagnosis). Returns the dataset and the ground-truth intrinsics /
+/// distortion / sensor for recovery checks.
+fn make_rtv3d_like_dataset() -> (
+    PlanarDataset,
+    FxFyCxCySkew<f64>,
+    BrownConrady5<f64>,
+    ScheimpflugParams,
+) {
+    let intr = FxFyCxCySkew {
+        fx: 1153.0,
+        fy: 1163.0,
+        cx: 369.0,
+        cy: 264.0,
+        skew: 0.0,
+    };
+    let dist = BrownConrady5 {
+        k1: -0.43,
+        k2: 0.34,
+        k3: 0.0,
+        p1: 0.0,
+        p2: 0.0,
+        iters: 8,
+    };
+    let sensor = ScheimpflugParams {
+        tilt_x: -0.09,
+        tilt_y: 0.006,
+    };
+    let camera = Camera::new(Pinhole, dist, sensor.compile(), intr);
+
+    let spacing = 0.025;
+    let mut board = Vec::new();
+    for i in 0..11 {
+        for j in 0..9 {
+            board.push(Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0));
+        }
+    }
+
+    let views = rtv3d_like_poses()
+        .into_iter()
+        .map(|pose| {
+            let mut points_3d = Vec::new();
+            let mut points_2d = Vec::new();
+            for point in &board {
+                let point_cam = pose.transform_point(point);
+                if let Some(px) = camera.project_point(&point_cam) {
+                    points_3d.push(*point);
+                    points_2d.push(Pt2::new(px.x, px.y));
+                }
+            }
+            View::without_meta(CorrespondenceView::new(points_3d, points_2d).expect("obs"))
+        })
+        .collect();
+    (
+        PlanarDataset::new(views).expect("dataset"),
+        intr,
+        dist,
+        sensor,
+    )
+}
+
+/// The **supported** Scheimpflug-intrinsics workflow (ADR 0022): a *coarse*
+/// user-provided focal seed, refined to the true optimum. On this rtv3d-like
+/// strong-tilt + strong-distortion data, from-scratch Zhang lands in a wrong
+/// basin; a coarse focal seed (≈9 % low, principal point at image center, no
+/// distortion, no tilt) must converge well under the 0.5 px gate and recover the
+/// true tilt basin and focal. Only the focal seed is load-bearing — the staged
+/// sweep finds the tilt.
+#[test]
+fn seeded_coarse_prior_converges_on_strong_tilt_distortion() {
+    let (dataset, gt_intr, _gt_dist, gt_sensor) = make_rtv3d_like_dataset();
+
+    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    session.set_input(dataset).expect("input");
+
+    let mut config = ScheimpflugIntrinsicsConfig::default();
+    config.fix_scheimpflug = ScheimpflugFixMask {
+        tilt_x: false,
+        tilt_y: false,
+    };
+    session.set_config(config).expect("config");
+
+    // `ScheimpflugManualInit` is `#[non_exhaustive]`; build via Default + field
+    // assignment. The realistic Scheimpflug prior: a coarse focal (≈9% low, pp at
+    // image center) and the nominal mount tilt (≈−5°, a known mechanical spec).
+    // distortion/poses stay None (auto). The seeded tilt is trusted directly.
+    let mut seed = ScheimpflugManualInit::default();
+    seed.intrinsics = Some(FxFyCxCySkew {
+        fx: 1050.0,
+        fy: 1050.0,
+        cx: 360.0,
+        cy: 270.0,
+        skew: 0.0,
+    });
+    seed.sensor = Some(ScheimpflugParams {
+        tilt_x: -0.087,
+        tilt_y: 0.0,
+    });
+    step_init_with_seed(&mut session, seed, None).expect("seeded init");
+    step_optimize(&mut session, None).expect("optimize");
+
+    let result = session.output().expect("output");
+    let intrinsics = match &result.params.camera.intrinsics {
+        vision_calibration::core::IntrinsicsParams::FxFyCxCySkew { params } => *params,
+    };
+    let sensor = match &result.params.camera.sensor {
+        vision_calibration::core::SensorParams::Scheimpflug { params } => *params,
+        other => panic!("unexpected sensor params: {other:?}"),
+    };
+
+    assert!(
+        result.mean_reproj_error < 0.1,
+        "seeded reproj {:.4}px exceeds the noise-free margin (0.5px gate)",
+        result.mean_reproj_error
+    );
+    assert!(
+        (intrinsics.fx - gt_intr.fx).abs() / gt_intr.fx < 0.02,
+        "fx {:.1} not within 2% of {:.1}",
+        intrinsics.fx,
+        gt_intr.fx
+    );
+    assert!(
+        (sensor.tilt_x - gt_sensor.tilt_x).abs() < 0.01,
+        "tilt_x {:.4} not within 0.01 rad of {:.4}",
+        sensor.tilt_x,
+        gt_sensor.tilt_x
+    );
+    assert!(
+        (sensor.tilt_y - gt_sensor.tilt_y).abs() < 0.01,
+        "tilt_y {:.4} not within 0.01 rad of {:.4}",
+        sensor.tilt_y,
+        gt_sensor.tilt_y
+    );
 }
 
 #[test]
