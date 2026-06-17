@@ -62,12 +62,21 @@ jobs:
           # `dataset` and `detect` have no internal deps but are
           # non-optional dependencies of `pipeline`, so they must be
           # on the registry before `pipeline` is published.
+          # `vision-geometry` (needs core) and `vision-mvg` (needs
+          # core + geometry) are a standalone MVG island — no
+          # calibration-chain crate depends on them, but they are
+          # part of the publish set, so they ship in DAG order:
+          # geometry after core, mvg after geometry.
+          # `vision-calibration-py` is published to PyPI by
+          # release-pypi.yml, not here.
           crates=(
             vision-calibration-core
+            vision-geometry
             vision-calibration-dataset
             vision-calibration-detect
             vision-calibration-linear
             vision-calibration-optim
+            vision-mvg
             vision-calibration-pipeline
             vision-calibration
           )
