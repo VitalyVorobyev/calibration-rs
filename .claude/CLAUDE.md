@@ -146,7 +146,7 @@ the dependency DAG: `vision-calibration-core` → `vision-geometry` →
 `vision-mvg` → `vision-calibration-pipeline` → `vision-calibration` →
 `vision-calibration-py`. `vision-geometry`/`vision-mvg` have never been
 published, so their first crates.io version is the current workspace version
-(a fresh `0.x` crate may be published at `0.5.1`); the already-published crates
+(a fresh `0.x` crate may be published at `0.6.0`); the already-published crates
 only need re-publishing on the next workspace-wide version bump.
 
 `Cargo.lock` refreshes by running `cargo build --workspace` once after
@@ -158,6 +158,18 @@ but never reached PyPI: each release missed the `pyproject.toml` bump,
 which tripped the `release-pypi.yml` verify gate and skipped the
 wheel build / upload. `0.5.1` repaired this; see the fix commit for
 the full failure map.
+
+`0.6.0` exists because of a second trap: PR #67 added the public
+`vision_calibration_core::linalg` module to the already-published
+`core@0.5.1` **without** a version bump, so local `core@0.5.1` diverged
+from the immutable crates.io `core@0.5.1`. Publishing `vision-geometry`
+(which re-exports `core::linalg`) then failed `--dry-run` with `E0432`,
+because publish strips path deps and resolved the *old* registry
+`core@0.5.1` that has no `linalg`. **Lesson:** adding public API to an
+already-published crate is a release event — it must ride a
+workspace-wide version bump, never land at the same version. The whole
+post-v0.5.1 DAG (PRs #66–#70) was unpublished, so `0.6.0` re-releases
+all nine crates together in DAG order.
 
 **Pre-tag local check** (catches the four most common release breakages
 before the tag is pushed):
