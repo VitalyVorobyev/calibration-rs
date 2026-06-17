@@ -245,12 +245,35 @@ Systemic causes:
   feature, 31 tests), both `publish = false`. `vision-calibration-linear`
   untouched (zero regression). [ADR 0015](adrs/0015-mvg-ceiling.md) caps the
   ceiling (no dense matcher, no full SfM).
-- [ ] C1-FOLLOWUP - De-duplicate `vision-calibration-linear` onto
-  `vision-geometry` (have `linear` depend on the new crate, delete the moved
-  solvers). Deferred from C1 to keep landing additive; do supervised with the
-  numeric pins on both sides as the gate. Also: promote both crates to the
-  crates.io publish set + release version-lockstep when the API stabilises;
-  PyO3 bindings (deferred per A5); close the stale `mvg` branch / PR #28.
+- [~] C1-FOLLOWUP - De-duplicate the geometric solvers (have the calibration
+  and MVG crates share one source of truth instead of parallel copies).
+  **Partially done 2026-06-17** — stale `mvg` branch / PR #28 and the other
+  merged feature branches pruned; the shared **low-level `math` primitives** are
+  now deduped onto the shared foundation crate. Rather than make the published
+  `vision-calibration-linear` depend on the (private) `vision-geometry` for a
+  handful of numeric helpers — a layering smell that would also force geometry's
+  publication — the primitives moved **down into `vision-calibration-core`** as a
+  new `vision_calibration_core::linalg` module (with a typed `MathError` replacing
+  stringly `anyhow`, advancing D1): `normalize_points_2d/3d`,
+  `solve_{quadratic,cubic,quartic}_real`, `null_space` + `NullSpaceSolution`,
+  `mat3/mat34_{from_vec,from_svd_row}`. **Both** `linear::math` and
+  `geometry::math` now re-export from `core::linalg`; `geometry` keeps only its
+  DLT-specific `dlt_rank_ok`. No new cross-crate dependency edge; full suite green
+  (zero drift). The linear-only helpers `ridge_lstsq` / `project_to_so3` stay in
+  `linear`.
+  - [ ] **Remaining (supervised):** the higher-level solvers
+    (`homography`, `epipolar/{fundamental,essential,decomposition}`,
+    `camera_matrix`, `triangulation`) are still duplicated between `linear` and
+    `geometry`. The two implementations have **diverged** (geometry was a fresh
+    port — richer essential/RANSAC, different normalization/error paths), so
+    substituting one for the other risks **calibration numeric drift**. Reconcile
+    numeric equivalence (golden pins on both sides as the gate) before
+    collapsing — not a safe unsupervised swap. Whether the shared home is
+    `core`, `geometry`, or a new crate is part of that design.
+  - [ ] Promote `vision-geometry` / `vision-mvg` to the crates.io publish set +
+    release version-lockstep when MVG is ready to be first-class; PyO3 bindings
+    (deferred per A5). Not required by this dedup (no published crate depends on
+    geometry).
 - [ ] C2-TRIANGULATION - N-view triangulation + nonlinear refinement.
 - [ ] C3-BA - Bundle adjustment with frozen intrinsics, free poses, free
   structure.
