@@ -1,6 +1,7 @@
 //! Typed error enum for `vision-calibration-linear`.
 
 use vision_calibration_core::Error as CoreError;
+use vision_calibration_core::linalg::MathError;
 
 /// Errors returned by public APIs in `vision-calibration-linear`.
 #[derive(Debug, thiserror::Error)]
@@ -25,6 +26,20 @@ pub enum Error {
     /// Forwarded error from `vision-calibration-core`.
     #[error(transparent)]
     Core(#[from] CoreError),
+}
+
+impl From<MathError> for Error {
+    /// Map a shared-solver failure into this crate's typed error, preserving the
+    /// `Singular` variant so existing callers and tests that match on it keep
+    /// working after the `math` primitives moved to `vision-calibration-core`.
+    fn from(e: MathError) -> Self {
+        match e {
+            MathError::Singular => Self::Singular,
+            // `MathError` is `#[non_exhaustive]`; degrade any future variant to a
+            // generic numerical failure rather than breaking the build downstream.
+            other => Self::Numerical(other.to_string()),
+        }
+    }
 }
 
 impl Error {

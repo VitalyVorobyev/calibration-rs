@@ -49,6 +49,10 @@
 
 /// Typed error enum for this crate.
 pub mod error;
+/// Low-level linear-algebra primitives shared by the calibration and MVG
+/// solver crates (Hartley normalization, polynomial roots, null space, SVD
+/// reshaping).
+pub mod linalg;
 /// Linear algebra type aliases and helpers.
 mod math;
 /// Camera models and distortion utilities.
