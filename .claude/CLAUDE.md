@@ -129,14 +129,25 @@ update **all four** in the same commit, or the release tag will wedge
 in CI:
 
 1. `Cargo.toml` `workspace.package.version` (line ~21).
-2. `Cargo.toml` `[workspace.dependencies]` path-dep pins for the seven
-   workspace crates (`vision-calibration*`, lines ~33–39).
+2. `Cargo.toml` `[workspace.dependencies]` path-dep pins for the nine
+   publishable workspace crates (`vision-calibration*` plus
+   `vision-geometry` and `vision-mvg`, lines ~33–45).
 3. `crates/vision-calibration-py/pyproject.toml` `project.version` —
    the one that `release-pypi.yml`'s `Verify tag/version sync` job
    reads directly. **Not** wired into `[workspace.package]`.
 4. `crates/vision-calibration-examples-private/Cargo.toml` (1 package
    version + 4 path-dep pins). Out of the publish set but still
    compiled in CI.
+
+**Publish set (2026-06-17):** `vision-geometry` and `vision-mvg` joined the
+publish set — nine publishable crates total. Crates.io publish order follows
+the dependency DAG: `vision-calibration-core` → `vision-geometry` →
+`vision-calibration-linear` → `vision-calibration-optim` →
+`vision-mvg` → `vision-calibration-pipeline` → `vision-calibration` →
+`vision-calibration-py`. `vision-geometry`/`vision-mvg` have never been
+published, so their first crates.io version is the current workspace version
+(a fresh `0.x` crate may be published at `0.5.1`); the already-published crates
+only need re-publishing on the next workspace-wide version bump.
 
 `Cargo.lock` refreshes by running `cargo build --workspace` once after
 the `.toml` edits — only the workspace crate `version` strings change

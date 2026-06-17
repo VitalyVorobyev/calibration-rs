@@ -1,8 +1,5 @@
 [package]
 name = "vision-geometry"
-# Not yet published to crates.io — landed internally first (API not stable).
-# Promote to the publish set + release version-lockstep deliberately (see CLAUDE.md).
-publish = false
 readme = "README.md"
 description = "Shared geometric solvers: epipolar geometry, homography, triangulation, camera matrix"
 keywords = ["computer-vision", "geometry", "epipolar", "homography", "triangulation"]

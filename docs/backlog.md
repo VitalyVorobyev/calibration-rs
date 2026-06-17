@@ -270,10 +270,14 @@ Systemic causes:
     numeric equivalence (golden pins on both sides as the gate) before
     collapsing — not a safe unsupervised swap. Whether the shared home is
     `core`, `geometry`, or a new crate is part of that design.
-  - [ ] Promote `vision-geometry` / `vision-mvg` to the crates.io publish set +
-    release version-lockstep when MVG is ready to be first-class; PyO3 bindings
-    (deferred per A5). Not required by this dedup (no published crate depends on
-    geometry).
+  - [x] Promote `vision-geometry` / `vision-mvg` to the crates.io publish set.
+    **Done 2026-06-17** (user call): `publish = false` removed from both; the
+    `[workspace.dependencies]` version pins were already in place; release
+    version-lockstep doc updated to nine publishable crates with the publish
+    order. The actual first `cargo publish` is a manual step the user drives.
+  - [ ] PyO3 bindings for the MVG surface — **deferred** (A5 Python parity was
+    dropped: no Python consumer, and the py crate binds the calibration facade
+    only). Revisit if a consumer appears.
 - [x] C2-TRIANGULATION - N-view triangulation + nonlinear refinement. **Done
   2026-06-17.** `vision-geometry` already had N-view linear DLT; added
   `triangulate_point` (linear init + self-contained Gauss-Newton reprojection
