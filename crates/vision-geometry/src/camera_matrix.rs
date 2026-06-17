@@ -3,7 +3,9 @@
 //! Provides a normalized DLT solver for the 3×4 projection matrix `P` and an
 //! RQ decomposition to recover intrinsics and rotation.
 
-use crate::math::{dlt_rank_ok, mat34_from_svd_row, normalize_points_2d, normalize_points_3d};
+use crate::math::{
+    dlt_rank_ok, mat34_from_vec, normalize_points_2d, normalize_points_3d, null_space,
+};
 use anyhow::Result;
 use nalgebra::{DMatrix, Matrix3, Matrix3x4};
 use vision_calibration_core::{Mat3, Pt2, Pt3, Real, Vec3};
@@ -104,20 +106,20 @@ pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
         a[(r1, 11)] = -v;
     }
 
-    let svd = a.svd(true, true);
+    // Solve `A p = 0` via `AᵀA` symmetric eigen (see [`null_space`]) — avoids
+    // nalgebra's hang-prone dense SVD on the tall `2N×12` design matrix.
+    let ns = null_space(&a)?;
     // Rank guard: the 12-column DLT must have a 1-D null space. Inputs that pass
     // the length and coplanarity checks can still be underdetermined — e.g. six
     // correspondences with only five unique 3D↔2D pairs — leaving a >1-D null
     // space whose smallest singular vector is arbitrary.
-    let sv: Vec<Real> = svd.singular_values.iter().cloned().collect();
-    if !dlt_rank_ok(&sv, 12, 1, 1e-7) {
+    if !dlt_rank_ok(&ns.singular_values, 12, 1, 1e-7) {
         anyhow::bail!(
             "rank-deficient camera DLT system: fewer than 6 independent \
              3D-2D correspondences (e.g. duplicate or collinear points)"
         );
     }
-    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
-    let p_norm = mat34_from_svd_row(&v_t, v_t.nrows() - 1);
+    let p_norm = mat34_from_vec(&ns.vector);
 
     let t_i_inv = t_i.try_inverse().ok_or(anyhow::anyhow!("SVD failed"))?;
     let p = t_i_inv * p_norm * t_w;

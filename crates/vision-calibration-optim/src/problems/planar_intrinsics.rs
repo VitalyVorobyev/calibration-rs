@@ -142,6 +142,8 @@ fn build_planar_intrinsics_ir(
             fix_pose_indices: opts.fix_poses.clone(),
             sensor: None,
             model: crate::ir::CameraModelDesc::PINHOLE4_DIST5,
+            intrinsics_bounds: None,
+            sensor_bounds: None,
         },
     )
 }

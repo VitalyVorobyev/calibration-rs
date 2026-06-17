@@ -225,11 +225,11 @@ fn estimate_rotation_allpairs_weighted(pairs: &[MotionPair]) -> anyhow::Result<M
             .copy_from(&(quat_left(&qa) - quat_right(&qb)));
     }
 
-    let svd = m.svd(true, true);
-    let v_t = svd
-        .v_t
-        .ok_or_else(|| anyhow::anyhow!("svd failed during hand-eye estimation"))?;
-    let q_vec = v_t.row(v_t.nrows() - 1);
+    // Smallest right-singular vector of the `4N×4` system via `AᵀA` symmetric
+    // eigen (see `math::null_space`) — avoids nalgebra's hang-prone dense SVD.
+    let q_vec = crate::math::null_space(&m)
+        .map_err(|e| anyhow::anyhow!("hand-eye rotation null-space failed: {e}"))?
+        .vector;
 
     let q = Quaternion::new(q_vec[0], q_vec[1], q_vec[2], q_vec[3]).normalize();
     Ok(UnitQuaternion::from_quaternion(q)
@@ -327,24 +327,11 @@ impl HandEyeInit {
 }
 
 /// Project a general 3x3 matrix to the closest rotation matrix (SO(3))
-/// using SVD.
+/// using SVD. Thin wrapper over [`crate::math::project_to_so3`] that adapts
+/// the typed error into the hand-eye solver's `anyhow` channel.
 fn project_to_so3(m: Matrix3<Real>) -> anyhow::Result<Matrix3<Real>> {
-    let svd = m.svd(true, true);
-    let u = svd
-        .u
-        .ok_or_else(|| anyhow::anyhow!("svd failed during hand-eye estimation"))?;
-    let v_t = svd
-        .v_t
-        .ok_or_else(|| anyhow::anyhow!("svd failed during hand-eye estimation"))?;
-    let mut r = u * v_t;
-
-    // Ensure det(R) > 0
-    if r.determinant() < 0.0 {
-        let mut u_flipped = u;
-        u_flipped.column_mut(2).neg_mut();
-        r = u_flipped * v_t;
-    }
-    Ok(r)
+    crate::math::project_to_so3(&m)
+        .map_err(|e| anyhow::anyhow!("hand-eye SO(3) projection failed: {e}"))
 }
 
 /// log: SO(3) -> so(3) as a 3-vector (axis * angle)
@@ -363,30 +350,15 @@ fn log_so3(r: &Matrix3<Real>) -> Vector3<Real> {
 /// Ridge-regularized least squares:
 /// min ||A x - b||^2 + λ ||x||^2
 fn ridge_llsq(a: &DMatrix<Real>, b: &DVector<Real>, lambda: Real) -> anyhow::Result<Vector3<Real>> {
-    let m = a.nrows();
-    let n = a.ncols(); // should be 3
-
-    // Build augmented system [A; sqrt(λ) I] x ≈ [b; 0]
-    if n != 3 {
+    // Solved via the normal equations `(AᵀA + λI) x = Aᵀ b` (see
+    // [`crate::math::ridge_lstsq`]) — algebraically identical to the augmented
+    // `[A; √λ I]` least-squares but without a dense SVD that can hang on a tall
+    // design matrix.
+    if a.ncols() != 3 {
         anyhow::bail!("linear solve failed during hand-eye estimation");
     }
-
-    let mut a_aug = DMatrix::<Real>::zeros(m + n, n);
-    a_aug.view_mut((0, 0), (m, n)).copy_from(a);
-
-    let sqrt_lambda = lambda.sqrt();
-    for i in 0..n {
-        a_aug[(m + i, i)] = sqrt_lambda;
-    }
-
-    let mut b_aug = DVector::<Real>::zeros(m + n);
-    b_aug.rows_mut(0, m).copy_from(b);
-
-    let svd = a_aug.svd(true, true);
-    let x = svd
-        .solve(&b_aug, 1e-12)
-        .map_err(|_| anyhow::anyhow!("linear solve failed during hand-eye estimation"))?;
-
+    let x = crate::math::ridge_lstsq(a, b, lambda)
+        .map_err(|e| anyhow::anyhow!("linear solve failed during hand-eye estimation: {e}"))?;
     Ok(Vector3::new(x[0], x[1], x[2]))
 }
 

@@ -64,3 +64,4 @@ tracing = { version = "0.1" }
 tiny-solver = "0.18"
 faer = "0.23"
 faer-ext = "0.7"
+criterion = "0.5"

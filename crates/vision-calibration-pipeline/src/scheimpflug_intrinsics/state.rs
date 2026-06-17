@@ -23,6 +23,12 @@ pub(crate) struct ScheimpflugIntrinsicsState {
     /// Initial Scheimpflug sensor parameters.
     pub initial_sensor: Option<ScheimpflugParams>,
 
+    /// Whether `initial_sensor` was a user-provided tilt seed (vs auto-estimated).
+    /// When `true`, the optimization trusts that tilt basin directly instead of
+    /// running the cold-start multi-start tilt sweep (see ADR 0022).
+    #[serde(default)]
+    pub initial_sensor_manual: bool,
+
     /// Initial pose estimates for each view (`camera_se3_target`).
     pub initial_poses: Option<Vec<Iso3>>,
 
@@ -95,6 +101,7 @@ mod tests {
             }),
             initial_distortion: Some(BrownConrady5::default()),
             initial_sensor: Some(ScheimpflugParams::default()),
+            initial_sensor_manual: false,
             initial_poses: Some(vec![Iso3::identity()]),
             final_cost: Some(1.0),
             mean_reproj_error: Some(0.5),
@@ -132,6 +139,7 @@ mod tests {
                 tilt_x: 0.01,
                 tilt_y: -0.008,
             }),
+            initial_sensor_manual: true,
             initial_poses: Some(vec![Iso3::identity()]),
             final_cost: Some(0.002),
             mean_reproj_error: Some(0.3),

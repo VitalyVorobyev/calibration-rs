@@ -89,9 +89,10 @@ pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3
         }
     }
 
-    let svd = m.svd(true, true);
-    let v_t = svd.v_t.ok_or(Error::Singular)?;
-    let sol = v_t.row(v_t.nrows() - 1);
+    // Solve `M x = 0` for the smallest right-singular vector via `AᵀA` symmetric
+    // eigen (see `math::null_space`) — avoids nalgebra's hang-prone dense SVD on
+    // the tall `2N×12` design matrix.
+    let sol = crate::math::null_space(&m)?.vector;
 
     let mut control_c = [Vec3::zeros(); 4];
     for (j, cc) in control_c.iter_mut().enumerate() {

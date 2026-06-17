@@ -6,8 +6,8 @@ use vision_calibration_core::{
 };
 
 use crate::ir::{
-    CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
-    RobustLoss,
+    Bound, CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
+    ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
@@ -21,6 +21,10 @@ pub(crate) struct PlanarReprojectionIrOptions {
     pub fix_pose_indices: Vec<usize>,
     pub sensor: Option<PlanarSensorIrOptions>,
     pub model: CameraModelDesc,
+    /// Optional per-index box bounds on the `cam` (`[fx, fy, cx, cy]`) block.
+    pub intrinsics_bounds: Option<Vec<Bound>>,
+    /// Optional per-index box bounds on the `sensor` (`[tilt_x, tilt_y]`) block.
+    pub sensor_bounds: Option<Vec<Bound>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -73,7 +77,7 @@ pub(crate) fn build_planar_reprojection_ir(
         INTRINSICS_DIM,
         ManifoldKind::Euclidean,
         FixedMask::fix_indices(&opts.fix_intrinsics_indices),
-        None,
+        opts.intrinsics_bounds.clone(),
     );
     initial_map.insert("cam".to_string(), pack_intrinsics(intrinsics)?);
 
@@ -92,7 +96,7 @@ pub(crate) fn build_planar_reprojection_ir(
             2,
             ManifoldKind::Euclidean,
             FixedMask::fix_indices(&sensor.fixed_index_vec()),
-            None,
+            opts.sensor_bounds.clone(),
         );
         initial_map.insert(
             "sensor".to_string(),

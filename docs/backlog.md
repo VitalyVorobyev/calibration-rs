@@ -100,6 +100,99 @@ backend).
   `BackendKind` is a single-variant enum and the dispatch has no unreachable
   arm. Report: `docs/report/2026-06-15-O3-CERES-drop-ceres-stub.md`.
 
+## P — Performance & profiling
+
+Opened 2026-06-16 after the from-scratch Scheimpflug rig calibration
+(`rtv3d_ref_rig`) took 30+ min on the dense `puzzle_board` dataset (~200
+corners/view). Root-caused to dense linear-algebra hot paths, not the
+algorithms. Full profiling:
+`docs/report/2026-06-16-perf-from-scratch-rig-profiling.md`.
+
+Systemic causes:
+1. `nalgebra::svd(true, true)` is used pervasively (~20 sites) for both
+   null-space extraction and least-squares. On a tall/dense design matrix it
+   accumulates the U factor across thousands of rows — pathologically slow
+   (the homography DLT hung >15 min; the distortion fit hung >11 min).
+2. The `tiny-solver` backend recomputes an autodiff (dual-number) Jacobian over
+   every residual each LM iteration, re-evaluates all residuals on each of up to
+   32 damping retries, and is single-threaded.
+3. No data-density control for the joint rig/hand-eye BA — per-iteration cost
+   scales linearly with corner count, but extrinsics/hand-eye do not need full
+   corner density.
+
+- [x] P1-SVD-SWEEP - Replace `svd(true, true)` on large matrices with a method
+  that cannot hang on nalgebra's unbounded QR iteration: `AᵀA` + symmetric-eigen
+  (null-space) or ridge-regularized normal equations / QR (least-squares).
+  Centralize behind `math::null_space` / `ridge_lstsq` / `project_to_so3`
+  helpers; guard non-finite inputs and reject geometrically-bad results.
+  **First pass 2026-06-16:** homography DLT and distortion fit (the two confirmed
+  hangs) + view-tolerant iterative init. **Sweep finished 2026-06-16** —
+  [report](report/2026-06-16-P1-SVD-SWEEP-finish-centralize.md): the 7 remaining
+  hang-risk null-space sites (`camera_matrix` + `pnp/dlt` + `pnp/epnp` +
+  `epipolar/{fundamental,essential}` across `linear` and `vision-geometry`,
+  including vision-geometry's insufficient `svd(false,true)` homography) and the
+  3 moderate sites (`handeye` rotation + `ridge_llsq`, `zhang_intrinsics`) now
+  route through `math::null_space` / `ridge_lstsq`; `project_to_so3` deduped
+  across 5 sites. All linear/geometry/mvg + downstream optim/pipeline (golden
+  pins) tests green; clippy + doc clean. **Left:** the small/bounded
+  `triangulation.rs` `2N×4` sites (`N` = view count); `linear`→`vision-geometry`
+  helper de-dup is C1-FOLLOWUP.
+- [ ] P2-BA-DENSITY - Principled corner budget for the joint rig + hand-eye BA
+  (spatially-distributed subsample preserving coverage, or per-stage decimation
+  knobs). Extrinsics/hand-eye converge on a fraction of the corners; the
+  per-camera intrinsics stage already uses a cheap subsampled tilt sweep + a
+  full-data refine (`optimize_scheimpflug_intrinsics_staged`).
+- [ ] P3-BACKEND-COST - Profile the tiny-solver split (autodiff Jacobian vs
+  `JᵀJ` assembly vs linear solve vs per-retry residual re-eval). Evaluate
+  analytic Jacobians for the hot `ReprojPoint` factor, Jacobian/residual caching,
+  and parallel (rayon) residual + Jacobian evaluation.
+- [x] P4-CRITERION - criterion benchmarks for the hot paths to guard against
+  regressions and quantify P1–P3 gains. **Done 2026-06-16** —
+  [report](report/2026-06-16-P4-CRITERION-hot-path-benches.md): `criterion`
+  workspace dev-dep + `[[bench]]` targets; `linear/benches/linear_init.rs`
+  (homography DLT 225pts ~8.6µs — was a >15min hang, zhang-from-homographies,
+  distortion fit) and `optim/benches/ba_iter.rs` (one per-camera planar BA solve
+  ~16.9ms). Deterministic synthetic data; `cargo bench --no-run` is the
+  CI-friendly guard. The joint rig/hand-eye-BA iteration bench needs the rig
+  fixtures and is deferred (per-camera BA is the proxy until then).
+- [x] P5-STAGE-TIMING - Per-stage timing instrumentation so future regressions
+  surface without ad-hoc harnesses. **Done 2026-06-16** —
+  [report](report/2026-06-16-P5-STAGE-TIMING-bench-per-stage.md): additive
+  `StageTiming` (6 optional per-stage `*_ms` fields) on the bench `Timing` struct
+  (`serde(default)` + `skip_serializing_if` → back-compat with v3 records, no
+  schema bump); `run_rig_extrinsics` (3 stages) and `run_rig_handeye` (5 stages)
+  now time each optimize sub-stage instead of lumping them into `optimize_ms`,
+  via a reusable `ms_since` helper. Serde back-compat/roundtrip test added.
+- [x] P6-PERCAM-CONVERGENCE - From-scratch Scheimpflug per-camera convergence
+  on the private `rtv3d_ref` rig. **Done 2026-06-16** —
+  [report](report/2026-06-16-P6-PERCAM-CONVERGENCE-tilt-aware-init.md);
+  supersedes the diagnosis
+  [report](report/2026-06-16-P6-PERCAM-CONVERGENCE-diagnosis.md). Implemented a
+  tilt-aware linear Scheimpflug initializer plus a rig-handeye auto-recovery pass
+  that forms a shared nominal seed from good cameras and retries bad cameras
+  against good-camera rig poses. Private validation:
+  `rtv3d_ref_rig` from scratch reaches per-camera intrinsics BA reprojection
+  `[0.3802, 0.2677, 0.2833, 0.3522, 0.4725, 0.3268]`, final mean reprojection
+  `0.4057px`, and all `tau_x` values stay within about `1.5°` of oracle. Remaining
+  risks: the shared-nominal retry is currently private to `rig_handeye` rather
+  than factored into `rig_family` for `rig_extrinsics`, and the final joint
+  hand-eye per-camera reprojection still has cam 0 at ~`0.528px` despite
+  sub-`0.5px` intrinsics solves.
+- [x] P7-SCHEIMPFLUG-SEEDED-DEFAULT - Make **user-seeded** Scheimpflug *intrinsics*
+  the supported default and demote from-scratch to experimental (ADR 0022).
+  **Done 2026-06-17.** The seeded path now (a) trusts a user-provided mount-tilt
+  seed instead of the cold multi-start sweep, (b) frees the (non-existent) pose
+  gauge that previously pinned a distortion-biased homography pose off the optimum,
+  and (c) escapes the spurious `k1≈0` local minimum via a `k1` multi-start with
+  tilt fixed, then a bounded joint refine. New private harness `rtv3d_ref_intrinsics`
+  calibrates all 6 `rtv3d_ref` cameras from one coarse shared seed
+  (`fx=fy=1150, pp=(360,270), tilt_x=−0.087, distortion=0`) and **all pass the hard
+  ≤ 0.5 px gate** (`[0.373, 0.267, 0.282, 0.473, 0.342, 0.321]` px; cam 3 is the
+  tightest). Public CI guard: synthetic
+  `seeded_coarse_prior_converges_on_strong_tilt_distortion`. From-scratch
+  `step_init` now logs an experimental warning. **A reprojection error > 0.5 px is
+  never accepted as success** — the harness exits non-zero on any miss.
+
 ## M — camera models (gated on M0)
 
 - [x] M0-GENERIFY - Factor generification (F1). Completed 2026-06-12

@@ -80,19 +80,33 @@ impl HomographySolver {
             a[(r1, 8)] = v;
         }
 
-        // Solve A h = 0 via SVD: take the singular vector for the smallest singular value.
-        let mut a_work = a;
-        if a_work.nrows() < a_work.ncols() {
-            let rows = a_work.nrows();
-            let cols = a_work.ncols();
-            let mut a_pad = DMatrix::<f64>::zeros(cols, cols);
-            a_pad.view_mut((0, 0), (rows, cols)).copy_from(&a_work);
-            a_work = a_pad;
+        // Solve `A h = 0` as the smallest-eigenvalue eigenvector of the 9×9
+        // normal matrix `AᵀA`. We deliberately avoid `A.svd(...)`: nalgebra's
+        // Golub-Kahan SVD runs an *unbounded* QR iteration (`max_niter = 0`) that
+        // fails to converge on some real detected-corner matrices — observed
+        // hanging for minutes on dense targets, in `delimit_subproblem`, even
+        // with `compute_u = false`. `AᵀA` is always 9×9 regardless of the
+        // correspondence count, and a symmetric eigendecomposition of it
+        // converges in a handful of sweeps; with the Hartley normalization above
+        // the squared conditioning is harmless. This mirrors OpenCV's
+        // `findHomography` DLT, which accumulates a 9×9 `LtL` and eigen-solves it.
+        let ata = a.transpose() * &a;
+        let eigen = ata.symmetric_eigen();
+        // A well-posed (Hartley-normalized) configuration yields all-finite
+        // eigenvalues. A non-finite one means a degenerate view (e.g. coincident
+        // or wildly out-of-range correspondences) — report it as singular rather
+        // than panicking on a NaN comparison.
+        if eigen.eigenvalues.iter().any(|v| !v.is_finite()) {
+            return Err(Error::Singular);
         }
-
-        let svd = a_work.svd(true, true);
-        let v_t = svd.v_t.ok_or(Error::Singular)?;
-        let h_vec = v_t.row(v_t.nrows() - 1);
+        let min_idx = eigen
+            .eigenvalues
+            .iter()
+            .enumerate()
+            .min_by(|(_, x), (_, y)| x.partial_cmp(y).expect("eigenvalues checked finite"))
+            .map(|(idx, _)| idx)
+            .ok_or(Error::Singular)?;
+        let h_vec = eigen.eigenvectors.column(min_idx);
 
         let mut h_mat = Mat3::zeros();
         for r in 0..3 {
@@ -291,5 +305,60 @@ mod tests {
         assert!(inliers.len() >= 4);
         let scale = h[(0, 0)];
         assert!((scale - 2.0).abs() < 1e-2);
+    }
+
+    /// Dense-target regression guard. A 15×15 grid yields 225 correspondences →
+    /// a 450×9 design matrix. The previous `svd(true, true)` drove nalgebra's
+    /// Golub-Kahan iteration into a multi-minute hang on inputs this size; the
+    /// `svd(false, true)` (skip-U) fix solves it in well under a millisecond.
+    /// We assert both exact recovery and a generous wall-clock bound so a future
+    /// regression that reinstates the hang fails fast instead of wedging CI.
+    #[test]
+    fn dense_homography_is_exact_and_fast() {
+        use std::time::Instant;
+
+        // Ground-truth homography with genuine perspective (h31, h32 ≠ 0).
+        let h_gt = Mat3::new(
+            1.2, 0.05, 3.0, //
+            0.1, 0.9, -2.0, //
+            0.0008, -0.0006, 1.0,
+        );
+
+        let mut world = Vec::with_capacity(225);
+        let mut image = Vec::with_capacity(225);
+        for iy in 0..15 {
+            for ix in 0..15 {
+                let x = ix as f64;
+                let y = iy as f64;
+                let p = h_gt * nalgebra::Vector3::new(x, y, 1.0);
+                world.push(Pt2::new(x, y));
+                image.push(Pt2::new(p.x / p.z, p.y / p.z));
+            }
+        }
+        assert_eq!(world.len(), 225);
+
+        let start = Instant::now();
+        let h = dlt_homography(&world, &image).unwrap();
+        let elapsed = start.elapsed();
+        eprintln!("dense 225-correspondence DLT solved in {elapsed:?}");
+
+        // Recovered H is normalized to H[2,2] = 1, matching h_gt's convention.
+        for r in 0..3 {
+            for c in 0..3 {
+                assert!(
+                    (h[(r, c)] - h_gt[(r, c)]).abs() < 1e-6,
+                    "H[{r},{c}] = {} != {}",
+                    h[(r, c)],
+                    h_gt[(r, c)]
+                );
+            }
+        }
+
+        // Generous bound: the fixed path is sub-millisecond; the old hang was
+        // >15 min. Anything under 2s confirms the pathological path is gone.
+        assert!(
+            elapsed.as_secs_f64() < 2.0,
+            "dense DLT took {elapsed:?} — perf regression (skip-U path lost?)"
+        );
     }
 }

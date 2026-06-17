@@ -22,3 +22,8 @@ thiserror = { workspace = true }
 [dev-dependencies]
 vision-calibration-core = { workspace = true, features = ["test-utils"] }
 serde_json = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "linear_init"
+harness = false

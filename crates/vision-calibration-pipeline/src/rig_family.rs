@@ -27,6 +27,10 @@ use vision_calibration_linear::prelude::{
     IterativeIntrinsicsOptions, dlt_homography, estimate_intrinsics_iterative,
     estimate_planar_pose_from_h,
 };
+use vision_calibration_linear::scheimpflug_init::{
+    ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
+    ScheimpflugIntrinsicsLinearInit, estimate_scheimpflug_intrinsics_iterative,
+};
 use vision_calibration_optim::ScheimpflugFixMask;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -226,24 +230,22 @@ where
             Error::numerical(format!("camera {cam_idx} has insufficient views: {e}"))
         })?;
 
-        let camera = build_camera_for_index(cam_idx, &seeds, &planar_dataset, init_opts)?;
-        let k_matrix = intrinsics_k_matrix(&camera.k);
+        let camera_bootstrap =
+            build_camera_bootstrap_for_index(cam_idx, &seeds, &planar_dataset, init_opts, flavour)?;
 
         for (local_idx, &global_idx) in valid_indices.iter().enumerate() {
-            let view = &planar_dataset.views[local_idx];
-            let pose = estimate_target_pose(&k_matrix, &view.obs).map_err(|e| {
-                Error::numerical(format!(
-                    "pose estimation failed for cam {cam_idx} view {global_idx}: {e}"
-                ))
-            })?;
-            per_cam_target_poses[global_idx][cam_idx] = Some(pose);
+            per_cam_target_poses[global_idx][cam_idx] = Some(camera_bootstrap.poses[local_idx]);
         }
 
         if let Some(s) = sensors.as_mut() {
-            s.push(sensor_for_index(cam_idx, &seeds, &flavour));
+            s.push(
+                camera_bootstrap
+                    .sensor
+                    .unwrap_or_else(ScheimpflugParams::default),
+            );
         }
 
-        cameras.push(camera);
+        cameras.push(camera_bootstrap.camera);
     }
 
     let bundle = match sensors {
@@ -349,6 +351,134 @@ fn build_camera_for_index(
     Ok(make_pinhole_camera(bootstrap.k, dist))
 }
 
+#[derive(Debug, Clone)]
+struct CameraBootstrap {
+    camera: PinholeCamera,
+    sensor: Option<ScheimpflugParams>,
+    poses: Vec<Iso3>,
+}
+
+fn build_camera_bootstrap_for_index(
+    cam_idx: usize,
+    seeds: &RigIntrinsicsSeeds,
+    planar_dataset: &PlanarDataset,
+    init_opts: IterativeIntrinsicsOptions,
+    flavour: SensorFlavour,
+) -> Result<CameraBootstrap, Error> {
+    match flavour {
+        SensorFlavour::Pinhole => {
+            let camera = build_camera_for_index(cam_idx, seeds, planar_dataset, init_opts)?;
+            let poses = estimate_poses_for_camera(cam_idx, planar_dataset, &camera.k)?;
+            Ok(CameraBootstrap {
+                camera,
+                sensor: None,
+                poses,
+            })
+        }
+        SensorFlavour::Scheimpflug {
+            default_tilt_x,
+            default_tilt_y,
+        } => {
+            if seeds.per_cam_intrinsics.is_some() {
+                let camera = build_camera_for_index(cam_idx, seeds, planar_dataset, init_opts)?;
+                let sensor = sensor_for_index(cam_idx, seeds, &flavour);
+                let poses = estimate_poses_for_camera(cam_idx, planar_dataset, &camera.k)?;
+                return Ok(CameraBootstrap {
+                    camera,
+                    sensor: Some(sensor),
+                    poses,
+                });
+            }
+
+            let mut scheimpflug_opts = LinearScheimpflugIntrinsicsInitOptions {
+                iterations: init_opts.iterations,
+                distortion_opts: init_opts.distortion_opts,
+                zero_skew: init_opts.zero_skew,
+                ..Default::default()
+            };
+            push_unique_tilt_seed(
+                &mut scheimpflug_opts,
+                ScheimpflugParams {
+                    tilt_x: default_tilt_x,
+                    tilt_y: default_tilt_y,
+                },
+            );
+            if let Some(per_cam_sensors) = seeds.per_cam_sensors.as_ref() {
+                let manual = per_cam_sensors[cam_idx];
+                scheimpflug_opts.tilt_x_seeds = vec![manual.tilt_x];
+                scheimpflug_opts.tilt_y_seeds = vec![manual.tilt_y];
+                scheimpflug_opts.refine_rounds = 0;
+            }
+
+            let init = estimate_scheimpflug_intrinsics_iterative(planar_dataset, scheimpflug_opts)
+                .map_err(|e| {
+                    Error::numerical(format!(
+                        "Scheimpflug intrinsics initialization failed for camera {cam_idx}: {e}"
+                    ))
+                })?;
+            Ok(scheimpflug_bootstrap_with_overrides(cam_idx, seeds, init))
+        }
+    }
+}
+
+fn push_unique_tilt_seed(
+    opts: &mut LinearScheimpflugIntrinsicsInitOptions,
+    sensor: ScheimpflugParams,
+) {
+    if sensor.tilt_x.abs() <= opts.max_abs_tilt
+        && !opts
+            .tilt_x_seeds
+            .iter()
+            .any(|v| (*v - sensor.tilt_x).abs() < 1e-12)
+    {
+        opts.tilt_x_seeds.push(sensor.tilt_x);
+    }
+    if sensor.tilt_y.abs() <= opts.max_abs_tilt
+        && !opts
+            .tilt_y_seeds
+            .iter()
+            .any(|v| (*v - sensor.tilt_y).abs() < 1e-12)
+    {
+        opts.tilt_y_seeds.push(sensor.tilt_y);
+    }
+}
+
+fn scheimpflug_bootstrap_with_overrides(
+    cam_idx: usize,
+    seeds: &RigIntrinsicsSeeds,
+    mut init: ScheimpflugIntrinsicsLinearInit,
+) -> CameraBootstrap {
+    if let Some(per_cam_distortion) = seeds.per_cam_distortion.as_ref() {
+        init.camera.dist = per_cam_distortion[cam_idx];
+    }
+    if let Some(per_cam_sensors) = seeds.per_cam_sensors.as_ref() {
+        init.sensor = per_cam_sensors[cam_idx];
+    }
+    CameraBootstrap {
+        camera: init.camera,
+        sensor: Some(init.sensor),
+        poses: init.poses,
+    }
+}
+
+fn estimate_poses_for_camera(
+    cam_idx: usize,
+    planar_dataset: &PlanarDataset,
+    intrinsics: &FxFyCxCySkew<Real>,
+) -> Result<Vec<Iso3>, Error> {
+    let k_matrix = intrinsics_k_matrix(intrinsics);
+    let mut poses = Vec::with_capacity(planar_dataset.num_views());
+    for (local_idx, view) in planar_dataset.views.iter().enumerate() {
+        let pose = estimate_target_pose(&k_matrix, &view.obs).map_err(|e| {
+            Error::numerical(format!(
+                "pose estimation failed for cam {cam_idx} view {local_idx}: {e}"
+            ))
+        })?;
+        poses.push(pose);
+    }
+    Ok(poses)
+}
+
 fn sensor_for_index(
     cam_idx: usize,
     seeds: &RigIntrinsicsSeeds,
@@ -424,6 +554,41 @@ pub(crate) fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
         (true, false) => format!("(auto: {})", auto.join(", ")),
         (true, true) => "(empty)".to_string(),
     }
+}
+
+/// Maximum per-camera mean reprojection error (px) tolerated before a camera's
+/// intrinsics solve is treated as diverged. Healthy per-camera intrinsics land
+/// well under a pixel; this generous ceiling only trips on a genuinely broken
+/// solve — non-finite, or the `fx → 0` runaway that reaches astronomical
+/// reprojection error.
+pub(crate) const MAX_PERCAM_REPROJ_ERROR_PX: f64 = 50.0;
+
+/// Fail fast if any camera's per-camera intrinsics solve diverged, naming the
+/// offenders. Without this guard a single garbage camera (non-finite or runaway
+/// reprojection error) silently poisons the linear rig init and the joint rig +
+/// hand-eye bundle adjustment downstream.
+///
+/// # Errors
+///
+/// Returns [`Error::Numerical`] listing every camera whose error is non-finite
+/// or exceeds [`MAX_PERCAM_REPROJ_ERROR_PX`].
+pub(crate) fn guard_percam_reproj_errors(errors: &[f64]) -> Result<(), Error> {
+    let bad: Vec<String> = errors
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| !e.is_finite() || **e > MAX_PERCAM_REPROJ_ERROR_PX)
+        .map(|(i, e)| format!("camera {i}: {e:.3} px"))
+        .collect();
+    if !bad.is_empty() {
+        return Err(Error::numerical(format!(
+            "per-camera intrinsics diverged for {} of {} cameras ({}); \
+             refusing to poison the rig solve — check detections/init for these cameras",
+            bad.len(),
+            errors.len(),
+            bad.join(", "),
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -613,10 +778,12 @@ mod tests {
         assert!(result.bundle.is_scheimpflug());
         let sensors = result.bundle.scheimpflug.as_ref().unwrap();
         assert_eq!(sensors.len(), 2);
-        // Auto-fitted sensors take the default since per_cam_sensors was None.
+        // Auto-fitted sensors are estimated from the Scheimpflug-aware bootstrap.
         for s in sensors {
-            assert_eq!(s.tilt_x, 0.0);
-            assert_eq!(s.tilt_y, 0.0);
+            assert!(s.tilt_x.is_finite());
+            assert!(s.tilt_y.is_finite());
+            assert!(s.tilt_x.abs() < 0.05);
+            assert!(s.tilt_y.abs() < 0.05);
         }
         for cam in &result.bundle.cameras {
             // Scheimpflug-projected views are still close to pinhole at small tilts.
@@ -757,5 +924,29 @@ mod tests {
         assert_eq!(k[(1, 0)], 0.0);
         assert_eq!(k[(2, 0)], 0.0);
         assert_eq!(k[(2, 1)], 0.0);
+    }
+
+    #[test]
+    fn percam_guard_passes_healthy_cameras() {
+        assert!(guard_percam_reproj_errors(&[0.31, 0.28, 0.27, 0.30]).is_ok());
+    }
+
+    #[test]
+    fn percam_guard_rejects_nonfinite_camera_naming_it() {
+        let err = guard_percam_reproj_errors(&[0.3, f64::INFINITY, 0.2])
+            .expect_err("a non-finite camera must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("camera 1"),
+            "error should name camera 1: {msg}"
+        );
+    }
+
+    #[test]
+    fn percam_guard_rejects_runaway_camera() {
+        // The classic `fx → 0` divergence reaches astronomical reprojection error.
+        let err = guard_percam_reproj_errors(&[0.3, 0.28, 6.1e21])
+            .expect_err("a runaway camera must be rejected");
+        assert!(err.to_string().contains("camera 2"));
     }
 }

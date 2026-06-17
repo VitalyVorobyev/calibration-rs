@@ -7,7 +7,7 @@
 //! Input points should be in consistent units; normalization is applied
 //! internally for numerical stability and the output is de-normalized.
 
-use crate::math::normalize_points_2d;
+use crate::math::{mat3_from_vec, normalize_points_2d, null_space};
 use anyhow::Result;
 use nalgebra::DMatrix;
 use vision_calibration_core::{
@@ -120,29 +120,25 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
         a[(r1, 8)] = v;
     }
 
-    let mut a_work = a;
-    if a_work.nrows() < a_work.ncols() {
-        let rows = a_work.nrows();
-        let cols = a_work.ncols();
-        let mut a_pad = DMatrix::<f64>::zeros(cols, cols);
-        a_pad.view_mut((0, 0), (rows, cols)).copy_from(&a_work);
-        a_work = a_pad;
-    }
+    // Solve `A h = 0` via the `AᵀA` symmetric eigendecomposition (see
+    // [`null_space`]). A skip-U dense SVD (`svd(false, true)`) is *insufficient*:
+    // nalgebra's non-convergence is in the Golub-Kahan QR sweep itself, which
+    // runs regardless of `compute_u`, so on dense 2N×9 targets it can still hang
+    // for minutes. `AᵀA` is always 9×9 and its symmetric eigensolve converges
+    // quickly; with the Hartley normalization above the squared conditioning is
+    // harmless.
+    let ns = null_space(&a)?;
+    let sv = &ns.singular_values;
 
-    let svd = a_work.svd(true, true);
-
-    // Rank-deficiency check: for a well-posed homography the 2n×9 design
-    // matrix must have rank exactly 8 (a 1-D null space).  The SVD yields
-    // 9 singular values sorted descending.  We interrogate them *before*
-    // moving `v_t` out to avoid a partial-move borrow issue.
-    let sv = svd.singular_values.clone();
+    // Rank-deficiency check: for a well-posed homography the 2n×9 design matrix
+    // must have rank exactly 8 (a 1-D null space). The singular values are
+    // sorted descending.
     if sv[0] <= f64::EPSILON {
         anyhow::bail!("degenerate (all-zero) homography design matrix");
     }
-    // sv[7] is the second-smallest singular value.  For a valid
-    // configuration (4 points in general position) it is well above zero.
-    // For collinear input the null space is ≥2-D and sv[7] collapses
-    // toward zero like sv[8].
+    // sv[7] is the second-smallest singular value.  For a valid configuration
+    // (4 points in general position) it is well above zero. For collinear input
+    // the null space is ≥2-D and sv[7] collapses toward zero like sv[8].
     if sv[7] / sv[0] < 1e-7 {
         anyhow::bail!(
             "rank-deficient point configuration: homography is underdetermined \
@@ -150,15 +146,7 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
         );
     }
 
-    let v_t = svd.v_t.ok_or_else(|| anyhow::anyhow!("svd failed"))?;
-    let h_vec = v_t.row(v_t.nrows() - 1);
-
-    let mut h_mat = Mat3::zeros();
-    for r in 0..3 {
-        for c in 0..3 {
-            h_mat[(r, c)] = h_vec[3 * r + c];
-        }
-    }
+    let mut h_mat = mat3_from_vec(&ns.vector);
 
     let t_i_inv = t_i
         .try_inverse()

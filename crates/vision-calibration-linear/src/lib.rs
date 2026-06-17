@@ -10,6 +10,7 @@
 //! - Planar intrinsics (Zhang method from multiple homographies)
 //! - Distortion estimation (Brown-Conrady from homography residuals)
 //! - Iterative intrinsics refinement (alternating K and distortion estimation)
+//! - Tilt-aware Scheimpflug planar intrinsics initialization
 //! - Planar pose from homography + intrinsics
 //! - Fundamental matrix: 8-point (normalized) and 7-point
 //! - Essential matrix: 5-point minimal solver + decomposition to (R, t)
@@ -67,6 +68,7 @@ pub mod laserline;
 pub mod math;
 pub mod planar_pose;
 pub mod pnp;
+pub mod scheimpflug_init;
 pub mod triangulation;
 pub mod zhang_intrinsics;
 
@@ -78,6 +80,10 @@ pub mod prelude {
         IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
     };
     pub use crate::planar_pose::estimate_planar_pose_from_h;
+    pub use crate::scheimpflug_init::{
+        ScheimpflugIntrinsicsInitOptions, ScheimpflugIntrinsicsLinearInit,
+        estimate_scheimpflug_intrinsics_iterative,
+    };
     pub use crate::zhang_intrinsics::{
         PlanarIntrinsicsLinearInit, estimate_intrinsics_from_homographies,
     };

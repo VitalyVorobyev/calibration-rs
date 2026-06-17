@@ -35,7 +35,8 @@
 //! // normalized points have mean at origin, mean distance = sqrt(2)
 //! ```
 
-use nalgebra::{DMatrix, Matrix3x4, Schur};
+use crate::Error;
+use nalgebra::{DMatrix, DVector, Matrix3x4, Schur};
 use vision_calibration_core::{Mat3, Mat4, Pt2, Pt3, Real};
 
 /// Hartley normalization for 2D points.
@@ -383,6 +384,169 @@ pub fn solve_quartic_real(a: Real, b: Real, c: Real, d: Real, e: Real) -> Vec<Re
     roots
 }
 
+/// Solution of a homogeneous least-squares ([`null_space`]) solve.
+#[derive(Debug, Clone)]
+pub struct NullSpaceSolution {
+    /// Unit right-singular vector of `A` with the smallest singular value — the
+    /// minimizer of `‖A x‖` subject to `‖x‖ = 1`.
+    pub vector: DVector<Real>,
+    /// Singular values of `A` in descending order (`σ_i = √λ_i` of `AᵀA`).
+    /// Useful for rank / conditioning guards.
+    pub singular_values: Vec<Real>,
+}
+
+/// Solve the homogeneous least-squares problem `A x = 0` for the unit vector
+/// `x` that minimizes `‖A x‖` — the right-singular vector of `A` with the
+/// smallest singular value.
+///
+/// Computed as the smallest-eigenvalue eigenvector of the normal matrix `AᵀA`
+/// via a **symmetric eigendecomposition**, deliberately *not* `A.svd(...)`.
+/// nalgebra's Golub-Kahan SVD runs an unbounded QR iteration (`max_niter = 0`)
+/// that can fail to converge — hanging for minutes — on real dense design
+/// matrices, and the non-convergence is in the QR sweep itself, so it persists
+/// even with `compute_u = false`. `AᵀA` is always `k×k` where `k = A.ncols()`
+/// (≤ 12 for every DLT system in this crate) regardless of the row count, and a
+/// symmetric eigendecomposition of such a small matrix converges in a handful
+/// of sweeps. With Hartley-normalized inputs the squared conditioning is
+/// harmless, and these linear estimates are refined downstream by bundle
+/// adjustment. This mirrors OpenCV's `findHomography`, which accumulates an
+/// `LtL` and eigen-solves it.
+///
+/// The returned [`NullSpaceSolution`] also carries the descending singular
+/// values (derived from the `AᵀA` eigenvalues) for callers that need a rank
+/// guard.
+///
+/// # Errors
+///
+/// Returns [`Error::Singular`] if `AᵀA` is non-finite (a degenerate / NaN
+/// design) or the decomposition yields no eigenvalues.
+pub fn null_space(a: &DMatrix<Real>) -> Result<NullSpaceSolution, Error> {
+    let ata = a.transpose() * a;
+    let eigen = ata.symmetric_eigen();
+    // A well-posed (Hartley-normalized) configuration yields all-finite
+    // eigenvalues. A non-finite one means a degenerate design — report it as
+    // singular rather than panicking on a NaN comparison below.
+    if eigen.eigenvalues.iter().any(|v| !v.is_finite()) {
+        return Err(Error::Singular);
+    }
+    let min_idx = eigen
+        .eigenvalues
+        .iter()
+        .enumerate()
+        .min_by(|(_, x), (_, y)| x.partial_cmp(y).expect("eigenvalues checked finite"))
+        .map(|(idx, _)| idx)
+        .ok_or(Error::Singular)?;
+    let vector = eigen.eigenvectors.column(min_idx).into_owned();
+    let mut singular_values: Vec<Real> = eigen
+        .eigenvalues
+        .iter()
+        .map(|&l| l.max(0.0).sqrt())
+        .collect();
+    singular_values.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(NullSpaceSolution {
+        vector,
+        singular_values,
+    })
+}
+
+/// Solve the overdetermined least-squares system `A x ≈ b` via the
+/// ridge-regularized normal equations `x = (AᵀA + λI)⁻¹ Aᵀ b`.
+///
+/// Like [`null_space`], this avoids `A.svd(...)` so it cannot hang on nalgebra's
+/// unbounded QR iteration: `AᵀA` is `k×k` (`k = A.ncols()`, small) and is solved
+/// by LU. `λ ≥ 0` is a Tikhonov ridge that regularizes a near-singular design
+/// the way small-singular-value truncation would in an SVD solve; pass `0.0` for
+/// the plain normal equations. A caller typically scales `λ` to the matrix
+/// (e.g. `1e-9 * max_diag`) so it is negligible when the design is well-posed.
+///
+/// # Errors
+///
+/// Returns [`Error::Singular`] if the (regularized) normal system is non-finite
+/// or not solvable.
+pub fn ridge_lstsq(
+    a: &DMatrix<Real>,
+    b: &DVector<Real>,
+    lambda: Real,
+) -> Result<DVector<Real>, Error> {
+    let at = a.transpose();
+    let mut ata = &at * a;
+    let atb = &at * b;
+    if lambda != 0.0 {
+        for i in 0..ata.nrows() {
+            ata[(i, i)] += lambda;
+        }
+    }
+    if ata.iter().any(|v| !v.is_finite()) || atb.iter().any(|v| !v.is_finite()) {
+        return Err(Error::Singular);
+    }
+    ata.lu().solve(&atb).ok_or(Error::Singular)
+}
+
+/// Project a 3×3 matrix onto the rotation group SO(3) via polar decomposition.
+///
+/// Returns the nearest (Frobenius) rotation `R = U Vᵀ` from the SVD `M = U Σ Vᵀ`,
+/// with the sign of `Vᵀ`'s last row flipped if needed to force `det(R) = +1`
+/// (avoiding a reflection). The SVD here is a fixed 3×3 — it cannot trigger the
+/// dense-matrix hang that [`null_space`] guards against — so a direct SVD is
+/// used. Centralizes the polar-projection idiom shared by the PnP, hand-eye, and
+/// pose solvers.
+///
+/// # Errors
+///
+/// Returns [`Error::Singular`] if the SVD factors are unavailable (a non-finite
+/// input matrix).
+pub fn project_to_so3(m: &Mat3) -> Result<Mat3, Error> {
+    let svd = m.svd(true, true);
+    let u = svd.u.ok_or(Error::Singular)?;
+    let v_t = svd.v_t.ok_or(Error::Singular)?;
+    let mut r = u * v_t;
+    if r.determinant() < 0.0 {
+        let mut u_fixed = u;
+        let last = u_fixed.ncols() - 1;
+        for row in 0..u_fixed.nrows() {
+            u_fixed[(row, last)] = -u_fixed[(row, last)];
+        }
+        r = u_fixed * v_t;
+    }
+    Ok(r)
+}
+
+/// Reshape a 9-element vector into a 3×3 matrix (row-major).
+///
+/// The vector-valued analog of [`mat3_from_svd_row`], for use with the
+/// null vector returned by [`null_space`].
+///
+/// # Panics
+///
+/// Panics if `v` has fewer than 9 elements.
+pub fn mat3_from_vec(v: &DVector<Real>) -> Mat3 {
+    let mut m = Mat3::zeros();
+    for r in 0..3 {
+        for c in 0..3 {
+            m[(r, c)] = v[3 * r + c];
+        }
+    }
+    m
+}
+
+/// Reshape a 12-element vector into a 3×4 matrix (row-major).
+///
+/// The vector-valued analog of [`mat34_from_svd_row`], for use with the
+/// null vector returned by [`null_space`].
+///
+/// # Panics
+///
+/// Panics if `v` has fewer than 12 elements.
+pub fn mat34_from_vec(v: &DVector<Real>) -> Matrix3x4<Real> {
+    let mut m = Matrix3x4::<Real>::zeros();
+    for r in 0..3 {
+        for c in 0..4 {
+            m[(r, c)] = v[4 * r + c];
+        }
+    }
+    m
+}
+
 /// Extract 3x3 matrix from SVD result row.
 ///
 /// Reshapes a 9-element row from SVD's `V^T` matrix into a 3x3 matrix.
@@ -602,5 +766,108 @@ mod tests {
         assert_eq!(m[(0, 3)], 4.0);
         assert_eq!(m[(1, 0)], 5.0);
         assert_eq!(m[(2, 3)], 12.0);
+    }
+
+    // ---- null_space ---------------------------------------------------------
+
+    /// A tall design whose rows are orthogonal to a known unit vector recovers
+    /// that vector (up to sign) as the null space.
+    #[test]
+    fn null_space_recovers_known_vector() {
+        // Target null vector (unnormalized), normalized for comparison.
+        let target = DVector::from_vec(vec![1.0, -2.0, 0.5]);
+        let target_unit = &target / target.norm();
+        // Build many rows each orthogonal to `target` plus a strong component
+        // along two other directions, so the smallest singular direction is
+        // `target`.
+        let mut a = DMatrix::<Real>::zeros(40, 3);
+        for i in 0..40 {
+            let t = i as Real * 0.31;
+            // Two basis directions orthogonal to `target = [1, -2, 0.5]`.
+            let e1 = DVector::from_vec(vec![2.0, 1.0, 0.0]); // dot(target) = 0
+            let e2 = DVector::from_vec(vec![-0.5, 1.0, 5.0]); // target × e1, dot(target) = 0
+            let row = e1 * t.cos() + e2 * t.sin();
+            for c in 0..3 {
+                a[(i, c)] = row[c];
+            }
+        }
+        let ns = null_space(&a).unwrap();
+        let v = &ns.vector / ns.vector.norm();
+        // Equal up to sign.
+        let diff: DVector<Real> = &v - &target_unit;
+        let sum: DVector<Real> = &v + &target_unit;
+        let agree = diff.norm().min(sum.norm());
+        assert!(
+            agree < 1e-6,
+            "null vector mismatch: {v:?} vs {target_unit:?}"
+        );
+        // Singular values are descending and non-negative.
+        assert!(ns.singular_values.windows(2).all(|w| w[0] >= w[1]));
+        assert!(ns.singular_values.iter().all(|&s| s >= 0.0));
+    }
+
+    /// A non-finite design must yield [`Error::Singular`], never a hang or panic.
+    #[test]
+    fn null_space_rejects_non_finite() {
+        let mut a = DMatrix::<Real>::zeros(8, 3);
+        a[(0, 0)] = Real::NAN;
+        assert!(matches!(null_space(&a), Err(Error::Singular)));
+    }
+
+    // ---- ridge_lstsq --------------------------------------------------------
+
+    /// Plain (`λ = 0`) normal equations recover the exact solution of a
+    /// consistent overdetermined system.
+    #[test]
+    fn ridge_lstsq_recovers_exact_solution() {
+        // x = [3, -1]. Rows b_i = a_i · x.
+        let x_true = DVector::from_vec(vec![3.0, -1.0]);
+        let mut a = DMatrix::<Real>::zeros(10, 2);
+        let mut b = DVector::<Real>::zeros(10);
+        for i in 0..10 {
+            a[(i, 0)] = (i as Real) * 0.5 + 1.0;
+            a[(i, 1)] = (i as Real).sin();
+            b[i] = a[(i, 0)] * x_true[0] + a[(i, 1)] * x_true[1];
+        }
+        let x = ridge_lstsq(&a, &b, 0.0).unwrap();
+        assert!((&x - &x_true).norm() < 1e-9, "lstsq mismatch: {x:?}");
+    }
+
+    /// A non-finite design must yield [`Error::Singular`].
+    #[test]
+    fn ridge_lstsq_rejects_non_finite() {
+        let mut a = DMatrix::<Real>::zeros(6, 2);
+        a[(0, 0)] = Real::INFINITY;
+        let b = DVector::<Real>::zeros(6);
+        assert!(matches!(ridge_lstsq(&a, &b, 1e-6), Err(Error::Singular)));
+    }
+
+    // ---- project_to_so3 -----------------------------------------------------
+
+    /// A slightly perturbed rotation projects back to a proper rotation
+    /// (orthonormal, det = +1) close to the original.
+    #[test]
+    fn project_to_so3_recovers_rotation() {
+        use nalgebra::Rotation3;
+        let r = *Rotation3::from_euler_angles(0.2, -0.35, 0.1).matrix();
+        let mut noisy = r;
+        noisy[(0, 1)] += 0.02;
+        noisy[(2, 0)] -= 0.015;
+        let proj = project_to_so3(&noisy).unwrap();
+        assert!((proj.determinant() - 1.0).abs() < 1e-9, "det != 1");
+        assert!(
+            (proj * proj.transpose() - Mat3::identity()).norm() < 1e-9,
+            "not orthonormal"
+        );
+        assert!((proj - r).norm() < 0.05, "projection drifted from input");
+    }
+
+    /// A reflection (det < 0) is corrected to a proper rotation (det = +1).
+    #[test]
+    fn project_to_so3_fixes_reflection() {
+        // diag(1, 1, -1) is an orthogonal reflection with det = -1.
+        let refl = Mat3::new(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, -1.0);
+        let proj = project_to_so3(&refl).unwrap();
+        assert!((proj.determinant() - 1.0).abs() < 1e-9, "det != 1");
     }
 }

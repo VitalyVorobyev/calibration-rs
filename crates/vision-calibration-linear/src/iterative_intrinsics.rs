@@ -157,12 +157,10 @@ pub fn estimate_intrinsics_iterative(
         .collect();
 
     // Iteration 0: initial K estimate from distorted pixels (ignore distortion).
-    let homographies_iter0: Vec<Mat3> = dataset
-        .views
-        .iter()
-        .zip(&target_points_2d)
-        .map(|(v, target)| HomographySolver::dlt(target, &v.obs.points_2d))
-        .collect::<Result<Vec<_>, Error>>()?;
+    let pairs0 = valid_view_homographies(dataset.views.len(), |i| {
+        HomographySolver::dlt(&target_points_2d[i], &dataset.views[i].obs.points_2d)
+    })?;
+    let homographies_iter0: Vec<Mat3> = pairs0.iter().map(|(_, h)| *h).collect();
 
     let mut current_intrinsics =
         PlanarIntrinsicsLinearInit::from_homographies(&homographies_iter0)?;
@@ -177,56 +175,97 @@ pub fn estimate_intrinsics_iterative(
         iters: opts.distortion_opts.iters,
     };
 
+    // The distortion-refinement loop is **best-effort**: each iteration commits
+    // its result only if every step is well-posed. If an iteration degenerates
+    // (e.g. a poorly-conditioned camera whose distortion estimate makes the
+    // undistorted homographies singular for too many views), we keep the last
+    // good estimate rather than failing the whole camera — iteration 0 already
+    // gave a usable distortion-free estimate that bundle adjustment refines.
+    // A view that degenerates is skipped (see `valid_view_homographies`); only a
+    // collapse below the minimum view count breaks the loop.
     for _iter in 0..opts.iterations {
         let k_mtx = current_intrinsics.k_matrix();
-        let k_inv = k_mtx.try_inverse().ok_or(Error::Singular)?;
+        let Some(k_inv) = k_mtx.try_inverse() else {
+            break;
+        };
 
-        let homographies_for_distortion: Vec<Mat3> = dataset
-            .views
+        let Ok(pairs) = valid_view_homographies(dataset.views.len(), |i| {
+            let undistorted_pixels = undistort_pixels_to_pixels(
+                &dataset.views[i].obs.points_2d,
+                &k_mtx,
+                &k_inv,
+                &current_distortion,
+            );
+            HomographySolver::dlt(&target_points_2d[i], &undistorted_pixels)
+        }) else {
+            break;
+        };
+
+        let dist_views: Vec<DistortionView> = pairs
             .iter()
-            .zip(&target_points_2d)
-            .map(|(v, target)| {
-                let undistorted_pixels = undistort_pixels_to_pixels(
-                    &v.obs.points_2d,
-                    &k_mtx,
-                    &k_inv,
-                    &current_distortion,
-                );
-                HomographySolver::dlt(target, &undistorted_pixels)
+            .map(|(i, h)| {
+                DistortionView::new(
+                    dataset.views[*i].obs.clone(),
+                    MetaHomography { homography: *h },
+                )
             })
-            .collect::<Result<Vec<_>, Error>>()?;
-
-        let dist_views: Vec<DistortionView> = dataset
-            .views
-            .iter()
-            .zip(&homographies_for_distortion)
-            .map(|(v, h)| DistortionView::new(v.obs.clone(), MetaHomography { homography: *h }))
             .collect();
 
-        current_distortion =
-            estimate_distortion_from_homographies(&k_mtx, &dist_views, opts.distortion_opts)?;
+        let Ok(new_distortion) =
+            estimate_distortion_from_homographies(&k_mtx, &dist_views, opts.distortion_opts)
+        else {
+            break;
+        };
 
-        let undistorted_homographies: Vec<Mat3> = dataset
-            .views
-            .iter()
-            .zip(&target_points_2d)
-            .map(|(v, target)| {
-                let undistorted_pixels = undistort_pixels_to_pixels(
-                    &v.obs.points_2d,
-                    &k_mtx,
-                    &k_inv,
-                    &current_distortion,
-                );
-                HomographySolver::dlt(target, &undistorted_pixels)
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
+        let Ok(pairs) = valid_view_homographies(dataset.views.len(), |i| {
+            let undistorted_pixels = undistort_pixels_to_pixels(
+                &dataset.views[i].obs.points_2d,
+                &k_mtx,
+                &k_inv,
+                &new_distortion,
+            );
+            HomographySolver::dlt(&target_points_2d[i], &undistorted_pixels)
+        }) else {
+            break;
+        };
+        let undistorted_homographies: Vec<Mat3> = pairs.iter().map(|(_, h)| *h).collect();
 
-        current_intrinsics =
-            PlanarIntrinsicsLinearInit::from_homographies(&undistorted_homographies)?;
-        enforce_zero_skew(&mut current_intrinsics, opts.zero_skew);
+        let Ok(mut new_intrinsics) =
+            PlanarIntrinsicsLinearInit::from_homographies(&undistorted_homographies)
+        else {
+            break;
+        };
+        enforce_zero_skew(&mut new_intrinsics, opts.zero_skew);
+
+        // Iteration fully succeeded — commit it.
+        current_distortion = new_distortion;
+        current_intrinsics = new_intrinsics;
     }
 
     Ok(make_pinhole_camera(current_intrinsics, current_distortion))
+}
+
+/// Minimum number of well-posed views Zhang's linear init needs.
+const MIN_VALID_VIEWS: usize = 3;
+
+/// Build per-view homographies, **skipping** views whose DLT is singular /
+/// degenerate, and return `(view_index, homography)` pairs so callers can keep
+/// views and homographies aligned. Errors only if fewer than [`MIN_VALID_VIEWS`]
+/// survive — so one bad view in a dense capture no longer fails the camera.
+fn valid_view_homographies<F>(n_views: usize, mut dlt: F) -> Result<Vec<(usize, Mat3)>, Error>
+where
+    F: FnMut(usize) -> Result<Mat3, Error>,
+{
+    let pairs: Vec<(usize, Mat3)> = (0..n_views)
+        .filter_map(|i| dlt(i).ok().map(|h| (i, h)))
+        .collect();
+    if pairs.len() < MIN_VALID_VIEWS {
+        return Err(Error::InsufficientData {
+            need: MIN_VALID_VIEWS,
+            got: pairs.len(),
+        });
+    }
+    Ok(pairs)
 }
 
 fn enforce_zero_skew(intrinsics: &mut FxFyCxCySkew<Real>, zero_skew: bool) {

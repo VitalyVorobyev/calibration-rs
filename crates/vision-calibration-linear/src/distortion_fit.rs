@@ -204,6 +204,18 @@ pub fn estimate_distortion_from_homographies(
             let n_obs_h = k_inv * Vec3::new(pixel_obs.x, pixel_obs.y, 1.0);
             let n_obs = Vec2::new(n_obs_h.x / n_obs_h.z, n_obs_h.y / n_obs_h.z);
 
+            // Skip points whose projection is non-finite. A near-degenerate
+            // view's homography can map a board point near infinity; a single
+            // inf entry turns `AᵀA` into NaN, which hangs nalgebra's unbounded
+            // SVD iteration. Such rows are left zero (harmless in `AᵀA`).
+            if !(n_ideal.x.is_finite()
+                && n_ideal.y.is_finite()
+                && n_obs.x.is_finite()
+                && n_obs.y.is_finite())
+            {
+                continue;
+            }
+
             // Residual (contains distortion effects)
             let residual = n_obs - n_ideal;
 
@@ -287,11 +299,28 @@ pub fn estimate_distortion_from_homographies(
         ));
     }
 
-    // Solve least-squares: x = A \ b via SVD (handles overdetermined systems)
-    let svd = a.svd(true, true);
-    let x = svd
-        .solve(&b, 1e-10)
-        .map_err(|_| Error::numerical("svd failed during distortion estimation"))?;
+    // Solve the overdetermined system `A x = b`. `A` is tall (2N×k) — N can
+    // exceed several thousand correspondences on a dense target — but `k` is tiny
+    // (≤5). A full SVD of `A` accumulates its U factor across every row, which is
+    // pathologically slow on dense data (the same failure mode as the homography
+    // DLT). Instead form the k×k normal matrix `AᵀA` (O(N·k²)) and solve it with
+    // Tikhonov (ridge) damping: λ on the diagonal regularizes a near-singular
+    // distortion design the way a full SVD would via small-singular-value
+    // truncation, while LU — unlike an SVD solve — cannot hang on a degenerate or
+    // non-finite system. λ is scaled to the matrix so it is negligible when the
+    // design is well-posed. The distortion init is refined later in BA.
+    let at = a.transpose();
+    let mut ata = &at * &a;
+    let atb = &at * &b;
+    let max_diag = (0..n_params).fold(0.0_f64, |m, i| m.max(ata[(i, i)]));
+    let lambda = 1e-9 * max_diag.max(1.0);
+    for i in 0..n_params {
+        ata[(i, i)] += lambda;
+    }
+    let x = ata
+        .lu()
+        .solve(&atb)
+        .ok_or_else(|| Error::numerical("distortion normal-equations solve failed"))?;
 
     // Extract parameters
     let mut col_idx = 0;

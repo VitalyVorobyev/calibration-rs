@@ -492,7 +492,8 @@ pub mod core {
 pub mod linear {
     pub use vision_calibration_linear::{
         camera_matrix, distortion_fit, epipolar, extrinsics, handeye, homography,
-        iterative_intrinsics, laserline, math, planar_pose, pnp, triangulation, zhang_intrinsics,
+        iterative_intrinsics, laserline, math, planar_pose, pnp, scheimpflug_init, triangulation,
+        zhang_intrinsics,
     };
 
     pub mod prelude {

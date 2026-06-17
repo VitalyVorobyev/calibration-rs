@@ -5,7 +5,7 @@
 //! via SVD decomposition.
 
 use crate::Error;
-use crate::math::mat34_from_svd_row;
+use crate::math::{mat34_from_vec, null_space, project_to_so3};
 use nalgebra::{DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion};
 use vision_calibration_core::{FxFyCxCySkew, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
 
@@ -112,11 +112,11 @@ pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3,
         a[(r1, 11)] = -v;
     }
 
-    // Solve A p = 0 via SVD: take the singular vector for the smallest singular value.
-    let svd = a.svd(true, true);
-    let v_t = svd.v_t.ok_or(Error::Singular)?;
-    // Reshape into 3x4 matrix P = [R|t] (up to scale).
-    let p_mtx = mat34_from_svd_row(&v_t, v_t.nrows() - 1);
+    // Solve `A p = 0` for the smallest right-singular vector via `AᵀA` symmetric
+    // eigen (see [`null_space`](crate::math::null_space)) — avoids nalgebra's
+    // hang-prone dense SVD on the tall `2N×12` design matrix. Reshape into the
+    // 3×4 matrix `P = [R|t]` (up to scale).
+    let p_mtx = mat34_from_vec(&null_space(&a)?.vector);
 
     // De-normalize 3D points: P = P_norm * T_world.
     let p_mtx = p_mtx * t_world;
@@ -136,16 +136,8 @@ pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3,
         r_approx /= s;
     }
 
-    // Project onto SO(3).
-    let svd = r_approx.svd(true, true);
-    let u = svd.u.ok_or(Error::Singular)?;
-    let v_t = svd.v_t.ok_or(Error::Singular)?;
-    let mut r_orth = u * v_t;
-    if r_orth.determinant() < 0.0 {
-        let mut u_flipped = u;
-        u_flipped.column_mut(2).neg_mut();
-        r_orth = u_flipped * v_t;
-    }
+    // Project onto SO(3) (polar decomposition; see [`project_to_so3`]).
+    let r_orth = project_to_so3(&r_approx)?;
 
     // Translation is the last column, scaled consistently with rotation.
     let mut t = p_mtx.column(3).into_owned();
