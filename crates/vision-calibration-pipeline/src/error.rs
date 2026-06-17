@@ -10,15 +10,26 @@ use vision_calibration_optim::Error as OptimError;
 pub enum Error {
     /// An argument violates a documented precondition.
     #[error("invalid input: {reason}")]
-    InvalidInput { reason: String },
+    InvalidInput {
+        /// Human-readable description of why the input was rejected.
+        reason: String,
+    },
 
     /// Not enough observations to proceed.
     #[error("insufficient data: need {need}, got {got}")]
-    InsufficientData { need: usize, got: usize },
+    InsufficientData {
+        /// Minimum number of observations required.
+        need: usize,
+        /// Actual number of observations supplied.
+        got: usize,
+    },
 
     /// A required resource (input, state, output) was not yet set in the session.
     #[error("session resource not available: {resource}")]
-    NotAvailable { resource: &'static str },
+    NotAvailable {
+        /// Name of the session resource that was expected but not yet populated.
+        resource: &'static str,
+    },
 
     /// A numerical failure (singular matrix, divergence, etc.).
     #[error("numerical failure: {0}")]

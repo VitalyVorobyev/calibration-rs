@@ -11,6 +11,9 @@ authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 vision-calibration-core.workspace = true
 vision-calibration-linear.workspace = true

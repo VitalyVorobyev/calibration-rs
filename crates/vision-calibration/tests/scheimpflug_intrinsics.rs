@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use nalgebra::{Rotation3, Translation3};
 use vision_calibration::core::{
     BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Iso3, Pinhole, PlanarDataset, Pt2,

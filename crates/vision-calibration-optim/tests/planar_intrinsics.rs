@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use nalgebra::{UnitQuaternion, Vector3};
 use vision_calibration_core::{
     BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3,

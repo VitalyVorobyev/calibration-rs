@@ -6,6 +6,8 @@
 //! for >15 min on dense real data). Deterministic synthetic data keeps the
 //! numbers comparable across runs.
 
+#![allow(missing_docs)]
+
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use nalgebra::{UnitQuaternion, Vector3};
 use vision_calibration_core::{

@@ -8,11 +8,19 @@ use vision_calibration_core::Error as CoreError;
 pub enum Error {
     /// Input data is invalid (e.g. mismatched lengths, wrong parameter count).
     #[error("invalid input: {reason}")]
-    InvalidInput { reason: String },
+    InvalidInput {
+        /// Human-readable description of why the input was rejected.
+        reason: String,
+    },
 
     /// Not enough data to proceed.
     #[error("insufficient data: need {need}, got {got}")]
-    InsufficientData { need: usize, got: usize },
+    InsufficientData {
+        /// Minimum number of observations required.
+        need: usize,
+        /// Actual number of observations supplied.
+        got: usize,
+    },
 
     /// A matrix inversion or decomposition produced a degenerate result.
     #[error("singular matrix or degenerate configuration")]

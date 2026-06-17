@@ -128,6 +128,7 @@ pub enum RigExtrinsicsOutput {
 }
 
 impl RigExtrinsicsOutput {
+    /// Final solver cost after bundle adjustment converged.
     pub fn final_cost(&self) -> f64 {
         match self {
             Self::Pinhole(e) => e.report.final_cost,
@@ -135,6 +136,7 @@ impl RigExtrinsicsOutput {
         }
     }
 
+    /// Mean reprojection error in pixels across all observations and cameras.
     pub fn mean_reproj_error(&self) -> f64 {
         match self {
             Self::Pinhole(e) => e.mean_reproj_error,
@@ -142,6 +144,7 @@ impl RigExtrinsicsOutput {
         }
     }
 
+    /// Calibrated pinhole intrinsics for each rig camera.
     pub fn cameras(&self) -> &[PinholeCamera] {
         match self {
             Self::Pinhole(e) => &e.params.cameras,
@@ -149,6 +152,7 @@ impl RigExtrinsicsOutput {
         }
     }
 
+    /// Per-camera extrinsics `T_C_R` (camera-from-rig SE(3) transforms).
     pub fn cam_to_rig(&self) -> &[Iso3] {
         match self {
             Self::Pinhole(e) => &e.params.cam_to_rig,
@@ -156,6 +160,7 @@ impl RigExtrinsicsOutput {
         }
     }
 
+    /// Per-pose rig-from-target transforms `T_R_Tgt` estimated during BA.
     pub fn rig_from_target(&self) -> &[Iso3] {
         match self {
             Self::Pinhole(e) => &e.params.rig_from_target,
@@ -163,6 +168,7 @@ impl RigExtrinsicsOutput {
         }
     }
 
+    /// Per-camera Scheimpflug sensor tilt parameters, or `None` for pinhole rigs.
     pub fn sensors(&self) -> Option<&[ScheimpflugParams]> {
         match self {
             Self::Pinhole(_) => None,
@@ -170,6 +176,7 @@ impl RigExtrinsicsOutput {
         }
     }
 
+    /// Mean reprojection error in pixels for each individual camera.
     pub fn per_cam_reproj_errors(&self) -> &[f64] {
         match self {
             Self::Pinhole(e) => &e.per_cam_reproj_errors,

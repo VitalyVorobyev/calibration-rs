@@ -6,11 +6,19 @@
 pub enum Error {
     /// Input data is invalid (e.g. mismatched lengths, negative weights).
     #[error("invalid input: {reason}")]
-    InvalidInput { reason: String },
+    InvalidInput {
+        /// Human-readable description of why the input was rejected.
+        reason: String,
+    },
 
     /// Not enough data to proceed (e.g. fewer correspondences than required).
     #[error("insufficient data: need {need}, got {got}")]
-    InsufficientData { need: usize, got: usize },
+    InsufficientData {
+        /// Minimum number of observations required.
+        need: usize,
+        /// Actual number of observations supplied.
+        got: usize,
+    },
 
     /// A matrix inversion or decomposition produced a degenerate result.
     #[error("singular matrix or degenerate configuration")]

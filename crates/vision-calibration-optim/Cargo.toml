@@ -11,6 +11,9 @@ authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 schemars = ["dep:schemars", "vision-calibration-core/schemars"]
 

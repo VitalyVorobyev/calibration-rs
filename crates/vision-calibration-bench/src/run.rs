@@ -244,34 +244,58 @@ pub mod tier_b {
     /// Refined camera parameters used in the diagnostic output.
     #[derive(Debug, Clone, serde::Serialize)]
     pub struct IntrinsicsParamReport {
+        /// Horizontal focal length in pixels.
         pub fx: f64,
+        /// Vertical focal length in pixels.
         pub fy: f64,
+        /// Principal-point x-coordinate in pixels.
         pub cx: f64,
+        /// Principal-point y-coordinate in pixels.
         pub cy: f64,
+        /// Pixel skew coefficient.
         pub skew: f64,
+        /// First radial distortion coefficient.
         pub k1: f64,
+        /// Second radial distortion coefficient.
         pub k2: f64,
+        /// Third radial distortion coefficient.
         pub k3: f64,
+        /// First tangential distortion coefficient.
         pub p1: f64,
+        /// Second tangential distortion coefficient.
         pub p2: f64,
+        /// Scheimpflug tilt angle about the x-axis in radians.
         pub tau_x: f64,
+        /// Scheimpflug tilt angle about the y-axis in radians.
         pub tau_y: f64,
     }
 
     /// Residual distribution for raw Euclidean reprojection errors.
     #[derive(Debug, Clone, serde::Serialize)]
     pub struct IntrinsicsResidualStats {
+        /// Mean reprojection error in pixels.
         pub mean: f64,
+        /// Root-mean-square reprojection error in pixels.
         pub rms: f64,
+        /// Median reprojection error in pixels.
         pub median: f64,
+        /// 90th-percentile reprojection error in pixels.
         pub p90: f64,
+        /// 95th-percentile reprojection error in pixels.
         pub p95: f64,
+        /// 99th-percentile reprojection error in pixels.
         pub p99: f64,
+        /// Maximum reprojection error in pixels.
         pub max: f64,
+        /// Total number of reprojected feature observations.
         pub count: usize,
+        /// Number of observations with error ≤ 0.4 px.
         pub count_le_0_4: usize,
+        /// Number of observations with error ≤ 1 px.
         pub count_le_1: usize,
+        /// Number of observations with error > 2 px.
         pub count_gt_2: usize,
+        /// Number of observations with error > 5 px.
         pub count_gt_5: usize,
         /// Diagnostic only; never used to satisfy the quality gate.
         pub trimmed_mean_95: f64,
@@ -280,18 +304,26 @@ pub mod tier_b {
     /// Residual statistics for one target pose/view.
     #[derive(Debug, Clone, serde::Serialize)]
     pub struct IntrinsicsPoseStats {
+        /// Zero-based index of the target pose (view).
         pub pose: usize,
+        /// Residual statistics for this pose.
         pub stats: IntrinsicsResidualStats,
     }
 
     /// One large-residual feature for drill-down.
     #[derive(Debug, Clone, serde::Serialize)]
     pub struct IntrinsicsOutlier {
+        /// Zero-based index of the target pose containing this outlier.
         pub pose: usize,
+        /// Zero-based index of the feature within the pose.
         pub feature: usize,
+        /// 3-D target point in metres.
         pub target_xyz_m: [f64; 3],
+        /// Observed image coordinate in pixels.
         pub observed_px: [f64; 2],
+        /// Projected image coordinate in pixels, or `None` if projection failed.
         pub projected_px: Option<[f64; 2]>,
+        /// Euclidean reprojection error in pixels.
         pub error_px: f64,
     }
 

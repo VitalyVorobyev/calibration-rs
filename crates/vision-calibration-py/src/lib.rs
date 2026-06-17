@@ -1,3 +1,6 @@
+//! PyO3 extension module (`_vision_calibration`) exposing the
+//! `vision-calibration` Rust API to Python.
+
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
 use pythonize::{depythonize, pythonize};

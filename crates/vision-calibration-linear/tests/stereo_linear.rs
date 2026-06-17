@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;

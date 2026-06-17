@@ -1,3 +1,5 @@
+//! Command-line runner for the `calibration-rs` benchmark suite.
+
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
