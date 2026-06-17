@@ -211,27 +211,39 @@ pub struct CameraArtifact {
 /// Scalar pinhole intrinsic parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct IntrinsicsArtifact {
+    /// Horizontal focal length in pixels.
     pub fx: f64,
+    /// Vertical focal length in pixels.
     pub fy: f64,
+    /// Principal-point x-coordinate in pixels.
     pub cx: f64,
+    /// Principal-point y-coordinate in pixels.
     pub cy: f64,
+    /// Pixel skew coefficient (zero for square pixels).
     pub skew: f64,
 }
 
 /// Brown-Conrady 5-parameter distortion model.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct DistortionArtifact {
+    /// First radial distortion coefficient.
     pub k1: f64,
+    /// Second radial distortion coefficient.
     pub k2: f64,
+    /// Third radial distortion coefficient (fixed to zero by default).
     pub k3: f64,
+    /// First tangential distortion coefficient.
     pub p1: f64,
+    /// Second tangential distortion coefficient.
     pub p2: f64,
 }
 
 /// Scheimpflug sensor tilt artifact.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ScheimpflugArtifact {
+    /// Sensor tilt angle about the x-axis in radians.
     pub tilt_x_rad: f64,
+    /// Sensor tilt angle about the y-axis in radians.
     pub tilt_y_rad: f64,
 }
 

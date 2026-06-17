@@ -1,3 +1,6 @@
+//! Benchmarking harness for `calibration-rs`: dataset registry, metric
+//! records, stability testing, and cross-validation runners.
+
 pub mod compare;
 pub mod crossval;
 #[cfg(feature = "tier-b")]

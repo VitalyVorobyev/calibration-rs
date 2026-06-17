@@ -225,6 +225,7 @@ pub enum RigHandeyeOutput {
 }
 
 impl RigHandeyeOutput {
+    /// Final solver cost after bundle adjustment converged.
     pub fn final_cost(&self) -> f64 {
         match self {
             Self::Pinhole(e) => e.report.final_cost,
@@ -232,6 +233,7 @@ impl RigHandeyeOutput {
         }
     }
 
+    /// Mean reprojection error in pixels across all observations and cameras.
     pub fn mean_reproj_error(&self) -> f64 {
         match self {
             Self::Pinhole(e) => e.mean_reproj_error,
@@ -239,6 +241,7 @@ impl RigHandeyeOutput {
         }
     }
 
+    /// Calibrated pinhole intrinsics for each rig camera.
     pub fn cameras(&self) -> &[PinholeCamera] {
         match self {
             Self::Pinhole(e) => &e.params.cameras,
@@ -246,6 +249,7 @@ impl RigHandeyeOutput {
         }
     }
 
+    /// Per-camera extrinsics `T_C_R` (camera-from-rig SE(3) transforms).
     pub fn cam_to_rig(&self) -> &[Iso3] {
         match self {
             Self::Pinhole(e) => &e.params.cam_to_rig,
@@ -253,6 +257,7 @@ impl RigHandeyeOutput {
         }
     }
 
+    /// Per-robot-pose target-from-rig transforms estimated during BA.
     pub fn target_poses(&self) -> &[Iso3] {
         match self {
             Self::Pinhole(e) => &e.params.target_poses,
@@ -260,6 +265,7 @@ impl RigHandeyeOutput {
         }
     }
 
+    /// Calibrated hand-eye transform `T_EEF_Rig` (end-effector-from-rig).
     pub fn handeye(&self) -> &Iso3 {
         match self {
             Self::Pinhole(e) => &e.params.handeye,
@@ -267,6 +273,8 @@ impl RigHandeyeOutput {
         }
     }
 
+    /// Per-pose robot se(3) correction deltas `[rx, ry, rz, tx, ty, tz]`, or
+    /// `None` when robot-pose refinement was not enabled.
     pub fn robot_deltas(&self) -> Option<&[[f64; 6]]> {
         match self {
             Self::Pinhole(e) => e.robot_deltas.as_deref(),
@@ -274,6 +282,7 @@ impl RigHandeyeOutput {
         }
     }
 
+    /// Per-camera Scheimpflug sensor tilt parameters, or `None` for pinhole rigs.
     pub fn sensors(&self) -> Option<&[ScheimpflugParams]> {
         match self {
             Self::Pinhole(_) => None,
@@ -281,6 +290,7 @@ impl RigHandeyeOutput {
         }
     }
 
+    /// Mean reprojection error in pixels for each individual camera.
     pub fn per_cam_reproj_errors(&self) -> &[f64] {
         match self {
             Self::Pinhole(e) => &e.per_cam_reproj_errors,

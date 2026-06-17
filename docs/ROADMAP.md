@@ -325,7 +325,12 @@ dense matcher, no full SfM.
 ### Track D — Earn v1.0 (continuous ratchet)
 
 - **D1** Typed errors only — no `String`-typed escape hatches in public APIs.
-- **D2** Doc-warning-free, MSRV pinned at v1.0 cut (currently 1.93).
+- **D2** Doc-warning-free, MSRV pinned at v1.0 cut (currently 1.93). **Ratchet
+  landed 2026-06-17:** `[workspace.lints.rust] missing_docs = "warn"` enforced
+  across every member crate (CI clippy `-D warnings` makes it a hard gate); all
+  public items documented. The `RUSTDOCFLAGS="-D warnings"` rustdoc gate was
+  already clean. Test/bench targets carry a local `#![allow(missing_docs)]`
+  (not public API).
 - **D3** Python binding parity audited at every minor version bump.
 - **D4** v1.0 release once the puzzle rig runs green end-to-end via the Tauri app,
   PR #28 + the diagnose viewer + C4 have all landed, and the API has been stable across two minor

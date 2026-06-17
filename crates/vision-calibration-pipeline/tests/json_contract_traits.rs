@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use serde::{Serialize, de::DeserializeOwned};
 use vision_calibration_pipeline::{
     laserline_device::{
