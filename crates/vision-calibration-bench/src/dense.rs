@@ -267,13 +267,16 @@ fn texture_u8(x: usize, y: usize) -> u8 {
 /// Returns `(left, right, gt_disparity)` where:
 ///
 /// * `left` has a deterministic high-entropy texture (see [`texture_u8`]).
-/// * `right` is the left image resampled at `(x − d(x,y), y)` by bilinear
-///   interpolation.  This is the "ideal" right image for the given disparity
-///   field.
-/// * `gt_disparity` is the slanted-plane disparity `d(x, y) = d0 + dx*x +
-///   dy*y`.  Pixels whose source x falls outside `[0, width)` are marked
-///   invalid (`NaN`) in the ground-truth map — a matcher is not penalised for
-///   those.
+/// * `gt_disparity` is the left-frame slanted-plane disparity
+///   `d(x, y) = d0 + dx*x + dy*y`, following the standard convention
+///   `d = x_left − x_right` (so a left pixel `(x, y)` matches right pixel
+///   `(x − d, y)`).
+/// * `right` is the left image resampled at `(x + d(x,y), y)` by bilinear
+///   interpolation — the inverse warp that makes `right[x − d] == left[x]`,
+///   i.e. the "ideal" right image for the given (positive) disparity field.
+/// * A left pixel whose right correspondence `x − d` falls outside `[0, width)`
+///   is occluded — it is marked invalid (`NaN`) in the ground-truth map so a
+///   matcher is not penalised for it.
 pub fn synthetic_rectified_pair(
     width: usize,
     height: usize,
@@ -293,9 +296,11 @@ pub fn synthetic_rectified_pair(
     for y in 0..height {
         for x in 0..width {
             let d = gt_disparity(plane, x, y);
-            let src_x = x as f32 - d;
-            // Mark invalid if the source pixel falls outside the left image.
-            gt_data[y * width + x] = if src_x >= 0.0 && src_x < width as f32 {
+            // The right correspondence of left pixel x is x - d (convention
+            // d = x_left - x_right). If it leaves the image the pixel is
+            // occluded -> no ground truth to score against.
+            let match_x = x as f32 - d;
+            gt_data[y * width + x] = if match_x >= 0.0 && match_x < width as f32 {
                 d
             } else {
                 f32::NAN
@@ -304,20 +309,19 @@ pub fn synthetic_rectified_pair(
     }
     let gt = DisparityMap::new(width, height, gt_data);
 
-    // --- right image: bilinear warp of left by GT disparity ---
+    // --- right image: bilinear warp of left by the plane disparity ---
+    // Synthesize EVERY right pixel from the (raw) plane disparity, not from
+    // `gt` — gt's NaNs mark left-frame occlusion for scoring, not right-image
+    // coverage, and a right pixel can be the match for a valid left pixel even
+    // where its own gt is invalid. `bilinear` border-clamps an out-of-range
+    // source.
     let mut right_data = vec![0u8; width * height];
     for y in 0..height {
         for x in 0..width {
-            let d = gt.get(x, y);
-            let val = if d.is_finite() {
-                // right pixel at (x,y) corresponds to left pixel at (x - d, y).
-                let src_xf = x as f64 - d as f64;
-                left.bilinear(src_xf, y as f64).round() as u8
-            } else {
-                // source falls out of bounds — fill with a border-clamp sample.
-                left.bilinear(0.0, y as f64).round() as u8
-            };
-            right_data[y * width + x] = val;
+            // Inverse warp: right[x] = left[x + d], so the matching pixel
+            // right[x - d] == left[x] (convention d = x_left - x_right).
+            let src_xf = x as f64 + gt_disparity(plane, x, y) as f64;
+            right_data[y * width + x] = left.bilinear(src_xf, y as f64).round() as u8;
         }
     }
     let right = GrayBuffer::new(width, height, right_data);
@@ -480,32 +484,32 @@ mod tests {
     /// that `right.get(x, y)` equals `round(left.bilinear(x−d, y))`, which we
     /// check with a 1 grey-level tolerance for the rounding step.
     #[test]
-    fn synthetic_pair_right_is_left_warped_by_disparity() {
-        let plane = sample_plane();
+    fn synthetic_pair_follows_disparity_sign_convention() {
+        // Constant (fronto-parallel) disparity makes the inverse warp exact, so
+        // we can assert the standard stereo convention `d = x_left - x_right`,
+        // i.e. left pixel x matches right pixel (x - d), to rounding precision.
+        // This is the test that catches a flipped warp sign: with the wrong
+        // `right[x] = left[x - d]`, `right[x - d]` would equal `left[x - 2d]`,
+        // not `left[x]`.
+        let plane = SlantedPlane {
+            d0: 8.0,
+            dx: 0.0,
+            dy: 0.0,
+        };
         let (left, right, gt) = synthetic_rectified_pair(W, H, &plane);
 
-        // Test a grid of interior pixels where GT is guaranteed valid and the
-        // warp source is well within bounds.
         for y in [10usize, 20, 30, 40] {
             for x in [20usize, 30, 40, 50, 60] {
-                assert!(
-                    gt.is_valid(x, y),
-                    "GT should be valid at interior ({x},{y})"
-                );
+                assert!(gt.is_valid(x, y), "GT should be valid at ({x},{y})");
                 let d = gt.get(x, y) as f64;
-                let src_x = x as f64 - d;
-                // Expected: left sampled bilinearly at the source location.
-                let expected = left.bilinear(src_x, y as f64);
-                // Actual: right pixel stored at (x, y).
-                let actual = right.get(x, y) as f64;
-                // The right image stores round(left.bilinear(src_x, y)), so
-                // the maximum error is 0.5 from rounding.  Allow 1 LSB.
-                let tolerance = 1.0;
+                assert!((d - 8.0).abs() < 1e-6, "constant disparity expected");
+                // Convention: left[x] corresponds to right[x - d].
+                let left_val = left.get(x, y) as f64;
+                let right_match = right.bilinear(x as f64 - d, y as f64);
                 assert!(
-                    (actual - expected).abs() < tolerance,
-                    "pixel ({x},{y}): right.get = {actual} vs left.bilinear({src_x:.3},{y}) \
-                     = {expected:.3} (diff {:.3} >= {tolerance})",
-                    (actual - expected).abs()
+                    (left_val - right_match).abs() < 1.0,
+                    "sign convention violated at ({x},{y}): left = {left_val} vs \
+                     right[x - d] = {right_match:.3}"
                 );
             }
         }
