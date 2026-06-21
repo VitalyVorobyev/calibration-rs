@@ -708,7 +708,7 @@ impl ProblemIR {
                             param.name, bound.idx
                         )));
                     }
-                    if bound.lower > bound.upper {
+                    if bound.lower.is_nan() || bound.upper.is_nan() || bound.lower > bound.upper {
                         return Err(Error::invalid_input(format!(
                             "param {} bound lower {} > upper {}",
                             param.name, bound.lower, bound.upper
@@ -1016,5 +1016,32 @@ mod tests {
         });
         let err = ir.validate().unwrap_err().to_string();
         assert!(err.contains("plane_normal"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_nan_bound() {
+        // A NaN bound must be rejected: `NaN <= upper` and `lower <= NaN` are
+        // both false, so a naive `lower > upper` guard would silently accept it
+        // and feed NaN limits into the solver. The validator explicitly rejects
+        // NaN (regression for the `ensure!` → typed-error migration).
+        for (lower, upper) in [(f64::NAN, 1.0), (0.0, f64::NAN)] {
+            let mut ir = ProblemIR::new();
+            ir.add_param_block(
+                "k",
+                4,
+                ManifoldKind::Euclidean,
+                FixedMask::all_free(),
+                Some(vec![Bound {
+                    idx: 0,
+                    lower,
+                    upper,
+                }]),
+            );
+            let err = ir.validate().unwrap_err().to_string();
+            assert!(
+                err.contains("bound"),
+                "NaN bound ({lower}, {upper}) not rejected: {err}"
+            );
+        }
     }
 }

@@ -431,19 +431,19 @@ fn compile_loss(loss: RobustLoss) -> Result<Option<Box<dyn Loss + Send>>, Error>
     match loss {
         RobustLoss::None => Ok(None),
         RobustLoss::Huber { scale } => {
-            if scale <= 0.0 {
+            if scale.is_nan() || scale <= 0.0 {
                 return Err(Error::invalid_input("Huber scale must be positive"));
             }
             Ok(Some(Box::new(HuberLoss::new(scale))))
         }
         RobustLoss::Cauchy { scale } => {
-            if scale <= 0.0 {
+            if scale.is_nan() || scale <= 0.0 {
                 return Err(Error::invalid_input("Cauchy scale must be positive"));
             }
             Ok(Some(Box::new(CauchyLoss::new(scale))))
         }
         RobustLoss::Arctan { scale } => {
-            if scale <= 0.0 {
+            if scale.is_nan() || scale <= 0.0 {
                 return Err(Error::invalid_input("Arctan scale must be positive"));
             }
             Ok(Some(Box::new(ArctanLoss::new(scale))))

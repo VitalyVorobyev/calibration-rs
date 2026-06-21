@@ -727,10 +727,10 @@ fn build_ir(
             n
         )));
     }
-    if opts.robot_rot_sigma <= 0.0 {
+    if opts.robot_rot_sigma.is_nan() || opts.robot_rot_sigma <= 0.0 {
         return Err(Error::invalid_input("robot_rot_sigma must be positive"));
     }
-    if opts.robot_trans_sigma <= 0.0 {
+    if opts.robot_trans_sigma.is_nan() || opts.robot_trans_sigma <= 0.0 {
         return Err(Error::invalid_input("robot_trans_sigma must be positive"));
     }
     if let Some(deltas) = &opts.initial_robot_deltas

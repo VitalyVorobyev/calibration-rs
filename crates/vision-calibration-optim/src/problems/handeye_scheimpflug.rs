@@ -434,10 +434,10 @@ fn build_handeye_scheimpflug_ir(
         ));
     }
     if opts.refine_robot_poses {
-        if opts.robot_rot_sigma <= 0.0 {
+        if opts.robot_rot_sigma.is_nan() || opts.robot_rot_sigma <= 0.0 {
             return Err(Error::invalid_input("robot_rot_sigma must be positive"));
         }
-        if opts.robot_trans_sigma <= 0.0 {
+        if opts.robot_trans_sigma.is_nan() || opts.robot_trans_sigma <= 0.0 {
             return Err(Error::invalid_input("robot_trans_sigma must be positive"));
         }
     }
