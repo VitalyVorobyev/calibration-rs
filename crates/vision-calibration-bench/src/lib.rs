@@ -3,6 +3,7 @@
 
 pub mod compare;
 pub mod crossval;
+pub mod dense;
 #[cfg(feature = "tier-b")]
 pub mod detect;
 pub mod fixtures;
