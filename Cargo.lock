@@ -3701,6 +3701,7 @@ dependencies = [
  "vision-calibration-optim",
  "vision-calibration-pipeline",
  "vision-geometry",
+ "vision-mvg",
 ]
 
 [[package]]

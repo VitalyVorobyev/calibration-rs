@@ -237,12 +237,10 @@ re-implements what `cargo run --example` already gives a terminal user.
   triangulation) landed; PR #72 carried C1-FOLLOWUP solver dedup
   (`linear` → `vision-geometry`) plus the geometry/mvg typed-error migration.
   **C3 (frozen-intrinsics bundle adjustment, PR #73)** and **C4
-  (Scheimpflug-aware stereo rectification, the D4 gate, PR #74)** are done.
-  Next: **C5** dense matcher (opencv-rust SGBM, feature-flagged). Known gap:
-  `vision-mvg` is not yet re-exported by the `vision-calibration` facade, so its
-  surface (pose recovery, robust estimation, `bundle_adjust`, `rectification`)
-  is reachable only via a direct `vision-mvg` dependency — a candidate
-  `vision_calibration::mvg` follow-up.
+  (Scheimpflug-aware stereo rectification, the D4 gate, PR #74)** are done. The
+  MVG surface is now re-exported through the facade as `vision_calibration::mvg`
+  (`bundle_adjust` behind the facade `refine` feature). Next: **C5** dense
+  matcher (opencv-rust SGBM, feature-flagged).
 - **D — Earn v1.0** (continuous ratchet). Typed errors (geometry/mvg migrated in
   PR #72) → doc-warning-free → Python parity audit → v1.0 release.
 
