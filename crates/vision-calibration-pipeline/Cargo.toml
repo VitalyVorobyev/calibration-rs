@@ -29,7 +29,6 @@ vision-calibration-optim = { workspace = true }
 vision-calibration-dataset = { workspace = true }
 vision-calibration-detect = { workspace = true }
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 nalgebra = { workspace = true }
@@ -39,5 +38,6 @@ regex = { workspace = true }
 schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
+anyhow = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"

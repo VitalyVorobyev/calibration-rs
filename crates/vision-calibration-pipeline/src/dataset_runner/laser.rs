@@ -64,7 +64,7 @@ pub trait LaserPixelExtractor: Send + Sync {
         &self,
         image: &image::DynamicImage,
         spec: &LaserExtractionSpec,
-    ) -> anyhow::Result<Vec<[f64; 2]>>;
+    ) -> Result<Vec<[f64; 2]>, Box<dyn std::error::Error + Send + Sync>>;
 }
 
 /// Result of a single-camera laserline dataset conversion.
@@ -907,7 +907,7 @@ mod tests {
             &self,
             _image: &image::DynamicImage,
             _spec: &LaserExtractionSpec,
-        ) -> anyhow::Result<Vec<[f64; 2]>> {
+        ) -> Result<Vec<[f64; 2]>, Box<dyn std::error::Error + Send + Sync>> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok((0..self.n).map(|i| [i as f64, 100.0]).collect())
         }

@@ -5,7 +5,6 @@
 //! grid index are filtered out — calibration consumes 2D-3D
 //! correspondences, so an unindexed corner is unusable.
 
-use anyhow::{Result, anyhow};
 use calib_targets::chessboard::DetectorParams as ChessboardDetectorParams;
 use calib_targets::detect;
 use serde::{Deserialize, Serialize};
@@ -15,7 +14,7 @@ use serde_json::Value;
 use schemars::JsonSchema;
 
 use crate::chess_options::{ChessCornersConfig, chess_config_for_override};
-use crate::{Detector, Feature};
+use crate::{DetectError, Detector, Feature};
 
 /// Chessboard detector configuration. Mirrors the shape of the
 /// chessboard variant in
@@ -49,9 +48,16 @@ impl Detector for ChessboardDetector {
         "chessboard"
     }
 
-    fn detect_json(&self, image: &image::DynamicImage, config: &Value) -> Result<Vec<Feature>> {
-        let cfg: ChessboardConfig = serde_json::from_value(config.clone())
-            .map_err(|e| anyhow!("invalid chessboard config: {e}"))?;
+    fn detect_json(
+        &self,
+        image: &image::DynamicImage,
+        config: &Value,
+    ) -> Result<Vec<Feature>, DetectError> {
+        let cfg: ChessboardConfig =
+            serde_json::from_value(config.clone()).map_err(|e| DetectError::Config {
+                detector: "chessboard",
+                source: e,
+            })?;
         let luma = image.to_luma8();
 
         // The underlying detector auto-labels corners from

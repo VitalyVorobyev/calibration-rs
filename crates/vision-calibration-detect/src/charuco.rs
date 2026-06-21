@@ -16,7 +16,6 @@
 //! CI and this workspace — so a shared-path refactor cannot be numerically
 //! verified here. See `docs/backlog.md`.
 
-use anyhow::{Result, anyhow};
 use calib_targets::aruco::builtins;
 use calib_targets::charuco::{
     CharucoBoard, CharucoBoardSpec, CharucoDetector as CtCharucoDetector, CharucoParams,
@@ -30,7 +29,7 @@ use serde_json::Value;
 use schemars::JsonSchema;
 
 use crate::chess_options::{ChessCornersConfig, chess_config_for_override};
-use crate::{Detector, Feature};
+use crate::{DetectError, Detector, Feature};
 
 /// ChArUco detector configuration. Mirrors the shape of the charuco
 /// variant in `vision_calibration_dataset::TargetSpec` so the
@@ -62,14 +61,14 @@ pub struct CharucoConfig {
 /// Check `name` against the ArUco dictionaries embedded in
 /// `calib-targets`. Lets the dispatcher fail fast on a manifest typo
 /// before touching any image files. The error lists the supported names.
-pub fn validate_dictionary(name: &str) -> Result<()> {
+pub fn validate_dictionary(name: &str) -> Result<(), DetectError> {
     if builtins::builtin_dictionary(name).is_some() {
         Ok(())
     } else {
-        Err(anyhow!(
+        Err(DetectError::InvalidConfig(format!(
             "unknown ArUco dictionary {name:?}; supported: {}",
             builtins::BUILTIN_DICTIONARY_NAMES.join(", ")
-        ))
+        )))
     }
 }
 
@@ -81,12 +80,12 @@ pub fn validate_dictionary(name: &str) -> Result<()> {
 /// impossible board reach detection with a guaranteed-empty result. This
 /// subsumes [`validate_dictionary`]: an unknown name fails here too.
 /// Geometry (square/marker size) is checked separately by the detector.
-pub fn validate_charuco_layout(rows: u32, cols: u32, dictionary: &str) -> Result<()> {
+pub fn validate_charuco_layout(rows: u32, cols: u32, dictionary: &str) -> Result<(), DetectError> {
     let dictionary = builtins::builtin_dictionary(dictionary).ok_or_else(|| {
-        anyhow!(
+        DetectError::InvalidConfig(format!(
             "unknown ArUco dictionary {dictionary:?}; supported: {}",
             builtins::BUILTIN_DICTIONARY_NAMES.join(", ")
-        )
+        ))
     })?;
     // Unit geometry: `CharucoBoard::new` only inspects rows/cols and the
     // dictionary capacity here; cell/marker size are placeholders.
@@ -100,19 +99,18 @@ pub fn validate_charuco_layout(rows: u32, cols: u32, dictionary: &str) -> Result
     };
     CharucoBoard::new(spec)
         .map(|_| ())
-        .map_err(|e| anyhow!("invalid charuco board: {e}"))
+        .map_err(|e| DetectError::InvalidConfig(format!("invalid charuco board: {e}")))
 }
 
-fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams> {
+fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams, DetectError> {
     validate_charuco_layout(cfg.rows, cfg.cols, &cfg.dictionary)?;
     let dictionary = builtins::builtin_dictionary(&cfg.dictionary)
         .expect("validated above; builtin lookup is deterministic");
     if !(cfg.marker_size_m > 0.0 && cfg.marker_size_m <= cfg.square_size_m) {
-        return Err(anyhow!(
+        return Err(DetectError::InvalidConfig(format!(
             "marker_size_m ({}) must be in (0, square_size_m = {}]",
-            cfg.marker_size_m,
-            cfg.square_size_m
-        ));
+            cfg.marker_size_m, cfg.square_size_m
+        )));
     }
     let board = CharucoBoardSpec {
         rows: cfg.rows,
@@ -136,16 +134,24 @@ impl Detector for CharucoDetector {
         "charuco"
     }
 
-    fn detect_json(&self, image: &image::DynamicImage, config: &Value) -> Result<Vec<Feature>> {
-        let cfg: CharucoConfig = serde_json::from_value(config.clone())
-            .map_err(|e| anyhow!("invalid charuco config: {e}"))?;
+    fn detect_json(
+        &self,
+        image: &image::DynamicImage,
+        config: &Value,
+    ) -> Result<Vec<Feature>, DetectError> {
+        let cfg: CharucoConfig =
+            serde_json::from_value(config.clone()).map_err(|e| DetectError::Config {
+                detector: "charuco",
+                source: e,
+            })?;
         let params = params_for(&cfg)?;
         let luma = image.to_luma8();
 
         // ChESS corner pre-detection feeds the ChArUco identifier.
         let chess_cfg = chess_config_for_override(cfg.chess_corners);
         let corners = detect::detect_corners(&luma, &chess_cfg);
-        let detector = CtCharucoDetector::new(params)?;
+        let detector = CtCharucoDetector::new(params)
+            .map_err(|e| DetectError::InvalidConfig(format!("invalid charuco board: {e}")))?;
         // A failed board identification (too few markers, no board in
         // frame) is "no features", not an error — same semantics as
         // the chessboard detector on a blank image.

@@ -3755,7 +3755,6 @@ dependencies = [
 name = "vision-calibration-detect"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "calib-targets",
  "chess-corners",
  "image",

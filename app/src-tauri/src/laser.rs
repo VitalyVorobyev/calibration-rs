@@ -27,12 +27,14 @@ impl LaserPixelExtractor for VmLaserExtractor {
         &self,
         image: &image::DynamicImage,
         spec: &LaserExtractionSpec,
-    ) -> anyhow::Result<Vec<[f64; 2]>> {
+    ) -> Result<Vec<[f64; 2]>, Box<dyn std::error::Error + Send + Sync>> {
         let luma = image.to_luma8();
         let width = luma.width() as usize;
         let height = luma.height() as usize;
         let view = ImageView::<u8>::from_slice(width, height, width, luma.as_raw())
-            .map_err(|e| anyhow::anyhow!("image view ({width}x{height}): {e:?}"))?;
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                format!("image view ({width}x{height}): {e:?}").into()
+            })?;
 
         let (axis, scan_len) = match spec.scan_axis {
             LaserScanAxis::Cols => (

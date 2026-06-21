@@ -6434,20 +6434,20 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vision-calibration"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
- "anyhow",
  "vision-calibration-core",
  "vision-calibration-linear",
  "vision-calibration-optim",
  "vision-calibration-pipeline",
+ "vision-geometry",
+ "vision-mvg",
 ]
 
 [[package]]
 name = "vision-calibration-core"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
- "anyhow",
  "nalgebra",
  "rand 0.10.1",
  "serde",
@@ -6456,7 +6456,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-dataset"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6465,9 +6465,8 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-detect"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
- "anyhow",
  "calib-targets",
  "chess-corners",
  "image",
@@ -6479,7 +6478,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-linear"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "log",
@@ -6487,13 +6486,13 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "vision-calibration-core",
+ "vision-geometry",
 ]
 
 [[package]]
 name = "vision-calibration-optim"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
- "anyhow",
  "faer",
  "faer-ext",
  "nalgebra",
@@ -6505,9 +6504,8 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-pipeline"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
- "anyhow",
  "glob",
  "image",
  "nalgebra",
@@ -6520,6 +6518,16 @@ dependencies = [
  "vision-calibration-detect",
  "vision-calibration-linear",
  "vision-calibration-optim",
+ "vision-geometry",
+]
+
+[[package]]
+name = "vision-geometry"
+version = "0.6.0"
+dependencies = [
+ "nalgebra",
+ "thiserror 2.0.18",
+ "vision-calibration-core",
 ]
 
 [[package]]
@@ -6533,6 +6541,16 @@ dependencies = [
  "vm-laser",
  "vm-morph",
  "vm-pyr",
+]
+
+[[package]]
+name = "vision-mvg"
+version = "0.6.0"
+dependencies = [
+ "nalgebra",
+ "thiserror 2.0.18",
+ "vision-calibration-core",
+ "vision-geometry",
 ]
 
 [[package]]

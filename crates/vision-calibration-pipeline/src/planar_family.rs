@@ -3,10 +3,11 @@
 //! This module is internal to the pipeline crate and consolidates common
 //! initialization logic used by multiple planar problem variants.
 
-use anyhow::{Context, Result};
 use vision_calibration_core::{
     CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, PinholeCamera, PlanarDataset, Pt2, Real,
 };
+
+use crate::Error;
 use vision_calibration_linear::prelude::{
     IterativeIntrinsicsOptions, dlt_homography, estimate_intrinsics_iterative,
     estimate_planar_pose_from_h,
@@ -24,10 +25,13 @@ pub(crate) struct PlanarBootstrap {
 pub(crate) fn bootstrap_planar_intrinsics(
     dataset: &PlanarDataset,
     init_opts: IterativeIntrinsicsOptions,
-) -> Result<PlanarBootstrap> {
+) -> Result<PlanarBootstrap, Error> {
     let homographies = estimate_view_homographies(dataset)?;
-    let camera = estimate_intrinsics_iterative(dataset, init_opts)
-        .context("iterative planar intrinsics estimation failed")?;
+    let camera = estimate_intrinsics_iterative(dataset, init_opts).map_err(|e| {
+        Error::numerical(format!(
+            "iterative planar intrinsics estimation failed: {e}"
+        ))
+    })?;
     let poses = recover_planar_poses_from_homographies(&homographies, &camera.k)?;
 
     Ok(PlanarBootstrap {
@@ -37,15 +41,15 @@ pub(crate) fn bootstrap_planar_intrinsics(
     })
 }
 
-pub(crate) fn estimate_view_homographies(dataset: &PlanarDataset) -> Result<Vec<Mat3>> {
+pub(crate) fn estimate_view_homographies(dataset: &PlanarDataset) -> Result<Vec<Mat3>, Error> {
     let mut homographies = Vec::with_capacity(dataset.num_views());
     for (idx, view) in dataset.views.iter().enumerate() {
         let (board_2d, pixel_2d) = board_and_pixel_points(&view.obs);
-        let h = dlt_homography(&board_2d, &pixel_2d).with_context(|| {
-            format!(
-                "failed to compute homography for view {} (need >=4 well-conditioned points)",
+        let h = dlt_homography(&board_2d, &pixel_2d).map_err(|e| {
+            Error::numerical(format!(
+                "failed to compute homography for view {} (need >=4 well-conditioned points): {e}",
                 idx
-            )
+            ))
         })?;
         homographies.push(h);
     }
@@ -55,12 +59,13 @@ pub(crate) fn estimate_view_homographies(dataset: &PlanarDataset) -> Result<Vec<
 pub(crate) fn recover_planar_poses_from_homographies(
     homographies: &[Mat3],
     intrinsics: &FxFyCxCySkew<Real>,
-) -> Result<Vec<Iso3>> {
+) -> Result<Vec<Iso3>, Error> {
     let k = intrinsics_k_matrix(intrinsics);
     let mut poses = Vec::with_capacity(homographies.len());
     for (idx, h) in homographies.iter().enumerate() {
-        let pose = estimate_planar_pose_from_h(&k, h)
-            .with_context(|| format!("failed to recover pose for view {}", idx))?;
+        let pose = estimate_planar_pose_from_h(&k, h).map_err(|e| {
+            Error::numerical(format!("failed to recover pose for view {}: {e}", idx))
+        })?;
         poses.push(pose);
     }
     Ok(poses)

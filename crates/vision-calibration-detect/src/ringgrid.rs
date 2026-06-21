@@ -10,7 +10,6 @@
 //! marker pixel size is unknown for an arbitrary dataset image, and adaptive
 //! mode auto-selects scale tiers rather than relying on a hand-tuned prior.
 
-use anyhow::{Result, anyhow};
 use ringgrid::{BoardLayout, Detector as RinggridDetectorImpl};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,7 +17,7 @@ use serde_json::Value;
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::{Detector, Feature};
+use crate::{DetectError, Detector, Feature};
 
 /// Coded ring-grid detector configuration. Mirrors the geometry of the
 /// ringgrid variant in `vision_calibration_dataset::TargetSpec` (and, in
@@ -47,7 +46,7 @@ impl RinggridConfig {
     /// `ringgrid` API works in millimetres, so metric fields are scaled
     /// here; geometry validation (radii ordering, marker-vs-pitch fit) is
     /// delegated to `BoardLayout::new`.
-    fn board_layout(&self) -> Result<BoardLayout> {
+    fn board_layout(&self) -> Result<BoardLayout, DetectError> {
         let mm = |m: f64| (m * 1000.0) as f32;
         BoardLayout::new(
             mm(self.pitch_m),
@@ -57,7 +56,7 @@ impl RinggridConfig {
             mm(self.marker_inner_radius_m),
             mm(self.marker_ring_width_m),
         )
-        .map_err(|e| anyhow!("invalid ringgrid board: {e}"))
+        .map_err(|e| DetectError::InvalidConfig(format!("invalid ringgrid board: {e}")))
     }
 }
 
@@ -72,9 +71,16 @@ impl Detector for RinggridDetector {
         "ringgrid"
     }
 
-    fn detect_json(&self, image: &image::DynamicImage, config: &Value) -> Result<Vec<Feature>> {
-        let cfg: RinggridConfig = serde_json::from_value(config.clone())
-            .map_err(|e| anyhow!("invalid ringgrid config: {e}"))?;
+    fn detect_json(
+        &self,
+        image: &image::DynamicImage,
+        config: &Value,
+    ) -> Result<Vec<Feature>, DetectError> {
+        let cfg: RinggridConfig =
+            serde_json::from_value(config.clone()).map_err(|e| DetectError::Config {
+                detector: "ringgrid",
+                source: e,
+            })?;
         let board = cfg.board_layout()?;
         let detector = RinggridDetectorImpl::new(board);
 

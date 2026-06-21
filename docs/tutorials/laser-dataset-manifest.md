@@ -101,7 +101,7 @@ impl LaserPixelExtractor for MyExtractor {
         &self,
         image: &image::DynamicImage,
         spec: &vision_calibration_dataset::LaserExtractionSpec,
-    ) -> anyhow::Result<Vec<[f64; 2]>> {
+    ) -> Result<Vec<[f64; 2]>, Box<dyn std::error::Error + Send + Sync>> {
         // subpixel laser-line points in the (ROI-cropped) image
         todo!()
     }

@@ -25,10 +25,10 @@ test-utils = []
 nalgebra = { workspace = true }
 serde = { workspace = true }
 rand = { workspace = true }
-anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true, optional=true }
 schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
+anyhow = { workspace = true }
 serde_json = { workspace = true }
