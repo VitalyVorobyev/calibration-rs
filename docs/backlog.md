@@ -217,14 +217,29 @@ Systemic causes:
   tests. **Strictly additive** — no pipeline/builder/export change, BC5
   production paths byte-identical. Usable via `CameraParams` and hand-built
   `ProblemIR`.
-- [ ] M-WIRE - Pipeline-selection plumbing for the new distortion models:
-  user-facing distortion-model choice through `PlanarIntrinsicsConfig` /
-  `ScheimpflugIntrinsicsConfig` into the problem builders (which hardcode
-  `CameraModelDesc::PINHOLE4_DIST5*`). Requires: generalize the BC5-hardwired
-  `DistortionFixMask`, model-aware init seeds (note Division's `lambda=0`
-  degeneracy + Rational k1↔k4 correlation), variable-dim pack/unpack, export
-  reconstruction per model, schema regen, app selector. Touches validated
-  calibration paths — do supervised, not in an autonomous batch.
+- [~] M-WIRE - Pipeline-selection plumbing for the new distortion models.
+  **PlanarIntrinsics vertical slice DONE 2026-06-21** (user-supervised; chose
+  vertical slice + "Zhang shared terms, zero extras, refine" init + a
+  model-agnostic export contract). `PlanarIntrinsicsConfig.distortion_model:
+  DistortionKind` (Serde, `#[serde(default)]` → BC5) selects BC5 / Rational8 /
+  ThinPrism9 / Division1. `PlanarIntrinsicsParams.camera` is now the serializable
+  `CameraParams` (was the concrete `PinholeCamera`) — `build_camera()` →
+  `CameraModel` for residuals (generic via `CameraProject`), `from_pinhole()` /
+  `pinhole_camera()` (Result; `Err` for extended models) bridge the rig family
+  which stays BC5. Model-aware `pack/unpack_distortion_params` (variable-dim,
+  IR-order-exact); the IR builder maps the kind → `CameraModelDesc::PINHOLE4_*`;
+  init embeds the BC5 linear seed into the target model and zeros the extras.
+  7 new E2E tests (per-model noiseless round-trip — Rational8 4.2e-6 px,
+  ThinPrism9 2.9e-4 px, Division1 3.2e-6 px from λ=0, BC5 3.0e-3 px regression
+  + JSON roundtrip + back-compat default). The export `params.camera` JSON shape
+  changed to the tagged `CameraParams` form (app/diagnose deserialization updates
+  when the app selector lands).
+  - [ ] **Remaining (supervised):** the other intrinsics-bearing problem types
+    (`ScheimpflugIntrinsics`, rig family), the app Run-form model selector +
+    Diagnose display, Python binding, and manual-init seeding of extended models
+    (`PlanarManualInit::distortion` is still `Option<BrownConrady5>`). Also: the
+    BC5-shaped `DistortionFixMask` is currently ignored for non-BC5 models (no
+    user-visible error) — generalize or warn.
   - **Robust wide-FOV inverse** (sub-item): the rational/thin-prism runtime +
     kernel `undistort` use a radial-division fixed point that is contracting
     only within the calibrated FOV (radius ≲ ~1.2), matching OpenCV

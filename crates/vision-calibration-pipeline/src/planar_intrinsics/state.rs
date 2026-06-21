@@ -4,7 +4,9 @@
 //! computed during the calibration pipeline (homographies, initial estimates, etc.).
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, Iso3, Mat3, Real, make_pinhole_camera};
+use vision_calibration_core::{
+    BrownConrady5, CameraParams, FxFyCxCySkew, Iso3, Mat3, Real, make_pinhole_camera,
+};
 use vision_calibration_optim::PlanarIntrinsicsParams;
 
 /// Intermediate state for planar intrinsics calibration.
@@ -34,6 +36,12 @@ pub(crate) struct PlanarState {
 
     /// Initial pose estimates for each view (camera_T_target).
     pub initial_poses: Option<Vec<Iso3>>,
+
+    /// Full camera params for extended distortion models (Rational8, ThinPrism9,
+    /// Division1). When set, `initial_params()` uses this directly instead of
+    /// building a Brown-Conrady5 `PinholeCamera`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_camera_params: Option<CameraParams>,
 
     // ─────────────────────────────────────────────────────────────────────────
     // From optimization
@@ -66,16 +74,24 @@ impl PlanarState {
 
     /// Get initial parameters for optimization.
     ///
-    /// Constructs `PlanarIntrinsicsParams` from the initial estimates.
+    /// When `initial_camera_params` is set (extended distortion model), uses it
+    /// directly. Otherwise constructs a Brown-Conrady5 `PinholeCamera` from
+    /// `initial_intrinsics` + `initial_distortion`.
+    ///
     /// Returns `None` if initialization hasn't been run.
     pub fn initial_params(&self) -> Option<PlanarIntrinsicsParams> {
+        let poses = self.initial_poses.clone()?;
+
+        if let Some(camera_params) = &self.initial_camera_params {
+            return PlanarIntrinsicsParams::new(camera_params.clone(), poses).ok();
+        }
+
         let intrinsics = self.initial_intrinsics?;
         let distortion = self.initial_distortion.unwrap_or_default();
-        let poses = self.initial_poses.clone()?;
 
         // Construct camera from intrinsics and distortion
         let camera = make_pinhole_camera(intrinsics, distortion);
-        PlanarIntrinsicsParams::new(camera, poses).ok()
+        PlanarIntrinsicsParams::from_pinhole(camera, poses).ok()
     }
 
     /// Clear optimization results, keeping initialization.

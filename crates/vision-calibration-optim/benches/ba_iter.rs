@@ -94,7 +94,8 @@ fn planar_intrinsics_ba(c: &mut Criterion) {
     let (dataset, cam_init, poses_gt) = synthetic_problem();
     c.bench_function("planar_intrinsics_ba_10views_70pts", |b| {
         b.iter(|| {
-            let init = PlanarIntrinsicsParams::new(cam_init.clone(), poses_gt.clone()).unwrap();
+            let init =
+                PlanarIntrinsicsParams::from_pinhole(cam_init.clone(), poses_gt.clone()).unwrap();
             optimize_planar_intrinsics(
                 black_box(&dataset),
                 black_box(&init),

@@ -380,7 +380,7 @@ pub fn step_intrinsics_optimize(
         .ok_or_else(|| Error::not_available("initial poses"))?;
 
     // Build initial params
-    let initial_params = PlanarIntrinsicsParams::new(initial_camera, initial_poses)
+    let initial_params = PlanarIntrinsicsParams::from_pinhole(initial_camera, initial_poses)
         .map_err(|e| Error::numerical(format!("failed to build params: {e}")))?;
 
     // Convert to PlanarDataset
@@ -415,7 +415,10 @@ pub fn step_intrinsics_optimize(
     };
 
     // Update state
-    let camera = result.params.camera.clone();
+    let camera = result
+        .params
+        .pinhole_camera()
+        .map_err(|e| Error::numerical(format!("intrinsics result not pinhole-compatible: {e}")))?;
     let target_poses = result.params.poses().to_vec();
     let mean_reproj_error = result.mean_reproj_error;
     session.state.optimized_camera = Some(camera.clone());

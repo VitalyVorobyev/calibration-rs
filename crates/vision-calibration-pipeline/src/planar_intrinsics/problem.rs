@@ -11,7 +11,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    BackendSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
+    BackendSolveOptions, DistortionKind, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
     PlanarIntrinsicsSolveOptions, SolveReport,
 };
 
@@ -97,6 +97,21 @@ pub struct PlanarIntrinsicsConfig {
 
     /// Indices of poses to fix during optimization (e.g., \[0\] to fix first pose).
     pub fix_poses: Vec<usize>,
+
+    /// Distortion model to use for optimization.
+    ///
+    /// Selects which distortion model is built during initialization and
+    /// handed to the optimizer. Brown-Conrady5 is the default and is
+    /// compatible with all existing downstream rig consumers. Extended
+    /// models (Rational8, ThinPrism9, Division1) are PlanarIntrinsics-only;
+    /// they cannot be passed into `RigExtrinsics` / `RigHandeye` pipelines
+    /// which still expect a `PinholeCamera`.
+    #[serde(default = "default_distortion_kind")]
+    pub distortion_model: DistortionKind,
+}
+
+fn default_distortion_kind() -> DistortionKind {
+    DistortionKind::BrownConrady5
 }
 
 impl Default for PlanarIntrinsicsConfig {
@@ -114,6 +129,7 @@ impl Default for PlanarIntrinsicsConfig {
             fix_intrinsics: Default::default(),
             fix_distortion: Default::default(),
             fix_poses: Vec::new(),
+            distortion_model: DistortionKind::BrownConrady5,
         }
     }
 }
@@ -244,11 +260,9 @@ impl ProblemType for PlanarIntrinsicsProblem {
         // Length-mismatch is a logic error inside the pipeline (output came
         // out of an optimizer that ran on `input`); surface it as a typed
         // error rather than panicking.
-        let target = compute_planar_target_residuals(
-            &output.params.camera,
-            input,
-            &output.params.camera_se3_target,
-        )?;
+        let cam = output.params.build_camera();
+        let target =
+            compute_planar_target_residuals(&cam, input, &output.params.camera_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
         let mut per_feature_residuals = PerFeatureResiduals::default();
         per_feature_residuals.target = target;
@@ -442,9 +456,11 @@ mod tests {
             },
             vision_calibration_core::BrownConrady5::default(),
         );
-        let params =
-            PlanarIntrinsicsParams::new(camera, vec![vision_calibration_core::Iso3::identity()])
-                .expect("valid params");
+        let params = PlanarIntrinsicsParams::from_pinhole(
+            camera,
+            vec![vision_calibration_core::Iso3::identity()],
+        )
+        .expect("valid params");
         let output = PlanarIntrinsicsEstimate {
             params,
             report: SolveReport {
@@ -537,8 +553,8 @@ mod tests {
         ])
         .unwrap();
 
-        let params =
-            PlanarIntrinsicsParams::new(camera, vec![pose, pose, pose]).expect("valid params");
+        let params = PlanarIntrinsicsParams::from_pinhole(camera, vec![pose, pose, pose])
+            .expect("valid params");
         let output = PlanarIntrinsicsEstimate {
             params,
             report: SolveReport {
@@ -605,7 +621,8 @@ mod tests {
             .unwrap(),
         );
         let dataset = vision_calibration_core::PlanarDataset::new(vec![view]).unwrap();
-        let params = PlanarIntrinsicsParams::new(camera, vec![pose]).expect("valid params");
+        let params =
+            PlanarIntrinsicsParams::from_pinhole(camera, vec![pose]).expect("valid params");
         let output = PlanarIntrinsicsEstimate {
             params,
             report: SolveReport {
@@ -656,9 +673,11 @@ mod tests {
             },
             vision_calibration_core::BrownConrady5::default(),
         );
-        let params =
-            PlanarIntrinsicsParams::new(camera, vec![vision_calibration_core::Iso3::identity()])
-                .expect("valid params");
+        let params = PlanarIntrinsicsParams::from_pinhole(
+            camera,
+            vec![vision_calibration_core::Iso3::identity()],
+        )
+        .expect("valid params");
         let mut export = PlanarIntrinsicsExport {
             params,
             report: SolveReport {

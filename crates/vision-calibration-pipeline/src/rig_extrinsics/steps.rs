@@ -345,13 +345,13 @@ pub fn step_intrinsics_optimize_all(
 
         match &config.sensor {
             SensorMode::Pinhole => {
-                let initial_params =
-                    PlanarIntrinsicsParams::new(per_cam_intrinsics[cam_idx].clone(), initial_poses)
-                        .map_err(|e| {
-                            Error::numerical(format!(
-                                "failed to build params for camera {cam_idx}: {e}"
-                            ))
-                        })?;
+                let initial_params = PlanarIntrinsicsParams::from_pinhole(
+                    per_cam_intrinsics[cam_idx].clone(),
+                    initial_poses,
+                )
+                .map_err(|e| {
+                    Error::numerical(format!("failed to build params for camera {cam_idx}: {e}"))
+                })?;
 
                 let solve_opts = PlanarIntrinsicsSolveOptions {
                     robust_loss: config.robust_loss,
@@ -381,7 +381,11 @@ pub fn step_intrinsics_optimize_all(
                         Some(result.params.poses()[local_idx]);
                 }
 
-                optimized_cameras.push(result.params.camera.clone());
+                optimized_cameras.push(result.params.pinhole_camera().map_err(|e| {
+                    Error::numerical(format!(
+                        "camera {cam_idx} result not pinhole-compatible: {e}"
+                    ))
+                })?);
                 per_cam_reproj_errors.push(result.mean_reproj_error);
             }
             SensorMode::Scheimpflug {

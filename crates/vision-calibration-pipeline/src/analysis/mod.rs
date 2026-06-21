@@ -291,12 +291,12 @@ pub fn planar_intrinsics_report<M>(
     export: &PlanarIntrinsicsExport,
     views: &[View<M>],
 ) -> Result<ReprojReport, Error> {
-    let cam = &export.params.camera;
-    let k = cam.k;
+    let cam = export.params.build_camera();
+    let k = export.params.intrinsics();
     let residuals = if !export.per_feature_residuals.target.is_empty() {
         export.per_feature_residuals.target.clone()
     } else {
-        intrinsic_floor_single_cam(cam, &k, views, 0)
+        intrinsic_floor_single_cam(&cam, &k, views, 0)
     };
     let num_views = views.len().max(max_pose(&residuals) + 1);
     let level = LevelReport::from_residuals(ReprojLevel::Intrinsic, residuals, 1, num_views);

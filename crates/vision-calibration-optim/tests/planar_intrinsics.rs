@@ -122,16 +122,17 @@ fn synthetic_planar_intrinsics_refinement_converges() {
     } = build_synthetic_scenario(0.0);
     let k_gt = cam_gt.k;
 
-    let init = PlanarIntrinsicsParams::new(cam_init, poses_gt).unwrap();
+    let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt).unwrap();
     let opts = PlanarIntrinsicsSolveOptions::default();
     let solver = BackendSolveOptions::default();
 
     let result = optimize_planar_intrinsics(&dataset, &init, opts, solver).unwrap();
+    let k = result.params.intrinsics();
 
-    assert!((result.params.camera.k.fx - k_gt.fx).abs() < 5.0);
-    assert!((result.params.camera.k.fy - k_gt.fy).abs() < 5.0);
-    assert!((result.params.camera.k.cx - k_gt.cx).abs() < 5.0);
-    assert!((result.params.camera.k.cy - k_gt.cy).abs() < 5.0);
+    assert!((k.fx - k_gt.fx).abs() < 5.0);
+    assert!((k.fy - k_gt.fy).abs() < 5.0);
+    assert!((k.cx - k_gt.cx).abs() < 5.0);
+    assert!((k.cy - k_gt.cy).abs() < 5.0);
 }
 
 #[test]
@@ -215,7 +216,7 @@ fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
         },
     );
 
-    let init = PlanarIntrinsicsParams::new(cam_init, poses_gt).unwrap();
+    let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt).unwrap();
     let solver = BackendSolveOptions::default();
 
     let l2_opts = PlanarIntrinsicsSolveOptions::default();
@@ -227,15 +228,15 @@ fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
     let l2 = optimize_planar_intrinsics(&dataset, &init, l2_opts, solver.clone()).unwrap();
     let robust = optimize_planar_intrinsics(&dataset, &init, robust_opts, solver).unwrap();
 
-    let err_total = |cam: &PinholeCamera| -> Real {
-        (cam.k.fx - k_gt.fx).abs()
-            + (cam.k.fy - k_gt.fy).abs()
-            + (cam.k.cx - k_gt.cx).abs()
-            + (cam.k.cy - k_gt.cy).abs()
+    let err_total = |k: vision_calibration_core::FxFyCxCySkew<Real>| -> Real {
+        (k.fx - k_gt.fx).abs()
+            + (k.fy - k_gt.fy).abs()
+            + (k.cx - k_gt.cx).abs()
+            + (k.cy - k_gt.cy).abs()
     };
 
-    let err_l2 = err_total(&l2.params.camera);
-    let err_robust = err_total(&robust.params.camera);
+    let err_l2 = err_total(l2.params.intrinsics());
+    let err_robust = err_total(robust.params.intrinsics());
 
     assert!(
         err_robust < err_l2,
@@ -254,7 +255,7 @@ fn intrinsics_masking_keeps_fixed_params() {
         ..
     } = build_synthetic_scenario(0.0);
 
-    let init = PlanarIntrinsicsParams::new(cam_init, poses_gt).unwrap();
+    let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt).unwrap();
     let opts = PlanarIntrinsicsSolveOptions {
         fix_intrinsics: IntrinsicsFixMask {
             fx: true,
@@ -266,13 +267,15 @@ fn intrinsics_masking_keeps_fixed_params() {
     let solver = BackendSolveOptions::default();
 
     let result = optimize_planar_intrinsics(&dataset, &init, opts, solver).unwrap();
+    let k_init = init.intrinsics();
+    let k_result = result.params.intrinsics();
 
     assert!(
-        (result.params.camera.k.fx - init.camera.k.fx).abs() < 1e-12,
+        (k_result.fx - k_init.fx).abs() < 1e-12,
         "fx should remain fixed"
     );
     assert!(
-        (result.params.camera.k.fy - init.camera.k.fy).abs() < 1e-12,
+        (k_result.fy - k_init.fy).abs() < 1e-12,
         "fy should remain fixed"
     );
 }
@@ -353,7 +356,7 @@ fn synthetic_planar_with_distortion_converges() {
             iters: 8,
         },
     );
-    let init = PlanarIntrinsicsParams::new(cam_init, poses_gt.clone()).unwrap();
+    let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt.clone()).unwrap();
 
     let opts = PlanarIntrinsicsSolveOptions {
         robust_loss: RobustLoss::None,
@@ -363,63 +366,59 @@ fn synthetic_planar_with_distortion_converges() {
     let backend_opts = BackendSolveOptions::default();
     let result = optimize_planar_intrinsics(&dataset, &init, opts, backend_opts).unwrap();
 
+    let k_res = result.params.intrinsics();
+    let dist_res = result.params.distortion().expect("BC5 distortion expected");
+
     // Verify convergence to ground truth
     println!(
         "Final camera: fx={}, fy={}, cx={}, cy={}",
-        result.params.camera.k.fx,
-        result.params.camera.k.fy,
-        result.params.camera.k.cx,
-        result.params.camera.k.cy
+        k_res.fx, k_res.fy, k_res.cx, k_res.cy
     );
     println!(
         "Final distortion: k1={}, k2={}, k3={}, p1={}, p2={}",
-        result.params.camera.dist.k1,
-        result.params.camera.dist.k2,
-        result.params.camera.dist.k3,
-        result.params.camera.dist.p1,
-        result.params.camera.dist.p2
+        dist_res.k1, dist_res.k2, dist_res.k3, dist_res.p1, dist_res.p2
     );
 
     assert!(
-        (result.params.camera.k.fx - k_gt.fx).abs() < 5.0,
+        (k_res.fx - k_gt.fx).abs() < 5.0,
         "fx off by {}",
-        result.params.camera.k.fx - k_gt.fx
+        k_res.fx - k_gt.fx
     );
     assert!(
-        (result.params.camera.k.fy - k_gt.fy).abs() < 5.0,
+        (k_res.fy - k_gt.fy).abs() < 5.0,
         "fy off by {}",
-        result.params.camera.k.fy - k_gt.fy
+        k_res.fy - k_gt.fy
     );
     assert!(
-        (result.params.camera.k.cx - k_gt.cx).abs() < 3.0,
+        (k_res.cx - k_gt.cx).abs() < 3.0,
         "cx off by {}",
-        result.params.camera.k.cx - k_gt.cx
+        k_res.cx - k_gt.cx
     );
     assert!(
-        (result.params.camera.k.cy - k_gt.cy).abs() < 3.0,
+        (k_res.cy - k_gt.cy).abs() < 3.0,
         "cy off by {}",
-        result.params.camera.k.cy - k_gt.cy
+        k_res.cy - k_gt.cy
     );
 
     assert!(
-        (result.params.camera.dist.k1 - dist_gt.k1).abs() < 0.01,
+        (dist_res.k1 - dist_gt.k1).abs() < 0.01,
         "k1 off by {}",
-        result.params.camera.dist.k1 - dist_gt.k1
+        dist_res.k1 - dist_gt.k1
     );
     assert!(
-        (result.params.camera.dist.k2 - dist_gt.k2).abs() < 0.01,
+        (dist_res.k2 - dist_gt.k2).abs() < 0.01,
         "k2 off by {}",
-        result.params.camera.dist.k2 - dist_gt.k2
+        dist_res.k2 - dist_gt.k2
     );
     assert!(
-        (result.params.camera.dist.p1 - dist_gt.p1).abs() < 0.001,
+        (dist_res.p1 - dist_gt.p1).abs() < 0.001,
         "p1 off by {}",
-        result.params.camera.dist.p1 - dist_gt.p1
+        dist_res.p1 - dist_gt.p1
     );
     assert!(
-        (result.params.camera.dist.p2 - dist_gt.p2).abs() < 0.001,
+        (dist_res.p2 - dist_gt.p2).abs() < 0.001,
         "p2 off by {}",
-        result.params.camera.dist.p2 - dist_gt.p2
+        dist_res.p2 - dist_gt.p2
     );
 }
 
@@ -495,7 +494,7 @@ fn distortion_parameter_masking_works() {
             iters: 8,
         },
     );
-    let init = PlanarIntrinsicsParams::new(cam_init, poses_gt).unwrap();
+    let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt).unwrap();
 
     // Fix k3, p1, p2 (they are zero in ground truth)
     let opts = PlanarIntrinsicsSolveOptions {
@@ -511,29 +510,22 @@ fn distortion_parameter_masking_works() {
     let result =
         optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default()).unwrap();
 
+    let dist_res = result.params.distortion().expect("BC5 distortion expected");
+
     // Fixed params should stay at initial values
-    assert_eq!(
-        result.params.camera.dist.k3, 0.0,
-        "k3 should stay fixed at 0"
-    );
-    assert_eq!(
-        result.params.camera.dist.p1, 0.0,
-        "p1 should stay fixed at 0"
-    );
-    assert_eq!(
-        result.params.camera.dist.p2, 0.0,
-        "p2 should stay fixed at 0"
-    );
+    assert_eq!(dist_res.k3, 0.0, "k3 should stay fixed at 0");
+    assert_eq!(dist_res.p1, 0.0, "p1 should stay fixed at 0");
+    assert_eq!(dist_res.p2, 0.0, "p2 should stay fixed at 0");
 
     // k1, k2 should converge
     assert!(
-        (result.params.camera.dist.k1 - dist_gt.k1).abs() < 0.01,
+        (dist_res.k1 - dist_gt.k1).abs() < 0.01,
         "k1 should converge, off by {}",
-        result.params.camera.dist.k1 - dist_gt.k1
+        dist_res.k1 - dist_gt.k1
     );
     assert!(
-        (result.params.camera.dist.k2 - dist_gt.k2).abs() < 0.01,
+        (dist_res.k2 - dist_gt.k2).abs() < 0.01,
         "k2 should converge, off by {}",
-        result.params.camera.dist.k2 - dist_gt.k2
+        dist_res.k2 - dist_gt.k2
     );
 }
