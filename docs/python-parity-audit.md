@@ -16,7 +16,8 @@ Python side ships dataclass wrappers (`python/vision_calibration/models.py`,
 
 ## Bound today — parity exists
 
-The **seven calibration workflows** and their helpers are fully bound:
+**Seven of the eight** facade calibration workflows and their helpers are bound
+(the eighth, `rig_handeye_laserline`, is missing — see [G0](#g0--rig-hand-eye--laserline-workflow-unbound-cheap-highest-priority)):
 
 | Rust facade | Python |
 |---|---|
@@ -31,10 +32,24 @@ The **seven calibration workflows** and their helpers are fully bound:
 | `pixel_to_gripper_point` | `pixel_to_gripper_point` |
 | workspace version | `library_version` |
 
-The core calibration value proposition — run any of the eight problem types
-from Python with JSON-friendly config/input/export — is met.
+The core calibration value proposition — run a calibration from Python with
+JSON-friendly config/input/export — is met for seven of the eight workflows.
 
 ## Gaps — Rust-only
+
+### G0 — rig hand-eye + laserline workflow unbound [cheap, highest priority]
+
+The facade exports an **eighth** calibration workflow,
+`rig_handeye_laserline::run_calibration` with `RigHandeyeLaserlineProblem`
+(`vision-calibration/src/lib.rs:446`), but the PyO3 module registers only the
+seven runners (`vision-calibration-py/src/lib.rs:357–367`) — there is **no**
+`run_rig_handeye_laserline`. Python users cannot run the joint rig hand-eye +
+laserline calibration. **Effort: low** — it is the same `run_problem::<P>`
+JSON/serde pattern as the other seven (the `RigHandeyeLaserlineProblem`
+`Input`/`Config`/`Export` are serde types like the rest); add one
+`#[pyfunction]`, register it, and ship the Python config/result dataclass +
+`.pyi` + a smoke test. This should be the **first** fill item — it completes the
+calibration-workflow surface, the binding's core value.
 
 ### G1 — MVG surface (`geometry` + `mvg` modules) [biggest gap]
 
@@ -83,11 +98,15 @@ in Python.
 
 ## Recommended sequencing toward the v1.0 binding-parity gate
 
-1. **G2** (distortion-model field) — cheap, completes M-WIRE for Python.
-2. **G1 MVG bindings**, in value order: serde DTOs → `triangulate_nview` +
+1. **G0** (`run_rig_handeye_laserline`) — cheap, completes the
+   calibration-workflow surface (the binding's core value). Do first.
+2. **G2** (distortion-model field) — cheap, completes M-WIRE for Python.
+3. **G1 MVG bindings**, in value order: serde DTOs → `triangulate_nview` +
    `rectify_stereo_pair` + `recover_relative_pose` → `robust::*` →
    `bundle_adjust` (`refine`-gated). Ship `.pyi` stubs + per-binding
    round-trip parity tests alongside.
-3. **Binding-coverage parity test** (workflow list ⇄ module surface).
+4. **Binding-coverage parity test** (workflow list ⇄ module surface) — this is
+   the guard that would have caught G0; add it so a future Rust workflow can't
+   silently miss its Python binding.
 
 G3 is deferred pending a concrete consumer.

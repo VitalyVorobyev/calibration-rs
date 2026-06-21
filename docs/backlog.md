@@ -413,20 +413,24 @@ Systemic causes:
 - [~] D3-PY-PARITY - Audit the PyO3 binding surface against the Rust facade
   (incl. the new `mvg` surface); fill gaps; add parity tests.
   - [x] **Audit DONE 2026-06-21** — [`docs/python-parity-audit.md`]. Findings:
-    the **seven calibration workflows** + `robust_*` / `pixel_to_gripper_point` /
-    `library_version` are fully bound (JSON/`pythonize` style — serde across the
-    boundary, dataclass wrappers). Gaps: **G1** the entire MVG surface
-    (`geometry` + `mvg`: pose recovery, N-view triangulation, rectification,
-    robust, bundle adjust) is Rust-only — medium effort because the MVG API uses
-    raw nalgebra types, so it needs serde DTOs per entry point (`bundle_adjust`
+    **seven of the eight** facade calibration workflows + `robust_*` /
+    `pixel_to_gripper_point` / `library_version` are bound (JSON/`pythonize`
+    style — serde across the boundary, dataclass wrappers). Gaps: **G0** the
+    EIGHTH workflow `rig_handeye_laserline` (`RigHandeyeLaserlineProblem`,
+    facade lib.rs:446) has NO `run_rig_handeye_laserline` binding — cheap (same
+    `run_problem::<P>` pattern), highest priority (caught by codex on the audit
+    PR — my first draft mis-counted seven as "all eight"); **G1** the entire MVG
+    surface (`geometry` + `mvg`: pose recovery, N-view triangulation,
+    rectification, robust, bundle adjust) is Rust-only — medium effort (MVG API
+    uses raw nalgebra types → needs serde DTOs per entry point; `bundle_adjust`
     is `refine`-gated); **G2** the M-WIRE `distortion_model` config field isn't
     in the Python wrapper (cheap; was Rust-core-only by scope); **G3** low-level
-    modules (`linear`/`optim`/`synthetic`/`analysis`/raw `session`) unbound, most
-    by design. No binding-coverage test exists.
-  - [ ] **Fill (sequenced):** G2 distortion-model field (cheap) → G1 MVG
-    bindings (DTOs → triangulation + rectification + pose recovery → robust → BA,
-    + `.pyi` + round-trip parity tests) → a binding-coverage parity test. G3
-    deferred pending a consumer.
+    modules unbound, most by design. No binding-coverage test exists.
+  - [ ] **Fill (sequenced):** G0 `run_rig_handeye_laserline` (cheap, completes
+    the workflow surface) → G2 distortion-model field (cheap) → G1 MVG bindings
+    (DTOs → triangulation + rectification + pose recovery → robust → BA, + `.pyi`
+    + round-trip parity tests) → a binding-coverage parity test (the guard that
+    would have caught G0). G3 deferred pending a consumer.
 - [ ] D4-RELEASE - v1.0 gate: puzzle rig green via app + C4 landed (done) + API
   stable across two minor releases.
 
