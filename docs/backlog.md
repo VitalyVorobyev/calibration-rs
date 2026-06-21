@@ -315,6 +315,17 @@ Systemic causes:
   across all oracle camera pairs (real K, asymmetric per-cam ~-5° tilts, ring
   extrinsics). Also repointed a pre-existing #72 regression in examples-private
   (`rtv3d_ref_reproj` imported the removed `linear::homography`).
+- [x] C-FACADE-MVG - Re-export the `vision-mvg` surface through the
+  `vision-calibration` facade. **Done 2026-06-21**. New
+  `vision_calibration::mvg` module (mirrors the existing `geometry` module
+  style) re-exporting `pose_recovery`, `robust`, `cheirality`, `degeneracy`,
+  `triangulation`, `homography`, `rectification`, `residuals`, `types`, `error`
+  + `MvgError`. Frozen-intrinsics `bundle_adjust` is surfaced behind a new
+  facade `refine` feature (`refine = ["vision-mvg/refine"]`). Closes the gap
+  that the MVG pipelines (C2 triangulation, C3 BA, C4 rectification) were
+  reachable only via a direct `vision-mvg` dependency; also unblocks future
+  Python parity for the MVG surface. Surface locked by
+  `tests/facade_compile_surface.rs` (default + `refine`).
 
 ## B — app (extend; sequencing serves V-track)
 

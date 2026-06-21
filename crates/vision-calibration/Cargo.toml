@@ -14,10 +14,17 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# Enable the nonlinear-refinement surface of the `mvg` module (tiny-solver):
+# `vision_calibration::mvg::bundle_adjust`.
+refine = ["vision-mvg/refine"]
+
 [dependencies]
 vision-calibration-core.workspace = true
 vision-calibration-linear.workspace = true
 vision-geometry.workspace = true
+vision-mvg.workspace = true
 vision-calibration-optim.workspace = true
 vision-calibration-pipeline.workspace = true
 anyhow.workspace = true

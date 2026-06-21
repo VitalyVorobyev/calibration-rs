@@ -509,6 +509,25 @@ pub mod geometry {
     pub use vision_geometry::{camera_matrix, epipolar, homography, triangulation};
 }
 
+/// Multiple-view geometry pipelines over the [`geometry`] solvers, re-exported
+/// from `vision_mvg`: calibrated relative-pose recovery, robust (RANSAC)
+/// estimation, cheirality/degeneracy checks, N-view triangulation, homography
+/// decomposition, and Scheimpflug-aware stereo rectification — reached via the
+/// owning module, e.g.
+/// `vision_calibration::mvg::rectification::rectify_stereo_pair`.
+///
+/// With the `refine` feature, `vision_calibration::mvg::bundle_adjust` adds
+/// frozen-intrinsics bundle adjustment (tiny-solver).
+pub mod mvg {
+    pub use vision_mvg::{
+        MvgError, cheirality, degeneracy, error, homography, pose_recovery, rectification,
+        residuals, robust, triangulation, types,
+    };
+
+    #[cfg(feature = "refine")]
+    pub use vision_mvg::bundle_adjust;
+}
+
 /// Per-feature residual helpers from `vision-calibration-optim` re-exported
 /// for convenience: `handeye_observer_se3_target` (used by hand-eye exports)
 /// and `compute_*_feature_residuals` (used by laser exports).
