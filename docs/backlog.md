@@ -350,6 +350,28 @@ Systemic causes:
   to ~1e-13 px). BA section is `#[cfg(feature = "refine")]`-gated so the example
   builds in both configs. Tutorials README index updated. Closes the
   ship-a-tutorial-with-new-features gap for C2/C3/C4.
+- [~] C5-DENSE - Dense stereo matcher. **Direction reset + harness DONE
+  2026-06-21** (user-supervised). ADR 0015's original ceiling ("no in-house
+  matcher; wrap `opencv-rust` SGBM behind a feature flag") is **amended**: the
+  matcher ships **pure-Rust in `vision-mvg`**; `opencv-rust` SGBM is a
+  **benchmark-only** quality baseline confined to the unpublished
+  `vision-calibration-bench` crate (never a published crate, never the shipped
+  impl). Validation uses existing calibration-target data — a C4-rectified pair
+  has known target-plane depth.
+  - [x] **Benchmark harness** (`vision-calibration-bench::dense`): `DenseMatcher`
+    trait, `GrayBuffer` / `DisparityMap`, deterministic `synthetic_rectified_pair`
+    (slanted-plane GT, right = bilinear warp of left), `evaluate` metrics
+    (RMS / MAE / bad-pixel-rate / density), `OracleMatcher`. 8 tests; zero new
+    deps; `--all-features` workspace stays green (no OpenCV feature added — would
+    break the `--all-features` gate without a system OpenCV).
+  - [ ] **OpenCV SGBM baseline** — needs an OpenCV-equipped environment to add +
+    verify (not installable in the authoring env; would break `--all-features`
+    if added as a normal cargo feature → put it in a workspace-EXCLUDED crate or
+    a dedicated CI job with OpenCV). Implements `DenseMatcher`, scored by
+    `evaluate`.
+  - [ ] **Pure-Rust matcher** — the actual C5 deliverable (block-matching MVP →
+    SGM). Implements `DenseMatcher`; benchmarked against the OpenCV baseline +
+    target-plane ground truth.
 
 ## D — Earn v1.0
 

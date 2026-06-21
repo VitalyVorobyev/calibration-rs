@@ -50,9 +50,13 @@ ceiling explicitly, as the roadmap promised.
 
 ## Scope ceiling (explicit, per the roadmap)
 
-- **No in-house dense stereo matcher.** Dense matching, if ever added, wraps an
-  external library (`opencv-rust` SGBM) behind a feature flag (Track C5). The
-  workspace does not ship a hand-rolled dense matcher.
+- **Dense stereo matcher: pure-Rust in the library; OpenCV is benchmark-only**
+  (amended 2026-06-21 — see [Amendments](#amendments); the original ceiling
+  forbade an in-house matcher and mandated wrapping `opencv-rust` SGBM). Track C5
+  ships a **pure-Rust** dense matcher in `vision-mvg`. `opencv-rust` SGBM appears
+  **only** in the unpublished `vision-calibration-bench` crate as a
+  quality-baseline reference for that matcher — **never** in a published crate,
+  and never as the shipped implementation.
 - **No full structure-from-motion.** No incremental SfM, no global pose-graph
   optimisation, no loop closure. `vision-mvg` targets geometry over already-
   calibrated rigs (N-view triangulation, BA with frozen intrinsics,
@@ -70,3 +74,32 @@ ceiling explicitly, as the roadmap promised.
 - Landing is low-risk and reversible (additive new crates, `publish = false`),
   appropriate for an autonomous batch; the riskier branch merge is avoided
   entirely.
+
+## Amendments
+
+### 2026-06-21 — dense matcher is pure-Rust; OpenCV is benchmark-only
+
+The original ceiling (above) said the workspace would **not** ship a hand-rolled
+dense matcher and that dense matching, if added, would wrap `opencv-rust` SGBM
+behind a feature flag. That is reversed.
+
+**Decision (user, 2026-06-21):** the production stack is Rust-native, so a
+heavy C++ OpenCV dependency must not live in any *published* crate. OpenCV's
+value here is as a **solid algorithmic baseline to benchmark against**, not as
+the shipped implementation. Track C5 therefore:
+
+- ships a **pure-Rust** dense stereo matcher in `vision-mvg`;
+- uses `opencv-rust` SGBM **only** inside the unpublished
+  (`publish = false`) `vision-calibration-bench` crate, behind an off-by-default
+  feature, as the quality yardstick;
+- validates dense reconstruction on **existing calibration-target data**: a
+  C4-rectified stereo pair has a known target-plane depth (from the
+  calibration), giving ground truth without any new capture.
+
+**Sequencing:** the benchmark harness lands first — the `DenseMatcher` trait,
+the synthetic/rectified ground-truth fixtures + error metrics, and the OpenCV
+SGBM baseline — so the Rust matcher has a yardstick the moment it is written.
+
+This keeps the `vision-mvg` ceiling otherwise intact (no SfM / pose-graph / loop
+closure); it only moves the dense-matcher line from "wrap OpenCV" to "Rust in
+the library, OpenCV in the bench."
