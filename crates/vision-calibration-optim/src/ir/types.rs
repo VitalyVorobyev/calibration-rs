@@ -1,4 +1,4 @@
-use anyhow::{Result, ensure};
+use crate::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -671,94 +671,94 @@ impl ProblemIR {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::Error::Numerical`] (converted from the internal
-    /// structural error) if the IR has inconsistent parameter indices,
-    /// malformed factor blocks, or residual-dimension mismatches.
+    /// Returns [`crate::Error::InvalidInput`] if the IR has inconsistent
+    /// parameter indices, malformed factor blocks, or residual-dimension
+    /// mismatches.
     pub fn validate(&self) -> std::result::Result<(), crate::Error> {
-        self.validate_inner()?;
-        Ok(())
+        self.validate_inner()
     }
 
-    fn validate_inner(&self) -> Result<()> {
+    fn validate_inner(&self) -> Result<(), Error> {
         for (idx, param) in self.params.iter().enumerate() {
-            ensure!(
-                param.id.0 == idx,
-                "param id mismatch: expected {}, got {:?}",
-                idx,
-                param.id
-            );
-            ensure!(
-                param.manifold.compatible_dim(param.dim),
-                "param {} manifold {:?} incompatible with dim {}",
-                param.name,
-                param.manifold,
-                param.dim
-            );
+            if param.id.0 != idx {
+                return Err(Error::invalid_input(format!(
+                    "param id mismatch: expected {idx}, got {:?}",
+                    param.id
+                )));
+            }
+            if !param.manifold.compatible_dim(param.dim) {
+                return Err(Error::invalid_input(format!(
+                    "param {} manifold {:?} incompatible with dim {}",
+                    param.name, param.manifold, param.dim
+                )));
+            }
             for fixed_idx in param.fixed.iter() {
-                ensure!(
-                    fixed_idx < param.dim,
-                    "param {} fixed index {} out of range",
-                    param.name,
-                    fixed_idx
-                );
+                if fixed_idx >= param.dim {
+                    return Err(Error::invalid_input(format!(
+                        "param {} fixed index {} out of range",
+                        param.name, fixed_idx
+                    )));
+                }
             }
             if let Some(bounds) = &param.bounds {
                 for bound in bounds {
-                    ensure!(
-                        bound.idx < param.dim,
-                        "param {} bound index {} out of range",
-                        param.name,
-                        bound.idx
-                    );
-                    ensure!(
-                        bound.lower <= bound.upper,
-                        "param {} bound lower {} > upper {}",
-                        param.name,
-                        bound.lower,
-                        bound.upper
-                    );
+                    if bound.idx >= param.dim {
+                        return Err(Error::invalid_input(format!(
+                            "param {} bound index {} out of range",
+                            param.name, bound.idx
+                        )));
+                    }
+                    if bound.lower.is_nan() || bound.upper.is_nan() || bound.lower > bound.upper {
+                        return Err(Error::invalid_input(format!(
+                            "param {} bound lower {} > upper {}",
+                            param.name, bound.lower, bound.upper
+                        )));
+                    }
                 }
             }
         }
 
         for (r_idx, residual) in self.residuals.iter().enumerate() {
-            ensure!(
-                residual.residual_dim == residual.factor.residual_dim(),
-                "residual {} dim {} does not match factor expectation {}",
-                r_idx,
-                residual.residual_dim,
-                residual.factor.residual_dim()
-            );
-            for param in &residual.params {
-                ensure!(
-                    param.0 < self.params.len(),
-                    "residual {} references missing param {:?}",
+            if residual.residual_dim != residual.factor.residual_dim() {
+                return Err(Error::invalid_input(format!(
+                    "residual {} dim {} does not match factor expectation {}",
                     r_idx,
-                    param
-                );
+                    residual.residual_dim,
+                    residual.factor.residual_dim()
+                )));
+            }
+            for param in &residual.params {
+                if param.0 >= self.params.len() {
+                    return Err(Error::invalid_input(format!(
+                        "residual {} references missing param {:?}",
+                        r_idx, param
+                    )));
+                }
             }
 
             let layout = residual.factor.param_layout();
-            ensure!(
-                residual.params.len() == layout.len(),
-                "{} factor requires {} params [{}], got {}",
-                residual.factor.name(),
-                layout.len(),
-                layout.iter().map(|s| s.role).collect::<Vec<_>>().join(", "),
-                residual.params.len()
-            );
+            if residual.params.len() != layout.len() {
+                return Err(Error::invalid_input(format!(
+                    "{} factor requires {} params [{}], got {}",
+                    residual.factor.name(),
+                    layout.len(),
+                    layout.iter().map(|s| s.role).collect::<Vec<_>>().join(", "),
+                    residual.params.len()
+                )));
+            }
             for (slot, pid) in layout.iter().zip(&residual.params) {
                 let block = &self.params[pid.0];
-                ensure!(
-                    block.dim == slot.dim && block.manifold == slot.manifold,
-                    "{} factor expects {}D {:?} {}, got dim={} manifold={:?}",
-                    residual.factor.name(),
-                    slot.dim,
-                    slot.manifold,
-                    slot.role,
-                    block.dim,
-                    block.manifold
-                );
+                if block.dim != slot.dim || block.manifold != slot.manifold {
+                    return Err(Error::invalid_input(format!(
+                        "{} factor expects {}D {:?} {}, got dim={} manifold={:?}",
+                        residual.factor.name(),
+                        slot.dim,
+                        slot.manifold,
+                        slot.role,
+                        block.dim,
+                        block.manifold
+                    )));
+                }
             }
         }
 
@@ -1016,5 +1016,32 @@ mod tests {
         });
         let err = ir.validate().unwrap_err().to_string();
         assert!(err.contains("plane_normal"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_nan_bound() {
+        // A NaN bound must be rejected: `NaN <= upper` and `lower <= NaN` are
+        // both false, so a naive `lower > upper` guard would silently accept it
+        // and feed NaN limits into the solver. The validator explicitly rejects
+        // NaN (regression for the `ensure!` → typed-error migration).
+        for (lower, upper) in [(f64::NAN, 1.0), (0.0, f64::NAN)] {
+            let mut ir = ProblemIR::new();
+            ir.add_param_block(
+                "k",
+                4,
+                ManifoldKind::Euclidean,
+                FixedMask::all_free(),
+                Some(vec![Bound {
+                    idx: 0,
+                    lower,
+                    upper,
+                }]),
+            );
+            let err = ir.validate().unwrap_err().to_string();
+            assert!(
+                err.contains("bound"),
+                "NaN bound ({lower}, {upper}) not rejected: {err}"
+            );
+        }
     }
 }

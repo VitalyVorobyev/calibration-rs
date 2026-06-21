@@ -1,4 +1,4 @@
-use anyhow::{Result, ensure};
+use crate::Error;
 use nalgebra::DVector;
 use std::collections::{HashMap, HashSet};
 use vision_calibration_core::{
@@ -52,20 +52,22 @@ pub(crate) fn build_planar_reprojection_ir(
     distortion: &BrownConrady5<Real>,
     poses: &[Iso3],
     opts: &PlanarReprojectionIrOptions,
-) -> Result<(ProblemIR, HashMap<String, DVector<f64>>)> {
-    ensure!(
-        dataset.num_views() == poses.len(),
-        "pose count ({}) must match number of views ({})",
-        poses.len(),
-        dataset.num_views()
-    );
-    for &idx in &opts.fix_pose_indices {
-        ensure!(
-            idx < dataset.num_views(),
-            "fixed pose index {} out of range ({} views)",
-            idx,
+) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
+    if dataset.num_views() != poses.len() {
+        return Err(Error::invalid_input(format!(
+            "pose count ({}) must match number of views ({})",
+            poses.len(),
             dataset.num_views()
-        );
+        )));
+    }
+    for &idx in &opts.fix_pose_indices {
+        if idx >= dataset.num_views() {
+            return Err(Error::invalid_input(format!(
+                "fixed pose index {} out of range ({} views)",
+                idx,
+                dataset.num_views()
+            )));
+        }
     }
 
     let mut ir = ProblemIR::new();

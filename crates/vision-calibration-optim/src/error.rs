@@ -42,10 +42,9 @@ impl Error {
             reason: reason.into(),
         }
     }
-}
 
-impl From<anyhow::Error> for Error {
-    fn from(e: anyhow::Error) -> Self {
-        Self::Numerical(e.to_string())
+    /// Convenience constructor for [`Error::Numerical`].
+    pub(crate) fn numerical(msg: impl Into<String>) -> Self {
+        Self::Numerical(msg.into())
     }
 }

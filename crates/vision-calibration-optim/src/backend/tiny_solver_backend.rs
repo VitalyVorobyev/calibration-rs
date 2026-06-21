@@ -1,3 +1,4 @@
+use crate::Error;
 use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
 use crate::backend::{
     BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend, SolveReport,
@@ -15,7 +16,6 @@ use crate::ir::{
     DistortionKind, FactorKind, LaserChain, ManifoldKind, ProblemIR, ProjectionKind, ReprojChain,
     RobustLoss, SensorKind,
 };
-use anyhow::{Result, anyhow, ensure};
 use faer::sparse::Triplet;
 use faer_ext::IntoNalgebra;
 use nalgebra::DVector;
@@ -48,26 +48,26 @@ impl TinySolverBackend {
         &self,
         ir: &ProblemIR,
         initial: &HashMap<String, DVector<f64>>,
-    ) -> Result<(Problem, HashMap<String, DVector<f64>>)> {
+    ) -> Result<(Problem, HashMap<String, DVector<f64>>), Error> {
         ir.validate()?;
 
         let mut problem = Problem::new();
 
         for param in &ir.params {
             let init = initial.get(&param.name).ok_or_else(|| {
-                anyhow!(
+                Error::invalid_input(format!(
                     "initial values missing parameter {} (id {:?})",
-                    param.name,
-                    param.id
-                )
+                    param.name, param.id
+                ))
             })?;
-            ensure!(
-                init.len() == param.dim,
-                "initial dimension mismatch for {}: expected {}, got {}",
-                param.name,
-                param.dim,
-                init.len()
-            );
+            if init.len() != param.dim {
+                return Err(Error::invalid_input(format!(
+                    "initial dimension mismatch for {}: expected {}, got {}",
+                    param.name,
+                    param.dim,
+                    init.len()
+                )));
+            }
 
             let mut set_manifold = true;
 
@@ -78,10 +78,10 @@ impl TinySolverBackend {
                         if param.fixed.is_all_fixed(param.dim) {
                             set_manifold = false;
                         } else {
-                            return Err(anyhow!(
+                            return Err(Error::invalid_input(format!(
                                 "tiny-solver cannot partially fix SE3 manifold {}",
                                 param.name
-                            ));
+                            )));
                         }
                     }
                     if set_manifold {
@@ -93,10 +93,10 @@ impl TinySolverBackend {
                         if param.fixed.is_all_fixed(param.dim) {
                             set_manifold = false;
                         } else {
-                            return Err(anyhow!(
+                            return Err(Error::invalid_input(format!(
                                 "tiny-solver cannot partially fix SO3 manifold {}",
                                 param.name
-                            ));
+                            )));
                         }
                     }
                     if set_manifold {
@@ -108,10 +108,10 @@ impl TinySolverBackend {
                         if param.fixed.is_all_fixed(param.dim) {
                             set_manifold = false;
                         } else {
-                            return Err(anyhow!(
+                            return Err(Error::invalid_input(format!(
                                 "tiny-solver cannot partially fix S2 manifold {}",
                                 param.name
-                            ));
+                            )));
                         }
                     }
                     if set_manifold {
@@ -152,11 +152,11 @@ impl OptimBackend for TinySolverBackend {
         ir: &ProblemIR,
         initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
-    ) -> Result<BackendSolution> {
+    ) -> Result<BackendSolution, Error> {
         let (problem, initial_map) = self.compile(ir, initial)?;
         let LmSolution { params, num_iters } =
             solve_levenberg_marquardt(&problem, &initial_map, opts)
-                .ok_or_else(|| anyhow!("tiny-solver failed to converge"))?;
+                .ok_or_else(|| Error::numerical("tiny-solver failed to converge"))?;
 
         let param_blocks = problem.initialize_parameter_blocks(&params);
         let residuals = problem.compute_residuals(&param_blocks, true);
@@ -427,19 +427,25 @@ fn params_from_blocks(
         .collect()
 }
 
-fn compile_loss(loss: RobustLoss) -> Result<Option<Box<dyn Loss + Send>>> {
+fn compile_loss(loss: RobustLoss) -> Result<Option<Box<dyn Loss + Send>>, Error> {
     match loss {
         RobustLoss::None => Ok(None),
         RobustLoss::Huber { scale } => {
-            ensure!(scale > 0.0, "Huber scale must be positive");
+            if scale.is_nan() || scale <= 0.0 {
+                return Err(Error::invalid_input("Huber scale must be positive"));
+            }
             Ok(Some(Box::new(HuberLoss::new(scale))))
         }
         RobustLoss::Cauchy { scale } => {
-            ensure!(scale > 0.0, "Cauchy scale must be positive");
+            if scale.is_nan() || scale <= 0.0 {
+                return Err(Error::invalid_input("Cauchy scale must be positive"));
+            }
             Ok(Some(Box::new(CauchyLoss::new(scale))))
         }
         RobustLoss::Arctan { scale } => {
-            ensure!(scale > 0.0, "Arctan scale must be positive");
+            if scale.is_nan() || scale <= 0.0 {
+                return Err(Error::invalid_input("Arctan scale must be positive"));
+            }
             Ok(Some(Box::new(ArctanLoss::new(scale))))
         }
     }
@@ -492,7 +498,7 @@ macro_rules! dispatch_camera_model {
     };
 }
 
-fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor> {
+fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor, Error> {
     let loss = compile_loss(residual.loss)?;
     match &residual.factor {
         FactorKind::Se3TangentPrior { sqrt_info } => {

@@ -35,7 +35,7 @@
 //!     PlanarIntrinsicsSolveOptions, RobustLoss,
 //! };
 //!
-//! # fn example() -> anyhow::Result<()> {
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // 1. Prepare observations (world points + image detections)
 //! let view = View::without_meta(CorrespondenceView::new(
 //!     vec![

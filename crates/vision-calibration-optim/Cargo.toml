@@ -20,7 +20,6 @@ schemars = ["dep:schemars", "vision-calibration-core/schemars"]
 [dependencies]
 vision-calibration-core = { workspace = true }
 nalgebra = { workspace = true }
-anyhow = { workspace = true }
 thiserror = { workspace = true }
 tiny-solver = { workspace = true }
 faer = { workspace = true }

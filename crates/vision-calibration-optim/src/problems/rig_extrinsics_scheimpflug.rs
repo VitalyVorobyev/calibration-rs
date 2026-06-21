@@ -14,8 +14,6 @@ use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distorti
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use crate::problems::scheimpflug_intrinsics::ScheimpflugFixMask;
-use anyhow::ensure;
-type AnyhowResult<T> = anyhow::Result<T>;
 use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -91,8 +89,12 @@ fn pack_scheimpflug(sensor: &ScheimpflugParams) -> DVector<f64> {
     DVector::from_row_slice(&[sensor.tilt_x, sensor.tilt_y])
 }
 
-fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> AnyhowResult<ScheimpflugParams> {
-    ensure!(values.len() == 2, "scheimpflug block must have 2 entries");
+fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> Result<ScheimpflugParams, Error> {
+    if values.len() != 2 {
+        return Err(Error::invalid_input(
+            "scheimpflug block must have 2 entries",
+        ));
+    }
     Ok(ScheimpflugParams {
         tilt_x: values[0],
         tilt_y: values[1],
@@ -120,31 +122,35 @@ fn build_rig_extrinsics_scheimpflug_ir(
     dataset: &RigExtrinsicsScheimpflugDataset,
     initial: &RigExtrinsicsScheimpflugParams,
     opts: &RigExtrinsicsScheimpflugSolveOptions,
-) -> AnyhowResult<(ProblemIR, HashMap<String, DVector<f64>>)> {
-    ensure!(
-        initial.cameras.len() == dataset.num_cameras,
-        "intrinsics count {} != num_cameras {}",
-        initial.cameras.len(),
-        dataset.num_cameras
-    );
-    ensure!(
-        initial.sensors.len() == dataset.num_cameras,
-        "sensors count {} != num_cameras {}",
-        initial.sensors.len(),
-        dataset.num_cameras
-    );
-    ensure!(
-        initial.cam_to_rig.len() == dataset.num_cameras,
-        "cam_to_rig count {} != num_cameras {}",
-        initial.cam_to_rig.len(),
-        dataset.num_cameras
-    );
-    ensure!(
-        initial.rig_from_target.len() == dataset.num_views(),
-        "rig_from_target count {} != num_views {}",
-        initial.rig_from_target.len(),
-        dataset.num_views()
-    );
+) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
+    if initial.cameras.len() != dataset.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "intrinsics count {} != num_cameras {}",
+            initial.cameras.len(),
+            dataset.num_cameras
+        )));
+    }
+    if initial.sensors.len() != dataset.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "sensors count {} != num_cameras {}",
+            initial.sensors.len(),
+            dataset.num_cameras
+        )));
+    }
+    if initial.cam_to_rig.len() != dataset.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "cam_to_rig count {} != num_cameras {}",
+            initial.cam_to_rig.len(),
+            dataset.num_cameras
+        )));
+    }
+    if initial.rig_from_target.len() != dataset.num_views() {
+        return Err(Error::invalid_input(format!(
+            "rig_from_target count {} != num_views {}",
+            initial.rig_from_target.len(),
+            dataset.num_views()
+        )));
+    }
 
     let mut ir = ProblemIR::new();
     let mut initial_map: HashMap<String, DVector<f64>> = HashMap::new();
@@ -367,7 +373,7 @@ pub fn optimize_rig_extrinsics_scheimpflug(
                 .get(&format!("sensor/{cam_idx}"))
                 .unwrap()
                 .as_view();
-            unpack_scheimpflug(view).map_err(Error::from)
+            unpack_scheimpflug(view)
         })
         .collect::<Result<Vec<_>, Error>>()?;
 

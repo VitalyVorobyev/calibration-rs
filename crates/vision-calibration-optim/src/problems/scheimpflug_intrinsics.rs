@@ -9,7 +9,6 @@ use crate::params::pose_se3::se3_dvec_to_iso3;
 use crate::problems::planar_family_shared::{
     PlanarReprojectionIrOptions, PlanarSensorIrOptions, build_planar_reprojection_ir,
 };
-use anyhow::{Result as AnyhowResult, anyhow, ensure};
 use nalgebra::DVectorView;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
@@ -187,10 +186,13 @@ fn build_scheimpflug_intrinsics_ir(
     dataset: &PlanarDataset,
     initial: &ScheimpflugIntrinsicsParams,
     opts: &ScheimpflugIntrinsicsSolveOptions,
-) -> AnyhowResult<(
-    crate::ir::ProblemIR,
-    std::collections::HashMap<String, nalgebra::DVector<f64>>,
-)> {
+) -> Result<
+    (
+        crate::ir::ProblemIR,
+        std::collections::HashMap<String, nalgebra::DVector<f64>>,
+    ),
+    Error,
+> {
     build_planar_reprojection_ir(
         dataset,
         &initial.intrinsics,
@@ -257,21 +259,21 @@ pub fn optimize_scheimpflug_intrinsics_with_backend(
         solution
             .params
             .get("cam")
-            .ok_or_else(|| anyhow!("missing intrinsics solution block"))?
+            .ok_or_else(|| Error::numerical("missing intrinsics solution block"))?
             .as_view(),
     )?;
     let distortion = unpack_distortion(
         solution
             .params
             .get("dist")
-            .ok_or_else(|| anyhow!("missing distortion solution block"))?
+            .ok_or_else(|| Error::numerical("missing distortion solution block"))?
             .as_view(),
     )?;
     let sensor = unpack_scheimpflug(
         solution
             .params
             .get("sensor")
-            .ok_or_else(|| anyhow!("missing sensor solution block"))?
+            .ok_or_else(|| Error::numerical("missing sensor solution block"))?
             .as_view(),
     )?;
 
@@ -281,7 +283,7 @@ pub fn optimize_scheimpflug_intrinsics_with_backend(
         let pose = solution
             .params
             .get(&key)
-            .ok_or_else(|| anyhow!("missing {key} solution block"))?;
+            .ok_or_else(|| Error::numerical(format!("missing {key} solution block")))?;
         optimized_poses.push(se3_dvec_to_iso3(pose.as_view())?);
     }
 
@@ -587,8 +589,12 @@ pub fn optimize_scheimpflug_intrinsics_staged(
     }
 }
 
-fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> AnyhowResult<ScheimpflugParams> {
-    ensure!(values.len() == 2, "scheimpflug block must have 2 entries");
+fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> Result<ScheimpflugParams, Error> {
+    if values.len() != 2 {
+        return Err(Error::invalid_input(
+            "scheimpflug block must have 2 entries",
+        ));
+    }
     Ok(ScheimpflugParams {
         tilt_x: values[0],
         tilt_y: values[1],

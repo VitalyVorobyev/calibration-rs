@@ -336,6 +336,36 @@ Systemic causes:
   builds in both configs. Tutorials README index updated. Closes the
   ship-a-tutorial-with-new-features gap for C2/C3/C4.
 
+## D — Earn v1.0
+
+- [x] D2-DOCS - `missing_docs = warn` enforced workspace-wide + all public items
+  documented (PR #69).
+- [~] D1-TYPED-ERRORS - Drop `anyhow` from the published library crates' public
+  surfaces onto `thiserror` enums. Already done elsewhere: `vision-geometry` /
+  `vision-mvg` migrated (PR #72); `vision_calibration_core::linalg` carries a typed
+  `MathError` (C1-FOLLOWUP); `vision-calibration-linear` bridges geometry via
+  `#[from]`.
+  - [x] **optim** (PR-1). Converted every internal `anyhow!` / `ensure!` /
+    `AnyhowResult` straggler to the existing typed `crate::Error`
+    (`invalid_input` for structural/precondition checks, a new `pub(crate)
+    numerical()` constructor for post-solve / decode failures), retyped the
+    *private* `OptimBackend::solve` (zero external blast radius), deleted the
+    `impl From<anyhow::Error> for Error` escape hatch, and dropped the `anyhow`
+    dependency entirely. 45 optim tests green, full workspace builds, zero
+    numeric drift (mechanical type change only).
+  - [ ] **detect + pipeline** (PR-2, next). detect: typed `DetectError` +
+    retype the *sealed* `Detector::detect_json`. pipeline: internal `anyhow` →
+    typed; the *open* `LaserPixelExtractor::extract` trait + the
+    `RunError::{Detection,LaserExtraction}` error sources move onto
+    `Box<dyn Error + Send + Sync>` (std-only, preserves the opaque injected
+    source); remove pipeline's escape hatch; update the app's `VmLaserExtractor`
+    impl + the laser-manifest doc example; move `core` / facade `anyhow` to
+    `[dev-dependencies]` (test/doctest-only usage).
+- [ ] D3-PY-PARITY - Audit the PyO3 binding surface against the Rust facade
+  (incl. the new `mvg` surface); fill gaps; add parity tests.
+- [ ] D4-RELEASE - v1.0 gate: puzzle rig green via app + C4 landed (done) + API
+  stable across two minor releases.
+
 ## B — app (extend; sequencing serves V-track)
 
 - [x] B3C-PUZZLEBOARD - PuzzleBoard detector. Completed 2026-06-14 —
