@@ -3700,6 +3700,7 @@ dependencies = [
  "vision-calibration-linear",
  "vision-calibration-optim",
  "vision-calibration-pipeline",
+ "vision-geometry",
 ]
 
 [[package]]
@@ -3777,6 +3778,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "vision-calibration-core",
+ "vision-geometry",
 ]
 
 [[package]]
@@ -3795,6 +3797,7 @@ dependencies = [
  "tiny-solver",
  "vision-calibration-core",
  "vision-calibration-linear",
+ "vision-geometry",
 ]
 
 [[package]]
@@ -3816,6 +3819,7 @@ dependencies = [
  "vision-calibration-detect",
  "vision-calibration-linear",
  "vision-calibration-optim",
+ "vision-geometry",
 ]
 
 [[package]]

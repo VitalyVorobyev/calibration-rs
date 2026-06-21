@@ -482,24 +482,31 @@ pub mod core {
 
 /// Closed-form initialization algorithms.
 ///
-/// Includes homography estimation, Zhang's method, PnP solvers,
-/// triangulation, hand-eye solvers, and more.
+/// Includes Zhang's method, PnP solvers, hand-eye solvers, and more.
+/// Two-view geometric solvers (homography, fundamental/essential matrix,
+/// camera matrix, triangulation) are in the `geometry` module below.
 ///
 /// Re-exports the algorithm modules of `vision_calibration_linear` by name —
 /// items are reached via their owning module, e.g.
-/// `vision_calibration::linear::homography::dlt_homography`. The curated
-/// [`prelude`](linear::prelude) gathers the most-used items.
+/// `vision_calibration::linear::zhang_intrinsics::estimate_intrinsics_from_homographies`.
+/// The curated [`prelude`](linear::prelude) gathers the most-used items.
 pub mod linear {
     pub use vision_calibration_linear::{
-        camera_matrix, distortion_fit, epipolar, extrinsics, handeye, homography,
-        iterative_intrinsics, laserline, math, planar_pose, pnp, scheimpflug_init, triangulation,
-        zhang_intrinsics,
+        distortion_fit, extrinsics, handeye, iterative_intrinsics, laserline, math, planar_pose,
+        pnp, scheimpflug_init, zhang_intrinsics,
     };
 
     pub mod prelude {
         //! Curated, most-used items from `vision-calibration-linear`.
         pub use vision_calibration_linear::prelude::*;
     }
+}
+
+/// Deterministic two-view geometric solvers: epipolar geometry, homography,
+/// triangulation, and camera-matrix decomposition. Re-exported from
+/// `vision_geometry`, e.g. `vision_calibration::geometry::homography::dlt_homography`.
+pub mod geometry {
+    pub use vision_geometry::{camera_matrix, epipolar, homography, triangulation};
 }
 
 /// Per-feature residual helpers from `vision-calibration-optim` re-exported

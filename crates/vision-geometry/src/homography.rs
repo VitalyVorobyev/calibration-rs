@@ -388,6 +388,62 @@ mod tests {
         );
     }
 
+    /// Dense-target regression guard. A 15×15 grid yields 225 correspondences →
+    /// a 450×9 design matrix. The previous `svd(true, true)` drove nalgebra's
+    /// Golub-Kahan iteration into a multi-minute hang on inputs this size; the
+    /// `AᵀA` eigen-solve path is sub-millisecond.
+    /// We assert both exact recovery and a generous wall-clock bound so a future
+    /// regression that reinstates the hang fails fast instead of wedging CI.
+    #[test]
+    fn dense_homography_is_exact_and_fast() {
+        use std::time::Instant;
+        use vision_calibration_core::Mat3;
+
+        // Ground-truth homography with genuine perspective (h31, h32 ≠ 0).
+        let h_gt = Mat3::new(
+            1.2, 0.05, 3.0, //
+            0.1, 0.9, -2.0, //
+            0.0008, -0.0006, 1.0,
+        );
+
+        let mut world = Vec::with_capacity(225);
+        let mut image = Vec::with_capacity(225);
+        for iy in 0..15 {
+            for ix in 0..15 {
+                let x = ix as f64;
+                let y = iy as f64;
+                let p = h_gt * nalgebra::Vector3::new(x, y, 1.0);
+                world.push(Pt2::new(x, y));
+                image.push(Pt2::new(p.x / p.z, p.y / p.z));
+            }
+        }
+        assert_eq!(world.len(), 225);
+
+        let start = Instant::now();
+        let h = dlt_homography(&world, &image).unwrap();
+        let elapsed = start.elapsed();
+        eprintln!("dense 225-correspondence DLT solved in {elapsed:?}");
+
+        // Recovered H is normalized to H[2,2] = 1, matching h_gt's convention.
+        for r in 0..3 {
+            for c in 0..3 {
+                assert!(
+                    (h[(r, c)] - h_gt[(r, c)]).abs() < 1e-6,
+                    "H[{r},{c}] = {} != {}",
+                    h[(r, c)],
+                    h_gt[(r, c)]
+                );
+            }
+        }
+
+        // Generous bound: the fixed path is sub-millisecond; the old hang was
+        // >15 min. Anything under 2s confirms the pathological path is gone.
+        assert!(
+            elapsed.as_secs_f64() < 2.0,
+            "dense DLT took {elapsed:?} — perf regression (AᵀA eigen path lost?)"
+        );
+    }
+
     #[test]
     fn homography_ransac_handles_outliers() {
         let w = vec![

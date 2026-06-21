@@ -61,7 +61,6 @@ use crate::{
     distortion_fit::{
         DistortionFitOptions, DistortionView, MetaHomography, estimate_distortion_from_homographies,
     },
-    homography::HomographySolver,
     zhang_intrinsics::PlanarIntrinsicsLinearInit,
 };
 use serde::{Deserialize, Serialize};
@@ -69,6 +68,7 @@ use vision_calibration_core::{
     BrownConrady5, DistortionModel, FxFyCxCySkew, Mat3, PinholeCamera, PlanarDataset, Pt2, Real,
     Vec3, make_pinhole_camera,
 };
+use vision_geometry::homography::dlt_homography;
 
 /// Options controlling iterative intrinsics estimation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -158,7 +158,7 @@ pub fn estimate_intrinsics_iterative(
 
     // Iteration 0: initial K estimate from distorted pixels (ignore distortion).
     let pairs0 = valid_view_homographies(dataset.views.len(), |i| {
-        HomographySolver::dlt(&target_points_2d[i], &dataset.views[i].obs.points_2d)
+        dlt_homography(&target_points_2d[i], &dataset.views[i].obs.points_2d)
     })?;
     let homographies_iter0: Vec<Mat3> = pairs0.iter().map(|(_, h)| *h).collect();
 
@@ -196,7 +196,7 @@ pub fn estimate_intrinsics_iterative(
                 &k_inv,
                 &current_distortion,
             );
-            HomographySolver::dlt(&target_points_2d[i], &undistorted_pixels)
+            dlt_homography(&target_points_2d[i], &undistorted_pixels)
         }) else {
             break;
         };
@@ -224,7 +224,7 @@ pub fn estimate_intrinsics_iterative(
                 &k_inv,
                 &new_distortion,
             );
-            HomographySolver::dlt(&target_points_2d[i], &undistorted_pixels)
+            dlt_homography(&target_points_2d[i], &undistorted_pixels)
         }) else {
             break;
         };
@@ -252,9 +252,9 @@ const MIN_VALID_VIEWS: usize = 3;
 /// degenerate, and return `(view_index, homography)` pairs so callers can keep
 /// views and homographies aligned. Errors only if fewer than [`MIN_VALID_VIEWS`]
 /// survive — so one bad view in a dense capture no longer fails the camera.
-fn valid_view_homographies<F>(n_views: usize, mut dlt: F) -> Result<Vec<(usize, Mat3)>, Error>
+fn valid_view_homographies<F, E>(n_views: usize, mut dlt: F) -> Result<Vec<(usize, Mat3)>, Error>
 where
-    F: FnMut(usize) -> Result<Mat3, Error>,
+    F: FnMut(usize) -> Result<Mat3, E>,
 {
     let pairs: Vec<(usize, Mat3)> = (0..n_views)
         .filter_map(|i| dlt(i).ok().map(|h| (i, h)))
@@ -426,7 +426,7 @@ mod tests {
             let world = view.obs.planar_points();
             let undistorted_pixels =
                 undistort_pixels_to_pixels(&view.obs.points_2d, &k_mtx, &k_inv, &camera.dist);
-            let h = HomographySolver::dlt(&world, &undistorted_pixels)
+            let h = dlt_homography(&world, &undistorted_pixels)
                 .expect("homography should solve on synthetic data");
 
             for (pw, pu) in world.iter().zip(undistorted_pixels.iter()) {

@@ -50,9 +50,9 @@ use vision_calibration_core::{
     Camera, CameraProject, FxFyCxCySkew, Iso3, Pinhole, PinholeCamera, Pt2, Pt3, RigDataset,
     ScheimpflugParams, TargetFeatureResidual, View, compute_rig_target_residuals,
 };
-use vision_calibration_linear::homography::HomographySolver;
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
 use vision_calibration_linear::pnp::PnpSolver;
+use vision_geometry::homography::dlt_homography;
 
 use crate::Error;
 use crate::planar_intrinsics::PlanarIntrinsicsExport;
@@ -536,7 +536,7 @@ where
     let max_z = obs_3d.iter().fold(0.0_f64, |m, p| m.max(p.z.abs()));
     let seed = if max_z < 1e-6 {
         let world2d: Vec<Pt2> = obs_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
-        let h = HomographySolver::dlt(&world2d, obs_2d).ok()?;
+        let h = dlt_homography(&world2d, obs_2d).ok()?;
         estimate_planar_pose_from_h(&k.k_matrix(), &h).ok()?
     } else {
         PnpSolver::epnp(obs_3d, obs_2d, k).ok()?
