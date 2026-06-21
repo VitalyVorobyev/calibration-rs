@@ -113,6 +113,38 @@ homography is the rotation part of rectification, exactly as OpenCV splits
 `initUndistortRectifyMap`). See [ADR 0015](../adrs/0015-mvg-ceiling.md) for the
 crate's scope boundary.
 
+### 4. Dense matching
+
+Once a pair is rectified, `mvg::dense::match_block` produces a per-pixel
+disparity map by block matching — ZNCC over a square window (so it tolerates
+per-camera gain/bias), winner-take-all with parabolic sub-pixel refinement, and
+left-right-consistency / uniqueness / min-correlation filtering (rejected pixels
+are `NaN`):
+
+```rust
+use vision_calibration::mvg::dense::{match_block, BlockMatchOptions, GrayImage};
+
+// `left` / `right` are rectified grayscale images (resample the source through
+// the rectifying homography first; see the dense_stereo_real example).
+let disp = match_block(&left, &right, &BlockMatchOptions {
+    min_disparity: 0,
+    num_disparities: 64,   // search [min, min + num)
+    block_size: 9,         // odd; larger = smoother, fewer matches near edges
+    ..Default::default()
+})?;
+// disp.get(x, y) is x_left − x_right in pixels, or NaN where the matcher abstains.
+```
+
+This is the block-matching MVP (semi-global aggregation is a follow-up). Two
+runnable demos write inspectable PNGs to `target/fixtures/`:
+
+```bash
+# synthetic ground truth: left | right | GT | estimate | error
+cargo run -p vision-calibration-bench --example dense_synth --features tier-b --release
+# real chessboard rig: undistort → rectify → match → disparity overlay
+cargo run -p vision-calibration --example dense_stereo_real --release
+```
+
 ## Common variations
 
 - **Outliers in the matches** → `mvg::robust::recover_relative_pose_robust` /
@@ -141,6 +173,6 @@ crate's scope boundary.
 - [ADR 0009](../adrs/0009-coordinate-and-pose-conventions.md) — pose and frame
   conventions (`frame_se3_frame`, `T_C_W`).
 - Crate docs for `vision_calibration::mvg::{pose_recovery, triangulation,
-  bundle_adjust, rectification, robust}`.
+  bundle_adjust, rectification, dense, robust}`.
 - The low-level solvers underneath: `vision_calibration::geometry`
   (epipolar, homography, triangulation, camera-matrix).

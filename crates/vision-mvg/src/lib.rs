@@ -29,6 +29,7 @@
 pub mod bundle_adjust;
 pub mod cheirality;
 pub mod degeneracy;
+pub mod dense;
 pub mod error;
 pub mod homography;
 pub mod pose_recovery;
@@ -45,6 +46,7 @@ pub mod types;
 pub use bundle_adjust::{
     BundleAdjustmentOptions, BundleAdjustmentResult, BundleObservation, bundle_adjust,
 };
+pub use dense::{BlockMatchOptions, DisparityMap, GrayImage, match_block};
 pub use error::{MvgError, Result};
 pub use homography::{
     HomographyDecomposition, decompose_homography, homography_from_pose_and_plane,
