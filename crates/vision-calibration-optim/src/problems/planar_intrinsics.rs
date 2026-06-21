@@ -218,6 +218,42 @@ fn build_planar_intrinsics_ir(
     let kind = distortion_params_to_kind(&initial.camera.distortion);
     let model = camera_model_desc_for_kind(kind);
 
+    // Planar intrinsics is a pinhole, identity-sensor model. The IR builder
+    // selects the camera model from the distortion kind ALONE, so a non-pinhole
+    // projection or a non-identity sensor (Scheimpflug/Homography) on the input
+    // `CameraParams` would be silently dropped and a *different* model optimized
+    // (the result is also rebuilt with an identity sensor). Reject up front.
+    if !matches!(initial.camera.projection, ProjectionParams::Pinhole) {
+        return Err(Error::invalid_input(
+            "planar intrinsics supports only the pinhole projection",
+        ));
+    }
+    if !matches!(initial.camera.sensor, SensorParams::Identity) {
+        return Err(Error::invalid_input(
+            "planar intrinsics supports only the identity sensor; use a \
+             Scheimpflug problem type for tilted sensors",
+        ));
+    }
+
+    // Exactly one initial pose per view: too few panics on `pose_ids[view_idx]`
+    // below, too many are silently unused. Reject the mismatch.
+    if initial.camera_se3_target.len() != dataset.num_views() {
+        return Err(Error::invalid_input(format!(
+            "initial pose count {} != view count {}",
+            initial.camera_se3_target.len(),
+            dataset.num_views()
+        )));
+    }
+
+    // `fix_poses` indices must reference real views.
+    if let Some(&bad) = opts.fix_poses.iter().find(|&&i| i >= dataset.num_views()) {
+        return Err(Error::invalid_input(format!(
+            "fix_poses index {} out of range for {} views",
+            bad,
+            dataset.num_views()
+        )));
+    }
+
     // For BC5 the existing `fix_distortion` indices apply; for other models
     // all distortion params are free (the mask is BC5-shaped and doesn't
     // translate to other orderings).

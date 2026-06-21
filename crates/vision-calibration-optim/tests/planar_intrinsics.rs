@@ -2,8 +2,9 @@
 
 use nalgebra::{UnitQuaternion, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3,
-    PinholeCamera, PlanarDataset, Pt2, Pt3, Real, View, make_pinhole_camera,
+    BrownConrady5, CameraParams, CorrespondenceView, DistortionFixMask, DistortionParams,
+    FxFyCxCySkew, IntrinsicsFixMask, IntrinsicsParams, Iso3, PinholeCamera, PlanarDataset,
+    ProjectionParams, Pt2, Pt3, Real, SensorParams, View, make_pinhole_camera,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RobustLoss,
@@ -527,5 +528,72 @@ fn distortion_parameter_masking_works() {
         (dist_res.k2 - dist_gt.k2).abs() < 0.01,
         "k2 should converge, off by {}",
         dist_res.k2 - dist_gt.k2
+    );
+}
+
+#[test]
+fn rejects_pose_count_mismatch_instead_of_panicking() {
+    // A caller supplying fewer poses than views must get a typed error, not a
+    // panic on `pose_ids[view_idx]` (codex P2 regression guard).
+    let SyntheticScenario {
+        dataset,
+        mut poses_gt,
+        cam_init,
+        ..
+    } = build_synthetic_scenario(0.0);
+    assert!(poses_gt.len() == dataset.num_views() && poses_gt.len() > 1);
+    poses_gt.pop(); // one fewer pose than views
+
+    let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt).unwrap();
+    let err = optimize_planar_intrinsics(
+        &dataset,
+        &init,
+        PlanarIntrinsicsSolveOptions::default(),
+        BackendSolveOptions::default(),
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("pose count"),
+        "expected pose-count mismatch error, got: {err}"
+    );
+}
+
+#[test]
+fn rejects_non_identity_sensor() {
+    // Planar intrinsics selects the camera model from the distortion kind only;
+    // a non-identity sensor would be silently dropped. It must be rejected
+    // up front (codex P2 regression guard).
+    let SyntheticScenario {
+        dataset, poses_gt, ..
+    } = build_synthetic_scenario(0.0);
+
+    let bad_camera = CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: DistortionParams::None,
+        // identity-valued homography, but still a non-Identity sensor variant
+        sensor: SensorParams::Homography {
+            h: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        },
+        intrinsics: IntrinsicsParams::FxFyCxCySkew {
+            params: FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+                skew: 0.0,
+            },
+        },
+    };
+    let init = PlanarIntrinsicsParams::new(bad_camera, poses_gt).unwrap();
+    let err = optimize_planar_intrinsics(
+        &dataset,
+        &init,
+        PlanarIntrinsicsSolveOptions::default(),
+        BackendSolveOptions::default(),
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("identity sensor"),
+        "expected non-identity-sensor rejection, got: {err}"
     );
 }
