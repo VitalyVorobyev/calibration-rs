@@ -1,7 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { PoseStepper } from "../../components/PoseStepper";
 import { useStore } from "../../store";
+
+// Three.js is heavy (~900 KB); only pull it in when the 3D view is opened.
+const PointCloudView = lazy(() =>
+  import("./PointCloudView").then((m) => ({ default: m.PointCloudView })),
+);
+
+/** A reprojected 3D point cloud (flat position/colour arrays). */
+interface PointCloud {
+  positions: number[];
+  colors: number[];
+  count: number;
+}
 
 /** Result of the `compute_disparity` Tauri command (camelCase, matching the
  * Rust `#[serde(rename_all = "camelCase")]` struct). All images are
@@ -10,6 +22,8 @@ interface DisparityResult {
   rectifiedPairPng: string;
   disparityPng: string;
   overlayPng: string;
+  depthPng: string;
+  pointCloud: PointCloud;
   width: number;
   height: number;
   density: number;
@@ -21,7 +35,7 @@ interface DisparityResult {
   semiGlobal: boolean;
 }
 
-type ViewMode = "rectified" | "disparity" | "overlay";
+type ViewMode = "rectified" | "disparity" | "overlay" | "depth" | "3d";
 
 // Matching is done at reduced resolution to keep the disparity search (and the
 // dev-build solve time) tractable; rebuild in release for full resolution.
@@ -32,6 +46,8 @@ const VIEW_LABEL: Record<ViewMode, string> = {
   rectified: "rectified pair",
   disparity: "disparity",
   overlay: "overlay",
+  depth: "depth",
+  "3d": "3D cloud",
 };
 
 /** Dense stereo / depth workspace: rectify a synchronized pair and dense-match
@@ -61,6 +77,16 @@ export function DepthWorkspace() {
   const frameB = useMemo(
     () => frames.find((f) => f.pose === selectedPose && f.camera === cameraB) ?? null,
     [frames, selectedPose, cameraB],
+  );
+  const cloud = useMemo(
+    () =>
+      result
+        ? {
+            positions: new Float32Array(result.pointCloud.positions),
+            colors: new Float32Array(result.pointCloud.colors),
+          }
+        : null,
+    [result],
   );
 
   if (!data || !kind) {
@@ -103,7 +129,11 @@ export function DepthWorkspace() {
         ? result.disparityPng
         : viewMode === "overlay"
           ? result.overlayPng
-          : result.rectifiedPairPng;
+          : viewMode === "depth"
+            ? result.depthPng
+            : viewMode === "rectified"
+              ? result.rectifiedPairPng
+              : null; // "3d" is rendered as WebGL below
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
@@ -144,21 +174,27 @@ export function DepthWorkspace() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 place-items-center overflow-hidden rounded-md bg-bg-soft p-2">
-        {imgSrc ? (
+      <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-md bg-bg-soft">
+        {viewMode === "3d" && cloud ? (
+          <Suspense fallback={<Hint>Loading 3D…</Hint>}>
+            <div className="absolute inset-0">
+              <PointCloudView positions={cloud.positions} colors={cloud.colors} />
+            </div>
+          </Suspense>
+        ) : imgSrc ? (
           <img
             src={imgSrc}
             alt={VIEW_LABEL[viewMode]}
-            className="max-h-full max-w-full object-contain [image-rendering:pixelated]"
+            className="max-h-full max-w-full object-contain p-2 [image-rendering:pixelated]"
           />
         ) : (
-          <p className="max-w-[26rem] text-center text-[12px] text-muted-foreground">
+          <Hint>
             {cameraA === cameraB
               ? "Pick two different cameras (left ≠ right)."
               : frameA && frameB
                 ? "Press “Compute disparity” to rectify and dense-match this pair."
                 : "No image pair for this pose / camera selection."}
-          </p>
+          </Hint>
         )}
       </div>
 
@@ -169,6 +205,7 @@ export function DepthWorkspace() {
           <Stat label="disparity" value={`${result.dispMin.toFixed(1)}–${result.dispMax.toFixed(1)} px`} />
           <Stat label="planarity RMS" value={`${result.planeRms.toFixed(2)} px`} />
           <Stat label="plane inliers" value={`${result.planeInliers}`} />
+          <Stat label="cloud points" value={`${result.pointCloud.count}`} />
           <Stat label="baseline" value={`${(result.baselineM * 1000).toFixed(0)} mm`} />
           <Stat label="match size" value={`${result.width}×${result.height}`} />
         </div>
@@ -182,6 +219,12 @@ function Stat({ label, value }: { label: string; value: string }) {
     <span>
       {label} <span className="text-foreground tabular-nums">{value}</span>
     </span>
+  );
+}
+
+function Hint({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="max-w-[26rem] text-center text-[12px] text-muted-foreground">{children}</p>
   );
 }
 

@@ -410,7 +410,20 @@ Systemic causes:
   metrics strip) + `/depth` route + rail nav. End-to-end Rust test on the
   committed `data/stereo` rig (board recovered, valid PNGs); `bun run build` +
   18 vitest tests green; app `cargo fmt`/clippy clean. Matches at downscale 4 for
-  dev responsiveness. Remaining C-UI: point clouds (triangulation), depth maps.
+  dev responsiveness.
+
+- [x] C-UI-POINTCLOUD - **Depth-from-disparity + 3D point cloud** in the Depth
+  workspace. **Done 2026-06-21.** `compute_disparity` now reprojects the disparity
+  through the rectified pinhole (`Z = f·B/d`, `X=(x−cx)·Z/fx`, `Y=(y−cy)·Z/fy`) to a
+  metric **depth colormap** (`depthPng`) and a grid-subsampled coloured **3D point
+  cloud** (`pointCloud {positions, colors, count}`, ≤ 60k points, grayscale from the
+  rectified left image). The workspace gains **depth** and **3D** view modes; the 3D
+  cloud renders in a new lazy-loaded React-Three-Fiber `PointCloudView` (auto-framed
+  `<points>` + OrbitControls, reusing `Viewer3DWorkspace/useThemeColors`), so
+  Three.js stays code-split out of the default bundle (main chunk 1203 → 469 kB).
+  Rust test extended (cloud count / array shape / mean reprojected depth ≈ board Z);
+  depth colormap visually verified on the committed rig. Closes the implementable
+  C-UI remainder; the OpenCV SGBM baseline (C5) stays env-blocked.
 
 ## D — Earn v1.0
 
