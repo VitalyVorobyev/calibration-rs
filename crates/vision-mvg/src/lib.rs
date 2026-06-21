@@ -25,6 +25,8 @@
 //! applying `K⁻¹` to pixel coordinates). Pose outputs follow the `T_C_W`
 //! convention: transform from world into camera frame.
 
+#[cfg(feature = "refine")]
+pub mod bundle_adjust;
 pub mod cheirality;
 pub mod degeneracy;
 pub mod error;
@@ -38,6 +40,10 @@ pub mod triangulation;
 pub mod types;
 
 // Re-export core types for convenience.
+#[cfg(feature = "refine")]
+pub use bundle_adjust::{
+    BundleAdjustmentOptions, BundleAdjustmentResult, BundleObservation, bundle_adjust,
+};
 pub use error::{MvgError, Result};
 pub use homography::{
     HomographyDecomposition, decompose_homography, homography_from_pose_and_plane,
