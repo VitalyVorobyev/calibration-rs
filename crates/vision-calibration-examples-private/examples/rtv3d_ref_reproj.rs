@@ -38,9 +38,8 @@ use nalgebra::{DMatrix, DVector, Vector3};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use vision_calibration::linear::{
-    homography::dlt_homography, planar_pose::estimate_planar_pose_from_h,
-};
+use vision_calibration::geometry::homography::dlt_homography;
+use vision_calibration::linear::planar_pose::estimate_planar_pose_from_h;
 use vision_calibration_core::{
     CorrespondenceView, DistortionModel, IntrinsicsModel, Iso3, Pt2, SensorModel,
 };
