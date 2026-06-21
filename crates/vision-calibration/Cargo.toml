@@ -27,9 +27,9 @@ vision-geometry.workspace = true
 vision-mvg.workspace = true
 vision-calibration-optim.workspace = true
 vision-calibration-pipeline.workspace = true
-anyhow.workspace = true
 
 [dev-dependencies]
+anyhow = { workspace = true }
 serde_json = { workspace = true }
 calib-targets = { workspace = true }
 image = { workspace = true }

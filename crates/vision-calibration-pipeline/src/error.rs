@@ -70,11 +70,3 @@ impl Error {
         Self::NotAvailable { resource }
     }
 }
-
-/// Allow `anyhow::Error` to be converted to a pipeline `Error` (catches any
-/// internal `anyhow`-style failures at the session boundary).
-impl From<anyhow::Error> for Error {
-    fn from(e: anyhow::Error) -> Self {
-        Self::Numerical(e.to_string())
-    }
-}

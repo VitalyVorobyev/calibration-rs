@@ -14,7 +14,6 @@
 //! small tiles) and `FixedBoard` search (the board dimensions are known
 //! from the manifest, so we never search for an unknown sub-board).
 
-use anyhow::{Result, anyhow};
 use calib_targets::detect;
 use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
 use image::imageops::FilterType;
@@ -24,7 +23,7 @@ use serde_json::Value;
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::{Detector, Feature};
+use crate::{DetectError, Detector, Feature};
 
 /// Upscale factor applied before detection. PuzzleBoard saddle decoding
 /// degrades on small/blurred tiles; the bench and private examples both
@@ -64,16 +63,23 @@ impl Detector for PuzzleboardDetector {
         "puzzleboard"
     }
 
-    fn detect_json(&self, image: &image::DynamicImage, config: &Value) -> Result<Vec<Feature>> {
-        let cfg: PuzzleboardConfig = serde_json::from_value(config.clone())
-            .map_err(|e| anyhow!("invalid puzzleboard config: {e}"))?;
+    fn detect_json(
+        &self,
+        image: &image::DynamicImage,
+        config: &Value,
+    ) -> Result<Vec<Feature>, DetectError> {
+        let cfg: PuzzleboardConfig =
+            serde_json::from_value(config.clone()).map_err(|e| DetectError::Config {
+                detector: "puzzleboard",
+                source: e,
+            })?;
 
         // The detector decodes saddles in millimetres; build the spec in
         // mm to match the bench/example tolerances, and convert metric
         // outputs back to metres below.
         let cell_size_mm = (cfg.cell_size_m * 1000.0) as f32;
         let spec = PuzzleBoardSpec::new(cfg.rows, cfg.cols, cell_size_mm)
-            .map_err(|e| anyhow!("invalid puzzleboard spec: {e}"))?;
+            .map_err(|e| DetectError::InvalidConfig(format!("invalid puzzleboard spec: {e}")))?;
         let mut params = PuzzleBoardParams::for_board(&spec);
         params.decode.search_all_components = false;
         params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;

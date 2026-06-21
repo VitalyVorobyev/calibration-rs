@@ -25,6 +25,7 @@
 #![warn(missing_docs)]
 
 pub mod cache;
+mod error;
 mod feature;
 
 #[cfg(feature = "charuco")]
@@ -41,6 +42,7 @@ mod ringgrid;
 pub use cache::{
     CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache, hash_image_bytes,
 };
+pub use error::DetectError;
 pub use feature::Feature;
 
 #[cfg(feature = "charuco")]
@@ -82,5 +84,5 @@ pub trait Detector: sealed::Sealed + Send + Sync {
         &self,
         image: &image::DynamicImage,
         config: &Value,
-    ) -> anyhow::Result<Vec<Feature>>;
+    ) -> Result<Vec<Feature>, DetectError>;
 }

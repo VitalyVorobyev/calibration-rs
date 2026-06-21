@@ -177,7 +177,7 @@ pub enum RunError {
         path: PathBuf,
         /// Underlying error.
         #[source]
-        source: anyhow::Error,
+        source: vision_calibration_detect::DetectError,
     },
 
     /// Cache backend reported an error.
@@ -225,7 +225,7 @@ pub enum RunError {
         path: PathBuf,
         /// Underlying error.
         #[source]
-        source: anyhow::Error,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     /// A camera has no usable laser observations — its laser plane

@@ -208,7 +208,7 @@ pub fn step_init_with_seed(
             Ok(hs) => hs,
             Err(e) => {
                 session.log_failure("init", e.to_string());
-                return Err(Error::from(e));
+                return Err(e);
             }
         };
 
@@ -232,7 +232,7 @@ pub fn step_init_with_seed(
                     Ok(ps) => ps,
                     Err(e) => {
                         session.log_failure("init", e.to_string());
-                        return Err(Error::from(e));
+                        return Err(e);
                     }
                 }
             }
@@ -246,7 +246,7 @@ pub fn step_init_with_seed(
             Ok(b) => b,
             Err(e) => {
                 session.log_failure("init", e.to_string());
-                return Err(Error::from(e));
+                return Err(e);
             }
         };
 

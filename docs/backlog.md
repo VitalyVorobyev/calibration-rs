@@ -340,11 +340,12 @@ Systemic causes:
 
 - [x] D2-DOCS - `missing_docs = warn` enforced workspace-wide + all public items
   documented (PR #69).
-- [~] D1-TYPED-ERRORS - Drop `anyhow` from the published library crates' public
-  surfaces onto `thiserror` enums. Already done elsewhere: `vision-geometry` /
-  `vision-mvg` migrated (PR #72); `vision_calibration_core::linalg` carries a typed
-  `MathError` (C1-FOLLOWUP); `vision-calibration-linear` bridges geometry via
-  `#[from]`.
+- [x] D1-TYPED-ERRORS - Drop `anyhow` from the published library crates' public
+  surfaces onto `thiserror` enums. **Done across PR #72 (geometry/mvg) + PR-1
+  (optim) + PR-2 (detect/pipeline).** `vision_calibration_core::linalg` carries a
+  typed `MathError` (C1-FOLLOWUP); `vision-calibration-linear` bridges geometry via
+  `#[from]`. No `vision-calibration*` library crate carries `anyhow` in its
+  `[dependencies]` any more (only `[dev-dependencies]` for tests/doctests).
   - [x] **optim** (PR-1). Converted every internal `anyhow!` / `ensure!` /
     `AnyhowResult` straggler to the existing typed `crate::Error`
     (`invalid_input` for structural/precondition checks, a new `pub(crate)
@@ -353,14 +354,25 @@ Systemic causes:
     `impl From<anyhow::Error> for Error` escape hatch, and dropped the `anyhow`
     dependency entirely. 45 optim tests green, full workspace builds, zero
     numeric drift (mechanical type change only).
-  - [ ] **detect + pipeline** (PR-2, next). detect: typed `DetectError` +
-    retype the *sealed* `Detector::detect_json`. pipeline: internal `anyhow` →
-    typed; the *open* `LaserPixelExtractor::extract` trait + the
-    `RunError::{Detection,LaserExtraction}` error sources move onto
-    `Box<dyn Error + Send + Sync>` (std-only, preserves the opaque injected
-    source); remove pipeline's escape hatch; update the app's `VmLaserExtractor`
-    impl + the laser-manifest doc example; move `core` / facade `anyhow` to
-    `[dev-dependencies]` (test/doctest-only usage).
+  - [x] **detect + pipeline** (PR-2). detect gained a typed `DetectError`
+    (`Config { detector, serde_json::Error }` + `InvalidConfig(String)`); the
+    *sealed* `Detector::detect_json` + the public `validate_*` fns retyped (no
+    downstream blast radius). pipeline: `RunError::Detection.source` is now the
+    typed `DetectError`; only the *open* `LaserPixelExtractor::extract` trait +
+    `RunError::LaserExtraction.source` move onto `Box<dyn Error + Send + Sync>`
+    (std-only, preserves the opaque injected source — no `anyhow` in the public
+    type). `planar_family`'s `anyhow::Context` chains → `Error::numerical`; the
+    `From<anyhow::Error>` escape hatch removed. The app's `VmLaserExtractor` impl
+    + the laser-manifest doc example updated to the new trait signature; `core` /
+    facade / pipeline `anyhow` moved to `[dev-dependencies]`. Caught a key
+    asymmetry: a *sealed* extension trait can be fully typed, an *open* one needs
+    `Box<dyn Error>`.
+  - **NaN-rejection regression (PR-1 review, codex P2):** the `ensure!(x > 0.0)`
+    → `if x <= 0.0` rewrite silently accepted NaN (`NaN <= 0.0` is false). Fixed
+    across 10 sites with `x.is_nan() || x <= 0.0` (the `!(x > 0.0)` form trips
+    `clippy::neg_cmp_op_on_partial_ord`); added a `validate_rejects_nan_bound`
+    regression test. Lesson: convert `ensure!(c)` as `if !c`, never by
+    hand-negating a float comparison operator.
 - [ ] D3-PY-PARITY - Audit the PyO3 binding surface against the Rust facade
   (incl. the new `mvg` surface); fill gaps; add parity tests.
 - [ ] D4-RELEASE - v1.0 gate: puzzle rig green via app + C4 landed (done) + API

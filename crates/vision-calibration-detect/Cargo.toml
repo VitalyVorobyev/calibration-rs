@@ -26,7 +26,6 @@ schemars = ["dep:schemars"]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 image = { workspace = true }
 schemars = { workspace = true, optional = true }
 calib-targets = { workspace = true, optional = true }
