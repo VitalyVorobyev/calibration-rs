@@ -91,30 +91,45 @@ fn main() {
     let min_d = (disp_nominal * 0.6).round().max(0.0) as i32;
     let num_d = (disp_nominal * 0.85).round().max(16.0) as i32;
 
-    let opts = BlockMatchOptions {
+    // Block matching: high-contrast board boundaries correlate strongly, so a
+    // solid-peak gate rejects low-texture background — but it also leaves the
+    // flat square interiors blank.
+    let block_opts = BlockMatchOptions {
         min_disparity: min_d,
         num_disparities: num_d,
         block_size: 11,
-        // Real imagery: the high-contrast board boundaries correlate strongly;
-        // require a solid peak so low-texture background is rejected.
         min_correlation: 0.5,
         uniqueness_ratio: 0.05,
         ..Default::default()
     };
-    let disp = match_block(&rect_left, &rect_right, &opts).expect("dense match");
+    // Semi-global: aggregate the same cost along 8 paths so disparity propagates
+    // through the flat squares. Left-right consistency + the search window are
+    // the filters here (the raw-correlation gate is bypassed in SGM mode).
+    let sgm_opts = BlockMatchOptions {
+        semi_global: true,
+        sgm_p1: 0.1,
+        sgm_p2: 1.5,
+        ..block_opts.clone()
+    };
+    let disp_block =
+        match_block(&rect_left, &rect_right, &block_opts).expect("dense match (block)");
+    let disp = match_block(&rect_left, &rect_right, &sgm_opts).expect("dense match (SGM)");
 
-    // --- metrics ---
+    // --- metrics (SGM is the headline; block is the before/after comparison) ---
+    let block_density =
+        disp_block.data.iter().filter(|v| v.is_finite()).count() as f64 / (w * h) as f64;
     let valid = disp.data.iter().filter(|v| v.is_finite()).count();
     let density = valid as f64 / (w * h) as f64;
     let (lo, hi) = valid_range(&disp).unwrap_or((0.0, 1.0));
     // Robust planar fit: the board dominates, so refitting on inliers reports
-    // the board's own planarity, undistracted by any stray background match.
+    // the board's own planarity, undistracted by stray background matches.
     let (plane_rms, plane_n) = planarity_rms(&disp);
 
     // --- outputs ---
     let out_dir = workspace_root().join("target/fixtures/dense_stereo_real");
     std::fs::create_dir_all(&out_dir).expect("create output dir");
     save_pair_with_epilines(&out_dir.join("rectified_pair.png"), &rect_left, &rect_right);
+    save_disparity(&out_dir.join("disparity_block.png"), &disp_block, lo, hi);
     save_disparity(&out_dir.join("disparity.png"), &disp, lo, hi);
     save_overlay(&out_dir.join("overlay.png"), &rect_left, &disp, lo, hi);
 
@@ -125,32 +140,36 @@ fn main() {
         rect.baseline, z_board, f_rect
     );
     println!("  disparity search {min_d}..{}", min_d + num_d);
+    println!("  block matching:    {:.1}% density", block_density * 100.0);
     println!(
-        "  recovered: {valid} valid px ({:.1}% density), disparity range [{lo:.1}, {hi:.1}] px",
+        "  semi-global (SGM): {:.1}% density, disparity range [{lo:.1}, {hi:.1}] px",
         density * 100.0
     );
     println!(
-        "  board plane: {plane_n} inlier px, planarity-fit RMS {plane_rms:.3} px \
+        "  board plane (SGM): {plane_n} inlier px, planarity-fit RMS {plane_rms:.3} px \
          (planar target ⇒ low = coherent surface)"
     );
     println!("  wrote {}", out_dir.display());
 
     // Evidence the matcher works on real data: it recovers a large, coherent
-    // PLANAR surface (the board) — low planarity RMS over many inliers. The raw
-    // range legitimately extends below the board: textured background sits at a
-    // greater depth (smaller disparity). The board's NEAR edge (max disparity)
-    // must not be clipped by the search ceiling.
+    // PLANAR surface (the board) — low planarity RMS over many inliers — and SGM
+    // fills it far more densely than block matching. The raw range legitimately
+    // extends below the board (textured background is farther = smaller
+    // disparity); the board's NEAR edge (max disparity) must not be clipped by
+    // the search ceiling.
     let near_edge_clipped = hi >= (min_d + num_d) as f32 - 0.5;
-    let pass = plane_n > 3000 && plane_rms < 1.0 && !near_edge_clipped;
+    let pass = plane_n > 3000 && plane_rms < 1.5 && density > block_density && !near_edge_clipped;
     if pass {
         println!(
-            "\n  PASS — coherent board plane: {plane_n} inlier px at {plane_rms:.3} px planarity RMS"
+            "\n  PASS — SGM fills {:.0}%→{:.0}% density; coherent board plane: {plane_n} inlier px at {plane_rms:.3} px RMS",
+            block_density * 100.0,
+            density * 100.0
         );
     } else {
         eprintln!(
-            "\n  CHECK — planarity RMS {plane_rms:.3} px over {plane_n} px, near-edge clipped: {near_edge_clipped} \
-             (range [{lo:.1},{hi:.1}] vs search {min_d}..{})",
-            min_d + num_d
+            "\n  CHECK — SGM density {:.1}% (block {:.1}%), planarity RMS {plane_rms:.3} px over {plane_n} px, near-edge clipped: {near_edge_clipped}",
+            density * 100.0,
+            block_density * 100.0
         );
         std::process::exit(1);
     }
