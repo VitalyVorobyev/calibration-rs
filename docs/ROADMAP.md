@@ -320,10 +320,11 @@ dense matcher, no full SfM.
 - **C5** Dense matcher. ADR 0015's ceiling was **amended** (2026-06-21): the matcher
   ships **pure-Rust in `vision-mvg`**, with `opencv-rust` SGBM demoted to a
   benchmark-only baseline in the unpublished bench crate. The **block-matching MVP
-  (`vision_mvg::dense::match_block`, ZNCC + sub-pixel + LR-consistency) landed
-  2026-06-21** — 94% density at 0.18 px RMS on synthetic GT, 0.44 px board-planarity
-  RMS on the real `data/stereo` rig (two visual-evidence demos under
-  `target/fixtures/`). Remaining: SGM aggregation and the OpenCV SGBM baseline.
+  plus opt-in semi-global (SGM) aggregation** (`vision_mvg::dense::match_block`,
+  ZNCC + sub-pixel + LR-consistency + 8-path P1/P2 aggregation) landed 2026-06-21 —
+  94% density at 0.18 px RMS on synthetic GT; on the real `data/stereo` rig SGM
+  doubles board coverage (21%→49%) at 0.44–0.74 px board-planarity RMS (visual-
+  evidence demos under `target/fixtures/`). Remaining: the OpenCV SGBM baseline.
 - **C-UI** MVG visualizations layered into the Tauri app (point clouds, depth maps,
   rectified pairs).
 

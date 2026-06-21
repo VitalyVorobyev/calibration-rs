@@ -385,9 +385,18 @@ Systemic causes:
     the committed `data/stereo` chessboard rig (undistort → C4 rectify → match)
     and recovers the board plane at **0.44 px planarity-fit RMS** over ~13.5k
     inlier pixels (no GT needed — the planar target is the reference). 8 matcher
-    unit tests + 1 harness integration gate. Remaining C5 work: SGM aggregation
-    (bounded-memory; the cost volume MVP is the stepping stone) and the OpenCV
-    SGBM baseline above.
+    unit tests + 1 harness integration gate.
+  - [x] **Semi-global (SGM) aggregation** — **Done 2026-06-21.** Opt-in
+    `BlockMatchOptions::semi_global` (+ `sgm_p1`/`sgm_p2`): the raw ZNCC cost is
+    aggregated along 8 paths with Hirschmüller `P1`/`P2` smoothness penalties
+    before disparity selection, propagating disparity into low-texture regions
+    that block matching leaves blank. Strictly additive — the raw cost volume and
+    block-mode behaviour are unchanged (block stays the default). On the real
+    `data/stereo` rig SGM **doubles board coverage (21% → 49% density)** —
+    `dense_stereo_real` now writes both `disparity_block.png` (grid only) and
+    `disparity.png` (filled board) for the before/after. 1 new unit test
+    (stays accurate + never recovers fewer pixels than block). Remaining C5 work:
+    the OpenCV SGBM baseline above (needs an OpenCV-equipped env).
 
 ## D — Earn v1.0
 

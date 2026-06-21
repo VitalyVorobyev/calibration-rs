@@ -18,9 +18,11 @@
 //!   a minimum correlation gate (rejects textureless regions), a uniqueness
 //!   margin (rejects ambiguous matches), and a left-right consistency check
 //!   (rejects occlusions / mismatches).
-//!
-//! Semi-global aggregation (SGM) on top of this cost is the documented
-//! follow-up; this module is the block-matching MVP.
+//! * **Semi-global (SGM, opt-in)** — with [`BlockMatchOptions::semi_global`] the
+//!   raw ZNCC cost is aggregated along 8 paths with `P1`/`P2` smoothness
+//!   penalties (Hirschmüller) before selection, propagating disparity into
+//!   low-texture regions that block matching leaves blank. The raw cost volume
+//!   is unchanged, so SGM is strictly an add-on.
 //!
 //! # Conventions
 //!
@@ -31,10 +33,11 @@
 //!
 //! # Memory
 //!
-//! The MVP materializes a full `W·H·num_disparities` cost volume (`f32`). This
-//! keeps the selection/sub-pixel/uniqueness logic simple and is fine for the
-//! demo and modest images; SGM (the follow-up) replaces it with bounded-memory
-//! path aggregation.
+//! Both modes materialize a full `W·H·num_disparities` cost volume (`f32`); SGM
+//! adds two more volumes of that size (the accumulated and per-direction path
+//! costs). This keeps the logic simple and is fine for the demos and modest
+//! images. For large inputs, downscale first (as the real-data example does) or
+//! tile the search.
 
 use crate::{MvgError, Result};
 
@@ -222,6 +225,22 @@ pub struct BlockMatchOptions {
     pub lr_max_diff: f32,
     /// Enable parabolic sub-pixel refinement of the correlation peak.
     pub subpixel: bool,
+    /// Enable **semi-global** (SGM) cost aggregation.
+    ///
+    /// When set, the ZNCC matching cost is aggregated along 8 paths with the
+    /// `sgm_p1`/`sgm_p2` smoothness penalties before disparity selection. This
+    /// propagates disparity into low-texture regions (e.g. the flat interiors of
+    /// chessboard squares) that pure block matching leaves blank, at the cost of
+    /// extra time and memory. `min_correlation` / `uniqueness_ratio` (which gate
+    /// on the raw per-pixel correlation) are bypassed in this mode — left-right
+    /// consistency and the disparity-search window are the filters. The raw cost
+    /// volume is the same as block mode, so SGM is strictly an add-on.
+    pub semi_global: bool,
+    /// SGM penalty for a ±1 disparity step (small — allows slanted surfaces).
+    pub sgm_p1: f32,
+    /// SGM penalty for a disparity step larger than 1 (large — preserves
+    /// depth discontinuities). Must be ≥ `sgm_p1`.
+    pub sgm_p2: f32,
 }
 
 impl Default for BlockMatchOptions {
@@ -235,6 +254,9 @@ impl Default for BlockMatchOptions {
             lr_consistency: true,
             lr_max_diff: 1.0,
             subpixel: true,
+            semi_global: false,
+            sgm_p1: 0.1,
+            sgm_p2: 1.5,
         }
     }
 }
@@ -399,8 +421,32 @@ fn solve_direction(
 ) -> Vec<f32> {
     let (w, h) = (a.width, a.height);
     let num_d = opts.num_disparities as usize;
+    let zncc = zncc_cost_volume(a, b, ia, iaa, ib, ibb, sign, r, opts);
+    if opts.semi_global {
+        let agg = aggregate_sgm(&zncc, w, h, num_d, opts.sgm_p1, opts.sgm_p2);
+        select_sgm(&agg, w, h, num_d, r, opts)
+    } else {
+        select_block(&zncc, w, h, num_d, r, opts)
+    }
+}
+
+/// Build the per-pixel ZNCC cost volume `cost[k*(w*h) + y*w + x]` (higher is
+/// better; [`INVALID_CORR`] where the window cannot be evaluated).
+#[allow(clippy::too_many_arguments)]
+fn zncc_cost_volume(
+    a: &GrayImage,
+    b: &GrayImage,
+    ia: &SummedArea,
+    iaa: &SummedArea,
+    ib: &SummedArea,
+    ibb: &SummedArea,
+    sign: i32,
+    r: usize,
+    opts: &BlockMatchOptions,
+) -> Vec<f32> {
+    let (w, h) = (a.width, a.height);
+    let num_d = opts.num_disparities as usize;
     let n = ((2 * r + 1) * (2 * r + 1)) as f64;
-    // Cost volume: cost[k * (w*h) + y*w + x] = ZNCC at disparity min+k.
     let mut cost = vec![INVALID_CORR; num_d * w * h];
 
     for k in 0..num_d {
@@ -443,9 +489,19 @@ fn solve_direction(
             }
         }
     }
+    cost
+}
 
-    // Per-pixel selection: winner-take-all + uniqueness + min-correlation +
-    // optional parabolic sub-pixel refinement.
+/// Block-matching selection: winner-take-all on raw ZNCC + min-correlation +
+/// uniqueness + optional parabolic sub-pixel refinement.
+fn select_block(
+    cost: &[f32],
+    w: usize,
+    h: usize,
+    num_d: usize,
+    r: usize,
+    opts: &BlockMatchOptions,
+) -> Vec<f32> {
     let mut disp_map = vec![f32::NAN; w * h];
     let area = w * h;
     for y in r..h - r {
@@ -489,6 +545,142 @@ fn solve_direction(
                         if delta.abs() < 1.0 {
                             d += delta;
                         }
+                    }
+                }
+            }
+            disp_map[base] = d;
+        }
+    }
+    disp_map
+}
+
+/// Matching cost from a ZNCC value: `1 - zncc` (lower is better), with
+/// out-of-range entries assigned the worst cost so SGM can still propagate
+/// through them.
+#[inline]
+fn matching_cost(zncc: f32) -> f32 {
+    if zncc.is_finite() {
+        1.0 - zncc
+    } else {
+        COST_INVALID
+    }
+}
+
+/// Worst matching cost (`1 - zncc` with `zncc = -1`), used for un-evaluable
+/// entries during SGM aggregation.
+const COST_INVALID: f32 = 2.0;
+
+/// Semi-global aggregation of the ZNCC cost volume along 8 paths.
+///
+/// Returns an aggregated cost volume (lower is better) where each entry sums the
+/// Hirschmüller path costs `L_r` over the 8 cardinal/diagonal directions. Low-
+/// texture pixels inherit a disparity from their textured neighbours through the
+/// `p1`/`p2` smoothness term.
+fn aggregate_sgm(zncc: &[f32], w: usize, h: usize, num_d: usize, p1: f32, p2: f32) -> Vec<f32> {
+    let area = w * h;
+    let mut agg = vec![0.0f32; num_d * area];
+    let mut lr = vec![0.0f32; num_d * area]; // path cost for the current direction
+    const DIRS: [(i32, i32); 8] = [
+        (1, 0),
+        (-1, 0),
+        (0, 1),
+        (0, -1),
+        (1, 1),
+        (1, -1),
+        (-1, 1),
+        (-1, -1),
+    ];
+    for &(dx, dy) in &DIRS {
+        // Visit pixels so that the predecessor (x-dx, y-dy) is always done first.
+        let ys: Vec<usize> = if dy >= 0 {
+            (0..h).collect()
+        } else {
+            (0..h).rev().collect()
+        };
+        let xs: Vec<usize> = if dx >= 0 {
+            (0..w).collect()
+        } else {
+            (0..w).rev().collect()
+        };
+        for &y in &ys {
+            for &x in &xs {
+                let idx = y * w + x;
+                let px = x as i32 - dx;
+                let py = y as i32 - dy;
+                if px < 0 || px >= w as i32 || py < 0 || py >= h as i32 {
+                    // Path start: L_r = matching cost.
+                    for k in 0..num_d {
+                        let c = matching_cost(zncc[k * area + idx]);
+                        lr[k * area + idx] = c;
+                        agg[k * area + idx] += c;
+                    }
+                    continue;
+                }
+                let pidx = py as usize * w + px as usize;
+                let mut min_prev = f32::INFINITY;
+                for k in 0..num_d {
+                    min_prev = min_prev.min(lr[k * area + pidx]);
+                }
+                for k in 0..num_d {
+                    let c = matching_cost(zncc[k * area + idx]);
+                    let l_same = lr[k * area + pidx];
+                    let l_lo = if k > 0 {
+                        lr[(k - 1) * area + pidx] + p1
+                    } else {
+                        f32::INFINITY
+                    };
+                    let l_hi = if k + 1 < num_d {
+                        lr[(k + 1) * area + pidx] + p1
+                    } else {
+                        f32::INFINITY
+                    };
+                    let best = l_same.min(l_lo).min(l_hi).min(min_prev + p2);
+                    // Subtracting min_prev keeps the accumulated path cost bounded.
+                    let l = c + best - min_prev;
+                    lr[k * area + idx] = l;
+                    agg[k * area + idx] += l;
+                }
+            }
+        }
+    }
+    agg
+}
+
+/// SGM selection: winner-take-all (argmin) on the aggregated cost + optional
+/// parabolic sub-pixel refinement. A pixel with no evaluable raw correlation at
+/// any disparity is left invalid rather than fabricated; everything else relies
+/// on the left-right check and search window for filtering.
+fn select_sgm(
+    agg: &[f32],
+    w: usize,
+    h: usize,
+    num_d: usize,
+    r: usize,
+    opts: &BlockMatchOptions,
+) -> Vec<f32> {
+    let area = w * h;
+    let mut disp_map = vec![f32::NAN; w * h];
+    for y in r..h - r {
+        for x in r..w - r {
+            let base = y * w + x;
+            let mut best_k = 0usize;
+            let mut best = f32::INFINITY;
+            for k in 0..num_d {
+                let c = agg[k * area + base];
+                if c < best {
+                    best = c;
+                    best_k = k;
+                }
+            }
+            let mut d = (opts.min_disparity + best_k as i32) as f32;
+            if opts.subpixel && best_k > 0 && best_k + 1 < num_d {
+                let cm = agg[(best_k - 1) * area + base];
+                let cp = agg[(best_k + 1) * area + base];
+                let denom = cm + cp - 2.0 * best;
+                if denom.abs() > 1e-6 {
+                    let delta = 0.5 * (cm - cp) / denom;
+                    if delta.abs() < 1.0 {
+                        d += delta;
                     }
                 }
             }
@@ -608,6 +800,35 @@ mod tests {
         let est = match_block(&left, &right, &opts).unwrap();
         let (rms, _) = rms_over_valid(&est, &gt, 4);
         assert!(rms < 0.4, "slanted-plane RMS too high: {rms}");
+    }
+
+    #[test]
+    fn semi_global_stays_accurate_and_densifies() {
+        // SGM must remain accurate on textured data and never recover fewer
+        // pixels than block matching (it fills, it does not drop).
+        let (left, right, gt) = synth(100, 70, |x, _| 8.0 + 0.012 * x as f32);
+        let block = BlockMatchOptions {
+            min_disparity: 0,
+            num_disparities: 16,
+            block_size: 7,
+            ..Default::default()
+        };
+        let sgm = BlockMatchOptions {
+            semi_global: true,
+            ..block.clone()
+        };
+        let est_block = match_block(&left, &right, &block).unwrap();
+        let est_sgm = match_block(&left, &right, &sgm).unwrap();
+
+        let (rms_sgm, n_sgm) = rms_over_valid(&est_sgm, &gt, 4);
+        assert!(n_sgm > 1000, "SGM should recover densely, got {n_sgm}");
+        assert!(rms_sgm < 0.5, "SGM RMS too high: {rms_sgm}");
+        assert!(
+            est_sgm.valid_count() >= est_block.valid_count(),
+            "SGM ({}) should not recover fewer pixels than block ({})",
+            est_sgm.valid_count(),
+            est_block.valid_count()
+        );
     }
 
     #[test]

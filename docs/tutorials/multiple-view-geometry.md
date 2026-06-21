@@ -135,8 +135,13 @@ let disp = match_block(&left, &right, &BlockMatchOptions {
 // disp.get(x, y) is x_left − x_right in pixels, or NaN where the matcher abstains.
 ```
 
-This is the block-matching MVP (semi-global aggregation is a follow-up). Two
-runnable demos write inspectable PNGs to `target/fixtures/`:
+For low-texture surfaces (e.g. the flat interiors of chessboard squares), set
+`semi_global: true` to aggregate the cost along 8 paths with `sgm_p1`/`sgm_p2`
+smoothness penalties (Hirschmüller) — disparity then propagates into regions
+block matching leaves blank (on the real-data demo, ~21% → ~49% coverage). It's
+strictly additive: block matching stays the default.
+
+Two runnable demos write inspectable PNGs to `target/fixtures/`:
 
 ```bash
 # synthetic ground truth: left | right | GT | estimate | error
