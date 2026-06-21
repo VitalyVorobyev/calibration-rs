@@ -198,19 +198,15 @@ When trade-offs conflict (speed vs accuracy, stability vs cleanup):
 
 ## 11) Backlog implementation workflow (mandatory)
 
-Backlog execution must be traceable task-by-task.
+Backlog execution must be traceable task-by-task. The priority is a current
+**backlog** and current **documentation** — not a per-task paper trail.
 
 * Source of truth for execution status is `docs/backlog.md`.
-* Implement one backlog task at a time (do not batch multiple tasks into one commit), unless tasks are tightly coupled and cannot be merged independently while keeping the workspace buildable. In that case, document the coupling explicitly in backlog + report.
-* Every completed task must include all of the following:
-  1. **Backlog update**: mark the task as complete in `docs/backlog.md` and add a short completion note (date, optionally commit id).
-  2. **Task report**: add a concise report in `docs/report/` named `YYYY-MM-DD-<task-id>-<slug>.md`.
-  3. **Dedicated commit**: commit only that task’s code/docs/tests/report updates.
-* Report files should be short and structured with:
-  1. Scope (what changed)
-  2. Files changed
-  3. Validation run (commands + pass/fail)
-  4. Follow-ups / remaining risks
+* Implement one backlog task at a time (do not batch multiple tasks into one commit), unless tasks are tightly coupled and cannot be merged independently while keeping the workspace buildable. In that case, document the coupling explicitly in the backlog note and commit message.
+* Every completed task must include both of the following:
+  1. **Backlog update**: mark the task as complete in `docs/backlog.md` with a short completion note (date, a one-paragraph summary of what landed, optionally commit id). This note is the durable record — keep it informative.
+  2. **Dedicated commit**: commit only that task’s code/docs/tests updates.
+* Keep the **documentation that lives next to the code** current as part of the task: module/rustdoc, ADRs (`docs/adrs/`) for design decisions, and tutorials (`docs/tutorials/`) for new user-facing features. Update what the change touches; do **not** write a separate per-task report file (`docs/report/` is retired — historical entries are kept for reference only).
 * Recommended commit message format:
   * `feat(backlog): <task-id> <short description>`
   * `fix(backlog): <task-id> <short description>`

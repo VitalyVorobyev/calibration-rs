@@ -194,6 +194,12 @@ python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
 
 ## Planning
 
+- **Backlog** in `docs/backlog.md` is the source-of-truth task tracker
+  (AGENTS.md §11). On completing a task, mark it `[x]` with a dated, informative
+  one-paragraph completion note — that note is the durable record. **No
+  per-task `docs/report/` files** (retired; historical entries kept for
+  reference only). Maintaining the backlog + the docs next to the code matters
+  more than any separate paper trail.
 - ADRs in `docs/adrs/` — design decisions (see README there). 0011 covers
   manual init, 0012 covers per-feature residuals, 0013 covers the
   `rig_family` sensor-axis refactor (the Scheimpflug rig modules collapse).
@@ -227,11 +233,17 @@ re-implements what `cargo run --example` already gives a terminal user.
     residual matrix; manifest support on the remaining `*Export` types;
     in-app detection wrap; 3D rig viewer; init-failure diagnosis;
     signed installers.
-- **C — MVG** (postponed until B-track diagnose viewer matures). C1 PR #28
-  land → C2 N-view triangulation → C3 BA frozen-intrinsics → C4
-  Scheimpflug-aware rectification → C5 dense matcher (opencv-rust SGBM,
-  feature-flagged).
-- **D — Earn v1.0** (continuous ratchet). Typed errors → doc-warning-free → Python
-  parity audit → v1.0 release.
+- **C — MVG.** C1 (`vision-geometry` + `vision-mvg` crates) and C2 (N-view
+  triangulation) landed; PR #72 carried C1-FOLLOWUP solver dedup
+  (`linear` → `vision-geometry`) plus the geometry/mvg typed-error migration.
+  **C3 (frozen-intrinsics bundle adjustment, PR #73)** and **C4
+  (Scheimpflug-aware stereo rectification, the D4 gate, PR #74)** are done.
+  Next: **C5** dense matcher (opencv-rust SGBM, feature-flagged). Known gap:
+  `vision-mvg` is not yet re-exported by the `vision-calibration` facade, so its
+  surface (pose recovery, robust estimation, `bundle_adjust`, `rectification`)
+  is reachable only via a direct `vision-mvg` dependency — a candidate
+  `vision_calibration::mvg` follow-up.
+- **D — Earn v1.0** (continuous ratchet). Typed errors (geometry/mvg migrated in
+  PR #72) → doc-warning-free → Python parity audit → v1.0 release.
 
 We are pre-1.0; breaking changes are acceptable.
