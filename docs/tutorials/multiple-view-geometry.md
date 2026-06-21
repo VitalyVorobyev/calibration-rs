@@ -121,9 +121,18 @@ crate's scope boundary.
   point across N cameras; `bundle_adjust` already takes any number of cameras.
 - **A Scheimpflug rig** → pass `RectifyCamera::scheimpflug(k, tilt)` per camera;
   the tilt is absorbed into the rectifying homography automatically.
-- **Getting the inputs from a calibration** → a `RigExtrinsicsExport`'s
-  `cameras[i].k.k_matrix()`, `sensors[i]`, and `cam_se3_rig[i]` feed
-  `RectifyCamera` and the relative pose directly.
+- **Getting the inputs from a calibration** → from a `RigExtrinsicsExport`,
+  `cameras[i].k.k_matrix()` and `sensors[i]` build each `RectifyCamera`. The
+  relative pose is **composed** from the two cameras' extrinsics:
+
+  ```rust
+  // cam_se3_rig[i] is T_Ci_R (camera i ← rig), so:
+  let cam1_se3_cam0 = export.cam_se3_rig[right] * export.cam_se3_rig[left].inverse();
+  ```
+
+  A single `cam_se3_rig[i]` equals the relative pose only in the special case
+  where the left camera is the reference frame (`cam_se3_rig[left] = Identity`);
+  compose explicitly for any other pair or `reference_camera_idx`.
 
 ## What to read next
 
