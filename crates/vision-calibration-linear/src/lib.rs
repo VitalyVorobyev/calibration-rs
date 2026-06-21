@@ -6,30 +6,29 @@
 //! assumptions.
 //!
 //! # Algorithms
-//! - Homography estimation (normalized DLT, optional RANSAC)
 //! - Planar intrinsics (Zhang method from multiple homographies)
 //! - Distortion estimation (Brown-Conrady from homography residuals)
 //! - Iterative intrinsics refinement (alternating K and distortion estimation)
 //! - Tilt-aware Scheimpflug planar intrinsics initialization
 //! - Planar pose from homography + intrinsics
-//! - Fundamental matrix: 8-point (normalized) and 7-point
-//! - Essential matrix: 5-point minimal solver + decomposition to (R, t)
 //! - Camera pose (PnP): DLT, P3P, EPnP, and DLT-in-RANSAC
-//! - Camera matrix DLT and RQ decomposition
-//! - Linear triangulation (DLT)
 //! - Multi-camera rig extrinsics and hand-eye calibration
 //! - Laserline plane estimation (SVD-based from ray-plane intersections)
 //!
+//! Two-view geometric solvers (homography, fundamental/essential matrix,
+//! camera matrix DLT and RQ decomposition, linear triangulation) now live in
+//! the `vision-geometry` crate.
+//!
 //! # Coordinate conventions
 //! - Most solvers accept **pixel coordinates** directly.
-//! - Essential matrix and P3P/EPnP expect **calibrated** image points; these
+//! - P3P/EPnP expect **calibrated** image points; these
 //!   functions take intrinsics or assume input is already normalized.
 //! - Pose outputs are `T_C_W`: transform from world/board coordinates into the
 //!   camera frame.
 //!
 //! # Example
 //! ```no_run
-//! use vision_calibration_linear::homography::HomographySolver;
+//! use vision_geometry::homography::dlt_homography;
 //! use vision_calibration_core::Pt2;
 //!
 //! let world = vec![
@@ -45,7 +44,7 @@
 //!     Pt2::new(118.0, 302.0),
 //! ];
 //!
-//! let h = HomographySolver::dlt(&world, &image).expect("homography failed");
+//! let h = dlt_homography(&world, &image).expect("homography failed");
 //! println!("H = {h}");
 //! ```
 //!
@@ -57,25 +56,20 @@ pub mod error;
 
 pub use error::Error;
 
-pub mod camera_matrix;
 pub mod distortion_fit;
-pub mod epipolar;
 pub mod extrinsics;
 pub mod handeye;
-pub mod homography;
 pub mod iterative_intrinsics;
 pub mod laserline;
 pub mod math;
 pub mod planar_pose;
 pub mod pnp;
 pub mod scheimpflug_init;
-pub mod triangulation;
 pub mod zhang_intrinsics;
 
 /// Minimal imports for common planar initialization workflows.
 pub mod prelude {
     pub use crate::distortion_fit::DistortionFitOptions;
-    pub use crate::homography::dlt_homography;
     pub use crate::iterative_intrinsics::{
         IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
     };
@@ -87,4 +81,5 @@ pub mod prelude {
     pub use crate::zhang_intrinsics::{
         PlanarIntrinsicsLinearInit, estimate_intrinsics_from_homographies,
     };
+    pub use vision_geometry::homography::dlt_homography;
 }

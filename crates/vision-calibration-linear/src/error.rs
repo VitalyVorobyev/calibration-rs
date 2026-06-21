@@ -2,6 +2,7 @@
 
 use vision_calibration_core::Error as CoreError;
 use vision_calibration_core::linalg::MathError;
+use vision_geometry::GeometryError;
 
 /// Errors returned by public APIs in `vision-calibration-linear`.
 #[derive(Debug, thiserror::Error)]
@@ -34,6 +35,10 @@ pub enum Error {
     /// Forwarded error from `vision-calibration-core`.
     #[error(transparent)]
     Core(#[from] CoreError),
+
+    /// Forwarded error from `vision-geometry` (two-view geometric solvers).
+    #[error(transparent)]
+    Geometry(#[from] GeometryError),
 }
 
 impl From<MathError> for Error {

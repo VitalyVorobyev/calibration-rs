@@ -25,12 +25,14 @@
 
 pub mod camera_matrix;
 pub mod epipolar;
+pub mod error;
 pub mod homography;
 pub mod math;
 pub mod triangulation;
 
 pub use camera_matrix::*;
 pub use epipolar::*;
+pub use error::{GeometryError, Result};
 pub use homography::*;
 pub use math::*;
 pub use triangulation::*;

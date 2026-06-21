@@ -6,7 +6,7 @@
 
 use super::polynomial::build_polynomial_system;
 use crate::math::{dlt_rank_ok, mat3_from_svd_row, mat3_from_vec, null_space};
-use anyhow::Result;
+use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, SMatrix, linalg::Schur};
 use vision_calibration_core::{Mat3, Pt2, Real};
 
@@ -21,14 +21,16 @@ use vision_calibration_core::{Mat3, Pt2, Real};
 /// normalization — calibrated coordinates are already well-conditioned.
 pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     if pts1.len() != pts2.len() {
-        anyhow::bail!(
-            "Point count mismatch: expected {}, got {}",
-            pts1.len(),
-            pts2.len()
-        );
+        return Err(GeometryError::CountMismatch {
+            expected: pts1.len(),
+            got: pts2.len(),
+        });
     }
     if pts1.len() != 5 {
-        anyhow::bail!("Point count mismatch: expected 5, got {}", pts1.len());
+        return Err(GeometryError::InsufficientData {
+            need: 5,
+            got: pts1.len(),
+        });
     }
 
     let mut a = DMatrix::<Real>::zeros(5, 9);
@@ -59,9 +61,11 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     }
 
     let svd = a_work.svd(true, true);
-    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let v_t = svd
+        .v_t
+        .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
     if v_t.nrows() < 4 {
-        anyhow::bail!("SVD failed");
+        return Err(GeometryError::numerical("SVD failed"));
     }
 
     let e1 = mat3_from_svd_row(&v_t, v_t.nrows() - 4);
@@ -84,7 +88,7 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     let m1_lu = m1.lu();
     let c = m1_lu
         .solve(&(-m2))
-        .ok_or(anyhow::anyhow!("Polynomial solve failed"))?;
+        .ok_or_else(|| GeometryError::numerical("Polynomial solve failed"))?;
 
     let mut action = DMatrix::<Real>::zeros(10, 10);
     let deg3_rows = [2, 4, 5, 7, 8, 9];
@@ -116,7 +120,9 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
             a_eval[(i, i)] -= z;
         }
         let svd = a_eval.svd(true, true);
-        let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+        let v_t = svd
+            .v_t
+            .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
         let vec = v_t.row(v_t.nrows() - 1);
 
         let v9 = vec[9];
@@ -134,7 +140,7 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     }
 
     if solutions.is_empty() {
-        anyhow::bail!("Polynomial solve failed");
+        return Err(GeometryError::numerical("Polynomial solve failed"));
     }
 
     solutions.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -169,17 +175,16 @@ pub fn essential_5point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 /// Returns the projected essential matrix, or `Err` if the SVD fails.
 pub fn essential_linear(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     if pts1.len() != pts2.len() {
-        anyhow::bail!(
-            "Point count mismatch: pts1 has {}, pts2 has {}",
-            pts1.len(),
-            pts2.len()
-        );
+        return Err(GeometryError::CountMismatch {
+            expected: pts1.len(),
+            got: pts2.len(),
+        });
     }
     if pts1.len() < 8 {
-        anyhow::bail!(
-            "Need at least 8 correspondences for the linear essential solver, got {}",
-            pts1.len()
-        );
+        return Err(GeometryError::InsufficientData {
+            need: 8,
+            got: pts1.len(),
+        });
     }
 
     let n = pts1.len();
@@ -210,20 +215,22 @@ pub fn essential_linear(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     // space).  Degenerate calibrated ray pairs (coincident or collinear rays)
     // collapse sv[7] toward zero.
     if !dlt_rank_ok(&ns.singular_values, 9, 1, 1e-7) {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "rank-deficient essential system: correspondences are degenerate \
-             (e.g. coincident or collinear rays)"
-        );
+             (e.g. coincident or collinear rays)",
+        ));
     }
 
     let e = mat3_from_vec(&ns.vector);
 
     // Project onto the essential manifold: singular values → (1, 1, 0).
     let svd_e = e.svd(true, true);
-    let u = svd_e.u.ok_or_else(|| anyhow::anyhow!("SVD failed on E"))?;
+    let u = svd_e
+        .u
+        .ok_or_else(|| GeometryError::numerical("SVD failed on E"))?;
     let v_t_e = svd_e
         .v_t
-        .ok_or_else(|| anyhow::anyhow!("SVD failed on E"))?;
+        .ok_or_else(|| GeometryError::numerical("SVD failed on E"))?;
     // Average the two largest singular values to enforce the (σ, σ, 0) constraint.
     let sv = svd_e.singular_values;
     let sigma = (sv[0] + sv[1]) * 0.5;

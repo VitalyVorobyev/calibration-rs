@@ -8,7 +8,7 @@
 //! internally for numerical stability and the output is de-normalized.
 
 use crate::math::{mat3_from_vec, normalize_points_2d, null_space};
-use anyhow::Result;
+use crate::{GeometryError, Result};
 use nalgebra::DMatrix;
 use vision_calibration_core::{
     Estimator, Mat3, Pt2, RansacOptions, from_homogeneous, ransac_fit, to_homogeneous,
@@ -67,8 +67,14 @@ fn points_are_collinear(pts: &[Pt2]) -> bool {
 /// is scaled so that `H[2,2] == 1` when possible.
 pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
     let n = src.len();
-    if n < 4 || dst.len() != n {
-        anyhow::bail!("need at least 4 point correspondences, got {}", n);
+    if n < 4 {
+        return Err(GeometryError::InsufficientData { need: 4, got: n });
+    }
+    if dst.len() != n {
+        return Err(GeometryError::CountMismatch {
+            expected: n,
+            got: dst.len(),
+        });
     }
 
     // Reject collinear configurations early: a valid homography requires at
@@ -77,22 +83,24 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
     // collinear dst yields a degenerate (rank-2) homography that maps the
     // entire plane to a line and cannot be reliably inverted or applied.
     if points_are_collinear(src) {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "rank-deficient point configuration: source points are collinear \
-             (need 4 correspondences in general position, no 3 collinear)"
-        );
+             (need 4 correspondences in general position, no 3 collinear)",
+        ));
     }
     if points_are_collinear(dst) {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "rank-deficient point configuration: destination points are collinear \
-             (need 4 correspondences in general position, no 3 collinear)"
-        );
+             (need 4 correspondences in general position, no 3 collinear)",
+        ));
     }
 
-    let (src_n, t_w) = normalize_points_2d(src)
-        .ok_or_else(|| anyhow::anyhow!("degenerate point configuration for normalization"))?;
-    let (dst_n, t_i) = normalize_points_2d(dst)
-        .ok_or_else(|| anyhow::anyhow!("degenerate point configuration for normalization"))?;
+    let (src_n, t_w) = normalize_points_2d(src).ok_or_else(|| {
+        GeometryError::degenerate("degenerate point configuration for normalization")
+    })?;
+    let (dst_n, t_i) = normalize_points_2d(dst).ok_or_else(|| {
+        GeometryError::degenerate("degenerate point configuration for normalization")
+    })?;
 
     let mut a = DMatrix::<f64>::zeros(2 * n, 9);
 
@@ -134,23 +142,23 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
     // must have rank exactly 8 (a 1-D null space). The singular values are
     // sorted descending.
     if sv[0] <= f64::EPSILON {
-        anyhow::bail!("degenerate (all-zero) homography design matrix");
+        return Err(GeometryError::degenerate(
+            "degenerate (all-zero) homography design matrix",
+        ));
     }
     // sv[7] is the second-smallest singular value.  For a valid configuration
     // (4 points in general position) it is well above zero. For collinear input
     // the null space is ≥2-D and sv[7] collapses toward zero like sv[8].
     if sv[7] / sv[0] < 1e-7 {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "rank-deficient point configuration: homography is underdetermined \
-             (need 4 correspondences in general position, no 3 collinear)"
-        );
+             (need 4 correspondences in general position, no 3 collinear)",
+        ));
     }
 
     let mut h_mat = mat3_from_vec(&ns.vector);
 
-    let t_i_inv = t_i
-        .try_inverse()
-        .ok_or_else(|| anyhow::anyhow!("svd failed"))?;
+    let t_i_inv = t_i.try_inverse().ok_or(GeometryError::Singular)?;
     h_mat = t_i_inv * h_mat * t_w;
 
     let scale = h_mat[(2, 2)];
@@ -171,8 +179,14 @@ pub fn dlt_homography_ransac(
     opts: &RansacOptions,
 ) -> Result<(Mat3, Vec<usize>)> {
     let n = src.len();
-    if n < 4 || dst.len() != n {
-        anyhow::bail!("need at least 4 point correspondences, got {}", n);
+    if n < 4 {
+        return Err(GeometryError::InsufficientData { need: 4, got: n });
+    }
+    if dst.len() != n {
+        return Err(GeometryError::CountMismatch {
+            expected: n,
+            got: dst.len(),
+        });
     }
 
     #[derive(Clone)]
@@ -242,7 +256,7 @@ pub fn dlt_homography_ransac(
 
     let res = ransac_fit::<HomographyEst>(&data, opts);
     if !res.success {
-        anyhow::bail!("ransac failed to find a consensus homography");
+        return Err(GeometryError::NoConsensus);
     }
 
     let h = res.model.expect("success guarantees a model");
@@ -371,6 +385,62 @@ mod tests {
         assert!(
             dlt_homography(&src, &dst).is_err(),
             "all-identical src points must produce Err"
+        );
+    }
+
+    /// Dense-target regression guard. A 15×15 grid yields 225 correspondences →
+    /// a 450×9 design matrix. The previous `svd(true, true)` drove nalgebra's
+    /// Golub-Kahan iteration into a multi-minute hang on inputs this size; the
+    /// `AᵀA` eigen-solve path is sub-millisecond.
+    /// We assert both exact recovery and a generous wall-clock bound so a future
+    /// regression that reinstates the hang fails fast instead of wedging CI.
+    #[test]
+    fn dense_homography_is_exact_and_fast() {
+        use std::time::Instant;
+        use vision_calibration_core::Mat3;
+
+        // Ground-truth homography with genuine perspective (h31, h32 ≠ 0).
+        let h_gt = Mat3::new(
+            1.2, 0.05, 3.0, //
+            0.1, 0.9, -2.0, //
+            0.0008, -0.0006, 1.0,
+        );
+
+        let mut world = Vec::with_capacity(225);
+        let mut image = Vec::with_capacity(225);
+        for iy in 0..15 {
+            for ix in 0..15 {
+                let x = ix as f64;
+                let y = iy as f64;
+                let p = h_gt * nalgebra::Vector3::new(x, y, 1.0);
+                world.push(Pt2::new(x, y));
+                image.push(Pt2::new(p.x / p.z, p.y / p.z));
+            }
+        }
+        assert_eq!(world.len(), 225);
+
+        let start = Instant::now();
+        let h = dlt_homography(&world, &image).unwrap();
+        let elapsed = start.elapsed();
+        eprintln!("dense 225-correspondence DLT solved in {elapsed:?}");
+
+        // Recovered H is normalized to H[2,2] = 1, matching h_gt's convention.
+        for r in 0..3 {
+            for c in 0..3 {
+                assert!(
+                    (h[(r, c)] - h_gt[(r, c)]).abs() < 1e-6,
+                    "H[{r},{c}] = {} != {}",
+                    h[(r, c)],
+                    h_gt[(r, c)]
+                );
+            }
+        }
+
+        // Generous bound: the fixed path is sub-millisecond; the old hang was
+        // >15 min. Anything under 2s confirms the pathological path is gone.
+        assert!(
+            elapsed.as_secs_f64() < 2.0,
+            "dense DLT took {elapsed:?} — perf regression (AᵀA eigen path lost?)"
         );
     }
 

@@ -17,4 +17,4 @@ workspace = true
 [dependencies]
 vision-calibration-core = { workspace = true }
 nalgebra = { workspace = true }
-anyhow = { workspace = true }
+thiserror = { workspace = true }

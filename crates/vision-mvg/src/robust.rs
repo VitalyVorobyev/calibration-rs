@@ -8,7 +8,7 @@
 
 use crate::residuals;
 use crate::types::Correspondence2D;
-use anyhow::Result;
+use crate::{MvgError, Result};
 use vision_calibration_core::{Estimator, Mat3, RansacOptions, Real, ransac_fit};
 
 /// Result of robust essential matrix estimation.
@@ -161,12 +161,15 @@ pub fn estimate_essential(
     opts: &RansacOptions,
 ) -> Result<EssentialEstimate> {
     if corrs.len() < 5 {
-        anyhow::bail!("need at least 5 correspondences, got {}", corrs.len());
+        return Err(MvgError::InsufficientData {
+            need: 5,
+            got: corrs.len(),
+        });
     }
 
     let result = ransac_fit::<EssentialEstimator>(corrs, opts);
     if !result.success {
-        anyhow::bail!("RANSAC failed to find essential matrix consensus");
+        return Err(MvgError::NoConsensus);
     }
 
     Ok(EssentialEstimate {
@@ -185,12 +188,15 @@ pub fn estimate_homography(
     opts: &RansacOptions,
 ) -> Result<HomographyEstimate> {
     if corrs.len() < 4 {
-        anyhow::bail!("need at least 4 correspondences, got {}", corrs.len());
+        return Err(MvgError::InsufficientData {
+            need: 4,
+            got: corrs.len(),
+        });
     }
 
     let result = ransac_fit::<HomographyEstimator>(corrs, opts);
     if !result.success {
-        anyhow::bail!("RANSAC failed to find homography consensus");
+        return Err(MvgError::NoConsensus);
     }
 
     Ok(HomographyEstimate {

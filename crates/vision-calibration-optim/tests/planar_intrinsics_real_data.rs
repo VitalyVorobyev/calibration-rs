@@ -16,7 +16,6 @@ use vision_calibration_core::{
     test_utils::{CalibrationView, pixel_from_normalized, undistort_pixel_normalized},
 };
 use vision_calibration_linear::distortion_fit::DistortionFitOptions;
-use vision_calibration_linear::homography::HomographySolver;
 use vision_calibration_linear::iterative_intrinsics::{
     IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
 };
@@ -25,6 +24,7 @@ use vision_calibration_optim::BackendSolveOptions;
 use vision_calibration_optim::{
     PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RobustLoss, optimize_planar_intrinsics,
 };
+use vision_geometry::homography::dlt_homography;
 
 #[derive(Debug, Deserialize)]
 struct StereoData {
@@ -176,7 +176,7 @@ fn planar_intrinsics_real_data_improves_reprojection() {
                 undist_pixels.push(undist_pixel);
             }
 
-            let h = HomographySolver::dlt(&world, &undist_pixels).expect("homography");
+            let h = dlt_homography(&world, &undist_pixels).expect("homography");
             homographies.push(h);
             undistorted_views.push((world, undist_pixels));
         }
@@ -375,7 +375,7 @@ fn planar_intrinsics_parameter_fixing_works() {
             points_2d.push(Pt2::new(undist_pixel.x, undist_pixel.y));
         }
 
-        let h = HomographySolver::dlt(&world, &undist_pixels).expect("homography");
+        let h = dlt_homography(&world, &undist_pixels).expect("homography");
         homographies.push(h);
 
         nl_views.push(View::without_meta(
@@ -662,10 +662,8 @@ fn planar_intrinsics_with_iterative_linear_init() {
 
             let pixel_pts: Vec<Pt2> = det.corners.iter().map(|c| Pt2::new(c[2], c[3])).collect();
 
-            let h = vision_calibration_linear::homography::HomographySolver::dlt(
-                &board_pts, &pixel_pts,
-            )
-            .expect("homography");
+            let h = vision_geometry::homography::dlt_homography(&board_pts, &pixel_pts)
+                .expect("homography");
             let pose = vision_calibration_linear::planar_pose::PlanarPoseSolver::from_homography(
                 &k_iter, &h,
             )

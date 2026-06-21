@@ -17,8 +17,8 @@ use vision_calibration_core::{
 use vision_calibration_linear::distortion_fit::{
     DistortionFitOptions, DistortionView, MetaHomography, estimate_distortion_from_homographies,
 };
-use vision_calibration_linear::homography::dlt_homography;
 use vision_calibration_linear::zhang_intrinsics::estimate_intrinsics_from_homographies;
+use vision_geometry::homography::dlt_homography;
 
 /// A 15×15 grid (225 correspondences) mapped through a known perspective
 /// homography — the dense case that exercised the original hang.

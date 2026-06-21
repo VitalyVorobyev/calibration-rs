@@ -5,7 +5,7 @@
 //! validation.
 
 use crate::types::TriangulatedPoint;
-use anyhow::Result;
+use crate::{MvgError, Result};
 use vision_calibration_core::{Mat3, Pt2, Vec3};
 use vision_geometry::camera_matrix::Mat34;
 
@@ -64,7 +64,10 @@ pub fn triangulate_two_view(
     pts2: &[Pt2],
 ) -> Result<Vec<TriangulatedPoint>> {
     if pts1.len() != pts2.len() {
-        anyhow::bail!("point count mismatch: {} vs {}", pts1.len(), pts2.len());
+        return Err(MvgError::CountMismatch {
+            expected: pts1.len(),
+            got: pts2.len(),
+        });
     }
 
     let p1 = Mat34::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
@@ -123,11 +126,10 @@ pub fn triangulate_two_view_partial(
 /// given, or the system is degenerate (see the linear solver).
 pub fn triangulate_nview(cameras: &[Mat34], points: &[Pt2]) -> Result<TriangulatedPoint> {
     if cameras.len() != points.len() {
-        anyhow::bail!(
-            "camera/point count mismatch: {} vs {}",
-            cameras.len(),
-            points.len()
-        );
+        return Err(MvgError::CountMismatch {
+            expected: cameras.len(),
+            got: points.len(),
+        });
     }
 
     let pt3 = vision_geometry::triangulation::triangulate_point(cameras, points)?;

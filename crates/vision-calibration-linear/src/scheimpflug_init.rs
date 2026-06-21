@@ -15,7 +15,6 @@
 use crate::{
     Error,
     distortion_fit::DistortionFitOptions,
-    homography::dlt_homography,
     iterative_intrinsics::{IterativeIntrinsicsOptions, estimate_intrinsics_iterative},
     math::null_space,
     planar_pose::estimate_planar_pose_from_h,
@@ -28,6 +27,7 @@ use vision_calibration_core::{
     Iso3, Mat3, NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2, Real, ScheimpflugParams,
     SensorModel, View,
 };
+use vision_geometry::homography::dlt_homography;
 
 /// Options controlling tilt-aware Scheimpflug planar intrinsics initialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]

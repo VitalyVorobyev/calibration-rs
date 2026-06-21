@@ -17,6 +17,7 @@ workspace = true
 [dependencies]
 vision-calibration-core.workspace = true
 vision-calibration-linear.workspace = true
+vision-geometry.workspace = true
 vision-calibration-optim.workspace = true
 vision-calibration-pipeline.workspace = true
 anyhow.workspace = true

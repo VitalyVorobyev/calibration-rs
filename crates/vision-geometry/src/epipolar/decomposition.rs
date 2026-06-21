@@ -4,7 +4,7 @@
 //! decomposition. Returns four possible (R, t) pairs that must be
 //! disambiguated via cheirality checks.
 
-use anyhow::Result;
+use crate::{GeometryError, Result};
 use nalgebra::SMatrix;
 use vision_calibration_core::{Mat3, Real, Vec3};
 
@@ -15,8 +15,12 @@ use vision_calibration_core::{Mat3, Real, Vec3};
 /// two singular values.
 pub(crate) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
     let svd = e.svd(true, true);
-    let u = svd.u.ok_or(anyhow::anyhow!("SVD failed"))?;
-    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let u = svd
+        .u
+        .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
+    let v_t = svd
+        .v_t
+        .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
 
     let s1 = svd.singular_values[0];
     let s2 = svd.singular_values[1];
@@ -52,24 +56,28 @@ pub fn decompose_essential(e: &Mat3) -> Result<Vec<(Mat3, Vec3)>> {
         let s0 = sv[0];
         let s1 = sv[1];
         if s0 < 1e-10 {
-            anyhow::bail!(
+            return Err(GeometryError::degenerate(
                 "degenerate essential matrix: translation is unobservable \
-                 (rank-deficient or zero E)"
-            );
+                 (rank-deficient or zero E)",
+            ));
         }
         if s1 / s0 < 0.1 {
-            anyhow::bail!(
+            return Err(GeometryError::degenerate(
                 "degenerate essential matrix: translation is unobservable \
-                 (rank-deficient or zero E)"
-            );
+                 (rank-deficient or zero E)",
+            ));
         }
     }
 
     let e = enforce_essential_constraints(e)?;
 
     let svd = e.svd(true, true);
-    let mut u = svd.u.ok_or(anyhow::anyhow!("SVD failed"))?;
-    let mut v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let mut u = svd
+        .u
+        .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
+    let mut v_t = svd
+        .v_t
+        .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
 
     if u.determinant() < 0.0 {
         u.column_mut(2).neg_mut();
