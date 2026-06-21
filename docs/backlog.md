@@ -300,6 +300,21 @@ Systemic causes:
   unobserved cameras/points pass through. 9 synthetic-GT tests (recovery up to
   scale, perfect-init, pixel-noise, no-gauge-fix, unobserved-camera-0 anchor,
   three input-validation guards).
+- [x] C4-RECTIFY - Scheimpflug-aware stereo rectification (the D4 gate).
+  **Done 2026-06-21** (PR #74). New `vision-mvg::rectification`:
+  `rectify_stereo_pair(left, right, cam1_se3_cam0, opts) -> StereoRectification`.
+  Because a pixel is `K·H_tilt·x_n`, the sensor tilt is a homography on the
+  normalized plane; pre-multiplying each camera's unprojection by `H_tilt⁻¹`
+  collapses a Scheimpflug camera to a frontal pinhole, after which standard
+  Fusiello/Bouguet applies (`H_left = K_rect·R_rect·H_tilt0⁻¹·K0⁻¹`,
+  `H_right = K_rect·(R_rect·Rᵀ)·H_tilt1⁻¹·K1⁻¹`). Zero tilt reduces exactly to
+  pinhole rectification; inputs are undistorted pixels (distortion handled
+  separately, as OpenCV splits `initUndistortRectifyMap`). 6 synthetic tests
+  through the real core Scheimpflug model (rows align <1e-6). D4 gate closed by
+  the `rtv3d_ref_rectify` example: worst rectified row disagreement 3.4e-13 px
+  across all oracle camera pairs (real K, asymmetric per-cam ~-5° tilts, ring
+  extrinsics). Also repointed a pre-existing #72 regression in examples-private
+  (`rtv3d_ref_reproj` imported the removed `linear::homography`).
 
 ## B — app (extend; sequencing serves V-track)
 
