@@ -326,6 +326,15 @@ Systemic causes:
   reachable only via a direct `vision-mvg` dependency; also unblocks future
   Python parity for the MVG surface. Surface locked by
   `tests/facade_compile_surface.rs` (default + `refine`).
+- [x] C-MVG-TUTORIAL - Tutorial + runnable example for the MVG surface.
+  **Done 2026-06-21**. `docs/tutorials/multiple-view-geometry.md` (pose recovery
+  → triangulation → bundle adjustment → Scheimpflug-aware rectification via the
+  facade `mvg` module) with the runnable companion
+  `crates/vision-calibration/examples/mvg_two_view.rs` — a synthetic-GT
+  end-to-end demo (pose recovery exact, BA 18→0.03 px, rectification rows align
+  to ~1e-13 px). BA section is `#[cfg(feature = "refine")]`-gated so the example
+  builds in both configs. Tutorials README index updated. Closes the
+  ship-a-tutorial-with-new-features gap for C2/C3/C4.
 
 ## B — app (extend; sequencing serves V-track)
 
