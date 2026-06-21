@@ -6,7 +6,7 @@
 //! reprojection error across all views (the maximum-likelihood point under
 //! isotropic Gaussian image noise).
 
-use anyhow::Result;
+use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, Matrix3, Vector3, Vector4};
 use vision_calibration_core::{Pt2, Pt3, Real};
 
@@ -31,14 +31,16 @@ use crate::math::{dlt_rank_ok, null_space};
 /// rays / zero parallax), or the recovered point is at infinity.
 pub fn triangulate_point_linear(cameras: &[Mat34], points: &[Pt2]) -> Result<Pt3> {
     if cameras.len() < 2 {
-        anyhow::bail!("need at least 2 views, got {}", cameras.len());
+        return Err(GeometryError::InsufficientData {
+            need: 2,
+            got: cameras.len(),
+        });
     }
     if cameras.len() != points.len() {
-        anyhow::bail!(
-            "mismatched number of cameras ({}) and points ({})",
-            cameras.len(),
-            points.len()
-        );
+        return Err(GeometryError::CountMismatch {
+            expected: cameras.len(),
+            got: points.len(),
+        });
     }
 
     let mut a = DMatrix::<Real>::zeros(2 * cameras.len(), 4);
@@ -63,16 +65,18 @@ pub fn triangulate_point_linear(cameras: &[Mat34], points: &[Pt2]) -> Result<Pt3
     // space). Identical cameras or coincident rays collapse the boundary
     // singular value toward zero.
     if !dlt_rank_ok(&ns.singular_values, 4, 1, 1e-7) {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "zero-parallax / rank-deficient triangulation system \
-             (identical cameras or coincident rays)"
-        );
+             (identical cameras or coincident rays)",
+        ));
     }
 
     let x_h = &ns.vector;
     let w = x_h[3];
     if w.abs() <= Real::EPSILON {
-        anyhow::bail!("triangulation produced an invalid point");
+        return Err(GeometryError::degenerate(
+            "triangulation produced an invalid point",
+        ));
     }
 
     Ok(Pt3::new(x_h[0] / w, x_h[1] / w, x_h[2] / w))

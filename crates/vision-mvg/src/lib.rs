@@ -27,6 +27,7 @@
 
 pub mod cheirality;
 pub mod degeneracy;
+pub mod error;
 pub mod homography;
 pub mod pose_recovery;
 #[cfg(feature = "refine")]
@@ -37,6 +38,7 @@ pub mod triangulation;
 pub mod types;
 
 // Re-export core types for convenience.
+pub use error::{MvgError, Result};
 pub use homography::{
     HomographyDecomposition, decompose_homography, homography_from_pose_and_plane,
     homography_transfer, homography_transfer_inverse,

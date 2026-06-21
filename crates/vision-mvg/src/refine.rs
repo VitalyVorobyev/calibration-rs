@@ -6,7 +6,7 @@
 //! - [`refine_homography`]: minimize symmetric transfer error
 //! - [`refine_point`]: minimize reprojection error for a single 3D point
 
-use anyhow::Result;
+use crate::{MvgError, Result};
 use nalgebra::DVector;
 use tiny_solver::LevenbergMarquardtOptimizer;
 use tiny_solver::factors::Factor;
@@ -72,8 +72,17 @@ impl<T: nalgebra::RealField> Factor<T> for HomographyTransferFactor {
 /// Takes an initial estimate `h_init` and correspondences `(pts1, pts2)`,
 /// returns the refined homography.
 pub fn refine_homography(h_init: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
-    if pts1.len() != pts2.len() || pts1.len() < 4 {
-        anyhow::bail!("need at least 4 matching points");
+    if pts1.len() < 4 {
+        return Err(MvgError::InsufficientData {
+            need: 4,
+            got: pts1.len(),
+        });
+    }
+    if pts1.len() != pts2.len() {
+        return Err(MvgError::CountMismatch {
+            expected: pts1.len(),
+            got: pts2.len(),
+        });
     }
 
     let mut problem = Problem::new();
@@ -98,7 +107,7 @@ pub fn refine_homography(h_init: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<Ma
     let optimizer = LevenbergMarquardtOptimizer::default();
     let result = optimizer
         .optimize(&problem, &initial, Some(opts))
-        .ok_or_else(|| anyhow::anyhow!("homography refinement failed to converge"))?;
+        .ok_or_else(|| MvgError::not_converged("homography refinement failed to converge"))?;
 
     let h_opt = &result["h"];
     let mut h = Mat3::zeros();
@@ -157,7 +166,9 @@ impl<T: nalgebra::RealField> Factor<T> for ReprojectionFactor {
 /// corresponding 2D observations. `init` is the initial 3D point estimate.
 pub fn refine_point(cameras: &[Mat34], observations: &[Pt2], init: &Pt3) -> Result<Pt3> {
     if cameras.len() != observations.len() || cameras.is_empty() {
-        anyhow::bail!("cameras and observations must have equal non-zero length");
+        return Err(MvgError::invalid_input(
+            "cameras and observations must have equal non-zero length",
+        ));
     }
 
     let mut problem = Problem::new();
@@ -187,7 +198,7 @@ pub fn refine_point(cameras: &[Mat34], observations: &[Pt2], init: &Pt3) -> Resu
     let optimizer = LevenbergMarquardtOptimizer::default();
     let result = optimizer
         .optimize(&problem, &initial, Some(opts))
-        .ok_or_else(|| anyhow::anyhow!("point refinement failed to converge"))?;
+        .ok_or_else(|| MvgError::not_converged("point refinement failed to converge"))?;
 
     let pt = &result["point"];
     Ok(Pt3::new(pt[0], pt[1], pt[2]))

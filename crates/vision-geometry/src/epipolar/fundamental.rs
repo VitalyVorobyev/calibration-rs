@@ -7,7 +7,7 @@ use crate::math::{
     dlt_rank_ok, mat3_from_svd_row, mat3_from_vec, normalize_points_2d, null_space,
     solve_cubic_real,
 };
-use anyhow::Result;
+use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, SMatrix};
 use vision_calibration_core::{Estimator, Mat3, Pt2, RansacOptions, Real, ransac_fit};
 
@@ -18,14 +18,22 @@ use vision_calibration_core::{Estimator, Mat3, Pt2, RansacOptions, Real, ransac_
 /// (up to numerical error).
 pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     let n = pts1.len();
-    if n < 8 || pts2.len() != n {
-        return Err(anyhow::anyhow!("Not enough points"));
+    if n < 8 {
+        return Err(GeometryError::InsufficientData { need: 8, got: n });
+    }
+    if pts2.len() != n {
+        return Err(GeometryError::CountMismatch {
+            expected: n,
+            got: pts2.len(),
+        });
     }
 
-    let (pts1_n, t1) = normalize_points_2d(pts1)
-        .ok_or_else(|| anyhow::anyhow!("Degenerate point set (pts1): collinear or coincident"))?;
-    let (pts2_n, t2) = normalize_points_2d(pts2)
-        .ok_or_else(|| anyhow::anyhow!("Degenerate point set (pts2): collinear or coincident"))?;
+    let (pts1_n, t1) = normalize_points_2d(pts1).ok_or_else(|| {
+        GeometryError::degenerate("Degenerate point set (pts1): collinear or coincident")
+    })?;
+    let (pts2_n, t2) = normalize_points_2d(pts2).ok_or_else(|| {
+        GeometryError::degenerate("Degenerate point set (pts2): collinear or coincident")
+    })?;
 
     let mut a = DMatrix::<Real>::zeros(n, 9);
 
@@ -54,18 +62,22 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
     // The 9-column epipolar design matrix must have rank exactly 8 (1-D null
     // space).  Collinear or coincident points collapse sv[7] toward zero.
     if !dlt_rank_ok(&ns.singular_values, 9, 1, 1e-7) {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "rank-deficient 8-point system: points are collinear or degenerate \
-             (need 8 points in general position)"
-        );
+             (need 8 points in general position)",
+        ));
     }
 
     let mut f = mat3_from_vec(&ns.vector);
 
     let svd_f = f.svd(true, true);
-    let u = svd_f.u.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let u = svd_f
+        .u
+        .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
     let mut s = svd_f.singular_values;
-    let v_t = svd_f.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let v_t = svd_f
+        .v_t
+        .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
     s[2] = 0.0;
     let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&s);
     f = u * s_mat * v_t;
@@ -82,20 +94,24 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
 /// coordinates; internal normalization is applied before solving.
 pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     if pts1.len() != pts2.len() {
-        anyhow::bail!(
-            "Point count mismatch: expected 7, pts1 has {}, pts2 has {}",
-            pts1.len(),
-            pts2.len()
-        );
+        return Err(GeometryError::CountMismatch {
+            expected: pts1.len(),
+            got: pts2.len(),
+        });
     }
     if pts1.len() != 7 {
-        anyhow::bail!("Point count mismatch: expected 7, got {}", pts1.len());
+        return Err(GeometryError::InsufficientData {
+            need: 7,
+            got: pts1.len(),
+        });
     }
 
-    let (pts1_n, t1) = normalize_points_2d(pts1)
-        .ok_or_else(|| anyhow::anyhow!("Degenerate point set (pts1): collinear or coincident"))?;
-    let (pts2_n, t2) = normalize_points_2d(pts2)
-        .ok_or_else(|| anyhow::anyhow!("Degenerate point set (pts2): collinear or coincident"))?;
+    let (pts1_n, t1) = normalize_points_2d(pts1).ok_or_else(|| {
+        GeometryError::degenerate("Degenerate point set (pts1): collinear or coincident")
+    })?;
+    let (pts2_n, t2) = normalize_points_2d(pts2).ok_or_else(|| {
+        GeometryError::degenerate("Degenerate point set (pts2): collinear or coincident")
+    })?;
 
     let mut a = DMatrix::<Real>::zeros(7, 9);
     for (i, (p1, p2)) in pts1_n.iter().zip(pts2_n.iter()).enumerate() {
@@ -126,9 +142,13 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 
     let svd = a_work.svd(true, true);
     let sv: Vec<Real> = svd.singular_values.iter().cloned().collect();
-    let v_t = svd.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+    let v_t = svd
+        .v_t
+        .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
     if v_t.nrows() < 2 {
-        anyhow::bail!("SVD failed: not enough nullspace vectors");
+        return Err(GeometryError::numerical(
+            "SVD failed: not enough nullspace vectors",
+        ));
     }
 
     // The 7-point method intentionally uses a 2-D null space (it solves a
@@ -136,10 +156,10 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     // be meaningfully positive — if it collapses the input is degenerate
     // (e.g. all 7 points collinear) and both null vectors are arbitrary.
     if !dlt_rank_ok(&sv, 9, 2, 1e-7) {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "rank-deficient 7-point system: points are collinear or degenerate \
-             (need 7 points in general position)"
-        );
+             (need 7 points in general position)",
+        ));
     }
 
     let f1 = mat3_from_svd_row(&v_t, v_t.nrows() - 2);
@@ -162,7 +182,7 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 
     let roots = solve_cubic_real(a, b, c, d);
     if roots.is_empty() {
-        anyhow::bail!("Polynomial solve failed");
+        return Err(GeometryError::numerical("Polynomial solve failed"));
     }
 
     let mut solutions = Vec::new();
@@ -170,9 +190,13 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
         let mut f = f2 + lambda * f1;
 
         let svd_f = f.svd(true, true);
-        let u = svd_f.u.ok_or(anyhow::anyhow!("SVD failed"))?;
+        let u = svd_f
+            .u
+            .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
         let mut s = svd_f.singular_values;
-        let v_t = svd_f.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+        let v_t = svd_f
+            .v_t
+            .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
         s[2] = 0.0;
         let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&s);
         f = u * s_mat * v_t;
@@ -195,8 +219,14 @@ pub fn fundamental_8point_ransac(
     opts: &RansacOptions,
 ) -> Result<(Mat3, Vec<usize>)> {
     let n = pts1.len();
-    if n < 8 || pts2.len() != n {
-        anyhow::bail!(format!("Not enough points: {}", n));
+    if n < 8 {
+        return Err(GeometryError::InsufficientData { need: 8, got: n });
+    }
+    if pts2.len() != n {
+        return Err(GeometryError::CountMismatch {
+            expected: n,
+            got: pts2.len(),
+        });
     }
 
     #[derive(Clone)]
@@ -250,7 +280,7 @@ pub fn fundamental_8point_ransac(
 
     let res = ransac_fit::<FundamentalEst>(&data, opts);
     if !res.success {
-        anyhow::bail!("RANSAC failed");
+        return Err(GeometryError::NoConsensus);
     }
     let f = res.model.expect("success guarantees a model");
     Ok((f, res.inliers))

@@ -6,7 +6,7 @@
 use crate::math::{
     dlt_rank_ok, mat34_from_vec, normalize_points_2d, normalize_points_3d, null_space,
 };
-use anyhow::Result;
+use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, Matrix3, Matrix3x4};
 use vision_calibration_core::{Mat3, Pt2, Pt3, Real, Vec3};
 
@@ -31,19 +31,18 @@ pub struct CameraMatrixDecomposition {
 pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
     let n = world.len();
     if n < 6 {
-        anyhow::bail!("need at least 6 point correspondences, got {}", n);
+        return Err(GeometryError::InsufficientData { need: 6, got: n });
     }
     if n != image.len() {
-        anyhow::bail!(
-            "mismatched number of world points ({}) and image points ({})",
-            n,
-            image.len()
-        );
+        return Err(GeometryError::CountMismatch {
+            expected: n,
+            got: image.len(),
+        });
     }
 
-    let (world_n, t_w) = normalize_points_3d(world).ok_or(anyhow::anyhow!(
-        "degenerate point configuration for normalization"
-    ))?;
+    let (world_n, t_w) = normalize_points_3d(world).ok_or_else(|| {
+        GeometryError::degenerate("degenerate point configuration for normalization")
+    })?;
 
     // Coplanarity guard: if the normalized 3D points lie on (or very near) a
     // plane, the 2n×12 DLT is underdetermined — a homography is the right
@@ -61,19 +60,21 @@ pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
         let s_max = sv[0]; // singular values are sorted descending
         let s_min = sv[2];
         if s_max <= Real::EPSILON {
-            anyhow::bail!("all 3D points coincide — cannot estimate a camera matrix");
+            return Err(GeometryError::degenerate(
+                "all 3D points coincide — cannot estimate a camera matrix",
+            ));
         }
         if s_min / s_max < 1e-6 {
-            anyhow::bail!(
+            return Err(GeometryError::degenerate(
                 "coplanar or near-degenerate 3D point configuration: the 3×4 camera \
-                 DLT is underdetermined for planar points (estimate a homography instead)"
-            );
+                 DLT is underdetermined for planar points (estimate a homography instead)",
+            ));
         }
     }
 
-    let (image_n, t_i) = normalize_points_2d(image).ok_or(anyhow::anyhow!(
-        "degenerate point configuration for normalization"
-    ))?;
+    let (image_n, t_i) = normalize_points_2d(image).ok_or_else(|| {
+        GeometryError::degenerate("degenerate point configuration for normalization")
+    })?;
 
     let mut a = DMatrix::<Real>::zeros(2 * n, 12);
 
@@ -114,14 +115,14 @@ pub fn dlt_camera_matrix(world: &[Pt3], image: &[Pt2]) -> Result<Mat34> {
     // correspondences with only five unique 3D↔2D pairs — leaving a >1-D null
     // space whose smallest singular vector is arbitrary.
     if !dlt_rank_ok(&ns.singular_values, 12, 1, 1e-7) {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "rank-deficient camera DLT system: fewer than 6 independent \
-             3D-2D correspondences (e.g. duplicate or collinear points)"
-        );
+             3D-2D correspondences (e.g. duplicate or collinear points)",
+        ));
     }
     let p_norm = mat34_from_vec(&ns.vector);
 
-    let t_i_inv = t_i.try_inverse().ok_or(anyhow::anyhow!("SVD failed"))?;
+    let t_i_inv = t_i.try_inverse().ok_or(GeometryError::Singular)?;
     let p = t_i_inv * p_norm * t_w;
 
     Ok(p)
@@ -164,9 +165,7 @@ pub fn decompose_camera_matrix(p: &Mat34) -> Result<CameraMatrixDecomposition> {
         r = -r;
     }
 
-    let k_inv = k
-        .try_inverse()
-        .ok_or_else(|| anyhow::anyhow!("intrinsics matrix is not invertible"))?;
+    let k_inv = k.try_inverse().ok_or(GeometryError::Singular)?;
     let mut t = k_inv * p.column(3);
 
     if r.determinant() < 0.0 {

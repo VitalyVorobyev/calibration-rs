@@ -3834,8 +3834,8 @@ dependencies = [
 name = "vision-geometry"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "nalgebra",
+ "thiserror 2.0.18",
  "vision-calibration-core",
 ]
 
@@ -3856,8 +3856,8 @@ dependencies = [
 name = "vision-mvg"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "nalgebra",
+ "thiserror 2.0.18",
  "tiny-solver",
  "vision-calibration-core",
  "vision-geometry",

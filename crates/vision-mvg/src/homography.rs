@@ -8,7 +8,7 @@
 //! - **Decomposition**: recover candidate (R, t, n) from H
 //! - **Construction**: build H from known pose and plane normal
 
-use anyhow::Result;
+use crate::{MvgError, Result};
 use vision_calibration_core::{Mat3, Pt2, Real, Vec3};
 
 use crate::types::HomographyMatrix;
@@ -39,7 +39,7 @@ pub fn homography_transfer(h: &HomographyMatrix, pt: &Pt2) -> Pt2 {
 pub fn homography_transfer_inverse(h: &HomographyMatrix, pt: &Pt2) -> Result<Pt2> {
     let h_inv = h
         .try_inverse()
-        .ok_or_else(|| anyhow::anyhow!("singular homography"))?;
+        .ok_or_else(|| MvgError::degenerate("singular homography"))?;
     Ok(homography_transfer(&h_inv, pt))
 }
 
@@ -60,7 +60,7 @@ pub fn decompose_homography(h: &HomographyMatrix) -> Result<Vec<HomographyDecomp
     let s3 = svd_h.singular_values[2];
 
     if s3 < 1e-12 {
-        anyhow::bail!("degenerate homography (rank < 3)");
+        return Err(MvgError::degenerate("degenerate homography (rank < 3)"));
     }
 
     let h_n = h / s2;
@@ -115,8 +115,8 @@ pub fn decompose_homography(h: &HomographyMatrix) -> Result<Vec<HomographyDecomp
         let r_approx = m * basis.transpose();
 
         let svd_r = r_approx.svd(true, true);
-        let u = svd_r.u.ok_or(anyhow::anyhow!("SVD failed"))?;
-        let vt = svd_r.v_t.ok_or(anyhow::anyhow!("SVD failed"))?;
+        let u = svd_r.u.ok_or_else(|| MvgError::numerical("SVD failed"))?;
+        let vt = svd_r.v_t.ok_or_else(|| MvgError::numerical("SVD failed"))?;
         let mut r = u * vt;
         if r.determinant() < 0.0 {
             r = -r;

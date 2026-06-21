@@ -4,7 +4,7 @@
 //! returned. Only one places the triangulated points in front of both
 //! cameras. These functions count and select the correct pose.
 
-use anyhow::Result;
+use crate::{MvgError, Result};
 use vision_calibration_core::{Mat3, Pt2, Vec3};
 use vision_geometry::camera_matrix::Mat34;
 use vision_geometry::triangulation::triangulate_point_linear;
@@ -71,19 +71,18 @@ pub fn select_pose(
 /// correspondences, or if every candidate pose fails the cheirality check.
 pub fn recover_pose_from_essential(e: &Mat3, pts1: &[Pt2], pts2: &[Pt2]) -> Result<(Mat3, Vec3)> {
     if pts1.len() != pts2.len() {
-        anyhow::bail!(
-            "point count mismatch: pts1 has {}, pts2 has {}",
-            pts1.len(),
-            pts2.len()
-        );
+        return Err(MvgError::CountMismatch {
+            expected: pts1.len(),
+            got: pts2.len(),
+        });
     }
     if pts1.is_empty() {
-        anyhow::bail!("need at least 1 correspondence for cheirality check, got 0");
+        return Err(MvgError::InsufficientData { need: 1, got: 0 });
     }
     let candidates = vision_geometry::epipolar::decompose_essential(e)?;
     select_pose(&candidates, pts1, pts2)
         .map(|(r, t, _)| (r, t))
-        .ok_or_else(|| anyhow::anyhow!("no valid pose found (all candidates fail cheirality)"))
+        .ok_or(MvgError::NoValidPose)
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@
 //! internally for numerical stability and the output is de-normalized.
 
 use crate::math::{mat3_from_vec, normalize_points_2d, null_space};
-use anyhow::Result;
+use crate::{GeometryError, Result};
 use nalgebra::DMatrix;
 use vision_calibration_core::{
     Estimator, Mat3, Pt2, RansacOptions, from_homogeneous, ransac_fit, to_homogeneous,
@@ -67,8 +67,14 @@ fn points_are_collinear(pts: &[Pt2]) -> bool {
 /// is scaled so that `H[2,2] == 1` when possible.
 pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
     let n = src.len();
-    if n < 4 || dst.len() != n {
-        anyhow::bail!("need at least 4 point correspondences, got {}", n);
+    if n < 4 {
+        return Err(GeometryError::InsufficientData { need: 4, got: n });
+    }
+    if dst.len() != n {
+        return Err(GeometryError::CountMismatch {
+            expected: n,
+            got: dst.len(),
+        });
     }
 
     // Reject collinear configurations early: a valid homography requires at
@@ -77,22 +83,24 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
     // collinear dst yields a degenerate (rank-2) homography that maps the
     // entire plane to a line and cannot be reliably inverted or applied.
     if points_are_collinear(src) {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "rank-deficient point configuration: source points are collinear \
-             (need 4 correspondences in general position, no 3 collinear)"
-        );
+             (need 4 correspondences in general position, no 3 collinear)",
+        ));
     }
     if points_are_collinear(dst) {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "rank-deficient point configuration: destination points are collinear \
-             (need 4 correspondences in general position, no 3 collinear)"
-        );
+             (need 4 correspondences in general position, no 3 collinear)",
+        ));
     }
 
-    let (src_n, t_w) = normalize_points_2d(src)
-        .ok_or_else(|| anyhow::anyhow!("degenerate point configuration for normalization"))?;
-    let (dst_n, t_i) = normalize_points_2d(dst)
-        .ok_or_else(|| anyhow::anyhow!("degenerate point configuration for normalization"))?;
+    let (src_n, t_w) = normalize_points_2d(src).ok_or_else(|| {
+        GeometryError::degenerate("degenerate point configuration for normalization")
+    })?;
+    let (dst_n, t_i) = normalize_points_2d(dst).ok_or_else(|| {
+        GeometryError::degenerate("degenerate point configuration for normalization")
+    })?;
 
     let mut a = DMatrix::<f64>::zeros(2 * n, 9);
 
@@ -134,23 +142,23 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
     // must have rank exactly 8 (a 1-D null space). The singular values are
     // sorted descending.
     if sv[0] <= f64::EPSILON {
-        anyhow::bail!("degenerate (all-zero) homography design matrix");
+        return Err(GeometryError::degenerate(
+            "degenerate (all-zero) homography design matrix",
+        ));
     }
     // sv[7] is the second-smallest singular value.  For a valid configuration
     // (4 points in general position) it is well above zero. For collinear input
     // the null space is ≥2-D and sv[7] collapses toward zero like sv[8].
     if sv[7] / sv[0] < 1e-7 {
-        anyhow::bail!(
+        return Err(GeometryError::degenerate(
             "rank-deficient point configuration: homography is underdetermined \
-             (need 4 correspondences in general position, no 3 collinear)"
-        );
+             (need 4 correspondences in general position, no 3 collinear)",
+        ));
     }
 
     let mut h_mat = mat3_from_vec(&ns.vector);
 
-    let t_i_inv = t_i
-        .try_inverse()
-        .ok_or_else(|| anyhow::anyhow!("svd failed"))?;
+    let t_i_inv = t_i.try_inverse().ok_or(GeometryError::Singular)?;
     h_mat = t_i_inv * h_mat * t_w;
 
     let scale = h_mat[(2, 2)];
@@ -171,8 +179,14 @@ pub fn dlt_homography_ransac(
     opts: &RansacOptions,
 ) -> Result<(Mat3, Vec<usize>)> {
     let n = src.len();
-    if n < 4 || dst.len() != n {
-        anyhow::bail!("need at least 4 point correspondences, got {}", n);
+    if n < 4 {
+        return Err(GeometryError::InsufficientData { need: 4, got: n });
+    }
+    if dst.len() != n {
+        return Err(GeometryError::CountMismatch {
+            expected: n,
+            got: dst.len(),
+        });
     }
 
     #[derive(Clone)]
@@ -242,7 +256,7 @@ pub fn dlt_homography_ransac(
 
     let res = ransac_fit::<HomographyEst>(&data, opts);
     if !res.success {
-        anyhow::bail!("ransac failed to find a consensus homography");
+        return Err(GeometryError::NoConsensus);
     }
 
     let h = res.model.expect("success guarantees a model");

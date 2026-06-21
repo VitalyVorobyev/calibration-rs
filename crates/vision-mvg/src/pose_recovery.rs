@@ -7,7 +7,7 @@ use crate::cheirality;
 use crate::residuals;
 use crate::triangulation;
 use crate::types::{Correspondence2D, EssentialMatrix, TriangulatedPoint};
-use anyhow::Result;
+use crate::{MvgError, Result};
 use vision_calibration_core::{Mat3, Real, Vec3};
 
 /// Result of relative pose recovery.
@@ -41,7 +41,7 @@ pub struct RelativePose {
 pub fn recover_relative_pose(corrs: &[Correspondence2D]) -> Result<RelativePose> {
     let n = corrs.len();
     if n < 5 {
-        anyhow::bail!("need at least 5 correspondences, got {}", n);
+        return Err(MvgError::InsufficientData { need: 5, got: n });
     }
 
     let (pts1, pts2) = Correspondence2D::split(corrs);
@@ -74,7 +74,7 @@ pub fn recover_relative_pose(corrs: &[Correspondence2D]) -> Result<RelativePose>
     }
 
     if all_candidates.is_empty() {
-        anyhow::bail!("5-point solver produced no candidates from any subset");
+        return Err(MvgError::NoValidPose);
     }
 
     let mut best_r = None;
@@ -106,7 +106,7 @@ pub fn recover_relative_pose(corrs: &[Correspondence2D]) -> Result<RelativePose>
         }
     }
 
-    let r = best_r.ok_or_else(|| anyhow::anyhow!("no valid pose found"))?;
+    let r = best_r.ok_or(MvgError::NoValidPose)?;
     let t = best_t.unwrap();
     let e = best_e.unwrap();
 
