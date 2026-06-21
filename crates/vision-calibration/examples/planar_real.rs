@@ -96,12 +96,16 @@ fn main() -> Result<()> {
     println!("    fy = {:.2}", final_k.fy);
     println!("    cx = {:.2}", final_k.cx);
     println!("    cy = {:.2}", final_k.cy);
-    println!("  Distortion:");
-    println!("    k1 = {:.6}", final_dist.k1);
-    println!("    k2 = {:.6}", final_dist.k2);
-    println!("    k3 = {:.6}", final_dist.k3);
-    println!("    p1 = {:.6}", final_dist.p1);
-    println!("    p2 = {:.6}", final_dist.p2);
+    println!("  Distortion (Brown-Conrady5):");
+    if let Some(d) = final_dist {
+        println!("    k1 = {:.6}", d.k1);
+        println!("    k2 = {:.6}", d.k2);
+        println!("    k3 = {:.6}", d.k3);
+        println!("    p1 = {:.6}", d.p1);
+        println!("    p2 = {:.6}", d.p2);
+    } else {
+        println!("    (no Brown-Conrady5 distortion)");
+    }
     println!(
         "  Mean reprojection error: {:.4} px\n",
         export.mean_reproj_error

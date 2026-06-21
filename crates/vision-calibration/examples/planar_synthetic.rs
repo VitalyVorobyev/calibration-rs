@@ -107,10 +107,14 @@ fn main() -> Result<()> {
         "  Intrinsics: fx={:.1}, fy={:.1}, cx={:.1}, cy={:.1}",
         final_k.fx, final_k.fy, final_k.cx, final_k.cy
     );
-    println!(
-        "  Distortion: k1={:.4}, k2={:.4}, k3={:.4}, p1={:.4}, p2={:.4}",
-        final_dist.k1, final_dist.k2, final_dist.k3, final_dist.p1, final_dist.p2
-    );
+    if let Some(d) = &final_dist {
+        println!(
+            "  Distortion: k1={:.4}, k2={:.4}, k3={:.4}, p1={:.4}, p2={:.4}",
+            d.k1, d.k2, d.k3, d.p1, d.p2
+        );
+    } else {
+        println!("  Distortion: (no Brown-Conrady5 coefficients)");
+    }
     println!(
         "  Error vs GT: fx={:.2}%, fy={:.2}%",
         100.0 * (final_k.fx - k_gt.fx).abs() / k_gt.fx,

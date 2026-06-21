@@ -155,11 +155,14 @@ pub struct TargetPose {
 ///
 /// The transform chain is `p_cam = T_C_T * p_target`.
 ///
+/// Accepts any camera implementing [`CameraProject`] (e.g. [`PinholeCamera`] or
+/// the model-agnostic [`CameraModel`]).
+///
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if no points could be projected.
-pub fn compute_mean_reproj_error(
-    camera: &PinholeCamera,
+pub fn compute_mean_reproj_error<C: CameraProject>(
+    camera: &C,
     views: &[View<TargetPose>],
 ) -> Result<Real, Error> {
     let mut total_error = 0.0;
@@ -168,7 +171,7 @@ pub fn compute_mean_reproj_error(
     for view in views {
         for (p3d, p2d) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
             let p_cam = view.meta.camera_se3_target * p3d;
-            if let Some(projected) = camera.project_point_c(&p_cam.coords) {
+            if let Some(projected) = camera.project_camera_point(&p_cam.coords) {
                 let error = (projected - *p2d).norm();
                 total_error += error;
                 total_points += 1;

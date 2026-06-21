@@ -161,7 +161,9 @@ impl ProjectionKind {
 /// Distortion slot of a [`CameraModelDesc`].
 ///
 /// `dim() == 0` means the factor takes no distortion parameter block.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
 pub enum DistortionKind {
     /// No distortion; no parameter block.
     None,

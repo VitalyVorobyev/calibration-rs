@@ -3312,7 +3312,14 @@ pub mod tier_b {
         let mut artifacts = CalibrationArtifacts {
             spatial_unit: "mm".to_string(),
             angle_unit: "deg".to_string(),
-            cameras: vec![camera_artifact(camera_id, &export.params.camera, None)],
+            cameras: vec![camera_artifact(
+                camera_id,
+                &export
+                    .params
+                    .pinhole_camera()
+                    .expect("planar export pinhole camera"),
+                None,
+            )],
             transforms: Vec::new(),
         };
         for (view_idx, pose) in export.params.camera_se3_target.iter().enumerate() {

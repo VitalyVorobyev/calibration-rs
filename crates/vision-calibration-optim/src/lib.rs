@@ -158,7 +158,9 @@ pub use crate::ir::{
     ParamSlotSpec, ProblemIR, ProjectionKind, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
 };
 
-pub use crate::params::distortion::{DISTORTION_DIM, pack_distortion};
+pub use crate::params::distortion::{
+    DISTORTION_DIM, pack_distortion, pack_distortion_params, unpack_distortion_params,
+};
 pub use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
 pub use crate::params::laser_plane::LaserPlane;
 pub use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};

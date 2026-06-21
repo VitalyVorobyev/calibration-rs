@@ -36,8 +36,12 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Real, View};
-use vision_calibration_optim::optimize_planar_intrinsics;
+use vision_calibration_core::{
+    BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionParams, FxFyCxCySkew,
+    IntrinsicsParams, Iso3, ProjectionParams, RationalPolynomial, Real, SensorParams, ThinPrism,
+    View,
+};
+use vision_calibration_optim::{DistortionKind, optimize_planar_intrinsics};
 
 use crate::planar_family::{
     bootstrap_planar_intrinsics, estimate_view_homographies, recover_planar_poses_from_homographies,
@@ -284,10 +288,17 @@ pub fn step_init_with_seed(
         (bootstrap.camera.k, dist, bootstrap.homographies, poses)
     };
 
+    // Build extended-model CameraParams when the config requests a model other
+    // than BrownConrady5.  The linear init always produces BC5 coefficients;
+    // we embed them into the target model and zero any extra degrees of freedom.
+    let extended_camera_params =
+        build_initial_camera_params(intrinsics, &distortion, session.config.distortion_model);
+
     session.state.homographies = Some(homographies);
     session.state.initial_intrinsics = Some(intrinsics);
     session.state.initial_distortion = Some(distortion);
     session.state.initial_poses = Some(poses.clone());
+    session.state.initial_camera_params = extended_camera_params;
     session.state.clear_optimization();
 
     let source = format_init_source(&manual_fields, &auto_fields);
@@ -313,6 +324,57 @@ fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
         (true, false) => format!("(auto: {})", auto.join(", ")),
         (true, true) => "(empty)".to_string(),
     }
+}
+
+/// Build `CameraParams` for an extended distortion model by embedding the
+/// BC5 linear-init coefficients as starting values and zeroing extra DOF.
+///
+/// Returns `None` for `BrownConrady5` — the BC5 path uses `initial_distortion`
+/// directly via `PlanarState::initial_params()`.
+fn build_initial_camera_params(
+    intrinsics: FxFyCxCySkew<Real>,
+    bc5: &BrownConrady5<Real>,
+    model: DistortionKind,
+) -> Option<CameraParams> {
+    let distortion = match model {
+        DistortionKind::BrownConrady5 => return None,
+        DistortionKind::None => DistortionParams::None,
+        DistortionKind::Rational8 => DistortionParams::Rational {
+            params: RationalPolynomial {
+                k1: bc5.k1,
+                k2: bc5.k2,
+                k3: bc5.k3,
+                k4: 0.0,
+                k5: 0.0,
+                k6: 0.0,
+                p1: bc5.p1,
+                p2: bc5.p2,
+                iters: 8,
+            },
+        },
+        DistortionKind::ThinPrism9 => DistortionParams::ThinPrism {
+            params: ThinPrism {
+                k1: bc5.k1,
+                k2: bc5.k2,
+                k3: bc5.k3,
+                p1: bc5.p1,
+                p2: bc5.p2,
+                s1: 0.0,
+                s2: 0.0,
+                s3: 0.0,
+                s4: 0.0,
+                iters: 8,
+            },
+        },
+        DistortionKind::Division1 => DistortionParams::Division { lambda: 0.0 },
+    };
+
+    Some(CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion,
+        sensor: SensorParams::Identity,
+        intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
+    })
 }
 
 /// Initialize intrinsics and poses from observations using full auto-init.
@@ -457,7 +519,7 @@ pub fn step_filter(
         )));
     }
 
-    let camera = &output.params.camera;
+    let camera = output.params.build_camera();
 
     let mut filtered_views = Vec::new();
     let mut total_removed = 0usize;
@@ -476,7 +538,7 @@ pub fn step_filter(
             .enumerate()
         {
             let p_cam = pose.transform_point(p3d);
-            let Some(projected) = camera.project_point_c(&p_cam.coords) else {
+            let Some(projected) = camera.project_camera_point(&p_cam.coords) else {
                 total_removed += 1;
                 continue;
             };
