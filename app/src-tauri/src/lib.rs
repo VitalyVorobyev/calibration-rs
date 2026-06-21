@@ -15,6 +15,7 @@
 //!   rationale (no TS-side projection).
 
 mod commands;
+mod disparity;
 mod epipolar;
 mod export_cache;
 mod laser;
@@ -38,6 +39,7 @@ pub fn run() {
             commands::compute_epipolar_overlay,
             commands::compute_epipolar_overlay_undistorted,
             commands::undistort_points,
+            disparity::compute_disparity,
             run::run_calibration_cmd,
             run::default_config_cmd,
         ])

@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { createHashRouter, Navigate } from "react-router-dom";
 import { AppShell } from "./layouts/AppShell";
+import { DepthWorkspace } from "./workspaces/DepthWorkspace";
 import { DiagnoseWorkspace } from "./workspaces/DiagnoseWorkspace";
 import { EpipolarWorkspace } from "./workspaces/EpipolarWorkspace";
 import { RunWorkspace } from "./workspaces/RunWorkspace";
@@ -40,6 +41,7 @@ export const router = createHashRouter([
         ),
       },
       { path: "epipolar", element: <EpipolarWorkspace /> },
+      { path: "depth", element: <DepthWorkspace /> },
       { path: "run", element: <RunWorkspace /> },
     ],
   },
