@@ -12,8 +12,6 @@ use crate::ir::{
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
-use anyhow::ensure;
-type AnyhowResult<T> = anyhow::Result<T>;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -80,25 +78,28 @@ fn build_rig_extrinsics_ir(
     dataset: &RigExtrinsicsDataset,
     initial: &RigExtrinsicsParams,
     opts: &RigExtrinsicsSolveOptions,
-) -> AnyhowResult<(ProblemIR, HashMap<String, DVector<f64>>)> {
-    ensure!(
-        initial.cameras.len() == dataset.num_cameras,
-        "intrinsics count {} != num_cameras {}",
-        initial.cameras.len(),
-        dataset.num_cameras
-    );
-    ensure!(
-        initial.cam_to_rig.len() == dataset.num_cameras,
-        "cam_to_rig count {} != num_cameras {}",
-        initial.cam_to_rig.len(),
-        dataset.num_cameras
-    );
-    ensure!(
-        initial.rig_from_target.len() == dataset.num_views(),
-        "rig_from_target count {} != num_views {}",
-        initial.rig_from_target.len(),
-        dataset.num_views()
-    );
+) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
+    if initial.cameras.len() != dataset.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "intrinsics count {} != num_cameras {}",
+            initial.cameras.len(),
+            dataset.num_cameras
+        )));
+    }
+    if initial.cam_to_rig.len() != dataset.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "cam_to_rig count {} != num_cameras {}",
+            initial.cam_to_rig.len(),
+            dataset.num_cameras
+        )));
+    }
+    if initial.rig_from_target.len() != dataset.num_views() {
+        return Err(Error::invalid_input(format!(
+            "rig_from_target count {} != num_views {}",
+            initial.rig_from_target.len(),
+            dataset.num_views()
+        )));
+    }
 
     let mut ir = ProblemIR::new();
     let mut initial_map = HashMap::new();

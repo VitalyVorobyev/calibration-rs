@@ -12,7 +12,6 @@ use crate::params::pose_se3::se3_dvec_to_iso3;
 use crate::problems::planar_family_shared::{
     PlanarReprojectionIrOptions, build_planar_reprojection_ir,
 };
-use anyhow::{Result as AnyhowResult, anyhow};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask, Iso3, PinholeCamera,
@@ -126,10 +125,13 @@ fn build_planar_intrinsics_ir(
     dataset: &PlanarDataset,
     initial: &PlanarIntrinsicsParams,
     opts: &PlanarIntrinsicsSolveOptions,
-) -> AnyhowResult<(
-    crate::ir::ProblemIR,
-    std::collections::HashMap<String, nalgebra::DVector<f64>>,
-)> {
+) -> Result<
+    (
+        crate::ir::ProblemIR,
+        std::collections::HashMap<String, nalgebra::DVector<f64>>,
+    ),
+    Error,
+> {
     build_planar_reprojection_ir(
         dataset,
         &initial.camera.k,
@@ -186,13 +188,13 @@ pub fn optimize_planar_intrinsics_with_backend(
     let cam_vec = solution
         .params
         .get("cam")
-        .ok_or_else(|| anyhow!("missing camera parameters in solution"))?;
+        .ok_or_else(|| Error::numerical("missing camera parameters in solution"))?;
     let intrinsics = unpack_intrinsics(cam_vec.as_view())?;
 
     let dist_vec = solution
         .params
         .get("dist")
-        .ok_or_else(|| anyhow!("missing distortion parameters in solution"))?;
+        .ok_or_else(|| Error::numerical("missing distortion parameters in solution"))?;
     let distortion = unpack_distortion(dist_vec.as_view())?;
 
     let mut poses = Vec::with_capacity(dataset.num_views());
@@ -201,7 +203,7 @@ pub fn optimize_planar_intrinsics_with_backend(
         let pose_vec = solution
             .params
             .get(&key)
-            .ok_or_else(|| anyhow!("missing pose {} in solution", i))?;
+            .ok_or_else(|| Error::numerical(format!("missing pose {} in solution", i)))?;
         poses.push(se3_dvec_to_iso3(pose_vec.as_view())?);
     }
 

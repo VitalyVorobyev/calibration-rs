@@ -28,8 +28,6 @@ use crate::ir::{
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
-use anyhow::ensure;
-type AnyhowResult<T> = anyhow::Result<T>;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -60,16 +58,19 @@ impl HandEyeDataset {
         views: Vec<RigView<RobotPoseMeta>>,
         num_cameras: usize,
         mode: HandEyeMode,
-    ) -> AnyhowResult<Self> {
-        ensure!(!views.is_empty(), "need at least one view");
+    ) -> Result<Self, Error> {
+        if views.is_empty() {
+            return Err(Error::invalid_input("need at least one view"));
+        }
         for (idx, view) in views.iter().enumerate() {
-            ensure!(
-                view.obs.cameras.len() == num_cameras,
-                "view {} has {} cameras, expected {}",
-                idx,
-                view.obs.cameras.len(),
-                num_cameras
-            );
+            if view.obs.cameras.len() != num_cameras {
+                return Err(Error::invalid_input(format!(
+                    "view {} has {} cameras, expected {}",
+                    idx,
+                    view.obs.cameras.len(),
+                    num_cameras
+                )));
+            }
         }
         Ok(Self {
             data: RigDataset { views, num_cameras },
@@ -456,44 +457,45 @@ fn build_handeye_ir(
     dataset: &HandEyeDataset,
     initial: &HandEyeParams,
     opts: &HandEyeSolveOptions,
-) -> AnyhowResult<(ProblemIR, HashMap<String, DVector<f64>>)> {
-    ensure!(
-        initial.cameras.len() == dataset.data.num_cameras,
-        "intrinsics count {} != num_cameras {}",
-        initial.cameras.len(),
-        dataset.data.num_cameras
-    );
-    ensure!(
-        initial.cam_to_rig.len() == dataset.data.num_cameras,
-        "cam_to_rig count {} != num_cameras {}",
-        initial.cam_to_rig.len(),
-        dataset.data.num_cameras
-    );
-    ensure!(
-        !initial.target_poses.is_empty(),
-        "target_poses must contain at least one pose"
-    );
-    if opts.relax_target_poses {
-        ensure!(
-            initial.target_poses.len() == dataset.num_views(),
+) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
+    if initial.cameras.len() != dataset.data.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "intrinsics count {} != num_cameras {}",
+            initial.cameras.len(),
+            dataset.data.num_cameras
+        )));
+    }
+    if initial.cam_to_rig.len() != dataset.data.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "cam_to_rig count {} != num_cameras {}",
+            initial.cam_to_rig.len(),
+            dataset.data.num_cameras
+        )));
+    }
+    if initial.target_poses.is_empty() {
+        return Err(Error::invalid_input(
+            "target_poses must contain at least one pose",
+        ));
+    }
+    if opts.relax_target_poses && initial.target_poses.len() != dataset.num_views() {
+        return Err(Error::invalid_input(format!(
             "target_poses count {} != num_views {}",
             initial.target_poses.len(),
             dataset.num_views()
-        );
+        )));
     }
-    ensure!(
-        opts.relax_target_poses || opts.fix_target_poses.is_empty(),
-        "fix_target_poses is only supported when relax_target_poses is true"
-    );
+    if !opts.relax_target_poses && !opts.fix_target_poses.is_empty() {
+        return Err(Error::invalid_input(
+            "fix_target_poses is only supported when relax_target_poses is true",
+        ));
+    }
     if opts.refine_robot_poses {
-        ensure!(
-            opts.robot_rot_sigma > 0.0,
-            "robot_rot_sigma must be positive"
-        );
-        ensure!(
-            opts.robot_trans_sigma > 0.0,
-            "robot_trans_sigma must be positive"
-        );
+        if opts.robot_rot_sigma <= 0.0 {
+            return Err(Error::invalid_input("robot_rot_sigma must be positive"));
+        }
+        if opts.robot_trans_sigma <= 0.0 {
+            return Err(Error::invalid_input("robot_trans_sigma must be positive"));
+        }
     }
 
     let mut ir = ProblemIR::new();

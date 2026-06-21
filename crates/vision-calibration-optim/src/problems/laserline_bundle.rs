@@ -16,7 +16,6 @@ use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distorti
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
-use anyhow::{Result as AnyhowResult, anyhow, ensure};
 use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -209,12 +208,13 @@ fn pack_scheimpflug(sensor: &ScheimpflugParams) -> DVector<f64> {
     DVector::from_vec(vec![sensor.tilt_x, sensor.tilt_y])
 }
 
-fn unpack_scheimpflug(sensor: DVectorView<'_, f64>) -> AnyhowResult<ScheimpflugParams> {
-    ensure!(
-        sensor.len() == 2,
-        "Scheimpflug sensor params require 2D vector, got {}",
-        sensor.len()
-    );
+fn unpack_scheimpflug(sensor: DVectorView<'_, f64>) -> Result<ScheimpflugParams, Error> {
+    if sensor.len() != 2 {
+        return Err(Error::invalid_input(format!(
+            "Scheimpflug sensor params require 2D vector, got {}",
+            sensor.len()
+        )));
+    }
     Ok(ScheimpflugParams {
         tilt_x: sensor[0],
         tilt_y: sensor[1],
@@ -547,12 +547,12 @@ pub(crate) type LaserlineCamera = Camera<
 fn extract_solution(
     solution: crate::backend::BackendSolution,
     num_poses: usize,
-) -> AnyhowResult<LaserlineEstimate> {
+) -> Result<LaserlineEstimate, Error> {
     let intrinsics = unpack_intrinsics(
         solution
             .params
             .get("intrinsics")
-            .ok_or_else(|| anyhow!("missing intrinsics in solution"))?
+            .ok_or_else(|| Error::numerical("missing intrinsics in solution"))?
             .as_view(),
     )?;
 
@@ -560,7 +560,7 @@ fn extract_solution(
         solution
             .params
             .get("distortion")
-            .ok_or_else(|| anyhow!("missing distortion in solution"))?
+            .ok_or_else(|| Error::numerical("missing distortion in solution"))?
             .as_view(),
     )?;
 
@@ -570,7 +570,7 @@ fn extract_solution(
         let pose_vec = solution
             .params
             .get(&name)
-            .ok_or_else(|| anyhow!("missing {} in solution", name))?;
+            .ok_or_else(|| Error::numerical(format!("missing {} in solution", name)))?;
         poses.push(se3_dvec_to_iso3(pose_vec.as_view())?);
     }
 
@@ -579,18 +579,18 @@ fn extract_solution(
     let plane_normal = solution
         .params
         .get(&normal_name)
-        .ok_or_else(|| anyhow!("missing {} in solution", normal_name))?;
+        .ok_or_else(|| Error::numerical(format!("missing {} in solution", normal_name)))?;
     let plane_distance = solution
         .params
         .get(&distance_name)
-        .ok_or_else(|| anyhow!("missing {} in solution", distance_name))?;
+        .ok_or_else(|| Error::numerical(format!("missing {} in solution", distance_name)))?;
 
     let plane = LaserPlane::from_split_dvec(plane_normal.as_view(), plane_distance.as_view())?;
     let sensor = unpack_scheimpflug(
         solution
             .params
             .get("sensor")
-            .ok_or_else(|| anyhow!("missing sensor in solution"))?
+            .ok_or_else(|| Error::numerical("missing sensor in solution"))?
             .as_view(),
     )?;
 
@@ -637,7 +637,7 @@ pub fn optimize_laserline(
 ) -> Result<LaserlineEstimate, Error> {
     let (ir, initial_map) = build_laserline_ir(dataset, initial, opts)?;
     let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, backend_opts)?;
-    extract_solution(solution, dataset.len()).map_err(Error::from)
+    extract_solution(solution, dataset.len())
 }
 
 /// Build IR for laserline bundle adjustment.
@@ -645,18 +645,21 @@ fn build_laserline_ir(
     dataset: &LaserlineDataset,
     initial: &LaserlineParams,
     opts: &LaserlineSolveOptions,
-) -> AnyhowResult<(ProblemIR, HashMap<String, DVector<f64>>)> {
-    ensure!(!dataset.is_empty(), "need at least one view");
-    ensure!(
-        dataset.len() == initial.poses.len(),
-        "dataset has {} views but {} initial poses",
-        dataset.len(),
-        initial.poses.len()
-    );
+) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
+    if dataset.is_empty() {
+        return Err(Error::invalid_input("need at least one view"));
+    }
+    if dataset.len() != initial.poses.len() {
+        return Err(Error::invalid_input(format!(
+            "dataset has {} views but {} initial poses",
+            dataset.len(),
+            initial.poses.len()
+        )));
+    }
     for (idx, view) in dataset.iter().enumerate() {
         view.meta
             .validate()
-            .map_err(|e| anyhow!("view {}: {}", idx, e))?;
+            .map_err(|e| Error::invalid_input(format!("view {}: {}", idx, e)))?;
     }
 
     let mut ir = ProblemIR::new();

@@ -3786,7 +3786,6 @@ dependencies = [
 name = "vision-calibration-optim"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "criterion",
  "faer",
  "faer-ext",

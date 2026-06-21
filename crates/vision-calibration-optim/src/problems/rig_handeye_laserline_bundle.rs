@@ -31,8 +31,6 @@ use crate::problems::handeye::RobotPoseMeta;
 use crate::problems::laserline_bundle::LaserlineResidualType;
 use crate::problems::laserline_rig_bundle::{RigLaserlineDataset, RigLaserlineView};
 use crate::problems::scheimpflug_intrinsics::ScheimpflugFixMask;
-use anyhow::ensure;
-type AnyhowResult<T> = anyhow::Result<T>;
 use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -280,8 +278,12 @@ fn pack_scheimpflug(sensor: &ScheimpflugParams) -> DVector<f64> {
     DVector::from_row_slice(&[sensor.tilt_x, sensor.tilt_y])
 }
 
-fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> AnyhowResult<ScheimpflugParams> {
-    ensure!(values.len() == 2, "scheimpflug block must have 2 entries");
+fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> Result<ScheimpflugParams, Error> {
+    if values.len() != 2 {
+        return Err(Error::invalid_input(
+            "scheimpflug block must have 2 entries",
+        ));
+    }
     Ok(ScheimpflugParams {
         tilt_x: values[0],
         tilt_y: values[1],
@@ -349,7 +351,7 @@ pub fn optimize_rig_handeye_laserline(
                 .get(&format!("sensor/{cam_idx}"))
                 .unwrap()
                 .as_view();
-            unpack_scheimpflug(v).map_err(Error::from)
+            unpack_scheimpflug(v)
         })
         .collect::<Result<Vec<_>, Error>>()?;
     let cam_to_rig = (0..dataset.num_cameras)
@@ -683,51 +685,62 @@ fn build_ir(
     dataset: &RigHandeyeLaserlineDataset,
     initial: &RigHandeyeLaserlineParams,
     opts: &RigHandeyeLaserlineSolveOptions,
-) -> AnyhowResult<(ProblemIR, HashMap<String, DVector<f64>>)> {
+) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
     let n = dataset.num_cameras;
-    ensure!(initial.cameras.len() == n, "cameras count mismatch");
-    ensure!(initial.sensors.len() == n, "sensors count mismatch");
-    ensure!(initial.cam_to_rig.len() == n, "cam_to_rig count mismatch");
-    ensure!(initial.planes_cam.len() == n, "planes_cam count mismatch");
-    ensure!(
-        opts.fix_intrinsics.is_empty() || opts.fix_intrinsics.len() == n,
-        "fix_intrinsics length {} must be 0 or match num_cameras {}",
-        opts.fix_intrinsics.len(),
-        n
-    );
-    ensure!(
-        opts.fix_scheimpflug.is_empty() || opts.fix_scheimpflug.len() == n,
-        "fix_scheimpflug length {} must be 0 or match num_cameras {}",
-        opts.fix_scheimpflug.len(),
-        n
-    );
-    ensure!(
-        opts.fix_extrinsics.is_empty() || opts.fix_extrinsics.len() == n,
-        "fix_extrinsics length {} must be 0 or match num_cameras {}",
-        opts.fix_extrinsics.len(),
-        n
-    );
-    ensure!(
-        opts.fix_planes.is_empty() || opts.fix_planes.len() == n,
-        "fix_planes length {} must be 0 or match num_cameras {}",
-        opts.fix_planes.len(),
-        n
-    );
-    ensure!(
-        opts.robot_rot_sigma > 0.0,
-        "robot_rot_sigma must be positive"
-    );
-    ensure!(
-        opts.robot_trans_sigma > 0.0,
-        "robot_trans_sigma must be positive"
-    );
-    if let Some(deltas) = &opts.initial_robot_deltas {
-        ensure!(
-            deltas.len() == dataset.num_views(),
+    if initial.cameras.len() != n {
+        return Err(Error::invalid_input("cameras count mismatch"));
+    }
+    if initial.sensors.len() != n {
+        return Err(Error::invalid_input("sensors count mismatch"));
+    }
+    if initial.cam_to_rig.len() != n {
+        return Err(Error::invalid_input("cam_to_rig count mismatch"));
+    }
+    if initial.planes_cam.len() != n {
+        return Err(Error::invalid_input("planes_cam count mismatch"));
+    }
+    if !opts.fix_intrinsics.is_empty() && opts.fix_intrinsics.len() != n {
+        return Err(Error::invalid_input(format!(
+            "fix_intrinsics length {} must be 0 or match num_cameras {}",
+            opts.fix_intrinsics.len(),
+            n
+        )));
+    }
+    if !opts.fix_scheimpflug.is_empty() && opts.fix_scheimpflug.len() != n {
+        return Err(Error::invalid_input(format!(
+            "fix_scheimpflug length {} must be 0 or match num_cameras {}",
+            opts.fix_scheimpflug.len(),
+            n
+        )));
+    }
+    if !opts.fix_extrinsics.is_empty() && opts.fix_extrinsics.len() != n {
+        return Err(Error::invalid_input(format!(
+            "fix_extrinsics length {} must be 0 or match num_cameras {}",
+            opts.fix_extrinsics.len(),
+            n
+        )));
+    }
+    if !opts.fix_planes.is_empty() && opts.fix_planes.len() != n {
+        return Err(Error::invalid_input(format!(
+            "fix_planes length {} must be 0 or match num_cameras {}",
+            opts.fix_planes.len(),
+            n
+        )));
+    }
+    if opts.robot_rot_sigma <= 0.0 {
+        return Err(Error::invalid_input("robot_rot_sigma must be positive"));
+    }
+    if opts.robot_trans_sigma <= 0.0 {
+        return Err(Error::invalid_input("robot_trans_sigma must be positive"));
+    }
+    if let Some(deltas) = &opts.initial_robot_deltas
+        && deltas.len() != dataset.num_views()
+    {
+        return Err(Error::invalid_input(format!(
             "initial_robot_deltas length {} must match num_views {}",
             deltas.len(),
             dataset.num_views()
-        );
+        )));
     }
 
     let mut ir = ProblemIR::new();

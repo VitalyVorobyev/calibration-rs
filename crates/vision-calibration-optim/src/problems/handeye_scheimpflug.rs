@@ -18,8 +18,6 @@ use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distorti
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use crate::problems::scheimpflug_intrinsics::ScheimpflugFixMask;
-use anyhow::ensure;
-type AnyhowResult<T> = anyhow::Result<T>;
 use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -45,14 +43,17 @@ impl HandEyeScheimpflugDataset {
         views: Vec<RigView<RobotPoseMeta>>,
         num_cameras: usize,
         mode: HandEyeMode,
-    ) -> AnyhowResult<Self> {
-        ensure!(!views.is_empty(), "need at least one view");
+    ) -> Result<Self, Error> {
+        if views.is_empty() {
+            return Err(Error::invalid_input("need at least one view"));
+        }
         for (idx, view) in views.iter().enumerate() {
-            ensure!(
-                view.obs.cameras.len() == num_cameras,
-                "view {idx} has {} cameras, expected {num_cameras}",
-                view.obs.cameras.len()
-            );
+            if view.obs.cameras.len() != num_cameras {
+                return Err(Error::invalid_input(format!(
+                    "view {idx} has {} cameras, expected {num_cameras}",
+                    view.obs.cameras.len()
+                )));
+            }
         }
         Ok(Self {
             data: RigDataset { views, num_cameras },
@@ -152,8 +153,12 @@ fn pack_scheimpflug(sensor: &ScheimpflugParams) -> DVector<f64> {
     DVector::from_row_slice(&[sensor.tilt_x, sensor.tilt_y])
 }
 
-fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> AnyhowResult<ScheimpflugParams> {
-    ensure!(values.len() == 2, "scheimpflug block must have 2 entries");
+fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> Result<ScheimpflugParams, Error> {
+    if values.len() != 2 {
+        return Err(Error::invalid_input(
+            "scheimpflug block must have 2 entries",
+        ));
+    }
     Ok(ScheimpflugParams {
         tilt_x: values[0],
         tilt_y: values[1],
@@ -218,7 +223,7 @@ pub fn optimize_handeye_scheimpflug(
                 .get(&format!("sensor/{cam_idx}"))
                 .unwrap()
                 .as_view();
-            unpack_scheimpflug(view).map_err(Error::from)
+            unpack_scheimpflug(view)
         })
         .collect::<Result<Vec<_>, Error>>()?;
 
@@ -389,50 +394,52 @@ fn build_handeye_scheimpflug_ir(
     dataset: &HandEyeScheimpflugDataset,
     initial: &HandEyeScheimpflugParams,
     opts: &HandEyeScheimpflugSolveOptions,
-) -> AnyhowResult<(ProblemIR, HashMap<String, DVector<f64>>)> {
-    ensure!(
-        initial.cameras.len() == dataset.data.num_cameras,
-        "cameras count {} != num_cameras {}",
-        initial.cameras.len(),
-        dataset.data.num_cameras
-    );
-    ensure!(
-        initial.sensors.len() == dataset.data.num_cameras,
-        "sensors count {} != num_cameras {}",
-        initial.sensors.len(),
-        dataset.data.num_cameras
-    );
-    ensure!(
-        initial.cam_to_rig.len() == dataset.data.num_cameras,
-        "cam_to_rig count {} != num_cameras {}",
-        initial.cam_to_rig.len(),
-        dataset.data.num_cameras
-    );
-    ensure!(
-        !initial.target_poses.is_empty(),
-        "target_poses must contain at least one pose"
-    );
-    if opts.relax_target_poses {
-        ensure!(
-            initial.target_poses.len() == dataset.num_views(),
+) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
+    if initial.cameras.len() != dataset.data.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "cameras count {} != num_cameras {}",
+            initial.cameras.len(),
+            dataset.data.num_cameras
+        )));
+    }
+    if initial.sensors.len() != dataset.data.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "sensors count {} != num_cameras {}",
+            initial.sensors.len(),
+            dataset.data.num_cameras
+        )));
+    }
+    if initial.cam_to_rig.len() != dataset.data.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "cam_to_rig count {} != num_cameras {}",
+            initial.cam_to_rig.len(),
+            dataset.data.num_cameras
+        )));
+    }
+    if initial.target_poses.is_empty() {
+        return Err(Error::invalid_input(
+            "target_poses must contain at least one pose",
+        ));
+    }
+    if opts.relax_target_poses && initial.target_poses.len() != dataset.num_views() {
+        return Err(Error::invalid_input(format!(
             "target_poses count {} != num_views {}",
             initial.target_poses.len(),
             dataset.num_views()
-        );
+        )));
     }
-    ensure!(
-        opts.relax_target_poses || opts.fix_target_poses.is_empty(),
-        "fix_target_poses requires relax_target_poses"
-    );
+    if !opts.relax_target_poses && !opts.fix_target_poses.is_empty() {
+        return Err(Error::invalid_input(
+            "fix_target_poses requires relax_target_poses",
+        ));
+    }
     if opts.refine_robot_poses {
-        ensure!(
-            opts.robot_rot_sigma > 0.0,
-            "robot_rot_sigma must be positive"
-        );
-        ensure!(
-            opts.robot_trans_sigma > 0.0,
-            "robot_trans_sigma must be positive"
-        );
+        if opts.robot_rot_sigma <= 0.0 {
+            return Err(Error::invalid_input("robot_rot_sigma must be positive"));
+        }
+        if opts.robot_trans_sigma <= 0.0 {
+            return Err(Error::invalid_input("robot_trans_sigma must be positive"));
+        }
     }
 
     let mut ir = ProblemIR::new();
