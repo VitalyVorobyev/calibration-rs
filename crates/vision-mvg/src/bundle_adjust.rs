@@ -17,8 +17,8 @@
 //! - Observations are **pixel** coordinates; the frozen `K` projects the
 //!   camera-frame ray to pixels.
 //! - The reconstruction carries a 7-DOF similarity gauge freedom. Fixing the
-//!   first camera ([`BundleAdjustmentOptions::fix_first_camera`], on by default)
-//!   removes the 6-DOF rigid part (world-frame rotation + translation). The
+//!   first observed camera ([`BundleAdjustmentOptions::fix_first_camera`], on by
+//!   default) removes the 6-DOF rigid part (world-frame rotation + translation). The
 //!   remaining 1-DOF **global scale** cannot be observed from reprojection error
 //!   alone when structure is free — uniformly scaling all point depths and all
 //!   free-camera translations leaves every projection unchanged. Anchor scale
@@ -66,14 +66,18 @@ impl BundleObservation {
 pub struct BundleAdjustmentOptions {
     /// Levenberg-Marquardt iteration ceiling.
     pub max_iterations: usize,
-    /// Hold camera 0's pose fixed to remove the rigid gauge freedom.
+    /// Hold the first observed camera's pose fixed to remove the rigid gauge
+    /// freedom.
     ///
-    /// On by default. Fixing camera 0 removes the 6-DOF world-frame rotation
-    /// and translation, but **not** global scale (a 1-DOF gauge that
-    /// reprojection cannot constrain while structure is free). Disable only when
-    /// an external prior already pins the world frame; otherwise the
-    /// reconstruction drifts along the 6 rigid gauge directions, which LM
-    /// damping merely regularizes rather than removes.
+    /// On by default. The anchor is the lowest-index camera that actually has
+    /// observations (camera 0 in the usual fully-observed case) — fixing an
+    /// unobserved camera would not pin the gauge of the optimized component.
+    /// Fixing it removes the 6-DOF world-frame rotation and translation, but
+    /// **not** global scale (a 1-DOF gauge that reprojection cannot constrain
+    /// while structure is free). Disable only when an external prior already
+    /// pins the world frame; otherwise the reconstruction drifts along the 6
+    /// rigid gauge directions, which LM damping merely regularizes rather than
+    /// removes.
     pub fix_first_camera: bool,
 }
 
@@ -182,6 +186,18 @@ pub fn bundle_adjust(
         point_used[obs.point] = true;
     }
 
+    // Anchor the gauge on the first *observed* camera (usually camera 0). Using
+    // the lowest observed index — not a hard-coded camera 0 — keeps the anchor
+    // inside the optimized component: a camera with no observations shares no
+    // residual with the observed poses, so fixing it would leave their rigid
+    // gauge free. (Validity of the single-anchor recipe assumes a connected
+    // observation graph, which is the normal case.)
+    let anchor = if opts.fix_first_camera {
+        cam_used.iter().position(|&used| used)
+    } else {
+        None
+    };
+
     // Seed initial values and attach manifolds to the free pose blocks.
     let mut initial: HashMap<String, DVector<Real>> = HashMap::new();
     for (i, pose) in init_poses.iter().enumerate() {
@@ -190,8 +206,7 @@ pub fn bundle_adjust(
         }
         initial.insert(pose_key(i), DVector::from_vec(iso3_to_block(pose)));
 
-        let fixed = opts.fix_first_camera && i == 0;
-        if fixed {
+        if anchor == Some(i) {
             // Gauge fix: do *not* attach the SE3 manifold; fix all seven raw
             // components so the block contributes zero columns (the proven
             // recipe from the optim tiny-solver backend).
@@ -688,6 +703,51 @@ mod tests {
             "final rms too large: {}",
             res.final_rms
         );
+    }
+
+    #[test]
+    fn gauge_anchors_first_observed_camera_when_camera0_unobserved() {
+        // Regression: with `fix_first_camera` on but camera 0 unobserved, the
+        // anchor must fall on the first *observed* camera, else no pose is fixed
+        // and the rigid gauge stays free.
+        let k = intrinsics();
+        let poses = gt_poses();
+        let points = gt_points();
+        // Only cameras 1 and 2 observe anything; camera 0 sees nothing.
+        let obs: Vec<_> = observe(&k, &poses, &points, 0.0)
+            .into_iter()
+            .filter(|o| o.cam != 0)
+            .collect();
+        let intr = vec![k; poses.len()];
+
+        // Anchor (camera 1) starts at GT; camera 2 and the points are perturbed.
+        let mut init_poses = poses.clone();
+        init_poses[2] = perturb_pose(&poses[2], 7);
+        let init_points = perturb_points(&points);
+
+        let res = bundle_adjust(
+            &intr,
+            &obs,
+            &init_poses,
+            &init_points,
+            &BundleAdjustmentOptions::default(),
+        )
+        .unwrap();
+
+        // Camera 1 is the first observed camera → held exactly fixed at its init.
+        let anchor_dt = (res.poses[1].translation.vector - init_poses[1].translation.vector).norm();
+        let anchor_dr = res.poses[1].rotation.angle_to(&init_poses[1].rotation);
+        assert!(
+            anchor_dt < 1e-12 && anchor_dr < 1e-12,
+            "anchor camera was not held fixed: dt={anchor_dt}, dr={anchor_dr}"
+        );
+        // Unobserved camera 0 passes through unchanged.
+        assert_eq!(res.poses[0], poses[0]);
+        // The observed component still converges, and camera 2's rotation
+        // (scale-invariant) is recovered.
+        assert!(res.final_rms < 1e-3, "did not converge: {}", res.final_rms);
+        let dr2 = res.poses[2].rotation.angle_to(&poses[2].rotation);
+        assert!(dr2 < 1e-4, "camera 2 rotation not recovered: {dr2}");
     }
 
     #[test]
