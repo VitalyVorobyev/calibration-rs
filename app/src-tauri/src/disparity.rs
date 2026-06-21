@@ -45,6 +45,10 @@ pub struct DisparityResult {
     pub disparity_png: String,
     /// Disparity colormap blended over the rectified left image.
     pub overlay_png: String,
+    /// Depth colormap (jet over metric depth `Z = f·B / d`; invalid black).
+    pub depth_png: String,
+    /// Reprojected 3D point cloud (reference-camera frame, metres).
+    pub point_cloud: PointCloud,
     /// Matched (downscaled) image width.
     pub width: usize,
     /// Matched (downscaled) image height.
@@ -64,6 +68,21 @@ pub struct DisparityResult {
     /// Whether semi-global aggregation was used.
     pub semi_global: bool,
 }
+
+/// A reprojected 3D point cloud for the frontend's WebGL renderer.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PointCloud {
+    /// Flat `[x, y, z, …]` positions in the reference-camera frame (metres).
+    pub positions: Vec<f32>,
+    /// Flat `[r, g, b, …]` per-point grayscale colours in `[0, 1]`.
+    pub colors: Vec<f32>,
+    /// Number of points (`positions.len() / 3`).
+    pub count: usize,
+}
+
+/// Upper bound on rendered points; the cloud is grid-subsampled past this.
+const MAX_POINTS: usize = 60_000;
 
 /// Tauri command: compute a disparity map for the `(cam_a, cam_b)` pair at
 /// `pose` and return colormapped PNGs + metrics.
@@ -168,10 +187,15 @@ fn compute(
     let (lo, hi) = valid_range(&disp).unwrap_or((0.0, 1.0));
     let (plane_rms, plane_inliers) = planarity_rms(&disp);
 
+    // Reproject to metric depth + a 3D point cloud (rectified-frame pinhole).
+    let (point_cloud, depth) = reproject(&disp, &rect_left, &rect.k_rect, rect.baseline);
+
     Ok(DisparityResult {
         rectified_pair_png: pair_with_epilines_url(&rect_left, &rect_right)?,
         disparity_png: disparity_url(&disp, lo, hi)?,
         overlay_png: overlay_url(&rect_left, &disp, lo, hi)?,
+        depth_png: depth_url(&depth, w, h)?,
+        point_cloud,
         width: w,
         height: h,
         density,
@@ -350,6 +374,62 @@ fn planarity_rms(d: &DisparityMap) -> (f64, usize) {
 }
 
 // ---------------------------------------------------------------------------
+// Reprojection (disparity → metric depth + point cloud)
+// ---------------------------------------------------------------------------
+
+/// Reproject the disparity map to metric depth and a 3D point cloud through the
+/// rectified pinhole: `Z = f·B / d`, `X = (x−cx)·Z/fx`, `Y = (y−cy)·Z/fy`.
+/// Returns the (grid-subsampled) point cloud and a per-pixel depth map (`NaN`
+/// where disparity is invalid).
+fn reproject(
+    disp: &DisparityMap,
+    rect_left: &GrayImage,
+    k_rect: &Mat3,
+    baseline: f64,
+) -> (PointCloud, Vec<f32>) {
+    let (w, h) = (disp.width, disp.height);
+    let fx = k_rect[(0, 0)] as f32;
+    let fy = k_rect[(1, 1)] as f32;
+    let cx = k_rect[(0, 2)] as f32;
+    let cy = k_rect[(1, 2)] as f32;
+    let b = baseline as f32;
+
+    let mut depth = vec![f32::NAN; w * h];
+    // Grid subsample so the rendered cloud stays under MAX_POINTS.
+    let step = (((w * h) as f64 / MAX_POINTS as f64).sqrt().ceil() as usize).max(1);
+    let mut positions = Vec::new();
+    let mut colors = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            let d = disp.get(x, y);
+            if !(d.is_finite() && d > 0.0) {
+                continue;
+            }
+            let z = fx * b / d;
+            depth[y * w + x] = z;
+            if x % step == 0 && y % step == 0 {
+                positions.push((x as f32 - cx) * z / fx);
+                positions.push((y as f32 - cy) * z / fy);
+                positions.push(z);
+                let g = rect_left.get(x, y) as f32 / 255.0;
+                colors.push(g);
+                colors.push(g);
+                colors.push(g);
+            }
+        }
+    }
+    let count = positions.len() / 3;
+    (
+        PointCloud {
+            positions,
+            colors,
+            count,
+        },
+        depth,
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 
@@ -360,6 +440,30 @@ fn jet(t: f32) -> [u8; 3] {
     let g = ((1.5 - (4.0 * t - 2.0).abs()).clamp(0.0, 1.0) * 255.0) as u8;
     let b = ((1.5 - (4.0 * t - 1.0).abs()).clamp(0.0, 1.0) * 255.0) as u8;
     [r, g, b]
+}
+
+/// Depth colormap (jet over the metric depth range; near = blue, far = red).
+fn depth_url(depth: &[f32], w: usize, h: usize) -> Result<String, String> {
+    let mut lo = f32::INFINITY;
+    let mut hi = f32::NEG_INFINITY;
+    for &z in depth {
+        if z.is_finite() {
+            lo = lo.min(z);
+            hi = hi.max(z);
+        }
+    }
+    let span = (hi - lo).max(1e-6);
+    let rgb: Vec<[u8; 3]> = depth
+        .iter()
+        .map(|&z| {
+            if z.is_finite() {
+                jet((z - lo) / span)
+            } else {
+                [0, 0, 0]
+            }
+        })
+        .collect();
+    rgb_to_url(w, h, &rgb)
 }
 
 fn disparity_url(d: &DisparityMap, lo: f32, hi: f32) -> Result<String, String> {
@@ -479,13 +583,27 @@ mod tests {
         assert!(res.disparity_png.starts_with("data:image/png;base64,"));
         assert!(res.overlay_png.starts_with("data:image/png;base64,"));
         assert!(res.rectified_pair_png.starts_with("data:image/png;base64,"));
+        assert!(res.depth_png.starts_with("data:image/png;base64,"));
         assert!(res.semi_global);
+
+        // Point cloud: reprojected board points cluster near the calibrated
+        // board depth (~0.5 m) in the reference frame.
+        let pc = &res.point_cloud;
+        assert!(pc.count > 1000, "few cloud points: {}", pc.count);
+        assert_eq!(pc.positions.len(), pc.count * 3);
+        assert_eq!(pc.colors.len(), pc.count * 3);
+        let mean_z: f32 = pc.positions.iter().skip(2).step_by(3).sum::<f32>() / pc.count as f32;
+        assert!(
+            (0.3..0.9).contains(&mean_z),
+            "mean reprojected depth off: {mean_z} m"
+        );
 
         // Optional visual dump for manual inspection (DUMP_DISPARITY=1).
         if std::env::var("DUMP_DISPARITY").is_ok() {
             for (name, url) in [
                 ("overlay", &res.overlay_png),
                 ("disparity", &res.disparity_png),
+                ("depth", &res.depth_png),
                 ("pair", &res.rectified_pair_png),
             ] {
                 let b64 = url.strip_prefix("data:image/png;base64,").unwrap();

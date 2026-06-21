@@ -325,12 +325,13 @@ dense matcher, no full SfM.
   94% density at 0.18 px RMS on synthetic GT; on the real `data/stereo` rig SGM
   doubles board coverage (21%→49%) at 0.44–0.74 px board-planarity RMS (visual-
   evidence demos under `target/fixtures/`). Remaining: the OpenCV SGBM baseline.
-- **C-UI** MVG visualizations layered into the Tauri app (point clouds, depth maps,
-  rectified pairs). **First slice landed 2026-06-21:** a **Depth (dense stereo)
-  workspace** — server-side `compute_disparity` Tauri command (rectify → match →
-  colormap, block or SGM) over a rig export's stereo pair, with rectified-pair /
-  disparity / overlay views + a metrics strip. Remaining: point clouds from
-  triangulation, depth-from-disparity reprojection.
+- **C-UI** MVG visualizations layered into the Tauri app. **Landed 2026-06-21:** a
+  **Depth (dense stereo) workspace** — server-side `compute_disparity` Tauri command
+  (rectify → match → colormap, block or SGM) over a rig export's stereo pair, with
+  **rectified-pair / disparity / overlay / depth / 3D-point-cloud** views + a metrics
+  strip. The command reprojects the disparity to metric depth + a coloured 3D point
+  cloud (`Z = f·B/d`); the cloud renders in a lazy-loaded React-Three-Fiber view.
+  Remaining (future): multi-pose cloud fusion, textured-mesh export.
 
 ### Track D — Earn v1.0 (continuous ratchet)
 
