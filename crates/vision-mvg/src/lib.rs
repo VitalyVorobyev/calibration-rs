@@ -30,6 +30,7 @@ pub mod degeneracy;
 pub mod error;
 pub mod homography;
 pub mod pose_recovery;
+pub mod rectification;
 #[cfg(feature = "refine")]
 pub mod refine;
 pub mod residuals;
@@ -44,6 +45,7 @@ pub use homography::{
     homography_transfer, homography_transfer_inverse,
 };
 pub use pose_recovery::{RelativePose, recover_relative_pose};
+pub use rectification::{RectifyCamera, RectifyOptions, StereoRectification, rectify_stereo_pair};
 pub use robust::{
     EssentialEstimate, HomographyEstimate, RobustRelativePose, estimate_essential,
     estimate_homography, recover_relative_pose_robust,
