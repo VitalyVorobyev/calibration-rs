@@ -369,9 +369,25 @@ Systemic causes:
     if added as a normal cargo feature → put it in a workspace-EXCLUDED crate or
     a dedicated CI job with OpenCV). Implements `DenseMatcher`, scored by
     `evaluate`.
-  - [ ] **Pure-Rust matcher** — the actual C5 deliverable (block-matching MVP →
-    SGM). Implements `DenseMatcher`; benchmarked against the OpenCV baseline +
-    target-plane ground truth.
+  - [x] **Pure-Rust matcher** — the block-matching MVP. **Done 2026-06-21.** New
+    `vision_mvg::dense` (always-on, no new deps): `GrayImage` / `DisparityMap` /
+    `BlockMatchOptions` + `match_block` — ZNCC over a square window aggregated in
+    `O(1)/px` via summed-area tables (so the search is `O(W·H·D)` for any block
+    size), winner-take-all with parabolic sub-pixel refinement, and three
+    independent invalidation filters (min-correlation, uniqueness margin,
+    left-right consistency). Typed `MvgError`; surfaced through the facade as
+    `vision_calibration::mvg::dense` (surface-locked). The bench `BlockMatcher`
+    (`impl DenseMatcher`, reached via the facade — no new bench dep) scores it
+    through the harness: synthetic slanted-plane recovery hits **94% density at
+    0.18 px RMS**. Two visual-evidence demos write inspectable PNGs to
+    `target/fixtures/`: `dense_synth` (bench, `--features tier-b`) tiles
+    left | right | GT | estimate | error; `dense_stereo_real` (facade) rectifies
+    the committed `data/stereo` chessboard rig (undistort → C4 rectify → match)
+    and recovers the board plane at **0.44 px planarity-fit RMS** over ~13.5k
+    inlier pixels (no GT needed — the planar target is the reference). 8 matcher
+    unit tests + 1 harness integration gate. Remaining C5 work: SGM aggregation
+    (bounded-memory; the cost volume MVP is the stepping stone) and the OpenCV
+    SGBM baseline above.
 
 ## D — Earn v1.0
 

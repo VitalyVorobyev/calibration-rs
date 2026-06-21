@@ -266,7 +266,8 @@ fn texture_u8(x: usize, y: usize) -> u8 {
 ///
 /// Returns `(left, right, gt_disparity)` where:
 ///
-/// * `left` has a deterministic high-entropy texture (see [`texture_u8`]).
+/// * `left` has a deterministic high-entropy texture (two sine gratings plus a
+///   hash term — no RNG).
 /// * `gt_disparity` is the left-frame slanted-plane disparity
 ///   `d(x, y) = d0 + dx*x + dy*y`, following the standard convention
 ///   `d = x_left − x_right` (so a left pixel `(x, y)` matches right pixel
@@ -448,6 +449,51 @@ impl DenseMatcher for OracleMatcher {
         _opts: &DenseMatchOptions,
     ) -> DisparityMap {
         self.gt.clone()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pure-Rust block-matcher adapter (Track C5 deliverable)
+// ---------------------------------------------------------------------------
+
+use vision_calibration::mvg::dense as mvgd;
+
+/// Adapter exposing the pure-Rust [`vision_calibration::mvg::dense::match_block`]
+/// matcher through the harness [`DenseMatcher`] trait.
+///
+/// The harness-level [`DenseMatchOptions`] (`min_disparity` / `num_disparities`
+/// / `block_size`) are forwarded verbatim; the matcher's additional controls
+/// (ZNCC min-correlation, uniqueness, left-right consistency, sub-pixel) keep
+/// their library defaults. This is the in-workspace counterpart to the external
+/// OpenCV SGBM baseline.
+#[derive(Debug, Clone, Default)]
+pub struct BlockMatcher;
+
+impl DenseMatcher for BlockMatcher {
+    fn name(&self) -> &str {
+        "block-zncc"
+    }
+
+    fn match_disparity(
+        &self,
+        left: &GrayBuffer,
+        right: &GrayBuffer,
+        opts: &DenseMatchOptions,
+    ) -> DisparityMap {
+        let l = mvgd::GrayImage::new(left.width, left.height, left.data.clone());
+        let r = mvgd::GrayImage::new(right.width, right.height, right.data.clone());
+        let mopts = mvgd::BlockMatchOptions {
+            min_disparity: opts.min_disparity,
+            num_disparities: opts.num_disparities,
+            block_size: opts.block_size,
+            ..Default::default()
+        };
+        match mvgd::match_block(&l, &r, &mopts) {
+            Ok(d) => DisparityMap::new(d.width, d.height, d.data),
+            // The matcher only errors on invalid configuration; surface that as
+            // an all-invalid map rather than panicking inside the harness.
+            Err(_) => DisparityMap::filled(left.width, left.height, f32::NAN),
+        }
     }
 }
 
@@ -671,5 +717,42 @@ mod tests {
         assert_eq!(opts.min_disparity, 0);
         assert_eq!(opts.num_disparities, 64);
         assert_eq!(opts.block_size, 5);
+    }
+
+    // -----------------------------------------------------------------------
+    // Pure-Rust block matcher, scored through the harness
+    // -----------------------------------------------------------------------
+
+    /// The C5 matcher run through the full harness (synthetic GT + `evaluate`)
+    /// must recover the slanted plane densely and accurately. This is the
+    /// quantitative gate that mirrors what the visual `dense_synth` example
+    /// renders.
+    #[test]
+    fn block_matcher_recovers_synthetic_plane() {
+        let plane = sample_plane();
+        let (left, right, gt) = synthetic_rectified_pair(W, H, &plane);
+
+        let matcher = BlockMatcher;
+        assert_eq!(matcher.name(), "block-zncc");
+        let opts = DenseMatchOptions {
+            min_disparity: 0,
+            num_disparities: 16,
+            block_size: 7,
+        };
+        let est = matcher.match_disparity(&left, &right, &opts);
+        let metrics = evaluate(&est, &gt, 1.0);
+
+        assert!(
+            metrics.density > 0.7,
+            "block matcher density too low: {} ({} / {})",
+            metrics.density,
+            metrics.evaluated_px,
+            metrics.gt_valid_px
+        );
+        assert!(
+            metrics.rms_px < 0.5,
+            "block matcher RMS too high: {} px",
+            metrics.rms_px
+        );
     }
 }

@@ -3695,6 +3695,7 @@ dependencies = [
  "calib-targets",
  "image",
  "nalgebra",
+ "serde",
  "serde_json",
  "vision-calibration-core",
  "vision-calibration-linear",

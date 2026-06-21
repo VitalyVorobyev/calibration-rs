@@ -88,7 +88,10 @@ fn mvg_module_surface_compiles() {
     let _ = mvg::triangulation::triangulate_nview;
     let _ = mvg::rectification::rectify_stereo_pair;
     let _ = mvg::homography::decompose_homography;
+    let _ = mvg::dense::match_block;
     let _: Option<mvg::rectification::StereoRectification> = None;
+    let _: Option<mvg::dense::DisparityMap> = None;
+    let _: Option<mvg::dense::BlockMatchOptions> = None;
     let _: Option<mvg::types::Correspondence2D> = None;
     let _: Option<mvg::MvgError> = None;
     let _: Option<mvg::error::Result<()>> = None;

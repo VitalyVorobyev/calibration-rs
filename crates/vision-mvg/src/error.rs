@@ -82,9 +82,6 @@ impl From<MathError> for MvgError {
 
 impl MvgError {
     /// Convenience constructor for [`MvgError::InvalidInput`].
-    ///
-    /// Currently only used by the feature-gated nonlinear refinement.
-    #[cfg(feature = "refine")]
     pub(crate) fn invalid_input(reason: impl Into<String>) -> Self {
         Self::InvalidInput {
             reason: reason.into(),

@@ -512,15 +512,16 @@ pub mod geometry {
 /// Multiple-view geometry pipelines over the [`geometry`] solvers, re-exported
 /// from `vision_mvg`: calibrated relative-pose recovery, robust (RANSAC)
 /// estimation, cheirality/degeneracy checks, N-view triangulation, homography
-/// decomposition, and Scheimpflug-aware stereo rectification — reached via the
-/// owning module, e.g.
-/// `vision_calibration::mvg::rectification::rectify_stereo_pair`.
+/// decomposition, Scheimpflug-aware stereo rectification, and pure-Rust dense
+/// stereo matching — reached via the owning module, e.g.
+/// `vision_calibration::mvg::rectification::rectify_stereo_pair` or
+/// `vision_calibration::mvg::dense::match_block`.
 ///
 /// With the `refine` feature, `vision_calibration::mvg::bundle_adjust` adds
 /// frozen-intrinsics bundle adjustment (tiny-solver).
 pub mod mvg {
     pub use vision_mvg::{
-        MvgError, cheirality, degeneracy, error, homography, pose_recovery, rectification,
+        MvgError, cheirality, degeneracy, dense, error, homography, pose_recovery, rectification,
         residuals, robust, triangulation, types,
     };
 
