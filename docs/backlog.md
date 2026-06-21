@@ -288,8 +288,18 @@ Systemic causes:
   widest-baseline parallax, all-views cheirality diagnostics). Synthetic-GT
   tests: 4-view noiseless recovery, refinement-improves-noisy-estimate,
   degenerate-camera safety, count-mismatch guard.
-- [ ] C3-BA - Bundle adjustment with frozen intrinsics, free poses, free
-  structure.
+- [x] C3-BA - Bundle adjustment with frozen intrinsics, free poses, free
+  structure. **Done 2026-06-21** (PR #73). New
+  `vision-mvg::bundle_adjust` (behind `refine`): tiny-solver LM with an analytic
+  reprojection `Factor<T>`, SE3 pose blocks on `SE3Manifold` + 3D point blocks,
+  per-camera intrinsics baked into each factor (frozen). `fix_first_camera`
+  (default) anchors the gauge on the first *observed* camera (no-manifold + fix
+  all 7 raw indices → 0 columns), removing the 6-DOF rigid gauge; global scale
+  is documented as an inherent 1-DOF gauge that free-structure reprojection
+  cannot observe. Returns refined poses/points + initial/final/per-camera RMS;
+  unobserved cameras/points pass through. 9 synthetic-GT tests (recovery up to
+  scale, perfect-init, pixel-noise, no-gauge-fix, unobserved-camera-0 anchor,
+  three input-validation guards).
 
 ## B — app (extend; sequencing serves V-track)
 
