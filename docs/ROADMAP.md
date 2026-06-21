@@ -16,8 +16,8 @@ lives in ADRs (`docs/adrs/`); work-in-flight lives in open PRs.
   axis refactor) shipped via PRs #36 + #37 + #38; see
   [ADR 0013](adrs/0013-rig-family-sensor-axis-refactor.md).
 - **Track B — Tauri viewer:** B0 (PR #40), B0.5/B0.6 (PR #42), B1 (PR #43), B2
-  (PR #44), **B3a + B3b (PR #45) SHIPPED**. The `app/` shell hosts four workspaces
-  (Diagnose, 3D, Epipolar, Run); the Run workspace covers PlanarIntrinsics +
+  (PR #44), **B3a + B3b (PR #45) SHIPPED**. The `app/` shell hosts five workspaces
+  (Diagnose, 3D, Epipolar, Depth, Run); the Run workspace covers PlanarIntrinsics +
   chessboard end-to-end. Bench crate + multi-level reprojection report shipped
   (PR #49). A 2026-06-11 workspace review (internal) confirmed the
   extend-don't-rebuild verdict for the app. **B3c coverage completed
@@ -326,7 +326,11 @@ dense matcher, no full SfM.
   doubles board coverage (21%→49%) at 0.44–0.74 px board-planarity RMS (visual-
   evidence demos under `target/fixtures/`). Remaining: the OpenCV SGBM baseline.
 - **C-UI** MVG visualizations layered into the Tauri app (point clouds, depth maps,
-  rectified pairs).
+  rectified pairs). **First slice landed 2026-06-21:** a **Depth (dense stereo)
+  workspace** — server-side `compute_disparity` Tauri command (rectify → match →
+  colormap, block or SGM) over a rig export's stereo pair, with rectified-pair /
+  disparity / overlay views + a metrics strip. Remaining: point clouds from
+  triangulation, depth-from-disparity reprojection.
 
 ### Track D — Earn v1.0 (continuous ratchet)
 

@@ -66,7 +66,7 @@ export function AppShell() {
               calibration-rs
             </h1>
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {kind ? exportKindLabel(kind) : "diagnose · 3d · epipolar · run"}
+              {kind ? exportKindLabel(kind) : "diagnose · 3d · epipolar · depth · run"}
             </span>
           </div>
         </div>
@@ -99,7 +99,10 @@ export function AppShell() {
         <RailLink to="/epipolar" label="Epipolar" hotkey="3">
           <EpipolarIcon />
         </RailLink>
-        <RailLink to="/run" label="Run calibration" hotkey="4">
+        <RailLink to="/depth" label="Depth (dense stereo)" hotkey="4">
+          <DepthIcon />
+        </RailLink>
+        <RailLink to="/run" label="Run calibration" hotkey="5">
           <RunIcon />
         </RailLink>
       </nav>
@@ -208,6 +211,15 @@ function EpipolarIcon() {
       <rect x="3" y="5" width="8" height="14" rx="1" />
       <rect x="13" y="5" width="8" height="14" rx="1" />
       <path d="M5 9 21 15M3 17l18-6" />
+    </svg>
+  );
+}
+
+function DepthIcon() {
+  return (
+    <svg {...iconBase}>
+      <path d="M3 7.5 12 3l9 4.5-9 4.5z" />
+      <path d="M3 12l9 4.5L21 12M3 16.5 12 21l9-4.5" />
     </svg>
   );
 }

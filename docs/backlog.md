@@ -398,6 +398,20 @@ Systemic causes:
     (stays accurate + never recovers fewer pixels than block). Remaining C5 work:
     the OpenCV SGBM baseline above (needs an OpenCV-equipped env).
 
+- [x] C-UI-DEPTH - Dense-matching **Depth workspace** in the Tauri app (first
+  C-UI slice). **Done 2026-06-21.** New server-side `compute_disparity` Tauri
+  command (`app/src-tauri/src/disparity.rs`): reads the loaded rig export
+  (cameras `k`/`dist`, `cam_se3_rig`), composes `T_Cb_Ca`, rectifies the chosen
+  synchronized pair (C4), undistort+rectify remaps, dense-matches
+  (`mvg::dense::match_block`, block or SGM), and returns rectified-pair /
+  disparity / overlay PNG data URLs + metrics (density, disparity range,
+  robust planarity RMS, baseline). New React `DepthWorkspace` (pose stepper,
+  left/right camera selectors, SGM toggle, Compute button, view-mode switch,
+  metrics strip) + `/depth` route + rail nav. End-to-end Rust test on the
+  committed `data/stereo` rig (board recovered, valid PNGs); `bun run build` +
+  18 vitest tests green; app `cargo fmt`/clippy clean. Matches at downscale 4 for
+  dev responsiveness. Remaining C-UI: point clouds (triangulation), depth maps.
+
 ## D — Earn v1.0
 
 - [x] D2-DOCS - `missing_docs = warn` enforced workspace-wide + all public items
