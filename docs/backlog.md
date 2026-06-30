@@ -78,6 +78,34 @@ review.
   target/print/blur effects first, then test richer lens terms (M2 thin-prism
   or rational) only if detector residual vector fields remain structured after
   cleaning detections.
+- [x] V8-RINGGRID - Full calibration (intrinsics + rig extrinsics + hand-eye)
+  on the private `rtv3d_ringgrid` dataset (coded ring-grid target, **different
+  physical rig** from the puzzleboard `rtv3d`/`rtv3d_ref` — quality comparison
+  only, no parameter agreement, no laser, no oracle). Completed 2026-06-30.
+  Bumped `ringgrid` 0.6 → 0.7 (published; `BoardLayout::new` 6-arg signature
+  unchanged); wired `detect_ringgrid` into `examples-private` via
+  `vision-calibration-detect`'s `RinggridDetector` (v3 board manifest omits
+  `marker_ring_width`, so it falls back to `DEFAULT_RING_WIDTH_MM` = 1.152 mm,
+  env-overridable). New examples `rtv3d_ringgrid_intrinsics` (seeded per-camera
+  debug loop + detection probe) and `rtv3d_ringgrid_rig` (full pipeline +
+  ring-grid-vs-puzzleboard quality table + JSON detection cache).
+  **Root-cause fix:** the hand-eye stage diverged catastrophically (1686 px)
+  because `PoseEntry::base_se3_gripper` — and the library's
+  `dataset_runner` 4×4 pose loader (`poses.rs`) — converted robot rotations with
+  nalgebra's identity-seeded *iterative* `from_matrix`, which silently
+  mis-converges on **exact 180° rotations** (the rtv3d_ringgrid robot poses are
+  180° about y), returning the wrong axis. A hand-eye consistency probe
+  (`|∠robot − ∠rig|`: 140° → 0.24°) localised it. Fixed both sites with exact
+  conversion (`Rotation3::from_matrix_unchecked` / SVD polar `nearest_rotation`,
+  with round-trip regression tests). **Results** (EyeInHand, seeded init):
+  detection ~50 markers/view all 6 cameras; per-camera intrinsics ~0.46 px,
+  rig extrinsics a clean symmetric arc, hand-eye converges (0.24° consistency,
+  |t| ≈ 70 mm); ring-grid reprojection **median ≈ 4.7 px** (good cameras
+  3.6–4.7 px, cam5 a ~38 px geometric outlier) vs puzzleboard `rtv3d_ref`
+  0.25–0.30 px. The ring-grid floor sits above puzzleboard as expected: sparse
+  ellipse-center markers + perspective bias under the Scheimpflug tilt vs dense
+  corners. Driving the ring-grid floor below ~4 px (ellipse-center bias
+  correction, cam5 geometry) is a possible follow-up.
 
 ## O — apex-solver backend (O1/O2 PARKED 2026-06-15; O3 DONE)
 

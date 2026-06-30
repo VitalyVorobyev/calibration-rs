@@ -99,7 +99,11 @@ fn main() -> Result<()> {
         ));
     }
     let poses = load_poses(&data_dir.join("poses.json"))?;
-    println!("loaded {} poses, {} oracle cameras", poses.len(), art.num_cameras);
+    println!(
+        "loaded {} poses, {} oracle cameras",
+        poses.len(),
+        art.num_cameras
+    );
 
     // ── Detect puzzle_board in every camera tile of every pose ───────────────
     let t_det = Instant::now();
@@ -166,7 +170,11 @@ fn main() -> Result<()> {
         };
         let dist = match &out.params.camera.distortion {
             vision_calibration_core::DistortionParams::BrownConrady5 { params } => *params,
-            other => return Err(anyhow!("camera {c}: unexpected distortion params: {other:?}")),
+            other => {
+                return Err(anyhow!(
+                    "camera {c}: unexpected distortion params: {other:?}"
+                ));
+            }
         };
         let sensor = match &out.params.camera.sensor {
             SensorParams::Scheimpflug { params } => *params,
@@ -189,7 +197,7 @@ fn main() -> Result<()> {
     let failed: Vec<(usize, f64)> = results
         .iter()
         .enumerate()
-        .filter(|(_, r)| !(r.mean_reproj <= GATE_PX))
+        .filter(|(_, r)| r.mean_reproj > GATE_PX || r.mean_reproj.is_nan())
         .map(|(i, r)| (i, r.mean_reproj))
         .collect();
     if failed.is_empty() {
@@ -249,7 +257,11 @@ fn report(art: &RefArtifacts, results: &[CamResult]) {
     println!("  cam | our_reproj | ref_reproj |    Δ    | gate");
     for (i, r) in results.iter().enumerate() {
         let refp = art.intrinsic[i].reprojection_error_pix;
-        let gate = if r.mean_reproj <= GATE_PX { "PASS" } else { "FAIL" };
+        let gate = if r.mean_reproj <= GATE_PX {
+            "PASS"
+        } else {
+            "FAIL"
+        };
         println!(
             "  {i:>3} | {:10.4} | {:10.4} | {:+.4} | {gate}",
             r.mean_reproj,
