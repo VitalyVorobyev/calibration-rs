@@ -486,6 +486,30 @@ fn pose_from_matrix_values(
     })
 }
 
+/// Nearest proper rotation to a (possibly mildly noisy) 3×3 matrix via SVD
+/// polar decomposition: `R = U·Vᵀ`, flipping the sign of `U`'s last column when
+/// `det(U·Vᵀ) < 0` to enforce `det(R) = +1`.
+///
+/// This replaces nalgebra's identity-seeded iterative `Rotation3::from_matrix`,
+/// which silently mis-converges on exact 180° rotations (returning the wrong
+/// axis). For a clean rotation matrix the SVD recovers it exactly; for a mildly
+/// non-orthonormal export it returns the closest rotation. The input is a 3×3,
+/// so the SVD is trivially small and well-conditioned.
+fn nearest_rotation(m: nalgebra::Matrix3<f64>) -> Rotation3<f64> {
+    let svd = m.svd(true, true);
+    let u = svd.u.expect("3×3 SVD always yields U");
+    let v_t = svd.v_t.expect("3×3 SVD always yields Vᵀ");
+    let r = u * v_t;
+    if r.determinant() < 0.0 {
+        let mut u_fixed = u;
+        let last = -u_fixed.column(2).into_owned();
+        u_fixed.set_column(2, &last);
+        Rotation3::from_matrix_unchecked(u_fixed * v_t)
+    } else {
+        Rotation3::from_matrix_unchecked(r)
+    }
+}
+
 /// Build a rotation from the file's parameterisation.
 ///
 /// Euler conventions are *intrinsic*, composed left-to-right in the
@@ -551,15 +575,12 @@ fn rotation_from_values(
         }
         RotationFormat::Matrix4x4RowMajor => {
             expect_len(16)?;
-            // Row-major upper-left 3×3; `from_matrix` re-orthonormalizes,
-            // tolerating mildly noisy exports.
+            // Row-major upper-left 3×3.
             let m = nalgebra::Matrix3::new(
                 values[0], values[1], values[2], values[4], values[5], values[6], values[8],
                 values[9], values[10],
             );
-            Ok(UnitQuaternion::from_rotation_matrix(
-                &Rotation3::from_matrix(&m),
-            ))
+            Ok(UnitQuaternion::from_rotation_matrix(&nearest_rotation(m)))
         }
     }
 }
@@ -570,6 +591,25 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use vision_calibration_dataset::PoseColumnMap;
+
+    #[test]
+    fn matrix4x4_rotation_roundtrips_exact_180_degree() {
+        // A 180° rotation about the y-axis is an exact, valid rotation that the
+        // iterative `Rotation3::from_matrix` (identity-seeded) mis-converges on.
+        // Robot poses with such orientations are common (e.g. the rtv3d rigs),
+        // so the loader must recover them exactly.
+        let m = [
+            -1.0, 0.0, 0.0, 0.0, //
+            0.0, 1.0, 0.0, 0.0, //
+            0.0, 0.0, -1.0, 0.0, //
+            0.0, 0.0, 0.0, 1.0,
+        ];
+        let q = rotation_from_values(RotationFormat::Matrix4x4RowMajor, &m).unwrap();
+        let r = q.to_rotation_matrix().into_inner();
+        let expect = nalgebra::Matrix3::new(-1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, -1.0);
+        let err = (r - expect).norm();
+        assert!(err < 1e-9, "180° rotation must round-trip (err={err})");
+    }
 
     fn convention(
         transform: TransformConvention,
