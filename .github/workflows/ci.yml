@@ -53,8 +53,9 @@ jobs:
         run: cargo test --workspace --locked
 
   # S4 acceptance harness — cheap public subset. The full suite (private
-  # datasets included) runs locally via `calib-bench accept`; the private
-  # registry is gitignored, so CI covers the committed stereo fixtures.
+  # datasets included) runs locally via `calib-bench accept`. CI runs the
+  # only fully-committed public dataset: kuka_1 (30 LFS images, ~12 s run) —
+  # the stereo/DS8/stereo_charuco image dirs are gitignored, local-only.
   acceptance:
     name: Acceptance (public cheap subset)
     needs: build
@@ -70,12 +71,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Run acceptance gates (stereo subset)
+      - name: Run acceptance gates (kuka_1)
         run: >-
           cargo run --release -p vision-calibration-bench --features tier-b
           --bin calib-bench -- accept
           --registry crates/vision-calibration-bench/registry/public.json
-          --only stereo_left,stereo_right,stereo_rig
+          --only kuka_1
 
   python-runtime:
     name: Python Runtime Tests
