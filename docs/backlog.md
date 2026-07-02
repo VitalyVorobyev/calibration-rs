@@ -19,20 +19,28 @@ Structured "device specification → initialization seed" layer replacing the
 hand-coded per-example constants. Spec-seeded init is the **official
 acceptance route** (ADR 0022); from-scratch stays experimental.
 
-- [ ] S1-SPEC-ADR - ADR 0023: `DeviceSpec` schema + seed derivation. Per-camera
-  lens focal (mm), pixel pitch, sensor size/resolution, Scheimpflug mount tilt
-  (deg + axis); rig mechanical layout (nominal camera poses, laser-plane
-  nominals, hand-eye nominal); units, frames, serde format (sidecar `spec.json`
-  next to the dataset manifest), versioning, and the mapping onto the existing
-  manual-init surface (ADR 0011). Home: `vision-calibration-dataset` (owns
-  manifests, ADR 0016) with derivation fns in pipeline. Ship skeleton types +
-  serde roundtrip + `f_px = f_mm / pixel_pitch` unit test in the same PR.
-- [ ] S2-SPEC-INTRINSICS - Spec → per-camera intrinsics + tilt seeds. Replace
-  the hand-coded constants in `rtv3d_ref_intrinsics.rs` +
-  `rtv3d_ringgrid_intrinsics.rs`; delete the `RTV3D_RINGGRID_FOCAL` env sweep
-  (focal derives from the spec); check in a `spec.json` per private dataset.
-  Gate: both hard-gated examples still pass ≤ 0.5 px with spec-derived seeds,
-  no env vars.
+- [x] S1-SPEC-ADR - **Done 2026-07-02.** ADR 0023 accepted: `DeviceSpec`
+  schema in `vision-calibration-dataset::device_spec` (plain-serde,
+  datasheet-natural units with unit-suffixed field names, id-keyed cameras,
+  `deny_unknown_fields`, versioned, fail-fast `validate()`), derivation fns in
+  `vision-calibration-pipeline::device_seed` (`scheimpflug_seed`,
+  `rig_intrinsics_seed`, `nominal_cam_se3_rig`, `handeye_seed` with hand-eye
+  mode cross-check), re-exported through the facade as
+  `vision_calibration::device_seed`. `nominal_cam_se3_rig` deliberately returns
+  raw poses, not `RigHandeyeRigManualInit` — ADR 0011 couples `cam_se3_rig`
+  with data-dependent `rig_se3_target` (S3 combines them). Serde roundtrip +
+  `f_px = f_mm/pixel_pitch` + pose-inversion + rpy-convention unit tests ship
+  with it. Design artifact: `docs/DESIGN-device-spec.md`.
+- [x] S2-SPEC-INTRINSICS - **Done 2026-07-02.** Both intrinsics examples load
+  `privatedata/<ds>/spec.json` (local-only, gitignored — repo is public, so
+  device specs stay as private as the datasets; the registry `private.json`
+  precedent) and derive seeds via `device_seed::scheimpflug_seed`; the
+  `RTV3D_REF_FOCAL`/`RTV3D_RINGGRID_FOCAL`/`RTV3D_RINGGRID_TILT_X` env knobs
+  (incl. the focal sweep) are deleted. rtv3d_ref: GATE PASS, all 6 cams ≤
+  0.5 px (worst cam3 0.474). rtv3d_ringgrid: 5/6 ≤ 0.5 px; cam1 sits at
+  0.5008 px **independent of the seed** (1142.9 and 1150.0 px seeds give the
+  identical value; pre-existing knife-edge, tracked under Q3 ringgrid bias —
+  the gate is not relaxed).
 - [ ] S3-SPEC-EXTRINSICS - Extrinsics + hand-eye seeds from the mechanical
   layout, wired into `rtv3d_rig.rs` (currently bootstrapped; keep bootstrap
   behind a flag for comparison). Gate: the beat-the-oracle criteria unchanged.

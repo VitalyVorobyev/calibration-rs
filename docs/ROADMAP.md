@@ -72,6 +72,9 @@ the `RTV3D_RINGGRID_FOCAL` env sweep) → S3 (extrinsics + hand-eye from layout)
 → S4 (one-command acceptance harness over all registered datasets; absent
 datasets print `UNAVAILABLE`, never a silent pass; the failing 0.4 px
 from-scratch gate demotes to informational per the parked V7).
+**Status 2026-07-02: S1 + S2 shipped** (ADR 0023, `device_seed` facade module,
+both intrinsics examples spec-driven; ringgrid cam1 sits at 0.5008 px — a
+pre-existing, seed-independent knife edge owned by Q3).
 
 ### Track Q — Algorithmic soundness: proofs + regression
 

@@ -135,6 +135,36 @@ pub mod common {
     };
 }
 
+/// Device-spec → manual-init seed derivation (ADR 0023).
+///
+/// [`DeviceSpec`](device_seed::DeviceSpec) is the sidecar `spec.json` schema
+/// describing the capture hardware (lens focal, pixel pitch, Scheimpflug
+/// mount tilt, nominal rig layout); the functions here derive the ADR 0011
+/// manual-init seeds that make spec-seeded initialization (ADR 0022) the
+/// structured default.
+pub mod device_seed {
+    pub use vision_calibration_pipeline::device_seed::{
+        // Schema types (from `vision-calibration-dataset`)
+        CameraDeviceSpec,
+        CameraMountSpec,
+        DEVICE_SPEC_FILENAME,
+        DEVICE_SPEC_VERSION,
+        // Derivation
+        DeviceSeedError,
+        DeviceSpec,
+        DeviceSpecError,
+        HandeyeMountSpec,
+        LaserPlaneSpec,
+        NominalPoseSpec,
+        RigLayoutSpec,
+        ScheimpflugMountSpec,
+        handeye_seed,
+        nominal_cam_se3_rig,
+        rig_intrinsics_seed,
+        scheimpflug_seed,
+    };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Problem-Specific Modules
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -43,6 +43,9 @@ mod planar_family;
 mod rig_family;
 pub mod session;
 
+// Device-spec → manual-init seed derivation (ADR 0023)
+pub mod device_seed;
+
 // Problem-specific modules
 pub mod laserline_device;
 pub mod planar_intrinsics;

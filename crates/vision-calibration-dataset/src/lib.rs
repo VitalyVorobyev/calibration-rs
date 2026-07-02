@@ -26,10 +26,16 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod device_spec;
 mod sniff;
 mod spec;
 mod validator;
 
+pub use device_spec::{
+    CameraDeviceSpec, CameraMountSpec, DEVICE_SPEC_FILENAME, DEVICE_SPEC_VERSION, DeviceSpec,
+    DeviceSpecError, HandeyeMountSpec, LaserPlaneSpec, NominalPoseSpec, RigLayoutSpec,
+    ScheimpflugMountSpec,
+};
 pub use sniff::{SniffError, sniff_folder};
 pub use spec::{
     CameraSource, ChessCornersDetectorSpec, ChessThresholdMode, DatasetSpec, DetectorSpec,

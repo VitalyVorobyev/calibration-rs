@@ -15,8 +15,10 @@
 //! Why seeded, not from scratch? On Scheimpflug data (strong radial distortion
 //! plus a several-degree mount tilt) Zhang-from-scratch underestimates the focal
 //! and settles in a wrong tilt/focal basin (ADR 0022). A coarse focal + tilt
-//! seed removes that fragility. The nominal focal for this rig is **not known a
-//! priori** — sweep `RTV3D_RINGGRID_FOCAL` to find the basin.
+//! seed removes that fragility. The seed comes from the dataset's device spec
+//! (`spec.json`, ADR 0023) — lens focal + pixel pitch → `fx = fy`, mount angle
+//! → tilt. (Historically the focal was found by an env-var sweep; the spec
+//! layer replaced it.)
 //!
 //! Run:
 //! `cargo run --release --manifest-path
@@ -24,9 +26,9 @@
 //! rtv3d_ringgrid_intrinsics`
 //!
 //! Env:
-//! - `RTV3D_RINGGRID_DATA_DIR` (default `privatedata/rtv3d_ringgrid`).
-//! - `RTV3D_RINGGRID_FOCAL` — coarse nominal focal seed in px (default `1150`).
-//! - `RTV3D_RINGGRID_TILT_X` — nominal mount tilt seed in rad (default `-0.087`).
+//! - `RTV3D_RINGGRID_DATA_DIR` (default `privatedata/rtv3d_ringgrid`). Must
+//!   contain a `spec.json` device spec (gitignored, like the rest of
+//!   `privatedata/`).
 //! - `RTV3D_RINGGRID_RING_WIDTH_MM` — coded-band width override (default: board
 //!   manifest value, else `1.152`). A decode-tuning knob.
 //! - `RTV3D_RINGGRID_MAXITERS` (default `120`).
@@ -39,9 +41,10 @@ use anyhow::{Context, Result, anyhow};
 use std::path::PathBuf;
 use std::time::Instant;
 
+use vision_calibration::device_seed::{DEVICE_SPEC_FILENAME, DeviceSpec, scheimpflug_seed};
 use vision_calibration::scheimpflug_intrinsics::{
     ScheimpflugFixMask, ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
-    ScheimpflugManualInit, step_init_with_seed, step_optimize,
+    step_init_with_seed, step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
 use vision_calibration_core::{
@@ -56,12 +59,6 @@ use vision_calibration_optim::RobustLoss;
 
 const NUM_CAMERAS: usize = 6;
 const GATE_PX: f64 = 0.5;
-/// Each pose strip is 4320×540 → six 720×540 tiles; the nominal principal point
-/// is the tile center.
-const TILE_CX: f64 = 360.0;
-const TILE_CY: f64 = 270.0;
-/// Nominal Scheimpflug mount tilt (≈−5°), used as the seed `tilt_x`.
-const DEFAULT_TILT_X: f64 = -0.087;
 
 /// Recovered summary for one camera.
 struct CamResult {
@@ -85,13 +82,22 @@ fn main() -> Result<()> {
         std::env::var("RTV3D_RINGGRID_DATA_DIR")
             .unwrap_or_else(|_| "privatedata/rtv3d_ringgrid".to_string()),
     );
-    let focal_seed = env_f64("RTV3D_RINGGRID_FOCAL", 1150.0);
-    let tilt_x_seed = env_f64("RTV3D_RINGGRID_TILT_X", DEFAULT_TILT_X);
     let max_iters: usize = std::env::var("RTV3D_RINGGRID_MAXITERS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(120);
     let detect_only = std::env::var("RTV3D_RINGGRID_DETECT_ONLY").as_deref() == Ok("1");
+
+    // Device spec (ADR 0023): lens focal + pixel pitch + mount tilt → seed.
+    let spec_path = data_dir.join(DEVICE_SPEC_FILENAME);
+    let spec = DeviceSpec::from_path(&spec_path)
+        .with_context(|| format!("load device spec {}", spec_path.display()))?;
+    if spec.cameras.len() != NUM_CAMERAS {
+        return Err(anyhow!(
+            "device spec has {} cameras, expected {NUM_CAMERAS}",
+            spec.cameras.len()
+        ));
+    }
 
     let board: BoardRinggridSpec = load_ringgrid_board(&data_dir.join("board_ringgrid.json"))
         .context("load ring-grid board manifest")?;
@@ -107,9 +113,15 @@ fn main() -> Result<()> {
         board.marker_inner_radius_mm,
         ring_width_mm,
     );
-    println!(
-        "coarse seed: fx=fy={focal_seed:.0}, pp=({TILE_CX:.0},{TILE_CY:.0}), tilt_x={tilt_x_seed:.3} rad, distortion=0"
-    );
+    {
+        let seed0 = scheimpflug_seed(&spec, "cam0")?;
+        let k = seed0.intrinsics.expect("spec-derived intrinsics");
+        let s = seed0.sensor.expect("spec-derived sensor");
+        println!(
+            "spec seed (cam0): fx=fy={:.1}, pp=({:.0},{:.0}), tilt_x={:.4} rad, distortion=0",
+            k.fx, k.cx, k.cy, s.tilt_x
+        );
+    }
 
     let poses = load_poses(&data_dir.join("poses.json"))?;
     println!("loaded {} poses", poses.len());
@@ -170,18 +182,11 @@ fn main() -> Result<()> {
         config.robust_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config)?;
 
-        let mut seed = ScheimpflugManualInit::default();
-        seed.intrinsics = Some(FxFyCxCySkew {
-            fx: focal_seed,
-            fy: focal_seed,
-            cx: TILE_CX,
-            cy: TILE_CY,
-            skew: 0.0,
-        });
-        seed.sensor = Some(ScheimpflugParams {
-            tilt_x: tilt_x_seed,
-            tilt_y: 0.0,
-        });
+        // Spec-derived coarse prior (ADR 0023): fx = fy from lens focal /
+        // pixel pitch, principal point at the tile center, nominal mount
+        // tilt. Distortion + poses auto (ADR 0022).
+        let seed = scheimpflug_seed(&spec, &format!("cam{c}"))
+            .with_context(|| format!("camera {c}: derive seed from device spec"))?;
         step_init_with_seed(&mut session, seed, None)
             .with_context(|| format!("camera {c}: seeded init"))?;
         step_optimize(&mut session, None).with_context(|| format!("camera {c}: optimize"))?;
@@ -259,9 +264,9 @@ fn main() -> Result<()> {
             .join(", ");
         Err(anyhow!(
             "GATE FAIL: {solved} of {NUM_CAMERAS} cameras solved, {} exceed {GATE_PX} px ({list}); \
-             skipped (not enough views): {skipped:?}. Investigate focal prior \
-             (RTV3D_RINGGRID_FOCAL), detection density, or the detector tail — do not relax \
-             the gate.",
+             skipped (not enough views): {skipped:?}. Investigate the device spec's focal / \
+             pixel pitch / tilt (spec.json), detection density, or the detector tail — do not \
+             relax the gate.",
             failed.len()
         ))
     }
