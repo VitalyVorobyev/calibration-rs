@@ -41,9 +41,21 @@ acceptance route** (ADR 0022); from-scratch stays experimental.
   0.5008 px **independent of the seed** (1142.9 and 1150.0 px seeds give the
   identical value; pre-existing knife-edge, tracked under Q3 ringgrid bias —
   the gate is not relaxed).
-- [ ] S3-SPEC-EXTRINSICS - Extrinsics + hand-eye seeds from the mechanical
-  layout, wired into `rtv3d_rig.rs` (currently bootstrapped; keep bootstrap
-  behind a flag for comparison). Gate: the beat-the-oracle criteria unchanged.
+- [x] S3-SPEC-EXTRINSICS - **Done 2026-07-02.** New
+  `device_seed::rig_layout_seed(spec, ids, per_cam_target_poses)` builds the
+  coupled `RigHandeyeRigManualInit` (nominal `cam_se3_rig` mounts from the
+  layout; per-view `rig_se3_target` anchored on the first camera with a
+  measured target pose — the ADR 0011 coupling honored). `rtv3d_rig.rs` now
+  defaults to `RTV3D_SEED=spec`: intrinsics via `rig_intrinsics_seed`, rig
+  stage via `step_rig_init_with_seed`, hand-eye via
+  `step_handeye_init_with_seed` (spec mount, mode-checked; warns and falls
+  back to the linear fit when `RTV3D_HANDEYE` flips the convention
+  experiment). Bootstrap kept behind `RTV3D_SEED=generic|oracle`. Local rtv3d
+  `spec.json` carries the hexagonal layout (yaw ±57.5°/±122.4°/179.7°, cam0
+  identity reference, EyeToHand `rig_se3_base` |t|≈254 mm) as drawing-grade
+  nominals. Gate: all three beat-the-oracle verdicts PASS in **both** seed
+  modes, converging to the same optimum (per-cam hand-eye reproj
+  bit-identical), confirming seeds change the start point, not the answer.
 - [ ] S4-ACCEPT-HARNESS - One-command acceptance runner in
   `vision-calibration-bench`: iterate all registered datasets, run the seeded
   official route, evaluate gates; exit 0 iff all on-disk datasets pass; absent

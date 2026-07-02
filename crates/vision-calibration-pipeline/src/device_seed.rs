@@ -20,7 +20,9 @@
 use vision_calibration_core::{FxFyCxCySkew, Iso3, Real, ScheimpflugParams};
 use vision_calibration_optim::HandEyeMode;
 
-use crate::rig_handeye::{RigHandeyeHandeyeManualInit, RigHandeyeIntrinsicsManualInit};
+use crate::rig_handeye::{
+    RigHandeyeHandeyeManualInit, RigHandeyeIntrinsicsManualInit, RigHandeyeRigManualInit,
+};
 use crate::scheimpflug_intrinsics::ScheimpflugManualInit;
 
 // The schema types every consumer of this module needs, re-exported so the
@@ -64,6 +66,14 @@ pub enum DeviceSeedError {
         spec: HandEyeMode,
         /// Mode the caller's config expects.
         expected: HandEyeMode,
+    },
+
+    /// A view has no observed target pose in any camera, so its
+    /// `rig_se3_target` cannot be anchored.
+    #[error("view {view} has no target pose in any camera")]
+    ViewWithoutTargetPose {
+        /// The offending view index.
+        view: usize,
     },
 }
 
@@ -134,6 +144,40 @@ pub fn nominal_cam_se3_rig(
             Ok(iso3_from_nominal(&mount.rig_se3_cam).inverse())
         })
         .collect()
+}
+
+/// Full rig-stage seed: nominal `cam_se3_rig` from the mechanical layout,
+/// combined with per-view `rig_se3_target` anchored on measured per-camera
+/// target poses (ADR 0011 couples the two fields — both must be seeded
+/// together).
+///
+/// `per_cam_target_poses` is `[view][cam] -> Option<cam_se3_target>` in the
+/// same camera order as `camera_ids` (the shape returned by
+/// `step_intrinsics_init_all*`). For each view, the first camera with an
+/// observed pose anchors it:
+/// `rig_se3_target = cam_se3_rig[c]⁻¹ · cam_se3_target[c]`.
+pub fn rig_layout_seed(
+    spec: &DeviceSpec,
+    camera_ids: &[&str],
+    per_cam_target_poses: &[Vec<Option<Iso3>>],
+) -> Result<RigHandeyeRigManualInit, DeviceSeedError> {
+    let cam_se3_rig = nominal_cam_se3_rig(spec, camera_ids)?;
+    let rig_se3_target = per_cam_target_poses
+        .iter()
+        .enumerate()
+        .map(|(view, cams)| {
+            cams.iter()
+                .zip(&cam_se3_rig)
+                .find_map(|(pose, cam_se3_rig)| {
+                    pose.map(|cam_se3_target| cam_se3_rig.inverse() * cam_se3_target)
+                })
+                .ok_or(DeviceSeedError::ViewWithoutTargetPose { view })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RigHandeyeRigManualInit {
+        cam_se3_rig: Some(cam_se3_rig),
+        rig_se3_target: Some(rig_se3_target),
+    })
 }
 
 /// Hand-eye stage seed from the mechanical mount.
@@ -373,6 +417,38 @@ mod tests {
         assert!(matches!(
             nominal_cam_se3_rig(&no_rig, &["cam0"]),
             Err(DeviceSeedError::MissingRigLayout)
+        ));
+    }
+
+    #[test]
+    fn rig_layout_seed_anchors_views_on_first_available_camera() {
+        let spec = rig_spec();
+        // cam1's mount is identity, so a view anchored on cam1 has
+        // rig_se3_target == cam_se3_target directly.
+        let target_pose = iso3_from_nominal(&NominalPoseSpec {
+            rpy_deg: [0.0, 0.0, 0.0],
+            translation_mm: [10.0, 20.0, 500.0],
+        });
+        // View 0: only cam0 sees the target; view 1: only cam1.
+        let poses = vec![vec![Some(target_pose), None], vec![None, Some(target_pose)]];
+        let seed = rig_layout_seed(&spec, &["cam0", "cam1"], &poses).unwrap();
+        let cam_se3_rig = seed.cam_se3_rig.unwrap();
+        let rig_se3_target = seed.rig_se3_target.unwrap();
+        assert_eq!(rig_se3_target.len(), 2);
+        // View 1 (identity mount): rig_se3_target == the raw target pose.
+        assert!(
+            (rig_se3_target[1].translation.vector - target_pose.translation.vector).norm() < 1e-12
+        );
+        // View 0: rig_se3_target = cam_se3_rig[0]⁻¹ · cam_se3_target —
+        // consistency: cam_se3_rig[0] · rig_se3_target[0] == target pose.
+        let recomposed = cam_se3_rig[0] * rig_se3_target[0];
+        assert!((recomposed.translation.vector - target_pose.translation.vector).norm() < 1e-12);
+
+        // A view with no observation in any camera is a typed error.
+        let holey = vec![vec![None, None]];
+        assert!(matches!(
+            rig_layout_seed(&spec, &["cam0", "cam1"], &holey),
+            Err(DeviceSeedError::ViewWithoutTargetPose { view: 0 })
         ));
     }
 

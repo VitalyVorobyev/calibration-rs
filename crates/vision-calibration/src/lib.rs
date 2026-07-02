@@ -161,6 +161,7 @@ pub mod device_seed {
         handeye_seed,
         nominal_cam_se3_rig,
         rig_intrinsics_seed,
+        rig_layout_seed,
         scheimpflug_seed,
     };
 }
