@@ -5,9 +5,11 @@
 //! [`crate::CorrespondenceView`] instances.
 
 use crate::{
-    Camera, CorrespondenceView, Error, Iso3, Pt2, Pt3, Real,
+    Camera, CorrespondenceView, Error, Iso3, Pt2, Pt3, Real, Vec2,
     models::{DistortionModel, IntrinsicsModel, ProjectionModel, SensorModel},
 };
+
+use super::noise::UniformPixelNoise;
 use nalgebra::{Translation3, UnitQuaternion, Vector3};
 use std::ops::RangeInclusive;
 
@@ -181,6 +183,43 @@ where
     cam_from_target
         .iter()
         .map(|pose| project_view_all(camera, pose, target_points))
+        .collect()
+}
+
+/// Project multiple views and apply deterministic pixel noise — the
+/// standard input for a synthetic-GT matrix test (`docs/notes/README.md`):
+/// sweep a ground-truth parameter grid × noise levels, feed each cell
+/// through the solver under test, and assert recovery within tolerance.
+///
+/// Noise is keyed on `(view_idx, point_idx)`, so results are stable across
+/// platforms and runs (see [`UniformPixelNoise`]).
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidInput`] if any point in any view is not projectable.
+pub fn project_views_noisy<P, D, Sm, K>(
+    camera: &Camera<Real, P, D, Sm, K>,
+    target_points: &[Pt3],
+    cam_from_target: &[Iso3],
+    noise: &UniformPixelNoise,
+) -> Result<Vec<CorrespondenceView>, Error>
+where
+    P: ProjectionModel<Real>,
+    D: DistortionModel<Real>,
+    Sm: SensorModel<Real>,
+    K: IntrinsicsModel<Real>,
+{
+    cam_from_target
+        .iter()
+        .enumerate()
+        .map(|(view_idx, pose)| {
+            let mut view = project_view_all(camera, pose, target_points)?;
+            for (point_idx, uv) in view.points_2d.iter_mut().enumerate() {
+                let noisy = noise.apply(view_idx, point_idx, Vec2::new(uv.x, uv.y));
+                *uv = Pt2::new(noisy.x, noisy.y);
+            }
+            Ok(view)
+        })
         .collect()
 }
 

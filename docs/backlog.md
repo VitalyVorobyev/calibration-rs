@@ -92,12 +92,19 @@ Scheimpflug intrinsics (seeded), rig extrinsics, hand-eye, laserline bundle,
 ringgrid detection/bias, rectification (short note only — C4 gate exists),
 two-view/triangulation.
 
-- [ ] Q1-PROOF-STANDARD - Codify the standard in `docs/notes/README.md` +
-  deliver the planar-intrinsics pack as the template (generalize the
-  `seeded_coarse_prior_converges_on_strong_tilt_distortion` pattern into a
-  reusable matrix-test helper in the synthetic module). Also fix or convert
-  the one `#[ignore]`d test (`optim/src/problems/laserline_bundle.rs`,
-  "Fix after laserline pipeline integration") into a tracked item.
+- [x] Q1-PROOF-STANDARD - **Done 2026-07-02.** Standard codified in
+  `docs/notes/README.md` (math note + synthetic-GT matrix test + property
+  tests where real invariants exist + committed Fit record; basin study for
+  init routes). Template pack delivered: `docs/notes/planar-intrinsics.md`
+  (model, Zhang init, cost, identifiability/degeneracies incl. the
+  plane-diversity and k3-collinearity arguments, gauge, noise sensitivity)
+  + new reusable `synthetic::planar::project_views_noisy` (deterministic
+  noise over projected views) + matrix test
+  `crates/vision-calibration/tests/planar_intrinsics_matrix.rs` (2 focal
+  regimes × 3 distortion strengths × 3 noise levels, 18 cells in ~4 s;
+  asserts focal/pp/k1 recovery + residual noise floor per cell). The
+  `#[ignore]`d laserline IR test passes as-is — its "fix after laserline
+  pipeline integration" TODO predates B3c-3 — so it is simply re-enabled.
 - [ ] Q2-REGRESSION-WIRING - (after S4; deliberately early so Q3/Q4/Q5/Q7 are
   regression-guarded) Commit baseline Fit records for every on-disk dataset
   via the S4 runner; add regression gates (fail if RMS worsens beyond stated
