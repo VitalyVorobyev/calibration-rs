@@ -1014,7 +1014,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO: Fix after laserline pipeline integration"]
     fn ir_uses_s2_for_plane_normal() {
         let dataset = vec![View::new(
             CorrespondenceView::new(
