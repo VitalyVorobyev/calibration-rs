@@ -105,11 +105,23 @@ two-view/triangulation.
   asserts focal/pp/k1 recovery + residual noise floor per cell). The
   `#[ignore]`d laserline IR test passes as-is — its "fix after laserline
   pipeline integration" TODO predates B3c-3 — so it is simply re-enabled.
-- [ ] Q2-REGRESSION-WIRING - (after S4; deliberately early so Q3/Q4/Q5/Q7 are
-  regression-guarded) Commit baseline Fit records for every on-disk dataset
-  via the S4 runner; add regression gates (fail if RMS worsens beyond stated
-  tolerance); snapshot criterion baselines in linear/optim. Gate: a deliberate
-  cost-function perturbation on a branch trips it.
+- [x] Q2-REGRESSION-WIRING - **Done 2026-07-02.** New
+  `vision_calibration_bench::baseline` module: slim committed
+  `baselines/<id>.json` snapshots (reprojection stats only — safe to commit
+  for private datasets) + `compare_to_baseline` (overall mean/RMS + every
+  per-camera mean, shared relative tolerance; per-camera count change =
+  structural drift; improvements never fail). `calib-bench accept` now
+  compares every passing run against its baseline (default tol 5 %,
+  `--regression-tol`), reports `NO-BASELINE` loudly, and
+  `--freeze-baselines` is the reviewed way to accept a changed fit. All 19
+  on-disk baselines frozen and committed; drift re-run: 19 passed, 0 false
+  positives. **Trip-tests (deliberate Brown–Conrady kernel bias, reverted):**
+  large bias (5e-4) → hard gate FAIL (kuka_1 1.036 px > 0.25); subtle bias
+  (6e-5) → gate passes (0.179 px) but the baseline comparison fails with the
+  exact drift message — both detection layers proven. Criterion baselines
+  saved locally for `linear_init` + `ba_iter` (`--save-baseline main`;
+  machine-specific, not committed — workflow documented in
+  `docs/notes/README.md`).
 - [ ] Q3-RINGGRID-BIAS - Drive the ringgrid floor (median ≈ 4.7 px) down:
   closed-form perspective ellipse-center-vs-ring-center bias correction in the
   detector or at residual level; diagnose the cam5 ~38 px geometric outlier

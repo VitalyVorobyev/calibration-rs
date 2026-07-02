@@ -71,6 +71,19 @@ struct AcceptArgs {
     /// Only evaluate these dataset ids (repeat or comma-separate).
     #[arg(long, value_delimiter = ',')]
     only: Vec<String>,
+    /// Directory of committed regression baselines. Defaults to the
+    /// crate's `baselines/`.
+    #[arg(long)]
+    baselines: Option<PathBuf>,
+    /// Freeze new baselines from this run's passing entries (overwrites;
+    /// skips the drift comparison — refreezing is the reviewed way to
+    /// accept a changed fit).
+    #[arg(long)]
+    freeze_baselines: bool,
+    /// Relative tolerance for regression drift vs the baseline (applied
+    /// to overall mean/RMS and every per-camera mean).
+    #[arg(long, default_value_t = 0.05)]
+    regression_tol: f64,
 }
 
 /// Arguments for the `report` subcommand.
@@ -222,7 +235,72 @@ enum AcceptOutcome {
     NoGate,
 }
 
+/// Default committed-baseline directory: `<crate>/baselines`.
+fn default_baselines_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("baselines")
+}
+
+/// After a gate PASS: freeze a new baseline (`--freeze-baselines`) or
+/// compare against the committed one; drift beyond `--regression-tol`
+/// converts the outcome into a FAIL. A missing baseline is reported
+/// loudly but does not fail (freezing is the explicit, reviewed act).
+fn apply_baseline_policy(
+    args: &AcceptArgs,
+    baselines_dir: &Path,
+    entry: &BenchEntry,
+    record: &BenchRecord,
+    outcome: AcceptOutcome,
+) -> AcceptOutcome {
+    use vision_calibration_bench::baseline::{
+        BaselineFit, compare_to_baseline, load_baseline, save_baseline,
+    };
+    if args.freeze_baselines {
+        let baseline = BaselineFit::new(
+            &entry.id,
+            &record.ident.git_sha,
+            &record.ident.timestamp_rfc3339,
+            &record.fit,
+        );
+        return match save_baseline(baselines_dir, &baseline) {
+            Ok(path) => {
+                println!("FROZE        {} → {}", entry.id, path.display());
+                outcome
+            }
+            Err(e) => AcceptOutcome::Fail {
+                reason: format!("baseline freeze failed: {e:#}"),
+            },
+        };
+    }
+    match load_baseline(baselines_dir, &entry.id) {
+        Ok(Some(baseline)) => {
+            let regressions = compare_to_baseline(&record.fit, &baseline, args.regression_tol);
+            if regressions.is_empty() {
+                outcome
+            } else {
+                AcceptOutcome::Fail {
+                    reason: format!(
+                        "regression vs baseline (frozen at {}): {}",
+                        baseline.git_sha,
+                        regressions.join("; ")
+                    ),
+                }
+            }
+        }
+        Ok(None) => {
+            println!(
+                "NO-BASELINE  {} (pin one with `accept --freeze-baselines`)",
+                entry.id
+            );
+            outcome
+        }
+        Err(e) => AcceptOutcome::Fail {
+            reason: format!("baseline load failed: {e:#}"),
+        },
+    }
+}
+
 fn cmd_accept(args: &AcceptArgs) -> Result<()> {
+    let baselines_dir = args.baselines.clone().unwrap_or_else(default_baselines_dir);
     let registries = if args.registry.is_empty() {
         default_accept_registries()
     } else {
@@ -277,7 +355,14 @@ fn cmd_accept(args: &AcceptArgs) -> Result<()> {
         };
         println!("RUNNING      {} (seeded official route)", entry.id);
         let outcome = match run_dataset_record(entry) {
-            Ok(record) => evaluate_accept_gate(&record, gate),
+            Ok(record) => {
+                let mut outcome = evaluate_accept_gate(&record, gate);
+                // Regression baselines (Q2): gate first, then drift.
+                if matches!(outcome, AcceptOutcome::Pass { .. }) {
+                    outcome = apply_baseline_policy(args, &baselines_dir, entry, &record, outcome);
+                }
+                outcome
+            }
             Err(e) => AcceptOutcome::Fail {
                 reason: format!("run error: {e:#}"),
             },
