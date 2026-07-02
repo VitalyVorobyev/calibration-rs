@@ -2,6 +2,12 @@
 
 - Status: Accepted
 - Date: 2026-06-17
+- Note (2026-07-02): the production-grade program builds on this decision —
+  seeded init is the **official acceptance route** for all datasets. Track S
+  turns the hand-coded seeds into a structured `DeviceSpec` layer (ADR 0023,
+  planned), and **Q6** adds the convergence-basin study quantifying how much
+  spec error the seeded route tolerates (the empirical evidence backing this
+  ADR). See `docs/backlog.md` Tracks S/Q.
 
 ## Context
 

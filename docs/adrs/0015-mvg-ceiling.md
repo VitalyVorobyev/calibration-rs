@@ -1,7 +1,12 @@
 # ADR 0015: Multiple-View Geometry Crates and Scope Ceiling
 
-- Status: Accepted
+- Status: Accepted (amended 2026-06-21)
 - Date: 2026-06-14
+- Amendment (2026-06-21, C5): the original ceiling "no in-house dense matcher;
+  wrap `opencv-rust` SGBM behind a feature flag" is reversed — the dense
+  matcher ships **pure-Rust in `vision-mvg`** (`dense::match_block`, block +
+  SGM); `opencv-rust` SGBM is demoted to a benchmark-only baseline (closed as
+  env-blocked 2026-07-02). The "no full SfM" ceiling stands.
 
 ## Context
 
