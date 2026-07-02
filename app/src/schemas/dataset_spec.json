@@ -99,6 +99,15 @@
             }
           ],
           "description": "ChESS corner extractor options shared by chessboard-like\ndetectors (plain chessboard and ChArUco)."
+        },
+        "min_features_per_view": {
+          "description": "Minimum detected features for a view to be kept. `None` keeps the\nrunner default (4, the homography minimum). Raise it for detectors\nwhose sparse detections are unreliable — e.g. ring-grid decodes\nwith < 8 markers are noisy enough to poison a solve.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "type": "object"

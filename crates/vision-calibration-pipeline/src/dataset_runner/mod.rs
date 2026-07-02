@@ -705,6 +705,7 @@ mod tests {
                 threshold_mode: Some(ChessThresholdMode::Absolute),
                 threshold_value: Some(30.0),
             }),
+            min_features_per_view: None,
         });
         let (_name, config) = target_to_detector_config(&spec).unwrap();
         assert_eq!(config["chess_corners"]["threshold_mode"], "absolute");

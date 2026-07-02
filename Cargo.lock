@@ -3710,6 +3710,7 @@ dependencies = [
  "vision-calibration",
  "vision-calibration-core",
  "vision-calibration-dataset",
+ "vision-calibration-detect",
  "vision-calibration-optim",
  "vision-calibration-pipeline",
  "vision-metrology",

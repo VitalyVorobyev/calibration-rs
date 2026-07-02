@@ -270,6 +270,13 @@ pub struct DetectorSpec {
     /// detectors (plain chessboard and ChArUco).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chess_corners: Option<ChessCornersDetectorSpec>,
+
+    /// Minimum detected features for a view to be kept. `None` keeps the
+    /// runner default (4, the homography minimum). Raise it for detectors
+    /// whose sparse detections are unreliable — e.g. ring-grid decodes
+    /// with < 8 markers are noisy enough to poison a solve.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_features_per_view: Option<usize>,
 }
 
 /// ChESS corner extractor overrides.

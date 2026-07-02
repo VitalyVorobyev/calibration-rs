@@ -72,11 +72,14 @@ the `RTV3D_RINGGRID_FOCAL` env sweep) → S3 (extrinsics + hand-eye from layout)
 → S4 (one-command acceptance harness over all registered datasets; absent
 datasets print `UNAVAILABLE`, never a silent pass; the failing 0.4 px
 from-scratch gate demotes to informational per the parked V7).
-**Status 2026-07-02: S1 + S2 + S3 shipped** (ADR 0023, `device_seed` facade
-module, both intrinsics examples spec-driven, `rtv3d_rig` layout/hand-eye
-seeded via `RTV3D_SEED=spec` default with bootstrap kept behind the flag;
-ringgrid cam1 sits at 0.5008 px — a pre-existing, seed-independent knife edge
-owned by Q3).
+**Status 2026-07-02: Track S complete (S1–S4).** ADR 0023 + `device_seed`
+facade module; both intrinsics examples and `rtv3d_rig` spec-seeded (bootstrap
+behind `RTV3D_SEED=generic|oracle`); `calib-bench accept` runs all registered
+datasets through the seeded route with per-entry hard gates (19 passed / 2
+UNAVAILABLE / exit 0), the cheap stereo subset gates CI, and the 0.4 px
+from-scratch diagnose check is demoted to informational. Ringgrid acceptance
+runs at the provisional ≤ 1.0 px pre-Q3 bar (cam1 knife edge 0.5008 px owned
+by Q3).
 
 ### Track Q — Algorithmic soundness: proofs + regression
 

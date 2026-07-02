@@ -10,7 +10,7 @@
 #[cfg(feature = "tier-b")]
 pub use tier_b::{
     diagnose_intrinsics, run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye,
-    run_single_cam_handeye,
+    run_scheimpflug_intrinsics, run_single_cam_handeye,
 };
 
 #[cfg(feature = "tier-b")]
@@ -582,6 +582,196 @@ pub mod tier_b {
             reproj_report,
             residual_sidecar,
         })
+    }
+
+    /// Run the seeded single-camera Scheimpflug intrinsics **acceptance
+    /// route** (ADR 0022/0023) for `entry` and build a [`BenchRecord`].
+    ///
+    /// Manifest-driven: the entry's `spec` must be a single-camera
+    /// `ScheimpflugIntrinsics` dataset manifest (inline or by path —
+    /// relative paths resolve against `data_root`) describing the image
+    /// glob, ROI tile, and target; the entry's `device_spec` (the ADR 0023
+    /// `spec.json` sidecar) provides the seed via
+    /// `device_seed::scheimpflug_seed`. The solve configuration mirrors the
+    /// hard-gated private examples: both tilts free, `k3` + tangential
+    /// fixed (default), Huber(1.0), 120 iterations.
+    ///
+    /// The from-scratch multistart stays in [`diagnose_intrinsics`]
+    /// (informational — V7 is parked); this seeded path is what
+    /// `calib-bench accept` gates on.
+    pub fn run_scheimpflug_intrinsics(entry: &BenchEntry) -> Result<BenchRecord> {
+        use vision_calibration::device_seed::{DeviceSpec, scheimpflug_seed};
+        // The pipeline-level fix mask, distinct from the optim-level
+        // `ScheimpflugFixMask` imported at module scope (R1 tracks the rename).
+        use vision_calibration::scheimpflug_intrinsics::ScheimpflugFixMask as SchFixMask;
+        use vision_calibration::scheimpflug_intrinsics::{
+            ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
+            step_init_with_seed as sch_step_init_with_seed, step_optimize as sch_step_optimize,
+        };
+        use vision_calibration_detect::FsDetectionCache;
+        use vision_calibration_pipeline::dataset_runner::build_planar_input;
+
+        anyhow::ensure!(
+            entry.problem == ProblemKind::ScheimpflugIntrinsics,
+            "run_scheimpflug_intrinsics called for {:?}",
+            entry.problem
+        );
+        let spec = resolve_dataset_spec(entry)?;
+        anyhow::ensure!(
+            spec.cameras.len() == 1,
+            "scheimpflug_intrinsics manifest must have exactly one camera, got {}",
+            spec.cameras.len()
+        );
+        let camera_id = spec.cameras[0].id.clone();
+
+        let device_spec_rel = entry.device_spec.as_ref().with_context(|| {
+            format!(
+                "entry `{}`: scheimpflug_intrinsics acceptance needs `device_spec` \
+                 (the ADR 0023 spec.json sidecar)",
+                entry.id
+            )
+        })?;
+        let device_spec_path = resolve_against(&entry.data_root, device_spec_rel);
+        let device = DeviceSpec::from_path(&device_spec_path)
+            .with_context(|| format!("load device spec {}", device_spec_path.display()))?;
+        let seed = scheimpflug_seed(&device, &camera_id)
+            .with_context(|| format!("derive seed for camera `{camera_id}` from device spec"))?;
+
+        // ── Detection (manifest-driven, cached) ────────────────────────────
+        progress(entry, format!("detecting views for {camera_id} (manifest)"));
+        let cache = FsDetectionCache::new(entry.data_root.join(".detection-cache"));
+        let detect_start = Instant::now();
+        let planar = build_planar_input(&spec, &entry.data_root, &cache, false)
+            .with_context(|| format!("entry `{}`: manifest detection failed", entry.id))?;
+        let detection_ms = detect_start.elapsed().as_millis() as u64;
+        let features_detected: usize = planar
+            .dataset
+            .views
+            .iter()
+            .map(|v| v.obs.points_2d.len())
+            .sum();
+        let detection = Detection {
+            per_camera: vec![DetectionStat {
+                camera_id: camera_id.clone(),
+                images_total: planar.total_views,
+                images_used: planar.usable_views,
+                features_detected,
+                features_expected: 0, // manifest targets have no fixed per-view count
+                coverage_pct: 0.0,
+                detect_ms: detection_ms,
+            }],
+            total_detected: features_detected,
+            total_expected: 0,
+        };
+
+        // ── Seeded calibration (the ADR 0022 supported route) ──────────────
+        let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+        session
+            .set_input(planar.dataset)
+            .context("set_input failed")?;
+        let mut config = ScheimpflugIntrinsicsConfig::default();
+        config.max_iters = 120;
+        config.fix_scheimpflug = SchFixMask {
+            tilt_x: false,
+            tilt_y: false,
+        };
+        config.robust_loss = RobustLoss::Huber { scale: 1.0 };
+        session.set_config(config).context("set_config failed")?;
+
+        progress(entry, "seeded scheimpflug init");
+        let init_start = Instant::now();
+        sch_step_init_with_seed(&mut session, seed, None)
+            .with_context(|| format!("entry `{}`: seeded init failed", entry.id))?;
+        let init_ms = init_start.elapsed().as_millis() as u64;
+
+        progress(entry, "optimizing scheimpflug intrinsics");
+        let opt_start = Instant::now();
+        sch_step_optimize(&mut session, None)
+            .with_context(|| format!("entry `{}`: optimize failed", entry.id))?;
+        let optimize_ms = opt_start.elapsed().as_millis() as u64;
+
+        let export = session.export().context("session.export failed")?;
+
+        // ── Fit metrics (bench-recomputed + export-reported) ───────────────
+        let errors: Vec<f64> = export
+            .per_feature_residuals
+            .target
+            .iter()
+            .filter_map(|r| r.error_px)
+            .collect();
+        let overall = ReprojectionStats::from_errors(&errors);
+        let per_camera = vec![overall];
+        let per_camera_hist = export
+            .per_feature_residuals
+            .target_hist_per_camera
+            .clone()
+            .unwrap_or_else(|| vec![FeatureResidualHistogram::default()]);
+        let fit = Fit {
+            overall,
+            per_camera,
+            per_camera_hist,
+            reported_mean_reproj_px: export.mean_reproj_error,
+            reported_per_cam_px: export.per_cam_reproj_errors.clone(),
+        };
+
+        let convergence = Convergence {
+            init_ok: true,
+            converged: true,
+            report: export.report.clone(),
+        };
+        let total_ms = init_ms
+            .saturating_add(optimize_ms)
+            .saturating_add(detection_ms);
+        let timing = Timing {
+            init_ms,
+            optimize_ms,
+            total_ms,
+            detection_ms,
+            stages: None,
+        };
+
+        Ok(BenchRecord {
+            ident: placeholder_ident(entry, "scheimpflug_intrinsics"),
+            convergence,
+            fit,
+            generalization: None,
+            stability: None,
+            detection: Some(detection),
+            laser: None,
+            robot_corrections: None,
+            artifacts: None,
+            delta_to_prior: None,
+            timing,
+            reproj_report: None,
+            residual_sidecar: None,
+        })
+    }
+
+    /// Resolve the entry's [`SpecRef`] into a concrete `DatasetSpec`.
+    fn resolve_dataset_spec(entry: &BenchEntry) -> Result<vision_calibration_dataset::DatasetSpec> {
+        let spec_ref = entry
+            .spec
+            .as_ref()
+            .with_context(|| format!("entry `{}` needs a `spec` (dataset manifest)", entry.id))?;
+        match spec_ref {
+            crate::registry::SpecRef::Inline(spec) => Ok((**spec).clone()),
+            crate::registry::SpecRef::Path { path } => {
+                let path = resolve_against(&entry.data_root, path);
+                let raw = std::fs::read_to_string(&path)
+                    .with_context(|| format!("read dataset manifest {}", path.display()))?;
+                serde_json::from_str(&raw)
+                    .with_context(|| format!("parse dataset manifest {}", path.display()))
+            }
+        }
+    }
+
+    /// Join `path` onto `base` unless it is already absolute.
+    fn resolve_against(base: &Path, path: &Path) -> PathBuf {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            base.join(path)
+        }
     }
 
     /// Run a multi-camera rig-extrinsics calibration for `entry` and build a
@@ -1526,6 +1716,12 @@ pub mod tier_b {
     /// Diagnose per-camera Scheimpflug intrinsics only: detect the calibration
     /// target, run staged multistart single-camera solves, and report raw
     /// all-corner reprojection distributions.
+    ///
+    /// **Informational only** (S4, 2026-07-02): the 0.4 px threshold below
+    /// grades the *from-scratch* multistart floor, which is an experimental
+    /// path — V7 is parked. The acceptance gate is the seeded official
+    /// route (`calib-bench accept`, per-entry `AcceptGate`); a `pass:
+    /// false` in this report is a data point, not a failure of the dataset.
     pub fn diagnose_intrinsics(entry: &BenchEntry) -> Result<IntrinsicsDiagnoseReport> {
         const GATE_PX: f64 = 0.4;
 

@@ -61,6 +61,16 @@ pub fn build_planar_input(
     let mut usable = 0usize;
     let total = images.len();
 
+    // Per-view feature floor: at least the homography minimum (4); the
+    // manifest may raise it for detectors whose sparse detections are
+    // unreliable (`DetectorSpec::min_features_per_view`).
+    let min_features = spec
+        .detector
+        .as_ref()
+        .and_then(|d| d.min_features_per_view)
+        .unwrap_or(4)
+        .max(4);
+
     // ROI is part of what determines detection output, so it has to be
     // part of the cache key. We splice it into the key-side config and
     // leave the actual `detector_config` untouched (the detector itself
@@ -80,10 +90,10 @@ pub fn build_planar_input(
             force_redetect,
         )?;
 
-        if features.len() < 4 {
-            // Too few features for a homography — drop the view but
-            // keep walking so we can surface a meaningful error if
-            // _everything_ failed.
+        if features.len() < min_features {
+            // Too few features (below the homography minimum or the
+            // manifest's floor) — drop the view but keep walking so we
+            // can surface a meaningful error if _everything_ failed.
             continue;
         }
         usable += 1;
