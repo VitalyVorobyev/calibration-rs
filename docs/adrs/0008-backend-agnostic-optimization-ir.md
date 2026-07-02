@@ -2,6 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-03-07 (retroactive)
+- Note (2026-07-02): the premise that a *second* backend would materialize is
+  parked — Track O (apex-solver) failed pre-verify 2026-06-15 because this IR
+  is autodiff-first (see ADR 0020) and apex-solver 1.3 is hand-Jacobian.
+  tiny-solver remains the sole backend. The backend-agnostic IR shape is kept:
+  it still isolates problem definitions from the solver API.
 
 ## Context
 

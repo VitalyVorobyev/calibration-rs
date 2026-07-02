@@ -4,14 +4,21 @@ This repository is a multi-crate Rust workspace for **end-to-end camera calibrat
 from math primitives and linear solvers to non-linear refinement, pipelines, facade APIs,
 and Python bindings.
 
-Crates:
+Crates (nine crates.io-publishable + the PyPI extension + two unpublished
+support crates):
 
-* **`vision-calibration-core`** — math aliases, composable camera models, and a generic RANSAC engine.
+* **`vision-calibration-core`** — math aliases (+ `linalg` numerics), composable camera models, and a generic RANSAC engine.
 * **`vision-calibration-linear`** — closed-form / linear initialisation blocks (homography, PnP, epipolar, rig extrinsics, hand–eye).
-* **`vision-calibration-optim`** — non-linear least squares traits, robust kernels, and solver backends (LM today).
-* **`vision-calibration-pipeline`** — end-to-end calibration pipelines (currently planar intrinsics).
+* **`vision-calibration-optim`** — non-linear least squares IR, robust kernels, and solver backends (tiny-solver LM).
+* **`vision-geometry`** — deterministic two-view solvers (epipolar, homography, triangulation, camera matrix).
+* **`vision-mvg`** — MVG pipelines: robust pose recovery, N-view triangulation, bundle adjustment (`refine` feature), Scheimpflug-aware rectification, dense stereo.
+* **`vision-calibration-dataset`** — `DatasetSpec` manifest, validator, folder sniffer.
+* **`vision-calibration-detect`** — target detectors (chessboard / ChArUco / puzzleboard / ring-grid) behind the sealed `Detector` trait + detection cache.
+* **`vision-calibration-pipeline`** — session framework, the eight problem types, `dataset_runner`.
 * **`vision-calibration`** — facade crate re-exporting the above for a stable, ergonomic API.
-* **`vision-calibration-py`** — PyO3/maturin Python extension crate exposing high-level workflows.
+* **`vision-calibration-py`** — PyO3/maturin Python extension crate exposing high-level workflows (PyPI).
+* **`vision-calibration-bench`** (unpublished) — registry-driven dataset benchmarks + regression records.
+* **`vision-calibration-examples-private`** (unpublished) — private-dataset acceptance runners (rtv3d family).
 
 The codebase prioritizes:
 
@@ -29,17 +36,29 @@ If you are an automated agent (Codex, etc.), follow these rules strictly.
 ### Dependency direction
 
 * `vision-calibration-core` **must not depend on** any other workspace crate.
-* `vision-calibration-linear` and `vision-calibration-optim` **may depend on** `vision-calibration-core`.
-* `vision-calibration-pipeline` **may depend on** `vision-calibration-core`, `vision-calibration-linear`, and `vision-calibration-optim`.
-* `vision-calibration` is top-level entry points.
+* `vision-calibration-linear`, `vision-calibration-optim`, and `vision-geometry`
+  **may depend on** `vision-calibration-core`. `linear` and `optim` are peers
+  (no cross-dep); `linear` may also use `vision-geometry`.
+* `vision-mvg` **may depend on** `vision-geometry` and `vision-calibration-core`.
+* `vision-calibration-dataset` and `vision-calibration-detect` are the
+  manifest/detector layer feeding the pipeline's `dataset_runner`.
+* `vision-calibration-pipeline` **may depend on** core, linear, optim,
+  geometry, dataset, and detect (not `vision-mvg` — the facade re-exports
+  the MVG surface directly).
+* `vision-calibration` is top-level entry points (facade only, no logic).
 * `vision-calibration-py` **may depend on** `vision-calibration` (preferred) and Python binding tooling crates.
+* `vision-calibration-bench` / `vision-calibration-examples-private`
+  (unpublished) consume the facade + pipeline for dataset runs.
 
 ### Where code goes
 
-* **Math types, camera models, RANSAC** → `vision-calibration-core`
+* **Math types, `linalg` numerics, camera models, RANSAC** → `vision-calibration-core`
 * **Closed-form/linear solvers** → `vision-calibration-linear`
-* **NLLS traits, robust kernels, solver backends** → `vision-calibration-optim`
-* **Full pipelines and reports** → `vision-calibration-pipeline`
+* **NLLS IR, robust kernels, solver backends** → `vision-calibration-optim`
+* **Deterministic two-view solvers** → `vision-geometry`
+* **MVG pipelines (pose recovery, triangulation, BA, rectification, dense stereo)** → `vision-mvg`
+* **Dataset manifests / sniffing** → `vision-calibration-dataset`; **target detectors** → `vision-calibration-detect`
+* **Sessions, problem types, dataset runner** → `vision-calibration-pipeline`
 * **Public re-exports/docs** → `vision-calibration`
 * **Python module bindings, Python package glue, and wheel packaging** → `vision-calibration-py`
 

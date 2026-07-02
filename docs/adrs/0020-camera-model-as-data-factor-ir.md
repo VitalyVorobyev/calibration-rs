@@ -2,6 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-06-12
+- Note (2026-07-02): the autodiff-first kernel design chosen here is what made
+  the hand-Jacobian apex-solver backend unviable (Track O parked 2026-06-15,
+  see the note on ADR 0008). This is an accepted consequence: generic
+  `residual<T: RealField>` kernels over hand-derived Jacobians.
 
 ## Context
 

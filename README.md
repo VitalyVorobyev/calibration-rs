@@ -47,7 +47,16 @@ computer vision, validates algorithmic behavior and numerical results, and enfor
                        └─────────────────────┘
 ```
 
+The diagram shows the core layering; the full workspace adds `vision-geometry`
+/ `vision-mvg` (two-view and multiple-view geometry, re-exported through the
+facade as `geometry` / `mvg`) and `vision-calibration-dataset` /
+`vision-calibration-detect` (dataset manifests + target detectors feeding the
+pipeline's `dataset_runner`). See [ADR 0006](docs/adrs/0006-layered-crate-architecture.md).
+
 ## Crate Summary
+
+Nine crates.io crates + the PyPI extension crate (plus unpublished
+bench/examples support crates):
 
 | Crate | Description |
 |-------|-------------|
@@ -55,7 +64,11 @@ computer vision, validates algorithmic behavior and numerical results, and enfor
 | **vision-calibration-core** | Math types (nalgebra), composable camera models, RANSAC, synthetic data |
 | **vision-calibration-linear** | Closed-form solvers: homography, Zhang, PnP, epipolar, hand-eye, laserline |
 | **vision-calibration-optim** | Non-linear LM refinement: planar intrinsics, rig, hand-eye, laserline |
-| **vision-calibration-pipeline** | Session API, step functions, JSON checkpointing |
+| **vision-calibration-pipeline** | Session API, step functions, JSON checkpointing, dataset runner |
+| **vision-geometry** | Deterministic two-view solvers: epipolar, homography, triangulation, camera matrix |
+| **vision-mvg** | MVG pipelines: robust pose recovery, N-view triangulation, bundle adjustment, Scheimpflug-aware rectification, dense stereo |
+| **vision-calibration-dataset** | `DatasetSpec` manifest, validator, folder sniffer |
+| **vision-calibration-detect** | Target detectors (chessboard / ChArUco / puzzleboard / ring-grid) + detection cache |
 | **vision-calibration-py** | Python bindings (PyO3/maturin) for all high-level workflows |
 
 ## Quick Start
@@ -63,7 +76,7 @@ computer vision, validates algorithmic behavior and numerical results, and enfor
 Add the facade crate to your `Cargo.toml`:
 
 ```toml
-vision-calibration = "0.4"
+vision-calibration = "0.6"
 ```
 
 Or track `main` directly:
@@ -248,6 +261,7 @@ step functions. Each problem type defines its own sequence of steps:
 | `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` (pinhole or Scheimpflug rig via `RigExtrinsicsConfig::sensor`) |
 | `RigHandeyeProblem` | 6 steps: intrinsics (×2) → rig (×2) → hand-eye (×2) (pinhole or Scheimpflug rig via `RigHandeyeConfig::sensor`; supports `EyeInHand` and `EyeToHand`) |
 | `RigLaserlineDeviceProblem` | Per-camera laser-plane calibration for a Scheimpflug rig; takes a frozen `RigHandeyeExport` (Scheimpflug variant) as upstream calibration |
+| `RigHandeyeLaserlineProblem` | Joint rig hand-eye + laser-plane bundle adjustment (the full laser-device chain in one problem) |
 
 Each problem type also provides a `run_calibration` convenience function that runs all steps.
 

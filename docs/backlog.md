@@ -1,12 +1,181 @@
 # Backlog
 
 Execution status for agent-driven implementation tasks. Each completed task gets
-a short report under `docs/report/` and a task-scoped commit.
+a dated one-paragraph completion note here (the durable record — `docs/report/`
+is retired, historical entries kept for reference) and a task-scoped commit
+(AGENTS.md §11).
 
-Open tasks below derive from the
-[2026-06-11 workspace review](report/2026-06-11-workspace-review.md) and the
-V/O/M/B tracks in the [ROADMAP](ROADMAP.md). Findings F1–F6 reference that
-review.
+Open tasks derive from the
+[2026-06-11 workspace review](report/2026-06-11-workspace-review.md) (findings
+F1–F6), the V/O/P/M/C/D/B tracks, and — since 2026-07-02 — the
+**production-grade program** (Tracks S/Q/R + B-QUAL/B-UX/B-DIST below; phase
+plan and exit criteria in the [ROADMAP](ROADMAP.md)). Sequencing:
+S1→S2→S3→S4→Q2→{Q3,Q4,Q5,Q7}; Q4→R2→R3→{R5, B-QUAL2};
+B-QUAL1→…→B-QUAL4→B-UX1→B-UX2→B-DIST.
+
+## S — Device-spec → seed initialization (Phase I)
+
+Structured "device specification → initialization seed" layer replacing the
+hand-coded per-example constants. Spec-seeded init is the **official
+acceptance route** (ADR 0022); from-scratch stays experimental.
+
+- [ ] S1-SPEC-ADR - ADR 0023: `DeviceSpec` schema + seed derivation. Per-camera
+  lens focal (mm), pixel pitch, sensor size/resolution, Scheimpflug mount tilt
+  (deg + axis); rig mechanical layout (nominal camera poses, laser-plane
+  nominals, hand-eye nominal); units, frames, serde format (sidecar `spec.json`
+  next to the dataset manifest), versioning, and the mapping onto the existing
+  manual-init surface (ADR 0011). Home: `vision-calibration-dataset` (owns
+  manifests, ADR 0016) with derivation fns in pipeline. Ship skeleton types +
+  serde roundtrip + `f_px = f_mm / pixel_pitch` unit test in the same PR.
+- [ ] S2-SPEC-INTRINSICS - Spec → per-camera intrinsics + tilt seeds. Replace
+  the hand-coded constants in `rtv3d_ref_intrinsics.rs` +
+  `rtv3d_ringgrid_intrinsics.rs`; delete the `RTV3D_RINGGRID_FOCAL` env sweep
+  (focal derives from the spec); check in a `spec.json` per private dataset.
+  Gate: both hard-gated examples still pass ≤ 0.5 px with spec-derived seeds,
+  no env vars.
+- [ ] S3-SPEC-EXTRINSICS - Extrinsics + hand-eye seeds from the mechanical
+  layout, wired into `rtv3d_rig.rs` (currently bootstrapped; keep bootstrap
+  behind a flag for comparison). Gate: the beat-the-oracle criteria unchanged.
+- [ ] S4-ACCEPT-HARNESS - One-command acceptance runner in
+  `vision-calibration-bench`: iterate all registered datasets, run the seeded
+  official route, evaluate gates; exit 0 iff all on-disk datasets pass; absent
+  datasets (`130x130_puzzle`, `3536119669` — registered-unavailable) print
+  `UNAVAILABLE` and skip, never a silent pass. Registry entries reference spec
+  files. Demote `diagnose_intrinsics`' failing 0.4 px from-scratch gate to
+  informational (V7 is parked); the seeded ≤ 0.5 px gate is the acceptance
+  gate. Add the cheap subset to CI.
+
+## Q — Algorithmic soundness: proofs + regression (Phase I)
+
+A **proof pack** per algorithm family: math note (`docs/notes/<family>.md` —
+model equations, cost, identifiability/degeneracy, gauge, noise sensitivity),
+synthetic-GT matrix test (parameter grid × noise levels), property tests where
+a real invariant exists, committed regression Fit record + gate. Init routines
+additionally get a convergence-basin study. Families: planar intrinsics,
+Scheimpflug intrinsics (seeded), rig extrinsics, hand-eye, laserline bundle,
+ringgrid detection/bias, rectification (short note only — C4 gate exists),
+two-view/triangulation.
+
+- [ ] Q1-PROOF-STANDARD - Codify the standard in `docs/notes/README.md` +
+  deliver the planar-intrinsics pack as the template (generalize the
+  `seeded_coarse_prior_converges_on_strong_tilt_distortion` pattern into a
+  reusable matrix-test helper in the synthetic module). Also fix or convert
+  the one `#[ignore]`d test (`optim/src/problems/laserline_bundle.rs`,
+  "Fix after laserline pipeline integration") into a tracked item.
+- [ ] Q2-REGRESSION-WIRING - (after S4; deliberately early so Q3/Q4/Q5/Q7 are
+  regression-guarded) Commit baseline Fit records for every on-disk dataset
+  via the S4 runner; add regression gates (fail if RMS worsens beyond stated
+  tolerance); snapshot criterion baselines in linear/optim. Gate: a deliberate
+  cost-function perturbation on a branch trips it.
+- [ ] Q3-RINGGRID-BIAS - Drive the ringgrid floor (median ≈ 4.7 px) down:
+  closed-form perspective ellipse-center-vs-ring-center bias correction in the
+  detector or at residual level; diagnose the cam5 ~38 px geometric outlier
+  (S3 spec seeds may expose the cause); ringgrid math note (the bias mechanism
+  is its proof). Target: median ≤ 1.0 px; cam5 fixed or excluded with a
+  documented physical cause; regression record updated.
+- [ ] Q4-MWIRE-SCHEIMPFLUG - Distortion-model selection on the Scheimpflug
+  path: add `distortion_model: DistortionKind` to `ScheimpflugIntrinsicsConfig`
+  + the rig configs, mirroring the PlanarIntrinsics M-WIRE slice (minimal flat
+  shape — R2/R3 normalizes placement later). Measure the effect on the seeded
+  fits (gated: rtv3d_ref still ≤ 0.5 px) and on the from-scratch floor
+  (informational — this is the suspected V7 factor). App selector → B-QUAL2,
+  Python field → R5.
+- [ ] Q5-RTV3D-SCALE - (absorbs V6-SCALE) Settle the rtv3d absolute scale
+  (hexagon 90.1 mm at 5.2 mm cells vs oracle-implied ~98.5 mm; if 98.5 mm is
+  right the true cell is ≈ 5.69 mm and both shipped board specs are wrong).
+  With S1, the natural fix is a metric anchor in the device spec (known target
+  dimension or baseline prior in the rig bundle). Math note states exactly
+  which measurement pins scale and its sensitivity. Gate in `rtv3d_rig.rs`.
+- [ ] Q6-BASIN-STUDY - Convergence-basin study for seeded Scheimpflug init:
+  bench example perturbing spec seeds (focal ×[0.5..2], tilt ±, pp ±) over a
+  grid; gate-pass rate per perturbation radius on rtv3d_ref + ringgrid; table
+  committed into the Scheimpflug math note, linked from ADR 0022. If the basin
+  does not comfortably contain realistic spec error (focal ±5 %, tilt ±2°),
+  that finding reopens the Phase A sweep design.
+- [ ] Q7-SOLVER-DEDUP - (absorbs the C1-FOLLOWUP remainder) Reconcile the
+  diverged higher-level solvers (`homography`, `epipolar`, `camera_matrix`,
+  `triangulation`) duplicated between `linear` and `geometry`: golden-pin
+  current outputs on both sides first, then dedup, then verify pins unchanged.
+- [ ] Q8-PROOF-PACKS - Remaining proof packs (batched): hand-eye, laserline
+  bundle, rig extrinsics, two-view/triangulation; rectification gets the short
+  note only (C4 gate already exists).
+
+## R — API/config/design revision (Phase II)
+
+- [ ] R1-API-AUDIT - API-surface audit (rust-api-revision) over the facade;
+  land the non-breaking fixes, write the breaking plan for R3. Known targets:
+  `dataset_runner` absent from the facade (the app depends on
+  pipeline/core/dataset/detect directly — must become facade-only);
+  `compute_*_feature_residuals` re-exported at crate root instead of under
+  `optim`; the deprecated `pixel_to_gripper_point` shim; **two distinct public
+  `ScheimpflugFixMask` types** (pipeline `scheimpflug_intrinsics/problem.rs` vs
+  optim `problems/scheimpflug_intrinsics.rs`) — rename one. Triage
+  B3C-CHARUCO-DEDUP here (keep as a small hygiene PR if mechanical, else park
+  with reason).
+- [ ] R2-CONFIG-ADR - ADR 0024: one config vocabulary. Grouped-vs-flat
+  (recommend grouped, RigHandeye-style — `rig_extrinsics` models the same rig
+  concepts flat today); one name for intrinsics-init iterations (currently 4:
+  `init_iterations` / `intrinsics_init_iterations` / `iterations`); unified
+  `fix_*` conventions (`fix_poses: Vec<usize>` vs `fix_first_pose` vs
+  `fix_first_rig_pose`; `fix_k3` vs `fix_k3_in_init`); Option-vs-value policy
+  for `max_iters`/`verbosity` + one defaults table (kill the 30/50/120/200
+  drift); one robust-loss vocabulary + stated defaults (single `robust_loss` vs
+  `calib_loss`+`laser_loss`+weights, `None` vs `Huber`); a shared
+  `RobotPosePrior` replacing the 3 duplicated blocks; uniform
+  `distortion_model` placement. Pre-1.0 clean break, stated in the ADR, with an
+  old→new mapping for every config struct.
+- [ ] R3-CONFIG-IMPL - Execute ADR 0024 across all 8 problem-type configs +
+  examples + bench registry + app `src-tauri` payloads + the schema-driven
+  form. Must precede R5 (Python G2) and B-QUAL2 (ts-rs) so downstream types
+  generate once. Gate: workspace green, acceptance runner green, app Run
+  workspace works, `grep` finds no old field names.
+- [ ] R4-LINEAR-ERRORS - Typed errors inside `vision-calibration-linear`: drop
+  the `anyhow` hard dep; convert the private helpers in `handeye.rs` /
+  `extrinsics.rs` to the established D1 pattern.
+- [ ] R5-PY-PARITY - (absorbs the D3 fill) G0 `run_rig_handeye_laserline`
+  binding → G2 `distortion_model` field (post-R3 shapes) → G1 MVG bindings
+  (serde DTOs → triangulation + rectification + pose recovery → robust → BA,
+  + `.pyi` + round-trip parity tests) → a binding-coverage test asserting every
+  facade workflow has a binding (the guard that would have caught G0).
+- [ ] R6-TUTORIALS - New tutorials: distortion-model selection, single-cam
+  hand-eye; update the existing six for R3 config shapes; document the
+  `spec.json` format for external users. All tutorial code compiles
+  (doctest or example-backed).
+
+## B-QUAL / B-UX / B-DIST — app to production grade (Phase III)
+
+- [ ] B-QUAL1-LINT-CI - ESLint 9 flat config + typescript-eslint + react-hooks
+  + prettier or Biome (decide in-session; bun-friendly either way); fix
+  violations across the ~39 TS files; add an `app` job to
+  `.github/workflows/ci.yml` (`bun install`, lint, `tsc --noEmit`, vitest) —
+  the app is currently absent from CI entirely.
+- [ ] B-QUAL2-TSRS - (after R3) ts-rs codegen (F6): derive on the 12 Tauri
+  command payload/response types + an export discriminator tag; generated
+  types checked in under `app/src/types/generated/`; **delete
+  `inferExportKind`** shape-sniffing; CI verifies codegen currency
+  (regenerate + `git diff --exit-code`).
+- [ ] B-QUAL3-COMPONENT-TESTS - (after B-QUAL2) Vitest + testing-library for
+  the load-bearing components: schema-driven config form (schema + JSON
+  fallback paths), Diagnose rendering for all 9 export kinds (against the
+  generated unions), Run happy path with mocked `invoke`; reusable mocked
+  Tauri IPC helper.
+- [ ] B-QUAL4-SMOKE - Playwright smoke: app boots, each workspace mounts, one
+  Diagnose fixture renders, one Run completes on a tiny bundled dataset.
+  Absorbs the B-INFRA `resource_dir` preset resolution (presets are what the
+  smoke run loads). Document the Tauri-native vs mocked-IPC boundary for CI.
+- [ ] B-UX1-DESIGN-SYSTEM - Design direction + component system: consolidate
+  the hand-rolled components into a small internal set (button, panel, form
+  field, table, toast), typography/spacing scale, dark-mode audit. No new
+  features. Design note in `app/README.md`.
+- [ ] B-UX2-ELEVATION - Workspace-by-workspace elevation: empty states, error
+  surfaces (ADR 0019 fail-fast shown well), progress for long calibrations,
+  manifest-sniff UX polish. Absorbs **B-LASER** (laser-pixel overlay in
+  Diagnose compare mode, point-to-plane mm panel, single-cam laser plane in
+  3D) and **B-EXPLORE** (pre-calibration image grid, detection-cache overlay,
+  coverage map) as scoped sub-items. Gate: frontend-review pass with no
+  high-severity findings.
+- [ ] B-DIST-INSTALLERS - (last) Tauri bundling + signing (macOS first),
+  update-channel decision, versioned app releases wired to D4.
 
 ## V — rtv3d validation
 
@@ -68,16 +237,19 @@ review.
   the rtv3d floor, but all six cameras still fail the raw `<0.4 px` gate
   (best centered means: 0.747–1.199 px), pointing to detector/target/model
   floor rather than rig-chain error.
-- [ ] V6-SCALE - Settle rtv3d absolute scale: get the mechanical camera
-  spacing of the head (our hexagon: 90.1 mm at 5.2 mm cells; oracle implies
-  ~98.5 mm). If 98.5 mm is right the true cell is ≈5.69 mm and both shipped
-  board specs are wrong.
-- [ ] V7-RTV3D-INTRINSICS-FLOOR - Drive the rtv3d reprojection floor below
-  0.4 px or prove the blocking model/data term. Follow up from
-  RTV3D-INTRINSICS-FOCUS: inspect ChArUco corner localization quality and
-  target/print/blur effects first, then test richer lens terms (M2 thin-prism
-  or rational) only if detector residual vector fields remain structured after
-  cleaning detections.
+- [~] V6-SCALE - **Absorbed into Q5-RTV3D-SCALE 2026-07-02** (production-grade
+  program): settle rtv3d absolute scale (our hexagon: 90.1 mm at 5.2 mm cells;
+  oracle implies ~98.5 mm; if 98.5 mm is right the true cell is ≈5.69 mm and
+  both shipped board specs are wrong). The metric anchor belongs in the S1
+  device spec.
+- [~] V7-RTV3D-INTRINSICS-FLOOR - **PARKED (user call 2026-06-14; disposition
+  confirmed 2026-07-02).** Drive the rtv3d from-scratch reprojection floor
+  below 0.4 px or prove the blocking model/data term. Isolated to a
+  detector/target/model floor, not rig-chain error. The seeded route
+  (ADR 0022) is the official acceptance path; S4 demotes the bench's 0.4 px
+  from-scratch gate to informational. Q4 (richer lens terms on the Scheimpflug
+  path) may move this floor as a side effect — measured there, informational
+  only. Do not reopen unprompted.
 - [x] V8-RINGGRID - Full calibration (intrinsics + rig extrinsics + hand-eye)
   on the private `rtv3d_ringgrid` dataset (coded ring-grid target, **different
   physical rig** from the puzzleboard `rtv3d`/`rtv3d_ref` — quality comparison
@@ -165,15 +337,19 @@ Systemic causes:
   pins) tests green; clippy + doc clean. **Closed 2026-06-17:** the last
   `triangulation.rs` `2N×4` site now routes through `core::linalg::null_space`
   (done as part of C2); the shared-helper de-dup landed via C1-FOLLOWUP.
-- [ ] P2-BA-DENSITY - Principled corner budget for the joint rig + hand-eye BA
-  (spatially-distributed subsample preserving coverage, or per-stage decimation
-  knobs). Extrinsics/hand-eye converge on a fraction of the corners; the
-  per-camera intrinsics stage already uses a cheap subsampled tilt sweep + a
-  full-data refine (`optimize_scheimpflug_intrinsics_staged`).
-- [ ] P3-BACKEND-COST - Profile the tiny-solver split (autodiff Jacobian vs
-  `JᵀJ` assembly vs linear solve vs per-retry residual re-eval). Evaluate
-  analytic Jacobians for the hot `ReprojPoint` factor, Jacobian/residual caching,
-  and parallel (rayon) residual + Jacobian evaluation.
+- [ ] P2-BA-DENSITY - **Conditional (2026-07-02):** schedule only if the S4
+  acceptance-runner wall time for the 6-camera rtv3d rig is painful (>~5 min);
+  otherwise stays parked. Principled corner budget for the joint rig +
+  hand-eye BA (spatially-distributed subsample preserving coverage, or
+  per-stage decimation knobs). Extrinsics/hand-eye converge on a fraction of
+  the corners; the per-camera intrinsics stage already uses a cheap subsampled
+  tilt sweep + a full-data refine (`optimize_scheimpflug_intrinsics_staged`).
+- [~] P3-BACKEND-COST - **PARKED post-1.0 (2026-07-02;** Track O's
+  second-backend premise is dead**).** Profile the tiny-solver split (autodiff
+  Jacobian vs `JᵀJ` assembly vs linear solve vs per-retry residual re-eval).
+  Evaluate analytic Jacobians for the hot `ReprojPoint` factor,
+  Jacobian/residual caching, and parallel (rayon) residual + Jacobian
+  evaluation.
 - [x] P4-CRITERION - criterion benchmarks for the hot paths to guard against
   regressions and quantify P1–P3 gains. **Done 2026-06-16** —
   [report](report/2026-06-16-P4-CRITERION-hot-path-benches.md): `criterion`
@@ -262,21 +438,25 @@ Systemic causes:
   + JSON roundtrip + back-compat default). The export `params.camera` JSON shape
   changed to the tagged `CameraParams` form (app/diagnose deserialization updates
   when the app selector lands).
-  - [ ] **Remaining (supervised):** the other intrinsics-bearing problem types
-    (`ScheimpflugIntrinsics`, rig family), the app Run-form model selector +
-    Diagnose display, Python binding, and manual-init seeding of extended models
-    (`PlanarManualInit::distortion` is still `Option<BrownConrady5>`). Also: the
-    BC5-shaped `DistortionFixMask` is currently ignored for non-BC5 models (no
-    user-visible error) — generalize or warn.
+  - [~] **Remaining — split across the production-grade program 2026-07-02:**
+    the intrinsics-bearing problem types (`ScheimpflugIntrinsics`, rig family)
+    → **Q4-MWIRE-SCHEIMPFLUG** (suspected V7 floor factor — measured there);
+    config placement normalization → **R2/R3**; Python binding → **R5**; the
+    app Run-form model selector + Diagnose display → **B-QUAL2**. Manual-init
+    seeding of extended models (`PlanarManualInit::distortion` is still
+    `Option<BrownConrady5>`) and the ignored BC5-shaped `DistortionFixMask`
+    for non-BC5 models (generalize or warn) ride Q4.
   - **Robust wide-FOV inverse** (sub-item): the rational/thin-prism runtime +
     kernel `undistort` use a radial-division fixed point that is contracting
     only within the calibrated FOV (radius ≲ ~1.2), matching OpenCV
     `undistortPoints`; it oscillates for extreme wide-FOV inputs (codex P2 on
     PR #61). Replace with a Newton / 1D-radial solve when these models are wired
     (their required FOV + tangential handling become concrete then).
-- [ ] M4-FISHEYE - Kannala-Brandt equidistant k1–k4: new `ProjectionModel`
-  impl (first beyond `Pinhole`), linear-init changes (Zhang assumptions
-  don't hold at large FOV), synthetic wide-FOV tests.
+- [~] M4-FISHEYE - **PARKED post-1.0 (2026-07-02):** no fisheye dataset in the
+  acceptance set, so out of scope for the v1.0 program. Kannala-Brandt
+  equidistant k1–k4: new `ProjectionModel` impl (first beyond `Pinhole`),
+  linear-init changes (Zhang assumptions don't hold at large FOV), synthetic
+  wide-FOV tests.
 
 ## C — MVG (multiple-view geometry)
 
@@ -304,15 +484,15 @@ Systemic causes:
   DLT-specific `dlt_rank_ok`. No new cross-crate dependency edge; full suite green
   (zero drift). The linear-only helpers `ridge_lstsq` / `project_to_so3` stay in
   `linear`.
-  - [ ] **Remaining (supervised):** the higher-level solvers
-    (`homography`, `epipolar/{fundamental,essential,decomposition}`,
-    `camera_matrix`, `triangulation`) are still duplicated between `linear` and
-    `geometry`. The two implementations have **diverged** (geometry was a fresh
-    port — richer essential/RANSAC, different normalization/error paths), so
-    substituting one for the other risks **calibration numeric drift**. Reconcile
-    numeric equivalence (golden pins on both sides as the gate) before
-    collapsing — not a safe unsupervised swap. Whether the shared home is
-    `core`, `geometry`, or a new crate is part of that design.
+  - [~] **Remaining — absorbed into Q7-SOLVER-DEDUP 2026-07-02:** the
+    higher-level solvers (`homography`, `epipolar/{fundamental,essential,
+    decomposition}`, `camera_matrix`, `triangulation`) are still duplicated
+    between `linear` and `geometry` and have **diverged** (geometry was a
+    fresh port — richer essential/RANSAC, different normalization/error
+    paths), so substituting one for the other risks **calibration numeric
+    drift**. Q7's plan: golden-pin both sides first, then dedup, then verify
+    pins unchanged. Whether the shared home is `core`, `geometry`, or a new
+    crate is part of that design.
   - [x] Promote `vision-geometry` / `vision-mvg` to the crates.io publish set.
     **Done 2026-06-17** (user call): `publish = false` removed from both; the
     `[workspace.dependencies]` version pins were already in place; release
@@ -392,11 +572,12 @@ Systemic causes:
     (RMS / MAE / bad-pixel-rate / density), `OracleMatcher`. 8 tests; zero new
     deps; `--all-features` workspace stays green (no OpenCV feature added — would
     break the `--all-features` gate without a system OpenCV).
-  - [ ] **OpenCV SGBM baseline** — needs an OpenCV-equipped environment to add +
-    verify (not installable in the authoring env; would break `--all-features`
-    if added as a normal cargo feature → put it in a workspace-EXCLUDED crate or
-    a dedicated CI job with OpenCV). Implements `DenseMatcher`, scored by
-    `evaluate`.
+  - [x] **OpenCV SGBM baseline** — **CLOSED as env-blocked 2026-07-02** (no
+    OpenCV-equipped environment available; would break `--all-features` if
+    added as a normal cargo feature). Re-openable if an OpenCV env
+    materializes: put it in a workspace-EXCLUDED crate or a dedicated CI job;
+    implements `DenseMatcher`, scored by `evaluate`. The pure-Rust matcher
+    stands on its own per the amended ADR 0015.
   - [x] **Pure-Rust matcher** — the block-matching MVP. **Done 2026-06-21.** New
     `vision_mvg::dense` (always-on, no new deps): `GrayImage` / `DisparityMap` /
     `BlockMatchOptions` + `match_block` — ZNCC over a square window aggregated in
@@ -506,13 +687,30 @@ Systemic causes:
     is `refine`-gated); **G2** the M-WIRE `distortion_model` config field isn't
     in the Python wrapper (cheap; was Rust-core-only by scope); **G3** low-level
     modules unbound, most by design. No binding-coverage test exists.
-  - [ ] **Fill (sequenced):** G0 `run_rig_handeye_laserline` (cheap, completes
-    the workflow surface) → G2 distortion-model field (cheap) → G1 MVG bindings
-    (DTOs → triangulation + rectification + pose recovery → robust → BA, + `.pyi`
-    + round-trip parity tests) → a binding-coverage parity test (the guard that
-    would have caught G0). G3 deferred pending a consumer.
-- [ ] D4-RELEASE - v1.0 gate: puzzle rig green via app + C4 landed (done) + API
-  stable across two minor releases.
+  - [~] **Fill — absorbed into R5-PY-PARITY 2026-07-02** (sequenced after R3
+    so G2 lands on the normalized config shapes): G0 `run_rig_handeye_laserline`
+    (cheap, completes the workflow surface) → G2 distortion-model field → G1
+    MVG bindings (DTOs → triangulation + rectification + pose recovery →
+    robust → BA, + `.pyi` + round-trip parity tests) → a binding-coverage
+    parity test (the guard that would have caught G0). G3 deferred pending a
+    consumer.
+- [ ] D4-RELEASE - v1.0 gate — **checklist replaced 2026-07-02** by the
+  production-grade program exit criteria (ROADMAP): S4 acceptance command
+  green on all on-disk datasets, Q proof packs complete, R-track API/config
+  freeze done, app CI green (B-QUAL), docs current, plus the standing
+  requirement that the API has been stable across two minor releases.
+- [x] D5-DOCS-TRUTH - Documentation truth pass. **Done 2026-07-02.** ROADMAP
+  refreshed to HEAD (status date, V5–V8 entries, P1–P7, dense-matcher
+  out-of-scope fix, ADR index through 0022, PR #85 noted) + the
+  production-grade program section (Tracks S/Q/R + B-QUAL/B-UX/B-DIST, exit
+  criteria, proof-pack standard); this backlog gained the S/Q/R/B-QUAL
+  sections and dated dispositions (V6→Q5, V7 parked, P3/M4 parked post-1.0,
+  M-WIRE split, C1-FOLLOWUP→Q7, C5-OpenCV closed env-blocked, D3 fill→R5,
+  B-LASER/B-EXPLORE→B-UX2, B-INFRA→B-QUAL2/4); ADR status notes added
+  (0008/0020 second-backend premise parked, 0015 amended, 0022 → Q6 basin
+  study); README crate table/version pins and AGENTS.md crate list brought to
+  the 10-crate reality; stale internal handoffs archived to
+  `docs/internal/archive/`.
 
 ## B — app (extend; sequencing serves V-track)
 
@@ -530,7 +728,8 @@ Systemic causes:
   real hex-lattice `BoardLayout` model (`pitch`/`rows`/`long_row_cols`/radii/
   ring-width); schema regenerated. All four target detectors now calibrate
   end-to-end. Synthetic-board detection + dispatch tests green.
-- [ ] B3C-CHARUCO-DEDUP - **Deferred 2026-06-14** (blocked on verification).
+- [ ] B3C-CHARUCO-DEDUP - **Deferred 2026-06-14; triage moved into R1-API-AUDIT
+  2026-07-02** (keep as a small hygiene PR if mechanical, else park with reason).
   Consolidate the three charuco detection paths (`detect/src/charuco.rs`
   canonical, `examples-private::detect_charuco`, `bench::detect_charuco_view`)
   onto one shared detection call. The clean design (bench/examples delegate to
@@ -568,13 +767,16 @@ Systemic causes:
   Vendor hints live front-end-side (`FIELD_HINTS`) so runner suggestions stay
   raw click-to-apply values; no pipeline change. `bun run build` + `tsc -b`
   green.
-- [ ] B-LASER - Laserline visualization: laser-pixel overlay in Diagnose,
-  point-to-plane residuals (mm) panel, laser planes in the 3D rig viewer.
-- [ ] B-EXPLORE - Pre-calibration dataset exploration: per-camera/pose image
-  grid, detection-cache overlay, board coverage map.
-- [ ] B-INFRA - ts-rs (or specta) codegen for wire types + export
-  discriminator tag (F6); `resource_dir` presets
-  (`RunWorkspace/presets.ts:16`); Vitest unit + Playwright smoke tests.
+- [~] B-LASER - **Re-scoped into B-UX2-ELEVATION 2026-07-02** as concrete
+  sub-items: laser-pixel overlay in Diagnose compare mode, point-to-plane
+  residuals (mm) panel, single-cam laser plane in the 3D rig viewer. (The
+  core laser views shipped 2026-06-12; these are the follow-ups.)
+- [~] B-EXPLORE - **Re-scoped into B-UX2-ELEVATION 2026-07-02** as concrete
+  sub-items: per-camera/pose image grid, detection-cache overlay, board
+  coverage map.
+- [~] B-INFRA - **Absorbed 2026-07-02:** ts-rs codegen + export discriminator
+  tag (F6) → **B-QUAL2-TSRS**; `resource_dir` presets + Playwright smoke →
+  **B-QUAL4-SMOKE**; lint/typecheck/vitest CI entry → **B-QUAL1-LINT-CI**.
   - [x] Vitest unit slice (2026-06-15) - Vitest scaffold (`vitest@4`,
     `vitest.config.ts` node env, `test` / `test:watch` scripts) + pure-logic
     coverage of `inferExportKind` (every probe branch + probe-order precedence),
@@ -582,14 +784,11 @@ Systemic causes:
     / type-disagreement / null-override / base-immutability). 18 tests. Safe
     subset — no wire change. Report:
     `docs/report/2026-06-15-B-INFRA-vitest-unit-slice.md`.
-  - [ ] ts-rs/specta codegen + export discriminator tag (F6) - DEFERRED: a
-    risky wire change that replaces the shape-probe in `inferExportKind` with a
-    Rust-emitted tag; needs supervised design (which exports gain the tag, how
-    `AnyExport` narrows). Tracked in the report's follow-ups.
-  - [ ] `resource_dir` preset resolution (`RunWorkspace/presets.ts:16`) -
-    replace the hard-coded `REPO_ROOT` with Tauri bundle-asset resolution.
-  - [ ] Playwright smoke tests - needs a Tauri/webview harness; out of the
-    pure-logic Vitest scope.
+  - [~] ts-rs/specta codegen + export discriminator tag (F6) - → **B-QUAL2-TSRS**
+    (after R3 so wire types generate once against the normalized configs).
+  - [~] `resource_dir` preset resolution (`RunWorkspace/presets.ts:16`) -
+    → **B-QUAL4-SMOKE** (presets are what the smoke run loads).
+  - [~] Playwright smoke tests - → **B-QUAL4-SMOKE**.
 
 ## Benchmark
 
