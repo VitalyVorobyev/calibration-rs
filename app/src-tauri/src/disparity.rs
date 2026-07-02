@@ -187,8 +187,9 @@ fn compute(
     let (lo, hi) = valid_range(&disp).unwrap_or((0.0, 1.0));
     let (plane_rms, plane_inliers) = planarity_rms(&disp);
 
-    // Reproject to metric depth + a 3D point cloud (rectified-frame pinhole).
-    let (point_cloud, depth) = reproject(&disp, &rect_left, &rect.k_rect, rect.baseline);
+    // Reproject to metric depth + a 3D point cloud (reference-camera frame).
+    let (point_cloud, depth) =
+        reproject(&disp, &rect_left, &rect.k_rect, &rect.r_rect, rect.baseline);
 
     Ok(DisparityResult {
         rectified_pair_png: pair_with_epilines_url(&rect_left, &rect_right)?,
@@ -379,12 +380,17 @@ fn planarity_rms(d: &DisparityMap) -> (f64, usize) {
 
 /// Reproject the disparity map to metric depth and a 3D point cloud through the
 /// rectified pinhole: `Z = f·B / d`, `X = (x−cx)·Z/fx`, `Y = (y−cy)·Z/fy`.
-/// Returns the (grid-subsampled) point cloud and a per-pixel depth map (`NaN`
-/// where disparity is invalid).
+/// The triangulated point lives in the **rectified** frame; `r_rect` (camera-0
+/// direction → rectified frame) is inverted to express cloud points in the
+/// reference camera's frame, matching the 3D view's axes gizmo. The depth map
+/// stays rectified-frame `Z` — it is indexed by rectified pixels. Returns the
+/// (grid-subsampled) point cloud and a per-pixel depth map (`NaN` where
+/// disparity is invalid).
 fn reproject(
     disp: &DisparityMap,
     rect_left: &GrayImage,
     k_rect: &Mat3,
+    r_rect: &Mat3,
     baseline: f64,
 ) -> (PointCloud, Vec<f32>) {
     let (w, h) = (disp.width, disp.height);
@@ -393,6 +399,7 @@ fn reproject(
     let cx = k_rect[(0, 2)] as f32;
     let cy = k_rect[(1, 2)] as f32;
     let b = baseline as f32;
+    let cam_from_rect = r_rect.transpose();
 
     let mut depth = vec![f32::NAN; w * h];
     // Grid subsample so the rendered cloud stays under MAX_POINTS.
@@ -408,9 +415,15 @@ fn reproject(
             let z = fx * b / d;
             depth[y * w + x] = z;
             if x % step == 0 && y % step == 0 {
-                positions.push((x as f32 - cx) * z / fx);
-                positions.push((y as f32 - cy) * z / fy);
-                positions.push(z);
+                let p_rect = Vec3::new(
+                    ((x as f32 - cx) * z / fx) as f64,
+                    ((y as f32 - cy) * z / fy) as f64,
+                    z as f64,
+                );
+                let p_cam = cam_from_rect * p_rect;
+                positions.push(p_cam.x as f32);
+                positions.push(p_cam.y as f32);
+                positions.push(p_cam.z as f32);
                 let g = rect_left.get(x, y) as f32 / 255.0;
                 colors.push(g);
                 colors.push(g);
