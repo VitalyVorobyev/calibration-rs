@@ -661,6 +661,7 @@ mod tests {
                 threshold_mode: Some(ChessThresholdMode::Absolute),
                 threshold_value: Some(30.0),
             }),
+            min_features_per_view: None,
         });
         validate(&spec).unwrap();
 
@@ -681,6 +682,7 @@ mod tests {
                 threshold_mode: Some(ChessThresholdMode::Absolute),
                 threshold_value: Some(0.0),
             }),
+            min_features_per_view: None,
         });
         let err = validate(&spec).unwrap_err();
         assert!(matches!(err, ValidationError::BadDetectorOverride(_)));

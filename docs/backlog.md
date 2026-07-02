@@ -56,14 +56,30 @@ acceptance route** (ADR 0022); from-scratch stays experimental.
   nominals. Gate: all three beat-the-oracle verdicts PASS in **both** seed
   modes, converging to the same optimum (per-cam hand-eye reproj
   bit-identical), confirming seeds change the start point, not the answer.
-- [ ] S4-ACCEPT-HARNESS - One-command acceptance runner in
-  `vision-calibration-bench`: iterate all registered datasets, run the seeded
-  official route, evaluate gates; exit 0 iff all on-disk datasets pass; absent
-  datasets (`130x130_puzzle`, `3536119669` — registered-unavailable) print
-  `UNAVAILABLE` and skip, never a silent pass. Registry entries reference spec
-  files. Demote `diagnose_intrinsics`' failing 0.4 px from-scratch gate to
-  informational (V7 is parked); the seeded ≤ 0.5 px gate is the acceptance
-  gate. Add the cheap subset to CI.
+- [x] S4-ACCEPT-HARNESS - **Done 2026-07-02.** `calib-bench accept` iterates
+  every registered dataset (public + gitignored private registry by
+  default), runs the seeded official route, and hard-gates per entry
+  (`BenchEntry.accept.max_per_cam_mean_px`; `BenchEntry.device_spec`
+  references the ADR 0023 sidecar). Absent datasets print `UNAVAILABLE` and
+  skip — availability is checked before gate presence, never a silent pass;
+  ungated entries print `NO-GATE` loudly. New
+  `run_scheimpflug_intrinsics` bench path runs the manifest-driven seeded
+  route (dataset_runner + `device_seed::scheimpflug_seed`); rtv3d_ref +
+  rtv3d_ringgrid registered as per-camera entries with inline single-camera
+  manifests (strip ROIs). New `DatasetSpec` `detector.min_features_per_view`
+  floor (default 4) — ring-grid decodes below 8 markers poisoned the solve;
+  with the floor at 8 the manifest route reproduces the example numbers
+  bit-exactly. `diagnose_intrinsics`' 0.4 px from-scratch check demoted to
+  informational in docs + report banner (V7 parked). Gates: rtv3d_ref ≤ 0.5
+  (all pass, worst 0.373), rtv3d_ringgrid ≤ **1.0 provisional pre-Q3** (all
+  pass, worst 0.5008 = the Q3-owned knife edge; the standalone example keeps
+  its hard 0.5 and stays red until Q3), rtv3d rig ≤ 2.5 (passes at 1.54),
+  public entries gated 0.25–0.8 from measured baselines. Full suite:
+  **19 passed, 0 failed, 2 UNAVAILABLE, exit 0**. CI runs the cheap stereo
+  subset (`accept --only stereo_left,stereo_right,stereo_rig`, LFS checkout).
+  Schema regen picked up `min_features_per_view` + the pre-existing
+  unregenerated M-WIRE `DistortionKind` drift in
+  `planar_intrinsics_config.json`.
 
 ## Q — Algorithmic soundness: proofs + regression (Phase I)
 

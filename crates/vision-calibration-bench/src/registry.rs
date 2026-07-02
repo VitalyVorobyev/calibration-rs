@@ -99,6 +99,16 @@ pub struct BenchEntry {
     /// Manual initialization seed, if the problem needs one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<ManualInitSeed>,
+    /// Sidecar device-spec (`spec.json`, ADR 0023) used to derive the
+    /// seeded official initialization for acceptance runs. Relative paths
+    /// resolve against `data_root`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_spec: Option<PathBuf>,
+    /// Hard acceptance gate evaluated by `calib-bench accept` (S4).
+    /// `None` means the entry is not in the acceptance set — the runner
+    /// reports it loudly instead of silently passing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accept: Option<AcceptGate>,
     /// Single-camera hand-eye configuration overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub single_cam_handeye: Option<SingleCamHandeyeOverride>,
@@ -114,6 +124,20 @@ pub struct BenchEntry {
     /// Free-form notes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+}
+
+/// Hard per-dataset acceptance gate (`calib-bench accept`, S4).
+///
+/// The seeded official route (ADR 0022/0023) must bring **every** camera's
+/// mean reprojection error at or under the threshold; a non-finite mean is
+/// always a failure. Thresholds are per-entry because they encode
+/// dataset-specific acceptance criteria (e.g. `0.5 px` for the Scheimpflug
+/// intrinsics gates), not a universal quality bar.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AcceptGate {
+    /// Maximum allowed per-camera mean reprojection error, pixels.
+    pub max_per_cam_mean_px: f64,
 }
 
 /// Whether a dataset is publicly committed or private.
@@ -717,6 +741,10 @@ mod tests {
             prior_export: Some(PathBuf::from("prior.json")),
             fixture: Some(PathBuf::from("fixtures/puzzle.json")),
             seed: Some(ManualInitSeed(serde_json::json!({"fx": 1000.0}))),
+            device_spec: Some(PathBuf::from("spec.json")),
+            accept: Some(AcceptGate {
+                max_per_cam_mean_px: 0.5,
+            }),
             single_cam_handeye: None,
             rig_handeye: Some(RigHandeyeOverride {
                 sensor: Some(BenchSensorMode::Scheimpflug {

@@ -29,6 +29,10 @@ struct Cli {
 enum Command {
     /// Run calibration on a registered dataset and emit a BenchRecord.
     Run(RunArgs),
+    /// Run the acceptance suite: every registered dataset through the
+    /// seeded official route, hard-gated. Exit 0 iff all on-disk datasets
+    /// pass; registered-but-absent datasets print `UNAVAILABLE` and skip.
+    Accept(AcceptArgs),
     /// Print a summary report from a stored BenchRecord JSON file.
     Report(ReportArgs),
     /// Compare a BenchRecord against a frozen golden fixture.
@@ -55,6 +59,18 @@ struct RunArgs {
     /// printed to stdout stays compact.
     #[arg(long)]
     residuals_out: Option<PathBuf>,
+}
+
+/// Arguments for the `accept` subcommand.
+#[derive(Parser)]
+struct AcceptArgs {
+    /// Registry JSON path(s). May be repeated. Defaults to the crate's
+    /// `registry/public.json` plus `registry/private.json` when present.
+    #[arg(long)]
+    registry: Vec<PathBuf>,
+    /// Only evaluate these dataset ids (repeat or comma-separate).
+    #[arg(long, value_delimiter = ',')]
+    only: Vec<String>,
 }
 
 /// Arguments for the `report` subcommand.
@@ -185,6 +201,153 @@ fn active_features() -> Vec<String> {
     f
 }
 
+/// Registries the acceptance suite reads when `--registry` is not given:
+/// the committed public registry plus the local (gitignored) private one
+/// when it exists.
+fn default_accept_registries() -> Vec<PathBuf> {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("registry");
+    let mut regs = vec![base.join("public.json")];
+    let private = base.join("private.json");
+    if private.is_file() {
+        regs.push(private);
+    }
+    regs
+}
+
+/// Outcome of one acceptance entry, for the summary table.
+enum AcceptOutcome {
+    Pass { worst_mean_px: f64 },
+    Fail { reason: String },
+    Unavailable,
+    NoGate,
+}
+
+fn cmd_accept(args: &AcceptArgs) -> Result<()> {
+    let registries = if args.registry.is_empty() {
+        default_accept_registries()
+    } else {
+        args.registry.clone()
+    };
+
+    let mut entries: Vec<BenchEntry> = Vec::new();
+    for path in &registries {
+        let registry =
+            load_registry(path).with_context(|| format!("load registry {}", path.display()))?;
+        println!(
+            "registry {}: {} dataset(s)",
+            path.display(),
+            registry.datasets.len()
+        );
+        entries.extend(registry.datasets);
+    }
+    if !args.only.is_empty() {
+        let known: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+        for id in &args.only {
+            anyhow::ensure!(
+                known.contains(&id.as_str()),
+                "--only id `{id}` is not a registered dataset (known: {})",
+                known.join(", ")
+            );
+        }
+        entries.retain(|e| args.only.iter().any(|id| id == &e.id));
+    }
+    anyhow::ensure!(!entries.is_empty(), "no datasets selected for acceptance");
+
+    let mut outcomes: Vec<(String, AcceptOutcome)> = Vec::new();
+    for entry in &entries {
+        let resolved = resolve_entry_data_root(entry.clone());
+        // Availability first: a registered-but-absent dataset is UNAVAILABLE
+        // regardless of whether it carries a gate (never a silent pass).
+        if !resolved.data_root.is_dir() {
+            println!(
+                "UNAVAILABLE  {} ({} not on disk — skipped, not passed)",
+                entry.id,
+                resolved.data_root.display()
+            );
+            outcomes.push((entry.id.clone(), AcceptOutcome::Unavailable));
+            continue;
+        }
+        let Some(gate) = entry.accept else {
+            println!(
+                "NO-GATE      {} (no `accept` gate — not in the acceptance set)",
+                entry.id
+            );
+            outcomes.push((entry.id.clone(), AcceptOutcome::NoGate));
+            continue;
+        };
+        println!("RUNNING      {} (seeded official route)", entry.id);
+        let outcome = match run_dataset_record(entry) {
+            Ok(record) => evaluate_accept_gate(&record, gate),
+            Err(e) => AcceptOutcome::Fail {
+                reason: format!("run error: {e:#}"),
+            },
+        };
+        match &outcome {
+            AcceptOutcome::Pass { worst_mean_px } => println!(
+                "PASS         {} (worst per-cam mean {:.4} px ≤ {} px)",
+                entry.id, worst_mean_px, gate.max_per_cam_mean_px
+            ),
+            AcceptOutcome::Fail { reason } => println!("FAIL         {} — {reason}", entry.id),
+            _ => unreachable!(),
+        }
+        outcomes.push((entry.id.clone(), outcome));
+    }
+
+    let failed: Vec<&str> = outcomes
+        .iter()
+        .filter_map(|(id, o)| matches!(o, AcceptOutcome::Fail { .. }).then_some(id.as_str()))
+        .collect();
+    let passed = outcomes
+        .iter()
+        .filter(|(_, o)| matches!(o, AcceptOutcome::Pass { .. }))
+        .count();
+    let unavailable = outcomes
+        .iter()
+        .filter(|(_, o)| matches!(o, AcceptOutcome::Unavailable))
+        .count();
+    let nogate = outcomes
+        .iter()
+        .filter(|(_, o)| matches!(o, AcceptOutcome::NoGate))
+        .count();
+    println!(
+        "\nacceptance summary: {passed} passed, {} failed, {unavailable} unavailable, {nogate} ungated",
+        failed.len()
+    );
+    anyhow::ensure!(
+        failed.is_empty(),
+        "acceptance FAILED for: {}",
+        failed.join(", ")
+    );
+    Ok(())
+}
+
+/// Evaluate the hard per-camera gate over a produced record.
+fn evaluate_accept_gate(
+    record: &BenchRecord,
+    gate: vision_calibration_bench::registry::AcceptGate,
+) -> AcceptOutcome {
+    if record.fit.per_camera.is_empty() {
+        return AcceptOutcome::Fail {
+            reason: "record has no per-camera fit stats (nothing to gate on)".into(),
+        };
+    }
+    let mut worst = f64::NEG_INFINITY;
+    for (i, stats) in record.fit.per_camera.iter().enumerate() {
+        if !stats.mean.is_finite() || stats.mean > gate.max_per_cam_mean_px {
+            return AcceptOutcome::Fail {
+                reason: format!(
+                    "camera {i} mean reprojection {} px exceeds gate {} px",
+                    stats.mean, gate.max_per_cam_mean_px
+                ),
+            };
+        }
+        worst = worst.max(stats.mean);
+    }
+    AcceptOutcome::Pass {
+        worst_mean_px: worst,
+    }
+}
+
 fn cmd_run(args: &RunArgs) -> Result<()> {
     let entry = load_entry(&args.dataset, args.registry.as_deref())?;
     let record = run_dataset_record(&entry)?;
@@ -237,7 +400,8 @@ fn resolve_entry_data_root(mut entry: BenchEntry) -> BenchEntry {
 #[cfg(feature = "tier-b")]
 fn run_dataset_record(entry: &BenchEntry) -> Result<BenchRecord> {
     use vision_calibration_bench::run::{
-        run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, run_single_cam_handeye,
+        run_planar_intrinsics, run_rig_extrinsics, run_rig_handeye, run_scheimpflug_intrinsics,
+        run_single_cam_handeye,
     };
 
     // Resolve a relative data_root against the workspace root (derived from
@@ -247,6 +411,7 @@ fn run_dataset_record(entry: &BenchEntry) -> Result<BenchRecord> {
 
     let mut record = match entry.problem {
         ProblemKind::PlanarIntrinsics => run_planar_intrinsics(&entry)?,
+        ProblemKind::ScheimpflugIntrinsics => run_scheimpflug_intrinsics(&entry)?,
         ProblemKind::RigExtrinsics => run_rig_extrinsics(&entry)?,
         ProblemKind::SingleCamHandeye => run_single_cam_handeye(&entry)?,
         ProblemKind::RigHandeye => run_rig_handeye(&entry)?,
@@ -449,6 +614,11 @@ fn render_intrinsics_diagnose_report(
         "# Intrinsics Diagnostic: {}\n\n",
         report.dataset_id
     ));
+    out.push_str(
+        "> Informational: this grades the *from-scratch* multistart floor \
+         (experimental — V7 parked). The acceptance gate is the seeded \
+         official route: `calib-bench accept`.\n\n",
+    );
     out.push_str(&format!(
         "- gate: raw all-corner mean < {:.3} px\n- ChESS threshold: {}\n- pass: `{}`\n\n",
         report.gate_px,
@@ -919,6 +1089,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Run(args) => cmd_run(&args)?,
+        Command::Accept(args) => cmd_accept(&args)?,
         Command::Report(args) => cmd_report(&args)?,
         Command::Compare(_args) => {
             println!("compare: not implemented yet");

@@ -52,6 +52,31 @@ jobs:
       - name: Cargo test (MSRV)
         run: cargo test --workspace --locked
 
+  # S4 acceptance harness — cheap public subset. The full suite (private
+  # datasets included) runs locally via `calib-bench accept`; the private
+  # registry is gitignored, so CI covers the committed stereo fixtures.
+  acceptance:
+    name: Acceptance (public cheap subset)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with LFS data)
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run acceptance gates (stereo subset)
+        run: >-
+          cargo run --release -p vision-calibration-bench --features tier-b
+          --bin calib-bench -- accept
+          --registry crates/vision-calibration-bench/registry/public.json
+          --only stereo_left,stereo_right,stereo_rig
+
   python-runtime:
     name: Python Runtime Tests
     needs: build
