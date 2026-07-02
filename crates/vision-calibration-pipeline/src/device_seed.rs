@@ -4,14 +4,15 @@
 //! layout — onto the ADR 0011 manual-init structs consumed by
 //! `step_init_with_seed` and friends. All unit conversion between the
 //! datasheet-natural spec (`mm`, `µm`, degrees) and the internal
-//! representation (pixels, radians, millimetres) happens here and nowhere
+//! representation (pixels, radians, and **metres** for world-frame
+//! translations — the pipeline's world unit) happens here and nowhere
 //! else:
 //!
 //! - `fx = fy = focal_mm · 1000 / pixel_pitch_um`, principal point
 //!   defaulting to the resolution center, `skew = 0`;
 //! - mount tilt degrees → `ScheimpflugParams` radians;
 //! - `rig_se3_cam` mount poses → inverted into the `cam_se3_rig` (`T_C_R`)
-//!   the rig problems expect.
+//!   the rig problems expect, translations mm → m.
 //!
 //! The derivations are per-camera-id, never positional: the caller states
 //! the camera order it needs and mismatches surface as typed errors.
@@ -107,7 +108,8 @@ pub fn rig_intrinsics_seed(
 }
 
 /// Nominal `cam_se3_rig` (`T_C_R`) poses from the mechanical layout, in the
-/// caller's `camera_ids` order.
+/// caller's `camera_ids` order. Translations are converted to the
+/// pipeline's world unit (metres).
 ///
 /// This is deliberately *not* a `RigHandeyeRigManualInit`: ADR 0011 couples
 /// `cam_se3_rig` with the data-dependent per-view `rig_se3_target`
@@ -200,13 +202,16 @@ fn sensor_from_camera(cam: &CameraDeviceSpec) -> ScheimpflugParams {
     }
 }
 
+/// Spec translations are millimetres (drawing units); derived poses are in
+/// the pipeline's world unit, **metres** (target 3D points are built as
+/// `mm / 1000`, laser errors/plane distances are metres throughout).
 fn iso3_from_nominal(pose: &NominalPoseSpec) -> Iso3 {
     let [roll, pitch, yaw] = pose.rpy_deg.map(f64::to_radians);
     let rotation = nalgebra::UnitQuaternion::from_euler_angles(roll, pitch, yaw);
     let translation = nalgebra::Translation3::new(
-        pose.translation_mm[0],
-        pose.translation_mm[1],
-        pose.translation_mm[2],
+        pose.translation_mm[0] * 1e-3,
+        pose.translation_mm[1] * 1e-3,
+        pose.translation_mm[2] * 1e-3,
     );
     Iso3::from_parts(translation, rotation)
 }
@@ -339,15 +344,16 @@ mod tests {
 
     #[test]
     fn cam_se3_rig_is_inverted_mount() {
-        // Mount: Rz(90°), t = [100, 0, 0] (camera pose in rig frame).
-        // Inverse: R = Rz(−90°), t = −Rz(−90°)·[100,0,0] = [0, 100, 0].
+        // Mount: Rz(90°), t = [100, 0, 0] mm (camera pose in rig frame).
+        // Inverse: R = Rz(−90°), t = −Rz(−90°)·[100,0,0] mm = [0, 100, 0] mm
+        // = [0, 0.1, 0] in the pipeline's world unit (metres).
         let spec = rig_spec();
         let poses = nominal_cam_se3_rig(&spec, &["cam0", "cam1"]).unwrap();
         let t = poses[0].translation.vector;
-        assert!((t - nalgebra::Vector3::new(0.0, 100.0, 0.0)).norm() < 1e-9);
-        // Round-trip: inverse of the inverse is the mount pose.
+        assert!((t - nalgebra::Vector3::new(0.0, 0.1, 0.0)).norm() < 1e-12);
+        // Round-trip: inverse of the inverse is the mount pose (in metres).
         let back = poses[0].inverse();
-        assert!((back.translation.vector.x - 100.0).abs() < 1e-9);
+        assert!((back.translation.vector.x - 0.1).abs() < 1e-12);
         assert!(poses[1].translation.vector.norm() < 1e-12); // identity mount
 
         assert!(matches!(
@@ -375,7 +381,8 @@ mod tests {
         let spec = rig_spec();
         let seed = handeye_seed(&spec, HandEyeMode::EyeToHand).unwrap();
         let handeye = seed.handeye.unwrap();
-        assert!((handeye.translation.vector.y - 250.0).abs() < 1e-12);
+        // 250 mm in the spec → 0.25 m in the pipeline's world unit.
+        assert!((handeye.translation.vector.y - 0.25).abs() < 1e-12);
         assert!(seed.mode_target_pose.is_none());
 
         assert!(matches!(

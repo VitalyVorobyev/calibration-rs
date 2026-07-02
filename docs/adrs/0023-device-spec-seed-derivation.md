@@ -50,9 +50,10 @@ dependencies**:
 **Units are datasheet-natural and encoded in field names** (`_mm`, `_um`,
 `_px`, `_deg`): a `DeviceSpec` is a transcription of a datasheet and a
 mechanical drawing, and transcription must not require unit conversion —
-conversion happens exactly once, in the derivation layer (deg→rad, mm+µm→px).
-Translations stay in millimetres, matching the pipeline's world units (board
-cell sizes are mm).
+conversion happens exactly once, in the derivation layer (deg→rad, mm+µm→px,
+and translations mm→m: the pipeline's world unit is **metres** — target 3D
+points are built as `mm / 1000`, laser errors and plane distances are metres
+throughout).
 
 **Frames follow ADR 0009 naming.** The spec stores `rig_se3_cam` — the camera
 mount pose *in the rig frame*, which is what a mechanical drawing states;

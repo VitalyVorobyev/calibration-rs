@@ -24,9 +24,10 @@ layout) as a sidecar `spec.json` next to a dataset. Output: the existing ADR
   (`CameraSource::id` convention, e.g. `"cam0"`).
 - `resolution_px` is the resolution of the images actually calibrated (for
   rtv3d: the 720×540 tile, not the full sensor).
-- World/translation units are millimetres (board cell sizes are given in mm
-  throughout the pipeline); angles in the spec are degrees (datasheet units),
-  radians internally.
+- Spec translations are millimetres (drawing units); the pipeline's world
+  unit is **metres** (target 3D points are `mm / 1000`, laser metrics in m),
+  so derived poses convert mm → m. Angles in the spec are degrees (datasheet
+  units), radians internally.
 - JSON input (serde_json rejects NaN/Inf literals, so finiteness comes free).
 
 ## Failure Modes
