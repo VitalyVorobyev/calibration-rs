@@ -230,16 +230,21 @@ fn main() -> Result<()> {
 
     report(&results, puzzle_reproj.as_deref());
 
-    // ── Hard gate: every solved camera ≤ 0.5 px ──────────────────────────────
+    // ── Hard gate: all NUM_CAMERAS solved, each ≤ 0.5 px ─────────────────────
     let failed: Vec<(usize, f64)> = results
         .iter()
         .enumerate()
         .filter_map(|(i, r)| r.as_ref().map(|r| (i, r.mean_reproj)))
         .filter(|(_, e)| *e > GATE_PX || e.is_nan())
         .collect();
+    let skipped: Vec<usize> = results
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| r.is_none().then_some(i))
+        .collect();
     let solved = results.iter().filter(|r| r.is_some()).count();
-    if failed.is_empty() && solved > 0 {
-        println!("\nGATE PASS: all {solved} solved cameras ≤ {GATE_PX} px mean reprojection.");
+    if failed.is_empty() && skipped.is_empty() {
+        println!("\nGATE PASS: all {solved} cameras ≤ {GATE_PX} px mean reprojection.");
         Ok(())
     } else if solved == 0 {
         Err(anyhow!(
@@ -253,9 +258,10 @@ fn main() -> Result<()> {
             .collect::<Vec<_>>()
             .join(", ");
         Err(anyhow!(
-            "GATE FAIL: {} of {solved} solved cameras exceed {GATE_PX} px ({list}). \
-             Investigate focal prior (RTV3D_RINGGRID_FOCAL), detection density, or the \
-             detector tail — do not relax the gate.",
+            "GATE FAIL: {solved} of {NUM_CAMERAS} cameras solved, {} exceed {GATE_PX} px ({list}); \
+             skipped (not enough views): {skipped:?}. Investigate focal prior \
+             (RTV3D_RINGGRID_FOCAL), detection density, or the detector tail — do not relax \
+             the gate.",
             failed.len()
         ))
     }

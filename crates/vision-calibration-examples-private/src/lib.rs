@@ -459,6 +459,8 @@ pub fn detect_ringgrid_all(
     ring_width_mm: f64,
     cache_path: Option<&Path>,
 ) -> Result<Vec<Vec<Option<CorrespondenceView>>>> {
+    let num_cameras = 6; // rtv3d horizontal strip = six 720×540 tiles
+
     if let Some(p) = cache_path
         && p.exists()
     {
@@ -466,11 +468,20 @@ pub fn detect_ringgrid_all(
             std::fs::read_to_string(p).with_context(|| format!("read cache {:?}", p.display()))?;
         let cached: Vec<Vec<Option<CorrespondenceView>>> =
             serde_json::from_str(&s).with_context(|| format!("parse cache {:?}", p.display()))?;
-        return Ok(cached);
+        let shape_ok =
+            cached.len() == poses.len() && cached.iter().all(|row| row.len() == num_cameras);
+        if shape_ok {
+            return Ok(cached);
+        }
+        eprintln!(
+            "warning: ignoring stale detection cache {:?} ({} pose(s) cached, expected {} × {num_cameras} cameras); re-detecting",
+            p.display(),
+            cached.len(),
+            poses.len()
+        );
     }
 
     let mut out: Vec<Vec<Option<CorrespondenceView>>> = Vec::with_capacity(poses.len());
-    let num_cameras = 6; // rtv3d horizontal strip = six 720×540 tiles
     for (i, pose) in poses.iter().enumerate() {
         let img = load_gray(&data_dir.join(&pose.target_image))
             .with_context(|| format!("pose {i} target"))?;
