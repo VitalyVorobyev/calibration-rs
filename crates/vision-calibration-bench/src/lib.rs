@@ -1,6 +1,7 @@
 //! Benchmarking harness for `calibration-rs`: dataset registry, metric
 //! records, stability testing, and cross-validation runners.
 
+pub mod baseline;
 pub mod compare;
 pub mod crossval;
 pub mod dense;

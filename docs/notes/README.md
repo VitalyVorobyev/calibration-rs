@@ -33,6 +33,19 @@ Scheimpflug intrinsics (seeded), rig extrinsics, hand-eye, laserline
 bundle, ringgrid detection/bias (Q3), rectification (short note — the C4
 gate exists), two-view/triangulation.
 
+## Regression baselines (Q2)
+
+- **Fit baselines** live in `crates/vision-calibration-bench/baselines/`
+  (committed; reprojection statistics only). `calib-bench accept` compares
+  every run against them and fails on drift beyond `--regression-tol`
+  (default 5 %); a changed fit is accepted only by refreezing
+  (`accept --freeze-baselines`) in a reviewed PR.
+- **Performance baselines** use criterion's own mechanism (not committed —
+  they are machine-specific):
+  `cargo bench -p vision-calibration-linear --bench linear_init -- --save-baseline main`
+  (same for `-p vision-calibration-optim --bench ba_iter`), then compare a
+  branch with `-- --baseline main`.
+
 ## Notes
 
 - [Planar intrinsics](planar-intrinsics.md) — Zhang init + Brown–Conrady
