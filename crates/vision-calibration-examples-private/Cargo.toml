@@ -22,6 +22,7 @@ vision-calibration = { path = "../vision-calibration", version = "0.6.0" }
 vision-calibration-core = { path = "../vision-calibration-core", version = "0.6.0" }
 vision-calibration-optim = { path = "../vision-calibration-optim", version = "0.6.0" }
 vision-calibration-pipeline = { path = "../vision-calibration-pipeline", version = "0.6.0" }
+vision-calibration-detect = { path = "../vision-calibration-detect", version = "0.6.0" }
 vision-mvg = { path = "../vision-mvg", version = "0.6.0" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

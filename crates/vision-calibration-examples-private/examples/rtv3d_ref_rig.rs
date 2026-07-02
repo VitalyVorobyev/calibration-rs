@@ -170,6 +170,7 @@ fn main() -> Result<()> {
         s.elapsed(),
         rig.mean_reproj_error
     );
+    vision_calibration_examples_private::handeye_consistency_probe(&poses, &rig.rig_se3_target);
     let s = Instant::now();
     rh::step_handeye_init(&mut session, None)?;
     println!("  hand-eye init: {:.2?}", s.elapsed());
