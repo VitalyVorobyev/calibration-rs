@@ -4,11 +4,11 @@
 //!
 //! Companion to `rtv3d_ref_rig` (full from-scratch rig) and `rtv3d_ref_reproj`
 //! (frozen-intrinsics parity). This harness exercises the recommended path for
-//! Scheimpflug intrinsics: the engineer supplies a coarse prior they actually
-//! have — a nominal focal (from the lens spec) and the nominal sensor tilt (the
-//! Scheimpflug mount angle, ≈−5°) — and bundle adjustment refines it. Nothing
-//! from `artifacts.json` is seeded; the oracle is read only for the final
-//! comparison.
+//! Scheimpflug intrinsics: the coarse prior comes from the dataset's device
+//! spec (`spec.json`, ADR 0023) — lens focal + pixel pitch → `fx = fy`, and
+//! the Scheimpflug mount angle (≈−5°) → the tilt seed — and bundle adjustment
+//! refines it. Nothing from `artifacts.json` is seeded; the oracle is read
+//! only for the final comparison.
 //!
 //! Why not from scratch? On this data (strong radial distortion, k1≈−0.43, plus
 //! a ≈−5° tilt) Zhang-from-scratch underestimates the focal and the solve settles
@@ -25,18 +25,18 @@
 //! rtv3d_ref_intrinsics`
 //!
 //! Env:
-//! - `RTV3D_REF_DATA_DIR` (default `privatedata/rtv3d_ref`).
-//! - `RTV3D_REF_FOCAL` — coarse nominal focal seed in px (default `1150`). Probe
-//!   the tolerance by varying it; the oracle focals are ≈1150–1166.
+//! - `RTV3D_REF_DATA_DIR` (default `privatedata/rtv3d_ref`). Must contain a
+//!   `spec.json` device spec (gitignored, like the rest of `privatedata/`).
 //! - `RTV3D_REF_MAXITERS` (default `120`).
 
 use anyhow::{Context, Result, anyhow};
 use std::path::PathBuf;
 use std::time::Instant;
 
+use vision_calibration::device_seed::{DEVICE_SPEC_FILENAME, DeviceSpec, scheimpflug_seed};
 use vision_calibration::scheimpflug_intrinsics::{
     ScheimpflugFixMask, ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
-    ScheimpflugManualInit, step_init_with_seed, step_optimize,
+    step_init_with_seed, step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
 use vision_calibration_core::{
@@ -54,13 +54,6 @@ const BOARD_ROWS: u32 = 130;
 const BOARD_COLS: u32 = 130;
 const CELL_SIZE_MM: f64 = 5.0;
 const GATE_PX: f64 = 0.5;
-/// Each pose strip is 4320×540 → six 720×540 tiles; the nominal principal point
-/// is the tile center.
-const TILE_CX: f64 = 360.0;
-const TILE_CY: f64 = 270.0;
-/// Nominal Scheimpflug mount tilt (≈−5°): a known mechanical spec, used as the
-/// seed `tilt_x`. The actual per-camera tilt is recovered by the solve.
-const NOMINAL_TILT_X: f64 = -0.087;
 
 /// Recovered + reference summary for one camera.
 struct CamResult {
@@ -76,18 +69,31 @@ fn main() -> Result<()> {
     let data_dir = PathBuf::from(
         std::env::var("RTV3D_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/rtv3d_ref".to_string()),
     );
-    let focal_seed: f64 = std::env::var("RTV3D_REF_FOCAL")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1150.0);
     let max_iters: usize = std::env::var("RTV3D_REF_MAXITERS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(120);
     println!("data dir = {}", data_dir.display());
-    println!(
-        "coarse seed: fx=fy={focal_seed:.0}, pp=({TILE_CX:.0},{TILE_CY:.0}), tilt_x={NOMINAL_TILT_X:.3} rad, distortion=0"
-    );
+
+    // Device spec (ADR 0023): lens focal + pixel pitch + mount tilt → seed.
+    let spec_path = data_dir.join(DEVICE_SPEC_FILENAME);
+    let spec = DeviceSpec::from_path(&spec_path)
+        .with_context(|| format!("load device spec {}", spec_path.display()))?;
+    if spec.cameras.len() != NUM_CAMERAS {
+        return Err(anyhow!(
+            "device spec has {} cameras, expected {NUM_CAMERAS}",
+            spec.cameras.len()
+        ));
+    }
+    {
+        let seed0 = scheimpflug_seed(&spec, "cam0")?;
+        let k = seed0.intrinsics.expect("spec-derived intrinsics");
+        let s = seed0.sensor.expect("spec-derived sensor");
+        println!(
+            "spec seed (cam0): fx=fy={:.1}, pp=({:.0},{:.0}), tilt_x={:.4} rad, distortion=0",
+            k.fx, k.cx, k.cy, s.tilt_x
+        );
+    }
 
     let art =
         load_ref_artifacts(&data_dir.join("artifacts.json")).context("load oracle artifacts")?;
@@ -144,21 +150,12 @@ fn main() -> Result<()> {
         config.robust_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config)?;
 
-        // Coarse "datasheet" prior: nominal focal, principal point at tile center,
-        // nominal mount tilt. Distortion + poses auto. The seeded tilt is trusted
-        // directly (ADR 0022).
-        let mut seed = ScheimpflugManualInit::default();
-        seed.intrinsics = Some(FxFyCxCySkew {
-            fx: focal_seed,
-            fy: focal_seed,
-            cx: TILE_CX,
-            cy: TILE_CY,
-            skew: 0.0,
-        });
-        seed.sensor = Some(ScheimpflugParams {
-            tilt_x: NOMINAL_TILT_X,
-            tilt_y: 0.0,
-        });
+        // Coarse "datasheet" prior derived from the device spec (ADR 0023):
+        // fx = fy from lens focal / pixel pitch, principal point at the tile
+        // center, nominal mount tilt. Distortion + poses auto. The seeded
+        // tilt is trusted directly (ADR 0022).
+        let seed = scheimpflug_seed(&spec, &format!("cam{c}"))
+            .with_context(|| format!("camera {c}: derive seed from device spec"))?;
         step_init_with_seed(&mut session, seed, None)
             .with_context(|| format!("camera {c}: seeded init"))?;
 

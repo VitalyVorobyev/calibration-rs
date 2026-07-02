@@ -44,3 +44,4 @@ Status legend:
 - [0020 - Camera Model as Data in the Factor IR](0020-camera-model-as-data-factor-ir.md)
 - [0021 - Laser-Frame Dataset Manifest](0021-laser-frame-manifest.md)
 - [0022 - Scheimpflug Intrinsics: User-Seeded Initialization is the Supported Default](0022-scheimpflug-intrinsics-seeded-default.md)
+- [0023 - `DeviceSpec`: Device Specification Schema and Seed Derivation](0023-device-spec-seed-derivation.md)
