@@ -189,8 +189,7 @@ fn main() -> Result<()> {
     let intr_opt;
     {
         let step_t = Instant::now();
-        let intr_init =
-            rh::step_intrinsics_init_all_with_seed(&mut rig_session, manual_init, None)?;
+        let _ = rh::step_intrinsics_init_all_with_seed(&mut rig_session, manual_init, None)?;
         println!(
             "  step_intrinsics_init_all_with_seed: {:.2?}",
             step_t.elapsed()
@@ -221,15 +220,13 @@ fn main() -> Result<()> {
         let step_t = Instant::now();
         match &spec {
             // Spec mode: nominal cam_se3_rig mounts from the mechanical
-            // layout, per-view rig_se3_target anchored on the measured
-            // per-camera target poses (ADR 0011 couples the two).
+            // layout, per-view rig_se3_target anchored on the *optimized*
+            // per-camera target poses — the same refined poses the unseeded
+            // rig init consumes (ADR 0011 couples the two fields).
             Some(spec) => {
-                let rig_seed = device_seed::rig_layout_seed(
-                    spec,
-                    &camera_ids,
-                    &intr_init.per_cam_target_poses,
-                )
-                .context("derive rig layout seed from device spec")?;
+                let rig_seed =
+                    device_seed::rig_layout_seed(spec, &camera_ids, &intr_opt.per_cam_target_poses)
+                        .context("derive rig layout seed from device spec")?;
                 let _rig_init = rh::step_rig_init_with_seed(&mut rig_session, rig_seed)?;
                 println!(
                     "  step_rig_init_with_seed (spec layout): {:.2?}",
@@ -267,10 +264,14 @@ fn main() -> Result<()> {
             }
             // RTV3D_HANDEYE flipped the mode away from the spec's mount (the
             // convention comparison experiment) — fall back to the linear fit.
-            Some(Err(e)) => {
+            // Any other derivation error means the spec is malformed: fail.
+            Some(Err(e @ device_seed::DeviceSeedError::HandeyeModeMismatch { .. })) => {
                 eprintln!("warning: {e}; falling back to unseeded hand-eye init");
                 let _he_init = rh::step_handeye_init(&mut rig_session, None)?;
                 println!("  step_handeye_init: {:.2?}", step_t.elapsed());
+            }
+            Some(Err(e)) => {
+                return Err(e).context("derive hand-eye seed from device spec");
             }
             None => {
                 let _he_init = rh::step_handeye_init(&mut rig_session, None)?;
