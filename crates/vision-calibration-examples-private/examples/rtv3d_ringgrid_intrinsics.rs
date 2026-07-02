@@ -88,17 +88,6 @@ fn main() -> Result<()> {
         .unwrap_or(120);
     let detect_only = std::env::var("RTV3D_RINGGRID_DETECT_ONLY").as_deref() == Ok("1");
 
-    // Device spec (ADR 0023): lens focal + pixel pitch + mount tilt → seed.
-    let spec_path = data_dir.join(DEVICE_SPEC_FILENAME);
-    let spec = DeviceSpec::from_path(&spec_path)
-        .with_context(|| format!("load device spec {}", spec_path.display()))?;
-    if spec.cameras.len() != NUM_CAMERAS {
-        return Err(anyhow!(
-            "device spec has {} cameras, expected {NUM_CAMERAS}",
-            spec.cameras.len()
-        ));
-    }
-
     let board: BoardRinggridSpec = load_ringgrid_board(&data_dir.join("board_ringgrid.json"))
         .context("load ring-grid board manifest")?;
     let ring_width_mm = env_f64("RTV3D_RINGGRID_RING_WIDTH_MM", board.ring_width_mm());
@@ -113,16 +102,6 @@ fn main() -> Result<()> {
         board.marker_inner_radius_mm,
         ring_width_mm,
     );
-    {
-        let seed0 = scheimpflug_seed(&spec, "cam0")?;
-        let k = seed0.intrinsics.expect("spec-derived intrinsics");
-        let s = seed0.sensor.expect("spec-derived sensor");
-        println!(
-            "spec seed (cam0): fx=fy={:.1}, pp=({:.0},{:.0}), tilt_x={:.4} rad, distortion=0",
-            k.fx, k.cx, k.cy, s.tilt_x
-        );
-    }
-
     let poses = load_poses(&data_dir.join("poses.json"))?;
     println!("loaded {} poses", poses.len());
 
@@ -152,6 +131,27 @@ fn main() -> Result<()> {
     if detect_only {
         println!("\nRTV3D_RINGGRID_DETECT_ONLY=1 → stopping after detection.");
         return Ok(());
+    }
+
+    // Device spec (ADR 0023): lens focal + pixel pitch + mount tilt → seed.
+    // Loaded only past the detect-only probe, which needs no spec.
+    let spec_path = data_dir.join(DEVICE_SPEC_FILENAME);
+    let spec = DeviceSpec::from_path(&spec_path)
+        .with_context(|| format!("load device spec {}", spec_path.display()))?;
+    if spec.cameras.len() != NUM_CAMERAS {
+        return Err(anyhow!(
+            "device spec has {} cameras, expected {NUM_CAMERAS}",
+            spec.cameras.len()
+        ));
+    }
+    {
+        let seed0 = scheimpflug_seed(&spec, "cam0")?;
+        let k = seed0.intrinsics.expect("spec-derived intrinsics");
+        let s = seed0.sensor.expect("spec-derived sensor");
+        println!(
+            "spec seed (cam0): fx=fy={:.1}, pp=({:.0},{:.0}), tilt_x={:.4} rad, distortion=0",
+            k.fx, k.cx, k.cy, s.tilt_x
+        );
     }
 
     // ── Per-camera seeded intrinsics calibration ─────────────────────────────
