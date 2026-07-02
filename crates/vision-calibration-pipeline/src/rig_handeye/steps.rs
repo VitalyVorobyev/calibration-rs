@@ -170,6 +170,12 @@ pub struct RigHandeyeIntrinsicsOptimizeAllResult {
     pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
     /// Per-camera mean reprojection error in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
+    /// Per-camera target poses refined alongside the intrinsics:
+    /// `[view][cam] -> Option<Iso3>` (`camera_se3_target`). This is what the
+    /// unseeded rig init consumes; seeded rig inits (e.g.
+    /// [`crate::device_seed::rig_layout_seed`]) should anchor on these, not
+    /// on the coarser init-time poses.
+    pub per_cam_target_poses: Vec<Vec<Option<Iso3>>>,
 }
 
 /// Typed return value of [`step_rig_init`] / [`step_rig_init_with_seed`] for rig
@@ -558,7 +564,7 @@ pub fn step_intrinsics_optimize_all(
 
     session.state.per_cam_intrinsics = Some(optimized_cameras.clone());
     session.state.per_cam_sensors = optimized_sensors.clone();
-    session.state.per_cam_target_poses = Some(per_cam_target_poses);
+    session.state.per_cam_target_poses = Some(per_cam_target_poses.clone());
     session.state.per_cam_reproj_errors = Some(per_cam_reproj_errors.clone());
 
     let avg_error: f64 =
@@ -572,6 +578,7 @@ pub fn step_intrinsics_optimize_all(
         per_cam_intrinsics: optimized_cameras,
         per_cam_sensors: optimized_sensors,
         per_cam_reproj_errors,
+        per_cam_target_poses,
     })
 }
 
