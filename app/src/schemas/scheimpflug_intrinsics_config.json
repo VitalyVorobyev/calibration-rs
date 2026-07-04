@@ -33,6 +33,36 @@
       ],
       "type": "object"
     },
+    "DistortionKind": {
+      "description": "Distortion slot of a [`CameraModelDesc`].\n\n`dim() == 0` means the factor takes no distortion parameter block.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "No distortion; no parameter block.",
+          "type": "string"
+        },
+        {
+          "const": "brown_conrady5",
+          "description": "Brown-Conrady `[k1, k2, k3, p1, p2]`.",
+          "type": "string"
+        },
+        {
+          "const": "rational8",
+          "description": "Rational polynomial `[k1, k2, k3, k4, k5, k6, p1, p2]`.",
+          "type": "string"
+        },
+        {
+          "const": "thin_prism9",
+          "description": "Brown-Conrady + thin-prism `[k1, k2, k3, p1, p2, s1, s2, s3, s4]`.",
+          "type": "string"
+        },
+        {
+          "const": "division1",
+          "description": "Fitzgibbon division model `[lambda]`.",
+          "type": "string"
+        }
+      ]
+    },
     "IntrinsicsFixMask": {
       "description": "Mask for fixing intrinsics parameters during optimization.\n\nEach field corresponds to a component of the camera matrix K:\n```text\nK = | fx   skew  cx |\n    | 0    fy    cy |\n    | 0    0     1  |\n```\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Example\n\n```\nuse vision_calibration_core::IntrinsicsFixMask;\n\n// Fix only the principal point\nlet mask = IntrinsicsFixMask {\n    cx: true,\n    cy: true,\n    ..Default::default()\n};\n\nassert!(!mask.fx); // fx will be optimized\nassert!(mask.cx);  // cx is fixed\n```",
       "properties": {
@@ -162,6 +192,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Configuration for planar Scheimpflug intrinsics calibration.",
   "properties": {
+    "distortion_model": {
+      "$ref": "#/$defs/DistortionKind",
+      "default": "brown_conrady5",
+      "description": "Distortion model refined during optimization.\n\nBrown-Conrady5 is the default and is byte-identical to the pre-M-WIRE\npath. The extended models (Rational8, ThinPrism9, Division1) are wired\nthrough the single-camera Scheimpflug path; the linear init always\nproduces Brown-Conrady coefficients, which are embedded into the chosen\nmodel with any extra degrees of freedom zeroed before the non-linear\nrefine. Rig Scheimpflug pipelines remain Brown-Conrady only."
+    },
     "fix_distortion": {
       "$ref": "#/$defs/DistortionFixMask",
       "description": "Distortion parameter fix mask for non-linear optimization."

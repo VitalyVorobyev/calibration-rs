@@ -8,6 +8,29 @@
   planned), and **Q6** adds the convergence-basin study quantifying how much
   spec error the seeded route tolerates (the empirical evidence backing this
   ADR). See `docs/backlog.md` Tracks S/Q.
+- Note (2026-07-04): Q4-MWIRE-SCHEIMPFLUG generalized the seeded route beyond
+  Brown-Conrady-5. `ScheimpflugIntrinsicsConfig::distortion_model` (default
+  `DistortionKind::BrownConrady5`) now selects the model `step_optimize`
+  refines. The Phase A `k1` multi-start grid `{0, −0.20, −0.40}` generalizes
+  through `with_leading_radial`, which sweeps the **leading radial term** —
+  `k1` for BrownConrady5/Rational8/ThinPrism9, `lambda` for Division1 — and is
+  a no-op for `DistortionKind::None`. The `fix_distortion`
+  (`DistortionFixMask`) mask — five named bits `{k1, k2, k3, p1, p2}` — is
+  translated **by name** onto each model's packed layout by
+  `fix_mask_indices` (the single mechanism used for both user masks and the
+  A0/A1 staging masks). For BrownConrady5 it is exactly
+  `DistortionFixMask::to_indices()` (byte-identical to the pre-M-WIRE path).
+  For the extended models the shared coefficients map by name and each model's
+  extra coefficients follow the mask bit of the family they belong to:
+  Rational8's higher-order radial block `k4,k5,k6` follows the `k3` bit;
+  ThinPrism9's prism block `s1..s4` is fixed iff **both** `p1` and `p2` are
+  fixed; Division1's single `lambda` follows the leading-radial `k1` bit
+  (consistent with `with_leading_radial`). This keeps the staging invariants —
+  A0 all-fixed, A1 `{k1,k2 free; k3/p1/p2 fixed}` and the default `fix_k3`
+  semantics — intact across every model. Rigs are unaffected:
+  `SensorMode::Scheimpflug::distortion_model` remains BC5-typed
+  and is rejected up front for non-BC5 values in `validate_config` (ADR
+  0019) — the joint rig bundle adjustment stays Brown-Conrady-only.
 
 ## Context
 

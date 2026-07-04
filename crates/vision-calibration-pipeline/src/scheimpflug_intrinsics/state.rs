@@ -18,6 +18,11 @@ pub(crate) struct ScheimpflugIntrinsicsState {
     pub initial_intrinsics: Option<FxFyCxCySkew<Real>>,
 
     /// Initial distortion estimated from iterative linear initialization.
+    ///
+    /// Always Brown-Conrady coefficients: this is the linear-init seed. The
+    /// active distortion **model** lives in the config, not in state, so a
+    /// `set_config(model)` between init and optimize is honoured; `step_optimize`
+    /// embeds these coefficients into the configured model on demand.
     pub initial_distortion: Option<BrownConrady5<Real>>,
 
     /// Initial Scheimpflug sensor parameters.

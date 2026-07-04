@@ -9,6 +9,14 @@
   convention gaps made bridging not worth it (Track O closed won't-do
   2026-07-04, see the ADR 0008 note). The accepted trade stands: generic
   `residual<T: RealField>` kernels over hand-derived Jacobians.
+- Note (2026-07-04): Q4-MWIRE-SCHEIMPFLUG extended the Scheimpflug path past
+  the `None | BrownConrady5` distortion pair shown in the `CameraModelDesc`
+  snippet below — `ScheimpflugIntrinsicsConfig::distortion_model`
+  (`vision-calibration-pipeline`) now selects any `DistortionKind` (None,
+  BrownConrady5, Rational8, ThinPrism9, Division1) for the single-camera
+  seeded route, exercising exactly the descriptor-as-data dispatch this ADR
+  describes. Rig `SensorMode::Scheimpflug` stays BC5-typed and fails fast on
+  other models. See ADR 0022's 2026-07-04 note for the optim-side mechanics.
 
 ## Context
 

@@ -159,7 +159,8 @@ pub use crate::ir::{
 };
 
 pub use crate::params::distortion::{
-    DISTORTION_DIM, pack_distortion, pack_distortion_params, unpack_distortion_params,
+    DISTORTION_DIM, distortion_kind, pack_distortion, pack_distortion_params,
+    unpack_distortion_params, with_leading_radial,
 };
 pub use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
 pub use crate::params::laser_plane::LaserPlane;

@@ -33,6 +33,36 @@
       ],
       "type": "object"
     },
+    "DistortionKind": {
+      "description": "Distortion slot of a [`CameraModelDesc`].\n\n`dim() == 0` means the factor takes no distortion parameter block.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "No distortion; no parameter block.",
+          "type": "string"
+        },
+        {
+          "const": "brown_conrady5",
+          "description": "Brown-Conrady `[k1, k2, k3, p1, p2]`.",
+          "type": "string"
+        },
+        {
+          "const": "rational8",
+          "description": "Rational polynomial `[k1, k2, k3, k4, k5, k6, p1, p2]`.",
+          "type": "string"
+        },
+        {
+          "const": "thin_prism9",
+          "description": "Brown-Conrady + thin-prism `[k1, k2, k3, p1, p2, s1, s2, s3, s4]`.",
+          "type": "string"
+        },
+        {
+          "const": "division1",
+          "description": "Fitzgibbon division model `[lambda]`.",
+          "type": "string"
+        }
+      ]
+    },
     "RobustLoss": {
       "description": "Robust loss applied to a residual block.\n\nEach residual block has its own loss; per-point robustification is achieved\nby using one residual block per observation.",
       "oneOf": [
@@ -159,6 +189,11 @@
                 "p2": true
               },
               "description": "Distortion mask applied during per-camera Scheimpflug intrinsics\nrefinement. Defaults to [`DistortionFixMask::radial_only`]\n(k1, k2 free; k3, p1, p2 fixed) — a safe choice for typical\nScheimpflug rigs where tangential distortion can absorb tilt-like\nsignal. Narrow-FOV rigs that overfit k2 may want\n`(k1, p1, p2) free, (k2, k3) fixed` instead."
+            },
+            "distortion_model": {
+              "$ref": "#/$defs/DistortionKind",
+              "default": "brown_conrady5",
+              "description": "Distortion model for the per-camera Scheimpflug intrinsics.\n\nOnly [`DistortionKind::BrownConrady5`] (the default) is supported:\nthe joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5\nmodels are rejected up front by the rig `validate_config` (ADR 0019)\nrather than deep in the solver. The field exists for schema\nsymmetry with the single-camera Scheimpflug path."
             },
             "fix_scheimpflug_in_intrinsics": {
               "$ref": "#/$defs/ScheimpflugFixMask",

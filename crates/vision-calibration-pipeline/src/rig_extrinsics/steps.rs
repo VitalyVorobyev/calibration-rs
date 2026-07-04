@@ -441,7 +441,7 @@ pub fn step_intrinsics_optimize_all(
 
                 optimized_cameras.push(make_pinhole_camera(
                     result.params.intrinsics,
-                    result.params.distortion,
+                    result.params.distortion_bc5(),
                 ));
                 optimized_sensors
                     .as_mut()
