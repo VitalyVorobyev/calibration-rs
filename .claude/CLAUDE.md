@@ -67,7 +67,17 @@ better than it found them.
 
 ## Architecture
 
-6-crate workspace (~24k LoC Rust). See ADR 0006.
+Workspace of 11 crates + `xtask` (dev tooling). Nine ship to crates.io in
+dependency order — `vision-calibration-core` → `vision-geometry` →
+`vision-calibration-dataset`/`vision-calibration-detect` →
+`vision-calibration-linear`/`vision-calibration-optim` → `vision-mvg` →
+`vision-calibration-pipeline` → `vision-calibration` (facade — see
+`release.yml`'s publish DAG). `vision-calibration-py` ships to PyPI instead
+(crates.io `publish = false`); `vision-calibration-bench` is
+workspace-internal (`publish = false`); `vision-calibration-examples-private`
+lives *outside* this workspace entirely (its own `[workspace]`), path-pinning
+the published crates for private end-to-end examples. See ADR 0006 (amended
+2026-07-04 for the geometry/mvg edges below).
 
 ```
 vision-calibration (facade) → vision-calibration-pipeline (sessions, workflows)
@@ -75,6 +85,11 @@ vision-calibration (facade) → vision-calibration-pipeline (sessions, workflows
                     vision-calibration-optim + vision-calibration-linear  (peers, no cross-dep)
                                     ↓
                             vision-calibration-core (types, models, RANSAC)
+
+vision-geometry (two-view solvers: homography, epipolar, camera_matrix,
+triangulation) ← depended on by linear, pipeline, and the facade
+        ↓
+vision-mvg (N-view MVG: bundle adjust, rectification, dense stereo) ← facade
 ```
 
 Plus `vision-calibration-py` (PyO3 bindings, depends on facade only).
@@ -177,12 +192,15 @@ in CI:
    version + 4 path-dep pins). Out of the publish set but still
    compiled in CI.
 
-**Publish set (2026-06-17):** `vision-geometry` and `vision-mvg` joined the
-publish set — nine publishable crates total. Crates.io publish order follows
-the dependency DAG: `vision-calibration-core` → `vision-geometry` →
+**Publish set (2026-06-17; DAG corrected 2026-07-04 to match
+`release.yml`):** `vision-geometry` and `vision-mvg` joined the publish
+set — nine publishable crates total. Crates.io publish order follows the
+dependency DAG: `vision-calibration-core` → `vision-geometry` →
+`vision-calibration-dataset` → `vision-calibration-detect` →
 `vision-calibration-linear` → `vision-calibration-optim` →
-`vision-mvg` → `vision-calibration-pipeline` → `vision-calibration` →
-`vision-calibration-py`. `vision-geometry`/`vision-mvg` have never been
+`vision-mvg` → `vision-calibration-pipeline` → `vision-calibration`.
+(`vision-calibration-py` is `publish = false` on crates.io — it ships to
+PyPI via `release-pypi.yml`.) `vision-geometry`/`vision-mvg` have never been
 published, so their first crates.io version is the current workspace version
 (a fresh `0.x` crate may be published at `0.6.0`); the already-published crates
 only need re-publishing on the next workspace-wide version bump.
