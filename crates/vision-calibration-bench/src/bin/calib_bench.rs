@@ -43,6 +43,11 @@ enum Command {
     List(ListArgs),
     /// Run deterministic diagnostic sweeps.
     Diagnose(DiagnoseArgs),
+    /// Convergence-basin study for the seeded Scheimpflug init (Q6):
+    /// perturb every registered `scheimpflug_intrinsics` entry's
+    /// device-spec seed over a structured grid and report the gate
+    /// pass-rate per cell, per dataset family. Never wired into CI.
+    Basin(BasinArgs),
 }
 
 /// Arguments for the `run` subcommand.
@@ -84,6 +89,23 @@ struct AcceptArgs {
     /// to overall mean/RMS and every per-camera mean).
     #[arg(long, default_value_t = 0.05)]
     regression_tol: f64,
+}
+
+/// Arguments for the `basin` subcommand.
+#[derive(Parser)]
+struct BasinArgs {
+    /// Registry JSON path(s). May be repeated. Defaults to the crate's
+    /// `registry/public.json` plus `registry/private.json` when present.
+    #[arg(long)]
+    registry: Vec<PathBuf>,
+    /// Only sweep these `scheimpflug_intrinsics` dataset ids (repeat or
+    /// comma-separate). Defaults to every registered entry.
+    #[arg(long, value_delimiter = ',')]
+    only: Vec<String>,
+    /// Optional path to also write the markdown report to (in addition to
+    /// stdout).
+    #[arg(long)]
+    out: Option<PathBuf>,
 }
 
 /// Arguments for the `report` subcommand.
@@ -404,6 +426,79 @@ fn cmd_accept(args: &AcceptArgs) -> Result<()> {
         failed.join(", ")
     );
     Ok(())
+}
+
+/// Load, filter (`--only`), and filesystem-resolve the `scheimpflug_intrinsics`
+/// entries the `basin` subcommand sweeps. Mirrors `cmd_accept`'s registry
+/// loading + `--only` handling.
+fn load_basin_entries(args: &BasinArgs) -> Result<Vec<BenchEntry>> {
+    let registries = if args.registry.is_empty() {
+        default_accept_registries()
+    } else {
+        args.registry.clone()
+    };
+
+    let mut entries: Vec<BenchEntry> = Vec::new();
+    for path in &registries {
+        let registry =
+            load_registry(path).with_context(|| format!("load registry {}", path.display()))?;
+        entries.extend(registry.datasets);
+    }
+    entries.retain(|e| e.problem == ProblemKind::ScheimpflugIntrinsics);
+    anyhow::ensure!(
+        !entries.is_empty(),
+        "no scheimpflug_intrinsics datasets registered in {}",
+        registries
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    if !args.only.is_empty() {
+        let known: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+        for id in &args.only {
+            anyhow::ensure!(
+                known.contains(&id.as_str()),
+                "--only id `{id}` is not a registered scheimpflug_intrinsics dataset (known: {})",
+                known.join(", ")
+            );
+        }
+        entries.retain(|e| args.only.iter().any(|id| id == &e.id));
+    }
+    anyhow::ensure!(
+        !entries.is_empty(),
+        "no scheimpflug_intrinsics datasets selected for the basin study"
+    );
+
+    Ok(entries.into_iter().map(resolve_entry_data_root).collect())
+}
+
+fn cmd_basin(args: &BasinArgs) -> Result<()> {
+    let entries = load_basin_entries(args)?;
+    let report = run_basin_study(&entries)?;
+    // `report` already ends with a newline (the last `writeln!` in the
+    // renderer); `print!` keeps stdout byte-identical to the `--out` file.
+    print!("{report}");
+    if let Some(path) = &args.out {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create {}", parent.display()))?;
+        }
+        std::fs::write(path, &report)
+            .with_context(|| format!("write basin report {}", path.display()))?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "tier-b")]
+fn run_basin_study(entries: &[BenchEntry]) -> Result<String> {
+    vision_calibration_bench::basin::run_basin_study(entries)
+}
+
+#[cfg(not(feature = "tier-b"))]
+fn run_basin_study(_entries: &[BenchEntry]) -> Result<String> {
+    anyhow::bail!("basin requires --features tier-b")
 }
 
 /// Evaluate the hard per-camera gate over a produced record.
@@ -1186,6 +1281,7 @@ fn main() -> Result<()> {
             println!("list: not implemented yet");
         }
         Command::Diagnose(args) => cmd_diagnose(&args)?,
+        Command::Basin(args) => cmd_basin(&args)?,
     }
     Ok(())
 }

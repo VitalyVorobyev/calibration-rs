@@ -31,6 +31,18 @@
   `SensorMode::Scheimpflug::distortion_model` remains BC5-typed
   and is rejected up front for non-BC5 values in `validate_config` (ADR
   0019) — the joint rig bundle adjustment stays Brown-Conrady-only.
+- Note (2026-07-04): **Q6-BASIN-STUDY closes the forward pointer above** —
+  `calib-bench basin` (`crates/vision-calibration-bench/src/basin.rs`)
+  perturbs the ADR 0023 device-spec seed over independent focal / tilt /
+  principal-point sweeps and re-runs the seeded route per cell, gated on
+  each entry's acceptance threshold. Measured on both private families
+  (`rtv3d_ref`, 6 cameras, gate ≤ 0.5 px; `rtv3d_ringgrid`, 6 cameras, gate
+  ≤ 1.0 px): the all-camera-pass basin is ×[0.85, 1.30] on focal and
+  ±4° on tilt (the full tested tilt sweep — no failure observed at any
+  offset) on **both** families, comfortably containing the decision
+  rule's realistic-spec-error envelope (focal ±5 %, tilt ±2°) with 2-3×
+  margin. See `docs/notes/scheimpflug-intrinsics.md` for the full tables
+  and `docs/backlog.md` Q6 for the completion note.
 
 ## Context
 

@@ -50,3 +50,7 @@ gate exists), two-view/triangulation.
 
 - [Planar intrinsics](planar-intrinsics.md) — Zhang init + Brown–Conrady
   refinement (the template pack).
+- [Scheimpflug intrinsics](scheimpflug-intrinsics.md) — stub pack (full
+  pack is Q8): model summary, the ADR 0022/0023 seeded route, and the Q6
+  convergence-basin study (`calib-bench basin`) with measured basins for
+  `rtv3d_ref` / `rtv3d_ringgrid`.

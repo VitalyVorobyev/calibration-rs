@@ -167,12 +167,34 @@ two-view/triangulation.
   With S1, the natural fix is a metric anchor in the device spec (known target
   dimension or baseline prior in the rig bundle). Math note states exactly
   which measurement pins scale and its sensitivity. Gate in `rtv3d_rig.rs`.
-- [ ] Q6-BASIN-STUDY - Convergence-basin study for seeded Scheimpflug init:
+- [x] Q6-BASIN-STUDY - Convergence-basin study for seeded Scheimpflug init:
   bench example perturbing spec seeds (focal ×[0.5..2], tilt ±, pp ±) over a
   grid; gate-pass rate per perturbation radius on rtv3d_ref + ringgrid; table
   committed into the Scheimpflug math note, linked from ADR 0022. If the basin
   does not comfortably contain realistic spec error (focal ±5 %, tilt ±2°),
   that finding reopens the Phase A sweep design.
+  **Done 2026-07-04.** Added `calib-bench basin` (`--only`/`--out`, follows
+  the `accept` registry/device-spec pattern; never wired into CI) which
+  detects each of the 12 registered `scheimpflug_intrinsics` cameras' views
+  once, derives the ADR 0023 spec seed once, then re-runs the ADR 0022
+  seeded route over three independent per-axis sweeps (24 solves/camera,
+  never a cross-product: focal ×{0.50, 0.70, 0.85, 0.95, 1.05, 1.15, 1.30,
+  1.50, 2.00}, tilt {±0.5°, ±1°, ±2°, ±4°} added to both axes, principal
+  point {±20, ±50, ±100} px added to both axes) and gates each cell on the
+  entry's `accept.max_per_cam_mean_px`. Measured on both private families
+  (12 cameras total, full run ~1.5 min): `rtv3d_ref` (gate ≤ 0.5 px) and
+  `rtv3d_ringgrid` (gate ≤ 1.0 px) both clear the all-camera-pass envelope
+  at focal ×[0.85, 1.30] and tilt [−4°, +4°] (the entire tested tilt sweep —
+  no failure observed at any offset), comfortably exceeding the decision
+  rule's focal ±5 % / tilt ±2° requirement (2-3× margin); principal point is
+  all-pass over the full ±100 px sweep on both families. **Decision rule
+  outcome: PASS — no reopening of the Phase A sweep design.** Refactored
+  `run_scheimpflug_intrinsics` (`vision-calibration-bench/src/run.rs`) into
+  `detect_scheimpflug_seeded_input` + `solve_scheimpflug_seeded` so the
+  basin study reuses the exact acceptance-route machinery instead of a
+  parallel copy; `calib-bench accept` behavior/output is unchanged (see
+  `docs/notes/scheimpflug-intrinsics.md` for the full tables and ADR 0022's
+  2026-07-04 note for the closed forward pointer).
 - [x] Q7-SOLVER-DEDUP - (absorbs the C1-FOLLOWUP remainder) Reconcile the
   diverged higher-level solvers (`homography`, `epipolar`, `camera_matrix`,
   `triangulation`) duplicated between `linear` and `geometry`: golden-pin
