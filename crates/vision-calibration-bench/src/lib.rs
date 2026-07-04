@@ -2,6 +2,7 @@
 //! records, stability testing, and cross-validation runners.
 
 pub mod baseline;
+pub mod basin;
 pub mod compare;
 pub mod crossval;
 pub mod dense;
