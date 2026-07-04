@@ -92,7 +92,9 @@ machinery. Init routines additionally get a **convergence-basin study**
 behind ADR 0022. Q2 (regression wiring) lands deliberately early so every
 later algorithm change is guarded. Absorbs: V6 scale (→ Q5), ringgrid
 ellipse-center bias (→ Q3), M-WIRE's Scheimpflug distortion-model wiring
-(→ Q4), C1-FOLLOWUP solver dedup (→ Q7).
+(→ Q4), C1-FOLLOWUP solver dedup (→ Q7). **Q7 resolved-as-already-done
+2026-07-04:** the dedup it was meant to do had already landed in PR #72
+(2026-06-21); see `docs/backlog.md` Q7-SOLVER-DEDUP.
 
 ### Track R — API/config/design revision
 
@@ -421,7 +423,11 @@ dense matcher, no full SfM.
   `vision-calibration-linear` refactor), the two crates were **ported fresh and
   additively** onto `main`: `vision-geometry` (20 tests) + `vision-mvg` (31
   tests), both `publish = false`, no change to `vision-calibration-linear`. The
-  `linear`→`vision-geometry` de-duplication is a deliberate follow-up; ADR 0015.
+  `linear`→`vision-geometry` de-duplication was a deliberate follow-up (ADR
+  0015) — **done, PR #72 (2026-06-21)**: `linear` now depends on
+  `vision-geometry` and its duplicate `homography`/`epipolar`/
+  `camera_matrix`/`triangulation` modules are gone (net −1811 LoC). See
+  `docs/backlog.md` Q7-SOLVER-DEDUP (resolved-as-already-done, 2026-07-04).
 - **C2** N-view triangulation + nonlinear refinement.
 - **C3** Bundle adjustment with frozen intrinsics, free poses, free structure.
 - **C4** Stereo rectification — including **Scheimpflug-aware rectification** (genuinely

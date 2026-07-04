@@ -1,6 +1,6 @@
 # ADR 0015: Multiple-View Geometry Crates and Scope Ceiling
 
-- Status: Accepted (amended 2026-06-21)
+- Status: Accepted (amended 2026-06-21, 2026-07-04)
 - Date: 2026-06-14
 - Amendment (2026-06-21, C5): the original ceiling "no in-house dense matcher;
   wrap `opencv-rust` SGBM behind a feature flag" is reversed — the dense
@@ -108,3 +108,14 @@ SGBM baseline — so the Rust matcher has a yardstick the moment it is written.
 This keeps the `vision-mvg` ceiling otherwise intact (no SfM / pose-graph / loop
 closure); it only moves the dense-matcher line from "wrap OpenCV" to "Rust in
 the library, OpenCV in the bench."
+
+### 2026-07-04 — C1-FOLLOWUP solver dedup landed (PR #72)
+
+The "temporary duplication between `vision-calibration-linear` and
+`vision-geometry`" noted under Consequences above is resolved. PR #72
+(2026-06-21) made `linear` depend on `vision-geometry` and deleted its
+parallel `homography`/`epipolar`/`camera_matrix`/`triangulation` modules
+(net −1811 LoC per the commit's own message). See
+[ADR 0006's amendment](0006-layered-crate-architecture.md#amendments) for
+the verified dependency edges and `docs/backlog.md` Q7-SOLVER-DEDUP for the
+disposition.

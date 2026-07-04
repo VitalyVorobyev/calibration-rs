@@ -173,10 +173,23 @@ two-view/triangulation.
   committed into the Scheimpflug math note, linked from ADR 0022. If the basin
   does not comfortably contain realistic spec error (focal ±5 %, tilt ±2°),
   that finding reopens the Phase A sweep design.
-- [ ] Q7-SOLVER-DEDUP - (absorbs the C1-FOLLOWUP remainder) Reconcile the
+- [x] Q7-SOLVER-DEDUP - (absorbs the C1-FOLLOWUP remainder) Reconcile the
   diverged higher-level solvers (`homography`, `epipolar`, `camera_matrix`,
   `triangulation`) duplicated between `linear` and `geometry`: golden-pin
   current outputs on both sides first, then dedup, then verify pins unchanged.
+  **Resolved-as-already-done 2026-07-04.** The premise was stale: this dedup
+  already landed in PR #72 on 2026-06-21 (commit `6818cde`, whose own message
+  reports "Net -1811 LoC of duplicated solver code"). Verified in-tree:
+  `vision-calibration-linear/src/` has no `homography`, `epipolar`,
+  `camera_matrix`, or `triangulation` modules left; `linear` now depends on
+  `vision-geometry` and calls `vision_geometry::homography::dlt_homography`
+  directly (re-exported from `linear::lib`, used by
+  `iterative_intrinsics.rs` and `scheimpflug_init.rs`). No new golden-pin
+  suite is warranted: the existing GT-relative
+  `vision-calibration-linear/tests/stereo_linear.rs` (exercises
+  `vision_geometry::{camera_matrix, epipolar, homography, triangulation}`
+  against ground truth) plus the Q2 committed bench baselines already gate
+  numeric drift end-to-end (YAGNI).
 - [ ] Q8-PROOF-PACKS - Remaining proof packs (batched): hand-eye, laserline
   bundle, rig extrinsics, two-view/triangulation; rectification gets the short
   note only (C4 gate already exists).
@@ -591,6 +604,13 @@ Systemic causes:
     drift**. Q7's plan: golden-pin both sides first, then dedup, then verify
     pins unchanged. Whether the shared home is `core`, `geometry`, or a new
     crate is part of that design.
+    **Correction (2026-07-04):** this bullet was already stale when written
+    2026-07-02 — the dedup it describes as outstanding had in fact landed
+    2026-06-21 in PR #72 (net −1811 LoC): `linear` now depends on `geometry`
+    and calls its `homography`/`epipolar`/`camera_matrix`/`triangulation`
+    directly; no parallel copies remain in `linear`. See the
+    resolved-as-already-done Q7-SOLVER-DEDUP entry above for the verified
+    detail.
   - [x] Promote `vision-geometry` / `vision-mvg` to the crates.io publish set.
     **Done 2026-06-17** (user call): `publish = false` removed from both; the
     `[workspace.dependencies]` version pins were already in place; release
