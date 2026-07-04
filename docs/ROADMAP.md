@@ -324,31 +324,31 @@ per device), with a legacy-system oracle calibration to beat.
   ~38 px geometric outlier) vs puzzleboard 0.25–0.30 px — driving it down is
   Q3.
 
-### Track O — Optimization backends (O1/O2 PARKED 2026-06-15; O3 DONE)
+### Track O — Optimization backends (O1/O2 WON'T-DO 2026-07-04; O3 DONE)
 
 The premise was that `OptimBackend` (ADR 0008) gets a second real
 implementation:
 [apex-solver](https://crates.io/crates/apex-solver) 1.3 (LM/GN/DogLeg, Lie-group
 support), behind an `apex-solver` cargo feature in `vision-calibration-optim`.
 
-The **O1 pre-verify gate failed** (report:
-`docs/report/2026-06-14-O1-apex-solver-preverify.md`). apex-solver 1.3 is a
-**hand-Jacobian factor-graph library** (`Factor::linearize` returns a
-caller-supplied Jacobian; no generic scalar / autodiff). Our IR (ADR 0008) and
-the M0 factor generification (ADR 0020) are **autodiff-first**
-(`fn residual<T: RealField>()`, monomorphized per `CameraModelDesc`), so wiring
-apex-solver would mean hand-deriving Jacobians for every factor family —
-defeating M0 and adding correctness risk at the geometry we most need to trust.
-Secondary gaps: no S2 / unit-vector manifold (we use one for laser-plane
-normals), no documented robust losses, undocumented SE3 quaternion order.
+The **O1 pre-verify gate failed** (2026-06-14, report:
+`docs/report/2026-06-14-O1-apex-solver-preverify.md`); the track was **closed
+won't-do on 2026-07-04** after a fresh assessment (backlog Track O carries the
+full note and the revive triggers). The sharpened rationale: the IR is
+backend-neutral and the `fn residual<T: RealField>()` kernels are
+autodiff-*capable* rather than autodiff-*dependent* — a dual-number adapter
+could in principle feed apex-solver's hand-Jacobian `Factor::linearize`, so
+the mismatch is bridgeable, not fundamental. It is not worth bridging:
+apex-solver 1.3 (still the latest as of 2026-07-04) lacks an S2 manifold
+(laser-plane normals), documented robust losses, and documented SE3 /
+Jacobian-parameterization conventions, and its LM/GN/DogLeg + sparse
+Cholesky/QR core duplicates our homegrown LM + faer stack — leaving A/B
+validation as the only payoff, which Q-track baselines + OpenCV cross-checks
+already largely cover. A revived second backend should target an
+autodiff-native stack (`factrs`/`num-dual`), not apex-solver 1.x.
 
-- **O1 (PARKED)** `ApexSolverBackend` — blocked on the API mismatch above. A
-  numeric-difference bridge is technically possible but slower, less accurate,
-  and requires re-deriving manifold tangent Jacobians by hand; not recommended
-  unsupervised. Reviving Track O means **choosing an autodiff-capable** Rust
-  optimizer (e.g. a `factrs`/`num-dual` stack) or keeping tiny-solver as the
-  sole backend — a user call.
-- **O2 (PARKED)** Backend A/B validation — depends on O1.
+- **O1 (WON'T-DO 2026-07-04)** `ApexSolverBackend` — closed; see above.
+- **O2 (WON'T-DO 2026-07-04)** Backend A/B validation — closed with O1.
 - **O3 (DONE 2026-06-15)** Dropped the dead `BackendKind::Ceres` stub from
   `optim/src/backend/mod.rs` (and the now-orphaned `Error::numerical` helper).
   `BackendKind` is now a single-variant enum; `solve_with_backend` no longer has
@@ -482,8 +482,8 @@ parity) → B-QUAL1–4 → B-UX1–2 → B-DIST → D4-RELEASE.**
 
 The earlier V→B path completed: V1–V5 + V8 proved the library on rtv3d, all
 8 topologies + 4 detectors are wired in the app, and manifest UX shipped.
-O1/O2 (apex-solver) stay **parked** (autodiff API mismatch — see Track O);
-M4 fisheye and P3 backend-cost are parked post-1.0.
+O1/O2 (apex-solver) are closed **won't-do** 2026-07-04 (bridgeable but not
+worth it — see Track O); M4 fisheye and P3 backend-cost are parked post-1.0.
 
 ## Out of scope (explicit)
 

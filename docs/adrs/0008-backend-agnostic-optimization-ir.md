@@ -2,11 +2,17 @@
 
 - Status: Accepted
 - Date: 2026-03-07 (retroactive)
-- Note (2026-07-02): the premise that a *second* backend would materialize is
-  parked — Track O (apex-solver) failed pre-verify 2026-06-15 because this IR
-  is autodiff-first (see ADR 0020) and apex-solver 1.3 is hand-Jacobian.
-  tiny-solver remains the sole backend. The backend-agnostic IR shape is kept:
-  it still isolates problem definitions from the solver API.
+- Note (2026-07-04, supersedes the 2026-07-02 note): Track O (apex-solver) is
+  closed won't-do. Precisely: this IR is backend-neutral (pure data, no
+  derivative concepts in `ProblemIR` or `OptimBackend`), and the factor
+  kernels are autodiff-*capable* rather than autodiff-*dependent* — a
+  dual-number adapter over the `T: RealField` kernels could feed a
+  hand-Jacobian backend like apex-solver 1.3. The closure is a value call, not
+  an impossibility: apex's missing S2 manifold / robust losses / documented
+  conventions plus its duplicated solver core (LM + sparse Cholesky ≈ our
+  LM + faer) make bridging not worth it (backlog Track O has the revive
+  triggers). tiny-solver remains the sole backend. The backend-agnostic IR
+  shape is kept: it still isolates problem definitions from the solver API.
 
 ## Context
 

@@ -334,22 +334,39 @@ two-view/triangulation.
   corners. Driving the ring-grid floor below ~4 px (ellipse-center bias
   correction, cam5 geometry) is a possible follow-up.
 
-## O — apex-solver backend (O1/O2 PARKED 2026-06-15; O3 DONE)
+## O — apex-solver backend (O1/O2 WON'T-DO 2026-07-04; O3 DONE)
 
-Pre-verify failed: apex-solver 1.3 is a hand-Jacobian factor-graph library, not
-autodiff-capable — fundamentally mismatched to our autodiff-first IR (ADR 0008 /
-M0 ADR 0020). Full findings:
-`docs/report/2026-06-14-O1-apex-solver-preverify.md`. Reviving Track O is a user
-call (pick an autodiff-capable optimizer, or keep tiny-solver as the sole
-backend).
+Pre-verify failed 2026-06-14; closed won't-do 2026-07-04 after a fresh
+assessment. The sharpened finding: the *IR* is backend-neutral (pure data) and
+the `fn residual<T: RealField>()` kernels are autodiff-**capable**, not
+autodiff-**dependent** — a dual-number adapter (num-dual over the existing
+kernels, exactly what tiny-solver does internally) could feed apex-solver's
+hand-Jacobian `Factor::linearize`, so the autodiff mismatch is bridgeable in
+principle. It is still not worth bridging: apex-solver 1.3 (re-checked
+2026-07-04, 1.3.0 still latest) has no S2 manifold (laser-plane normals →
+laser problems excluded), no documented robust losses (Huber/Cauchy/Arctan
+would need hand-rolled corrected-residual reweighting in every factor),
+undocumented SE3 quaternion order and Jacobian-parameterization convention
+(ambient vs. tangent — silent-wrong-numbers risk), and its solver core
+(LM/GN/DogLeg + sparse Cholesky/QR) duplicates our homegrown LM + faer stack.
+The only payoff would be backend A/B validation, which Q-track Fit baselines +
+drift gates and OpenCV cross-validation already largely cover. Pre-verify
+findings: `docs/report/2026-06-14-O1-apex-solver-preverify.md`.
 
-- [~] O1-BACKEND - **PARKED.** `ApexSolverBackend` blocked on the autodiff API
-  mismatch (no generic scalar / dual numbers; `Factor::linearize` takes a
-  caller-supplied Jacobian). Also missing: S2 manifold (we use one for
-  laser-plane normals), documented robust losses, documented SE3 quaternion
-  order. A numeric-difference bridge is possible but slower / less accurate and
-  needs hand-derived manifold Jacobians — not recommended unsupervised.
-- [~] O2-AB - **PARKED** (depends on O1).
+**Revive triggers:** (a) apex-solver ships generic-scalar/autodiff or
+numeric-diff factors plus an S2 manifold and robust losses; or (b) a
+solver-trust / performance need arises that the Q-track baselines and the
+current backend cannot address. In either case the preferred target is an
+autodiff-native stack (`factrs` / `num-dual`), not apex-solver 1.x. If a
+hand-Jacobian backend is ever specifically required, the enabling step is
+owning Jacobian production (direct num-dual dependency + own assembly and
+SE3/SO3 retractions, dropping tiny-solver) — after which any external solver
+is a thin adapter.
+
+- [-] O1-BACKEND - **WON'T-DO 2026-07-04** (was PARKED 2026-06-15).
+  `ApexSolverBackend` closed: bridgeable via a dual-number adapter but not
+  worth it — see the track note above for rationale and revive triggers.
+- [-] O2-AB - **WON'T-DO 2026-07-04** (backend A/B validation; depended on O1).
 - [x] O3-CERES - **DONE 2026-06-15.** Removed the `BackendKind::Ceres` stub from
   `optim/src/backend/mod.rs` plus the now-orphaned `Error::numerical` helper;
   `BackendKind` is a single-variant enum and the dispatch has no unreachable

@@ -2,9 +2,12 @@
 
 - Status: Accepted
 - Date: 2026-06-12
-- Note (2026-07-02): the autodiff-first kernel design chosen here is what made
-  the hand-Jacobian apex-solver backend unviable (Track O parked 2026-06-15,
-  see the note on ADR 0008). This is an accepted consequence: generic
+- Note (2026-07-04, refines the 2026-07-02 note): the autodiff-first kernel
+  design did not make a hand-Jacobian backend *impossible* — the generic
+  kernels can produce exact Jacobians via dual numbers for an API like
+  apex-solver's `Factor::linearize` — but apex-solver's manifold/loss/
+  convention gaps made bridging not worth it (Track O closed won't-do
+  2026-07-04, see the ADR 0008 note). The accepted trade stands: generic
   `residual<T: RealField>` kernels over hand-derived Jacobians.
 
 ## Context
@@ -132,9 +135,10 @@ plain hand-eye chain; rig chain ≡ explicit isometry composition).
   block and the rig laser bundle freezes it, so a pinhole upstream is exactly
   zero tilt. `RigHandeyeExport::to_upstream_calibration` and
   `pixel_to_gripper_point` now accept pinhole exports.
-- A future second backend (the planned apex-solver integration) consumes the
-  same descriptors and builds its own dispatch — nothing tiny-solver-specific
-  leaks into the IR.
+- A future second backend (if ever revived — Track O closed won't-do
+  2026-07-04; an autodiff-native stack like `factrs` would be the target)
+  consumes the same descriptors and builds its own dispatch — nothing
+  tiny-solver-specific leaks into the IR.
 - Public (pre-1.0) breaking change: the enumerated `FactorKind` variants are
   gone; emitters construct descriptor factors. The laser factor names changed
   to the more accurate `LaserPointToPlane` (1D, meters) and
