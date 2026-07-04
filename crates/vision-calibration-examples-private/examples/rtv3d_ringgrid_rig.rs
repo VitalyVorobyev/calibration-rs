@@ -172,6 +172,8 @@ fn main() -> Result<()> {
             p2: true,
         },
         refine_scheimpflug_in_rig_ba: false,
+        // Rig Scheimpflug bundle adjustment is Brown-Conrady-typed.
+        distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
     };
     cfg.rig.refine_intrinsics_in_rig_ba = false;
     // Robot-pose refinement on by default; `RTV3D_RINGGRID_REFINE_ROBOT=0` holds

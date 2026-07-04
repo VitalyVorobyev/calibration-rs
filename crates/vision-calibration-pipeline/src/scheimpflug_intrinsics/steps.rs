@@ -4,8 +4,8 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, CameraParams, DistortionFixMask, DistortionParams, FxFyCxCySkew,
-    IntrinsicsFixMask, IntrinsicsParams, Iso3, ProjectionParams, Real, ScheimpflugParams,
-    SensorParams,
+    IntrinsicsFixMask, IntrinsicsParams, Iso3, ProjectionParams, RationalPolynomial, Real,
+    ScheimpflugParams, SensorParams, ThinPrism,
 };
 use vision_calibration_linear::distortion_fit::DistortionFitOptions;
 use vision_calibration_linear::scheimpflug_init::{
@@ -13,11 +13,12 @@ use vision_calibration_linear::scheimpflug_init::{
     estimate_scheimpflug_intrinsics_iterative,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, ScheimpflugBounds, ScheimpflugFixMask as OptimScheimpflugFixMask,
-    ScheimpflugIntrinsicsEstimate, ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,
+    BackendSolveOptions, DistortionKind, ScheimpflugBounds,
+    ScheimpflugFixMask as OptimScheimpflugFixMask, ScheimpflugIntrinsicsEstimate,
+    ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,
     ScheimpflugIntrinsicsSolveOptions as OptimScheimpflugIntrinsicsSolveOptions,
     ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics,
-    optimize_scheimpflug_intrinsics_staged,
+    optimize_scheimpflug_intrinsics_staged, with_leading_radial,
 };
 
 use crate::planar_family::{estimate_view_homographies, recover_planar_poses_from_homographies};
@@ -130,6 +131,10 @@ pub fn step_init_with_seed(
     // Capture before `manual` is destructured below: a user-provided tilt seed is
     // trusted directly by `step_optimize` (ADR 0022).
     let sensor_manual = manual.sensor.is_some();
+    // A manual Brown-Conrady distortion seed combined with a non-BC5 model is
+    // embedded (k1,k2,k3,p1,p2) with the extra coefficients starting at zero;
+    // warn so the user knows the extras are not taken from their seed.
+    let distortion_manual = manual.distortion.is_some();
     // From-scratch (no intrinsics seed) Scheimpflug auto-init is experimental — it
     // can land in a wrong tilt/focal basin under the tilt↔focal↔distortion
     // degeneracy. The supported path seeds a coarse focal + nominal mount tilt.
@@ -278,8 +283,14 @@ pub fn step_init_with_seed(
         (bootstrap.camera.k, dist, sensor, poses)
     };
 
+    // Embed the Brown-Conrady linear-init seed into the configured distortion
+    // model (None for the BC5 default, which is carried by `initial_distortion`).
+    let model = session.config.distortion_model;
+    let initial_distortion_params = build_initial_distortion_params(&distortion, model);
+
     session.state.initial_intrinsics = Some(intrinsics);
     session.state.initial_distortion = Some(distortion);
+    session.state.initial_distortion_params = initial_distortion_params;
     session.state.initial_sensor = Some(sensor);
     session.state.initial_sensor_manual = sensor_manual;
     session.state.initial_poses = Some(poses.clone());
@@ -293,15 +304,23 @@ pub fn step_init_with_seed(
          converge to a wrong tilt/focal basin; seed a coarse focal + nominal mount \
          tilt via step_init_with_seed for stable results (ADR 0022)"
     };
+    let distortion_note = if distortion_manual && model != DistortionKind::BrownConrady5 {
+        " — WARNING: a manual Brown-Conrady distortion seed was combined with a \
+         non-BrownConrady5 distortion_model; only (k1,k2,k3,p1,p2) are embedded and \
+         the extra coefficients start at zero"
+    } else {
+        ""
+    };
     session.log_success_with_notes(
         "init",
         format!(
-            "fx={:.1}, fy={:.1}, views={} {}{}",
+            "fx={:.1}, fy={:.1}, views={} {}{}{}",
             intrinsics.fx,
             intrinsics.fy,
             dataset.num_views(),
             source,
-            experimental
+            experimental,
+            distortion_note
         ),
     );
 
@@ -352,6 +371,13 @@ pub fn step_optimize(
         .initial_values()
         .ok_or_else(|| Error::not_available("initial params (call step_init first)"))?;
     let trust_seed_tilt = session.state.initial_sensor_manual;
+    // Extended distortion models carry their own seed (BC5 linear coefficients
+    // embedded, extras zeroed); the BC5 default wraps `initial_distortion`.
+    let initial_distortion_params = session.state.initial_distortion_params.clone().unwrap_or(
+        DistortionParams::BrownConrady5 {
+            params: initial_distortion,
+        },
+    );
 
     let opts = opts.unwrap_or_default();
     let mut max_iters = session.config.max_iters;
@@ -366,9 +392,9 @@ pub fn step_optimize(
         return Err(Error::invalid_input("max_iters must be positive"));
     }
 
-    let initial = OptimScheimpflugIntrinsicsParams::new(
+    let initial = OptimScheimpflugIntrinsicsParams::new_with_distortion(
         initial_intrinsics,
-        initial_distortion,
+        initial_distortion_params,
         initial_sensor,
         initial_poses,
     )?;
@@ -457,11 +483,11 @@ pub fn step_optimize(
         let pose_adapt_iters = pre_iters.min(20);
         let mut best_prefit: Option<ScheimpflugIntrinsicsEstimate> = None;
         for &k1_seed in &k1_seeds {
-            let seed_dist = BrownConrady5 {
-                k1: k1_seed,
-                ..initial.distortion
-            };
-            let seed_initial = OptimScheimpflugIntrinsicsParams::new(
+            // Sweep the leading barrel coefficient (k1 for BC5/Rational8/ThinPrism9,
+            // lambda for Division1). For BC5 this is `BrownConrady5 { k1: k1_seed,
+            // ..initial.distortion }` exactly, keeping the default path unchanged.
+            let seed_dist = with_leading_radial(&initial.distortion, k1_seed);
+            let seed_initial = OptimScheimpflugIntrinsicsParams::new_with_distortion(
                 initial.intrinsics,
                 seed_dist,
                 initial.sensor,
@@ -484,7 +510,7 @@ pub fn step_optimize(
                 Ok(r) => r,
                 Err(_) => continue,
             };
-            let a0_initial = match OptimScheimpflugIntrinsicsParams::new(
+            let a0_initial = match OptimScheimpflugIntrinsicsParams::new_with_distortion(
                 a0.params.intrinsics,
                 a0.params.distortion,
                 a0.params.sensor,
@@ -536,7 +562,7 @@ pub fn step_optimize(
             bounds: Some(joint_bounds),
             ..solve_opts
         };
-        let joint_initial = OptimScheimpflugIntrinsicsParams::new(
+        let joint_initial = OptimScheimpflugIntrinsicsParams::new_with_distortion(
             prefit.params.intrinsics,
             prefit.params.distortion,
             prefit.params.sensor,
@@ -610,14 +636,61 @@ fn to_optim_scheimpflug_fix_mask(
 
 fn scheimpflug_camera_params(
     intrinsics: FxFyCxCySkew<f64>,
-    distortion: BrownConrady5<f64>,
+    distortion: DistortionParams,
     sensor: ScheimpflugParams,
 ) -> CameraParams {
     CameraParams {
         projection: ProjectionParams::Pinhole,
-        distortion: DistortionParams::BrownConrady5 { params: distortion },
+        distortion,
         sensor: SensorParams::Scheimpflug { params: sensor },
         intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
+    }
+}
+
+/// Embed the Brown-Conrady linear-init coefficients into the configured
+/// distortion model, zeroing any extra degrees of freedom.
+///
+/// Returns `None` for [`DistortionKind::BrownConrady5`] — the default path
+/// carries the Brown-Conrady seed directly and wraps it on demand, keeping the
+/// numerics byte-identical to the pre-M-WIRE code.
+///
+/// [`DistortionKind::None`] is rejected by the optimizer (a Scheimpflug solve
+/// always carries distortion); it is mapped to `None` here so the default path
+/// surfaces that error rather than this helper.
+fn build_initial_distortion_params(
+    bc5: &BrownConrady5<Real>,
+    model: DistortionKind,
+) -> Option<DistortionParams> {
+    match model {
+        DistortionKind::BrownConrady5 | DistortionKind::None => None,
+        DistortionKind::Rational8 => Some(DistortionParams::Rational {
+            params: RationalPolynomial {
+                k1: bc5.k1,
+                k2: bc5.k2,
+                k3: bc5.k3,
+                k4: 0.0,
+                k5: 0.0,
+                k6: 0.0,
+                p1: bc5.p1,
+                p2: bc5.p2,
+                iters: 8,
+            },
+        }),
+        DistortionKind::ThinPrism9 => Some(DistortionParams::ThinPrism {
+            params: ThinPrism {
+                k1: bc5.k1,
+                k2: bc5.k2,
+                k3: bc5.k3,
+                p1: bc5.p1,
+                p2: bc5.p2,
+                s1: 0.0,
+                s2: 0.0,
+                s3: 0.0,
+                s4: 0.0,
+                iters: 8,
+            },
+        }),
+        DistortionKind::Division1 => Some(DistortionParams::Division { lambda: 0.0 }),
     }
 }
 

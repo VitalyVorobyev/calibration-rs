@@ -130,6 +130,7 @@ fn scheimpflug_handeye_config() -> RigHandeyeConfig {
         fix_scheimpflug_in_intrinsics: Default::default(),
         distortion_mask_in_percam_ba: vision_calibration_core::DistortionFixMask::radial_only(),
         refine_scheimpflug_in_rig_ba: false,
+        distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
     };
     cfg
 }

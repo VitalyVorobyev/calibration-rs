@@ -11,7 +11,7 @@ use vision_calibration_core::{
     compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
-    RigExtrinsicsEstimate as PinholeRigExtrinsicsEstimate,
+    DistortionKind, RigExtrinsicsEstimate as PinholeRigExtrinsicsEstimate,
     RigExtrinsicsScheimpflugEstimate as ScheimpflugRigExtrinsicsEstimate, RobustLoss,
 };
 
@@ -338,6 +338,18 @@ impl ProblemType for RigExtrinsicsProblem {
             return Err(Error::invalid_input(
                 "intrinsics_init_iterations must be positive",
             ));
+        }
+        // The joint rig bundle adjustment is Brown-Conrady-typed; reject other
+        // Scheimpflug distortion models up front (ADR 0019) rather than deep in
+        // the solver. Use the single-camera Scheimpflug problem type for
+        // extended distortion models.
+        if let Some(model) = config.sensor.scheimpflug_distortion_model()
+            && model != DistortionKind::BrownConrady5
+        {
+            return Err(Error::invalid_input(format!(
+                "rig Scheimpflug calibration supports only the BrownConrady5 distortion \
+                 model, got {model:?}"
+            )));
         }
         Ok(())
     }

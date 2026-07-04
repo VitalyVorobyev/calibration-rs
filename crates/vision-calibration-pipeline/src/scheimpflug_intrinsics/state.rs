@@ -1,7 +1,9 @@
 //! Intermediate state for Scheimpflug intrinsics calibration.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, Iso3, Real, ScheimpflugParams};
+use vision_calibration_core::{
+    BrownConrady5, DistortionParams, FxFyCxCySkew, Iso3, Real, ScheimpflugParams,
+};
 
 /// Initial parameter bundle consumed by the optimization step.
 pub type ScheimpflugInitialValues = (
@@ -19,6 +21,13 @@ pub(crate) struct ScheimpflugIntrinsicsState {
 
     /// Initial distortion estimated from iterative linear initialization.
     pub initial_distortion: Option<BrownConrady5<Real>>,
+
+    /// Model-agnostic initial distortion for extended distortion models
+    /// (Rational8, ThinPrism9, Division1). `None` for the Brown-Conrady5 default,
+    /// which is carried by `initial_distortion` and wrapped on demand. When set,
+    /// the optimization step seeds this directly via `new_with_distortion`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_distortion_params: Option<DistortionParams>,
 
     /// Initial Scheimpflug sensor parameters.
     pub initial_sensor: Option<ScheimpflugParams>,
@@ -100,6 +109,7 @@ mod tests {
                 skew: 0.0,
             }),
             initial_distortion: Some(BrownConrady5::default()),
+            initial_distortion_params: None,
             initial_sensor: Some(ScheimpflugParams::default()),
             initial_sensor_manual: false,
             initial_poses: Some(vec![Iso3::identity()]),
@@ -135,6 +145,7 @@ mod tests {
                 p2: 0.0,
                 iters: 8,
             }),
+            initial_distortion_params: None,
             initial_sensor: Some(ScheimpflugParams {
                 tilt_x: 0.01,
                 tilt_y: -0.008,

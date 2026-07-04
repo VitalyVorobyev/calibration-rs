@@ -2,8 +2,8 @@
 
 use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
-use crate::ir::{Bound, RobustLoss};
-use crate::params::distortion::unpack_distortion;
+use crate::ir::{Bound, CameraModelDesc, DistortionKind, RobustLoss};
+use crate::params::distortion::{distortion_kind, unpack_distortion_params};
 use crate::params::intrinsics::unpack_intrinsics;
 use crate::params::pose_se3::se3_dvec_to_iso3;
 use crate::problems::planar_family_shared::{
@@ -12,8 +12,9 @@ use crate::problems::planar_family_shared::{
 use nalgebra::DVectorView;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask,
-    Iso3, Pinhole, PlanarDataset, Real, ScheimpflugParams, View,
+    BrownConrady5, CameraParams, CorrespondenceView, DistortionFixMask, DistortionParams,
+    FxFyCxCySkew, IntrinsicsFixMask, IntrinsicsParams, Iso3, PlanarDataset, ProjectionParams, Real,
+    ScheimpflugParams, SensorParams, View,
 };
 
 /// Mask for Scheimpflug tilt parameters.
@@ -108,12 +109,18 @@ impl ScheimpflugBounds {
 }
 
 /// Initial/refined parameters for Scheimpflug intrinsics optimization.
+///
+/// The distortion is model-agnostic ([`DistortionParams`]) so the Scheimpflug
+/// path supports Brown-Conrady5 (the default) as well as the extended
+/// Rational8 / ThinPrism9 / Division1 models. Brown-Conrady5 remains
+/// byte-identical to the pre-M-WIRE path (packed vector `[k1, k2, k3, p1, p2]`,
+/// descriptor `PINHOLE4_DIST5_SCHEIMPFLUG2`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheimpflugIntrinsicsParams {
     /// Camera intrinsics.
     pub intrinsics: FxFyCxCySkew<Real>,
-    /// Brown-Conrady distortion parameters.
-    pub distortion: BrownConrady5<Real>,
+    /// Distortion parameters (model-agnostic).
+    pub distortion: DistortionParams,
     /// Scheimpflug sensor tilt parameters.
     pub sensor: ScheimpflugParams,
     /// Target poses per view (`camera_se3_target`).
@@ -121,10 +128,36 @@ pub struct ScheimpflugIntrinsicsParams {
 }
 
 impl ScheimpflugIntrinsicsParams {
-    /// Construct parameter pack with validation.
+    /// Construct a parameter pack from concrete Brown-Conrady distortion.
+    ///
+    /// Back-compat entry point for rig calibration and Brown-Conrady callers;
+    /// wraps `distortion` into [`DistortionParams::BrownConrady5`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
     pub fn new(
         intrinsics: FxFyCxCySkew<Real>,
         distortion: BrownConrady5<Real>,
+        sensor: ScheimpflugParams,
+        camera_se3_target: Vec<Iso3>,
+    ) -> Result<Self, Error> {
+        Self::new_with_distortion(
+            intrinsics,
+            DistortionParams::BrownConrady5 { params: distortion },
+            sensor,
+            camera_se3_target,
+        )
+    }
+
+    /// Construct a parameter pack from a model-agnostic [`DistortionParams`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
+    pub fn new_with_distortion(
+        intrinsics: FxFyCxCySkew<Real>,
+        distortion: DistortionParams,
         sensor: ScheimpflugParams,
         camera_se3_target: Vec<Iso3>,
     ) -> Result<Self, Error> {
@@ -137,6 +170,35 @@ impl ScheimpflugIntrinsicsParams {
             sensor,
             camera_se3_target,
         })
+    }
+
+    /// Return the distortion as concrete Brown-Conrady coefficients.
+    ///
+    /// Returns the stored coefficients for [`DistortionParams::BrownConrady5`]
+    /// and [`BrownConrady5::default`] otherwise. Rig calibration is
+    /// Brown-Conrady throughout, so this is always the exact stored value on
+    /// that path.
+    pub fn distortion_bc5(&self) -> BrownConrady5<Real> {
+        match &self.distortion {
+            DistortionParams::BrownConrady5 { params } => *params,
+            _ => BrownConrady5::default(),
+        }
+    }
+
+    /// Return a copy of this parameter pack with the poses replaced.
+    ///
+    /// Intrinsics, distortion, and sensor are cloned unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
+    pub fn with_poses(&self, camera_se3_target: Vec<Iso3>) -> Result<Self, Error> {
+        Self::new_with_distortion(
+            self.intrinsics,
+            self.distortion.clone(),
+            self.sensor,
+            camera_se3_target,
+        )
     }
 }
 
@@ -182,6 +244,27 @@ pub struct ScheimpflugIntrinsicsEstimate {
     pub mean_reproj_error: f64,
 }
 
+/// Select the Scheimpflug-sensor [`CameraModelDesc`] for a distortion kind.
+///
+/// Brown-Conrady5 maps to `PINHOLE4_DIST5_SCHEIMPFLUG2` (byte-identical to the
+/// pre-M-WIRE path); the extended models map to their Scheimpflug siblings.
+/// The identity-distortion `None` kind has no Scheimpflug descriptor and is
+/// rejected — a Scheimpflug intrinsics solve always carries a distortion model.
+fn scheimpflug_model_desc(kind: DistortionKind) -> Result<CameraModelDesc, Error> {
+    Ok(match kind {
+        DistortionKind::BrownConrady5 => CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+        DistortionKind::Rational8 => CameraModelDesc::PINHOLE4_RATIONAL8_SCHEIMPFLUG2,
+        DistortionKind::ThinPrism9 => CameraModelDesc::PINHOLE4_THINPRISM9_SCHEIMPFLUG2,
+        DistortionKind::Division1 => CameraModelDesc::PINHOLE4_DIVISION1_SCHEIMPFLUG2,
+        DistortionKind::None => {
+            return Err(Error::invalid_input(
+                "Scheimpflug intrinsics requires a distortion model (identity distortion \
+                 is not supported)",
+            ));
+        }
+    })
+}
+
 fn build_scheimpflug_intrinsics_ir(
     dataset: &PlanarDataset,
     initial: &ScheimpflugIntrinsicsParams,
@@ -193,6 +276,19 @@ fn build_scheimpflug_intrinsics_ir(
     ),
     Error,
 > {
+    let kind = distortion_kind(&initial.distortion);
+    let model = scheimpflug_model_desc(kind)?;
+
+    // For Brown-Conrady5 the `fix_distortion` mask indexes `[k1, k2, k3, p1, p2]`
+    // and applies as-is (byte-identical to the pre-M-WIRE path). For the extended
+    // models the mask is Brown-Conrady-shaped and does not translate to their
+    // orderings, so every distortion coefficient is left free.
+    let fix_distortion_indices = if kind == DistortionKind::BrownConrady5 {
+        opts.fix_distortion.to_indices()
+    } else {
+        Vec::new()
+    };
+
     build_planar_reprojection_ir(
         dataset,
         &initial.intrinsics,
@@ -201,13 +297,13 @@ fn build_scheimpflug_intrinsics_ir(
         &PlanarReprojectionIrOptions {
             robust_loss: opts.robust_loss,
             fix_intrinsics_indices: opts.fix_intrinsics.to_indices(),
-            fix_distortion_indices: opts.fix_distortion.to_indices(),
+            fix_distortion_indices,
             fix_pose_indices: opts.fix_poses.clone(),
             sensor: Some(PlanarSensorIrOptions {
                 params: initial.sensor,
                 fix_indices: opts.fix_scheimpflug.as_flags(),
             }),
-            model: crate::ir::CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+            model,
             intrinsics_bounds: opts
                 .bounds
                 .as_ref()
@@ -252,6 +348,7 @@ pub fn optimize_scheimpflug_intrinsics_with_backend(
     backend: BackendKind,
     backend_opts: BackendSolveOptions,
 ) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
+    let kind = distortion_kind(&initial.distortion);
     let (ir, initial_map) = build_scheimpflug_intrinsics_ir(dataset, initial, &opts)?;
     let solution = solve_with_backend(backend, &ir, &initial_map, &backend_opts)?;
 
@@ -262,7 +359,8 @@ pub fn optimize_scheimpflug_intrinsics_with_backend(
             .ok_or_else(|| Error::numerical("missing intrinsics solution block"))?
             .as_view(),
     )?;
-    let distortion = unpack_distortion(
+    let distortion = unpack_distortion_params(
+        kind,
         solution
             .params
             .get("dist")
@@ -288,7 +386,7 @@ pub fn optimize_scheimpflug_intrinsics_with_backend(
     }
 
     let mean_reproj_error =
-        compute_mean_reproj_error(dataset, intrinsics, distortion, sensor, &optimized_poses);
+        compute_mean_reproj_error(dataset, intrinsics, &distortion, sensor, &optimized_poses);
 
     Ok(ScheimpflugIntrinsicsEstimate {
         params: ScheimpflugIntrinsicsParams {
@@ -604,11 +702,19 @@ fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> Result<ScheimpflugParams,
 fn compute_mean_reproj_error(
     dataset: &PlanarDataset,
     intrinsics: FxFyCxCySkew<f64>,
-    distortion: BrownConrady5<f64>,
+    distortion: &DistortionParams,
     sensor: ScheimpflugParams,
     poses: &[Iso3],
 ) -> f64 {
-    let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
+    // Build the runtime camera model from parameters so every distortion model
+    // (Brown-Conrady5 and the extended ones) reprojects through the same path.
+    let camera = CameraParams {
+        projection: ProjectionParams::Pinhole,
+        distortion: distortion.clone(),
+        sensor: SensorParams::Scheimpflug { params: sensor },
+        intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
+    }
+    .build();
     let mut sum = 0.0;
     let mut count = 0usize;
 
@@ -637,7 +743,7 @@ fn compute_mean_reproj_error(
 mod tests {
     use super::*;
     use nalgebra::{Translation3, UnitQuaternion};
-    use vision_calibration_core::{CorrespondenceView, Pt2, Pt3, View};
+    use vision_calibration_core::{Camera, CorrespondenceView, Pinhole, Pt2, Pt3, View};
 
     fn gt_camera() -> (FxFyCxCySkew<f64>, BrownConrady5<f64>, ScheimpflugParams) {
         // Principal point intentionally off image center, a large ~-5.7° tilt
@@ -771,14 +877,15 @@ mod tests {
         .unwrap();
 
         let r = &est.params;
+        let r_dist = r.distortion_bc5();
         eprintln!(
             "recovered: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:.3} k2={:.3} tau=({:.4},{:.4}) reproj={:.4}px",
             r.intrinsics.fx,
             r.intrinsics.fy,
             r.intrinsics.cx,
             r.intrinsics.cy,
-            r.distortion.k1,
-            r.distortion.k2,
+            r_dist.k1,
+            r_dist.k2,
             r.sensor.tilt_x,
             r.sensor.tilt_y,
             est.mean_reproj_error,

@@ -2,14 +2,14 @@ use crate::Error;
 use nalgebra::DVector;
 use std::collections::{HashMap, HashSet};
 use vision_calibration_core::{
-    BrownConrady5, FxFyCxCySkew, Iso3, PlanarDataset, Real, ScheimpflugParams,
+    DistortionParams, FxFyCxCySkew, Iso3, PlanarDataset, Real, ScheimpflugParams,
 };
 
 use crate::ir::{
     Bound, CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
 };
-use crate::params::distortion::{DISTORTION_DIM, pack_distortion};
+use crate::params::distortion::pack_distortion_params;
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 
@@ -49,7 +49,7 @@ impl PlanarSensorIrOptions {
 pub(crate) fn build_planar_reprojection_ir(
     dataset: &PlanarDataset,
     intrinsics: &FxFyCxCySkew<Real>,
-    distortion: &BrownConrady5<Real>,
+    distortion: &DistortionParams,
     poses: &[Iso3],
     opts: &PlanarReprojectionIrOptions,
 ) -> Result<(ProblemIR, HashMap<String, DVector<f64>>), Error> {
@@ -83,14 +83,24 @@ pub(crate) fn build_planar_reprojection_ir(
     );
     initial_map.insert("cam".to_string(), pack_intrinsics(intrinsics)?);
 
-    let dist_id = ir.add_param_block(
-        "dist",
-        DISTORTION_DIM,
-        ManifoldKind::Euclidean,
-        FixedMask::fix_indices(&opts.fix_distortion_indices),
-        None,
-    );
-    initial_map.insert("dist".to_string(), pack_distortion(distortion));
+    // Variable-dimension distortion block selected by the camera model
+    // descriptor. `dim == 0` (identity distortion) emits no block; otherwise the
+    // packed vector length must equal the descriptor's distortion dimension (the
+    // IR validation guards a mismatch).
+    let dist_dim = opts.model.distortion.dim();
+    let dist_id = if dist_dim > 0 {
+        let id = ir.add_param_block(
+            "dist",
+            dist_dim,
+            ManifoldKind::Euclidean,
+            FixedMask::fix_indices(&opts.fix_distortion_indices),
+            None,
+        );
+        initial_map.insert("dist".to_string(), pack_distortion_params(distortion));
+        Some(id)
+    } else {
+        None
+    };
 
     let sensor_id = if let Some(sensor) = opts.sensor {
         let id = ir.add_param_block(
@@ -131,7 +141,10 @@ pub(crate) fn build_planar_reprojection_ir(
             .zip(view.obs.points_2d.iter())
             .enumerate()
         {
-            let mut params = vec![cam_id, dist_id];
+            let mut params = vec![cam_id];
+            if let Some(dist_id) = dist_id {
+                params.push(dist_id);
+            }
             if opts.model.sensor.dim() > 0 {
                 let sensor_id = sensor_id
                     .expect("internal invariant: sensor_id required for a sensor-bearing model");

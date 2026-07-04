@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::DistortionFixMask;
 use vision_calibration_dataset::DatasetSpec;
-use vision_calibration_optim::{HandEyeMode, RobustLoss, ScheimpflugFixMask};
+use vision_calibration_optim::{DistortionKind, HandEyeMode, RobustLoss, ScheimpflugFixMask};
 use vision_calibration_pipeline::rig_handeye::{RigHandeyeConfig, SensorMode};
 use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
 
@@ -487,6 +487,8 @@ impl From<BenchSensorMode> for SensorMode {
                     .map(Into::into)
                     .unwrap_or_default(),
                 refine_scheimpflug_in_rig_ba,
+                // Rig Scheimpflug bundle adjustment is Brown-Conrady-typed.
+                distortion_model: DistortionKind::BrownConrady5,
             },
         }
     }

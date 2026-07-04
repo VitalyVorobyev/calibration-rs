@@ -11,7 +11,7 @@ use vision_calibration_core::{
     build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
-    HandEyeEstimate as PinholeHandEyeEstimate, HandEyeMode,
+    DistortionKind, HandEyeEstimate as PinholeHandEyeEstimate, HandEyeMode,
     HandEyeScheimpflugEstimate as ScheimpflugHandEyeEstimate, RobotPoseMeta, RobustLoss,
     handeye_observer_se3_target,
 };
@@ -506,6 +506,18 @@ impl ProblemType for RigHandeyeProblem {
         }
         if config.handeye_ba.robot_trans_sigma <= 0.0 {
             return Err(Error::invalid_input("robot_trans_sigma must be positive"));
+        }
+        // The joint rig hand-eye bundle adjustment is Brown-Conrady-typed; reject
+        // other Scheimpflug distortion models up front (ADR 0019) rather than deep
+        // in the solver. Use the single-camera Scheimpflug problem type for
+        // extended distortion models.
+        if let Some(model) = config.sensor.scheimpflug_distortion_model()
+            && model != DistortionKind::BrownConrady5
+        {
+            return Err(Error::invalid_input(format!(
+                "rig Scheimpflug hand-eye calibration supports only the BrownConrady5 \
+                 distortion model, got {model:?}"
+            )));
         }
         Ok(())
     }

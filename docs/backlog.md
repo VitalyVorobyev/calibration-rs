@@ -128,13 +128,32 @@ two-view/triangulation.
   (S3 spec seeds may expose the cause); ringgrid math note (the bias mechanism
   is its proof). Target: median ≤ 1.0 px; cam5 fixed or excluded with a
   documented physical cause; regression record updated.
-- [ ] Q4-MWIRE-SCHEIMPFLUG - Distortion-model selection on the Scheimpflug
-  path: add `distortion_model: DistortionKind` to `ScheimpflugIntrinsicsConfig`
-  + the rig configs, mirroring the PlanarIntrinsics M-WIRE slice (minimal flat
-  shape — R2/R3 normalizes placement later). Measure the effect on the seeded
-  fits (gated: rtv3d_ref still ≤ 0.5 px) and on the from-scratch floor
-  (informational — this is the suspected V7 factor). App selector → B-QUAL2,
-  Python field → R5.
+- [x] Q4-MWIRE-SCHEIMPFLUG - **Done 2026-07-04.** `distortion_model:
+  DistortionKind` added to `ScheimpflugIntrinsicsConfig` (serde-default
+  BrownConrady5) and to rig `SensorMode::Scheimpflug` (BC5-typed for schema
+  symmetry; non-BC5 rejected up front in both rig `validate_config`s — the
+  joint rig BA stays Brown-Conrady). Optim
+  `ScheimpflugIntrinsicsParams.distortion` generalized to `DistortionParams`
+  with `new_with_distortion`/`distortion_bc5()`/`with_poses()` keeping rig
+  call sites stable; the BC5 packed vector and
+  `PINHOLE4_DIST5_SCHEIMPFLUG2` descriptor are byte-identical to the
+  pre-Q4 path (all pin tests unchanged). The Phase A k1 multi-start
+  generalizes via `with_leading_radial` (k1 for BC5/Rational8/ThinPrism9, λ
+  for Division1); `fix_distortion` masks apply to BC5 only (extended models
+  all-free). New synthetic-GT suites: optim (4 tests) + pipeline (7 tests,
+  incl. JSON roundtrip + missing-field→BC5 + manual-seed-warning). Schemas
+  regenerated; dated notes on ADR 0020 + 0022. **Measurement**
+  (`Q4_DISTORTION_SWEEP=1`, env-gated sweep in the two private intrinsics
+  examples; mean-reproj medians, ±~1e-3 px backend jitter): rtv3d_ref BC5
+  0.3316 / Rational8 0.3400 / ThinPrism9 0.3369 / Division1 0.3507 px —
+  extended models diverge on thin-data cams 3/4 (Rational8 cam4 ~7990 px:
+  extra DOF zero-seeded on a BC5-only linear init are under-constrained
+  there; promotion beyond informational needs a proper warm start).
+  ringgrid BC5 0.4739 / Rational8 0.4698 / ThinPrism9 0.4651 / Division1
+  0.4745 px — richer radial terms nudge the marginal cam1 from 0.5008 to
+  0.4988 px, evidence the suspected V7 floor is partly a
+  distortion-model-order effect on this rig. Committed bench defaults stay
+  BC5, zero baseline drift. App selector → B-QUAL2, Python field → R5.
 - [ ] Q5-RTV3D-SCALE - (absorbs V6-SCALE) Settle the rtv3d absolute scale
   (hexagon 90.1 mm at 5.2 mm cells vs oracle-implied ~98.5 mm; if 98.5 mm is
   right the true cell is ≈ 5.69 mm and both shipped board specs are wrong).

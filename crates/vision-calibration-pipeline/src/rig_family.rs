@@ -31,7 +31,7 @@ use vision_calibration_linear::scheimpflug_init::{
     ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
     ScheimpflugIntrinsicsLinearInit, estimate_scheimpflug_intrinsics_iterative,
 };
-use vision_calibration_optim::ScheimpflugFixMask;
+use vision_calibration_optim::{DistortionKind, ScheimpflugFixMask};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sensor mode (public — re-exported by rig_extrinsics and rig_handeye)
@@ -80,6 +80,15 @@ pub enum SensorMode {
         /// Re-refine Scheimpflug parameters in rig BA (default: false).
         #[serde(default)]
         refine_scheimpflug_in_rig_ba: bool,
+        /// Distortion model for the per-camera Scheimpflug intrinsics.
+        ///
+        /// Only [`DistortionKind::BrownConrady5`] (the default) is supported:
+        /// the joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5
+        /// models are rejected up front by the rig `validate_config` (ADR 0019)
+        /// rather than deep in the solver. The field exists for schema
+        /// symmetry with the single-camera Scheimpflug path.
+        #[serde(default = "default_scheimpflug_distortion_kind")]
+        distortion_model: DistortionKind,
     },
 }
 
@@ -87,10 +96,28 @@ fn default_scheimpflug_percam_distortion_mask() -> DistortionFixMask {
     DistortionFixMask::radial_only()
 }
 
+fn default_scheimpflug_distortion_kind() -> DistortionKind {
+    DistortionKind::BrownConrady5
+}
+
 impl SensorMode {
     /// `true` when the mode is the Scheimpflug variant.
     pub fn is_scheimpflug(&self) -> bool {
         matches!(self, Self::Scheimpflug { .. })
+    }
+
+    /// The configured Scheimpflug distortion model, or `None` for pinhole rigs.
+    ///
+    /// Used by the rig `validate_config` implementations to reject non-BC5
+    /// distortion models before any solve begins — the joint rig bundle
+    /// adjustment is Brown-Conrady-typed.
+    pub fn scheimpflug_distortion_model(&self) -> Option<DistortionKind> {
+        match self {
+            Self::Scheimpflug {
+                distortion_model, ..
+            } => Some(*distortion_model),
+            Self::Pinhole => None,
+        }
     }
 }
 

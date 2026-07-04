@@ -739,6 +739,10 @@ pub mod tier_b {
             detection: Some(detection),
             laser: None,
             robot_corrections: None,
+            // Single-camera Scheimpflug intrinsics emits Fit-only metrics and no
+            // camera artifact. The `camera_artifact("brown_conrady5", …)` path is
+            // reached only by the rig runs, which stay Brown-Conrady even after the
+            // Q4-MWIRE distortion-model selection (rig BA is BC5-typed).
             artifacts: None,
             delta_to_prior: None,
             timing,
@@ -2279,9 +2283,12 @@ pub mod tier_b {
         estimate: vision_calibration_optim::ScheimpflugIntrinsicsEstimate,
         note: Option<String>,
     ) -> Result<StagedIntrinsicsSolve> {
+        // Bench staged solves are Brown-Conrady (the committed defaults);
+        // `IntrinsicsParamReport` is BC5-shaped, so read the concrete coefficients.
+        let distortion = estimate.params.distortion_bc5();
         let camera = Camera::new(
             Pinhole,
-            estimate.params.distortion,
+            distortion,
             estimate.params.sensor.compile(),
             estimate.params.intrinsics,
         );
@@ -2302,11 +2309,11 @@ pub mod tier_b {
             cx: estimate.params.intrinsics.cx,
             cy: estimate.params.intrinsics.cy,
             skew: estimate.params.intrinsics.skew,
-            k1: estimate.params.distortion.k1,
-            k2: estimate.params.distortion.k2,
-            k3: estimate.params.distortion.k3,
-            p1: estimate.params.distortion.p1,
-            p2: estimate.params.distortion.p2,
+            k1: distortion.k1,
+            k2: distortion.k2,
+            k3: distortion.k3,
+            p1: distortion.p1,
+            p2: distortion.p2,
             tau_x: estimate.params.sensor.tilt_x,
             tau_y: estimate.params.sensor.tilt_y,
         };

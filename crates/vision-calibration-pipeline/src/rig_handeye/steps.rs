@@ -513,7 +513,7 @@ pub fn step_intrinsics_optimize_all(
 
                 optimized_cameras.push(make_pinhole_camera(
                     result.params.intrinsics,
-                    result.params.distortion,
+                    result.params.distortion_bc5(),
                 ));
                 optimized_sensors
                     .as_mut()
@@ -750,8 +750,10 @@ fn recover_bad_scheimpflug_cameras_from_nominal(
         if candidate.mean_reproj_error.is_finite()
             && (!current.is_finite() || candidate.mean_reproj_error < current)
         {
-            cameras[cam_idx] =
-                make_pinhole_camera(candidate.params.intrinsics, candidate.params.distortion);
+            cameras[cam_idx] = make_pinhole_camera(
+                candidate.params.intrinsics,
+                candidate.params.distortion_bc5(),
+            );
             sensors[cam_idx] = candidate.params.sensor;
             per_cam_reproj_errors[cam_idx] = candidate.mean_reproj_error;
             for (local_idx, &global_idx) in item.valid_indices.iter().enumerate() {
@@ -1008,7 +1010,7 @@ fn score_bad_scheimpflug_seed_against_good_rig(
     let cam_from_rig = cam_to_rig.inverse();
     let camera = Camera::new(
         Pinhole,
-        params.distortion,
+        params.distortion_bc5(),
         params.sensor.compile(),
         params.intrinsics,
     );
@@ -1058,8 +1060,10 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
     let dataset = bad_camera_only_scheimpflug_rig_dataset(item, cameras.len(), num_views)?;
 
     let mut rig_cameras = cameras.to_vec();
-    rig_cameras[item.cam_idx] =
-        make_pinhole_camera(candidate_params.intrinsics, candidate_params.distortion);
+    rig_cameras[item.cam_idx] = make_pinhole_camera(
+        candidate_params.intrinsics,
+        candidate_params.distortion_bc5(),
+    );
     let mut rig_sensors = sensors.to_vec();
     rig_sensors[item.cam_idx] = candidate_params.sensor;
     let mut cam_to_rig = context.cam_to_rig.clone();
@@ -1241,7 +1245,7 @@ fn score_nominal_scheimpflug_seeds(
                 if dk1 == 0.0 && dk2 == 0.0 {
                     continue;
                 }
-                let mut dist = base.params.distortion;
+                let mut dist = base.params.distortion_bc5();
                 dist.k1 += dk1;
                 dist.k2 += dk2;
                 score_scheimpflug_seed_parts(
@@ -1294,13 +1298,10 @@ fn score_scheimpflug_seed(
     params: &ScheimpflugIntrinsicsParams,
     scored: &mut Vec<ScoredScheimpflugSeed>,
 ) {
-    if let Ok(poses) = recover_scheimpflug_poses_for_seed(
-        dataset,
-        &params.intrinsics,
-        &params.distortion,
-        params.sensor,
-    ) && let Ok(params) =
-        ScheimpflugIntrinsicsParams::new(params.intrinsics, params.distortion, params.sensor, poses)
+    let dist = params.distortion_bc5();
+    if let Ok(poses) =
+        recover_scheimpflug_poses_for_seed(dataset, &params.intrinsics, &dist, params.sensor)
+        && let Ok(params) = params.with_poses(poses)
     {
         let score = mean_scheimpflug_reproj(dataset, &params);
         if score.is_finite() {
@@ -1388,7 +1389,7 @@ fn scheimpflug_estimate_from_scored_seed(
 fn mean_scheimpflug_reproj(dataset: &PlanarDataset, params: &ScheimpflugIntrinsicsParams) -> f64 {
     let camera = Camera::new(
         Pinhole,
-        params.distortion,
+        params.distortion_bc5(),
         params.sensor.compile(),
         params.intrinsics,
     );

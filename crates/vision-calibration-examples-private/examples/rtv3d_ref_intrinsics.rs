@@ -28,6 +28,11 @@
 //! - `RTV3D_REF_DATA_DIR` (default `privatedata/rtv3d_ref`). Must contain a
 //!   `spec.json` device spec (gitignored, like the rest of `privatedata/`).
 //! - `RTV3D_REF_MAXITERS` (default `120`).
+//! - `Q4_DISTORTION_SWEEP=1` — after the gated run, re-run the same seeded
+//!   route once per distortion model (BrownConrady5, Rational8, ThinPrism9,
+//!   Division1) and print a per-camera / per-model mean-reprojection table.
+//!   Informational only: it never changes the output of the default run nor
+//!   the process exit code.
 
 use anyhow::{Context, Result, anyhow};
 use std::path::PathBuf;
@@ -47,7 +52,7 @@ use vision_calibration_examples_private::{
     RefArtifacts, RefIntrinsic, detect_target, load_gray, load_poses, load_ref_artifacts,
     split_horizontal, split_opencv_distortion,
 };
-use vision_calibration_optim::RobustLoss;
+use vision_calibration_optim::{DistortionKind, RobustLoss};
 
 const NUM_CAMERAS: usize = 6;
 const BOARD_ROWS: u32 = 130;
@@ -126,6 +131,12 @@ fn main() -> Result<()> {
     }
     println!("detect: {:.2?}", t_det.elapsed());
 
+    // Opt-in per-model sweep re-runs the seeded route on the same detections;
+    // the gated loop below consumes `per_cam_views`, so snapshot them first
+    // (only when the sweep is enabled — the default path is untouched).
+    let sweep_views: Option<Vec<Vec<View<NoMeta>>>> =
+        sweep_enabled().then(|| per_cam_views.clone());
+
     // ── Per-camera seeded intrinsics calibration ─────────────────────────────
     let t0 = Instant::now();
     let mut results: Vec<CamResult> = Vec::with_capacity(NUM_CAMERAS);
@@ -190,6 +201,11 @@ fn main() -> Result<()> {
 
     report(&art, &results);
 
+    // ── Opt-in distortion-model sweep (informational; never gates) ───────────
+    if let Some(sweep_views) = &sweep_views {
+        run_distortion_sweep(&spec, sweep_views, max_iters);
+    }
+
     // ── Hard gate: every camera ≤ 0.5 px ─────────────────────────────────────
     let failed: Vec<(usize, f64)> = results
         .iter()
@@ -212,6 +228,110 @@ fn main() -> Result<()> {
              richer distortion, detector tail), do not relax the gate.",
             failed.len()
         ))
+    }
+}
+
+/// Whether the opt-in per-distortion-model sweep is requested.
+fn sweep_enabled() -> bool {
+    std::env::var("Q4_DISTORTION_SWEEP").as_deref() == Ok("1")
+}
+
+/// Run the seeded Scheimpflug intrinsics solve for one camera under a given
+/// distortion model and return its mean reprojection error (px).
+///
+/// Mirrors the gated run's config exactly — same seed, same fix masks, same
+/// robust loss — changing only `distortion_model`. Non-BC5 models produce a
+/// different `DistortionParams` variant on output, but the sweep only reads
+/// the scalar reprojection metric, so no variant matching is needed.
+fn sweep_solve_camera(
+    spec: &DeviceSpec,
+    cam: usize,
+    views: Vec<View<NoMeta>>,
+    model: DistortionKind,
+    max_iters: usize,
+) -> Result<f64> {
+    let dataset = PlanarDataset::new(views)?;
+    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    session.set_input(dataset)?;
+
+    let mut config = ScheimpflugIntrinsicsConfig::default();
+    config.max_iters = max_iters;
+    config.fix_scheimpflug = ScheimpflugFixMask {
+        tilt_x: false,
+        tilt_y: false,
+    };
+    config.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    config.distortion_model = model;
+    session.set_config(config)?;
+
+    let seed = scheimpflug_seed(spec, &format!("cam{cam}"))?;
+    step_init_with_seed(&mut session, seed, None)?;
+    step_optimize(&mut session, None)?;
+
+    let out = session.output().expect("output after optimize");
+    Ok(out.mean_reproj_error)
+}
+
+/// Median of the finite values (proper even-length average); `None` if empty.
+fn median(mut xs: Vec<f64>) -> Option<f64> {
+    xs.retain(|v| v.is_finite());
+    if xs.is_empty() {
+        return None;
+    }
+    xs.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+    let n = xs.len();
+    Some(if n % 2 == 1 {
+        xs[n / 2]
+    } else {
+        (xs[n / 2 - 1] + xs[n / 2]) / 2.0
+    })
+}
+
+/// Opt-in per-distortion-model sweep (env `Q4_DISTORTION_SWEEP=1`).
+///
+/// For each model it re-runs the same seeded route per camera and reports the
+/// mean reprojection error (the gated metric), plus a per-model median across
+/// cameras. Purely informational — it never affects the process exit code. A
+/// solve that errors is reported as `ERR`; a non-finite reprojection as
+/// `DIVERGED`.
+fn run_distortion_sweep(spec: &DeviceSpec, per_cam_views: &[Vec<View<NoMeta>>], max_iters: usize) {
+    let models = [
+        DistortionKind::BrownConrady5,
+        DistortionKind::Rational8,
+        DistortionKind::ThinPrism9,
+        DistortionKind::Division1,
+    ];
+    println!(
+        "\n── Q4 distortion-model sweep (mean reprojection px; informational, does NOT affect gate) ──"
+    );
+    print!("  {:<13} |", "model");
+    for c in 0..NUM_CAMERAS {
+        print!(" {:>8} |", format!("cam{c}"));
+    }
+    println!(" {:>8}", "median");
+    for model in models {
+        let results: Vec<Result<f64>> = per_cam_views
+            .iter()
+            .enumerate()
+            .map(|(c, views)| sweep_solve_camera(spec, c, views.clone(), model, max_iters))
+            .collect();
+        print!("  {:<13} |", format!("{model:?}"));
+        for cell in &results {
+            let s = match cell {
+                Ok(v) if v.is_finite() => format!("{v:.4}"),
+                Ok(_) => "DIVERGED".to_string(),
+                Err(_) => "ERR".to_string(),
+            };
+            print!(" {s:>8} |");
+        }
+        let finite: Vec<f64> = results
+            .iter()
+            .filter_map(|c| c.as_ref().ok().copied())
+            .collect();
+        match median(finite) {
+            Some(m) => println!(" {m:>8.4}"),
+            None => println!(" {:>8}", "n/a"),
+        }
     }
 }
 

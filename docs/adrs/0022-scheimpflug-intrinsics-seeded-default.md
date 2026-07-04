@@ -8,6 +8,19 @@
   planned), and **Q6** adds the convergence-basin study quantifying how much
   spec error the seeded route tolerates (the empirical evidence backing this
   ADR). See `docs/backlog.md` Tracks S/Q.
+- Note (2026-07-04): Q4-MWIRE-SCHEIMPFLUG generalized the seeded route beyond
+  Brown-Conrady-5. `ScheimpflugIntrinsicsConfig::distortion_model` (default
+  `DistortionKind::BrownConrady5`) now selects the model `step_optimize`
+  refines. The Phase A `k1` multi-start grid `{0, −0.20, −0.40}` generalizes
+  through `with_leading_radial`, which sweeps the **leading radial term** —
+  `k1` for BrownConrady5/Rational8/ThinPrism9, `lambda` for Division1 — and is
+  a no-op for `DistortionKind::None`. The `fix_distortion`
+  (`DistortionFixMask`) mask only applies to BrownConrady5's `[k1, k2, k3, p1,
+  p2]` ordering; for the extended models every distortion coefficient is left
+  free, since the mask does not translate to their orderings. Rigs are
+  unaffected: `SensorMode::Scheimpflug::distortion_model` remains BC5-typed
+  and is rejected up front for non-BC5 values in `validate_config` (ADR
+  0019) — the joint rig bundle adjustment stays Brown-Conrady-only.
 
 ## Context
 

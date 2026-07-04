@@ -67,6 +67,56 @@ pub fn pack_distortion_params(d: &DistortionParams) -> DVector<f64> {
     }
 }
 
+/// Map a [`DistortionParams`] variant to its [`DistortionKind`] discriminant.
+///
+/// This is the single source of truth for the params → kind mapping shared by
+/// the planar and Scheimpflug problem builders.
+pub fn distortion_kind(d: &DistortionParams) -> DistortionKind {
+    match d {
+        DistortionParams::None => DistortionKind::None,
+        DistortionParams::BrownConrady5 { .. } => DistortionKind::BrownConrady5,
+        DistortionParams::Rational { .. } => DistortionKind::Rational8,
+        DistortionParams::ThinPrism { .. } => DistortionKind::ThinPrism9,
+        DistortionParams::Division { .. } => DistortionKind::Division1,
+    }
+}
+
+/// Return a copy of `d` with its **leading radial coefficient** set to `value`,
+/// preserving the model variant and all other coefficients.
+///
+/// The leading radial term is `k1` for [`DistortionParams::BrownConrady5`],
+/// [`DistortionParams::Rational`], and [`DistortionParams::ThinPrism`], and
+/// `lambda` for [`DistortionParams::Division`] (also the primary barrel term).
+/// [`DistortionParams::None`] carries no coefficient, so it is returned
+/// unchanged (a leading-radial multi-start collapses to a single start).
+///
+/// Used by the Scheimpflug warm-start to sweep the leading barrel coefficient
+/// across a coarse grid without hard-coding the Brown-Conrady layout.
+pub fn with_leading_radial(d: &DistortionParams, value: f64) -> DistortionParams {
+    match d {
+        DistortionParams::None => DistortionParams::None,
+        DistortionParams::BrownConrady5 { params } => DistortionParams::BrownConrady5 {
+            params: BrownConrady5 {
+                k1: value,
+                ..*params
+            },
+        },
+        DistortionParams::Rational { params } => DistortionParams::Rational {
+            params: RationalPolynomial {
+                k1: value,
+                ..*params
+            },
+        },
+        DistortionParams::ThinPrism { params } => DistortionParams::ThinPrism {
+            params: ThinPrism {
+                k1: value,
+                ..*params
+            },
+        },
+        DistortionParams::Division { .. } => DistortionParams::Division { lambda: value },
+    }
+}
+
 /// Unpack a [`DistortionParams`] from an IR-ordered distortion vector.
 ///
 /// `kind` selects the expected length and layout; returns
