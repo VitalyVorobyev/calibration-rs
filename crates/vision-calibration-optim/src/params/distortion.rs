@@ -4,7 +4,7 @@ use crate::Error;
 use crate::ir::DistortionKind;
 use nalgebra::{DVector, DVectorView};
 use vision_calibration_core::{
-    BrownConrady5, DistortionParams, RationalPolynomial, Real, ThinPrism,
+    BrownConrady5, DistortionFixMask, DistortionParams, RationalPolynomial, Real, ThinPrism,
 };
 
 /// Dimension of the Brown-Conrady distortion vector [k1, k2, k3, p1, p2].
@@ -65,6 +65,53 @@ pub fn pack_distortion_params(d: &DistortionParams) -> DVector<f64> {
             nalgebra::dvector![*lambda]
         }
     }
+}
+
+/// Translate a Brown-Conrady-shaped [`DistortionFixMask`] onto the packed
+/// coefficient layout of `kind`, returning the fixed indices into that layout.
+///
+/// This is the single name-based mechanism used for **both** user-supplied fix
+/// masks and the pipeline's staging masks (A0/A1), so the extended models
+/// honour the same "which coefficients are free" invariants as Brown-Conrady.
+/// The packed orderings are the ones produced by [`pack_distortion_params`];
+/// index accordingly.
+///
+/// The `DistortionFixMask` has five named bits `{k1, k2, k3, p1, p2}`. They map
+/// by name onto every model's shared coefficients; each model's extra
+/// coefficients follow the mask bit of the *family* they belong to:
+///
+/// - **BrownConrady5** `[k1, k2, k3, p1, p2]`: exactly [`DistortionFixMask::to_indices`]
+///   (byte-identical to the pre-M-WIRE path).
+/// - **Rational8** `[k1, k2, k3, k4, k5, k6, p1, p2]`: `k1,k2,k3,p1,p2` by name;
+///   the higher-order radial block `k4,k5,k6` follows the `k3` bit (OpenCV-style
+///   — it is the same radial family, promoted/demoted together).
+/// - **ThinPrism9** `[k1, k2, k3, p1, p2, s1, s2, s3, s4]`: `k1,k2,k3,p1,p2` by
+///   name; the thin-prism block `s1..s4` follows the tangential pair — fixed iff
+///   **both** `p1` and `p2` are fixed (prism is a tangential-family refinement).
+/// - **Division1** `[lambda]`: the single barrel term follows the leading radial
+///   `k1` bit, consistent with [`with_leading_radial`].
+/// - **None**: no coefficients, so no indices.
+pub fn fix_mask_indices(mask: &DistortionFixMask, kind: DistortionKind) -> Vec<usize> {
+    // Fixed-flag per packed coefficient, in `pack_distortion_params` order.
+    let flags: Vec<bool> = match kind {
+        DistortionKind::None => Vec::new(),
+        DistortionKind::BrownConrady5 => vec![mask.k1, mask.k2, mask.k3, mask.p1, mask.p2],
+        DistortionKind::Rational8 => vec![
+            mask.k1, mask.k2, mask.k3, mask.k3, mask.k3, mask.k3, mask.p1, mask.p2,
+        ],
+        DistortionKind::ThinPrism9 => {
+            let prism = mask.p1 && mask.p2;
+            vec![
+                mask.k1, mask.k2, mask.k3, mask.p1, mask.p2, prism, prism, prism, prism,
+            ]
+        }
+        DistortionKind::Division1 => vec![mask.k1],
+    };
+    flags
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, fixed)| fixed.then_some(i))
+        .collect()
 }
 
 /// Map a [`DistortionParams`] variant to its [`DistortionKind`] discriminant.
@@ -319,6 +366,94 @@ mod tests {
         assert!(
             err.to_string().contains("5"),
             "error should mention expected length 5: {err}"
+        );
+    }
+
+    // ── Name-based fix-mask translation ─────────────────────────────────────
+
+    #[test]
+    fn fix_mask_bc5_is_identity_with_to_indices() {
+        // Every possible BC5 mask must translate to exactly `to_indices()`.
+        for bits in 0u8..32 {
+            let mask = DistortionFixMask {
+                k1: bits & 1 != 0,
+                k2: bits & 2 != 0,
+                k3: bits & 4 != 0,
+                p1: bits & 8 != 0,
+                p2: bits & 16 != 0,
+            };
+            assert_eq!(
+                fix_mask_indices(&mask, DistortionKind::BrownConrady5),
+                mask.to_indices(),
+                "BC5 translation diverged from to_indices() for {mask:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fix_mask_all_fixed_covers_every_index() {
+        let mask = DistortionFixMask::all_fixed();
+        for kind in [
+            DistortionKind::None,
+            DistortionKind::BrownConrady5,
+            DistortionKind::Rational8,
+            DistortionKind::ThinPrism9,
+            DistortionKind::Division1,
+        ] {
+            let expected: Vec<usize> = (0..kind.dim()).collect();
+            assert_eq!(
+                fix_mask_indices(&mask, kind),
+                expected,
+                "all-fixed mask must fix every packed index for {kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fix_mask_a1_shape_frees_leading_radial_per_kind() {
+        // The A1 staging mask: {k1, k2 free; k3, p1, p2 fixed}.
+        let a1 = DistortionFixMask {
+            k1: false,
+            k2: false,
+            k3: true,
+            p1: true,
+            p2: true,
+        };
+        // BC5 `[k1,k2,k3,p1,p2]`: fix k3,p1,p2.
+        assert_eq!(
+            fix_mask_indices(&a1, DistortionKind::BrownConrady5),
+            vec![2, 3, 4]
+        );
+        // Rational8 `[k1,k2,k3,k4,k5,k6,p1,p2]`: k4,k5,k6 follow k3 → fixed.
+        assert_eq!(
+            fix_mask_indices(&a1, DistortionKind::Rational8),
+            vec![2, 3, 4, 5, 6, 7]
+        );
+        // ThinPrism9 `[k1,k2,k3,p1,p2,s1,s2,s3,s4]`: s1..s4 follow (p1&&p2) → fixed.
+        assert_eq!(
+            fix_mask_indices(&a1, DistortionKind::ThinPrism9),
+            vec![2, 3, 4, 5, 6, 7, 8]
+        );
+        // Division1 `[lambda]`: lambda follows k1 (free) → nothing fixed.
+        assert_eq!(
+            fix_mask_indices(&a1, DistortionKind::Division1),
+            Vec::<usize>::new()
+        );
+    }
+
+    #[test]
+    fn fix_mask_thinprism_prism_follows_tangential_pair() {
+        // Only one of p1/p2 fixed ⇒ prism block stays free.
+        let one_tangential = DistortionFixMask {
+            k1: false,
+            k2: false,
+            k3: false,
+            p1: true,
+            p2: false,
+        };
+        assert_eq!(
+            fix_mask_indices(&one_tangential, DistortionKind::ThinPrism9),
+            vec![3], // p1 only; s1..s4 free because p2 is free
         );
     }
 }

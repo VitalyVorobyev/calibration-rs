@@ -3,7 +3,7 @@
 use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
 use crate::ir::{Bound, CameraModelDesc, DistortionKind, RobustLoss};
-use crate::params::distortion::{distortion_kind, unpack_distortion_params};
+use crate::params::distortion::{distortion_kind, fix_mask_indices, unpack_distortion_params};
 use crate::params::intrinsics::unpack_intrinsics;
 use crate::params::pose_se3::se3_dvec_to_iso3;
 use crate::problems::planar_family_shared::{
@@ -279,15 +279,13 @@ fn build_scheimpflug_intrinsics_ir(
     let kind = distortion_kind(&initial.distortion);
     let model = scheimpflug_model_desc(kind)?;
 
-    // For Brown-Conrady5 the `fix_distortion` mask indexes `[k1, k2, k3, p1, p2]`
-    // and applies as-is (byte-identical to the pre-M-WIRE path). For the extended
-    // models the mask is Brown-Conrady-shaped and does not translate to their
-    // orderings, so every distortion coefficient is left free.
-    let fix_distortion_indices = if kind == DistortionKind::BrownConrady5 {
-        opts.fix_distortion.to_indices()
-    } else {
-        Vec::new()
-    };
+    // Translate the Brown-Conrady-shaped `fix_distortion` mask onto the packed
+    // layout of the active model. `fix_mask_indices` is the single name-based
+    // mechanism shared with the pipeline's staging masks; for Brown-Conrady5 it
+    // is exactly `mask.to_indices()` (byte-identical to the pre-M-WIRE path),
+    // and it carries the same "which coefficients are free" invariants onto the
+    // extended models (see `fix_mask_indices`).
+    let fix_distortion_indices = fix_mask_indices(&opts.fix_distortion, kind);
 
     build_planar_reprojection_ir(
         dataset,

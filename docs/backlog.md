@@ -139,21 +139,28 @@ two-view/triangulation.
   `PINHOLE4_DIST5_SCHEIMPFLUG2` descriptor are byte-identical to the
   pre-Q4 path (all pin tests unchanged). The Phase A k1 multi-start
   generalizes via `with_leading_radial` (k1 for BC5/Rational8/ThinPrism9, λ
-  for Division1); `fix_distortion` masks apply to BC5 only (extended models
-  all-free). New synthetic-GT suites: optim (4 tests) + pipeline (7 tests,
-  incl. JSON roundtrip + missing-field→BC5 + manual-seed-warning). Schemas
-  regenerated; dated notes on ADR 0020 + 0022. **Measurement**
-  (`Q4_DISTORTION_SWEEP=1`, env-gated sweep in the two private intrinsics
-  examples; mean-reproj medians, ±~1e-3 px backend jitter): rtv3d_ref BC5
-  0.3316 / Rational8 0.3400 / ThinPrism9 0.3369 / Division1 0.3507 px —
-  extended models diverge on thin-data cams 3/4 (Rational8 cam4 ~7990 px:
-  extra DOF zero-seeded on a BC5-only linear init are under-constrained
-  there; promotion beyond informational needs a proper warm start).
-  ringgrid BC5 0.4739 / Rational8 0.4698 / ThinPrism9 0.4651 / Division1
-  0.4745 px — richer radial terms nudge the marginal cam1 from 0.5008 to
-  0.4988 px, evidence the suspected V7 floor is partly a
-  distortion-model-order effect on this rig. Committed bench defaults stay
-  BC5, zero baseline drift. App selector → B-QUAL2, Python field → R5.
+  for Division1); `fix_distortion` masks translate **by name** onto each
+  model's packed layout via `fix_mask_indices` (BC5 identity; k4–k6 follow
+  the k3 bit, s1–s4 fixed iff both p bits, λ follows k1 — so the A0/A1
+  staging invariants and the default fix-k3 semantics hold for every model;
+  codex-review fix, the first sweep's cams-3/4 divergence was exactly the
+  dropped mask). `step_optimize` derives the model seed from the *current*
+  config (no state cache), so `set_config` between init and optimize is
+  honored. New synthetic-GT suites: optim (4 tests) + pipeline (8 tests,
+  incl. JSON roundtrip + missing-field→BC5 + manual-seed-warning +
+  config-change-after-init). Schemas regenerated; dated notes on ADR 0020
+  + 0022. **Measurement** (`Q4_DISTORTION_SWEEP=1`, env-gated sweep in the
+  two private intrinsics examples; mean-reproj medians, ±~1e-3 px backend
+  jitter): under the production `radial_only` mask the model choice alone
+  does not move the seeded floor — rtv3d_ref BC5 = Rational8 = ThinPrism9
+  at 0.3316 px (extras are held at their zero seeds), Division1 0.3358 px
+  (stable but cam3 0.8378); ringgrid likewise 0.4739 px for the three
+  polynomial models, Division1 0.4745 px. An earlier all-free run (the
+  pre-fix bug configuration) hinted extra DOF can nudge the ringgrid
+  knife-edge cam1 0.5008 → 0.4988 px but diverged on rtv3d_ref's thin-data
+  cams 3/4 — a *controlled* all-free sweep with a proper warm start is the
+  V7-floor follow-up if wanted. Committed bench defaults stay BC5, zero
+  baseline drift. App selector → B-QUAL2, Python field → R5.
 - [ ] Q5-RTV3D-SCALE - (absorbs V6-SCALE) Settle the rtv3d absolute scale
   (hexagon 90.1 mm at 5.2 mm cells vs oracle-implied ~98.5 mm; if 98.5 mm is
   right the true cell is ≈ 5.69 mm and both shipped board specs are wrong).

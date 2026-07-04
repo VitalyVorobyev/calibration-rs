@@ -12,8 +12,9 @@
 
 use nalgebra::{Translation3, UnitQuaternion};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraProject, CorrespondenceView, Division, FxFyCxCySkew, Iso3,
-    Pinhole, PlanarDataset, Pt2, Pt3, RationalPolynomial, ScheimpflugParams, ThinPrism, View,
+    BrownConrady5, Camera, CameraProject, CorrespondenceView, DistortionFixMask, DistortionParams,
+    Division, FxFyCxCySkew, Iso3, Pinhole, PlanarDataset, Pt2, Pt3, RationalPolynomial,
+    ScheimpflugParams, ThinPrism, View,
 };
 use vision_calibration_optim::DistortionKind;
 use vision_calibration_pipeline::scheimpflug_intrinsics::{
@@ -123,9 +124,14 @@ fn reproj_rms(export: &ScheimpflugIntrinsicsExport, dataset: &PlanarDataset) -> 
 /// Seed the pipeline near GT (manual intrinsics + manual sensor tilt), which
 /// takes the trusted warm-start path (exercising the leading-radial multi-start),
 /// then optimize and export.
+///
+/// `fix_distortion` selects the solve mask: BC5 uses the production default
+/// (`radial_only`); the extended-model round trips free every coefficient
+/// (`all_free`) because their GT carries nonzero higher-order / prism terms.
 fn run_pipeline(
     dataset: &PlanarDataset,
     model: DistortionKind,
+    fix_distortion: DistortionFixMask,
     manual: ScheimpflugManualInit,
 ) -> (
     ScheimpflugIntrinsicsExport,
@@ -133,6 +139,7 @@ fn run_pipeline(
 ) {
     let mut config = ScheimpflugIntrinsicsConfig::default();
     config.distortion_model = model;
+    config.fix_distortion = fix_distortion;
     config.max_iters = 200;
     // Free k3 so the mask does not clamp a coefficient the extended models want.
     config.fix_k3_in_init = false;
@@ -180,7 +187,12 @@ fn bc5_pipeline_round_trip() {
     let cam_gt = Camera::new(Pinhole, dist_gt, gt_sensor().compile(), gt_intrinsics());
     let dataset = make_dataset(&cam_gt, &gt_poses());
 
-    let (export, _s) = run_pipeline(&dataset, DistortionKind::BrownConrady5, near_gt_manual());
+    let (export, _s) = run_pipeline(
+        &dataset,
+        DistortionKind::BrownConrady5,
+        DistortionFixMask::radial_only(),
+        near_gt_manual(),
+    );
     let rms = reproj_rms(&export, &dataset);
     println!("[BC5 pipeline] rms={rms:.4e} px");
     assert!(rms < 1e-2, "BC5 pipeline reproj RMS too large: {rms:.4e}");
@@ -202,7 +214,12 @@ fn rational8_pipeline_round_trip() {
     let cam_gt = Camera::new(Pinhole, dist_gt, gt_sensor().compile(), gt_intrinsics());
     let dataset = make_dataset(&cam_gt, &gt_poses());
 
-    let (export, _s) = run_pipeline(&dataset, DistortionKind::Rational8, near_gt_manual());
+    let (export, _s) = run_pipeline(
+        &dataset,
+        DistortionKind::Rational8,
+        DistortionFixMask::all_free(),
+        near_gt_manual(),
+    );
     let rms = reproj_rms(&export, &dataset);
     println!("[Rational8 pipeline] rms={rms:.4e} px");
     assert!(
@@ -228,7 +245,12 @@ fn thinprism9_pipeline_round_trip() {
     let cam_gt = Camera::new(Pinhole, dist_gt, gt_sensor().compile(), gt_intrinsics());
     let dataset = make_dataset(&cam_gt, &gt_poses());
 
-    let (export, _s) = run_pipeline(&dataset, DistortionKind::ThinPrism9, near_gt_manual());
+    let (export, _s) = run_pipeline(
+        &dataset,
+        DistortionKind::ThinPrism9,
+        DistortionFixMask::all_free(),
+        near_gt_manual(),
+    );
     let rms = reproj_rms(&export, &dataset);
     println!("[ThinPrism9 pipeline] rms={rms:.4e} px");
     assert!(
@@ -247,7 +269,12 @@ fn division1_pipeline_round_trip() {
     );
     let dataset = make_dataset(&cam_gt, &gt_poses());
 
-    let (export, _s) = run_pipeline(&dataset, DistortionKind::Division1, near_gt_manual());
+    let (export, _s) = run_pipeline(
+        &dataset,
+        DistortionKind::Division1,
+        DistortionFixMask::all_free(),
+        near_gt_manual(),
+    );
     let rms = reproj_rms(&export, &dataset);
     println!("[Division1 pipeline] rms={rms:.4e} px");
     assert!(
@@ -284,7 +311,12 @@ fn manual_bc5_seed_with_extended_model_warns_and_converges() {
         ..BrownConrady5::default()
     });
 
-    let (export, session) = run_pipeline(&dataset, DistortionKind::Rational8, manual);
+    let (export, session) = run_pipeline(
+        &dataset,
+        DistortionKind::Rational8,
+        DistortionFixMask::all_free(),
+        manual,
+    );
     let rms = reproj_rms(&export, &dataset);
     println!("[manual-BC5 + Rational8] rms={rms:.4e} px");
     assert!(
@@ -300,6 +332,67 @@ fn manual_bc5_seed_with_extended_model_warns_and_converges() {
     assert!(
         warned,
         "init log must warn about manual BC5 seed + non-BC5 model"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cache-free model selection: a set_config(model) BETWEEN init and optimize
+// must be honoured (on_config_change keeps state, so a stale init-time cache
+// would silently use the wrong model — regression for that defect).
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn set_config_model_after_init_is_honoured() {
+    let dist_gt = RationalPolynomial {
+        k1: -0.12,
+        k2: 0.04,
+        k3: 0.0,
+        k4: 0.008,
+        k5: 0.0,
+        k6: 0.0,
+        p1: 0.0006,
+        p2: -0.0004,
+        iters: 10,
+    };
+    let cam_gt = Camera::new(Pinhole, dist_gt, gt_sensor().compile(), gt_intrinsics());
+    let dataset = make_dataset(&cam_gt, &gt_poses());
+
+    // Init with BrownConrady5 …
+    let mut cfg_bc5 = ScheimpflugIntrinsicsConfig::default();
+    cfg_bc5.distortion_model = DistortionKind::BrownConrady5;
+    cfg_bc5.max_iters = 200;
+    cfg_bc5.fix_k3_in_init = false;
+
+    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    session.set_config(cfg_bc5).unwrap();
+    session.set_input(dataset.clone()).unwrap();
+    step_init_with_seed(&mut session, near_gt_manual(), None).expect("seeded init (BC5)");
+
+    // … then swap to Rational8 AFTER init (state is kept by on_config_change).
+    let mut cfg_rational = ScheimpflugIntrinsicsConfig::default();
+    cfg_rational.distortion_model = DistortionKind::Rational8;
+    // Free every coefficient so the nonzero GT k4 is recoverable.
+    cfg_rational.fix_distortion = DistortionFixMask::all_free();
+    cfg_rational.max_iters = 200;
+    cfg_rational.fix_k3_in_init = false;
+    session.set_config(cfg_rational).unwrap();
+
+    step_optimize(&mut session, None).expect("optimize (Rational8)");
+    let export = session.export().expect("export");
+
+    assert!(
+        matches!(
+            export.params.camera.distortion,
+            DistortionParams::Rational { .. }
+        ),
+        "export must reflect the post-init Rational8 config, got {:?}",
+        export.params.camera.distortion
+    );
+    let rms = reproj_rms(&export, &dataset);
+    println!("[set_config-after-init] rms={rms:.4e} px");
+    assert!(
+        rms < 1e-2,
+        "Rational8-after-swap reproj RMS too large: {rms:.4e}"
     );
 }
 

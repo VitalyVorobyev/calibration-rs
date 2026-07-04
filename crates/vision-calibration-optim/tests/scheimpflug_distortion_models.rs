@@ -14,9 +14,9 @@
 use nalgebra::{Translation3, UnitQuaternion};
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraModel, CameraParams, CameraProject, CorrespondenceView,
-    DistortionParams, Division, FxFyCxCySkew, IntrinsicsParams, Iso3, Pinhole, PlanarDataset,
-    ProjectionParams, Pt2, Pt3, RationalPolynomial, ScheimpflugParams, SensorParams, ThinPrism,
-    View,
+    DistortionFixMask, DistortionParams, Division, FxFyCxCySkew, IntrinsicsParams, Iso3, Pinhole,
+    PlanarDataset, ProjectionParams, Pt2, Pt3, RationalPolynomial, ScheimpflugParams, SensorParams,
+    ThinPrism, View,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions,
@@ -152,9 +152,15 @@ fn seed_intrinsics() -> FxFyCxCySkew<f64> {
 
 /// Run the direct joint Scheimpflug solve seeded at GT poses (view 0 fixed for
 /// gauge) and return the refined camera + poses as a built model.
+///
+/// `fix_distortion` selects which distortion coefficients are free: BC5 uses the
+/// production default (`radial_only`), while the extended-model round trips free
+/// every coefficient (`all_free`) because their GT carries nonzero higher-order
+/// radial / tangential / prism terms that must be recovered.
 fn run_solve(
     dataset: &PlanarDataset,
     seed_distortion: DistortionParams,
+    fix_distortion: DistortionFixMask,
     poses: &[Iso3],
 ) -> (ScheimpflugIntrinsicsParams, f64) {
     let initial = ScheimpflugIntrinsicsParams::new_with_distortion(
@@ -171,6 +177,7 @@ fn run_solve(
 
     let opts = ScheimpflugIntrinsicsSolveOptions {
         fix_poses: vec![0],
+        fix_distortion,
         ..Default::default()
     };
     let backend_opts = BackendSolveOptions {
@@ -213,7 +220,7 @@ fn scheimpflug_bc5_round_trip() {
             ..BrownConrady5::default()
         },
     };
-    let (params, rms) = run_solve(&dataset, seed, &poses);
+    let (params, rms) = run_solve(&dataset, seed, DistortionFixMask::radial_only(), &poses);
     println!("[scheimpflug BC5] rms={rms:.4e} px");
     assert!(rms < 1e-2, "BC5 reprojection RMS too large: {rms:.4e}");
 
@@ -267,7 +274,7 @@ fn scheimpflug_rational8_round_trip() {
             iters: 10,
         },
     };
-    let (params, rms) = run_solve(&dataset, seed, &poses);
+    let (params, rms) = run_solve(&dataset, seed, DistortionFixMask::all_free(), &poses);
     println!("[scheimpflug Rational8] rms={rms:.4e} px");
     assert!(
         rms < 1e-2,
@@ -331,7 +338,7 @@ fn scheimpflug_thinprism9_round_trip() {
             iters: 8,
         },
     };
-    let (params, rms) = run_solve(&dataset, seed, &poses);
+    let (params, rms) = run_solve(&dataset, seed, DistortionFixMask::all_free(), &poses);
     println!("[scheimpflug ThinPrism9] rms={rms:.4e} px");
     assert!(
         rms < 1e-2,
@@ -371,7 +378,7 @@ fn scheimpflug_division1_round_trip() {
 
     // lambda=0 is a valid seed (rationalized formula is analytic there).
     let seed = DistortionParams::Division { lambda: 0.0 };
-    let (params, rms) = run_solve(&dataset, seed, &poses);
+    let (params, rms) = run_solve(&dataset, seed, DistortionFixMask::all_free(), &poses);
     println!("[scheimpflug Division1] rms={rms:.4e} px");
     assert!(
         rms < 1e-2,

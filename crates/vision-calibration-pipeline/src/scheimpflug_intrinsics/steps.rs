@@ -283,14 +283,15 @@ pub fn step_init_with_seed(
         (bootstrap.camera.k, dist, sensor, poses)
     };
 
-    // Embed the Brown-Conrady linear-init seed into the configured distortion
-    // model (None for the BC5 default, which is carried by `initial_distortion`).
+    // The distortion model is NOT baked into state here: `on_config_change`
+    // keeps state, so a `set_config(model)` between init and optimize must take
+    // effect. `step_optimize` derives the model-specific seed from the current
+    // config via `build_initial_distortion_params`. `model` is read only for the
+    // manual-seed warning below.
     let model = session.config.distortion_model;
-    let initial_distortion_params = build_initial_distortion_params(&distortion, model);
 
     session.state.initial_intrinsics = Some(intrinsics);
     session.state.initial_distortion = Some(distortion);
-    session.state.initial_distortion_params = initial_distortion_params;
     session.state.initial_sensor = Some(sensor);
     session.state.initial_sensor_manual = sensor_manual;
     session.state.initial_poses = Some(poses.clone());
@@ -371,13 +372,16 @@ pub fn step_optimize(
         .initial_values()
         .ok_or_else(|| Error::not_available("initial params (call step_init first)"))?;
     let trust_seed_tilt = session.state.initial_sensor_manual;
-    // Extended distortion models carry their own seed (BC5 linear coefficients
-    // embedded, extras zeroed); the BC5 default wraps `initial_distortion`.
-    let initial_distortion_params = session.state.initial_distortion_params.clone().unwrap_or(
-        DistortionParams::BrownConrady5 {
-            params: initial_distortion,
-        },
-    );
+    // Derive the model-specific distortion seed from the CURRENT config (not a
+    // cache built at init time): `on_config_change` keeps state, so a
+    // `set_config(model)` after init must be honoured here. The BC5 default (and
+    // the `None` kind, which the optimizer rejects downstream) wraps the linear
+    // Brown-Conrady seed; the extended models embed it with the extras zeroed.
+    let initial_distortion_params =
+        build_initial_distortion_params(&initial_distortion, session.config.distortion_model)
+            .unwrap_or(DistortionParams::BrownConrady5 {
+                params: initial_distortion,
+            });
 
     let opts = opts.unwrap_or_default();
     let mut max_iters = session.config.max_iters;
