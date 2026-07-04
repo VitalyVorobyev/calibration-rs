@@ -230,6 +230,7 @@ mod tier_b {
         );
 
         let mut envelope_violations: Vec<String> = Vec::new();
+        let mut swept_cameras = 0usize;
 
         for (data_root, mut family_entries) in families {
             family_entries.sort_by(|a, b| a.id.cmp(&b.id));
@@ -281,6 +282,7 @@ mod tier_b {
                 );
                 continue;
             }
+            swept_cameras += camera_results.len();
 
             render_family(
                 &mut out,
@@ -290,6 +292,14 @@ mod tier_b {
                 &mut envelope_violations,
             );
         }
+
+        // A study that swept nothing has produced no basin evidence; printing
+        // the decision rule would be a vacuous PASS (never a silent pass — S4).
+        anyhow::ensure!(
+            swept_cameras > 0,
+            "basin study swept zero cameras — every selected entry is absent \
+             from disk or has no `accept` gate; no basin evidence produced"
+        );
 
         render_decision_rule(&mut out, &envelope_violations);
         Ok(out)
@@ -398,6 +408,52 @@ mod tier_b {
         out.push_str("================================================================\n\n");
         for v in violations {
             let _ = writeln!(out, "- {v}");
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::registry::{Tier, Visibility};
+
+        /// A registered entry whose data is absent from disk (the state of any
+        /// machine without the private datasets). Sweeping it must not produce
+        /// a vacuous PASS.
+        fn absent_entry() -> BenchEntry {
+            BenchEntry {
+                id: "absent_scheimpflug".into(),
+                visibility: Visibility::Private,
+                tiers: vec![Tier::B],
+                problem: ProblemKind::ScheimpflugIntrinsics,
+                data_root: PathBuf::from("/nonexistent/basin-test-data"),
+                spec: None,
+                detector: None,
+                laser: None,
+                board: None,
+                cameras: Vec::new(),
+                robot_poses: None,
+                prior_export: None,
+                fixture: None,
+                seed: None,
+                device_spec: None,
+                accept: Some(AcceptGate {
+                    max_per_cam_mean_px: 0.5,
+                }),
+                single_cam_handeye: None,
+                rig_handeye: None,
+                stability: Default::default(),
+                crossval: Default::default(),
+                notes: None,
+            }
+        }
+
+        #[test]
+        fn zero_swept_cameras_is_an_operational_error() {
+            let err = run_basin_study(&[absent_entry()]).unwrap_err();
+            assert!(
+                err.to_string().contains("zero cameras"),
+                "expected the vacuous-pass guard, got: {err}"
+            );
         }
     }
 }
