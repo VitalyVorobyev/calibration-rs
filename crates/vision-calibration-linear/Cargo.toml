@@ -20,7 +20,6 @@ vision-geometry = { workspace = true }
 nalgebra = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
-anyhow = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

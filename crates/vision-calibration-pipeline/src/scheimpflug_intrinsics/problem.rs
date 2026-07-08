@@ -20,28 +20,11 @@ pub struct ScheimpflugIntrinsicsProblem;
 pub type ScheimpflugIntrinsicsInput = PlanarDataset;
 
 /// Optimization mask for Scheimpflug tilt parameters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ScheimpflugFixMask {
-    /// Keep `tilt_x` fixed during optimization.
-    pub tilt_x: bool,
-    /// Keep `tilt_y` fixed during optimization.
-    pub tilt_y: bool,
-}
-
-impl ScheimpflugFixMask {
-    /// Convert this mask into fixed parameter indices `[tilt_x, tilt_y] -> [0, 1]`.
-    pub fn to_indices(self) -> Vec<usize> {
-        let mut indices = Vec::new();
-        if self.tilt_x {
-            indices.push(0);
-        }
-        if self.tilt_y {
-            indices.push(1);
-        }
-        indices
-    }
-}
+///
+/// Re-exported from `vision-calibration-optim`, which owns the single
+/// canonical definition; this pipeline module used to keep a byte-identical
+/// duplicate (R1 API audit, 2026-07-08 merged them into one type).
+pub use vision_calibration_optim::ScheimpflugFixMask;
 
 /// Configuration for planar Scheimpflug intrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]

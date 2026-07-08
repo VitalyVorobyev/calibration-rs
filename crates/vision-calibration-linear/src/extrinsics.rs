@@ -28,9 +28,9 @@ pub struct MultiCamExtrinsicsInit;
 ///
 /// Use this only for initialization; it does not preserve full rotation
 /// statistics and should be refined downstream.
-fn average_isometries(poses: &[Iso3]) -> anyhow::Result<Iso3> {
+fn average_isometries(poses: &[Iso3]) -> Result<Iso3, Error> {
     if poses.is_empty() {
-        anyhow::bail!("cannot average an empty set of poses");
+        return Err(Error::InsufficientData { need: 1, got: 0 });
     }
 
     // 1) Average translation
@@ -147,7 +147,7 @@ pub fn estimate_extrinsics_from_cam_target_poses(
             )));
         }
 
-        let avg = average_isometries(&candidates).map_err(|e| Error::numerical(e.to_string()))?;
+        let avg = average_isometries(&candidates)?;
         cam_to_rig.push(avg);
     }
 
@@ -174,7 +174,7 @@ pub fn estimate_extrinsics_from_cam_target_poses(
             )));
         }
 
-        let avg = average_isometries(&candidates).map_err(|e| Error::numerical(e.to_string()))?;
+        let avg = average_isometries(&candidates)?;
         rig_from_target.push(avg);
     }
 

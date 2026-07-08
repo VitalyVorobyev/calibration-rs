@@ -53,7 +53,7 @@
 //!          camera.k.fx, camera.k.fy,
 //!          camera.k.cx, camera.k.cy);
 //! println!("Distortion: k1={}, k2={}", camera.dist.k1, camera.dist.k2);
-//! # Ok::<(), anyhow::Error>(())
+//! # Ok::<(), vision_calibration_linear::Error>(())
 //! ```
 
 use crate::{

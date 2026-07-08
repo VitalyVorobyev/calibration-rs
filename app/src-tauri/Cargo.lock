@@ -6425,6 +6425,8 @@ name = "vision-calibration"
 version = "0.6.0"
 dependencies = [
  "vision-calibration-core",
+ "vision-calibration-dataset",
+ "vision-calibration-detect",
  "vision-calibration-linear",
  "vision-calibration-optim",
  "vision-calibration-pipeline",
@@ -6468,7 +6470,6 @@ dependencies = [
 name = "vision-calibration-linear"
 version = "0.6.0"
 dependencies = [
- "anyhow",
  "log",
  "nalgebra",
  "serde",

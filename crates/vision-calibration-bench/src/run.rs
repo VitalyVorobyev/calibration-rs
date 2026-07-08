@@ -721,9 +721,9 @@ pub mod tier_b {
         seed: ScheimpflugManualInit,
         label: &str,
     ) -> Result<ScheimpflugSeededSolve> {
-        // The pipeline-level fix mask, distinct from the optim-level
-        // `ScheimpflugFixMask` imported at module scope (R1 tracks the rename).
-        use vision_calibration::scheimpflug_intrinsics::ScheimpflugFixMask as SchFixMask;
+        // `ScheimpflugIntrinsicsConfig::fix_scheimpflug` takes the single canonical
+        // `vision_calibration_optim::ScheimpflugFixMask` (already imported at module
+        // scope; R1 API audit merged the former pipeline-local duplicate into it).
         use vision_calibration::scheimpflug_intrinsics::{
             ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
             step_init_with_seed as sch_step_init_with_seed, step_optimize as sch_step_optimize,
@@ -733,7 +733,7 @@ pub mod tier_b {
         session.set_input(dataset).context("set_input failed")?;
         let mut config = ScheimpflugIntrinsicsConfig::default();
         config.max_iters = 120;
-        config.fix_scheimpflug = SchFixMask {
+        config.fix_scheimpflug = ScheimpflugFixMask {
             tilt_x: false,
             tilt_y: false,
         };

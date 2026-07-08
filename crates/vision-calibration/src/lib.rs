@@ -482,32 +482,69 @@ pub mod rig_handeye_laserline {
     };
 }
 
-/// Map a laser pixel in a specific camera to a 3D point in the robot gripper frame.
-#[deprecated(
-    since = "0.5.0",
-    note = "moved to vision_calibration::rig_laserline_device::pixel_to_gripper_point"
-)]
-pub use crate::rig_laserline_device::pixel_to_gripper_point;
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // Foundation Crates (Advanced Users)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// Core math types, camera models, and RANSAC primitives.
 ///
-/// Re-exports selected foundational types from `vision_calibration_core`.
+/// Re-exports selected foundational types from `vision_calibration_core`. The
+/// per-feature residual/diagnostics types and helpers (`ReprojectionStats`,
+/// `PerFeatureResiduals`, `compute_*_target_residuals`, …) live in
+/// [`analysis`], not here — see that module's doc comment.
 pub mod core {
     pub use vision_calibration_core::{
-        BrownConrady5, Camera, CameraParams, CorrespondenceView, DistortionFixMask,
-        DistortionParams, Division, FeatureResidualHistogram, FrameKind, FrameRef, FxFyCxCySkew,
-        IdentitySensor, ImageManifest, IntrinsicsFixMask, IntrinsicsParams, Iso3,
-        LaserFeatureResidual, NoMeta, PerFeatureResiduals, Pinhole, PinholeCamera, PixelRect,
-        PlanarDataset, ProjectionParams, Pt2, Pt3, REPROJECTION_HISTOGRAM_EDGES_PX,
-        RationalPolynomial, Real, ReprojectionStats, RigDataset, RigView, RigViewObs,
-        ScheimpflugParams, SensorModel, SensorParams, TargetFeatureResidual, ThinPrism, Vec2, Vec3,
-        View, build_feature_histogram, compute_planar_target_residuals,
-        compute_planar_target_residuals_views, compute_rig_target_residuals, make_pinhole_camera,
-        pinhole_camera_params,
+        BrownConrady5, Camera, CameraModel, CameraParams, CorrespondenceView, DistortionFixMask,
+        DistortionParams, Division, FrameKind, FrameRef, FxFyCxCySkew, IdentitySensor,
+        ImageManifest, IntrinsicsFixMask, IntrinsicsParams, Iso3, Mat3, NoMeta, Pinhole,
+        PinholeCamera, PixelRect, PlanarDataset, ProjectionParams, Pt2, Pt3, RationalPolynomial,
+        Real, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorModel, SensorParams,
+        ThinPrism, Vec2, Vec3, View, distort_to_pixel, make_pinhole_camera, pinhole_camera_params,
+        pixel_to_normalized,
+    };
+}
+
+/// Canonical input-data manifest (`DatasetSpec` and friends).
+///
+/// Re-exported from `vision-calibration-dataset`. [`DatasetSpec`](dataset::DatasetSpec)
+/// is the on-disk manifest describing where images, robot poses, and target
+/// metadata live for a calibration run; see [`dataset_runner`] for the
+/// converters that turn a manifest into the per-problem `*Input` types.
+pub mod dataset {
+    pub use vision_calibration_dataset::{
+        CameraSource, DatasetSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis, PosePairing,
+        TargetSpec, Topology,
+    };
+}
+
+/// Dataset-driven runner: turns a [`dataset::DatasetSpec`] manifest plus a
+/// per-problem config into the existing `*Input` IR by running (cached)
+/// detection on the per-camera images.
+///
+/// Re-exported from the pipeline crate's `dataset_runner` module — see that
+/// module's doc comment for the full list of `build_*_input` converters and
+/// the ADR 0019 ask-user-on-ambiguity contract that
+/// [`RunError::AskUser`](dataset_runner::RunError::AskUser) implements.
+pub mod dataset_runner {
+    pub use vision_calibration_pipeline::dataset_runner::{
+        HandeyeRunResult, LaserPixelExtractor, LaserlineRunResult, PairedViews, PlanarRunResult,
+        RigHandeyeLaserlineRunResult, RigLaserlineRunResult, RigRunResult, RunError,
+        build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
+        build_rig_handeye_input, build_rig_handeye_laserline_input,
+        build_rig_laserline_device_input, build_single_cam_handeye_input,
+    };
+}
+
+/// Feature-detection cache primitives.
+///
+/// Re-exported from `vision-calibration-detect`. [`dataset_runner`] uses
+/// these to avoid re-detecting corners/markers on repeated runs over the
+/// same images; [`FsDetectionCache`](detect::FsDetectionCache) is the
+/// filesystem-backed implementation of the [`DetectionCache`](detect::DetectionCache)
+/// trait.
+pub mod detect {
+    pub use vision_calibration_detect::{
+        CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache,
     };
 }
 
@@ -560,14 +597,6 @@ pub mod mvg {
     pub use vision_mvg::bundle_adjust;
 }
 
-/// Per-feature residual helpers from `vision-calibration-optim` re-exported
-/// for convenience: `handeye_observer_se3_target` (used by hand-eye exports)
-/// and `compute_*_feature_residuals` (used by laser exports).
-pub use vision_calibration_optim::{
-    compute_laserline_feature_residuals, compute_rig_laserline_feature_residuals,
-    handeye_observer_se3_target,
-};
-
 /// Non-linear optimization vocabulary.
 ///
 /// `vision-calibration-optim` is the optimization-backend implementation
@@ -577,8 +606,8 @@ pub use vision_calibration_optim::{
 /// the robust-loss selector, the laser-plane parameter type, the hand-eye
 /// mode enum, and the per-problem input-construction `*Meta`/`*View` types.
 ///
-/// The `compute_*_feature_residuals` helpers are re-exported at the facade
-/// crate root, not here.
+/// The `compute_*_feature_residuals` / `handeye_observer_se3_target` helpers
+/// live in [`analysis`], not here.
 pub mod optim {
     /// Hand-eye configuration mode (eye-in-hand vs eye-to-hand).
     pub use vision_calibration_optim::HandEyeMode;
@@ -633,7 +662,43 @@ pub mod prelude {
     };
 }
 
-/// Multi-level reprojection-error analysis (re-exported from the pipeline).
+/// Reprojection-error diagnostics: per-feature residuals and multi-level
+/// analysis reports.
+///
+/// Two families of items live here:
+/// - Multi-level reprojection reports (re-exported from the pipeline):
+///   [`ReprojLevel`](vision_calibration_pipeline::analysis::ReprojLevel),
+///   [`ReprojReport`](vision_calibration_pipeline::analysis::ReprojReport),
+///   and the `*_report` builders — see the pipeline crate's `analysis` module
+///   doc comment for the constraint-level model.
+/// - Per-feature residual types and computation helpers (from
+///   `vision-calibration-core` and `vision-calibration-optim`):
+///   [`ReprojectionStats`](analysis::ReprojectionStats),
+///   [`PerFeatureResiduals`](analysis::PerFeatureResiduals),
+///   [`TargetFeatureResidual`](analysis::TargetFeatureResidual),
+///   [`LaserFeatureResidual`](analysis::LaserFeatureResidual),
+///   [`FeatureResidualHistogram`](analysis::FeatureResidualHistogram),
+///   `compute_planar_target_residuals{,_views}`, `compute_rig_target_residuals`,
+///   `build_feature_histogram`, `compute_laserline_feature_residuals`,
+///   `compute_rig_laserline_feature_residuals`, and
+///   `handeye_observer_se3_target` — used across the per-problem `*Export`
+///   types' `per_feature_residuals` field.
 pub mod analysis {
     pub use vision_calibration_pipeline::analysis::*;
+
+    // Per-feature residual/histogram types and their computation helpers.
+    pub use vision_calibration_core::{
+        FeatureResidualHistogram, LaserFeatureResidual, PerFeatureResiduals,
+        REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, TargetFeatureResidual,
+        build_feature_histogram, compute_planar_target_residuals,
+        compute_planar_target_residuals_views, compute_rig_target_residuals,
+    };
+
+    // Per-feature residual helpers implemented against the optimization
+    // backend: `handeye_observer_se3_target` (used by hand-eye exports) and
+    // `compute_*_feature_residuals` (used by laser exports).
+    pub use vision_calibration_optim::{
+        compute_laserline_feature_residuals, compute_rig_laserline_feature_residuals,
+        handeye_observer_se3_target,
+    };
 }

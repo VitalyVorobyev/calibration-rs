@@ -22,6 +22,8 @@ refine = ["vision-mvg/refine"]
 
 [dependencies]
 vision-calibration-core.workspace = true
+vision-calibration-dataset.workspace = true
+vision-calibration-detect.workspace = true
 vision-calibration-linear.workspace = true
 vision-geometry.workspace = true
 vision-mvg.workspace = true

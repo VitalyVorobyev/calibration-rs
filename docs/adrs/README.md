@@ -45,3 +45,4 @@ Status legend:
 - [0021 - Laser-Frame Dataset Manifest](0021-laser-frame-manifest.md)
 - [0022 - Scheimpflug Intrinsics: User-Seeded Initialization is the Supported Default](0022-scheimpflug-intrinsics-seeded-default.md)
 - [0023 - `DeviceSpec`: Device Specification Schema and Seed Derivation](0023-device-spec-seed-derivation.md)
+- [0024 - One Config Vocabulary Across the Eight Problem Types](0024-config-vocabulary.md)

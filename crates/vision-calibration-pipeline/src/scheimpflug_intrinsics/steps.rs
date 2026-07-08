@@ -13,9 +13,8 @@ use vision_calibration_linear::scheimpflug_init::{
     estimate_scheimpflug_intrinsics_iterative,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, DistortionKind, ScheimpflugBounds,
-    ScheimpflugFixMask as OptimScheimpflugFixMask, ScheimpflugIntrinsicsEstimate,
-    ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,
+    BackendSolveOptions, DistortionKind, ScheimpflugBounds, ScheimpflugFixMask,
+    ScheimpflugIntrinsicsEstimate, ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,
     ScheimpflugIntrinsicsSolveOptions as OptimScheimpflugIntrinsicsSolveOptions,
     ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics,
     optimize_scheimpflug_intrinsics_staged, with_leading_radial,
@@ -419,7 +418,7 @@ pub fn step_optimize(
         robust_loss: session.config.robust_loss,
         fix_intrinsics: session.config.fix_intrinsics,
         fix_distortion: session.config.fix_distortion,
-        fix_scheimpflug: to_optim_scheimpflug_fix_mask(session.config.fix_scheimpflug),
+        fix_scheimpflug: session.config.fix_scheimpflug,
         fix_poses,
         bounds: None,
     };
@@ -457,10 +456,10 @@ pub fn step_optimize(
                 p1: true,
                 p2: true,
             },
-            fix_scheimpflug: to_optim_scheimpflug_fix_mask(super::problem::ScheimpflugFixMask {
+            fix_scheimpflug: ScheimpflugFixMask {
                 tilt_x: true,
                 tilt_y: true,
-            }),
+            },
             fix_poses: Vec::new(),
             bounds: None,
         };
@@ -474,10 +473,10 @@ pub fn step_optimize(
                 p1: true,
                 p2: true,
             },
-            fix_scheimpflug: to_optim_scheimpflug_fix_mask(super::problem::ScheimpflugFixMask {
+            fix_scheimpflug: ScheimpflugFixMask {
                 tilt_x: true,
                 tilt_y: true,
-            }),
+            },
             fix_poses: Vec::new(),
             bounds: None,
         };
@@ -627,15 +626,6 @@ pub fn run_calibration(
     let _ = step_init(session, None)?;
     let _ = step_optimize(session, None)?;
     Ok(())
-}
-
-fn to_optim_scheimpflug_fix_mask(
-    mask: super::problem::ScheimpflugFixMask,
-) -> OptimScheimpflugFixMask {
-    OptimScheimpflugFixMask {
-        tilt_x: mask.tilt_x,
-        tilt_y: mask.tilt_y,
-    }
 }
 
 fn scheimpflug_camera_params(

@@ -35,16 +35,19 @@ fn build_all_pairs_impl(
     min_angle_deg: Real,        // discard too-small motions
     reject_axis_parallel: bool, // guard against ill-conditioning
     axis_parallel_eps: Real,
-) -> anyhow::Result<Vec<MotionPair>> {
+) -> Result<Vec<MotionPair>, Error> {
     if base_se3_gripper.len() != stream_b.len() {
-        anyhow::bail!(
+        return Err(Error::invalid_input(format!(
             "inconsistent hand-eye input sizes: base {} vs other {}",
             base_se3_gripper.len(),
             stream_b.len()
-        );
+        )));
     }
     if base_se3_gripper.len() < 2 {
-        anyhow::bail!("need at least 2 poses, got {}", base_se3_gripper.len());
+        return Err(Error::InsufficientData {
+            need: 2,
+            got: base_se3_gripper.len(),
+        });
     }
 
     let num_poses = base_se3_gripper.len();
@@ -70,7 +73,7 @@ fn build_all_pairs_impl(
     }
 
     if pairs.is_empty() {
-        anyhow::bail!("no valid motion pairs after filtering");
+        return Err(Error::NoValidMotionPairs);
     }
 
     Ok(pairs)
@@ -80,7 +83,7 @@ fn tsai_lenz_allpairs(
     base_se3_gripper: &[Iso3],
     stream_b: &[Iso3],
     min_angle_deg: Real,
-) -> anyhow::Result<Iso3> {
+) -> Result<Iso3, Error> {
     let pairs = build_all_pairs_impl(
         base_se3_gripper,
         stream_b,
@@ -115,12 +118,12 @@ fn make_motion_pair(
     stream_b_a: &Iso3,
     base_se3_gripper_b: &Iso3,
     stream_b_b: &Iso3,
-) -> anyhow::Result<MotionPair> {
+) -> Result<MotionPair, Error> {
     let affine_a = base_se3_gripper_a.inverse() * base_se3_gripper_b;
     let affine_b = stream_b_a.inverse() * stream_b_b;
 
-    let rot_a = project_to_so3(*affine_a.rotation.to_rotation_matrix().matrix())?;
-    let rot_b = project_to_so3(*affine_b.rotation.to_rotation_matrix().matrix())?;
+    let rot_a = crate::math::project_to_so3(affine_a.rotation.to_rotation_matrix().matrix())?;
+    let rot_b = crate::math::project_to_so3(affine_b.rotation.to_rotation_matrix().matrix())?;
     let tra_a = affine_a.translation.vector;
     let tra_b = affine_b.translation.vector;
 
@@ -191,12 +194,11 @@ pub fn build_all_pairs(
         reject_axis_parallel,
         axis_parallel_eps,
     )
-    .map_err(|e| Error::invalid_input(e.to_string()))
 }
 
 // ---------- weighted Tsai–Lenz rotation over all pairs ----------
 
-fn estimate_rotation_allpairs_weighted(pairs: &[MotionPair]) -> anyhow::Result<Matrix3<Real>> {
+fn estimate_rotation_allpairs_weighted(pairs: &[MotionPair]) -> Result<Matrix3<Real>, Error> {
     fn quat_left(q: &UnitQuaternion<Real>) -> nalgebra::Matrix4<Real> {
         let w = q.w;
         let (x, y, z) = (q.i, q.j, q.k);
@@ -227,9 +229,7 @@ fn estimate_rotation_allpairs_weighted(pairs: &[MotionPair]) -> anyhow::Result<M
 
     // Smallest right-singular vector of the `4N×4` system via `AᵀA` symmetric
     // eigen (see `math::null_space`) — avoids nalgebra's hang-prone dense SVD.
-    let q_vec = crate::math::null_space(&m)
-        .map_err(|e| anyhow::anyhow!("hand-eye rotation null-space failed: {e}"))?
-        .vector;
+    let q_vec = crate::math::null_space(&m)?.vector;
 
     let q = Quaternion::new(q_vec[0], q_vec[1], q_vec[2], q_vec[3]).normalize();
     Ok(UnitQuaternion::from_quaternion(q)
@@ -242,7 +242,7 @@ fn estimate_rotation_allpairs_weighted(pairs: &[MotionPair]) -> anyhow::Result<M
 fn estimate_translation_allpairs_weighted(
     pairs: &[MotionPair],
     rot_x: &Matrix3<Real>,
-) -> anyhow::Result<Vector3<Real>> {
+) -> Result<Vector3<Real>, Error> {
     let num_pairs = pairs.len() as i32;
     let mut mat_c = DMatrix::<Real>::zeros(3 * num_pairs as usize, 3);
     let mut vec_w = DVector::<Real>::zeros(3 * num_pairs as usize);
@@ -277,8 +277,9 @@ fn estimate_translation_allpairs_weighted(
 ///
 /// # Errors
 ///
-/// Returns [`Error::InvalidInput`] if pose counts differ or there are too few
-/// valid motion pairs, or [`Error::Numerical`] if the SVD-based solve fails.
+/// Returns [`Error::InvalidInput`] if pose counts differ, [`Error::InsufficientData`]
+/// if fewer than 2 poses are supplied, [`Error::NoValidMotionPairs`] if no motion
+/// pair survives filtering, or [`Error::Singular`] if the linear solve fails.
 pub fn estimate_handeye_dlt(
     base_se3_gripper: &[Iso3],
     target_se3_camera: &[Iso3],
@@ -296,15 +297,15 @@ pub fn estimate_handeye_dlt(
 ///
 /// # Errors
 ///
-/// Returns [`Error::InvalidInput`] if pose counts differ or there are too few
-/// valid motion pairs, or [`Error::Numerical`] if the SVD-based solve fails.
+/// Returns [`Error::InvalidInput`] if pose counts differ, [`Error::InsufficientData`]
+/// if fewer than 2 poses are supplied, [`Error::NoValidMotionPairs`] if no motion
+/// pair survives filtering, or [`Error::Singular`] if the linear solve fails.
 pub fn estimate_gripper_se3_target_dlt(
     base_se3_gripper: &[Iso3],
     camera_se3_target: &[Iso3],
     min_angle_deg: Real,
 ) -> Result<Iso3, Error> {
     tsai_lenz_allpairs(base_se3_gripper, camera_se3_target, min_angle_deg)
-        .map_err(|e| Error::Numerical(e.to_string()))
 }
 
 impl HandEyeInit {
@@ -314,24 +315,16 @@ impl HandEyeInit {
     /// pairs; this helps reject ill-conditioned data.
     /// # Errors
     ///
-    /// Returns [`Error::InvalidInput`] if pose counts differ or there are too few
-    /// valid motion pairs, or [`Error::Numerical`] if the SVD-based solve fails.
+    /// Returns [`Error::InvalidInput`] if pose counts differ, [`Error::InsufficientData`]
+    /// if fewer than 2 poses are supplied, [`Error::NoValidMotionPairs`] if no motion
+    /// pair survives filtering, or [`Error::Singular`] if the linear solve fails.
     pub fn tsai_lenz(
         base_se3_gripper: &[Iso3],
         target_se3_camera: &[Iso3],
         min_angle_deg: Real,
     ) -> Result<Iso3, Error> {
         tsai_lenz_allpairs(base_se3_gripper, target_se3_camera, min_angle_deg)
-            .map_err(|e| Error::Numerical(e.to_string()))
     }
-}
-
-/// Project a general 3x3 matrix to the closest rotation matrix (SO(3))
-/// using SVD. Thin wrapper over [`crate::math::project_to_so3`] that adapts
-/// the typed error into the hand-eye solver's `anyhow` channel.
-fn project_to_so3(m: Matrix3<Real>) -> anyhow::Result<Matrix3<Real>> {
-    crate::math::project_to_so3(&m)
-        .map_err(|e| anyhow::anyhow!("hand-eye SO(3) projection failed: {e}"))
 }
 
 /// log: SO(3) -> so(3) as a 3-vector (axis * angle)
@@ -349,16 +342,17 @@ fn log_so3(r: &Matrix3<Real>) -> Vector3<Real> {
 
 /// Ridge-regularized least squares:
 /// min ||A x - b||^2 + λ ||x||^2
-fn ridge_llsq(a: &DMatrix<Real>, b: &DVector<Real>, lambda: Real) -> anyhow::Result<Vector3<Real>> {
+fn ridge_llsq(a: &DMatrix<Real>, b: &DVector<Real>, lambda: Real) -> Result<Vector3<Real>, Error> {
     // Solved via the normal equations `(AᵀA + λI) x = Aᵀ b` (see
     // [`crate::math::ridge_lstsq`]) — algebraically identical to the augmented
     // `[A; √λ I]` least-squares but without a dense SVD that can hang on a tall
     // design matrix.
-    if a.ncols() != 3 {
-        anyhow::bail!("linear solve failed during hand-eye estimation");
-    }
-    let x = crate::math::ridge_lstsq(a, b, lambda)
-        .map_err(|e| anyhow::anyhow!("linear solve failed during hand-eye estimation: {e}"))?;
+    assert_eq!(
+        a.ncols(),
+        3,
+        "ridge_llsq (hand-eye translation solve) expects a 3-column design matrix"
+    );
+    let x = crate::math::ridge_lstsq(a, b, lambda)?;
     Ok(Vector3::new(x[0], x[1], x[2]))
 }
 
