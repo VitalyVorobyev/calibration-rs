@@ -97,17 +97,7 @@ pub fn predicted_center_bias(h: &Matrix3<f64>, cx: f64, cy: f64, r: f64) -> Opti
 /// Build the `3×3` intrinsics matrix `K` from serializable intrinsics.
 fn k_matrix(intr: &IntrinsicsParams) -> Matrix3<f64> {
     let IntrinsicsParams::FxFyCxCySkew { params } = intr;
-    Matrix3::new(
-        params.fx,
-        params.skew,
-        params.cx,
-        0.0,
-        params.fy,
-        params.cy,
-        0.0,
-        0.0,
-        1.0,
-    )
+    params.k_matrix()
 }
 
 /// The Scheimpflug tilt homography (normalized → sensor), or identity for a
@@ -227,7 +217,9 @@ pub fn diagnose(
         let Some(projected) = rec.projected_px else {
             continue;
         };
-        let h = &h_nodistort[rec.pose];
+        let Some(h) = h_nodistort.get(rec.pose) else {
+            continue;
+        };
         let (cx, cy) = (rec.target_xyz_m[0], rec.target_xyz_m[1]);
         let (Some(bo), Some(bi)) = (
             predicted_center_bias(h, cx, cy, r_outer_m),
@@ -422,12 +414,13 @@ mod tests {
         const R_OUTER_M: f64 = 0.0048;
         const R_INNER_M: f64 = 0.0032;
 
-        // Registry `data_root`s are workspace-root-relative; `cargo test` runs
-        // with CWD = crate dir, so hop up to the workspace root first.
+        // Registry `data_root`s are workspace-root-relative; resolve them
+        // against the workspace root explicitly rather than chdir'ing the
+        // test process (mirrors `resolve_entry_data_root` in
+        // `src/bin/calib_bench.rs`).
         let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("..");
-        std::env::set_current_dir(&workspace_root).expect("chdir to workspace root");
 
         let registry = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("registry")
@@ -452,8 +445,11 @@ mod tests {
             "rtv3d_ringgrid_cam4",
             "rtv3d_ringgrid_cam5",
         ] {
-            let entry = reg.find(id).expect("entry present");
-            let detected = detect_scheimpflug_seeded_input(entry).expect("detect");
+            let mut entry = reg.find(id).expect("entry present").clone();
+            if entry.data_root.is_relative() {
+                entry.data_root = workspace_root.join(&entry.data_root);
+            }
+            let detected = detect_scheimpflug_seeded_input(&entry).expect("detect");
             let solve =
                 solve_scheimpflug_seeded(detected.dataset, detected.seed, id).expect("solve");
             let rep = diagnose(&solve.export, R_OUTER_M, R_INNER_M);

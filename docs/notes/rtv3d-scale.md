@@ -12,8 +12,11 @@ comparison uses the *final* laser-informed joint-BA extrinsics (the
 calibration this project already ships and validates on all other criteria)
 instead of the intermediate hand-eye-stage extrinsics, our hexagon measures
 98.21 ± 0.41 mm — matching the oracle's own healthy-camera hexagon
-(98.13 ± 1.10 mm) to **0.08 %**. 5.2 mm is confirmed as the correct cell
-size; no board-spec correction is needed.
+(98.13 ± 1.10 mm) to **0.08 %** (all-6 ours mean; the same-population
+comparison restricted to the four cam-0–4 edges on both sides gives
+98.42 vs 98.13 mm, −0.29 % — either way well inside the edge-spread noise).
+5.2 mm is confirmed as the correct cell size; no board-spec correction is
+needed.
 
 ## 1. Where "~98.5 mm" comes from (oracle side)
 

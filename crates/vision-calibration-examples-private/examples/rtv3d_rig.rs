@@ -1009,6 +1009,7 @@ fn compare_to_oracle(
     println!("note: edges touching cam 5 are unreliable in the oracle (fx=51 degenerate)");
     println!("  edge | ours (mm) | oracle (mm) | oracle/ours");
     let mut ours_edges = Vec::with_capacity(hex_edges.len());
+    let mut ours_clean_edges = Vec::with_capacity(hex_edges.len());
     let mut oracle_clean_edges = Vec::with_capacity(hex_edges.len());
     for &(i, j) in &hex_edges {
         let d_ours = (ours_positions[i] - ours_positions[j]).norm() * 1e3;
@@ -1021,6 +1022,7 @@ fn compare_to_oracle(
         );
         ours_edges.push(d_ours);
         if !touches_cam5 {
+            ours_clean_edges.push(d_ours);
             oracle_clean_edges.push(d_oracle);
         }
     }
@@ -1030,10 +1032,15 @@ fn compare_to_oracle(
         (mean, var.sqrt())
     };
     let (ours_mean, ours_std) = mean_std(&ours_edges);
+    let (ours_clean_mean, ours_clean_std) = mean_std(&ours_clean_edges);
     let (oracle_mean, oracle_std) = mean_std(&oracle_clean_edges);
     println!(
-        "  ours (all 6 edges):        mean={ours_mean:.2} mm  std={ours_std:.2} mm ({:.2}% spread)",
+        "  ours mean (all 6):         mean={ours_mean:.2} mm  std={ours_std:.2} mm ({:.2}% spread)",
         100.0 * ours_std / ours_mean
+    );
+    println!(
+        "  ours mean (clean 4, cams 0-4): mean={ours_clean_mean:.2} mm  std={ours_clean_std:.2} mm ({:.2}% spread)",
+        100.0 * ours_clean_std / ours_clean_mean
     );
     println!(
         "  oracle (4 clean edges, cams 0-4): mean={oracle_mean:.2} mm  std={oracle_std:.2} mm ({:.2}% spread)",
@@ -1041,8 +1048,8 @@ fn compare_to_oracle(
     );
     println!(
         "  ratio oracle-clean/ours: {:.4} ({:+.2}%)",
-        oracle_mean / ours_mean,
-        100.0 * (oracle_mean / ours_mean - 1.0)
+        oracle_mean / ours_clean_mean,
+        100.0 * (oracle_mean / ours_clean_mean - 1.0)
     );
 
     let mut plane_pass = None;
