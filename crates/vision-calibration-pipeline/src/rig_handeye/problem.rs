@@ -12,14 +12,17 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{
     DistortionKind, HandEyeEstimate as PinholeHandEyeEstimate, HandEyeMode,
-    HandEyeScheimpflugEstimate as ScheimpflugHandEyeEstimate, RobotPoseMeta, RobustLoss,
+    HandEyeScheimpflugEstimate as ScheimpflugHandEyeEstimate, RobotPoseMeta,
     handeye_observer_se3_target,
 };
 #[cfg(test)]
-use vision_calibration_optim::{HandEyeParams, SolveReport};
+use vision_calibration_optim::{HandEyeParams, RobustLoss, SolveReport};
 
 pub use crate::rig_family::SensorMode;
 
+use crate::common::config::{
+    HandeyeInitConfig, IntrinsicsInitConfig, RigConfig, RobotPoseConfig, SolverConfig,
+};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigHandeyeState;
@@ -40,55 +43,36 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 
 /// Configuration for multi-camera rig hand-eye calibration.
 ///
-/// Shared between pinhole and Scheimpflug rigs; the [`SensorMode`] field
-/// `sensor` selects the sensor flavour.
+/// Grouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the
+/// [`SensorMode`] field `sensor` selects the sensor flavour.
+///
+/// D2 (ADR 0024) removed the old `rig.fix_first_rig_pose: bool = true` field:
+/// the reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
+/// the full 6-DOF rig gauge, and the extra per-view pose constraint was
+/// evidence-backed redundant and mildly pessimizing (see
+/// `docs/notes/rig-extrinsics.md` §Gauge, which documents the equivalent
+/// `RigExtrinsicsConfig` finding). View-0's rig-from-target pose is now
+/// always free in the rig BA.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeConfig {
-    /// Per-camera intrinsics initialization options.
-    pub intrinsics: RigHandeyeIntrinsicsConfig,
-    /// Sensor flavour (pinhole or Scheimpflug). Default is `Pinhole`.
-    #[serde(default)]
-    pub sensor: SensorMode,
-    /// Rig and gauge options.
-    pub rig: RigHandeyeRigConfig,
-    /// Hand-eye linear initialization options.
-    pub handeye_init: RigHandeyeInitConfig,
-    /// Shared solver settings for optimization stages.
-    pub solver: RigHandeyeSolverConfig,
-    /// Final hand-eye bundle-adjustment options.
-    pub handeye_ba: RigHandeyeBaConfig,
-}
-
-/// Per-camera intrinsics initialization options for rig hand-eye calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub struct RigHandeyeIntrinsicsConfig {
-    /// Number of iterations for iterative intrinsics estimation.
-    pub init_iterations: usize,
-    /// Fix k3 during intrinsics calibration.
-    pub fix_k3: bool,
-    /// Fix tangential distortion (p1, p2).
-    pub fix_tangential: bool,
-    /// Enforce zero skew.
-    pub zero_skew: bool,
+    /// Per-camera linear-initialization stage settings.
+    pub intrinsics: IntrinsicsInitConfig,
     /// Optional manual seeds for the per-camera intrinsics stage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manual_init: Option<RigHandeyeIntrinsicsManualInit>,
-}
-
-impl Default for RigHandeyeIntrinsicsConfig {
-    fn default() -> Self {
-        Self {
-            init_iterations: 2,
-            fix_k3: true,
-            fix_tangential: false,
-            zero_skew: true,
-            manual_init: None,
-        }
-    }
+    /// Sensor flavour (pinhole or Scheimpflug). Default is `Pinhole`.
+    #[serde(default)]
+    pub sensor: SensorMode,
+    /// Rig frame options (reference camera, rig-BA scope).
+    pub rig: RigConfig,
+    /// Hand-eye linear initialization options.
+    pub handeye_init: HandeyeInitConfig,
+    /// Non-linear solve stage settings.
+    pub solver: SolverConfig,
+    /// Final hand-eye bundle-adjustment options.
+    pub handeye_ba: HandeyeBaConfig,
 }
 
 /// Manual seeds for the **per-camera intrinsics stage** of rig hand-eye
@@ -109,103 +93,23 @@ pub struct RigHandeyeIntrinsicsManualInit {
     pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
 
-/// Rig-specific options for rig hand-eye calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Final hand-eye bundle-adjustment options (ADR 0024; renamed and reshaped
+/// from `RigHandeyeBaConfig`, keeping robot-pose refinement in the shared
+/// [`RobotPoseConfig`] group).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
-pub struct RigHandeyeRigConfig {
-    /// Reference camera index for rig frame (identity extrinsics).
-    pub reference_camera_idx: usize,
-    /// Re-refine intrinsics in rig BA (default: false).
-    pub refine_intrinsics_in_rig_ba: bool,
-    /// Fix first rig pose for gauge freedom (default: true, fixes view 0).
-    pub fix_first_rig_pose: bool,
-}
-
-impl Default for RigHandeyeRigConfig {
-    fn default() -> Self {
-        Self {
-            reference_camera_idx: 0,
-            refine_intrinsics_in_rig_ba: false,
-            fix_first_rig_pose: true,
-        }
-    }
-}
-
-/// Hand-eye linear initialization options for rig hand-eye calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub struct RigHandeyeInitConfig {
-    /// Hand-eye mode: EyeInHand or EyeToHand.
-    pub handeye_mode: HandEyeMode,
-    /// Minimum motion angle (degrees) for linear hand-eye initialization.
-    pub min_motion_angle_deg: f64,
-}
-
-impl Default for RigHandeyeInitConfig {
-    fn default() -> Self {
-        Self {
-            handeye_mode: HandEyeMode::EyeInHand,
-            min_motion_angle_deg: 5.0,
-        }
-    }
-}
-
-/// Solver options shared across rig and hand-eye optimization stages.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub struct RigHandeyeSolverConfig {
-    /// Maximum iterations for optimization.
-    pub max_iters: usize,
-    /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
-    pub verbosity: usize,
-    /// Robust loss function for outlier handling.
-    pub robust_loss: RobustLoss,
-}
-
-impl Default for RigHandeyeSolverConfig {
-    fn default() -> Self {
-        Self {
-            max_iters: 50,
-            verbosity: 0,
-            robust_loss: RobustLoss::None,
-        }
-    }
-}
-
-/// Hand-eye bundle-adjustment options.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub struct RigHandeyeBaConfig {
-    /// Refine robot poses in hand-eye BA (default: true).
-    pub refine_robot_poses: bool,
-    /// Robot rotation sigma for prior (radians). Default: 0.5° ≈ 0.0087 rad.
-    pub robot_rot_sigma: f64,
-    /// Robot translation sigma for prior (meters). Default: 1mm = 0.001.
-    pub robot_trans_sigma: f64,
+pub struct HandeyeBaConfig {
+    /// Robot-pose refinement settings for the final hand-eye BA.
+    pub robot_poses: RobotPoseConfig,
     /// Refine cam_se3_rig in hand-eye BA (default: false).
     /// When true, rig extrinsics are further refined during hand-eye optimization.
-    pub refine_cam_se3_rig_in_handeye_ba: bool,
+    pub refine_cam_se3_rig: bool,
     /// Refine Scheimpflug tilt parameters in hand-eye BA (default: false).
     /// Only consulted when [`SensorMode::Scheimpflug`] is configured; ignored
     /// for [`SensorMode::Pinhole`].
     #[serde(default)]
-    pub refine_scheimpflug_in_handeye_ba: bool,
-}
-
-impl Default for RigHandeyeBaConfig {
-    fn default() -> Self {
-        Self {
-            refine_robot_poses: true,
-            robot_rot_sigma: 0.5_f64.to_radians(), // 0.5 degrees
-            robot_trans_sigma: 0.001,              // 1 mm
-            refine_cam_se3_rig_in_handeye_ba: false,
-            refine_scheimpflug_in_handeye_ba: false,
-        }
-    }
+    pub refine_scheimpflug: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -501,10 +405,10 @@ impl ProblemType for RigHandeyeProblem {
                 "min_motion_angle_deg must be positive",
             ));
         }
-        if config.handeye_ba.robot_rot_sigma <= 0.0 {
+        if config.handeye_ba.robot_poses.rot_sigma <= 0.0 {
             return Err(Error::invalid_input("robot_rot_sigma must be positive"));
         }
-        if config.handeye_ba.robot_trans_sigma <= 0.0 {
+        if config.handeye_ba.robot_poses.trans_sigma <= 0.0 {
             return Err(Error::invalid_input("robot_trans_sigma must be positive"));
         }
         // The joint rig hand-eye bundle adjustment is Brown-Conrady-typed; reject
@@ -710,9 +614,9 @@ mod tests {
     fn validate_input_config_checks_reference_camera() {
         let input = make_minimal_input();
         let config = RigHandeyeConfig {
-            rig: RigHandeyeRigConfig {
+            rig: RigConfig {
                 reference_camera_idx: 5, // Out of range
-                ..RigHandeyeRigConfig::default()
+                ..RigConfig::default()
             },
             ..RigHandeyeConfig::default()
         };
@@ -730,23 +634,25 @@ mod tests {
     #[test]
     fn config_json_roundtrip() {
         let config = RigHandeyeConfig {
-            solver: RigHandeyeSolverConfig {
+            solver: SolverConfig {
                 max_iters: 100,
                 robust_loss: RobustLoss::Huber { scale: 2.5 },
-                ..RigHandeyeSolverConfig::default()
+                ..SolverConfig::default()
             },
-            rig: RigHandeyeRigConfig {
+            rig: RigConfig {
                 reference_camera_idx: 1,
                 refine_intrinsics_in_rig_ba: true,
-                ..RigHandeyeRigConfig::default()
             },
-            handeye_init: RigHandeyeInitConfig {
+            handeye_init: HandeyeInitConfig {
                 handeye_mode: HandEyeMode::EyeToHand,
-                ..RigHandeyeInitConfig::default()
+                ..HandeyeInitConfig::default()
             },
-            handeye_ba: RigHandeyeBaConfig {
-                refine_robot_poses: false,
-                ..RigHandeyeBaConfig::default()
+            handeye_ba: HandeyeBaConfig {
+                robot_poses: RobotPoseConfig {
+                    refine: false,
+                    ..RobotPoseConfig::default()
+                },
+                ..HandeyeBaConfig::default()
             },
             ..Default::default()
         };
@@ -757,15 +663,15 @@ mod tests {
         assert_eq!(restored.solver.max_iters, 100);
         assert_eq!(restored.rig.reference_camera_idx, 1);
         assert!(restored.rig.refine_intrinsics_in_rig_ba);
-        assert!(!restored.handeye_ba.refine_robot_poses);
+        assert!(!restored.handeye_ba.robot_poses.refine);
     }
 
     #[test]
     fn final_handeye_ba_defaults_keep_intrinsics_and_rig_fixed() {
         let config = RigHandeyeConfig::default();
         assert!(!config.rig.refine_intrinsics_in_rig_ba);
-        assert!(!config.handeye_ba.refine_cam_se3_rig_in_handeye_ba);
-        assert!(!config.handeye_ba.refine_scheimpflug_in_handeye_ba);
+        assert!(!config.handeye_ba.refine_cam_se3_rig);
+        assert!(!config.handeye_ba.refine_scheimpflug);
     }
 
     #[test]
@@ -807,9 +713,9 @@ mod tests {
     fn export_eye_in_hand_is_explicit() {
         let output = make_dummy_output();
         let config = RigHandeyeConfig {
-            handeye_init: RigHandeyeInitConfig {
+            handeye_init: HandeyeInitConfig {
                 handeye_mode: HandEyeMode::EyeInHand,
-                ..RigHandeyeInitConfig::default()
+                ..HandeyeInitConfig::default()
             },
             ..Default::default()
         };
@@ -846,9 +752,9 @@ mod tests {
     fn export_eye_to_hand_is_explicit() {
         let output = make_dummy_output();
         let config = RigHandeyeConfig {
-            handeye_init: RigHandeyeInitConfig {
+            handeye_init: HandeyeInitConfig {
                 handeye_mode: HandEyeMode::EyeToHand,
-                ..RigHandeyeInitConfig::default()
+                ..HandeyeInitConfig::default()
             },
             ..Default::default()
         };

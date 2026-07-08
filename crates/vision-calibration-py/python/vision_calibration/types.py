@@ -221,43 +221,20 @@ class RigExtrinsicsConfig(TypedDict, total=False):
     solver: SolverConfig
 
 
-class RigHandeyeIntrinsicsConfig(TypedDict, total=False):
-    init_iterations: int
-    fix_k3: bool
-    fix_tangential: bool
-    zero_skew: bool
+class HandeyeBaConfig(TypedDict, total=False):
+    """Final hand-eye bundle-adjustment options (ADR 0024)."""
 
-
-class RigHandeyeRigConfig(TypedDict, total=False):
-    reference_camera_idx: int
-    refine_intrinsics_in_rig_ba: bool
-    fix_first_rig_pose: bool
-
-
-class RigHandeyeInitConfig(TypedDict, total=False):
-    handeye_mode: HandEyeMode
-    min_motion_angle_deg: float
-
-
-class RigHandeyeSolverConfig(TypedDict, total=False):
-    max_iters: int
-    verbosity: int
-    robust_loss: RobustLoss
-
-
-class RigHandeyeBaConfig(TypedDict, total=False):
-    refine_robot_poses: bool
-    robot_rot_sigma: float
-    robot_trans_sigma: float
-    refine_cam_se3_rig_in_handeye_ba: bool
+    robot_poses: RobotPoseConfig
+    refine_cam_se3_rig: bool
+    refine_scheimpflug: bool
 
 
 class RigHandeyeConfig(TypedDict, total=False):
-    intrinsics: RigHandeyeIntrinsicsConfig
-    rig: RigHandeyeRigConfig
-    handeye_init: RigHandeyeInitConfig
-    solver: RigHandeyeSolverConfig
-    handeye_ba: RigHandeyeBaConfig
+    intrinsics: IntrinsicsInitConfig
+    rig: RigConfig
+    handeye_init: HandeyeInitConfig
+    solver: SolverConfig
+    handeye_ba: HandeyeBaConfig
 
 
 class LaserlineDeviceOptimizeConfig(TypedDict, total=False):

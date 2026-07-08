@@ -598,19 +598,19 @@ fn apply_single_ba(ba: &HandeyeBaOverride, config: &mut SingleCamHandeyeConfig) 
 
 fn apply_rig_ba(ba: &HandeyeBaOverride, config: &mut RigHandeyeConfig) {
     if let Some(refine) = ba.refine_robot_poses {
-        config.handeye_ba.refine_robot_poses = refine;
+        config.handeye_ba.robot_poses.refine = refine;
     }
     if let Some(refine) = ba.refine_cam_se3_rig_in_handeye_ba {
-        config.handeye_ba.refine_cam_se3_rig_in_handeye_ba = refine;
+        config.handeye_ba.refine_cam_se3_rig = refine;
     }
     if let Some(refine) = ba.refine_scheimpflug_in_handeye_ba {
-        config.handeye_ba.refine_scheimpflug_in_handeye_ba = refine;
+        config.handeye_ba.refine_scheimpflug = refine;
     }
     if let Some(sigma) = ba.robot_rot_sigma {
-        config.handeye_ba.robot_rot_sigma = sigma;
+        config.handeye_ba.robot_poses.rot_sigma = sigma;
     }
     if let Some(sigma) = ba.robot_trans_sigma {
-        config.handeye_ba.robot_trans_sigma = sigma;
+        config.handeye_ba.robot_poses.trans_sigma = sigma;
     }
 }
 
@@ -839,9 +839,9 @@ mod tests {
         assert_eq!(cfg.handeye_init.handeye_mode, HandEyeMode::EyeToHand);
         assert_eq!(cfg.solver.max_iters, 200);
         assert_eq!(cfg.solver.robust_loss, RobustLoss::Huber { scale: 1.0 });
-        assert!(cfg.handeye_ba.refine_robot_poses);
-        assert!(!cfg.handeye_ba.refine_cam_se3_rig_in_handeye_ba);
-        assert!(!cfg.handeye_ba.refine_scheimpflug_in_handeye_ba);
+        assert!(cfg.handeye_ba.robot_poses.refine);
+        assert!(!cfg.handeye_ba.refine_cam_se3_rig);
+        assert!(!cfg.handeye_ba.refine_scheimpflug);
     }
 
     #[test]
@@ -873,8 +873,8 @@ mod tests {
 
         assert_eq!(cfg.handeye_init.handeye_mode, HandEyeMode::EyeToHand);
         assert!(cfg.rig.refine_intrinsics_in_rig_ba);
-        assert!(!cfg.handeye_ba.refine_cam_se3_rig_in_handeye_ba);
-        assert!(!cfg.handeye_ba.refine_scheimpflug_in_handeye_ba);
+        assert!(!cfg.handeye_ba.refine_cam_se3_rig);
+        assert!(!cfg.handeye_ba.refine_scheimpflug);
         match cfg.sensor {
             SensorMode::Scheimpflug {
                 distortion_mask_in_percam_ba,

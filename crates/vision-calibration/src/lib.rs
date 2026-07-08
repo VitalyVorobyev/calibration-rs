@@ -426,13 +426,13 @@ pub mod rig_extrinsics {
 /// ```
 pub mod rig_handeye {
     pub use vision_calibration_pipeline::rig_handeye::{
+        // Problem type and config
+        HandeyeBaConfig,
         // Step options
         HandeyeInitOptions,
         HandeyeOptimizeOptions,
         IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions,
-        // Problem type and config
-        RigHandeyeBaConfig,
         RigHandeyeConfig,
         RigHandeyeExport,
         // Typed step results (Phase 1a of 0.5.0 API revision)
@@ -440,20 +440,16 @@ pub mod rig_handeye {
         // Manual init seeds (ADR 0011)
         RigHandeyeHandeyeManualInit,
         RigHandeyeHandeyeOptimizeResult,
-        RigHandeyeInitConfig,
         RigHandeyeInput,
-        RigHandeyeIntrinsicsConfig,
         RigHandeyeIntrinsicsInitAllResult,
         RigHandeyeIntrinsicsManualInit,
         RigHandeyeIntrinsicsOptimizeAllResult,
         // Output (pinhole or Scheimpflug variant; A6 unified rig family)
         RigHandeyeOutput,
         RigHandeyeProblem,
-        RigHandeyeRigConfig,
         RigHandeyeRigInitResult,
         RigHandeyeRigManualInit,
         RigHandeyeRigOptimizeResult,
-        RigHandeyeSolverConfig,
         RigOptimizeOptions,
         // Sensor flavour selector (pinhole vs Scheimpflug)
         SensorMode,
@@ -488,9 +484,9 @@ pub mod rig_laserline_device {
 /// Joint rig hand-eye + laserline calibration.
 pub mod rig_handeye_laserline {
     pub use vision_calibration_pipeline::rig_handeye_laserline::{
-        JointCameraFixMask, RigHandeyeLaserlineBaConfig, RigHandeyeLaserlineConfig,
-        RigHandeyeLaserlineExport, RigHandeyeLaserlineInput, RigHandeyeLaserlineOutput,
-        RigHandeyeLaserlineProblem, run_calibration,
+        RigHandeyeLaserlineBaConfig, RigHandeyeLaserlineConfig, RigHandeyeLaserlineExport,
+        RigHandeyeLaserlineInput, RigHandeyeLaserlineOutput, RigHandeyeLaserlineProblem,
+        run_calibration,
     };
 }
 

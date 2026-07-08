@@ -1614,15 +1614,15 @@ pub mod tier_b {
                 .with_context(|| {
                     format!("failed to parse rig hand-eye manual seed for {}", entry.id)
                 })?;
-            config.intrinsics.manual_init = Some(manual);
+            config.manual_init = Some(manual);
         }
-        if config.intrinsics.manual_init.is_none() && entry.id == "rtv3d" {
-            config.intrinsics.manual_init = Some(rtv3d_manual_intrinsics_seed(entry));
+        if config.manual_init.is_none() && entry.id == "rtv3d" {
+            config.manual_init = Some(rtv3d_manual_intrinsics_seed(entry));
             config.intrinsics.fix_tangential = true;
         }
-        let robot_rot_sigma = config.handeye_ba.robot_rot_sigma;
-        let robot_trans_sigma = config.handeye_ba.robot_trans_sigma;
-        let manual_intrinsics = config.intrinsics.manual_init.clone().unwrap_or_default();
+        let robot_rot_sigma = config.handeye_ba.robot_poses.rot_sigma;
+        let robot_trans_sigma = config.handeye_ba.robot_poses.trans_sigma;
+        let manual_intrinsics = config.manual_init.clone().unwrap_or_default();
         let input = RigDataset::new(rig_views, n_cam)
             .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
         let dataset_for_report = input.clone();

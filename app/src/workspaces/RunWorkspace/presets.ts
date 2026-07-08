@@ -125,11 +125,11 @@ const RTV3D_SENSOR_SEEDS = Array.from({ length: 6 }, () => ({
 const RTV3D_HAND_EYE_CONFIG_OVERRIDES = {
   intrinsics: {
     fix_tangential: true,
-    manual_init: {
-      per_cam_intrinsics: RTV3D_CAMERA_SEEDS,
-      per_cam_distortion: RTV3D_DISTORTION_SEEDS,
-      per_cam_sensors: RTV3D_SENSOR_SEEDS,
-    },
+  },
+  manual_init: {
+    per_cam_intrinsics: RTV3D_CAMERA_SEEDS,
+    per_cam_distortion: RTV3D_DISTORTION_SEEDS,
+    per_cam_sensors: RTV3D_SENSOR_SEEDS,
   },
   sensor: {
     kind: "Scheimpflug",
@@ -149,7 +149,7 @@ const RTV3D_HAND_EYE_CONFIG_OVERRIDES = {
     refine_intrinsics_in_rig_ba: false,
   },
   handeye_init: { handeye_mode: "EyeToHand" },
-  handeye_ba: { refine_robot_poses: true },
+  handeye_ba: { robot_poses: { refine: true } },
   solver: { max_iters: 200, robust_loss: { Huber: { scale: 1.0 } } },
 };
 
@@ -255,17 +255,18 @@ export const BUILTIN_PRESETS: Preset[] = [
     configOverrides: {
       handeye: RTV3D_HAND_EYE_CONFIG_OVERRIDES,
       laserline_init: {
-        max_iters: 200,
+        solver: { max_iters: 200 },
         laser_residual_type: "PointToPlane",
       },
       joint_ba: {
-        max_iters: 30,
+        solver: { max_iters: 30 },
         laser_residual_type: "PointToPlane",
         calib_weight: 1.0,
         laser_weight: 10000.0,
-        refine_robot_poses: true,
-        fix_first_camera_extrinsic: true,
-        fix_scheimpflug_tilt: true,
+        robot_poses: { refine: true },
+        // fix_first_camera_extrinsic is gone (ADR 0024 D2): the joint
+        // stage always pins handeye.rig.reference_camera_idx.
+        fix_scheimpflug: { tilt_x: true, tilt_y: true },
         default_camera_fix: {
           intrinsics: { fx: false, fy: false, cx: true, cy: true },
           distortion: {
@@ -293,7 +294,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     manifestPath: `${REPO_ROOT}/privatedata/rtv3d/dataset_laser.toml`,
     manifestOverrides: RTV3D_MANIFEST_OVERRIDES,
     configOverrides: {
-      max_iters: 200,
+      solver: { max_iters: 200 },
       laser_residual_type: "PointToPlane",
     },
   },

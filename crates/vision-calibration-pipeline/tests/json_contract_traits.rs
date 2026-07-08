@@ -8,10 +8,7 @@ use vision_calibration_pipeline::{
     },
     planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem},
     rig_extrinsics::{RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput},
-    rig_handeye::{
-        RigHandeyeBaConfig, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInitConfig,
-        RigHandeyeInput, RigHandeyeIntrinsicsConfig, RigHandeyeRigConfig, RigHandeyeSolverConfig,
-    },
+    rig_handeye::{RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput},
     scheimpflug_intrinsics::{
         ScheimpflugFixMask, ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsExport,
         ScheimpflugIntrinsicsInput, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsProblem,
@@ -74,11 +71,6 @@ fn single_cam_handeye_contract_types_are_serde() {
 fn rig_handeye_contract_types_are_serde() {
     assert_json_contract::<RigHandeyeInput>();
     assert_json_contract::<RigHandeyeConfig>();
-    assert_json_contract::<RigHandeyeIntrinsicsConfig>();
-    assert_json_contract::<RigHandeyeRigConfig>();
-    assert_json_contract::<RigHandeyeInitConfig>();
-    assert_json_contract::<RigHandeyeSolverConfig>();
-    assert_json_contract::<RigHandeyeBaConfig>();
     assert_json_contract::<RigHandeyeExport>();
 }
 

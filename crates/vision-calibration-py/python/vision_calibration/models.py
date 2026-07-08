@@ -618,141 +618,57 @@ class RigExtrinsicsCalibrationConfig:
 
 
 @dataclass(slots=True)
-class RigHandeyeIntrinsicsConfig:
-    """Per-camera intrinsics initialization options."""
+class HandeyeBaConfig:
+    """Final hand-eye bundle-adjustment options (ADR 0024).
 
-    init_iterations: int = 2
-    fix_k3: bool = True
-    fix_tangential: bool = False
-    zero_skew: bool = True
+    Renamed and reshaped from ``RigHandeyeBaConfig``: robot-pose refinement
+    now lives in the shared ``RobotPoseConfig`` group, and
+    ``refine_cam_se3_rig_in_handeye_ba`` / ``refine_scheimpflug_in_handeye_ba``
+    shorten to ``refine_cam_se3_rig`` / ``refine_scheimpflug``.
+    """
 
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "init_iterations": int(self.init_iterations),
-            "fix_k3": bool(self.fix_k3),
-            "fix_tangential": bool(self.fix_tangential),
-            "zero_skew": bool(self.zero_skew),
-        }
-
-    @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigHandeyeIntrinsicsConfig":
-        cfg = cls()
-        for key, value in mapping.items():
-            if not hasattr(cfg, key):
-                raise ValueError(f"unknown RigHandeyeIntrinsicsConfig field: {key}")
-            setattr(cfg, key, value)
-        return cfg
-
-
-@dataclass(slots=True)
-class RigHandeyeRigConfig:
-    """Rig frame / gauge options."""
-
-    reference_camera_idx: int = 0
-    refine_intrinsics_in_rig_ba: bool = False
-    fix_first_rig_pose: bool = True
+    robot_poses: RobotPoseConfig = field(default_factory=RobotPoseConfig)
+    refine_cam_se3_rig: bool = False
+    refine_scheimpflug: bool = False
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "reference_camera_idx": int(self.reference_camera_idx),
-            "refine_intrinsics_in_rig_ba": bool(self.refine_intrinsics_in_rig_ba),
-            "fix_first_rig_pose": bool(self.fix_first_rig_pose),
+            "robot_poses": self.robot_poses.to_payload(),
+            "refine_cam_se3_rig": bool(self.refine_cam_se3_rig),
+            "refine_scheimpflug": bool(self.refine_scheimpflug),
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigHandeyeRigConfig":
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "HandeyeBaConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if not hasattr(cfg, key):
-                raise ValueError(f"unknown RigHandeyeRigConfig field: {key}")
-            setattr(cfg, key, value)
-        return cfg
-
-
-@dataclass(slots=True)
-class RigHandeyeInitConfig:
-    """Linear hand-eye initialization settings."""
-
-    handeye_mode: HandEyeMode = "EyeInHand"
-    min_motion_angle_deg: float = 5.0
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "handeye_mode": self.handeye_mode,
-            "min_motion_angle_deg": float(self.min_motion_angle_deg),
-        }
-
-    @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigHandeyeInitConfig":
-        cfg = cls()
-        for key, value in mapping.items():
-            if not hasattr(cfg, key):
-                raise ValueError(f"unknown RigHandeyeInitConfig field: {key}")
-            setattr(cfg, key, value)
-        return cfg
-
-
-@dataclass(slots=True)
-class RigHandeyeSolverConfig:
-    """Shared nonlinear solver settings."""
-
-    max_iters: int = 50
-    verbosity: int = 0
-    robust_loss: RobustLoss = "None"
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "max_iters": int(self.max_iters),
-            "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
-        }
-
-    @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigHandeyeSolverConfig":
-        cfg = cls()
-        for key, value in mapping.items():
-            if not hasattr(cfg, key):
-                raise ValueError(f"unknown RigHandeyeSolverConfig field: {key}")
-            setattr(cfg, key, value)
-        return cfg
-
-
-@dataclass(slots=True)
-class RigHandeyeBaConfig:
-    """Final hand-eye bundle-adjustment options."""
-
-    refine_robot_poses: bool = True
-    robot_rot_sigma: float = 0.5 * 3.141592653589793 / 180.0
-    robot_trans_sigma: float = 0.001
-    refine_cam_se3_rig_in_handeye_ba: bool = False
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "refine_robot_poses": bool(self.refine_robot_poses),
-            "robot_rot_sigma": float(self.robot_rot_sigma),
-            "robot_trans_sigma": float(self.robot_trans_sigma),
-            "refine_cam_se3_rig_in_handeye_ba": bool(self.refine_cam_se3_rig_in_handeye_ba),
-        }
-
-    @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigHandeyeBaConfig":
-        cfg = cls()
-        for key, value in mapping.items():
-            if not hasattr(cfg, key):
-                raise ValueError(f"unknown RigHandeyeBaConfig field: {key}")
-            setattr(cfg, key, value)
+            if key == "robot_poses":
+                cfg.robot_poses = (
+                    value
+                    if isinstance(value, RobotPoseConfig)
+                    else RobotPoseConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key in ("refine_cam_se3_rig", "refine_scheimpflug"):
+                setattr(cfg, key, bool(value))
+            else:
+                raise ValueError(f"unknown HandeyeBaConfig field: {key}")
         return cfg
 
 
 @dataclass(slots=True)
 class RigHandeyeCalibrationConfig:
-    """Configuration for rig hand-eye calibration."""
+    """Configuration for rig hand-eye calibration.
 
-    intrinsics: RigHandeyeIntrinsicsConfig = field(default_factory=RigHandeyeIntrinsicsConfig)
-    rig: RigHandeyeRigConfig = field(default_factory=RigHandeyeRigConfig)
-    handeye_init: RigHandeyeInitConfig = field(default_factory=RigHandeyeInitConfig)
-    solver: RigHandeyeSolverConfig = field(default_factory=RigHandeyeSolverConfig)
-    handeye_ba: RigHandeyeBaConfig = field(default_factory=RigHandeyeBaConfig)
+    Grouped per ADR 0024, sharing sub-objects with the other rig/hand-eye
+    configs. ``sensor`` (pinhole vs Scheimpflug) and ``manual_init`` are not
+    yet mirrored here — tracked for R5.
+    """
+
+    intrinsics: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    rig: RigConfig = field(default_factory=RigConfig)
+    handeye_init: HandeyeInitConfig = field(default_factory=HandeyeInitConfig)
+    solver: SolverConfig = field(default_factory=SolverConfig)
+    handeye_ba: HandeyeBaConfig = field(default_factory=HandeyeBaConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -770,32 +686,32 @@ class RigHandeyeCalibrationConfig:
             if key == "intrinsics":
                 cfg.intrinsics = (
                     value
-                    if isinstance(value, RigHandeyeIntrinsicsConfig)
-                    else RigHandeyeIntrinsicsConfig.from_mapping(cast(Mapping[str, Any], value))
+                    if isinstance(value, IntrinsicsInitConfig)
+                    else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             elif key == "rig":
                 cfg.rig = (
                     value
-                    if isinstance(value, RigHandeyeRigConfig)
-                    else RigHandeyeRigConfig.from_mapping(cast(Mapping[str, Any], value))
+                    if isinstance(value, RigConfig)
+                    else RigConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             elif key == "handeye_init":
                 cfg.handeye_init = (
                     value
-                    if isinstance(value, RigHandeyeInitConfig)
-                    else RigHandeyeInitConfig.from_mapping(cast(Mapping[str, Any], value))
+                    if isinstance(value, HandeyeInitConfig)
+                    else HandeyeInitConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             elif key == "solver":
                 cfg.solver = (
                     value
-                    if isinstance(value, RigHandeyeSolverConfig)
-                    else RigHandeyeSolverConfig.from_mapping(cast(Mapping[str, Any], value))
+                    if isinstance(value, SolverConfig)
+                    else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             elif key == "handeye_ba":
                 cfg.handeye_ba = (
                     value
-                    if isinstance(value, RigHandeyeBaConfig)
-                    else RigHandeyeBaConfig.from_mapping(cast(Mapping[str, Any], value))
+                    if isinstance(value, HandeyeBaConfig)
+                    else HandeyeBaConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             else:
                 raise ValueError(f"unknown RigHandeyeCalibrationConfig field: {key}")

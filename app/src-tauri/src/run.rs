@@ -1097,7 +1097,7 @@ mod tests {
         // plain config JSON, i.e. reachable from the app's ConfigForm.
         let mut handeye_config = default_config_cmd("rig_handeye".into()).unwrap();
         handeye_config["intrinsics"]["fix_tangential"] = json!(true);
-        handeye_config["intrinsics"]["manual_init"] = rtv3d_manual_intrinsics_init();
+        handeye_config["manual_init"] = rtv3d_manual_intrinsics_init();
         handeye_config["sensor"] = json!({
             "kind": "Scheimpflug",
             "fix_scheimpflug_in_intrinsics": {"tilt_x": false, "tilt_y": false},
@@ -1112,7 +1112,7 @@ mod tests {
         });
         handeye_config["rig"]["refine_intrinsics_in_rig_ba"] = json!(false);
         handeye_config["handeye_init"]["handeye_mode"] = json!("EyeToHand");
-        handeye_config["handeye_ba"]["refine_robot_poses"] = json!(true);
+        handeye_config["handeye_ba"]["robot_poses"]["refine"] = json!(true);
         handeye_config["solver"]["max_iters"] = json!(200);
         handeye_config["solver"]["robust_loss"] = json!({"Huber": {"scale": 1.0}});
         let handeye = match run_blocking(
@@ -1220,13 +1220,14 @@ mod tests {
         joint_config["handeye"] = handeye_config;
         joint_config["laserline_init"]["solver"]["max_iters"] = json!(200);
         joint_config["laserline_init"]["laser_residual_type"] = json!("PointToPlane");
-        joint_config["joint_ba"]["max_iters"] = json!(30);
+        joint_config["joint_ba"]["solver"]["max_iters"] = json!(30);
         joint_config["joint_ba"]["laser_residual_type"] = json!("PointToPlane");
         joint_config["joint_ba"]["calib_weight"] = json!(1.0);
         joint_config["joint_ba"]["laser_weight"] = json!(10000.0);
-        joint_config["joint_ba"]["refine_robot_poses"] = json!(true);
-        joint_config["joint_ba"]["fix_first_camera_extrinsic"] = json!(true);
-        joint_config["joint_ba"]["fix_scheimpflug_tilt"] = json!(true);
+        joint_config["joint_ba"]["robot_poses"]["refine"] = json!(true);
+        // D2 (ADR 0024): `fix_first_camera_extrinsic` is gone — the joint
+        // stage always pins `handeye.rig.reference_camera_idx`.
+        joint_config["joint_ba"]["fix_scheimpflug"] = json!({"tilt_x": true, "tilt_y": true});
         joint_config["joint_ba"]["default_camera_fix"] = json!({
             "intrinsics": {"fx": false, "fy": false, "cx": true, "cy": true},
             "distortion": {

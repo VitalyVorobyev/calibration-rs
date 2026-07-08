@@ -67,18 +67,18 @@ pub fn run_calibration(
         laser_weight: config.joint_ba.laser_weight,
         fix_intrinsics: joint_fix_intrinsics(&config.joint_ba, n),
         fix_scheimpflug: joint_fix_scheimpflug(&config.joint_ba, n),
-        fix_extrinsics: joint_fix_extrinsics(&config.joint_ba, n),
+        fix_extrinsics: joint_fix_extrinsics(config.handeye.rig.reference_camera_idx, n),
         fix_handeye: config.joint_ba.fix_handeye,
         fix_target_ref: config.joint_ba.fix_target_ref,
         fix_planes: vec![false; n],
-        refine_robot_poses: config.joint_ba.refine_robot_poses,
-        robot_rot_sigma: config.joint_ba.robot_rot_sigma,
-        robot_trans_sigma: config.joint_ba.robot_trans_sigma,
+        refine_robot_poses: config.joint_ba.robot_poses.refine,
+        robot_rot_sigma: config.joint_ba.robot_poses.rot_sigma,
+        robot_trans_sigma: config.joint_ba.robot_poses.trans_sigma,
         initial_robot_deltas,
     };
     let backend_opts = BackendSolveOptions {
-        max_iters: config.joint_ba.max_iters,
-        verbosity: config.joint_ba.verbosity,
+        max_iters: config.joint_ba.solver.max_iters,
+        verbosity: config.joint_ba.solver.verbosity,
         ..Default::default()
     };
 
