@@ -319,6 +319,12 @@ fn main() -> Result<()> {
     let mut laser_planes_cam: Option<Vec<LaserPlane>> = None;
     let mut joint_stats_sigma_mm: Option<Vec<f64>> = None;
     let mut joint_reproj_px: Option<Vec<f64>> = None;
+    // `cam_se3_rig` refined by the joint (laser-informed) BA — the most
+    // metrically constrained extrinsics available. See Q5-RTV3D-SCALE:
+    // the hand-eye-stage `rig_export.cam_se3_rig` alone under-determines
+    // absolute scale by ~10 %; the joint BA (laser point-to-plane term)
+    // resolves it and matches the oracle's healthy cameras almost exactly.
+    let mut joint_cam_se3_rig: Option<Vec<Iso3>> = None;
     if detected.laserline_views.is_empty() {
         println!("stage 3 (rig laserline): skipped — no laser observations in this dataset");
     } else {
@@ -482,6 +488,14 @@ fn main() -> Result<()> {
             "  mean reproj after joint BA: {:.4} px",
             joint_est.mean_reproj_error_px
         );
+        joint_cam_se3_rig = Some(
+            joint_est
+                .params
+                .cam_to_rig
+                .iter()
+                .map(|t| t.inverse())
+                .collect(),
+        );
         let mut sigmas = Vec::with_capacity(NUM_CAMERAS);
         let mut reprojs = Vec::with_capacity(NUM_CAMERAS);
         for (i, s) in joint_est.per_cam_stats.iter().enumerate() {
@@ -510,6 +524,7 @@ fn main() -> Result<()> {
             joint_reproj_px.as_deref(),
             laser_planes_cam.as_deref(),
             joint_stats_sigma_mm.as_deref(),
+            joint_cam_se3_rig.as_deref(),
         );
     } else {
         println!("\nno oracle (artifacts.json) — skipping comparison");
@@ -847,6 +862,16 @@ fn load_oracle(path: &Path) -> Result<Oracle> {
 /// - laser σ: per-camera point-to-plane RMS < oracle `standard_deviation_mm`.
 ///   Plane normal/distance deltas are informational only (frame conventions
 ///   differ; σ is the physically meaningful fit quality).
+///
+/// The `|t| ours` column (and the printed neighbor-edge hexagon table, see
+/// Q5-RTV3D-SCALE) uses `joint_cam_se3_rig` — the laser-informed joint-BA
+/// extrinsics — when available, falling back to the hand-eye-stage
+/// `rig_export.cam_se3_rig` otherwise. The two disagree by a uniform ~10 %
+/// scale factor: the hand-eye stage alone under-determines absolute scale,
+/// and the joint BA's laser point-to-plane term resolves it. Comparing the
+/// oracle against the hand-eye-stage extrinsics (as earlier reports did)
+/// manufactures an apparent scale mismatch that isn't present once the
+/// laser-informed extrinsics are used — see `docs/notes/rtv3d-scale.md`.
 fn compare_to_oracle(
     oracle: &Oracle,
     rig_export: &vision_calibration::rig_handeye::RigHandeyeExport,
@@ -854,6 +879,7 @@ fn compare_to_oracle(
     joint_reproj: Option<&[f64]>,
     laser_planes_cam: Option<&[LaserPlane]>,
     laser_sigma_mm: Option<&[f64]>,
+    joint_cam_se3_rig: Option<&[Iso3]>,
 ) {
     println!("\n══════════ oracle comparison (artifacts.json) ══════════");
     println!("note: oracle cam 5 is degenerate (fx=51, reproj 127 px) — its deltas are nominal");
@@ -917,12 +943,23 @@ fn compare_to_oracle(
         );
     }
 
+    // Prefer the laser-informed joint-BA extrinsics (best available scale
+    // constraint); fall back to the hand-eye-stage export when no laser
+    // data was present. See Q5-RTV3D-SCALE.
+    let extrinsics_source = joint_cam_se3_rig.unwrap_or(&rig_export.cam_se3_rig);
     println!("\nextrinsics vs oracle camera_se3_sensor (rig frame = cam 0):");
-    println!("note: rot/trans deltas are informational — the legacy frame convention and");
-    println!("      the tilt↔pose parameter split differ; |t| norms carry the scale criterion");
+    println!(
+        "note: ours = {} extrinsics; rot/trans deltas are informational — the legacy",
+        if joint_cam_se3_rig.is_some() {
+            "joint-BA (laser-informed)"
+        } else {
+            "hand-eye-stage"
+        }
+    );
+    println!("      frame convention and the tilt↔pose parameter split differ; |t| norms carry the scale criterion");
     println!("  cam | rot Δ (deg) | trans Δ (mm) | |t| ours (mm) | |t| oracle (mm) | scale ok?");
     let mut extr_pass = true;
-    for (i, ours) in rig_export.cam_se3_rig.iter().enumerate() {
+    for (i, ours) in extrinsics_source.iter().enumerate() {
         let o = &oracle.cameras[i].cam_se3_rig;
         let delta = ours.inverse() * *o;
         let rot_deg = delta.rotation.angle().to_degrees();
@@ -952,6 +989,61 @@ fn compare_to_oracle(
             },
         );
     }
+
+    // ─── Hexagon neighbor-edge diagnostic (Q5-RTV3D-SCALE) ─────────────────
+    // The rig is a regular hexagon of 6 cameras: sum the |t| column above
+    // pairwise between mechanical *neighbors* (0-1-2-3-4-5-0), not just
+    // radially from cam 0, to get a rotation/parameterization-independent
+    // absolute-scale check with more edges than the 4 that touch cam 0.
+    let ours_positions: Vec<_> = extrinsics_source
+        .iter()
+        .map(|t| t.inverse().translation.vector)
+        .collect();
+    let oracle_positions: Vec<_> = oracle
+        .cameras
+        .iter()
+        .map(|c| c.cam_se3_rig.inverse().translation.vector)
+        .collect();
+    let hex_edges = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0)];
+    println!("\nhexagon neighbor-edge lengths (mm) — ours vs oracle:");
+    println!("note: edges touching cam 5 are unreliable in the oracle (fx=51 degenerate)");
+    println!("  edge | ours (mm) | oracle (mm) | oracle/ours");
+    let mut ours_edges = Vec::with_capacity(hex_edges.len());
+    let mut oracle_clean_edges = Vec::with_capacity(hex_edges.len());
+    for &(i, j) in &hex_edges {
+        let d_ours = (ours_positions[i] - ours_positions[j]).norm() * 1e3;
+        let d_oracle = (oracle_positions[i] - oracle_positions[j]).norm() * 1e3;
+        let touches_cam5 = i == 5 || j == 5;
+        println!(
+            "  {i}-{j}   | {d_ours:9.2} | {d_oracle:10.2} | {:10.4}{}",
+            d_oracle / d_ours,
+            if touches_cam5 { "  (cam 5 edge)" } else { "" },
+        );
+        ours_edges.push(d_ours);
+        if !touches_cam5 {
+            oracle_clean_edges.push(d_oracle);
+        }
+    }
+    let mean_std = |v: &[f64]| -> (f64, f64) {
+        let mean = v.iter().sum::<f64>() / v.len() as f64;
+        let var = v.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / v.len() as f64;
+        (mean, var.sqrt())
+    };
+    let (ours_mean, ours_std) = mean_std(&ours_edges);
+    let (oracle_mean, oracle_std) = mean_std(&oracle_clean_edges);
+    println!(
+        "  ours (all 6 edges):        mean={ours_mean:.2} mm  std={ours_std:.2} mm ({:.2}% spread)",
+        100.0 * ours_std / ours_mean
+    );
+    println!(
+        "  oracle (4 clean edges, cams 0-4): mean={oracle_mean:.2} mm  std={oracle_std:.2} mm ({:.2}% spread)",
+        100.0 * oracle_std / oracle_mean
+    );
+    println!(
+        "  ratio oracle-clean/ours: {:.4} ({:+.2}%)",
+        oracle_mean / ours_mean,
+        100.0 * (oracle_mean / ours_mean - 1.0)
+    );
 
     let mut plane_pass = None;
     if let Some(planes) = laser_planes_cam {

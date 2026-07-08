@@ -77,9 +77,11 @@ facade module; both intrinsics examples and `rtv3d_rig` spec-seeded (bootstrap
 behind `RTV3D_SEED=generic|oracle`); `calib-bench accept` runs all registered
 datasets through the seeded route with per-entry hard gates (19 passed / 2
 UNAVAILABLE / exit 0), the cheap stereo subset gates CI, and the 0.4 px
-from-scratch diagnose check is demoted to informational. Ringgrid acceptance
-runs at the provisional ≤ 1.0 px pre-Q3 bar (cam1 knife edge 0.5008 px owned
-by Q3).
+from-scratch diagnose check is demoted to informational. **Update 2026-07-08
+(Q3):** ringgrid gates tightened to ≤ 0.7 px (per-cam means 0.42–0.50 px);
+the projective ellipse-center bias is already corrected inside the
+`ringgrid` 0.7 detector, and the remaining floor is small-marker
+localization noise (`docs/notes/ringgrid-bias.md`).
 
 ### Track Q — Algorithmic soundness: proofs + regression
 
@@ -119,7 +121,7 @@ B-EXPLORE) → B-DIST (signed installers).
 
 1. One acceptance command runs every on-disk registered dataset through the
    seeded official route with hard gates (rtv3d_ref ≤ 0.5 px all six cameras;
-   rtv3d full rig beats the oracle; ringgrid median ≤ 1.0 px post Q3).
+   rtv3d full rig beats the oracle; ringgrid ≤ 0.7 px per camera — met, Q3).
 2. Proof pack per shipped algorithm family; basin study for seeded init.
 3. API frozen: facade-only consumers, normalized configs, typed errors
    everywhere, no duplicate public type names, no deprecated shims.
@@ -287,7 +289,7 @@ puzzleboard / ringgrid) are supported.
   opt-in, behind API key configuration); init-failure diagnosis sweeps
   (perturbed re-runs).
 
-### Track V — Real-data validation: rtv3d (V1–V5, V8 DONE; V6 → Q5; V7 parked)
+### Track V — Real-data validation: rtv3d (V1–V5, V8 DONE; V6 → Q5 DONE; V7 parked)
 
 Prove the library functional on the rtv3d sensor — a private dataset from a
 6-device laser-plane-triangulation head (Scheimpflug camera + laser projector
@@ -307,9 +309,12 @@ per device), with a legacy-system oracle calibration to beat.
   bench. Local floor: 1.19 px mean reprojection, laser point-to-plane RMS
   0.018–0.035 mm over 10,797 points. Laser criterion passes; reprojection
   stays above the (now-parked) 0.4 px from-scratch target.
-- **V6 → Q5.** Settle the dataset's absolute scale (our hexagon: 90.1 mm at
-  5.2 mm cells; the oracle implies ~98.5 mm). Absorbed into the production-grade
-  program as Q5 — the metric anchor belongs in the S1 device spec.
+- **V6 → Q5 (DONE 2026-07-08).** Settled: no metric ambiguity. The apparent
+  90.1 mm (ours) vs ~98.5 mm (oracle) hexagon gap was `rtv3d_rig.rs` comparing
+  against the pre-laser hand-eye-stage extrinsics; the joint (laser-informed)
+  BA extrinsics measure 98.21 ± 0.41 mm, matching the oracle's own
+  healthy-camera hexagon (98.13 ± 1.10 mm) to 0.08 %. 5.2 mm cells confirmed
+  correct. See `docs/notes/rtv3d-scale.md`.
 - **V7 (PARKED, user call 2026-06-14).** Drive the rtv3d from-scratch
   reprojection floor below 0.4 px. Isolated to a detector/target/model floor,
   not rig-chain error (best centered means 0.747–1.199 px). Superseded as an

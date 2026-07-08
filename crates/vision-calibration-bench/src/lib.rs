@@ -12,5 +12,6 @@ pub mod fixtures;
 pub mod params;
 pub mod record;
 pub mod registry;
+pub mod ringgrid_bias;
 pub mod run;
 pub mod stability;
