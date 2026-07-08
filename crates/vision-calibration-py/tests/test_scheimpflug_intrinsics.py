@@ -115,7 +115,9 @@ class ScheimpflugIntrinsicsTest(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             vc.run_scheimpflug_intrinsics(
                 _make_dataset(),
-                vc.ScheimpflugIntrinsicsCalibrationConfig(max_iters=0),
+                vc.ScheimpflugIntrinsicsCalibrationConfig(
+                    solver=vc.SolverConfig(max_iters=0)
+                ),
             )
         message = str(ctx.exception)
         self.assertIn("invalid config", message)

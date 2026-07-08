@@ -11,7 +11,7 @@
 //!   `data:` URL the webview can drop into a `<canvas>` via `Image()`.
 //! - [`commands::compute_epipolar_overlay`] — server-side epipolar line
 //!   computation through the canonical camera models in
-//!   `vision_calibration_core`. See ADR 0014 for the architecture
+//!   `vision_calibration::core`. See ADR 0014 for the architecture
 //!   rationale (no TS-side projection).
 
 mod commands;

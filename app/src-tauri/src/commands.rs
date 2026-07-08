@@ -10,7 +10,7 @@ use base64::Engine;
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::State;
-use vision_calibration_core::PixelRect;
+use vision_calibration::core::PixelRect;
 
 use crate::epipolar::{self, EpipolarOverlay};
 use crate::export_cache::ExportCache;
@@ -92,7 +92,7 @@ pub async fn load_text_file(path: String) -> Result<String, String> {
 /// This is the same inference the `generate-manifest` CLI uses.
 #[tauri::command]
 pub async fn sniff_folder(folder: String) -> Result<serde_json::Value, String> {
-    let spec = vision_calibration_dataset::sniff_folder(std::path::Path::new(&folder))
+    let spec = vision_calibration::dataset::sniff_folder(std::path::Path::new(&folder))
         .map_err(|e| e.to_string())?;
     serde_json::to_value(&spec).map_err(|e| format!("serialize manifest: {e}"))
 }

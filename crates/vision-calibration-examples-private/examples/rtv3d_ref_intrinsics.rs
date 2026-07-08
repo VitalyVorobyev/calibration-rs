@@ -150,7 +150,7 @@ fn main() -> Result<()> {
         session.set_input(dataset)?;
 
         let mut config = ScheimpflugIntrinsicsConfig::default();
-        config.max_iters = max_iters;
+        config.solver.max_iters = max_iters;
         // Match the oracle lens config: k1,k2 free; k3 + tangential fixed (the
         // default `radial_only`); both Scheimpflug tilts free; robust loss to
         // down-weight the detector outlier tail.
@@ -158,7 +158,7 @@ fn main() -> Result<()> {
             tilt_x: false,
             tilt_y: false,
         };
-        config.robust_loss = RobustLoss::Huber { scale: 1.0 };
+        config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config)?;
 
         // Coarse "datasheet" prior derived from the device spec (ADR 0023):
@@ -255,12 +255,12 @@ fn sweep_solve_camera(
     session.set_input(dataset)?;
 
     let mut config = ScheimpflugIntrinsicsConfig::default();
-    config.max_iters = max_iters;
+    config.solver.max_iters = max_iters;
     config.fix_scheimpflug = ScheimpflugFixMask {
         tilt_x: false,
         tilt_y: false,
     };
-    config.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
     config.distortion_model = model;
     session.set_config(config)?;
 

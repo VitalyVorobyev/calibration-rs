@@ -234,13 +234,13 @@ pub fn step_intrinsics_init_with_seed(
     } else {
         auto_fields.push("intrinsics");
         let init_opts = IterativeIntrinsicsOptions {
-            iterations: opts.iterations.unwrap_or(config.intrinsics_init_iterations),
+            iterations: opts.iterations.unwrap_or(config.intrinsics.init_iterations),
             distortion_opts: DistortionFitOptions {
-                fix_k3: config.fix_k3,
-                fix_tangential: config.fix_tangential,
+                fix_k3: config.intrinsics.fix_k3,
+                fix_tangential: config.intrinsics.fix_tangential,
                 iters: 8,
             },
-            zero_skew: config.zero_skew,
+            zero_skew: config.intrinsics.zero_skew,
         };
         let planar_dataset = input_to_planar_dataset(input)?;
         let bootstrap_camera = match estimate_intrinsics_iterative(&planar_dataset, init_opts) {
@@ -388,15 +388,15 @@ pub fn step_intrinsics_optimize(
 
     // Configure optimization
     let solve_opts = PlanarIntrinsicsSolveOptions {
-        robust_loss: config.robust_loss,
+        robust_loss: config.solver.robust_loss,
         fix_intrinsics: Default::default(),
         fix_distortion: Default::default(),
         fix_poses: Vec::new(),
     };
 
     let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.unwrap_or(config.max_iters),
-        verbosity: opts.verbosity.unwrap_or(config.verbosity),
+        max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
+        verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
         ..Default::default()
     };
 
@@ -477,7 +477,7 @@ pub fn step_handeye_init_with_seed(
     let config = &session.config;
     let min_angle = opts
         .min_motion_angle_deg
-        .unwrap_or(config.min_motion_angle_deg);
+        .unwrap_or(config.handeye_init.min_motion_angle_deg);
 
     let robot_poses: Vec<Iso3> = input
         .views
@@ -499,7 +499,7 @@ pub fn step_handeye_init_with_seed(
     let mut manual_fields: Vec<&'static str> = Vec::new();
     let mut auto_fields: Vec<&'static str> = Vec::new();
 
-    let (log_pose, log_label, result) = match config.handeye_mode {
+    let (log_pose, log_label, result) = match config.handeye_init.handeye_mode {
         HandEyeMode::EyeInHand => {
             let gripper_se3_camera = match manual.gripper_se3_camera {
                 Some(t) => {
@@ -650,7 +650,7 @@ pub fn step_handeye_optimize(
         .optimized_camera
         .clone()
         .ok_or_else(|| Error::not_available("optimized camera"))?;
-    let (handeye, target_pose) = match config.handeye_mode {
+    let (handeye, target_pose) = match config.handeye_init.handeye_mode {
         vision_calibration_optim::HandEyeMode::EyeInHand => {
             let handeye = session
                 .state
@@ -690,7 +690,7 @@ pub fn step_handeye_optimize(
         })
         .collect();
 
-    let dataset = HandEyeDataset::new(views, 1, config.handeye_mode)?;
+    let dataset = HandEyeDataset::new(views, 1, config.handeye_init.handeye_mode)?;
 
     // Build initial params
     let initial = HandEyeParams {
@@ -702,21 +702,21 @@ pub fn step_handeye_optimize(
 
     // Configure solve options
     let solve_opts = HandEyeSolveOptions {
-        robust_loss: config.robust_loss,
+        robust_loss: config.solver.robust_loss,
         default_fix: CameraFixMask::default(),
         camera_overrides: Vec::new(),
         fix_extrinsics: vec![true], // Fix cam_to_rig for single camera
         fix_handeye: false,
         fix_target_poses: Vec::new(),
         relax_target_poses: false, // Single fixed target
-        refine_robot_poses: config.refine_robot_poses,
-        robot_rot_sigma: config.robot_rot_sigma,
-        robot_trans_sigma: config.robot_trans_sigma,
+        refine_robot_poses: config.robot_poses.refine,
+        robot_rot_sigma: config.robot_poses.rot_sigma,
+        robot_trans_sigma: config.robot_poses.trans_sigma,
     };
 
     let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.unwrap_or(config.max_iters),
-        verbosity: opts.verbosity.unwrap_or(config.verbosity),
+        max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
+        verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
         ..Default::default()
     };
 
@@ -914,8 +914,14 @@ mod tests {
         // Change config
         session
             .set_config(super::super::problem::SingleCamHandeyeConfig {
-                max_iters: 100,
-                handeye_mode: HandEyeMode::EyeToHand,
+                solver: crate::common::config::SolverConfig {
+                    max_iters: 100,
+                    ..Default::default()
+                },
+                handeye_init: crate::common::config::HandeyeInitConfig {
+                    handeye_mode: HandEyeMode::EyeToHand,
+                    ..Default::default()
+                },
                 ..Default::default()
             })
             .unwrap();

@@ -18,43 +18,43 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use vision_calibration_core::{
+use vision_calibration::core::{
     FrameKind, FrameRef, ImageManifest, PixelRect, PlanarDataset, RigDataset,
 };
-use vision_calibration_dataset::{DatasetSpec, Topology};
-use vision_calibration_detect::FsDetectionCache;
-use vision_calibration_pipeline::dataset_runner::{
+use vision_calibration::dataset::{DatasetSpec, Topology};
+use vision_calibration::dataset_runner::{
     RunError, build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
     build_rig_handeye_input, build_rig_handeye_laserline_input, build_rig_laserline_device_input,
     build_single_cam_handeye_input,
 };
-use vision_calibration_pipeline::laserline_device::{
+use vision_calibration::detect::FsDetectionCache;
+use vision_calibration::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceProblem,
     run_calibration as run_laserline_device_calibration,
 };
-use vision_calibration_pipeline::planar_intrinsics::{
+use vision_calibration::planar_intrinsics::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, run_calibration as run_planar_calibration,
 };
-use vision_calibration_pipeline::rig_extrinsics::{
+use vision_calibration::rig_extrinsics::{
     RigExtrinsicsConfig, RigExtrinsicsProblem, run_calibration as run_rig_extrinsics_calibration,
 };
-use vision_calibration_pipeline::rig_handeye::{
+use vision_calibration::rig_handeye::{
     RigHandeyeConfig, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
 };
-use vision_calibration_pipeline::rig_handeye_laserline::{
+use vision_calibration::rig_handeye_laserline::{
     RigHandeyeLaserlineConfig, RigHandeyeLaserlineProblem,
     run_calibration as run_rig_handeye_laserline_calibration,
 };
-use vision_calibration_pipeline::rig_laserline_device::{
+use vision_calibration::rig_laserline_device::{
     RigLaserlineDeviceConfig, RigLaserlineDeviceProblem,
     run_calibration as run_rig_laserline_device_calibration,
 };
-use vision_calibration_pipeline::scheimpflug_intrinsics::{
+use vision_calibration::scheimpflug_intrinsics::{
     ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
     run_calibration as run_scheimpflug_calibration,
 };
-use vision_calibration_pipeline::session::{CalibrationSession, ProblemType};
-use vision_calibration_pipeline::single_cam_handeye::{
+use vision_calibration::session::{CalibrationSession, ProblemType};
+use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeConfig, SingleCamHandeyeProblem,
     run_calibration as run_single_cam_handeye_calibration,
 };
@@ -222,15 +222,13 @@ fn run_blocking(
         Topology::RigLaserlineDevice => {
             run_rig_laserline_topology(&spec, config_json, base_dir, &detection_cache, started)
         }
-        Topology::RigHandeyeLaserline => {
-            run_rig_handeye_laserline_topology(
-                &spec,
-                config_json,
-                base_dir,
-                &detection_cache,
-                started,
-            )
-        }
+        Topology::RigHandeyeLaserline => run_rig_handeye_laserline_topology(
+            &spec,
+            config_json,
+            base_dir,
+            &detection_cache,
+            started,
+        ),
     }
 }
 
@@ -241,7 +239,7 @@ fn run_blocking(
 fn run_session<P>(
     input: P::Input,
     config_json: serde_json::Value,
-    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration_pipeline::Error>,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
 ) -> Result<serde_json::Value, Box<RunResponse>>
 where
     P: ProblemType,
@@ -315,7 +313,7 @@ fn run_planar_topology<P>(
     base_dir: &Path,
     detection_cache: &FsDetectionCache,
     started: Instant,
-    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration_pipeline::Error>,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
 ) -> RunResponse
 where
     P: ProblemType<Input = PlanarDataset>,
@@ -537,9 +535,9 @@ type RigBuilder<Meta> =
     fn(
         &DatasetSpec,
         &Path,
-        &dyn vision_calibration_detect::DetectionCache,
+        &dyn vision_calibration::detect::DetectionCache,
         bool,
-    ) -> Result<vision_calibration_pipeline::dataset_runner::RigRunResult<Meta>, RunError>;
+    ) -> Result<vision_calibration::dataset_runner::RigRunResult<Meta>, RunError>;
 
 fn run_rig_topology<P, Meta>(
     spec: &DatasetSpec,
@@ -548,7 +546,7 @@ fn run_rig_topology<P, Meta>(
     detection_cache: &FsDetectionCache,
     started: Instant,
     build: RigBuilder<Meta>,
-    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration_pipeline::Error>,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
 ) -> RunResponse
 where
     P: ProblemType<Input = RigDataset<Meta>>,
@@ -825,7 +823,7 @@ fn slug(input: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
-    use vision_calibration_dataset::{CameraSource, ImagePattern, PosePairing, TargetSpec};
+    use vision_calibration::dataset::{CameraSource, ImagePattern, PosePairing, TargetSpec};
 
     fn rtv3d_detector_override() -> serde_json::Value {
         json!({

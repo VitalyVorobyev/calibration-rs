@@ -631,10 +631,6 @@ dependencies = [
  "tempfile",
  "toml 0.8.2",
  "vision-calibration",
- "vision-calibration-core",
- "vision-calibration-dataset",
- "vision-calibration-detect",
- "vision-calibration-pipeline",
  "vision-metrology",
 ]
 

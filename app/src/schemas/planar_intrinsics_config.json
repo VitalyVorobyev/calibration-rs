@@ -1,5 +1,23 @@
 {
   "$defs": {
+    "CameraFixMask": {
+      "description": "Combined mask for camera calibration parameters.\n\nGroups intrinsics and distortion masks for convenient configuration.",
+      "properties": {
+        "distortion": {
+          "$ref": "#/$defs/DistortionFixMask",
+          "description": "Mask for distortion (k1, k2, k3, p1, p2)."
+        },
+        "intrinsics": {
+          "$ref": "#/$defs/IntrinsicsFixMask",
+          "description": "Mask for intrinsics (fx, fy, cx, cy)."
+        }
+      },
+      "required": [
+        "intrinsics",
+        "distortion"
+      ],
+      "type": "object"
+    },
     "DistortionFixMask": {
       "description": "Mask for fixing distortion parameters during optimization.\n\nSupports Brown-Conrady distortion model with:\n- Radial coefficients: k1, k2, k3\n- Tangential coefficients: p1, p2\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Default\n\nBy default, `k3` is fixed because it often causes overfitting with\ntypical calibration data. Only enable k3 optimization for wide-angle\nlenses or with high-quality calibration data.\n\n# Example\n\n```\nuse vision_calibration_core::DistortionFixMask;\n\n// Default: k3 fixed, others free\nlet mask = DistortionFixMask::default();\nassert!(!mask.k1);\nassert!(mask.k3); // k3 fixed by default\n\n// Fix tangential distortion\nlet mask = DistortionFixMask {\n    p1: true,\n    p2: true,\n    ..Default::default()\n};\n```",
       "properties": {
@@ -91,6 +109,36 @@
       ],
       "type": "object"
     },
+    "IntrinsicsInitConfig": {
+      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
+      "properties": {
+        "fix_k3": {
+          "description": "Fix k3 during initialization (recommended for typical lenses).",
+          "type": "boolean"
+        },
+        "fix_tangential": {
+          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (was hard-coded before\nADR 0024 — the tilt/tangential-distortion coupling makes a free\ntangential term ill-posed during the linear stage).",
+          "type": "boolean"
+        },
+        "init_iterations": {
+          "description": "Number of iterations for iterative intrinsics estimation.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "zero_skew": {
+          "description": "Enforce zero skew during initialization.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "init_iterations",
+        "fix_k3",
+        "fix_tangential",
+        "zero_skew"
+      ],
+      "type": "object"
+    },
     "RobustLoss": {
       "description": "Robust loss applied to a residual block.\n\nEach residual block has its own loss; per-point robustification is achieved\nby using one residual block per observation.",
       "oneOf": [
@@ -169,27 +217,46 @@
           "type": "object"
         }
       ]
+    },
+    "SolverConfig": {
+      "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor the Scheimpflug single-cam tilt valley; 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "properties": {
+        "max_iters": {
+          "description": "Maximum iterations for the non-linear optimizer.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "robust_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss function for outlier handling."
+        },
+        "verbosity": {
+          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_iters",
+        "verbosity",
+        "robust_loss"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Configuration for planar intrinsics calibration.\n\nContains settings for both initialization and optimization phases.",
+  "description": "Configuration for planar intrinsics calibration.\n\nGrouped per ADR 0024: linear-init and non-linear-solve settings live in\nthe shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs;\n`distortion_model`, `fix_camera`, and `fix_poses` stay top-level (they\nare not shared with any other problem type as of R3).",
   "properties": {
     "distortion_model": {
       "$ref": "#/$defs/DistortionKind",
       "default": "brown_conrady5",
       "description": "Distortion model to use for optimization.\n\nSelects which distortion model is built during initialization and\nhanded to the optimizer. Brown-Conrady5 is the default and is\ncompatible with all existing downstream rig consumers. Extended\nmodels (Rational8, ThinPrism9, Division1) are PlanarIntrinsics-only;\nthey cannot be passed into `RigExtrinsics` / `RigHandeye` pipelines\nwhich still expect a `PinholeCamera`."
     },
-    "fix_distortion": {
-      "$ref": "#/$defs/DistortionFixMask",
-      "description": "Mask for fixing distortion parameters during optimization."
-    },
-    "fix_intrinsics": {
-      "$ref": "#/$defs/IntrinsicsFixMask",
-      "description": "Mask for fixing intrinsic parameters during optimization."
-    },
-    "fix_k3_in_init": {
-      "description": "Fix k3 during initialization (recommended for typical lenses).",
-      "type": "boolean"
+    "fix_camera": {
+      "$ref": "#/$defs/CameraFixMask",
+      "description": "Mask for fixing camera intrinsics/distortion parameters during\noptimization."
     },
     "fix_poses": {
       "description": "Indices of poses to fix during optimization (e.g., \\[0\\] to fix first pose).",
@@ -200,47 +267,19 @@
       },
       "type": "array"
     },
-    "fix_tangential_in_init": {
-      "description": "Fix tangential distortion (p1, p2) during initialization.",
-      "type": "boolean"
+    "init": {
+      "$ref": "#/$defs/IntrinsicsInitConfig",
+      "description": "Per-camera linear-initialization stage settings."
     },
-    "init_iterations": {
-      "description": "Number of iterations for iterative intrinsics estimation.",
-      "format": "uint",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "max_iters": {
-      "description": "Maximum iterations for the optimizer.",
-      "format": "uint",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "robust_loss": {
-      "$ref": "#/$defs/RobustLoss",
-      "description": "Robust loss function for outlier handling."
-    },
-    "verbosity": {
-      "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
-      "format": "uint",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "zero_skew": {
-      "description": "Enforce zero skew during initialization.",
-      "type": "boolean"
+    "solver": {
+      "$ref": "#/$defs/SolverConfig",
+      "description": "Non-linear solve stage settings."
     }
   },
   "required": [
-    "init_iterations",
-    "fix_k3_in_init",
-    "fix_tangential_in_init",
-    "zero_skew",
-    "max_iters",
-    "verbosity",
-    "robust_loss",
-    "fix_intrinsics",
-    "fix_distortion",
+    "init",
+    "solver",
+    "fix_camera",
     "fix_poses"
   ],
   "title": "PlanarIntrinsicsConfig",

@@ -119,7 +119,7 @@ pub fn step_init_with_seed(
     let dataset = session.require_input()?.clone();
 
     let opts = opts.unwrap_or_default();
-    let mut init_iterations = session.config.init_iterations;
+    let mut init_iterations = session.config.init.init_iterations;
     if let Some(iterations) = opts.iterations {
         init_iterations = iterations;
     }
@@ -225,11 +225,11 @@ pub fn step_init_with_seed(
             LinearScheimpflugIntrinsicsInitOptions {
                 iterations: init_iterations,
                 distortion_opts: DistortionFitOptions {
-                    fix_k3: session.config.fix_k3_in_init,
-                    fix_tangential: true,
+                    fix_k3: session.config.init.fix_k3,
+                    fix_tangential: session.config.init.fix_tangential,
                     iters: 8,
                 },
-                zero_skew: session.config.zero_skew,
+                zero_skew: session.config.init.zero_skew,
                 ..Default::default()
             },
         )
@@ -383,8 +383,8 @@ pub fn step_optimize(
             });
 
     let opts = opts.unwrap_or_default();
-    let mut max_iters = session.config.max_iters;
-    let mut verbosity = session.config.verbosity;
+    let mut max_iters = session.config.solver.max_iters;
+    let mut verbosity = session.config.solver.verbosity;
     if let Some(v) = opts.max_iters {
         max_iters = v;
     }
@@ -409,15 +409,13 @@ pub fn step_optimize(
     // configured behaviour.
     let fix_poses = if trust_seed_tilt {
         Vec::new()
-    } else if session.config.fix_first_pose {
-        vec![0]
     } else {
-        Vec::new()
+        session.config.fix_poses.clone()
     };
     let solve_opts = OptimScheimpflugIntrinsicsSolveOptions {
-        robust_loss: session.config.robust_loss,
-        fix_intrinsics: session.config.fix_intrinsics,
-        fix_distortion: session.config.fix_distortion,
+        robust_loss: session.config.solver.robust_loss,
+        fix_intrinsics: session.config.fix_camera.intrinsics,
+        fix_distortion: session.config.fix_camera.distortion,
         fix_scheimpflug: session.config.fix_scheimpflug,
         fix_poses,
         bounds: None,

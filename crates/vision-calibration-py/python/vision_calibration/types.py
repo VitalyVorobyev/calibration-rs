@@ -155,32 +155,57 @@ class ScheimpflugIntrinsicsExport(TypedDict):
     per_cam_reproj_errors: list[float]
 
 
-class PlanarIntrinsicsConfig(TypedDict, total=False):
+class IntrinsicsInitConfig(TypedDict, total=False):
+    """Shared per-camera linear-initialization stage (ADR 0024)."""
+
     init_iterations: int
-    fix_k3_in_init: bool
-    fix_tangential_in_init: bool
+    fix_k3: bool
+    fix_tangential: bool
     zero_skew: bool
+
+
+class SolverConfig(TypedDict, total=False):
+    """Shared non-linear solve stage settings (ADR 0024)."""
+
     max_iters: int
     verbosity: int
     robust_loss: RobustLoss
-    fix_intrinsics: JsonObject
-    fix_distortion: JsonObject
+
+
+class RobotPoseConfig(TypedDict, total=False):
+    """Shared robot-pose refinement settings (ADR 0024)."""
+
+    refine: bool
+    rot_sigma: float
+    trans_sigma: float
+
+
+class HandeyeInitConfig(TypedDict, total=False):
+    """Shared hand-eye linear-initialization settings (ADR 0024)."""
+
+    handeye_mode: HandEyeMode
+    min_motion_angle_deg: float
+
+
+class CameraFixMask(TypedDict, total=False):
+    """Combined per-camera intrinsics + distortion fix mask (ADR 0024)."""
+
+    intrinsics: JsonObject
+    distortion: JsonObject
+
+
+class PlanarIntrinsicsConfig(TypedDict, total=False):
+    init: IntrinsicsInitConfig
+    solver: SolverConfig
+    fix_camera: CameraFixMask
     fix_poses: list[int]
 
 
 class SingleCamHandeyeConfig(TypedDict, total=False):
-    intrinsics_init_iterations: int
-    fix_k3: bool
-    fix_tangential: bool
-    zero_skew: bool
-    handeye_mode: HandEyeMode
-    min_motion_angle_deg: float
-    max_iters: int
-    verbosity: int
-    robust_loss: RobustLoss
-    refine_robot_poses: bool
-    robot_rot_sigma: float
-    robot_trans_sigma: float
+    intrinsics: IntrinsicsInitConfig
+    handeye_init: HandeyeInitConfig
+    solver: SolverConfig
+    robot_poses: RobotPoseConfig
 
 
 class RigExtrinsicsConfig(TypedDict, total=False):
@@ -269,13 +294,8 @@ class LaserlineDeviceConfig(TypedDict, total=False):
 
 
 class ScheimpflugIntrinsicsConfig(TypedDict, total=False):
-    init_iterations: int
-    fix_k3_in_init: bool
-    zero_skew: bool
-    max_iters: int
-    verbosity: int
-    robust_loss: RobustLoss
-    fix_intrinsics: JsonObject
-    fix_distortion: JsonObject
+    init: IntrinsicsInitConfig
+    solver: SolverConfig
+    fix_camera: CameraFixMask
     fix_scheimpflug: ScheimpflugFixMask
-    fix_first_pose: bool
+    fix_poses: list[int]

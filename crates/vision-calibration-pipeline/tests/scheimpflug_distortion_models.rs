@@ -139,10 +139,10 @@ fn run_pipeline(
 ) {
     let mut config = ScheimpflugIntrinsicsConfig::default();
     config.distortion_model = model;
-    config.fix_distortion = fix_distortion;
-    config.max_iters = 200;
+    config.fix_camera.distortion = fix_distortion;
+    config.solver.max_iters = 200;
     // Free k3 so the mask does not clamp a coefficient the extended models want.
-    config.fix_k3_in_init = false;
+    config.init.fix_k3 = false;
 
     let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
     session.set_config(config).unwrap();
@@ -360,8 +360,8 @@ fn set_config_model_after_init_is_honoured() {
     // Init with BrownConrady5 …
     let mut cfg_bc5 = ScheimpflugIntrinsicsConfig::default();
     cfg_bc5.distortion_model = DistortionKind::BrownConrady5;
-    cfg_bc5.max_iters = 200;
-    cfg_bc5.fix_k3_in_init = false;
+    cfg_bc5.solver.max_iters = 200;
+    cfg_bc5.init.fix_k3 = false;
 
     let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
     session.set_config(cfg_bc5).unwrap();
@@ -372,9 +372,9 @@ fn set_config_model_after_init_is_honoured() {
     let mut cfg_rational = ScheimpflugIntrinsicsConfig::default();
     cfg_rational.distortion_model = DistortionKind::Rational8;
     // Free every coefficient so the nonzero GT k4 is recoverable.
-    cfg_rational.fix_distortion = DistortionFixMask::all_free();
-    cfg_rational.max_iters = 200;
-    cfg_rational.fix_k3_in_init = false;
+    cfg_rational.fix_camera.distortion = DistortionFixMask::all_free();
+    cfg_rational.solver.max_iters = 200;
+    cfg_rational.init.fix_k3 = false;
     session.set_config(cfg_rational).unwrap();
 
     step_optimize(&mut session, None).expect("optimize (Rational8)");

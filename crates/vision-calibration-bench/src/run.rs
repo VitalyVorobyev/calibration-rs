@@ -732,12 +732,12 @@ pub mod tier_b {
         let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
         session.set_input(dataset).context("set_input failed")?;
         let mut config = ScheimpflugIntrinsicsConfig::default();
-        config.max_iters = 120;
+        config.solver.max_iters = 120;
         config.fix_scheimpflug = ScheimpflugFixMask {
             tilt_x: false,
             tilt_y: false,
         };
-        config.robust_loss = RobustLoss::Huber { scale: 1.0 };
+        config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config).context("set_config failed")?;
 
         progress_label(label, "seeded scheimpflug init");
@@ -1345,8 +1345,8 @@ pub mod tier_b {
         if let Some(overrides) = &entry.single_cam_handeye {
             overrides.apply_to(&mut config);
         }
-        let robot_rot_sigma = config.robot_rot_sigma;
-        let robot_trans_sigma = config.robot_trans_sigma;
+        let robot_rot_sigma = config.robot_poses.rot_sigma;
+        let robot_trans_sigma = config.robot_poses.trans_sigma;
         session
             .set_config(config)
             .context("set single_cam_handeye config failed")?;

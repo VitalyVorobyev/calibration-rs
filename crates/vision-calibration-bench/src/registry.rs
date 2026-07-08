@@ -543,13 +543,13 @@ impl SingleCamHandeyeOverride {
     /// Apply overrides to a default single-camera hand-eye config.
     pub fn apply_to(&self, config: &mut SingleCamHandeyeConfig) {
         if let Some(mode) = self.handeye_mode {
-            config.handeye_mode = mode.into();
+            config.handeye_init.handeye_mode = mode.into();
         }
         if let Some(max_iters) = self.max_iters {
-            config.max_iters = max_iters;
+            config.solver.max_iters = max_iters;
         }
         if let Some(loss) = self.robust_loss {
-            config.robust_loss = loss.into();
+            config.solver.robust_loss = loss.into();
         }
         if let Some(ba) = &self.handeye_ba {
             apply_single_ba(ba, config);
@@ -586,13 +586,13 @@ impl RigHandeyeOverride {
 
 fn apply_single_ba(ba: &HandeyeBaOverride, config: &mut SingleCamHandeyeConfig) {
     if let Some(refine) = ba.refine_robot_poses {
-        config.refine_robot_poses = refine;
+        config.robot_poses.refine = refine;
     }
     if let Some(sigma) = ba.robot_rot_sigma {
-        config.robot_rot_sigma = sigma;
+        config.robot_poses.rot_sigma = sigma;
     }
     if let Some(sigma) = ba.robot_trans_sigma {
-        config.robot_trans_sigma = sigma;
+        config.robot_poses.trans_sigma = sigma;
     }
 }
 

@@ -5,8 +5,8 @@
 //! crates.io and the published crates cannot depend on it. This app is
 //! unpublished, so the reference implementation lives here.
 
-use vision_calibration_dataset::{LaserExtractionSpec, LaserScanAxis};
-use vision_calibration_pipeline::dataset_runner::LaserPixelExtractor;
+use vision_calibration::dataset::{LaserExtractionSpec, LaserScanAxis};
+use vision_calibration::dataset_runner::LaserPixelExtractor;
 use vision_metrology::{
     ColAccess, Edge1DConfig, ImageView, LaserExtractConfig, LaserExtractor, ScanAxis,
 };
@@ -31,10 +31,11 @@ impl LaserPixelExtractor for VmLaserExtractor {
         let luma = image.to_luma8();
         let width = luma.width() as usize;
         let height = luma.height() as usize;
-        let view = ImageView::<u8>::from_slice(width, height, width, luma.as_raw())
-            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+        let view = ImageView::<u8>::from_slice(width, height, width, luma.as_raw()).map_err(
+            |e| -> Box<dyn std::error::Error + Send + Sync> {
                 format!("image view ({width}x{height}): {e:?}").into()
-            })?;
+            },
+        )?;
 
         let (axis, scan_len) = match spec.scan_axis {
             LaserScanAxis::Cols => (

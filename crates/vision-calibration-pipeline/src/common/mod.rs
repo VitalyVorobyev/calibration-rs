@@ -12,6 +12,17 @@
 //! `planar_intrinsics::IntrinsicsInitOptions`), so existing paths keep
 //! resolving — they now all point at one type, and the contract cannot
 //! silently diverge per problem.
+//!
+//! The [`config`] submodule holds the sibling set of shared **config**
+//! sub-structs (ADR 0024) — the grouped building blocks that top-level
+//! `*Config` types embed (`init: IntrinsicsInitConfig`, `solver:
+//! SolverConfig`, ...). Those are persisted configuration; the types at this
+//! module's top level are ephemeral per-call step overrides. Keeping them in
+//! separate modules avoids confusing the two.
+
+/// Shared config sub-structs embedded by grouped top-level `*Config` types
+/// (ADR 0024).
+pub mod config;
 
 /// Options for an intrinsics initialization step.
 ///

@@ -352,7 +352,7 @@ fn public_api_converges_with_deterministic_noise() {
     };
     let dataset = make_noisy_dataset(sensor_gt, 0.15);
     let mut config = ScheimpflugIntrinsicsConfig::default();
-    config.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
     config.fix_scheimpflug = ScheimpflugFixMask {
         tilt_x: false,
         tilt_y: false,
@@ -398,7 +398,7 @@ fn public_api_rejects_view_with_too_few_points() {
 fn public_api_rejects_invalid_config() {
     let dataset = make_dataset(ScheimpflugParams::default());
     let mut config = ScheimpflugIntrinsicsConfig::default();
-    config.init_iterations = 0;
+    config.init.init_iterations = 0;
     let err = run_pipeline(&dataset, config).expect_err("expected invalid config");
     assert!(err.to_string().contains("init_iterations must be positive"));
 }
@@ -406,9 +406,9 @@ fn public_api_rejects_invalid_config() {
 #[test]
 fn scheimpflug_config_json_roundtrip() {
     let mut config = ScheimpflugIntrinsicsConfig::default();
-    config.init_iterations = 3;
-    config.max_iters = 75;
-    config.robust_loss = RobustLoss::Cauchy { scale: 0.9 };
+    config.init.init_iterations = 3;
+    config.solver.max_iters = 75;
+    config.solver.robust_loss = RobustLoss::Cauchy { scale: 0.9 };
     config.fix_scheimpflug = ScheimpflugFixMask {
         tilt_x: true,
         tilt_y: false,
@@ -416,10 +416,10 @@ fn scheimpflug_config_json_roundtrip() {
     let json = serde_json::to_string(&config).expect("serialize config");
     let restored: ScheimpflugIntrinsicsConfig =
         serde_json::from_str(&json).expect("deserialize config");
-    assert_eq!(restored.init_iterations, 3);
-    assert_eq!(restored.max_iters, 75);
+    assert_eq!(restored.init.init_iterations, 3);
+    assert_eq!(restored.solver.max_iters, 75);
     assert!(matches!(
-        restored.robust_loss,
+        restored.solver.robust_loss,
         RobustLoss::Cauchy { scale } if (scale - 0.9).abs() < 1e-12
     ));
     assert!(restored.fix_scheimpflug.tilt_x);

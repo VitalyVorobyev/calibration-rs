@@ -134,8 +134,8 @@ fn solve_with(
 ) -> SingleCamHandeyeExport {
     let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
     let mut config = SingleCamHandeyeConfig::default();
-    config.handeye_mode = mode;
-    config.refine_robot_poses = refine_robot_poses;
+    config.handeye_init.handeye_mode = mode;
+    config.robot_poses.refine = refine_robot_poses;
     session.set_config(config).expect("config");
     session.set_input(input).expect("input");
     step_intrinsics_init(&mut session, None).expect("intrinsics init");

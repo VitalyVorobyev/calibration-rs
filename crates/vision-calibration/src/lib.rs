@@ -128,11 +128,25 @@ pub mod session {
 /// `vision_calibration::common::IntrinsicsInitOptions` and
 /// `vision_calibration::planar_intrinsics::IntrinsicsInitOptions` resolve to the
 /// same type.
+///
+/// The nested [`common::config`] module holds the sibling set of shared
+/// **config** sub-structs (ADR 0024) — the grouped building blocks embedded
+/// by top-level `*Config` types (`init: IntrinsicsInitConfig`, `solver:
+/// SolverConfig`, ...).
 pub mod common {
     pub use vision_calibration_pipeline::common::{
         HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions,
     };
+
+    /// Shared config sub-structs embedded by grouped top-level `*Config`
+    /// types (ADR 0024): per-camera linear init, non-linear solve, robot-pose
+    /// refinement, and hand-eye linear init.
+    pub mod config {
+        pub use vision_calibration_pipeline::common::config::{
+            HandeyeInitConfig, IntrinsicsInitConfig, RobotPoseConfig, SolverConfig,
+        };
+    }
 }
 
 /// Device-spec → manual-init seed derivation (ADR 0023).
@@ -510,10 +524,13 @@ pub mod core {
 /// is the on-disk manifest describing where images, robot poses, and target
 /// metadata live for a calibration run; see [`dataset_runner`] for the
 /// converters that turn a manifest into the per-problem `*Input` types.
+/// [`sniff_folder`](dataset::sniff_folder) heuristically infers a
+/// `DatasetSpec` from a dataset folder (used by the `generate-manifest` CLI
+/// and the diagnose app's "Sniff folder" command).
 pub mod dataset {
     pub use vision_calibration_dataset::{
         CameraSource, DatasetSpec, ImagePattern, LaserExtractionSpec, LaserScanAxis, PosePairing,
-        TargetSpec, Topology,
+        SniffError, TargetSpec, Topology, sniff_folder,
     };
 }
 

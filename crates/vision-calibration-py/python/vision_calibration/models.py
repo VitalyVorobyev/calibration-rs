@@ -39,6 +39,137 @@ _DEFAULT_SCHEIMPFLUG_FIX_MASK: dict[str, bool] = {
 }
 
 
+@dataclass(slots=True)
+class IntrinsicsInitConfig:
+    """Shared per-camera linear-initialization stage (ADR 0024).
+
+    Zhang's method plus an iterative Brown-Conrady distortion fit. Shared by
+    every intrinsics-bearing problem's ``init``/``intrinsics`` config group.
+    """
+
+    init_iterations: int = 2
+    fix_k3: bool = True
+    fix_tangential: bool = False
+    zero_skew: bool = True
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "init_iterations": int(self.init_iterations),
+            "fix_k3": bool(self.fix_k3),
+            "fix_tangential": bool(self.fix_tangential),
+            "zero_skew": bool(self.zero_skew),
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "IntrinsicsInitConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if not hasattr(cfg, key):
+                raise ValueError(f"unknown IntrinsicsInitConfig field: {key}")
+            setattr(cfg, key, value)
+        return cfg
+
+
+@dataclass(slots=True)
+class SolverConfig:
+    """Shared non-linear solve stage settings (ADR 0024)."""
+
+    max_iters: int = 50
+    verbosity: int = 0
+    robust_loss: RobustLoss = "None"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "max_iters": int(self.max_iters),
+            "verbosity": int(self.verbosity),
+            "robust_loss": cast(Any, self.robust_loss),
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "SolverConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if not hasattr(cfg, key):
+                raise ValueError(f"unknown SolverConfig field: {key}")
+            setattr(cfg, key, value)
+        return cfg
+
+
+@dataclass(slots=True)
+class RobotPoseConfig:
+    """Shared robot-pose refinement settings for hand-eye BA (ADR 0024)."""
+
+    refine: bool = True
+    rot_sigma: float = 0.5 * 3.141592653589793 / 180.0
+    trans_sigma: float = 0.001
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "refine": bool(self.refine),
+            "rot_sigma": float(self.rot_sigma),
+            "trans_sigma": float(self.trans_sigma),
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RobotPoseConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if not hasattr(cfg, key):
+                raise ValueError(f"unknown RobotPoseConfig field: {key}")
+            setattr(cfg, key, value)
+        return cfg
+
+
+@dataclass(slots=True)
+class HandeyeInitConfig:
+    """Shared hand-eye linear-initialization settings (Tsai-Lenz DLT, ADR 0024)."""
+
+    handeye_mode: HandEyeMode = "EyeInHand"
+    min_motion_angle_deg: float = 5.0
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "handeye_mode": self.handeye_mode,
+            "min_motion_angle_deg": float(self.min_motion_angle_deg),
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "HandeyeInitConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if not hasattr(cfg, key):
+                raise ValueError(f"unknown HandeyeInitConfig field: {key}")
+            setattr(cfg, key, value)
+        return cfg
+
+
+@dataclass(slots=True)
+class CameraFixMask:
+    """Combined per-camera intrinsics + distortion fix mask (ADR 0024)."""
+
+    intrinsics: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_INTRINSICS_FIX_MASK))
+    distortion: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_DISTORTION_FIX_MASK))
+
+    def to_payload(self) -> dict[str, Any]:
+        intrinsics = dict(_DEFAULT_INTRINSICS_FIX_MASK)
+        intrinsics.update(self.intrinsics)
+        distortion = dict(_DEFAULT_DISTORTION_FIX_MASK)
+        distortion.update(self.distortion)
+        return {"intrinsics": intrinsics, "distortion": distortion}
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "CameraFixMask":
+        cfg = cls()
+        for key, value in mapping.items():
+            if key == "intrinsics":
+                cfg.intrinsics = dict(value)
+            elif key == "distortion":
+                cfg.distortion = dict(value)
+            else:
+                raise ValueError(f"unknown CameraFixMask field: {key}")
+        return cfg
+
+
 def _as_floats(values: tuple[Any, ...] | list[Any], expected: int, name: str) -> tuple[float, ...]:
     if len(values) != expected:
         raise ValueError(f"{name} must have length {expected}, got {len(values)}")
@@ -310,34 +441,23 @@ class LaserlineDataset:
 
 @dataclass(slots=True)
 class PlanarCalibrationConfig:
-    """Configuration for planar intrinsics calibration."""
+    """Configuration for planar intrinsics calibration.
 
-    init_iterations: int = 2
-    fix_k3_in_init: bool = True
-    fix_tangential_in_init: bool = False
-    zero_skew: bool = True
-    max_iters: int = 50
-    verbosity: int = 0
-    robust_loss: RobustLoss = "None"
-    fix_intrinsics: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_INTRINSICS_FIX_MASK))
-    fix_distortion: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_DISTORTION_FIX_MASK))
+    Grouped per ADR 0024: linear-init and non-linear-solve settings live in
+    the shared :class:`IntrinsicsInitConfig` / :class:`SolverConfig`
+    sub-objects.
+    """
+
+    init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    solver: SolverConfig = field(default_factory=SolverConfig)
+    fix_camera: CameraFixMask = field(default_factory=CameraFixMask)
     fix_poses: list[int] = field(default_factory=list)
 
     def to_payload(self) -> dict[str, Any]:
-        fix_intrinsics = dict(_DEFAULT_INTRINSICS_FIX_MASK)
-        fix_intrinsics.update(self.fix_intrinsics)
-        fix_distortion = dict(_DEFAULT_DISTORTION_FIX_MASK)
-        fix_distortion.update(self.fix_distortion)
         return {
-            "init_iterations": int(self.init_iterations),
-            "fix_k3_in_init": bool(self.fix_k3_in_init),
-            "fix_tangential_in_init": bool(self.fix_tangential_in_init),
-            "zero_skew": bool(self.zero_skew),
-            "max_iters": int(self.max_iters),
-            "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
-            "fix_intrinsics": fix_intrinsics,
-            "fix_distortion": fix_distortion,
+            "init": self.init.to_payload(),
+            "solver": self.solver.to_payload(),
+            "fix_camera": self.fix_camera.to_payload(),
             "fix_poses": [int(i) for i in self.fix_poses],
         }
 
@@ -345,52 +465,83 @@ class PlanarCalibrationConfig:
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "PlanarCalibrationConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if not hasattr(cfg, key):
+            if key == "init":
+                cfg.init = (
+                    value
+                    if isinstance(value, IntrinsicsInitConfig)
+                    else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "solver":
+                cfg.solver = (
+                    value
+                    if isinstance(value, SolverConfig)
+                    else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "fix_camera":
+                cfg.fix_camera = (
+                    value
+                    if isinstance(value, CameraFixMask)
+                    else CameraFixMask.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "fix_poses":
+                cfg.fix_poses = [int(i) for i in cast(list[Any], value)]
+            else:
                 raise ValueError(f"unknown PlanarCalibrationConfig field: {key}")
-            setattr(cfg, key, value)
         return cfg
 
 
 @dataclass(slots=True)
 class SingleCamHandeyeCalibrationConfig:
-    """Configuration for single-camera hand-eye calibration."""
+    """Configuration for single-camera hand-eye calibration.
 
-    intrinsics_init_iterations: int = 2
-    fix_k3: bool = True
-    fix_tangential: bool = False
-    zero_skew: bool = True
-    handeye_mode: HandEyeMode = "EyeInHand"
-    min_motion_angle_deg: float = 5.0
-    max_iters: int = 50
-    verbosity: int = 0
-    robust_loss: RobustLoss = "None"
-    refine_robot_poses: bool = True
-    robot_rot_sigma: float = 0.5 * 3.141592653589793 / 180.0
-    robot_trans_sigma: float = 0.001
+    Grouped per ADR 0024: per-camera linear init, hand-eye linear init,
+    non-linear solve, and robot-pose refinement each live in their own
+    shared sub-object.
+    """
+
+    intrinsics: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    handeye_init: HandeyeInitConfig = field(default_factory=HandeyeInitConfig)
+    solver: SolverConfig = field(default_factory=SolverConfig)
+    robot_poses: RobotPoseConfig = field(default_factory=RobotPoseConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "intrinsics_init_iterations": int(self.intrinsics_init_iterations),
-            "fix_k3": bool(self.fix_k3),
-            "fix_tangential": bool(self.fix_tangential),
-            "zero_skew": bool(self.zero_skew),
-            "handeye_mode": self.handeye_mode,
-            "min_motion_angle_deg": float(self.min_motion_angle_deg),
-            "max_iters": int(self.max_iters),
-            "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
-            "refine_robot_poses": bool(self.refine_robot_poses),
-            "robot_rot_sigma": float(self.robot_rot_sigma),
-            "robot_trans_sigma": float(self.robot_trans_sigma),
+            "intrinsics": self.intrinsics.to_payload(),
+            "handeye_init": self.handeye_init.to_payload(),
+            "solver": self.solver.to_payload(),
+            "robot_poses": self.robot_poses.to_payload(),
         }
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "SingleCamHandeyeCalibrationConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if not hasattr(cfg, key):
+            if key == "intrinsics":
+                cfg.intrinsics = (
+                    value
+                    if isinstance(value, IntrinsicsInitConfig)
+                    else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "handeye_init":
+                cfg.handeye_init = (
+                    value
+                    if isinstance(value, HandeyeInitConfig)
+                    else HandeyeInitConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "solver":
+                cfg.solver = (
+                    value
+                    if isinstance(value, SolverConfig)
+                    else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "robot_poses":
+                cfg.robot_poses = (
+                    value
+                    if isinstance(value, RobotPoseConfig)
+                    else RobotPoseConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            else:
                 raise ValueError(f"unknown SingleCamHandeyeCalibrationConfig field: {key}")
-            setattr(cfg, key, value)
         return cfg
 
 
@@ -757,60 +908,68 @@ class LaserlineDeviceCalibrationConfig:
 
 @dataclass(slots=True)
 class ScheimpflugIntrinsicsCalibrationConfig:
-    """Configuration for planar Scheimpflug intrinsics calibration."""
+    """Configuration for planar Scheimpflug intrinsics calibration.
 
-    init_iterations: int = 2
-    fix_k3_in_init: bool = True
-    zero_skew: bool = True
-    max_iters: int = 120
-    verbosity: int = 0
-    robust_loss: RobustLoss = field(default_factory=lambda: "None")
-    fix_intrinsics: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_INTRINSICS_FIX_MASK))
-    fix_distortion: dict[str, bool] = field(
-        default_factory=lambda: {
-            "k1": False,
-            "k2": False,
-            "k3": True,
-            "p1": True,
-            "p2": True,
-        }
+    Grouped per ADR 0024. Two defaults deviate from the shared sub-objects'
+    own defaults, mirroring the Rust config: ``init.fix_tangential`` is
+    ``True`` (tilt and tangential distortion are coupled, so a free
+    tangential term is ill-posed during the linear stage), and
+    ``solver.max_iters`` is 120 (the tilt valley needs more headroom than a
+    plain intrinsics solve). ``fix_camera.distortion`` defaults to
+    `radial_only` (k3/p1/p2 fixed) rather than the shared k3-only default.
+    """
+
+    init: IntrinsicsInitConfig = field(
+        default_factory=lambda: IntrinsicsInitConfig(fix_tangential=True)
+    )
+    solver: SolverConfig = field(default_factory=lambda: SolverConfig(max_iters=120))
+    fix_camera: CameraFixMask = field(
+        default_factory=lambda: CameraFixMask(
+            distortion={"k1": False, "k2": False, "k3": True, "p1": True, "p2": True}
+        )
     )
     fix_scheimpflug: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK))
-    fix_first_pose: bool = True
+    fix_poses: list[int] = field(default_factory=lambda: [0])
 
     def to_payload(self) -> dict[str, Any]:
-        fix_intrinsics = dict(_DEFAULT_INTRINSICS_FIX_MASK)
-        fix_intrinsics.update(self.fix_intrinsics)
-        fix_distortion = {
-            "k1": False,
-            "k2": False,
-            "k3": True,
-            "p1": True,
-            "p2": True,
-        }
-        fix_distortion.update(self.fix_distortion)
         fix_scheimpflug = dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
         fix_scheimpflug.update(self.fix_scheimpflug)
         return {
-            "init_iterations": int(self.init_iterations),
-            "fix_k3_in_init": bool(self.fix_k3_in_init),
-            "zero_skew": bool(self.zero_skew),
-            "max_iters": int(self.max_iters),
-            "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
-            "fix_intrinsics": fix_intrinsics,
-            "fix_distortion": fix_distortion,
+            "init": self.init.to_payload(),
+            "solver": self.solver.to_payload(),
+            "fix_camera": self.fix_camera.to_payload(),
             "fix_scheimpflug": fix_scheimpflug,
-            "fix_first_pose": bool(self.fix_first_pose),
+            "fix_poses": [int(i) for i in self.fix_poses],
         }
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "ScheimpflugIntrinsicsCalibrationConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if not hasattr(cfg, key):
+            if key == "init":
+                cfg.init = (
+                    value
+                    if isinstance(value, IntrinsicsInitConfig)
+                    else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "solver":
+                cfg.solver = (
+                    value
+                    if isinstance(value, SolverConfig)
+                    else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "fix_camera":
+                cfg.fix_camera = (
+                    value
+                    if isinstance(value, CameraFixMask)
+                    else CameraFixMask.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "fix_scheimpflug":
+                cfg.fix_scheimpflug = dict(cast(Mapping[str, bool], value))
+            elif key == "fix_poses":
+                cfg.fix_poses = [int(i) for i in cast(list[Any], value)]
+            else:
                 raise ValueError(f"unknown ScheimpflugIntrinsicsCalibrationConfig field: {key}")
-            setattr(cfg, key, value)
         return cfg
 
 
