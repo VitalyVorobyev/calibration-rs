@@ -127,7 +127,7 @@ fn scheimpflug_config() -> RigExtrinsicsConfig {
         refine_scheimpflug_in_rig_ba: false,
         distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
     };
-    cfg.max_iters = 80;
+    cfg.solver.max_iters = 80;
     cfg
 }
 

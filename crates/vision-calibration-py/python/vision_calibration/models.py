@@ -144,6 +144,31 @@ class HandeyeInitConfig:
 
 
 @dataclass(slots=True)
+class RigConfig:
+    """Shared multi-camera rig frame options (ADR 0024): reference camera and
+    rig-BA scope. Mirrors ``vision_calibration_pipeline::common::config::RigConfig``.
+    """
+
+    reference_camera_idx: int = 0
+    refine_intrinsics_in_rig_ba: bool = False
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "reference_camera_idx": int(self.reference_camera_idx),
+            "refine_intrinsics_in_rig_ba": bool(self.refine_intrinsics_in_rig_ba),
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if not hasattr(cfg, key):
+                raise ValueError(f"unknown RigConfig field: {key}")
+            setattr(cfg, key, value)
+        return cfg
+
+
+@dataclass(slots=True)
 class CameraFixMask:
     """Combined per-camera intrinsics + distortion fix mask (ADR 0024)."""
 
@@ -547,40 +572,48 @@ class SingleCamHandeyeCalibrationConfig:
 
 @dataclass(slots=True)
 class RigExtrinsicsCalibrationConfig:
-    """Configuration for rig extrinsics calibration."""
+    """Configuration for rig extrinsics calibration.
 
-    intrinsics_init_iterations: int = 2
-    fix_k3: bool = True
-    fix_tangential: bool = False
-    zero_skew: bool = True
-    reference_camera_idx: int = 0
-    max_iters: int = 50
-    verbosity: int = 0
-    robust_loss: RobustLoss = "None"
-    refine_intrinsics_in_rig_ba: bool = False
-    fix_first_rig_pose: bool = True
+    Grouped per ADR 0024. ``sensor`` (pinhole vs Scheimpflug) is not yet
+    mirrored here — same parity gap as ``RigHandeyeConfig.sensor``, tracked
+    for R5.
+    """
+
+    intrinsics: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    rig: RigConfig = field(default_factory=RigConfig)
+    solver: SolverConfig = field(default_factory=SolverConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "intrinsics_init_iterations": int(self.intrinsics_init_iterations),
-            "fix_k3": bool(self.fix_k3),
-            "fix_tangential": bool(self.fix_tangential),
-            "zero_skew": bool(self.zero_skew),
-            "reference_camera_idx": int(self.reference_camera_idx),
-            "max_iters": int(self.max_iters),
-            "verbosity": int(self.verbosity),
-            "robust_loss": cast(Any, self.robust_loss),
-            "refine_intrinsics_in_rig_ba": bool(self.refine_intrinsics_in_rig_ba),
-            "fix_first_rig_pose": bool(self.fix_first_rig_pose),
+            "intrinsics": self.intrinsics.to_payload(),
+            "rig": self.rig.to_payload(),
+            "solver": self.solver.to_payload(),
         }
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigExtrinsicsCalibrationConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if not hasattr(cfg, key):
+            if key == "intrinsics":
+                cfg.intrinsics = (
+                    value
+                    if isinstance(value, IntrinsicsInitConfig)
+                    else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "rig":
+                cfg.rig = (
+                    value
+                    if isinstance(value, RigConfig)
+                    else RigConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "solver":
+                cfg.solver = (
+                    value
+                    if isinstance(value, SolverConfig)
+                    else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            else:
                 raise ValueError(f"unknown RigExtrinsicsCalibrationConfig field: {key}")
-            setattr(cfg, key, value)
         return cfg
 
 
@@ -770,70 +803,22 @@ class RigHandeyeCalibrationConfig:
 
 
 @dataclass(slots=True)
-class LaserlineDeviceInitConfig:
-    """Initialization options for laserline-device calibration."""
-
-    iterations: int = 2
-    fix_k3: bool = True
-    fix_tangential: bool = False
-    zero_skew: bool = True
-    sensor_init: dict[str, float] = field(default_factory=lambda: dict(_DEFAULT_SENSOR_INIT))
-
-    def to_payload(self) -> dict[str, Any]:
-        sensor_init = dict(_DEFAULT_SENSOR_INIT)
-        sensor_init.update(self.sensor_init)
-        return {
-            "iterations": int(self.iterations),
-            "fix_k3": bool(self.fix_k3),
-            "fix_tangential": bool(self.fix_tangential),
-            "zero_skew": bool(self.zero_skew),
-            "sensor_init": sensor_init,
-        }
-
-    @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "LaserlineDeviceInitConfig":
-        cfg = cls()
-        for key, value in mapping.items():
-            if not hasattr(cfg, key):
-                raise ValueError(f"unknown LaserlineDeviceInitConfig field: {key}")
-            setattr(cfg, key, value)
-        return cfg
-
-
-@dataclass(slots=True)
-class LaserlineDeviceSolverConfig:
-    """Nonlinear solver options for laserline-device calibration."""
-
-    max_iters: int = 50
-    verbosity: int = 0
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "max_iters": int(self.max_iters),
-            "verbosity": int(self.verbosity),
-        }
-
-    @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "LaserlineDeviceSolverConfig":
-        cfg = cls()
-        for key, value in mapping.items():
-            if not hasattr(cfg, key):
-                raise ValueError(f"unknown LaserlineDeviceSolverConfig field: {key}")
-            setattr(cfg, key, value)
-        return cfg
-
-
-@dataclass(slots=True)
 class LaserlineDeviceOptimizeConfig:
-    """Bundle-adjustment options for laserline-device calibration."""
+    """Bundle-adjustment options for laserline-device calibration.
+
+    ``fix_camera`` (ADR 0024) collapses the old ``fix_intrinsics`` /
+    ``fix_distortion`` / ``fix_k3`` boolean trio into one
+    [`CameraFixMask`]. It is honored only at the granularity the
+    underlying laserline solver supports: ``intrinsics`` is all-or-nothing
+    and ``distortion`` collapses to ``{all-fixed, k3-only, all-free}`` —
+    see the Rust `LaserlineDeviceConfig::solve_opts` doc comment.
+    """
 
     calib_loss: RobustLoss = field(default_factory=lambda: {"Huber": {"scale": 1.0}})
     laser_loss: RobustLoss = field(default_factory=lambda: {"Huber": {"scale": 0.01}})
     calib_weight: float = 1.0
     laser_weight: float = 1.0
-    fix_intrinsics: bool = False
-    fix_distortion: bool = False
-    fix_k3: bool = True
+    fix_camera: CameraFixMask = field(default_factory=CameraFixMask)
     fix_sensor: bool = True
     fix_poses: list[int] = field(default_factory=lambda: [0])
     fix_plane: bool = False
@@ -845,9 +830,7 @@ class LaserlineDeviceOptimizeConfig:
             "laser_loss": cast(Any, self.laser_loss),
             "calib_weight": float(self.calib_weight),
             "laser_weight": float(self.laser_weight),
-            "fix_intrinsics": bool(self.fix_intrinsics),
-            "fix_distortion": bool(self.fix_distortion),
-            "fix_k3": bool(self.fix_k3),
+            "fix_camera": self.fix_camera.to_payload(),
             "fix_sensor": bool(self.fix_sensor),
             "fix_poses": [int(i) for i in self.fix_poses],
             "fix_plane": bool(self.fix_plane),
@@ -858,9 +841,16 @@ class LaserlineDeviceOptimizeConfig:
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "LaserlineDeviceOptimizeConfig":
         cfg = cls()
         for key, value in mapping.items():
-            if not hasattr(cfg, key):
+            if key == "fix_camera":
+                cfg.fix_camera = (
+                    value
+                    if isinstance(value, CameraFixMask)
+                    else CameraFixMask.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif not hasattr(cfg, key):
                 raise ValueError(f"unknown LaserlineDeviceOptimizeConfig field: {key}")
-            setattr(cfg, key, value)
+            else:
+                setattr(cfg, key, value)
         return cfg
 
 
@@ -868,13 +858,17 @@ class LaserlineDeviceOptimizeConfig:
 class LaserlineDeviceCalibrationConfig:
     """Configuration for laserline-device calibration."""
 
-    init: LaserlineDeviceInitConfig = field(default_factory=LaserlineDeviceInitConfig)
-    solver: LaserlineDeviceSolverConfig = field(default_factory=LaserlineDeviceSolverConfig)
+    init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    sensor_init: dict[str, float] = field(default_factory=lambda: dict(_DEFAULT_SENSOR_INIT))
+    solver: SolverConfig = field(default_factory=SolverConfig)
     optimize: LaserlineDeviceOptimizeConfig = field(default_factory=LaserlineDeviceOptimizeConfig)
 
     def to_payload(self) -> dict[str, Any]:
+        sensor_init = dict(_DEFAULT_SENSOR_INIT)
+        sensor_init.update(self.sensor_init)
         return {
             "init": self.init.to_payload(),
+            "sensor_init": sensor_init,
             "solver": self.solver.to_payload(),
             "optimize": self.optimize.to_payload(),
         }
@@ -886,14 +880,16 @@ class LaserlineDeviceCalibrationConfig:
             if key == "init":
                 cfg.init = (
                     value
-                    if isinstance(value, LaserlineDeviceInitConfig)
-                    else LaserlineDeviceInitConfig.from_mapping(cast(Mapping[str, Any], value))
+                    if isinstance(value, IntrinsicsInitConfig)
+                    else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
+            elif key == "sensor_init":
+                cfg.sensor_init = dict(value)
             elif key == "solver":
                 cfg.solver = (
                     value
-                    if isinstance(value, LaserlineDeviceSolverConfig)
-                    else LaserlineDeviceSolverConfig.from_mapping(cast(Mapping[str, Any], value))
+                    if isinstance(value, SolverConfig)
+                    else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             elif key == "optimize":
                 cfg.optimize = (
@@ -1616,18 +1612,40 @@ class RigLaserlineDeviceInput:
 
 @dataclass(slots=True)
 class RigLaserlineDeviceCalibrationConfig:
-    """Configuration for rig laserline device calibration."""
+    """Configuration for rig laserline device calibration.
 
-    max_iters: int | None = None
-    verbosity: int | None = None
+    Grouped per ADR 0024. ``solver.max_iters`` defaults to 200: this stage
+    refines only per-camera laser-plane parameters against an
+    already-frozen rig geometry (1 DOF per view per camera), so iterations
+    are nearly free.
+    """
+
+    solver: SolverConfig = field(default_factory=lambda: SolverConfig(max_iters=200))
     laser_residual_type: LaserlineResidualType = "LineDistNormalized"
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "max_iters": self.max_iters,
-            "verbosity": self.verbosity,
+            "solver": self.solver.to_payload(),
             "laser_residual_type": self.laser_residual_type,
         }
+
+    @classmethod
+    def from_mapping(
+        cls, mapping: Mapping[str, Any]
+    ) -> "RigLaserlineDeviceCalibrationConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if key == "solver":
+                cfg.solver = (
+                    value
+                    if isinstance(value, SolverConfig)
+                    else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "laser_residual_type":
+                cfg.laser_residual_type = cast(LaserlineResidualType, value)
+            else:
+                raise ValueError(f"unknown RigLaserlineDeviceCalibrationConfig field: {key}")
+        return cfg
 
 
 @dataclass(slots=True)

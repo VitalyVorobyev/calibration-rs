@@ -1,25 +1,100 @@
 {
   "$defs": {
-    "LaserlineDeviceInitConfig": {
-      "description": "Initialization options for laserline device calibration.",
+    "CameraFixMask": {
+      "description": "Combined mask for camera calibration parameters.\n\nGroups intrinsics and distortion masks for convenient configuration.",
+      "properties": {
+        "distortion": {
+          "$ref": "#/$defs/DistortionFixMask",
+          "description": "Mask for distortion (k1, k2, k3, p1, p2)."
+        },
+        "intrinsics": {
+          "$ref": "#/$defs/IntrinsicsFixMask",
+          "description": "Mask for intrinsics (fx, fy, cx, cy)."
+        }
+      },
+      "required": [
+        "intrinsics",
+        "distortion"
+      ],
+      "type": "object"
+    },
+    "DistortionFixMask": {
+      "description": "Mask for fixing distortion parameters during optimization.\n\nSupports Brown-Conrady distortion model with:\n- Radial coefficients: k1, k2, k3\n- Tangential coefficients: p1, p2\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Default\n\nBy default, `k3` is fixed because it often causes overfitting with\ntypical calibration data. Only enable k3 optimization for wide-angle\nlenses or with high-quality calibration data.\n\n# Example\n\n```\nuse vision_calibration_core::DistortionFixMask;\n\n// Default: k3 fixed, others free\nlet mask = DistortionFixMask::default();\nassert!(!mask.k1);\nassert!(mask.k3); // k3 fixed by default\n\n// Fix tangential distortion\nlet mask = DistortionFixMask {\n    p1: true,\n    p2: true,\n    ..Default::default()\n};\n```",
+      "properties": {
+        "k1": {
+          "description": "Fix first radial distortion coefficient.",
+          "type": "boolean"
+        },
+        "k2": {
+          "description": "Fix second radial distortion coefficient.",
+          "type": "boolean"
+        },
+        "k3": {
+          "description": "Fix third radial distortion coefficient (fixed by default).",
+          "type": "boolean"
+        },
+        "p1": {
+          "description": "Fix first tangential distortion coefficient.",
+          "type": "boolean"
+        },
+        "p2": {
+          "description": "Fix second tangential distortion coefficient.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "k1",
+        "k2",
+        "k3",
+        "p1",
+        "p2"
+      ],
+      "type": "object"
+    },
+    "IntrinsicsFixMask": {
+      "description": "Mask for fixing intrinsics parameters during optimization.\n\nEach field corresponds to a component of the camera matrix K:\n```text\nK = | fx   skew  cx |\n    | 0    fy    cy |\n    | 0    0     1  |\n```\n\nSet a field to `true` to keep that parameter fixed during optimization.\n\n# Example\n\n```\nuse vision_calibration_core::IntrinsicsFixMask;\n\n// Fix only the principal point\nlet mask = IntrinsicsFixMask {\n    cx: true,\n    cy: true,\n    ..Default::default()\n};\n\nassert!(!mask.fx); // fx will be optimized\nassert!(mask.cx);  // cx is fixed\n```",
+      "properties": {
+        "cx": {
+          "description": "Fix principal point x component.",
+          "type": "boolean"
+        },
+        "cy": {
+          "description": "Fix principal point y component.",
+          "type": "boolean"
+        },
+        "fx": {
+          "description": "Fix focal length x component.",
+          "type": "boolean"
+        },
+        "fy": {
+          "description": "Fix focal length y component.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fx",
+        "fy",
+        "cx",
+        "cy"
+      ],
+      "type": "object"
+    },
+    "IntrinsicsInitConfig": {
+      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
       "properties": {
         "fix_k3": {
           "description": "Fix k3 during initialization (recommended for typical lenses).",
           "type": "boolean"
         },
         "fix_tangential": {
-          "description": "Fix tangential distortion during initialization.",
+          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (was hard-coded before\nADR 0024 — the tilt/tangential-distortion coupling makes a free\ntangential term ill-posed during the linear stage).",
           "type": "boolean"
         },
-        "iterations": {
+        "init_iterations": {
           "description": "Number of iterations for iterative intrinsics estimation.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
-        },
-        "sensor_init": {
-          "$ref": "#/$defs/ScheimpflugParams",
-          "description": "Initial Scheimpflug sensor parameters (use zeros for pinhole/identity)."
         },
         "zero_skew": {
           "description": "Enforce zero skew during initialization.",
@@ -27,11 +102,10 @@
         }
       },
       "required": [
-        "iterations",
+        "init_iterations",
         "fix_k3",
         "fix_tangential",
-        "zero_skew",
-        "sensor_init"
+        "zero_skew"
       ],
       "type": "object"
     },
@@ -47,17 +121,9 @@
           "format": "double",
           "type": "number"
         },
-        "fix_distortion": {
-          "description": "Fix distortion parameters during optimization.",
-          "type": "boolean"
-        },
-        "fix_intrinsics": {
-          "description": "Fix camera intrinsics during optimization.",
-          "type": "boolean"
-        },
-        "fix_k3": {
-          "description": "Fix k3 distortion parameter during optimization.",
-          "type": "boolean"
+        "fix_camera": {
+          "$ref": "#/$defs/CameraFixMask",
+          "description": "Mask for fixing camera intrinsics/distortion parameters during\noptimization.\n\nHonored only at the granularity the underlying laserline solver\n(`vision_calibration_optim::LaserlineSolveOptions`) supports:\n`intrinsics` is all-or-nothing (any field fixed behaves as if all\nfour are), and `distortion` collapses to one of `{all-fixed,\nk3-only, all-free}` (any other combination behaves as `all-free`\nwith a fixed k3 iff `distortion.k3` is set) — see\n[`LaserlineDeviceConfig::solve_opts`]."
         },
         "fix_plane": {
           "description": "Fix laser plane parameters during optimization.",
@@ -95,35 +161,11 @@
         "laser_loss",
         "calib_weight",
         "laser_weight",
-        "fix_intrinsics",
-        "fix_distortion",
-        "fix_k3",
+        "fix_camera",
         "fix_sensor",
         "fix_poses",
         "fix_plane",
         "laser_residual_type"
-      ],
-      "type": "object"
-    },
-    "LaserlineDeviceSolverConfig": {
-      "description": "Shared solver options for laserline device calibration.",
-      "properties": {
-        "max_iters": {
-          "description": "Maximum iterations for the optimizer.",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "verbosity": {
-          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "max_iters",
-        "verbosity"
       ],
       "type": "object"
     },
@@ -240,26 +282,58 @@
         "tilt_y"
       ],
       "type": "object"
+    },
+    "SolverConfig": {
+      "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor the Scheimpflug single-cam tilt valley; 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "properties": {
+        "max_iters": {
+          "description": "Maximum iterations for the non-linear optimizer.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "robust_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss function for outlier handling."
+        },
+        "verbosity": {
+          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_iters",
+        "verbosity",
+        "robust_loss"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Configuration for laserline device calibration.",
+  "description": "Configuration for laserline device calibration.\n\nGrouped per ADR 0024.",
   "properties": {
     "init": {
-      "$ref": "#/$defs/LaserlineDeviceInitConfig",
-      "description": "Initialization options."
+      "$ref": "#/$defs/IntrinsicsInitConfig",
+      "description": "Per-camera linear-initialization stage settings."
     },
     "optimize": {
       "$ref": "#/$defs/LaserlineDeviceOptimizeConfig",
       "description": "Bundle-adjustment options."
     },
+    "sensor_init": {
+      "$ref": "#/$defs/ScheimpflugParams",
+      "description": "Initial Scheimpflug sensor parameters (use zeros for pinhole/identity\nsensors; the optimizer refines from here unless `optimize.fix_sensor`\nis set)."
+    },
     "solver": {
-      "$ref": "#/$defs/LaserlineDeviceSolverConfig",
-      "description": "Shared solver options."
+      "$ref": "#/$defs/SolverConfig",
+      "description": "Non-linear solve stage settings.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`optimize.calib_loss`,\n`optimize.laser_loss` — ADR 0024 D3). Only `max_iters`/`verbosity`\napply here."
     }
   },
   "required": [
     "init",
+    "sensor_init",
     "solver",
     "optimize"
   ],

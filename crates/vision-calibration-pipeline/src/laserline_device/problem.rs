@@ -3,7 +3,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    Camera, ImageManifest, PerFeatureResiduals, Pinhole, ScheimpflugParams,
+    Camera, CameraFixMask, ImageManifest, PerFeatureResiduals, Pinhole, ScheimpflugParams,
     build_feature_histogram, compute_planar_target_residuals_views,
 };
 use vision_calibration_linear::prelude::*;
@@ -12,6 +12,7 @@ use vision_calibration_optim::{
     LaserlineSolveOptions, LaserlineStats, compute_laserline_feature_residuals,
 };
 
+use crate::common::config::{IntrinsicsInitConfig, SolverConfig};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::LaserlineDeviceState;
@@ -24,65 +25,28 @@ pub struct LaserlineDeviceProblem;
 pub type LaserlineDeviceInput = LaserlineDataset;
 
 /// Configuration for laserline device calibration.
+///
+/// Grouped per ADR 0024.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserlineDeviceConfig {
-    /// Initialization options.
-    pub init: LaserlineDeviceInitConfig,
-    /// Shared solver options.
-    pub solver: LaserlineDeviceSolverConfig,
+    /// Per-camera linear-initialization stage settings.
+    pub init: IntrinsicsInitConfig,
+    /// Initial Scheimpflug sensor parameters (use zeros for pinhole/identity
+    /// sensors; the optimizer refines from here unless `optimize.fix_sensor`
+    /// is set).
+    pub sensor_init: ScheimpflugParams,
+    /// Non-linear solve stage settings.
+    ///
+    /// `robust_loss` is **not consulted** by this problem: laser-carrying
+    /// stages track calibration and laser residuals as independent families
+    /// with their own robust losses (`optimize.calib_loss`,
+    /// `optimize.laser_loss` — ADR 0024 D3). Only `max_iters`/`verbosity`
+    /// apply here.
+    pub solver: SolverConfig,
     /// Bundle-adjustment options.
     pub optimize: LaserlineDeviceOptimizeConfig,
-}
-
-/// Initialization options for laserline device calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub struct LaserlineDeviceInitConfig {
-    /// Number of iterations for iterative intrinsics estimation.
-    pub iterations: usize,
-    /// Fix k3 during initialization (recommended for typical lenses).
-    pub fix_k3: bool,
-    /// Fix tangential distortion during initialization.
-    pub fix_tangential: bool,
-    /// Enforce zero skew during initialization.
-    pub zero_skew: bool,
-    /// Initial Scheimpflug sensor parameters (use zeros for pinhole/identity).
-    pub sensor_init: ScheimpflugParams,
-}
-
-impl Default for LaserlineDeviceInitConfig {
-    fn default() -> Self {
-        Self {
-            iterations: 2,
-            fix_k3: true,
-            fix_tangential: false,
-            zero_skew: true,
-            sensor_init: ScheimpflugParams::default(),
-        }
-    }
-}
-
-/// Shared solver options for laserline device calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub struct LaserlineDeviceSolverConfig {
-    /// Maximum iterations for the optimizer.
-    pub max_iters: usize,
-    /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
-    pub verbosity: usize,
-}
-
-impl Default for LaserlineDeviceSolverConfig {
-    fn default() -> Self {
-        Self {
-            max_iters: 50,
-            verbosity: 0,
-        }
-    }
 }
 
 /// Bundle-adjustment options for laserline device calibration.
@@ -98,12 +62,17 @@ pub struct LaserlineDeviceOptimizeConfig {
     pub calib_weight: f64,
     /// Global weight for laser residuals.
     pub laser_weight: f64,
-    /// Fix camera intrinsics during optimization.
-    pub fix_intrinsics: bool,
-    /// Fix distortion parameters during optimization.
-    pub fix_distortion: bool,
-    /// Fix k3 distortion parameter during optimization.
-    pub fix_k3: bool,
+    /// Mask for fixing camera intrinsics/distortion parameters during
+    /// optimization.
+    ///
+    /// Honored only at the granularity the underlying laserline solver
+    /// (`vision_calibration_optim::LaserlineSolveOptions`) supports:
+    /// `intrinsics` is all-or-nothing (any field fixed behaves as if all
+    /// four are), and `distortion` collapses to one of `{all-fixed,
+    /// k3-only, all-free}` (any other combination behaves as `all-free`
+    /// with a fixed k3 iff `distortion.k3` is set) — see
+    /// [`LaserlineDeviceConfig::solve_opts`].
+    pub fix_camera: CameraFixMask,
     /// Fix Scheimpflug sensor parameters during optimization.
     pub fix_sensor: bool,
     /// Indices of poses to fix (e.g., \[0\] to fix first pose).
@@ -121,9 +90,7 @@ impl Default for LaserlineDeviceOptimizeConfig {
             laser_loss: vision_calibration_optim::RobustLoss::Huber { scale: 0.01 },
             calib_weight: 1.0,
             laser_weight: 1.0,
-            fix_intrinsics: false,
-            fix_distortion: false,
-            fix_k3: true,
+            fix_camera: CameraFixMask::default(),
             fix_sensor: true,
             fix_poses: vec![0],
             fix_plane: false,
@@ -136,7 +103,7 @@ impl LaserlineDeviceConfig {
     /// Convert to vision-calibration-linear initialization options.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
         IterativeIntrinsicsOptions {
-            iterations: self.init.iterations,
+            iterations: self.init.init_iterations,
             distortion_opts: DistortionFitOptions {
                 fix_k3: self.init.fix_k3,
                 fix_tangential: self.init.fix_tangential,
@@ -147,15 +114,25 @@ impl LaserlineDeviceConfig {
     }
 
     /// Convert to vision-calibration-optim solve options.
+    ///
+    /// `optimize.fix_camera` is lowered to the solver's `{fix_intrinsics,
+    /// fix_distortion, fix_k3}` bool trio: `fix_intrinsics` is true iff
+    /// every intrinsics field is fixed; `fix_distortion` is true iff every
+    /// distortion field is fixed; otherwise `fix_k3` mirrors
+    /// `fix_camera.distortion.k3` alone. The default mask (intrinsics
+    /// all-free, distortion `{k3}`-only fixed) round-trips exactly to the
+    /// pre-ADR-0024 defaults (`fix_intrinsics: false, fix_distortion:
+    /// false, fix_k3: true`).
     pub fn solve_opts(&self) -> LaserlineSolveOptions {
+        let fix_camera = &self.optimize.fix_camera;
         LaserlineSolveOptions {
             calib_loss: self.optimize.calib_loss,
             calib_weight: self.optimize.calib_weight,
             laser_loss: self.optimize.laser_loss,
             laser_weight: self.optimize.laser_weight,
-            fix_intrinsics: self.optimize.fix_intrinsics,
-            fix_distortion: self.optimize.fix_distortion,
-            fix_k3: self.optimize.fix_k3,
+            fix_intrinsics: fix_camera.intrinsics.all_are_fixed(),
+            fix_distortion: fix_camera.distortion.all_are_fixed(),
+            fix_k3: fix_camera.distortion.k3,
             fix_sensor: self.optimize.fix_sensor,
             fix_poses: self.optimize.fix_poses.clone(),
             fix_plane: self.optimize.fix_plane,
@@ -252,7 +229,7 @@ impl ProblemType for LaserlineDeviceProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.init.iterations == 0 {
+        if config.init.init_iterations == 0 {
             return Err(Error::invalid_input("init_iterations must be positive"));
         }
         if config.optimize.calib_weight <= 0.0 {

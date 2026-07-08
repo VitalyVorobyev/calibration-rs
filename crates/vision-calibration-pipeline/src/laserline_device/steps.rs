@@ -37,7 +37,7 @@ pub struct DeviceInitOptions {
 /// - `Some(value)` means *use this value*; do not auto-initialize.
 ///
 /// **Sensor is intentionally not in this struct** — for laserline devices the
-/// sensor model is a hardware property taken from `session.config.init.sensor_init`.
+/// sensor model is a hardware property taken from `session.config.sensor_init`.
 /// See ADR 0011.
 ///
 /// Partial-seed semantics:
@@ -203,7 +203,7 @@ fn update_state_with_stats(
 /// passes `LaserlineDeviceManualInit::default()` (all-`None`, full auto path).
 ///
 /// See [`LaserlineDeviceManualInit`] for partial-seed semantics. The sensor model
-/// is always taken from `session.config.init.sensor_init` regardless.
+/// is always taken from `session.config.sensor_init` regardless.
 ///
 /// # Errors
 ///
@@ -279,7 +279,7 @@ pub fn step_init_with_seed(
         }
     };
 
-    let sensor = session.config.init.sensor_init;
+    let sensor = session.config.sensor_init;
     let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
 
     let (plane, plane_rmse) = match manual.plane {

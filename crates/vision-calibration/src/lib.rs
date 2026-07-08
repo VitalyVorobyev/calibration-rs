@@ -141,10 +141,10 @@ pub mod common {
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
     /// types (ADR 0024): per-camera linear init, non-linear solve, robot-pose
-    /// refinement, and hand-eye linear init.
+    /// refinement, hand-eye linear init, and rig frame options.
     pub mod config {
         pub use vision_calibration_pipeline::common::config::{
-            HandeyeInitConfig, IntrinsicsInitConfig, RobotPoseConfig, SolverConfig,
+            HandeyeInitConfig, IntrinsicsInitConfig, RigConfig, RobotPoseConfig, SolverConfig,
         };
     }
 }
@@ -321,7 +321,6 @@ pub mod laserline_device {
         DeviceOptimizeOptions,
         LaserlineDeviceConfig,
         LaserlineDeviceExport,
-        LaserlineDeviceInitConfig,
         // Typed step results (Phase 1c of 0.5.0 API revision)
         LaserlineDeviceInitResult,
         LaserlineDeviceInput,
@@ -330,7 +329,6 @@ pub mod laserline_device {
         LaserlineDeviceOptimizeResult,
         LaserlineDeviceOutput,
         LaserlineDeviceProblem,
-        LaserlineDeviceSolverConfig,
         run_calibration,
         step_init,
         step_init_with_seed,

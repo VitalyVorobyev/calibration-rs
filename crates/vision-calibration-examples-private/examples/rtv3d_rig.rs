@@ -373,8 +373,8 @@ fn main() -> Result<()> {
             CalibrationSession::<RigLaserlineDeviceProblem>::with_description("rtv3d_laser");
         laser_session.set_input(laserline_input)?;
         let mut laser_cfg = RigLaserlineDeviceConfig::default();
-        laser_cfg.max_iters = Some(200);
-        laser_cfg.verbosity = Some(1);
+        laser_cfg.solver.max_iters = 200;
+        laser_cfg.solver.verbosity = 1;
         laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
         laser_session.set_config(laser_cfg)?;
 

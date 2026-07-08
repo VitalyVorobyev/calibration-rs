@@ -3099,8 +3099,8 @@ pub mod tier_b {
             .set_input(laserline_input)
             .context("set laserline input failed")?;
         let mut laser_cfg = RigLaserlineDeviceConfig::default();
-        laser_cfg.max_iters = Some(200);
-        laser_cfg.verbosity = Some(0);
+        laser_cfg.solver.max_iters = 200;
+        laser_cfg.solver.verbosity = 0;
         laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
         laser_session
             .set_config(laser_cfg)

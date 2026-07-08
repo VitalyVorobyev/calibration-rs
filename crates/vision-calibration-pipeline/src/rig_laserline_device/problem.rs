@@ -13,6 +13,7 @@ use vision_calibration_optim::{
     compute_rig_laserline_feature_residuals,
 };
 
+use crate::common::config::SolverConfig;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigLaserlineDeviceState;
@@ -110,16 +111,34 @@ pub struct RigLaserlineDeviceInput {
 }
 
 /// Configuration for rig laserline calibration.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+///
+/// Grouped per ADR 0024. `solver.max_iters` defaults to 200: this stage
+/// refines only per-camera laser-plane parameters against an already-frozen
+/// rig geometry (1 DOF per view per camera), so iterations are nearly free.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigLaserlineDeviceConfig {
-    /// Maximum solver iterations.
-    pub max_iters: Option<usize>,
-    /// Verbosity level.
-    pub verbosity: Option<usize>,
+    /// Non-linear solve stage settings. `robust_loss` is **not consulted**
+    /// by this problem — the underlying per-camera laserline solver picks
+    /// its own calibration/laser robust losses (frozen upstream geometry,
+    /// so only the laser-plane fit actually moves).
+    pub solver: SolverConfig,
     /// Laser residual type (point-to-plane vs line-distance).
     pub laser_residual_type: LaserlineResidualType,
+}
+
+impl Default for RigLaserlineDeviceConfig {
+    fn default() -> Self {
+        Self {
+            solver: SolverConfig {
+                max_iters: 200,
+                verbosity: 0,
+                ..SolverConfig::default()
+            },
+            laser_residual_type: LaserlineResidualType::default(),
+        }
+    }
 }
 
 /// Export format for rig laserline calibration.
@@ -223,7 +242,10 @@ impl ProblemType for RigLaserlineDeviceProblem {
         Ok(())
     }
 
-    fn validate_config(_config: &Self::Config) -> Result<(), Error> {
+    fn validate_config(config: &Self::Config) -> Result<(), Error> {
+        if config.solver.max_iters == 0 {
+            return Err(Error::invalid_input("max_iters must be positive"));
+        }
         Ok(())
     }
 

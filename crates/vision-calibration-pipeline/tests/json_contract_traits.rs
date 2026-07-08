@@ -3,9 +3,8 @@
 use serde::{Serialize, de::DeserializeOwned};
 use vision_calibration_pipeline::{
     laserline_device::{
-        LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInitConfig,
-        LaserlineDeviceInput, LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput,
-        LaserlineDeviceProblem, LaserlineDeviceSolverConfig,
+        LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput,
+        LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput, LaserlineDeviceProblem,
     },
     planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem},
     rig_extrinsics::{RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput},
@@ -87,8 +86,6 @@ fn rig_handeye_contract_types_are_serde() {
 fn laserline_contract_types_are_serde() {
     assert_json_contract::<LaserlineDeviceInput>();
     assert_json_contract::<LaserlineDeviceConfig>();
-    assert_json_contract::<LaserlineDeviceInitConfig>();
-    assert_json_contract::<LaserlineDeviceSolverConfig>();
     assert_json_contract::<LaserlineDeviceOptimizeConfig>();
     assert_json_contract::<LaserlineDeviceOutput>();
     assert_json_contract::<LaserlineDeviceExport>();

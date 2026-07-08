@@ -198,7 +198,7 @@ fn pipeline_converges_scheimpflug() {
     let (dataset, _intrinsics_gt, _plane_gt) = make_dataset(sensor_gt);
 
     let mut config = LaserlineDeviceConfig::default();
-    config.init.sensor_init = ScheimpflugParams {
+    config.sensor_init = ScheimpflugParams {
         tilt_x: 0.005,
         tilt_y: -0.004,
     };

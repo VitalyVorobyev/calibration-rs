@@ -50,9 +50,10 @@
 //!
 //! # Default Behavior
 //!
-//! - Reference camera: index 0
-//! - Intrinsics: NOT re-refined in rig BA (set `refine_intrinsics_in_rig_ba: true` to enable)
-//! - First rig pose fixed for gauge freedom
+//! - Reference camera: index 0 (`rig.reference_camera_idx`); its extrinsic
+//!   fix alone removes the rig's full 6-DOF gauge freedom (ADR 0024 D2 — no
+//!   rig-from-target pose is additionally pinned)
+//! - Intrinsics: NOT re-refined in rig BA (set `rig.refine_intrinsics_in_rig_ba: true` to enable)
 //! - k3 distortion fixed by default
 
 mod problem;

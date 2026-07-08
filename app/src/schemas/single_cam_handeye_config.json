@@ -197,7 +197,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Configuration for single-camera hand-eye calibration.\n\nGrouped per ADR 0024: per-camera linear init, hand-eye linear init,\nnon-linear solve, and robot-pose refinement each live in their own\nshared sub-struct.",
+  "description": "Configuration for single-camera hand-eye calibration.\n\nGrouped per ADR 0024: per-camera linear init, hand-eye linear init,\nnon-linear solve, and robot-pose refinement each live in their own\nshared sub-struct. Every group's own `Default` is the plain workspace\ndefault (no per-problem override is needed here, unlike\n`ScheimpflugIntrinsicsConfig`).",
   "properties": {
     "handeye_init": {
       "$ref": "#/$defs/HandeyeInitConfig",

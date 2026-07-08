@@ -132,6 +132,20 @@ impl Default for HandeyeInitConfig {
     }
 }
 
+/// Multi-camera rig frame options: reference-camera gauge and rig-BA scope.
+///
+/// Shared by every rig problem's `rig` config group (`RigExtrinsicsConfig`
+/// today; `RigHandeyeConfig` follows in a later ADR 0024 wave).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct RigConfig {
+    /// Reference camera index for the rig frame (identity extrinsics).
+    pub reference_camera_idx: usize,
+    /// Re-refine per-camera intrinsics jointly during rig bundle adjustment.
+    pub refine_intrinsics_in_rig_ba: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +180,13 @@ mod tests {
         let cfg = HandeyeInitConfig::default();
         assert_eq!(cfg.handeye_mode, HandEyeMode::EyeInHand);
         assert!((cfg.min_motion_angle_deg - 5.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn rig_config_default() {
+        let cfg = RigConfig::default();
+        assert_eq!(cfg.reference_camera_idx, 0);
+        assert!(!cfg.refine_intrinsics_in_rig_ba);
     }
 
     #[test]

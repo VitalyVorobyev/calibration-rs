@@ -538,32 +538,19 @@
       "type": "object"
     },
     "RigLaserlineDeviceConfig": {
-      "description": "Configuration for rig laserline calibration.",
+      "description": "Configuration for rig laserline calibration.\n\nGrouped per ADR 0024. `solver.max_iters` defaults to 200: this stage\nrefines only per-camera laser-plane parameters against an already-frozen\nrig geometry (1 DOF per view per camera), so iterations are nearly free.",
       "properties": {
         "laser_residual_type": {
           "$ref": "#/$defs/LaserlineResidualType",
           "description": "Laser residual type (point-to-plane vs line-distance)."
         },
-        "max_iters": {
-          "description": "Maximum solver iterations.",
-          "format": "uint",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "verbosity": {
-          "description": "Verbosity level.",
-          "format": "uint",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+        "solver": {
+          "$ref": "#/$defs/SolverConfig",
+          "description": "Non-linear solve stage settings. `robust_loss` is **not consulted**\nby this problem — the underlying per-camera laserline solver picks\nits own calibration/laser robust losses (frozen upstream geometry,\nso only the laser-plane fit actually moves)."
         }
       },
       "required": [
+        "solver",
         "laser_residual_type"
       ],
       "type": "object"
@@ -756,6 +743,33 @@
           "type": "object"
         }
       ]
+    },
+    "SolverConfig": {
+      "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor the Scheimpflug single-cam tilt valley; 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "properties": {
+        "max_iters": {
+          "description": "Maximum iterations for the non-linear optimizer.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "robust_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss function for outlier handling."
+        },
+        "verbosity": {
+          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_iters",
+        "verbosity",
+        "robust_loss"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",

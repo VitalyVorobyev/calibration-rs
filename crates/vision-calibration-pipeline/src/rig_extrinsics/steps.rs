@@ -202,13 +202,13 @@ pub fn step_intrinsics_init_all_with_seed(
     let num_views = input.num_views();
 
     let init_opts = IterativeIntrinsicsOptions {
-        iterations: opts.iterations.unwrap_or(config.intrinsics_init_iterations),
+        iterations: opts.iterations.unwrap_or(config.intrinsics.init_iterations),
         distortion_opts: DistortionFitOptions {
-            fix_k3: config.fix_k3,
-            fix_tangential: config.fix_tangential,
+            fix_k3: config.intrinsics.fix_k3,
+            fix_tangential: config.intrinsics.fix_tangential,
             iters: 8,
         },
-        zero_skew: config.zero_skew,
+        zero_skew: config.intrinsics.zero_skew,
     };
 
     let flavour = match &config.sensor {
@@ -308,8 +308,8 @@ pub fn step_intrinsics_optimize_all(
         .clone()
         .ok_or_else(|| Error::not_available("per-camera target poses"))?;
 
-    let max_iters = opts.max_iters.unwrap_or(config.max_iters);
-    let verbosity = opts.verbosity.unwrap_or(config.verbosity);
+    let max_iters = opts.max_iters.unwrap_or(config.solver.max_iters);
+    let verbosity = opts.verbosity.unwrap_or(config.solver.verbosity);
 
     let mut optimized_cameras = Vec::with_capacity(input.num_cameras);
     let mut per_cam_reproj_errors = Vec::with_capacity(input.num_cameras);
@@ -354,7 +354,7 @@ pub fn step_intrinsics_optimize_all(
                 })?;
 
                 let solve_opts = PlanarIntrinsicsSolveOptions {
-                    robust_loss: config.robust_loss,
+                    robust_loss: config.solver.robust_loss,
                     fix_intrinsics: Default::default(),
                     fix_distortion: Default::default(),
                     fix_poses: Vec::new(),
@@ -404,7 +404,7 @@ pub fn step_intrinsics_optimize_all(
                 // and interfere with Scheimpflug tilt optimization. Narrow-FOV
                 // rigs that overfit k2 can override to e.g. (k1, p1, p2) free.
                 let solve_opts = ScheimpflugIntrinsicsSolveOptions {
-                    robust_loss: config.robust_loss,
+                    robust_loss: config.solver.robust_loss,
                     fix_intrinsics: IntrinsicsFixMask::default(),
                     fix_distortion: *distortion_mask_in_percam_ba,
                     fix_scheimpflug: *fix_scheimpflug_in_intrinsics,
@@ -508,7 +508,7 @@ pub fn step_rig_init_with_seed(
 
     let num_views = input.num_views();
     let num_cameras = input.num_cameras;
-    let reference_camera_idx = session.config.reference_camera_idx;
+    let reference_camera_idx = session.config.rig.reference_camera_idx;
 
     // Coupling rule: both-or-neither.
     match (&manual.cam_se3_rig, &manual.rig_se3_target) {
@@ -605,6 +605,11 @@ pub fn step_rig_init(
 /// - Per-view rig poses (rig-to-target)
 /// - Optionally: per-camera intrinsics (if `refine_intrinsics_in_rig_ba` is true)
 ///
+/// The reference camera (`rig.reference_camera_idx`) alone removes the rig's
+/// full 6-DOF gauge freedom; no rig-from-target pose is fixed (ADR 0024 D2 —
+/// the old `fix_first_rig_pose` knob was evidence-backed redundant and
+/// mildly pessimizing; see `docs/notes/rig-extrinsics.md` §Gauge).
+///
 /// Requires [`step_rig_init`] to be run first.
 ///
 /// # Errors
@@ -643,25 +648,23 @@ pub fn step_rig_optimize(
         .clone()
         .ok_or_else(|| Error::not_available("initial rig_se3_target"))?;
 
-    let fix_intrinsics = if config.refine_intrinsics_in_rig_ba {
+    let fix_intrinsics = if config.rig.refine_intrinsics_in_rig_ba {
         CameraFixMask::default()
     } else {
         CameraFixMask::all_fixed()
     };
 
     let fix_extrinsics: Vec<bool> = (0..input.num_cameras)
-        .map(|i| i == config.reference_camera_idx)
+        .map(|i| i == config.rig.reference_camera_idx)
         .collect();
 
-    let fix_rig_poses = if config.fix_first_rig_pose {
-        vec![0]
-    } else {
-        Vec::new()
-    };
+    // ADR 0024 D2: the reference-camera fix above removes the full 6-DOF rig
+    // gauge on its own; no rig-from-target pose is pinned.
+    let fix_rig_poses: Vec<usize> = Vec::new();
 
     let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.unwrap_or(config.max_iters),
-        verbosity: opts.verbosity.unwrap_or(config.verbosity),
+        max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
+        verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
         ..Default::default()
     };
 
@@ -673,7 +676,7 @@ pub fn step_rig_optimize(
                 rig_from_target,
             };
             let solve_opts = RigExtrinsicsSolveOptions {
-                robust_loss: config.robust_loss,
+                robust_loss: config.solver.robust_loss,
                 default_fix: fix_intrinsics,
                 camera_overrides: Vec::new(),
                 fix_extrinsics,
@@ -711,7 +714,7 @@ pub fn step_rig_optimize(
                 }
             };
             let solve_opts = RigExtrinsicsScheimpflugSolveOptions {
-                robust_loss: config.robust_loss,
+                robust_loss: config.solver.robust_loss,
                 default_fix: fix_intrinsics,
                 camera_overrides: Vec::new(),
                 default_scheimpflug_fix: scheimpflug_fix,
@@ -944,7 +947,10 @@ mod tests {
 
         session
             .set_config(super::super::problem::RigExtrinsicsConfig {
-                max_iters: 100,
+                solver: crate::common::config::SolverConfig {
+                    max_iters: 100,
+                    ..Default::default()
+                },
                 ..Default::default()
             })
             .unwrap();

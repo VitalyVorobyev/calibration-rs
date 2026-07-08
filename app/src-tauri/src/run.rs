@@ -1143,7 +1143,7 @@ mod tests {
         // PointToPlane keeps the residual in metres (the example's
         // stage-3 choice), so the σ gate below is unit-meaningful.
         let mut laser_config = default_config_cmd("rig_laserline_device".into()).unwrap();
-        laser_config["max_iters"] = json!(200);
+        laser_config["solver"]["max_iters"] = json!(200);
         laser_config["laser_residual_type"] = json!("PointToPlane");
         let laser = match run_blocking(read_manifest("dataset_laser.toml"), laser_config, &dir) {
             RunResponse::Ok(s) => s,
@@ -1218,7 +1218,7 @@ mod tests {
         joint_manifest["upstream_calibration"] = serde_json::Value::Null;
         let mut joint_config = default_config_cmd("rig_handeye_laserline".into()).unwrap();
         joint_config["handeye"] = handeye_config;
-        joint_config["laserline_init"]["max_iters"] = json!(200);
+        joint_config["laserline_init"]["solver"]["max_iters"] = json!(200);
         joint_config["laserline_init"]["laser_residual_type"] = json!("PointToPlane");
         joint_config["joint_ba"]["max_iters"] = json!(30);
         joint_config["joint_ba"]["laser_residual_type"] = json!("PointToPlane");

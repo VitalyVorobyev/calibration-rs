@@ -208,17 +208,17 @@ class SingleCamHandeyeConfig(TypedDict, total=False):
     robot_poses: RobotPoseConfig
 
 
-class RigExtrinsicsConfig(TypedDict, total=False):
-    intrinsics_init_iterations: int
-    fix_k3: bool
-    fix_tangential: bool
-    zero_skew: bool
+class RigConfig(TypedDict, total=False):
+    """Shared multi-camera rig frame options (ADR 0024)."""
+
     reference_camera_idx: int
-    max_iters: int
-    verbosity: int
-    robust_loss: RobustLoss
     refine_intrinsics_in_rig_ba: bool
-    fix_first_rig_pose: bool
+
+
+class RigExtrinsicsConfig(TypedDict, total=False):
+    intrinsics: IntrinsicsInitConfig
+    rig: RigConfig
+    solver: SolverConfig
 
 
 class RigHandeyeIntrinsicsConfig(TypedDict, total=False):
@@ -260,27 +260,12 @@ class RigHandeyeConfig(TypedDict, total=False):
     handeye_ba: RigHandeyeBaConfig
 
 
-class LaserlineDeviceInitConfig(TypedDict, total=False):
-    iterations: int
-    fix_k3: bool
-    fix_tangential: bool
-    zero_skew: bool
-    sensor_init: JsonObject
-
-
-class LaserlineDeviceSolverConfig(TypedDict, total=False):
-    max_iters: int
-    verbosity: int
-
-
 class LaserlineDeviceOptimizeConfig(TypedDict, total=False):
     calib_loss: RobustLoss
     laser_loss: RobustLoss
     calib_weight: float
     laser_weight: float
-    fix_intrinsics: bool
-    fix_distortion: bool
-    fix_k3: bool
+    fix_camera: CameraFixMask
     fix_sensor: bool
     fix_poses: list[int]
     fix_plane: bool
@@ -288,9 +273,15 @@ class LaserlineDeviceOptimizeConfig(TypedDict, total=False):
 
 
 class LaserlineDeviceConfig(TypedDict, total=False):
-    init: LaserlineDeviceInitConfig
-    solver: LaserlineDeviceSolverConfig
+    init: IntrinsicsInitConfig
+    sensor_init: JsonObject
+    solver: SolverConfig
     optimize: LaserlineDeviceOptimizeConfig
+
+
+class RigLaserlineDeviceConfig(TypedDict, total=False):
+    solver: SolverConfig
+    laser_residual_type: LaserlineResidualType
 
 
 class ScheimpflugIntrinsicsConfig(TypedDict, total=False):

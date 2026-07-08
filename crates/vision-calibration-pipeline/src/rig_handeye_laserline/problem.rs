@@ -1,6 +1,7 @@
 //! [`ProblemType`] implementation for joint rig hand-eye laserline calibration.
 
 use crate::Error;
+use crate::common::config::SolverConfig;
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDeviceProblem};
 use nalgebra::{Translation3, UnitQuaternion, Vector3};
@@ -112,8 +113,11 @@ impl Default for RigHandeyeLaserlineConfig {
         Self {
             handeye: RigHandeyeConfig::default(),
             laserline_init: RigLaserlineDeviceConfig {
-                max_iters: Some(200),
-                verbosity: Some(0),
+                solver: SolverConfig {
+                    max_iters: 200,
+                    verbosity: 0,
+                    ..SolverConfig::default()
+                },
                 laser_residual_type: LaserlineResidualType::PointToPlane,
             },
             joint_ba: RigHandeyeLaserlineBaConfig::default(),
