@@ -122,12 +122,27 @@ two-view/triangulation.
   saved locally for `linear_init` + `ba_iter` (`--save-baseline main`;
   machine-specific, not committed — workflow documented in
   `docs/notes/README.md`).
-- [ ] Q3-RINGGRID-BIAS - Drive the ringgrid floor (median ≈ 4.7 px) down:
-  closed-form perspective ellipse-center-vs-ring-center bias correction in the
-  detector or at residual level; diagnose the cam5 ~38 px geometric outlier
-  (S3 spec seeds may expose the cause); ringgrid math note (the bias mechanism
-  is its proof). Target: median ≤ 1.0 px; cam5 fixed or excluded with a
-  documented physical cause; regression record updated.
+- [x] Q3-RINGGRID-BIAS - Ringgrid ellipse-center bias.
+  **Done 2026-07-08 — resolved as already-corrected-at-detector-level; no
+  pipeline correction wired (it would double-correct).** The entry's framing
+  numbers were stale: post-V8 (180° pose fix + ringgrid 0.7) the per-camera
+  means are 0.42–0.50 px, not "median ≈ 4.7 px", and the "cam5 ~38 px
+  outlier" no longer exists (cam5 = 0.4867 px). Diagnosis with the current
+  calibrated model (closed-form conic-center math: `C' = H⁻ᵀCH⁻¹`, bias =
+  `center(C') − H(c)`): predicted outer-edge projective bias is ~0.09 px
+  mean / ≤ 0.45 px max — and the residual-field regression coefficient
+  against it is ≈ 0 (|coef| ≤ 0.10, mean cos ≈ 0), i.e. the bias is absent
+  from the residuals because `ringgrid` 0.7 defaults to
+  `CircleRefinementMethod::ProjectiveCenter` (two-conic pencil, Wang 2019)
+  and removes it before calibration ever sees the centers. The remaining
+  ~0.47 px floor is small-marker localization noise (bias scales with
+  marker-pixel-radius², and these markers are a few px across) — closing it
+  further is detector-side work, out of calibration scope. Landed:
+  `vision-calibration-bench::ringgrid_bias` diagnostic module (conic math +
+  3 unit tests + `#[ignore]`d E2E table generator), proof-pack note
+  `docs/notes/ringgrid-bias.md`, ringgrid accept gates tightened 1.0 →
+  0.7 px in the (gitignored, local) `registry/private.json` — 6/6 PASS at
+  the new bar, control datasets bit-identical, baselines untouched.
 - [x] Q4-MWIRE-SCHEIMPFLUG - **Done 2026-07-04.** `distortion_model:
   DistortionKind` added to `ScheimpflugIntrinsicsConfig` (serde-default
   BrownConrady5) and to rig `SensorMode::Scheimpflug` (BC5-typed for schema
@@ -161,12 +176,26 @@ two-view/triangulation.
   cams 3/4 — a *controlled* all-free sweep with a proper warm start is the
   V7-floor follow-up if wanted. Committed bench defaults stay BC5, zero
   baseline drift. App selector → B-QUAL2, Python field → R5.
-- [ ] Q5-RTV3D-SCALE - (absorbs V6-SCALE) Settle the rtv3d absolute scale
-  (hexagon 90.1 mm at 5.2 mm cells vs oracle-implied ~98.5 mm; if 98.5 mm is
-  right the true cell is ≈ 5.69 mm and both shipped board specs are wrong).
-  With S1, the natural fix is a metric anchor in the device spec (known target
-  dimension or baseline prior in the rig bundle). Math note states exactly
-  which measurement pins scale and its sensitivity. Gate in `rtv3d_rig.rs`.
+- [x] Q5-RTV3D-SCALE - **Done 2026-07-08** (absorbs V6-SCALE). Settled: no
+  real scale ambiguity, no cell-size correction needed — 5.2 mm is confirmed
+  correct. The "90.1 mm ours vs ~98.5 mm oracle" gap was a pipeline-stage
+  bookkeeping bug in `rtv3d_rig.rs`'s oracle comparison: it read the
+  hand-eye-stage extrinsics (before laser data is incorporated), which
+  under-determine absolute rig scale by a uniform ~10 % (a Scheimpflug
+  tilt↔pose valley effect, not noise — hexagon shape stays regular, ~0.4 %
+  edge spread, at both stages). Rerunning the comparison against the *joint*
+  (laser-informed) BA extrinsics — the actual calibration this project already
+  ships — gives a hexagon of 98.21 ± 0.41 mm, matching the oracle's own
+  4-good-camera hexagon (98.13 ± 1.10 mm, cam 5 excluded as the already-known
+  fx=51 degenerate) to **0.08 %**. No 4.75/5.69 mm cell size appears in any
+  dataset file; the ratio also isn't a fixed constant across pipeline
+  versions (8.6 %→10.4 %→0.08 %), ruling out a genuine cell-size mix-up.
+  Fixed `compare_to_oracle()` to source the scale table from the joint-BA
+  extrinsics (falling back to hand-eye-stage when no laser data) and added a
+  permanent hexagon neighbor-edge diagnostic table. Full derivation and
+  numbers: `docs/notes/rtv3d-scale.md`. `privatedata/rtv3d/spec.json`
+  (gitignored, local-only) got a description-field annotation pointing to
+  this note; no numeric seed field changed.
 - [x] Q6-BASIN-STUDY - Convergence-basin study for seeded Scheimpflug init:
   bench example perturbing spec seeds (focal ×[0.5..2], tilt ±, pp ±) over a
   grid; gate-pass rate per perturbation radius on rtv3d_ref + ringgrid; table
@@ -212,9 +241,27 @@ two-view/triangulation.
   `vision_geometry::{camera_matrix, epipolar, homography, triangulation}`
   against ground truth) plus the Q2 committed bench baselines already gate
   numeric drift end-to-end (YAGNI).
-- [ ] Q8-PROOF-PACKS - Remaining proof packs (batched): hand-eye, laserline
-  bundle, rig extrinsics, two-view/triangulation; rectification gets the short
-  note only (C4 gate already exists).
+- [x] Q8-PROOF-PACKS - Remaining proof packs (batched): hand-eye, laserline
+  bundle, rig extrinsics, two-view/triangulation; rectification short note.
+  **Done 2026-07-08.** Five notes landed in `docs/notes/` (hand-eye,
+  rig-extrinsics, laserline-bundle, two-view-triangulation, rectification)
+  plus four new matrix/property test files: `single_cam_handeye_matrix.rs`,
+  `rig_extrinsics_matrix.rs`, `laserline_device_matrix.rs` (facade tests) and
+  `two_view_matrix.rs`/`two_view_properties.rs` (vision-mvg) — every family
+  now has a GT-grid × noise sweep through the standard pipeline with
+  noise-floor assertions, plus gauge/degeneracy property tests
+  (base-frame gauge, reference-camera swap, disconnected co-visibility
+  rejection, S² plane sign gauge, SE(3) point-to-plane invariance).
+  Findings worth knowing: robot-pose refinement mildly breaks the hand-eye
+  base-frame gauge (left-multiplicative base-frame priors are not
+  Ad-invariant; ~5e-4 rad/m under rebasing vs 1e-14 with refinement off);
+  `fix_first_rig_pose` is redundant with the reference-camera gauge fix and
+  mildly pessimizing (0.134 vs 0.124 px on the wide matrix cell) — R2/ADR
+  0024 config candidate; the linear rig init needs a *direct*
+  reference↔camera co-visibility edge (no chaining); no laserline feature
+  gate exists in facade/pipeline (only bench's `laser` pulls the extractor);
+  wide rig baselines recover *noisier* extrinsic translation than narrow
+  ones (rotation error × longer moment arm) though they triangulate stiffer.
 
 ## R — API/config/design revision (Phase II)
 
@@ -353,11 +400,9 @@ two-view/triangulation.
   the rtv3d floor, but all six cameras still fail the raw `<0.4 px` gate
   (best centered means: 0.747–1.199 px), pointing to detector/target/model
   floor rather than rig-chain error.
-- [~] V6-SCALE - **Absorbed into Q5-RTV3D-SCALE 2026-07-02** (production-grade
-  program): settle rtv3d absolute scale (our hexagon: 90.1 mm at 5.2 mm cells;
-  oracle implies ~98.5 mm; if 98.5 mm is right the true cell is ≈5.69 mm and
-  both shipped board specs are wrong). The metric anchor belongs in the S1
-  device spec.
+- [x] V6-SCALE - Absorbed into Q5-RTV3D-SCALE 2026-07-02, **settled (no metric
+  anchor needed) 2026-07-08** — see Q5-RTV3D-SCALE's completion note and
+  `docs/notes/rtv3d-scale.md`.
 - [~] V7-RTV3D-INTRINSICS-FLOOR - **PARKED (user call 2026-06-14; disposition
   confirmed 2026-07-02).** Drive the rtv3d from-scratch reprojection floor
   below 0.4 px or prove the blocking model/data term. Isolated to a

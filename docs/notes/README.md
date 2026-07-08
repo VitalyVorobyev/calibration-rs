@@ -50,7 +50,28 @@ gate exists), two-view/triangulation.
 
 - [Planar intrinsics](planar-intrinsics.md) — Zhang init + Brown–Conrady
   refinement (the template pack).
-- [Scheimpflug intrinsics](scheimpflug-intrinsics.md) — stub pack (full
-  pack is Q8): model summary, the ADR 0022/0023 seeded route, and the Q6
-  convergence-basin study (`calib-bench basin`) with measured basins for
-  `rtv3d_ref` / `rtv3d_ringgrid`.
+- [Scheimpflug intrinsics](scheimpflug-intrinsics.md) — stub pack: model
+  summary, the ADR 0022/0023 seeded route, and the Q6 convergence-basin
+  study (`calib-bench basin`) with measured basins for `rtv3d_ref` /
+  `rtv3d_ringgrid`.
+- [Hand-eye](hand-eye.md) — Tsai–Lenz AX=XB init + joint BA;
+  motion-diversity identifiability, base-frame gauge, the 180°
+  robot-pose-ingestion guard.
+- [Rig extrinsics](rig-extrinsics.md) — per-camera Zhang + linear rig init
+  + joint BA; reference-camera gauge, co-visibility requirements,
+  narrow-vs-wide baseline noise trade.
+- [Laserline bundle](laserline-bundle.md) — S² plane block + 1D stripe
+  residuals; stripe non-collinearity identifiability, the soft distance
+  DOF, rig-axis reuse.
+- [Two-view / triangulation](two-view-triangulation.md) — 8/7/5-point
+  solvers, pose recovery + cheirality, DLT+GN triangulation; parallax
+  degeneracy made quantitative.
+- [Rectification](rectification.md) — short pack: Scheimpflug tilt as a
+  normalized-plane homography; row-alignment evidence (C4 gate).
+- [Ringgrid bias](ringgrid-bias.md) — Q3 close-out: the projective
+  ellipse-center bias is already removed inside the `ringgrid` 0.7
+  detector; predicted bias (~0.09 px) is absent from the residual field,
+  so the ~0.47 px floor is small-marker localization noise.
+- [rtv3d scale](rtv3d-scale.md) — Q5 close-out: the oracle-vs-measured
+  scale gap was a pipeline-stage bookkeeping artifact; 5.2 mm cell
+  confirmed, joint-BA hexagon matches the oracle to 0.08 %.
