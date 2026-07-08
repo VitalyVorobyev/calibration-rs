@@ -135,7 +135,7 @@ const RTV3D_HAND_EYE_CONFIG_OVERRIDES = {
     kind: "Scheimpflug",
     init_tilt_x: 0.0,
     init_tilt_y: 0.0,
-    fix_scheimpflug_in_intrinsics: { tilt_x: false, tilt_y: false },
+    fix_scheimpflug: { tilt_x: false, tilt_y: false },
     distortion_mask_in_percam_ba: {
       k1: false,
       k2: false,

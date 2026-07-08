@@ -403,7 +403,7 @@
       "type": "object"
     },
     "RigHandeyeLaserlineBaConfig": {
-      "description": "Final joint BA options (ADR 0024).\n\nD2 removed `fix_first_camera_extrinsic: bool`: the joint stage now always\npins the upstream rig's reference camera (`handeye.rig.reference_camera_idx`)\n— see [`joint_fix_extrinsics`], fixing the old index-0 hard-coding bug.\n`JointCameraFixMask` (structurally identical to core's [`CameraFixMask`])\nis deleted in favor of the core type directly.",
+      "description": "Final joint BA options (ADR 0024).\n\nD2 removed `fix_first_camera_extrinsic: bool`: the joint stage now always\npins the upstream rig's reference camera (`handeye.rig.reference_camera_idx`)\n— see `joint_fix_extrinsics`, fixing the old index-0 hard-coding bug.\n`JointCameraFixMask` (structurally identical to core's [`CameraFixMask`])\nis deleted in favor of the core type directly.",
       "properties": {
         "calib_loss": {
           "$ref": "#/$defs/RobustLoss",
@@ -449,7 +449,7 @@
         },
         "solver": {
           "$ref": "#/$defs/SolverConfig",
-          "description": "Non-linear solve stage settings for the joint stage."
+          "description": "Non-linear solve stage settings for the joint stage.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`calib_loss`, `laser_loss` — ADR 0024\nD3). Only `max_iters`/`verbosity` apply here."
         }
       },
       "required": [
@@ -662,7 +662,7 @@
               "default": "brown_conrady5",
               "description": "Distortion model for the per-camera Scheimpflug intrinsics.\n\nOnly [`DistortionKind::BrownConrady5`] (the default) is supported:\nthe joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5\nmodels are rejected up front by the rig `validate_config` (ADR 0019)\nrather than deep in the solver. The field exists for schema\nsymmetry with the single-camera Scheimpflug path."
             },
-            "fix_scheimpflug_in_intrinsics": {
+            "fix_scheimpflug": {
               "$ref": "#/$defs/ScheimpflugFixMask",
               "default": {
                 "tilt_x": false,

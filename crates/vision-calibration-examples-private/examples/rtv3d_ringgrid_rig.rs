@@ -160,7 +160,7 @@ fn main() -> Result<()> {
     cfg.sensor = SensorMode::Scheimpflug {
         init_tilt_x: tilt_x_seed,
         init_tilt_y: 0.0,
-        fix_scheimpflug_in_intrinsics: ScheimpflugFixMask {
+        fix_scheimpflug: ScheimpflugFixMask {
             tilt_x: false,
             tilt_y: false,
         },

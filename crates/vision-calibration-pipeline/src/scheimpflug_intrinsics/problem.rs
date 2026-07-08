@@ -52,7 +52,7 @@ pub struct ScheimpflugIntrinsicsConfig {
     /// produces Brown-Conrady coefficients, which are embedded into the chosen
     /// model with any extra degrees of freedom zeroed before the non-linear
     /// refine. Rig Scheimpflug pipelines remain Brown-Conrady only.
-    #[serde(default = "default_distortion_kind")]
+    #[serde(default = "crate::common::config::default_distortion_kind")]
     pub distortion_model: DistortionKind,
     /// Mask for fixing camera intrinsics/distortion parameters during
     /// optimization.
@@ -62,10 +62,6 @@ pub struct ScheimpflugIntrinsicsConfig {
     /// Indices of poses to fix during optimization (default `[0]`, removes
     /// the planar-intrinsics gauge ambiguity).
     pub fix_poses: Vec<usize>,
-}
-
-fn default_distortion_kind() -> DistortionKind {
-    DistortionKind::BrownConrady5
 }
 
 impl Default for ScheimpflugIntrinsicsConfig {

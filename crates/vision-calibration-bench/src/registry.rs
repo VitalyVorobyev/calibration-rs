@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::DistortionFixMask;
 use vision_calibration_dataset::DatasetSpec;
 use vision_calibration_optim::{DistortionKind, HandEyeMode, RobustLoss, ScheimpflugFixMask};
+use vision_calibration_pipeline::common::config::RobotPoseConfig;
 use vision_calibration_pipeline::rig_handeye::{RigHandeyeConfig, SensorMode};
 use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
 
@@ -457,7 +458,7 @@ pub enum BenchSensorMode {
         init_tilt_y: f64,
         /// Scheimpflug fix mask during per-camera intrinsics.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        fix_scheimpflug_in_intrinsics: Option<BenchScheimpflugFixMask>,
+        fix_scheimpflug: Option<BenchScheimpflugFixMask>,
         /// Distortion mask during per-camera BA.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         distortion_mask_in_percam_ba: Option<BenchDistortionFixMask>,
@@ -474,15 +475,13 @@ impl From<BenchSensorMode> for SensorMode {
             BenchSensorMode::Scheimpflug {
                 init_tilt_x,
                 init_tilt_y,
-                fix_scheimpflug_in_intrinsics,
+                fix_scheimpflug,
                 distortion_mask_in_percam_ba,
                 refine_scheimpflug_in_rig_ba,
             } => SensorMode::Scheimpflug {
                 init_tilt_x,
                 init_tilt_y,
-                fix_scheimpflug_in_intrinsics: fix_scheimpflug_in_intrinsics
-                    .map(Into::into)
-                    .unwrap_or_default(),
+                fix_scheimpflug: fix_scheimpflug.map(Into::into).unwrap_or_default(),
                 distortion_mask_in_percam_ba: distortion_mask_in_percam_ba
                     .map(Into::into)
                     .unwrap_or_default(),
@@ -584,33 +583,35 @@ impl RigHandeyeOverride {
     }
 }
 
-fn apply_single_ba(ba: &HandeyeBaOverride, config: &mut SingleCamHandeyeConfig) {
+/// Apply the robot-pose-refinement fields of a [`HandeyeBaOverride`] to a
+/// [`RobotPoseConfig`]. Shared by [`apply_single_ba`] and [`apply_rig_ba`],
+/// which differ only in *where* their `RobotPoseConfig` lives
+/// (`SingleCamHandeyeConfig::robot_poses` vs
+/// `RigHandeyeConfig::handeye_ba::robot_poses`) and in the rig-only fields
+/// `apply_rig_ba` applies afterward.
+fn apply_robot_pose_override(ba: &HandeyeBaOverride, robot_poses: &mut RobotPoseConfig) {
     if let Some(refine) = ba.refine_robot_poses {
-        config.robot_poses.refine = refine;
+        robot_poses.refine = refine;
     }
     if let Some(sigma) = ba.robot_rot_sigma {
-        config.robot_poses.rot_sigma = sigma;
+        robot_poses.rot_sigma = sigma;
     }
     if let Some(sigma) = ba.robot_trans_sigma {
-        config.robot_poses.trans_sigma = sigma;
+        robot_poses.trans_sigma = sigma;
     }
 }
 
+fn apply_single_ba(ba: &HandeyeBaOverride, config: &mut SingleCamHandeyeConfig) {
+    apply_robot_pose_override(ba, &mut config.robot_poses);
+}
+
 fn apply_rig_ba(ba: &HandeyeBaOverride, config: &mut RigHandeyeConfig) {
-    if let Some(refine) = ba.refine_robot_poses {
-        config.handeye_ba.robot_poses.refine = refine;
-    }
+    apply_robot_pose_override(ba, &mut config.handeye_ba.robot_poses);
     if let Some(refine) = ba.refine_cam_se3_rig_in_handeye_ba {
         config.handeye_ba.refine_cam_se3_rig = refine;
     }
     if let Some(refine) = ba.refine_scheimpflug_in_handeye_ba {
         config.handeye_ba.refine_scheimpflug = refine;
-    }
-    if let Some(sigma) = ba.robot_rot_sigma {
-        config.handeye_ba.robot_poses.rot_sigma = sigma;
-    }
-    if let Some(sigma) = ba.robot_trans_sigma {
-        config.handeye_ba.robot_poses.trans_sigma = sigma;
     }
 }
 
@@ -752,7 +753,7 @@ mod tests {
                 sensor: Some(BenchSensorMode::Scheimpflug {
                     init_tilt_x: 0.0,
                     init_tilt_y: 0.0,
-                    fix_scheimpflug_in_intrinsics: Some(BenchScheimpflugFixMask {
+                    fix_scheimpflug: Some(BenchScheimpflugFixMask {
                         tilt_x: false,
                         tilt_y: true,
                     }),
@@ -852,7 +853,7 @@ mod tests {
             "kind": "scheimpflug",
             "init_tilt_x": 0.0,
             "init_tilt_y": 0.0,
-            "fix_scheimpflug_in_intrinsics": { "tilt_x": false, "tilt_y": false },
+            "fix_scheimpflug": { "tilt_x": false, "tilt_y": false },
             "distortion_mask_in_percam_ba": {
               "k1": false, "k2": false, "k3": false, "p1": true, "p2": true
             },

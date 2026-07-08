@@ -10,7 +10,6 @@ use vision_calibration_core::{
     Real, ScheimpflugParams, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
 use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
-use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
     BackendSolveOptions, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigExtrinsicsParams,
     RigExtrinsicsScheimpflugParams, RigExtrinsicsScheimpflugSolveOptions,
@@ -201,15 +200,7 @@ pub fn step_intrinsics_init_all_with_seed(
     let num_cameras = input.num_cameras;
     let num_views = input.num_views();
 
-    let init_opts = IterativeIntrinsicsOptions {
-        iterations: opts.iterations.unwrap_or(config.intrinsics.init_iterations),
-        distortion_opts: DistortionFitOptions {
-            fix_k3: config.intrinsics.fix_k3,
-            fix_tangential: config.intrinsics.fix_tangential,
-            iters: 8,
-        },
-        zero_skew: config.intrinsics.zero_skew,
-    };
+    let init_opts = config.intrinsics.iterative_opts(opts.iterations);
 
     let flavour = match &config.sensor {
         SensorMode::Pinhole => SensorFlavour::Pinhole,
@@ -389,7 +380,7 @@ pub fn step_intrinsics_optimize_all(
                 per_cam_reproj_errors.push(result.mean_reproj_error);
             }
             SensorMode::Scheimpflug {
-                fix_scheimpflug_in_intrinsics,
+                fix_scheimpflug,
                 distortion_mask_in_percam_ba,
                 ..
             } => {
@@ -407,7 +398,7 @@ pub fn step_intrinsics_optimize_all(
                     robust_loss: config.solver.robust_loss,
                     fix_intrinsics: IntrinsicsFixMask::default(),
                     fix_distortion: *distortion_mask_in_percam_ba,
-                    fix_scheimpflug: *fix_scheimpflug_in_intrinsics,
+                    fix_scheimpflug: *fix_scheimpflug,
                     fix_poses: vec![0],
                     bounds: None,
                 };

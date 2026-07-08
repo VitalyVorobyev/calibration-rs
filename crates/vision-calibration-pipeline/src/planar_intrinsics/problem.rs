@@ -80,7 +80,7 @@ pub struct PlanarIntrinsicsConfig {
     /// models (Rational8, ThinPrism9, Division1) are PlanarIntrinsics-only;
     /// they cannot be passed into `RigExtrinsics` / `RigHandeye` pipelines
     /// which still expect a `PinholeCamera`.
-    #[serde(default = "default_distortion_kind")]
+    #[serde(default = "crate::common::config::default_distortion_kind")]
     pub distortion_model: DistortionKind,
 
     /// Mask for fixing camera intrinsics/distortion parameters during
@@ -89,10 +89,6 @@ pub struct PlanarIntrinsicsConfig {
 
     /// Indices of poses to fix during optimization (e.g., \[0\] to fix first pose).
     pub fix_poses: Vec<usize>,
-}
-
-fn default_distortion_kind() -> DistortionKind {
-    DistortionKind::BrownConrady5
 }
 
 impl Default for PlanarIntrinsicsConfig {
@@ -110,15 +106,7 @@ impl Default for PlanarIntrinsicsConfig {
 impl PlanarIntrinsicsConfig {
     /// Convert to vision-calibration-linear initialization options.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        IterativeIntrinsicsOptions {
-            iterations: self.init.init_iterations,
-            distortion_opts: DistortionFitOptions {
-                fix_k3: self.init.fix_k3,
-                fix_tangential: self.init.fix_tangential,
-                iters: 8,
-            },
-            zero_skew: self.init.zero_skew,
-        }
+        self.init.iterative_opts(None)
     }
 
     /// Convert to vision-calibration-optim solve options.

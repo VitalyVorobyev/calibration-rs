@@ -123,7 +123,7 @@
         },
         "fix_camera": {
           "$ref": "#/$defs/CameraFixMask",
-          "description": "Mask for fixing camera intrinsics/distortion parameters during\noptimization.\n\nHonored only at the granularity the underlying laserline solver\n(`vision_calibration_optim::LaserlineSolveOptions`) supports:\n`intrinsics` is all-or-nothing (any field fixed behaves as if all\nfour are), and `distortion` collapses to one of `{all-fixed,\nk3-only, all-free}` (any other combination behaves as `all-free`\nwith a fixed k3 iff `distortion.k3` is set) — see\n[`LaserlineDeviceConfig::solve_opts`]."
+          "description": "Mask for fixing camera intrinsics/distortion parameters during\noptimization, at full per-field granularity — passed straight through\nto `vision_calibration_optim::LaserlineSolveOptions::fix_camera`."
         },
         "fix_plane": {
           "description": "Fix laser plane parameters during optimization.",

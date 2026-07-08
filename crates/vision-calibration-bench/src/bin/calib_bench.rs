@@ -1099,7 +1099,7 @@ fn set_rig_distortion_and_tilt_masks(
     overrides.sensor = Some(BenchSensorMode::Scheimpflug {
         init_tilt_x: 0.0,
         init_tilt_y: 0.0,
-        fix_scheimpflug_in_intrinsics: Some(BenchScheimpflugFixMask {
+        fix_scheimpflug: Some(BenchScheimpflugFixMask {
             tilt_x: fix_scheimpflug,
             tilt_y: fix_scheimpflug,
         }),

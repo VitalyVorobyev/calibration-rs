@@ -114,7 +114,9 @@ obs = vc.Observation(
     points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
 )
 dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
-config = vc.PlanarCalibrationConfig(max_iters=80, robust_loss=vc.robust_huber(1.0))
+config = vc.PlanarCalibrationConfig(
+    solver=vc.SolverConfig(max_iters=80, robust_loss=vc.robust_huber(1.0))
+)
 result = vc.run_planar_intrinsics(dataset, config)
 print(result.mean_reproj_error)
 ```
@@ -270,7 +272,7 @@ Each problem type also provides a `run_calibration` convenience function that ru
 The two rig problem types (`RigExtrinsicsProblem` and `RigHandeyeProblem`) handle both pinhole and
 Scheimpflug rigs through a `SensorMode` enum on their config. Set
 `config.sensor = SensorMode::Pinhole` (the default) for a standard rig, or
-`config.sensor = SensorMode::Scheimpflug { init_tilt_x, init_tilt_y, fix_scheimpflug_in_intrinsics, refine_scheimpflug_in_rig_ba }`
+`config.sensor = SensorMode::Scheimpflug { init_tilt_x, init_tilt_y, fix_scheimpflug, refine_scheimpflug_in_rig_ba }`
 for a Scheimpflug-tilted rig. Step functions dispatch on the mode and produce an export with a
 `sensors: Option<Vec<ScheimpflugParams>>` field — `None` for pinhole, `Some(_)` for Scheimpflug.
 

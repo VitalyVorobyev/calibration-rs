@@ -233,15 +233,7 @@ pub fn step_intrinsics_init_with_seed(
         make_pinhole_camera(k, dist)
     } else {
         auto_fields.push("intrinsics");
-        let init_opts = IterativeIntrinsicsOptions {
-            iterations: opts.iterations.unwrap_or(config.intrinsics.init_iterations),
-            distortion_opts: DistortionFitOptions {
-                fix_k3: config.intrinsics.fix_k3,
-                fix_tangential: config.intrinsics.fix_tangential,
-                iters: 8,
-            },
-            zero_skew: config.intrinsics.zero_skew,
-        };
+        let init_opts = config.intrinsics.iterative_opts(opts.iterations);
         let planar_dataset = input_to_planar_dataset(input)?;
         let bootstrap_camera = match estimate_intrinsics_iterative(&planar_dataset, init_opts) {
             Ok(c) => c,

@@ -137,6 +137,11 @@ impl Default for RigHandeyeLaserlineConfig {
 #[non_exhaustive]
 pub struct RigHandeyeLaserlineBaConfig {
     /// Non-linear solve stage settings for the joint stage.
+    ///
+    /// `robust_loss` is **not consulted** by this problem: laser-carrying
+    /// stages track calibration and laser residuals as independent families
+    /// with their own robust losses (`calib_loss`, `laser_loss` — ADR 0024
+    /// D3). Only `max_iters`/`verbosity` apply here.
     pub solver: SolverConfig,
     /// Which laser residual drives the joint solve.
     pub laser_residual_type: LaserlineResidualType,
@@ -287,16 +292,7 @@ impl ProblemType for RigHandeyeLaserlineProblem {
                 "joint_ba.solver.max_iters must be positive",
             ));
         }
-        if config.joint_ba.robot_poses.rot_sigma <= 0.0 {
-            return Err(Error::invalid_input(
-                "joint_ba.robot_poses.rot_sigma must be positive",
-            ));
-        }
-        if config.joint_ba.robot_poses.trans_sigma <= 0.0 {
-            return Err(Error::invalid_input(
-                "joint_ba.robot_poses.trans_sigma must be positive",
-            ));
-        }
+        config.joint_ba.robot_poses.validate()?;
         Ok(())
     }
 

@@ -7,7 +7,6 @@ use vision_calibration_core::{
     IntrinsicsFixMask, IntrinsicsParams, Iso3, ProjectionParams, RationalPolynomial, Real,
     ScheimpflugParams, SensorParams, ThinPrism,
 };
-use vision_calibration_linear::distortion_fit::DistortionFitOptions;
 use vision_calibration_linear::scheimpflug_init::{
     ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
     estimate_scheimpflug_intrinsics_iterative,
@@ -224,11 +223,7 @@ pub fn step_init_with_seed(
             &dataset,
             LinearScheimpflugIntrinsicsInitOptions {
                 iterations: init_iterations,
-                distortion_opts: DistortionFitOptions {
-                    fix_k3: session.config.init.fix_k3,
-                    fix_tangential: session.config.init.fix_tangential,
-                    iters: 8,
-                },
+                distortion_opts: session.config.init.distortion_fit_opts(),
                 zero_skew: session.config.init.zero_skew,
                 ..Default::default()
             },

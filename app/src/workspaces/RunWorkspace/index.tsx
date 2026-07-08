@@ -68,17 +68,24 @@ const DEFAULT_DATASET: unknown = {
 
 // Browser-context fallback only — inside Tauri the defaults come from
 // `default_config_cmd` (Rust `Config::default()`), the single source
-// of truth.
+// of truth. Grouped shape per ADR 0024 — mirrors `PlanarIntrinsicsConfig::default()`.
 const DEFAULT_PLANAR_CONFIG: unknown = {
-  init_iterations: 2,
-  fix_k3_in_init: true,
-  fix_tangential_in_init: false,
-  zero_skew: true,
-  max_iters: 50,
-  verbosity: 0,
-  robust_loss: "None",
-  fix_intrinsics: { fx: false, fy: false, cx: false, cy: false },
-  fix_distortion: { k1: false, k2: false, k3: true, p1: false, p2: false },
+  init: {
+    init_iterations: 2,
+    fix_k3: true,
+    fix_tangential: false,
+    zero_skew: true,
+  },
+  solver: {
+    max_iters: 50,
+    verbosity: 0,
+    robust_loss: "None",
+  },
+  distortion_model: "brown_conrady5",
+  fix_camera: {
+    intrinsics: { fx: false, fy: false, cx: false, cy: false },
+    distortion: { k1: false, k2: false, k3: true, p1: false, p2: false },
+  },
   fix_poses: [],
 };
 

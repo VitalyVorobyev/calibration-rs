@@ -405,12 +405,7 @@ impl ProblemType for RigHandeyeProblem {
                 "min_motion_angle_deg must be positive",
             ));
         }
-        if config.handeye_ba.robot_poses.rot_sigma <= 0.0 {
-            return Err(Error::invalid_input("robot_rot_sigma must be positive"));
-        }
-        if config.handeye_ba.robot_poses.trans_sigma <= 0.0 {
-            return Err(Error::invalid_input("robot_trans_sigma must be positive"));
-        }
+        config.handeye_ba.robot_poses.validate()?;
         // The joint rig hand-eye bundle adjustment is Brown-Conrady-typed; reject
         // other Scheimpflug distortion models up front (ADR 0019) rather than deep
         // in the solver. Use the single-camera Scheimpflug problem type for

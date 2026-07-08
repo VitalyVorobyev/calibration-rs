@@ -49,8 +49,8 @@ Input is validated via `ProblemType::validate_input()`. Setting input clears com
 
 ```rust
 session.update_config(|c| {
-    c.max_iters = 50;
-    c.robust_loss = RobustLoss::Huber { scale: 2.0 };
+    c.solver.max_iters = 50;
+    c.solver.robust_loss = RobustLoss::Huber { scale: 2.0 };
 })?;
 ```
 

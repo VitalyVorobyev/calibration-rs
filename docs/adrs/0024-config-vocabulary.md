@@ -111,6 +111,17 @@ Naming rules:
 - `fix_first_camera_extrinsic: bool` is deleted from the joint BA config;
   the implementation now always pins `reference_camera_idx` (fixing the
   index-0 hard-coding bug).
+- `RigLaserlineDeviceConfig`'s effective `max_iters`-when-unset changes from
+  100 to 200. Pre-R3, the step function's own `Option<usize>` override
+  parameter defaulted to `cfg.max_iters.unwrap_or(100)`; post-R3 the config
+  itself is grouped into `solver: SolverConfig` with `max_iters: usize = 200`
+  and there is no lower `unwrap_or` layer left to disagree with it. Every
+  real caller (bench, app, examples) already passed `200` explicitly, so
+  this only changes the behavior of a config that never sets `max_iters` and
+  never overrides it at the step-function call site — a case none of our
+  callers exercise. The frozen-geometry rig-laserline stage is a cheap
+  1-DOF-per-view problem, so a higher iteration ceiling costs effectively
+  nothing when it does trigger.
 
 These are the only intentional numeric-behavior changes in the R3 rollout.
 Expected effect is unchanged-or-slightly-improved fits; the acceptance

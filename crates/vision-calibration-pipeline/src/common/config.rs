@@ -16,7 +16,26 @@
 //! documents the plain value used when a problem has no reason to deviate.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_optim::{HandEyeMode, RobustLoss};
+use vision_calibration_linear::prelude::{DistortionFitOptions, IterativeIntrinsicsOptions};
+use vision_calibration_optim::{DistortionKind, HandEyeMode, RobustLoss};
+
+/// Fixed iteration count for the inner Brown-Conrady distortion fit loop.
+///
+/// Shared by every [`IntrinsicsInitConfig::iterative_opts`] /
+/// [`IntrinsicsInitConfig::distortion_fit_opts`] call site — never
+/// user-configurable, so it lives as a single named constant rather than a
+/// copy-pasted literal `8`.
+const DISTORTION_FIT_ITERS: u32 = 8;
+
+/// Shared `#[serde(default = ...)]` for every `distortion_model:
+/// DistortionKind` field in the workspace: `PlanarIntrinsicsConfig`,
+/// `ScheimpflugIntrinsicsConfig`, and `rig_family::SensorMode::Scheimpflug`.
+/// Brown-Conrady5 is the only distortion model every downstream consumer
+/// (rig bundle adjustment, hand-eye, laserline) accepts; extended models are
+/// opt-in and PlanarIntrinsics-only.
+pub(crate) fn default_distortion_kind() -> DistortionKind {
+    DistortionKind::BrownConrady5
+}
 
 /// Per-camera linear-initialization stage (Zhang's method + iterative
 /// Brown-Conrady distortion fit).
@@ -48,6 +67,37 @@ impl Default for IntrinsicsInitConfig {
             fix_k3: true,
             fix_tangential: false,
             zero_skew: true,
+        }
+    }
+}
+
+impl IntrinsicsInitConfig {
+    /// Convert to `vision-calibration-linear`'s
+    /// [`IterativeIntrinsicsOptions`], the shape every per-camera Zhang's
+    /// method bootstrap consumes.
+    ///
+    /// `iterations_override` — when `Some`, overrides `self.init_iterations`
+    /// (used by step functions that accept a per-call `IntrinsicsInitOptions`
+    /// override, e.g. `RigExtrinsicsProblem::step_intrinsics_init_all`).
+    /// `None` uses the config's own `init_iterations` verbatim (the shape
+    /// problems without a step-level override need).
+    pub fn iterative_opts(&self, iterations_override: Option<usize>) -> IterativeIntrinsicsOptions {
+        IterativeIntrinsicsOptions {
+            iterations: iterations_override.unwrap_or(self.init_iterations),
+            distortion_opts: self.distortion_fit_opts(),
+            zero_skew: self.zero_skew,
+        }
+    }
+
+    /// The `{fix_k3, fix_tangential, iters}` sub-literal shared by every
+    /// intrinsics-bootstrap options struct, including the Scheimpflug
+    /// linear-init path (which builds a different top-level options struct
+    /// and so cannot use [`Self::iterative_opts`] directly).
+    pub fn distortion_fit_opts(&self) -> DistortionFitOptions {
+        DistortionFitOptions {
+            fix_k3: self.fix_k3,
+            fix_tangential: self.fix_tangential,
+            iters: DISTORTION_FIT_ITERS,
         }
     }
 }
@@ -107,6 +157,36 @@ impl Default for RobotPoseConfig {
             rot_sigma: 0.5_f64.to_radians(),
             trans_sigma: 1.0e-3,
         }
+    }
+}
+
+impl RobotPoseConfig {
+    /// Validate that `rot_sigma`/`trans_sigma` are strictly positive.
+    ///
+    /// Replaces the 3 copy-pasted positivity checks that used to live in
+    /// `validate_config` for `SingleCamHandeyeConfig`, `RigHandeyeConfig`,
+    /// and `RigHandeyeLaserlineConfig`. Whether the check is gated on
+    /// `self.refine` is each caller's own choice — the problem types
+    /// disagree on this (`SingleCamHandeyeProblem` only requires positive
+    /// sigmas when `refine` is enabled; the rig problem types always
+    /// validate) and this helper preserves each site's pre-existing
+    /// behavior rather than picking one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::InvalidInput`] naming the non-positive field.
+    pub fn validate(&self) -> Result<(), crate::Error> {
+        if self.rot_sigma <= 0.0 {
+            return Err(crate::Error::invalid_input(
+                "robot_rot_sigma must be positive",
+            ));
+        }
+        if self.trans_sigma <= 0.0 {
+            return Err(crate::Error::invalid_input(
+                "robot_trans_sigma must be positive",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -187,6 +267,75 @@ mod tests {
         let cfg = RigConfig::default();
         assert_eq!(cfg.reference_camera_idx, 0);
         assert!(!cfg.refine_intrinsics_in_rig_ba);
+    }
+
+    #[test]
+    fn default_distortion_kind_is_brown_conrady5() {
+        assert_eq!(default_distortion_kind(), DistortionKind::BrownConrady5);
+    }
+
+    #[test]
+    fn iterative_opts_uses_config_iterations_when_no_override() {
+        let cfg = IntrinsicsInitConfig {
+            init_iterations: 3,
+            fix_k3: false,
+            fix_tangential: true,
+            zero_skew: false,
+        };
+        let opts = cfg.iterative_opts(None);
+        assert_eq!(opts.iterations, 3);
+        assert!(!opts.distortion_opts.fix_k3);
+        assert!(opts.distortion_opts.fix_tangential);
+        assert_eq!(opts.distortion_opts.iters, 8);
+        assert!(!opts.zero_skew);
+    }
+
+    #[test]
+    fn iterative_opts_override_wins_over_config_iterations() {
+        let cfg = IntrinsicsInitConfig::default();
+        let opts = cfg.iterative_opts(Some(9));
+        assert_eq!(opts.iterations, 9);
+    }
+
+    #[test]
+    fn distortion_fit_opts_mirrors_init_fields() {
+        let cfg = IntrinsicsInitConfig {
+            init_iterations: 2,
+            fix_k3: true,
+            fix_tangential: false,
+            zero_skew: true,
+        };
+        let dist_opts = cfg.distortion_fit_opts();
+        assert!(dist_opts.fix_k3);
+        assert!(!dist_opts.fix_tangential);
+        assert_eq!(dist_opts.iters, 8);
+    }
+
+    #[test]
+    fn robot_pose_config_validate_accepts_default() {
+        assert!(RobotPoseConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn robot_pose_config_validate_rejects_non_positive_rot_sigma() {
+        let cfg = RobotPoseConfig {
+            rot_sigma: 0.0,
+            ..Default::default()
+        };
+        let err = cfg.validate().expect_err("zero rot_sigma must be rejected");
+        assert!(err.to_string().contains("robot_rot_sigma"));
+    }
+
+    #[test]
+    fn robot_pose_config_validate_rejects_non_positive_trans_sigma() {
+        let cfg = RobotPoseConfig {
+            trans_sigma: -1.0,
+            ..Default::default()
+        };
+        let err = cfg
+            .validate()
+            .expect_err("negative trans_sigma must be rejected");
+        assert!(err.to_string().contains("robot_trans_sigma"));
     }
 
     #[test]

@@ -245,12 +245,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             ));
         }
         if config.robot_poses.refine {
-            if config.robot_poses.rot_sigma <= 0.0 {
-                return Err(Error::invalid_input("robot_rot_sigma must be positive"));
-            }
-            if config.robot_poses.trans_sigma <= 0.0 {
-                return Err(Error::invalid_input("robot_trans_sigma must be positive"));
-            }
+            config.robot_poses.validate()?;
         }
         Ok(())
     }

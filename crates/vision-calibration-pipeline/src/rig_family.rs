@@ -68,7 +68,7 @@ pub enum SensorMode {
         init_tilt_y: f64,
         /// Mask for Scheimpflug parameters during per-camera intrinsics refinement.
         #[serde(default)]
-        fix_scheimpflug_in_intrinsics: ScheimpflugFixMask,
+        fix_scheimpflug: ScheimpflugFixMask,
         /// Distortion mask applied during per-camera Scheimpflug intrinsics
         /// refinement. Defaults to [`DistortionFixMask::radial_only`]
         /// (k1, k2 free; k3, p1, p2 fixed) — a safe choice for typical
@@ -87,17 +87,13 @@ pub enum SensorMode {
         /// models are rejected up front by the rig `validate_config` (ADR 0019)
         /// rather than deep in the solver. The field exists for schema
         /// symmetry with the single-camera Scheimpflug path.
-        #[serde(default = "default_scheimpflug_distortion_kind")]
+        #[serde(default = "crate::common::config::default_distortion_kind")]
         distortion_model: DistortionKind,
     },
 }
 
 fn default_scheimpflug_percam_distortion_mask() -> DistortionFixMask {
     DistortionFixMask::radial_only()
-}
-
-fn default_scheimpflug_distortion_kind() -> DistortionKind {
-    DistortionKind::BrownConrady5
 }
 
 impl SensorMode {

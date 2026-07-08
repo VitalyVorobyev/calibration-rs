@@ -1100,7 +1100,7 @@ mod tests {
         handeye_config["manual_init"] = rtv3d_manual_intrinsics_init();
         handeye_config["sensor"] = json!({
             "kind": "Scheimpflug",
-            "fix_scheimpflug_in_intrinsics": {"tilt_x": false, "tilt_y": false},
+            "fix_scheimpflug": {"tilt_x": false, "tilt_y": false},
             "distortion_mask_in_percam_ba": {
                 "k1": false,
                 "k2": false,

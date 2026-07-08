@@ -63,15 +63,8 @@ pub struct LaserlineDeviceOptimizeConfig {
     /// Global weight for laser residuals.
     pub laser_weight: f64,
     /// Mask for fixing camera intrinsics/distortion parameters during
-    /// optimization.
-    ///
-    /// Honored only at the granularity the underlying laserline solver
-    /// (`vision_calibration_optim::LaserlineSolveOptions`) supports:
-    /// `intrinsics` is all-or-nothing (any field fixed behaves as if all
-    /// four are), and `distortion` collapses to one of `{all-fixed,
-    /// k3-only, all-free}` (any other combination behaves as `all-free`
-    /// with a fixed k3 iff `distortion.k3` is set) — see
-    /// [`LaserlineDeviceConfig::solve_opts`].
+    /// optimization, at full per-field granularity — passed straight through
+    /// to `vision_calibration_optim::LaserlineSolveOptions::fix_camera`.
     pub fix_camera: CameraFixMask,
     /// Fix Scheimpflug sensor parameters during optimization.
     pub fix_sensor: bool,
@@ -102,37 +95,20 @@ impl Default for LaserlineDeviceOptimizeConfig {
 impl LaserlineDeviceConfig {
     /// Convert to vision-calibration-linear initialization options.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        IterativeIntrinsicsOptions {
-            iterations: self.init.init_iterations,
-            distortion_opts: DistortionFitOptions {
-                fix_k3: self.init.fix_k3,
-                fix_tangential: self.init.fix_tangential,
-                iters: 8,
-            },
-            zero_skew: self.init.zero_skew,
-        }
+        self.init.iterative_opts(None)
     }
 
     /// Convert to vision-calibration-optim solve options.
     ///
-    /// `optimize.fix_camera` is lowered to the solver's `{fix_intrinsics,
-    /// fix_distortion, fix_k3}` bool trio: `fix_intrinsics` is true iff
-    /// every intrinsics field is fixed; `fix_distortion` is true iff every
-    /// distortion field is fixed; otherwise `fix_k3` mirrors
-    /// `fix_camera.distortion.k3` alone. The default mask (intrinsics
-    /// all-free, distortion `{k3}`-only fixed) round-trips exactly to the
-    /// pre-ADR-0024 defaults (`fix_intrinsics: false, fix_distortion:
-    /// false, fix_k3: true`).
+    /// `optimize.fix_camera` passes straight through to the solver's
+    /// `fix_camera: CameraFixMask` field — no lowering or granularity loss.
     pub fn solve_opts(&self) -> LaserlineSolveOptions {
-        let fix_camera = &self.optimize.fix_camera;
         LaserlineSolveOptions {
             calib_loss: self.optimize.calib_loss,
             calib_weight: self.optimize.calib_weight,
             laser_loss: self.optimize.laser_loss,
             laser_weight: self.optimize.laser_weight,
-            fix_intrinsics: fix_camera.intrinsics.all_are_fixed(),
-            fix_distortion: fix_camera.distortion.all_are_fixed(),
-            fix_k3: fix_camera.distortion.k3,
+            fix_camera: self.optimize.fix_camera,
             fix_sensor: self.optimize.fix_sensor,
             fix_poses: self.optimize.fix_poses.clone(),
             fix_plane: self.optimize.fix_plane,
