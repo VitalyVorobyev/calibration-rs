@@ -48,6 +48,15 @@ def _rot_axis_angle(axis: list[float], ang: float) -> list[list[float]]:
     ]
 
 
+def _euler_rot(ax: float, ay: float, az: float) -> list[list[float]]:
+    """Rz(az) · Ry(ay) · Rx(ax) — used to give the robot poses rotation about
+    all three axes (a single-axis ramp leaves the hand-eye solve degenerate)."""
+    return _mat_mul(
+        _mat_mul(_rot_axis_angle([0, 0, 1], az), _rot_axis_angle([0, 1, 0], ay)),
+        _rot_axis_angle([1, 0, 0], ax),
+    )
+
+
 def _pose(R: list[list[float]], t: list[float]) -> tuple[list[list[float]], list[float]]:
     return (R, list(t))
 
@@ -112,10 +121,17 @@ def _synthetic_dataset() -> vc.RigHandeyeLaserlineDataset:
 
     views: list[vc.RigHandeyeLaserlineView] = []
     for i in range(8):
-        ang = 0.15 * i
+        # Rotate about all three axes across views. Hand-eye calibration
+        # (Tsai-Lenz linear init) is ill-conditioned when every relative motion
+        # shares one rotation axis — the SVD then diverges across BLAS/LAPACK
+        # builds, which surfaced as a macOS-passes / ubuntu-fails flake.
         robot = _pose(
-            _rot_axis_angle([0, 0, 1], ang),
-            [0.10 * math.cos(ang), 0.05 * math.sin(2 * ang), 0.20],
+            _euler_rot(
+                0.35 * math.sin(0.9 * i + 0.3),
+                0.30 * math.cos(0.7 * i) - 0.1,
+                0.28 * i - 0.4,
+            ),
+            [0.10 * math.cos(0.15 * i), 0.05 * math.sin(0.3 * i), 0.20 + 0.01 * i],
         )
         cams: list[vc.Observation | None] = []
         laser: list[list[tuple[float, float]] | None] = []
@@ -206,11 +222,20 @@ class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
         self.assertIsNotNone(result.gripper_se3_target)
         self.assertIsNone(result.gripper_se3_rig)
 
-        # Noise-free data → the joint solve should be near-exact.
-        self.assertLess(result.mean_reproj_error, 1e-3)
+        # Well-conditioned noise-free data → the joint solve is near-exact on
+        # every platform. These bounds sit ~6+ orders above the observed optimum
+        # (reproj ~5e-13 px, laser ~2e-15 m) — tight enough to catch a real
+        # regression, loose enough to absorb cross-platform LM/SVD tail.
+        self.assertLess(result.mean_reproj_error, 1e-6)
+        for cam in result.cameras:
+            # fx recovers to the ground-truth 900 only because the robot
+            # rotations span all three axes; a single-axis fixture leaves the
+            # hand-eye solve under-determined and fx drifts along a scale
+            # ambiguity. This assertion is the guard on fixture conditioning.
+            self.assertAlmostEqual(cam.intrinsics.fx, 900.0, delta=1.0)
         for stats in result.per_camera_stats:
             self.assertGreater(stats.laser_count, 0)
-            self.assertLess(stats.mean_laser_err_m, 1e-4)
+            self.assertLess(stats.mean_laser_err_m, 1e-6)
 
     def test_dict_input_is_rejected_with_type_error(self) -> None:
         with self.assertRaises(TypeError):
