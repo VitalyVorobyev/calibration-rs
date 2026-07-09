@@ -224,6 +224,7 @@ impl DistortionFixMask {
 ///
 /// Groups intrinsics and distortion masks for convenient configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CameraFixMask {
     /// Mask for intrinsics (fx, fy, cx, cy).
     pub intrinsics: IntrinsicsFixMask,

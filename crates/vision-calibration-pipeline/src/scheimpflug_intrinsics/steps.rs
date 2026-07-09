@@ -7,15 +7,13 @@ use vision_calibration_core::{
     IntrinsicsFixMask, IntrinsicsParams, Iso3, ProjectionParams, RationalPolynomial, Real,
     ScheimpflugParams, SensorParams, ThinPrism,
 };
-use vision_calibration_linear::distortion_fit::DistortionFitOptions;
 use vision_calibration_linear::scheimpflug_init::{
     ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
     estimate_scheimpflug_intrinsics_iterative,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, DistortionKind, ScheimpflugBounds,
-    ScheimpflugFixMask as OptimScheimpflugFixMask, ScheimpflugIntrinsicsEstimate,
-    ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,
+    BackendSolveOptions, DistortionKind, ScheimpflugBounds, ScheimpflugFixMask,
+    ScheimpflugIntrinsicsEstimate, ScheimpflugIntrinsicsParams as OptimScheimpflugIntrinsicsParams,
     ScheimpflugIntrinsicsSolveOptions as OptimScheimpflugIntrinsicsSolveOptions,
     ScheimpflugStagedInitOptions, optimize_scheimpflug_intrinsics,
     optimize_scheimpflug_intrinsics_staged, with_leading_radial,
@@ -120,7 +118,7 @@ pub fn step_init_with_seed(
     let dataset = session.require_input()?.clone();
 
     let opts = opts.unwrap_or_default();
-    let mut init_iterations = session.config.init_iterations;
+    let mut init_iterations = session.config.init.init_iterations;
     if let Some(iterations) = opts.iterations {
         init_iterations = iterations;
     }
@@ -225,12 +223,8 @@ pub fn step_init_with_seed(
             &dataset,
             LinearScheimpflugIntrinsicsInitOptions {
                 iterations: init_iterations,
-                distortion_opts: DistortionFitOptions {
-                    fix_k3: session.config.fix_k3_in_init,
-                    fix_tangential: true,
-                    iters: 8,
-                },
-                zero_skew: session.config.zero_skew,
+                distortion_opts: session.config.init.distortion_fit_opts(),
+                zero_skew: session.config.init.zero_skew,
                 ..Default::default()
             },
         )
@@ -384,8 +378,8 @@ pub fn step_optimize(
             });
 
     let opts = opts.unwrap_or_default();
-    let mut max_iters = session.config.max_iters;
-    let mut verbosity = session.config.verbosity;
+    let mut max_iters = session.config.solver.max_iters;
+    let mut verbosity = session.config.solver.verbosity;
     if let Some(v) = opts.max_iters {
         max_iters = v;
     }
@@ -410,16 +404,14 @@ pub fn step_optimize(
     // configured behaviour.
     let fix_poses = if trust_seed_tilt {
         Vec::new()
-    } else if session.config.fix_first_pose {
-        vec![0]
     } else {
-        Vec::new()
+        session.config.fix_poses.clone()
     };
     let solve_opts = OptimScheimpflugIntrinsicsSolveOptions {
-        robust_loss: session.config.robust_loss,
-        fix_intrinsics: session.config.fix_intrinsics,
-        fix_distortion: session.config.fix_distortion,
-        fix_scheimpflug: to_optim_scheimpflug_fix_mask(session.config.fix_scheimpflug),
+        robust_loss: session.config.solver.robust_loss,
+        fix_intrinsics: session.config.fix_camera.intrinsics,
+        fix_distortion: session.config.fix_camera.distortion,
+        fix_scheimpflug: session.config.fix_scheimpflug,
         fix_poses,
         bounds: None,
     };
@@ -457,10 +449,10 @@ pub fn step_optimize(
                 p1: true,
                 p2: true,
             },
-            fix_scheimpflug: to_optim_scheimpflug_fix_mask(super::problem::ScheimpflugFixMask {
+            fix_scheimpflug: ScheimpflugFixMask {
                 tilt_x: true,
                 tilt_y: true,
-            }),
+            },
             fix_poses: Vec::new(),
             bounds: None,
         };
@@ -474,10 +466,10 @@ pub fn step_optimize(
                 p1: true,
                 p2: true,
             },
-            fix_scheimpflug: to_optim_scheimpflug_fix_mask(super::problem::ScheimpflugFixMask {
+            fix_scheimpflug: ScheimpflugFixMask {
                 tilt_x: true,
                 tilt_y: true,
-            }),
+            },
             fix_poses: Vec::new(),
             bounds: None,
         };
@@ -627,15 +619,6 @@ pub fn run_calibration(
     let _ = step_init(session, None)?;
     let _ = step_optimize(session, None)?;
     Ok(())
-}
-
-fn to_optim_scheimpflug_fix_mask(
-    mask: super::problem::ScheimpflugFixMask,
-) -> OptimScheimpflugFixMask {
-    OptimScheimpflugFixMask {
-        tilt_x: mask.tilt_x,
-        tilt_y: mask.tilt_y,
-    }
 }
 
 fn scheimpflug_camera_params(

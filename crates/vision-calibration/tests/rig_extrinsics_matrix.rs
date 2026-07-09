@@ -175,7 +175,7 @@ fn build_rig_dataset(
 fn solve(input: RigExtrinsicsInput, reference_camera_idx: usize) -> RigExtrinsicsExport {
     let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
     let mut config = RigExtrinsicsConfig::default();
-    config.reference_camera_idx = reference_camera_idx;
+    config.rig.reference_camera_idx = reference_camera_idx;
     session.set_config(config).expect("config");
     session.set_input(input).expect("input");
     run_calibration(&mut session).expect("calibration");

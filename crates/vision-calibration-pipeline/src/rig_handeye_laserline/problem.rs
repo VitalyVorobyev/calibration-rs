@@ -1,6 +1,7 @@
 //! [`ProblemType`] implementation for joint rig hand-eye laserline calibration.
 
 use crate::Error;
+use crate::common::config::{RobotPoseConfig, SolverConfig};
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDeviceProblem};
 use nalgebra::{Translation3, UnitQuaternion, Vector3};
@@ -112,8 +113,11 @@ impl Default for RigHandeyeLaserlineConfig {
         Self {
             handeye: RigHandeyeConfig::default(),
             laserline_init: RigLaserlineDeviceConfig {
-                max_iters: Some(200),
-                verbosity: Some(0),
+                solver: SolverConfig {
+                    max_iters: 200,
+                    verbosity: 0,
+                    ..SolverConfig::default()
+                },
                 laser_residual_type: LaserlineResidualType::PointToPlane,
             },
             joint_ba: RigHandeyeLaserlineBaConfig::default(),
@@ -121,49 +125,24 @@ impl Default for RigHandeyeLaserlineConfig {
     }
 }
 
-/// Camera fix mask for the joint BA JSON config.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct JointCameraFixMask {
-    /// Intrinsic fix mask.
-    pub intrinsics: IntrinsicsFixMask,
-    /// Brown-Conrady distortion fix mask.
-    pub distortion: DistortionFixMask,
-}
-
-impl Default for JointCameraFixMask {
-    fn default() -> Self {
-        Self {
-            intrinsics: IntrinsicsFixMask::all_free(),
-            distortion: DistortionFixMask {
-                k1: false,
-                k2: false,
-                k3: true,
-                p1: true,
-                p2: true,
-            },
-        }
-    }
-}
-
-impl From<JointCameraFixMask> for CameraFixMask {
-    fn from(value: JointCameraFixMask) -> Self {
-        Self {
-            intrinsics: value.intrinsics,
-            distortion: value.distortion,
-        }
-    }
-}
-
-/// Final joint BA options.
+/// Final joint BA options (ADR 0024).
+///
+/// D2 removed `fix_first_camera_extrinsic: bool`: the joint stage now always
+/// pins the upstream rig's reference camera (`handeye.rig.reference_camera_idx`)
+/// — see `joint_fix_extrinsics`, fixing the old index-0 hard-coding bug.
+/// `JointCameraFixMask` (structurally identical to core's [`CameraFixMask`])
+/// is deleted in favor of the core type directly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeLaserlineBaConfig {
-    /// Maximum solver iterations for the joint stage.
-    pub max_iters: usize,
-    /// Solver verbosity for the joint stage.
-    pub verbosity: usize,
+    /// Non-linear solve stage settings for the joint stage.
+    ///
+    /// `robust_loss` is **not consulted** by this problem: laser-carrying
+    /// stages track calibration and laser residuals as independent families
+    /// with their own robust losses (`calib_loss`, `laser_loss` — ADR 0024
+    /// D3). Only `max_iters`/`verbosity` apply here.
+    pub solver: SolverConfig,
     /// Which laser residual drives the joint solve.
     pub laser_residual_type: LaserlineResidualType,
     /// Robust loss applied to target residuals.
@@ -175,41 +154,47 @@ pub struct RigHandeyeLaserlineBaConfig {
     /// Weight for laser residuals.
     pub laser_weight: f64,
     /// Default camera parameter fix mask applied to every camera.
-    pub default_camera_fix: JointCameraFixMask,
-    /// Fix the reference camera extrinsic for rig gauge stability.
-    pub fix_first_camera_extrinsic: bool,
+    pub default_camera_fix: CameraFixMask,
     /// Fix Scheimpflug tilt parameters during the joint stage.
-    pub fix_scheimpflug_tilt: bool,
+    pub fix_scheimpflug: ScheimpflugFixMask,
     /// Fix the hand-eye transform during the joint stage.
     pub fix_handeye: bool,
     /// Fix the target reference pose during the joint stage.
     pub fix_target_ref: bool,
-    /// Refine per-view robot pose deltas.
-    pub refine_robot_poses: bool,
-    /// Robot rotation prior sigma (radians).
-    pub robot_rot_sigma: f64,
-    /// Robot translation prior sigma (meters).
-    pub robot_trans_sigma: f64,
+    /// Robot-pose refinement settings for the joint stage.
+    pub robot_poses: RobotPoseConfig,
 }
 
 impl Default for RigHandeyeLaserlineBaConfig {
     fn default() -> Self {
         Self {
-            max_iters: 30,
-            verbosity: 0,
+            solver: SolverConfig {
+                max_iters: 30,
+                verbosity: 0,
+                ..SolverConfig::default()
+            },
             laser_residual_type: LaserlineResidualType::PointToPlane,
             calib_loss: RobustLoss::None,
             laser_loss: RobustLoss::None,
             calib_weight: 1.0,
             laser_weight: 1.0e4,
-            default_camera_fix: JointCameraFixMask::default(),
-            fix_first_camera_extrinsic: true,
-            fix_scheimpflug_tilt: true,
+            default_camera_fix: CameraFixMask {
+                intrinsics: IntrinsicsFixMask::all_free(),
+                distortion: DistortionFixMask {
+                    k1: false,
+                    k2: false,
+                    k3: true,
+                    p1: true,
+                    p2: true,
+                },
+            },
+            fix_scheimpflug: ScheimpflugFixMask {
+                tilt_x: true,
+                tilt_y: true,
+            },
             fix_handeye: false,
             fix_target_ref: false,
-            refine_robot_poses: true,
-            robot_rot_sigma: 0.5_f64.to_radians(),
-            robot_trans_sigma: 0.001,
+            robot_poses: RobotPoseConfig::default(),
         }
     }
 }
@@ -302,19 +287,12 @@ impl ProblemType for RigHandeyeLaserlineProblem {
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
         RigHandeyeProblem::validate_config(&config.handeye)?;
         RigLaserlineDeviceProblem::validate_config(&config.laserline_init)?;
-        if config.joint_ba.max_iters == 0 {
-            return Err(Error::invalid_input("joint_ba.max_iters must be positive"));
-        }
-        if config.joint_ba.robot_rot_sigma <= 0.0 {
+        if config.joint_ba.solver.max_iters == 0 {
             return Err(Error::invalid_input(
-                "joint_ba.robot_rot_sigma must be positive",
+                "joint_ba.solver.max_iters must be positive",
             ));
         }
-        if config.joint_ba.robot_trans_sigma <= 0.0 {
-            return Err(Error::invalid_input(
-                "joint_ba.robot_trans_sigma must be positive",
-            ));
-        }
+        config.joint_ba.robot_poses.validate()?;
         Ok(())
     }
 
@@ -483,28 +461,22 @@ pub(crate) fn joint_fix_intrinsics(
     config: &RigHandeyeLaserlineBaConfig,
     n: usize,
 ) -> Vec<CameraFixMask> {
-    vec![config.default_camera_fix.into(); n]
+    vec![config.default_camera_fix; n]
 }
 
 pub(crate) fn joint_fix_scheimpflug(
     config: &RigHandeyeLaserlineBaConfig,
     n: usize,
 ) -> Vec<ScheimpflugFixMask> {
-    let mask = if config.fix_scheimpflug_tilt {
-        ScheimpflugFixMask {
-            tilt_x: true,
-            tilt_y: true,
-        }
-    } else {
-        ScheimpflugFixMask::default()
-    };
-    vec![mask; n]
+    vec![config.fix_scheimpflug; n]
 }
 
-pub(crate) fn joint_fix_extrinsics(config: &RigHandeyeLaserlineBaConfig, n: usize) -> Vec<bool> {
-    (0..n)
-        .map(|idx| config.fix_first_camera_extrinsic && idx == 0)
-        .collect()
+/// D2 (ADR 0024): the joint stage always pins the upstream rig's reference
+/// camera extrinsic — the old `fix_first_camera_extrinsic: bool` knob
+/// hard-coded index 0 regardless of `reference_camera_idx` (a bug); this
+/// always honors the configured reference camera instead.
+pub(crate) fn joint_fix_extrinsics(reference_camera_idx: usize, n: usize) -> Vec<bool> {
+    (0..n).map(|idx| idx == reference_camera_idx).collect()
 }
 
 #[cfg(test)]
@@ -521,7 +493,7 @@ mod tests {
             LaserlineResidualType::PointToPlane
         );
         assert_eq!(restored.joint_ba.laser_weight, 1.0e4);
-        assert!(restored.joint_ba.refine_robot_poses);
+        assert!(restored.joint_ba.robot_poses.refine);
         assert!(restored.joint_ba.default_camera_fix.distortion.p1);
         assert!(restored.joint_ba.default_camera_fix.distortion.p2);
     }

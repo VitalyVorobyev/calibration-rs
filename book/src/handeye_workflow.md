@@ -83,27 +83,27 @@ This penalizes deviations from the nominal robot poses, allowing small correctio
 
 ## Configuration
 
+Grouped per ADR 0024 — shared sub-structs (`IntrinsicsInitConfig`,
+`HandeyeInitConfig`, `SolverConfig`, `RobotPoseConfig`) are reused across
+every hand-eye problem type:
+
 ```rust
 pub struct SingleCamHandeyeConfig {
-    // Intrinsics init
-    pub intrinsics_init_iterations: usize,
-    pub fix_k3: bool,              // Fix k3 (default: true)
-    pub fix_tangential: bool,      // Fix p1, p2 (default: false)
-    pub zero_skew: bool,           // Enforce zero skew (default: true)
+    // Per-camera linear-initialization stage settings.
+    pub intrinsics: IntrinsicsInitConfig,
+    // { init_iterations: usize = 2, fix_k3: bool = true,
+    //   fix_tangential: bool = false, zero_skew: bool = true }
 
-    // Hand-eye
-    pub handeye_mode: HandEyeMode, // EyeInHand or EyeToHand
-    pub min_motion_angle_deg: f64, // Filter small rotations in Tsai-Lenz
+    // Hand-eye linear-initialization stage settings (Tsai-Lenz DLT).
+    pub handeye_init: HandeyeInitConfig,
+    // { handeye_mode: HandEyeMode, min_motion_angle_deg: f64 = 5.0 }
 
-    // Optimization
-    pub max_iters: usize,          // LM iterations (default: 100)
-    pub verbosity: usize,
-    pub robust_loss: RobustLoss,
+    // Non-linear solve stage settings.
+    pub solver: SolverConfig, // { max_iters, verbosity, robust_loss }
 
-    // Robot pose refinement
-    pub refine_robot_poses: bool,  // Enable per-view corrections
-    pub robot_rot_sigma: f64,      // Rotation prior sigma (radians)
-    pub robot_trans_sigma: f64,    // Translation prior sigma (meters)
+    // Robot-pose refinement settings for the hand-eye bundle adjustment.
+    pub robot_poses: RobotPoseConfig,
+    // { refine: bool = true, rot_sigma: f64, trans_sigma: f64 }
 }
 ```
 

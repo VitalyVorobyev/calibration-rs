@@ -159,7 +159,7 @@ fn main() -> Result<()> {
     // poses the hand-eye residual is directly sensitive to the board scale,
     // which makes the cell-size A/B check sharp (robot translations anchor
     // absolute scale).
-    cfg.handeye_ba.refine_robot_poses =
+    cfg.handeye_ba.robot_poses.refine =
         std::env::var("RTV3D_REFINE_ROBOT").map_or(true, |v| v != "0");
     // Scheimpflug: both tilts free (the legacy system also frees tau_x/tau_y;
     // oracle tilts reach 0.27 rad). Distortion: k1, k2 free; k3 + tangential
@@ -167,7 +167,7 @@ fn main() -> Result<()> {
     cfg.sensor = SensorMode::Scheimpflug {
         init_tilt_x: 0.0,
         init_tilt_y: 0.0,
-        fix_scheimpflug_in_intrinsics: ScheimpflugFixMask {
+        fix_scheimpflug: ScheimpflugFixMask {
             tilt_x: false,
             tilt_y: false,
         },
@@ -183,8 +183,8 @@ fn main() -> Result<()> {
         distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
     };
     cfg.rig.refine_intrinsics_in_rig_ba = false;
-    let robot_rot_sigma = cfg.handeye_ba.robot_rot_sigma;
-    let robot_trans_sigma = cfg.handeye_ba.robot_trans_sigma;
+    let robot_rot_sigma = cfg.handeye_ba.robot_poses.rot_sigma;
+    let robot_trans_sigma = cfg.handeye_ba.robot_poses.trans_sigma;
     rig_session.set_config(cfg)?;
 
     let t0 = Instant::now();
@@ -373,8 +373,8 @@ fn main() -> Result<()> {
             CalibrationSession::<RigLaserlineDeviceProblem>::with_description("rtv3d_laser");
         laser_session.set_input(laserline_input)?;
         let mut laser_cfg = RigLaserlineDeviceConfig::default();
-        laser_cfg.max_iters = Some(200);
-        laser_cfg.verbosity = Some(1);
+        laser_cfg.solver.max_iters = 200;
+        laser_cfg.solver.verbosity = 1;
         laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
         laser_session.set_config(laser_cfg)?;
 

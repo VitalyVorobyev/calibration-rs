@@ -63,27 +63,28 @@ Joint optimization of all parameters:
 
 ## Configuration
 
+Grouped per ADR 0024 — shared sub-structs (`IntrinsicsInitConfig`, `RigConfig`,
+`SolverConfig`) are reused across every rig-family problem type:
+
 ```rust
 pub struct RigExtrinsicsConfig {
-    // Per-camera intrinsics options
-    pub intrinsics_init_iterations: usize,
-    pub fix_k3: bool,
-    pub fix_tangential: bool,
-    pub zero_skew: bool,
+    // Per-camera linear-initialization stage settings.
+    pub intrinsics: IntrinsicsInitConfig, // { init_iterations, fix_k3, fix_tangential, zero_skew }
 
-    // Rig settings
-    pub reference_camera_idx: usize,
+    // Sensor flavour (pinhole or Scheimpflug); default `SensorMode::Pinhole`.
+    pub sensor: SensorMode,
 
-    // Optimization
-    pub max_iters: usize,
-    pub verbosity: usize,
-    pub robust_loss: RobustLoss,
+    // Rig frame options.
+    pub rig: RigConfig, // { reference_camera_idx, refine_intrinsics_in_rig_ba }
 
-    // Rig BA options
-    pub refine_intrinsics_in_rig_ba: bool,
-    pub fix_first_rig_pose: bool,
+    // Non-linear solve stage settings.
+    pub solver: SolverConfig, // { max_iters, verbosity, robust_loss }
 }
 ```
+
+`fix_first_rig_pose` is gone (ADR 0024 D2): the reference-camera fix alone
+removes the rig's 6-DOF gauge freedom, so a second pose-gauge knob was
+redundant (and measurably, mildly pessimizing).
 
 ## Input Format
 

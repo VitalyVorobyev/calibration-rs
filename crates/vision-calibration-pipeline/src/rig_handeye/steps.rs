@@ -259,15 +259,7 @@ pub fn step_intrinsics_init_all_with_seed(
     let num_cameras = input.num_cameras;
     let num_views = input.num_views();
 
-    let init_opts = IterativeIntrinsicsOptions {
-        iterations: opts.iterations.unwrap_or(config.intrinsics.init_iterations),
-        distortion_opts: DistortionFitOptions {
-            fix_k3: config.intrinsics.fix_k3,
-            fix_tangential: config.intrinsics.fix_tangential,
-            iters: 8,
-        },
-        zero_skew: config.intrinsics.zero_skew,
-    };
+    let init_opts = config.intrinsics.iterative_opts(opts.iterations);
 
     let flavour = match &config.sensor {
         SensorMode::Pinhole => SensorFlavour::Pinhole,
@@ -448,7 +440,7 @@ pub fn step_intrinsics_optimize_all(
                 per_cam_reproj_errors.push(result.mean_reproj_error);
             }
             SensorMode::Scheimpflug {
-                fix_scheimpflug_in_intrinsics,
+                fix_scheimpflug,
                 distortion_mask_in_percam_ba,
                 ..
             } => {
@@ -469,7 +461,7 @@ pub fn step_intrinsics_optimize_all(
                     robust_loss: config.solver.robust_loss,
                     fix_intrinsics: IntrinsicsFixMask::default(),
                     fix_distortion: *distortion_mask_in_percam_ba,
-                    fix_scheimpflug: *fix_scheimpflug_in_intrinsics,
+                    fix_scheimpflug: *fix_scheimpflug,
                     fix_poses: vec![0],
                     bounds: None,
                 };
@@ -526,7 +518,7 @@ pub fn step_intrinsics_optimize_all(
 
     if session.state.per_cam_intrinsics_auto
         && let SensorMode::Scheimpflug {
-            fix_scheimpflug_in_intrinsics,
+            fix_scheimpflug,
             distortion_mask_in_percam_ba,
             ..
         } = &config.sensor
@@ -535,7 +527,7 @@ pub fn step_intrinsics_optimize_all(
             robust_loss: config.solver.robust_loss,
             fix_intrinsics: IntrinsicsFixMask::default(),
             fix_distortion: *distortion_mask_in_percam_ba,
-            fix_scheimpflug: *fix_scheimpflug_in_intrinsics,
+            fix_scheimpflug: *fix_scheimpflug,
             fix_poses: vec![0],
             bounds: None,
         };
@@ -1571,6 +1563,11 @@ pub fn step_rig_init(
 /// - Per-view rig poses (rig-to-target)
 /// - Optionally: per-camera intrinsics (if `refine_intrinsics_in_rig_ba` is true)
 ///
+/// The reference camera (`rig.reference_camera_idx`) alone removes the rig's
+/// full 6-DOF gauge freedom; no rig-from-target pose is fixed (ADR 0024 D2 —
+/// the old `fix_first_rig_pose` knob was evidence-backed redundant and
+/// mildly pessimizing; see `docs/notes/rig-extrinsics.md` §Gauge).
+///
 /// Requires [`step_rig_init`] to be run first.
 ///
 /// # Errors
@@ -1621,11 +1618,11 @@ pub fn step_rig_optimize(
         .map(|i| i == config.rig.reference_camera_idx)
         .collect();
 
-    let fix_rig_poses = if config.rig.fix_first_rig_pose {
-        vec![0]
-    } else {
-        Vec::new()
-    };
+    // ADR 0024 D2: the reference-camera fix above removes the full 6-DOF rig
+    // gauge on its own; no rig-from-target pose is additionally pinned (the
+    // old `fix_first_rig_pose` knob was evidence-backed redundant and mildly
+    // pessimizing; see `docs/notes/rig-extrinsics.md` §Gauge).
+    let fix_rig_poses: Vec<usize> = Vec::new();
 
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
@@ -1987,7 +1984,7 @@ pub fn step_handeye_optimize(
     // Don't refine intrinsics in final BA.
     let fix_intrinsics = CameraFixMask::all_fixed();
 
-    let fix_extrinsics: Vec<bool> = if config.handeye_ba.refine_cam_se3_rig_in_handeye_ba {
+    let fix_extrinsics: Vec<bool> = if config.handeye_ba.refine_cam_se3_rig {
         (0..input.num_cameras)
             .map(|i| i == config.rig.reference_camera_idx)
             .collect()
@@ -2018,9 +2015,9 @@ pub fn step_handeye_optimize(
                 fix_handeye: false,
                 fix_target_poses: Vec::new(),
                 relax_target_poses: false,
-                refine_robot_poses: config.handeye_ba.refine_robot_poses,
-                robot_rot_sigma: config.handeye_ba.robot_rot_sigma,
-                robot_trans_sigma: config.handeye_ba.robot_trans_sigma,
+                refine_robot_poses: config.handeye_ba.robot_poses.refine,
+                robot_rot_sigma: config.handeye_ba.robot_poses.rot_sigma,
+                robot_trans_sigma: config.handeye_ba.robot_poses.trans_sigma,
             };
 
             let handeye_dataset = HandEyeDataset::new(
@@ -2051,7 +2048,7 @@ pub fn step_handeye_optimize(
                 target_poses: vec![mode_target_pose],
             };
 
-            let scheimpflug_fix = if config.handeye_ba.refine_scheimpflug_in_handeye_ba {
+            let scheimpflug_fix = if config.handeye_ba.refine_scheimpflug {
                 ScheimpflugFixMask::default()
             } else {
                 ScheimpflugFixMask {
@@ -2070,9 +2067,9 @@ pub fn step_handeye_optimize(
                 fix_handeye: false,
                 fix_target_poses: Vec::new(),
                 relax_target_poses: false,
-                refine_robot_poses: config.handeye_ba.refine_robot_poses,
-                robot_rot_sigma: config.handeye_ba.robot_rot_sigma,
-                robot_trans_sigma: config.handeye_ba.robot_trans_sigma,
+                refine_robot_poses: config.handeye_ba.robot_poses.refine,
+                robot_rot_sigma: config.handeye_ba.robot_poses.rot_sigma,
+                robot_trans_sigma: config.handeye_ba.robot_poses.trans_sigma,
             };
 
             let handeye_dataset = HandEyeScheimpflugDataset::new(
@@ -2119,12 +2116,7 @@ pub fn step_handeye_optimize(
 ///
 /// Any error from the constituent steps.
 pub fn run_calibration(session: &mut CalibrationSession<RigHandeyeProblem>) -> Result<(), Error> {
-    let manual = session
-        .config
-        .intrinsics
-        .manual_init
-        .clone()
-        .unwrap_or_default();
+    let manual = session.config.manual_init.clone().unwrap_or_default();
     let _ = step_intrinsics_init_all_with_seed(session, manual, None)?;
     let _ = step_intrinsics_optimize_all(session, None)?;
     let _ = step_rig_init(session)?;
@@ -2310,7 +2302,7 @@ mod tests {
 
         session
             .set_config(super::super::problem::RigHandeyeConfig {
-                solver: super::super::problem::RigHandeyeSolverConfig {
+                solver: crate::common::config::SolverConfig {
                     max_iters: 100,
                     ..Default::default()
                 },
@@ -2327,32 +2319,29 @@ mod tests {
         session.set_input(make_test_input()).unwrap();
         session
             .set_config(super::super::problem::RigHandeyeConfig {
-                intrinsics: super::super::problem::RigHandeyeIntrinsicsConfig {
-                    manual_init: Some(RigHandeyeIntrinsicsManualInit {
-                        per_cam_intrinsics: Some(vec![
-                            FxFyCxCySkew {
-                                fx: 800.0,
-                                fy: 780.0,
-                                cx: 640.0,
-                                cy: 360.0,
-                                skew: 0.0,
-                            },
-                            FxFyCxCySkew {
-                                fx: 810.0,
-                                fy: 790.0,
-                                cx: 640.0,
-                                cy: 360.0,
-                                skew: 0.0,
-                            },
-                        ]),
-                        per_cam_distortion: Some(vec![
-                            BrownConrady5::default(),
-                            BrownConrady5::default(),
-                        ]),
-                        per_cam_sensors: None,
-                    }),
-                    ..Default::default()
-                },
+                manual_init: Some(RigHandeyeIntrinsicsManualInit {
+                    per_cam_intrinsics: Some(vec![
+                        FxFyCxCySkew {
+                            fx: 800.0,
+                            fy: 780.0,
+                            cx: 640.0,
+                            cy: 360.0,
+                            skew: 0.0,
+                        },
+                        FxFyCxCySkew {
+                            fx: 810.0,
+                            fy: 790.0,
+                            cx: 640.0,
+                            cy: 360.0,
+                            skew: 0.0,
+                        },
+                    ]),
+                    per_cam_distortion: Some(vec![
+                        BrownConrady5::default(),
+                        BrownConrady5::default(),
+                    ]),
+                    per_cam_sensors: None,
+                }),
                 ..Default::default()
             })
             .unwrap();
@@ -2390,7 +2379,7 @@ mod tests {
         session.set_input(input).unwrap();
         session
             .set_config(super::super::problem::RigHandeyeConfig {
-                handeye_init: super::super::problem::RigHandeyeInitConfig {
+                handeye_init: crate::common::config::HandeyeInitConfig {
                     handeye_mode: HandEyeMode::EyeToHand,
                     min_motion_angle_deg: 5.0,
                 },

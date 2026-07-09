@@ -76,13 +76,19 @@ pub enum RobustLoss {
 }
 ```
 
-Each problem type exposes the loss function as a configuration option:
+Each non-laser problem type exposes the loss function via its shared
+`solver: SolverConfig` group (ADR 0024):
 
 ```rust
 session.update_config(|c| {
-    c.robust_loss = RobustLoss::Huber { scale: 2.0 };
+    c.solver.robust_loss = RobustLoss::Huber { scale: 2.0 };
 })?;
 ```
+
+Laser-carrying stages (laserline device, rig-handeye-laserline) do not use
+`solver.robust_loss` — they track calibration and laser residuals as
+independent families with their own `calib_loss`/`laser_loss` fields
+instead (ADR 0024 D3).
 
 The backend applies the loss function during residual evaluation, modifying both the cost and the Jacobian.
 

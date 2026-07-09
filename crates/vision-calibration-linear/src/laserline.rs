@@ -215,36 +215,6 @@ impl LaserlinePlaneSolver {
         Self::from_points_3d(&all_points)
     }
 
-    /// Estimate laser plane from a single view (DEPRECATED).
-    ///
-    /// **Warning**: A single view produces collinear 3D points, which is
-    /// degenerate for plane fitting. This method will likely fail with
-    /// an error because a single view produces collinear points.
-    ///
-    /// Use [`Self::from_views`] with multiple views instead.
-    #[deprecated(
-        since = "0.2.0",
-        note = "Single view produces collinear points. Use from_views() with multiple views."
-    )]
-    pub fn from_view<Sm>(
-        view: &LaserlineView,
-        camera: &Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>,
-    ) -> Result<LinearPlaneEstimate, Error>
-    where
-        Sm: SensorModel<Real>,
-    {
-        if view.laser_pixels.is_empty() {
-            return Err(Error::InsufficientData { need: 1, got: 0 });
-        }
-
-        // Compute 3D points in camera frame
-        let points_camera =
-            Self::compute_3d_points(&view.laser_pixels, camera, &view.camera_se3_target)?;
-
-        // Fit plane to 3D points
-        Self::from_points_3d(&points_camera)
-    }
-
     /// Compute 3D laser points in camera frame from pixel observations.
     ///
     /// For each pixel:

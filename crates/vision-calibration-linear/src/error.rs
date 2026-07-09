@@ -32,6 +32,13 @@ pub enum Error {
     #[error("numerical failure: {0}")]
     Numerical(String),
 
+    /// No motion pairs survived the min-rotation / axis-parallel filters
+    /// during hand-eye initialization.
+    #[error(
+        "no valid hand-eye motion pairs after filtering (poses too similar or rotation axes near-parallel)"
+    )]
+    NoValidMotionPairs,
+
     /// Forwarded error from `vision-calibration-core`.
     #[error(transparent)]
     Core(#[from] CoreError),

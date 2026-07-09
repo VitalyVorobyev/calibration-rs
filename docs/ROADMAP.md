@@ -100,14 +100,16 @@ ellipse-center bias (→ Q3), M-WIRE's Scheimpflug distortion-model wiring
 
 ### Track R — API/config/design revision
 
-R1 API-surface audit (facade-only consumption for app + Python, kill the
-duplicate `ScheimpflugFixMask` name, drop deprecated shims) → R2 (ADR 0024:
-one config vocabulary — grouped configs, one init-iterations name, unified
-`fix_*` shape, one `max_iters` default table, one robust-loss vocabulary,
-shared `RobotPosePrior`; pre-1.0 clean break) → R3 (implementation across all
-8 problem configs + examples + bench + app payloads) → R4 (typed errors in
-`vision-calibration-linear`, the last anyhow holdout) → R5 (Python parity
-G0/G2/G1 + coverage test) → R6 (tutorials refresh).
+**R1–R4 done 2026-07-08.** R1: facade gained `dataset`/`dataset_runner`/
+`detect` modules; the app is facade-only; one `ScheimpflugFixMask`;
+diagnostics live under `vision_calibration::analysis`; dead shims deleted.
+R2: ADR 0024 (one config vocabulary, grouped shapes, shared sub-structs).
+R3: executed across all 8 configs + every consumer; `fix_first_rig_pose` and
+`fix_first_camera_extrinsic` removed (reference-camera gauge only — the
+joint BA now honors `reference_camera_idx`). R4: `vision-calibration-linear`
+is anyhow-free. Remaining: R5 (Python parity G0/G2 + missing
+`RigHandeyeConfig.sensor` mirror + coverage test; MVG bindings stay
+deferred) → R6 (tutorials refresh for the R3 shapes + `spec.json` docs).
 
 ### Track B extensions — app to production grade
 

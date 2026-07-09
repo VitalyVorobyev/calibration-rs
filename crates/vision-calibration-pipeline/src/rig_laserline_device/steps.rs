@@ -179,8 +179,8 @@ pub fn step_optimize(
         ..RigLaserlineSolveOptions::default()
     };
     let backend_opts = BackendSolveOptions {
-        max_iters: opts.max_iters.or(cfg.max_iters).unwrap_or(100),
-        verbosity: opts.verbosity.or(cfg.verbosity).unwrap_or(0),
+        max_iters: opts.max_iters.unwrap_or(cfg.solver.max_iters),
+        verbosity: opts.verbosity.unwrap_or(cfg.solver.verbosity),
         ..Default::default()
     };
 

@@ -161,47 +161,35 @@
         }
       ]
     },
-    "RigHandeyeBaConfig": {
-      "description": "Hand-eye bundle-adjustment options.",
+    "HandeyeBaConfig": {
+      "description": "Final hand-eye bundle-adjustment options (ADR 0024; renamed and reshaped\nfrom `RigHandeyeBaConfig`, keeping robot-pose refinement in the shared\n[`RobotPoseConfig`] group).",
       "properties": {
-        "refine_cam_se3_rig_in_handeye_ba": {
+        "refine_cam_se3_rig": {
           "description": "Refine cam_se3_rig in hand-eye BA (default: false).\nWhen true, rig extrinsics are further refined during hand-eye optimization.",
           "type": "boolean"
         },
-        "refine_robot_poses": {
-          "description": "Refine robot poses in hand-eye BA (default: true).",
-          "type": "boolean"
-        },
-        "refine_scheimpflug_in_handeye_ba": {
+        "refine_scheimpflug": {
           "default": false,
           "description": "Refine Scheimpflug tilt parameters in hand-eye BA (default: false).\nOnly consulted when [`SensorMode::Scheimpflug`] is configured; ignored\nfor [`SensorMode::Pinhole`].",
           "type": "boolean"
         },
-        "robot_rot_sigma": {
-          "description": "Robot rotation sigma for prior (radians). Default: 0.5° ≈ 0.0087 rad.",
-          "format": "double",
-          "type": "number"
-        },
-        "robot_trans_sigma": {
-          "description": "Robot translation sigma for prior (meters). Default: 1mm = 0.001.",
-          "format": "double",
-          "type": "number"
+        "robot_poses": {
+          "$ref": "#/$defs/RobotPoseConfig",
+          "description": "Robot-pose refinement settings for the final hand-eye BA."
         }
       },
       "required": [
-        "refine_robot_poses",
-        "robot_rot_sigma",
-        "robot_trans_sigma",
-        "refine_cam_se3_rig_in_handeye_ba"
+        "robot_poses",
+        "refine_cam_se3_rig"
       ],
       "type": "object"
     },
-    "RigHandeyeInitConfig": {
-      "description": "Hand-eye linear initialization options for rig hand-eye calibration.",
+    "HandeyeInitConfig": {
+      "description": "Hand-eye linear-initialization stage options (Tsai-Lenz DLT).\n\nShared by every hand-eye problem's `handeye_init` config group.",
       "properties": {
         "handeye_mode": {
           "$ref": "#/$defs/HandEyeMode",
-          "description": "Hand-eye mode: EyeInHand or EyeToHand."
+          "description": "Hand-eye mode: `EyeInHand` or `EyeToHand`."
         },
         "min_motion_angle_deg": {
           "description": "Minimum motion angle (degrees) for linear hand-eye initialization.",
@@ -215,15 +203,15 @@
       ],
       "type": "object"
     },
-    "RigHandeyeIntrinsicsConfig": {
-      "description": "Per-camera intrinsics initialization options for rig hand-eye calibration.",
+    "IntrinsicsInitConfig": {
+      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
       "properties": {
         "fix_k3": {
-          "description": "Fix k3 during intrinsics calibration.",
+          "description": "Fix k3 during initialization (recommended for typical lenses).",
           "type": "boolean"
         },
         "fix_tangential": {
-          "description": "Fix tangential distortion (p1, p2).",
+          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (was hard-coded before\nADR 0024 — the tilt/tangential-distortion coupling makes a free\ntangential term ill-posed during the linear stage).",
           "type": "boolean"
         },
         "init_iterations": {
@@ -232,19 +220,8 @@
           "minimum": 0,
           "type": "integer"
         },
-        "manual_init": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RigHandeyeIntrinsicsManualInit"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional manual seeds for the per-camera intrinsics stage."
-        },
         "zero_skew": {
-          "description": "Enforce zero skew.",
+          "description": "Enforce zero skew during initialization.",
           "type": "boolean"
         }
       },
@@ -253,6 +230,26 @@
         "fix_k3",
         "fix_tangential",
         "zero_skew"
+      ],
+      "type": "object"
+    },
+    "RigConfig": {
+      "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nShared by every rig problem's `rig` config group (`RigExtrinsicsConfig`\ntoday; `RigHandeyeConfig` follows in a later ADR 0024 wave).",
+      "properties": {
+        "reference_camera_idx": {
+          "description": "Reference camera index for the rig frame (identity extrinsics).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "refine_intrinsics_in_rig_ba": {
+          "description": "Re-refine per-camera intrinsics jointly during rig bundle adjustment.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "reference_camera_idx",
+        "refine_intrinsics_in_rig_ba"
       ],
       "type": "object"
     },
@@ -293,55 +290,28 @@
       },
       "type": "object"
     },
-    "RigHandeyeRigConfig": {
-      "description": "Rig-specific options for rig hand-eye calibration.",
+    "RobotPoseConfig": {
+      "description": "Robot-pose refinement options for hand-eye bundle adjustment.\n\nReplaces the `robot_rot_sigma` / `robot_trans_sigma` /\n`refine_robot_poses` trio that used to be duplicated verbatim across\n`SingleCamHandeyeConfig`, `RigHandeyeBaConfig`, and the joint\nrig+hand-eye+laser BA config.",
       "properties": {
-        "fix_first_rig_pose": {
-          "description": "Fix first rig pose for gauge freedom (default: true, fixes view 0).",
+        "refine": {
+          "description": "Refine robot poses with per-view se(3) corrections.",
           "type": "boolean"
         },
-        "reference_camera_idx": {
-          "description": "Reference camera index for rig frame (identity extrinsics).",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
+        "rot_sigma": {
+          "description": "Robot rotation prior sigma (radians).",
+          "format": "double",
+          "type": "number"
         },
-        "refine_intrinsics_in_rig_ba": {
-          "description": "Re-refine intrinsics in rig BA (default: false).",
-          "type": "boolean"
+        "trans_sigma": {
+          "description": "Robot translation prior sigma (meters).",
+          "format": "double",
+          "type": "number"
         }
       },
       "required": [
-        "reference_camera_idx",
-        "refine_intrinsics_in_rig_ba",
-        "fix_first_rig_pose"
-      ],
-      "type": "object"
-    },
-    "RigHandeyeSolverConfig": {
-      "description": "Solver options shared across rig and hand-eye optimization stages.",
-      "properties": {
-        "max_iters": {
-          "description": "Maximum iterations for optimization.",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "robust_loss": {
-          "$ref": "#/$defs/RobustLoss",
-          "description": "Robust loss function for outlier handling."
-        },
-        "verbosity": {
-          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "max_iters",
-        "verbosity",
-        "robust_loss"
+        "refine",
+        "rot_sigma",
+        "trans_sigma"
       ],
       "type": "object"
     },
@@ -497,7 +467,7 @@
               "default": "brown_conrady5",
               "description": "Distortion model for the per-camera Scheimpflug intrinsics.\n\nOnly [`DistortionKind::BrownConrady5`] (the default) is supported:\nthe joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5\nmodels are rejected up front by the rig `validate_config` (ADR 0019)\nrather than deep in the solver. The field exists for schema\nsymmetry with the single-camera Scheimpflug path."
             },
-            "fix_scheimpflug_in_intrinsics": {
+            "fix_scheimpflug": {
               "$ref": "#/$defs/ScheimpflugFixMask",
               "default": {
                 "tilt_x": false,
@@ -533,26 +503,64 @@
           "type": "object"
         }
       ]
+    },
+    "SolverConfig": {
+      "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor the Scheimpflug single-cam tilt valley; 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "properties": {
+        "max_iters": {
+          "description": "Maximum iterations for the non-linear optimizer.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "robust_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss function for outlier handling."
+        },
+        "verbosity": {
+          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_iters",
+        "verbosity",
+        "robust_loss"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Configuration for multi-camera rig hand-eye calibration.\n\nShared between pinhole and Scheimpflug rigs; the [`SensorMode`] field\n`sensor` selects the sensor flavour.",
+  "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\nD2 (ADR 0024) removed the old `rig.fix_first_rig_pose: bool = true` field:\nthe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge, and the extra per-view pose constraint was\nevidence-backed redundant and mildly pessimizing (see\n`docs/notes/rig-extrinsics.md` §Gauge, which documents the equivalent\n`RigExtrinsicsConfig` finding). View-0's rig-from-target pose is now\nalways free in the rig BA.",
   "properties": {
     "handeye_ba": {
-      "$ref": "#/$defs/RigHandeyeBaConfig",
+      "$ref": "#/$defs/HandeyeBaConfig",
       "description": "Final hand-eye bundle-adjustment options."
     },
     "handeye_init": {
-      "$ref": "#/$defs/RigHandeyeInitConfig",
+      "$ref": "#/$defs/HandeyeInitConfig",
       "description": "Hand-eye linear initialization options."
     },
     "intrinsics": {
-      "$ref": "#/$defs/RigHandeyeIntrinsicsConfig",
-      "description": "Per-camera intrinsics initialization options."
+      "$ref": "#/$defs/IntrinsicsInitConfig",
+      "description": "Per-camera linear-initialization stage settings."
+    },
+    "manual_init": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RigHandeyeIntrinsicsManualInit"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional manual seeds for the per-camera intrinsics stage."
     },
     "rig": {
-      "$ref": "#/$defs/RigHandeyeRigConfig",
-      "description": "Rig and gauge options."
+      "$ref": "#/$defs/RigConfig",
+      "description": "Rig frame options (reference camera, rig-BA scope)."
     },
     "sensor": {
       "$ref": "#/$defs/SensorMode",
@@ -562,8 +570,8 @@
       "description": "Sensor flavour (pinhole or Scheimpflug). Default is `Pinhole`."
     },
     "solver": {
-      "$ref": "#/$defs/RigHandeyeSolverConfig",
-      "description": "Shared solver settings for optimization stages."
+      "$ref": "#/$defs/SolverConfig",
+      "description": "Non-linear solve stage settings."
     }
   },
   "required": [

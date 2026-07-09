@@ -15,6 +15,80 @@
         }
       ]
     },
+    "HandeyeInitConfig": {
+      "description": "Hand-eye linear-initialization stage options (Tsai-Lenz DLT).\n\nShared by every hand-eye problem's `handeye_init` config group.",
+      "properties": {
+        "handeye_mode": {
+          "$ref": "#/$defs/HandEyeMode",
+          "description": "Hand-eye mode: `EyeInHand` or `EyeToHand`."
+        },
+        "min_motion_angle_deg": {
+          "description": "Minimum motion angle (degrees) for linear hand-eye initialization.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "handeye_mode",
+        "min_motion_angle_deg"
+      ],
+      "type": "object"
+    },
+    "IntrinsicsInitConfig": {
+      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
+      "properties": {
+        "fix_k3": {
+          "description": "Fix k3 during initialization (recommended for typical lenses).",
+          "type": "boolean"
+        },
+        "fix_tangential": {
+          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (was hard-coded before\nADR 0024 — the tilt/tangential-distortion coupling makes a free\ntangential term ill-posed during the linear stage).",
+          "type": "boolean"
+        },
+        "init_iterations": {
+          "description": "Number of iterations for iterative intrinsics estimation.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "zero_skew": {
+          "description": "Enforce zero skew during initialization.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "init_iterations",
+        "fix_k3",
+        "fix_tangential",
+        "zero_skew"
+      ],
+      "type": "object"
+    },
+    "RobotPoseConfig": {
+      "description": "Robot-pose refinement options for hand-eye bundle adjustment.\n\nReplaces the `robot_rot_sigma` / `robot_trans_sigma` /\n`refine_robot_poses` trio that used to be duplicated verbatim across\n`SingleCamHandeyeConfig`, `RigHandeyeBaConfig`, and the joint\nrig+hand-eye+laser BA config.",
+      "properties": {
+        "refine": {
+          "description": "Refine robot poses with per-view se(3) corrections.",
+          "type": "boolean"
+        },
+        "rot_sigma": {
+          "description": "Robot rotation prior sigma (radians).",
+          "format": "double",
+          "type": "number"
+        },
+        "trans_sigma": {
+          "description": "Robot translation prior sigma (meters).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "refine",
+        "rot_sigma",
+        "trans_sigma"
+      ],
+      "type": "object"
+    },
     "RobustLoss": {
       "description": "Robust loss applied to a residual block.\n\nEach residual block has its own loss; per-point robustification is achieved\nby using one residual block per observation.",
       "oneOf": [
@@ -93,82 +167,60 @@
           "type": "object"
         }
       ]
+    },
+    "SolverConfig": {
+      "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor the Scheimpflug single-cam tilt valley; 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "properties": {
+        "max_iters": {
+          "description": "Maximum iterations for the non-linear optimizer.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "robust_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss function for outlier handling."
+        },
+        "verbosity": {
+          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_iters",
+        "verbosity",
+        "robust_loss"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Configuration for single-camera hand-eye calibration.",
+  "description": "Configuration for single-camera hand-eye calibration.\n\nGrouped per ADR 0024: per-camera linear init, hand-eye linear init,\nnon-linear solve, and robot-pose refinement each live in their own\nshared sub-struct. Every group's own `Default` is the plain workspace\ndefault (no per-problem override is needed here, unlike\n`ScheimpflugIntrinsicsConfig`).",
   "properties": {
-    "fix_k3": {
-      "description": "Fix k3 during initialization.",
-      "type": "boolean"
+    "handeye_init": {
+      "$ref": "#/$defs/HandeyeInitConfig",
+      "description": "Hand-eye linear-initialization stage settings (Tsai-Lenz DLT)."
     },
-    "fix_tangential": {
-      "description": "Fix tangential distortion (p1, p2) during initialization.",
-      "type": "boolean"
+    "intrinsics": {
+      "$ref": "#/$defs/IntrinsicsInitConfig",
+      "description": "Per-camera linear-initialization stage settings."
     },
-    "handeye_mode": {
-      "$ref": "#/$defs/HandEyeMode",
-      "description": "Hand-eye mode (EyeInHand or EyeToHand)."
+    "robot_poses": {
+      "$ref": "#/$defs/RobotPoseConfig",
+      "description": "Robot-pose refinement settings for the hand-eye bundle adjustment."
     },
-    "intrinsics_init_iterations": {
-      "description": "Number of iterations for iterative intrinsics estimation.",
-      "format": "uint",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "max_iters": {
-      "description": "Maximum iterations for optimization.",
-      "format": "uint",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "min_motion_angle_deg": {
-      "description": "Minimum motion angle (degrees) for linear hand-eye initialization.",
-      "format": "double",
-      "type": "number"
-    },
-    "refine_robot_poses": {
-      "description": "Refine robot poses with per-view se(3) corrections (default: true).",
-      "type": "boolean"
-    },
-    "robot_rot_sigma": {
-      "description": "Robot rotation prior sigma (radians). Default: 0.5 deg.",
-      "format": "double",
-      "type": "number"
-    },
-    "robot_trans_sigma": {
-      "description": "Robot translation prior sigma (meters). Default: 1 mm.",
-      "format": "double",
-      "type": "number"
-    },
-    "robust_loss": {
-      "$ref": "#/$defs/RobustLoss",
-      "description": "Robust loss function for outlier handling."
-    },
-    "verbosity": {
-      "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
-      "format": "uint",
-      "minimum": 0,
-      "type": "integer"
-    },
-    "zero_skew": {
-      "description": "Enforce zero skew.",
-      "type": "boolean"
+    "solver": {
+      "$ref": "#/$defs/SolverConfig",
+      "description": "Non-linear solve stage settings."
     }
   },
   "required": [
-    "intrinsics_init_iterations",
-    "fix_k3",
-    "fix_tangential",
-    "zero_skew",
-    "handeye_mode",
-    "min_motion_angle_deg",
-    "max_iters",
-    "verbosity",
-    "robust_loss",
-    "refine_robot_poses",
-    "robot_rot_sigma",
-    "robot_trans_sigma"
+    "intrinsics",
+    "handeye_init",
+    "solver",
+    "robot_poses"
   ],
   "title": "SingleCamHandeyeConfig",
   "type": "object"

@@ -265,36 +265,59 @@ two-view/triangulation.
 
 ## R — API/config/design revision (Phase II)
 
-- [ ] R1-API-AUDIT - API-surface audit (rust-api-revision) over the facade;
-  land the non-breaking fixes, write the breaking plan for R3. Known targets:
-  `dataset_runner` absent from the facade (the app depends on
-  pipeline/core/dataset/detect directly — must become facade-only);
-  `compute_*_feature_residuals` re-exported at crate root instead of under
-  `optim`; the deprecated `pixel_to_gripper_point` shim; **two distinct public
-  `ScheimpflugFixMask` types** (pipeline `scheimpflug_intrinsics/problem.rs` vs
-  optim `problems/scheimpflug_intrinsics.rs`) — rename one. Triage
-  B3C-CHARUCO-DEDUP here (keep as a small hygiene PR if mechanical, else park
-  with reason).
-- [ ] R2-CONFIG-ADR - ADR 0024: one config vocabulary. Grouped-vs-flat
-  (recommend grouped, RigHandeye-style — `rig_extrinsics` models the same rig
-  concepts flat today); one name for intrinsics-init iterations (currently 4:
-  `init_iterations` / `intrinsics_init_iterations` / `iterations`); unified
-  `fix_*` conventions (`fix_poses: Vec<usize>` vs `fix_first_pose` vs
-  `fix_first_rig_pose`; `fix_k3` vs `fix_k3_in_init`); Option-vs-value policy
-  for `max_iters`/`verbosity` + one defaults table (kill the 30/50/120/200
-  drift); one robust-loss vocabulary + stated defaults (single `robust_loss` vs
-  `calib_loss`+`laser_loss`+weights, `None` vs `Huber`); a shared
-  `RobotPosePrior` replacing the 3 duplicated blocks; uniform
-  `distortion_model` placement. Pre-1.0 clean break, stated in the ADR, with an
-  old→new mapping for every config struct.
-- [ ] R3-CONFIG-IMPL - Execute ADR 0024 across all 8 problem-type configs +
-  examples + bench registry + app `src-tauri` payloads + the schema-driven
-  form. Must precede R5 (Python G2) and B-QUAL2 (ts-rs) so downstream types
-  generate once. Gate: workspace green, acceptance runner green, app Run
-  workspace works, `grep` finds no old field names.
-- [ ] R4-LINEAR-ERRORS - Typed errors inside `vision-calibration-linear`: drop
-  the `anyhow` hard dep; convert the private helpers in `handeye.rs` /
-  `extrinsics.rs` to the established D1 pattern.
+- [x] R1-API-AUDIT - API-surface audit over the facade. **Done 2026-07-08.**
+  All known targets landed: deleted the deprecated crate-root
+  `pixel_to_gripper_point` shim and `LaserlinePlaneSolver::from_view` (both
+  caller-free); merged the duplicate `ScheimpflugFixMask` into the optim type
+  (pipeline re-exports it; `to_optim_scheimpflug_fix_mask` bridge deleted;
+  JSON wire shape unchanged); consolidated all residual/histogram diagnostics
+  (`ReprojectionStats`, `PerFeatureResiduals`, `compute_*_residuals`,
+  `build_feature_histogram`, `handeye_observer_se3_target`, laser residual
+  fns) under `vision_calibration::analysis` — `core` keeps only camera/
+  dataset/math types; added facade modules `dataset` (incl. `sniff_folder`),
+  `dataset_runner`, `detect` plus `core::{Mat3, distort_to_pixel,
+  pixel_to_normalized, CameraModel}`; **app/src-tauri is now facade-only**
+  (direct deps on core/pipeline/dataset/detect dropped — `vision-calibration`
+  + `vision-metrology` remain). Python bindings were already facade-only.
+  **B3C-CHARUCO-DEDUP — closed as blocked (2026-07-08, R1 audit).** The clean
+  design is known (bench `detect_charuco_view` and examples-private
+  `detect_charuco` should delegate to the canonical
+  `vision-calibration-detect` `CharucoDetector` and adapt output), but the
+  acceptance gate — byte-identical bench + examples residuals — needs the
+  private golden datasets absent from CI and plain checkouts; doing the edit
+  blind risks silently changing reference-reproducing paths. Revive trigger:
+  commit one small synthetic ChArUco fixture so byte-equivalence can run in
+  CI, then do the mechanical dedup.
+- [x] R2-CONFIG-ADR - ADR 0024: one config vocabulary. **Done 2026-07-08**
+  (`docs/adrs/0024-config-vocabulary.md`). Decisions: grouped shape everywhere
+  with shared sub-structs in `pipeline::common::config` (`IntrinsicsInitConfig`,
+  `SolverConfig`, `RobotPoseConfig`, `HandeyeInitConfig`, `RigConfig`);
+  `init_iterations` the one name; per-parameter masks the one fix idiom
+  (`CameraFixMask`, one `ScheimpflugFixMask`, `fix_poses: Vec<usize>`);
+  Option-knobs die; documented `max_iters` defaults (50/120/30/200 with
+  rationale); laser two-family loss split kept with tuned defaults preserved
+  and justified; D2 behavior change (delete `fix_first_rig_pose` +
+  `fix_first_camera_extrinsic`) grounded in the Q8 gauge evidence; full
+  old→new mapping table doubles as the R3 grep gate.
+- [x] R3-CONFIG-IMPL - Execute ADR 0024 across all 8 configs. **Done
+  2026-07-08** in three waves (all consumers migrated in lockstep: pipeline
+  problem/steps/tests + JSON contracts, bench registry overrides + run
+  literals, app payloads + `presets.ts` + regenerated schemas
+  (`cargo xtask emit-schemas`), Python mirrors (`models.py`/`types.py`/pyi,
+  11/11 tests), examples-private, facade tests). Net code shrink (wave 3
+  alone −293 LoC). D2 measured: stereo_rig 0.2503→0.2496 px, stereo_charuco
+  0.5509→0.5359 px (improvements), ds8 0.2962→0.2961 px, rtv3d noise-level;
+  the joint BA now pins `reference_camera_idx` instead of hard-coded camera 0.
+  Rename gate: zero old-name hits in code (tutorials/book updated in R6).
+  Known granularity note: `LaserlineDeviceConfig.optimize.fix_camera` lowers
+  onto the solver's all-or-nothing/k3-only options — pre-existing solver
+  limitation, documented on the field.
+- [x] R4-LINEAR-ERRORS - Typed errors inside `vision-calibration-linear`.
+  **Done 2026-07-08.** `anyhow` dep dropped; `handeye.rs` + `extrinsics.rs`
+  helpers return `linear::Error` (one new variant `NoValidMotionPairs`;
+  existing `InvalidInput`/`InsufficientData`/`Singular` reused; lossy
+  string re-wraps removed so specific variants propagate). Public signatures
+  unchanged — no caller churn.
 - [ ] R5-PY-PARITY - (absorbs the D3 fill) G0 `run_rig_handeye_laserline`
   binding → G2 `distortion_model` field (post-R3 shapes) → G1 MVG bindings
   (serde DTOs → triangulation + rectification + pose recovery → robust → BA,
@@ -913,8 +936,9 @@ Systemic causes:
   real hex-lattice `BoardLayout` model (`pitch`/`rows`/`long_row_cols`/radii/
   ring-width); schema regenerated. All four target detectors now calibrate
   end-to-end. Synthetic-board detection + dispatch tests green.
-- [ ] B3C-CHARUCO-DEDUP - **Deferred 2026-06-14; triage moved into R1-API-AUDIT
-  2026-07-02** (keep as a small hygiene PR if mechanical, else park with reason).
+- [x] B3C-CHARUCO-DEDUP - **Closed as blocked 2026-07-08 (R1 audit triage; see
+  the R1-API-AUDIT entry for the full rationale + revive trigger: commit a
+  synthetic ChArUco fixture so byte-equivalence can run in CI).**
   Consolidate the three charuco detection paths (`detect/src/charuco.rs`
   canonical, `examples-private::detect_charuco`, `bench::detect_charuco_view`)
   onto one shared detection call. The clean design (bench/examples delegate to

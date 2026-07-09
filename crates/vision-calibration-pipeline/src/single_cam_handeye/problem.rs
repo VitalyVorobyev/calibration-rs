@@ -9,10 +9,11 @@ use vision_calibration_core::{
     ImageManifest, Iso3, PerFeatureResiduals, PinholeCamera, View, build_feature_histogram,
     compute_planar_target_residuals_views,
 };
-use vision_calibration_optim::{
-    HandEyeEstimate, HandEyeMode, RobustLoss, handeye_observer_se3_target,
-};
+use vision_calibration_optim::{HandEyeEstimate, HandEyeMode, handeye_observer_se3_target};
 
+use crate::common::config::{
+    HandeyeInitConfig, IntrinsicsInitConfig, RobotPoseConfig, SolverConfig,
+};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::SingleCamHandeyeState;
@@ -74,80 +75,27 @@ impl SingleCamHandeyeInput {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Configuration for single-camera hand-eye calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Grouped per ADR 0024: per-camera linear init, hand-eye linear init,
+/// non-linear solve, and robot-pose refinement each live in their own
+/// shared sub-struct. Every group's own `Default` is the plain workspace
+/// default (no per-problem override is needed here, unlike
+/// `ScheimpflugIntrinsicsConfig`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct SingleCamHandeyeConfig {
-    // ─────────────────────────────────────────────────────────────────────────
-    // Intrinsics initialization options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Number of iterations for iterative intrinsics estimation.
-    pub intrinsics_init_iterations: usize,
+    /// Per-camera linear-initialization stage settings.
+    pub intrinsics: IntrinsicsInitConfig,
 
-    /// Fix k3 during initialization.
-    pub fix_k3: bool,
+    /// Hand-eye linear-initialization stage settings (Tsai-Lenz DLT).
+    pub handeye_init: HandeyeInitConfig,
 
-    /// Fix tangential distortion (p1, p2) during initialization.
-    pub fix_tangential: bool,
+    /// Non-linear solve stage settings.
+    pub solver: SolverConfig,
 
-    /// Enforce zero skew.
-    pub zero_skew: bool,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Hand-eye options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Hand-eye mode (EyeInHand or EyeToHand).
-    pub handeye_mode: HandEyeMode,
-
-    /// Minimum motion angle (degrees) for linear hand-eye initialization.
-    pub min_motion_angle_deg: f64,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Optimization options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Maximum iterations for optimization.
-    pub max_iters: usize,
-
-    /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
-    pub verbosity: usize,
-
-    /// Robust loss function for outlier handling.
-    pub robust_loss: RobustLoss,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Hand-eye BA specific
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Refine robot poses with per-view se(3) corrections (default: true).
-    pub refine_robot_poses: bool,
-
-    /// Robot rotation prior sigma (radians). Default: 0.5 deg.
-    pub robot_rot_sigma: f64,
-
-    /// Robot translation prior sigma (meters). Default: 1 mm.
-    pub robot_trans_sigma: f64,
-}
-
-impl Default for SingleCamHandeyeConfig {
-    fn default() -> Self {
-        Self {
-            // Intrinsics init
-            intrinsics_init_iterations: 2,
-            fix_k3: true,
-            fix_tangential: false,
-            zero_skew: true,
-            // Hand-eye
-            handeye_mode: HandEyeMode::EyeInHand,
-            min_motion_angle_deg: 5.0,
-            // Optimization
-            max_iters: 50,
-            verbosity: 0,
-            robust_loss: RobustLoss::None,
-            // Hand-eye BA
-            refine_robot_poses: true,
-            robot_rot_sigma: std::f64::consts::PI / 360.0, // 0.5 deg
-            robot_trans_sigma: 1.0e-3,                     // 1 mm
-        }
-    }
+    /// Robot-pose refinement settings for the hand-eye bundle adjustment.
+    pub robot_poses: RobotPoseConfig,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -285,26 +233,19 @@ impl ProblemType for SingleCamHandeyeProblem {
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        if config.max_iters == 0 {
+        if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.intrinsics_init_iterations == 0 {
-            return Err(Error::invalid_input(
-                "intrinsics_init_iterations must be positive",
-            ));
+        if config.intrinsics.init_iterations == 0 {
+            return Err(Error::invalid_input("init_iterations must be positive"));
         }
-        if config.min_motion_angle_deg <= 0.0 {
+        if config.handeye_init.min_motion_angle_deg <= 0.0 {
             return Err(Error::invalid_input(
                 "min_motion_angle_deg must be positive",
             ));
         }
-        if config.refine_robot_poses {
-            if config.robot_rot_sigma <= 0.0 {
-                return Err(Error::invalid_input("robot_rot_sigma must be positive"));
-            }
-            if config.robot_trans_sigma <= 0.0 {
-                return Err(Error::invalid_input("robot_trans_sigma must be positive"));
-            }
+        if config.robot_poses.refine {
+            config.robot_poses.validate()?;
         }
         Ok(())
     }
@@ -339,7 +280,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             .ok_or_else(|| Error::invalid_input("no target pose in output"))?;
 
         let (gripper_se3_camera, camera_se3_base, base_se3_target, gripper_se3_target) =
-            match config.handeye_mode {
+            match config.handeye_init.handeye_mode {
                 HandEyeMode::EyeInHand => {
                     (Some(output.params.handeye), None, Some(target_pose), None)
                 }
@@ -356,7 +297,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             .map(|v| v.meta.base_se3_gripper)
             .collect();
         let cam_se3_target = handeye_observer_se3_target(
-            config.handeye_mode,
+            config.handeye_init.handeye_mode,
             &output.params.handeye,
             &target_pose,
             &robot_poses,
@@ -370,7 +311,7 @@ impl ProblemType for SingleCamHandeyeProblem {
         per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
         Ok(SingleCamHandeyeExport {
             camera,
-            handeye_mode: config.handeye_mode,
+            handeye_mode: config.handeye_init.handeye_mode,
             gripper_se3_camera,
             camera_se3_base,
             base_se3_target,
@@ -388,6 +329,7 @@ impl ProblemType for SingleCamHandeyeProblem {
 mod tests {
     use super::*;
     use vision_calibration_core::{CorrespondenceView, Pt2, Pt3};
+    use vision_calibration_optim::RobustLoss;
 
     fn make_minimal_view() -> SingleCamHandeyeView {
         View::new(
@@ -442,7 +384,10 @@ mod tests {
     #[test]
     fn validate_config_requires_positive_iters() {
         let config = SingleCamHandeyeConfig {
-            max_iters: 0,
+            solver: SolverConfig {
+                max_iters: 0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = SingleCamHandeyeProblem::validate_config(&config);
@@ -460,19 +405,31 @@ mod tests {
     #[test]
     fn config_json_roundtrip() {
         let config = SingleCamHandeyeConfig {
-            max_iters: 100,
-            fix_k3: false,
-            handeye_mode: HandEyeMode::EyeToHand,
-            robust_loss: RobustLoss::Huber { scale: 2.5 },
+            solver: SolverConfig {
+                max_iters: 100,
+                robust_loss: RobustLoss::Huber { scale: 2.5 },
+                ..Default::default()
+            },
+            intrinsics: IntrinsicsInitConfig {
+                fix_k3: false,
+                ..Default::default()
+            },
+            handeye_init: HandeyeInitConfig {
+                handeye_mode: HandEyeMode::EyeToHand,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
         let json = serde_json::to_string_pretty(&config).unwrap();
         let restored: SingleCamHandeyeConfig = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(restored.max_iters, 100);
-        assert!(!restored.fix_k3);
-        assert!(matches!(restored.handeye_mode, HandEyeMode::EyeToHand));
+        assert_eq!(restored.solver.max_iters, 100);
+        assert!(!restored.intrinsics.fix_k3);
+        assert!(matches!(
+            restored.handeye_init.handeye_mode,
+            HandEyeMode::EyeToHand
+        ));
     }
 
     #[test]

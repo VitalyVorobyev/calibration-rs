@@ -185,14 +185,14 @@ fn main() -> Result<()> {
         session.set_input(dataset)?;
 
         let mut config = ScheimpflugIntrinsicsConfig::default();
-        config.max_iters = max_iters;
+        config.solver.max_iters = max_iters;
         // k1,k2 free; k3 + tangential fixed (default radial_only); both
         // Scheimpflug tilts free; robust loss for the detector outlier tail.
         config.fix_scheimpflug = ScheimpflugFixMask {
             tilt_x: false,
             tilt_y: false,
         };
-        config.robust_loss = RobustLoss::Huber { scale: 1.0 };
+        config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config)?;
 
         // Spec-derived coarse prior (ADR 0023): fx = fy from lens focal /
@@ -314,12 +314,12 @@ fn sweep_solve_camera(
     session.set_input(dataset)?;
 
     let mut config = ScheimpflugIntrinsicsConfig::default();
-    config.max_iters = max_iters;
+    config.solver.max_iters = max_iters;
     config.fix_scheimpflug = ScheimpflugFixMask {
         tilt_x: false,
         tilt_y: false,
     };
-    config.robust_loss = RobustLoss::Huber { scale: 1.0 };
+    config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
     config.distortion_model = model;
     session.set_config(config)?;
 

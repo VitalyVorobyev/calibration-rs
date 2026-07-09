@@ -36,8 +36,8 @@ use crate::problems::laserline_bundle::{
 };
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Iso3, LaserFeatureResidual, Pinhole,
-    Pt2, Real, ScheimpflugParams, View,
+    BrownConrady5, Camera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, Iso3,
+    LaserFeatureResidual, Pinhole, Pt2, Real, ScheimpflugParams, View,
 };
 
 /// Per-view observations for a rig-level laserline calibration.
@@ -165,8 +165,7 @@ pub struct RigLaserlineSolveOptions {
 impl Default for RigLaserlineSolveOptions {
     fn default() -> Self {
         let laserline = LaserlineSolveOptions {
-            fix_intrinsics: true,
-            fix_distortion: true,
+            fix_camera: CameraFixMask::all_fixed(),
             fix_sensor: true,
             fix_poses: Vec::new(),
             ..LaserlineSolveOptions::default()
@@ -323,8 +322,7 @@ pub fn optimize_rig_laserline(
 
     // Force upstream-freezing flags; propagate residual type.
     let mut laser_opts = opts.laserline.clone();
-    laser_opts.fix_intrinsics = true;
-    laser_opts.fix_distortion = true;
+    laser_opts.fix_camera = CameraFixMask::all_fixed();
     laser_opts.fix_sensor = true;
     laser_opts.laser_residual_type = opts.laser_residual_type;
 

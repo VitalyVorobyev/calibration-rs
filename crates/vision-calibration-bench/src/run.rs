@@ -721,9 +721,9 @@ pub mod tier_b {
         seed: ScheimpflugManualInit,
         label: &str,
     ) -> Result<ScheimpflugSeededSolve> {
-        // The pipeline-level fix mask, distinct from the optim-level
-        // `ScheimpflugFixMask` imported at module scope (R1 tracks the rename).
-        use vision_calibration::scheimpflug_intrinsics::ScheimpflugFixMask as SchFixMask;
+        // `ScheimpflugIntrinsicsConfig::fix_scheimpflug` takes the single canonical
+        // `vision_calibration_optim::ScheimpflugFixMask` (already imported at module
+        // scope; R1 API audit merged the former pipeline-local duplicate into it).
         use vision_calibration::scheimpflug_intrinsics::{
             ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
             step_init_with_seed as sch_step_init_with_seed, step_optimize as sch_step_optimize,
@@ -732,12 +732,12 @@ pub mod tier_b {
         let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
         session.set_input(dataset).context("set_input failed")?;
         let mut config = ScheimpflugIntrinsicsConfig::default();
-        config.max_iters = 120;
-        config.fix_scheimpflug = SchFixMask {
+        config.solver.max_iters = 120;
+        config.fix_scheimpflug = ScheimpflugFixMask {
             tilt_x: false,
             tilt_y: false,
         };
-        config.robust_loss = RobustLoss::Huber { scale: 1.0 };
+        config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config).context("set_config failed")?;
 
         progress_label(label, "seeded scheimpflug init");
@@ -1345,8 +1345,8 @@ pub mod tier_b {
         if let Some(overrides) = &entry.single_cam_handeye {
             overrides.apply_to(&mut config);
         }
-        let robot_rot_sigma = config.robot_rot_sigma;
-        let robot_trans_sigma = config.robot_trans_sigma;
+        let robot_rot_sigma = config.robot_poses.rot_sigma;
+        let robot_trans_sigma = config.robot_poses.trans_sigma;
         session
             .set_config(config)
             .context("set single_cam_handeye config failed")?;
@@ -1614,15 +1614,15 @@ pub mod tier_b {
                 .with_context(|| {
                     format!("failed to parse rig hand-eye manual seed for {}", entry.id)
                 })?;
-            config.intrinsics.manual_init = Some(manual);
+            config.manual_init = Some(manual);
         }
-        if config.intrinsics.manual_init.is_none() && entry.id == "rtv3d" {
-            config.intrinsics.manual_init = Some(rtv3d_manual_intrinsics_seed(entry));
+        if config.manual_init.is_none() && entry.id == "rtv3d" {
+            config.manual_init = Some(rtv3d_manual_intrinsics_seed(entry));
             config.intrinsics.fix_tangential = true;
         }
-        let robot_rot_sigma = config.handeye_ba.robot_rot_sigma;
-        let robot_trans_sigma = config.handeye_ba.robot_trans_sigma;
-        let manual_intrinsics = config.intrinsics.manual_init.clone().unwrap_or_default();
+        let robot_rot_sigma = config.handeye_ba.robot_poses.rot_sigma;
+        let robot_trans_sigma = config.handeye_ba.robot_poses.trans_sigma;
+        let manual_intrinsics = config.manual_init.clone().unwrap_or_default();
         let input = RigDataset::new(rig_views, n_cam)
             .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
         let dataset_for_report = input.clone();
@@ -3099,8 +3099,8 @@ pub mod tier_b {
             .set_input(laserline_input)
             .context("set laserline input failed")?;
         let mut laser_cfg = RigLaserlineDeviceConfig::default();
-        laser_cfg.max_iters = Some(200);
-        laser_cfg.verbosity = Some(0);
+        laser_cfg.solver.max_iters = 200;
+        laser_cfg.solver.verbosity = 0;
         laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
         laser_session
             .set_config(laser_cfg)

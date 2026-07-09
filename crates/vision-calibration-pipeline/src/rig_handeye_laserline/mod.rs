@@ -9,8 +9,7 @@ mod state;
 mod steps;
 
 pub use problem::{
-    JointCameraFixMask, RigHandeyeLaserlineBaConfig, RigHandeyeLaserlineConfig,
-    RigHandeyeLaserlineExport, RigHandeyeLaserlineInput, RigHandeyeLaserlineOutput,
-    RigHandeyeLaserlineProblem,
+    RigHandeyeLaserlineBaConfig, RigHandeyeLaserlineConfig, RigHandeyeLaserlineExport,
+    RigHandeyeLaserlineInput, RigHandeyeLaserlineOutput, RigHandeyeLaserlineProblem,
 };
 pub use steps::run_calibration;

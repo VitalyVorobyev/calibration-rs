@@ -160,7 +160,7 @@ fn main() -> Result<()> {
     cfg.sensor = SensorMode::Scheimpflug {
         init_tilt_x: tilt_x_seed,
         init_tilt_y: 0.0,
-        fix_scheimpflug_in_intrinsics: ScheimpflugFixMask {
+        fix_scheimpflug: ScheimpflugFixMask {
             tilt_x: false,
             tilt_y: false,
         },
@@ -179,13 +179,13 @@ fn main() -> Result<()> {
     // Robot-pose refinement on by default; `RTV3D_RINGGRID_REFINE_ROBOT=0` holds
     // the measured poses fixed (a divergence-isolation knob).
     let refine_robot = std::env::var("RTV3D_RINGGRID_REFINE_ROBOT").as_deref() != Ok("0");
-    cfg.handeye_ba.refine_robot_poses = refine_robot;
+    cfg.handeye_ba.robot_poses.refine = refine_robot;
     // Optionally let the final hand-eye BA also refine rig extrinsics / tilts.
     if std::env::var("RTV3D_RINGGRID_REFINE_EXTRINSICS").as_deref() == Ok("1") {
-        cfg.handeye_ba.refine_cam_se3_rig_in_handeye_ba = true;
+        cfg.handeye_ba.refine_cam_se3_rig = true;
     }
     if std::env::var("RTV3D_RINGGRID_REFINE_TILT").as_deref() == Ok("1") {
-        cfg.handeye_ba.refine_scheimpflug_in_handeye_ba = true;
+        cfg.handeye_ba.refine_scheimpflug = true;
     }
     println!("refine robot poses = {refine_robot}");
     session.set_config(cfg)?;

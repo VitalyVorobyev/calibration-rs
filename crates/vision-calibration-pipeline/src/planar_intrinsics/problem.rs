@@ -6,8 +6,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    DistortionFixMask, ImageManifest, IntrinsicsFixMask, PerFeatureResiduals, PlanarDataset,
-    build_feature_histogram, compute_planar_target_residuals,
+    CameraFixMask, ImageManifest, PerFeatureResiduals, PlanarDataset, build_feature_histogram,
+    compute_planar_target_residuals,
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
@@ -15,6 +15,7 @@ use vision_calibration_optim::{
     PlanarIntrinsicsSolveOptions, SolveReport,
 };
 
+use crate::common::config::{IntrinsicsInitConfig, SolverConfig};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::PlanarState;
@@ -57,46 +58,19 @@ pub struct PlanarIntrinsicsProblem;
 
 /// Configuration for planar intrinsics calibration.
 ///
-/// Contains settings for both initialization and optimization phases.
+/// Grouped per ADR 0024: linear-init and non-linear-solve settings live in
+/// the shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs;
+/// `distortion_model`, `fix_camera`, and `fix_poses` stay top-level (they
+/// are not shared with any other problem type as of R3).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PlanarIntrinsicsConfig {
-    // ─────────────────────────────────────────────────────────────────────────
-    // Initialization options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Number of iterations for iterative intrinsics estimation.
-    pub init_iterations: usize,
+    /// Per-camera linear-initialization stage settings.
+    pub init: IntrinsicsInitConfig,
 
-    /// Fix k3 during initialization (recommended for typical lenses).
-    pub fix_k3_in_init: bool,
-
-    /// Fix tangential distortion (p1, p2) during initialization.
-    pub fix_tangential_in_init: bool,
-
-    /// Enforce zero skew during initialization.
-    pub zero_skew: bool,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Optimization options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Maximum iterations for the optimizer.
-    pub max_iters: usize,
-
-    /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
-    pub verbosity: usize,
-
-    /// Robust loss function for outlier handling.
-    pub robust_loss: vision_calibration_optim::RobustLoss,
-
-    /// Mask for fixing intrinsic parameters during optimization.
-    pub fix_intrinsics: IntrinsicsFixMask,
-
-    /// Mask for fixing distortion parameters during optimization.
-    pub fix_distortion: DistortionFixMask,
-
-    /// Indices of poses to fix during optimization (e.g., \[0\] to fix first pose).
-    pub fix_poses: Vec<usize>,
+    /// Non-linear solve stage settings.
+    pub solver: SolverConfig,
 
     /// Distortion model to use for optimization.
     ///
@@ -106,30 +80,25 @@ pub struct PlanarIntrinsicsConfig {
     /// models (Rational8, ThinPrism9, Division1) are PlanarIntrinsics-only;
     /// they cannot be passed into `RigExtrinsics` / `RigHandeye` pipelines
     /// which still expect a `PinholeCamera`.
-    #[serde(default = "default_distortion_kind")]
+    #[serde(default = "crate::common::config::default_distortion_kind")]
     pub distortion_model: DistortionKind,
-}
 
-fn default_distortion_kind() -> DistortionKind {
-    DistortionKind::BrownConrady5
+    /// Mask for fixing camera intrinsics/distortion parameters during
+    /// optimization.
+    pub fix_camera: CameraFixMask,
+
+    /// Indices of poses to fix during optimization (e.g., \[0\] to fix first pose).
+    pub fix_poses: Vec<usize>,
 }
 
 impl Default for PlanarIntrinsicsConfig {
     fn default() -> Self {
         Self {
-            // Initialization
-            init_iterations: 2,
-            fix_k3_in_init: true,
-            fix_tangential_in_init: false,
-            zero_skew: true,
-            // Optimization
-            max_iters: 50,
-            verbosity: 0,
-            robust_loss: vision_calibration_optim::RobustLoss::None,
-            fix_intrinsics: Default::default(),
-            fix_distortion: Default::default(),
-            fix_poses: Vec::new(),
+            init: IntrinsicsInitConfig::default(),
+            solver: SolverConfig::default(),
             distortion_model: DistortionKind::BrownConrady5,
+            fix_camera: CameraFixMask::default(),
+            fix_poses: Vec::new(),
         }
     }
 }
@@ -137,23 +106,15 @@ impl Default for PlanarIntrinsicsConfig {
 impl PlanarIntrinsicsConfig {
     /// Convert to vision-calibration-linear initialization options.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        IterativeIntrinsicsOptions {
-            iterations: self.init_iterations,
-            distortion_opts: DistortionFitOptions {
-                fix_k3: self.fix_k3_in_init,
-                fix_tangential: self.fix_tangential_in_init,
-                iters: 8,
-            },
-            zero_skew: self.zero_skew,
-        }
+        self.init.iterative_opts(None)
     }
 
     /// Convert to vision-calibration-optim solve options.
     pub fn solve_opts(&self) -> PlanarIntrinsicsSolveOptions {
         PlanarIntrinsicsSolveOptions {
-            robust_loss: self.robust_loss,
-            fix_intrinsics: self.fix_intrinsics,
-            fix_distortion: self.fix_distortion,
+            robust_loss: self.solver.robust_loss,
+            fix_intrinsics: self.fix_camera.intrinsics,
+            fix_distortion: self.fix_camera.distortion,
             fix_poses: self.fix_poses.clone(),
         }
     }
@@ -161,8 +122,8 @@ impl PlanarIntrinsicsConfig {
     /// Convert to backend solver options.
     pub fn backend_opts(&self) -> BackendSolveOptions {
         BackendSolveOptions {
-            max_iters: self.max_iters,
-            verbosity: self.verbosity,
+            max_iters: self.solver.max_iters,
+            verbosity: self.solver.verbosity,
             ..Default::default()
         }
     }
@@ -233,10 +194,10 @@ impl ProblemType for PlanarIntrinsicsProblem {
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        if config.max_iters == 0 {
+        if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.init_iterations == 0 {
+        if config.init.init_iterations == 0 {
             return Err(Error::invalid_input("init_iterations must be positive"));
         }
         Ok(())
@@ -342,7 +303,10 @@ mod tests {
     #[test]
     fn validate_config_requires_positive_iters() {
         let config = PlanarIntrinsicsConfig {
-            max_iters: 0,
+            solver: SolverConfig {
+                max_iters: 0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = PlanarIntrinsicsProblem::validate_config(&config);
@@ -360,18 +324,24 @@ mod tests {
     #[test]
     fn config_json_roundtrip() {
         let config = PlanarIntrinsicsConfig {
-            max_iters: 100,
-            fix_k3_in_init: false,
-            robust_loss: vision_calibration_optim::RobustLoss::Huber { scale: 2.5 },
+            solver: SolverConfig {
+                max_iters: 100,
+                robust_loss: vision_calibration_optim::RobustLoss::Huber { scale: 2.5 },
+                ..Default::default()
+            },
+            init: IntrinsicsInitConfig {
+                fix_k3: false,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
         let json = serde_json::to_string_pretty(&config).unwrap();
         let restored: PlanarIntrinsicsConfig = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(restored.max_iters, 100);
-        assert!(!restored.fix_k3_in_init);
-        match restored.robust_loss {
+        assert_eq!(restored.solver.max_iters, 100);
+        assert!(!restored.init.fix_k3);
+        match restored.solver.robust_loss {
             vision_calibration_optim::RobustLoss::Huber { scale } => {
                 assert!((scale - 2.5).abs() < 1e-12);
             }
@@ -380,7 +350,7 @@ mod tests {
             | vision_calibration_optim::RobustLoss::Arctan { .. } => {
                 panic!(
                     "expected Huber loss after roundtrip, got {:?}",
-                    restored.robust_loss
+                    restored.solver.robust_loss
                 );
             }
         }
@@ -395,10 +365,12 @@ mod tests {
     #[test]
     fn init_opts_conversion() {
         let config = PlanarIntrinsicsConfig {
-            init_iterations: 5,
-            fix_k3_in_init: true,
-            fix_tangential_in_init: true,
-            zero_skew: false,
+            init: IntrinsicsInitConfig {
+                init_iterations: 5,
+                fix_k3: true,
+                fix_tangential: true,
+                zero_skew: false,
+            },
             ..Default::default()
         };
 
@@ -412,7 +384,10 @@ mod tests {
     #[test]
     fn solve_opts_conversion() {
         let config = PlanarIntrinsicsConfig {
-            robust_loss: vision_calibration_optim::RobustLoss::Cauchy { scale: 1.0 },
+            solver: SolverConfig {
+                robust_loss: vision_calibration_optim::RobustLoss::Cauchy { scale: 1.0 },
+                ..Default::default()
+            },
             fix_poses: vec![0, 1],
             ..Default::default()
         };
@@ -434,8 +409,11 @@ mod tests {
     #[test]
     fn backend_opts_conversion() {
         let config = PlanarIntrinsicsConfig {
-            max_iters: 100,
-            verbosity: 2,
+            solver: SolverConfig {
+                max_iters: 100,
+                verbosity: 2,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -483,7 +461,10 @@ mod tests {
             &dummy_input,
             &output,
             &PlanarIntrinsicsConfig {
-                robust_loss: RobustLoss::None,
+                solver: SolverConfig {
+                    robust_loss: RobustLoss::None,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         )

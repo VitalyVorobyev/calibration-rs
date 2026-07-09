@@ -138,16 +138,20 @@ geometry; enabling refinement re-opens `K_i, d_i` under the usual
   `rig_extrinsics_reference_camera_gauge_invariance` (relative pose agrees
   to `< 5e-4` rad / `< 5e-4` m, reprojection error to `< 5e-3` px across a
   reference-camera swap).
-- **First rig pose.** `fix_first_rig_pose` (default `true`) additionally
-  fixes view 0's `T_R_T0`. Because the reference-camera fix already removes
-  the full 6-DOF gauge, this is *not* required for gauge — it is an extra
-  constraint that locks station 0's target pose to its linear-init value
-  instead of jointly refining it. Empirically it is benign-to-mildly-
-  pessimizing: disabling it on the wide-baseline matrix cell leaves the
-  recovered relative pose unchanged and slightly *lowers* the mean
+- **First rig pose (removed, ADR 0024 D2).** `RigExtrinsicsConfig` used to
+  carry a `fix_first_rig_pose` knob (default `true`) that additionally fixed
+  view 0's `T_R_T0`. Because the reference-camera fix already removes the
+  full 6-DOF gauge, this was *not* required for gauge — it was an extra
+  constraint that locked station 0's target pose to its linear-init value
+  instead of jointly refining it. Empirically it was benign-to-mildly-
+  pessimizing: disabling it on the wide-baseline matrix cell left the
+  recovered relative pose unchanged and slightly *lowered* the mean
   reprojection error (0.124 vs 0.134 px), consistent with a redundant
-  constraint rather than a gauge necessity. On exact data it is harmless
-  (the fixed value equals the ground-truth pose).
+  constraint rather than a gauge necessity. On exact data it was harmless
+  (the fixed value equals the ground-truth pose). ADR 0024 (R3, 2026-07)
+  deleted the knob and the constraint outright — view 0's rig-from-target
+  pose is now always free in the rig BA; the reference-camera fix above is
+  the only gauge-removal mechanism.
 
 ## Noise sensitivity
 

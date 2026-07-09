@@ -196,7 +196,6 @@ fn synthetic_laserline_calibration_smoke_test() {
 
     // Run optimization
     let opts = LaserlineSolveOptions {
-        fix_k3: true,
         fix_sensor: true,
         fix_poses: vec![0],
         ..Default::default()
@@ -410,7 +409,6 @@ fn synthetic_laserline_line_dist_normalized_converges() {
 
     // Use LineDistNormalized residual type
     let opts = LaserlineSolveOptions {
-        fix_k3: true,
         fix_poses: vec![0],
         laser_residual_type: LaserlineResidualType::LineDistNormalized,
         ..Default::default()
@@ -632,7 +630,6 @@ fn compare_point_plane_vs_line_dist() {
 
     // Run with PointToPlane
     let opts_point = LaserlineSolveOptions {
-        fix_k3: true,
         fix_poses: vec![0],
         laser_residual_type: LaserlineResidualType::PointToPlane,
         ..Default::default()
@@ -642,7 +639,6 @@ fn compare_point_plane_vs_line_dist() {
 
     // Run with LineDistNormalized
     let opts_line = LaserlineSolveOptions {
-        fix_k3: true,
         fix_poses: vec![0],
         laser_residual_type: LaserlineResidualType::LineDistNormalized,
         ..Default::default()

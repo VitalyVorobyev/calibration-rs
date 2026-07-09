@@ -20,7 +20,8 @@ use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, Iso3, Pinhole, Pt2, Real, ScheimpflugParams, View,
+    BrownConrady5, Camera, CameraFixMask, FxFyCxCySkew, Iso3, Pinhole, Pt2, Real,
+    ScheimpflugParams, View,
 };
 
 /// Metadata for a laserline view (laser pixels + optional weights).
@@ -170,12 +171,13 @@ pub struct LaserlineSolveOptions {
     pub laser_loss: RobustLoss,
     /// Global weight multiplier for laser plane residuals.
     pub laser_weight: f64,
-    /// Fix camera intrinsics during optimization
-    pub fix_intrinsics: bool,
-    /// Fix distortion parameters during optimization
-    pub fix_distortion: bool,
-    /// Fix k3 distortion parameter (common for typical lenses)
-    pub fix_k3: bool,
+    /// Per-parameter mask for fixing camera intrinsics/distortion during
+    /// optimization. Lowered to the IR at full per-field granularity (see
+    /// `vision_calibration_core::IntrinsicsFixMask::to_indices` and
+    /// `vision_calibration_core::DistortionFixMask::to_indices`) — unlike
+    /// the pre-ADR-0024 `{fix_intrinsics, fix_distortion, fix_k3}` bool trio
+    /// this replaces, any individual field may be fixed independently.
+    pub fix_camera: CameraFixMask,
     /// Fix Scheimpflug sensor parameters during optimization
     pub fix_sensor: bool,
     /// Indices of poses to fix (e.g., \[0\] to fix first pose for gauge freedom)
@@ -193,9 +195,7 @@ impl Default for LaserlineSolveOptions {
             calib_weight: 1.0,
             laser_loss: RobustLoss::Huber { scale: 0.01 }, // Smaller scale for plane residuals
             laser_weight: 1.0,
-            fix_intrinsics: false,
-            fix_distortion: false,
-            fix_k3: true,
+            fix_camera: CameraFixMask::default(), // intrinsics free, k3 fixed
             fix_sensor: true,
             fix_poses: vec![0], // Fix first pose by default
             fix_plane: false,
@@ -666,11 +666,7 @@ fn build_laserline_ir(
     let mut initial_map = HashMap::new();
 
     // Add intrinsics parameter block
-    let intrinsics_fixed = if opts.fix_intrinsics {
-        FixedMask::all_fixed(INTRINSICS_DIM)
-    } else {
-        FixedMask::all_free()
-    };
+    let intrinsics_fixed = FixedMask::fix_indices(&opts.fix_camera.intrinsics.to_indices());
     let intrinsics_id = ir.add_param_block(
         "intrinsics",
         INTRINSICS_DIM,
@@ -684,13 +680,7 @@ fn build_laserline_ir(
     );
 
     // Add distortion parameter block
-    let distortion_fixed = if opts.fix_distortion {
-        FixedMask::all_fixed(DISTORTION_DIM)
-    } else if opts.fix_k3 {
-        FixedMask::fix_indices(&[2]) // k3 is at index 2
-    } else {
-        FixedMask::all_free()
-    };
+    let distortion_fixed = FixedMask::fix_indices(&opts.fix_camera.distortion.to_indices());
     let distortion_id = ir.add_param_block(
         "distortion",
         DISTORTION_DIM,
@@ -876,6 +866,52 @@ mod tests {
         let backend_opts = BackendSolveOptions::default();
         let result = backend.solve(&ir, &initial_map, &backend_opts);
         assert!(result.is_err());
+    }
+
+    /// ADR 0024 R4 review fix: `LaserlineSolveOptions::fix_camera:
+    /// CameraFixMask` replaced the `{fix_intrinsics, fix_distortion,
+    /// fix_k3}` bool trio. Pin that the *default* mask lowers to the exact
+    /// same IR `FixedMask`s as the old default trio
+    /// (`fix_intrinsics: false, fix_distortion: false, fix_k3: true`):
+    /// intrinsics all-free, distortion `{k3}`-only fixed.
+    #[test]
+    fn default_camera_fix_mask_matches_pre_adr0024_bool_trio() {
+        let dataset = vec![View::new(
+            CorrespondenceView::new(
+                vec![Pt3::new(0.0, 0.0, 0.0); 4],
+                vec![Pt2::new(100.0, 100.0); 4],
+            )
+            .unwrap(),
+            LaserlineMeta {
+                laser_pixels: vec![Pt2::new(200.0, 200.0); 5],
+                laser_weights: Vec::new(),
+            },
+        )];
+        let initial = LaserlineParams::new(
+            FxFyCxCySkew {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 512.0,
+                cy: 384.0,
+                skew: 0.0,
+            },
+            BrownConrady5::default(),
+            ScheimpflugParams::default(),
+            vec![Iso3::identity()],
+            LaserPlane::new(nalgebra::Vector3::new(0.0, 0.0, 1.0), -0.5),
+        )
+        .unwrap();
+
+        let opts = LaserlineSolveOptions::default();
+        let (ir, _) = build_laserline_ir(&dataset, &initial, &opts).unwrap();
+
+        let intrinsics_fixed = &ir.params[ir.param_by_name("intrinsics").unwrap().0].fixed;
+        let distortion_fixed = &ir.params[ir.param_by_name("distortion").unwrap().0].fixed;
+
+        // Old `fix_intrinsics: false` -> FixedMask::all_free().
+        assert_eq!(*intrinsics_fixed, FixedMask::all_free());
+        // Old `fix_distortion: false, fix_k3: true` -> only index 2 (k3) fixed.
+        assert_eq!(*distortion_fixed, FixedMask::fix_indices(&[2]));
     }
 
     #[test]

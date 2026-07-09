@@ -18,43 +18,43 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use vision_calibration_core::{
+use vision_calibration::core::{
     FrameKind, FrameRef, ImageManifest, PixelRect, PlanarDataset, RigDataset,
 };
-use vision_calibration_dataset::{DatasetSpec, Topology};
-use vision_calibration_detect::FsDetectionCache;
-use vision_calibration_pipeline::dataset_runner::{
+use vision_calibration::dataset::{DatasetSpec, Topology};
+use vision_calibration::dataset_runner::{
     RunError, build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
     build_rig_handeye_input, build_rig_handeye_laserline_input, build_rig_laserline_device_input,
     build_single_cam_handeye_input,
 };
-use vision_calibration_pipeline::laserline_device::{
+use vision_calibration::detect::FsDetectionCache;
+use vision_calibration::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceProblem,
     run_calibration as run_laserline_device_calibration,
 };
-use vision_calibration_pipeline::planar_intrinsics::{
+use vision_calibration::planar_intrinsics::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, run_calibration as run_planar_calibration,
 };
-use vision_calibration_pipeline::rig_extrinsics::{
+use vision_calibration::rig_extrinsics::{
     RigExtrinsicsConfig, RigExtrinsicsProblem, run_calibration as run_rig_extrinsics_calibration,
 };
-use vision_calibration_pipeline::rig_handeye::{
+use vision_calibration::rig_handeye::{
     RigHandeyeConfig, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
 };
-use vision_calibration_pipeline::rig_handeye_laserline::{
+use vision_calibration::rig_handeye_laserline::{
     RigHandeyeLaserlineConfig, RigHandeyeLaserlineProblem,
     run_calibration as run_rig_handeye_laserline_calibration,
 };
-use vision_calibration_pipeline::rig_laserline_device::{
+use vision_calibration::rig_laserline_device::{
     RigLaserlineDeviceConfig, RigLaserlineDeviceProblem,
     run_calibration as run_rig_laserline_device_calibration,
 };
-use vision_calibration_pipeline::scheimpflug_intrinsics::{
+use vision_calibration::scheimpflug_intrinsics::{
     ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
     run_calibration as run_scheimpflug_calibration,
 };
-use vision_calibration_pipeline::session::{CalibrationSession, ProblemType};
-use vision_calibration_pipeline::single_cam_handeye::{
+use vision_calibration::session::{CalibrationSession, ProblemType};
+use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeConfig, SingleCamHandeyeProblem,
     run_calibration as run_single_cam_handeye_calibration,
 };
@@ -222,15 +222,13 @@ fn run_blocking(
         Topology::RigLaserlineDevice => {
             run_rig_laserline_topology(&spec, config_json, base_dir, &detection_cache, started)
         }
-        Topology::RigHandeyeLaserline => {
-            run_rig_handeye_laserline_topology(
-                &spec,
-                config_json,
-                base_dir,
-                &detection_cache,
-                started,
-            )
-        }
+        Topology::RigHandeyeLaserline => run_rig_handeye_laserline_topology(
+            &spec,
+            config_json,
+            base_dir,
+            &detection_cache,
+            started,
+        ),
     }
 }
 
@@ -241,7 +239,7 @@ fn run_blocking(
 fn run_session<P>(
     input: P::Input,
     config_json: serde_json::Value,
-    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration_pipeline::Error>,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
 ) -> Result<serde_json::Value, Box<RunResponse>>
 where
     P: ProblemType,
@@ -315,7 +313,7 @@ fn run_planar_topology<P>(
     base_dir: &Path,
     detection_cache: &FsDetectionCache,
     started: Instant,
-    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration_pipeline::Error>,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
 ) -> RunResponse
 where
     P: ProblemType<Input = PlanarDataset>,
@@ -537,9 +535,9 @@ type RigBuilder<Meta> =
     fn(
         &DatasetSpec,
         &Path,
-        &dyn vision_calibration_detect::DetectionCache,
+        &dyn vision_calibration::detect::DetectionCache,
         bool,
-    ) -> Result<vision_calibration_pipeline::dataset_runner::RigRunResult<Meta>, RunError>;
+    ) -> Result<vision_calibration::dataset_runner::RigRunResult<Meta>, RunError>;
 
 fn run_rig_topology<P, Meta>(
     spec: &DatasetSpec,
@@ -548,7 +546,7 @@ fn run_rig_topology<P, Meta>(
     detection_cache: &FsDetectionCache,
     started: Instant,
     build: RigBuilder<Meta>,
-    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration_pipeline::Error>,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
 ) -> RunResponse
 where
     P: ProblemType<Input = RigDataset<Meta>>,
@@ -825,7 +823,7 @@ fn slug(input: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
-    use vision_calibration_dataset::{CameraSource, ImagePattern, PosePairing, TargetSpec};
+    use vision_calibration::dataset::{CameraSource, ImagePattern, PosePairing, TargetSpec};
 
     fn rtv3d_detector_override() -> serde_json::Value {
         json!({
@@ -1099,10 +1097,10 @@ mod tests {
         // plain config JSON, i.e. reachable from the app's ConfigForm.
         let mut handeye_config = default_config_cmd("rig_handeye".into()).unwrap();
         handeye_config["intrinsics"]["fix_tangential"] = json!(true);
-        handeye_config["intrinsics"]["manual_init"] = rtv3d_manual_intrinsics_init();
+        handeye_config["manual_init"] = rtv3d_manual_intrinsics_init();
         handeye_config["sensor"] = json!({
             "kind": "Scheimpflug",
-            "fix_scheimpflug_in_intrinsics": {"tilt_x": false, "tilt_y": false},
+            "fix_scheimpflug": {"tilt_x": false, "tilt_y": false},
             "distortion_mask_in_percam_ba": {
                 "k1": false,
                 "k2": false,
@@ -1114,7 +1112,7 @@ mod tests {
         });
         handeye_config["rig"]["refine_intrinsics_in_rig_ba"] = json!(false);
         handeye_config["handeye_init"]["handeye_mode"] = json!("EyeToHand");
-        handeye_config["handeye_ba"]["refine_robot_poses"] = json!(true);
+        handeye_config["handeye_ba"]["robot_poses"]["refine"] = json!(true);
         handeye_config["solver"]["max_iters"] = json!(200);
         handeye_config["solver"]["robust_loss"] = json!({"Huber": {"scale": 1.0}});
         let handeye = match run_blocking(
@@ -1145,7 +1143,7 @@ mod tests {
         // PointToPlane keeps the residual in metres (the example's
         // stage-3 choice), so the σ gate below is unit-meaningful.
         let mut laser_config = default_config_cmd("rig_laserline_device".into()).unwrap();
-        laser_config["max_iters"] = json!(200);
+        laser_config["solver"]["max_iters"] = json!(200);
         laser_config["laser_residual_type"] = json!("PointToPlane");
         let laser = match run_blocking(read_manifest("dataset_laser.toml"), laser_config, &dir) {
             RunResponse::Ok(s) => s,
@@ -1220,15 +1218,16 @@ mod tests {
         joint_manifest["upstream_calibration"] = serde_json::Value::Null;
         let mut joint_config = default_config_cmd("rig_handeye_laserline".into()).unwrap();
         joint_config["handeye"] = handeye_config;
-        joint_config["laserline_init"]["max_iters"] = json!(200);
+        joint_config["laserline_init"]["solver"]["max_iters"] = json!(200);
         joint_config["laserline_init"]["laser_residual_type"] = json!("PointToPlane");
-        joint_config["joint_ba"]["max_iters"] = json!(30);
+        joint_config["joint_ba"]["solver"]["max_iters"] = json!(30);
         joint_config["joint_ba"]["laser_residual_type"] = json!("PointToPlane");
         joint_config["joint_ba"]["calib_weight"] = json!(1.0);
         joint_config["joint_ba"]["laser_weight"] = json!(10000.0);
-        joint_config["joint_ba"]["refine_robot_poses"] = json!(true);
-        joint_config["joint_ba"]["fix_first_camera_extrinsic"] = json!(true);
-        joint_config["joint_ba"]["fix_scheimpflug_tilt"] = json!(true);
+        joint_config["joint_ba"]["robot_poses"]["refine"] = json!(true);
+        // D2 (ADR 0024): `fix_first_camera_extrinsic` is gone — the joint
+        // stage always pins `handeye.rig.reference_camera_idx`.
+        joint_config["joint_ba"]["fix_scheimpflug"] = json!({"tilt_x": true, "tilt_y": true});
         joint_config["joint_ba"]["default_camera_fix"] = json!({
             "intrinsics": {"fx": false, "fy": false, "cx": true, "cy": true},
             "distortion": {

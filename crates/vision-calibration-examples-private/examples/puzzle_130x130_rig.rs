@@ -136,7 +136,7 @@ fn main() -> Result<()> {
     // Refine per-view robot pose se(3) deltas — encoder noise otherwise
     // biases hand-eye. Stage 4 uses these as initial robot-delta parameters
     // rather than mutating the canonical detected dataset.
-    cfg.handeye_ba.refine_robot_poses = true;
+    cfg.handeye_ba.robot_poses.refine = true;
     // Configure Scheimpflug sensor mode:
     // - tilt_x is free, tilt_y is held fixed (per-camera BA on this dataset
     //   converges tilt_x in a narrow band; tilt_y has degenerate signal at
@@ -149,7 +149,7 @@ fn main() -> Result<()> {
     cfg.sensor = SensorMode::Scheimpflug {
         init_tilt_x: 0.0,
         init_tilt_y: 0.0,
-        fix_scheimpflug_in_intrinsics: ScheimpflugFixMask {
+        fix_scheimpflug: ScheimpflugFixMask {
             tilt_x: false,
             tilt_y: true,
         },
@@ -165,8 +165,8 @@ fn main() -> Result<()> {
         distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
     };
     cfg.rig.refine_intrinsics_in_rig_ba = false;
-    let robot_rot_sigma = cfg.handeye_ba.robot_rot_sigma;
-    let robot_trans_sigma = cfg.handeye_ba.robot_trans_sigma;
+    let robot_rot_sigma = cfg.handeye_ba.robot_poses.rot_sigma;
+    let robot_trans_sigma = cfg.handeye_ba.robot_poses.trans_sigma;
     rig_session.set_config(cfg)?;
 
     let t0 = Instant::now();
@@ -365,8 +365,8 @@ fn main() -> Result<()> {
         CalibrationSession::<RigLaserlineDeviceProblem>::with_description("puzzle_130x130_laser");
     laser_session.set_input(laserline_input)?;
     let mut laser_cfg = RigLaserlineDeviceConfig::default();
-    laser_cfg.max_iters = Some(200);
-    laser_cfg.verbosity = Some(1);
+    laser_cfg.solver.max_iters = 200;
+    laser_cfg.solver.verbosity = 1;
     laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
     laser_session.set_config(laser_cfg)?;
 

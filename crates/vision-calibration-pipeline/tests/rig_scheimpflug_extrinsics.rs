@@ -122,12 +122,12 @@ fn scheimpflug_config() -> RigExtrinsicsConfig {
     cfg.sensor = SensorMode::Scheimpflug {
         init_tilt_x: 0.0,
         init_tilt_y: 0.0,
-        fix_scheimpflug_in_intrinsics: Default::default(),
+        fix_scheimpflug: Default::default(),
         distortion_mask_in_percam_ba: vision_calibration_core::DistortionFixMask::radial_only(),
         refine_scheimpflug_in_rig_ba: false,
         distortion_model: vision_calibration_optim::DistortionKind::BrownConrady5,
     };
-    cfg.max_iters = 80;
+    cfg.solver.max_iters = 80;
     cfg
 }
 

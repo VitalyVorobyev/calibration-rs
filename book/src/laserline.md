@@ -93,25 +93,32 @@ $$d_\perp = \frac{|(\mathbf{q} - \mathbf{p}_0) \times \hat{\mathbf{d}}_{\text{2D
 
 ## Configuration
 
+Grouped per ADR 0024 — `init` and `solver` are the shared sub-structs;
+`optimize` groups the laser-specific bundle-adjustment knobs:
+
 ```rust
 pub struct LaserlineDeviceConfig {
-    // Initialization
-    pub init_iterations: usize,        // Iterative intrinsics iterations (default: 2)
-    pub fix_k3_in_init: bool,          // Fix k3 during init (default: true)
-    pub fix_tangential_in_init: bool,  // Fix p1, p2 during init (default: false)
-    pub zero_skew: bool,               // Enforce zero skew (default: true)
+    // Per-camera linear-initialization stage settings.
+    pub init: IntrinsicsInitConfig,
+    // { init_iterations: usize = 2, fix_k3: bool = true,
+    //   fix_tangential: bool = false, zero_skew: bool = true }
+
     pub sensor_init: ScheimpflugParams, // Initial sensor tilt (default: identity)
 
-    // Optimization
-    pub max_iters: usize,              // LM iterations (default: 50)
-    pub verbosity: usize,
+    // Non-linear solve stage settings. `robust_loss` is not consulted here —
+    // laser-carrying stages use `optimize.calib_loss`/`optimize.laser_loss`.
+    pub solver: SolverConfig, // { max_iters: usize = 50, verbosity: usize = 0, .. }
+
+    // Bundle-adjustment options.
+    pub optimize: LaserlineDeviceOptimizeConfig,
+}
+
+pub struct LaserlineDeviceOptimizeConfig {
     pub calib_loss: RobustLoss,        // Default: Huber { scale: 1.0 }
     pub laser_loss: RobustLoss,        // Default: Huber { scale: 0.01 }
     pub calib_weight: f64,             // Weight for calibration residuals (default: 1.0)
     pub laser_weight: f64,             // Weight for laser residuals (default: 1.0)
-    pub fix_intrinsics: bool,
-    pub fix_distortion: bool,
-    pub fix_k3: bool,                  // Default: true
+    pub fix_camera: CameraFixMask,     // { intrinsics, distortion } — full per-field granularity
     pub fix_sensor: bool,              // Default: true
     pub fix_poses: Vec<usize>,         // Default: vec![0]
     pub fix_plane: bool,

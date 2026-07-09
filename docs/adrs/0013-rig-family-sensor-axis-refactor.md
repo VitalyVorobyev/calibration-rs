@@ -72,7 +72,7 @@ The factoring uses **composition over traits**:
        Scheimpflug {
            init_tilt_x: f64,
            init_tilt_y: f64,
-           fix_scheimpflug_in_intrinsics: ScheimpflugFixMask,
+           fix_scheimpflug: ScheimpflugFixMask,
            refine_scheimpflug_in_rig_ba: bool,
        },
    }

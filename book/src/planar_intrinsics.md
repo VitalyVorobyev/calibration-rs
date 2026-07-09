@@ -48,39 +48,42 @@ After optimization, expect <2% intrinsics error and <1 px mean reprojection erro
 
 ## Configuration
 
+Grouped per ADR 0024 — `init` and `solver` are shared sub-structs reused
+across every intrinsics-bearing problem type:
+
 ```rust
 pub struct PlanarIntrinsicsConfig {
-    // Initialization
-    pub init_iterations: usize,        // Iterative intrinsics iterations (default: 2)
-    pub fix_k3_in_init: bool,          // Fix k3 during init (default: true)
-    pub fix_tangential_in_init: bool,  // Fix p1, p2 during init (default: false)
-    pub zero_skew: bool,               // Enforce zero skew (default: true)
+    // Per-camera linear-initialization stage settings.
+    pub init: IntrinsicsInitConfig,
+    // { init_iterations: usize = 2, fix_k3: bool = true,
+    //   fix_tangential: bool = false, zero_skew: bool = true }
 
-    // Optimization
-    pub max_iters: usize,              // LM iterations (default: 100)
-    pub verbosity: u32,                // Solver output level
-    pub robust_loss: RobustLoss,          // Robust loss function (default: None)
-    pub fix_intrinsics: IntrinsicsFixMask,  // Fix specific intrinsics
-    pub fix_distortion: DistortionFixMask,  // Fix specific distortion params
-    pub fix_poses: Vec<usize>,         // Fix specific view poses
+    // Non-linear solve stage settings.
+    pub solver: SolverConfig,
+    // { max_iters: usize = 50, verbosity: usize = 0, robust_loss: RobustLoss = None }
+
+    pub distortion_model: DistortionKind,   // Distortion model (default: BrownConrady5)
+    pub fix_camera: CameraFixMask,          // { intrinsics: IntrinsicsFixMask, distortion: DistortionFixMask }
+    pub fix_poses: Vec<usize>,              // Fix specific view poses
 }
 ```
 
 ### Fix Masks
 
-Fine-grained control over which parameters are optimized:
+Fine-grained control over which parameters are optimized, via the combined
+`CameraFixMask`:
 
 ```rust
 // Fix cx, cy but optimize fx, fy
 session.update_config(|c| {
-    c.fix_intrinsics = IntrinsicsFixMask {
+    c.fix_camera.intrinsics = IntrinsicsFixMask {
         fx: false, fy: false, cx: true, cy: true,
     };
 })?;
 
 // Fix k3 and tangential distortion
 session.update_config(|c| {
-    c.fix_distortion = DistortionFixMask {
+    c.fix_camera.distortion = DistortionFixMask {
         k1: false, k2: false, k3: true, p1: true, p2: true,
     };
 })?;
@@ -97,8 +100,8 @@ session.set_input(dataset)?;
 
 // Optional: customize configuration
 session.update_config(|c| {
-    c.max_iters = 50;
-    c.robust_loss = RobustLoss::Huber { scale: 2.0 };
+    c.solver.max_iters = 50;
+    c.solver.robust_loss = RobustLoss::Huber { scale: 2.0 };
 })?;
 
 // Run pipeline

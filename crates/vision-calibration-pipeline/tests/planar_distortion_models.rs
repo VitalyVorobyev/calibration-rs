@@ -124,8 +124,8 @@ fn run_pipeline(
     config.distortion_model = model;
     // Allow k3 for the extended models; it doesn't affect them but keeps
     // BC5 test consistent.
-    config.fix_k3_in_init = false;
-    config.max_iters = 100;
+    config.init.fix_k3 = false;
+    config.solver.max_iters = 100;
 
     let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session.set_config(config).unwrap();

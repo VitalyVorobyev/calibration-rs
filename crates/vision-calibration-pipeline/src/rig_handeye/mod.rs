@@ -61,7 +61,7 @@
 //! - Reference camera: index 0
 //! - Hand-eye mode: `EyeInHand`
 //! - Intrinsics: NOT re-refined in rig BA (set `refine_intrinsics_in_rig_ba: true` to enable)
-//! - Rig extrinsics: NOT re-refined in hand-eye BA (set `refine_cam_se3_rig_in_handeye_ba: true` to enable)
+//! - Rig extrinsics: NOT re-refined in hand-eye BA (set `handeye_ba.refine_cam_se3_rig: true` to enable)
 //! - Robot pose refinement: enabled with 0.5° rotation prior and 1mm translation prior
 //! - Single fixed target pose (not per-view)
 //! - k3 distortion fixed by default
@@ -72,9 +72,8 @@ mod steps;
 
 // Re-export types
 pub use problem::{
-    RigHandeyeBaConfig, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInitConfig, RigHandeyeInput,
-    RigHandeyeIntrinsicsConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeOutput,
-    RigHandeyeProblem, RigHandeyeRigConfig, RigHandeyeSolverConfig, SensorMode,
+    HandeyeBaConfig, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput,
+    RigHandeyeIntrinsicsManualInit, RigHandeyeOutput, RigHandeyeProblem, SensorMode,
 };
 pub use steps::{
     HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,

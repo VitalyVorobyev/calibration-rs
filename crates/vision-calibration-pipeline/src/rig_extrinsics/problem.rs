@@ -12,11 +12,12 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{
     DistortionKind, RigExtrinsicsEstimate as PinholeRigExtrinsicsEstimate,
-    RigExtrinsicsScheimpflugEstimate as ScheimpflugRigExtrinsicsEstimate, RobustLoss,
+    RigExtrinsicsScheimpflugEstimate as ScheimpflugRigExtrinsicsEstimate,
 };
 
 pub use crate::rig_family::SensorMode;
 
+use crate::common::config::{IntrinsicsInitConfig, RigConfig, SolverConfig};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::RigExtrinsicsState;
@@ -36,79 +37,31 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 
 /// Configuration for multi-camera rig extrinsics calibration.
 ///
-/// Shared between pinhole and Scheimpflug rigs; the [`SensorMode`] field
-/// `sensor` selects the sensor flavour.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Grouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the
+/// [`SensorMode`] field `sensor` selects the sensor flavour.
+///
+/// D2 (ADR 0024) removed the old `fix_first_rig_pose: bool = true` field:
+/// the reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
+/// the full 6-DOF rig gauge, and the extra per-view pose constraint was
+/// evidence-backed redundant and mildly pessimizing (see
+/// `docs/notes/rig-extrinsics.md` §Gauge). View-0's rig-from-target pose is
+/// now always free in the rig BA.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigExtrinsicsConfig {
-    // ─────────────────────────────────────────────────────────────────────────
-    // Per-camera intrinsics options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Number of iterations for iterative intrinsics estimation.
-    pub intrinsics_init_iterations: usize,
-
-    /// Fix k3 during intrinsics calibration.
-    pub fix_k3: bool,
-
-    /// Fix tangential distortion (p1, p2).
-    pub fix_tangential: bool,
-
-    /// Enforce zero skew.
-    pub zero_skew: bool,
+    /// Per-camera linear-initialization stage settings.
+    pub intrinsics: IntrinsicsInitConfig,
 
     /// Sensor flavour (pinhole or Scheimpflug).
     #[serde(default)]
     pub sensor: SensorMode,
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Rig options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Reference camera index for rig frame (identity extrinsics).
-    pub reference_camera_idx: usize,
+    /// Rig frame options (reference camera, rig-BA scope).
+    pub rig: RigConfig,
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Optimization options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Maximum iterations for optimization.
-    pub max_iters: usize,
-
-    /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
-    pub verbosity: usize,
-
-    /// Robust loss function for outlier handling.
-    pub robust_loss: RobustLoss,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Rig BA options
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Re-refine intrinsics in rig BA (default: false).
-    pub refine_intrinsics_in_rig_ba: bool,
-
-    /// Fix first rig pose for gauge freedom (default: true, fixes view 0).
-    pub fix_first_rig_pose: bool,
-}
-
-impl Default for RigExtrinsicsConfig {
-    fn default() -> Self {
-        Self {
-            // Intrinsics
-            intrinsics_init_iterations: 2,
-            fix_k3: true,
-            fix_tangential: false,
-            zero_skew: true,
-            sensor: SensorMode::default(),
-            // Rig
-            reference_camera_idx: 0,
-            // Optimization
-            max_iters: 50,
-            verbosity: 0,
-            robust_loss: RobustLoss::None,
-            // Rig BA
-            refine_intrinsics_in_rig_ba: false,
-            fix_first_rig_pose: true,
-        }
-    }
+    /// Non-linear solve stage settings.
+    pub solver: SolverConfig,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -331,10 +284,10 @@ impl ProblemType for RigExtrinsicsProblem {
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        if config.max_iters == 0 {
+        if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.intrinsics_init_iterations == 0 {
+        if config.intrinsics.init_iterations == 0 {
             return Err(Error::invalid_input(
                 "intrinsics_init_iterations must be positive",
             ));
@@ -355,10 +308,10 @@ impl ProblemType for RigExtrinsicsProblem {
     }
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
-        if config.reference_camera_idx >= input.num_cameras {
+        if config.rig.reference_camera_idx >= input.num_cameras {
             return Err(Error::invalid_input(format!(
                 "reference_camera_idx {} is out of range (num_cameras = {})",
-                config.reference_camera_idx, input.num_cameras
+                config.rig.reference_camera_idx, input.num_cameras
             )));
         }
         Ok(())
@@ -511,7 +464,10 @@ mod tests {
     fn validate_input_config_checks_reference_camera() {
         let input = make_minimal_input();
         let config = RigExtrinsicsConfig {
-            reference_camera_idx: 5, // Out of range
+            rig: RigConfig {
+                reference_camera_idx: 5, // Out of range
+                ..RigConfig::default()
+            },
             ..RigExtrinsicsConfig::default()
         };
 
@@ -528,19 +484,24 @@ mod tests {
     #[test]
     fn config_json_roundtrip() {
         let config = RigExtrinsicsConfig {
-            max_iters: 100,
-            reference_camera_idx: 1,
-            refine_intrinsics_in_rig_ba: true,
-            robust_loss: RobustLoss::Huber { scale: 2.5 },
+            solver: SolverConfig {
+                max_iters: 100,
+                robust_loss: vision_calibration_optim::RobustLoss::Huber { scale: 2.5 },
+                ..SolverConfig::default()
+            },
+            rig: RigConfig {
+                reference_camera_idx: 1,
+                refine_intrinsics_in_rig_ba: true,
+            },
             ..Default::default()
         };
 
         let json = serde_json::to_string_pretty(&config).unwrap();
         let restored: RigExtrinsicsConfig = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(restored.max_iters, 100);
-        assert_eq!(restored.reference_camera_idx, 1);
-        assert!(restored.refine_intrinsics_in_rig_ba);
+        assert_eq!(restored.solver.max_iters, 100);
+        assert_eq!(restored.rig.reference_camera_idx, 1);
+        assert!(restored.rig.refine_intrinsics_in_rig_ba);
     }
 
     #[test]

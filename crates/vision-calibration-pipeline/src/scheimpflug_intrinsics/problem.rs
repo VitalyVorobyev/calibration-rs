@@ -3,11 +3,12 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraParams, DistortionFixMask, ImageManifest, IntrinsicsFixMask, Iso3, PerFeatureResiduals,
-    PlanarDataset, build_feature_histogram, compute_planar_target_residuals,
+    CameraFixMask, CameraParams, ImageManifest, Iso3, PerFeatureResiduals, PlanarDataset,
+    build_feature_histogram, compute_planar_target_residuals,
 };
-use vision_calibration_optim::{DistortionKind, RobustLoss, SolveReport};
+use vision_calibration_optim::{DistortionKind, SolveReport};
 
+use crate::common::config::{IntrinsicsInitConfig, SolverConfig};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::ScheimpflugIntrinsicsState;
@@ -20,54 +21,29 @@ pub struct ScheimpflugIntrinsicsProblem;
 pub type ScheimpflugIntrinsicsInput = PlanarDataset;
 
 /// Optimization mask for Scheimpflug tilt parameters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ScheimpflugFixMask {
-    /// Keep `tilt_x` fixed during optimization.
-    pub tilt_x: bool,
-    /// Keep `tilt_y` fixed during optimization.
-    pub tilt_y: bool,
-}
-
-impl ScheimpflugFixMask {
-    /// Convert this mask into fixed parameter indices `[tilt_x, tilt_y] -> [0, 1]`.
-    pub fn to_indices(self) -> Vec<usize> {
-        let mut indices = Vec::new();
-        if self.tilt_x {
-            indices.push(0);
-        }
-        if self.tilt_y {
-            indices.push(1);
-        }
-        indices
-    }
-}
+///
+/// Re-exported from `vision-calibration-optim`, which owns the single
+/// canonical definition; this pipeline module used to keep a byte-identical
+/// duplicate (R1 API audit, 2026-07-08 merged them into one type).
+pub use vision_calibration_optim::ScheimpflugFixMask;
 
 /// Configuration for planar Scheimpflug intrinsics calibration.
+///
+/// Grouped per ADR 0024. Two defaults deviate from the shared sub-structs'
+/// own defaults, documented at each field: `init.fix_tangential` is `true`
+/// (was hard-coded in `steps.rs` before ADR 0024 — tilt and tangential
+/// distortion are coupled, so a free tangential term is ill-posed during the
+/// linear stage), `solver.max_iters` is 120 (the tilt valley needs more
+/// headroom than a plain intrinsics solve), and `fix_camera.distortion` is
+/// `radial_only` (k3/p1/p2 fixed) rather than the shared `k3`-only default.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ScheimpflugIntrinsicsConfig {
-    /// Number of iterative linear intrinsics initialization rounds.
-    pub init_iterations: usize,
-    /// Keep `k3` fixed in the linear initialization stage.
-    pub fix_k3_in_init: bool,
-    /// Enforce zero skew in initialization.
-    pub zero_skew: bool,
-    /// Maximum LM iterations for non-linear optimization.
-    pub max_iters: usize,
-    /// Backend verbosity level.
-    pub verbosity: usize,
-    /// Robust loss applied per reprojection residual.
-    pub robust_loss: RobustLoss,
-    /// Intrinsics parameter fix mask for non-linear optimization.
-    pub fix_intrinsics: IntrinsicsFixMask,
-    /// Distortion parameter fix mask for non-linear optimization.
-    pub fix_distortion: DistortionFixMask,
-    /// Scheimpflug tilt parameter fix mask for non-linear optimization.
-    pub fix_scheimpflug: ScheimpflugFixMask,
-    /// Keep the first pose fixed to remove gauge ambiguity.
-    pub fix_first_pose: bool,
+    /// Per-camera linear-initialization stage settings.
+    pub init: IntrinsicsInitConfig,
+    /// Non-linear solve stage settings.
+    pub solver: SolverConfig,
     /// Distortion model refined during optimization.
     ///
     /// Brown-Conrady5 is the default and is byte-identical to the pre-M-WIRE
@@ -76,28 +52,36 @@ pub struct ScheimpflugIntrinsicsConfig {
     /// produces Brown-Conrady coefficients, which are embedded into the chosen
     /// model with any extra degrees of freedom zeroed before the non-linear
     /// refine. Rig Scheimpflug pipelines remain Brown-Conrady only.
-    #[serde(default = "default_distortion_kind")]
+    #[serde(default = "crate::common::config::default_distortion_kind")]
     pub distortion_model: DistortionKind,
-}
-
-fn default_distortion_kind() -> DistortionKind {
-    DistortionKind::BrownConrady5
+    /// Mask for fixing camera intrinsics/distortion parameters during
+    /// optimization.
+    pub fix_camera: CameraFixMask,
+    /// Scheimpflug tilt parameter fix mask for non-linear optimization.
+    pub fix_scheimpflug: ScheimpflugFixMask,
+    /// Indices of poses to fix during optimization (default `[0]`, removes
+    /// the planar-intrinsics gauge ambiguity).
+    pub fix_poses: Vec<usize>,
 }
 
 impl Default for ScheimpflugIntrinsicsConfig {
     fn default() -> Self {
         Self {
-            init_iterations: 2,
-            fix_k3_in_init: true,
-            zero_skew: true,
-            max_iters: 120,
-            verbosity: 0,
-            robust_loss: RobustLoss::None,
-            fix_intrinsics: IntrinsicsFixMask::default(),
-            fix_distortion: DistortionFixMask::radial_only(),
-            fix_scheimpflug: ScheimpflugFixMask::default(),
-            fix_first_pose: true,
+            init: IntrinsicsInitConfig {
+                fix_tangential: true,
+                ..IntrinsicsInitConfig::default()
+            },
+            solver: SolverConfig {
+                max_iters: 120,
+                ..SolverConfig::default()
+            },
             distortion_model: DistortionKind::BrownConrady5,
+            fix_camera: CameraFixMask {
+                distortion: vision_calibration_core::DistortionFixMask::radial_only(),
+                ..CameraFixMask::default()
+            },
+            fix_scheimpflug: ScheimpflugFixMask::default(),
+            fix_poses: vec![0],
         }
     }
 }
@@ -188,10 +172,10 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        if config.init_iterations == 0 {
+        if config.init.init_iterations == 0 {
             return Err(Error::invalid_input("init_iterations must be positive"));
         }
-        if config.max_iters == 0 {
+        if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
         Ok(())
@@ -238,6 +222,7 @@ mod tests {
         CorrespondenceView, DistortionParams, IntrinsicsParams, NoMeta, ProjectionParams,
         SensorParams, View,
     };
+    use vision_calibration_optim::RobustLoss;
 
     fn make_minimal_dataset() -> PlanarDataset {
         let make_view = || {
@@ -312,7 +297,10 @@ mod tests {
     #[test]
     fn validate_config_rejects_zero_iterations() {
         let config = ScheimpflugIntrinsicsConfig {
-            init_iterations: 0,
+            init: IntrinsicsInitConfig {
+                init_iterations: 0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let err = ScheimpflugIntrinsicsProblem::validate_config(&config)
@@ -323,9 +311,15 @@ mod tests {
     #[test]
     fn config_json_roundtrip() {
         let config = ScheimpflugIntrinsicsConfig {
-            init_iterations: 3,
-            max_iters: 70,
-            robust_loss: RobustLoss::Huber { scale: 1.2 },
+            init: IntrinsicsInitConfig {
+                init_iterations: 3,
+                ..Default::default()
+            },
+            solver: SolverConfig {
+                max_iters: 70,
+                robust_loss: RobustLoss::Huber { scale: 1.2 },
+                ..Default::default()
+            },
             fix_scheimpflug: ScheimpflugFixMask {
                 tilt_x: true,
                 tilt_y: false,
@@ -337,10 +331,10 @@ mod tests {
         let restored: ScheimpflugIntrinsicsConfig =
             serde_json::from_str(&json).expect("deserialize config");
 
-        assert_eq!(restored.init_iterations, 3);
-        assert_eq!(restored.max_iters, 70);
+        assert_eq!(restored.init.init_iterations, 3);
+        assert_eq!(restored.solver.max_iters, 70);
         assert!(matches!(
-            restored.robust_loss,
+            restored.solver.robust_loss,
             RobustLoss::Huber { scale } if (scale - 1.2).abs() < 1e-12
         ));
         assert!(restored.fix_scheimpflug.tilt_x);

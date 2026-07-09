@@ -14,10 +14,9 @@ use nalgebra::{Point2, Point3, Vector3};
 use serde::Serialize;
 use std::{io::Cursor, path::Path};
 use vision_calibration::core::{
-    BrownConrady5, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, Iso3, PixelRect,
-    ProjectionParams, ScheimpflugParams, SensorParams,
+    BrownConrady5, CameraModel, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams,
+    Iso3, PixelRect, ProjectionParams, ScheimpflugParams, SensorParams,
 };
-use vision_calibration_core::CameraModel;
 
 /// Number of depth samples along the ray. 256 keeps the rendered SVG
 /// smooth even when only a short subset of samples lands inside the
