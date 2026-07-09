@@ -13,4 +13,5 @@ docs/backlog.md
 # `app/src-tauri/` is a binary (the diagnose viewer) — the rest of the
 # workspace is libraries. Binaries pin their dep tree via Cargo.lock, so
 # override the global ignore for that one path.
-!/app/src-tauri/Cargo.lock
+!/app/src-tauri/Cargo.lock# codegraph daemon runtime state (machine-local)
+.codegraph/daemon.pid
