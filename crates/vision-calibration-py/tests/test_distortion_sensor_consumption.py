@@ -25,38 +25,7 @@ import math
 import unittest
 
 import vision_calibration as vc
-
-
-def _rot_xyz(ax: float, ay: float, az: float) -> list[list[float]]:
-    sx, cx = math.sin(ax), math.cos(ax)
-    sy, cy = math.sin(ay), math.cos(ay)
-    sz, cz = math.sin(az), math.cos(az)
-    return [
-        [cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
-        [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
-        [-sy, cy * sx, cy * cx],
-    ]
-
-
-def _apply(R: list[list[float]], t: list[float], p: list[float]) -> list[float]:
-    return [sum(R[i][k] * p[k] for k in range(3)) + t[i] for i in range(3)]
-
-
-def _planar_dataset() -> vc.PlanarDataset:
-    board = [(i * 0.04, j * 0.04, 0.0) for i in range(8) for j in range(6)]
-    views: list[vc.PlanarView] = []
-    for i in range(10):
-        R = _rot_xyz(0.02 * i, -0.18 + 0.04 * i, -0.20 + 0.06 * i)
-        t = [-0.04 + 0.02 * i, 0.02 - 0.01 * i, 0.55 + 0.04 * i]
-        p3, p2 = [], []
-        for pt in board:
-            pc = _apply(R, t, list(pt))
-            if pc[2] <= 0.0:
-                continue
-            p3.append(pt)
-            p2.append((640.0 + 800.0 * pc[0] / pc[2], 360.0 + 780.0 * pc[1] / pc[2]))
-        views.append(vc.PlanarView(observation=vc.Observation(points_3d=p3, points_2d=p2)))
-    return vc.PlanarDataset(views=views)
+from _fixtures import euler_rot_xyz, planar_calibration_dataset, transform_point
 
 
 def _rig_extrinsics_dataset() -> vc.RigExtrinsicsDataset:
@@ -65,13 +34,13 @@ def _rig_extrinsics_dataset() -> vc.RigExtrinsicsDataset:
     board = [(i * 0.04, j * 0.04, 0.0) for i in range(6) for j in range(5)]
     views: list[vc.RigExtrinsicsView] = []
     for i in range(6):
-        R = _rot_xyz(0.03 * i, -0.1 + 0.03 * i, 0.05 * i)
+        R = euler_rot_xyz(0.03 * i, -0.1 + 0.03 * i, 0.05 * i)
         t = [-0.03 + 0.02 * i, 0.02, 0.5 + 0.03 * i]
         cams: list[vc.Observation | None] = []
         for _ in range(2):
             p3, p2 = [], []
             for pt in board:
-                pc = _apply(R, t, list(pt))
+                pc = transform_point(R, t, list(pt))
                 p3.append(pt)
                 p2.append((640.0 + 800.0 * pc[0] / pc[2], 360.0 + 780.0 * pc[1] / pc[2]))
             cams.append(vc.Observation(points_3d=p3, points_2d=p2))
@@ -81,11 +50,19 @@ def _rig_extrinsics_dataset() -> vc.RigExtrinsicsDataset:
 
 class PlanarDistortionModelConsumptionTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.dataset = _planar_dataset()
+        self.dataset = planar_calibration_dataset()
 
     def _run(self, model: str) -> vc.PlanarCalibrationResult:
         cfg = vc.PlanarCalibrationConfig(distortion_model=model)  # type: ignore[arg-type]
         return vc.run_planar_intrinsics(self.dataset, cfg)
+
+    def test_none_model_yields_no_distortion_dataclass(self) -> None:
+        # `DistortionKind::None` solves fine and exports `{"type": "none"}`; the
+        # typed result must parse it (regression: it used to raise after a
+        # successful solve because the dispatcher had no "none" entry).
+        result = self._run("none")
+        self.assertIsInstance(result.camera, vc.PinholeCamera)
+        self.assertIsInstance(result.camera.distortion, vc.NoDistortion)
 
     def test_default_model_yields_brown_conrady_dataclass(self) -> None:
         result = self._run("brown_conrady5")
@@ -118,7 +95,7 @@ class PlanarDistortionModelConsumptionTest(unittest.TestCase):
 class ScheimpflugDistortionModelConsumptionTest(unittest.TestCase):
     def test_scheimpflug_division_model_yields_division_dataclass(self) -> None:
         cfg = vc.ScheimpflugIntrinsicsCalibrationConfig(distortion_model="division1")
-        result = vc.run_scheimpflug_intrinsics(_planar_dataset(), cfg)
+        result = vc.run_scheimpflug_intrinsics(planar_calibration_dataset(), cfg)
         # The Scheimpflug result camera is polymorphic on distortion too, while
         # still carrying the Scheimpflug sensor tilt.
         self.assertIsInstance(result.camera, vc.PinholeScheimpflugCamera)

@@ -32,8 +32,9 @@ ScheimpflugFixMask: TypeAlias = JsonObject
 
 # Serde `snake_case` form of `DistortionKind`. `brown_conrady5` is the default
 # and the only model the rig / hand-eye / laserline consumers accept; the
-# extended models (`rational8`, `thin_prism9`, `division1`) are
-# PlanarIntrinsics-only.
+# extended models (`rational8`, `thin_prism9`, `division1`) are supported by the
+# two single-camera intrinsics workflows (PlanarIntrinsics and
+# ScheimpflugIntrinsics).
 DistortionModel: TypeAlias = Literal[
     "none",
     "brown_conrady5",

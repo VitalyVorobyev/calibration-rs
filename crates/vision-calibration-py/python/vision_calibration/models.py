@@ -287,7 +287,12 @@ def _sensor_mode_from_mapping(value: Any) -> SensorMode:
     if isinstance(value, (PinholeSensorMode, ScheimpflugSensorMode)):
         return value
     mapping = cast(Mapping[str, Any], value)
-    kind = mapping.get("kind", "Pinhole")
+    # Rust's internally-tagged `SensorMode` errors on a missing tag rather than
+    # defaulting; match that so a malformed payload fails loudly instead of
+    # silently discarding Scheimpflug fields.
+    if "kind" not in mapping:
+        raise ValueError("SensorMode payload missing required 'kind' tag")
+    kind = mapping["kind"]
     if kind == "Pinhole":
         return PinholeSensorMode()
     if kind == "Scheimpflug":
@@ -572,7 +577,9 @@ class PlanarCalibrationConfig:
     the shared :class:`IntrinsicsInitConfig` / :class:`SolverConfig`
     sub-objects. ``distortion_model`` selects which distortion model is fitted
     (default ``"brown_conrady5"``); the extended models (``"rational8"``,
-    ``"thin_prism9"``, ``"division1"``) are PlanarIntrinsics-only.
+    ``"thin_prism9"``, ``"division1"``) are supported by the two single-camera
+    intrinsics workflows (PlanarIntrinsics and ScheimpflugIntrinsics) but not by
+    the rig / hand-eye / laserline consumers, which are Brown-Conrady-typed.
     """
 
     init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
@@ -1072,6 +1079,20 @@ class BrownConradyDistortion:
 
 
 @dataclass(slots=True)
+class NoDistortion:
+    """No distortion (serde tag ``none``): an empty parameter block."""
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to serde payload shape (no coefficients)."""
+        return {}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "NoDistortion":
+        """Parse from serde payload shape."""
+        return cls()
+
+
+@dataclass(slots=True)
 class Division1Distortion:
     """Fitzgibbon single-parameter division distortion (serde tag ``division``)."""
 
@@ -1183,14 +1204,20 @@ class ThinPrism9Distortion:
 # Any distortion model a single-camera (Planar / Scheimpflug) result may carry.
 # The rig / hand-eye / laserline results stay strictly ``BrownConradyDistortion``.
 Distortion = (
-    BrownConradyDistortion | Division1Distortion | Rational8Distortion | ThinPrism9Distortion
+    NoDistortion
+    | BrownConradyDistortion
+    | Division1Distortion
+    | Rational8Distortion
+    | ThinPrism9Distortion
 )
 
 # Single source of truth mapping the serde ``DistortionParams`` tag to its parser
-# and back. The tags are the export-side ``DistortionParams`` names (``division``,
-# ``rational``, ``thin_prism``), which differ from the ``DistortionKind`` config
-# spellings (``division1``, ``rational8``, ``thin_prism9``).
+# and back. The tags are the export-side ``DistortionParams`` names (``none``,
+# ``division``, ``rational``, ``thin_prism``), which differ from the
+# ``DistortionKind`` config spellings (``division1``, ``rational8``,
+# ``thin_prism9``).
 _DISTORTION_BY_TAG: dict[str, type] = {
+    "none": NoDistortion,
     "brown_conrady5": BrownConradyDistortion,
     "division": Division1Distortion,
     "rational": Rational8Distortion,
@@ -1324,22 +1351,13 @@ class PinholeCamera:
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeCamera":
-        """Parse from either `PinholeCamera` (`k`/`dist`) or `CameraParams` form."""
-        if "k" in payload and "dist" in payload:
-            return cls(
-                intrinsics=PinholeIntrinsics.from_payload(cast(Mapping[str, Any], payload["k"])),
-                distortion=_distortion_from_payload(cast(Mapping[str, Any], payload["dist"])),
-            )
-        if "intrinsics" in payload and "distortion" in payload:
-            intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
-            _check_intrinsics_type(intrinsics_payload, "pinhole")
-            return cls(
-                intrinsics=PinholeIntrinsics.from_payload(intrinsics_payload),
-                distortion=_distortion_from_payload(
-                    cast(Mapping[str, Any], payload["distortion"])
-                ),
-            )
-        raise ValueError("camera payload missing expected intrinsics/distortion fields")
+        """Parse from the `CameraParams` serde payload shape."""
+        intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
+        _check_intrinsics_type(intrinsics_payload, "pinhole")
+        return cls(
+            intrinsics=PinholeIntrinsics.from_payload(intrinsics_payload),
+            distortion=_distortion_from_payload(cast(Mapping[str, Any], payload["distortion"])),
+        )
 
 
 @dataclass(slots=True)

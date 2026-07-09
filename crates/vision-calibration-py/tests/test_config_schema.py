@@ -26,8 +26,7 @@ import unittest
 
 import vision_calibration as vc
 import vision_calibration.types as vc_types
-
-_RADIAL_ONLY = {"k1": False, "k2": False, "k3": True, "p1": True, "p2": True}
+from vision_calibration.models import _RADIAL_ONLY_DISTORTION_FIX_MASK as _RADIAL_ONLY
 
 
 class DistortionModelSchemaTest(unittest.TestCase):
@@ -132,6 +131,12 @@ class SensorModeSchemaTest(unittest.TestCase):
     def test_scheimpflug_sensor_from_mapping_rejects_unknown_field(self) -> None:
         with self.assertRaises(ValueError):
             vc.ScheimpflugSensorMode.from_mapping({"kind": "Scheimpflug", "bogus": 1})
+
+    def test_sensor_payload_missing_kind_is_rejected(self) -> None:
+        # Rust's internally-tagged SensorMode errors on a missing tag; the Python
+        # parser must not silently default to Pinhole and drop Scheimpflug fields.
+        with self.assertRaises(ValueError):
+            vc.RigExtrinsicsCalibrationConfig.from_mapping({"sensor": {"init_tilt_x": 0.02}})
 
 
 class RigHandeyeLaserlineConfigSchemaTest(unittest.TestCase):

@@ -26,6 +26,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FACADE_LIB = REPO_ROOT / "crates/vision-calibration/src/lib.rs"
 BINDING_LIB = REPO_ROOT / "crates/vision-calibration-py/src/lib.rs"
 
+# Reuse the single definition of the `wrap_pyfunction!` registration regex.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from check_pyi_coverage import extract_rust_pyfunctions  # noqa: E402
+
 
 def _balanced_brace_body(text: str, open_idx: int) -> str:
     """Return the substring inside the braces starting at ``open_idx`` (a ``{``)."""
@@ -62,24 +66,13 @@ def extract_facade_workflows(lib_rs: Path) -> set[str]:
     return workflows
 
 
-def extract_binding_pyfunctions(lib_rs: Path) -> set[str]:
-    """Names registered via ``m.add_function(wrap_pyfunction!(NAME, m)?)?;``."""
-    text = lib_rs.read_text()
-    return set(
-        re.findall(
-            r"m\.add_function\(wrap_pyfunction!\(\s*(\w+)\s*,\s*m\s*\)\?\)\?;",
-            text,
-        )
-    )
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="exit 1 on drift")
     args = parser.parse_args()
 
     workflows = extract_facade_workflows(FACADE_LIB)
-    pyfunctions = extract_binding_pyfunctions(BINDING_LIB)
+    pyfunctions = extract_rust_pyfunctions(BINDING_LIB)
 
     missing = sorted(
         name for name in workflows if f"run_{name}" not in pyfunctions
