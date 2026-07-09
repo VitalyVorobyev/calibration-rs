@@ -253,8 +253,8 @@ python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
 - **Backlog** in `docs/backlog.md` is the source-of-truth task tracker
   (AGENTS.md §11). On completing a task, mark it `[x]` with a dated, informative
   one-paragraph completion note — that note is the durable record. **No
-  per-task `docs/report/` files** (retired; historical entries kept for
-  reference only). Maintaining the backlog + the docs next to the code matters
+  per-task `docs/report/` files** (retired; historical entries archived under
+  `docs/internal/archive/report/` for reference only). Maintaining the backlog + the docs next to the code matters
   more than any separate paper trail.
 - ADRs in `docs/adrs/` — design decisions (see README there). 0011 covers
   manual init, 0012 covers per-feature residuals, 0013 covers the

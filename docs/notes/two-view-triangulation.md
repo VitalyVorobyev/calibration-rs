@@ -178,7 +178,7 @@ additionally scale ~`1/parallax`.
   cheirality (`cheirality.rs`), triangulation recovery/refinement
   (`triangulation.rs`), and scene degeneracy detectors (`degeneracy.rs`).
 - **Related**: ADR 0006 (the `vision-geometry` / `vision-mvg` split); the
-  P1-SVD-SWEEP (`docs/report/2026-06-16-P1-SVD-SWEEP-finish-centralize.md`) —
+  P1-SVD-SWEEP (`docs/internal/archive/report/2026-06-16-P1-SVD-SWEEP-finish-centralize.md`) —
   `null_space` / `AᵀA` replacing dense SVD in the 1-D null-space solvers;
   `docs/notes/planar-intrinsics.md` (Zhang init shares the Hartley-normalized
   DLT homography).

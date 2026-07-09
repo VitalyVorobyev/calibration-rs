@@ -341,7 +341,7 @@ implementation:
 support), behind an `apex-solver` cargo feature in `vision-calibration-optim`.
 
 The **O1 pre-verify gate failed** (2026-06-14, report:
-`docs/report/2026-06-14-O1-apex-solver-preverify.md`); the track was **closed
+`docs/internal/archive/report/2026-06-14-O1-apex-solver-preverify.md`); the track was **closed
 won't-do on 2026-07-04** after a fresh assessment (backlog Track O carries the
 full note and the revive triggers). The sharpened rationale: the IR is
 backend-neutral and the `fn residual<T: RealField>()` kernels are
@@ -372,7 +372,7 @@ accumulate the U factor across thousands of rows were hanging the linear init
 (homography DLT >15 min, distortion fit >11 min) before being fixed in place;
 the joint rig + hand-eye bundle adjustments remain heavy on full corner density.
 Full profiling + the tiny-solver cost model:
-`docs/report/2026-06-16-perf-from-scratch-rig-profiling.md`. Work items P1–P7 in
+`docs/internal/archive/report/2026-06-16-perf-from-scratch-rig-profiling.md`. Work items P1–P7 in
 the [backlog](backlog.md#p--performance--profiling): SVD-sweep (P1, DONE),
 joint-BA data density (P2 — open, scheduled only if the S4 acceptance runtime
 hurts), tiny-solver backend cost (P3 — parked post-1.0), criterion guards
