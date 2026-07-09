@@ -12,9 +12,12 @@ authoritative reference and stays green in CI.
 | Calibrate intrinsics + multi-camera rig from scratch | [Five-minute calibration](./five-minute-calibration.md) | [`stereo_charuco_session.rs`](../../crates/vision-calibration/examples/stereo_charuco_session.rs) |
 | Seed prior knowledge into the pipeline (datasheet K, factory tilts, mechanical drawings) | [Manual initialization](./manual-init.md) | [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs) |
 | Drill into per-corner reprojection errors (diagnose mode) | [Per-feature residuals](./per-feature-residuals.md) | [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs) (Run A printout) |
+| Choose a distortion model and fix mask (BC5 vs. extended models, Scheimpflug tangential coupling) | [Distortion model selection](./distortion-model-selection.md) | [`planar_distortion_models.rs`](../../crates/vision-calibration-pipeline/tests/planar_distortion_models.rs), [`scheimpflug_distortion_models.rs`](../../crates/vision-calibration-pipeline/tests/scheimpflug_distortion_models.rs) |
+| Calibrate a single camera mounted on (or observing) a robot arm | [Single-camera hand-eye](./single-cam-handeye.md) | [`handeye_session.rs`](../../crates/vision-calibration/examples/handeye_session.rs) |
 | Calibrate a Scheimpflug rig + laser device end-to-end on real data | [Puzzle 130×130 walkthrough](./puzzle-130x130-walkthrough.md) | [`puzzle_130x130_rig.rs`](../../crates/vision-calibration-examples-private/examples/puzzle_130x130_rig.rs) (private dataset) |
 | Describe a laser dataset in `dataset.toml` and run it through the app | [Laser dataset manifest](./laser-dataset-manifest.md) | `rtv3d_laser_end_to_end` test in [`app/src-tauri/src/run.rs`](../../app/src-tauri/src/run.rs) (private dataset) |
 | Recover relative pose, triangulate, bundle-adjust, and rectify a calibrated stereo pair | [Multiple-view geometry](./multiple-view-geometry.md) | [`mvg_two_view.rs`](../../crates/vision-calibration/examples/mvg_two_view.rs) |
+| Run calibrations and inspect residuals/3D through the desktop app | [App walkthrough](./app-walkthrough.md) | `app/` — `bun run tauri dev` |
 
 ## Target detectors
 

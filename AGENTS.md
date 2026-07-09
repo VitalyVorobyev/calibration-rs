@@ -225,8 +225,25 @@ Backlog execution must be traceable task-by-task. The priority is a current
 * Every completed task must include both of the following:
   1. **Backlog update**: mark the task as complete in `docs/backlog.md` with a short completion note (date, a one-paragraph summary of what landed, optionally commit id). This note is the durable record — keep it informative.
   2. **Dedicated commit**: commit only that task’s code/docs/tests updates.
-* Keep the **documentation that lives next to the code** current as part of the task: module/rustdoc, ADRs (`docs/adrs/`) for design decisions, and tutorials (`docs/tutorials/`) for new user-facing features. Update what the change touches; do **not** write a separate per-task report file (`docs/report/` is retired — historical entries are kept for reference only).
+* Keep the **documentation that lives next to the code** current as part of the task: module/rustdoc, ADRs (`docs/adrs/`) for design decisions, and tutorials (`docs/tutorials/`) for new user-facing features. Update what the change touches; do **not** write a separate per-task report file (`docs/report/` is retired — historical entries are archived under `docs/internal/archive/report/` for reference only).
 * Recommended commit message format:
   * `feat(backlog): <task-id> <short description>`
   * `fix(backlog): <task-id> <short description>`
   * `docs(backlog): <task-id> <short description>`
+
+---
+
+## 12) Desktop app (`app/`)
+
+* Tauri 2 + React 19 + TypeScript desktop app; frontend in `app/src/`
+  (five workspaces under `app/src/workspaces/`: Run, Diagnose, 3D, Epipolar,
+  Depth), Rust Tauri backend in `app/src-tauri/src/`.
+* **Always use `bun`**, never `npm`/`pnpm`/`yarn`. Commands (run from `app/`):
+  `bun install`, `bun run tauri dev` (launches the app — `bun run dev` alone
+  is Vite-only and the Tauri IPC surface is absent), `bun run build`,
+  `bun run tauri build`.
+* `app/src-tauri` is **excluded from the root Cargo workspace**
+  (`/Cargo.toml`'s `exclude = ["app"]`) and pins its own `Cargo.lock`.
+  `cargo build|test --workspace` at the repo root does **not** cover it;
+  build/test it from `app/` instead.
+* See `app/README.md` and `docs/adrs/0014-tauri-desktop-app.md`.

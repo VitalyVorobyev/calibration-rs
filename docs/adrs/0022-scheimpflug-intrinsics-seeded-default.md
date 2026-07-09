@@ -57,7 +57,7 @@ into a wrong tilt/focal basin.
 Two prior efforts confirm the fragility:
 
 - The P6 work added a tilt-aware linear initializer plus a rig-level
-  auto-recovery pass (see `docs/report/2026-06-16-P6-PERCAM-CONVERGENCE-*.md`).
+  auto-recovery pass (see `docs/internal/archive/report/2026-06-16-P6-PERCAM-CONVERGENCE-*.md`).
   It reaches `~0.41 px` mean on the private `rtv3d_ref` rig from scratch, but is
   basin-fragile: a public synthetic regression failed at the branch base, and the
   final joint hand-eye leaves camera 0 at `~0.528 px`.
@@ -149,5 +149,5 @@ documented as experimental and emits a non-fatal warning in the session init log
 - ADR 0011 — manual initialization workflow (`ScheimpflugManualInit`, the seeding
   mechanism this builds on).
 - ADR 0005 — composable camera model (the `sensor` tilt stage).
-- `docs/report/2026-06-16-P6-PERCAM-CONVERGENCE-tilt-aware-init.md` and
+- `docs/internal/archive/report/2026-06-16-P6-PERCAM-CONVERGENCE-tilt-aware-init.md` and
   `…-diagnosis.md` — the from-scratch fragility this decision steps around.

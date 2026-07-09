@@ -26,6 +26,9 @@ from .models import (
     RigExtrinsicsResult,
     RigHandeyeCalibrationConfig,
     RigHandeyeDataset,
+    RigHandeyeLaserlineCalibrationConfig,
+    RigHandeyeLaserlineDataset,
+    RigHandeyeLaserlineResult,
     RigHandeyeResult,
     RigLaserlineDataset,
     RigLaserlineDeviceCalibrationConfig,
@@ -246,6 +249,35 @@ def run_rig_laserline_device(
     cfg = _ensure_optional_type(config, RigLaserlineDeviceCalibrationConfig, "config")
     return _run_rig_laserline_device_raw(
         inp.to_payload(),
+        None if cfg is None else cfg.to_payload(),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rig hand-eye laserline (joint)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _run_rig_handeye_laserline_raw(
+    input_payload: Mapping[str, Any],
+    config_payload: Mapping[str, Any] | None = None,
+) -> RigHandeyeLaserlineResult:
+    raw = cast(
+        dict[str, Any],
+        _native.run_rig_handeye_laserline(input_payload, config_payload),
+    )
+    return RigHandeyeLaserlineResult.from_payload(raw)
+
+
+def run_rig_handeye_laserline(
+    input: RigHandeyeLaserlineDataset,
+    config: RigHandeyeLaserlineCalibrationConfig | None = None,
+) -> RigHandeyeLaserlineResult:
+    """Run joint rig hand-eye laserline calibration with typed input/config objects."""
+    dataset = _ensure_type(input, RigHandeyeLaserlineDataset, "input")
+    cfg = _ensure_optional_type(config, RigHandeyeLaserlineCalibrationConfig, "config")
+    return _run_rig_handeye_laserline_raw(
+        dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
     )
 

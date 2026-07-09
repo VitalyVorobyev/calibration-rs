@@ -147,17 +147,20 @@ inline. A planned follow-up swaps it to consume the export field directly.
 
 ## Pixel → gripper mapping
 
-The example demonstrates `pixel_to_gripper_point`, which back-projects a
-laser pixel through the calibrated rig and intersects with the laser plane
-to recover a 3D point in the robot gripper frame:
+The example demonstrates `rig_laserline_device::pixel_to_gripper_point`,
+which back-projects a laser pixel through the calibrated rig and
+intersects with the laser plane to recover a 3D point in the robot
+gripper frame:
 
 ```rust
-let p = vision_calibration::pixel_to_gripper_point(
+use vision_calibration::rig_laserline_device::pixel_to_gripper_point;
+
+let p = pixel_to_gripper_point(
     cam_idx,
-    &observed_pixel,
+    observed_pixel,
     &stage2_export,        // upstream rig + handeye
     &stage3_export.laser_planes_rig,
-    &robot_base_se3_gripper, // only required for EyeToHand
+    base_se3_gripper,       // Option<Iso3>, only required for EyeToHand
 )?;
 ```
 

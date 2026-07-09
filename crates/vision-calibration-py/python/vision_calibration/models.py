@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, cast
 
-from .types import HandEyeMode, LaserlineResidualType, RobustLoss
+from .types import DistortionModel, HandEyeMode, LaserlineResidualType, RobustLoss
 
 Vec2 = tuple[float, float]
 Vec3 = tuple[float, float, float]
@@ -36,6 +36,21 @@ _DEFAULT_SENSOR_INIT: dict[str, float] = {
 _DEFAULT_SCHEIMPFLUG_FIX_MASK: dict[str, bool] = {
     "tilt_x": False,
     "tilt_y": False,
+}
+# `SensorMode::Scheimpflug` and the joint BA both freeze tilt by default.
+_FIXED_SCHEIMPFLUG_MASK: dict[str, bool] = {
+    "tilt_x": True,
+    "tilt_y": True,
+}
+# `DistortionFixMask::radial_only()` — the per-camera Scheimpflug default and the
+# joint-BA / Scheimpflug-intrinsics camera-fix default (k1, k2 free; k3, p1, p2
+# fixed).
+_RADIAL_ONLY_DISTORTION_FIX_MASK: dict[str, bool] = {
+    "k1": False,
+    "k2": False,
+    "k3": True,
+    "p1": True,
+    "p2": True,
 }
 
 
@@ -193,6 +208,96 @@ class CameraFixMask:
             else:
                 raise ValueError(f"unknown CameraFixMask field: {key}")
         return cfg
+
+
+@dataclass(slots=True)
+class PinholeSensorMode:
+    """Pinhole rig sensor mode — mirrors ``SensorMode::Pinhole``.
+
+    Standard pinhole + Brown-Conrady projection with no sensor tilt. This is
+    the default flavour for both rig workflows (``RigExtrinsics`` /
+    ``RigHandeye``).
+    """
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"kind": "Pinhole"}
+
+
+@dataclass(slots=True)
+class ScheimpflugSensorMode:
+    """Scheimpflug rig sensor mode — mirrors ``SensorMode::Scheimpflug``.
+
+    Adds per-camera tilt parameters so a rig of Scheimpflug cameras can be
+    calibrated. ``distortion_model`` mirrors the Rust field but only
+    ``"brown_conrady5"`` (the default) is accepted by the Brown-Conrady-typed
+    rig bundle adjustment.
+    """
+
+    init_tilt_x: float = 0.0
+    init_tilt_y: float = 0.0
+    fix_scheimpflug: dict[str, bool] = field(
+        default_factory=lambda: dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
+    )
+    distortion_mask_in_percam_ba: dict[str, bool] = field(
+        default_factory=lambda: dict(_RADIAL_ONLY_DISTORTION_FIX_MASK)
+    )
+    refine_scheimpflug_in_rig_ba: bool = False
+    distortion_model: DistortionModel = "brown_conrady5"
+
+    def to_payload(self) -> dict[str, Any]:
+        fix_scheimpflug = dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
+        fix_scheimpflug.update(self.fix_scheimpflug)
+        distortion_mask = dict(_RADIAL_ONLY_DISTORTION_FIX_MASK)
+        distortion_mask.update(self.distortion_mask_in_percam_ba)
+        return {
+            "kind": "Scheimpflug",
+            "init_tilt_x": float(self.init_tilt_x),
+            "init_tilt_y": float(self.init_tilt_y),
+            "fix_scheimpflug": fix_scheimpflug,
+            "distortion_mask_in_percam_ba": distortion_mask,
+            "refine_scheimpflug_in_rig_ba": bool(self.refine_scheimpflug_in_rig_ba),
+            "distortion_model": self.distortion_model,
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "ScheimpflugSensorMode":
+        cfg = cls()
+        for key, value in mapping.items():
+            if key == "kind":
+                continue
+            if key == "fix_scheimpflug":
+                cfg.fix_scheimpflug = dict(cast(Mapping[str, bool], value))
+            elif key == "distortion_mask_in_percam_ba":
+                cfg.distortion_mask_in_percam_ba = dict(cast(Mapping[str, bool], value))
+            elif not hasattr(cfg, key):
+                raise ValueError(f"unknown ScheimpflugSensorMode field: {key}")
+            else:
+                setattr(cfg, key, value)
+        return cfg
+
+
+# Rig sensor flavour selector (pinhole vs Scheimpflug), mirroring the Rust
+# ``SensorMode`` enum. Illegal states are unrepresentable: a ``PinholeSensorMode``
+# carries no tilt fields, and only ``ScheimpflugSensorMode`` carries them.
+SensorMode = PinholeSensorMode | ScheimpflugSensorMode
+
+
+def _sensor_mode_from_mapping(value: Any) -> SensorMode:
+    """Build a :data:`SensorMode` from a model instance or a serde mapping."""
+    if isinstance(value, (PinholeSensorMode, ScheimpflugSensorMode)):
+        return value
+    mapping = cast(Mapping[str, Any], value)
+    # Rust's internally-tagged `SensorMode` errors on a missing tag rather than
+    # defaulting; match that so a malformed payload fails loudly instead of
+    # silently discarding Scheimpflug fields.
+    if "kind" not in mapping:
+        raise ValueError("SensorMode payload missing required 'kind' tag")
+    kind = mapping["kind"]
+    if kind == "Pinhole":
+        return PinholeSensorMode()
+    if kind == "Scheimpflug":
+        return ScheimpflugSensorMode.from_mapping(mapping)
+    raise ValueError(f"unknown SensorMode kind: {kind!r}")
 
 
 def _as_floats(values: tuple[Any, ...] | list[Any], expected: int, name: str) -> tuple[float, ...]:
@@ -470,11 +575,16 @@ class PlanarCalibrationConfig:
 
     Grouped per ADR 0024: linear-init and non-linear-solve settings live in
     the shared :class:`IntrinsicsInitConfig` / :class:`SolverConfig`
-    sub-objects.
+    sub-objects. ``distortion_model`` selects which distortion model is fitted
+    (default ``"brown_conrady5"``); the extended models (``"rational8"``,
+    ``"thin_prism9"``, ``"division1"``) are supported by the two single-camera
+    intrinsics workflows (PlanarIntrinsics and ScheimpflugIntrinsics) but not by
+    the rig / hand-eye / laserline consumers, which are Brown-Conrady-typed.
     """
 
     init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
+    distortion_model: DistortionModel = "brown_conrady5"
     fix_camera: CameraFixMask = field(default_factory=CameraFixMask)
     fix_poses: list[int] = field(default_factory=list)
 
@@ -482,6 +592,7 @@ class PlanarCalibrationConfig:
         return {
             "init": self.init.to_payload(),
             "solver": self.solver.to_payload(),
+            "distortion_model": self.distortion_model,
             "fix_camera": self.fix_camera.to_payload(),
             "fix_poses": [int(i) for i in self.fix_poses],
         }
@@ -502,6 +613,8 @@ class PlanarCalibrationConfig:
                     if isinstance(value, SolverConfig)
                     else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
+            elif key == "distortion_model":
+                cfg.distortion_model = cast(DistortionModel, value)
             elif key == "fix_camera":
                 cfg.fix_camera = (
                     value
@@ -574,18 +687,20 @@ class SingleCamHandeyeCalibrationConfig:
 class RigExtrinsicsCalibrationConfig:
     """Configuration for rig extrinsics calibration.
 
-    Grouped per ADR 0024. ``sensor`` (pinhole vs Scheimpflug) is not yet
-    mirrored here — same parity gap as ``RigHandeyeConfig.sensor``, tracked
-    for R5.
+    Grouped per ADR 0024. ``sensor`` selects the rig sensor flavour
+    (:class:`PinholeSensorMode` default, or :class:`ScheimpflugSensorMode` for
+    a rig of Scheimpflug cameras).
     """
 
     intrinsics: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    sensor: SensorMode = field(default_factory=PinholeSensorMode)
     rig: RigConfig = field(default_factory=RigConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "intrinsics": self.intrinsics.to_payload(),
+            "sensor": self.sensor.to_payload(),
             "rig": self.rig.to_payload(),
             "solver": self.solver.to_payload(),
         }
@@ -600,6 +715,8 @@ class RigExtrinsicsCalibrationConfig:
                     if isinstance(value, IntrinsicsInitConfig)
                     else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
+            elif key == "sensor":
+                cfg.sensor = _sensor_mode_from_mapping(value)
             elif key == "rig":
                 cfg.rig = (
                     value
@@ -660,11 +777,13 @@ class RigHandeyeCalibrationConfig:
     """Configuration for rig hand-eye calibration.
 
     Grouped per ADR 0024, sharing sub-objects with the other rig/hand-eye
-    configs. ``sensor`` (pinhole vs Scheimpflug) and ``manual_init`` are not
-    yet mirrored here — tracked for R5.
+    configs. ``sensor`` selects the rig sensor flavour
+    (:class:`PinholeSensorMode` default, or :class:`ScheimpflugSensorMode`).
+    (``manual_init`` is still Rust-only.)
     """
 
     intrinsics: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
+    sensor: SensorMode = field(default_factory=PinholeSensorMode)
     rig: RigConfig = field(default_factory=RigConfig)
     handeye_init: HandeyeInitConfig = field(default_factory=HandeyeInitConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
@@ -673,6 +792,7 @@ class RigHandeyeCalibrationConfig:
     def to_payload(self) -> dict[str, Any]:
         return {
             "intrinsics": self.intrinsics.to_payload(),
+            "sensor": self.sensor.to_payload(),
             "rig": self.rig.to_payload(),
             "handeye_init": self.handeye_init.to_payload(),
             "solver": self.solver.to_payload(),
@@ -689,6 +809,8 @@ class RigHandeyeCalibrationConfig:
                     if isinstance(value, IntrinsicsInitConfig)
                     else IntrinsicsInitConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
+            elif key == "sensor":
+                cfg.sensor = _sensor_mode_from_mapping(value)
             elif key == "rig":
                 cfg.rig = (
                     value
@@ -835,9 +957,10 @@ class ScheimpflugIntrinsicsCalibrationConfig:
         default_factory=lambda: IntrinsicsInitConfig(fix_tangential=True)
     )
     solver: SolverConfig = field(default_factory=lambda: SolverConfig(max_iters=120))
+    distortion_model: DistortionModel = "brown_conrady5"
     fix_camera: CameraFixMask = field(
         default_factory=lambda: CameraFixMask(
-            distortion={"k1": False, "k2": False, "k3": True, "p1": True, "p2": True}
+            distortion=dict(_RADIAL_ONLY_DISTORTION_FIX_MASK)
         )
     )
     fix_scheimpflug: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK))
@@ -849,6 +972,7 @@ class ScheimpflugIntrinsicsCalibrationConfig:
         return {
             "init": self.init.to_payload(),
             "solver": self.solver.to_payload(),
+            "distortion_model": self.distortion_model,
             "fix_camera": self.fix_camera.to_payload(),
             "fix_scheimpflug": fix_scheimpflug,
             "fix_poses": [int(i) for i in self.fix_poses],
@@ -870,6 +994,8 @@ class ScheimpflugIntrinsicsCalibrationConfig:
                     if isinstance(value, SolverConfig)
                     else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
+            elif key == "distortion_model":
+                cfg.distortion_model = cast(DistortionModel, value)
             elif key == "fix_camera":
                 cfg.fix_camera = (
                     value
@@ -953,6 +1079,173 @@ class BrownConradyDistortion:
 
 
 @dataclass(slots=True)
+class NoDistortion:
+    """No distortion (serde tag ``none``): an empty parameter block."""
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to serde payload shape (no coefficients)."""
+        return {}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "NoDistortion":
+        """Parse from serde payload shape."""
+        return cls()
+
+
+@dataclass(slots=True)
+class Division1Distortion:
+    """Fitzgibbon single-parameter division distortion (serde tag ``division``)."""
+
+    # `lambda` is a Python keyword; the serde field is `lambda`.
+    lambda_: float
+
+    def to_payload(self) -> dict[str, float]:
+        """Convert to serde payload shape (flat, no ``type`` tag)."""
+        return {"lambda": float(self.lambda_)}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "Division1Distortion":
+        """Parse from serde payload shape."""
+        return cls(lambda_=float(payload["lambda"]))
+
+
+@dataclass(slots=True)
+class Rational8Distortion:
+    """Rational-polynomial distortion (serde tag ``rational``): ``k1..k6, p1, p2``."""
+
+    k1: float
+    k2: float
+    k3: float
+    k4: float
+    k5: float
+    k6: float
+    p1: float
+    p2: float
+    iters: int
+
+    def to_payload(self) -> dict[str, float | int]:
+        """Convert to serde payload shape (flat, no ``type`` tag)."""
+        return {
+            "k1": float(self.k1),
+            "k2": float(self.k2),
+            "k3": float(self.k3),
+            "k4": float(self.k4),
+            "k5": float(self.k5),
+            "k6": float(self.k6),
+            "p1": float(self.p1),
+            "p2": float(self.p2),
+            "iters": int(self.iters),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "Rational8Distortion":
+        """Parse from serde payload shape."""
+        return cls(
+            k1=float(payload["k1"]),
+            k2=float(payload["k2"]),
+            k3=float(payload["k3"]),
+            k4=float(payload["k4"]),
+            k5=float(payload["k5"]),
+            k6=float(payload["k6"]),
+            p1=float(payload["p1"]),
+            p2=float(payload["p2"]),
+            iters=int(payload["iters"]),
+        )
+
+
+@dataclass(slots=True)
+class ThinPrism9Distortion:
+    """Brown-Conrady + thin-prism distortion (serde tag ``thin_prism``):
+    ``k1..k3, p1, p2, s1..s4``."""
+
+    k1: float
+    k2: float
+    k3: float
+    p1: float
+    p2: float
+    s1: float
+    s2: float
+    s3: float
+    s4: float
+    iters: int
+
+    def to_payload(self) -> dict[str, float | int]:
+        """Convert to serde payload shape (flat, no ``type`` tag)."""
+        return {
+            "k1": float(self.k1),
+            "k2": float(self.k2),
+            "k3": float(self.k3),
+            "p1": float(self.p1),
+            "p2": float(self.p2),
+            "s1": float(self.s1),
+            "s2": float(self.s2),
+            "s3": float(self.s3),
+            "s4": float(self.s4),
+            "iters": int(self.iters),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ThinPrism9Distortion":
+        """Parse from serde payload shape."""
+        return cls(
+            k1=float(payload["k1"]),
+            k2=float(payload["k2"]),
+            k3=float(payload["k3"]),
+            p1=float(payload["p1"]),
+            p2=float(payload["p2"]),
+            s1=float(payload["s1"]),
+            s2=float(payload["s2"]),
+            s3=float(payload["s3"]),
+            s4=float(payload["s4"]),
+            iters=int(payload["iters"]),
+        )
+
+
+# Any distortion model a single-camera (Planar / Scheimpflug) result may carry.
+# The rig / hand-eye / laserline results stay strictly ``BrownConradyDistortion``.
+Distortion = (
+    NoDistortion
+    | BrownConradyDistortion
+    | Division1Distortion
+    | Rational8Distortion
+    | ThinPrism9Distortion
+)
+
+# Single source of truth mapping the serde ``DistortionParams`` tag to its parser
+# and back. The tags are the export-side ``DistortionParams`` names (``none``,
+# ``division``, ``rational``, ``thin_prism``), which differ from the
+# ``DistortionKind`` config spellings (``division1``, ``rational8``,
+# ``thin_prism9``).
+_DISTORTION_BY_TAG: dict[str, type] = {
+    "none": NoDistortion,
+    "brown_conrady5": BrownConradyDistortion,
+    "division": Division1Distortion,
+    "rational": Rational8Distortion,
+    "thin_prism": ThinPrism9Distortion,
+}
+_DISTORTION_TAG_BY_TYPE: dict[type, str] = {v: k for k, v in _DISTORTION_BY_TAG.items()}
+
+
+def _distortion_from_payload(payload: Mapping[str, Any]) -> Distortion:
+    """Parse a tagged ``DistortionParams`` payload into the matching dataclass.
+
+    An absent ``type`` tag defaults to Brown-Conrady (the untyped ``dist`` shape
+    emitted by the ``PinholeCamera`` serde form used by rig exports).
+    """
+    tag = payload.get("type", "brown_conrady5")
+    parser = _DISTORTION_BY_TAG.get(tag)
+    if parser is None:
+        raise ValueError(f"unsupported distortion payload type: {tag!r}")
+    return cast(Distortion, parser.from_payload(payload))
+
+
+def _distortion_to_payload(distortion: Distortion) -> dict[str, Any]:
+    """Serialize a distortion dataclass to its tagged ``DistortionParams`` shape."""
+    tag = _DISTORTION_TAG_BY_TYPE[type(distortion)]
+    return {"type": tag, **distortion.to_payload()}
+
+
+@dataclass(slots=True)
 class ScheimpflugSensor:
     """Typed Scheimpflug sensor tilt model."""
 
@@ -1027,41 +1320,75 @@ class PinholeBrownConradyCamera:
         raise ValueError("camera payload missing expected intrinsics/distortion fields")
 
 
+def _check_intrinsics_type(payload: Mapping[str, Any], where: str) -> None:
+    intrinsics_type = payload.get("type")
+    if intrinsics_type not in (None, "fx_fy_cx_cy_skew"):
+        raise ValueError(
+            f"unsupported intrinsics payload type for {where} camera: {intrinsics_type!r}"
+        )
+
+
 @dataclass(slots=True)
-class PinholeBrownConradyScheimpflugCamera:
-    """Typed pinhole + Brown-Conrady + Scheimpflug camera model."""
+class PinholeCamera:
+    """Typed pinhole camera whose distortion may be any fitted model.
+
+    Used by the two single-camera results that expose ``distortion_model``
+    (``PlanarCalibrationResult``). The rig / hand-eye / laserline results keep
+    the strictly Brown-Conrady :class:`PinholeBrownConradyCamera`.
+    """
 
     intrinsics: PinholeIntrinsics
-    distortion: BrownConradyDistortion
+    distortion: Distortion
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert to the `CameraParams` serde payload shape."""
+        return {
+            "projection": {"type": "pinhole"},
+            "distortion": _distortion_to_payload(self.distortion),
+            "sensor": {"type": "identity"},
+            "intrinsics": {"type": "fx_fy_cx_cy_skew", **self.intrinsics.to_payload()},
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeCamera":
+        """Parse from the `CameraParams` serde payload shape."""
+        intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
+        _check_intrinsics_type(intrinsics_payload, "pinhole")
+        return cls(
+            intrinsics=PinholeIntrinsics.from_payload(intrinsics_payload),
+            distortion=_distortion_from_payload(cast(Mapping[str, Any], payload["distortion"])),
+        )
+
+
+@dataclass(slots=True)
+class PinholeScheimpflugCamera:
+    """Typed pinhole + Scheimpflug camera whose distortion may be any fitted model.
+
+    Used by ``ScheimpflugIntrinsicsResult`` (which exposes ``distortion_model``).
+    Rig Scheimpflug results instead carry a strictly Brown-Conrady
+    :class:`PinholeBrownConradyCamera` alongside a separate
+    :class:`ScheimpflugSensor`.
+    """
+
+    intrinsics: PinholeIntrinsics
+    distortion: Distortion
     sensor: ScheimpflugSensor
 
     def to_payload(self) -> dict[str, Any]:
         """Convert to `CameraParams` serde payload shape."""
         return {
             "projection": {"type": "pinhole"},
-            "distortion": {"type": "brown_conrady5", **self.distortion.to_payload()},
+            "distortion": _distortion_to_payload(self.distortion),
             "sensor": {"type": "scheimpflug", **self.sensor.to_payload()},
             "intrinsics": {"type": "fx_fy_cx_cy_skew", **self.intrinsics.to_payload()},
         }
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeBrownConradyScheimpflugCamera":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PinholeScheimpflugCamera":
         """Parse from `CameraParams` payload with Scheimpflug sensor."""
         intrinsics_payload = cast(Mapping[str, Any], payload["intrinsics"])
-        distortion_payload = cast(Mapping[str, Any], payload["distortion"])
         sensor_payload = cast(Mapping[str, Any], payload["sensor"])
-
-        intrinsics_type = intrinsics_payload.get("type")
-        if intrinsics_type not in (None, "fx_fy_cx_cy_skew"):
-            raise ValueError(
-                f"unsupported intrinsics payload type for Scheimpflug camera: {intrinsics_type!r}"
-            )
-
-        distortion_type = distortion_payload.get("type")
-        if distortion_type not in (None, "brown_conrady5"):
-            raise ValueError(
-                f"unsupported distortion payload type for Scheimpflug camera: {distortion_type!r}"
-            )
+        _check_intrinsics_type(intrinsics_payload, "Scheimpflug")
 
         sensor_type = sensor_payload.get("type")
         if sensor_type not in (None, "scheimpflug"):
@@ -1071,7 +1398,7 @@ class PinholeBrownConradyScheimpflugCamera:
 
         return cls(
             intrinsics=PinholeIntrinsics.from_payload(intrinsics_payload),
-            distortion=BrownConradyDistortion.from_payload(distortion_payload),
+            distortion=_distortion_from_payload(cast(Mapping[str, Any], payload["distortion"])),
             sensor=ScheimpflugSensor.from_payload(sensor_payload),
         )
 
@@ -1186,9 +1513,13 @@ class LaserlineStats:
 
 @dataclass(slots=True)
 class PlanarCalibrationResult:
-    """Result from :func:`vision_calibration.run_planar_intrinsics`."""
+    """Result from :func:`vision_calibration.run_planar_intrinsics`.
 
-    camera: PinholeBrownConradyCamera
+    ``camera.distortion`` is one of the :data:`Distortion` variants, matching the
+    ``distortion_model`` requested in the config (Brown-Conrady by default).
+    """
+
+    camera: PinholeCamera
     camera_se3_target: list[Pose]
     final_cost: float
     mean_reproj_error: float
@@ -1203,9 +1534,7 @@ class PlanarCalibrationResult:
             for p in cast(list[Any], params["camera_se3_target"])
         ]
         return cls(
-            camera=PinholeBrownConradyCamera.from_payload(
-                cast(Mapping[str, Any], params["camera"])
-            ),
+            camera=PinholeCamera.from_payload(cast(Mapping[str, Any], params["camera"])),
             camera_se3_target=poses,
             final_cost=float(report["final_cost"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
@@ -1392,9 +1721,13 @@ class LaserlineDeviceResult:
 
 @dataclass(slots=True)
 class ScheimpflugIntrinsicsResult:
-    """Result from :func:`vision_calibration.run_scheimpflug_intrinsics`."""
+    """Result from :func:`vision_calibration.run_scheimpflug_intrinsics`.
 
-    camera: PinholeBrownConradyScheimpflugCamera
+    ``camera.distortion`` is one of the :data:`Distortion` variants, matching the
+    ``distortion_model`` requested in the config (Brown-Conrady by default).
+    """
+
+    camera: PinholeScheimpflugCamera
     camera_se3_target: list[Pose]
     final_cost: float
     mean_reproj_error: float
@@ -1405,7 +1738,7 @@ class ScheimpflugIntrinsicsResult:
         params = cast(Mapping[str, Any], payload["params"])
         report = cast(Mapping[str, Any], payload["report"])
         return cls(
-            camera=PinholeBrownConradyScheimpflugCamera.from_payload(
+            camera=PinholeScheimpflugCamera.from_payload(
                 cast(Mapping[str, Any], params["camera"])
             ),
             camera_se3_target=[
@@ -1586,6 +1919,300 @@ class RigLaserlineDeviceResult:
             per_camera_stats=[
                 LaserlineStats.from_payload(cast(Mapping[str, Any], s))
                 for s in cast(list[Any], payload["per_camera_stats"])
+            ],
+        )
+
+
+# ─── Rig hand-eye laserline (joint) ───────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class RigHandeyeLaserlineView:
+    """One frame in a joint rig hand-eye laserline dataset.
+
+    Parameters
+    ----------
+    cameras:
+        Per-camera target correspondences. Use ``None`` for a missing camera.
+    laser_pixels:
+        Per-camera laser pixel observations. Use ``None`` for a missing camera.
+    base_se3_gripper:
+        Robot gripper pose at this frame.
+    """
+
+    cameras: list[Observation | None]
+    laser_pixels: list[list[Vec2] | None]
+    base_se3_gripper: Pose
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "obs": {
+                "cameras": [
+                    None if obs is None else obs.to_payload() for obs in self.cameras
+                ],
+                "laser_pixels": [
+                    None if px is None else [[u, v] for u, v in px]
+                    for px in self.laser_pixels
+                ],
+            },
+            "meta": {"base_se3_gripper": self.base_se3_gripper.to_payload()},
+        }
+
+
+@dataclass(slots=True)
+class RigHandeyeLaserlineDataset:
+    """Joint rig hand-eye laserline dataset (``RigHandeyeLaserlineInput``)."""
+
+    num_cameras: int
+    views: list[RigHandeyeLaserlineView]
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "num_cameras": int(self.num_cameras),
+            "views": [view.to_payload() for view in self.views],
+        }
+
+
+@dataclass(slots=True)
+class RigHandeyeLaserlineBaConfig:
+    """Final joint bundle-adjustment stage settings (ADR 0024).
+
+    ``default_camera_fix.distortion`` defaults to `radial_only` (k1, k2 free;
+    k3, p1, p2 fixed) and ``fix_scheimpflug`` freezes tilt during the joint
+    stage, mirroring the Rust defaults. Laser and target residuals carry
+    independent robust losses (``calib_loss`` / ``laser_loss``); the shared
+    ``solver.robust_loss`` is not consulted by this stage.
+    """
+
+    solver: SolverConfig = field(default_factory=lambda: SolverConfig(max_iters=30))
+    laser_residual_type: LaserlineResidualType = "PointToPlane"
+    calib_loss: RobustLoss = "None"
+    laser_loss: RobustLoss = "None"
+    calib_weight: float = 1.0
+    laser_weight: float = 1.0e4
+    default_camera_fix: CameraFixMask = field(
+        default_factory=lambda: CameraFixMask(
+            distortion=dict(_RADIAL_ONLY_DISTORTION_FIX_MASK)
+        )
+    )
+    fix_scheimpflug: dict[str, bool] = field(
+        default_factory=lambda: dict(_FIXED_SCHEIMPFLUG_MASK)
+    )
+    fix_handeye: bool = False
+    fix_target_ref: bool = False
+    robot_poses: RobotPoseConfig = field(default_factory=RobotPoseConfig)
+
+    def to_payload(self) -> dict[str, Any]:
+        fix_scheimpflug = dict(_FIXED_SCHEIMPFLUG_MASK)
+        fix_scheimpflug.update(self.fix_scheimpflug)
+        return {
+            "solver": self.solver.to_payload(),
+            "laser_residual_type": self.laser_residual_type,
+            "calib_loss": cast(Any, self.calib_loss),
+            "laser_loss": cast(Any, self.laser_loss),
+            "calib_weight": float(self.calib_weight),
+            "laser_weight": float(self.laser_weight),
+            "default_camera_fix": self.default_camera_fix.to_payload(),
+            "fix_scheimpflug": fix_scheimpflug,
+            "fix_handeye": bool(self.fix_handeye),
+            "fix_target_ref": bool(self.fix_target_ref),
+            "robot_poses": self.robot_poses.to_payload(),
+        }
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigHandeyeLaserlineBaConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if key == "solver":
+                cfg.solver = (
+                    value
+                    if isinstance(value, SolverConfig)
+                    else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "default_camera_fix":
+                cfg.default_camera_fix = (
+                    value
+                    if isinstance(value, CameraFixMask)
+                    else CameraFixMask.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "robot_poses":
+                cfg.robot_poses = (
+                    value
+                    if isinstance(value, RobotPoseConfig)
+                    else RobotPoseConfig.from_mapping(cast(Mapping[str, Any], value))
+                )
+            elif key == "fix_scheimpflug":
+                cfg.fix_scheimpflug = dict(cast(Mapping[str, bool], value))
+            elif not hasattr(cfg, key):
+                raise ValueError(f"unknown RigHandeyeLaserlineBaConfig field: {key}")
+            else:
+                setattr(cfg, key, value)
+        return cfg
+
+
+@dataclass(slots=True)
+class RigHandeyeLaserlineCalibrationConfig:
+    """Configuration for joint rig hand-eye laserline calibration.
+
+    Three warm-started stages: the rig hand-eye stage (``handeye``), the
+    frozen-geometry laser plane init (``laserline_init``, defaults to a
+    point-to-plane residual), and the final joint bundle adjustment
+    (``joint_ba``).
+    """
+
+    handeye: RigHandeyeCalibrationConfig = field(
+        default_factory=RigHandeyeCalibrationConfig
+    )
+    laserline_init: RigLaserlineDeviceCalibrationConfig = field(
+        default_factory=lambda: RigLaserlineDeviceCalibrationConfig(
+            laser_residual_type="PointToPlane"
+        )
+    )
+    joint_ba: RigHandeyeLaserlineBaConfig = field(
+        default_factory=RigHandeyeLaserlineBaConfig
+    )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "handeye": self.handeye.to_payload(),
+            "laserline_init": self.laserline_init.to_payload(),
+            "joint_ba": self.joint_ba.to_payload(),
+        }
+
+    @classmethod
+    def from_mapping(
+        cls, mapping: Mapping[str, Any]
+    ) -> "RigHandeyeLaserlineCalibrationConfig":
+        cfg = cls()
+        for key, value in mapping.items():
+            if key == "handeye":
+                cfg.handeye = (
+                    value
+                    if isinstance(value, RigHandeyeCalibrationConfig)
+                    else RigHandeyeCalibrationConfig.from_mapping(
+                        cast(Mapping[str, Any], value)
+                    )
+                )
+            elif key == "laserline_init":
+                cfg.laserline_init = (
+                    value
+                    if isinstance(value, RigLaserlineDeviceCalibrationConfig)
+                    else RigLaserlineDeviceCalibrationConfig.from_mapping(
+                        cast(Mapping[str, Any], value)
+                    )
+                )
+            elif key == "joint_ba":
+                cfg.joint_ba = (
+                    value
+                    if isinstance(value, RigHandeyeLaserlineBaConfig)
+                    else RigHandeyeLaserlineBaConfig.from_mapping(
+                        cast(Mapping[str, Any], value)
+                    )
+                )
+            else:
+                raise ValueError(
+                    f"unknown RigHandeyeLaserlineCalibrationConfig field: {key}"
+                )
+        return cfg
+
+
+@dataclass(slots=True)
+class RigHandeyeLaserlinePerCamStats:
+    """Per-camera statistics for a joint rig hand-eye laserline result."""
+
+    mean_reproj_error_px: float
+    reproj_count: int
+    max_reproj_error_px: float
+    reproj_histogram_px: list[int]
+    mean_laser_err_m: float
+    max_laser_err_m: float
+    laser_histogram_m: list[int]
+    mean_laser_err_px: float
+    max_laser_err_px: float
+    laser_count: int
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeLaserlinePerCamStats":
+        return cls(
+            mean_reproj_error_px=float(payload["mean_reproj_error_px"]),
+            reproj_count=int(payload["reproj_count"]),
+            max_reproj_error_px=float(payload["max_reproj_error_px"]),
+            reproj_histogram_px=[int(v) for v in cast(list[Any], payload["reproj_histogram_px"])],
+            mean_laser_err_m=float(payload["mean_laser_err_m"]),
+            max_laser_err_m=float(payload["max_laser_err_m"]),
+            laser_histogram_m=[int(v) for v in cast(list[Any], payload["laser_histogram_m"])],
+            mean_laser_err_px=float(payload["mean_laser_err_px"]),
+            max_laser_err_px=float(payload["max_laser_err_px"]),
+            laser_count=int(payload["laser_count"]),
+        )
+
+
+@dataclass(slots=True)
+class RigHandeyeLaserlineResult:
+    """Result from :func:`vision_calibration.run_rig_handeye_laserline`."""
+
+    laser_planes_rig: list[LaserlinePlane]
+    laser_planes_cam: list[LaserlinePlane]
+    per_camera_stats: list[RigHandeyeLaserlinePerCamStats]
+    cameras: list[PinholeBrownConradyCamera]
+    sensors: list[ScheimpflugSensor]
+    cam_se3_rig: list[Pose]
+    rig_se3_target: list[Pose]
+    handeye_mode: HandEyeMode
+    gripper_se3_rig: Pose | None
+    rig_se3_base: Pose | None
+    base_se3_target: Pose | None
+    gripper_se3_target: Pose | None
+    robot_deltas: list[list[float]] | None
+    mean_reproj_error: float
+    per_cam_reproj_errors: list[float]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeLaserlineResult":
+        def _pose(name: str) -> Pose | None:
+            value = payload.get(name)
+            if value is None:
+                return None
+            return Pose.from_payload(cast(Mapping[str, Any], value))
+
+        return cls(
+            laser_planes_rig=[
+                LaserlinePlane.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["laser_planes_rig"])
+            ],
+            laser_planes_cam=[
+                LaserlinePlane.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["laser_planes_cam"])
+            ],
+            per_camera_stats=[
+                RigHandeyeLaserlinePerCamStats.from_payload(cast(Mapping[str, Any], s))
+                for s in cast(list[Any], payload["per_camera_stats"])
+            ],
+            cameras=[
+                PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
+                for c in cast(list[Any], payload["cameras"])
+            ],
+            sensors=[
+                ScheimpflugSensor.from_payload(cast(Mapping[str, Any], s))
+                for s in cast(list[Any], payload["sensors"])
+            ],
+            cam_se3_rig=[
+                Pose.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["cam_se3_rig"])
+            ],
+            rig_se3_target=[
+                Pose.from_payload(cast(Mapping[str, Any], p))
+                for p in cast(list[Any], payload["rig_se3_target"])
+            ],
+            handeye_mode=cast(HandEyeMode, payload["handeye_mode"]),
+            gripper_se3_rig=_pose("gripper_se3_rig"),
+            rig_se3_base=_pose("rig_se3_base"),
+            base_se3_target=_pose("base_se3_target"),
+            gripper_se3_target=_pose("gripper_se3_target"),
+            robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
+            mean_reproj_error=float(payload["mean_reproj_error"]),
+            per_cam_reproj_errors=[
+                float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
             ],
         )
 

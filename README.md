@@ -325,6 +325,21 @@ Notes:
 - Real-image examples use optional Python deps:
   `./.venv/bin/python -m pip install "vision-calibration[examples]"`.
 
+## Desktop App
+
+`app/` is a Tauri 2 + React 19 + TypeScript desktop app that runs
+calibrations end-to-end and diagnoses the results (residual overlays, 3D rig
+viewer, epipolar sanity checks, dense stereo) without leaving a GUI. It uses
+**bun** exclusively — never `npm`/`pnpm`/`yarn`:
+
+```bash
+cd app
+bun install
+bun run tauri dev      # NOT `bun run dev` — that starts Vite only, without the Tauri APIs
+```
+
+See [`app/README.md`](app/README.md) for workspace details and dev notes.
+
 ## Camera Model
 
 `vision-calibration-core` models cameras as a composable pipeline:

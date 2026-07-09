@@ -70,9 +70,11 @@ class TypedModelParsingTest(unittest.TestCase):
             },
         }
 
-        cam = vc.PinholeBrownConradyScheimpflugCamera.from_payload(payload)
+        cam = vc.PinholeScheimpflugCamera.from_payload(payload)
         self.assertAlmostEqual(cam.sensor.tilt_x, 0.015)
         self.assertAlmostEqual(cam.sensor.tilt_y, -0.012)
+        # Brown-Conrady payload parses into the BC5 variant of the union.
+        self.assertIsInstance(cam.distortion, vc.BrownConradyDistortion)
 
 
 if __name__ == "__main__":

@@ -66,10 +66,11 @@ If REJECTED: go back to Phase 2 with the feedback (max 2 retries total across al
 
 If approved and all gates pass:
 
-1. Write a task report to `docs/report/YYYY-MM-DD-<task-id>-<slug>.md`
-2. Update `docs/backlog.md` to mark the task complete
-3. Stage all changed files (be specific, no `git add -A`)
-4. Commit with message format: `feat(backlog): <task-id> <short description>`
+1. Mark the task `[x]` in `docs/backlog.md` and record the outcome as a
+   dated, informative one-paragraph completion note there — that backlog note
+   is the durable record (the per-task `docs/report/` policy is retired)
+2. Stage all changed files (be specific, no `git add -A`)
+3. Commit with message format: `feat(backlog): <task-id> <short description>`
 
 If there are uncertainties or design questions that couldn't be resolved, DO NOT commit. Instead, present the questions to the user.
 

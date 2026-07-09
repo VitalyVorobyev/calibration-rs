@@ -267,6 +267,35 @@ fn run_rig_laserline_device(
     )
 }
 
+/// Run joint rig hand-eye + laserline calibration.
+///
+/// Parameters
+/// ----------
+/// input:
+///     Joint rig hand-eye laserline input payload (serde-compatible with
+///     `RigHandeyeLaserlineInput`): per-view target observations, laser
+///     pixels, and robot poses plus the rig camera count.
+/// config:
+///     Optional config payload (serde-compatible with `RigHandeyeLaserlineConfig`).
+///
+/// Returns
+/// -------
+/// dict
+///     Joint rig hand-eye laserline export payload.
+#[pyfunction(signature = (input, config=None))]
+fn run_rig_handeye_laserline(
+    py: Python<'_>,
+    input: &Bound<'_, PyAny>,
+    config: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    run_problem::<vision_calibration::rig_handeye_laserline::RigHandeyeLaserlineProblem, _>(
+        py,
+        input,
+        config,
+        vision_calibration::rig_handeye_laserline::run_calibration,
+    )
+}
+
 /// Map a laser pixel in a rig camera to a 3D point in the robot gripper frame.
 ///
 /// Parameters
@@ -363,6 +392,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_laserline_device, m)?)?;
     m.add_function(wrap_pyfunction!(run_scheimpflug_intrinsics, m)?)?;
     m.add_function(wrap_pyfunction!(run_rig_laserline_device, m)?)?;
+    m.add_function(wrap_pyfunction!(run_rig_handeye_laserline, m)?)?;
     m.add_function(wrap_pyfunction!(pixel_to_gripper_point, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     Ok(())
