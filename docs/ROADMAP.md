@@ -107,9 +107,12 @@ R2: ADR 0024 (one config vocabulary, grouped shapes, shared sub-structs).
 R3: executed across all 8 configs + every consumer; `fix_first_rig_pose` and
 `fix_first_camera_extrinsic` removed (reference-camera gauge only — the
 joint BA now honors `reference_camera_idx`). R4: `vision-calibration-linear`
-is anyhow-free. Remaining: R5 (Python parity G0/G2 + missing
-`RigHandeyeConfig.sensor` mirror + coverage test; MVG bindings stay
-deferred) → R6 (tutorials refresh for the R3 shapes + `spec.json` docs).
+is anyhow-free. R5 done 2026-07-09: `run_rig_handeye_laserline` bound,
+`distortion_model` + `SensorMode` mirrored (typed results made
+model-polymorphic), `check_binding_parity.py` CI guard; MVG bindings stay
+deferred. R6 done 2026-07-09: distortion-model-selection, single-cam-handeye
+(+ `spec.json`), and app-walkthrough tutorials; existing six verified on the
+R3 shapes. **Track R is complete.**
 
 ### Track B extensions — app to production grade
 

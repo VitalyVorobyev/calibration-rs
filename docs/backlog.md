@@ -119,15 +119,29 @@ two-view/triangulation.
   `vision-calibration-linear`; `handeye.rs`/`extrinsics.rs` return
   `linear::Error` (new `NoValidMotionPairs` variant). Public signatures
   unchanged.
-- [ ] R5-PY-PARITY - (absorbs the D3 fill) G0 `run_rig_handeye_laserline`
-  binding → G2 `distortion_model` field (post-R3 shapes) → G1 MVG bindings
-  (serde DTOs → triangulation + rectification + pose recovery → robust → BA,
-  + `.pyi` + round-trip parity tests) → a binding-coverage test asserting every
-  facade workflow has a binding (the guard that would have caught G0).
-- [ ] R6-TUTORIALS - New tutorials: distortion-model selection, single-cam
-  hand-eye; update the existing six for R3 config shapes; document the
-  `spec.json` format for external users. All tutorial code compiles
-  (doctest or example-backed).
+- [x] R5-PY-PARITY - **Done 2026-07-09** (G1 MVG bindings deferred per user
+  decision 2026-07-08, pending a consumer). G0: `run_rig_handeye_laserline`
+  bound (typed wrapper + `RigHandeyeLaserline{Dataset,View,CalibrationConfig,
+  BaConfig,Result,PerCamStats}` models + stubs) — was the one unbound facade
+  workflow. G2: `distortion_model` on planar/Scheimpflug configs and
+  `sensor: SensorMode` (`PinholeSensorMode`/`ScheimpflugSensorMode`) on both
+  rig configs; typed results made model-polymorphic (`PinholeCamera` /
+  `PinholeScheimpflugCamera` with a `Distortion` union of BC5/Division1/
+  Rational8/ThinPrism9) so every `distortion_model` value round-trips typed;
+  rig/hand-eye/laserline results stay strictly BC5-typed. Guard:
+  `scripts/check_binding_parity.py --check` (facade `run_calibration` module ↔
+  `run_<module>` pyfunction) wired into CI next to the pyi coverage check.
+  Facade now re-exports `DistortionKind` (was a public field type on three
+  facade configs with no facade path). 40 runtime/schema tests.
+- [x] R6-TUTORIALS - **Done 2026-07-09.** New `docs/tutorials/`:
+  `distortion-model-selection.md` (Q4-grounded, verified against the
+  `planar/scheimpflug_distortion_models` test numbers),
+  `single-cam-handeye.md` (kuka_1-backed walkthrough incl. `spec.json` /
+  device-spec section and the honest dataset.toml loading path), and
+  `app-walkthrough.md` (five-workspace desktop app tour). Existing six
+  verified already on ADR-0024 shapes (zero stale fields); one genuinely
+  stale `pixel_to_gripper_point` facade path fixed in the puzzle-130x130
+  walkthrough (R1-audit casualty). Index updated.
 
 ## B-QUAL / B-UX / B-DIST — app to production grade (Phase III)
 
@@ -307,8 +321,8 @@ count though extrinsics/hand-eye don't need full density (P2, conditional).
   BC5/Rational8/ThinPrism9/Division1; model-agnostic export contract; 7 new
   E2E tests. Remaining scope split 2026-07-02: intrinsics-bearing rig/
   Scheimpflug problem types → Q4-MWIRE-SCHEIMPFLUG (done); config placement →
-  R2/R3 (done); Python binding → R5-PY-PARITY (open); app selector →
-  B-QUAL2-TSRS (open).
+  R2/R3 (done); Python binding → R5-PY-PARITY (done 2026-07-09); app
+  selector → B-QUAL2-TSRS (open).
 - [~] M4-FISHEYE - **Parked post-1.0 (2026-07-02)** — no fisheye dataset in
   the acceptance set. Would add Kannala-Brandt equidistant k1–k4 as a new
   `ProjectionModel`.
