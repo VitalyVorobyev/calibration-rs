@@ -620,6 +620,11 @@ pub mod mvg {
 /// The `compute_*_feature_residuals` / `handeye_observer_se3_target` helpers
 /// live in [`analysis`], not here.
 pub mod optim {
+    /// Distortion model selector — the `distortion_model` field type on
+    /// [`planar_intrinsics::PlanarIntrinsicsConfig`](crate::planar_intrinsics::PlanarIntrinsicsConfig),
+    /// [`scheimpflug_intrinsics::ScheimpflugIntrinsicsConfig`](crate::scheimpflug_intrinsics::ScheimpflugIntrinsicsConfig),
+    /// and the rig `SensorMode::Scheimpflug` variant.
+    pub use vision_calibration_optim::DistortionKind;
     /// Hand-eye configuration mode (eye-in-hand vs eye-to-hand).
     pub use vision_calibration_optim::HandEyeMode;
     /// Laser-plane parameter type.

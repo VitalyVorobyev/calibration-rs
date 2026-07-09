@@ -1,6 +1,8 @@
 from .models import (
     BrownConradyDistortion,
     CameraFixMask,
+    Distortion,
+    Division1Distortion,
     HandeyeInitConfig,
     IntrinsicsInitConfig,
     LaserlineDataset,
@@ -14,8 +16,12 @@ from .models import (
     LaserlineView,
     Observation,
     PinholeBrownConradyCamera,
-    PinholeBrownConradyScheimpflugCamera,
+    PinholeCamera,
     PinholeIntrinsics,
+    PinholeScheimpflugCamera,
+    PinholeSensorMode,
+    Rational8Distortion,
+    ThinPrism9Distortion,
     PlanarCalibrationConfig,
     PlanarCalibrationResult,
     PlanarDataset,
@@ -25,6 +31,7 @@ from .models import (
     RobotPoseConfig,
     ScheimpflugIntrinsicsCalibrationConfig,
     ScheimpflugSensor,
+    ScheimpflugSensorMode,
     ScheimpflugIntrinsicsResult,
     SolverConfig,
     RigExtrinsicsCalibrationConfig,
@@ -34,6 +41,12 @@ from .models import (
     HandeyeBaConfig,
     RigHandeyeCalibrationConfig,
     RigHandeyeDataset,
+    RigHandeyeLaserlineBaConfig,
+    RigHandeyeLaserlineCalibrationConfig,
+    RigHandeyeLaserlineDataset,
+    RigHandeyeLaserlinePerCamStats,
+    RigHandeyeLaserlineResult,
+    RigHandeyeLaserlineView,
     RigHandeyeResult,
     RigHandeyeView,
     RigLaserlineDataset,
@@ -101,6 +114,12 @@ def run_rig_laserline_device(
     input: RigLaserlineDeviceInput,
     config: RigLaserlineDeviceCalibrationConfig | None = None,
 ) -> RigLaserlineDeviceResult: ...
+
+
+def run_rig_handeye_laserline(
+    input: RigHandeyeLaserlineDataset,
+    config: RigHandeyeLaserlineCalibrationConfig | None = None,
+) -> RigHandeyeLaserlineResult: ...
 
 
 def pixel_to_gripper_point(

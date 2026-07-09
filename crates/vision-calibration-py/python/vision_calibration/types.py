@@ -30,6 +30,77 @@ HandEyeMode: TypeAlias = Literal["EyeInHand", "EyeToHand"]
 LaserlineResidualType: TypeAlias = Literal["PointToPlane", "LineDistNormalized"]
 ScheimpflugFixMask: TypeAlias = JsonObject
 
+# Serde `snake_case` form of `DistortionKind`. `brown_conrady5` is the default
+# and the only model the rig / hand-eye / laserline consumers accept; the
+# extended models (`rational8`, `thin_prism9`, `division1`) are
+# PlanarIntrinsics-only.
+DistortionModel: TypeAlias = Literal[
+    "none",
+    "brown_conrady5",
+    "rational8",
+    "thin_prism9",
+    "division1",
+]
+
+
+class DistortionBrownConrady5(TypedDict):
+    """Exported ``DistortionParams::BrownConrady5`` payload."""
+
+    type: Literal["brown_conrady5"]
+    k1: float
+    k2: float
+    k3: float
+    p1: float
+    p2: float
+    iters: int
+
+
+# `lambda` is a Python keyword, so the single-parameter division variant needs
+# the functional TypedDict form.
+DistortionDivision = TypedDict(
+    "DistortionDivision",
+    {"type": Literal["division"], "lambda": float},
+)
+
+
+class DistortionRational(TypedDict):
+    """Exported ``DistortionParams::Rational`` payload."""
+
+    type: Literal["rational"]
+    k1: float
+    k2: float
+    k3: float
+    k4: float
+    k5: float
+    k6: float
+    p1: float
+    p2: float
+    iters: int
+
+
+class DistortionThinPrism(TypedDict):
+    """Exported ``DistortionParams::ThinPrism`` payload."""
+
+    type: Literal["thin_prism"]
+    k1: float
+    k2: float
+    k3: float
+    p1: float
+    p2: float
+    s1: float
+    s2: float
+    s3: float
+    s4: float
+    iters: int
+
+
+# Tagged (``type``) distortion payload emitted on the export side. Note the tags
+# (``division``/``rational``/``thin_prism``) are the ``DistortionParams`` names,
+# distinct from the ``DistortionModel`` config spellings above.
+DistortionParamsPayload: TypeAlias = (
+    DistortionBrownConrady5 | DistortionDivision | DistortionRational | DistortionThinPrism
+)
+
 
 class _RobustLossScale(TypedDict):
     scale: float
@@ -194,9 +265,32 @@ class CameraFixMask(TypedDict, total=False):
     distortion: JsonObject
 
 
+class SensorModePinhole(TypedDict):
+    """Pinhole rig sensor mode — serde `SensorMode::Pinhole`."""
+
+    kind: Literal["Pinhole"]
+
+
+class SensorModeScheimpflug(TypedDict, total=False):
+    """Scheimpflug rig sensor mode — serde `SensorMode::Scheimpflug`."""
+
+    kind: Literal["Scheimpflug"]
+    init_tilt_x: float
+    init_tilt_y: float
+    fix_scheimpflug: ScheimpflugFixMask
+    distortion_mask_in_percam_ba: JsonObject
+    refine_scheimpflug_in_rig_ba: bool
+    distortion_model: DistortionModel
+
+
+# Internally-tagged (`kind`) rig sensor flavour selector.
+SensorMode: TypeAlias = SensorModePinhole | SensorModeScheimpflug
+
+
 class PlanarIntrinsicsConfig(TypedDict, total=False):
     init: IntrinsicsInitConfig
     solver: SolverConfig
+    distortion_model: DistortionModel
     fix_camera: CameraFixMask
     fix_poses: list[int]
 
@@ -217,6 +311,7 @@ class RigConfig(TypedDict, total=False):
 
 class RigExtrinsicsConfig(TypedDict, total=False):
     intrinsics: IntrinsicsInitConfig
+    sensor: SensorMode
     rig: RigConfig
     solver: SolverConfig
 
@@ -231,6 +326,7 @@ class HandeyeBaConfig(TypedDict, total=False):
 
 class RigHandeyeConfig(TypedDict, total=False):
     intrinsics: IntrinsicsInitConfig
+    sensor: SensorMode
     rig: RigConfig
     handeye_init: HandeyeInitConfig
     solver: SolverConfig
@@ -264,6 +360,35 @@ class RigLaserlineDeviceConfig(TypedDict, total=False):
 class ScheimpflugIntrinsicsConfig(TypedDict, total=False):
     init: IntrinsicsInitConfig
     solver: SolverConfig
+    distortion_model: DistortionModel
     fix_camera: CameraFixMask
     fix_scheimpflug: ScheimpflugFixMask
     fix_poses: list[int]
+
+
+class RigHandeyeLaserlineBaConfig(TypedDict, total=False):
+    """Final joint bundle-adjustment stage settings (ADR 0024)."""
+
+    solver: SolverConfig
+    laser_residual_type: LaserlineResidualType
+    calib_loss: RobustLoss
+    laser_loss: RobustLoss
+    calib_weight: float
+    laser_weight: float
+    default_camera_fix: CameraFixMask
+    fix_scheimpflug: ScheimpflugFixMask
+    fix_handeye: bool
+    fix_target_ref: bool
+    robot_poses: RobotPoseConfig
+
+
+class RigHandeyeLaserlineConfig(TypedDict, total=False):
+    """Joint rig hand-eye + laserline config: three warm-started stages."""
+
+    handeye: RigHandeyeConfig
+    laserline_init: RigLaserlineDeviceConfig
+    joint_ba: RigHandeyeLaserlineBaConfig
+
+
+# Input payload alias for the joint rig hand-eye laserline workflow.
+RigHandeyeLaserlineInput: TypeAlias = JsonObject

@@ -19,8 +19,9 @@ study — when reaching for a richer model actually buys you anything.
 
 ### The models
 
-[`DistortionKind`](../../crates/vision-calibration-optim/src/ir/types.rs)
-selects the packed coefficient layout a factor compiles against:
+[`DistortionKind`](../../crates/vision-calibration/src/lib.rs) (re-exported
+by the facade as `vision_calibration::optim::DistortionKind`) selects the
+packed coefficient layout a factor compiles against:
 
 | Kind | dim | Packed layout |
 |---|---:|---|
@@ -102,9 +103,7 @@ start here.
 ```rust
 use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
 use vision_calibration::core::{CameraFixMask, DistortionFixMask};
-// `DistortionKind` isn't re-exported by the facade yet (see note below);
-// reach into the optim crate directly.
-use vision_calibration_optim::DistortionKind;
+use vision_calibration::optim::DistortionKind;
 
 let mut config = PlanarIntrinsicsConfig::default();
 config.distortion_model = DistortionKind::Rational8;
@@ -114,13 +113,13 @@ config.fix_camera = CameraFixMask {
 };
 ```
 
-> The facade re-exports `PlanarIntrinsicsConfig`, `CameraFixMask`, and
-> `DistortionFixMask`, but not `DistortionKind` itself, even though it's a
-> public field type on three re-exported configs
-> (`PlanarIntrinsicsConfig`, `ScheimpflugIntrinsicsConfig`,
-> `SensorMode::Scheimpflug`). Until that gap is closed, import it from
-> `vision_calibration_optim` (a separately published, facade-adjacent
-> crate) as shown above.
+> The facade re-exports `DistortionKind` as
+> `vision_calibration::optim::DistortionKind`, alongside the other
+> optim config-field enums (`RobustLoss`, `HandEyeMode`). It is a public
+> field type on three re-exported configs (`PlanarIntrinsicsConfig`,
+> `ScheimpflugIntrinsicsConfig`, `SensorMode::Scheimpflug`), so importing
+> it through the facade keeps a consumer off the `vision_calibration_optim`
+> crate directly.
 
 Switching `distortion_model` alone does **not** free the model's extra
 coefficients — they stay at their zero seed unless the fix mask also frees
@@ -134,7 +133,7 @@ use vision_calibration::scheimpflug_intrinsics::{
     step_init_with_seed, step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
-use vision_calibration_optim::DistortionKind;
+use vision_calibration::optim::DistortionKind;
 
 let mut config = ScheimpflugIntrinsicsConfig::default(); // BC5, radial_only, fix_tangential
 config.distortion_model = DistortionKind::ThinPrism9;

@@ -105,7 +105,7 @@ class ScheimpflugIntrinsicsTest(unittest.TestCase):
             ),
         )
         self.assertGreaterEqual(result.mean_reproj_error, 0.0)
-        self.assertIsInstance(result.camera, vc.PinholeBrownConradyScheimpflugCamera)
+        self.assertIsInstance(result.camera, vc.PinholeScheimpflugCamera)
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
 
     def test_invalid_config_maps_to_value_error(self) -> None:
