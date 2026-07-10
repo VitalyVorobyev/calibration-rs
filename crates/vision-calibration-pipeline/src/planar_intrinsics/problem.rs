@@ -131,6 +131,7 @@ impl PlanarIntrinsicsConfig {
 
 /// Export format for planar intrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PlanarIntrinsicsExport {
     /// Calibrated parameters.

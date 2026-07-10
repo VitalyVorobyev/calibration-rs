@@ -35,15 +35,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Huber"
-          ],
+          "required": ["Huber"],
           "type": "object"
         },
         {
@@ -58,15 +54,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Cauchy"
-          ],
+          "required": ["Cauchy"],
           "type": "object"
         },
         {
@@ -81,15 +73,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Arctan"
-          ],
+          "required": ["Arctan"],
           "type": "object"
         }
       ]
@@ -114,11 +102,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "max_iters",
-        "verbosity",
-        "robust_loss"
-      ],
+      "required": ["max_iters", "verbosity", "robust_loss"],
       "type": "object"
     }
   },
@@ -134,10 +118,7 @@
       "description": "Non-linear solve stage settings. `robust_loss` is **not consulted**\nby this problem — the underlying per-camera laserline solver picks\nits own calibration/laser robust losses (frozen upstream geometry,\nso only the laser-plane fit actually moves)."
     }
   },
-  "required": [
-    "solver",
-    "laser_residual_type"
-  ],
+  "required": ["solver", "laser_residual_type"],
   "title": "RigLaserlineDeviceConfig",
   "type": "object"
 }

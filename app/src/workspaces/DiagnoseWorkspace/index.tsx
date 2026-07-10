@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  CompareViewer,
-  type CompareViewerHandle,
-} from "../../components/CompareViewer";
+import { CompareViewer, type CompareViewerHandle } from "../../components/CompareViewer";
 import {
   FrameCanvas,
   type FrameCanvasHandle,
@@ -11,11 +8,7 @@ import {
 } from "../../components/FrameCanvas";
 import { Histogram } from "../../components/Histogram";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
-import {
-  getPixelLum,
-  rectHistogram,
-  useImageData,
-} from "../../hooks/useImageData";
+import { getPixelLum, rectHistogram, useImageData } from "../../hooks/useImageData";
 import { useKeyboardNav } from "../../hooks/useKeyboardNav";
 import { useStore } from "../../store";
 import type {
@@ -65,17 +58,11 @@ export function DiagnoseWorkspace() {
   const which: "A" | "B" = compare && activePane === "right" ? "B" : "A";
 
   const frame = useMemo<FrameKey | null>(() => {
-    return (
-      frames.find((f) => f.pose === selectedPose && f.camera === cameraA) ??
-      null
-    );
+    return frames.find((f) => f.pose === selectedPose && f.camera === cameraA) ?? null;
   }, [frames, selectedPose, cameraA]);
 
   const rightFrame = useMemo<FrameKey | null>(() => {
-    return (
-      frames.find((f) => f.pose === selectedPoseB && f.camera === cameraB) ??
-      null
-    );
+    return frames.find((f) => f.pose === selectedPoseB && f.camera === cameraB) ?? null;
   }, [frames, selectedPoseB, cameraB]);
 
   const laserResiduals = useMemo<LaserFeatureResidual[]>(
@@ -92,9 +79,7 @@ export function DiagnoseWorkspace() {
 
   const laserFrame = useMemo<FrameKey | null>(() => {
     return (
-      laserFrames.find(
-        (f) => f.pose === selectedPose && f.camera === cameraA,
-      ) ?? null
+      laserFrames.find((f) => f.pose === selectedPose && f.camera === cameraA) ?? null
     );
   }, [laserFrames, selectedPose, cameraA]);
 
@@ -181,9 +166,7 @@ export function DiagnoseWorkspace() {
         return;
       }
       const fit = () =>
-        compare
-          ? compareHandleRef.current?.fitActive()
-          : canvasHandleRef.current?.fit();
+        compare ? compareHandleRef.current?.fitActive() : canvasHandleRef.current?.fit();
       const oneToOne = () =>
         compare
           ? compareHandleRef.current?.reset1to1Active()
@@ -338,7 +321,9 @@ export function DiagnoseWorkspace() {
           <FrameCanvas
             ref={canvasHandleRef}
             frame={activeFrame}
-            residuals={showLaser ? NO_TARGET_RESIDUALS : data.per_feature_residuals.target}
+            residuals={
+              showLaser ? NO_TARGET_RESIDUALS : data.per_feature_residuals.target
+            }
             laserResiduals={showLaser ? laserResiduals : undefined}
             image={imageData?.image ?? null}
             onCursor={handleCursor}
@@ -346,14 +331,13 @@ export function DiagnoseWorkspace() {
           />
         ) : data && showLaser ? (
           <div className="m-auto text-[13px] text-muted-foreground">
-            No laser frame in the manifest for pose {selectedPose} · cam{" "}
-            {cameraA}.
+            No laser frame in the manifest for pose {selectedPose} · cam {cameraA}.
           </div>
         ) : (
           <div className="m-auto text-[13px] text-muted-foreground">
             Open an <code>export.json</code> from a calibration run with an
-            <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for
-            camera; toggle Compare to view two frames side by side.
+            <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for camera; toggle
+            Compare to view two frames side by side.
           </div>
         )}
       </div>
@@ -368,20 +352,14 @@ export function DiagnoseWorkspace() {
           {showLaser ? (
             <LaserResidualLegend
               residuals={laserResiduals.filter(
-                (r) =>
-                  r.pose === activeFrame.pose &&
-                  r.camera === activeFrame.camera,
+                (r) => r.pose === activeFrame.pose && r.camera === activeFrame.camera,
               )}
-              hist={
-                data.per_feature_residuals.laser_hist_per_camera?.[cameraA]
-              }
+              hist={data.per_feature_residuals.laser_hist_per_camera?.[cameraA]}
             />
           ) : (
             <ResidualLegend
               residuals={data.per_feature_residuals.target.filter(
-                (r) =>
-                  r.pose === activeFrame.pose &&
-                  r.camera === activeFrame.camera,
+                (r) => r.pose === activeFrame.pose && r.camera === activeFrame.camera,
               )}
             />
           )}
@@ -414,16 +392,11 @@ function CursorChip({ cursor }: { cursor: CursorReadout | null }) {
   );
 }
 
-function ResidualLegend({
-  residuals,
-}: {
-  residuals: TargetFeatureResidual[];
-}) {
+function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
   const errs = residuals
     .map((r) => r.error_px)
     .filter((e): e is number => typeof e === "number");
-  const mean =
-    errs.length > 0 ? errs.reduce((a, b) => a + b, 0) / errs.length : 0;
+  const mean = errs.length > 0 ? errs.reduce((a, b) => a + b, 0) / errs.length : 0;
   const max = errs.length > 0 ? Math.max(...errs) : 0;
   const diverged = residuals.length - errs.length;
   return (
@@ -494,12 +467,7 @@ interface ZoomControlsProps {
   onZoomOut: () => void;
 }
 
-function ZoomControls({
-  onFit,
-  onOneToOne,
-  onZoomIn,
-  onZoomOut,
-}: ZoomControlsProps) {
+function ZoomControls({ onFit, onOneToOne, onZoomIn, onZoomOut }: ZoomControlsProps) {
   return (
     <div className="flex items-center gap-1">
       <button

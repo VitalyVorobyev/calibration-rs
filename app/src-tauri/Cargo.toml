@@ -19,6 +19,15 @@ publish = false
 name = "calibration_diagnose_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
+# JSON Schema emitter (B-QUAL2). Behind `required-features` so `tauri dev`
+# and the default clippy/test build never pull in schemars; only
+# `bun run generate:types` / the CI drift check build it with
+# `--features schema-export`.
+[[bin]]
+name = "emit_schemas"
+path = "src/bin/emit_schemas.rs"
+required-features = ["schema-export"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -38,6 +47,9 @@ vision-calibration = { path = "../../crates/vision-calibration" }
 # implementation. Same pin as vision-calibration-bench.
 vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.git", tag = "v0.1.0" }
 dirs = "5"
+# Optional: only pulled in by the `schema-export` feature for the
+# `emit_schemas` binary. schemars 1.x, matching the workspace pin.
+schemars = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -48,3 +60,7 @@ toml = "0.8"
 # `cargo tauri build`. `tauri dev` enables what it needs from the CLI.
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# JSON Schema emission (B-QUAL2): derive `JsonSchema` on the Tauri
+# command payload/response types and forward the facade's `schemars`
+# feature so the `*Export` types are schema-able too.
+schema-export = ["dep:schemars", "vision-calibration/schemars"]

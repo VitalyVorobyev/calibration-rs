@@ -1,15 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import {
-  FrameCanvas,
-  type FrameCanvasHandle,
-} from "../../components/FrameCanvas";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FrameCanvas, type FrameCanvasHandle } from "../../components/FrameCanvas";
 import { PoseStepper } from "../../components/PoseStepper";
 import { useUndistortedImageData } from "../../hooks/useImageData";
 import {
@@ -19,23 +10,13 @@ import {
   relativeCameraPose,
 } from "../../lib/se3";
 import { useStore } from "../../store";
-import { exportKindLabel } from "../../store/exportShape";
-import type {
-  FrameKey,
-  TargetFeatureResidual,
-  ViewportTransform,
-} from "../../types";
+import { exportKindLabel } from "../../store/exportKind";
+import type { FrameKey, TargetFeatureResidual, ViewportTransform } from "../../types";
 import { IDENTITY_TRANSFORM } from "../../types";
-import {
-  EpipolarOverlay,
-  type OverlayPoint,
-} from "./EpipolarOverlay";
-
-interface EpipolarOverlayResult {
-  line_b: [number, number][];
-  epipole_b: [number, number] | null;
-  samples_clipped: number;
-}
+import { EpipolarOverlay, type OverlayPoint } from "./EpipolarOverlay";
+// Generated wire type (B-QUAL2); aliased to avoid colliding with the
+// `EpipolarOverlay` overlay component imported just above.
+import type { EpipolarOverlay as EpipolarOverlayResult } from "../../types/generated/diagnose-wire";
 
 /** Pixel-radius around the click within which we snap to the nearest
  * residual feature. Outside this radius the click is a free pixel
@@ -60,9 +41,8 @@ export function EpipolarWorkspace() {
 
   const [transformA, setTransformA] = useState<ViewportTransform>(IDENTITY_TRANSFORM);
   const [transformB, setTransformB] = useState<ViewportTransform>(IDENTITY_TRANSFORM);
-  const [linkedTransform, setLinkedTransform] = useState<ViewportTransform>(
-    IDENTITY_TRANSFORM,
-  );
+  const [linkedTransform, setLinkedTransform] =
+    useState<ViewportTransform>(IDENTITY_TRANSFORM);
 
   const [picked, setPicked] = useState<{
     px: [number, number];
@@ -204,23 +184,18 @@ function EpipolarBody(props: BodyProps) {
   );
 
   const frameA = useMemo<FrameKey | null>(
-    () =>
-      frames.find((f) => f.pose === selectedPose && f.camera === cameraA) ??
-      null,
+    () => frames.find((f) => f.pose === selectedPose && f.camera === cameraA) ?? null,
     [frames, selectedPose, cameraA],
   );
   const frameB = useMemo<FrameKey | null>(
-    () =>
-      frames.find((f) => f.pose === selectedPose && f.camera === cameraB) ??
-      null,
+    () => frames.find((f) => f.pose === selectedPose && f.camera === cameraB) ?? null,
     [frames, selectedPose, cameraB],
   );
 
   // Bucket residuals by (camera) for the active pose so the overlay /
   // tie-points / snap logic doesn't re-scan the full residual array.
   const residualsForPose = useMemo<TargetFeatureResidual[]>(
-    () =>
-      data.per_feature_residuals.target.filter((r) => r.pose === selectedPose),
+    () => data.per_feature_residuals.target.filter((r) => r.pose === selectedPose),
     [data, selectedPose],
   );
   const residualsA = useMemo(
@@ -278,7 +253,7 @@ function EpipolarBody(props: BodyProps) {
         if (cancelled) return;
         setUndistortedResidualsA([]);
         setUndistortedResidualsB([]);
-        setOverlayError(`undistort points failed: ${e}`);
+        setOverlayError(`undistort points failed: ${String(e)}`);
       }
     }
     void run();
@@ -321,7 +296,9 @@ function EpipolarBody(props: BodyProps) {
       const myRequestId = latestRequestIdRef.current;
       if (!imageB) {
         setOverlay(null);
-        setOverlayError("epipolar overlay failed: pane-B undistorted image is not ready yet");
+        setOverlayError(
+          "epipolar overlay failed: pane-B undistorted image is not ready yet",
+        );
         return;
       }
       try {
@@ -340,7 +317,7 @@ function EpipolarBody(props: BodyProps) {
       } catch (e) {
         if (myRequestId !== latestRequestIdRef.current) return;
         setOverlay(null);
-        setOverlayError(`epipolar overlay failed: ${e}`);
+        setOverlayError(`epipolar overlay failed: ${String(e)}`);
       }
     },
     [
@@ -359,7 +336,8 @@ function EpipolarBody(props: BodyProps) {
     return undistortedResidualsB.find((r) => r.feature === picked.feature) ?? null;
   }, [picked, undistortedResidualsB]);
 
-  const clippedPolyline = overlay && overlay.line_b.length >= 2 ? overlay.line_b : undefined;
+  const clippedPolyline =
+    overlay && overlay.line_b.length >= 2 ? overlay.line_b : undefined;
 
   // Distance from the corresponding pane-B feature to the polyline in
   // pixels — the calibration's epipolar residual for the picked
@@ -494,18 +472,10 @@ function EpipolarBody(props: BodyProps) {
           onChange={(v) => setCamera(v, "B")}
         />
         <ZoomBar
-          onFit={() =>
-            drivePane("A", (h) => h.fit())
-          }
-          onOneToOne={() =>
-            drivePane("A", (h) => h.reset1to1())
-          }
-          onZoomIn={() =>
-            drivePane("A", (h) => h.zoomBy(1.25))
-          }
-          onZoomOut={() =>
-            drivePane("A", (h) => h.zoomBy(1 / 1.25))
-          }
+          onFit={() => drivePane("A", (h) => h.fit())}
+          onOneToOne={() => drivePane("A", (h) => h.reset1to1())}
+          onZoomIn={() => drivePane("A", (h) => h.zoomBy(1.25))}
+          onZoomOut={() => drivePane("A", (h) => h.zoomBy(1 / 1.25))}
         />
         <Toggle
           active={linked}
@@ -553,10 +523,14 @@ function EpipolarBody(props: BodyProps) {
           frame={frameA}
           transform={linked ? linkedTransform : transformA}
           onTransformChange={linked ? setLinkedTransform : setTransformA}
-          onPick={handlePickA}
+          onPick={(pixel) => void handlePickA(pixel)}
           markers={markersA}
           image={imageA?.image ?? null}
-          caption={frameA ? `pane A · cam ${cameraA} · undistorted${showFeatures ? " · click feature or anywhere" : " · click to pick"}` : undefined}
+          caption={
+            frameA
+              ? `pane A · cam ${cameraA} · undistorted${showFeatures ? " · click feature or anywhere" : " · click to pick"}`
+              : undefined
+          }
           handleRef={handleARef}
         />
         <Pane
@@ -610,10 +584,7 @@ function distanceToSegment(
   const aby = b[1] - a[1];
   const lenSq = abx * abx + aby * aby;
   if (lenSq === 0) return Math.hypot(p[0] - a[0], p[1] - a[1]);
-  const t = Math.max(
-    0,
-    Math.min(1, ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / lenSq),
-  );
+  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / lenSq));
   const cx = a[0] + t * abx;
   const cy = a[1] + t * aby;
   return Math.hypot(p[0] - cx, p[1] - cy);
@@ -684,10 +655,7 @@ function PaneInner({
   handleRef,
   annotation,
 }: PaneProps & { frame: FrameKey }) {
-  const displayFrame = useMemo<FrameKey>(
-    () => ({ ...frame, roi: undefined }),
-    [frame],
-  );
+  const displayFrame = useMemo<FrameKey>(() => ({ ...frame, roi: undefined }), [frame]);
   return (
     <div className="relative flex h-full flex-col">
       <div className="relative flex-1 overflow-hidden">
@@ -817,7 +785,10 @@ function RelativePoseStrip({
         cam {cameraA} ⇒ cam {cameraB}:
       </span>
       <span>
-        baseline <span className="text-foreground tabular-nums">{(dist * 1000).toFixed(1)} mm</span>
+        baseline{" "}
+        <span className="text-foreground tabular-nums">
+          {(dist * 1000).toFixed(1)} mm
+        </span>
       </span>
       <span>
         rot <span className="text-foreground tabular-nums">{angle.toFixed(2)}°</span>
@@ -888,9 +859,7 @@ function Empty({ body }: { body: string }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <header className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold tracking-tight">
-          Epipolar geometry
-        </h2>
+        <h2 className="text-sm font-semibold tracking-tight">Epipolar geometry</h2>
       </header>
       <div className="flex min-h-0 flex-1 items-center justify-center rounded-md border border-dashed border-border bg-bg-soft">
         <p className="max-w-[28rem] p-6 text-center text-[13px] text-muted-foreground">

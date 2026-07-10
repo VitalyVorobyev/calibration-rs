@@ -144,6 +144,7 @@ impl RigExtrinsicsOutput {
 /// rigs and `Some(_)` for Scheimpflug rigs, matching the configured
 /// [`SensorMode`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigExtrinsicsExport {
     /// Per-camera calibrated intrinsics + distortion (pinhole core).
@@ -156,9 +157,17 @@ pub struct RigExtrinsicsExport {
 
     /// Per-camera extrinsics: `cam_se3_rig` (T_C_R).
     /// Transform from rig frame to camera frame.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub cam_se3_rig: Vec<Iso3>,
 
     /// Per-view rig poses: `rig_se3_target` (T_R_T).
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub rig_se3_target: Vec<Iso3>,
 
     /// Mean reprojection error (pixels).

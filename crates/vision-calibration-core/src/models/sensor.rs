@@ -11,6 +11,7 @@ pub trait SensorModel<S: RealField + Copy> {
 
 /// Identity sensor model.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct IdentitySensor;
 
 impl<S: RealField + Copy> SensorModel<S> for IdentitySensor {

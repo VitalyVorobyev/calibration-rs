@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { isTauriContext, joinPath } from "../lib/tauri";
 import type { FrameKey } from "../types";
 import type { AnyExport, ExportKind, LoadExportResult } from "./types";
-import { inferExportKind } from "./exportShape";
+import { detectExportKind } from "./exportKind";
 
 /** Wrap-around index lookup over a sorted array. Returns the value
  * at position `(idx(current) + delta) mod arr.length`, with a
@@ -32,9 +32,10 @@ interface MaterializedExport {
   second: FrameKey;
 }
 
-function materializeExport(data: AnyExport, exportDir: string):
-  | { ok: true; value: MaterializedExport }
-  | { ok: false; error: string } {
+function materializeExport(
+  data: AnyExport,
+  exportDir: string,
+): { ok: true; value: MaterializedExport } | { ok: false; error: string } {
   const manifest = data.image_manifest;
   if (!manifest) {
     return {
@@ -84,17 +85,12 @@ function materializeExport(data: AnyExport, exportDir: string):
   const sortNum = (s: Set<number>) => [...s].sort((a, b) => a - b);
   const poseValues = sortNum(poseSet);
   const cameraValues = sortNum(cameraSet);
-  const posesByCamera = new Map(
-    [...posesByCameraSet].map(([k, v]) => [k, sortNum(v)]),
-  );
-  const camerasByPose = new Map(
-    [...camerasByPoseSet].map(([k, v]) => [k, sortNum(v)]),
-  );
+  const posesByCamera = new Map([...posesByCameraSet].map(([k, v]) => [k, sortNum(v)]));
+  const camerasByPose = new Map([...camerasByPoseSet].map(([k, v]) => [k, sortNum(v)]));
 
   const first = frames[0];
   const second =
-    frames.find((f) => f.pose !== first.pose || f.camera !== first.camera) ??
-    first;
+    frames.find((f) => f.pose !== first.pose || f.camera !== first.camera) ?? first;
 
   return {
     ok: true,
@@ -183,7 +179,7 @@ export const useStore = create<AppState>()(
       try {
         result = await invoke<LoadExportResult>("load_export", { path });
       } catch (e) {
-        set({ loadError: `Could not load export: ${e}` });
+        set({ loadError: `Could not load export: ${String(e)}` });
         return;
       }
       const data = result.export;
@@ -201,7 +197,9 @@ export const useStore = create<AppState>()(
       try {
         await invoke("set_active_export", { path, export: data });
       } catch (e) {
-        set({ loadError: `Could not commit export to backend cache: ${e}` });
+        set({
+          loadError: `Could not commit export to backend cache: ${String(e)}`,
+        });
         return;
       }
 
@@ -209,7 +207,7 @@ export const useStore = create<AppState>()(
         exportPath: path,
         exportDir: result.export_dir,
         data,
-        kind: inferExportKind(data),
+        kind: detectExportKind(data),
         frames: materialized.value.frames,
         laserFrames: materialized.value.laserFrames,
         poseValues: materialized.value.poseValues,
@@ -237,7 +235,7 @@ export const useStore = create<AppState>()(
         exportPath: "<live-run>",
         exportDir,
         data,
-        kind: inferExportKind(data),
+        kind: detectExportKind(data),
         frames: materialized.value.frames,
         laserFrames: materialized.value.laserFrames,
         poseValues: materialized.value.poseValues,

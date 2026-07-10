@@ -42,6 +42,7 @@ pub const REPROJECTION_HISTOGRAM_EDGES_PX: [f64; 4] = [1.0, 2.0, 5.0, 10.0];
 
 /// Reprojection record for a single target feature in a single view.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct TargetFeatureResidual {
     /// Pose / view index in the input dataset.
@@ -64,6 +65,7 @@ pub struct TargetFeatureResidual {
 
 /// Reprojection record for a single laser pixel in a single view.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserFeatureResidual {
     /// Pose / view index in the input dataset.
@@ -91,6 +93,7 @@ pub struct LaserFeatureResidual {
 /// Buckets are fixed at `[<=1, <=2, <=5, <=10, >10]` pixels — see
 /// [`REPROJECTION_HISTOGRAM_EDGES_PX`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct FeatureResidualHistogram {
     /// Bucket edges in pixels: `[1.0, 2.0, 5.0, 10.0]`.
@@ -127,6 +130,7 @@ impl Default for FeatureResidualHistogram {
 /// type chose not to produce a per-camera aggregate; `Some(vec)` length must
 /// match `num_cameras`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PerFeatureResiduals {
     /// Per-target-corner reprojection records, pose-major.

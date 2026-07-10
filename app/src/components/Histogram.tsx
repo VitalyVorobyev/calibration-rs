@@ -49,9 +49,7 @@ export function Histogram({
             y={height - h}
             width={Math.max(barW - 0.5, 0.5)}
             height={h}
-            fill={
-              isCursor ? "hsl(var(--brand))" : "hsl(var(--muted-foreground) / 0.55)"
-            }
+            fill={isCursor ? "hsl(var(--brand))" : "hsl(var(--muted-foreground) / 0.55)"}
           />
         );
       })}

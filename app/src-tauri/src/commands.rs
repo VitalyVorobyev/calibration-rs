@@ -81,6 +81,35 @@ pub async fn load_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))
 }
 
+/// Absolute path to the `calibration-rs` workspace root, resolved via
+/// `CARGO_MANIFEST_DIR` (this crate always lives at
+/// `<repo-root>/app/src-tauri`, a structural invariant of the layout —
+/// see `app/README.md`'s dev notes). `CARGO_MANIFEST_DIR` is a
+/// compile-time constant, but since `app/src-tauri` is never shipped as
+/// a prebuilt binary (it's rebuilt locally by every `bun run tauri
+/// dev`/`build`), it always reflects *this developer's own checkout*.
+///
+/// Frontend preset manifests (`RunWorkspace/presets.ts`) store paths
+/// relative to this root instead of a hard-coded personal absolute
+/// path; `lib/tauri.ts`'s `repoRoot()` calls this command once per
+/// session and joins it with each preset's relative path.
+#[tauri::command]
+pub fn repo_root_cmd() -> Result<String, String> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        // app/src-tauri -> app
+        .parent()
+        // app -> <repo root>
+        .and_then(|p| p.parent())
+        .map(|p| p.to_string_lossy().into_owned())
+        .ok_or_else(|| {
+            format!(
+                "CARGO_MANIFEST_DIR has no grandparent: {}",
+                manifest_dir.display()
+            )
+        })
+}
+
 /// Heuristically infer a `DatasetSpec` from a dataset folder (B3d).
 ///
 /// Walks `folder`, groups images into cameras, detects a robot-pose file,

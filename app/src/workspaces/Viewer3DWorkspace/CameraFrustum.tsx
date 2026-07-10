@@ -50,12 +50,10 @@ export function CameraFrustum({
 }: CameraFrustumProps) {
   const matrix = useMemo(() => iso3InverseFromWire(camSe3Rig), [camSe3Rig]);
 
-  const corners = useMemo(() => frustumCorners(camera, imageWidth, imageHeight, farDepth), [
-    camera,
-    imageWidth,
-    imageHeight,
-    farDepth,
-  ]);
+  const corners = useMemo(
+    () => frustumCorners(camera, imageWidth, imageHeight, farDepth),
+    [camera, imageWidth, imageHeight, farDepth],
+  );
 
   const geom = useMemo(() => buildEdgeGeometry(corners), [corners]);
   const farPlaneGeom = useMemo(() => buildFarPlaneHitbox(corners), [corners]);
@@ -122,7 +120,11 @@ export function CameraFrustum({
           </mesh>
         ))}
       {active && label && (
-        <Html position={[0, -farDepth * 0.18, 0]} center style={{ pointerEvents: "none" }}>
+        <Html
+          position={[0, -farDepth * 0.18, 0]}
+          center
+          style={{ pointerEvents: "none" }}
+        >
           <span className="rounded border border-brand/70 bg-bg-soft/90 px-1.5 py-0.5 font-mono text-[10px] text-brand shadow-sm">
             {label}
           </span>
@@ -161,9 +163,7 @@ function frustumCorners(
   });
 }
 
-function buildEdgeGeometry(
-  corners: [number, number, number][],
-): BufferGeometry {
+function buildEdgeGeometry(corners: [number, number, number][]): BufferGeometry {
   // Edges: apex→each corner (×4), plus the far-plane rectangle (×4).
   const apex: [number, number, number] = [0, 0, 0];
   const verts: number[] = [];
@@ -183,15 +183,10 @@ function buildEdgeGeometry(
 /** Build a two-triangle BufferGeometry covering the four far-plane
  * corners. Used as an invisible click target — Three.js's raycaster
  * picks up triangulated meshes by default but skips line geometry. */
-function buildFarPlaneHitbox(
-  corners: [number, number, number][],
-): BufferGeometry {
+function buildFarPlaneHitbox(corners: [number, number, number][]): BufferGeometry {
   // Triangulate the quad as (0, 1, 2) + (0, 2, 3).
   const [a, b, c, d] = corners;
-  const verts: number[] = [
-    ...a, ...b, ...c,
-    ...a, ...c, ...d,
-  ];
+  const verts: number[] = [...a, ...b, ...c, ...a, ...c, ...d];
   const g = new BufferGeometry();
   g.setAttribute("position", new Float32BufferAttribute(verts, 3));
   return g;
@@ -200,19 +195,29 @@ function buildFarPlaneHitbox(
 /** Build a two-sided transparent frustum hull for picking: four side
  * triangles plus the far-plane quad. Corners are padded around the
  * far-plane center so near-edge clicks still feel intentional. */
-function buildFrustumHitbox(
-  corners: [number, number, number][],
-): BufferGeometry {
+function buildFrustumHitbox(corners: [number, number, number][]): BufferGeometry {
   const padded = padCorners(corners, 1.18);
   const apex: [number, number, number] = [0, 0, 0];
   const [a, b, c, d] = padded;
   const verts: number[] = [
-    ...apex, ...a, ...b,
-    ...apex, ...b, ...c,
-    ...apex, ...c, ...d,
-    ...apex, ...d, ...a,
-    ...a, ...b, ...c,
-    ...a, ...c, ...d,
+    ...apex,
+    ...a,
+    ...b,
+    ...apex,
+    ...b,
+    ...c,
+    ...apex,
+    ...c,
+    ...d,
+    ...apex,
+    ...d,
+    ...a,
+    ...a,
+    ...b,
+    ...c,
+    ...a,
+    ...c,
+    ...d,
   ];
   const g = new BufferGeometry();
   g.setAttribute("position", new Float32BufferAttribute(verts, 3));

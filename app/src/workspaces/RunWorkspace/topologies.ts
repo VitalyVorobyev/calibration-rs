@@ -21,8 +21,10 @@ import singleCamHandeyeConfigSchemaJson from "../../schemas/single_cam_handeye_c
 // are JSON-compatible (our JsonSchema interface is intentionally loose).
 const planarConfigSchema = planarConfigSchemaJson as unknown as JsonSchema;
 const scheimpflugConfigSchema = scheimpflugConfigSchemaJson as unknown as JsonSchema;
-const singleCamHandeyeConfigSchema = singleCamHandeyeConfigSchemaJson as unknown as JsonSchema;
-const laserlineDeviceConfigSchema = laserlineDeviceConfigSchemaJson as unknown as JsonSchema;
+const singleCamHandeyeConfigSchema =
+  singleCamHandeyeConfigSchemaJson as unknown as JsonSchema;
+const laserlineDeviceConfigSchema =
+  laserlineDeviceConfigSchemaJson as unknown as JsonSchema;
 const rigExtrinsicsConfigSchema = rigExtrinsicsConfigSchemaJson as unknown as JsonSchema;
 const rigHandeyeConfigSchema = rigHandeyeConfigSchemaJson as unknown as JsonSchema;
 const rigHandeyeLaserlineConfigSchema =

@@ -18,8 +18,10 @@ use vision_calibration_core::{Iso3, Pt3};
 /// where p is a point in camera coordinates.
 ///
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LaserPlane {
-    /// Unit normal vector in camera frame
+    /// Unit normal vector in camera frame. Serializes as `[nx, ny, nz]`.
+    #[cfg_attr(feature = "schemars", schemars(with = "[f64; 3]"))]
     pub normal: Unit<Vector3<f64>>,
     /// Signed distance from camera origin
     pub distance: f64,

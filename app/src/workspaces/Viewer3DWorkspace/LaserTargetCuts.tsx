@@ -91,7 +91,12 @@ export function intersectLaserPlaneWithTarget(
   return clipImplicitLineToBbox(a, b, dTarget, bbox);
 }
 
-function clipImplicitLineToBbox(a: number, b: number, c: number, bbox: Bbox2): Segment2 | null {
+function clipImplicitLineToBbox(
+  a: number,
+  b: number,
+  c: number,
+  bbox: Bbox2,
+): Segment2 | null {
   const pts: [number, number][] = [];
   const push = (x: number, y: number) => {
     if (

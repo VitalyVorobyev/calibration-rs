@@ -55,9 +55,7 @@ export function TargetBoard({
   return (
     <group matrix={matrix} matrixAutoUpdate={false} onClick={onSelect}>
       <mesh position={[cx, cy, 0]}>
-        <planeGeometry
-          args={[bbox.x1 - bbox.x0, bbox.y1 - bbox.y0]}
-        />
+        <planeGeometry args={[bbox.x1 - bbox.x0, bbox.y1 - bbox.y0]} />
         <meshBasicMaterial
           color={fillColor}
           transparent
@@ -69,17 +67,10 @@ export function TargetBoard({
         <bufferGeometry>
           <bufferAttribute
             attach="attributes-position"
-            args={[
-              new Float32Array(outlinePoints.flat()),
-              3,
-            ]}
+            args={[new Float32Array(outlinePoints.flat()), 3]}
           />
         </bufferGeometry>
-        <lineBasicMaterial
-          color={color}
-          transparent
-          opacity={ghost ? 0.25 : 1}
-        />
+        <lineBasicMaterial color={color} transparent opacity={ghost ? 0.25 : 1} />
       </line>
     </group>
   );

@@ -8,7 +8,7 @@ import {
   targetInCameraPose,
 } from "../../lib/se3";
 import { useStore } from "../../store";
-import { exportKindLabel } from "../../store/exportShape";
+import { exportKindLabel } from "../../store/exportKind";
 import type { Iso3Wire, PinholeCameraWire } from "../../store/types";
 import type { FrameKey } from "../../types";
 import { Scene } from "./Scene";
@@ -29,15 +29,10 @@ export function Viewer3DWorkspace() {
   const [showLaserPlanes, setShowLaserPlanes] = useState(true);
   const [referenceCamera, setReferenceCamera] = useState<number>(0);
 
-  const cameraDimensions = useMemo(
-    () => cameraDimensionsFromFrames(frames),
-    [frames],
-  );
+  const cameraDimensions = useMemo(() => cameraDimensionsFromFrames(frames), [frames]);
 
   if (!data || !kind) {
-    return (
-      <Empty body="Load a rig export to see cameras and target poses in 3D." />
-    );
+    return <Empty body="Load a rig export to see cameras and target poses in 3D." />;
   }
 
   const camerasArr = data.cameras;
@@ -143,10 +138,7 @@ export function Viewer3DWorkspace() {
         </div>
 
         <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto rounded-md border border-border bg-surface p-3 text-[12px]">
-          <CameraIntrinsicsPanel
-            cameraIndex={safeCameraA}
-            camera={selectedCameraData}
-          />
+          <CameraIntrinsicsPanel cameraIndex={safeCameraA} camera={selectedCameraData} />
           <TargetExtrinsicsPanel
             cameraIndex={safeCameraA}
             poseIndex={safePose}
@@ -171,11 +163,7 @@ interface RefCameraSelectProps {
   onChange: (v: number) => void;
 }
 
-function RefCameraSelect({
-  cameraIndices,
-  value,
-  onChange,
-}: RefCameraSelectProps) {
+function RefCameraSelect({ cameraIndices, value, onChange }: RefCameraSelectProps) {
   return (
     <label className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
       <span className="uppercase tracking-wider">ref cam</span>
@@ -200,10 +188,7 @@ interface CameraIntrinsicsPanelProps {
   camera: PinholeCameraWire | undefined;
 }
 
-function CameraIntrinsicsPanel({
-  cameraIndex,
-  camera,
-}: CameraIntrinsicsPanelProps) {
+function CameraIntrinsicsPanel({ cameraIndex, camera }: CameraIntrinsicsPanelProps) {
   return (
     <section>
       <PanelHeading title="Selected camera" subtitle={`cam ${cameraIndex}`} />
@@ -330,8 +315,8 @@ function RelativePosePanel({
           subtitle={`cam ${referenceCamera} ↔ cam ${selectedCamera}`}
         />
         <p className="text-[11px] text-muted-foreground">
-          selected camera is the reference — pick a different camera (click a
-          frustum) to see a relative pose.
+          selected camera is the reference — pick a different camera (click a frustum) to
+          see a relative pose.
         </p>
       </section>
     );
@@ -371,21 +356,13 @@ function RelativePosePanel({
   );
 }
 
-function PanelHeading({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle: string;
-}) {
+function PanelHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <header className="mb-1.5 flex items-baseline justify-between border-b border-border pb-1">
       <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
         {title}
       </h3>
-      <span className="font-mono text-[10px] text-muted-foreground">
-        {subtitle}
-      </span>
+      <span className="font-mono text-[10px] text-muted-foreground">{subtitle}</span>
     </header>
   );
 }

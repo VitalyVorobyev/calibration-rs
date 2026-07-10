@@ -68,14 +68,7 @@ export function EpipolarOverlay({
         const cy = m.px[1] * transform.scale + transform.ty;
         const size = m.size ?? 6;
         return m.dot ? (
-          <circle
-            key={i}
-            cx={cx}
-            cy={cy}
-            r={size * 0.35}
-            fill={m.color}
-            opacity={0.75}
-          />
+          <circle key={i} cx={cx} cy={cy} r={size * 0.35} fill={m.color} opacity={0.75} />
         ) : (
           <g key={i} stroke={m.color} strokeWidth={1.4}>
             <line x1={cx - size} y1={cy} x2={cx + size} y2={cy} />
@@ -96,26 +89,27 @@ export function EpipolarOverlay({
           {caption}
         </text>
       )}
-      {annotation && (() => {
-        const cx = annotation.px[0] * transform.scale + transform.tx;
-        const cy = annotation.px[1] * transform.scale + transform.ty;
-        // Offset upward-right of the anchor so the label clears the
-        // crosshair drawn at the same pixel.
-        return (
-          <text
-            x={cx + 10}
-            y={cy - 8}
-            fontFamily="var(--font-mono, monospace)"
-            fontSize={11}
-            fill={annotation.color}
-            stroke="hsl(var(--bg-soft))"
-            strokeWidth={3}
-            paintOrder="stroke"
-          >
-            {annotation.text}
-          </text>
-        );
-      })()}
+      {annotation &&
+        (() => {
+          const cx = annotation.px[0] * transform.scale + transform.tx;
+          const cy = annotation.px[1] * transform.scale + transform.ty;
+          // Offset upward-right of the anchor so the label clears the
+          // crosshair drawn at the same pixel.
+          return (
+            <text
+              x={cx + 10}
+              y={cy - 8}
+              fontFamily="var(--font-mono, monospace)"
+              fontSize={11}
+              fill={annotation.color}
+              stroke="hsl(var(--bg-soft))"
+              strokeWidth={3}
+              paintOrder="stroke"
+            >
+              {annotation.text}
+            </text>
+          );
+        })()}
     </svg>
   );
 }

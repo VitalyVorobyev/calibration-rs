@@ -16,3 +16,4 @@ docs/backlog.md
 !/app/src-tauri/Cargo.lock
 # codegraph daemon runtime state (machine-local)
 .codegraph/daemon.pid
+.codegraph/codegraph.lock

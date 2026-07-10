@@ -41,6 +41,7 @@ const CAM_B_Z_MIN_M: f64 = 0.05;
 
 /// Result of a single epipolar overlay computation.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
 pub struct EpipolarOverlay {
     /// Pane-B distorted pixel coordinates of each depth sample that
     /// projected successfully. `[]` when the ray never crosses pane B's

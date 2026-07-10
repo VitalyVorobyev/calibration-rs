@@ -56,6 +56,7 @@ pub enum LinearSolverKind {
 
 /// Summary of backend solve outcome.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SolveReport {
     /// Final objective value reported by backend.
     pub final_cost: f64,

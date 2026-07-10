@@ -4,7 +4,12 @@ import { useMemo } from "react";
 import { Vector3 } from "three";
 import { cameraPositionInRig, iso3FromWire } from "../../lib/se3";
 import { useStore } from "../../store";
-import type { AnyExport, Iso3Wire, LaserPlaneWire } from "../../store/types";
+import type {
+  AnyExport,
+  Iso3Wire,
+  LaserPlaneWire,
+  PinholeCameraWire,
+} from "../../store/types";
 import type { TargetFeatureResidual } from "../../types";
 import { CameraFrustum } from "./CameraFrustum";
 import { LaserPlane } from "./LaserPlane";
@@ -28,8 +33,16 @@ interface SceneProps {
 }
 
 const FAR_DEPTH_M = 0.05; // 5 cm — long enough to read on the puzzle
-                          // 130×130 rig, short enough not to occlude
-                          // the target board on small workspaces.
+// 130×130 rig, short enough not to occlude
+// the target board on small workspaces.
+
+// Stable fallbacks for the optional export arrays. `data.cam_se3_rig ?? []`
+// would otherwise mint a fresh `[]` every render, changing the identity of
+// the `useMemo` dependencies below on every render even when the export
+// itself hasn't changed.
+const EMPTY_ISO3: Iso3Wire[] = [];
+const EMPTY_LASER_PLANES: LaserPlaneWire[] = [];
+const EMPTY_CAMERAS: PinholeCameraWire[] = [];
 
 /** R3F scene root. Renders rig origin + per-camera frustums + the
  * active pose's target board (or all poses as ghosts). Click events
@@ -42,10 +55,10 @@ export function Scene({
   fallbackImage,
 }: SceneProps) {
   const colors = useThemeColors();
-  const cameras = data.cameras ?? [];
-  const camSe3Rig = data.cam_se3_rig ?? [];
-  const rigSe3Target = data.rig_se3_target ?? [];
-  const laserPlanesRig = data.laser_planes_rig ?? [];
+  const cameras = data.cameras ?? EMPTY_CAMERAS;
+  const camSe3Rig = data.cam_se3_rig ?? EMPTY_ISO3;
+  const rigSe3Target = data.rig_se3_target ?? EMPTY_ISO3;
+  const laserPlanesRig = data.laser_planes_rig ?? EMPTY_LASER_PLANES;
   const cameraA = useStore((s) => s.cameraA);
   const selectedPose = useStore((s) => s.selectedPose);
   const setCamera = useStore((s) => s.setCamera);
@@ -80,7 +93,7 @@ export function Scene({
       ? rigSe3Target[selectedPose]
       : null;
   const activePoseResiduals =
-    selectedPose >= 0 ? residualsByPose.get(selectedPose) ?? [] : [];
+    selectedPose >= 0 ? (residualsByPose.get(selectedPose) ?? []) : [];
 
   // Anchor + size each laser plane around its owning camera (plane i
   // belongs to camera i): the quad is centred on the camera position
@@ -194,10 +207,7 @@ const LASER_QUAD_FALLBACK_HALF_EXTENT_M = 0.15;
  * and size it from the camera-to-plane distance (clamped) — keeps the
  * quad in the device's working volume regardless of where the plane's
  * closest point to the rig origin lands. */
-function computeLaserQuads(
-  planes: LaserPlaneWire[],
-  camSe3Rig: Iso3Wire[],
-): LaserQuad[] {
+function computeLaserQuads(planes: LaserPlaneWire[], camSe3Rig: Iso3Wire[]): LaserQuad[] {
   return planes.map((plane, i) => {
     const n = new Vector3(...plane.normal).normalize();
     const camPose = camSe3Rig[i];
@@ -236,8 +246,14 @@ interface FitResult {
  * rig + visible target boards. Falls back to a sensible default when
  * no rig data is available. */
 function computeFit(
-  camSe3Rig: { rotation: [number, number, number, number]; translation: [number, number, number] }[],
-  rigSe3Target: { rotation: [number, number, number, number]; translation: [number, number, number] }[],
+  camSe3Rig: {
+    rotation: [number, number, number, number];
+    translation: [number, number, number];
+  }[],
+  rigSe3Target: {
+    rotation: [number, number, number, number];
+    translation: [number, number, number];
+  }[],
 ): FitResult {
   const points: Vector3[] = [new Vector3(0, 0, 0)]; // rig origin
   for (const c of camSe3Rig) {

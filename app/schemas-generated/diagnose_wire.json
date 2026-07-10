@@ -1,0 +1,2260 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "BrownConrady5": {
+      "description": "Brown-Conrady 5-parameter radial-tangential distortion model.",
+      "properties": {
+        "iters": {
+          "description": "Iterations for undistortion.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "k1": {
+          "description": "Radial coefficient k1.",
+          "format": "double",
+          "type": "number"
+        },
+        "k2": {
+          "description": "Radial coefficient k2.",
+          "format": "double",
+          "type": "number"
+        },
+        "k3": {
+          "description": "Radial coefficient k3.",
+          "format": "double",
+          "type": "number"
+        },
+        "p1": {
+          "description": "Tangential coefficient p1.",
+          "format": "double",
+          "type": "number"
+        },
+        "p2": {
+          "description": "Tangential coefficient p2.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "k1",
+        "k2",
+        "k3",
+        "p1",
+        "p2",
+        "iters"
+      ],
+      "type": "object"
+    },
+    "Camera": {
+      "description": "A composable camera model: projection -> distortion -> sensor -> intrinsics.",
+      "properties": {
+        "_phantom": {
+          "type": "null"
+        },
+        "dist": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/BrownConrady5"
+            }
+          ],
+          "description": "Distortion model (e.g. Brown-Conrady)."
+        },
+        "k": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/FxFyCxCySkew"
+            }
+          ],
+          "description": "Intrinsics model (K)."
+        },
+        "proj": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Pinhole"
+            }
+          ],
+          "description": "Projection model (e.g. pinhole)."
+        },
+        "sensor": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/IdentitySensor"
+            }
+          ],
+          "description": "Sensor model (e.g. identity or tilted homography)."
+        }
+      },
+      "required": [
+        "proj",
+        "dist",
+        "sensor",
+        "k",
+        "_phantom"
+      ],
+      "type": "object"
+    },
+    "CameraParams": {
+      "description": "Serializable camera parameters for building a runtime model.",
+      "properties": {
+        "distortion": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/DistortionParams"
+            }
+          ],
+          "description": "Distortion model parameters."
+        },
+        "intrinsics": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/IntrinsicsParams"
+            }
+          ],
+          "description": "Intrinsics model parameters."
+        },
+        "projection": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ProjectionParams"
+            }
+          ],
+          "description": "Projection model parameters."
+        },
+        "sensor": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SensorParams"
+            }
+          ],
+          "description": "Sensor model parameters."
+        }
+      },
+      "required": [
+        "projection",
+        "distortion",
+        "sensor",
+        "intrinsics"
+      ],
+      "type": "object"
+    },
+    "DisparityResult": {
+      "description": "Result returned to the Depth workspace. All images are `data:image/png`\nbase64 URLs the webview can drop straight into `<img>`.",
+      "properties": {
+        "baselineM": {
+          "description": "Stereo baseline in calibration units (m).",
+          "format": "double",
+          "type": "number"
+        },
+        "density": {
+          "description": "Fraction of pixels with a valid disparity.",
+          "format": "double",
+          "type": "number"
+        },
+        "depthPng": {
+          "description": "Depth colormap (jet over metric depth `Z = f·B / d`; invalid black).",
+          "type": "string"
+        },
+        "dispMax": {
+          "description": "See [`DisparityResult::disp_min`].",
+          "format": "float",
+          "type": "number"
+        },
+        "dispMin": {
+          "description": "Min / max recovered disparity (px).",
+          "format": "float",
+          "type": "number"
+        },
+        "disparityPng": {
+          "description": "Disparity colormap (jet; invalid pixels black).",
+          "type": "string"
+        },
+        "height": {
+          "description": "Matched (downscaled) image height.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "overlayPng": {
+          "description": "Disparity colormap blended over the rectified left image.",
+          "type": "string"
+        },
+        "planeInliers": {
+          "description": "Inlier pixel count of that planar fit.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "planeRms": {
+          "description": "Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent.",
+          "format": "double",
+          "type": "number"
+        },
+        "pointCloud": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PointCloud"
+            }
+          ],
+          "description": "Reprojected 3D point cloud (reference-camera frame, metres)."
+        },
+        "rectifiedPairPng": {
+          "description": "Rectified left | right with shared epipolar rows (rectification sanity).",
+          "type": "string"
+        },
+        "semiGlobal": {
+          "description": "Whether semi-global aggregation was used.",
+          "type": "boolean"
+        },
+        "width": {
+          "description": "Matched (downscaled) image width.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rectifiedPairPng",
+        "disparityPng",
+        "overlayPng",
+        "depthPng",
+        "pointCloud",
+        "width",
+        "height",
+        "density",
+        "dispMin",
+        "dispMax",
+        "planeRms",
+        "planeInliers",
+        "baselineM",
+        "semiGlobal"
+      ],
+      "type": "object"
+    },
+    "DistortionParams": {
+      "description": "Serializable distortion model parameters.",
+      "oneOf": [
+        {
+          "description": "No distortion.",
+          "properties": {
+            "type": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Brown-Conrady 5-parameter radial-tangential model.",
+          "properties": {
+            "iters": {
+              "description": "Iterations for undistortion.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "brown_conrady5",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "p1",
+            "p2",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "OpenCV rational polynomial 8-parameter model.",
+          "properties": {
+            "iters": {
+              "description": "Iterations for undistortion (0 → 10).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Numerator radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Numerator radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Numerator radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "k4": {
+              "description": "Denominator radial coefficient k4.",
+              "format": "double",
+              "type": "number"
+            },
+            "k5": {
+              "description": "Denominator radial coefficient k5.",
+              "format": "double",
+              "type": "number"
+            },
+            "k6": {
+              "description": "Denominator radial coefficient k6.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "rational",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "k4",
+            "k5",
+            "k6",
+            "p1",
+            "p2",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Brown-Conrady + thin-prism 9-parameter model.",
+          "properties": {
+            "iters": {
+              "description": "Iterations for undistortion (0 → 10).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "s1": {
+              "description": "Thin-prism coefficient s1 (x correction, r²).",
+              "format": "double",
+              "type": "number"
+            },
+            "s2": {
+              "description": "Thin-prism coefficient s2 (x correction, r⁴).",
+              "format": "double",
+              "type": "number"
+            },
+            "s3": {
+              "description": "Thin-prism coefficient s3 (y correction, r²).",
+              "format": "double",
+              "type": "number"
+            },
+            "s4": {
+              "description": "Thin-prism coefficient s4 (y correction, r⁴).",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "thin_prism",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "p1",
+            "p2",
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fitzgibbon single-parameter division model.",
+          "properties": {
+            "lambda": {
+              "description": "Division distortion coefficient.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "division",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "lambda"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EpipolarOverlay": {
+      "description": "Result of a single epipolar overlay computation.",
+      "properties": {
+        "epipole_b": {
+          "description": "Pane-B pixel coordinate of cam A's optical center. `None` when\nthe cameras are arranged so the epipole is at infinity (or\nbehind cam B).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "line_b": {
+          "description": "Pane-B distorted pixel coordinates of each depth sample that\nprojected successfully. `[]` when the ray never crosses pane B's\nimage plane in front of cam B.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "samples_clipped": {
+          "description": "Number of depth samples whose projection diverged (point behind\ncam B, distortion fixed-point failure, …). For diagnostic UI.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "line_b",
+        "samples_clipped"
+      ],
+      "type": "object"
+    },
+    "FeatureResidualHistogram": {
+      "description": "Aggregate residual histogram for a (set of) reprojection error samples.\n\nBuckets are fixed at `[<=1, <=2, <=5, <=10, >10]` pixels — see\n[`REPROJECTION_HISTOGRAM_EDGES_PX`].",
+      "properties": {
+        "bucket_edges_px": {
+          "description": "Bucket edges in pixels: `[1.0, 2.0, 5.0, 10.0]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "count": {
+          "description": "Total number of error samples included in the histogram.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "counts": {
+          "description": "Counts in each bucket: `[<=1, <=2, <=5, <=10, >10]`.\n`counts.iter().sum() == count`.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 5,
+          "minItems": 5,
+          "type": "array"
+        },
+        "max": {
+          "description": "Maximum error (pixels). `0.0` when `count == 0`.",
+          "format": "double",
+          "type": "number"
+        },
+        "mean": {
+          "description": "Mean error (pixels). `0.0` when `count == 0`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "bucket_edges_px",
+        "counts",
+        "count",
+        "mean",
+        "max"
+      ],
+      "type": "object"
+    },
+    "FrameKind": {
+      "description": "What a frame depicts, distinguishing target images from laser-on images.\n\nLaser problem types capture two images per `(pose, camera)` slot: one of\nthe calibration target and one with the laser line on. Both can appear in\nthe same [`ImageManifest`], discriminated by [`FrameRef::kind`]\n(ADR 0021 §5).\n\nSerialized in `snake_case`; absent in JSON means [`FrameKind::Target`],\nwhich keeps pre-existing exports byte-stable and forward-readable.",
+      "oneOf": [
+        {
+          "const": "target",
+          "description": "Image of the calibration target (chessboard / ChArUco / …).",
+          "type": "string"
+        },
+        {
+          "const": "laser",
+          "description": "Image with the laser line on; residuals of flavor\n`PerFeatureResiduals.laser` plot onto frames of this kind.",
+          "type": "string"
+        }
+      ]
+    },
+    "FrameRef": {
+      "description": "Reference to a single image (or sub-image) for one `(pose, camera)`.",
+      "properties": {
+        "camera": {
+          "description": "Camera index. `0` for single-camera problem types.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/FrameKind"
+            }
+          ],
+          "description": "What the frame depicts. Absent in JSON means [`FrameKind::Target`],\nso exports written before ADR 0021 §5 deserialize unchanged."
+        },
+        "path": {
+          "description": "Image path relative to the enclosing [`ImageManifest::root`].",
+          "type": "string"
+        },
+        "pose": {
+          "description": "Pose / view index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "roi": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PixelRect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Sub-image rectangle in pixel coordinates. `None` means the entire\nimage is this `(pose, camera)`. Used for tiled multi-camera frames.\n\n**Coordinate convention:** see the module-level `# Coordinate\nconvention` block. ROI is a render-time crop hint only —\nper-feature residuals are already in the ROI-local pixel frame\n(i.e. the camera's own image frame, since intrinsics were\ncalibrated against the cropped tile), so a viewer must not\nsubtract `(x, y)` from `observed_px` / `projected_px` when\ndrawing."
+        }
+      },
+      "required": [
+        "pose",
+        "camera",
+        "path"
+      ],
+      "type": "object"
+    },
+    "FxFyCxCySkew": {
+      "description": "Standard pinhole intrinsics with optional skew.",
+      "properties": {
+        "cx": {
+          "description": "Principal point X coordinate in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "cy": {
+          "description": "Principal point Y coordinate in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "fx": {
+          "description": "Focal length in pixels along X.",
+          "format": "double",
+          "type": "number"
+        },
+        "fy": {
+          "description": "Focal length in pixels along Y.",
+          "format": "double",
+          "type": "number"
+        },
+        "skew": {
+          "description": "Skew term (typically 0).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "fx",
+        "fy",
+        "cx",
+        "cy",
+        "skew"
+      ],
+      "type": "object"
+    },
+    "HandEyeMode": {
+      "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",
+      "oneOf": [
+        {
+          "const": "EyeInHand",
+          "description": "Camera mounted on robot end-effector (gripper).\n\nTransform chain: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world",
+          "type": "string"
+        },
+        {
+          "const": "EyeToHand",
+          "description": "Camera fixed in workspace, observes robot end-effector.\n\nTransform chain: P_camera = extr^-1 * handeye * robot * target * P_world",
+          "type": "string"
+        }
+      ]
+    },
+    "IdentitySensor": {
+      "description": "Identity sensor model.",
+      "type": "null"
+    },
+    "ImageManifest": {
+      "description": "Image manifest carried alongside a calibration export.\n\n`root` is interpreted relative to the directory of the `export.json` that\nembeds the manifest. Each [`FrameRef::path`] is interpreted relative to\n`root`. Both layers of indirection make exports portable across machines\nas long as the image directory is co-located with the export.",
+      "properties": {
+        "frames": {
+          "description": "One entry per `(pose, camera)` slot the viewer can render.\nPose-major; aligns with the indexing of `PerFeatureResiduals.target`.",
+          "items": {
+            "$ref": "#/definitions/FrameRef"
+          },
+          "type": "array"
+        },
+        "root": {
+          "description": "Image root directory, relative to the export file's directory.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "frames"
+      ],
+      "type": "object"
+    },
+    "IntrinsicsParams": {
+      "description": "Serializable intrinsics parameters.",
+      "oneOf": [
+        {
+          "description": "Pinhole intrinsics with optional skew.",
+          "properties": {
+            "cx": {
+              "description": "Principal point X coordinate in pixels.",
+              "format": "double",
+              "type": "number"
+            },
+            "cy": {
+              "description": "Principal point Y coordinate in pixels.",
+              "format": "double",
+              "type": "number"
+            },
+            "fx": {
+              "description": "Focal length in pixels along X.",
+              "format": "double",
+              "type": "number"
+            },
+            "fy": {
+              "description": "Focal length in pixels along Y.",
+              "format": "double",
+              "type": "number"
+            },
+            "skew": {
+              "description": "Skew term (typically 0).",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "fx_fy_cx_cy_skew",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "fx",
+            "fy",
+            "cx",
+            "cy",
+            "skew"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Iso3Schema": {
+      "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
+      "properties": {
+        "rotation": {
+          "description": "Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "translation": {
+          "description": "Translation `[tx, ty, tz]` in meters.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "rotation",
+        "translation"
+      ],
+      "type": "object"
+    },
+    "LaserFeatureResidual": {
+      "description": "Reprojection record for a single laser pixel in a single view.",
+      "properties": {
+        "camera": {
+          "description": "Camera index. `0` for single-camera problem types.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "feature": {
+          "description": "Pixel index within the view's laser pixel list.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_px": {
+          "description": "Observed laser pixel coordinate.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "pose": {
+          "description": "Pose / view index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "projected_line_px": {
+          "description": "Two endpoints `[[x0, y0], [x1, y1]]` of the projected laser line in\nimage space. Useful for 2D overlays. `None` if the line cannot be\nsynthesized in this view.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "residual_m": {
+          "description": "Point-to-plane distance in meters between the back-projected ray and\nthe calibrated laser plane. `None` if the ray does not intersect.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "residual_px": {
+          "description": "Pixel-domain residual: distance from `observed_px` to the projected\nlaser line in undistorted pixel space. `None` if unavailable.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "pose",
+        "camera",
+        "feature",
+        "observed_px"
+      ],
+      "type": "object"
+    },
+    "LaserPlane": {
+      "description": "Laser plane in camera frame: unit normal + signed distance.\n\nThe plane equation is: n̂ · p + d = 0\nwhere p is a point in camera coordinates.",
+      "properties": {
+        "distance": {
+          "description": "Signed distance from camera origin",
+          "format": "double",
+          "type": "number"
+        },
+        "normal": {
+          "description": "Unit normal vector in camera frame. Serializes as `[nx, ny, nz]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "normal",
+        "distance"
+      ],
+      "type": "object"
+    },
+    "LaserlineDeviceExport": {
+      "description": "Export type for laserline device calibration.",
+      "properties": {
+        "estimate": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/LaserlineEstimate"
+            }
+          ],
+          "description": "Pipeline output including optimized parameters and summary statistics."
+        },
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional image manifest (ADR 0014, viewer-side contract). Per\naccepted view (pose = kept-view index, camera = 0): one frame\nfor the *target* image plus one of kind `laser` for the laser\nimage (ADR 0021 §5). `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
+        },
+        "mean_reproj_error": {
+          "description": "Mean reprojection error (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "per_cam_reproj_errors": {
+          "description": "Per-camera reprojection errors (single element for single-camera workflows).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "per_feature_residuals": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PerFeatureResiduals"
+            }
+          ],
+          "default": {},
+          "description": "Per-feature reprojection + laser residuals (ADR 0012). Single-camera:\n`target_hist_per_camera` and `laser_hist_per_camera` each carry\n`Some(vec![one_entry])`."
+        },
+        "stats": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/LaserlineStats"
+            }
+          ],
+          "description": "Laserline statistics payload."
+        }
+      },
+      "required": [
+        "estimate",
+        "stats",
+        "mean_reproj_error",
+        "per_cam_reproj_errors"
+      ],
+      "type": "object"
+    },
+    "LaserlineEstimate": {
+      "description": "Result of laserline bundle adjustment.",
+      "properties": {
+        "params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/LaserlineParams"
+            }
+          ],
+          "description": "Refined bundle parameters."
+        },
+        "report": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SolveReport"
+            }
+          ],
+          "description": "Backend solve report."
+        }
+      },
+      "required": [
+        "params",
+        "report"
+      ],
+      "type": "object"
+    },
+    "LaserlineParams": {
+      "description": "Initial values for laserline bundle adjustment.",
+      "properties": {
+        "distortion": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/BrownConrady5"
+            }
+          ],
+          "description": "Brown-Conrady distortion parameters."
+        },
+        "intrinsics": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/FxFyCxCySkew"
+            }
+          ],
+          "description": "Camera intrinsics."
+        },
+        "plane": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/LaserPlane"
+            }
+          ],
+          "description": "Laser plane parameters in camera frame."
+        },
+        "poses": {
+          "description": "Per-view target poses (`camera_se3_target`).",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "sensor": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ScheimpflugParams"
+            }
+          ],
+          "description": "Scheimpflug sensor parameters (use defaults for identity sensor)."
+        }
+      },
+      "required": [
+        "intrinsics",
+        "distortion",
+        "sensor",
+        "poses",
+        "plane"
+      ],
+      "type": "object"
+    },
+    "LaserlineStats": {
+      "description": "Summary statistics for a laserline calibration result.",
+      "properties": {
+        "mean_laser_error": {
+          "description": "Mean laser residual (units depend on residual type).",
+          "format": "double",
+          "type": "number"
+        },
+        "mean_reproj_error": {
+          "description": "Mean reprojection error for calibration points (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "per_view_laser_errors": {
+          "description": "Per-view mean laser residual (same units as `mean_laser_error`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "per_view_reproj_errors": {
+          "description": "Per-view mean reprojection error (pixels).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "mean_reproj_error",
+        "mean_laser_error",
+        "per_view_reproj_errors",
+        "per_view_laser_errors"
+      ],
+      "type": "object"
+    },
+    "PerFeatureResiduals": {
+      "description": "Container bundled into every `*Export` carrying the per-feature drill-down\ndata the diagnose UI consumes.\n\nEmpty `Vec`s mean \"this problem type does not produce observations of that\nflavor\" (e.g., `PlanarIntrinsicsExport.per_feature_residuals.laser` is\nalways empty). The histogram fields are `Option`: `None` means the problem\ntype chose not to produce a per-camera aggregate; `Some(vec)` length must\nmatch `num_cameras`.",
+      "properties": {
+        "laser": {
+          "description": "Per-laser-pixel residual records, pose-major.",
+          "items": {
+            "$ref": "#/definitions/LaserFeatureResidual"
+          },
+          "type": "array"
+        },
+        "laser_hist_per_camera": {
+          "description": "Per-camera laser pixel-distance histogram (length = `num_cameras`).",
+          "items": {
+            "$ref": "#/definitions/FeatureResidualHistogram"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "target": {
+          "description": "Per-target-corner reprojection records, pose-major.",
+          "items": {
+            "$ref": "#/definitions/TargetFeatureResidual"
+          },
+          "type": "array"
+        },
+        "target_hist_per_camera": {
+          "description": "Per-camera target reprojection histogram (length = `num_cameras`).",
+          "items": {
+            "$ref": "#/definitions/FeatureResidualHistogram"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Pinhole": {
+      "description": "Classic pinhole projection model.",
+      "type": "null"
+    },
+    "PixelRect": {
+      "description": "Inclusive-exclusive pixel rectangle: `[x, x+w) × [y, y+h)`.",
+      "properties": {
+        "h": {
+          "description": "Height in pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "w": {
+          "description": "Width in pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "x": {
+          "description": "Left edge in pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "description": "Top edge in pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "type": "object"
+    },
+    "PlanarIntrinsicsExport": {
+      "description": "Export format for planar intrinsics calibration.",
+      "properties": {
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. `None` means \"no images\nshipped\"; the calibration pipeline never reads this field."
+        },
+        "mean_reproj_error": {
+          "description": "Mean reprojection error (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PlanarIntrinsicsParams"
+            }
+          ],
+          "description": "Calibrated parameters."
+        },
+        "per_cam_reproj_errors": {
+          "description": "Per-camera reprojection errors (single element for single-camera workflows).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "per_feature_residuals": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PerFeatureResiduals"
+            }
+          ],
+          "default": {},
+          "description": "Per-feature reprojection residuals (ADR 0012). For planar intrinsics\nonly `target` is populated; `laser` is empty. `target_hist_per_camera`\nis `Some(vec![one_entry])` since this problem type is single-camera."
+        },
+        "report": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SolveReport"
+            }
+          ],
+          "description": "Solver report."
+        }
+      },
+      "required": [
+        "params",
+        "report",
+        "mean_reproj_error",
+        "per_cam_reproj_errors"
+      ],
+      "type": "object"
+    },
+    "PlanarIntrinsicsParams": {
+      "description": "Optimization result for planar intrinsics.",
+      "properties": {
+        "camera": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CameraParams"
+            }
+          ],
+          "description": "Refined camera model (model-agnostic serializable parameters)."
+        },
+        "camera_se3_target": {
+          "description": "Refined target-to-camera poses.",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "camera",
+        "camera_se3_target"
+      ],
+      "type": "object"
+    },
+    "PointCloud": {
+      "description": "A reprojected 3D point cloud for the frontend's WebGL renderer.",
+      "properties": {
+        "colors": {
+          "description": "Flat `[r, g, b, …]` per-point grayscale colours in `[0, 1]`.",
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "count": {
+          "description": "Number of points (`positions.len() / 3`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "positions": {
+          "description": "Flat `[x, y, z, …]` positions in the reference-camera frame (metres).",
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "positions",
+        "colors",
+        "count"
+      ],
+      "type": "object"
+    },
+    "ProjectionParams": {
+      "description": "Serializable projection model parameters.",
+      "oneOf": [
+        {
+          "description": "Classic pinhole model.",
+          "properties": {
+            "type": {
+              "const": "pinhole",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RigExtrinsicsExport": {
+      "description": "Export format for rig extrinsics calibration.\n\nCommon to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole\nrigs and `Some(_)` for Scheimpflug rigs, matching the configured\n[`SensorMode`].",
+      "properties": {
+        "cam_se3_rig": {
+          "description": "Per-camera extrinsics: `cam_se3_rig` (T_C_R).\nTransform from rig frame to camera frame.",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "cameras": {
+          "description": "Per-camera calibrated intrinsics + distortion (pinhole core).",
+          "items": {
+            "$ref": "#/definitions/Camera"
+          },
+          "type": "array"
+        },
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
+        },
+        "mean_reproj_error": {
+          "description": "Mean reprojection error (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "per_cam_reproj_errors": {
+          "description": "Per-camera reprojection errors (pixels).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "per_feature_residuals": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PerFeatureResiduals"
+            }
+          ],
+          "default": {},
+          "description": "Per-feature reprojection residuals (ADR 0012). For rig extrinsics\n`target` is populated and `laser` is empty. `target_hist_per_camera`\nis `Some(vec)` with one entry per camera."
+        },
+        "rig_se3_target": {
+          "description": "Per-view rig poses: `rig_se3_target` (T_R_T).",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "sensors": {
+          "default": null,
+          "description": "Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;\n`Some(_)` for Scheimpflug rigs (one entry per camera).",
+          "items": {
+            "$ref": "#/definitions/ScheimpflugParams"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cameras",
+        "cam_se3_rig",
+        "rig_se3_target",
+        "mean_reproj_error",
+        "per_cam_reproj_errors"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeExport": {
+      "description": "Export format for rig hand-eye calibration.\n\nCommon to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole\nrigs and `Some(_)` for Scheimpflug rigs, matching the configured\n[`SensorMode`].",
+      "properties": {
+        "base_se3_target": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-in-hand: base-to-target transform `base_se3_target` (T_B_T).\n\n`None` for EyeToHand mode."
+        },
+        "cam_se3_rig": {
+          "description": "Per-camera extrinsics: `cam_se3_rig` (T_C_R).\nTransform from rig frame to camera frame.",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "cameras": {
+          "description": "Per-camera calibrated intrinsics + distortion (pinhole core).",
+          "items": {
+            "$ref": "#/definitions/Camera"
+          },
+          "type": "array"
+        },
+        "gripper_se3_rig": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-in-hand: gripper-to-rig transform `gripper_se3_rig` (T_G_R).\n\n`None` for EyeToHand mode."
+        },
+        "gripper_se3_target": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-to-hand: gripper-to-target transform `gripper_se3_target` (T_G_T).\n\n`None` for EyeInHand mode."
+        },
+        "handeye_mode": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/HandEyeMode"
+            }
+          ],
+          "description": "Hand-eye mode used to interpret mode-dependent transforms."
+        },
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
+        },
+        "mean_reproj_error": {
+          "description": "Mean reprojection error (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "per_cam_reproj_errors": {
+          "description": "Per-camera reprojection errors (pixels).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "per_feature_residuals": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PerFeatureResiduals"
+            }
+          ],
+          "default": {},
+          "description": "Per-feature reprojection residuals (ADR 0012). Per-view\n`rig_se3_target` is derived from the handeye chain\n(see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)),\nthen composed with `cam_se3_rig` for projection."
+        },
+        "rig_se3_base": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-to-hand: rig-to-base transform `rig_se3_base` (T_R_B).\n\n`None` for EyeInHand mode."
+        },
+        "rig_se3_target": {
+          "default": [],
+          "description": "Per-view rig poses: `rig_se3_target` (T_R_T), derived from the\nhand-eye chain (`handeye_observer_se3_target`) so downstream\nviewers (3D scene, epipolar overlay) can read board poses\nwithout re-implementing the chain. One entry per input view.\n`#[serde(default)]` keeps older exports forward-compatible at\nload time; they decode with an empty Vec.",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "robot_deltas": {
+          "description": "Per-view robot pose corrections (if refinement enabled).\nEach element is [rx, ry, rz, tx, ty, tz] in se(3).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 6,
+            "minItems": 6,
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sensors": {
+          "default": null,
+          "description": "Per-camera Scheimpflug sensor parameters. `None` for pinhole rigs;\n`Some(_)` for Scheimpflug rigs (one entry per camera).",
+          "items": {
+            "$ref": "#/definitions/ScheimpflugParams"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cameras",
+        "cam_se3_rig",
+        "handeye_mode",
+        "mean_reproj_error",
+        "per_cam_reproj_errors"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeLaserlineExport": {
+      "description": "Export format for joint rig hand-eye laserline calibration.",
+      "properties": {
+        "base_se3_target": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-in-hand target reference pose `base_se3_target`."
+        },
+        "cam_se3_rig": {
+          "description": "Per-camera extrinsics `cam_se3_rig` (T_C_R).",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "cameras": {
+          "description": "Per-camera pinhole camera parameters.",
+          "items": {
+            "$ref": "#/definitions/Camera"
+          },
+          "type": "array"
+        },
+        "gripper_se3_rig": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-in-hand hand-eye transform `gripper_se3_rig`."
+        },
+        "gripper_se3_target": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-to-hand target reference pose `gripper_se3_target`."
+        },
+        "handeye_mode": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/HandEyeMode"
+            }
+          ],
+          "description": "Hand-eye mode used to interpret mode-dependent transforms."
+        },
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional image manifest populated by app/dataset runners."
+        },
+        "laser_planes_cam": {
+          "description": "Per-camera laser planes in camera frame.",
+          "items": {
+            "$ref": "#/definitions/LaserPlane"
+          },
+          "type": "array"
+        },
+        "laser_planes_rig": {
+          "description": "Per-camera laser planes in rig frame.",
+          "items": {
+            "$ref": "#/definitions/LaserPlane"
+          },
+          "type": "array"
+        },
+        "mean_reproj_error": {
+          "description": "Mean target reprojection error (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "per_cam_reproj_errors": {
+          "description": "Per-camera target reprojection errors (pixels).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "per_camera_stats": {
+          "description": "Joint per-camera stats.",
+          "items": {
+            "$ref": "#/definitions/RigHandeyeLaserlinePerCamStats"
+          },
+          "type": "array"
+        },
+        "per_feature_residuals": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PerFeatureResiduals"
+            }
+          ],
+          "default": {},
+          "description": "Per-feature target and laser residuals."
+        },
+        "rig_se3_base": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-to-hand hand-eye transform `rig_se3_base`."
+        },
+        "rig_se3_target": {
+          "description": "Per-view target poses `rig_se3_target` (T_R_T).",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "robot_deltas": {
+          "description": "Optional optimized robot pose deltas.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 6,
+            "minItems": 6,
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sensors": {
+          "description": "Per-camera Scheimpflug sensor parameters.",
+          "items": {
+            "$ref": "#/definitions/ScheimpflugParams"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "laser_planes_rig",
+        "laser_planes_cam",
+        "per_camera_stats",
+        "cameras",
+        "sensors",
+        "cam_se3_rig",
+        "rig_se3_target",
+        "handeye_mode",
+        "mean_reproj_error",
+        "per_cam_reproj_errors"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeLaserlinePerCamStats": {
+      "description": "Per-camera statistics for [`RigHandeyeLaserlineEstimate`].",
+      "properties": {
+        "laser_count": {
+          "description": "Number of laser pixel residuals evaluated for this camera.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "laser_histogram_m": {
+          "description": "Laser point-to-plane histogram with buckets\n`[<=0.1mm, <=1mm, <=10mm, <=100mm, >100mm]`.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 5,
+          "minItems": 5,
+          "type": "array"
+        },
+        "max_laser_err_m": {
+          "description": "Maximum absolute laser point-to-plane distance (meters).",
+          "format": "double",
+          "type": "number"
+        },
+        "max_laser_err_px": {
+          "description": "Maximum absolute laser line-distance in undistorted pixel space (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "max_reproj_error_px": {
+          "description": "Maximum target-corner reprojection error (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "mean_laser_err_m": {
+          "description": "Mean laser point-to-plane distance (meters).",
+          "format": "double",
+          "type": "number"
+        },
+        "mean_laser_err_px": {
+          "description": "Mean laser line-distance in undistorted pixel space (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "mean_reproj_error_px": {
+          "description": "Mean target-corner reprojection error (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "reproj_count": {
+          "description": "Number of target corner residuals evaluated for this camera.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reproj_histogram_px": {
+          "description": "Reprojection error histogram with buckets `[<=1, <=2, <=5, <=10, >10]` pixels.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 5,
+          "minItems": 5,
+          "type": "array"
+        }
+      },
+      "required": [
+        "mean_reproj_error_px",
+        "reproj_count",
+        "max_reproj_error_px",
+        "reproj_histogram_px",
+        "mean_laser_err_m",
+        "max_laser_err_m",
+        "laser_histogram_m",
+        "mean_laser_err_px",
+        "max_laser_err_px",
+        "laser_count"
+      ],
+      "type": "object"
+    },
+    "RigLaserlineDeviceExport": {
+      "description": "Export format for rig laserline calibration.",
+      "properties": {
+        "cam_se3_rig": {
+          "default": [],
+          "description": "Frozen upstream per-camera extrinsics `T_C_R`.",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "cameras": {
+          "default": [],
+          "description": "Frozen upstream cameras (pinhole part), echoed so the export is\nself-contained for downstream viewers (3D rig scene, epipolar) —\nsame field names as `RigHandeyeExport`. Empty on pre-B-laser\nexports (`serde(default)`).",
+          "items": {
+            "$ref": "#/definitions/Camera"
+          },
+          "type": "array"
+        },
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose / 3D / epipolar UIs)\ncan locate the source image for each `(pose, camera)` slot.\nTiled multi-camera frames (e.g. 6× 720×540 horizontal strips on\nthe puzzle 130×130 rig) point multiple `FrameRef`s at the same\n`path` with disjoint ROIs. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
+        },
+        "laser_planes_cam": {
+          "description": "Per-camera laser planes in their own camera frames.",
+          "items": {
+            "$ref": "#/definitions/LaserPlane"
+          },
+          "type": "array"
+        },
+        "laser_planes_rig": {
+          "description": "Per-camera laser planes in rig frame.",
+          "items": {
+            "$ref": "#/definitions/LaserPlane"
+          },
+          "type": "array"
+        },
+        "mean_reproj_error": {
+          "default": 0.0,
+          "description": "Mean target reprojection error (pixels) against the frozen\nupstream. Diagnostic echo — this problem type does not optimize\nreprojection.",
+          "format": "double",
+          "type": "number"
+        },
+        "per_camera_stats": {
+          "description": "Per-camera stats (reprojection + laser residuals).",
+          "items": {
+            "$ref": "#/definitions/LaserlineStats"
+          },
+          "type": "array"
+        },
+        "per_feature_residuals": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PerFeatureResiduals"
+            }
+          ],
+          "default": {},
+          "description": "Per-feature reprojection + laser residuals (ADR 0012). Multi-camera\nrig: `target` covers per-corner reprojection (when present) and\n`laser` covers per-pixel laser distances. Both per-camera histograms\nare populated."
+        },
+        "rig_se3_target": {
+          "default": [],
+          "description": "Frozen upstream per-view rig poses `T_R_T`.",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "sensors": {
+          "description": "Frozen upstream Scheimpflug sensor parameters (zero tilt for\npinhole rigs), aligned with `cameras`.",
+          "items": {
+            "$ref": "#/definitions/ScheimpflugParams"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "laser_planes_rig",
+        "laser_planes_cam",
+        "per_camera_stats"
+      ],
+      "type": "object"
+    },
+    "ScheimpflugIntrinsicsExport": {
+      "description": "Export format for Scheimpflug intrinsics calibration.",
+      "properties": {
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional pointer to the source images behind this export. When\npopulated, downstream viewers (the diagnose UI) can locate the\nsource image for each view. `None` means \"no images shipped\";\nthe calibration pipeline never reads this field."
+        },
+        "mean_reproj_error": {
+          "description": "Mean per-point reprojection error in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ScheimpflugIntrinsicsParams"
+            }
+          ],
+          "description": "Estimated parameters."
+        },
+        "per_cam_reproj_errors": {
+          "description": "Per-camera reprojection errors (single element for single-camera workflows).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "per_feature_residuals": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PerFeatureResiduals"
+            }
+          ],
+          "default": {},
+          "description": "Per-feature reprojection residuals (ADR 0012). Single-camera, target\nonly — `laser` is empty; `target_hist_per_camera` is\n`Some(vec![one_entry])`."
+        },
+        "report": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SolveReport"
+            }
+          ],
+          "description": "Backend solve report."
+        }
+      },
+      "required": [
+        "params",
+        "report",
+        "mean_reproj_error",
+        "per_cam_reproj_errors"
+      ],
+      "type": "object"
+    },
+    "ScheimpflugIntrinsicsParams": {
+      "description": "Output parameter pack for Scheimpflug intrinsics calibration.",
+      "properties": {
+        "camera": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CameraParams"
+            }
+          ],
+          "description": "Estimated camera model including intrinsics, distortion, and sensor parameters."
+        },
+        "camera_se3_target": {
+          "description": "Estimated pose `camera_se3_target` for each view.",
+          "items": {
+            "$ref": "#/definitions/Iso3Schema"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "camera",
+        "camera_se3_target"
+      ],
+      "type": "object"
+    },
+    "ScheimpflugParams": {
+      "description": "Scheimpflug tilt parameters (OpenCV-compatible).",
+      "properties": {
+        "tilt_x": {
+          "description": "Tilt around X axis in radians (alias: tau_x).",
+          "format": "double",
+          "type": "number"
+        },
+        "tilt_y": {
+          "description": "Tilt around Y axis in radians (alias: tau_y).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "tilt_x",
+        "tilt_y"
+      ],
+      "type": "object"
+    },
+    "SensorParams": {
+      "description": "Serializable sensor model parameters.",
+      "oneOf": [
+        {
+          "description": "Identity sensor model.",
+          "properties": {
+            "type": {
+              "const": "identity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Homography applied in the sensor plane.",
+          "properties": {
+            "h": {
+              "description": "Row-major homography matrix mapping normalized to sensor coordinates.",
+              "items": {
+                "items": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "type": {
+              "const": "homography",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "h"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Scheimpflug/tilted sensor model.",
+          "properties": {
+            "tilt_x": {
+              "description": "Tilt around X axis in radians (alias: tau_x).",
+              "format": "double",
+              "type": "number"
+            },
+            "tilt_y": {
+              "description": "Tilt around Y axis in radians (alias: tau_y).",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "scheimpflug",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "tilt_x",
+            "tilt_y"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SingleCamHandeyeExport": {
+      "description": "Export format for single-camera hand-eye calibration.",
+      "properties": {
+        "base_se3_target": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-in-hand: base_se3_target (T_B_T).\n\n`None` for EyeToHand mode."
+        },
+        "camera": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Camera"
+            }
+          ],
+          "description": "Calibrated camera (intrinsics + distortion)."
+        },
+        "camera_se3_base": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-to-hand: camera_se3_base (T_C_B).\n\n`None` for EyeInHand mode."
+        },
+        "gripper_se3_camera": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-in-hand: gripper_se3_camera (T_G_C).\n\n`None` for EyeToHand mode."
+        },
+        "gripper_se3_target": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Eye-to-hand: gripper_se3_target (T_G_T).\n\n`None` for EyeInHand mode."
+        },
+        "handeye_mode": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/HandEyeMode"
+            }
+          ],
+          "description": "Hand-eye mode used to interpret the transforms."
+        },
+        "image_manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImageManifest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional pointer to the source images behind this export. When\npopulated, downstream viewers (the diagnose UI) can locate the\nsource image for each view. `None` means \"no images shipped\";\nthe calibration pipeline never reads this field."
+        },
+        "mean_reproj_error": {
+          "description": "Mean reprojection error (pixels).",
+          "format": "double",
+          "type": "number"
+        },
+        "per_cam_reproj_errors": {
+          "description": "Per-camera reprojection errors (pixels). Single element for single-camera.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "per_feature_residuals": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PerFeatureResiduals"
+            }
+          ],
+          "default": {},
+          "description": "Per-feature reprojection residuals (ADR 0012). Single-camera, target\nonly. Per-view `cam_se3_target` is derived from the handeye chain\n(see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target))."
+        },
+        "robot_deltas": {
+          "description": "Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).\nOnly present if robot refinement was enabled.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 6,
+            "minItems": 6,
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "camera",
+        "handeye_mode",
+        "mean_reproj_error",
+        "per_cam_reproj_errors"
+      ],
+      "type": "object"
+    },
+    "SolveReport": {
+      "description": "Summary of backend solve outcome.",
+      "properties": {
+        "final_cost": {
+          "description": "Final objective value reported by backend.",
+          "format": "double",
+          "type": "number"
+        },
+        "num_iters": {
+          "default": 0,
+          "description": "Number of outer solver iterations executed.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "final_cost"
+      ],
+      "type": "object"
+    },
+    "TargetFeatureResidual": {
+      "description": "Reprojection record for a single target feature in a single view.",
+      "properties": {
+        "camera": {
+          "description": "Camera index. `0` for single-camera problem types.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error_px": {
+          "description": "Euclidean pixel distance `|projected - observed|`.\n`None` iff `projected_px` is `None`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "feature": {
+          "description": "Feature index within the view's `points_3d`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_px": {
+          "description": "Observed pixel coordinate.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "pose": {
+          "description": "Pose / view index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "projected_px": {
+          "description": "Projected pixel using the calibrated camera + recovered pose.\n`None` when projection diverges (point behind camera, distortion failure).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "target_xyz_m": {
+          "description": "3D point in target / world frame (meters).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "pose",
+        "camera",
+        "feature",
+        "target_xyz_m",
+        "observed_px"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "Generated wire types for the diagnose app (B-QUAL2). Do not edit by hand — run `bun run generate:types`. The top-level wrapper only anchors the `definitions`; consumers import the individual interfaces.",
+  "properties": {
+    "disparity_result": {
+      "$ref": "#/definitions/DisparityResult"
+    },
+    "epipolar_overlay": {
+      "$ref": "#/definitions/EpipolarOverlay"
+    },
+    "laserline_device_export": {
+      "$ref": "#/definitions/LaserlineDeviceExport"
+    },
+    "planar_intrinsics_export": {
+      "$ref": "#/definitions/PlanarIntrinsicsExport"
+    },
+    "rig_extrinsics_export": {
+      "$ref": "#/definitions/RigExtrinsicsExport"
+    },
+    "rig_handeye_export": {
+      "$ref": "#/definitions/RigHandeyeExport"
+    },
+    "rig_handeye_laserline_export": {
+      "$ref": "#/definitions/RigHandeyeLaserlineExport"
+    },
+    "rig_laserline_device_export": {
+      "$ref": "#/definitions/RigLaserlineDeviceExport"
+    },
+    "scheimpflug_intrinsics_export": {
+      "$ref": "#/definitions/ScheimpflugIntrinsicsExport"
+    },
+    "single_cam_handeye_export": {
+      "$ref": "#/definitions/SingleCamHandeyeExport"
+    }
+  },
+  "title": "DiagnoseWireTypes",
+  "type": "object"
+}

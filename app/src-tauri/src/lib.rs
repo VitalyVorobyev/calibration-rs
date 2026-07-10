@@ -23,6 +23,19 @@ mod run;
 
 use export_cache::ExportCache;
 
+/// Tauri command payload/response types re-exported for the `emit_schemas`
+/// binary (B-QUAL2). Public only under `schema-export` so it never widens
+/// the app's runtime surface. These are exactly the roots `emit_schemas`
+/// calls `subschema_for::<…>()` on directly; `PointCloud` is *not* listed
+/// here even though it's public in `disparity` — it only reaches the
+/// emitted schema transitively, as a `$defs` entry nested inside
+/// `DisparityResult`.
+#[cfg(feature = "schema-export")]
+pub mod schema_types {
+    pub use crate::disparity::DisparityResult;
+    pub use crate::epipolar::EpipolarOverlay;
+}
+
 /// Entry point invoked from `main.rs`. Wires up the dialog plugin, the
 /// shared export cache, and the viewer + math + runner commands.
 pub fn run() {
@@ -35,6 +48,7 @@ pub fn run() {
             commands::load_image,
             commands::load_undistorted_image,
             commands::load_text_file,
+            commands::repo_root_cmd,
             commands::sniff_folder,
             commands::compute_epipolar_overlay,
             commands::compute_epipolar_overlay_undistorted,

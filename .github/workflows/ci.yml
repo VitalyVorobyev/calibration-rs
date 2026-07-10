@@ -119,3 +119,120 @@ jobs:
 
       - name: Run Python runtime tests
         run: python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
+
+  app-frontend:
+    name: App frontend (lint/format/typecheck/test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        working-directory: app
+        run: bun run lint
+
+      - name: Format check
+        working-directory: app
+        run: bun run format:check
+
+      - name: Typecheck
+        working-directory: app
+        run: bun run typecheck
+
+      - name: Test
+        working-directory: app
+        run: bun run test
+
+      # Playwright smoke (B-QUAL4): boots the plain Vite dev server (no
+      # Tauri build, no Rust toolchain) and drives it in real Chromium.
+      # Tauri IPC is either absent (empty-state assertions) or mocked at
+      # the `window.__TAURI_INTERNALS__` seam per-spec — see
+      # `app/e2e/support/tauriMock.ts` and `app/README.md`'s dev notes on
+      # the Tauri-native vs mocked-IPC boundary.
+      #
+      # Cache the downloaded browser binaries keyed on the lockfile (the
+      # Playwright version they match); `--with-deps` still runs on a cache
+      # hit so the OS-level (apt) dependencies stay installed, but it's a
+      # no-op for the browser download itself.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('app/bun.lock') }}
+
+      - name: Install Playwright browsers
+        working-directory: app
+        run: bunx playwright install chromium --with-deps
+
+      - name: E2E smoke (Playwright)
+        working-directory: app
+        run: bun run test:e2e
+
+      # Drift stage 2 (schema → TypeScript, bun-only). Regenerate the TS from
+      # the committed schema and fail if it differs from what's checked in.
+      # Stage 1 (Rust → schema) lives in the `app-src-tauri` job, which has the
+      # cargo toolchain; splitting keeps this job Rust-free. See B-QUAL2.
+      - name: Check generated types are up to date
+        working-directory: app
+        run: |
+          bun run generate:types:ts
+          git diff --exit-code src/types/generated
+
+  # `app/src-tauri` is excluded from the root Cargo workspace (see its
+  # Cargo.toml) so it doesn't pull Tauri's build-time dep tree into
+  # `cargo build --workspace`. It gets its own job, gated with
+  # `--manifest-path` the same way the release docs already tell
+  # contributors to build it locally.
+  app-src-tauri:
+    name: App src-tauri (fmt/clippy/test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Tauri 2's Linux backend links against GTK/WebKitGTK at build time;
+      # these are the packages tauri-apps' own CI recipes install on
+      # ubuntu-latest.
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+
+      - name: Cargo fmt (src-tauri)
+        run: cargo fmt --manifest-path app/src-tauri/Cargo.toml --check
+
+      # `schema-export` is additive (only gates the extra `emit_schemas` bin +
+      # its `schemars` derives behind `required-features`/`#[cfg]`, never
+      # removes code), so one clippy pass with the feature enabled covers
+      # both the default build and the schema emitter.
+      - name: Cargo clippy (src-tauri)
+        run: cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets --features schema-export -- -D warnings
+
+      - name: Cargo test (src-tauri)
+        run: cargo test --manifest-path app/src-tauri/Cargo.toml
+
+      # Drift stage 1 (Rust wire types → JSON schema, cargo-only). Fails if a
+      # `*Export` / command-type change wasn't regenerated. Stage 2 (schema →
+      # TypeScript) runs in the bun-only `app-frontend` job. See B-QUAL2.
+      - name: Check generated schema is up to date
+        run: cargo run --manifest-path app/src-tauri/Cargo.toml --features schema-export --bin emit_schemas -- --check

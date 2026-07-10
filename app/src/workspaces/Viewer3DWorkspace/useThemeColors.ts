@@ -16,9 +16,7 @@ export interface SceneColors {
 
 function read(name: string): string {
   if (typeof document === "undefined") return "#999";
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   if (!value) return "#999";
   // Stored as `H S% L%` triplets (per index.css). Wrap in hsl().
   if (/^\d/.test(value)) return `hsl(${value})`;

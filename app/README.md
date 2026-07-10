@@ -60,6 +60,9 @@ bun install            # first-time setup / after package.json changes
 bun run tauri dev      # launch the desktop app
 bun run build           # TS compile + Vite build (frontend only, no Tauri shell)
 bun run tauri build    # bundle the desktop app (installer/binary)
+bun run generate:types # regenerate TS wire types from the Rust source
+bun run test           # Vitest: pure-logic unit tests + jsdom component tests
+bun run test:e2e       # Playwright smoke: boots the app, checks it doesn't fall over
 ```
 
 > **Important.** Use `bun run tauri dev`, **not** `bun run dev`. The
@@ -81,10 +84,99 @@ bun run tauri build    # bundle the desktop app (installer/binary)
   root does **not** cover it — see `app/src-tauri/` for its own checks.
 - Frontend code lives in `app/src/`: `workspaces/` (routed views),
   `components/`, `hooks/`, `layouts/`, `lib/`, `schemas/` (JSON Schemas for
-  the Run workspace's config forms), `store/` (Zustand + wire types).
+  the Run workspace's config forms), `types/generated/` (generated wire
+  types, see below), `store/` (Zustand + wire types).
 - Backend (Tauri) code lives in `app/src-tauri/src/`: `commands.rs` (export
   loading, image loading/undistortion, epipolar overlay), `run.rs`
   (calibration runner + folder sniffing), `disparity.rs` (dense stereo).
+
+### Repo-root resolution for built-in presets
+
+`RunWorkspace`'s Quick Start presets (`src/workspaces/RunWorkspace/presets.ts`)
+point at datasets committed to the repo (`data/…`) or private local-only ones
+(`privatedata/…`); `manifestPath` on every preset is **repo-root-relative**,
+never a hard-coded personal absolute path. At load time
+(`RunWorkspace`'s `handleUsePreset`) the frontend resolves the repo root via
+`lib/tauri.ts`'s `repoRoot()`, which calls the `repo_root_cmd` Tauri command
+(`src-tauri/src/commands.rs`) and joins it onto the preset's relative path
+with `joinPath`.
+
+`repo_root_cmd` reports `env!("CARGO_MANIFEST_DIR")` two levels up
+(`app/src-tauri` → `app` → repo root) — a compile-time constant, but since
+`app/src-tauri` is never shipped as a prebuilt binary (every `bun run tauri
+dev`/`build` recompiles it locally), it always reflects *the developer
+running the command's own checkout path*, not a value baked in by whoever
+last edited the source. That's the simplest fix that removes the personal
+path from source control while keeping presets working out of the box on
+any machine: no extra dev-root configuration, no bundled-resource plumbing
+(which wouldn't apply to `privatedata/` presets anyway — private datasets
+are never meant to ship inside an installer). True asset bundling via
+Tauri's `resource_dir` API remains a distinct, separate concern for
+`B-DIST` (shipping *public* bundled datasets inside a release installer),
+not the dev-preset path.
+
+### Testing (`bun run test` / `bun run test:e2e`)
+
+Two layers, run by different tools:
+
+- **Vitest (`bun run test`)** — `src/**/*.test.ts` are pure-logic unit tests
+  (Node environment, no DOM); `src/**/*.test.tsx` are component tests
+  (jsdom, via `@testing-library/react`) selected by
+  `vitest.config.ts`'s `environmentMatchGlobs`. Component tests mock the
+  Tauri IPC layer with `@tauri-apps/api/mocks`' `mockIPC` (one seam:
+  `window.__TAURI_INTERNALS__.invoke`) — see
+  `src/workspaces/DiagnoseWorkspace/DiagnoseWorkspace.test.tsx` and
+  `src/workspaces/RunWorkspace/RunWorkspace.test.tsx` for the pattern.
+  `src/test/setupTests.ts` stubs `ResizeObserver` and
+  `HTMLCanvasElement.getContext` (jsdom has neither) so `FrameCanvas` can
+  mount without pulling in `node-canvas`.
+- **Playwright (`bun run test:e2e`)** — smoke tests in `app/e2e/` that boot
+  the real app in a real Chromium tab via the plain Vite dev server
+  (`bun run dev`, **not** `bun run tauri dev` — no Tauri/Rust toolchain
+  needed, keeping the CI job toolchain-pure). Two flavours:
+  - `app/e2e/app.spec.ts` — the app boots and each of the five workspaces
+    mounts via left-rail navigation with zero console errors, running
+    *without* any Tauri mock (exactly like a developer opening
+    localhost:1420 in a plain browser tab — `isTauriContext()` is false
+    and every workspace's empty state must render on its own).
+  - `app/e2e/diagnose.spec.ts` — exercises the mocked-IPC path: Playwright
+    can't reach into the page's own module graph the way Vitest can, so
+    `@tauri-apps/api/mocks` doesn't apply; `e2e/support/tauriMock.ts`
+    instead injects a `window.__TAURI_INTERNALS__` shim via
+    `page.addInitScript` (the same seam `@tauri-apps/api/core`'s
+    `invoke()` and `@tauri-apps/plugin-dialog`'s `open()` call into),
+    before any of the app's own scripts run. That's the
+    Tauri-native-vs-mocked-IPC boundary: real desktop behavior is only
+    ever exercised manually via `bun run tauri dev`; both automated test
+    layers stop at the IPC seam.
+
+`bunx playwright install chromium --with-deps` installs the browser once
+(cached locally / in CI); CI runs `test:e2e` as an extra step in the
+`app-frontend` job.
+
+### Generated wire types (`bun run generate:types`)
+
+The TypeScript interfaces the app uses for calibration `*Export` payloads
+and Tauri command responses are **generated from the Rust types**, not
+hand-written (B-QUAL2). The single source of truth is the
+`#[derive(schemars::JsonSchema)]` on the pipeline `*Export` types and the
+`app/src-tauri` command structs; edit those and regenerate. Two stages:
+
+```bash
+bun run generate:types   # both stages (schema + TS); commit the results
+# or run a stage on its own:
+bun run generate:schemas   # stage 1 (cargo): Rust types → schemas-generated/diagnose_wire.json
+bun run generate:types:ts  # stage 2 (bun):   schema → src/types/generated/*.ts (+ prettier)
+```
+
+Both outputs are committed. CI enforces they stay in sync: the
+`app-src-tauri` job runs `generate:schemas:check` (Rust → schema drift) and
+`app-frontend` regenerates the TS and `git diff --exit-code`s it (schema →
+TS drift), so a Rust type change that isn't regenerated fails the build.
+`src/types/generated/` is eslint-ignored and `schemas-generated/` is
+prettier-ignored (they're machine-owned). The export discriminator lives in
+`src/store/exportKind.ts` (`detectExportKind`), typed against these
+generated shapes.
 
 ## Out of scope
 

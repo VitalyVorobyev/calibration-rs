@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { PoseStepper } from "../../components/PoseStepper";
 import { useStore } from "../../store";
+import type { DisparityResult } from "../../types/generated/diagnose-wire";
 
 // Three.js is heavy (~900 KB); only pull it in when the 3D view is opened.
 const PointCloudView = lazy(() =>
@@ -9,32 +10,6 @@ const PointCloudView = lazy(() =>
 );
 
 /** A reprojected 3D point cloud (flat position/colour arrays). */
-interface PointCloud {
-  positions: number[];
-  colors: number[];
-  count: number;
-}
-
-/** Result of the `compute_disparity` Tauri command (camelCase, matching the
- * Rust `#[serde(rename_all = "camelCase")]` struct). All images are
- * `data:image/png` base64 URLs. */
-interface DisparityResult {
-  rectifiedPairPng: string;
-  disparityPng: string;
-  overlayPng: string;
-  depthPng: string;
-  pointCloud: PointCloud;
-  width: number;
-  height: number;
-  density: number;
-  dispMin: number;
-  dispMax: number;
-  planeRms: number;
-  planeInliers: number;
-  baselineM: number;
-  semiGlobal: boolean;
-}
-
 type ViewMode = "rectified" | "disparity" | "overlay" | "depth" | "3d";
 
 // Matching is done at reduced resolution to keep the disparity search (and the
@@ -90,12 +65,18 @@ export function DepthWorkspace() {
   );
 
   if (!data || !kind) {
-    return <Empty body="Load a rig export (two cameras + extrinsics) to compute dense disparity." />;
+    return (
+      <Empty body="Load a rig export (two cameras + extrinsics) to compute dense disparity." />
+    );
   }
   const isRig =
-    Array.isArray(data.cameras) && Array.isArray(data.cam_se3_rig) && data.cameras.length >= 2;
+    Array.isArray(data.cameras) &&
+    Array.isArray(data.cam_se3_rig) &&
+    data.cameras.length >= 2;
   if (!isRig) {
-    return <Empty body="Dense matching needs a stereo rig export (two cameras with extrinsics)." />;
+    return (
+      <Empty body="Dense matching needs a stereo rig export (two cameras with extrinsics)." />
+    );
   }
 
   const canCompute = frameA != null && frameB != null && cameraA !== cameraB && !loading;
@@ -143,8 +124,18 @@ export function DepthWorkspace() {
           selectedPose={selectedPose}
           onSelectPose={(p) => setSelectedPose(p)}
         />
-        <Selector label="left" value={cameraA} options={cameraValues} onChange={(v) => setCamera(v, "A")} />
-        <Selector label="right" value={cameraB} options={cameraValues} onChange={(v) => setCamera(v, "B")} />
+        <Selector
+          label="left"
+          value={cameraA}
+          options={cameraValues}
+          onChange={(v) => setCamera(v, "A")}
+        />
+        <Selector
+          label="right"
+          value={cameraB}
+          options={cameraValues}
+          onChange={(v) => setCamera(v, "B")}
+        />
         <Toggle
           active={semiGlobal}
           onClick={() => setSemiGlobal((v) => !v)}
@@ -153,7 +144,7 @@ export function DepthWorkspace() {
         />
         <button
           type="button"
-          onClick={compute}
+          onClick={() => void compute()}
           disabled={!canCompute}
           className="h-7 px-2 font-mono text-[11px] border-brand text-brand disabled:cursor-not-allowed disabled:opacity-40"
         >
@@ -162,7 +153,12 @@ export function DepthWorkspace() {
         {result && (
           <div className="ml-auto flex items-center gap-1">
             {(Object.keys(VIEW_LABEL) as ViewMode[]).map((m) => (
-              <Toggle key={m} active={viewMode === m} onClick={() => setViewMode(m)} label={VIEW_LABEL[m]} />
+              <Toggle
+                key={m}
+                active={viewMode === m}
+                onClick={() => setViewMode(m)}
+                label={VIEW_LABEL[m]}
+              />
             ))}
           </div>
         )}
@@ -202,7 +198,10 @@ export function DepthWorkspace() {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
           <Stat label="mode" value={result.semiGlobal ? "semi-global" : "block"} />
           <Stat label="density" value={`${(result.density * 100).toFixed(1)}%`} />
-          <Stat label="disparity" value={`${result.dispMin.toFixed(1)}–${result.dispMax.toFixed(1)} px`} />
+          <Stat
+            label="disparity"
+            value={`${result.dispMin.toFixed(1)}–${result.dispMax.toFixed(1)} px`}
+          />
           <Stat label="planarity RMS" value={`${result.planeRms.toFixed(2)} px`} />
           <Stat label="plane inliers" value={`${result.planeInliers}`} />
           <Stat label="cloud points" value={`${result.pointCloud.count}`} />
@@ -224,7 +223,9 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function Hint({ children }: { children: React.ReactNode }) {
   return (
-    <p className="max-w-[26rem] text-center text-[12px] text-muted-foreground">{children}</p>
+    <p className="max-w-[26rem] text-center text-[12px] text-muted-foreground">
+      {children}
+    </p>
   );
 }
 
@@ -287,7 +288,9 @@ function Empty({ body }: { body: string }) {
         <h2 className="text-sm font-semibold tracking-tight">Depth (dense stereo)</h2>
       </header>
       <div className="flex min-h-0 flex-1 items-center justify-center rounded-md border border-dashed border-border bg-bg-soft">
-        <p className="max-w-[28rem] p-6 text-center text-[13px] text-muted-foreground">{body}</p>
+        <p className="max-w-[28rem] p-6 text-center text-[13px] text-muted-foreground">
+          {body}
+        </p>
       </div>
     </div>
   );

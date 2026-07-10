@@ -84,7 +84,7 @@ export function PresetCard({ preset, isActive, onUse }: PresetCardProps) {
       {!disabled && (
         <button
           type="button"
-          onClick={() => onUse(preset as Preset & { disabled?: false })}
+          onClick={() => onUse(preset)}
           className={[
             "mt-auto h-8 rounded-md border px-3 text-[12px] font-medium transition-colors",
             isActive
@@ -164,9 +164,27 @@ function MetaRow({ icon, label }: { icon: "target" | "images"; label: string }) 
           aria-hidden="true"
           className="shrink-0 opacity-60"
         >
-          <rect x="1" y="2.5" width="8" height="6" rx="1" stroke="currentColor" strokeWidth="1" />
-          <path d="M2.5 1.5h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-          <path d="M3.5 0.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+          <rect
+            x="1"
+            y="2.5"
+            width="8"
+            height="6"
+            rx="1"
+            stroke="currentColor"
+            strokeWidth="1"
+          />
+          <path
+            d="M2.5 1.5h5"
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeLinecap="round"
+          />
+          <path
+            d="M3.5 0.5h3"
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeLinecap="round"
+          />
         </svg>
       )}
       <span>{label}</span>

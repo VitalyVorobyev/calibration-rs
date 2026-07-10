@@ -104,6 +104,7 @@ pub struct SingleCamHandeyeConfig {
 
 /// Export format for single-camera hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct SingleCamHandeyeExport {
     /// Calibrated camera (intrinsics + distortion).
@@ -115,21 +116,37 @@ pub struct SingleCamHandeyeExport {
     /// Eye-in-hand: gripper_se3_camera (T_G_C).
     ///
     /// `None` for EyeToHand mode.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub gripper_se3_camera: Option<Iso3>,
 
     /// Eye-to-hand: camera_se3_base (T_C_B).
     ///
     /// `None` for EyeInHand mode.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub camera_se3_base: Option<Iso3>,
 
     /// Eye-in-hand: base_se3_target (T_B_T).
     ///
     /// `None` for EyeToHand mode.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub base_se3_target: Option<Iso3>,
 
     /// Eye-to-hand: gripper_se3_target (T_G_T).
     ///
     /// `None` for EyeInHand mode.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub gripper_se3_target: Option<Iso3>,
 
     /// Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).

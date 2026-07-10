@@ -47,7 +47,7 @@ export function useImageData(
               luminance,
             });
           } catch (e) {
-            onError?.(`Pixel decode failed: ${e}`);
+            onError?.(`Pixel decode failed: ${String(e)}`);
           }
         };
         img.onerror = () => {
@@ -61,6 +61,11 @@ export function useImageData(
     return () => {
       cancelled = true;
     };
+    // Depend on `frame.abs_path` only, not `frame` itself: the caller may
+    // hand us a fresh `FrameKey` object each render even when the path is
+    // unchanged, and re-fetching on every render would defeat the point
+    // of this hook. Same pattern as `useUndistortedImageData` below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frame?.abs_path, onError]);
 
   return data;
@@ -96,6 +101,9 @@ export function useUndistortedImageData(
     return () => {
       cancelled = true;
     };
+    // Same rationale as `useImageData` above: depend on the individual
+    // `frame`/`frame.roi` fields actually read, not the object itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     frame?.abs_path,
     frame?.roi?.x,
@@ -128,7 +136,7 @@ function decodeImageDataUrl(
         luminance,
       });
     } catch (e) {
-      onError?.(`Pixel decode failed: ${e}`);
+      onError?.(`Pixel decode failed: ${String(e)}`);
     }
   };
   img.onerror = () => {
@@ -159,9 +167,7 @@ function decodeLuminance(img: HTMLImageElement): Uint8Array {
 
 function acquireContext(w: number, h: number): Canvas2D | null {
   if (typeof OffscreenCanvas !== "undefined") {
-    return new OffscreenCanvas(w, h).getContext(
-      "2d",
-    ) as OffscreenCanvasRenderingContext2D | null;
+    return new OffscreenCanvas(w, h).getContext("2d");
   }
   const c = document.createElement("canvas");
   c.width = w;

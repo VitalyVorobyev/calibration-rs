@@ -13,6 +13,7 @@ pub trait ProjectionModel<S: RealField + Copy> {
 
 /// Classic pinhole projection model.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Pinhole;
 
 impl<S: RealField + Copy> ProjectionModel<S> for Pinhole {

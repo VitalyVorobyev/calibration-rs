@@ -32,16 +32,10 @@
           },
           "maxItems": 4,
           "minItems": 4,
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": ["array", "null"]
         }
       },
-      "required": [
-        "id",
-        "images"
-      ],
+      "required": ["id", "images"],
       "type": "object"
     },
     "ChessCornersDetectorSpec": {
@@ -62,10 +56,7 @@
         "threshold_value": {
           "description": "Acceptance threshold value. `None` keeps the detector default.",
           "format": "float",
-          "type": [
-            "number",
-            "null"
-          ]
+          "type": ["number", "null"]
         }
       },
       "type": "object"
@@ -104,10 +95,7 @@
           "description": "Minimum detected features for a view to be kept. `None` keeps the\nrunner default (4, the homography minimum). Raise it for detectors\nwhose sparse detections are unreliable — e.g. ring-grid decodes\nwith < 8 markers are noisy enough to poison a solve.",
           "format": "uint",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         }
       },
       "type": "object"
@@ -127,10 +115,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "kind",
-            "pattern"
-          ],
+          "required": ["kind", "pattern"],
           "type": "object"
         },
         {
@@ -148,10 +133,7 @@
               "type": "array"
             }
           },
-          "required": [
-            "kind",
-            "paths"
-          ],
+          "required": ["kind", "paths"],
           "type": "object"
         }
       ]
@@ -214,10 +196,7 @@
       "properties": {
         "pose_id": {
           "description": "Optional view-id column (string or integer). When absent, the\npose row index is used as the implicit pose id.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "rotation": {
           "description": "Rotation columns. Length and meaning depend on the\n`pose_convention.rotation_format`.",
@@ -239,12 +218,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "tx",
-        "ty",
-        "tz",
-        "rotation"
-      ],
+      "required": ["tx", "ty", "tz", "rotation"],
       "type": "object"
     },
     "PoseConvention": {
@@ -264,11 +238,7 @@
           "description": "Translation units in the file."
         }
       },
-      "required": [
-        "transform",
-        "rotation_format",
-        "translation_units"
-      ],
+      "required": ["transform", "rotation_format", "translation_units"],
       "type": "object"
     },
     "PosePairing": {
@@ -282,9 +252,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "kind"
-          ],
+          "required": ["kind"],
           "type": "object"
         },
         {
@@ -303,11 +271,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "kind",
-            "regex",
-            "group"
-          ],
+          "required": ["kind", "regex", "group"],
           "type": "object"
         }
       ]
@@ -358,20 +322,14 @@
         },
         "matrix_field": {
           "description": "For `json` / `jsonl` files whose rows store the whole pose as a\nsingle nested 4×4 (or flat-16) array field, names that field\n(e.g. `\"tcp2base\"`). Mutually exclusive with `columns`; requires\n`pose_convention.rotation_format = matrix4x4_row_major`.\nTranslation comes from the matrix's fourth column, scaled by\n`translation_units`. No `pose_id` ⇒ `by_index` pairing only.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "path": {
           "description": "Path to the pose file, relative to the manifest directory\nunless absolute.",
           "type": "string"
         }
       },
-      "required": [
-        "path",
-        "format"
-      ],
+      "required": ["path", "format"],
       "type": "object"
     },
     "RotationFormat": {
@@ -447,12 +405,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "kind",
-            "rows",
-            "cols",
-            "square_size_m"
-          ],
+          "required": ["kind", "rows", "cols", "square_size_m"],
           "type": "object"
         },
         {
@@ -516,11 +469,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "kind",
-            "layout",
-            "cell_size_m"
-          ],
+          "required": ["kind", "layout", "cell_size_m"],
           "type": "object"
         },
         {
@@ -682,10 +631,7 @@
     },
     "description": {
       "description": "Free-form human-readable description.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "detector": {
       "anyOf": [
@@ -752,10 +698,7 @@
     },
     "upstream_calibration": {
       "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`Topology::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye\nlaserline calibration computes its own hand-eye warm start and does not\nuse this field.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "version": {
       "default": 1,
@@ -765,11 +708,7 @@
       "type": "integer"
     }
   },
-  "required": [
-    "cameras",
-    "target",
-    "topology"
-  ],
+  "required": ["cameras", "target", "topology"],
   "title": "DatasetSpec",
   "type": "object"
 }
