@@ -13,6 +13,7 @@ use vision_calibration_optim::{
     compute_rig_laserline_feature_residuals,
 };
 
+use crate::common::ExportKind;
 use crate::common::config::SolverConfig;
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -146,6 +147,8 @@ impl Default for RigLaserlineDeviceConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigLaserlineDeviceExport {
+    /// Export-type discriminator (R7) — always [`ExportKind::RigLaserlineDevice`].
+    pub kind: ExportKind,
     /// Per-camera laser planes in rig frame.
     pub laser_planes_rig: Vec<LaserPlane>,
     /// Per-camera laser planes in their own camera frames.
@@ -359,6 +362,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
         per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
         per_feature_residuals.laser_hist_per_camera = Some(laser_hist_per_camera);
         Ok(RigLaserlineDeviceExport {
+            kind: ExportKind::RigLaserlineDevice,
             laser_planes_rig: output.laser_planes_rig.clone(),
             laser_planes_cam: output.laser_planes_cam.clone(),
             per_camera_stats: output.per_camera_stats.clone(),
@@ -387,6 +391,7 @@ mod tests {
         // tests can. This keeps the manifest tests independent of the
         // upstream calibration setup needed to drive `export()`.
         RigLaserlineDeviceExport {
+            kind: ExportKind::RigLaserlineDevice,
             laser_planes_rig: Vec::new(),
             laser_planes_cam: Vec::new(),
             per_camera_stats: Vec::new(),

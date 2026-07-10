@@ -18,6 +18,23 @@
  */
 export type FrameKind = "target" | "laser";
 /**
+ * Identifies which calibration `*Export` a JSON payload holds.
+ *
+ * One variant per pipeline problem type, serialized as the snake_case module
+ * name in the `kind` field of every `*Export`. Consumers (the desktop app's
+ * `detectExportKind`, downstream tooling) read this single tag rather than
+ * sniffing field presence.
+ */
+export type ExportKind =
+  | "planar_intrinsics"
+  | "scheimpflug_intrinsics"
+  | "single_cam_handeye"
+  | "laserline_device"
+  | "rig_extrinsics"
+  | "rig_handeye"
+  | "rig_laserline_device"
+  | "rig_handeye_laserline";
+/**
  * Serializable distortion model parameters.
  */
 export type DistortionParams =
@@ -350,6 +367,10 @@ export interface LaserlineDeviceExport {
    * calibration pipeline never reads this field.
    */
   image_manifest?: ImageManifest | null;
+  /**
+   * Export-type discriminator (R7) — always [`ExportKind::LaserlineDevice`].
+   */
+  kind: ExportKind;
   /**
    * Mean reprojection error (pixels).
    */
@@ -793,6 +814,10 @@ export interface PlanarIntrinsicsExport {
    */
   image_manifest?: ImageManifest | null;
   /**
+   * Export-type discriminator (R7) — always [`ExportKind::PlanarIntrinsics`].
+   */
+  kind: ExportKind;
+  /**
    * Mean reprojection error (pixels).
    */
   mean_reproj_error: number;
@@ -876,6 +901,10 @@ export interface RigExtrinsicsExport {
    * this field.
    */
   image_manifest?: ImageManifest | null;
+  /**
+   * Export-type discriminator (R7) — always [`ExportKind::RigExtrinsics`].
+   */
+  kind: ExportKind;
   /**
    * Mean reprojection error (pixels).
    */
@@ -972,6 +1001,10 @@ export interface RigHandeyeExport {
    */
   image_manifest?: ImageManifest | null;
   /**
+   * Export-type discriminator (R7) — always [`ExportKind::RigHandeye`].
+   */
+  kind: ExportKind;
+  /**
    * Mean reprojection error (pixels).
    */
   mean_reproj_error: number;
@@ -1044,6 +1077,10 @@ export interface RigHandeyeLaserlineExport {
    * Optional image manifest populated by app/dataset runners.
    */
   image_manifest?: ImageManifest | null;
+  /**
+   * Export-type discriminator (R7) — always [`ExportKind::RigHandeyeLaserline`].
+   */
+  kind: ExportKind;
   /**
    * Per-camera laser planes in camera frame.
    */
@@ -1163,6 +1200,10 @@ export interface RigLaserlineDeviceExport {
    */
   image_manifest?: ImageManifest | null;
   /**
+   * Export-type discriminator (R7) — always [`ExportKind::RigLaserlineDevice`].
+   */
+  kind: ExportKind;
+  /**
    * Per-camera laser planes in their own camera frames.
    */
   laser_planes_cam: LaserPlane[];
@@ -1208,6 +1249,10 @@ export interface ScheimpflugIntrinsicsExport {
    * the calibration pipeline never reads this field.
    */
   image_manifest?: ImageManifest | null;
+  /**
+   * Export-type discriminator (R7) — always [`ExportKind::ScheimpflugIntrinsics`].
+   */
+  kind: ExportKind;
   /**
    * Mean per-point reprojection error in pixels.
    */
@@ -1287,6 +1332,10 @@ export interface SingleCamHandeyeExport {
    * the calibration pipeline never reads this field.
    */
   image_manifest?: ImageManifest | null;
+  /**
+   * Export-type discriminator (R7) — always [`ExportKind::SingleCamHandeye`].
+   */
+  kind: ExportKind;
   /**
    * Mean reprojection error (pixels).
    */

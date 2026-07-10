@@ -10,6 +10,7 @@
 
 use super::*;
 
+use crate::common::ExportKind;
 use nalgebra::{SVector, Translation3, UnitQuaternion, Vector3};
 use vision_calibration_core::{
     BrownConrady5, CorrespondenceView, FxFyCxCySkew, NoMeta, PerFeatureResiduals, RigView,
@@ -281,6 +282,7 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
     let mut per_feature_residuals = PerFeatureResiduals::default();
     per_feature_residuals.target = target;
     let export = RigHandeyeExport {
+        kind: ExportKind::RigHandeye,
         cameras,
         sensors: None,
         cam_se3_rig: cam_se3_rig.clone(),

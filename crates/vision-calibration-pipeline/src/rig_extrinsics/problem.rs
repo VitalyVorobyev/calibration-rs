@@ -17,6 +17,7 @@ use vision_calibration_optim::{
 
 pub use crate::rig_family::SensorMode;
 
+use crate::common::ExportKind;
 use crate::common::config::{IntrinsicsInitConfig, RigConfig, SolverConfig};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -147,6 +148,9 @@ impl RigExtrinsicsOutput {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigExtrinsicsExport {
+    /// Export-type discriminator (R7) — always [`ExportKind::RigExtrinsics`].
+    pub kind: ExportKind,
+
     /// Per-camera calibrated intrinsics + distortion (pinhole core).
     pub cameras: Vec<PinholeCamera>,
 
@@ -386,6 +390,7 @@ impl ProblemType for RigExtrinsicsProblem {
         per_feature_residuals.target = target;
         per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
         Ok(RigExtrinsicsExport {
+            kind: ExportKind::RigExtrinsics,
             cameras: output.cameras().to_vec(),
             sensors: output.sensors().map(|s| s.to_vec()),
             cam_se3_rig,

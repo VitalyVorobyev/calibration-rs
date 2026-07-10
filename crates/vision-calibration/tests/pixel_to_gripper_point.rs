@@ -42,6 +42,7 @@ fn make_eye_in_hand_export() -> RigHandeyeExport {
 
     let json = format!(
         r#"{{
+            "kind": "rig_handeye",
             "cameras": [{camera_json}],
             "sensors": [{sensor_json}],
             "cam_se3_rig": [{identity_json}],
@@ -85,6 +86,7 @@ fn make_eye_to_hand_export() -> RigHandeyeExport {
 
     let json = format!(
         r#"{{
+            "kind": "rig_handeye",
             "cameras": [{camera_json}],
             "sensors": [{sensor_json}],
             "cam_se3_rig": [{identity_json}],

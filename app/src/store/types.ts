@@ -1,5 +1,10 @@
 import type { FrameKey, ImageManifest, PerFeatureResiduals } from "../types";
-import type { Camera, Iso3Schema, LaserPlane } from "../types/generated/diagnose-wire";
+import type {
+  Camera,
+  ExportKind as WireExportKind,
+  Iso3Schema,
+  LaserPlane,
+} from "../types/generated/diagnose-wire";
 
 // The export discriminator now lives next to `detectExportKind`, its single
 // consumer-facing definition (B-QUAL2). Re-exported here so existing
@@ -34,6 +39,11 @@ export type LaserPlaneWire = LaserPlane;
  * optional and refined inside Viewer3DWorkspace / EpipolarWorkspace
  * once those phases land. */
 export interface AnyExport {
+  /** Export-type discriminator (R7). Present on every export the current
+   * pipeline emits; typed optional only because `AnyExport` is a loose
+   * structural view (a pre-R7 or hand-edited payload may omit it, in which
+   * case `detectExportKind` returns `"unknown"`). */
+  kind?: WireExportKind;
   per_feature_residuals: PerFeatureResiduals;
   image_manifest?: ImageManifest;
   /** All current exports carry this, but treat it as optional: exports

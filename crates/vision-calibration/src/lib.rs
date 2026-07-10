@@ -135,7 +135,7 @@ pub mod session {
 /// SolverConfig`, ...).
 pub mod common {
     pub use vision_calibration_pipeline::common::{
-        HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
+        ExportKind, HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions,
     };
 

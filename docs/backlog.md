@@ -142,16 +142,23 @@ two-view/triangulation.
   verified already on ADR-0024 shapes (zero stale fields); one genuinely
   stale `pixel_to_gripper_point` facade path fixed in the puzzle-130x130
   walkthrough (R1-audit casualty). Index updated.
-- [ ] R7-EXPORT-DISCRIMINATOR - (raised by the PR #99 altitude review; do
-  inside the v0.7.0 breaking window, small standalone PR) Add a serde
-  discriminator (`kind` tag) to the eight `*Export` types so consumers
-  narrow on a tag instead of probing required-field presence. Deletes the
-  app's `detectExportKind` probe module (`app/src/store/exportKind.ts`) —
-  TS narrows on `.kind` from the schemars-generated union for free.
-  Migration cost is one-time and bounded pre-1.0: regenerate committed
-  fixture exports, app recents invalidate naturally, private exports are
-  regenerate-on-load. Deferring past 0.7.0 locks a wire format that can't
-  gain a discriminator without another break.
+- [x] R7-EXPORT-DISCRIMINATOR - **Done 2026-07-10.** Added a shared
+  `ExportKind` unit enum (`vision-calibration-pipeline` `common/export_kind.rs`,
+  `#[serde(rename_all = "snake_case")]`, one variant per problem type; re-exported
+  as `vision_calibration::common::ExportKind`) and a **required** `kind` field —
+  the first field — on all eight `*Export` structs, set on construction.
+  Deserialize is strict (no `serde(default)`): a missing tag errors, making the
+  discriminator a hard contract. The enum derives `JsonSchema`, so it flows
+  through `emit_schemas` → `diagnose_wire.json` → `diagnose-wire.ts` as a
+  `"planar_intrinsics" | …` union. App `detectExportKind` collapsed from ~50
+  lines of field probes to a validated read of `data.kind`; a label
+  `Record<ExportKind, string>` is now the single source of both labels and the
+  recognised-kind set (pinned to the generated union). Regenerated committed
+  exports (`data/stereo{,_charuco}/viewer_export.json`) and every hand-built
+  export JSON in tests; Python export parsers ignore `kind` harmlessly (40 py
+  tests green). ADR 0018 amended. Gates: fmt/clippy/test/doc, src-tauri
+  fmt/clippy/test + `emit_schemas --check`, app lint/format/typecheck/vitest
+  (27)/e2e (7), TS-gen idempotent.
 
 ## B-QUAL / B-UX / B-DIST — app to production grade (Phase III)
 

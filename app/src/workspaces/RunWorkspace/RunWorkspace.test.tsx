@@ -49,6 +49,7 @@ const DEFAULT_CONFIG = {
 const RUN_SUCCESS_RESPONSE = {
   kind: "ok",
   export: {
+    kind: "planar_intrinsics",
     per_feature_residuals: { target: [] },
     image_manifest: { root: ".", frames: [{ pose: 0, camera: 0, path: "frame0.png" }] },
     mean_reproj_error: 0.31,
