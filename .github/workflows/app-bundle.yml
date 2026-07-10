@@ -32,12 +32,38 @@ on:
       - 'v*'
 
 jobs:
-  bundle-macos:
-    name: Bundle (macOS)
-    runs-on: macos-latest
+  bundle:
+    name: Bundle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            artifact-name: calibration-diagnose-macos
+            artifact-path: |
+              app/src-tauri/target/release/bundle/dmg/*.dmg
+              app/src-tauri/target/release/bundle/macos/*.app
+          - os: ubuntu-latest
+            artifact-name: calibration-diagnose-linux
+            artifact-path: |
+              app/src-tauri/target/release/bundle/appimage/*.AppImage
+              app/src-tauri/target/release/bundle/deb/*.deb
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      # Linux bundling reuses the exact system deps ci.yml's `app-src-tauri`
+      # job installs for `cargo clippy`/`cargo test` on WebKitGTK's
+      # build-time libs.
+      - name: Install Tauri Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -66,56 +92,9 @@ jobs:
         working-directory: app
         run: bun run tauri build
 
-      - name: Upload macOS bundles
+      - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:
-          name: calibration-diagnose-macos
-          path: |
-            app/src-tauri/target/release/bundle/dmg/*.dmg
-            app/src-tauri/target/release/bundle/macos/*.app
-          if-no-files-found: error
-
-  # Linux bundling reuses the exact system deps ci.yml's `app-src-tauri` job
-  # installs for `cargo clippy`/`cargo test` on WebKitGTK's build-time libs.
-  bundle-linux:
-    name: Bundle (Linux)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Tauri Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app/src-tauri -> target
-
-      - name: Set up bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        working-directory: app
-        run: bun install --frozen-lockfile
-
-      - name: Build bundles
-        working-directory: app
-        run: bun run tauri build
-
-      - name: Upload Linux bundles
-        uses: actions/upload-artifact@v4
-        with:
-          name: calibration-diagnose-linux
-          path: |
-            app/src-tauri/target/release/bundle/appimage/*.AppImage
-            app/src-tauri/target/release/bundle/deb/*.deb
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
           if-no-files-found: error

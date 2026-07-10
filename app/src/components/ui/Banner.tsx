@@ -1,12 +1,11 @@
 import type { HTMLAttributes } from "react";
 import { cx } from "./cx";
 
-export type BannerVariant = "error" | "success" | "warning" | "neutral";
+export type BannerVariant = "error" | "success" | "neutral";
 
 const VARIANT_CLASSES: Record<BannerVariant, string> = {
   error: "border-destructive bg-destructive/[0.08]",
   success: "border-success bg-success/[0.08]",
-  warning: "border-warning bg-warning/[0.08]",
   neutral: "border-border bg-bg-soft",
 };
 

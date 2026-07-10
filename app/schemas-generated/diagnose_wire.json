@@ -1929,7 +1929,7 @@
       "type": "object"
     },
     "RunProgress": {
-      "description": "A progress message streamed to the Run workspace over a\n[`tauri::ipc::Channel`]. One is sent as each [`RunStage`] begins;\nterminal outcomes (success / failure / cancellation) are carried by\nthe command's [`RunResponse`] return value, not the channel.",
+      "description": "A progress message streamed to the Run workspace over a\n[`tauri::ipc::Channel`]. One is sent as each `RunStage` begins;\nterminal outcomes (success / failure / cancellation) are carried by\nthe command's `RunResponse` return value, not the channel.",
       "properties": {
         "stage": {
           "allOf": [

@@ -146,24 +146,6 @@ type RunStatus =
   | { kind: "validation"; message: string }
   | { kind: "ask_user"; field: string; prompt: string; suggestions: string[] };
 
-/** Live elapsed-ms clock for the running banner. Returns 0 when
- * `startedAt` is null (not running). Ticks a few times a second while
- * active; the value is display-only and never enters any export. */
-function useElapsed(startedAt: number | null): number {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (startedAt == null) {
-      setElapsed(0);
-      return;
-    }
-    const tick = () => setElapsed(Date.now() - startedAt);
-    tick();
-    const id = setInterval(tick, 200);
-    return () => clearInterval(id);
-  }, [startedAt]);
-  return elapsed;
-}
-
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function RunWorkspace() {
@@ -192,7 +174,6 @@ export function RunWorkspace() {
   const jsonEditorRef = useRef<HTMLTextAreaElement>(null);
 
   const isRunning = status.kind === "running";
-  const elapsedMs = useElapsed(status.kind === "running" ? status.startedAt : null);
 
   // ── Topology-driven config schema + defaults ─────────────────────────────
 
@@ -608,9 +589,7 @@ export function RunWorkspace() {
       </header>
 
       {/* 7. Status banner — sticky at top of content */}
-      {status.kind !== "idle" && (
-        <StatusBanner status={status} elapsedMs={elapsedMs} onCancel={handleCancel} />
-      )}
+      {status.kind !== "idle" && <StatusBanner status={status} onCancel={handleCancel} />}
 
       {/* 2. Quick-start grid / active-preset bar */}
       {gridExpanded ? (
@@ -917,18 +896,17 @@ function PathRow({ label, value, onEdit, editTitle }: PathRowProps) {
 
 interface StatusBannerProps {
   status: RunStatus;
-  elapsedMs: number;
   onCancel: () => void;
 }
 
-function StatusBanner({ status, elapsedMs, onCancel }: StatusBannerProps) {
+function StatusBanner({ status, onCancel }: StatusBannerProps) {
   if (status.kind === "idle") return null;
 
   if (status.kind === "running") {
     return (
       <RunProgressPanel
         stage={status.stage}
-        elapsedMs={elapsedMs}
+        startedAt={status.startedAt}
         cancelRequested={status.cancelRequested}
         onCancel={onCancel}
       />
@@ -982,11 +960,36 @@ function StatusBanner({ status, elapsedMs, onCancel }: StatusBannerProps) {
   );
 }
 
+// ── Elapsed clock ────────────────────────────────────────────────────────────
+
+interface ElapsedClockProps {
+  /** Epoch ms the run started — display-only, never enters any export. */
+  startedAt: number;
+}
+
+/** Live elapsed-time readout for the running banner. Owns its own 200ms
+ * interval so only this leaf re-renders 5x/s while a run is in flight,
+ * not the whole form-heavy workspace tree above it. */
+function ElapsedClock({ startedAt }: ElapsedClockProps) {
+  const [elapsedMs, setElapsedMs] = useState(() => Date.now() - startedAt);
+  useEffect(() => {
+    const tick = () => setElapsedMs(Date.now() - startedAt);
+    tick();
+    const id = setInterval(tick, 200);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return (
+    <span className="ml-auto font-mono text-muted-foreground tabular-nums">
+      {formatElapsed(elapsedMs)}
+    </span>
+  );
+}
+
 // ── Run progress panel ─────────────────────────────────────────────────────────
 
 interface RunProgressPanelProps {
   stage: RunStage | null;
-  elapsedMs: number;
+  startedAt: number;
   cancelRequested: boolean;
   onCancel: () => void;
 }
@@ -996,7 +999,7 @@ interface RunProgressPanelProps {
  * progress channel; cancellation takes effect at the next boundary. */
 function RunProgressPanel({
   stage,
-  elapsedMs,
+  startedAt,
   cancelRequested,
   onCancel,
 }: RunProgressPanelProps) {
@@ -1012,9 +1015,7 @@ function RunProgressPanel({
             <span className="text-foreground">Detection + calibration in progress…</span>
           </>
         )}
-        <span className="ml-auto font-mono text-muted-foreground tabular-nums">
-          {formatElapsed(elapsedMs)}
-        </span>
+        <ElapsedClock startedAt={startedAt} />
         <Button
           size="sm"
           className="!px-2.5 font-medium"

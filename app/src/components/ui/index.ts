@@ -17,4 +17,3 @@ export {
 export { Banner, type BannerProps, type BannerVariant } from "./Banner";
 export { Badge, type BadgeProps, type BadgeVariant } from "./Badge";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
-export { cx, type ClassValue } from "./cx";

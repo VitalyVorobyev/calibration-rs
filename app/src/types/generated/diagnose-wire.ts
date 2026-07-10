@@ -1252,9 +1252,9 @@ export interface RigLaserlineDeviceExport {
 }
 /**
  * A progress message streamed to the Run workspace over a
- * [`tauri::ipc::Channel`]. One is sent as each [`RunStage`] begins;
+ * [`tauri::ipc::Channel`]. One is sent as each `RunStage` begins;
  * terminal outcomes (success / failure / cancellation) are carried by
- * the command's [`RunResponse`] return value, not the channel.
+ * the command's `RunResponse` return value, not the channel.
  */
 export interface RunProgress {
   /**
