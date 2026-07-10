@@ -192,10 +192,16 @@ two-view/triangulation.
   repo-root-relative preset paths + a guard test rejecting absolute paths.
   A tiny bundled-dataset Run stays out of CI (private datasets can't ship);
   the mocked Run happy path covers the UI flow.
-- [ ] B-UX1-DESIGN-SYSTEM - Design direction + component system: consolidate
-  the hand-rolled components into a small internal set (button, panel, form
-  field, table, toast), typography/spacing scale, dark-mode audit. No new
-  features. Design note in `app/README.md`.
+- [x] B-UX1-DESIGN-SYSTEM - **Done 2026-07-10.** `app/src/components/ui/`
+  set (Button with ARIA-pressed toggles, Panel, SectionHeader, Select,
+  Table, Banner, Badge, EmptyState + shared ZoomControls); all five
+  workspaces, AppShell, and configForm migrated (+347/−593). The audit
+  found three real bugs, not just drift: raw `var(--brand)` (an H S% L%
+  triplet) used as a CSS color — the Run button fill was silently invalid;
+  the never-declared `bg-bg` class left every schema-form field
+  transparent; light-mode `--brand` failed WCAG AA (fixed 55%→34% L).
+  `--success`/`--warning` tokens added for both themes; design note +
+  "use ui/, don't hand-roll" rule in `app/README.md`.
 - [ ] B-UX2-ELEVATION - Workspace-by-workspace elevation: empty states, error
   surfaces (ADR 0019 fail-fast shown well), progress for long calibrations,
   manifest-sniff UX polish. Absorbs **B-LASER** (laser-pixel overlay in
