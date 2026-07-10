@@ -8,6 +8,10 @@ repository = "https://github.com/VitalyVorobyev/calibration-rs"
 edition = "2024"
 rust-version = "1.93"
 publish = false
+# Disambiguates the app binary from the secondary `emit_schemas` bin
+# target (B-QUAL2) for tools that pick "the" binary without honoring
+# `required-features` — see `tauri.conf.json`'s `mainBinaryName`.
+default-run = "calibration-diagnose"
 
 # This crate is intentionally NOT a member of the root Cargo workspace
 # (`/Cargo.toml`) — Tauri's tauri-build pulls in a substantial build-time
@@ -19,14 +23,17 @@ publish = false
 name = "calibration_diagnose_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
-# JSON Schema emitter (B-QUAL2). Behind `required-features` so `tauri dev`
-# and the default clippy/test build never pull in schemars; only
-# `bun run generate:types` / the CI drift check build it with
-# `--features schema-export`.
+# JSON Schema emitter (B-QUAL2). No `required-features` gate — Tauri's
+# release bundler copies every declared `[[bin]]` target unconditionally and
+# errors if one is missing, so this must always produce *a* binary. The gate
+# lives inside `emit_schemas.rs` instead: without `--features schema-export`
+# `main()` is a two-line stub, so `tauri dev`/the default clippy/test build
+# still never pull in the optional `schemars` dependency. The real emitter
+# only runs via `bun run generate:types` / the CI drift check, both of which
+# pass `--features schema-export`.
 [[bin]]
 name = "emit_schemas"
 path = "src/bin/emit_schemas.rs"
-required-features = ["schema-export"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

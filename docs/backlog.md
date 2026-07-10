@@ -223,8 +223,39 @@ two-view/triangulation.
     open under B-UX2: **B-EXPLORE** (pre-calibration image grid,
     detection-cache overlay, coverage map), empty-state / error-surface
     polish, manifest-sniff UX polish.
-- [ ] B-DIST-INSTALLERS - (last) Tauri bundling + signing (macOS first),
-  update-channel decision, versioned app releases wired to D4.
+- [x] B-DIST-INSTALLERS - **Done 2026-07-10** (scoped to unsigned bundles +
+  CI artifacts only, per standing decision — no code-signing certs
+  available). `bun run tauri build` now produces a launchable macOS
+  `.app`/`.dmg` under `app/src-tauri/target/release/bundle/`: fixed
+  `tauri.conf.json` (`bundle.active: true`, `mainBinaryName`, standard
+  `icon` array) and generated the missing `.icns`/`.ico`/PNG icon set via
+  `bunx tauri icon` (desktop targets only — iOS/Android/Windows-Store
+  variants discarded, no mobile target configured). Fixed a real conflict
+  between two `[[bin]]` targets: Tauri's bundler copies every declared
+  `[[bin]]` target unconditionally regardless of `required-features`, so
+  the schema-export gate on `emit_schemas` (B-QUAL2) made every release
+  build fail with "does not exist". Fix: `default-run` in `Cargo.toml`
+  disambiguates the *main* binary for tools that don't honor
+  `required-features`, and `emit_schemas.rs` itself now always compiles
+  (`required-features` dropped from its `[[bin]]`) but is a two-line stub
+  without `--features schema-export` — the `schemars` dependency stays
+  feature-gated, so `tauri dev`/default `clippy`/`test` are unaffected.
+  New `.github/workflows/app-bundle.yml` (`workflow_dispatch` + `v*` tag
+  trigger, not in `ci.yml`'s per-PR path): macOS (`.app`/`.dmg`) and Linux
+  (`.AppImage`/`.deb`, reusing `ci.yml`'s webkit2gtk/appindicator/rsvg/
+  patchelf deps) jobs, `actions/upload-artifact@v4`. Deferred, with
+  prerequisites: macOS signing needs an Apple Developer ID Application
+  certificate + notarization (`xcrun notarytool`, Apple Developer Program
+  membership); Windows signing needs an EV/OV code-signing certificate
+  from a CA. Updater/update-channel also deferred (needs a signed
+  manifest + key pair on top of the above). Local DMG creation could not
+  be end-to-end verified in the sandboxed dev shell — `create-dmg`'s
+  Finder-styling AppleScript step hit "AppleEvent timed out" (no
+  interactive Aqua session available there); the `.app` itself built,
+  launched, and quit cleanly. `macos-latest` GitHub-hosted runners have a
+  full desktop session and are the standard environment for this exact
+  Tauri flow, so CI is expected to succeed — flagged as a known risk
+  category in the workflow's comments regardless.
 
 ## V — rtv3d validation
 
