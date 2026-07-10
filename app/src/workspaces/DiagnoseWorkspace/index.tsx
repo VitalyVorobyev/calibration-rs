@@ -11,6 +11,8 @@ import { PoseCameraStepper } from "../../components/PoseCameraStepper";
 import { getPixelLum, rectHistogram, useImageData } from "../../hooks/useImageData";
 import { useKeyboardNav } from "../../hooks/useKeyboardNav";
 import { useStore } from "../../store";
+import { CameraResidualMatrix } from "./CameraResidualMatrix";
+import { PoseStatsTable } from "./PoseStatsTable";
 import type {
   CursorReadout,
   FeatureResidualHistogram,
@@ -49,6 +51,8 @@ export function DiagnoseWorkspace() {
   // frame for the active (pose, camera). Mutually exclusive with
   // compare mode — both repurpose the single canvas area.
   const [laserView, setLaserView] = useState<boolean>(false);
+  // Residual stats side panel: per-pose table + cross-camera matrix.
+  const [showStats, setShowStats] = useState<boolean>(false);
   const [activePane, setActivePane] = useState<"left" | "right">("left");
   const [cursor, setCursor] = useState<CursorReadout | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +74,18 @@ export function DiagnoseWorkspace() {
     [data],
   );
   const hasLaser = laserFrames.length > 0 || laserResiduals.length > 0;
+
+  const targetResiduals = useMemo<TargetFeatureResidual[]>(
+    () => data?.per_feature_residuals.target ?? NO_TARGET_RESIDUALS,
+    [data],
+  );
+  const hasStats = targetResiduals.length > 0;
+
+  // A non-target export (or one loaded while stats are open) must not
+  // strand the workspace on an empty panel.
+  useEffect(() => {
+    if (!hasStats) setShowStats(false);
+  }, [hasStats]);
 
   // Loading a non-laser export while laser view is active would strand
   // the workspace on a mode with no data — drop back to target view.
@@ -291,6 +307,18 @@ export function DiagnoseWorkspace() {
             {linked ? "Linked" : "Unlinked"}
           </button>
         )}
+        {data && hasStats && (
+          <button
+            type="button"
+            onClick={() => setShowStats((v) => !v)}
+            className={`h-7 px-2 font-mono text-[11px] ${
+              showStats ? "border-brand text-brand" : ""
+            }`}
+            title="Per-pose residual stats + cross-camera matrix"
+          >
+            {showStats ? "Stats ✓" : "Stats"}
+          </button>
+        )}
         {data && typeof data.mean_reproj_error === "number" && (
           <span className="ml-auto font-mono text-xs text-muted-foreground">
             mean reproj: {data.mean_reproj_error.toFixed(3)} px
@@ -304,41 +332,68 @@ export function DiagnoseWorkspace() {
         </div>
       )}
 
-      <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft p-2">
-        {data && frame && compare && rightFrame ? (
-          <CompareViewer
-            leftFrame={frame}
-            rightFrame={rightFrame}
-            residuals={data.per_feature_residuals.target}
-            activePane={activePane}
-            onActivePane={setActivePane}
-            linked={linked}
-            onCursorChange={setCursor}
-            onError={setError}
-            innerRef={compareHandleRef}
-          />
-        ) : data && activeFrame ? (
-          <FrameCanvas
-            ref={canvasHandleRef}
-            frame={activeFrame}
-            residuals={
-              showLaser ? NO_TARGET_RESIDUALS : data.per_feature_residuals.target
-            }
-            laserResiduals={showLaser ? laserResiduals : undefined}
-            image={imageData?.image ?? null}
-            onCursor={handleCursor}
-            onError={setError}
-          />
-        ) : data && showLaser ? (
-          <div className="m-auto text-[13px] text-muted-foreground">
-            No laser frame in the manifest for pose {selectedPose} · cam {cameraA}.
-          </div>
-        ) : (
-          <div className="m-auto text-[13px] text-muted-foreground">
-            Open an <code>export.json</code> from a calibration run with an
-            <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for camera; toggle
-            Compare to view two frames side by side.
-          </div>
+      <div className="flex min-h-0 flex-1 gap-2.5 overflow-hidden">
+        <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft p-2">
+          {data && frame && compare && rightFrame ? (
+            <CompareViewer
+              leftFrame={frame}
+              rightFrame={rightFrame}
+              residuals={data.per_feature_residuals.target}
+              activePane={activePane}
+              onActivePane={setActivePane}
+              linked={linked}
+              onCursorChange={setCursor}
+              onError={setError}
+              innerRef={compareHandleRef}
+            />
+          ) : data && activeFrame ? (
+            <FrameCanvas
+              ref={canvasHandleRef}
+              frame={activeFrame}
+              residuals={
+                showLaser ? NO_TARGET_RESIDUALS : data.per_feature_residuals.target
+              }
+              laserResiduals={showLaser ? laserResiduals : undefined}
+              image={imageData?.image ?? null}
+              onCursor={handleCursor}
+              onError={setError}
+            />
+          ) : data && showLaser ? (
+            <div className="m-auto text-[13px] text-muted-foreground">
+              No laser frame in the manifest for pose {selectedPose} · cam {cameraA}.
+            </div>
+          ) : (
+            <div className="m-auto text-[13px] text-muted-foreground">
+              Open an <code>export.json</code> from a calibration run with an
+              <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for camera; toggle
+              Compare to view two frames side by side.
+            </div>
+          )}
+        </div>
+
+        {data && showStats && hasStats && (
+          <aside className="flex min-h-0 w-[19rem] shrink-0 flex-col gap-4 overflow-y-auto rounded-md border border-border bg-surface p-3">
+            <div className="flex flex-col gap-2">
+              <PanelHeading title="Per-pose residuals" subtitle="click a row to jump" />
+              <PoseStatsTable
+                residuals={targetResiduals}
+                selectedPose={selectedPose}
+                onSelectPose={(pose) => setSelectedPose(pose, "A")}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <PanelHeading title="Cross-camera matrix" subtitle="mean px per cell" />
+              <CameraResidualMatrix
+                residuals={targetResiduals}
+                selectedPose={selectedPose}
+                selectedCamera={cameraA}
+                onSelect={(pose, camera) => {
+                  setSelectedPose(pose, "A");
+                  setCamera(camera, "A");
+                }}
+              />
+            </div>
+          </aside>
         )}
       </div>
 
@@ -373,6 +428,17 @@ export function DiagnoseWorkspace() {
         </div>
       )}
     </section>
+  );
+}
+
+function PanelHeading({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <header className="flex items-baseline justify-between border-b border-border pb-1">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+        {title}
+      </h3>
+      <span className="font-mono text-[10px] text-muted-foreground">{subtitle}</span>
+    </header>
   );
 }
 

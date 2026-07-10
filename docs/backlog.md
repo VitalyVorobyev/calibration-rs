@@ -203,6 +203,26 @@ two-view/triangulation.
   3D) and **B-EXPLORE** (pre-calibration image grid, detection-cache overlay,
   coverage map) as scoped sub-items. Gate: frontend-review pass with no
   high-severity findings.
+  - **Progress 2026-07-10 (core features).** Shipped: (1) **stage-progress
+    streaming** for long solves via a request-scoped
+    `tauri::ipc::Channel<RunProgress>` — the runner announces `detect →
+    solve → export` (the only boundaries it honestly owns; per-camera /
+    per-LM granularity has no pipeline hook, deliberately not faked); Run
+    workspace shows a stage checklist + live elapsed clock. (2)
+    **Cancellation** — `AtomicBool` per `runId` in a managed `RunRegistry`,
+    `cancel_run_cmd` flips it, runner stops at the next stage boundary and
+    returns `RunResponse::Cancelled` (distinct "Run cancelled" UI, not an
+    error). (3) **Multi-pose residual stats** panel in Diagnose (sortable
+    per-pose mean/median/max px table, click-to-jump). (4) **Cross-camera
+    residual matrix** for multi-camera exports (cameras × poses grid on the
+    FrameCanvas severity scale, click-to-jump). (5) **Single-cam laser plane
+    in 3D** (B-LASER close-out) — `laserline_device` exports are lifted into
+    a one-camera rig at the origin so the camera-frame plane + poses render.
+    New pure/tested modules: `runStages.ts`, `lib/residualStats.ts`,
+    `lib/sceneExport.ts`. `RunProgress`/`RunStage` schema-generated. Still
+    open under B-UX2: **B-EXPLORE** (pre-calibration image grid,
+    detection-cache overlay, coverage map), empty-state / error-surface
+    polish, manifest-sniff UX polish.
 - [ ] B-DIST-INSTALLERS - (last) Tauri bundling + signing (macOS first),
   update-channel decision, versioned app releases wired to D4.
 

@@ -27,7 +27,12 @@ import { useNavigate } from "react-router-dom";
 import * as TOML from "toml";
 
 import { ConfigForm, type JsonSchema } from "../../lib/configForm";
-import { runCalibration, type RunResponse } from "../../lib/runCalibration";
+import {
+  cancelRun,
+  runCalibration,
+  type RunResponse,
+  type RunStage,
+} from "../../lib/runCalibration";
 import { dirnamePath, isTauriContext, joinPath, repoRoot } from "../../lib/tauri";
 import datasetSchemaJson from "../../schemas/dataset_spec.json";
 import { useStore } from "../../store";
@@ -41,6 +46,7 @@ import {
 } from "./manifestFields";
 import { PresetCard } from "./PresetCard";
 import { BUILTIN_PRESETS, mergeConfig, type EnabledPreset } from "./presets";
+import { computeStageRows, formatElapsed, type StageRow } from "./runStages";
 import { topologyInfo } from "./topologies";
 
 // schemars-emitted JSON Schema; cast through unknown since both shapes
@@ -95,6 +101,16 @@ function topologyOf(manifest: unknown): string {
   return typeof m?.topology === "string" ? m.topology : "planar_intrinsics";
 }
 
+/** Fresh correlation id for one run — used to route the progress channel
+ * and cancellation. `crypto.randomUUID` is available in every Tauri
+ * webview and modern browser; fall back to a timestamp+random string in
+ * the rare environment that lacks it (older jsdom). */
+function newRunId(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  return `run-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 /** Default config for a topology: Rust-side defaults inside Tauri,
  * a static fallback in plain-browser dev. */
 async function fetchDefaultConfig(topology: string, inTauri: boolean): Promise<unknown> {
@@ -112,11 +128,40 @@ async function fetchDefaultConfig(topology: string, inTauri: boolean): Promise<u
 
 type RunStatus =
   | { kind: "idle" }
-  | { kind: "running" }
+  | {
+      kind: "running";
+      /** Correlation id for `cancelRun`. */
+      runId: string;
+      /** Last stage the runner announced; `null` until the first message. */
+      stage: RunStage | null;
+      /** Epoch ms the run started — UI elapsed clock only, never exported. */
+      startedAt: number;
+      /** True once the user clicked Cancel (awaiting the boundary stop). */
+      cancelRequested: boolean;
+    }
+  | { kind: "cancelled" }
   | { kind: "ok"; durationMs: number; usable: number; total: number; cacheUsed: boolean }
   | { kind: "error"; category: string; message: string }
   | { kind: "validation"; message: string }
   | { kind: "ask_user"; field: string; prompt: string; suggestions: string[] };
+
+/** Live elapsed-ms clock for the running banner. Returns 0 when
+ * `startedAt` is null (not running). Ticks a few times a second while
+ * active; the value is display-only and never enters any export. */
+function useElapsed(startedAt: number | null): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (startedAt == null) {
+      setElapsed(0);
+      return;
+    }
+    const tick = () => setElapsed(Date.now() - startedAt);
+    tick();
+    const id = setInterval(tick, 200);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return elapsed;
+}
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -146,6 +191,7 @@ export function RunWorkspace() {
   const jsonEditorRef = useRef<HTMLTextAreaElement>(null);
 
   const isRunning = status.kind === "running";
+  const elapsedMs = useElapsed(status.kind === "running" ? status.startedAt : null);
 
   // ── Topology-driven config schema + defaults ─────────────────────────────
 
@@ -431,13 +477,42 @@ export function RunWorkspace() {
       });
       return;
     }
-    setStatus({ kind: "running" });
+    const runId = newRunId();
+    setStatus({
+      kind: "running",
+      runId,
+      stage: null,
+      startedAt: Date.now(),
+      cancelRequested: false,
+    });
     try {
-      const response = await runCalibration({ manifest, config, manifestDir });
+      const response = await runCalibration({
+        runId,
+        manifest,
+        config,
+        manifestDir,
+        onProgress: (stage) =>
+          // Only advance the stage if this run is still the active one
+          // (a stale channel message must not resurrect a finished run).
+          setStatus((prev) =>
+            prev.kind === "running" && prev.runId === runId ? { ...prev, stage } : prev,
+          ),
+      });
       handleResponse(response);
     } catch (e) {
       setStatus({ kind: "error", category: "ipc", message: String(e) });
     }
+  };
+
+  const handleCancel = () => {
+    if (status.kind !== "running") return;
+    const runId = status.runId;
+    setStatus({ ...status, cancelRequested: true });
+    // Fire-and-forget: the terminal `cancelled` state arrives via the
+    // run promise resolving to `RunResponse::Cancelled`.
+    void cancelRun(runId).catch(() => {
+      /* benign — the run may have finished between click and IPC */
+    });
   };
 
   const handleResponse = (response: RunResponse) => {
@@ -454,6 +529,8 @@ export function RunWorkspace() {
       });
       // Hand off to /diagnose after a brief success flash.
       setTimeout(() => navigate("/diagnose"), 600);
+    } else if (response.kind === "cancelled") {
+      setStatus({ kind: "cancelled" });
     } else if (response.kind === "ask_user") {
       setStatus({
         kind: "ask_user",
@@ -536,7 +613,9 @@ export function RunWorkspace() {
       </header>
 
       {/* 7. Status banner — sticky at top of content */}
-      {status.kind !== "idle" && <StatusBanner status={status} />}
+      {status.kind !== "idle" && (
+        <StatusBanner status={status} elapsedMs={elapsedMs} onCancel={handleCancel} />
+      )}
 
       {/* 2. Quick-start grid / active-preset bar */}
       {gridExpanded ? (
@@ -848,16 +927,32 @@ function PathRow({ label, value, onEdit, editTitle }: PathRowProps) {
 
 // ── Status banner ─────────────────────────────────────────────────────────────
 
-function StatusBanner({ status }: { status: RunStatus }) {
+interface StatusBannerProps {
+  status: RunStatus;
+  elapsedMs: number;
+  onCancel: () => void;
+}
+
+function StatusBanner({ status, elapsedMs, onCancel }: StatusBannerProps) {
   if (status.kind === "idle") return null;
 
   if (status.kind === "running") {
     return (
+      <RunProgressPanel
+        stage={status.stage}
+        elapsedMs={elapsedMs}
+        cancelRequested={status.cancelRequested}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  if (status.kind === "cancelled") {
+    return (
       <div className="flex items-center gap-2 rounded-md border border-border bg-bg-soft px-3 py-2.5 text-[12px]">
-        <SpinnerIcon />
-        <span className="text-foreground">Detection + calibration in progress…</span>
-        <span className="ml-auto font-mono text-muted-foreground">
-          first run is slowest; second hits the cache
+        <span className="font-medium text-foreground">Run cancelled</span>
+        <span className="font-mono text-muted-foreground">
+          stopped at the stage boundary — no export was produced
         </span>
       </div>
     );
@@ -913,6 +1008,131 @@ function StatusBanner({ status }: { status: RunStatus }) {
       </span>
       <code className="font-mono text-foreground">{status.message}</code>
     </div>
+  );
+}
+
+// ── Run progress panel ─────────────────────────────────────────────────────────
+
+interface RunProgressPanelProps {
+  stage: RunStage | null;
+  elapsedMs: number;
+  cancelRequested: boolean;
+  onCancel: () => void;
+}
+
+/** Stage checklist + live elapsed clock + Cancel button for an in-flight
+ * run. The three stages (detect → solve → export) come from the runner's
+ * progress channel; cancellation takes effect at the next boundary. */
+function RunProgressPanel({
+  stage,
+  elapsedMs,
+  cancelRequested,
+  onCancel,
+}: RunProgressPanelProps) {
+  const rows = computeStageRows(stage, { cancelled: cancelRequested });
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border bg-bg-soft px-3 py-2.5 text-[12px]">
+      <div className="flex items-center gap-2">
+        {cancelRequested ? (
+          <span className="text-foreground">Cancelling…</span>
+        ) : (
+          <>
+            <SpinnerIcon />
+            <span className="text-foreground">Detection + calibration in progress…</span>
+          </>
+        )}
+        <span className="ml-auto font-mono text-muted-foreground tabular-nums">
+          {formatElapsed(elapsedMs)}
+        </span>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={cancelRequested}
+          title="Stop the run at the next stage boundary"
+          className="h-7 rounded-md border border-border bg-bg px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-bg-soft disabled:cursor-not-allowed disabled:text-muted-foreground"
+        >
+          {cancelRequested ? "Cancelling…" : "Cancel"}
+        </button>
+      </div>
+      <ul className="flex flex-col gap-1">
+        {rows.map((row) => (
+          <StageRowItem key={row.id} row={row} />
+        ))}
+      </ul>
+      {!cancelRequested && (
+        <span className="font-mono text-[10px] text-muted-foreground">
+          first run is slowest; second hits the detection cache
+        </span>
+      )}
+    </div>
+  );
+}
+
+function StageRowItem({ row }: { row: StageRow }) {
+  const color =
+    row.state === "done"
+      ? "var(--color-success, #22c55e)"
+      : row.state === "cancelled"
+        ? "var(--color-muted-foreground, #9ca3af)"
+        : undefined;
+  return (
+    <li className="flex items-center gap-2 font-mono text-[11px]">
+      <StageStateIcon state={row.state} />
+      <span
+        className={
+          row.state === "active"
+            ? "text-foreground"
+            : row.state === "cancelled"
+              ? "text-muted-foreground line-through"
+              : "text-muted-foreground"
+        }
+        style={color ? { color } : undefined}
+      >
+        {row.label}
+      </span>
+    </li>
+  );
+}
+
+function StageStateIcon({ state }: { state: StageRow["state"] }) {
+  if (state === "active") return <SpinnerIcon />;
+  if (state === "done") {
+    return (
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-label="done">
+          <path
+            d="M1.5 5L4 7.5L8.5 2.5"
+            stroke="var(--color-success, #22c55e)"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+    );
+  }
+  if (state === "cancelled") {
+    return (
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-muted-foreground">
+        <svg width="9" height="9" viewBox="0 0 9 9" fill="none" aria-label="cancelled">
+          <path
+            d="M1.5 1.5L7.5 7.5M7.5 1.5L1.5 7.5"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          />
+        </svg>
+      </span>
+    );
+  }
+  // pending
+  return (
+    <span
+      className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+      aria-label="pending"
+    >
+      <span className="h-1.5 w-1.5 rounded-full border border-muted-foreground/60" />
+    </span>
   );
 }
 

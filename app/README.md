@@ -24,10 +24,16 @@ rail — see `app/src/workspaces/`:
 - **Diagnose** (`DiagnoseWorkspace`) — the original v0 residual viewer: loads
   a calibration export JSON and overlays the per-image reprojection residual
   vector field (and laser-feature residuals) on the source frame, with
-  pose/camera steppers and error histograms.
+  pose/camera steppers and error histograms. A **Stats** side panel adds a
+  sortable per-pose residual table (mean/median/max px, click-to-jump) and,
+  for multi-camera exports, a cameras × poses residual matrix — both computed
+  by the pure `src/lib/residualStats.ts`.
 - **3D** (`Viewer3DWorkspace`) — a 3D rig scene: camera frustums, target board
   poses, and laser planes for rig/hand-eye/laserline exports, with a side
-  panel breaking down intrinsics and relative camera poses.
+  panel breaking down intrinsics and relative camera poses. A single-camera
+  `laserline_device` export renders too — it is lifted into a one-camera rig
+  at the origin so its camera-frame laser plane + `camera_se3_target` poses
+  show up (`src/lib/sceneExport.ts`).
 - **Epipolar** (`EpipolarWorkspace`) — click-to-sample epipolar geometry
   between two camera views of a rig export (raw and undistorted), for
   sanity-checking extrinsics.
@@ -89,6 +95,35 @@ bun run test:e2e       # Playwright smoke: boots the app, checks it doesn't fall
 - Backend (Tauri) code lives in `app/src-tauri/src/`: `commands.rs` (export
   loading, image loading/undistortion, epipolar overlay), `run.rs`
   (calibration runner + folder sniffing), `disparity.rs` (dense stereo).
+
+### Run progress & cancellation
+
+Long solves stream **stage progress** and are **cancellable at stage
+boundaries** (B-UX2). The wiring, end to end:
+
+- The frontend mints a per-run `runId` (`crypto.randomUUID`) and a
+  `tauri::ipc::Channel<RunProgress>`, and passes both to
+  `run_calibration_cmd` (`src/lib/runCalibration.ts`). A request-scoped
+  `Channel` is the right fit over a global `emit`/`listen` bus: progress is
+  inherently one-per-invocation, so there's no cross-run fan-out to filter
+  and no listener to tear down.
+- `run.rs` announces exactly three coarse stages over the channel —
+  `detect` → `solve` → `export` (`RunStage`). These are the only boundaries
+  the runner honestly owns: `dataset_runner::build_*_input` fuses image
+  decode + feature detection (and loops cameras internally with no
+  callback), and each per-topology `run_calibration` wrapper fuses linear
+  init + bundle adjustment. **Per-camera and per-LM-iteration granularity
+  are deliberately not emitted** — the pipeline API exposes no hook, and
+  faking one would misrepresent progress. `RunProgress` is schema-generated
+  (`emit_schemas` → `src/types/generated/diagnose-wire.ts`).
+- Cancellation is a cooperative `AtomicBool` per `runId`, held in a
+  Tauri-managed `RunRegistry` (`run.rs`). `cancel_run_cmd(runId)` flips the
+  flag; the runner checks it at each stage boundary and returns
+  `RunResponse::Cancelled`. The **currently executing stage runs to
+  completion** — there is no solver/detector interrupt — so cancel takes
+  effect at the next boundary. The Run workspace surfaces this as a distinct
+  "Run cancelled" state, never an error banner. The stage-checklist logic
+  lives in the pure, tested `src/workspaces/RunWorkspace/runStages.ts`.
 
 ### Repo-root resolution for built-in presets
 

@@ -7,6 +7,7 @@ import {
   relativeCameraPose,
   targetInCameraPose,
 } from "../../lib/se3";
+import { adaptSceneExport } from "../../lib/sceneExport";
 import { useStore } from "../../store";
 import { exportKindLabel } from "../../store/exportKind";
 import type { Iso3Wire, PinholeCameraWire } from "../../store/types";
@@ -31,13 +32,18 @@ export function Viewer3DWorkspace() {
 
   const cameraDimensions = useMemo(() => cameraDimensionsFromFrames(frames), [frames]);
 
-  if (!data || !kind) {
+  // Rig exports render directly; a single-camera laserline export is
+  // lifted into a one-camera rig at the origin so its laser plane + poses
+  // show up too (B-LASER follow-up).
+  const sceneData = useMemo(() => (data ? adaptSceneExport(data) : null), [data]);
+
+  if (!data || !kind || !sceneData) {
     return <Empty body="Load a rig export to see cameras and target poses in 3D." />;
   }
 
-  const camerasArr = data.cameras;
-  const camSe3Rig = data.cam_se3_rig;
-  const rigSe3Target = data.rig_se3_target;
+  const camerasArr = sceneData.cameras;
+  const camSe3Rig = sceneData.cam_se3_rig;
+  const rigSe3Target = sceneData.rig_se3_target;
   const isRig =
     Array.isArray(camerasArr) &&
     Array.isArray(camSe3Rig) &&
@@ -47,16 +53,16 @@ export function Viewer3DWorkspace() {
   if (!isRig) {
     return (
       <Empty
-        body={`The 3D viewer needs a rig export (cameras + cam_se3_rig + rig_se3_target). The current export is ${exportKindLabel(
+        body={`The 3D viewer needs a rig export (cameras + cam_se3_rig + rig_se3_target) or a single-camera laserline device. The current export is ${exportKindLabel(
           kind,
-        )} — single-camera shapes will land in a follow-up.`}
+        )} — its remaining single-camera shapes will land in a follow-up.`}
       />
     );
   }
 
   const numCameras = camerasArr.length;
   const numPoses = rigSe3Target.length;
-  const hasLaserPlanes = (data.laser_planes_rig?.length ?? 0) > 0;
+  const hasLaserPlanes = (sceneData.laser_planes_rig?.length ?? 0) > 0;
   const cameraIndices = Array.from({ length: numCameras }, (_, i) => i);
   const poseIndices = Array.from({ length: numPoses }, (_, i) => i);
 
@@ -120,7 +126,7 @@ export function Viewer3DWorkspace() {
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_18rem] gap-3 overflow-hidden">
         <div className="relative overflow-hidden rounded-md border border-border">
           <Scene
-            data={data}
+            data={sceneData}
             showAllPoses={showAllPoses}
             showLaserPlanes={hasLaserPlanes && showLaserPlanes}
             cameraDimensions={cameraDimensions}

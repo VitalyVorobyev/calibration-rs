@@ -22,6 +22,7 @@ mod laser;
 mod run;
 
 use export_cache::ExportCache;
+use run::RunRegistry;
 
 /// Tauri command payload/response types re-exported for the `emit_schemas`
 /// binary (B-QUAL2). Public only under `schema-export` so it never widens
@@ -34,6 +35,7 @@ use export_cache::ExportCache;
 pub mod schema_types {
     pub use crate::disparity::DisparityResult;
     pub use crate::epipolar::EpipolarOverlay;
+    pub use crate::run::RunProgress;
 }
 
 /// Entry point invoked from `main.rs`. Wires up the dialog plugin, the
@@ -42,6 +44,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(ExportCache::new())
+        .manage(RunRegistry::new())
         .invoke_handler(tauri::generate_handler![
             commands::load_export,
             commands::set_active_export,
@@ -55,6 +58,7 @@ pub fn run() {
             commands::undistort_points,
             disparity::compute_disparity,
             run::run_calibration_cmd,
+            run::cancel_run_cmd,
             run::default_config_cmd,
         ])
         .run(tauri::generate_context!())

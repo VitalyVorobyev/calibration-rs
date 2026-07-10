@@ -24,7 +24,7 @@ use std::process::ExitCode;
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
-use calibration_diagnose_lib::schema_types::{DisparityResult, EpipolarOverlay};
+use calibration_diagnose_lib::schema_types::{DisparityResult, EpipolarOverlay, RunProgress};
 
 use vision_calibration::laserline_device::LaserlineDeviceExport;
 use vision_calibration::planar_intrinsics::PlanarIntrinsicsExport;
@@ -136,6 +136,10 @@ fn build_schema() -> Value {
     props.insert(
         "disparity_result".into(),
         generator.subschema_for::<DisparityResult>().to_value(),
+    );
+    props.insert(
+        "run_progress".into(),
+        generator.subschema_for::<RunProgress>().to_value(),
     );
 
     let defs = generator.take_definitions(true);

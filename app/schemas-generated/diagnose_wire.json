@@ -1928,6 +1928,43 @@
       ],
       "type": "object"
     },
+    "RunProgress": {
+      "description": "A progress message streamed to the Run workspace over a\n[`tauri::ipc::Channel`]. One is sent as each [`RunStage`] begins;\nterminal outcomes (success / failure / cancellation) are carried by\nthe command's [`RunResponse`] return value, not the channel.",
+      "properties": {
+        "stage": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RunStage"
+            }
+          ],
+          "description": "The stage that just started."
+        }
+      },
+      "required": [
+        "stage"
+      ],
+      "type": "object"
+    },
+    "RunStage": {
+      "description": "Coarse pipeline stage a run is currently executing. The runner\nexposes exactly these three boundaries without reaching into the\nper-topology `run_calibration` wrappers (each of which fuses\ninit + optimize) or the `dataset_runner` build functions (which fuse\nimage decode + feature detection and loop cameras internally with no\ncallback). Finer granularity — per-camera detection, per-LM-iteration\n— would require a progress hook threaded through the core crates; the\npipeline API has none today (see the module docs / B-UX2 report).",
+      "oneOf": [
+        {
+          "const": "detect",
+          "description": "Decoding images + detecting target/laser features (`build_*_input`).",
+          "type": "string"
+        },
+        {
+          "const": "solve",
+          "description": "Linear init + non-linear bundle adjustment (`run_calibration`).",
+          "type": "string"
+        },
+        {
+          "const": "export",
+          "description": "Serializing the export + splicing the image manifest.",
+          "type": "string"
+        }
+      ]
+    },
     "ScheimpflugIntrinsicsExport": {
       "description": "Export format for Scheimpflug intrinsics calibration.",
       "properties": {
@@ -2364,6 +2401,9 @@
     },
     "rig_laserline_device_export": {
       "$ref": "#/definitions/RigLaserlineDeviceExport"
+    },
+    "run_progress": {
+      "$ref": "#/definitions/RunProgress"
     },
     "scheimpflug_intrinsics_export": {
       "$ref": "#/definitions/ScheimpflugIntrinsicsExport"
