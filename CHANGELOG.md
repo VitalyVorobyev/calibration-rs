@@ -5,7 +5,177 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-07-10
+
+`0.7.0` closes the production-grade program's Q (soundness close-out) and
+R (API/config revision) tracks, plus the C-track MVG surface (bundle
+adjustment, Scheimpflug-aware rectification, dense stereo matching), the
+S-track device-spec seeding layer, and the D1 typed-error ratchet across
+the remaining crates. It is the largest batch of pre-1.0 breaking changes
+since `0.5.0`, collected here rather than dribbled across patch releases.
+
+### Changed (breaking, pre-1.0)
+
+- **ADR 0024 config vocabulary (R2–R4).** All eight problem configs move
+  onto shared grouped structs — `IntrinsicsInitConfig` / `SolverConfig` /
+  `RobotPoseConfig` / `HandeyeInitConfig`
+  (`vision_calibration_pipeline::common::config`, facade re-exported) —
+  and one fix-mask idiom (`CameraFixMask` / `ScheimpflugFixMask`) instead
+  of boolean trios. `fix_intrinsics` + `fix_distortion` collapse into
+  `CameraFixMask`; `fix_first_pose` becomes `fix_poses = [0]`.
+  `fix_first_rig_pose` and `fix_first_camera_extrinsic` are **deleted** —
+  `reference_camera_idx` is now the sole gauge choice (this also fixed an
+  index-0 hard-coding bug; several committed baselines improved measurably,
+  e.g. `stereo_charuco` 0.5509 → 0.5359 px mean reprojection).
+  `RigExtrinsicsConfig`, `RigHandeyeConfig`, `LaserlineDeviceConfig`, and
+  `RigLaserlineDeviceConfig` all reshape to the grouped form; five old
+  `RigHandeye*` sub-structs are gone. `SensorMode::Scheimpflug`'s
+  `fix_scheimpflug_in_intrinsics` field is renamed `fix_scheimpflug`. See
+  [ADR 0024](docs/adrs/0024-config-vocabulary.md).
+- **R1 API-surface cleanup.** Deleted the deprecated
+  `pixel_to_gripper_point` shim and `LaserlinePlaneSolver::from_view`;
+  merged the duplicate `ScheimpflugFixMask` definitions into the one optim
+  type (pipeline re-exports it); consolidated residual/histogram
+  diagnostics under `vision_calibration::analysis`. New facade modules
+  (`dataset` / `dataset_runner` / `detect`) plus core `Mat3`,
+  `distort_to_pixel`, `pixel_to_normalized`, `CameraModel` let consumers go
+  facade-only.
+- **Export `kind` discriminator is now required (R7).** All eight
+  `*Export` types gain a shared `ExportKind` tag (snake_case serde +
+  JsonSchema) set at every construction site; deserialization is strict —
+  an export JSON without `kind` is now a hard error instead of a
+  best-effort field-shape guess. **Pre-0.7.0 export JSON must be
+  regenerated** before the app or a saved fixture can load it again.
+- **Two-view geometry solvers relocated (C1-FOLLOWUP).**
+  `homography` / `epipolar` / `triangulation` / `camera_matrix` move from
+  `vision_calibration::linear` to a new `vision_calibration::geometry`
+  module backed by the `vision-geometry` crate;
+  `vision-calibration-linear` now depends on `vision-geometry` and drops
+  ~1,800 LoC of duplicated solvers. `vision-geometry` / `vision-mvg` gain
+  typed `GeometryError` / `MvgError` (`thiserror`, `#[non_exhaustive]`),
+  replacing `anyhow` on their public surface.
+- **`vision-calibration-optim` / `-detect` / `-pipeline` / `-linear` are
+  fully typed-error, `anyhow`-free on their library surfaces (D1).**
+  New/changed error variants across all four crates (e.g. optim gains
+  `Error::numerical`, linear gains `NoValidMotionPairs`); no
+  `vision-calibration*` library crate carries `anyhow` in
+  `[dependencies]` any more (dev-only, for doctests).
+- **`PlanarIntrinsicsParams.camera` generalized to the model-agnostic
+  `CameraParams` enum (M-WIRE).** Was the concrete Brown-Conrady
+  `PinholeCamera`; `pinhole_camera()` now returns `Result` (errors for
+  extended models). `PlanarIntrinsicsConfig`, `ScheimpflugIntrinsicsConfig`,
+  and rig `SensorMode::Scheimpflug` gain `distortion_model: DistortionKind`
+  (`#[serde(default)]` → Brown-Conrady5, so existing configs keep working)
+  selecting between Brown-Conrady5, Rational8, ThinPrism9, and Division1.
+- **Python bindings (R5).** Result cameras are now polymorphic
+  (`PinholeCamera` / `PinholeScheimpflugCamera` with a `Distortion` union)
+  instead of one fixed dataclass shape; **`PinholeBrownConradyScheimpflugCamera`
+  is renamed `PinholeScheimpflugCamera`.** `distortion_model` and
+  `SensorMode` (`Pinhole` / `Scheimpflug`) are now mirrored on the
+  relevant config dataclasses.
+
+### Added
+
+- **`vision-mvg::bundle_adjust` (C3).** Frozen-intrinsics bundle
+  adjustment refining camera poses + 3D structure by reprojection error,
+  behind the `refine` feature; gauge fix via `fix_first_camera` (anchors
+  the lowest-index *observed* camera).
+- **`vision-mvg::rectification::rectify_stereo_pair` (C4).**
+  Scheimpflug-aware stereo rectification — sensor tilt collapses to a
+  homography on the normalized plane (`H_tilt⁻¹`), so a tilted-sensor pair
+  rectifies through standard Fusiello/Bouguet rectification and reduces
+  exactly to pinhole rectification at zero tilt. Validated against the
+  real Scheimpflug oracle dataset at 3.4e-13 px worst-case row
+  disagreement.
+- **`vision-mvg::dense` (C5).** Pure-Rust dense stereo matcher: ZNCC block
+  matching over summed-area tables with parabolic sub-pixel refinement and
+  three invalidation filters (min-correlation, uniqueness, left-right
+  consistency), plus opt-in Hirschmüller semi-global (SGM) cost
+  aggregation. ADR 0015 amended: the matcher ships pure-Rust in
+  `vision-mvg`; an OpenCV SGBM baseline is confined to the unpublished,
+  benchmark-only `vision-calibration-bench` crate.
+- **Facade `vision_calibration::mvg` (C-FACADE-MVG).** The MVG surface
+  (`pose_recovery`, `robust`, `cheirality`, `degeneracy`, `triangulation`,
+  `homography`, `rectification`, `residuals`, `dense`, `types`, `error`) is
+  now reachable from the facade, mirroring the `geometry` module; `refine`
+  gates `bundle_adjust`.
+- **`vision_calibration_dataset::device_spec` +
+  `vision_calibration_pipeline::device_seed`
+  ([ADR 0023](docs/adrs/0023-device-spec-seed-derivation.md), S1–S4).**
+  A `DeviceSpec` sidecar schema (datasheet-natural units: focal length,
+  pixel pitch, resolution, Scheimpflug mount angles, rig mechanical
+  layout) that derives ADR 0011 manual-init seeds — intrinsics, rig
+  layout, hand-eye mounts — instead of hand-coded per-example constants.
+  Facade re-export `vision_calibration::device_seed`; spec-seeded init is
+  now the **official calibration route**.
+- **`calib-bench accept` / `calib-bench basin` (S4, Q2, Q6).** One-command
+  acceptance harness iterating every registered dataset through the seeded
+  official route with a hard per-entry gate, committed Fit-record
+  baselines and drift gates (`--regression-tol`, `--freeze-baselines`),
+  and a convergence-basin study subcommand sweeping focal / tilt /
+  principal-point perturbations around the ADR 0023 seed.
+- **Proof-pack standard (Q1, Q8).** `docs/notes/README.md` documents the
+  Track Q math-note + synthetic-GT matrix test + property test + committed
+  Fit record pattern; math notes and matrix tests landed for planar
+  intrinsics, Scheimpflug intrinsics, hand-eye, rig extrinsics, laserline
+  bundle, and two-view/triangulation.
+- **App: Depth workspace (C-UI).** Dense stereo matching (block/SGM
+  toggle) through the C4 rectifier, plus depth-from-disparity reprojection
+  and an interactive 3D point cloud view (React-Three-Fiber, code-split).
+- **App: schema-driven TypeScript wire types (B-QUAL2).** `JsonSchema`
+  derives on all eight pipeline `Export` types generate
+  `app/src/types/generated/` via a `schema-export`-gated `emit_schemas`
+  binary; hand-written shape-sniffing (`exportShape.ts`) is deleted in
+  favor of the generated, `kind`-grounded `detectExportKind` (R7).
+- **App: run progress, cancel, and diagnostics (B-UX2 core).** Streamed
+  per-stage run progress with a working cancel button; sortable per-pose
+  residual stats table; cross-camera residual matrix; single-camera
+  laserline plane rendering in the 3D viewer.
+- **App: internal design system (B-UX1).** Shared `components/ui` set
+  (`Button`, `Panel`, `SectionHeader`, `Select`, `Table`, `Banner`, `Badge`,
+  `EmptyState`) adopted across all five workspaces; dark-mode contrast
+  fixes (light-mode `--brand` was failing WCAG AA).
+- **App: unsigned desktop bundles (B-DIST, `app-bundle.yml`).** macOS
+  (`.app` / `.dmg`) and Linux (AppImage / `.deb`) bundles built on
+  `workflow_dispatch` and `v*` tag pushes, uploaded as workflow-run
+  artifacts. Explicitly unsigned/unnotarized — see the workflow for
+  documented signing prerequisites.
+- **App CI (B-QUAL1, B-QUAL3, B-QUAL4).** ESLint 9 + Prettier + typecheck
+  jobs; 35 Vitest component tests; 7 Playwright smoke tests; repo-root
+  resolution no longer hard-codes an absolute path.
+- **Python: `run_rig_handeye_laserline` binding + `check_binding_parity.py`
+  guard (R5).** Closes the eighth problem-type binding gap found by the D3
+  parity audit; the parity script now runs in CI.
+- New tutorials: multiple-view geometry (C-MVG-TUTORIAL), distortion-model
+  selection, single-camera hand-eye, and an app walkthrough (R6).
+- ADR 0023 (DeviceSpec schema) and ADR 0024 (config vocabulary).
+
+### Fixed
+
+- **Exact 180° rotation mis-convergence (V8).** nalgebra's iterative
+  `Rotation3::from_matrix` silently mis-converges on exact 180° rotations
+  (wrong axis); the row-major pose loader and `base_se3_gripper` now use
+  an SVD polar-decomposition `nearest_rotation` instead. Robot poses at
+  exactly 180° (common on the rtv3d rigs) previously diverged hand-eye
+  calibration to ~1700 px reprojection error.
+- `bundle_adjust`'s gauge anchor now falls back to the lowest-index
+  *observed* camera instead of always fixing camera 0 (which left the
+  gauge free when camera 0 had no observations).
+- NaN-rejection regressions reintroduced by the D1 typed-error migration
+  (`ensure!(x > 0.0)` → `if x <= 0.0` is not NaN-equivalent) across 10
+  validation sites (robust-loss scales, robot-pose sigmas, bound checks).
+- Device-spec seed translations now convert the spec's millimetre drawing
+  units to the pipeline's metre world unit (caught before any consumer
+  shipped).
+- The synthetic dense-stereo fixture encoded the wrong disparity-sign
+  convention, silently failing any matcher that followed the documented
+  `d = x_left - x_right` convention.
+
+## [0.6.0] - 2026-06-17
+
+`0.6.0` promotes `vision-geometry` and `vision-mvg` to the crates.io
+publish set (nine publishable crates total). This section backfills the
+`Unreleased` entry that was never renamed/dated across the tag.
 
 ### Changed
 - **BREAKING (`vision-calibration-optim`): camera model as data in the

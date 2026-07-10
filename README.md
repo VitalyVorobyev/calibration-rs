@@ -76,7 +76,7 @@ bench/examples support crates):
 Add the facade crate to your `Cargo.toml`:
 
 ```toml
-vision-calibration = "0.6"
+vision-calibration = "0.7"
 ```
 
 Or track `main` directly:

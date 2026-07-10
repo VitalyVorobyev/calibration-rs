@@ -189,7 +189,8 @@ in CI:
    the one that `release-pypi.yml`'s `Verify tag/version sync` job
    reads directly. **Not** wired into `[workspace.package]`.
 4. `crates/vision-calibration-examples-private/Cargo.toml` (1 package
-   version + 4 path-dep pins). Out of the publish set but still
+   version + 6 path-dep pins — the count grows as it gains deps; grep,
+   don't trust this number). Out of the publish set but still
    compiled in CI.
 
 **Publish set (2026-06-17; DAG corrected 2026-07-04 to match
