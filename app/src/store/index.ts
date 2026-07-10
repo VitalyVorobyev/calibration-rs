@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { isTauriContext, joinPath } from "../lib/tauri";
 import type { FrameKey } from "../types";
 import type { AnyExport, ExportKind, LoadExportResult } from "./types";
-import { inferExportKind } from "./exportShape";
+import { detectExportKind } from "./exportKind";
 
 /** Wrap-around index lookup over a sorted array. Returns the value
  * at position `(idx(current) + delta) mod arr.length`, with a
@@ -207,7 +207,7 @@ export const useStore = create<AppState>()(
         exportPath: path,
         exportDir: result.export_dir,
         data,
-        kind: inferExportKind(data),
+        kind: detectExportKind(data),
         frames: materialized.value.frames,
         laserFrames: materialized.value.laserFrames,
         poseValues: materialized.value.poseValues,
@@ -235,7 +235,7 @@ export const useStore = create<AppState>()(
         exportPath: "<live-run>",
         exportDir,
         data,
-        kind: inferExportKind(data),
+        kind: detectExportKind(data),
         frames: materialized.value.frames,
         laserFrames: materialized.value.laserFrames,
         poseValues: materialized.value.poseValues,

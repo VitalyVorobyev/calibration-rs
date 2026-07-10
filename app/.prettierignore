@@ -5,6 +5,12 @@ src-tauri/gen
 tsconfig.tsbuildinfo
 bun.lock
 
+# Rust-emitted JSON Schemas (B-QUAL2): byte-for-byte owned by the
+# `emit_schemas` binary and drift-checked against it, so prettier must not
+# reformat them. The generated *.ts under src/types/generated IS formatted
+# (the generate:types script runs prettier over it) and stays checked.
+schemas-generated
+
 # Prettier's markdown formatter mis-reformats blockquote continuation
 # lines that contain a code span split across the wrap (observed
 # corrupting README.md's Tauri-context callout) — out of scope for this

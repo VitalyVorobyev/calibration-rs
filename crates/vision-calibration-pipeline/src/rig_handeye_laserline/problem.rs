@@ -201,6 +201,7 @@ impl Default for RigHandeyeLaserlineBaConfig {
 
 /// Export format for joint rig hand-eye laserline calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeLaserlineExport {
     /// Per-camera laser planes in rig frame.
@@ -214,18 +215,42 @@ pub struct RigHandeyeLaserlineExport {
     /// Per-camera Scheimpflug sensor parameters.
     pub sensors: Vec<ScheimpflugParams>,
     /// Per-camera extrinsics `cam_se3_rig` (T_C_R).
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub cam_se3_rig: Vec<Iso3>,
     /// Per-view target poses `rig_se3_target` (T_R_T).
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub rig_se3_target: Vec<Iso3>,
     /// Hand-eye mode used to interpret mode-dependent transforms.
     pub handeye_mode: HandEyeMode,
     /// Eye-in-hand hand-eye transform `gripper_se3_rig`.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub gripper_se3_rig: Option<Iso3>,
     /// Eye-to-hand hand-eye transform `rig_se3_base`.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub rig_se3_base: Option<Iso3>,
     /// Eye-in-hand target reference pose `base_se3_target`.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub base_se3_target: Option<Iso3>,
     /// Eye-to-hand target reference pose `gripper_se3_target`.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub gripper_se3_target: Option<Iso3>,
     /// Optional optimized robot pose deltas.
     pub robot_deltas: Option<Vec<[Real; 6]>>,

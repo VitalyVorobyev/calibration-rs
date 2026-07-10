@@ -8,7 +8,7 @@ import {
   targetInCameraPose,
 } from "../../lib/se3";
 import { useStore } from "../../store";
-import { exportKindLabel } from "../../store/exportShape";
+import { exportKindLabel } from "../../store/exportKind";
 import type { Iso3Wire, PinholeCameraWire } from "../../store/types";
 import type { FrameKey } from "../../types";
 import { Scene } from "./Scene";

@@ -54,6 +54,7 @@ use std::path::PathBuf;
 /// `root`. Both layers of indirection make exports portable across machines
 /// as long as the image directory is co-located with the export.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ImageManifest {
     /// Image root directory, relative to the export file's directory.
@@ -73,6 +74,7 @@ pub struct ImageManifest {
 /// Serialized in `snake_case`; absent in JSON means [`FrameKind::Target`],
 /// which keeps pre-existing exports byte-stable and forward-readable.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum FrameKind {
     /// Image of the calibration target (chessboard / ChArUco / …).
@@ -93,6 +95,7 @@ impl FrameKind {
 
 /// Reference to a single image (or sub-image) for one `(pose, camera)`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct FrameRef {
     /// Pose / view index in the input dataset.
@@ -121,6 +124,7 @@ pub struct FrameRef {
 
 /// Inclusive-exclusive pixel rectangle: `[x, x+w) × [y, y+h)`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PixelRect {
     /// Left edge in pixels.

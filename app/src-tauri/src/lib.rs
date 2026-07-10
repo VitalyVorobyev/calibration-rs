@@ -23,6 +23,16 @@ mod run;
 
 use export_cache::ExportCache;
 
+/// Tauri command payload/response types re-exported for the `emit_schemas`
+/// binary (B-QUAL2). Public only under `schema-export` so it never widens
+/// the app's runtime surface. These are the structured wire types the
+/// frontend consumes through generated TypeScript.
+#[cfg(feature = "schema-export")]
+pub mod schema_types {
+    pub use crate::disparity::{DisparityResult, PointCloud};
+    pub use crate::epipolar::EpipolarOverlay;
+}
+
 /// Entry point invoked from `main.rs`. Wires up the dialog plugin, the
 /// shared export cache, and the viewer + math + runner commands.
 pub fn run() {

@@ -4,7 +4,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { Logo } from "../components/Logo";
 import { isTauriContext } from "../lib/tauri";
 import { useStore } from "../store";
-import { exportKindLabel } from "../store/exportShape";
+import { exportKindLabel } from "../store/exportKind";
 
 const THEME_STORAGE_KEY = "calib-theme";
 

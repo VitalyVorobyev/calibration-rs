@@ -138,6 +138,7 @@ pub struct LaserlineDeviceOutput {
 
 /// Export type for laserline device calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserlineDeviceExport {
     /// Pipeline output including optimized parameters and summary statistics.

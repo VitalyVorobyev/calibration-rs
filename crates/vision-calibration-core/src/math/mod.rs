@@ -30,6 +30,26 @@ pub type Mat4 = Matrix4<Real>;
 /// 3D rigid transform (SE(3)) using [`Real`].
 pub type Iso3 = Isometry3<Real>;
 
+/// JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).
+///
+/// `nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and
+/// parameter types that embed [`Iso3`] annotate the field with
+/// `#[cfg_attr(feature = "schemars", schemars(with = "Iso3Schema"))]`
+/// (or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact
+/// serde wire format of `Isometry3`:
+/// `{ "rotation": [qx, qy, qz, qw], "translation": [tx, ty, tz] }`.
+///
+/// It exists only to describe that shape to `schemars`; it is never
+/// constructed at runtime.
+#[cfg(feature = "schemars")]
+#[derive(schemars::JsonSchema)]
+pub struct Iso3Schema {
+    /// Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).
+    pub rotation: [Real; 4],
+    /// Translation `[tx, ty, tz]` in meters.
+    pub translation: [Real; 3],
+}
+
 /// Convert a 2D point in Euclidean coordinates into homogeneous coordinates.
 ///
 /// Given a point `p = (x, y)`, returns the homogeneous vector `(x, y, 1)`.

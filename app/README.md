@@ -60,6 +60,7 @@ bun install            # first-time setup / after package.json changes
 bun run tauri dev      # launch the desktop app
 bun run build           # TS compile + Vite build (frontend only, no Tauri shell)
 bun run tauri build    # bundle the desktop app (installer/binary)
+bun run generate:types # regenerate TS wire types from the Rust source
 ```
 
 > **Important.** Use `bun run tauri dev`, **not** `bun run dev`. The
@@ -81,10 +82,35 @@ bun run tauri build    # bundle the desktop app (installer/binary)
   root does **not** cover it — see `app/src-tauri/` for its own checks.
 - Frontend code lives in `app/src/`: `workspaces/` (routed views),
   `components/`, `hooks/`, `layouts/`, `lib/`, `schemas/` (JSON Schemas for
-  the Run workspace's config forms), `store/` (Zustand + wire types).
+  the Run workspace's config forms), `types/generated/` (generated wire
+  types, see below), `store/` (Zustand + wire types).
 - Backend (Tauri) code lives in `app/src-tauri/src/`: `commands.rs` (export
   loading, image loading/undistortion, epipolar overlay), `run.rs`
   (calibration runner + folder sniffing), `disparity.rs` (dense stereo).
+
+### Generated wire types (`bun run generate:types`)
+
+The TypeScript interfaces the app uses for calibration `*Export` payloads
+and Tauri command responses are **generated from the Rust types**, not
+hand-written (B-QUAL2). The single source of truth is the
+`#[derive(schemars::JsonSchema)]` on the pipeline `*Export` types and the
+`app/src-tauri` command structs; edit those and regenerate. Two stages:
+
+```bash
+bun run generate:types   # both stages (schema + TS); commit the results
+# or run a stage on its own:
+bun run generate:schemas   # stage 1 (cargo): Rust types → schemas-generated/diagnose_wire.json
+bun run generate:types:ts  # stage 2 (bun):   schema → src/types/generated/*.ts (+ prettier)
+```
+
+Both outputs are committed. CI enforces they stay in sync: the
+`app-src-tauri` job runs `generate:schemas:check` (Rust → schema drift) and
+`app-frontend` regenerates the TS and `git diff --exit-code`s it (schema →
+TS drift), so a Rust type change that isn't regenerated fails the build.
+`src/types/generated/` is eslint-ignored and `schemas-generated/` is
+prettier-ignored (they're machine-owned). The export discriminator lives in
+`src/store/exportKind.ts` (`detectExportKind`), typed against these
+generated shapes.
 
 ## Out of scope
 

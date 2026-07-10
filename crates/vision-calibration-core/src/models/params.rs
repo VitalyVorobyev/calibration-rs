@@ -9,6 +9,7 @@ use crate::Real;
 
 /// Serializable projection model parameters.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProjectionParams {
     /// Classic pinhole model.
@@ -17,6 +18,7 @@ pub enum ProjectionParams {
 
 /// Serializable distortion model parameters.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DistortionParams {
     /// No distortion.
@@ -48,6 +50,7 @@ pub enum DistortionParams {
 
 /// Serializable sensor model parameters.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SensorParams {
     /// Identity sensor model.
@@ -67,6 +70,7 @@ pub enum SensorParams {
 
 /// Serializable intrinsics parameters.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum IntrinsicsParams {
     /// Pinhole intrinsics with optional skew.
@@ -79,6 +83,7 @@ pub enum IntrinsicsParams {
 
 /// Serializable camera parameters for building a runtime model.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CameraParams {
     /// Projection model parameters.
     pub projection: ProjectionParams,

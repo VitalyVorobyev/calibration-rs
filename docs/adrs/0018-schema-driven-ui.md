@@ -115,3 +115,18 @@ edited by users.
 - ✅ 8 schemas committed under `app/src/schemas/`.
 - ⏳ React `<ConfigForm/>` component (PR 1 task #9).
 - ⏳ CI `--check` step in `.github/workflows/` (small, deferred).
+
+## Amendment (2026-07-10, B-QUAL2)
+
+The `schemars` surface was widened beyond the original config-only scope:
+every pipeline `*Export` type (and its closure — `SolveReport`,
+`LaserlineEstimate`/`LaserlineStats`, `CameraParams`,
+`PerFeatureResiduals`, `ImageManifest`, an `Iso3Schema` wire proxy for
+nalgebra isometries, …) now derives `JsonSchema` behind the same
+feature gate. Rationale: the desktop app's TypeScript wire types are
+generated from these schemas (`app/src-tauri/src/bin/emit_schemas.rs` →
+`app/schemas-generated/diagnose_wire.json` →
+`app/src/types/generated/diagnose-wire.ts`, drift-checked in CI),
+replacing the hand-written mirrors and `inferExportKind` shape-sniffing.
+Config schemas remain the runtime source for `<ConfigForm/>`; export
+schemas are build-time codegen inputs only. Shipped with the 0.7.0 bump.

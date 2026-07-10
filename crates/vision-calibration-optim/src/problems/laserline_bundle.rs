@@ -78,6 +78,7 @@ pub type LaserlineDataset = Vec<LaserlineView>;
 
 /// Initial values for laserline bundle adjustment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LaserlineParams {
     /// Camera intrinsics.
     pub intrinsics: FxFyCxCySkew<Real>,
@@ -86,6 +87,10 @@ pub struct LaserlineParams {
     /// Scheimpflug sensor parameters (use defaults for identity sensor).
     pub sensor: ScheimpflugParams,
     /// Per-view target poses (`camera_se3_target`).
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub poses: Vec<Iso3>,
     /// Laser plane parameters in camera frame.
     pub plane: LaserPlane,
@@ -119,6 +124,7 @@ impl LaserlineParams {
 
 /// Result of laserline bundle adjustment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LaserlineEstimate {
     /// Refined bundle parameters.
     pub params: LaserlineParams,
@@ -128,6 +134,7 @@ pub struct LaserlineEstimate {
 
 /// Summary statistics for a laserline calibration result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LaserlineStats {
     /// Mean reprojection error for calibration points (pixels).
     pub mean_reproj_error: f64,

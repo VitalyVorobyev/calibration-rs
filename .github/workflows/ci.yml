@@ -151,6 +151,16 @@ jobs:
         working-directory: app
         run: bun run test
 
+      # Drift stage 2 (schema → TypeScript, bun-only). Regenerate the TS from
+      # the committed schema and fail if it differs from what's checked in.
+      # Stage 1 (Rust → schema) lives in the `app-src-tauri` job, which has the
+      # cargo toolchain; splitting keeps this job Rust-free. See B-QUAL2.
+      - name: Check generated types are up to date
+        working-directory: app
+        run: |
+          bun run generate:types:ts
+          git diff --exit-code src/types/generated
+
   # `app/src-tauri` is excluded from the root Cargo workspace (see its
   # Cargo.toml) so it doesn't pull Tauri's build-time dep tree into
   # `cargo build --workspace`. It gets its own job, gated with
@@ -191,5 +201,16 @@ jobs:
       - name: Cargo clippy (src-tauri)
         run: cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets -- -D warnings
 
+      # The schema emitter is behind `--features schema-export`, so clippy it
+      # explicitly (the default `--all-targets` above skips its bin).
+      - name: Cargo clippy (schema emitter)
+        run: cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets --features schema-export -- -D warnings
+
       - name: Cargo test (src-tauri)
         run: cargo test --manifest-path app/src-tauri/Cargo.toml
+
+      # Drift stage 1 (Rust wire types → JSON schema, cargo-only). Fails if a
+      # `*Export` / command-type change wasn't regenerated. Stage 2 (schema →
+      # TypeScript) runs in the bun-only `app-frontend` job. See B-QUAL2.
+      - name: Check generated schema is up to date
+        run: cargo run --manifest-path app/src-tauri/Cargo.toml --features schema-export --bin emit_schemas -- --check

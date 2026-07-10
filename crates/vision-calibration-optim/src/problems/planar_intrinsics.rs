@@ -22,10 +22,15 @@ use vision_calibration_core::{
 
 /// Optimization result for planar intrinsics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PlanarIntrinsicsParams {
     /// Refined camera model (model-agnostic serializable parameters).
     pub camera: CameraParams,
     /// Refined target-to-camera poses.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub camera_se3_target: Vec<Iso3>,
 }
 

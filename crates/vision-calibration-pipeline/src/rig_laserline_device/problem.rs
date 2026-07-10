@@ -143,6 +143,7 @@ impl Default for RigLaserlineDeviceConfig {
 
 /// Export format for rig laserline calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigLaserlineDeviceExport {
     /// Per-camera laser planes in rig frame.
@@ -164,9 +165,17 @@ pub struct RigLaserlineDeviceExport {
     pub sensors: Option<Vec<ScheimpflugParams>>,
     /// Frozen upstream per-camera extrinsics `T_C_R`.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub cam_se3_rig: Vec<Iso3>,
     /// Frozen upstream per-view rig poses `T_R_T`.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub rig_se3_target: Vec<Iso3>,
     /// Mean target reprojection error (pixels) against the frozen
     /// upstream. Diagnostic echo — this problem type does not optimize

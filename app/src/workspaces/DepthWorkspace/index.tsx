@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { PoseStepper } from "../../components/PoseStepper";
 import { useStore } from "../../store";
+import type { DisparityResult } from "../../types/generated/diagnose-wire";
 
 // Three.js is heavy (~900 KB); only pull it in when the 3D view is opened.
 const PointCloudView = lazy(() =>
@@ -9,32 +10,6 @@ const PointCloudView = lazy(() =>
 );
 
 /** A reprojected 3D point cloud (flat position/colour arrays). */
-interface PointCloud {
-  positions: number[];
-  colors: number[];
-  count: number;
-}
-
-/** Result of the `compute_disparity` Tauri command (camelCase, matching the
- * Rust `#[serde(rename_all = "camelCase")]` struct). All images are
- * `data:image/png` base64 URLs. */
-interface DisparityResult {
-  rectifiedPairPng: string;
-  disparityPng: string;
-  overlayPng: string;
-  depthPng: string;
-  pointCloud: PointCloud;
-  width: number;
-  height: number;
-  density: number;
-  dispMin: number;
-  dispMax: number;
-  planeRms: number;
-  planeInliers: number;
-  baselineM: number;
-  semiGlobal: boolean;
-}
-
 type ViewMode = "rectified" | "disparity" | "overlay" | "depth" | "3d";
 
 // Matching is done at reduced resolution to keep the disparity search (and the

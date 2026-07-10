@@ -38,6 +38,7 @@ pub struct DisparityParams {
 /// Result returned to the Depth workspace. All images are `data:image/png`
 /// base64 URLs the webview can drop straight into `<img>`.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DisparityResult {
     /// Rectified left | right with shared epipolar rows (rectification sanity).
@@ -72,6 +73,7 @@ pub struct DisparityResult {
 
 /// A reprojected 3D point cloud for the frontend's WebGL renderer.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PointCloud {
     /// Flat `[x, y, z, …]` positions in the reference-camera frame (metres).

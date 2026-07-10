@@ -213,6 +213,7 @@ impl RigHandeyeOutput {
 /// rigs and `Some(_)` for Scheimpflug rigs, matching the configured
 /// [`SensorMode`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeExport {
     /// Per-camera calibrated intrinsics + distortion (pinhole core).
@@ -225,6 +226,10 @@ pub struct RigHandeyeExport {
 
     /// Per-camera extrinsics: `cam_se3_rig` (T_C_R).
     /// Transform from rig frame to camera frame.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub cam_se3_rig: Vec<Iso3>,
 
     /// Per-view rig poses: `rig_se3_target` (T_R_T), derived from the
@@ -234,6 +239,10 @@ pub struct RigHandeyeExport {
     /// `#[serde(default)]` keeps older exports forward-compatible at
     /// load time; they decode with an empty Vec.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub rig_se3_target: Vec<Iso3>,
 
     /// Hand-eye mode used to interpret mode-dependent transforms.
@@ -242,21 +251,37 @@ pub struct RigHandeyeExport {
     /// Eye-in-hand: gripper-to-rig transform `gripper_se3_rig` (T_G_R).
     ///
     /// `None` for EyeToHand mode.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub gripper_se3_rig: Option<Iso3>,
 
     /// Eye-to-hand: rig-to-base transform `rig_se3_base` (T_R_B).
     ///
     /// `None` for EyeInHand mode.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub rig_se3_base: Option<Iso3>,
 
     /// Eye-in-hand: base-to-target transform `base_se3_target` (T_B_T).
     ///
     /// `None` for EyeToHand mode.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub base_se3_target: Option<Iso3>,
 
     /// Eye-to-hand: gripper-to-target transform `gripper_se3_target` (T_G_T).
     ///
     /// `None` for EyeInHand mode.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Option<vision_calibration_core::Iso3Schema>")
+    )]
     pub gripper_se3_target: Option<Iso3>,
 
     /// Per-view robot pose corrections (if refinement enabled).

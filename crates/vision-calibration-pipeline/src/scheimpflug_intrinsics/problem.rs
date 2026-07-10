@@ -88,10 +88,15 @@ impl Default for ScheimpflugIntrinsicsConfig {
 
 /// Output parameter pack for Scheimpflug intrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ScheimpflugIntrinsicsParams {
     /// Estimated camera model including intrinsics, distortion, and sensor parameters.
     pub camera: CameraParams,
     /// Estimated pose `camera_se3_target` for each view.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub camera_se3_target: Vec<Iso3>,
 }
 
@@ -109,6 +114,7 @@ pub struct ScheimpflugIntrinsicsResult {
 
 /// Export format for Scheimpflug intrinsics calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ScheimpflugIntrinsicsExport {
     /// Estimated parameters.

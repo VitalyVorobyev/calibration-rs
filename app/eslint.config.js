@@ -10,9 +10,20 @@ import globals from "globals";
 export default tseslint.config(
   {
     // dist/ is the Vite build output, src-tauri/ is a separate Rust crate
-    // (its `target/` and Tauri's codegen `gen/` are not JS at all), and
-    // tsconfig.tsbuildinfo is a tsc cache file.
-    ignores: ["dist/**", "src-tauri/**", "node_modules/**", "tsconfig.tsbuildinfo"],
+    // (its `target/` and Tauri's codegen `gen/` are not JS at all),
+    // tsconfig.tsbuildinfo is a tsc cache file, and src/types/generated is
+    // machine-generated from the Rust wire types (B-QUAL2) — regenerate via
+    // `bun run generate:types`, don't lint or hand-edit it.
+    ignores: [
+      "dist/**",
+      "src-tauri/**",
+      "node_modules/**",
+      "tsconfig.tsbuildinfo",
+      "src/types/generated/**",
+      // Node ESM build script outside tsconfig's `include: ["src"]`, so the
+      // type-aware project service can't resolve it (B-QUAL2 codegen).
+      "scripts/**",
+    ],
   },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,

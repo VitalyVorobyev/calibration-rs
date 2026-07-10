@@ -1,65 +1,32 @@
 import type { FrameKey, ImageManifest, PerFeatureResiduals } from "../types";
+import type { Camera, Iso3Schema, LaserPlane } from "../types/generated/diagnose-wire";
 
-/** Discriminator for the loaded calibration export. Inferred from the
- * JSON shape until ts-rs codegen lands at B3.0 and pins this to a
- * Rust-side tag. */
-export type ExportKind =
-  | "planar_intrinsics"
-  | "scheimpflug_intrinsics"
-  | "single_cam_handeye"
-  | "laserline_device"
-  | "rig_extrinsics"
-  | "rig_handeye"
-  | "rig_handeye_laserline"
-  | "rig_laserline_device"
-  | "unknown";
+// The export discriminator now lives next to `detectExportKind`, its single
+// consumer-facing definition (B-QUAL2). Re-exported here so existing
+// `import { ExportKind } from "./types"` sites keep resolving.
+export type { ExportKind } from "./exportKind";
 
 /** SE(3) wire format used across the workspace.
  *
- * `nalgebra::Isometry3` serializes as
- * `{ rotation: [qx, qy, qz, qw], translation: [tx, ty, tz] }`.
- * Quaternions are unit; the rotation list is `[i, j, k, w]` (Three.js's
- * convention). Translation is in meters. */
-export interface Iso3Wire {
-  rotation: [number, number, number, number];
-  translation: [number, number, number];
-}
+ * Alias of the generated [`Iso3Schema`] — the single source of truth is the
+ * Rust `Iso3` (`nalgebra::Isometry3`) serde shape:
+ * `{ rotation: [qx, qy, qz, qw], translation: [tx, ty, tz] }`. Quaternions
+ * are unit; the rotation list is `[i, j, k, w]` (Three.js's convention);
+ * translation is in meters. */
+export type Iso3Wire = Iso3Schema;
 
-/** Pinhole intrinsics block (`k` field of a serialized
- * `Camera<f64, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCySkew>`). */
-export interface FxFyCxCySkew {
-  fx: number;
-  fy: number;
-  cx: number;
-  cy: number;
-  skew: number;
-}
+/** Serialized pinhole `Camera<f64, Pinhole, BrownConrady5, IdentitySensor,
+ * FxFyCxCySkew>` — alias of the generated [`Camera`]. The 3D viewer only
+ * reads `k` and `dist`; `proj` / `sensor` / `_phantom` are inert for the
+ * pinhole + identity-sensor composition. */
+export type PinholeCameraWire = Camera;
 
-/** Brown-Conrady 5-parameter distortion. */
-export interface BrownConrady5Wire {
-  k1: number;
-  k2: number;
-  p1: number;
-  p2: number;
-  k3: number;
-}
-
-/** Subset of a pinhole `Camera<...>` JSON the 3D viewer reads. The full
- * struct also carries `proj` and `sensor`; both are `()` for pinhole +
- * identity sensor and irrelevant to the wireframe frustum. */
-export interface PinholeCameraWire {
-  k: FxFyCxCySkew;
-  dist?: BrownConrady5Wire;
-}
-
-/** Laser plane wire format (`vision_calibration_optim::LaserPlane`):
- * `{ normal: [nx, ny, nz], distance: d }` with a unit normal and the
- * plane equation `n · p + d = 0`. Frame depends on the carrying field
+/** Laser plane wire format (`vision_calibration_optim::LaserPlane`) —
+ * alias of the generated [`LaserPlane`]:
+ * `{ normal: [nx, ny, nz], distance: d }` with a unit normal and the plane
+ * equation `n · p + d = 0`. Frame depends on the carrying field
  * (`laser_planes_rig` = rig frame, `laser_planes_cam` = per-camera). */
-export interface LaserPlaneWire {
-  normal: [number, number, number];
-  distance: number;
-}
+export type LaserPlaneWire = LaserPlane;
 
 /** Loose union over the seven calibration export shapes. The viewer
  * (B1.0) only consumes the residuals + manifest + mean reprojection

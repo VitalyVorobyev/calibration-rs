@@ -84,6 +84,8 @@ pub use error::Error;
 // Each list reproduces every item the corresponding `pub use <module>::*;` glob
 // used to flatten into the crate root. Keep these lists curated: adding a new
 // `pub` item to a private module no longer silently widens the public API.
+#[cfg(feature = "schemars")]
+pub use math::Iso3Schema;
 pub use math::{
     Iso3, Mat3, Mat4, Pt2, Pt3, Real, Vec2, Vec3, coordinate_utils, distort_to_pixel,
     from_homogeneous, normalized_to_pixel, pixel_to_normalized, to_homogeneous, undistort_pixel,

@@ -38,6 +38,7 @@ pub struct Ray<S: RealField + Copy> {
 
 /// A composable camera model: projection -> distortion -> sensor -> intrinsics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Camera<S, P, D, Sm, K>
 where
     S: RealField + Copy,

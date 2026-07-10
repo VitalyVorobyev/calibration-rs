@@ -10,16 +10,13 @@ import {
   relativeCameraPose,
 } from "../../lib/se3";
 import { useStore } from "../../store";
-import { exportKindLabel } from "../../store/exportShape";
+import { exportKindLabel } from "../../store/exportKind";
 import type { FrameKey, TargetFeatureResidual, ViewportTransform } from "../../types";
 import { IDENTITY_TRANSFORM } from "../../types";
 import { EpipolarOverlay, type OverlayPoint } from "./EpipolarOverlay";
-
-interface EpipolarOverlayResult {
-  line_b: [number, number][];
-  epipole_b: [number, number] | null;
-  samples_clipped: number;
-}
+// Generated wire type (B-QUAL2); aliased to avoid colliding with the
+// `EpipolarOverlay` overlay component imported just above.
+import type { EpipolarOverlay as EpipolarOverlayResult } from "../../types/generated/diagnose-wire";
 
 /** Pixel-radius around the click within which we snap to the nearest
  * residual feature. Outside this radius the click is a free pixel

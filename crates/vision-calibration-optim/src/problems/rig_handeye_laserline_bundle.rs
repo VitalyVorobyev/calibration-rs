@@ -231,6 +231,7 @@ impl Default for RigHandeyeLaserlineSolveOptions {
 
 /// Per-camera statistics for [`RigHandeyeLaserlineEstimate`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigHandeyeLaserlinePerCamStats {
     /// Mean target-corner reprojection error (pixels).
     pub mean_reproj_error_px: f64,
