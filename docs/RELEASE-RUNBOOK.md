@@ -180,7 +180,17 @@ python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
 python3 scripts/check_pyi_coverage.py --check
 python3 scripts/check_binding_parity.py --check
 
-# 6. Publish dry-run in DAG order (§2) — catches E0432-style path-dep
+# 6. Full local acceptance — public AND private registries. The laser
+#    datasets (rtv3d family) hard-fail without the `laser` feature; plain
+#    `tier-b` is only enough for the public kuka subset that CI runs.
+cargo run --release -p vision-calibration-bench --features "tier-b laser" \
+  --bin calib-bench -- accept \
+  --registry crates/vision-calibration-bench/registry/public.json
+cargo run --release -p vision-calibration-bench --features "tier-b laser" \
+  --bin calib-bench -- accept \
+  --registry crates/vision-calibration-bench/registry/private.json
+
+# 7. Publish dry-run in DAG order (§2) — catches E0432-style path-dep
 #    resolution failures (§4) before they wedge the real publish job.
 for c in vision-calibration-core vision-geometry vision-calibration-dataset \
          vision-calibration-detect vision-calibration-linear \
@@ -189,7 +199,7 @@ for c in vision-calibration-core vision-geometry vision-calibration-dataset \
   cargo publish -p "$c" --dry-run --locked || break
 done
 
-# 7. Trusted Publishing coverage (§3) — manual crates.io UI check, one page
+# 8. Trusted Publishing coverage (§3) — manual crates.io UI check, one page
 #    per crate in the DAG. No CLI shortcut; just go look.
 ```
 
