@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { colorForError } from "../../components/FrameCanvas";
+import { Table, Td, Th } from "../../components/ui";
 import { computeCameraPoseMatrix } from "../../lib/residualStats";
 import type { TargetFeatureResidual } from "../../types";
 
@@ -31,41 +32,44 @@ export function CameraResidualMatrix({
   return (
     <section aria-label="Cross-camera residual matrix" className="flex flex-col gap-1.5">
       <div className="overflow-x-auto">
-        <table className="border-collapse font-mono text-[10px] tabular-nums">
+        <Table size="xs">
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 bg-surface p-1 text-left text-muted-foreground">
+              <Th sticky className="p-1 text-muted-foreground">
                 cam\pose
-              </th>
+              </Th>
               {matrix.poses.map((pose) => (
-                <th
+                <Th
                   key={pose}
-                  scope="col"
-                  className={`p-1 text-center font-medium ${
-                    pose === selectedPose ? "text-brand" : "text-muted-foreground"
-                  }`}
+                  align="center"
+                  className={
+                    pose === selectedPose ? "p-1 text-brand" : "p-1 text-muted-foreground"
+                  }
                 >
                   {pose}
-                </th>
+                </Th>
               ))}
             </tr>
           </thead>
           <tbody>
             {matrix.cameras.map((camera) => (
               <tr key={camera}>
-                <th
+                <Th
                   scope="row"
-                  className={`sticky left-0 z-10 bg-surface p-1 text-left font-medium ${
-                    camera === selectedCamera ? "text-brand" : "text-muted-foreground"
-                  }`}
+                  sticky
+                  className={
+                    camera === selectedCamera
+                      ? "p-1 text-brand"
+                      : "p-1 text-muted-foreground"
+                  }
                 >
                   {camera}
-                </th>
+                </Th>
                 {matrix.poses.map((pose) => {
                   const cell = matrix.cells.get(camera)?.get(pose);
                   const active = pose === selectedPose && camera === selectedCamera;
                   return (
-                    <td key={pose} className="p-0.5">
+                    <Td key={pose} className="p-0.5">
                       <MatrixCell
                         mean={cell?.mean ?? null}
                         count={cell?.count ?? 0}
@@ -74,13 +78,13 @@ export function CameraResidualMatrix({
                         active={active}
                         onSelect={onSelect}
                       />
-                    </td>
+                    </Td>
                   );
                 })}
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </div>
       <MatrixLegend />
     </section>
@@ -110,13 +114,11 @@ function MatrixCell({ mean, count, pose, camera, active, onSelect }: MatrixCellP
       title={title}
       aria-label={title}
       className={`flex h-6 w-8 items-center justify-center rounded-[3px] text-[9px] transition-transform hover:scale-105 ${
-        active ? "ring-1 ring-brand" : ""
-      }`}
-      style={{
-        background: observed ? colorForError(mean) : "transparent",
-        border: observed ? "none" : "1px dashed var(--color-border, #33333a)",
-        color: observed ? "rgba(0,0,0,0.75)" : "var(--color-muted-foreground, #9ca3af)",
-      }}
+        observed
+          ? "border-none text-black/75"
+          : "border border-dashed border-border text-muted-foreground"
+      } ${active ? "ring-1 ring-brand" : ""}`}
+      style={{ background: observed ? colorForError(mean) : "transparent" }}
     >
       {observed ? mean.toFixed(1) : "·"}
     </button>

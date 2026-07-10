@@ -18,6 +18,7 @@
  *               e.g. unresolved manifest fields)
  */
 import { useState } from "react";
+import { Badge } from "../../components/ui";
 
 interface CollapsibleSectionProps {
   title: string;
@@ -47,7 +48,12 @@ export function CollapsibleSection({
         className={[
           "flex w-full items-center justify-between gap-3 px-3 py-2.5",
           "text-left transition-colors",
-          open ? "bg-bg-soft" : "bg-bg hover:bg-bg-soft",
+          // Closed state: no explicit background — the global `button`
+          // base rule in index.css already supplies `bg-surface` (the
+          // non-existent `bg-bg` utility here was a dead no-op before
+          // this pass, coincidentally falling through to the same base
+          // rule every other plain button in the app relies on).
+          open ? "bg-bg-soft" : "hover:bg-bg-soft",
         ].join(" ")}
         aria-expanded={open}
       >
@@ -57,16 +63,9 @@ export function CollapsibleSection({
             {title}
           </span>
           {badge && (
-            <span
-              className={[
-                "rounded-full px-1.5 py-px text-[10px] font-medium",
-                badgeVariant === "destructive"
-                  ? "bg-[color-mix(in_srgb,var(--color-destructive,#ef4444)_16%,transparent)] text-[var(--color-destructive,#ef4444)]"
-                  : "bg-brand/[0.12] text-brand",
-              ].join(" ")}
-            >
+            <Badge variant={badgeVariant === "destructive" ? "destructive" : "brand"}>
               {badge}
-            </span>
+            </Badge>
           )}
         </div>
 
@@ -78,7 +77,7 @@ export function CollapsibleSection({
       </button>
 
       {/* Body — unmounted when collapsed */}
-      {open && <div className="border-t border-border bg-bg p-3">{children}</div>}
+      {open && <div className="border-t border-border bg-background p-3">{children}</div>}
     </section>
   );
 }

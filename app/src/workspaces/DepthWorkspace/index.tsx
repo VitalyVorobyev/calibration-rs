@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { PoseStepper } from "../../components/PoseStepper";
+import { Banner, Button, EmptyState, Select } from "../../components/ui";
 import { useStore } from "../../store";
 import type { DisparityResult } from "../../types/generated/diagnose-wire";
 
@@ -66,7 +67,10 @@ export function DepthWorkspace() {
 
   if (!data || !kind) {
     return (
-      <Empty body="Load a rig export (two cameras + extrinsics) to compute dense disparity." />
+      <EmptyState
+        title="Depth (dense stereo)"
+        body="Load a rig export (two cameras + extrinsics) to compute dense disparity."
+      />
     );
   }
   const isRig =
@@ -75,7 +79,10 @@ export function DepthWorkspace() {
     data.cameras.length >= 2;
   if (!isRig) {
     return (
-      <Empty body="Dense matching needs a stereo rig export (two cameras with extrinsics)." />
+      <EmptyState
+        title="Depth (dense stereo)"
+        body="Dense matching needs a stereo rig export (two cameras with extrinsics)."
+      />
     );
   }
 
@@ -124,51 +131,40 @@ export function DepthWorkspace() {
           selectedPose={selectedPose}
           onSelectPose={(p) => setSelectedPose(p)}
         />
-        <Selector
+        <Select
           label="left"
           value={cameraA}
           options={cameraValues}
           onChange={(v) => setCamera(v, "A")}
         />
-        <Selector
+        <Select
           label="right"
           value={cameraB}
           options={cameraValues}
           onChange={(v) => setCamera(v, "B")}
         />
-        <Toggle
-          active={semiGlobal}
+        <Button
+          pressed={semiGlobal}
           onClick={() => setSemiGlobal((v) => !v)}
-          label="SGM"
           title="Semi-global aggregation: fills low-texture regions"
-        />
-        <button
-          type="button"
-          onClick={() => void compute()}
-          disabled={!canCompute}
-          className="h-7 px-2 font-mono text-[11px] border-brand text-brand disabled:cursor-not-allowed disabled:opacity-40"
         >
+          {semiGlobal ? "SGM ✓" : "SGM"}
+        </Button>
+        <Button variant="primary" onClick={() => void compute()} disabled={!canCompute}>
           {loading ? "Matching…" : "Compute disparity"}
-        </button>
+        </Button>
         {result && (
           <div className="ml-auto flex items-center gap-1">
             {(Object.keys(VIEW_LABEL) as ViewMode[]).map((m) => (
-              <Toggle
-                key={m}
-                active={viewMode === m}
-                onClick={() => setViewMode(m)}
-                label={VIEW_LABEL[m]}
-              />
+              <Button key={m} pressed={viewMode === m} onClick={() => setViewMode(m)}>
+                {VIEW_LABEL[m]}
+              </Button>
             ))}
           </div>
         )}
       </div>
 
-      {error && (
-        <div className="rounded-md border-l-2 border-destructive bg-destructive/[0.08] p-2.5 text-[13px] text-foreground">
-          {error}
-        </div>
-      )}
+      {error && <Banner variant="error">{error}</Banner>}
 
       <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-md bg-bg-soft">
         {viewMode === "3d" && cloud ? (
@@ -226,72 +222,5 @@ function Hint({ children }: { children: React.ReactNode }) {
     <p className="max-w-[26rem] text-center text-[12px] text-muted-foreground">
       {children}
     </p>
-  );
-}
-
-function Selector({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  options: number[];
-  onChange: (v: number) => void;
-}) {
-  return (
-    <label className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
-      <span className="uppercase tracking-wider">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="h-7 rounded-md border border-border bg-surface px-1 text-foreground"
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function Toggle({
-  active,
-  onClick,
-  label,
-  title,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className={`h-7 px-2 font-mono text-[11px] ${active ? "border-brand text-brand" : ""}`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function Empty({ body }: { body: string }) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <header className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold tracking-tight">Depth (dense stereo)</h2>
-      </header>
-      <div className="flex min-h-0 flex-1 items-center justify-center rounded-md border border-dashed border-border bg-bg-soft">
-        <p className="max-w-[28rem] p-6 text-center text-[13px] text-muted-foreground">
-          {body}
-        </p>
-      </div>
-    </div>
   );
 }

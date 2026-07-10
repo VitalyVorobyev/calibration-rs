@@ -96,6 +96,90 @@ bun run test:e2e       # Playwright smoke: boots the app, checks it doesn't fall
   loading, image loading/undistortion, epipolar overlay), `run.rs`
   (calibration runner + folder sniffing), `disparity.rs` (dense stereo).
 
+## Design system
+
+B-UX1-DESIGN-SYSTEM consolidated the hand-rolled chrome that had
+accumulated across the five workspaces (buttons, panels, section headers,
+toolbar selects, tables, status banners, empty states — each workspace had
+grown its own copy) into one small component set, and closed the token
+gaps that copy-pasting had been quietly working around.
+
+**Component set** — `app/src/components/ui/` (barrel: `components/ui/index.ts`):
+
+- `Button` — every plain, toggle, and primary-CTA button in the app.
+  `variant` is `default` (bordered, neutral — the global `button` rule in
+  `index.css`) or `primary` (brand-filled CTA: Run, Compute disparity,
+  Apply). `size` is `sm` (h-7, toolbar default) · `md` (h-9, page-level
+  CTA) · `icon` (h-7 square). `pressed` drives the on/off toolbar-toggle
+  look (Compare, Linked, SGM, …) and wires `aria-pressed` — before this
+  pass these toggles had no ARIA state at all, just a color change.
+- `Panel` — the bordered card surface for side rails (Diagnose's stats
+  panel, the 3D viewer's info rail).
+- `SectionHeader` — small uppercase subsection heading with an optional
+  right-aligned subtitle or action (replaces two byte-identical
+  `PanelHeading` copies).
+- `Select` — compact toolbar "label + native `<select>`" control (camera/
+  pose pickers); replaces three near-identical hand-rolled copies.
+- `Table` / `Th` / `Td` — shared table shell (border-collapse, font-mono,
+  tabular-nums, alignment, sticky-column support) for the residual stats
+  table and the cross-camera matrix. Sort/hover/severity logic stays with
+  each table — this is chrome, not a generic sortable-DataTable engine.
+- `Banner` — left-accent status banner (`error` / `success` / `warning` /
+  `neutral`). Also closes a divergence: RunWorkspace had grown a second,
+  separate full-border banner shape with its own inline-styled colors;
+  everything now uses the one left-accent shape the rest of the app
+  already agreed on.
+- `Badge` — small pill label (unresolved-field counts, preset topology/
+  milestone tags).
+- `EmptyState` — whole-workspace "no data loaded" placeholder (title +
+  centered dashed box). Diagnose's smaller inline canvas-area placeholder
+  is a different idiom (a note inside an already-visible canvas, not a
+  whole-workspace state) and intentionally isn't folded into this.
+
+`components/ZoomControls.tsx` (not under `ui/` — it's specific to the
+`FrameCanvas` zoom/fit/1:1 interaction, not a generic primitive)
+consolidates Diagnose's and Epipolar's identical zoom-button clusters.
+
+**Tokens** (`app/src/index.css`, Tailwind 4 CSS-first `@theme`) — HSL
+triplets in `:root` / `.dark`, exposed as `--color-*` custom properties so
+both `hsl(var(--name))` and Tailwind's `bg-brand`/`text-destructive`/…
+utilities work off the same source. This pass:
+
+- Added `--success` / `--warning` (light + dark) — RunWorkspace had been
+  reaching for `var(--color-success, #22c55e)` / `var(--color-warning,
+  #f59e0b)` inline-style fallbacks because no such tokens existed; those
+  hex fallbacks were also identical in both themes, so `#22c55e` on the
+  light theme's near-white background measured well under WCAG AA.
+- Fixed `--brand`'s light-mode lightness (55% → 34% L, same hue/chroma).
+  `text-brand` sits directly on `--background`/`--surface` throughout the
+  app (active nav item, active table row, active preset, …); at 55% L it
+  measured ~2.1:1 contrast on white — dark mode's 55% L was left alone
+  (already ~8.6:1 against the dark background).
+- Fixed several `style={{ color: "var(--brand)" }}` / `backgroundColor:
+  "var(--brand)"` call sites — invalid CSS, since `--brand` is a bare `H
+  S% L%` triplet, not a `hsl(...)` color; the declarations were silently
+  dropped, leaving the "Run" button, an ActivePresetBar checkmark, and the
+  AskUserModal's Apply button and icon without their intended brand fill.
+  Convert to `hsl(var(--brand))` (SVG/canvas contexts) or the `bg-brand`/
+  `text-brand` Tailwind utilities (DOM), never a bare `var(--brand)`.
+- Fixed `bg-bg`, used in ~15 places (CollapsibleSection, PresetCard,
+  RunWorkspace, and every bare `<input>`/`<select>`/`<textarea>` in
+  `lib/configForm.tsx`): no `--color-bg` token was ever declared, so it
+  silently rendered no background at all. Config-form fields in
+  particular sit inside a `bg-bg-soft` fieldset, so this wasn't always
+  visible — but it meant every field lost its distinct surface. Fixed to
+  `bg-surface` (elevated content) or removed outright on `<button>`/
+  `<select>` elements, which already fall back to the global base rule's
+  `background: var(--color-surface)`.
+
+**Rules for adding UI** — use the `ui/` set; don't hand-roll a button,
+panel, banner, badge, or table shell in a workspace file. If a genuinely
+new shape recurs three-plus times, add it to `ui/` following the existing
+pattern (typed props, Tailwind classes built on the tokens above, no new
+runtime dependency). Don't add a variant "just in case" — this set is
+deliberately small (YAGNI): it covers exactly what the five workspaces use
+today, not a speculative general-purpose design system.
+
 ### Run progress & cancellation
 
 Long solves stream **stage progress** and are **cancellable at stage

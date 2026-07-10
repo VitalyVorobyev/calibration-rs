@@ -6,6 +6,7 @@
  * pointer-events are suppressed via Tailwind so no click handler is
  * needed.
  */
+import { Badge, Button, type BadgeVariant } from "../../components/ui";
 import type { Preset } from "./presets";
 
 interface PresetCardProps {
@@ -50,12 +51,12 @@ export function PresetCard({ preset, isActive, onUse }: PresetCardProps) {
 
           {/* Milestone badge for disabled cards */}
           {disabled && (
-            <span
-              className="rounded-full border border-border px-1.5 py-px font-mono text-[9px] uppercase tracking-widest text-muted-foreground"
+            <Badge
+              className="font-mono uppercase tracking-widest"
               title={preset.disabledReason}
             >
               {preset.milestone}
-            </span>
+            </Badge>
           )}
 
           {/* Active indicator for the currently selected preset */}
@@ -82,18 +83,14 @@ export function PresetCard({ preset, isActive, onUse }: PresetCardProps) {
 
       {/* Action button — only for enabled cards */}
       {!disabled && (
-        <button
-          type="button"
+        <Button
+          variant={isActive ? "primary" : "default"}
+          size="md"
           onClick={() => onUse(preset)}
-          className={[
-            "mt-auto h-8 rounded-md border px-3 text-[12px] font-medium transition-colors",
-            isActive
-              ? "border-brand bg-brand text-white"
-              : "border-border bg-bg text-foreground hover:border-brand/60 hover:bg-brand/[0.05]",
-          ].join(" ")}
+          className="mt-auto"
         >
           {isActive ? "Preset active" : "Use preset"}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -103,35 +100,30 @@ export function PresetCard({ preset, isActive, onUse }: PresetCardProps) {
 
 function TopologyBadge({ topology }: { topology: string }) {
   return (
-    <span
-      className={[
-        "rounded-full px-2 py-px text-[10px] font-medium",
-        topologyColor(topology),
-      ].join(" ")}
-    >
+    <Badge variant={topologyVariant(topology)} className="px-2">
       {topology}
-    </span>
+    </Badge>
   );
 }
 
 /** Deterministic color mapping for known topology names. Unknown names fall
  * back to a neutral muted style so future topologies never cause a render
  * error. */
-function topologyColor(topology: string): string {
+function topologyVariant(topology: string): BadgeVariant {
   switch (topology) {
     case "PlanarIntrinsics":
-      return "bg-brand/[0.12] text-brand";
+      return "brand";
     case "ScheimpflugIntrinsics":
-      return "bg-[var(--color-accent,_#a78bfa)]/[0.12] text-[var(--color-accent,_#a78bfa)]";
+      return "accent";
     case "RigExtrinsics":
     case "RigHandeye":
     case "RigHandeyeLaserline":
     case "RigLaserlineDevice":
-      return "bg-[var(--color-success,_#22c55e)]/[0.12] text-[var(--color-success,_#22c55e)]";
+      return "success";
     case "SingleCamHandeye":
-      return "bg-[var(--color-warning,_#f59e0b)]/[0.12] text-[var(--color-warning,_#f59e0b)]";
+      return "warning";
     default:
-      return "bg-bg text-muted-foreground border border-border";
+      return "neutral";
   }
 }
 

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { colorForError } from "../../components/FrameCanvas";
+import { Table, Td, Th } from "../../components/ui";
 import { computePoseResidualStats, type PoseResidualStat } from "../../lib/residualStats";
 import type { TargetFeatureResidual } from "../../types";
 
@@ -64,22 +65,20 @@ export function PoseStatsTable({
 
   return (
     <section aria-label="Per-pose residual stats">
-      <table className="w-full border-collapse font-mono text-[11px] tabular-nums">
+      <Table className="w-full">
         <thead>
           <tr className="border-b border-border text-muted-foreground">
             {COLUMNS.map((col) => (
-              <th
+              <Th
                 key={col.key}
-                scope="col"
+                align={col.numeric ? "right" : "left"}
                 onClick={() => onHeader(col.key)}
-                className={`cursor-pointer select-none py-1 font-medium uppercase tracking-wider hover:text-foreground ${
-                  col.numeric ? "text-right" : "text-left"
-                }`}
+                className="cursor-pointer select-none py-1 uppercase tracking-wider hover:text-foreground"
                 title={`Sort by ${col.label}`}
               >
                 {col.label}
                 {sortKey === col.key ? (desc ? " ↓" : " ↑") : ""}
-              </th>
+              </Th>
             ))}
           </tr>
         </thead>
@@ -95,35 +94,34 @@ export function PoseStatsTable({
                 }`}
                 title={`Jump to pose ${s.pose}`}
               >
-                <td className={`py-1 ${active ? "text-brand" : "text-foreground"}`}>
+                <Td className={`py-1 ${active ? "text-brand" : "text-foreground"}`}>
                   {s.pose}
-                </td>
-                <td className="py-1 text-right text-muted-foreground">
+                </Td>
+                <Td align="right" className="py-1 text-muted-foreground">
                   {s.count}
                   {s.diverged > 0 ? (
                     <span
-                      className="ml-1 text-[10px]"
-                      style={{ color: "var(--color-destructive, #ef4444)" }}
+                      className="ml-1 text-[10px] text-destructive"
                       title={`${s.diverged} diverged corner${s.diverged !== 1 ? "s" : ""}`}
                     >
                       +{s.diverged}✗
                     </span>
                   ) : null}
-                </td>
-                <td className="py-1 text-right">
+                </Td>
+                <Td align="right" className="py-1">
                   <ErrorCell value={s.mean} count={s.count} />
-                </td>
-                <td className="py-1 text-right">
+                </Td>
+                <Td align="right" className="py-1">
                   <ErrorCell value={s.median} count={s.count} />
-                </td>
-                <td className="py-1 text-right">
+                </Td>
+                <Td align="right" className="py-1">
                   <ErrorCell value={s.max} count={s.count} />
-                </td>
+                </Td>
               </tr>
             );
           })}
         </tbody>
-      </table>
+      </Table>
     </section>
   );
 }

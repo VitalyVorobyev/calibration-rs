@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FrameCanvas, type FrameCanvasHandle } from "../../components/FrameCanvas";
 import { PoseStepper } from "../../components/PoseStepper";
+import { ZoomControls } from "../../components/ZoomControls";
+import { Banner, Button, EmptyState, Select } from "../../components/ui";
 import { useUndistortedImageData } from "../../hooks/useImageData";
 import {
   iso3DistanceM,
@@ -56,7 +58,10 @@ export function EpipolarWorkspace() {
 
   if (!data || !kind) {
     return (
-      <Empty body="Load a rig export to inspect epipolar geometry between cameras." />
+      <EmptyState
+        title="Epipolar geometry"
+        body="Load a rig export to inspect epipolar geometry between cameras."
+      />
     );
   }
 
@@ -66,7 +71,8 @@ export function EpipolarWorkspace() {
     data.cameras.length >= 2;
   if (!isRig) {
     return (
-      <Empty
+      <EmptyState
+        title="Epipolar geometry"
         body={`Epipolar geometry only applies to rig exports (rig_extrinsics, rig_handeye, rig_handeye_laserline, rig_laserline_device). The current export is ${exportKindLabel(
           kind,
         )}.`}
@@ -459,45 +465,45 @@ function EpipolarBody(props: BodyProps) {
             onSelectPose={(next) => setSelectedPose(next, "A")}
           />
         )}
-        <Selector
+        <Select
           label="cam A"
           value={cameraA}
           options={camerasInPose}
           onChange={(v) => setCamera(v, "A")}
         />
-        <Selector
+        <Select
           label="cam B"
           value={cameraB}
           options={camerasInPose}
           onChange={(v) => setCamera(v, "B")}
         />
-        <ZoomBar
+        <ZoomControls
           onFit={() => drivePane("A", (h) => h.fit())}
           onOneToOne={() => drivePane("A", (h) => h.reset1to1())}
           onZoomIn={() => drivePane("A", (h) => h.zoomBy(1.25))}
           onZoomOut={() => drivePane("A", (h) => h.zoomBy(1 / 1.25))}
         />
-        <Toggle
-          active={linked}
+        <Button
+          pressed={linked}
           onClick={() => setLinked((v) => !v)}
-          label="Linked"
-          activeLabel="Linked ✓"
           title="Share zoom + pan between both panes (common AOI)"
-        />
-        <Toggle
-          active={showFeatures}
+        >
+          {linked ? "Linked ✓" : "Linked"}
+        </Button>
+        <Button
+          pressed={showFeatures}
           onClick={() => setShowFeatures((v) => !v)}
-          label="Features"
-          activeLabel="Features ✓"
           title="Show every detected feature as a clickable dot"
-        />
-        <Toggle
-          active={showTieLines}
+        >
+          {showFeatures ? "Features ✓" : "Features"}
+        </Button>
+        <Button
+          pressed={showTieLines}
           onClick={() => setShowTieLines((v) => !v)}
-          label="Tie-points"
-          activeLabel="Tie-points ✓"
           title="Render every observed feature as a faint dot (both panes)"
-        />
+        >
+          {showTieLines ? "Tie-points ✓" : "Tie-points"}
+        </Button>
         <span className="ml-auto font-mono text-[11px] text-muted-foreground">
           {exportKindLabel(kind)}
         </span>
@@ -512,11 +518,7 @@ function EpipolarBody(props: BodyProps) {
         samplesClipped={overlay?.samples_clipped ?? null}
       />
 
-      {overlayError && (
-        <div className="rounded-md border-l-2 border-destructive bg-destructive/[0.08] p-2.5 text-[13px] text-foreground">
-          {overlayError}
-        </div>
-      )}
+      {overlayError && <Banner variant="error">{overlayError}</Banner>}
 
       <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-hidden rounded-md bg-bg-soft p-2">
         <Pane
@@ -681,77 +683,6 @@ function PaneInner({
   );
 }
 
-interface ZoomBarProps {
-  onFit: () => void;
-  onOneToOne: () => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-}
-
-function ZoomBar({ onFit, onOneToOne, onZoomIn, onZoomOut }: ZoomBarProps) {
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        onClick={onZoomOut}
-        title="Zoom out"
-        aria-label="Zoom out"
-        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
-      >
-        −
-      </button>
-      <button
-        type="button"
-        onClick={onZoomIn}
-        title="Zoom in"
-        aria-label="Zoom in"
-        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
-      >
-        +
-      </button>
-      <button
-        type="button"
-        onClick={onFit}
-        title="Fit"
-        className="h-7 px-2 font-mono text-[11px]"
-      >
-        Fit
-      </button>
-      <button
-        type="button"
-        onClick={onOneToOne}
-        title="1:1"
-        className="h-7 px-2 font-mono text-[11px]"
-      >
-        1:1
-      </button>
-    </div>
-  );
-}
-
-interface ToggleProps {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  activeLabel?: string;
-  title?: string;
-}
-
-function Toggle({ active, onClick, label, activeLabel, title }: ToggleProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`h-7 px-2 font-mono text-[11px] ${
-        active ? "border-brand text-brand" : ""
-      }`}
-      title={title}
-    >
-      {active ? (activeLabel ?? `${label} ✓`) : label}
-    </button>
-  );
-}
-
 interface RelativePoseStripProps {
   relativePose: ReturnType<typeof relativeCameraPose> | null;
   cameraA: number;
@@ -822,50 +753,6 @@ function RelativePoseStrip({
           clipped <span className="text-foreground tabular-nums">{samplesClipped}</span>
         </span>
       )}
-    </div>
-  );
-}
-
-function Selector({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  options: number[];
-  onChange: (v: number) => void;
-}) {
-  return (
-    <label className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
-      <span className="uppercase tracking-wider">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="h-7 rounded-md border border-border bg-surface px-1 text-foreground"
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function Empty({ body }: { body: string }) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <header className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold tracking-tight">Epipolar geometry</h2>
-      </header>
-      <div className="flex min-h-0 flex-1 items-center justify-center rounded-md border border-dashed border-border bg-bg-soft">
-        <p className="max-w-[28rem] p-6 text-center text-[13px] text-muted-foreground">
-          {body}
-        </p>
-      </div>
     </div>
   );
 }

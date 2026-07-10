@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { PoseStepper } from "../../components/PoseStepper";
+import { Button, EmptyState, Panel, SectionHeader, Select } from "../../components/ui";
 import {
   iso3DistanceM,
   iso3EulerXYZDeg,
@@ -38,7 +39,12 @@ export function Viewer3DWorkspace() {
   const sceneData = useMemo(() => (data ? adaptSceneExport(data) : null), [data]);
 
   if (!data || !kind || !sceneData) {
-    return <Empty body="Load a rig export to see cameras and target poses in 3D." />;
+    return (
+      <EmptyState
+        title="3D viewer"
+        body="Load a rig export to see cameras and target poses in 3D."
+      />
+    );
   }
 
   const camerasArr = sceneData.cameras;
@@ -52,7 +58,8 @@ export function Viewer3DWorkspace() {
 
   if (!isRig) {
     return (
-      <Empty
+      <EmptyState
+        title="3D viewer"
         body={`The 3D viewer needs a rig export (cameras + cam_se3_rig + rig_se3_target) or a single-camera laserline device. The current export is ${exportKindLabel(
           kind,
         )} — its remaining single-camera shapes will land in a follow-up.`}
@@ -90,32 +97,28 @@ export function Viewer3DWorkspace() {
               onSelectPose={(next) => setSelectedPose(next, "A")}
             />
           )}
-          <RefCameraSelect
-            cameraIndices={cameraIndices}
+          <Select
+            label="ref cam"
             value={safeRefCamera}
+            options={cameraIndices}
             onChange={setReferenceCamera}
+            title="Reference camera for the relative-pose readout"
           />
-          <button
-            type="button"
+          <Button
+            pressed={showAllPoses}
             onClick={() => setShowAllPoses((v) => !v)}
-            className={`h-7 px-2 font-mono text-[11px] ${
-              showAllPoses ? "border-brand text-brand" : ""
-            }`}
             title="Toggle ghost rendering of every target pose"
           >
             {showAllPoses ? "All poses ✓" : "All poses"}
-          </button>
+          </Button>
           {hasLaserPlanes && (
-            <button
-              type="button"
+            <Button
+              pressed={showLaserPlanes}
               onClick={() => setShowLaserPlanes((v) => !v)}
-              className={`h-7 px-2 font-mono text-[11px] ${
-                showLaserPlanes ? "border-brand text-brand" : ""
-              }`}
               title="Toggle the calibrated laser planes (rig frame)"
             >
               {showLaserPlanes ? "Laser planes ✓" : "Laser planes"}
-            </button>
+            </Button>
           )}
           <span className="font-mono text-[11px] text-muted-foreground">
             {exportKindLabel(kind)}
@@ -143,7 +146,10 @@ export function Viewer3DWorkspace() {
           </div>
         </div>
 
-        <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto rounded-md border border-border bg-surface p-3 text-[12px]">
+        <Panel
+          as="aside"
+          className="flex min-h-0 flex-col gap-3 overflow-y-auto text-[12px]"
+        >
           <CameraIntrinsicsPanel cameraIndex={safeCameraA} camera={selectedCameraData} />
           <TargetExtrinsicsPanel
             cameraIndex={safeCameraA}
@@ -157,35 +163,9 @@ export function Viewer3DWorkspace() {
             referenceCamSe3Rig={referenceCamSe3Rig}
             selectedCamSe3Rig={selectedCamSe3Rig}
           />
-        </aside>
+        </Panel>
       </div>
     </div>
-  );
-}
-
-interface RefCameraSelectProps {
-  cameraIndices: number[];
-  value: number;
-  onChange: (v: number) => void;
-}
-
-function RefCameraSelect({ cameraIndices, value, onChange }: RefCameraSelectProps) {
-  return (
-    <label className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
-      <span className="uppercase tracking-wider">ref cam</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="h-7 rounded-md border border-border bg-surface px-1 text-foreground"
-        title="Reference camera for the relative-pose readout"
-      >
-        {cameraIndices.map((i) => (
-          <option key={i} value={i}>
-            {i}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 
@@ -197,7 +177,11 @@ interface CameraIntrinsicsPanelProps {
 function CameraIntrinsicsPanel({ cameraIndex, camera }: CameraIntrinsicsPanelProps) {
   return (
     <section>
-      <PanelHeading title="Selected camera" subtitle={`cam ${cameraIndex}`} />
+      <SectionHeader
+        className="mb-1.5"
+        title="Selected camera"
+        subtitle={`cam ${cameraIndex}`}
+      />
       {camera ? (
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums">
           <div className="col-span-2 mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -258,7 +242,7 @@ function TargetExtrinsicsPanel({
   if (!camSe3Rig || !rigSe3Target) {
     return (
       <section>
-        <PanelHeading title="Target extrinsic" subtitle="—" />
+        <SectionHeader className="mb-1.5" title="Target extrinsic" subtitle="—" />
         <p className="text-[11px] text-muted-foreground">no pose data</p>
       </section>
     );
@@ -269,7 +253,8 @@ function TargetExtrinsicsPanel({
   const angle = iso3RotationAngleDeg(t);
   return (
     <section>
-      <PanelHeading
+      <SectionHeader
+        className="mb-1.5"
         title="Target extrinsic"
         subtitle={`cam ${cameraIndex} → pose ${poseIndex}`}
       />
@@ -308,7 +293,7 @@ function RelativePosePanel({
   if (!referenceCamSe3Rig || !selectedCamSe3Rig) {
     return (
       <section>
-        <PanelHeading title="Relative pose" subtitle="—" />
+        <SectionHeader className="mb-1.5" title="Relative pose" subtitle="—" />
         <p className="text-[11px] text-muted-foreground">no pose data</p>
       </section>
     );
@@ -316,7 +301,8 @@ function RelativePosePanel({
   if (referenceCamera === selectedCamera) {
     return (
       <section>
-        <PanelHeading
+        <SectionHeader
+          className="mb-1.5"
           title="Relative pose"
           subtitle={`cam ${referenceCamera} ↔ cam ${selectedCamera}`}
         />
@@ -333,7 +319,8 @@ function RelativePosePanel({
   const angle = iso3RotationAngleDeg(rel);
   return (
     <section>
-      <PanelHeading
+      <SectionHeader
+        className="mb-1.5"
         title="Relative pose"
         subtitle={`cam ${referenceCamera} ⇒ cam ${selectedCamera}`}
       />
@@ -362,17 +349,6 @@ function RelativePosePanel({
   );
 }
 
-function PanelHeading({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <header className="mb-1.5 flex items-baseline justify-between border-b border-border pb-1">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
-        {title}
-      </h3>
-      <span className="font-mono text-[10px] text-muted-foreground">{subtitle}</span>
-    </header>
-  );
-}
-
 function formatDeg(value: number): string {
   // Tabular alignment helper: always sign + at least one decimal.
   const sign = value >= 0 ? "+" : "";
@@ -393,19 +369,4 @@ function cameraDimensionsFromFrames(
     if (f.roi) dims.set(f.camera, { width: f.roi.w, height: f.roi.h });
   }
   return dims;
-}
-
-function Empty({ body }: { body: string }) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <header className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold tracking-tight">3D viewer</h2>
-      </header>
-      <div className="flex min-h-0 flex-1 items-center justify-center rounded-md border border-dashed border-border bg-bg-soft">
-        <p className="max-w-[28rem] p-6 text-center text-[13px] text-muted-foreground">
-          {body}
-        </p>
-      </div>
-    </div>
-  );
 }

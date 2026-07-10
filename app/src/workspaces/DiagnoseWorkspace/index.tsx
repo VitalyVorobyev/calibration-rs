@@ -8,6 +8,8 @@ import {
 } from "../../components/FrameCanvas";
 import { Histogram } from "../../components/Histogram";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
+import { ZoomControls } from "../../components/ZoomControls";
+import { Banner, Button, Panel, SectionHeader } from "../../components/ui";
 import { getPixelLum, rectHistogram, useImageData } from "../../hooks/useImageData";
 import { useKeyboardNav } from "../../hooks/useKeyboardNav";
 import { useStore } from "../../store";
@@ -239,6 +241,7 @@ export function DiagnoseWorkspace() {
         )}
         {data && (
           <ZoomControls
+            hints
             onFit={() =>
               compare
                 ? compareHandleRef.current?.fitActive()
@@ -262,62 +265,50 @@ export function DiagnoseWorkspace() {
           />
         )}
         {data && (
-          <button
-            type="button"
+          <Button
+            pressed={compare}
             onClick={() => {
               setCompare((v) => {
                 if (!v) setLaserView(false);
                 return !v;
               });
             }}
-            className={`h-7 px-2 font-mono text-[11px] ${
-              compare ? "border-brand text-brand" : ""
-            }`}
             title="Toggle compare mode"
           >
             {compare ? "Compare ✓" : "Compare"}
-          </button>
+          </Button>
         )}
         {data && hasLaser && (
-          <button
-            type="button"
+          <Button
+            pressed={laserView}
             onClick={() => {
               setLaserView((v) => {
                 if (!v) setCompare(false);
                 return !v;
               });
             }}
-            className={`h-7 px-2 font-mono text-[11px] ${
-              laserView ? "border-brand text-brand" : ""
-            }`}
             title="Show the laser frame with point-to-plane residuals"
           >
             {laserView ? "Laser ✓" : "Laser"}
-          </button>
+          </Button>
         )}
         {data && compare && (
-          <button
-            type="button"
+          <Button
+            pressed={linked}
             onClick={() => setLinked((v) => !v)}
-            className={`h-7 px-2 font-mono text-[11px] ${
-              linked ? "border-brand text-brand" : ""
-            }`}
             title="Toggle linked viewport (L)"
           >
             {linked ? "Linked" : "Unlinked"}
-          </button>
+          </Button>
         )}
         {data && hasStats && (
-          <button
-            type="button"
+          <Button
+            pressed={showStats}
             onClick={() => setShowStats((v) => !v)}
-            className={`h-7 px-2 font-mono text-[11px] ${
-              showStats ? "border-brand text-brand" : ""
-            }`}
             title="Per-pose residual stats + cross-camera matrix"
           >
             {showStats ? "Stats ✓" : "Stats"}
-          </button>
+          </Button>
         )}
         {data && typeof data.mean_reproj_error === "number" && (
           <span className="ml-auto font-mono text-xs text-muted-foreground">
@@ -326,11 +317,7 @@ export function DiagnoseWorkspace() {
         )}
       </div>
 
-      {error && (
-        <div className="rounded-md border-l-2 border-destructive bg-destructive/[0.08] p-2.5 text-[13px] text-foreground">
-          {error}
-        </div>
-      )}
+      {error && <Banner variant="error">{error}</Banner>}
 
       <div className="flex min-h-0 flex-1 gap-2.5 overflow-hidden">
         <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft p-2">
@@ -372,9 +359,12 @@ export function DiagnoseWorkspace() {
         </div>
 
         {data && showStats && hasStats && (
-          <aside className="flex min-h-0 w-[19rem] shrink-0 flex-col gap-4 overflow-y-auto rounded-md border border-border bg-surface p-3">
+          <Panel
+            as="aside"
+            className="flex min-h-0 w-[19rem] shrink-0 flex-col gap-4 overflow-y-auto"
+          >
             <div className="flex flex-col gap-2">
-              <PanelHeading title="Per-pose residuals" subtitle="click a row to jump" />
+              <SectionHeader title="Per-pose residuals" subtitle="click a row to jump" />
               <PoseStatsTable
                 residuals={targetResiduals}
                 selectedPose={selectedPose}
@@ -382,7 +372,7 @@ export function DiagnoseWorkspace() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <PanelHeading title="Cross-camera matrix" subtitle="mean px per cell" />
+              <SectionHeader title="Cross-camera matrix" subtitle="mean px per cell" />
               <CameraResidualMatrix
                 residuals={targetResiduals}
                 selectedPose={selectedPose}
@@ -393,7 +383,7 @@ export function DiagnoseWorkspace() {
                 }}
               />
             </div>
-          </aside>
+          </Panel>
         )}
       </div>
 
@@ -428,17 +418,6 @@ export function DiagnoseWorkspace() {
         </div>
       )}
     </section>
-  );
-}
-
-function PanelHeading({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <header className="flex items-baseline justify-between border-b border-border pb-1">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
-        {title}
-      </h3>
-      <span className="font-mono text-[10px] text-muted-foreground">{subtitle}</span>
-    </header>
   );
 }
 
@@ -523,54 +502,6 @@ function LaserSwatch({ mm, label }: { mm: number; label: string }) {
       />
       {label}
     </span>
-  );
-}
-
-interface ZoomControlsProps {
-  onFit: () => void;
-  onOneToOne: () => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-}
-
-function ZoomControls({ onFit, onOneToOne, onZoomIn, onZoomOut }: ZoomControlsProps) {
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        onClick={onZoomOut}
-        title="Zoom out (−)"
-        aria-label="Zoom out"
-        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
-      >
-        −
-      </button>
-      <button
-        type="button"
-        onClick={onZoomIn}
-        title="Zoom in (+)"
-        aria-label="Zoom in"
-        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
-      >
-        +
-      </button>
-      <button
-        type="button"
-        onClick={onFit}
-        title="Fit (f)"
-        className="h-7 px-2 font-mono text-[11px]"
-      >
-        Fit
-      </button>
-      <button
-        type="button"
-        onClick={onOneToOne}
-        title="1:1 (1)"
-        className="h-7 px-2 font-mono text-[11px]"
-      >
-        1:1
-      </button>
-    </div>
   );
 }
 
