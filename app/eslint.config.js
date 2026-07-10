@@ -47,6 +47,18 @@ export default tseslint.config(
     },
   },
   {
+    // Playwright e2e specs (B-QUAL4) live outside `tsconfig.json`'s
+    // `include: ["src"]` too — same syntactic-only treatment as the
+    // config files above. Node globals for the test/config code; `page`
+    // callbacks execute in the browser but are still authored/typed as
+    // plain TS closures, so no browser globals are needed here.
+    files: ["e2e/**/*.{ts,tsx}", "playwright.config.ts"],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     plugins: {
       "react-hooks": reactHooks,

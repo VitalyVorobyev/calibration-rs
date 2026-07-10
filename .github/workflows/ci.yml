@@ -151,6 +151,20 @@ jobs:
         working-directory: app
         run: bun run test
 
+      # Playwright smoke (B-QUAL4): boots the plain Vite dev server (no
+      # Tauri build, no Rust toolchain) and drives it in real Chromium.
+      # Tauri IPC is either absent (empty-state assertions) or mocked at
+      # the `window.__TAURI_INTERNALS__` seam per-spec — see
+      # `app/e2e/support/tauriMock.ts` and `app/README.md`'s dev notes on
+      # the Tauri-native vs mocked-IPC boundary.
+      - name: Install Playwright browsers
+        working-directory: app
+        run: bunx playwright install chromium --with-deps
+
+      - name: E2E smoke (Playwright)
+        working-directory: app
+        run: bun run test:e2e
+
       # Drift stage 2 (schema → TypeScript, bun-only). Regenerate the TS from
       # the committed schema and fail if it differs from what's checked in.
       # Stage 1 (Rust → schema) lives in the `app-src-tauri` job, which has the

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeConfig } from "./presets";
+import { BUILTIN_PRESETS, mergeConfig } from "./presets";
 
 describe("mergeConfig", () => {
   it("returns the patch when the base is not a mergeable object", () => {
@@ -62,5 +62,24 @@ describe("mergeConfig", () => {
       solver: { max_iters: 100 },
       handeye_init: { handeye_mode: "EyeToHand" },
     });
+  });
+});
+
+// B-QUAL4: manifestPath must stay repo-root-relative (RunWorkspace resolves
+// it to an absolute path at load time via `repoRoot()` / `repo_root_cmd`),
+// so no developer's personal checkout path leaks back into source control.
+describe("BUILTIN_PRESETS manifest paths", () => {
+  const enabled = BUILTIN_PRESETS.filter((p) => p.disabled !== true);
+
+  it("has at least one enabled preset to check", () => {
+    expect(enabled.length).toBeGreaterThan(0);
+  });
+
+  it("keeps every manifestPath relative (no leading slash or drive letter)", () => {
+    for (const preset of enabled) {
+      expect(preset.manifestPath.startsWith("/")).toBe(false);
+      expect(preset.manifestPath).not.toMatch(/^[A-Za-z]:[\\/]/);
+      expect(preset.manifestPath).not.toContain("/Users/");
+    }
   });
 });

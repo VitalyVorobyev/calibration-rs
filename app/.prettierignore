@@ -4,6 +4,8 @@ src-tauri/target
 src-tauri/gen
 tsconfig.tsbuildinfo
 bun.lock
+playwright-report
+test-results
 
 # Rust-emitted JSON Schemas (B-QUAL2): byte-for-byte owned by the
 # `emit_schemas` binary and drift-checked against it, so prettier must not

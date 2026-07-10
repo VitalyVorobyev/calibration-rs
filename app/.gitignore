@@ -9,3 +9,6 @@ tsconfig.tsbuildinfo
 dist/*
 !dist/.gitkeep
 !dist/index.html
+# Playwright smoke-test artifacts (B-QUAL4).
+playwright-report
+test-results

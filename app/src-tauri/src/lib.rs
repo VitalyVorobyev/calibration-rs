@@ -45,6 +45,7 @@ pub fn run() {
             commands::load_image,
             commands::load_undistorted_image,
             commands::load_text_file,
+            commands::repo_root_cmd,
             commands::sniff_folder,
             commands::compute_epipolar_overlay,
             commands::compute_epipolar_overlay_undistorted,

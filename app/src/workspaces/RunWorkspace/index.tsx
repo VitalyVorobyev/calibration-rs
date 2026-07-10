@@ -28,7 +28,7 @@ import * as TOML from "toml";
 
 import { ConfigForm, type JsonSchema } from "../../lib/configForm";
 import { runCalibration, type RunResponse } from "../../lib/runCalibration";
-import { isTauriContext } from "../../lib/tauri";
+import { isTauriContext, joinPath, repoRoot } from "../../lib/tauri";
 import datasetSchemaJson from "../../schemas/dataset_spec.json";
 import { useStore } from "../../store";
 import { AskUserModal } from "./AskUserModal";
@@ -228,8 +228,21 @@ export function RunWorkspace() {
     }
 
     try {
-      // Load the TOML from disk using the new load_text_file command.
-      const raw = await invoke<string>("load_text_file", { path: preset.manifestPath });
+      // Preset manifest paths are repo-root-relative (presets.ts); resolve
+      // to an absolute path before touching disk.
+      const root = await repoRoot();
+      if (!root) {
+        setStatus({
+          kind: "error",
+          category: "no_tauri",
+          message: "Could not resolve the workspace repo root (repo_root_cmd failed).",
+        });
+        return;
+      }
+      const absManifestPath = joinPath(root, preset.manifestPath);
+
+      // Load the TOML from disk using the load_text_file command.
+      const raw = await invoke<string>("load_text_file", { path: absManifestPath });
       // TOML.parse's own types return `any`; narrow to `unknown` immediately
       // since `manifest`/`config` state is `unknown` everywhere else in this
       // component.
@@ -239,11 +252,11 @@ export function RunWorkspace() {
         : parsed;
 
       // Derive manifestDir from the manifest file path.
-      const sep = preset.manifestPath.includes("\\") ? "\\" : "/";
-      const dir = preset.manifestPath.substring(0, preset.manifestPath.lastIndexOf(sep));
+      const sep = absManifestPath.includes("\\") ? "\\" : "/";
+      const dir = absManifestPath.substring(0, absManifestPath.lastIndexOf(sep));
 
       setManifestDir(dir);
-      setManifestPath(preset.manifestPath);
+      setManifestPath(absManifestPath);
       setManifest(manifestWithOverrides);
       // Reset config to the preset topology's defaults (the topology
       // effect above only fires on topology *changes*, and switching

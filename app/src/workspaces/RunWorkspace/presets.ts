@@ -1,19 +1,14 @@
 /** Built-in preset registry for the Run workspace.
  *
- * Each enabled preset carries the absolute path to its TOML manifest and
- * enough metadata to render a meaningful card without reading the file.
- * The manifest dir is derived automatically from the manifest path at
- * load time.
- *
- * DEV NOTE: Manifest paths are hard-coded against the repo root at
- * `/Users/vitalyvorobyev/vision/calibration-rs`. This is intentional
- * scaffolding for local development, to be replaced with bundle-asset
- * resolution via Tauri's `resource_dir` API.
+ * Each enabled preset carries the *repo-root-relative* path to its TOML
+ * manifest and enough metadata to render a meaningful card without
+ * reading the file. `RunWorkspace` resolves the absolute path at
+ * load time by joining `manifestPath` onto the workspace repo root
+ * (`lib/tauri.ts`'s `repoRoot()`, backed by the `repo_root_cmd` Tauri
+ * command — see `app/README.md`'s dev notes). This keeps the preset
+ * registry free of any developer's personal absolute path while still
+ * working out of the box for `bun run tauri dev` on any checkout.
  */
-
-// Absolute path to the repo root — replace this constant when
-// bundle-asset resolution ships.
-const REPO_ROOT = "/Users/vitalyvorobyev/vision/calibration-rs";
 
 export interface EnabledPreset {
   id: string;
@@ -27,7 +22,8 @@ export interface EnabledPreset {
   /** Short target description shown in the card body. */
   targetSummary: string;
   imageCount: number;
-  /** Absolute path to the TOML manifest file. */
+  /** Path to the TOML manifest file, relative to the repo root
+   * (resolved to an absolute path via `repoRoot()` at load time). */
   manifestPath: string;
   /**
    * Optional config patch deep-merged over the topology's
@@ -163,7 +159,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "chessboard",
     targetSummary: "chessboard 7×11, 30 mm",
     imageCount: 20,
-    manifestPath: `${REPO_ROOT}/data/stereo/dataset_left.toml`,
+    manifestPath: "data/stereo/dataset_left.toml",
   },
 
   // ── Enabled: stereo-right ───────────────────────────────────────────────
@@ -175,7 +171,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "chessboard",
     targetSummary: "chessboard 7×11, 30 mm",
     imageCount: 20,
-    manifestPath: `${REPO_ROOT}/data/stereo/dataset_right.toml`,
+    manifestPath: "data/stereo/dataset_right.toml",
   },
 
   // ── Enabled: stereo rig ─────────────────────────────────────────────────
@@ -187,7 +183,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "chessboard",
     targetSummary: "chessboard 7×11, 30 mm · 2 cameras",
     imageCount: 20,
-    manifestPath: `${REPO_ROOT}/data/stereo/dataset_rig.toml`,
+    manifestPath: "data/stereo/dataset_rig.toml",
   },
 
   // ── Enabled: stereo-charuco (single camera) ─────────────────────────────
@@ -199,7 +195,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "charuco",
     targetSummary: "ChArUco 22×22, 1.35 mm, DICT_4X4_1000",
     imageCount: 28,
-    manifestPath: `${REPO_ROOT}/data/stereo_charuco/dataset_cam1.toml`,
+    manifestPath: "data/stereo_charuco/dataset_cam1.toml",
   },
 
   // ── Enabled: stereo-charuco rig (token pairing) ─────────────────────────
@@ -211,7 +207,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "charuco",
     targetSummary: "ChArUco 22×22 · 2 cameras · token pairing",
     imageCount: 27,
-    manifestPath: `${REPO_ROOT}/data/stereo_charuco/dataset_rig.toml`,
+    manifestPath: "data/stereo_charuco/dataset_rig.toml",
   },
 
   // ── Enabled: KUKA handeye (committed dataset) ────────────────────────────
@@ -223,7 +219,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "chessboard",
     targetSummary: "chessboard 17×28, 20 mm · robot poses 4×4",
     imageCount: 30,
-    manifestPath: `${REPO_ROOT}/data/kuka_1/dataset.toml`,
+    manifestPath: "data/kuka_1/dataset.toml",
   },
 
   // ── Enabled: rtv3d rig hand-eye (local-only dataset) ─────────────────────
@@ -235,7 +231,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "charuco",
     targetSummary: "ChArUco 22×22, 5.2 mm · 6 tiled cameras · EyeToHand",
     imageCount: 20,
-    manifestPath: `${REPO_ROOT}/privatedata/rtv3d/dataset_rig_handeye.toml`,
+    manifestPath: "privatedata/rtv3d/dataset_rig_handeye.toml",
     manifestOverrides: RTV3D_MANIFEST_OVERRIDES,
     configOverrides: RTV3D_HAND_EYE_CONFIG_OVERRIDES,
   },
@@ -249,7 +245,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetKind: "charuco",
     targetSummary: "joint hand-eye + 6 laser planes · V5 path · EyeToHand",
     imageCount: 20,
-    manifestPath: `${REPO_ROOT}/privatedata/rtv3d/dataset_laser.toml`,
+    manifestPath: "privatedata/rtv3d/dataset_laser.toml",
     manifestOverrides: RTV3D_JOINT_LASER_MANIFEST_OVERRIDES,
     configOverrides: {
       handeye: RTV3D_HAND_EYE_CONFIG_OVERRIDES,
@@ -290,7 +286,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetSummary:
       "plane-only diagnostic over a frozen hand-eye export (requires rig_handeye_export.json)",
     imageCount: 20,
-    manifestPath: `${REPO_ROOT}/privatedata/rtv3d/dataset_laser.toml`,
+    manifestPath: "privatedata/rtv3d/dataset_laser.toml",
     manifestOverrides: RTV3D_MANIFEST_OVERRIDES,
     configOverrides: {
       solver: { max_iters: 200 },
