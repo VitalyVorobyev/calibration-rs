@@ -116,9 +116,10 @@ R3 shapes. **Track R is complete.**
 
 ### Track B extensions — app to production grade
 
-B-QUAL1 (lint + tsc + vitest in CI — the app is currently absent from CI) →
-B-QUAL2 (ts-rs codegen replacing `inferExportKind` shape-sniffing; after R3)
-→ B-QUAL3 (component tests) → B-QUAL4 (Playwright smoke) → B-UX1 (component
+B-QUAL1–4 done 2026-07-10 (ESLint 9 + Prettier + two app CI jobs;
+schemars-driven TS wire types replacing `inferExportKind` — mechanism
+changed from ts-rs, see ADR 0018 amendment; 35 component tests; Playwright
+smoke + repo-root preset resolution). Remaining: B-UX1 (component
 system + design pass) → B-UX2 (workspace elevation; absorbs B-LASER +
 B-EXPLORE) → B-DIST (signed installers).
 

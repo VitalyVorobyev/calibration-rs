@@ -145,25 +145,36 @@ two-view/triangulation.
 
 ## B-QUAL / B-UX / B-DIST — app to production grade (Phase III)
 
-- [ ] B-QUAL1-LINT-CI - ESLint 9 flat config + typescript-eslint + react-hooks
-  + prettier or Biome (decide in-session; bun-friendly either way); fix
-  violations across the ~39 TS files; add an `app` job to
-  `.github/workflows/ci.yml` (`bun install`, lint, `tsc --noEmit`, vitest) —
-  the app is currently absent from CI entirely.
-- [ ] B-QUAL2-TSRS - (after R3) ts-rs codegen (F6): derive on the 12 Tauri
-  command payload/response types + an export discriminator tag; generated
-  types checked in under `app/src/types/generated/`; **delete
-  `inferExportKind`** shape-sniffing; CI verifies codegen currency
-  (regenerate + `git diff --exit-code`).
-- [ ] B-QUAL3-COMPONENT-TESTS - (after B-QUAL2) Vitest + testing-library for
-  the load-bearing components: schema-driven config form (schema + JSON
-  fallback paths), Diagnose rendering for all 9 export kinds (against the
-  generated unions), Run happy path with mocked `invoke`; reusable mocked
-  Tauri IPC helper.
-- [ ] B-QUAL4-SMOKE - Playwright smoke: app boots, each workspace mounts, one
-  Diagnose fixture renders, one Run completes on a tiny bundled dataset.
-  Absorbs the B-INFRA `resource_dir` preset resolution (presets are what the
-  smoke run loads). Document the Tauri-native vs mocked-IPC boundary for CI.
+- [x] B-QUAL1-LINT-CI - **Done 2026-07-10.** ESLint 9 flat config
+  (typescript-eslint `recommendedTypeChecked`, react-hooks v5) + Prettier
+  (printWidth 90, churn-minimized empirically); lint/format/typecheck
+  scripts; 27 files formatted, 10 with genuine fixes — lint caught a real
+  `useMemo` defeat in `Scene.tsx` (fresh `?? []` arrays), an `any`-typed
+  parse leak in RunWorkspace, and a dead initializer in AppShell. New CI
+  jobs `app-frontend` (bun: lint/format:check/typecheck/vitest) and
+  `app-src-tauri` (fmt/clippy/test via `--manifest-path`).
+- [x] B-QUAL2-TSRS - **Done 2026-07-10** (mechanism changed from ts-rs to
+  schemars per ADR 0018 amendment — single source of truth, no new dep in
+  published crates). `JsonSchema` extended to all 8 `*Export` types +
+  closure; `emit_schemas` bin (feature `schema-export`) → draft-07 schema →
+  `json-schema-to-typescript` → `app/src/types/generated/diagnose-wire.ts`
+  (33 interfaces, idempotent). `inferExportKind` deleted; `detectExportKind`
+  grounded in generated types (fixed latent misclassification of planar/
+  scheimpflug/laserline exports). CI drift checks in both app jobs.
+- [x] B-QUAL3-COMPONENT-TESTS - **Done 2026-07-10.** 35 vitest tests
+  (jsdom via `environmentMatchGlobs`): ConfigForm against the real planar
+  schema fixture (number/bool/enum/oneOf edits propagate), Diagnose mounts
+  for all 8 export kinds, Run happy path over a mocked `invoke` seam
+  (`@tauri-apps/api/mocks`).
+- [x] B-QUAL4-SMOKE - **Done 2026-07-10.** Playwright smoke (7 tests, CI
+  chromium in `app-frontend`): boot, five workspaces mount with zero console
+  errors, Diagnose fixture renders end-to-end through a
+  `__TAURI_INTERNALS__` init-script mock (mocked-IPC boundary documented in
+  `app/README.md`). Absorbed the `resource_dir` preset item: hard-coded
+  `REPO_ROOT` replaced by `repo_root_cmd` (`CARGO_MANIFEST_DIR` walk-up) +
+  repo-root-relative preset paths + a guard test rejecting absolute paths.
+  A tiny bundled-dataset Run stays out of CI (private datasets can't ship);
+  the mocked Run happy path covers the UI flow.
 - [ ] B-UX1-DESIGN-SYSTEM - Design direction + component system: consolidate
   the hand-rolled components into a small internal set (button, panel, form
   field, table, toast), typography/spacing scale, dark-mode audit. No new
