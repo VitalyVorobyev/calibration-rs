@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { detectExportKind, exportKindLabel, type ExportKind } from "./exportKind";
+import { PLANAR_EXPORT_FIXTURE } from "../test/exportFixtures";
 
 const ALL_KINDS: ExportKind[] = [
   "planar_intrinsics",
@@ -20,17 +21,14 @@ const ALL_KINDS: ExportKind[] = [
 describe("detectExportKind", () => {
   it("classifies single-camera intrinsics by params.camera.sensor", () => {
     // Both planar and Scheimpflug exports are top-level identical; the sensor
-    // model tag inside params.camera is the only discriminator.
+    // model tag inside params.camera is the only discriminator. The
+    // "identity" case reuses the canonical planar fixture (see
+    // src/test/exportFixtures.ts) instead of re-declaring its shape here.
+    expect(detectExportKind(PLANAR_EXPORT_FIXTURE)).toBe("planar_intrinsics");
     expect(
       detectExportKind({
-        params: { camera: { sensor: { type: "identity" } } },
-        report: { final_cost: 0 },
-      }),
-    ).toBe("planar_intrinsics");
-    expect(
-      detectExportKind({
+        ...PLANAR_EXPORT_FIXTURE,
         params: { camera: { sensor: { type: "scheimpflug" } } },
-        report: { final_cost: 0 },
       }),
     ).toBe("scheimpflug_intrinsics");
     // Missing/omitted sensor tag falls back to planar (the common case).
@@ -74,6 +72,14 @@ describe("detectExportKind", () => {
     expect(detectExportKind({ per_feature_residuals: {} })).toBe("unknown");
     expect(detectExportKind(null)).toBe("unknown");
     expect(detectExportKind("nope")).toBe("unknown");
+  });
+
+  it("returns unknown when params is present but not a plain object", () => {
+    // A malformed export could carry `params` as some other JSON type;
+    // that must not be misread as an empty/planar intrinsics export.
+    expect(detectExportKind({ params: "not-an-object" })).toBe("unknown");
+    expect(detectExportKind({ params: [] })).toBe("unknown");
+    expect(detectExportKind({ params: null })).toBe("unknown");
   });
 
   // Probe order runs most-specific first: a laser-rig hand-eye export carries

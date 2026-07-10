@@ -122,7 +122,6 @@ jobs:
 
   app-frontend:
     name: App frontend (lint/format/typecheck/test)
-    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -157,6 +156,17 @@ jobs:
       # the `window.__TAURI_INTERNALS__` seam per-spec — see
       # `app/e2e/support/tauriMock.ts` and `app/README.md`'s dev notes on
       # the Tauri-native vs mocked-IPC boundary.
+      #
+      # Cache the downloaded browser binaries keyed on the lockfile (the
+      # Playwright version they match); `--with-deps` still runs on a cache
+      # hit so the OS-level (apt) dependencies stay installed, but it's a
+      # no-op for the browser download itself.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('app/bun.lock') }}
+
       - name: Install Playwright browsers
         working-directory: app
         run: bunx playwright install chromium --with-deps
@@ -182,7 +192,6 @@ jobs:
   # contributors to build it locally.
   app-src-tauri:
     name: App src-tauri (fmt/clippy/test)
-    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -212,12 +221,11 @@ jobs:
       - name: Cargo fmt (src-tauri)
         run: cargo fmt --manifest-path app/src-tauri/Cargo.toml --check
 
+      # `schema-export` is additive (only gates the extra `emit_schemas` bin +
+      # its `schemars` derives behind `required-features`/`#[cfg]`, never
+      # removes code), so one clippy pass with the feature enabled covers
+      # both the default build and the schema emitter.
       - name: Cargo clippy (src-tauri)
-        run: cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets -- -D warnings
-
-      # The schema emitter is behind `--features schema-export`, so clippy it
-      # explicitly (the default `--all-targets` above skips its bin).
-      - name: Cargo clippy (schema emitter)
         run: cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets --features schema-export -- -D warnings
 
       - name: Cargo test (src-tauri)

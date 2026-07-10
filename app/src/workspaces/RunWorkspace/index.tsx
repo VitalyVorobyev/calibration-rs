@@ -28,7 +28,7 @@ import * as TOML from "toml";
 
 import { ConfigForm, type JsonSchema } from "../../lib/configForm";
 import { runCalibration, type RunResponse } from "../../lib/runCalibration";
-import { isTauriContext, joinPath, repoRoot } from "../../lib/tauri";
+import { dirnamePath, isTauriContext, joinPath, repoRoot } from "../../lib/tauri";
 import datasetSchemaJson from "../../schemas/dataset_spec.json";
 import { useStore } from "../../store";
 import { AskUserModal } from "./AskUserModal";
@@ -252,8 +252,7 @@ export function RunWorkspace() {
         : parsed;
 
       // Derive manifestDir from the manifest file path.
-      const sep = absManifestPath.includes("\\") ? "\\" : "/";
-      const dir = absManifestPath.substring(0, absManifestPath.lastIndexOf(sep));
+      const dir = dirnamePath(absManifestPath);
 
       setManifestDir(dir);
       setManifestPath(absManifestPath);
@@ -400,8 +399,7 @@ export function RunWorkspace() {
       });
       if (typeof picked === "string") {
         setManifestPath(picked);
-        const sep = picked.includes("\\") ? "\\" : "/";
-        const dir = picked.substring(0, picked.lastIndexOf(sep));
+        const dir = dirnamePath(picked);
         setManifestDir(dir);
         setActivePresetId(null);
 

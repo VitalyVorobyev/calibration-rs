@@ -50,13 +50,19 @@ const F_STATS = "stats" satisfies keyof LaserlineDeviceExport;
 const F_PARAMS = "params" satisfies keyof PlanarIntrinsicsExport &
   keyof ScheimpflugIntrinsicsExport;
 
+/** Narrows `value` to a plain (non-null, non-array) object — guards the
+ * `params` cast below against malformed exports where the field exists
+ * but isn't a record (e.g. a string or array). */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /** Sensor-model tag inside `*IntrinsicsExport.params.camera.sensor`, the only
  * place planar and Scheimpflug single-camera exports differ (their top-level
  * shapes are identical). */
-function intrinsicsSensorTag(data: Record<string, unknown>): string | undefined {
-  const params = data[F_PARAMS] as
-    { camera?: { sensor?: { type?: unknown } } } | undefined;
-  const tag = params?.camera?.sensor?.type;
+function intrinsicsSensorTag(params: Record<string, unknown>): string | undefined {
+  const camera = params.camera as { sensor?: { type?: unknown } } | undefined;
+  const tag = camera?.sensor?.type;
   return typeof tag === "string" ? tag : undefined;
 }
 
@@ -85,8 +91,12 @@ export function detectExportKind(data: unknown): ExportKind {
   // Single-camera hand-eye: one `camera` plus a hand-eye mode.
   if (has(F_CAMERA) && has(F_HANDEYE_MODE)) return "single_cam_handeye";
   // Single-camera intrinsics: `params`; planar vs Scheimpflug by sensor model.
-  if (has(F_PARAMS)) {
-    return intrinsicsSensorTag(d) === "scheimpflug"
+  // `params` must be a plain object — a malformed export where it's some
+  // other JSON type (string, array, …) falls through to "unknown" instead
+  // of silently defaulting to planar.
+  const params = d[F_PARAMS];
+  if (isPlainObject(params)) {
+    return intrinsicsSensorTag(params) === "scheimpflug"
       ? "scheimpflug_intrinsics"
       : "planar_intrinsics";
   }

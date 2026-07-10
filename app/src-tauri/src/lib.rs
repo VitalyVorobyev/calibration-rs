@@ -25,11 +25,14 @@ use export_cache::ExportCache;
 
 /// Tauri command payload/response types re-exported for the `emit_schemas`
 /// binary (B-QUAL2). Public only under `schema-export` so it never widens
-/// the app's runtime surface. These are the structured wire types the
-/// frontend consumes through generated TypeScript.
+/// the app's runtime surface. These are exactly the roots `emit_schemas`
+/// calls `subschema_for::<…>()` on directly; `PointCloud` is *not* listed
+/// here even though it's public in `disparity` — it only reaches the
+/// emitted schema transitively, as a `$defs` entry nested inside
+/// `DisparityResult`.
 #[cfg(feature = "schema-export")]
 pub mod schema_types {
-    pub use crate::disparity::{DisparityResult, PointCloud};
+    pub use crate::disparity::DisparityResult;
     pub use crate::epipolar::EpipolarOverlay;
 }
 

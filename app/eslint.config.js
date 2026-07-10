@@ -14,6 +14,7 @@ export default tseslint.config(
     // tsconfig.tsbuildinfo is a tsc cache file, and src/types/generated is
     // machine-generated from the Rust wire types (B-QUAL2) — regenerate via
     // `bun run generate:types`, don't lint or hand-edit it.
+    // Keep in sync with app/.gitignore / app/.prettierignore.
     ignores: [
       "dist/**",
       "src-tauri/**",

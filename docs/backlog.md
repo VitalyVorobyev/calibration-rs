@@ -142,6 +142,16 @@ two-view/triangulation.
   verified already on ADR-0024 shapes (zero stale fields); one genuinely
   stale `pixel_to_gripper_point` facade path fixed in the puzzle-130x130
   walkthrough (R1-audit casualty). Index updated.
+- [ ] R7-EXPORT-DISCRIMINATOR - (raised by the PR #99 altitude review; do
+  inside the v0.7.0 breaking window, small standalone PR) Add a serde
+  discriminator (`kind` tag) to the eight `*Export` types so consumers
+  narrow on a tag instead of probing required-field presence. Deletes the
+  app's `detectExportKind` probe module (`app/src/store/exportKind.ts`) —
+  TS narrows on `.kind` from the schemars-generated union for free.
+  Migration cost is one-time and bounded pre-1.0: regenerate committed
+  fixture exports, app recents invalidate naturally, private exports are
+  regenerate-on-load. Deferring past 0.7.0 locks a wire format that can't
+  gain a discriminator without another break.
 
 ## B-QUAL / B-UX / B-DIST — app to production grade (Phase III)
 

@@ -4,7 +4,12 @@ import { useMemo } from "react";
 import { Vector3 } from "three";
 import { cameraPositionInRig, iso3FromWire } from "../../lib/se3";
 import { useStore } from "../../store";
-import type { AnyExport, Iso3Wire, LaserPlaneWire } from "../../store/types";
+import type {
+  AnyExport,
+  Iso3Wire,
+  LaserPlaneWire,
+  PinholeCameraWire,
+} from "../../store/types";
 import type { TargetFeatureResidual } from "../../types";
 import { CameraFrustum } from "./CameraFrustum";
 import { LaserPlane } from "./LaserPlane";
@@ -37,6 +42,7 @@ const FAR_DEPTH_M = 0.05; // 5 cm — long enough to read on the puzzle
 // itself hasn't changed.
 const EMPTY_ISO3: Iso3Wire[] = [];
 const EMPTY_LASER_PLANES: LaserPlaneWire[] = [];
+const EMPTY_CAMERAS: PinholeCameraWire[] = [];
 
 /** R3F scene root. Renders rig origin + per-camera frustums + the
  * active pose's target board (or all poses as ghosts). Click events
@@ -49,7 +55,7 @@ export function Scene({
   fallbackImage,
 }: SceneProps) {
   const colors = useThemeColors();
-  const cameras = data.cameras ?? [];
+  const cameras = data.cameras ?? EMPTY_CAMERAS;
   const camSe3Rig = data.cam_se3_rig ?? EMPTY_ISO3;
   const rigSe3Target = data.rig_se3_target ?? EMPTY_ISO3;
   const laserPlanesRig = data.laser_planes_rig ?? EMPTY_LASER_PLANES;

@@ -1,118 +1,46 @@
 // @vitest-environment jsdom
-/** Component tests for DiagnoseWorkspace (B-QUAL3-2): render the
- * workspace once per calibration export kind (the eight `ExportKind`
- * discriminants from `store/exportKind.ts`) and assert it mounts
- * without throwing.
+/** Component tests for DiagnoseWorkspace (B-QUAL3-2; trimmed by a later
+ * review pass): render the workspace against the two shapes that
+ * actually change its render branches, plus the empty state.
  *
- * Fixtures are minimal objects satisfying `detectExportKind`'s
- * discriminating fields (mirroring `exportKind.test.ts`), each carrying
- * just enough of `AnyExport` — a one-frame `image_manifest` and a
- * `per_feature_residuals` block — for `DiagnoseWorkspace` to have
- * something to draw. The Tauri IPC layer is mocked at the `invoke` seam
- * via `@tauri-apps/api/mocks` (`mockIPC`) so `useImageData`'s
- * `load_image` call resolves instead of throwing outside a real Tauri
- * runtime.
+ * `DiagnoseWorkspace` never inspects `ExportKind` itself — only
+ * `frames` / `laserFrames` / `per_feature_residuals` (see `index.tsx`) —
+ * so mounting it once per one of the eight `ExportKind` discriminants
+ * exercised the same two branches eight times over. The eight-way
+ * classification itself stays covered by `exportKind.test.ts`; here we
+ * only need one target-manifest export (no laser view available) and
+ * one laser-manifest export (laser view + laser residuals).
+ *
+ * Fixtures are shared with the Playwright e2e specs via
+ * `src/test/exportFixtures.ts` (see that module's header). The Tauri
+ * IPC layer is mocked at the `invoke` seam via `@tauri-apps/api/mocks`
+ * (`mockIPC`) so `useImageData`'s `load_image` call resolves instead of
+ * throwing outside a real Tauri runtime.
  */
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DiagnoseWorkspace } from "./index";
 import { useStore } from "../../store";
-import { detectExportKind, type ExportKind } from "../../store/exportKind";
-import type {
-  ImageManifest,
-  LaserFeatureResidual,
-  TargetFeatureResidual,
-} from "../../types";
+import { detectExportKind } from "../../store/exportKind";
+import {
+  LASER_MANIFEST,
+  LASER_RESIDUAL,
+  PLANAR_EXPORT_FIXTURE,
+} from "../../test/exportFixtures";
 
-const TARGET_MANIFEST: ImageManifest = {
-  root: ".",
-  frames: [{ pose: 0, camera: 0, path: "frame0.png" }],
-};
+// Target-manifest export: classifies as planar_intrinsics, one target
+// frame, no laser data — exercises DiagnoseWorkspace's default branch.
+const TARGET_MANIFEST_EXPORT = PLANAR_EXPORT_FIXTURE;
 
-const LASER_MANIFEST: ImageManifest = {
-  root: ".",
-  frames: [
-    { pose: 0, camera: 0, path: "frame0.png", kind: "target" },
-    { pose: 0, camera: 0, path: "laser0.png", kind: "laser" },
-  ],
-};
-
-const TARGET_RESIDUAL: TargetFeatureResidual = {
-  pose: 0,
-  camera: 0,
-  feature: 0,
-  target_xyz_m: [0, 0, 0],
-  observed_px: [10, 10],
-  projected_px: [10.1, 10.2],
-  error_px: 0.22,
-};
-
-const LASER_RESIDUAL: LaserFeatureResidual = {
-  pose: 0,
-  camera: 0,
-  feature: 0,
-  observed_px: [5, 5],
-  residual_m: 0.0002,
-};
-
-// One minimal fixture per `ExportKind`, grounded in the discriminating
-// fields `detectExportKind` actually inspects (see exportKind.ts).
-const KIND_FIXTURES: Record<Exclude<ExportKind, "unknown">, unknown> = {
-  planar_intrinsics: {
-    params: { camera: { sensor: { type: "identity" } } },
-    per_feature_residuals: { target: [TARGET_RESIDUAL] },
-    image_manifest: TARGET_MANIFEST,
-    mean_reproj_error: 0.22,
-  },
-  scheimpflug_intrinsics: {
-    params: { camera: { sensor: { type: "scheimpflug" } } },
-    per_feature_residuals: { target: [TARGET_RESIDUAL] },
-    image_manifest: TARGET_MANIFEST,
-    mean_reproj_error: 0.22,
-  },
-  single_cam_handeye: {
-    camera: {},
-    handeye_mode: "EyeInHand",
-    per_feature_residuals: { target: [TARGET_RESIDUAL] },
-    image_manifest: TARGET_MANIFEST,
-    mean_reproj_error: 0.22,
-  },
-  laserline_device: {
-    estimate: {},
-    stats: {},
-    per_feature_residuals: { target: [], laser: [LASER_RESIDUAL] },
-    image_manifest: LASER_MANIFEST,
-  },
-  rig_extrinsics: {
-    cameras: [{}],
-    cam_se3_rig: [],
-    rig_se3_target: [],
-    per_feature_residuals: { target: [TARGET_RESIDUAL] },
-    image_manifest: TARGET_MANIFEST,
-    mean_reproj_error: 0.22,
-  },
-  rig_handeye: {
-    cameras: [{}],
-    handeye_mode: "EyeToHand",
-    per_feature_residuals: { target: [TARGET_RESIDUAL] },
-    image_manifest: TARGET_MANIFEST,
-    mean_reproj_error: 0.22,
-  },
-  rig_handeye_laserline: {
-    laser_planes_rig: [],
-    handeye_mode: "EyeInHand",
-    cameras: [{}],
-    per_feature_residuals: { target: [TARGET_RESIDUAL], laser: [LASER_RESIDUAL] },
-    image_manifest: LASER_MANIFEST,
-    mean_reproj_error: 0.22,
-  },
-  rig_laserline_device: {
-    laser_planes_rig: [],
-    laser_planes_cam: [],
-    per_feature_residuals: { target: [], laser: [LASER_RESIDUAL] },
-    image_manifest: LASER_MANIFEST,
-  },
+// Laser-manifest export: classifies as laserline_device, carries a
+// laser-kind frame + laser residuals — exercises the laser-view branch
+// (`hasLaser` in index.tsx).
+const LASER_MANIFEST_EXPORT = {
+  estimate: {},
+  stats: {},
+  per_feature_residuals: { target: [], laser: [LASER_RESIDUAL] },
+  image_manifest: LASER_MANIFEST,
 };
 
 beforeEach(() => {
@@ -137,21 +65,25 @@ describe("DiagnoseWorkspace", () => {
     expect(screen.getByText(/Open an/)).toBeTruthy();
   });
 
-  for (const [kind, fixture] of Object.entries(KIND_FIXTURES) as [
-    Exclude<ExportKind, "unknown">,
-    unknown,
-  ][]) {
-    it(`renders without crashing for export kind "${kind}"`, () => {
-      // Sanity: the fixture actually round-trips through the same
-      // classifier the store uses, so a fixture/kind mismatch fails
-      // loudly here rather than silently under-testing a branch.
-      expect(detectExportKind(fixture)).toBe(kind);
+  it("renders a target-manifest export (planar_intrinsics)", () => {
+    // Sanity: the fixture actually round-trips through the same
+    // classifier the store uses.
+    expect(detectExportKind(TARGET_MANIFEST_EXPORT)).toBe("planar_intrinsics");
 
-      useStore.getState().acceptLiveRunExport(fixture, "/fake/export/dir");
-      expect(useStore.getState().loadError).toBeNull();
+    useStore.getState().acceptLiveRunExport(TARGET_MANIFEST_EXPORT, "/fake/export/dir");
+    expect(useStore.getState().loadError).toBeNull();
 
-      const { container } = render(<DiagnoseWorkspace />);
-      expect(container.querySelector("canvas")).toBeTruthy();
-    });
-  }
+    const { container } = render(<DiagnoseWorkspace />);
+    expect(container.querySelector("canvas")).toBeTruthy();
+  });
+
+  it("renders a laser-manifest export (laserline_device)", () => {
+    expect(detectExportKind(LASER_MANIFEST_EXPORT)).toBe("laserline_device");
+
+    useStore.getState().acceptLiveRunExport(LASER_MANIFEST_EXPORT, "/fake/export/dir");
+    expect(useStore.getState().loadError).toBeNull();
+
+    const { container } = render(<DiagnoseWorkspace />);
+    expect(container.querySelector("canvas")).toBeTruthy();
+  });
 });

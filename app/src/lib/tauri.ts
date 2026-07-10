@@ -14,18 +14,42 @@ export function isTauriContext(): boolean {
   );
 }
 
-/** Path joining for absolute filesystem paths. Tauri exposes a path
- * utility but for our manifest needs (POSIX-style relatives appended
- * to absolute roots) a hand-rolled join keeps the dependency surface
- * tiny. */
+/** Path helpers for absolute filesystem paths, normalized to `/`.
+ *
+ * `@tauri-apps/api/path`'s `join`/`dirname` would be the "native" choice,
+ * but in Tauri 2 they're IPC calls (`invoke("plugin:path|join", …)`), which
+ * would (a) turn every join/dirname site into an async round-trip and (b)
+ * require every `mockIPC` test fixture to stub `plugin:path|*` commands on
+ * top of the app's own commands. Instead we normalize once: `repoRoot()`
+ * can return a backslash-separated path on Windows (from the Rust
+ * `repo_root_cmd`), while preset/export manifest paths are always
+ * POSIX-style relative paths (`presets.ts`, export JSON) — so converting
+ * every input to `/` up front and joining/splitting on `/` from then on
+ * is separator-correct on every platform. Windows accepts `/` as a path
+ * separator in both its own APIs and Rust's `std::fs`/`std::path`, so the
+ * resulting forward-slash paths work unchanged when sent back to Tauri
+ * commands like `load_text_file`. */
+function normalizeSeparators(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+/** Joins `dir` with `rest`, normalizing all segments to `/` first (see
+ * `normalizeSeparators`). */
 export function joinPath(dir: string, ...rest: string[]): string {
-  let out = dir.replace(/[\\/]+$/, "");
+  let out = normalizeSeparators(dir).replace(/\/+$/, "");
   for (const segment of rest) {
     if (!segment) continue;
-    const sep = out.includes("\\") && !out.includes("/") ? "\\" : "/";
-    out = `${out}${sep}${segment.replace(/^[\\/]+/, "")}`;
+    out = `${out}/${normalizeSeparators(segment).replace(/^\/+/, "")}`;
   }
   return out;
+}
+
+/** Returns the parent directory of `path` (trailing separators ignored),
+ * normalizing to `/` first (see `normalizeSeparators`). */
+export function dirnamePath(path: string): string {
+  const normalized = normalizeSeparators(path).replace(/\/+$/, "");
+  const idx = normalized.lastIndexOf("/");
+  return idx >= 0 ? normalized.slice(0, idx) : normalized;
 }
 
 let repoRootPromise: Promise<string | null> | null = null;
