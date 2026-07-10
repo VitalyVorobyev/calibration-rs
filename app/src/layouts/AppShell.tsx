@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { NavLink, Outlet } from "react-router-dom";
+import { Banner, Button } from "../components/ui";
 import { Logo } from "../components/Logo";
 import { isTauriContext } from "../lib/tauri";
 import { useStore } from "../store";
@@ -75,14 +76,9 @@ export function AppShell() {
           >
             {exportLabel}
           </span>
-          <button
-            type="button"
-            onClick={() => void handleOpen()}
-            disabled={!tauriOk}
-            className="h-7 px-2 font-mono text-[11px]"
-          >
+          <Button onClick={() => void handleOpen()} disabled={!tauriOk}>
             Open Export…
-          </button>
+          </Button>
           <ThemeToggle dark={dark} onToggle={() => setDark((d) => !d)} />
         </div>
       </header>
@@ -107,9 +103,9 @@ export function AppShell() {
 
       <section className="row-start-2 flex min-h-0 flex-col overflow-hidden p-3">
         {loadError && (
-          <div className="mb-2 rounded-md border-l-2 border-destructive bg-destructive/[0.08] p-2.5 text-[13px] text-foreground">
+          <Banner variant="error" className="mb-2">
             {loadError}
-          </div>
+          </Banner>
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           <Outlet />
@@ -152,15 +148,14 @@ interface ThemeToggleProps {
 
 function ThemeToggle({ dark, onToggle }: ThemeToggleProps) {
   return (
-    <button
-      type="button"
+    <Button
+      size="icon"
       onClick={onToggle}
       title={`Switch to ${dark ? "light" : "dark"} theme`}
       aria-label="Toggle theme"
-      className="grid h-7 w-7 place-items-center !p-0"
     >
       {dark ? <SunIcon /> : <MoonIcon />}
-    </button>
+    </Button>
   );
 }
 

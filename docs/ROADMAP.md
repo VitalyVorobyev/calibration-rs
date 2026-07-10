@@ -119,9 +119,12 @@ R3 shapes. **Track R is complete.**
 B-QUAL1–4 done 2026-07-10 (ESLint 9 + Prettier + two app CI jobs;
 schemars-driven TS wire types replacing `inferExportKind` — mechanism
 changed from ts-rs, see ADR 0018 amendment; 35 component tests; Playwright
-smoke + repo-root preset resolution). Remaining: B-UX1 (component
-system + design pass) → B-UX2 (workspace elevation; absorbs B-LASER +
-B-EXPLORE) → B-DIST (signed installers).
+smoke + repo-root preset resolution). B-UX1 done 2026-07-10 (ui/
+component set + token fixes + dark-mode audit). B-UX2 core done
+2026-07-10 (stage progress + cancel, pose stats, camera residual
+matrix, single-cam laser 3D) — B-EXPLORE sub-items remain open.
+B-DIST done 2026-07-10 as unsigned bundles + `app-bundle.yml`
+artifacts; signing/notarization deferred (needs certs).
 
 ### Exit criteria (the new D4-RELEASE checklist)
 

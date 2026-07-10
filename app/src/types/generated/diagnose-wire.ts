@@ -231,6 +231,17 @@ export type IdentitySensor = null;
  * Specifies the transform chain used for hand-eye calibration.
  */
 export type HandEyeMode = "EyeInHand" | "EyeToHand";
+/**
+ * Coarse pipeline stage a run is currently executing. The runner
+ * exposes exactly these three boundaries without reaching into the
+ * per-topology `run_calibration` wrappers (each of which fuses
+ * init + optimize) or the `dataset_runner` build functions (which fuse
+ * image decode + feature detection and loop cameras internally with no
+ * callback). Finer granularity — per-camera detection, per-LM-iteration
+ * — would require a progress hook threaded through the core crates; the
+ * pipeline API has none today (see the module docs / B-UX2 report).
+ */
+export type RunStage = "detect" | "solve" | "export";
 
 /**
  * Generated wire types for the diagnose app (B-QUAL2). Do not edit by hand — run `bun run generate:types`. The top-level wrapper only anchors the `definitions`; consumers import the individual interfaces.
@@ -244,6 +255,7 @@ export interface DiagnoseWireTypes {
   rig_handeye_export?: RigHandeyeExport;
   rig_handeye_laserline_export?: RigHandeyeLaserlineExport;
   rig_laserline_device_export?: RigLaserlineDeviceExport;
+  run_progress?: RunProgress;
   scheimpflug_intrinsics_export?: ScheimpflugIntrinsicsExport;
   single_cam_handeye_export?: SingleCamHandeyeExport;
 }
@@ -1237,6 +1249,18 @@ export interface RigLaserlineDeviceExport {
    * pinhole rigs), aligned with `cameras`.
    */
   sensors?: ScheimpflugParams[] | null;
+}
+/**
+ * A progress message streamed to the Run workspace over a
+ * [`tauri::ipc::Channel`]. One is sent as each `RunStage` begins;
+ * terminal outcomes (success / failure / cancellation) are carried by
+ * the command's `RunResponse` return value, not the channel.
+ */
+export interface RunProgress {
+  /**
+   * The stage that just started.
+   */
+  stage: RunStage;
 }
 /**
  * Export format for Scheimpflug intrinsics calibration.

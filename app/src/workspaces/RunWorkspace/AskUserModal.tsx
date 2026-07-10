@@ -8,6 +8,7 @@
  * reviews the form and re-runs, staying in control. */
 import { useState } from "react";
 
+import { Button } from "../../components/ui";
 import { hintFor } from "./manifestFields";
 
 interface AskUserModalProps {
@@ -39,16 +40,12 @@ export function AskUserModal({
       onClick={onDismiss}
     >
       <div
-        className="w-full max-w-md rounded-lg border border-border bg-bg p-4 shadow-xl"
+        className="w-full max-w-md rounded-lg border border-border bg-surface p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-2">
           <span
-            className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[12px] font-bold"
-            style={{
-              color: "var(--brand)",
-              backgroundColor: "color-mix(in srgb, var(--brand) 16%, transparent)",
-            }}
+            className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand/[0.16] text-[12px] font-bold text-brand"
             aria-hidden="true"
           >
             ?
@@ -106,9 +103,6 @@ export function AskUserModal({
                   ? "cursor-not-allowed border border-border bg-bg-soft text-muted-foreground"
                   : "bg-brand text-white hover:opacity-90",
               ].join(" ")}
-              style={
-                freeText.trim() === "" ? undefined : { backgroundColor: "var(--brand)" }
-              }
             >
               Apply
             </button>
@@ -116,13 +110,12 @@ export function AskUserModal({
         </div>
 
         <div className="mt-4 flex justify-end">
-          <button
-            type="button"
+          <Button
             onClick={onDismiss}
-            className="rounded-md border border-border bg-bg px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            className="!px-3 !py-1 text-muted-foreground hover:text-foreground"
           >
             Dismiss
-          </button>
+          </Button>
         </div>
       </div>
     </div>

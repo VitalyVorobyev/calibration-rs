@@ -1,0 +1,100 @@
+# Builds unsigned desktop bundles for the Tauri diagnose app (B-DIST-INSTALLERS).
+#
+# Scope, deliberately narrow:
+# - UNSIGNED. macOS bundles are not notarized and are not signed with an
+#   Apple Developer ID; Windows bundles (not built here, see below) would not
+#   be signed with an EV/OV code-signing cert either. Users who download a
+#   macOS .app/.dmg built here must right-click → Open (or
+#   `xattr -d com.apple.quarantine`) past Gatekeeper the first time, since an
+#   unsigned/unnotarized app is quarantined by default.
+# - No update channel/updater. Tauri's updater plugin needs a signed manifest
+#   + key pair; that is deferred alongside signing.
+# - Signing/notarization prerequisites, for when that work is picked up:
+#     macOS:   an Apple Developer ID Application certificate + notarization
+#              (`xcrun notarytool`), which in turn requires an Apple Developer
+#              Program membership.
+#     Windows: an EV or OV code-signing certificate from a CA (e.g.
+#              DigiCert/Sectigo); EV certs additionally require a hardware
+#              token (no cert reachable here).
+# - Artifacts are uploaded to the GitHub Actions run, not published anywhere
+#   (no GitHub Release upload step) — download from the run's Artifacts tab.
+#
+# Deliberately NOT part of `ci.yml`: bundling recompiles src-tauri and all of
+# `vision-calibration` in release mode plus packages installers, which is far
+# too slow for the per-PR pipeline. This workflow only runs on demand
+# (`workflow_dispatch`) or when a release tag is pushed.
+name: App Bundle
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  bundle:
+    name: Bundle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            artifact-name: calibration-diagnose-macos
+            artifact-path: |
+              app/src-tauri/target/release/bundle/dmg/*.dmg
+              app/src-tauri/target/release/bundle/macos/*.app
+          - os: ubuntu-latest
+            artifact-name: calibration-diagnose-linux
+            artifact-path: |
+              app/src-tauri/target/release/bundle/appimage/*.AppImage
+              app/src-tauri/target/release/bundle/deb/*.deb
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Linux bundling reuses the exact system deps ci.yml's `app-src-tauri`
+      # job installs for `cargo clippy`/`cargo test` on WebKitGTK's
+      # build-time libs.
+      - name: Install Tauri Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      # DMG packaging shells out to `create-dmg`, which drives Finder via
+      # AppleScript to lay out the volume window/icons. That can fail with
+      # "AppleEvent timed out" in environments without an interactive Aqua
+      # session (observed locally in a sandboxed shell during development).
+      # `macos-latest` hosted runners have historically built Tauri DMGs
+      # fine, but if this step ever goes red with that error, the fix is to
+      # drop `dmg` from `bundle.targets` in `tauri.conf.json` (or matrix it)
+      # and ship the `.app` (optionally zipped) instead — Tauri's DMG config
+      # has no flag to skip the AppleScript styling step.
+      - name: Build bundles
+        working-directory: app
+        run: bun run tauri build
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
+          if-no-files-found: error

@@ -192,10 +192,16 @@ two-view/triangulation.
   repo-root-relative preset paths + a guard test rejecting absolute paths.
   A tiny bundled-dataset Run stays out of CI (private datasets can't ship);
   the mocked Run happy path covers the UI flow.
-- [ ] B-UX1-DESIGN-SYSTEM - Design direction + component system: consolidate
-  the hand-rolled components into a small internal set (button, panel, form
-  field, table, toast), typography/spacing scale, dark-mode audit. No new
-  features. Design note in `app/README.md`.
+- [x] B-UX1-DESIGN-SYSTEM - **Done 2026-07-10.** `app/src/components/ui/`
+  set (Button with ARIA-pressed toggles, Panel, SectionHeader, Select,
+  Table, Banner, Badge, EmptyState + shared ZoomControls); all five
+  workspaces, AppShell, and configForm migrated (+347/−593). The audit
+  found three real bugs, not just drift: raw `var(--brand)` (an H S% L%
+  triplet) used as a CSS color — the Run button fill was silently invalid;
+  the never-declared `bg-bg` class left every schema-form field
+  transparent; light-mode `--brand` failed WCAG AA (fixed 55%→34% L).
+  `--success`/`--warning` tokens added for both themes; design note +
+  "use ui/, don't hand-roll" rule in `app/README.md`.
 - [ ] B-UX2-ELEVATION - Workspace-by-workspace elevation: empty states, error
   surfaces (ADR 0019 fail-fast shown well), progress for long calibrations,
   manifest-sniff UX polish. Absorbs **B-LASER** (laser-pixel overlay in
@@ -203,8 +209,59 @@ two-view/triangulation.
   3D) and **B-EXPLORE** (pre-calibration image grid, detection-cache overlay,
   coverage map) as scoped sub-items. Gate: frontend-review pass with no
   high-severity findings.
-- [ ] B-DIST-INSTALLERS - (last) Tauri bundling + signing (macOS first),
-  update-channel decision, versioned app releases wired to D4.
+  - **Progress 2026-07-10 (core features).** Shipped: (1) **stage-progress
+    streaming** for long solves via a request-scoped
+    `tauri::ipc::Channel<RunProgress>` — the runner announces `detect →
+    solve → export` (the only boundaries it honestly owns; per-camera /
+    per-LM granularity has no pipeline hook, deliberately not faked); Run
+    workspace shows a stage checklist + live elapsed clock. (2)
+    **Cancellation** — `AtomicBool` per `runId` in a managed `RunRegistry`,
+    `cancel_run_cmd` flips it, runner stops at the next stage boundary and
+    returns `RunResponse::Cancelled` (distinct "Run cancelled" UI, not an
+    error). (3) **Multi-pose residual stats** panel in Diagnose (sortable
+    per-pose mean/median/max px table, click-to-jump). (4) **Cross-camera
+    residual matrix** for multi-camera exports (cameras × poses grid on the
+    FrameCanvas severity scale, click-to-jump). (5) **Single-cam laser plane
+    in 3D** (B-LASER close-out) — `laserline_device` exports are lifted into
+    a one-camera rig at the origin so the camera-frame plane + poses render.
+    New pure/tested modules: `runStages.ts`, `lib/residualStats.ts`,
+    `lib/sceneExport.ts`. `RunProgress`/`RunStage` schema-generated. Still
+    open under B-UX2: **B-EXPLORE** (pre-calibration image grid,
+    detection-cache overlay, coverage map), empty-state / error-surface
+    polish, manifest-sniff UX polish.
+- [x] B-DIST-INSTALLERS - **Done 2026-07-10** (scoped to unsigned bundles +
+  CI artifacts only, per standing decision — no code-signing certs
+  available). `bun run tauri build` now produces a launchable macOS
+  `.app`/`.dmg` under `app/src-tauri/target/release/bundle/`: fixed
+  `tauri.conf.json` (`bundle.active: true`, `mainBinaryName`, standard
+  `icon` array) and generated the missing `.icns`/`.ico`/PNG icon set via
+  `bunx tauri icon` (desktop targets only — iOS/Android/Windows-Store
+  variants discarded, no mobile target configured). Fixed a real conflict
+  between two `[[bin]]` targets: Tauri's bundler copies every declared
+  `[[bin]]` target unconditionally regardless of `required-features`, so
+  the schema-export gate on `emit_schemas` (B-QUAL2) made every release
+  build fail with "does not exist". Fix: `default-run` in `Cargo.toml`
+  disambiguates the *main* binary for tools that don't honor
+  `required-features`, and `emit_schemas.rs` itself now always compiles
+  (`required-features` dropped from its `[[bin]]`) but is a two-line stub
+  without `--features schema-export` — the `schemars` dependency stays
+  feature-gated, so `tauri dev`/default `clippy`/`test` are unaffected.
+  New `.github/workflows/app-bundle.yml` (`workflow_dispatch` + `v*` tag
+  trigger, not in `ci.yml`'s per-PR path): macOS (`.app`/`.dmg`) and Linux
+  (`.AppImage`/`.deb`, reusing `ci.yml`'s webkit2gtk/appindicator/rsvg/
+  patchelf deps) jobs, `actions/upload-artifact@v4`. Deferred, with
+  prerequisites: macOS signing needs an Apple Developer ID Application
+  certificate + notarization (`xcrun notarytool`, Apple Developer Program
+  membership); Windows signing needs an EV/OV code-signing certificate
+  from a CA. Updater/update-channel also deferred (needs a signed
+  manifest + key pair on top of the above). Local DMG creation could not
+  be end-to-end verified in the sandboxed dev shell — `create-dmg`'s
+  Finder-styling AppleScript step hit "AppleEvent timed out" (no
+  interactive Aqua session available there); the `.app` itself built,
+  launched, and quit cleanly. `macos-latest` GitHub-hosted runners have a
+  full desktop session and are the standard environment for this exact
+  Tauri flow, so CI is expected to succeed — flagged as a known risk
+  category in the workflow's comments regardless.
 
 ## V — rtv3d validation
 

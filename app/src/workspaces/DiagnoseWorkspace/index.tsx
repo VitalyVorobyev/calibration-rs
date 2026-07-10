@@ -8,9 +8,13 @@ import {
 } from "../../components/FrameCanvas";
 import { Histogram } from "../../components/Histogram";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
+import { ZoomControls } from "../../components/ZoomControls";
+import { Banner, Button, Panel, SectionHeader } from "../../components/ui";
 import { getPixelLum, rectHistogram, useImageData } from "../../hooks/useImageData";
 import { useKeyboardNav } from "../../hooks/useKeyboardNav";
 import { useStore } from "../../store";
+import { CameraResidualMatrix } from "./CameraResidualMatrix";
+import { PoseStatsTable } from "./PoseStatsTable";
 import type {
   CursorReadout,
   FeatureResidualHistogram,
@@ -49,6 +53,8 @@ export function DiagnoseWorkspace() {
   // frame for the active (pose, camera). Mutually exclusive with
   // compare mode — both repurpose the single canvas area.
   const [laserView, setLaserView] = useState<boolean>(false);
+  // Residual stats side panel: per-pose table + cross-camera matrix.
+  const [showStats, setShowStats] = useState<boolean>(false);
   const [activePane, setActivePane] = useState<"left" | "right">("left");
   const [cursor, setCursor] = useState<CursorReadout | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +76,18 @@ export function DiagnoseWorkspace() {
     [data],
   );
   const hasLaser = laserFrames.length > 0 || laserResiduals.length > 0;
+
+  const targetResiduals = useMemo<TargetFeatureResidual[]>(
+    () => data?.per_feature_residuals.target ?? NO_TARGET_RESIDUALS,
+    [data],
+  );
+  const hasStats = targetResiduals.length > 0;
+
+  // A non-target export (or one loaded while stats are open) must not
+  // strand the workspace on an empty panel.
+  useEffect(() => {
+    if (!hasStats) setShowStats(false);
+  }, [hasStats]);
 
   // Loading a non-laser export while laser view is active would strand
   // the workspace on a mode with no data — drop back to target view.
@@ -223,6 +241,7 @@ export function DiagnoseWorkspace() {
         )}
         {data && (
           <ZoomControls
+            hints
             onFit={() =>
               compare
                 ? compareHandleRef.current?.fitActive()
@@ -246,50 +265,50 @@ export function DiagnoseWorkspace() {
           />
         )}
         {data && (
-          <button
-            type="button"
+          <Button
+            pressed={compare}
             onClick={() => {
               setCompare((v) => {
                 if (!v) setLaserView(false);
                 return !v;
               });
             }}
-            className={`h-7 px-2 font-mono text-[11px] ${
-              compare ? "border-brand text-brand" : ""
-            }`}
             title="Toggle compare mode"
           >
             {compare ? "Compare ✓" : "Compare"}
-          </button>
+          </Button>
         )}
         {data && hasLaser && (
-          <button
-            type="button"
+          <Button
+            pressed={laserView}
             onClick={() => {
               setLaserView((v) => {
                 if (!v) setCompare(false);
                 return !v;
               });
             }}
-            className={`h-7 px-2 font-mono text-[11px] ${
-              laserView ? "border-brand text-brand" : ""
-            }`}
             title="Show the laser frame with point-to-plane residuals"
           >
             {laserView ? "Laser ✓" : "Laser"}
-          </button>
+          </Button>
         )}
         {data && compare && (
-          <button
-            type="button"
+          <Button
+            pressed={linked}
             onClick={() => setLinked((v) => !v)}
-            className={`h-7 px-2 font-mono text-[11px] ${
-              linked ? "border-brand text-brand" : ""
-            }`}
             title="Toggle linked viewport (L)"
           >
             {linked ? "Linked" : "Unlinked"}
-          </button>
+          </Button>
+        )}
+        {data && hasStats && (
+          <Button
+            pressed={showStats}
+            onClick={() => setShowStats((v) => !v)}
+            title="Per-pose residual stats + cross-camera matrix"
+          >
+            {showStats ? "Stats ✓" : "Stats"}
+          </Button>
         )}
         {data && typeof data.mean_reproj_error === "number" && (
           <span className="ml-auto font-mono text-xs text-muted-foreground">
@@ -298,47 +317,73 @@ export function DiagnoseWorkspace() {
         )}
       </div>
 
-      {error && (
-        <div className="rounded-md border-l-2 border-destructive bg-destructive/[0.08] p-2.5 text-[13px] text-foreground">
-          {error}
-        </div>
-      )}
+      {error && <Banner variant="error">{error}</Banner>}
 
-      <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft p-2">
-        {data && frame && compare && rightFrame ? (
-          <CompareViewer
-            leftFrame={frame}
-            rightFrame={rightFrame}
-            residuals={data.per_feature_residuals.target}
-            activePane={activePane}
-            onActivePane={setActivePane}
-            linked={linked}
-            onCursorChange={setCursor}
-            onError={setError}
-            innerRef={compareHandleRef}
-          />
-        ) : data && activeFrame ? (
-          <FrameCanvas
-            ref={canvasHandleRef}
-            frame={activeFrame}
-            residuals={
-              showLaser ? NO_TARGET_RESIDUALS : data.per_feature_residuals.target
-            }
-            laserResiduals={showLaser ? laserResiduals : undefined}
-            image={imageData?.image ?? null}
-            onCursor={handleCursor}
-            onError={setError}
-          />
-        ) : data && showLaser ? (
-          <div className="m-auto text-[13px] text-muted-foreground">
-            No laser frame in the manifest for pose {selectedPose} · cam {cameraA}.
-          </div>
-        ) : (
-          <div className="m-auto text-[13px] text-muted-foreground">
-            Open an <code>export.json</code> from a calibration run with an
-            <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for camera; toggle
-            Compare to view two frames side by side.
-          </div>
+      <div className="flex min-h-0 flex-1 gap-2.5 overflow-hidden">
+        <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft p-2">
+          {data && frame && compare && rightFrame ? (
+            <CompareViewer
+              leftFrame={frame}
+              rightFrame={rightFrame}
+              residuals={data.per_feature_residuals.target}
+              activePane={activePane}
+              onActivePane={setActivePane}
+              linked={linked}
+              onCursorChange={setCursor}
+              onError={setError}
+              innerRef={compareHandleRef}
+            />
+          ) : data && activeFrame ? (
+            <FrameCanvas
+              ref={canvasHandleRef}
+              frame={activeFrame}
+              residuals={
+                showLaser ? NO_TARGET_RESIDUALS : data.per_feature_residuals.target
+              }
+              laserResiduals={showLaser ? laserResiduals : undefined}
+              image={imageData?.image ?? null}
+              onCursor={handleCursor}
+              onError={setError}
+            />
+          ) : data && showLaser ? (
+            <div className="m-auto text-[13px] text-muted-foreground">
+              No laser frame in the manifest for pose {selectedPose} · cam {cameraA}.
+            </div>
+          ) : (
+            <div className="m-auto text-[13px] text-muted-foreground">
+              Open an <code>export.json</code> from a calibration run with an
+              <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for camera; toggle
+              Compare to view two frames side by side.
+            </div>
+          )}
+        </div>
+
+        {data && showStats && hasStats && (
+          <Panel
+            as="aside"
+            className="flex min-h-0 w-[19rem] shrink-0 flex-col gap-4 overflow-y-auto"
+          >
+            <div className="flex flex-col gap-2">
+              <SectionHeader title="Per-pose residuals" subtitle="click a row to jump" />
+              <PoseStatsTable
+                residuals={targetResiduals}
+                selectedPose={selectedPose}
+                onSelectPose={(pose) => setSelectedPose(pose, "A")}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <SectionHeader title="Cross-camera matrix" subtitle="mean px per cell" />
+              <CameraResidualMatrix
+                residuals={targetResiduals}
+                selectedPose={selectedPose}
+                selectedCamera={cameraA}
+                onSelect={(pose, camera) => {
+                  setSelectedPose(pose, "A");
+                  setCamera(camera, "A");
+                }}
+              />
+            </div>
+          </Panel>
         )}
       </div>
 
@@ -457,54 +502,6 @@ function LaserSwatch({ mm, label }: { mm: number; label: string }) {
       />
       {label}
     </span>
-  );
-}
-
-interface ZoomControlsProps {
-  onFit: () => void;
-  onOneToOne: () => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-}
-
-function ZoomControls({ onFit, onOneToOne, onZoomIn, onZoomOut }: ZoomControlsProps) {
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        onClick={onZoomOut}
-        title="Zoom out (−)"
-        aria-label="Zoom out"
-        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
-      >
-        −
-      </button>
-      <button
-        type="button"
-        onClick={onZoomIn}
-        title="Zoom in (+)"
-        aria-label="Zoom in"
-        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
-      >
-        +
-      </button>
-      <button
-        type="button"
-        onClick={onFit}
-        title="Fit (f)"
-        className="h-7 px-2 font-mono text-[11px]"
-      >
-        Fit
-      </button>
-      <button
-        type="button"
-        onClick={onOneToOne}
-        title="1:1 (1)"
-        className="h-7 px-2 font-mono text-[11px]"
-      >
-        1:1
-      </button>
-    </div>
   );
 }
 

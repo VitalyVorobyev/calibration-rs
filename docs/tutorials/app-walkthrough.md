@@ -59,8 +59,12 @@ region of interest. Toggle **compare mode** to view two frames
 side-by-side with a linked viewport (pan/zoom stays in sync); toggle the
 **laser frame** view to switch a target frame for its paired laser frame
 and see point-to-plane residuals instead of corner reprojection error.
-Works for any of the 8 export kinds (single-camera or rig, with or
-without a laser stage) — the header shows which one is loaded.
+Toggle **Stats** to open a side panel with a sortable per-pose residual
+table (mean / median / max px and feature count — click a row to jump the
+viewer to that pose) and, for multi-camera exports, a cameras × poses
+residual matrix coloured by mean error (click a cell to jump to that
+`(pose, camera)`). Works for any of the 8 export kinds (single-camera or
+rig, with or without a laser stage) — the header shows which one is loaded.
 
 ### 3D viewer (`⌘2`)
 
@@ -68,8 +72,11 @@ A Three.js scene of the calibrated rig: one frustum per camera, the
 target board at the selected pose (or all poses at once), and laser
 planes when the export carries them. Click a frustum to select a camera
 and see its intrinsics plus its pose relative to a chosen reference
-camera; click a board to select a pose. Requires a rig export (needs
-`cameras[]` + `cam_se3_rig[]`) — single-camera exports show an empty-state
+camera; click a board to select a pose. Rig exports render directly; a
+single-camera `laserline_device` export also renders — its camera sits at
+the rig origin and its camera-frame laser plane + per-view poses are drawn
+in that frame. Other single-camera exports (planar, Scheimpflug, single-cam
+hand-eye) carry no extrinsic to place a frustum and show an empty-state
 message instead.
 
 ### Epipolar (`⌘3`)
@@ -109,9 +116,14 @@ Drives a calibration end-to-end without leaving the app:
    Rust config types derive, so every field the pipeline accepts is
    editable without hand-writing JSON. An **advanced JSON editor** is
    available for anything the form doesn't expose yet.
-4. **Run** — on success, the app flashes a status banner and navigates to
-   Diagnose after a short delay. On an unresolvable ambiguity (e.g. a
-   hand-eye dataset with no `pose_pairing` set — see the
+4. **Run** — while the solve runs, a **stage checklist** (detecting →
+   solving → exporting) with a live elapsed clock replaces the plain
+   spinner, and a **Cancel** button stops the run at the next stage
+   boundary (the in-flight stage always finishes — there is no
+   solver interrupt). A cancelled run shows a distinct "Run cancelled"
+   banner, not an error. On success, the app flashes a status banner and
+   navigates to Diagnose after a short delay. On an unresolvable ambiguity
+   (e.g. a hand-eye dataset with no `pose_pairing` set — see the
    [single-camera hand-eye tutorial](./single-cam-handeye.md)) a modal
    asks you to pick between the suggested options (ADR 0019) instead of
    guessing. Validation failures and IPC errors surface inline.

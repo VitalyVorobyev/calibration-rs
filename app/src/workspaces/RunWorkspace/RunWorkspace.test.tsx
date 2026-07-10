@@ -120,3 +120,55 @@ describe("RunWorkspace happy path", () => {
     expect(useStore.getState().data).toEqual(RUN_SUCCESS_RESPONSE.export);
   });
 });
+
+describe("RunWorkspace progress + cancellation", () => {
+  it("shows the stage checklist for a running solve and cancels it", async () => {
+    // Override the default mock: `run_calibration_cmd` stays pending
+    // until `cancel_run_cmd` resolves it with a cancelled response — so
+    // the running state (and its Cancel button) is observable.
+    let resolveRun!: (value: unknown) => void;
+    mockIPC((cmd) => {
+      switch (cmd) {
+        case "repo_root_cmd":
+          return "/fake/repo/root";
+        case "load_text_file":
+          return MANIFEST_TOML;
+        case "default_config_cmd":
+          return DEFAULT_CONFIG;
+        case "run_calibration_cmd":
+          return new Promise((res) => {
+            resolveRun = res;
+          });
+        case "cancel_run_cmd":
+          resolveRun({ kind: "cancelled" });
+          return true;
+        default:
+          return null;
+      }
+    });
+
+    render(
+      <MemoryRouter>
+        <RunWorkspace />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(stereoLeftUseButton());
+    const runButton = await screen.findByRole("button", { name: "Run" });
+    fireEvent.click(runButton);
+
+    // The progress checklist renders all three stages plus a Cancel
+    // button while the solve is in flight.
+    const cancelButton = await screen.findByRole("button", { name: "Cancel" });
+    expect(screen.getByText("Detecting features")).toBeTruthy();
+    expect(screen.getByText("Solving")).toBeTruthy();
+    expect(screen.getByText("Exporting")).toBeTruthy();
+
+    fireEvent.click(cancelButton);
+
+    // Terminal cancelled state — a distinct banner, not an error.
+    await screen.findByText("Run cancelled", {}, { timeout: 2000 });
+    // No export was committed to the store.
+    expect(useStore.getState().data).toBeNull();
+  });
+});

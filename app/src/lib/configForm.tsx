@@ -9,6 +9,13 @@
  */
 import { useMemo } from "react";
 
+// Shared base style for every bare `<input>`/`<select>`/`<textarea>` this
+// form renders. `bg-surface` (not the `bg-bg` several call sites used
+// before this pass) — `--color-bg` was never declared as a design token,
+// so `bg-bg` silently produced no background at all, leaving every field
+// visually flat against its parent fieldset (`bg-bg-soft`).
+const FIELD_CLASS = "rounded border border-border bg-surface px-2 py-1 text-[12px]";
+
 // ─── Schema type (loose) ────────────────────────────────────────────────────
 export interface JsonSchema {
   $defs?: Record<string, JsonSchema>;
@@ -138,9 +145,7 @@ function ObjectField({ schema, value, onChange, ctx, label }: FieldProps) {
         <div key={key} className="flex flex-col gap-1">
           <label className="text-[11px] font-medium text-muted-foreground">
             {key}
-            {required.includes(key) && (
-              <span className="ml-1 text-[color:var(--brand)]">*</span>
-            )}
+            {required.includes(key) && <span className="ml-1 text-brand">*</span>}
           </label>
           <SchemaField
             schema={sub}
@@ -209,7 +214,7 @@ function ExternalTaggedOneOfField({ schema, value, onChange, ctx, label }: Field
         <p className="text-[11px] text-muted-foreground">{schema.description}</p>
       )}
       <select
-        className="rounded border border-border bg-bg px-2 py-1 text-[12px]"
+        className={FIELD_CLASS}
         value={active?.tag ?? ""}
         onChange={(e) => {
           const next = variants.find((v) => v.tag === e.target.value);
@@ -299,7 +304,7 @@ function OneOfField({ schema, value, onChange, ctx, label }: FieldProps) {
         <p className="text-[11px] text-muted-foreground">{schema.description}</p>
       )}
       <select
-        className="rounded border border-border bg-bg px-2 py-1 text-[12px]"
+        className={FIELD_CLASS}
         value={currentKind}
         onChange={(e) => {
           const tag = e.target.value;
@@ -348,7 +353,7 @@ function EnumField({ schema, value, onChange }: FieldProps) {
   const current = typeof value === "string" ? value : (options[0] ?? "");
   return (
     <select
-      className="rounded border border-border bg-bg px-2 py-1 text-[12px]"
+      className={FIELD_CLASS}
       value={current}
       onChange={(e) => onChange(e.target.value)}
     >
@@ -371,7 +376,7 @@ function StringField({ schema, value, onChange }: FieldProps) {
       value={v}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded border border-border bg-bg px-2 py-1 text-[12px]"
+      className={FIELD_CLASS}
     />
   );
 }
@@ -392,7 +397,7 @@ function NumberField({ schema, value, onChange }: FieldProps) {
         const parsed = hasType(schema, "integer") ? parseInt(text, 10) : parseFloat(text);
         if (!Number.isNaN(parsed)) onChange(parsed);
       }}
-      className="rounded border border-border bg-bg px-2 py-1 text-[12px]"
+      className={FIELD_CLASS}
     />
   );
 }
@@ -446,7 +451,7 @@ function StringArrayField({ value, onChange }: FieldProps) {
               copy[i] = e.target.value;
               onChange(copy);
             }}
-            className="flex-1 rounded border border-border bg-bg px-2 py-1 text-[12px]"
+            className={`flex-1 ${FIELD_CLASS}`}
           />
           <button
             type="button"
@@ -482,7 +487,7 @@ function JsonField({ value, onChange }: FieldProps) {
         }
       }}
       rows={6}
-      className="rounded border border-border bg-bg px-2 py-1 font-mono text-[11px]"
+      className={`${FIELD_CLASS} font-mono text-[11px]`}
     />
   );
 }

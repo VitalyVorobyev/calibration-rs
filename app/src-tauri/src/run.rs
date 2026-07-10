@@ -12,11 +12,15 @@
 //! surfaced as a structured `RunResponse::AskUser` so the Run workspace
 //! can render a blocking modal instead of silently guessing.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use tauri::ipc::Channel;
 
 use vision_calibration::core::{
     FrameKind, FrameRef, ImageManifest, PixelRect, PlanarDataset, RigDataset,
@@ -81,6 +85,112 @@ pub struct RunSuccess {
     pub cache_used: bool,
 }
 
+/// Coarse pipeline stage a run is currently executing. The runner
+/// exposes exactly these three boundaries without reaching into the
+/// per-topology `run_calibration` wrappers (each of which fuses
+/// init + optimize) or the `dataset_runner` build functions (which fuse
+/// image decode + feature detection and loop cameras internally with no
+/// callback). Finer granularity — per-camera detection, per-LM-iteration
+/// — would require a progress hook threaded through the core crates; the
+/// pipeline API has none today (see the module docs / B-UX2 report).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum RunStage {
+    /// Decoding images + detecting target/laser features (`build_*_input`).
+    Detect,
+    /// Linear init + non-linear bundle adjustment (`run_calibration`).
+    Solve,
+    /// Serializing the export + splicing the image manifest.
+    Export,
+}
+
+/// A progress message streamed to the Run workspace over a
+/// [`tauri::ipc::Channel`]. One is sent as each `RunStage` begins;
+/// terminal outcomes (success / failure / cancellation) are carried by
+/// the command's `RunResponse` return value, not the channel.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+pub struct RunProgress {
+    /// The stage that just started.
+    pub stage: RunStage,
+}
+
+/// Per-run cancellation registry. Each in-flight `run_calibration_cmd`
+/// registers its run id against a shared [`AtomicBool`]; `cancel_run_cmd`
+/// flips the flag, and the runner checks it at every stage boundary.
+///
+/// The map is only ever keyed by run id (insert / get / remove) — never
+/// iterated to produce a result — so its ordering is irrelevant to
+/// determinism (AGENTS.md).
+#[derive(Default)]
+pub struct RunRegistry {
+    inner: Mutex<HashMap<String, Arc<AtomicBool>>>,
+}
+
+impl RunRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register `run_id` and return its (freshly cleared) cancel flag.
+    fn register(&self, run_id: &str) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        self.inner
+            .lock()
+            .expect("run registry mutex poisoned")
+            .insert(run_id.to_string(), flag.clone());
+        flag
+    }
+
+    /// Drop `run_id` from the registry once its run has finished.
+    fn unregister(&self, run_id: &str) {
+        self.inner
+            .lock()
+            .expect("run registry mutex poisoned")
+            .remove(run_id);
+    }
+
+    /// Request cancellation of `run_id`. Returns `true` if a matching
+    /// in-flight run was found and flagged.
+    fn cancel(&self, run_id: &str) -> bool {
+        match self
+            .inner
+            .lock()
+            .expect("run registry mutex poisoned")
+            .get(run_id)
+        {
+            Some(flag) => {
+                flag.store(true, Ordering::SeqCst);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// Threaded through the runner so every topology arm can emit stage
+/// progress and poll for cancellation without depending on the concrete
+/// `Channel` type (which keeps `run_blocking` unit-testable with a plain
+/// closure — see the tests).
+struct RunCtx<'a> {
+    progress: &'a dyn Fn(RunStage),
+    cancel: &'a AtomicBool,
+}
+
+impl RunCtx<'_> {
+    /// Announce that `stage` has begun (best-effort; a dropped channel
+    /// just means the UI went away mid-run).
+    fn stage(&self, stage: RunStage) {
+        (self.progress)(stage);
+    }
+
+    /// Whether the user has requested cancellation.
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::SeqCst)
+    }
+}
+
 /// Tagged response shape so the React layer can match on `kind` rather
 /// than parsing free-form error strings.
 #[derive(Debug, Serialize)]
@@ -88,6 +198,10 @@ pub struct RunSuccess {
 pub enum RunResponse {
     /// Calibration completed and an export was produced.
     Ok(RunSuccess),
+    /// The user cancelled the run; it stopped at the next stage boundary
+    /// (solver-internal cancellation is out of scope). Surfaced as a
+    /// distinct UI state, not an error.
+    Cancelled,
     /// Runtime ambiguity per ADR 0019 — Run workspace must render a
     /// modal asking the user to fill `field`.
     AskUser {
@@ -113,31 +227,61 @@ pub enum RunResponse {
 
 /// Tauri command: run a calibration end-to-end.
 ///
-/// `manifest_json` is the raw JSON of a [`DatasetSpec`] (typically
-/// emitted by the schema-driven form in the Run workspace). `config_json`
-/// is the matching per-problem `*Config` JSON. `manifest_dir` is the
-/// directory whose globs are resolved against — usually the parent of
-/// the `dataset.toml` file the user picked.
+/// `run_id` is a caller-generated correlation id (used to route
+/// cancellation via [`cancel_run_cmd`]). `manifest_json` is the raw JSON
+/// of a [`DatasetSpec`] (typically emitted by the schema-driven form in
+/// the Run workspace). `config_json` is the matching per-problem
+/// `*Config` JSON. `manifest_dir` is the directory whose globs are
+/// resolved against — usually the parent of the `dataset.toml` file the
+/// user picked. `on_progress` streams a [`RunProgress`] per stage.
 #[tauri::command]
 pub async fn run_calibration_cmd(
+    run_id: String,
     manifest_json: serde_json::Value,
     config_json: serde_json::Value,
     manifest_dir: String,
+    on_progress: Channel<RunProgress>,
     cache: State<'_, ExportCache>,
+    registry: State<'_, RunRegistry>,
 ) -> Result<RunResponse, String> {
+    let cancel = registry.register(&run_id);
+    let cancel_task = cancel.clone();
+
     // Long-running solve: keep IPC responsive by running on a blocking
     // task. The State can't cross the spawn_blocking boundary directly,
     // so we do detection + calibration on the worker thread and pop
     // the produced export into the cache here, in the async caller.
-    let response = tauri::async_runtime::spawn_blocking(move || {
-        run_blocking(manifest_json, config_json, &manifest_dir)
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let emit = move |stage: RunStage| {
+            let _ = on_progress.send(RunProgress { stage });
+        };
+        let ctx = RunCtx {
+            progress: &emit,
+            cancel: &cancel_task,
+        };
+        run_blocking(manifest_json, config_json, &manifest_dir, &ctx)
     })
-    .await
-    .map_err(|e| format!("runner task panicked: {e}"))?;
+    .await;
+
+    registry.unregister(&run_id);
+
+    let response = result.map_err(|e| format!("runner task panicked: {e}"))?;
     if let RunResponse::Ok(success) = &response {
         cache.set("<live-run>".to_string(), success.export.clone());
     }
     Ok(response)
+}
+
+/// Tauri command: request cancellation of an in-flight run.
+///
+/// Cancellation is cooperative and takes effect at the next stage
+/// boundary (detect → solve → export); the currently executing stage
+/// runs to completion since the solver / detector loops expose no
+/// interrupt. Returns `true` when a matching in-flight run was flagged,
+/// `false` if the run already finished (a benign race).
+#[tauri::command]
+pub fn cancel_run_cmd(run_id: String, registry: State<'_, RunRegistry>) -> bool {
+    registry.cancel(&run_id)
 }
 
 /// Tauri command: default `*Config` JSON for a topology.
@@ -164,6 +308,7 @@ fn run_blocking(
     manifest_json: serde_json::Value,
     config_json: serde_json::Value,
     manifest_dir: &str,
+    ctx: &RunCtx,
 ) -> RunResponse {
     let started = Instant::now();
     let spec: DatasetSpec = match serde_json::from_value(manifest_json) {
@@ -178,6 +323,11 @@ fn run_blocking(
     let base_dir = Path::new(manifest_dir);
     let detection_cache = FsDetectionCache::new(detection_cache_root(&spec, base_dir));
 
+    // Detection (image decode + feature detection) is the long pole on a
+    // first run; announce it before the build_*_input call. `Solve` and
+    // `Export` fire from `run_session`.
+    ctx.stage(RunStage::Detect);
+
     match spec.topology {
         Topology::PlanarIntrinsics => run_planar_topology::<PlanarIntrinsicsProblem>(
             &spec,
@@ -185,6 +335,7 @@ fn run_blocking(
             base_dir,
             &detection_cache,
             started,
+            ctx,
             run_planar_calibration,
         ),
         Topology::ScheimpflugIntrinsics => run_planar_topology::<ScheimpflugIntrinsicsProblem>(
@@ -193,6 +344,7 @@ fn run_blocking(
             base_dir,
             &detection_cache,
             started,
+            ctx,
             |session| run_scheimpflug_calibration(session, None),
         ),
         Topology::RigExtrinsics => run_rig_topology::<RigExtrinsicsProblem, _>(
@@ -201,6 +353,7 @@ fn run_blocking(
             base_dir,
             &detection_cache,
             started,
+            ctx,
             build_rig_extrinsics_input,
             run_rig_extrinsics_calibration,
         ),
@@ -210,17 +363,23 @@ fn run_blocking(
             base_dir,
             &detection_cache,
             started,
+            ctx,
             build_rig_handeye_input,
             run_rig_handeye_calibration,
         ),
-        Topology::SingleCamHandeye => {
-            run_single_cam_handeye_topology(&spec, config_json, base_dir, &detection_cache, started)
-        }
+        Topology::SingleCamHandeye => run_single_cam_handeye_topology(
+            &spec,
+            config_json,
+            base_dir,
+            &detection_cache,
+            started,
+            ctx,
+        ),
         Topology::LaserlineDevice => {
-            run_laserline_topology(&spec, config_json, base_dir, &detection_cache, started)
+            run_laserline_topology(&spec, config_json, base_dir, &detection_cache, started, ctx)
         }
         Topology::RigLaserlineDevice => {
-            run_rig_laserline_topology(&spec, config_json, base_dir, &detection_cache, started)
+            run_rig_laserline_topology(&spec, config_json, base_dir, &detection_cache, started, ctx)
         }
         Topology::RigHandeyeLaserline => run_rig_handeye_laserline_topology(
             &spec,
@@ -228,6 +387,7 @@ fn run_blocking(
             base_dir,
             &detection_cache,
             started,
+            ctx,
         ),
     }
 }
@@ -240,6 +400,7 @@ fn run_session<P>(
     input: P::Input,
     config_json: serde_json::Value,
     run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
+    ctx: &RunCtx,
 ) -> Result<serde_json::Value, Box<RunResponse>>
 where
     P: ProblemType,
@@ -250,6 +411,12 @@ where
             message: format!("config parse failed: {e}"),
         })
     })?;
+    // Detect stage has completed (input is built). This is the first
+    // cancellation boundary; if the user hit cancel during detection,
+    // stop before the solve.
+    if ctx.cancelled() {
+        return Err(Box::new(RunResponse::Cancelled));
+    }
     let mut session = CalibrationSession::<P>::new();
     session.set_input(input).map_err(|e| {
         Box::new(RunResponse::Failed {
@@ -263,12 +430,18 @@ where
             message: format!("set_config failed: {e}"),
         })
     })?;
+    ctx.stage(RunStage::Solve);
     run(&mut session).map_err(|e| {
         Box::new(RunResponse::Failed {
             category: "calibration_failed".into(),
             message: format!("calibration failed: {e}"),
         })
     })?;
+    // Second cancellation boundary: solve done, export not yet built.
+    if ctx.cancelled() {
+        return Err(Box::new(RunResponse::Cancelled));
+    }
+    ctx.stage(RunStage::Export);
     let export = session.export().map_err(|e| {
         Box::new(RunResponse::Failed {
             category: "session_export".into(),
@@ -313,6 +486,7 @@ fn run_planar_topology<P>(
     base_dir: &Path,
     detection_cache: &FsDetectionCache,
     started: Instant,
+    ctx: &RunCtx,
     run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
 ) -> RunResponse
 where
@@ -324,7 +498,7 @@ where
     };
     let cache_used = planar_run.usable_views > 0; // refined in B3e with hit/miss counts
 
-    let mut export = match run_session::<P>(planar_run.dataset.clone(), config_json, run) {
+    let mut export = match run_session::<P>(planar_run.dataset.clone(), config_json, run, ctx) {
         Ok(v) => v,
         Err(boxed) => return *boxed,
     };
@@ -350,6 +524,7 @@ fn run_single_cam_handeye_topology(
     base_dir: &Path,
     detection_cache: &FsDetectionCache,
     started: Instant,
+    ctx: &RunCtx,
 ) -> RunResponse {
     let handeye_run = match build_single_cam_handeye_input(spec, base_dir, detection_cache, false) {
         Ok(r) => r,
@@ -363,6 +538,7 @@ fn run_single_cam_handeye_topology(
         handeye_run.input,
         config_json,
         run_single_cam_handeye_calibration,
+        ctx,
     ) {
         Ok(v) => v,
         Err(boxed) => return *boxed,
@@ -391,6 +567,7 @@ fn run_laserline_topology(
     base_dir: &Path,
     detection_cache: &FsDetectionCache,
     started: Instant,
+    ctx: &RunCtx,
 ) -> RunResponse {
     let laser_run = match build_laserline_device_input(
         spec,
@@ -406,13 +583,15 @@ fn run_laserline_topology(
     let usable_views = laser_run.usable_views;
     let total_views = laser_run.total_views;
 
-    let mut export =
-        match run_session::<LaserlineDeviceProblem>(laser_run.input, config_json, |session| {
-            run_laserline_device_calibration(session, None)
-        }) {
-            Ok(v) => v,
-            Err(boxed) => return *boxed,
-        };
+    let mut export = match run_session::<LaserlineDeviceProblem>(
+        laser_run.input,
+        config_json,
+        |session| run_laserline_device_calibration(session, None),
+        ctx,
+    ) {
+        Ok(v) => v,
+        Err(boxed) => return *boxed,
+    };
     // Single camera ⇒ planar manifest shape (pose = kept-view index,
     // camera = 0) for the target frames, plus the aligned laser frames
     // (ADR 0021 §5).
@@ -443,6 +622,7 @@ fn run_rig_laserline_topology(
     base_dir: &Path,
     detection_cache: &FsDetectionCache,
     started: Instant,
+    ctx: &RunCtx,
 ) -> RunResponse {
     let laser_run = match build_rig_laserline_device_input(
         spec,
@@ -464,6 +644,7 @@ fn run_rig_laserline_topology(
         laser_run.input,
         config_json,
         run_rig_laserline_device_calibration,
+        ctx,
     ) {
         Ok(v) => v,
         Err(boxed) => return *boxed,
@@ -490,6 +671,7 @@ fn run_rig_handeye_laserline_topology(
     base_dir: &Path,
     detection_cache: &FsDetectionCache,
     started: Instant,
+    ctx: &RunCtx,
 ) -> RunResponse {
     let joint_run = match build_rig_handeye_laserline_input(
         spec,
@@ -511,6 +693,7 @@ fn run_rig_handeye_laserline_topology(
         joint_run.input,
         config_json,
         run_rig_handeye_laserline_calibration,
+        ctx,
     ) {
         Ok(v) => v,
         Err(boxed) => return *boxed,
@@ -539,12 +722,19 @@ type RigBuilder<Meta> =
         bool,
     ) -> Result<vision_calibration::dataset_runner::RigRunResult<Meta>, RunError>;
 
+// Internal generic dispatch helper: it fans the shared run inputs plus a
+// per-topology `build` + `run` pair into one code path shared by both rig
+// problem types. Bundling the six shared inputs into a struct just to
+// satisfy the arity lint would add indirection to every topology arm for
+// no readability gain.
+#[allow(clippy::too_many_arguments)]
 fn run_rig_topology<P, Meta>(
     spec: &DatasetSpec,
     config_json: serde_json::Value,
     base_dir: &Path,
     detection_cache: &FsDetectionCache,
     started: Instant,
+    ctx: &RunCtx,
     build: RigBuilder<Meta>,
     run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
 ) -> RunResponse
@@ -559,7 +749,7 @@ where
     let usable_views = rig_run.usable_views;
     let total_views = rig_run.total_views;
 
-    let mut export = match run_session::<P>(rig_run.dataset, config_json, run) {
+    let mut export = match run_session::<P>(rig_run.dataset, config_json, run, ctx) {
         Ok(v) => v,
         Err(boxed) => return *boxed,
     };
@@ -825,6 +1015,50 @@ mod tests {
     use serde_json::json;
     use vision_calibration::dataset::{CameraSource, ImagePattern, PosePairing, TargetSpec};
 
+    /// Drive `run_blocking` with a discarding progress sink and a
+    /// never-cancelled flag — the plumbing the `Channel`/`RunRegistry`
+    /// supply in production, stubbed so the topology arms stay testable
+    /// without a live Tauri runtime.
+    fn run_blocking_test(
+        manifest_json: serde_json::Value,
+        config_json: serde_json::Value,
+        manifest_dir: &str,
+    ) -> RunResponse {
+        let noop = |_stage: RunStage| {};
+        let cancel = AtomicBool::new(false);
+        let ctx = RunCtx {
+            progress: &noop,
+            cancel: &cancel,
+        };
+        run_blocking(manifest_json, config_json, manifest_dir, &ctx)
+    }
+
+    /// Like [`run_blocking_test`] but records each emitted stage and lets
+    /// the caller flip the cancel flag from a stage hook — used to assert
+    /// the stage sequence and cancellation-at-boundary behaviour.
+    fn run_blocking_capturing(
+        manifest_json: serde_json::Value,
+        config_json: serde_json::Value,
+        manifest_dir: &str,
+        cancel_after: Option<RunStage>,
+    ) -> (RunResponse, Vec<RunStage>) {
+        let stages = Mutex::new(Vec::new());
+        let cancel = AtomicBool::new(false);
+        let hook = |stage: RunStage| {
+            stages.lock().unwrap().push(stage);
+            if Some(stage) == cancel_after {
+                cancel.store(true, Ordering::SeqCst);
+            }
+        };
+        let ctx = RunCtx {
+            progress: &hook,
+            cancel: &cancel,
+        };
+        let response = run_blocking(manifest_json, config_json, manifest_dir, &ctx);
+        let seen = stages.lock().unwrap().clone();
+        (response, seen)
+    }
+
     fn rtv3d_detector_override() -> serde_json::Value {
         json!({
             "chess_corners": {
@@ -884,6 +1118,77 @@ mod tests {
     }
 
     #[test]
+    fn run_registry_flags_only_the_matching_run() {
+        let registry = RunRegistry::new();
+        let flag = registry.register("run-a");
+        assert!(!flag.load(Ordering::SeqCst));
+
+        // Cancelling an unknown id is a no-op that reports "not found".
+        assert!(!registry.cancel("run-b"));
+        assert!(!flag.load(Ordering::SeqCst));
+
+        // Cancelling the registered id flips its flag.
+        assert!(registry.cancel("run-a"));
+        assert!(flag.load(Ordering::SeqCst));
+
+        // After unregister, the id is gone.
+        registry.unregister("run-a");
+        assert!(!registry.cancel("run-a"));
+    }
+
+    #[test]
+    fn run_progress_serializes_snake_case() {
+        let json = serde_json::to_value(RunProgress {
+            stage: RunStage::Detect,
+        })
+        .unwrap();
+        assert_eq!(json, json!({ "stage": "detect" }));
+        for (stage, tag) in [
+            (RunStage::Detect, "detect"),
+            (RunStage::Solve, "solve"),
+            (RunStage::Export, "export"),
+        ] {
+            assert_eq!(serde_json::to_value(stage).unwrap(), json!(tag));
+        }
+    }
+
+    #[test]
+    fn cancelled_response_serializes_as_kind_cancelled() {
+        assert_eq!(
+            serde_json::to_value(RunResponse::Cancelled).unwrap(),
+            json!({ "kind": "cancelled" })
+        );
+    }
+
+    #[test]
+    fn detect_stage_fires_before_a_validation_failure() {
+        // A rig laser manifest without laser_images fails inside
+        // `build_*_input`; the runner still announces the Detect stage
+        // first (and never reaches Solve / Export).
+        let manifest = json!({
+            "version": 1,
+            "topology": "rig_laserline_device",
+            "cameras": [
+                {"id": "cam0", "images": {"kind": "glob", "pattern": "*.png"}},
+                {"id": "cam1", "images": {"kind": "glob", "pattern": "*.png"}},
+            ],
+            "target": {"kind": "chessboard", "rows": 9, "cols": 6, "square_size_m": 0.025},
+            "robot_poses": {"path": "poses.txt", "format": "rowmajor4x4"},
+            "pose_convention": {
+                "transform": "t_base_tcp",
+                "rotation_format": "matrix4x4_row_major",
+                "translation_units": "m",
+            },
+        });
+        let (response, stages) = run_blocking_capturing(manifest, json!({}), "/tmp", None);
+        assert!(
+            matches!(response, RunResponse::ValidationFailed { .. }),
+            "expected ValidationFailed, got {response:?}"
+        );
+        assert_eq!(stages, vec![RunStage::Detect]);
+    }
+
+    #[test]
     fn laser_topologies_dispatch_and_fail_validation_without_laser_images() {
         // The laser arms are wired (ADR 0021); a manifest without
         // laser_images must now fail *validation*, not dispatch.
@@ -903,7 +1208,7 @@ mod tests {
                     "translation_units": "m",
                 },
             });
-            let response = run_blocking(manifest, json!({}), "/tmp");
+            let response = run_blocking_test(manifest, json!({}), "/tmp");
             match response {
                 RunResponse::ValidationFailed { message } => {
                     assert!(message.contains("laser_images"), "{topology}: {message}");
@@ -1009,10 +1314,12 @@ mod tests {
         assert_eq!(export["image_manifest"]["root"], ".");
     }
 
-    /// Run one local-data preset end-to-end through `run_blocking` and
-    /// return the success payload. Skips (returns `None`) when the
-    /// dataset is absent — `data/stereo*` are gitignored, local-only.
-    fn run_local_preset(rel_manifest: &str) -> Option<RunSuccess> {
+    /// Load a local-data preset (manifest JSON + default config + dir).
+    /// Skips (returns `None`) when the dataset is absent — `data/stereo*`
+    /// are gitignored, local-only.
+    fn load_local_preset(
+        rel_manifest: &str,
+    ) -> Option<(serde_json::Value, serde_json::Value, String)> {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let manifest_path = repo_root.join(rel_manifest);
         if !manifest_path.exists() {
@@ -1029,10 +1336,49 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .to_string();
-        match run_blocking(manifest, config, &dir) {
+        Some((manifest, config, dir))
+    }
+
+    /// Run one local-data preset end-to-end through `run_blocking` and
+    /// return the success payload. Skips (returns `None`) when absent.
+    fn run_local_preset(rel_manifest: &str) -> Option<RunSuccess> {
+        let (manifest, config, dir) = load_local_preset(rel_manifest)?;
+        match run_blocking_test(manifest, config, &dir) {
             RunResponse::Ok(success) => Some(success),
             other => panic!("{rel_manifest}: expected Ok, got {other:?}"),
         }
+    }
+
+    /// Progress + cancellation over the committed `data/kuka_1` dataset.
+    /// Ignored for time (full detect + solve), not availability. Verifies
+    /// (a) a clean run emits exactly `[Detect, Solve, Export]`, and
+    /// (b) cancelling at the Detect boundary short-circuits to
+    /// `Cancelled` after the detect stage, never reaching Solve/Export.
+    #[test]
+    #[ignore = "full detection + solve takes tens of seconds; run with --ignored"]
+    fn kuka_progress_stages_and_cancellation() {
+        let (manifest, config, dir) = load_local_preset("data/kuka_1/dataset.toml")
+            .expect("data/kuka_1 is committed; the manifest must be present");
+
+        let (ok, stages) = run_blocking_capturing(manifest.clone(), config.clone(), &dir, None);
+        assert!(matches!(ok, RunResponse::Ok(_)), "clean run: got {ok:?}");
+        assert_eq!(
+            stages,
+            vec![RunStage::Detect, RunStage::Solve, RunStage::Export],
+            "clean run must announce every stage in order"
+        );
+
+        let (cancelled, stages) =
+            run_blocking_capturing(manifest, config, &dir, Some(RunStage::Detect));
+        assert!(
+            matches!(cancelled, RunResponse::Cancelled),
+            "cancel at detect boundary: got {cancelled:?}"
+        );
+        assert_eq!(
+            stages,
+            vec![RunStage::Detect],
+            "cancellation must stop before Solve / Export"
+        );
     }
 
     /// Local-only end-to-end acceptance over the gitignored bundled
@@ -1115,7 +1461,7 @@ mod tests {
         handeye_config["handeye_ba"]["robot_poses"]["refine"] = json!(true);
         handeye_config["solver"]["max_iters"] = json!(200);
         handeye_config["solver"]["robust_loss"] = json!({"Huber": {"scale": 1.0}});
-        let handeye = match run_blocking(
+        let handeye = match run_blocking_test(
             read_manifest("dataset_rig_handeye.toml"),
             handeye_config.clone(),
             &dir,
@@ -1145,7 +1491,8 @@ mod tests {
         let mut laser_config = default_config_cmd("rig_laserline_device".into()).unwrap();
         laser_config["solver"]["max_iters"] = json!(200);
         laser_config["laser_residual_type"] = json!("PointToPlane");
-        let laser = match run_blocking(read_manifest("dataset_laser.toml"), laser_config, &dir) {
+        let laser = match run_blocking_test(read_manifest("dataset_laser.toml"), laser_config, &dir)
+        {
             RunResponse::Ok(s) => s,
             other => panic!("rig laserline stage: expected Ok, got {other:?}"),
         };
@@ -1238,7 +1585,7 @@ mod tests {
                 "p2": true,
             },
         });
-        let joint = match run_blocking(joint_manifest, joint_config, &dir) {
+        let joint = match run_blocking_test(joint_manifest, joint_config, &dir) {
             RunResponse::Ok(s) => s,
             other => panic!("joint rig handeye laserline stage: expected Ok, got {other:?}"),
         };

@@ -26,8 +26,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as TOML from "toml";
 
+import { Banner, Button } from "../../components/ui";
 import { ConfigForm, type JsonSchema } from "../../lib/configForm";
-import { runCalibration, type RunResponse } from "../../lib/runCalibration";
+import {
+  cancelRun,
+  runCalibration,
+  type RunResponse,
+  type RunStage,
+} from "../../lib/runCalibration";
 import { dirnamePath, isTauriContext, joinPath, repoRoot } from "../../lib/tauri";
 import datasetSchemaJson from "../../schemas/dataset_spec.json";
 import { useStore } from "../../store";
@@ -41,6 +47,7 @@ import {
 } from "./manifestFields";
 import { PresetCard } from "./PresetCard";
 import { BUILTIN_PRESETS, mergeConfig, type EnabledPreset } from "./presets";
+import { computeStageRows, formatElapsed, type StageRow } from "./runStages";
 import { topologyInfo } from "./topologies";
 
 // schemars-emitted JSON Schema; cast through unknown since both shapes
@@ -95,6 +102,16 @@ function topologyOf(manifest: unknown): string {
   return typeof m?.topology === "string" ? m.topology : "planar_intrinsics";
 }
 
+/** Fresh correlation id for one run — used to route the progress channel
+ * and cancellation. `crypto.randomUUID` is available in every Tauri
+ * webview and modern browser; fall back to a timestamp+random string in
+ * the rare environment that lacks it (older jsdom). */
+function newRunId(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  return `run-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 /** Default config for a topology: Rust-side defaults inside Tauri,
  * a static fallback in plain-browser dev. */
 async function fetchDefaultConfig(topology: string, inTauri: boolean): Promise<unknown> {
@@ -112,7 +129,18 @@ async function fetchDefaultConfig(topology: string, inTauri: boolean): Promise<u
 
 type RunStatus =
   | { kind: "idle" }
-  | { kind: "running" }
+  | {
+      kind: "running";
+      /** Correlation id for `cancelRun`. */
+      runId: string;
+      /** Last stage the runner announced; `null` until the first message. */
+      stage: RunStage | null;
+      /** Epoch ms the run started — UI elapsed clock only, never exported. */
+      startedAt: number;
+      /** True once the user clicked Cancel (awaiting the boundary stop). */
+      cancelRequested: boolean;
+    }
+  | { kind: "cancelled" }
   | { kind: "ok"; durationMs: number; usable: number; total: number; cacheUsed: boolean }
   | { kind: "error"; category: string; message: string }
   | { kind: "validation"; message: string }
@@ -431,13 +459,42 @@ export function RunWorkspace() {
       });
       return;
     }
-    setStatus({ kind: "running" });
+    const runId = newRunId();
+    setStatus({
+      kind: "running",
+      runId,
+      stage: null,
+      startedAt: Date.now(),
+      cancelRequested: false,
+    });
     try {
-      const response = await runCalibration({ manifest, config, manifestDir });
+      const response = await runCalibration({
+        runId,
+        manifest,
+        config,
+        manifestDir,
+        onProgress: (stage) =>
+          // Only advance the stage if this run is still the active one
+          // (a stale channel message must not resurrect a finished run).
+          setStatus((prev) =>
+            prev.kind === "running" && prev.runId === runId ? { ...prev, stage } : prev,
+          ),
+      });
       handleResponse(response);
     } catch (e) {
       setStatus({ kind: "error", category: "ipc", message: String(e) });
     }
+  };
+
+  const handleCancel = () => {
+    if (status.kind !== "running") return;
+    const runId = status.runId;
+    setStatus({ ...status, cancelRequested: true });
+    // Fire-and-forget: the terminal `cancelled` state arrives via the
+    // run promise resolving to `RunResponse::Cancelled`.
+    void cancelRun(runId).catch(() => {
+      /* benign — the run may have finished between click and IPC */
+    });
   };
 
   const handleResponse = (response: RunResponse) => {
@@ -454,6 +511,8 @@ export function RunWorkspace() {
       });
       // Hand off to /diagnose after a brief success flash.
       setTimeout(() => navigate("/diagnose"), 600);
+    } else if (response.kind === "cancelled") {
+      setStatus({ kind: "cancelled" });
     } else if (response.kind === "ask_user") {
       setStatus({
         kind: "ask_user",
@@ -507,36 +566,30 @@ export function RunWorkspace() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
+          <Button
+            size="md"
             onClick={() => void handleSniffFolder()}
             disabled={isRunning}
             title="Pick a dataset folder and auto-generate a manifest"
-            className="h-9 rounded-md border border-border bg-bg px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-bg-soft disabled:cursor-not-allowed disabled:text-muted-foreground"
           >
             Sniff folder
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="md"
+            className="!px-5"
             onClick={() => void handleRun()}
             disabled={runBlocked}
             title={runBlockReason}
-            className={[
-              "h-9 rounded-md px-5 text-[13px] font-semibold transition-colors",
-              runBlocked
-                ? "cursor-not-allowed bg-bg-soft text-muted-foreground border border-border"
-                : "bg-brand text-white hover:opacity-90",
-            ].join(" ")}
-            style={runBlocked ? undefined : { backgroundColor: "var(--brand)" }}
           >
             {isRunning ? "Running…" : "Run"}
-          </button>
+          </Button>
         </div>
       </header>
 
       {/* 7. Status banner — sticky at top of content */}
-      {status.kind !== "idle" && <StatusBanner status={status} />}
+      {status.kind !== "idle" && <StatusBanner status={status} onCancel={handleCancel} />}
 
       {/* 2. Quick-start grid / active-preset bar */}
       {gridExpanded ? (
@@ -645,15 +698,8 @@ interface UnresolvedNoticeProps {
 
 function UnresolvedNotice({ paths, onResolve }: UnresolvedNoticeProps) {
   return (
-    <div
-      className="flex flex-col gap-2 rounded-md border px-3 py-2.5 text-[12px]"
-      style={{
-        borderColor: "var(--color-destructive, #ef4444)",
-        backgroundColor:
-          "color-mix(in srgb, var(--color-destructive, #ef4444) 7%, transparent)",
-      }}
-    >
-      <p className="font-semibold" style={{ color: "var(--color-destructive, #ef4444)" }}>
+    <Banner variant="error" className="flex flex-col gap-2 !p-3 text-[12px]">
+      <p className="font-semibold text-destructive">
         {paths.length} field{paths.length !== 1 ? "s" : ""} need your input before this
         dataset can run
       </p>
@@ -673,7 +719,7 @@ function UnresolvedNotice({ paths, onResolve }: UnresolvedNoticeProps) {
             <button
               type="button"
               onClick={() => onResolve(path)}
-              className="shrink-0 rounded border border-border bg-bg px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+              className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
               title="Remove this field from _unresolved once you've filled it in"
             >
               mark resolved
@@ -681,7 +727,7 @@ function UnresolvedNotice({ paths, onResolve }: UnresolvedNoticeProps) {
           </li>
         ))}
       </ul>
-    </div>
+    </Banner>
   );
 }
 
@@ -753,12 +799,12 @@ function ActivePresetBar({ preset, onChangePreset }: ActivePresetBarProps) {
   return (
     <div className="flex items-center justify-between rounded-md border border-brand/40 bg-brand/[0.05] px-3 py-2">
       <div className="flex items-center gap-2">
-        {/* Green check mark */}
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/20">
+        {/* Brand check mark */}
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/20 text-brand">
           <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
             <path
               d="M1 4L3 6L7 2"
-              stroke="var(--brand)"
+              stroke="currentColor"
               strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -838,7 +884,7 @@ function PathRow({ label, value, onEdit, editTitle }: PathRowProps) {
         type="button"
         onClick={onEdit}
         title={editTitle}
-        className="shrink-0 rounded border border-border bg-bg px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+        className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
       >
         edit
       </button>
@@ -848,47 +894,55 @@ function PathRow({ label, value, onEdit, editTitle }: PathRowProps) {
 
 // ── Status banner ─────────────────────────────────────────────────────────────
 
-function StatusBanner({ status }: { status: RunStatus }) {
+interface StatusBannerProps {
+  status: RunStatus;
+  onCancel: () => void;
+}
+
+function StatusBanner({ status, onCancel }: StatusBannerProps) {
   if (status.kind === "idle") return null;
 
   if (status.kind === "running") {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-border bg-bg-soft px-3 py-2.5 text-[12px]">
-        <SpinnerIcon />
-        <span className="text-foreground">Detection + calibration in progress…</span>
-        <span className="ml-auto font-mono text-muted-foreground">
-          first run is slowest; second hits the cache
+      <RunProgressPanel
+        stage={status.stage}
+        startedAt={status.startedAt}
+        cancelRequested={status.cancelRequested}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  if (status.kind === "cancelled") {
+    return (
+      <Banner variant="neutral" className="flex items-center gap-2 !p-3 text-[12px]">
+        <span className="font-medium text-foreground">Run cancelled</span>
+        <span className="font-mono text-muted-foreground">
+          stopped at the stage boundary — no export was produced
         </span>
-      </div>
+      </Banner>
     );
   }
 
   if (status.kind === "ok") {
     return (
-      <div
-        className="flex items-center gap-2 rounded-md border px-3 py-2.5 text-[12px]"
-        style={{
-          borderColor: "var(--color-success, #22c55e)",
-          backgroundColor:
-            "color-mix(in srgb, var(--color-success, #22c55e) 8%, transparent)",
-        }}
-      >
-        <span style={{ color: "var(--color-success, #22c55e)" }}>Solve completed</span>
+      <Banner variant="success" className="flex items-center gap-2 !p-3 text-[12px]">
+        <span className="text-success">Solve completed</span>
         <span className="font-mono text-muted-foreground">
           {status.durationMs} ms · {status.usable}/{status.total} usable views
           {status.cacheUsed ? " · cache" : ""}
         </span>
         <span className="ml-auto text-muted-foreground">Routing to /diagnose…</span>
-      </div>
+      </Banner>
     );
   }
 
   if (status.kind === "validation") {
     return (
-      <div className="rounded-md border border-border bg-bg-soft px-3 py-2.5 text-[12px]">
+      <Banner variant="neutral" className="!p-3 text-[12px]">
         <span className="font-medium text-foreground">Validation failed: </span>
         <code className="font-mono text-muted-foreground">{status.message}</code>
-      </div>
+      </Banner>
     );
   }
 
@@ -897,22 +951,155 @@ function StatusBanner({ status }: { status: RunStatus }) {
 
   // Error
   return (
-    <div
-      className="rounded-md border px-3 py-2.5 text-[12px]"
-      style={{
-        borderColor: "var(--color-destructive, #ef4444)",
-        backgroundColor:
-          "color-mix(in srgb, var(--color-destructive, #ef4444) 8%, transparent)",
-      }}
-    >
-      <span
-        className="font-semibold"
-        style={{ color: "var(--color-destructive, #ef4444)" }}
-      >
+    <Banner variant="error" className="!p-3 text-[12px]">
+      <span className="font-semibold text-destructive">
         Run failed ({status.category}):{" "}
       </span>
       <code className="font-mono text-foreground">{status.message}</code>
-    </div>
+    </Banner>
+  );
+}
+
+// ── Elapsed clock ────────────────────────────────────────────────────────────
+
+interface ElapsedClockProps {
+  /** Epoch ms the run started — display-only, never enters any export. */
+  startedAt: number;
+}
+
+/** Live elapsed-time readout for the running banner. Owns its own 200ms
+ * interval so only this leaf re-renders 5x/s while a run is in flight,
+ * not the whole form-heavy workspace tree above it. */
+function ElapsedClock({ startedAt }: ElapsedClockProps) {
+  const [elapsedMs, setElapsedMs] = useState(() => Date.now() - startedAt);
+  useEffect(() => {
+    const tick = () => setElapsedMs(Date.now() - startedAt);
+    tick();
+    const id = setInterval(tick, 200);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return (
+    <span className="ml-auto font-mono text-muted-foreground tabular-nums">
+      {formatElapsed(elapsedMs)}
+    </span>
+  );
+}
+
+// ── Run progress panel ─────────────────────────────────────────────────────────
+
+interface RunProgressPanelProps {
+  stage: RunStage | null;
+  startedAt: number;
+  cancelRequested: boolean;
+  onCancel: () => void;
+}
+
+/** Stage checklist + live elapsed clock + Cancel button for an in-flight
+ * run. The three stages (detect → solve → export) come from the runner's
+ * progress channel; cancellation takes effect at the next boundary. */
+function RunProgressPanel({
+  stage,
+  startedAt,
+  cancelRequested,
+  onCancel,
+}: RunProgressPanelProps) {
+  const rows = computeStageRows(stage, { cancelled: cancelRequested });
+  return (
+    <Banner variant="neutral" className="flex flex-col gap-2 !p-3 text-[12px]">
+      <div className="flex items-center gap-2">
+        {cancelRequested ? (
+          <span className="text-foreground">Cancelling…</span>
+        ) : (
+          <>
+            <SpinnerIcon />
+            <span className="text-foreground">Detection + calibration in progress…</span>
+          </>
+        )}
+        <ElapsedClock startedAt={startedAt} />
+        <Button
+          size="sm"
+          className="!px-2.5 font-medium"
+          onClick={onCancel}
+          disabled={cancelRequested}
+          title="Stop the run at the next stage boundary"
+        >
+          {cancelRequested ? "Cancelling…" : "Cancel"}
+        </Button>
+      </div>
+      <ul className="flex flex-col gap-1">
+        {rows.map((row) => (
+          <StageRowItem key={row.id} row={row} />
+        ))}
+      </ul>
+      {!cancelRequested && (
+        <span className="font-mono text-[10px] text-muted-foreground">
+          first run is slowest; second hits the detection cache
+        </span>
+      )}
+    </Banner>
+  );
+}
+
+function StageRowItem({ row }: { row: StageRow }) {
+  return (
+    <li className="flex items-center gap-2 font-mono text-[11px]">
+      <StageStateIcon state={row.state} />
+      <span
+        className={
+          row.state === "done"
+            ? "text-success"
+            : row.state === "active"
+              ? "text-foreground"
+              : row.state === "cancelled"
+                ? "text-muted-foreground line-through"
+                : "text-muted-foreground"
+        }
+      >
+        {row.label}
+      </span>
+    </li>
+  );
+}
+
+function StageStateIcon({ state }: { state: StageRow["state"] }) {
+  if (state === "active") return <SpinnerIcon />;
+  if (state === "done") {
+    return (
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-success">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-label="done">
+          <path
+            d="M1.5 5L4 7.5L8.5 2.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+    );
+  }
+  if (state === "cancelled") {
+    return (
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-muted-foreground">
+        <svg width="9" height="9" viewBox="0 0 9 9" fill="none" aria-label="cancelled">
+          <path
+            d="M1.5 1.5L7.5 7.5M7.5 1.5L1.5 7.5"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          />
+        </svg>
+      </span>
+    );
+  }
+  // pending
+  return (
+    <span
+      className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+      aria-label="pending"
+    >
+      <span className="h-1.5 w-1.5 rounded-full border border-muted-foreground/60" />
+    </span>
   );
 }
 

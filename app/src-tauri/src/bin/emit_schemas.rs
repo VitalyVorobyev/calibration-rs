@@ -15,164 +15,192 @@
 //! current source would generate, so a Rust type change that was not
 //! regenerated fails CI.
 //!
-//! Only built with `--features schema-export` (see the `[[bin]]`
-//! `required-features` gate in `Cargo.toml`); `tauri dev` never compiles it.
+//! The real emitter (below, [`schema_export`]) only compiles with
+//! `--features schema-export` — `tauri dev`/plain `cargo build`/`clippy`/
+//! `test` never pull in the optional `schemars` dependency. The `[[bin]]`
+//! target itself, however, has no `required-features` gate in `Cargo.toml`:
+//! Tauri's release bundler (`tauri build`) copies every declared `[[bin]]`
+//! unconditionally and errors if one is missing, so a plain default build
+//! must still produce *some* `emit_schemas` executable — the stub `main`
+//! below is that placeholder.
 
-use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+#[cfg(feature = "schema-export")]
+fn main() -> std::process::ExitCode {
+    schema_export::main()
+}
 
-use schemars::generate::SchemaSettings;
-use serde_json::{Value, json};
+#[cfg(not(feature = "schema-export"))]
+fn main() -> std::process::ExitCode {
+    eprintln!(
+        "emit_schemas: built without `--features schema-export`; this placeholder exists only \
+         so Tauri's release bundler has a binary to package. Run `bun run generate:schemas` \
+         for the real schema emitter."
+    );
+    std::process::ExitCode::FAILURE
+}
 
-use calibration_diagnose_lib::schema_types::{DisparityResult, EpipolarOverlay};
+#[cfg(feature = "schema-export")]
+mod schema_export {
+    use std::path::{Path, PathBuf};
+    use std::process::ExitCode;
 
-use vision_calibration::laserline_device::LaserlineDeviceExport;
-use vision_calibration::planar_intrinsics::PlanarIntrinsicsExport;
-use vision_calibration::rig_extrinsics::RigExtrinsicsExport;
-use vision_calibration::rig_handeye::RigHandeyeExport;
-use vision_calibration::rig_handeye_laserline::RigHandeyeLaserlineExport;
-use vision_calibration::rig_laserline_device::RigLaserlineDeviceExport;
-use vision_calibration::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport;
-use vision_calibration::single_cam_handeye::SingleCamHandeyeExport;
+    use schemars::generate::SchemaSettings;
+    use serde_json::{Value, json};
 
-fn main() -> ExitCode {
-    let check = std::env::args().any(|a| a == "--check");
+    use calibration_diagnose_lib::schema_types::{DisparityResult, EpipolarOverlay, RunProgress};
 
-    let schema = build_schema();
+    use vision_calibration::laserline_device::LaserlineDeviceExport;
+    use vision_calibration::planar_intrinsics::PlanarIntrinsicsExport;
+    use vision_calibration::rig_extrinsics::RigExtrinsicsExport;
+    use vision_calibration::rig_handeye::RigHandeyeExport;
+    use vision_calibration::rig_handeye_laserline::RigHandeyeLaserlineExport;
+    use vision_calibration::rig_laserline_device::RigLaserlineDeviceExport;
+    use vision_calibration::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport;
+    use vision_calibration::single_cam_handeye::SingleCamHandeyeExport;
 
-    let dir = out_dir();
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        eprintln!("error: creating {}: {e}", dir.display());
-        return ExitCode::FAILURE;
-    }
-    let out_path = dir.join("diagnose_wire.json");
+    pub(super) fn main() -> ExitCode {
+        let check = std::env::args().any(|a| a == "--check");
 
-    match write_or_check(&out_path, &schema, check) {
-        Ok(drifted) if check => {
-            if drifted {
-                eprintln!("schema drift: {}", out_path.display());
-                eprintln!(
-                    "run `bun run generate:types` and commit the result (schemas-generated/ + src/types/generated/)"
-                );
-                ExitCode::FAILURE
-            } else {
-                println!("schema up to date: {}", out_path.display());
+        let schema = build_schema();
+
+        let dir = out_dir();
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("error: creating {}: {e}", dir.display());
+            return ExitCode::FAILURE;
+        }
+        let out_path = dir.join("diagnose_wire.json");
+
+        match write_or_check(&out_path, &schema, check) {
+            Ok(drifted) if check => {
+                if drifted {
+                    eprintln!("schema drift: {}", out_path.display());
+                    eprintln!(
+                        "run `bun run generate:types` and commit the result (schemas-generated/ + src/types/generated/)"
+                    );
+                    ExitCode::FAILURE
+                } else {
+                    println!("schema up to date: {}", out_path.display());
+                    ExitCode::SUCCESS
+                }
+            }
+            Ok(_) => {
+                println!("emitted schema to {}", out_path.display());
                 ExitCode::SUCCESS
             }
-        }
-        Ok(_) => {
-            println!("emitted schema to {}", out_path.display());
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::FAILURE
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
         }
     }
-}
 
-/// Build one combined schema whose `$defs` holds every wire type (deduped),
-/// referenced from a thin wrapper object. The wrapper exists only to force
-/// every top-level type into `$defs`; it is ignored on the TypeScript side.
-fn build_schema() -> Value {
-    // Draft-07 (`definitions`, not 2020-12 `$defs`): json-schema-to-typescript
-    // natively names + dedupes interfaces from draft-07 `definitions` keys.
-    // With 2020-12 `$defs` it re-inlines shared types once per reference site
-    // (`Camera1`, `PerFeatureResiduals7`, …).
-    let mut generator = SchemaSettings::draft07().into_generator();
-    let mut props = serde_json::Map::new();
+    /// Build one combined schema whose `$defs` holds every wire type (deduped),
+    /// referenced from a thin wrapper object. The wrapper exists only to force
+    /// every top-level type into `$defs`; it is ignored on the TypeScript side.
+    fn build_schema() -> Value {
+        // Draft-07 (`definitions`, not 2020-12 `$defs`): json-schema-to-typescript
+        // natively names + dedupes interfaces from draft-07 `definitions` keys.
+        // With 2020-12 `$defs` it re-inlines shared types once per reference site
+        // (`Camera1`, `PerFeatureResiduals7`, …).
+        let mut generator = SchemaSettings::draft07().into_generator();
+        let mut props = serde_json::Map::new();
 
-    // Deterministic order: a fixed sequence of inserts, never an unordered map.
-    // Calibration `*Export` types (facade → pipeline).
-    props.insert(
-        "planar_intrinsics_export".into(),
-        generator
-            .subschema_for::<PlanarIntrinsicsExport>()
-            .to_value(),
-    );
-    props.insert(
-        "scheimpflug_intrinsics_export".into(),
-        generator
-            .subschema_for::<ScheimpflugIntrinsicsExport>()
-            .to_value(),
-    );
-    props.insert(
-        "single_cam_handeye_export".into(),
-        generator
-            .subschema_for::<SingleCamHandeyeExport>()
-            .to_value(),
-    );
-    props.insert(
-        "laserline_device_export".into(),
-        generator
-            .subschema_for::<LaserlineDeviceExport>()
-            .to_value(),
-    );
-    props.insert(
-        "rig_extrinsics_export".into(),
-        generator.subschema_for::<RigExtrinsicsExport>().to_value(),
-    );
-    props.insert(
-        "rig_handeye_export".into(),
-        generator.subschema_for::<RigHandeyeExport>().to_value(),
-    );
-    props.insert(
-        "rig_laserline_device_export".into(),
-        generator
-            .subschema_for::<RigLaserlineDeviceExport>()
-            .to_value(),
-    );
-    props.insert(
-        "rig_handeye_laserline_export".into(),
-        generator
-            .subschema_for::<RigHandeyeLaserlineExport>()
-            .to_value(),
-    );
-    // Tauri command payload/response types (this crate).
-    props.insert(
-        "epipolar_overlay".into(),
-        generator.subschema_for::<EpipolarOverlay>().to_value(),
-    );
-    props.insert(
-        "disparity_result".into(),
-        generator.subschema_for::<DisparityResult>().to_value(),
-    );
+        // Deterministic order: a fixed sequence of inserts, never an unordered map.
+        // Calibration `*Export` types (facade → pipeline).
+        props.insert(
+            "planar_intrinsics_export".into(),
+            generator
+                .subschema_for::<PlanarIntrinsicsExport>()
+                .to_value(),
+        );
+        props.insert(
+            "scheimpflug_intrinsics_export".into(),
+            generator
+                .subschema_for::<ScheimpflugIntrinsicsExport>()
+                .to_value(),
+        );
+        props.insert(
+            "single_cam_handeye_export".into(),
+            generator
+                .subschema_for::<SingleCamHandeyeExport>()
+                .to_value(),
+        );
+        props.insert(
+            "laserline_device_export".into(),
+            generator
+                .subschema_for::<LaserlineDeviceExport>()
+                .to_value(),
+        );
+        props.insert(
+            "rig_extrinsics_export".into(),
+            generator.subschema_for::<RigExtrinsicsExport>().to_value(),
+        );
+        props.insert(
+            "rig_handeye_export".into(),
+            generator.subschema_for::<RigHandeyeExport>().to_value(),
+        );
+        props.insert(
+            "rig_laserline_device_export".into(),
+            generator
+                .subschema_for::<RigLaserlineDeviceExport>()
+                .to_value(),
+        );
+        props.insert(
+            "rig_handeye_laserline_export".into(),
+            generator
+                .subschema_for::<RigHandeyeLaserlineExport>()
+                .to_value(),
+        );
+        // Tauri command payload/response types (this crate).
+        props.insert(
+            "epipolar_overlay".into(),
+            generator.subschema_for::<EpipolarOverlay>().to_value(),
+        );
+        props.insert(
+            "disparity_result".into(),
+            generator.subschema_for::<DisparityResult>().to_value(),
+        );
+        props.insert(
+            "run_progress".into(),
+            generator.subschema_for::<RunProgress>().to_value(),
+        );
 
-    let defs = generator.take_definitions(true);
+        let defs = generator.take_definitions(true);
 
-    json!({
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "DiagnoseWireTypes",
-        "description": "Generated wire types for the diagnose app (B-QUAL2). \
-            Do not edit by hand — run `bun run generate:types`. The top-level \
-            wrapper only anchors the `definitions`; consumers import the \
-            individual interfaces.",
-        "type": "object",
-        "properties": Value::Object(props),
-        "definitions": defs,
-    })
-}
-
-/// `app/schemas-generated`, resolved from this crate's manifest dir so the
-/// output location is independent of the caller's working directory.
-fn out_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("schemas-generated")
-}
-
-/// Write `schema` to `path` (or, in `--check` mode, compare). Returns
-/// `Ok(true)` when the on-disk file drifts from `schema` under `--check`.
-fn write_or_check(path: &Path, schema: &Value, check: bool) -> Result<bool, String> {
-    let mut text = serde_json::to_string_pretty(schema)
-        .map_err(|e| format!("rendering {}: {e}", path.display()))?;
-    text.push('\n');
-
-    if check {
-        let on_disk = std::fs::read_to_string(path).unwrap_or_default();
-        return Ok(on_disk != text);
+        json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "DiagnoseWireTypes",
+            "description": "Generated wire types for the diagnose app (B-QUAL2). \
+                Do not edit by hand — run `bun run generate:types`. The top-level \
+                wrapper only anchors the `definitions`; consumers import the \
+                individual interfaces.",
+            "type": "object",
+            "properties": Value::Object(props),
+            "definitions": defs,
+        })
     }
 
-    std::fs::write(path, &text).map_err(|e| format!("writing {}: {e}", path.display()))?;
-    Ok(false)
+    /// `app/schemas-generated`, resolved from this crate's manifest dir so the
+    /// output location is independent of the caller's working directory.
+    fn out_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("schemas-generated")
+    }
+
+    /// Write `schema` to `path` (or, in `--check` mode, compare). Returns
+    /// `Ok(true)` when the on-disk file drifts from `schema` under `--check`.
+    fn write_or_check(path: &Path, schema: &Value, check: bool) -> Result<bool, String> {
+        let mut text = serde_json::to_string_pretty(schema)
+            .map_err(|e| format!("rendering {}: {e}", path.display()))?;
+        text.push('\n');
+
+        if check {
+            let on_disk = std::fs::read_to_string(path).unwrap_or_default();
+            return Ok(on_disk != text);
+        }
+
+        std::fs::write(path, &text).map_err(|e| format!("writing {}: {e}", path.display()))?;
+        Ok(false)
+    }
 }
