@@ -1,6 +1,7 @@
 //! [`ProblemType`] implementation for joint rig hand-eye laserline calibration.
 
 use crate::Error;
+use crate::common::ExportKind;
 use crate::common::config::{RobotPoseConfig, SolverConfig};
 use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeProblem};
 use crate::rig_laserline_device::{RigLaserlineDeviceConfig, RigLaserlineDeviceProblem};
@@ -204,6 +205,8 @@ impl Default for RigHandeyeLaserlineBaConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeLaserlineExport {
+    /// Export-type discriminator (R7) — always [`ExportKind::RigHandeyeLaserline`].
+    pub kind: ExportKind,
     /// Per-camera laser planes in rig frame.
     pub laser_planes_rig: Vec<LaserPlane>,
     /// Per-camera laser planes in camera frame.
@@ -414,6 +417,7 @@ pub(crate) fn export_joint(
     };
 
     Ok(RigHandeyeLaserlineExport {
+        kind: ExportKind::RigHandeyeLaserline,
         laser_planes_rig: estimate.planes_rig.clone(),
         laser_planes_cam: params.planes_cam.clone(),
         per_camera_stats: estimate.per_cam_stats.clone(),

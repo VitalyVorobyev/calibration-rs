@@ -37,6 +37,7 @@ const TARGET_MANIFEST_EXPORT = PLANAR_EXPORT_FIXTURE;
 // laser-kind frame + laser residuals — exercises the laser-view branch
 // (`hasLaser` in index.tsx).
 const LASER_MANIFEST_EXPORT = {
+  kind: "laserline_device",
   estimate: {},
   stats: {},
   per_feature_residuals: { target: [], laser: [LASER_RESIDUAL] },

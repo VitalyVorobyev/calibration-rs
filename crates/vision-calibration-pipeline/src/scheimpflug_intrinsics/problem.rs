@@ -8,6 +8,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{DistortionKind, SolveReport};
 
+use crate::common::ExportKind;
 use crate::common::config::{IntrinsicsInitConfig, SolverConfig};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -117,6 +118,8 @@ pub struct ScheimpflugIntrinsicsResult {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ScheimpflugIntrinsicsExport {
+    /// Export-type discriminator (R7) — always [`ExportKind::ScheimpflugIntrinsics`].
+    pub kind: ExportKind,
     /// Estimated parameters.
     pub params: ScheimpflugIntrinsicsParams,
     /// Backend solve report.
@@ -209,6 +212,7 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
         per_feature_residuals.target = target;
         per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
         Ok(ScheimpflugIntrinsicsExport {
+            kind: ExportKind::ScheimpflugIntrinsics,
             params: output.params.clone(),
             report: output.report.clone(),
             mean_reproj_error: output.mean_reproj_error,

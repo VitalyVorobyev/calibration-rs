@@ -12,6 +12,7 @@ use vision_calibration_optim::{
     LaserlineSolveOptions, LaserlineStats, compute_laserline_feature_residuals,
 };
 
+use crate::common::ExportKind;
 use crate::common::config::{IntrinsicsInitConfig, SolverConfig};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -141,6 +142,8 @@ pub struct LaserlineDeviceOutput {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserlineDeviceExport {
+    /// Export-type discriminator (R7) — always [`ExportKind::LaserlineDevice`].
+    pub kind: ExportKind,
     /// Pipeline output including optimized parameters and summary statistics.
     pub estimate: LaserlineEstimate,
     /// Laserline statistics payload.
@@ -251,6 +254,7 @@ impl ProblemType for LaserlineDeviceProblem {
         per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
         per_feature_residuals.laser_hist_per_camera = Some(vec![laser_hist]);
         Ok(LaserlineDeviceExport {
+            kind: ExportKind::LaserlineDevice,
             estimate: output.estimate.clone(),
             stats: output.stats.clone(),
             mean_reproj_error: output.stats.mean_reproj_error,

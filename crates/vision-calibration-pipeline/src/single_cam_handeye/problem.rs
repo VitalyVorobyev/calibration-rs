@@ -11,6 +11,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{HandEyeEstimate, HandEyeMode, handeye_observer_se3_target};
 
+use crate::common::ExportKind;
 use crate::common::config::{
     HandeyeInitConfig, IntrinsicsInitConfig, RobotPoseConfig, SolverConfig,
 };
@@ -107,6 +108,9 @@ pub struct SingleCamHandeyeConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct SingleCamHandeyeExport {
+    /// Export-type discriminator (R7) — always [`ExportKind::SingleCamHandeye`].
+    pub kind: ExportKind,
+
     /// Calibrated camera (intrinsics + distortion).
     pub camera: PinholeCamera,
 
@@ -327,6 +331,7 @@ impl ProblemType for SingleCamHandeyeProblem {
         per_feature_residuals.target = target;
         per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
         Ok(SingleCamHandeyeExport {
+            kind: ExportKind::SingleCamHandeye,
             camera,
             handeye_mode: config.handeye_init.handeye_mode,
             gripper_se3_camera,

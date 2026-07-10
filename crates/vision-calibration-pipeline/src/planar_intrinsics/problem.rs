@@ -15,6 +15,7 @@ use vision_calibration_optim::{
     PlanarIntrinsicsSolveOptions, SolveReport,
 };
 
+use crate::common::ExportKind;
 use crate::common::config::{IntrinsicsInitConfig, SolverConfig};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
@@ -134,6 +135,8 @@ impl PlanarIntrinsicsConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PlanarIntrinsicsExport {
+    /// Export-type discriminator (R7) — always [`ExportKind::PlanarIntrinsics`].
+    pub kind: ExportKind,
     /// Calibrated parameters.
     pub params: PlanarIntrinsicsParams,
     /// Solver report.
@@ -230,6 +233,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         per_feature_residuals.target = target;
         per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
         Ok(PlanarIntrinsicsExport {
+            kind: ExportKind::PlanarIntrinsics,
             params: output.params.clone(),
             report: output.report.clone(),
             mean_reproj_error: output.mean_reproj_error,
@@ -661,6 +665,7 @@ mod tests {
         )
         .expect("valid params");
         let mut export = PlanarIntrinsicsExport {
+            kind: ExportKind::PlanarIntrinsics,
             params,
             report: SolveReport {
                 final_cost: 0.0,

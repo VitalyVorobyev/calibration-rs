@@ -130,3 +130,26 @@ generated from these schemas (`app/src-tauri/src/bin/emit_schemas.rs` →
 replacing the hand-written mirrors and `inferExportKind` shape-sniffing.
 Config schemas remain the runtime source for `<ConfigForm/>`; export
 schemas are build-time codegen inputs only. Shipped with the 0.7.0 bump.
+
+## Amendment (2026-07-10, R7 — export discriminator)
+
+Shape-sniffing on the consumer side was the last vestige of the
+"probe which required fields are present" contract. Every pipeline
+`*Export` now serializes a **required** `kind` discriminator — a shared
+`ExportKind` unit enum (`vision_calibration::common::ExportKind`,
+`#[serde(rename_all = "snake_case")]`, one variant per problem type),
+set on construction and carried as each export's first field. Consumers
+narrow on the single tag; deserialize is strict (a missing `kind`
+errors, no `serde(default)`), so the tag is a hard contract rather than
+best-effort. The 0.7.0 breaking window regenerated every committed
+export, so nothing depends on the pre-tag wire shape.
+
+The enum derives `JsonSchema`, so it flows through the same
+`emit_schemas` → `diagnose_wire.json` → `diagnose-wire.ts` pipeline as a
+`"planar_intrinsics" | "scheimpflug_intrinsics" | …` union. The app's
+`detectExportKind` collapsed from ~50 lines of field probes to a single
+validated read of `data.kind` against that generated union; the label
+`Record<ExportKind, string>` is now the single source of both the label
+vocabulary and the recognised-kind set (a renamed/added Rust variant
+fails the TypeScript build until the record is updated). Python export
+result parsers read specific keys and ignore `kind` harmlessly.

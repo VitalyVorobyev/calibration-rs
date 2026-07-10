@@ -2,101 +2,59 @@ import { describe, expect, it } from "vitest";
 import { detectExportKind, exportKindLabel, type ExportKind } from "./exportKind";
 import { PLANAR_EXPORT_FIXTURE } from "../test/exportFixtures";
 
-const ALL_KINDS: ExportKind[] = [
+const WIRE_KINDS: Exclude<ExportKind, "unknown">[] = [
   "planar_intrinsics",
   "scheimpflug_intrinsics",
   "single_cam_handeye",
   "laserline_device",
   "rig_extrinsics",
   "rig_handeye",
-  "rig_handeye_laserline",
   "rig_laserline_device",
-  "unknown",
+  "rig_handeye_laserline",
 ];
 
-// detectExportKind classifies a loaded export by its distinguishing required
-// fields — the actual shapes emitted by the pipeline (see the generated
-// `*Export` interfaces), not the speculative top-level `camera` /
-// `laser_planes_cam` probes of the retired exportShape.ts.
+const ALL_KINDS: ExportKind[] = [...WIRE_KINDS, "unknown"];
+
+// detectExportKind now reads the `kind` discriminator (R7) every pipeline
+// `*Export` serializes, validated against the known vocabulary — no more
+// probing which required fields are present.
 describe("detectExportKind", () => {
-  it("classifies single-camera intrinsics by params.camera.sensor", () => {
-    // Both planar and Scheimpflug exports are top-level identical; the sensor
-    // model tag inside params.camera is the only discriminator. The
-    // "identity" case reuses the canonical planar fixture (see
-    // src/test/exportFixtures.ts) instead of re-declaring its shape here.
+  it("returns the wire kind for every recognised tag", () => {
+    for (const kind of WIRE_KINDS) {
+      expect(detectExportKind({ kind })).toBe(kind);
+    }
+  });
+
+  it("classifies the shared planar fixture by its kind tag", () => {
     expect(detectExportKind(PLANAR_EXPORT_FIXTURE)).toBe("planar_intrinsics");
+  });
+
+  it("ignores field presence and trusts the tag", () => {
+    // A payload whose fields look like a rig export but whose tag says
+    // planar is classified by the tag: the discriminator is authoritative.
     expect(
       detectExportKind({
-        ...PLANAR_EXPORT_FIXTURE,
-        params: { camera: { sensor: { type: "scheimpflug" } } },
+        kind: "planar_intrinsics",
+        cameras: [],
+        handeye_mode: "EyeInHand",
       }),
-    ).toBe("scheimpflug_intrinsics");
-    // Missing/omitted sensor tag falls back to planar (the common case).
-    expect(detectExportKind({ params: { camera: {} } })).toBe("planar_intrinsics");
+    ).toBe("planar_intrinsics");
   });
 
-  it("classifies single-camera hand-eye by camera + handeye_mode", () => {
-    expect(detectExportKind({ camera: {}, handeye_mode: "EyeInHand" })).toBe(
-      "single_cam_handeye",
-    );
-  });
-
-  it("classifies a laserline device by estimate + stats", () => {
-    expect(detectExportKind({ estimate: {}, stats: {} })).toBe("laserline_device");
-  });
-
-  it("classifies rig exports by the cameras array + optional hand-eye", () => {
-    expect(detectExportKind({ cameras: [], cam_se3_rig: [], rig_se3_target: [] })).toBe(
-      "rig_extrinsics",
-    );
-    expect(detectExportKind({ cameras: [], handeye_mode: "EyeToHand" })).toBe(
-      "rig_handeye",
-    );
-  });
-
-  it("classifies laser-rig exports by laser_planes_rig + optional hand-eye", () => {
-    expect(
-      detectExportKind({
-        laser_planes_rig: [],
-        laser_planes_cam: [],
-        per_camera_stats: [],
-      }),
-    ).toBe("rig_laserline_device");
-    expect(
-      detectExportKind({ laser_planes_rig: [], handeye_mode: "EyeInHand", cameras: [] }),
-    ).toBe("rig_handeye_laserline");
-  });
-
-  it("returns unknown for unrecognised or empty shapes", () => {
+  it("returns unknown for a missing or unrecognised tag", () => {
     expect(detectExportKind({})).toBe("unknown");
-    expect(detectExportKind({ per_feature_residuals: {} })).toBe("unknown");
+    expect(detectExportKind({ kind: "not_a_real_kind" })).toBe("unknown");
+    // Fields but no tag (e.g. a hand-edited or pre-R7 payload): unknown.
+    expect(detectExportKind({ cameras: [], cam_se3_rig: [], rig_se3_target: [] })).toBe(
+      "unknown",
+    );
+  });
+
+  it("returns unknown for non-object or non-string-tag payloads", () => {
     expect(detectExportKind(null)).toBe("unknown");
     expect(detectExportKind("nope")).toBe("unknown");
-  });
-
-  it("returns unknown when params is present but not a plain object", () => {
-    // A malformed export could carry `params` as some other JSON type;
-    // that must not be misread as an empty/planar intrinsics export.
-    expect(detectExportKind({ params: "not-an-object" })).toBe("unknown");
-    expect(detectExportKind({ params: [] })).toBe("unknown");
-    expect(detectExportKind({ params: null })).toBe("unknown");
-  });
-
-  // Probe order runs most-specific first: a laser-rig hand-eye export carries
-  // `cameras` too, but the laser + hand-eye combination must win over the
-  // plain rig / single-cam classifications.
-  it("prefers the most specific kind when fields overlap", () => {
-    expect(
-      detectExportKind({
-        laser_planes_rig: [],
-        handeye_mode: "EyeInHand",
-        cameras: [],
-        camera: {},
-      }),
-    ).toBe("rig_handeye_laserline");
-    expect(detectExportKind({ cameras: [], handeye_mode: "EyeToHand", camera: {} })).toBe(
-      "rig_handeye",
-    );
+    expect(detectExportKind({ kind: 42 })).toBe("unknown");
+    expect(detectExportKind({ kind: null })).toBe("unknown");
   });
 });
 

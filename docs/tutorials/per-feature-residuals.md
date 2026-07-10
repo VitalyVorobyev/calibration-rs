@@ -24,6 +24,11 @@ field. The container is always present (`Default` is empty); empty inner
 (e.g., `PlanarIntrinsicsExport.per_feature_residuals.laser` is always
 empty).
 
+Each `*Export` also serializes a required `kind` discriminator
+(`ExportKind`, snake_case — `"planar_intrinsics"`, `"rig_handeye"`, …) as
+its first field, so a consumer that loads raw JSON can narrow on the single
+tag instead of probing which fields are present.
+
 ```
 PerFeatureResiduals
 ├─ target: Vec<TargetFeatureResidual>     // per-corner reprojection records

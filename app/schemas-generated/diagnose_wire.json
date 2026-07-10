@@ -502,6 +502,51 @@
       ],
       "type": "object"
     },
+    "ExportKind": {
+      "description": "Identifies which calibration `*Export` a JSON payload holds.\n\nOne variant per pipeline problem type, serialized as the snake_case module\nname in the `kind` field of every `*Export`. Consumers (the desktop app's\n`detectExportKind`, downstream tooling) read this single tag rather than\nsniffing field presence.",
+      "oneOf": [
+        {
+          "const": "planar_intrinsics",
+          "description": "[`PlanarIntrinsicsExport`](crate::planar_intrinsics::PlanarIntrinsicsExport).",
+          "type": "string"
+        },
+        {
+          "const": "scheimpflug_intrinsics",
+          "description": "[`ScheimpflugIntrinsicsExport`](crate::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport).",
+          "type": "string"
+        },
+        {
+          "const": "single_cam_handeye",
+          "description": "[`SingleCamHandeyeExport`](crate::single_cam_handeye::SingleCamHandeyeExport).",
+          "type": "string"
+        },
+        {
+          "const": "laserline_device",
+          "description": "[`LaserlineDeviceExport`](crate::laserline_device::LaserlineDeviceExport).",
+          "type": "string"
+        },
+        {
+          "const": "rig_extrinsics",
+          "description": "[`RigExtrinsicsExport`](crate::rig_extrinsics::RigExtrinsicsExport).",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye",
+          "description": "[`RigHandeyeExport`](crate::rig_handeye::RigHandeyeExport).",
+          "type": "string"
+        },
+        {
+          "const": "rig_laserline_device",
+          "description": "[`RigLaserlineDeviceExport`](crate::rig_laserline_device::RigLaserlineDeviceExport).",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye_laserline",
+          "description": "[`RigHandeyeLaserlineExport`](crate::rig_handeye_laserline::RigHandeyeLaserlineExport).",
+          "type": "string"
+        }
+      ]
+    },
     "FeatureResidualHistogram": {
       "description": "Aggregate residual histogram for a (set of) reprojection error samples.\n\nBuckets are fixed at `[<=1, <=2, <=5, <=10, >10]` pixels — see\n[`REPROJECTION_HISTOGRAM_EDGES_PX`].",
       "properties": {
@@ -890,6 +935,14 @@
           ],
           "description": "Optional image manifest (ADR 0014, viewer-side contract). Per\naccepted view (pose = kept-view index, camera = 0): one frame\nfor the *target* image plus one of kind `laser` for the laser\nimage (ADR 0021 §5). `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
         },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportKind"
+            }
+          ],
+          "description": "Export-type discriminator (R7) — always [`ExportKind::LaserlineDevice`]."
+        },
         "mean_reproj_error": {
           "description": "Mean reprojection error (pixels).",
           "format": "double",
@@ -922,6 +975,7 @@
         }
       },
       "required": [
+        "kind",
         "estimate",
         "stats",
         "mean_reproj_error",
@@ -1139,6 +1193,14 @@
           ],
           "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. `None` means \"no images\nshipped\"; the calibration pipeline never reads this field."
         },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportKind"
+            }
+          ],
+          "description": "Export-type discriminator (R7) — always [`ExportKind::PlanarIntrinsics`]."
+        },
         "mean_reproj_error": {
           "description": "Mean reprojection error (pixels).",
           "format": "double",
@@ -1179,6 +1241,7 @@
         }
       },
       "required": [
+        "kind",
         "params",
         "report",
         "mean_reproj_error",
@@ -1290,6 +1353,14 @@
           ],
           "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
         },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportKind"
+            }
+          ],
+          "description": "Export-type discriminator (R7) — always [`ExportKind::RigExtrinsics`]."
+        },
         "mean_reproj_error": {
           "description": "Mean reprojection error (pixels).",
           "format": "double",
@@ -1332,6 +1403,7 @@
         }
       },
       "required": [
+        "kind",
         "cameras",
         "cam_se3_rig",
         "rig_se3_target",
@@ -1409,6 +1481,14 @@
           ],
           "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
         },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportKind"
+            }
+          ],
+          "description": "Export-type discriminator (R7) — always [`ExportKind::RigHandeye`]."
+        },
         "mean_reproj_error": {
           "description": "Mean reprojection error (pixels).",
           "format": "double",
@@ -1479,6 +1559,7 @@
         }
       },
       "required": [
+        "kind",
         "cameras",
         "cam_se3_rig",
         "handeye_mode",
@@ -1555,6 +1636,14 @@
             }
           ],
           "description": "Optional image manifest populated by app/dataset runners."
+        },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportKind"
+            }
+          ],
+          "description": "Export-type discriminator (R7) — always [`ExportKind::RigHandeyeLaserline`]."
         },
         "laser_planes_cam": {
           "description": "Per-camera laser planes in camera frame.",
@@ -1642,6 +1731,7 @@
         }
       },
       "required": [
+        "kind",
         "laser_planes_rig",
         "laser_planes_cam",
         "per_camera_stats",
@@ -1767,6 +1857,14 @@
           ],
           "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose / 3D / epipolar UIs)\ncan locate the source image for each `(pose, camera)` slot.\nTiled multi-camera frames (e.g. 6× 720×540 horizontal strips on\nthe puzzle 130×130 rig) point multiple `FrameRef`s at the same\n`path` with disjoint ROIs. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
         },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportKind"
+            }
+          ],
+          "description": "Export-type discriminator (R7) — always [`ExportKind::RigLaserlineDevice`]."
+        },
         "laser_planes_cam": {
           "description": "Per-camera laser planes in their own camera frames.",
           "items": {
@@ -1823,6 +1921,7 @@
         }
       },
       "required": [
+        "kind",
         "laser_planes_rig",
         "laser_planes_cam",
         "per_camera_stats"
@@ -1842,6 +1941,14 @@
             }
           ],
           "description": "Optional pointer to the source images behind this export. When\npopulated, downstream viewers (the diagnose UI) can locate the\nsource image for each view. `None` means \"no images shipped\";\nthe calibration pipeline never reads this field."
+        },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportKind"
+            }
+          ],
+          "description": "Export-type discriminator (R7) — always [`ExportKind::ScheimpflugIntrinsics`]."
         },
         "mean_reproj_error": {
           "description": "Mean per-point reprojection error in pixels.",
@@ -1883,6 +1990,7 @@
         }
       },
       "required": [
+        "kind",
         "params",
         "report",
         "mean_reproj_error",
@@ -2081,6 +2189,14 @@
           ],
           "description": "Optional pointer to the source images behind this export. When\npopulated, downstream viewers (the diagnose UI) can locate the\nsource image for each view. `None` means \"no images shipped\";\nthe calibration pipeline never reads this field."
         },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExportKind"
+            }
+          ],
+          "description": "Export-type discriminator (R7) — always [`ExportKind::SingleCamHandeye`]."
+        },
         "mean_reproj_error": {
           "description": "Mean reprojection error (pixels).",
           "format": "double",
@@ -2121,6 +2237,7 @@
         }
       },
       "required": [
+        "kind",
         "camera",
         "handeye_mode",
         "mean_reproj_error",

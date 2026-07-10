@@ -871,6 +871,7 @@ fn rig_se3_target_from_chain(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::ExportKind;
     use serde_json::json;
     use std::io::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1229,6 +1230,7 @@ mod tests {
             skew: 0.0,
         };
         RigHandeyeExport {
+            kind: ExportKind::RigHandeye,
             cameras: (0..num_cameras)
                 .map(|_| make_pinhole_camera(k, BrownConrady5::default()))
                 .collect(),

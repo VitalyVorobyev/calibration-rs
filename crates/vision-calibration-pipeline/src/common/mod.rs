@@ -19,10 +19,16 @@
 //! SolverConfig`, ...). Those are persisted configuration; the types at this
 //! module's top level are ephemeral per-call step overrides. Keeping them in
 //! separate modules avoids confusing the two.
+//!
+//! [`ExportKind`] is the shared export vocabulary (R7): the serde
+//! discriminator every `*Export` carries.
 
 /// Shared config sub-structs embedded by grouped top-level `*Config` types
 /// (ADR 0024).
 pub mod config;
+
+mod export_kind;
+pub use export_kind::ExportKind;
 
 /// Options for an intrinsics initialization step.
 ///

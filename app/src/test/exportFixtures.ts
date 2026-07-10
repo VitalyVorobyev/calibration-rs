@@ -50,6 +50,7 @@ export const LASER_RESIDUAL: LaserFeatureResidual = {
  * `DiagnoseWorkspace` / the e2e smoke spec to have one frame and one
  * residual to draw. */
 export const PLANAR_EXPORT_FIXTURE = {
+  kind: "planar_intrinsics",
   params: { camera: { sensor: { type: "identity" } } },
   per_feature_residuals: { target: [TARGET_RESIDUAL] },
   image_manifest: TARGET_MANIFEST,
