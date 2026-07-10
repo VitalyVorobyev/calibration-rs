@@ -119,3 +119,77 @@ jobs:
 
       - name: Run Python runtime tests
         run: python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
+
+  app-frontend:
+    name: App frontend (lint/format/typecheck/test)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        working-directory: app
+        run: bun run lint
+
+      - name: Format check
+        working-directory: app
+        run: bun run format:check
+
+      - name: Typecheck
+        working-directory: app
+        run: bun run typecheck
+
+      - name: Test
+        working-directory: app
+        run: bun run test
+
+  # `app/src-tauri` is excluded from the root Cargo workspace (see its
+  # Cargo.toml) so it doesn't pull Tauri's build-time dep tree into
+  # `cargo build --workspace`. It gets its own job, gated with
+  # `--manifest-path` the same way the release docs already tell
+  # contributors to build it locally.
+  app-src-tauri:
+    name: App src-tauri (fmt/clippy/test)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Tauri 2's Linux backend links against GTK/WebKitGTK at build time;
+      # these are the packages tauri-apps' own CI recipes install on
+      # ubuntu-latest.
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+
+      - name: Cargo fmt (src-tauri)
+        run: cargo fmt --manifest-path app/src-tauri/Cargo.toml --check
+
+      - name: Cargo clippy (src-tauri)
+        run: cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Cargo test (src-tauri)
+        run: cargo test --manifest-path app/src-tauri/Cargo.toml

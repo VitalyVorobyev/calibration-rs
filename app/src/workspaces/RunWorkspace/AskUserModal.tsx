@@ -20,7 +20,13 @@ interface AskUserModalProps {
   onDismiss: () => void;
 }
 
-export function AskUserModal({ field, prompt, suggestions, onApply, onDismiss }: AskUserModalProps) {
+export function AskUserModal({
+  field,
+  prompt,
+  suggestions,
+  onApply,
+  onDismiss,
+}: AskUserModalProps) {
   const [freeText, setFreeText] = useState("");
   const hint = hintFor(field);
 
@@ -60,7 +66,9 @@ export function AskUserModal({ field, prompt, suggestions, onApply, onDismiss }:
 
         {suggestions.length > 0 && (
           <div className="mt-3 flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">Choose one:</span>
+            <span className="text-[11px] font-medium text-muted-foreground">
+              Choose one:
+            </span>
             <div className="flex flex-wrap gap-1.5">
               {suggestions.map((s) => (
                 <button
@@ -98,7 +106,9 @@ export function AskUserModal({ field, prompt, suggestions, onApply, onDismiss }:
                   ? "cursor-not-allowed border border-border bg-bg-soft text-muted-foreground"
                   : "bg-brand text-white hover:opacity-90",
               ].join(" ")}
-              style={freeText.trim() === "" ? undefined : { backgroundColor: "var(--brand)" }}
+              style={
+                freeText.trim() === "" ? undefined : { backgroundColor: "var(--brand)" }
+              }
             >
               Apply
             </button>

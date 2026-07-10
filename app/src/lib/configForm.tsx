@@ -138,7 +138,9 @@ function ObjectField({ schema, value, onChange, ctx, label }: FieldProps) {
         <div key={key} className="flex flex-col gap-1">
           <label className="text-[11px] font-medium text-muted-foreground">
             {key}
-            {required.includes(key) && <span className="ml-1 text-[color:var(--brand)]">*</span>}
+            {required.includes(key) && (
+              <span className="ml-1 text-[color:var(--brand)]">*</span>
+            )}
           </label>
           <SchemaField
             schema={sub}
@@ -278,13 +280,13 @@ function OneOfField({ schema, value, onChange, ctx, label }: FieldProps) {
   const variants = (schema.oneOf ?? []).map((variant) => resolve(variant, ctx));
   const variantTags = variants.map((v) => {
     const k = v.properties?.kind;
-    return typeof k?.const === "string" ? (k.const as string) : null;
+    return typeof k?.const === "string" ? k.const : null;
   });
   const obj =
     value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : ({} as Record<string, unknown>);
-  const currentKind = typeof obj.kind === "string" ? obj.kind : variantTags[0] ?? "";
+  const currentKind = typeof obj.kind === "string" ? obj.kind : (variantTags[0] ?? "");
   const activeIdx = variantTags.findIndex((t) => t === currentKind);
   const active = activeIdx >= 0 ? variants[activeIdx] : variants[0];
 
@@ -343,7 +345,7 @@ function omitKey<T>(obj: Record<string, T>, drop: string): Record<string, T> {
 // ─── Enums ──────────────────────────────────────────────────────────────────
 function EnumField({ schema, value, onChange }: FieldProps) {
   const options = (schema.enum ?? []).map((v) => String(v));
-  const current = typeof value === "string" ? value : options[0] ?? "";
+  const current = typeof value === "string" ? value : (options[0] ?? "");
   return (
     <select
       className="rounded border border-border bg-bg px-2 py-1 text-[12px]"
@@ -418,8 +420,20 @@ function ArrayField(props: FieldProps) {
   return <JsonField {...props} schema={schema} />;
 }
 
+// Coerce a loosely-typed array entry to display text. Items are expected
+// to already be strings (this field only renders for `items: {type:
+// "string"}` schemas), but a leftover non-string value from a schema
+// switch falls back to its JSON form rather than `String()`'s
+// "[object Object]".
+function stringifyArrayItem(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(v);
+}
+
 function StringArrayField({ value, onChange }: FieldProps) {
-  const arr = Array.isArray(value) ? (value as unknown[]).map((v) => String(v ?? "")) : [];
+  const arr = Array.isArray(value) ? (value as unknown[]).map(stringifyArrayItem) : [];
   return (
     <div className="flex flex-col gap-1">
       {arr.map((entry, i) => (

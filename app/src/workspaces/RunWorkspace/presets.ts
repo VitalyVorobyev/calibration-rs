@@ -247,8 +247,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     group: "rtv3d 6-device Scheimpflug rig (local)",
     topology: "RigHandeyeLaserline",
     targetKind: "charuco",
-    targetSummary:
-      "joint hand-eye + 6 laser planes · V5 path · EyeToHand",
+    targetSummary: "joint hand-eye + 6 laser planes · V5 path · EyeToHand",
     imageCount: 20,
     manifestPath: `${REPO_ROOT}/privatedata/rtv3d/dataset_laser.toml`,
     manifestOverrides: RTV3D_JOINT_LASER_MANIFEST_OVERRIDES,

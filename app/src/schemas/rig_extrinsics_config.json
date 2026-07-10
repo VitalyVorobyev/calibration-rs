@@ -24,13 +24,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "k1",
-        "k2",
-        "k3",
-        "p1",
-        "p2"
-      ],
+      "required": ["k1", "k2", "k3", "p1", "p2"],
       "type": "object"
     },
     "DistortionKind": {
@@ -85,12 +79,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "init_iterations",
-        "fix_k3",
-        "fix_tangential",
-        "zero_skew"
-      ],
+      "required": ["init_iterations", "fix_k3", "fix_tangential", "zero_skew"],
       "type": "object"
     },
     "RigConfig": {
@@ -107,10 +96,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "reference_camera_idx",
-        "refine_intrinsics_in_rig_ba"
-      ],
+      "required": ["reference_camera_idx", "refine_intrinsics_in_rig_ba"],
       "type": "object"
     },
     "RobustLoss": {
@@ -133,15 +119,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Huber"
-          ],
+          "required": ["Huber"],
           "type": "object"
         },
         {
@@ -156,15 +138,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Cauchy"
-          ],
+          "required": ["Cauchy"],
           "type": "object"
         },
         {
@@ -179,15 +157,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Arctan"
-          ],
+          "required": ["Arctan"],
           "type": "object"
         }
       ]
@@ -204,10 +178,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "tilt_x",
-        "tilt_y"
-      ],
+      "required": ["tilt_x", "tilt_y"],
       "type": "object"
     },
     "SensorMode": {
@@ -221,9 +192,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "kind"
-          ],
+          "required": ["kind"],
           "type": "object"
         },
         {
@@ -275,9 +244,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "kind"
-          ],
+          "required": ["kind"],
           "type": "object"
         }
       ]
@@ -302,11 +269,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "max_iters",
-        "verbosity",
-        "robust_loss"
-      ],
+      "required": ["max_iters", "verbosity", "robust_loss"],
       "type": "object"
     }
   },
@@ -333,11 +296,7 @@
       "description": "Non-linear solve stage settings."
     }
   },
-  "required": [
-    "intrinsics",
-    "rig",
-    "solver"
-  ],
+  "required": ["intrinsics", "rig", "solver"],
   "title": "RigExtrinsicsConfig",
   "type": "object"
 }

@@ -92,10 +92,7 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
 
     const setTransform = useCallback(
       (next: ViewportTransform | ((prev: ViewportTransform) => ViewportTransform)) => {
-        const value =
-          typeof next === "function"
-            ? (next as (p: ViewportTransform) => ViewportTransform)(transform)
-            : next;
+        const value = typeof next === "function" ? next(transform) : next;
         if (isControlled) {
           onTransformChange?.(value);
         } else {
@@ -156,9 +153,7 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
           });
         },
         zoomBy: (factor) =>
-          setTransform((t) =>
-            zoomAround(t, factor, container.w / 2, container.h / 2),
-          ),
+          setTransform((t) => zoomAround(t, factor, container.w / 2, container.h / 2)),
       }),
       [computeFit, roi, image, container, setTransform],
     );
@@ -320,9 +315,7 @@ function drawResidualArrows(
   frame: FrameKey,
   scale: number,
 ) {
-  const arrows = all.filter(
-    (r) => r.pose === frame.pose && r.camera === frame.camera,
-  );
+  const arrows = all.filter((r) => r.pose === frame.pose && r.camera === frame.camera);
   const inv = 1 / scale;
   for (const r of arrows) {
     if (!r.projected_px) continue;
@@ -395,9 +388,7 @@ function drawLaserOverlay(
   frame: FrameKey,
   scale: number,
 ) {
-  const records = all.filter(
-    (r) => r.pose === frame.pose && r.camera === frame.camera,
-  );
+  const records = all.filter((r) => r.pose === frame.pose && r.camera === frame.camera);
   const inv = 1 / scale;
 
   // Projected laser line: identical endpoints on every record of the

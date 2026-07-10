@@ -28,10 +28,7 @@
           "type": "number"
         }
       },
-      "required": [
-        "handeye_mode",
-        "min_motion_angle_deg"
-      ],
+      "required": ["handeye_mode", "min_motion_angle_deg"],
       "type": "object"
     },
     "IntrinsicsInitConfig": {
@@ -56,12 +53,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "init_iterations",
-        "fix_k3",
-        "fix_tangential",
-        "zero_skew"
-      ],
+      "required": ["init_iterations", "fix_k3", "fix_tangential", "zero_skew"],
       "type": "object"
     },
     "RobotPoseConfig": {
@@ -82,11 +74,7 @@
           "type": "number"
         }
       },
-      "required": [
-        "refine",
-        "rot_sigma",
-        "trans_sigma"
-      ],
+      "required": ["refine", "rot_sigma", "trans_sigma"],
       "type": "object"
     },
     "RobustLoss": {
@@ -109,15 +97,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Huber"
-          ],
+          "required": ["Huber"],
           "type": "object"
         },
         {
@@ -132,15 +116,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Cauchy"
-          ],
+          "required": ["Cauchy"],
           "type": "object"
         },
         {
@@ -155,15 +135,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Arctan"
-          ],
+          "required": ["Arctan"],
           "type": "object"
         }
       ]
@@ -188,11 +164,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "max_iters",
-        "verbosity",
-        "robust_loss"
-      ],
+      "required": ["max_iters", "verbosity", "robust_loss"],
       "type": "object"
     }
   },
@@ -216,12 +188,7 @@
       "description": "Non-linear solve stage settings."
     }
   },
-  "required": [
-    "intrinsics",
-    "handeye_init",
-    "solver",
-    "robot_poses"
-  ],
+  "required": ["intrinsics", "handeye_init", "solver", "robot_poses"],
   "title": "SingleCamHandeyeConfig",
   "type": "object"
 }

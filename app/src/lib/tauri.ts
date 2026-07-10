@@ -8,8 +8,7 @@ export function isTauriContext(): boolean {
   return (
     typeof window !== "undefined" &&
     "__TAURI_INTERNALS__" in window &&
-    (window as unknown as { __TAURI_INTERNALS__?: unknown })
-      .__TAURI_INTERNALS__ != null
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ != null
   );
 }
 

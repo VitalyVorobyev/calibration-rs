@@ -35,14 +35,7 @@
           "type": "number"
         }
       },
-      "required": [
-        "k1",
-        "k2",
-        "k3",
-        "p1",
-        "p2",
-        "iters"
-      ],
+      "required": ["k1", "k2", "k3", "p1", "p2", "iters"],
       "type": "object"
     },
     "CameraFixMask": {
@@ -57,10 +50,7 @@
           "description": "Mask for intrinsics (fx, fy, cx, cy)."
         }
       },
-      "required": [
-        "intrinsics",
-        "distortion"
-      ],
+      "required": ["intrinsics", "distortion"],
       "type": "object"
     },
     "DistortionFixMask": {
@@ -87,13 +77,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "k1",
-        "k2",
-        "k3",
-        "p1",
-        "p2"
-      ],
+      "required": ["k1", "k2", "k3", "p1", "p2"],
       "type": "object"
     },
     "DistortionKind": {
@@ -155,13 +139,7 @@
           "type": "number"
         }
       },
-      "required": [
-        "fx",
-        "fy",
-        "cx",
-        "cy",
-        "skew"
-      ],
+      "required": ["fx", "fy", "cx", "cy", "skew"],
       "type": "object"
     },
     "HandEyeMode": {
@@ -196,10 +174,7 @@
           "description": "Robot-pose refinement settings for the final hand-eye BA."
         }
       },
-      "required": [
-        "robot_poses",
-        "refine_cam_se3_rig"
-      ],
+      "required": ["robot_poses", "refine_cam_se3_rig"],
       "type": "object"
     },
     "HandeyeInitConfig": {
@@ -215,10 +190,7 @@
           "type": "number"
         }
       },
-      "required": [
-        "handeye_mode",
-        "min_motion_angle_deg"
-      ],
+      "required": ["handeye_mode", "min_motion_angle_deg"],
       "type": "object"
     },
     "IntrinsicsFixMask": {
@@ -241,12 +213,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "fx",
-        "fy",
-        "cx",
-        "cy"
-      ],
+      "required": ["fx", "fy", "cx", "cy"],
       "type": "object"
     },
     "IntrinsicsInitConfig": {
@@ -271,12 +238,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "init_iterations",
-        "fix_k3",
-        "fix_tangential",
-        "zero_skew"
-      ],
+      "required": ["init_iterations", "fix_k3", "fix_tangential", "zero_skew"],
       "type": "object"
     },
     "LaserlineResidualType": {
@@ -308,10 +270,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "reference_camera_idx",
-        "refine_intrinsics_in_rig_ba"
-      ],
+      "required": ["reference_camera_idx", "refine_intrinsics_in_rig_ba"],
       "type": "object"
     },
     "RigHandeyeConfig": {
@@ -356,13 +315,7 @@
           "description": "Non-linear solve stage settings."
         }
       },
-      "required": [
-        "intrinsics",
-        "rig",
-        "handeye_init",
-        "solver",
-        "handeye_ba"
-      ],
+      "required": ["intrinsics", "rig", "handeye_init", "solver", "handeye_ba"],
       "type": "object"
     },
     "RigHandeyeIntrinsicsManualInit": {
@@ -373,20 +326,14 @@
           "items": {
             "$ref": "#/$defs/BrownConrady5"
           },
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": ["array", "null"]
         },
         "per_cam_intrinsics": {
           "description": "Per-camera intrinsics seeds. `None` runs Zhang's method per camera.",
           "items": {
             "$ref": "#/$defs/FxFyCxCySkew"
           },
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": ["array", "null"]
         },
         "per_cam_sensors": {
           "default": null,
@@ -394,10 +341,7 @@
           "items": {
             "$ref": "#/$defs/ScheimpflugParams"
           },
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": ["array", "null"]
         }
       },
       "type": "object"
@@ -479,10 +423,7 @@
           "description": "Non-linear solve stage settings. `robust_loss` is **not consulted**\nby this problem — the underlying per-camera laserline solver picks\nits own calibration/laser robust losses (frozen upstream geometry,\nso only the laser-plane fit actually moves)."
         }
       },
-      "required": [
-        "solver",
-        "laser_residual_type"
-      ],
+      "required": ["solver", "laser_residual_type"],
       "type": "object"
     },
     "RobotPoseConfig": {
@@ -503,11 +444,7 @@
           "type": "number"
         }
       },
-      "required": [
-        "refine",
-        "rot_sigma",
-        "trans_sigma"
-      ],
+      "required": ["refine", "rot_sigma", "trans_sigma"],
       "type": "object"
     },
     "RobustLoss": {
@@ -530,15 +467,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Huber"
-          ],
+          "required": ["Huber"],
           "type": "object"
         },
         {
@@ -553,15 +486,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Cauchy"
-          ],
+          "required": ["Cauchy"],
           "type": "object"
         },
         {
@@ -576,15 +505,11 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "scale"
-              ],
+              "required": ["scale"],
               "type": "object"
             }
           },
-          "required": [
-            "Arctan"
-          ],
+          "required": ["Arctan"],
           "type": "object"
         }
       ]
@@ -601,10 +526,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "tilt_x",
-        "tilt_y"
-      ],
+      "required": ["tilt_x", "tilt_y"],
       "type": "object"
     },
     "ScheimpflugParams": {
@@ -621,10 +543,7 @@
           "type": "number"
         }
       },
-      "required": [
-        "tilt_x",
-        "tilt_y"
-      ],
+      "required": ["tilt_x", "tilt_y"],
       "type": "object"
     },
     "SensorMode": {
@@ -638,9 +557,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "kind"
-          ],
+          "required": ["kind"],
           "type": "object"
         },
         {
@@ -692,9 +609,7 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "kind"
-          ],
+          "required": ["kind"],
           "type": "object"
         }
       ]
@@ -719,11 +634,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "max_iters",
-        "verbosity",
-        "robust_loss"
-      ],
+      "required": ["max_iters", "verbosity", "robust_loss"],
       "type": "object"
     }
   },
@@ -743,11 +654,7 @@
       "description": "Frozen-geometry laser plane initialization stage."
     }
   },
-  "required": [
-    "handeye",
-    "laserline_init",
-    "joint_ba"
-  ],
+  "required": ["handeye", "laserline_init", "joint_ba"],
   "title": "RigHandeyeLaserlineConfig",
   "type": "object"
 }

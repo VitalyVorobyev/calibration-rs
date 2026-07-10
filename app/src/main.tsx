@@ -14,8 +14,7 @@ import "./index.css";
 // themed and we don't flash light-on-dark / dark-on-light.
 const stored = localStorage.getItem("calib-theme");
 const prefersDark =
-  typeof matchMedia === "function" &&
-  matchMedia("(prefers-color-scheme: dark)").matches;
+  typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches;
 const dark = stored ? stored === "dark" : prefersDark;
 document.documentElement.classList.toggle("dark", dark);
 

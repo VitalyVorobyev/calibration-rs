@@ -78,11 +78,7 @@ export function CollapsibleSection({
       </button>
 
       {/* Body — unmounted when collapsed */}
-      {open && (
-        <div className="border-t border-border bg-bg p-3">
-          {children}
-        </div>
-      )}
+      {open && <div className="border-t border-border bg-bg p-3">{children}</div>}
     </section>
   );
 }

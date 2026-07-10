@@ -39,7 +39,7 @@ export function AppShell() {
       );
       return;
     }
-    let chosen: string | null = null;
+    let chosen: string | null;
     try {
       chosen = await openDialog({
         multiple: false,
@@ -47,7 +47,7 @@ export function AppShell() {
         filters: [{ name: "Calibration export", extensions: ["json"] }],
       });
     } catch (e) {
-      setLoadError(`File dialog error: ${e}`);
+      setLoadError(`File dialog error: ${String(e)}`);
       return;
     }
     if (!chosen) return;
@@ -62,9 +62,7 @@ export function AppShell() {
         <div className="flex items-center gap-3">
           <Logo size={24} className="text-foreground" />
           <div className="flex flex-col leading-tight">
-            <h1 className="m-0 text-sm font-semibold tracking-tight">
-              calibration-rs
-            </h1>
+            <h1 className="m-0 text-sm font-semibold tracking-tight">calibration-rs</h1>
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
               {kind ? exportKindLabel(kind) : "diagnose · 3d · epipolar · depth · run"}
             </span>
@@ -79,7 +77,7 @@ export function AppShell() {
           </span>
           <button
             type="button"
-            onClick={handleOpen}
+            onClick={() => void handleOpen()}
             disabled={!tauriOk}
             className="h-7 px-2 font-mono text-[11px]"
           >
@@ -138,9 +136,7 @@ function RailLink({ to, label, children, hotkey }: RailLinkProps) {
         [
           "mx-1 grid h-10 place-items-center rounded-md text-muted-foreground transition-colors",
           "hover:bg-surface hover:text-foreground",
-          isActive
-            ? "bg-surface-hi text-brand"
-            : "",
+          isActive ? "bg-surface-hi text-brand" : "",
         ].join(" ")
       }
     >

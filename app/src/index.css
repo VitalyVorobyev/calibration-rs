@@ -91,7 +91,9 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     font-size: 14px;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
   }
 
   ::selection {

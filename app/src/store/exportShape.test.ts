@@ -30,21 +30,17 @@ describe("inferExportKind", () => {
     expect(inferExportKind(ex({ camera: {}, scheimpflug: {} }))).toBe(
       "scheimpflug_intrinsics",
     );
-    expect(inferExportKind(ex({ handeye_mode: "EyeInHand" }))).toBe(
-      "single_cam_handeye",
-    );
+    expect(inferExportKind(ex({ handeye_mode: "EyeInHand" }))).toBe("single_cam_handeye");
     expect(inferExportKind(ex({ laser_planes_cam: [] }))).toBe("laserline_device");
     expect(inferExportKind(ex({ laser_plane_cam: {} }))).toBe("laserline_device");
     expect(inferExportKind(ex({ cameras: [] }))).toBe("rig_extrinsics");
     expect(inferExportKind(ex({ cameras: [], handeye_mode: "EyeToHand" }))).toBe(
       "rig_handeye",
     );
-    expect(inferExportKind(ex({ laser_planes_rig: [] }))).toBe(
-      "rig_laserline_device",
+    expect(inferExportKind(ex({ laser_planes_rig: [] }))).toBe("rig_laserline_device");
+    expect(inferExportKind(ex({ laser_planes_rig: [], handeye_mode: "EyeToHand" }))).toBe(
+      "rig_handeye_laserline",
     );
-    expect(
-      inferExportKind(ex({ laser_planes_rig: [], handeye_mode: "EyeToHand" })),
-    ).toBe("rig_handeye_laserline");
   });
 
   it("returns 'unknown' for an unrecognized shape", () => {

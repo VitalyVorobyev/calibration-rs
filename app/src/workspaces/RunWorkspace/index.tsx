@@ -177,7 +177,11 @@ export function RunWorkspace() {
       if (cancelled) return;
       setConfig(defaults);
       if (jsonEditorRef.current) {
-        jsonEditorRef.current.value = JSON.stringify({ manifest, config: defaults }, null, 2);
+        jsonEditorRef.current.value = JSON.stringify(
+          { manifest, config: defaults },
+          null,
+          2,
+        );
       }
     });
     return () => {
@@ -217,7 +221,8 @@ export function RunWorkspace() {
       setStatus({
         kind: "error",
         category: "no_tauri",
-        message: "Preset loading reads from disk and requires the Tauri runtime (bun run tauri dev).",
+        message:
+          "Preset loading reads from disk and requires the Tauri runtime (bun run tauri dev).",
       });
       return;
     }
@@ -225,8 +230,10 @@ export function RunWorkspace() {
     try {
       // Load the TOML from disk using the new load_text_file command.
       const raw = await invoke<string>("load_text_file", { path: preset.manifestPath });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TOML.parse returns any
-      const parsed: any = TOML.parse(raw);
+      // TOML.parse's own types return `any`; narrow to `unknown` immediately
+      // since `manifest`/`config` state is `unknown` everywhere else in this
+      // component.
+      const parsed: unknown = TOML.parse(raw);
       const manifestWithOverrides = preset.manifestOverrides
         ? mergeConfig(parsed, preset.manifestOverrides)
         : parsed;
@@ -255,7 +262,11 @@ export function RunWorkspace() {
 
       // Sync the JSON textarea if it happens to be mounted.
       if (jsonEditorRef.current) {
-        jsonEditorRef.current.value = JSON.stringify({ manifest: manifestWithOverrides, config: defaults }, null, 2);
+        jsonEditorRef.current.value = JSON.stringify(
+          { manifest: manifestWithOverrides, config: defaults },
+          null,
+          2,
+        );
       }
     } catch (e) {
       setStatus({
@@ -270,11 +281,19 @@ export function RunWorkspace() {
 
   const handlePickFolder = async () => {
     if (!inTauri) {
-      setStatus({ kind: "error", category: "no_tauri", message: "Folder picker requires Tauri (bun run tauri dev)." });
+      setStatus({
+        kind: "error",
+        category: "no_tauri",
+        message: "Folder picker requires Tauri (bun run tauri dev).",
+      });
       return;
     }
     try {
-      const picked = await open({ directory: true, multiple: false, title: "Pick the dataset folder" });
+      const picked = await open({
+        directory: true,
+        multiple: false,
+        title: "Pick the dataset folder",
+      });
       if (typeof picked === "string") {
         setManifestDir(picked);
         // Clear preset selection — user is taking manual control.
@@ -290,13 +309,23 @@ export function RunWorkspace() {
   // which drives the red badge + blocked Run below.
   const handleSniffFolder = async () => {
     if (!inTauri) {
-      setStatus({ kind: "error", category: "no_tauri", message: "Folder sniffing requires Tauri (bun run tauri dev)." });
+      setStatus({
+        kind: "error",
+        category: "no_tauri",
+        message: "Folder sniffing requires Tauri (bun run tauri dev).",
+      });
       return;
     }
     try {
-      const picked = await open({ directory: true, multiple: false, title: "Pick a dataset folder to sniff" });
+      const picked = await open({
+        directory: true,
+        multiple: false,
+        title: "Pick a dataset folder to sniff",
+      });
       if (typeof picked !== "string") return;
-      const spec = await invoke<Record<string, unknown>>("sniff_folder", { folder: picked });
+      const spec = await invoke<Record<string, unknown>>("sniff_folder", {
+        folder: picked,
+      });
 
       setManifestDir(picked);
       setManifestPath(null);
@@ -309,10 +338,18 @@ export function RunWorkspace() {
       setStatus({ kind: "idle" });
 
       if (jsonEditorRef.current) {
-        jsonEditorRef.current.value = JSON.stringify({ manifest: spec, config: defaults }, null, 2);
+        jsonEditorRef.current.value = JSON.stringify(
+          { manifest: spec, config: defaults },
+          null,
+          2,
+        );
       }
     } catch (e) {
-      setStatus({ kind: "error", category: "sniff", message: `Sniff failed: ${String(e)}` });
+      setStatus({
+        kind: "error",
+        category: "sniff",
+        message: `Sniff failed: ${String(e)}`,
+      });
     }
   };
 
@@ -332,7 +369,11 @@ export function RunWorkspace() {
 
   const handlePickManifest = async () => {
     if (!inTauri) {
-      setStatus({ kind: "error", category: "no_tauri", message: "File picker requires Tauri (bun run tauri dev)." });
+      setStatus({
+        kind: "error",
+        category: "no_tauri",
+        message: "File picker requires Tauri (bun run tauri dev).",
+      });
       return;
     }
     try {
@@ -356,8 +397,8 @@ export function RunWorkspace() {
         try {
           const raw = await invoke<string>("load_text_file", { path: picked });
           const ext = picked.split(".").pop()?.toLowerCase();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const parsed: any = ext === "toml" ? TOML.parse(raw) : JSON.parse(raw);
+          // TOML.parse/JSON.parse return `any`; narrow to `unknown` immediately.
+          const parsed: unknown = ext === "toml" ? TOML.parse(raw) : JSON.parse(raw);
           setManifest(parsed);
         } catch {
           // Non-fatal: file might be unreadable or malformed; let the user fix it in the form.
@@ -372,7 +413,11 @@ export function RunWorkspace() {
 
   const handleRun = async () => {
     if (!manifestDir) {
-      setStatus({ kind: "error", category: "no_dir", message: "Set a dataset folder first (pick a preset or use the folder button)." });
+      setStatus({
+        kind: "error",
+        category: "no_dir",
+        message: "Set a dataset folder first (pick a preset or use the folder button).",
+      });
       return;
     }
     setStatus({ kind: "running" });
@@ -399,11 +444,20 @@ export function RunWorkspace() {
       // Hand off to /diagnose after a brief success flash.
       setTimeout(() => navigate("/diagnose"), 600);
     } else if (response.kind === "ask_user") {
-      setStatus({ kind: "ask_user", field: response.field, prompt: response.prompt, suggestions: response.suggestions });
+      setStatus({
+        kind: "ask_user",
+        field: response.field,
+        prompt: response.prompt,
+        suggestions: response.suggestions,
+      });
     } else if (response.kind === "validation_failed") {
       setStatus({ kind: "validation", message: response.message });
     } else {
-      setStatus({ kind: "error", category: response.category, message: response.message });
+      setStatus({
+        kind: "error",
+        category: response.category,
+        message: response.message,
+      });
     }
   };
 
@@ -435,14 +489,16 @@ export function RunWorkspace() {
           <h2 className="text-sm font-semibold tracking-tight">Run calibration</h2>
           <p className="font-mono text-[11px] text-muted-foreground">
             {info.label} + {targetKindOf(manifest)}, end-to-end
-            {!info.supported && info.unsupportedReason ? ` — ${info.unsupportedReason}` : ""}
+            {!info.supported && info.unsupportedReason
+              ? ` — ${info.unsupportedReason}`
+              : ""}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={handleSniffFolder}
+            onClick={() => void handleSniffFolder()}
             disabled={isRunning}
             title="Pick a dataset folder and auto-generate a manifest"
             className="h-9 rounded-md border border-border bg-bg px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-bg-soft disabled:cursor-not-allowed disabled:text-muted-foreground"
@@ -452,7 +508,7 @@ export function RunWorkspace() {
 
           <button
             type="button"
-            onClick={handleRun}
+            onClick={() => void handleRun()}
             disabled={runBlocked}
             title={runBlockReason}
             className={[
@@ -475,7 +531,7 @@ export function RunWorkspace() {
       {gridExpanded ? (
         <QuickStartGrid
           activePresetId={activePresetId}
-          onUse={handleUsePreset}
+          onUse={(preset) => void handleUsePreset(preset)}
           onCollapse={() => setGridExpanded(false)}
         />
       ) : (
@@ -490,8 +546,8 @@ export function RunWorkspace() {
         <PathsStrip
           manifestDir={manifestDir}
           manifestPath={manifestPath}
-          onPickFolder={handlePickFolder}
-          onPickManifest={handlePickManifest}
+          onPickFolder={() => void handlePickFolder()}
+          onPickManifest={() => void handlePickManifest()}
         />
       )}
 
@@ -506,7 +562,13 @@ export function RunWorkspace() {
         title="Manifest"
         summary={manifestSummary}
         defaultOpen={hasUnresolved}
-        badge={hasUnresolved ? `${unresolved.length} unresolved` : manifestDir ? undefined : "unset"}
+        badge={
+          hasUnresolved
+            ? `${unresolved.length} unresolved`
+            : manifestDir
+              ? undefined
+              : "unset"
+        }
         badgeVariant={hasUnresolved ? "destructive" : "default"}
       >
         <ConfigForm
@@ -576,20 +638,24 @@ function UnresolvedNotice({ paths, onResolve }: UnresolvedNoticeProps) {
       className="flex flex-col gap-2 rounded-md border px-3 py-2.5 text-[12px]"
       style={{
         borderColor: "var(--color-destructive, #ef4444)",
-        backgroundColor: "color-mix(in srgb, var(--color-destructive, #ef4444) 7%, transparent)",
+        backgroundColor:
+          "color-mix(in srgb, var(--color-destructive, #ef4444) 7%, transparent)",
       }}
     >
       <p className="font-semibold" style={{ color: "var(--color-destructive, #ef4444)" }}>
-        {paths.length} field{paths.length !== 1 ? "s" : ""} need your input before this dataset can run
+        {paths.length} field{paths.length !== 1 ? "s" : ""} need your input before this
+        dataset can run
       </p>
       <p className="text-[11px] text-muted-foreground">
-        The sniffer left these blank rather than guess. Fill each one in the Manifest
-        form below, then mark it resolved.
+        The sniffer left these blank rather than guess. Fill each one in the Manifest form
+        below, then mark it resolved.
       </p>
       <ul className="flex flex-col gap-1.5">
         {paths.map((path) => (
           <li key={path} className="flex items-start gap-2">
-            <code className="mt-0.5 shrink-0 font-mono text-[11px] text-foreground">{path}</code>
+            <code className="mt-0.5 shrink-0 font-mono text-[11px] text-foreground">
+              {path}
+            </code>
             <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
               {hintFor(path) ?? "Provide a value in the Manifest form."}
             </span>
@@ -657,7 +723,7 @@ function QuickStartGrid({ activePresetId, onUse, onCollapse }: QuickStartGridPro
             key={preset.id}
             preset={preset}
             isActive={preset.id === activePresetId}
-            onUse={(p) => onUse(p as EnabledPreset)}
+            onUse={(p) => onUse(p)}
           />
         ))}
       </div>
@@ -679,7 +745,13 @@ function ActivePresetBar({ preset, onChangePreset }: ActivePresetBarProps) {
         {/* Green check mark */}
         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/20">
           <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
-            <path d="M1 4L3 6L7 2" stroke="var(--brand)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M1 4L3 6L7 2"
+              stroke="var(--brand)"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </span>
         <span className="text-[12px] font-medium text-foreground">
@@ -711,7 +783,12 @@ interface PathsStripProps {
   onPickManifest: () => void;
 }
 
-function PathsStrip({ manifestDir, manifestPath, onPickFolder, onPickManifest }: PathsStripProps) {
+function PathsStrip({
+  manifestDir,
+  manifestPath,
+  onPickFolder,
+  onPickManifest,
+}: PathsStripProps) {
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-border bg-bg-soft px-3 py-2">
       <PathRow
@@ -740,7 +817,9 @@ interface PathRowProps {
 function PathRow({ label, value, onEdit, editTitle }: PathRowProps) {
   return (
     <div className="flex items-center gap-2">
-      <span className="w-14 shrink-0 text-[11px] font-medium text-muted-foreground">{label}</span>
+      <span className="w-14 shrink-0 text-[11px] font-medium text-muted-foreground">
+        {label}
+      </span>
       <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
         {value ?? <span className="text-muted-foreground">—</span>}
       </span>
@@ -766,7 +845,9 @@ function StatusBanner({ status }: { status: RunStatus }) {
       <div className="flex items-center gap-2 rounded-md border border-border bg-bg-soft px-3 py-2.5 text-[12px]">
         <SpinnerIcon />
         <span className="text-foreground">Detection + calibration in progress…</span>
-        <span className="ml-auto font-mono text-muted-foreground">first run is slowest; second hits the cache</span>
+        <span className="ml-auto font-mono text-muted-foreground">
+          first run is slowest; second hits the cache
+        </span>
       </div>
     );
   }
@@ -775,7 +856,11 @@ function StatusBanner({ status }: { status: RunStatus }) {
     return (
       <div
         className="flex items-center gap-2 rounded-md border px-3 py-2.5 text-[12px]"
-        style={{ borderColor: "var(--color-success, #22c55e)", backgroundColor: "color-mix(in srgb, var(--color-success, #22c55e) 8%, transparent)" }}
+        style={{
+          borderColor: "var(--color-success, #22c55e)",
+          backgroundColor:
+            "color-mix(in srgb, var(--color-success, #22c55e) 8%, transparent)",
+        }}
       >
         <span style={{ color: "var(--color-success, #22c55e)" }}>Solve completed</span>
         <span className="font-mono text-muted-foreground">
@@ -803,9 +888,16 @@ function StatusBanner({ status }: { status: RunStatus }) {
   return (
     <div
       className="rounded-md border px-3 py-2.5 text-[12px]"
-      style={{ borderColor: "var(--color-destructive, #ef4444)", backgroundColor: "color-mix(in srgb, var(--color-destructive, #ef4444) 8%, transparent)" }}
+      style={{
+        borderColor: "var(--color-destructive, #ef4444)",
+        backgroundColor:
+          "color-mix(in srgb, var(--color-destructive, #ef4444) 8%, transparent)",
+      }}
     >
-      <span className="font-semibold" style={{ color: "var(--color-destructive, #ef4444)" }}>
+      <span
+        className="font-semibold"
+        style={{ color: "var(--color-destructive, #ef4444)" }}
+      >
         Run failed ({status.category}):{" "}
       </span>
       <code className="font-mono text-foreground">{status.message}</code>
@@ -825,8 +917,20 @@ function SpinnerIcon() {
       aria-label="Running"
       className="shrink-0 animate-spin"
     >
-      <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.25" />
-      <path d="M7 1.5A5.5 5.5 0 0 1 12.5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle
+        cx="7"
+        cy="7"
+        r="5.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeOpacity="0.25"
+      />
+      <path
+        d="M7 1.5A5.5 5.5 0 0 1 12.5 7"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }

@@ -72,7 +72,11 @@ export function setAtPath(obj: unknown, path: string, value: unknown): unknown {
  * tagged-enum object keyed on `kind`; every other field takes the raw
  * choice value at its dotted path. The user can complete any remaining
  * sub-fields (e.g. the regex for shared_filename_token) in the form. */
-export function applyAskUserChoice(manifest: unknown, field: string, choice: string): unknown {
+export function applyAskUserChoice(
+  manifest: unknown,
+  field: string,
+  choice: string,
+): unknown {
   if (field === "pose_pairing") {
     return { ...(manifest as Record<string, unknown>), pose_pairing: { kind: choice } };
   }
