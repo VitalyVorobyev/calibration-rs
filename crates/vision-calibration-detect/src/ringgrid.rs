@@ -87,11 +87,17 @@ impl Detector for RinggridDetector {
         let luma = image.to_luma8();
         let result = detector.detect_adaptive(&luma);
 
+        // TODO: handle error
+        if result.is_err() {
+            return Ok(vec![]);
+        }
+
         // A decoded marker contributes a correspondence only when its id
         // maps to a known board position (`board_xy_mm`); undecoded or
         // off-board detections are dropped. `center` is always raw image
         // pixels. `board_xy_mm` is in millimetres → convert to metres.
         Ok(result
+            .unwrap()
             .detected_markers
             .into_iter()
             .filter_map(|marker| {

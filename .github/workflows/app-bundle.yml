@@ -50,7 +50,7 @@ jobs:
               app/src-tauri/target/release/bundle/deb/*.deb
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Linux bundling reuses the exact system deps ci.yml's `app-src-tauri`
       # job installs for `cargo clippy`/`cargo test` on WebKitGTK's

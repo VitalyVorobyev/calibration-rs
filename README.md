@@ -1,4 +1,12 @@
-# vision-calibration
+<h1>
+  <a href="https://vitavision.dev/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="book/src/img/vv-favicon-dark.svg">
+      <img src="book/src/img/vv-favicon-dark.svg" alt="vitavision.dev" height="48" align="left">
+    </picture>
+  </a>
+  &nbsp;vision-calibration
+</h1>
 
 [![Crates.io](https://img.shields.io/crates/v/vision-calibration.svg)](https://crates.io/crates/vision-calibration)
 [![PyPI](https://img.shields.io/pypi/v/vision-calibration.svg)](https://pypi.org/project/vision-calibration/)
@@ -7,6 +15,7 @@
 [![Docs](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/publish-docs.yml/badge.svg)](https://vitalyvorobyev.github.io/calibration/)
 [![Audit](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![MSRV](https://img.shields.io/badge/MSRV-1.93-blue.svg)](https://blog.rust-lang.org/2025/10/30/Rust-1.93.0/)
 
 A Rust workspace for end-to-end camera calibration: math primitives, linear solvers, non-linear
 refinement, and session-based pipelines. Supports perspective cameras, laserline calibration,
