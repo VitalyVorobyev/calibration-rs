@@ -83,6 +83,26 @@ numbers — hence a minor bump rather than a patch.
   declared it.
 - `actions/checkout` v6 → v7 across all workflows.
 
+### Known issues
+
+- **ChArUco detections regress on small image tiles.** `calib-targets` 0.12's
+  grid builder can emit corner labels that are not projectively consistent —
+  distinct board cells assigned one image point, or a fully distinct but
+  scrambled lattice that no homography fits. On the private `rtv3d` regression
+  dataset (6-camera rig, 720×540 tiles) this takes the overall mean
+  reprojection from 1.196 px to 2.664 px, with one camera at 10.9 px; feature
+  counts drop 22 % and the degradation tracks that loss camera by camera.
+  Reported upstream as
+  [calib-targets-rs#86](https://github.com/VitalyVorobyev/calib-targets-rs/issues/86)
+  with a self-contained reproduction. `reject_ambiguous_detection` catches the
+  collapsed form; the scrambled form cannot be caught safely at the detector
+  boundary and needs the upstream fix. **If your ChArUco or chessboard results
+  got worse in 0.8.0, set `detector.chess_corners.min_corner_strength = 0.0`
+  in the manifest** to restore the 0.7.0 corner set — it recovers most, though
+  not all, of the loss. The `rtv3d` baseline is intentionally left frozen at
+  the 0.7.0 numbers rather than re-frozen; see `D5-CHARUCO-LABELS` in
+  `docs/backlog.md`.
+
 ## [0.7.0] - 2026-07-10
 
 `0.7.0` closes the production-grade program's Q (soundness close-out) and

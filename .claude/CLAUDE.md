@@ -127,7 +127,7 @@ step_optimize(&mut session, None)?;
 let result = session.export()?;
 ```
 
-Seven problem types (post A6 sensor-axis collapse, see [ADR 0013](../docs/adrs/0013-rig-family-sensor-axis-refactor.md)): `PlanarIntrinsics`, `ScheimpflugIntrinsics`, `SingleCamHandeye`, `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`, and `RigLaserlineDevice`. The two rig problem types (`RigExtrinsics`, `RigHandeye`) cover both pinhole and Scheimpflug rigs via `RigExtrinsicsConfig::sensor` / `RigHandeyeConfig::sensor` (`SensorMode::Pinhole` | `SensorMode::Scheimpflug { … }`). `RigLaserlineDevice` accepts a frozen rig hand-eye export (pinhole or Scheimpflug) as upstream calibration.
+Eight problem types (post A6 sensor-axis collapse, see [ADR 0013](../docs/adrs/0013-rig-family-sensor-axis-refactor.md)): `PlanarIntrinsics`, `ScheimpflugIntrinsics`, `SingleCamHandeye`, `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`, `RigLaserlineDevice`, and `RigHandeyeLaserline`. The two rig problem types (`RigExtrinsics`, `RigHandeye`) cover both pinhole and Scheimpflug rigs via `RigExtrinsicsConfig::sensor` / `RigHandeyeConfig::sensor` (`SensorMode::Pinhole` | `SensorMode::Scheimpflug { … }`). `RigLaserlineDevice` accepts a frozen rig hand-eye export (pinhole or Scheimpflug) as upstream calibration; `RigHandeyeLaserline` solves the same chain jointly.
 
 ## Optimization IR (ADR 0008)
 
@@ -252,11 +252,13 @@ python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
 ## Planning
 
 - **Backlog** in `docs/backlog.md` is the source-of-truth task tracker
-  (AGENTS.md §11). On completing a task, mark it `[x]` with a dated, informative
-  one-paragraph completion note — that note is the durable record. **No
-  per-task `docs/report/` files** (retired; historical entries archived under
-  `docs/internal/archive/report/` for reference only). Maintaining the backlog + the docs next to the code matters
-  more than any separate paper trail.
+  (AGENTS.md §11), and holds **only open and parked work**. On completing a
+  task, mark it `[x]` with a dated, informative one-paragraph completion note —
+  that note is the durable record — then **move the entry** to
+  `docs/backlog-archive.md`. **No per-task `docs/report/`
+  files** (retired; historical entries archived under
+  `docs/internal/archive/report/` for reference only). Maintaining the backlog +
+  the docs next to the code matters more than any separate paper trail.
 - ADRs in `docs/adrs/` — design decisions (see README there). 0011 covers
   manual init, 0012 covers per-feature residuals, 0013 covers the
   `rig_family` sensor-axis refactor (the Scheimpflug rig modules collapse).
@@ -264,41 +266,16 @@ python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
   features should ship with a tutorial entry.
 - Automated workflow skills: `/orchestrate`, `/architect`, `/implement`, `/review`, `/gate-check`
 
-## Strategic Roadmap (>40 weeks)
+## Strategic Roadmap
 
-We work to a multi-quarter, four-track plan summarized in `docs/ROADMAP.md`. **Track A is
-done as of 2026-05-01** (A1 + A2 + A4 + A6 shipped; A3 closed, A5 dropped). The
-B-track was re-sequenced post-grill on 2026-05-01 to **diagnose-first** because
-the residual visualisation is the actual new capability; everything else
-re-implements what `cargo run --example` already gives a terminal user.
-
-- **A — Calibration core (DONE).** Two rig problem types (`RigExtrinsics`,
-  `RigHandeye`) handle both pinhole and Scheimpflug via `SensorMode`; eight
-  problem types in total. Manual init (ADR 0011) and per-feature residuals on
-  export (ADR 0012) ship across the family.
-- **B — Tauri 2 + React + TypeScript desktop app (current).**
-  - **B0 — diagnose viewer v0 (DONE, PR #40 + #41).** Passive viewer of one
-    `PlanarIntrinsicsExport`; `ImageManifest` Export-side contract; Tauri 2 +
-    React 19 + Vite 8 + TS 6 shell at `app/`; Tailwind 4 styling. ADR 0014.
-  - **B0.5 — real-data acceptance (current).** Extend `RigHandeyeExport` with
-    `image_manifest`; populate it against the puzzle 130×130 Scheimpflug rig
-    dataset; verify ROI + tiled multi-camera strips render correctly.
-  - **Post-B0 enrichments — priority TBD by user feedback.** Order is no
-    longer pre-committed; will be driven by what the engineer actually
-    misses while using v0. Likely candidates: re-run button calling the
-    facade in-process; multi-pose residual stats panel; cross-camera
-    residual matrix; manifest support on the remaining `*Export` types;
-    in-app detection wrap; 3D rig viewer; init-failure diagnosis;
-    signed installers.
-- **C — MVG.** C1 (`vision-geometry` + `vision-mvg` crates) and C2 (N-view
-  triangulation) landed; PR #72 carried C1-FOLLOWUP solver dedup
-  (`linear` → `vision-geometry`) plus the geometry/mvg typed-error migration.
-  **C3 (frozen-intrinsics bundle adjustment, PR #73)** and **C4
-  (Scheimpflug-aware stereo rectification, the D4 gate, PR #74)** are done. The
-  MVG surface is now re-exported through the facade as `vision_calibration::mvg`
-  (`bundle_adjust` behind the facade `refine` feature). Next: **C5** dense
-  matcher (opencv-rust SGBM, feature-flagged).
-- **D — Earn v1.0** (continuous ratchet). Typed errors (geometry/mvg migrated in
-  PR #72) → doc-warning-free → Python parity audit → v1.0 release.
+`docs/ROADMAP.md` is authoritative — read it rather than trusting a summary
+here. As of 2026-08-11: Tracks **A** (calibration core), **S** (device-spec →
+seed init), **Q** (soundness proofs + regression gates), **R** (API/config
+revision), **C** (MVG, including the pure-Rust dense matcher) and the benchmark
+harness are **done**; **O** is closed won't-do. Live work is **B** (desktop app
+elevation), **D** (the v1.0 gate), and two externally-blocked items —
+`D4-NALGEBRA-035` (waiting on `tiny-solver`) and `D5-CHARUCO-LABELS` (waiting on
+`calib-targets`). Open tasks live in `docs/backlog.md`; completed ones in
+`docs/backlog-archive.md`.
 
 We are pre-1.0; breaking changes are acceptable.
