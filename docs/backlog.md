@@ -162,6 +162,23 @@ two-view/triangulation.
 
 ## B-QUAL / B-UX / B-DIST — app to production grade (Phase III)
 
+- [ ] B-QUAL-HOOKS7 - `eslint-plugin-react-hooks` 7 (adopted 2026-08-11
+  with the eslint 10 bump) ships two new rules, both set to `warn` in
+  `app/eslint.config.js` rather than blocking CI:
+  - `react-hooks/set-state-in-effect` — five real sites
+    (`useImageData.ts` ×2, `DiagnoseWorkspace/index.tsx` ×3) reset derived
+    state from an effect when their input changes. Correct, but one render
+    pass more than keying the component would cost. Rewrite when touching
+    those components anyway.
+  - `react-hooks/purity` — one report, a **false positive**: the
+    `Date.now()` stamping a run's start time in RunWorkspace's async
+    submit handler. The rule cannot distinguish an event handler from
+    render. Re-check on plugin updates; drop the override if it learns to.
+- [ ] B-QUAL-TS7 - TypeScript 7 is **blocked upstream**: `typescript-eslint`
+  hard-errors on it (`typescript-eslint does not support TS 7.0`, tracking
+  issue typescript-eslint#10940). Adopting it today means dropping the
+  type-aware lint config B-QUAL1-LINT-CI deliberately built. Pinned at
+  TypeScript 6; revisit when typescript-eslint ships TS 7 support.
 - [x] B-QUAL1-LINT-CI - **Done 2026-07-10.** ESLint 9 flat config
   (typescript-eslint `recommendedTypeChecked`, react-hooks v5) + Prettier
   (printWidth 90, churn-minimized empirically); lint/format/typecheck

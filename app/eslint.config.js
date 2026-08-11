@@ -74,6 +74,23 @@ export default tseslint.config(
       // its own module purely to satisfy Fast Refresh is not worth the
       // churn; `warn` still surfaces the HMR papercut without blocking CI.
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+
+      // New in eslint-plugin-react-hooks 7 (adopted with the eslint 10
+      // bump). Both are advisory here rather than blocking, for different
+      // reasons — see B-QUAL-HOOKS7 in docs/backlog.md.
+      //
+      // `purity` cannot tell an event handler from render code, so it
+      // reports the `Date.now()` that stamps a run's start time inside
+      // RunWorkspace's async submit handler. That call is legitimate; the
+      // rule is wrong about it, and there is no narrower suppression that
+      // does not also blind the file to real purity violations.
+      "react-hooks/purity": "warn",
+      // `set-state-in-effect` flags the "reset derived state when the
+      // input changes" effect in useImageData / DiagnoseWorkspace. The
+      // pattern is correct, just one render pass more expensive than
+      // keying the component. Rewriting five call sites is app work, not
+      // part of a dependency bump.
+      "react-hooks/set-state-in-effect": "warn",
     },
   },
 );
