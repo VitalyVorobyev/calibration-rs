@@ -483,6 +483,29 @@ count though extrinsics/hand-eye don't need full density (P2, conditional).
 
 ## D — Earn v1.0
 
+- [ ] D5-CHARUCO-LABELS - **Blocked on upstream
+  ([calib-targets-rs#86](https://github.com/VitalyVorobyev/calib-targets-rs/issues/86)).**
+  `calib-targets` 0.12's ChArUco detector can emit corner labels that are not
+  projectively consistent. Two shapes, one cause: a *collapsed* assignment
+  (distinct lattice nodes `(u=13..16, v=8)` sharing one `position`, with
+  differing `score`s) and a *scrambled* one (all positions distinct, but no
+  homography fits any subset — 3 of 18 inliers after refitting on the best
+  12). Both make the affected view's pose meaningless; on `rtv3d` camera 4
+  they took the per-camera residual from 1.10 px to 20.12 px.
+
+  Diagnostic that separates them cleanly, needing no ground truth: fit a
+  homography to the detection's own `(grid, position)` pairs. Over 20 views of
+  that camera, 18 healthy views fit at 0.56–0.99 px median, the two broken
+  ones at 7.7–7.8 px.
+
+  **Ours:** `reject_ambiguous_detection` (detect crate) rejects the collapsed
+  case — the invariant "one pixel is one board point" holds under any lens, so
+  it is always safe. The scrambled case is *not* guarded: the projective test
+  assumes distortion is small over the observed corners, so applying it at the
+  detect boundary would reject good views on wide-angle cameras. Fix belongs
+  in the grid builder upstream. Until then `rtv3d` fails its 2.5 px gate at
+  10.93 px on one scrambled view (camera 4, `target_2.png`); the other 12
+  private and all 6 public datasets pass.
 - [ ] D4-NALGEBRA-035 - **Blocked on `tiny-solver`.** `nalgebra` 0.35,
   `faer` 0.24 and `faer-ext` 0.8 are all unadoptable while `tiny-solver`
   0.18 (latest) is built against 0.34 / 0.23 / 0.7:

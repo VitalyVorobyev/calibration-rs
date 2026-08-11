@@ -45,6 +45,22 @@ pub struct Feature {
 /// <https://github.com/VitalyVorobyev/calib-targets-rs/issues/86>. This guard
 /// stays regardless of that fix: it costs one pass over the features and
 /// converts a silent, hard-to-attribute accuracy loss into a skipped frame.
+///
+/// # What this does *not* catch
+///
+/// Duplicated points are the degenerate extreme of a broader upstream
+/// failure: the detector can also emit a set of labels that is fully distinct
+/// yet still wrong. The general test is projective — for a planar target the
+/// grid-to-image map is a homography, so a detection can be checked against
+/// itself by fitting one to its own labels. Measured over 20 views of one
+/// camera, 18 healthy views fit at 0.56–0.99 px median while the two broken
+/// ones sat at 7.7–7.8 px, with no subset of the bad labels admitting a fit.
+///
+/// That test is deliberately *not* applied here. It is only valid when lens
+/// distortion over the observed corners is small — the map is really
+/// `homography ∘ distortion` — so on a wide-angle camera it would reject
+/// perfectly good views. It belongs upstream, inside the grid builder that
+/// knows the lattice it just walked, which is what the issue above asks for.
 pub fn reject_ambiguous_detection(features: Vec<Feature>) -> Vec<Feature> {
     use std::collections::HashSet;
 

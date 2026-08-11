@@ -49,6 +49,16 @@ numbers — hence a minor bump rather than a patch.
   "no target in this frame". Previously the ringgrid wrapper flattened
   every backend error into an empty feature list, so a misconfigured board
   surfaced much later as an unexplained initialisation failure.
+- `reject_ambiguous_detection` in `vision-calibration-detect`, applied by
+  all four detectors and the bench's ChArUco adapter. A planar target's
+  image-to-board map is a homography and so injective; a detection that
+  labels one pixel as several board points has mislabelled its grid, and
+  the whole view is rejected (reported as a skipped frame). Guards against
+  [calib-targets-rs#86](https://github.com/VitalyVorobyev/calib-targets-rs/issues/86),
+  where a ChArUco grid walk collapsed four consecutive board cells onto one
+  corner; on the affected camera this took the per-camera intrinsics
+  residual from 20.12 px to 1.10 px. See `D5-CHARUCO-LABELS` in
+  `docs/backlog.md` for the failure mode this does *not* cover and why.
 
 ### Fixed
 
