@@ -162,18 +162,20 @@ impl Detector for CharucoDetector {
 
         // `target_position` is metric because the board spec's
         // `cell_size` was given in metres.
-        Ok(detection
-            .corners
-            .into_iter()
-            .map(|corner| Feature {
-                image_xy: [corner.position.x as f64, corner.position.y as f64],
-                world_xyz: [
-                    corner.target_position.x as f64,
-                    corner.target_position.y as f64,
-                    0.0,
-                ],
-            })
-            .collect())
+        Ok(crate::reject_ambiguous_detection(
+            detection
+                .corners
+                .into_iter()
+                .map(|corner| Feature {
+                    image_xy: [corner.position.x as f64, corner.position.y as f64],
+                    world_xyz: [
+                        corner.target_position.x as f64,
+                        corner.target_position.y as f64,
+                        0.0,
+                    ],
+                })
+                .collect(),
+        ))
     }
 }
 

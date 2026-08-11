@@ -115,16 +115,18 @@ impl Detector for RinggridDetector {
         // maps to a known board position (`board_xy_mm`); undecoded or
         // off-board detections are dropped. `center` is always raw image
         // pixels. `board_xy_mm` is in millimetres → convert to metres.
-        Ok(result
-            .detected_markers
-            .into_iter()
-            .filter_map(|marker| {
-                marker.board_xy_mm.map(|xy_mm| Feature {
-                    image_xy: marker.center,
-                    world_xyz: [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0],
+        Ok(crate::reject_ambiguous_detection(
+            result
+                .detected_markers
+                .into_iter()
+                .filter_map(|marker| {
+                    marker.board_xy_mm.map(|xy_mm| Feature {
+                        image_xy: marker.center,
+                        world_xyz: [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0],
+                    })
                 })
-            })
-            .collect())
+                .collect(),
+        ))
     }
 }
 

@@ -43,7 +43,7 @@ pub use cache::{
     CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache, hash_image_bytes,
 };
 pub use error::DetectError;
-pub use feature::Feature;
+pub use feature::{Feature, reject_ambiguous_detection};
 
 #[cfg(feature = "charuco")]
 pub use charuco::{CharucoConfig, CharucoDetector, validate_charuco_layout, validate_dictionary};

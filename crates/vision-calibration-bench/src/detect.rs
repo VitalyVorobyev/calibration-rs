@@ -188,12 +188,32 @@ pub fn detect_charuco_view(
         Err(_) => return Ok(None),
     };
 
-    let mut points_3d = Vec::with_capacity(detection.corners.len());
-    let mut points_2d = Vec::with_capacity(detection.corners.len());
-    for corner in detection.corners {
-        let target = corner.target_position;
-        points_3d.push(Pt3::new(target.x as f64, target.y as f64, 0.0));
-        points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
+    // `calib-targets` can label a run of consecutive board cells onto one
+    // physical corner, producing correspondences that share an image point
+    // (calib-targets-rs#86). One pixel cannot be several points on a planar
+    // target, and a view carrying such a pair has no consistent pose — the
+    // few residuals it yields are ~10^3 px and swamp the camera's mean.
+    // Route through the same guard the app-facing detectors use.
+    let features = vision_calibration_detect::reject_ambiguous_detection(
+        detection
+            .corners
+            .iter()
+            .map(|corner| vision_calibration_detect::Feature {
+                image_xy: [corner.position.x as f64, corner.position.y as f64],
+                world_xyz: [
+                    corner.target_position.x as f64,
+                    corner.target_position.y as f64,
+                    0.0,
+                ],
+            })
+            .collect(),
+    );
+
+    let mut points_3d = Vec::with_capacity(features.len());
+    let mut points_2d = Vec::with_capacity(features.len());
+    for f in features {
+        points_3d.push(Pt3::new(f.world_xyz[0], f.world_xyz[1], f.world_xyz[2]));
+        points_2d.push(Pt2::new(f.image_xy[0], f.image_xy[1]));
     }
 
     if points_3d.len() < 4 {

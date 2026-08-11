@@ -100,7 +100,7 @@ impl Detector for ChessboardDetector {
                 ],
             });
         }
-        Ok(features)
+        Ok(crate::reject_ambiguous_detection(features))
     }
 }
 

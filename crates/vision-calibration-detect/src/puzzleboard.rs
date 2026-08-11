@@ -120,7 +120,7 @@ impl Detector for PuzzleboardDetector {
                 world_xyz: [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0],
             });
         }
-        Ok(features)
+        Ok(crate::reject_ambiguous_detection(features))
     }
 }
 
