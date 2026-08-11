@@ -466,6 +466,18 @@ count though extrinsics/hand-eye don't need full density (P2, conditional).
 
 ## D — Earn v1.0
 
+- [ ] D4-NALGEBRA-035 - **Blocked on `tiny-solver`.** `nalgebra` 0.35,
+  `faer` 0.24 and `faer-ext` 0.8 are all unadoptable while `tiny-solver`
+  0.18 (latest) is built against 0.34 / 0.23 / 0.7:
+  `vision-calibration-optim` passes both nalgebra and faer types straight
+  across that boundary (`Factor<T: nalgebra::RealField>`,
+  `faer::sparse::SparseColMat`, `faer_ext::IntoNalgebra`), so a bump
+  produces ~33 trait-mismatch errors. `calib-targets` 0.12 already uses
+  nalgebra 0.35 internally — harmless, because `vision-calibration-detect`
+  is nalgebra-free and converts to plain arrays at its boundary. **Keep
+  that property**: it is what lets the two nalgebra versions coexist.
+  Re-check on each `tiny-solver` release; the alternative is replacing the
+  solver backend (see O-track).
 - [x] D2-DOCS - **Done** (PR #69). `missing_docs = warn` enforced
   workspace-wide; all public items documented.
 - [x] D1-TYPED-ERRORS - **Done** across PR #72 (geometry/mvg) + PR-1 (optim)

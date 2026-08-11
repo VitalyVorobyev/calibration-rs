@@ -1062,7 +1062,6 @@ mod tests {
     fn rtv3d_detector_override() -> serde_json::Value {
         json!({
             "chess_corners": {
-                "threshold_mode": "absolute",
                 "threshold_value": 30.0,
             }
         })

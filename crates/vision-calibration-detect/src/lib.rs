@@ -48,7 +48,7 @@ pub use feature::Feature;
 #[cfg(feature = "charuco")]
 pub use charuco::{CharucoConfig, CharucoDetector, validate_charuco_layout, validate_dictionary};
 #[cfg(any(feature = "charuco", feature = "chessboard"))]
-pub use chess_options::{ChessCornersConfig, ChessThresholdMode};
+pub use chess_options::ChessCornersConfig;
 #[cfg(feature = "chessboard")]
 pub use chessboard::{ChessboardConfig, ChessboardDetector};
 #[cfg(feature = "puzzleboard")]

@@ -33,9 +33,10 @@ dispatched server-side — no per-detector code path to learn.
 | `puzzleboard` | `layout` (`"puzzle_<R>x<C>"`), `cell_size_m` | Self-identifying; a single partial view is globally consistent. |
 | `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m` | Coded **hex-lattice** of ring markers — `long_row_cols` is the longest (even) row; shorter rows derive from the lattice. |
 
-Optional ChESS corner-stage overrides (`[detector.chess_corners]`,
-`threshold_mode` / `threshold_value`) apply to the chess-based detectors
-(chessboard / charuco) and are hashed into the detection-cache key.
+An optional ChESS corner-stage override (`[detector.chess_corners]`,
+`threshold_value` — an absolute floor on the raw corner response) applies to
+the chess-based detectors (chessboard / charuco) and is hashed into the
+detection-cache key.
 
 ## Structure
 

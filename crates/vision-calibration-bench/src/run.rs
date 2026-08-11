@@ -96,7 +96,10 @@ pub mod tier_b {
         ResidualSidecar, RobotCorrectionSummary, ScheimpflugArtifact, StageTiming, Timing,
         TransformArtifact, compact_reproj_report,
     };
-    use crate::registry::{BenchEntry, BoardGeometry, CameraLayout, DetectorOverride, ProblemKind};
+    use crate::registry::{
+        BenchEntry, BoardGeometry, CameraLayout, ChessCornersDetectorSpec, DetectorOverride,
+        ProblemKind,
+    };
 
     /// Lightweight per-dataset stage profile for diagnosing detector/extractor
     /// cost before running a full calibration solve.
@@ -1913,11 +1916,9 @@ pub mod tier_b {
         let needs_default = detector
             .chess_corners
             .as_ref()
-            .map(|chess| chess.threshold_mode.is_none() && chess.threshold_value.is_none())
-            .unwrap_or(true);
+            .is_none_or(|chess| chess.threshold_value.is_none());
         if needs_default {
-            detector.chess_corners = Some(crate::registry::ChessCornersDetectorOverride {
-                threshold_mode: Some(crate::registry::BenchChessThresholdMode::Absolute),
+            detector.chess_corners = Some(ChessCornersDetectorSpec {
                 threshold_value: Some(30.0),
             });
         }
@@ -2540,13 +2541,11 @@ pub mod tier_b {
             .collect()
     }
 
+    /// The absolute ChESS threshold this run used, for the diagnose report.
+    /// Since `chess-corners` 1.0 the threshold is always absolute, so this is
+    /// a plain lookup.
     fn chess_threshold_abs(detector: Option<&DetectorOverride>) -> Option<f32> {
-        let chess = detector.and_then(|d| d.chess_corners.as_ref())?;
-        match chess.threshold_mode {
-            Some(crate::registry::BenchChessThresholdMode::Absolute) => chess.threshold_value,
-            None => chess.threshold_value,
-            Some(crate::registry::BenchChessThresholdMode::Relative) => None,
-        }
+        detector?.chess_corners.as_ref()?.threshold_value
     }
 
     /// Profile target detection and laser extraction without running a solver.

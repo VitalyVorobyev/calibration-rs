@@ -89,14 +89,8 @@ pub fn validate_charuco_layout(rows: u32, cols: u32, dictionary: &str) -> Result
     })?;
     // Unit geometry: `CharucoBoard::new` only inspects rows/cols and the
     // dictionary capacity here; cell/marker size are placeholders.
-    let spec = CharucoBoardSpec {
-        rows,
-        cols,
-        cell_size: 1.0,
-        marker_size_rel: 0.5,
-        dictionary,
-        marker_layout: MarkerLayout::OpenCvCharuco,
-    };
+    let spec = CharucoBoardSpec::new(rows, cols, 1.0, 0.5, dictionary)
+        .with_marker_layout(MarkerLayout::OpenCvCharuco);
     CharucoBoard::new(spec)
         .map(|_| ())
         .map_err(|e| DetectError::InvalidConfig(format!("invalid charuco board: {e}")))
@@ -112,15 +106,19 @@ fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams, DetectError> {
             cfg.marker_size_m, cfg.square_size_m
         )));
     }
-    let board = CharucoBoardSpec {
-        rows: cfg.rows,
-        cols: cfg.cols,
-        cell_size: cfg.square_size_m as f32,
-        marker_size_rel: (cfg.marker_size_m / cfg.square_size_m) as f32,
+    // The marker layout is spelled out rather than left to `MarkerLayout`'s
+    // default: it fixes the marker numbering that our world coordinates are
+    // indexed against, so an upstream default change must not move it
+    // silently.
+    let board = CharucoBoardSpec::new(
+        cfg.rows,
+        cfg.cols,
+        cfg.square_size_m as f32,
+        (cfg.marker_size_m / cfg.square_size_m) as f32,
         dictionary,
-        marker_layout: MarkerLayout::OpenCvCharuco,
-    };
-    Ok(CharucoParams::for_board(&board))
+    )
+    .with_marker_layout(MarkerLayout::OpenCvCharuco);
+    Ok(CharucoParams::for_board(board))
 }
 
 /// Stateless ChArUco detector instance.

@@ -12,7 +12,10 @@
           "description": "Mask for intrinsics (fx, fy, cx, cy)."
         }
       },
-      "required": ["intrinsics", "distortion"],
+      "required": [
+        "intrinsics",
+        "distortion"
+      ],
       "type": "object"
     },
     "DistortionFixMask": {
@@ -39,7 +42,13 @@
           "type": "boolean"
         }
       },
-      "required": ["k1", "k2", "k3", "p1", "p2"],
+      "required": [
+        "k1",
+        "k2",
+        "k3",
+        "p1",
+        "p2"
+      ],
       "type": "object"
     },
     "IntrinsicsFixMask": {
@@ -62,7 +71,12 @@
           "type": "boolean"
         }
       },
-      "required": ["fx", "fy", "cx", "cy"],
+      "required": [
+        "fx",
+        "fy",
+        "cx",
+        "cy"
+      ],
       "type": "object"
     },
     "IntrinsicsInitConfig": {
@@ -87,7 +101,12 @@
           "type": "boolean"
         }
       },
-      "required": ["init_iterations", "fix_k3", "fix_tangential", "zero_skew"],
+      "required": [
+        "init_iterations",
+        "fix_k3",
+        "fix_tangential",
+        "zero_skew"
+      ],
       "type": "object"
     },
     "LaserlineDeviceOptimizeConfig": {
@@ -185,11 +204,15 @@
                   "type": "number"
                 }
               },
-              "required": ["scale"],
+              "required": [
+                "scale"
+              ],
               "type": "object"
             }
           },
-          "required": ["Huber"],
+          "required": [
+            "Huber"
+          ],
           "type": "object"
         },
         {
@@ -204,11 +227,15 @@
                   "type": "number"
                 }
               },
-              "required": ["scale"],
+              "required": [
+                "scale"
+              ],
               "type": "object"
             }
           },
-          "required": ["Cauchy"],
+          "required": [
+            "Cauchy"
+          ],
           "type": "object"
         },
         {
@@ -223,11 +250,15 @@
                   "type": "number"
                 }
               },
-              "required": ["scale"],
+              "required": [
+                "scale"
+              ],
               "type": "object"
             }
           },
-          "required": ["Arctan"],
+          "required": [
+            "Arctan"
+          ],
           "type": "object"
         }
       ]
@@ -246,7 +277,10 @@
           "type": "number"
         }
       },
-      "required": ["tilt_x", "tilt_y"],
+      "required": [
+        "tilt_x",
+        "tilt_y"
+      ],
       "type": "object"
     },
     "SolverConfig": {
@@ -269,7 +303,11 @@
           "type": "integer"
         }
       },
-      "required": ["max_iters", "verbosity", "robust_loss"],
+      "required": [
+        "max_iters",
+        "verbosity",
+        "robust_loss"
+      ],
       "type": "object"
     }
   },
@@ -293,7 +331,12 @@
       "description": "Non-linear solve stage settings.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`optimize.calib_loss`,\n`optimize.laser_loss` — ADR 0024 D3). Only `max_iters`/`verbosity`\napply here."
     }
   },
-  "required": ["init", "sensor_init", "solver", "optimize"],
+  "required": [
+    "init",
+    "sensor_init",
+    "solver",
+    "optimize"
+  ],
   "title": "LaserlineDeviceConfig",
   "type": "object"
 }

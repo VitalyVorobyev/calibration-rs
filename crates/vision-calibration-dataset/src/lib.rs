@@ -38,8 +38,8 @@ pub use device_spec::{
 };
 pub use sniff::{SniffError, sniff_folder};
 pub use spec::{
-    CameraSource, ChessCornersDetectorSpec, ChessThresholdMode, DatasetSpec, DetectorSpec,
-    ImagePattern, LaserExtractionSpec, LaserScanAxis, PoseColumnMap, PoseConvention, PosePairing,
+    CameraSource, ChessCornersDetectorSpec, DatasetSpec, DetectorSpec, ImagePattern,
+    LaserExtractionSpec, LaserScanAxis, PoseColumnMap, PoseConvention, PosePairing,
     RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec, Topology, TransformConvention,
     TranslationUnits,
 };

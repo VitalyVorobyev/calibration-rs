@@ -12,7 +12,7 @@
 //! Dataset: Uses left camera images from `data/stereo/imgs/leftcamera/`
 
 use anyhow::{Context, Result};
-use calib_targets::chessboard::{ChessboardDetection, DetectorParams};
+use calib_targets::chessboard::{ChessboardDetection, ChessboardParams};
 use calib_targets::detect::{self, default_chess_config};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -135,7 +135,7 @@ fn main() -> Result<()> {
 }
 
 fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> {
-    let board_params = DetectorParams::default();
+    let board_params = ChessboardParams::default();
 
     // Find all left camera images
     let mut indices: Vec<usize> = std::fs::read_dir(imgs_dir)?
@@ -183,7 +183,7 @@ fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> 
 
 fn detect_chessboard(
     path: &Path,
-    board_params: &DetectorParams,
+    board_params: &ChessboardParams,
 ) -> Result<Option<CorrespondenceView>> {
     let img = image::ImageReader::open(path)
         .with_context(|| format!("Failed to open {}", path.display()))?
@@ -191,7 +191,7 @@ fn detect_chessboard(
         .with_context(|| format!("Failed to decode {}", path.display()))?
         .to_luma8();
 
-    let Some(detection) = detect::detect_chessboard(&img, &default_chess_config(), board_params)
+    let Ok(detection) = detect::detect_chessboard(&img, &default_chess_config(), board_params)
     else {
         return Ok(None);
     };
@@ -206,8 +206,8 @@ fn detection_to_view(detection: ChessboardDetection) -> Result<CorrespondenceVie
     for corner in detection.corners {
         let grid = corner.grid;
         points_3d.push(Pt3::new(
-            grid.i as f64 * SQUARE_SIZE_M,
-            grid.j as f64 * SQUARE_SIZE_M,
+            grid.u as f64 * SQUARE_SIZE_M,
+            grid.v as f64 * SQUARE_SIZE_M,
             0.0,
         ));
         points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));

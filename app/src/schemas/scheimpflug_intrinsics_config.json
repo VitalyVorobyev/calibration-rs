@@ -12,7 +12,10 @@
           "description": "Mask for intrinsics (fx, fy, cx, cy)."
         }
       },
-      "required": ["intrinsics", "distortion"],
+      "required": [
+        "intrinsics",
+        "distortion"
+      ],
       "type": "object"
     },
     "DistortionFixMask": {
@@ -39,7 +42,13 @@
           "type": "boolean"
         }
       },
-      "required": ["k1", "k2", "k3", "p1", "p2"],
+      "required": [
+        "k1",
+        "k2",
+        "k3",
+        "p1",
+        "p2"
+      ],
       "type": "object"
     },
     "DistortionKind": {
@@ -92,7 +101,12 @@
           "type": "boolean"
         }
       },
-      "required": ["fx", "fy", "cx", "cy"],
+      "required": [
+        "fx",
+        "fy",
+        "cx",
+        "cy"
+      ],
       "type": "object"
     },
     "IntrinsicsInitConfig": {
@@ -117,7 +131,12 @@
           "type": "boolean"
         }
       },
-      "required": ["init_iterations", "fix_k3", "fix_tangential", "zero_skew"],
+      "required": [
+        "init_iterations",
+        "fix_k3",
+        "fix_tangential",
+        "zero_skew"
+      ],
       "type": "object"
     },
     "RobustLoss": {
@@ -140,11 +159,15 @@
                   "type": "number"
                 }
               },
-              "required": ["scale"],
+              "required": [
+                "scale"
+              ],
               "type": "object"
             }
           },
-          "required": ["Huber"],
+          "required": [
+            "Huber"
+          ],
           "type": "object"
         },
         {
@@ -159,11 +182,15 @@
                   "type": "number"
                 }
               },
-              "required": ["scale"],
+              "required": [
+                "scale"
+              ],
               "type": "object"
             }
           },
-          "required": ["Cauchy"],
+          "required": [
+            "Cauchy"
+          ],
           "type": "object"
         },
         {
@@ -178,11 +205,15 @@
                   "type": "number"
                 }
               },
-              "required": ["scale"],
+              "required": [
+                "scale"
+              ],
               "type": "object"
             }
           },
-          "required": ["Arctan"],
+          "required": [
+            "Arctan"
+          ],
           "type": "object"
         }
       ]
@@ -199,7 +230,10 @@
           "type": "boolean"
         }
       },
-      "required": ["tilt_x", "tilt_y"],
+      "required": [
+        "tilt_x",
+        "tilt_y"
+      ],
       "type": "object"
     },
     "SolverConfig": {
@@ -222,7 +256,11 @@
           "type": "integer"
         }
       },
-      "required": ["max_iters", "verbosity", "robust_loss"],
+      "required": [
+        "max_iters",
+        "verbosity",
+        "robust_loss"
+      ],
       "type": "object"
     }
   },
@@ -260,7 +298,13 @@
       "description": "Non-linear solve stage settings."
     }
   },
-  "required": ["init", "solver", "fix_camera", "fix_scheimpflug", "fix_poses"],
+  "required": [
+    "init",
+    "solver",
+    "fix_camera",
+    "fix_scheimpflug",
+    "fix_poses"
+  ],
   "title": "ScheimpflugIntrinsicsConfig",
   "type": "object"
 }

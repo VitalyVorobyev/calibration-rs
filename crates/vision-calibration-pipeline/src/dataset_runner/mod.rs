@@ -28,7 +28,7 @@ use thiserror::Error;
 
 use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
 use vision_calibration_dataset::{
-    ChessThresholdMode, DatasetSpec, ImagePattern, TargetSpec, Topology, ValidationError,
+    DatasetSpec, ImagePattern, TargetSpec, Topology, ValidationError,
 };
 use vision_calibration_detect::{
     CacheKey, CachedFeatures, CharucoDetector, ChessboardDetector, DetectionCache, Detector,
@@ -257,24 +257,19 @@ pub enum RunError {
 
 fn target_to_detector_config(spec: &DatasetSpec) -> Result<(&'static str, Value), RunError> {
     let (name, mut config) = detector_config_for_target(&spec.target)?;
+    // `ChessCornersDetectorSpec` (manifest) and
+    // `vision_calibration_detect::ChessCornersConfig` (detector) share one
+    // serde shape by construction, so re-serializing is the whole lowering —
+    // a field-by-field copy here would be a second, drift-prone definition of
+    // the same mapping. `skip_serializing_if` drops unset knobs, so an
+    // all-default override serializes to `{}` and is not attached at all.
     if let Some(chess) = spec.detector.and_then(|d| d.chess_corners)
         && let Value::Object(map) = &mut config
     {
-        let mut chess_json = serde_json::Map::new();
-        if let Some(mode) = chess.threshold_mode {
-            chess_json.insert(
-                "threshold_mode".to_string(),
-                json!(match mode {
-                    ChessThresholdMode::Absolute => "absolute",
-                    ChessThresholdMode::Relative => "relative",
-                }),
-            );
-        }
-        if let Some(value) = chess.threshold_value {
-            chess_json.insert("threshold_value".to_string(), json!(value));
-        }
-        if !chess_json.is_empty() {
-            map.insert("chess_corners".to_string(), Value::Object(chess_json));
+        let chess_json = serde_json::to_value(chess)
+            .expect("ChessCornersDetectorSpec is a plain record of Option<f32>; cannot fail");
+        if chess_json.as_object().is_some_and(|o| !o.is_empty()) {
+            map.insert("chess_corners".to_string(), chess_json);
         }
     }
     Ok((name, config))
@@ -702,14 +697,35 @@ mod tests {
         });
         spec.detector = Some(DetectorSpec {
             chess_corners: Some(ChessCornersDetectorSpec {
-                threshold_mode: Some(ChessThresholdMode::Absolute),
                 threshold_value: Some(30.0),
             }),
             min_features_per_view: None,
         });
         let (_name, config) = target_to_detector_config(&spec).unwrap();
-        assert_eq!(config["chess_corners"]["threshold_mode"], "absolute");
         assert_eq!(config["chess_corners"]["threshold_value"], 30.0);
+
+        // The lowering is only correct if the manifest shape and the detector
+        // shape agree. Deserializing into the detector's own config (which is
+        // `deny_unknown_fields`) is what actually proves that, and would fail
+        // the moment either side grows a field the other lacks.
+        let lowered: vision_calibration_detect::ChessCornersConfig =
+            serde_json::from_value(config["chess_corners"].clone()).unwrap();
+        assert_eq!(lowered.threshold_value, Some(30.0));
+    }
+
+    #[test]
+    fn default_detector_override_is_not_attached() {
+        // An all-`None` override must not inject an empty `chess_corners`
+        // object: that would change the detection-cache key for a manifest
+        // that asked for nothing.
+        let mut spec = spec_for_target(TargetSpec::Chessboard {
+            rows: 9,
+            cols: 6,
+            square_size_m: 0.025,
+        });
+        spec.detector = Some(DetectorSpec::default());
+        let (_name, config) = target_to_detector_config(&spec).unwrap();
+        assert!(config.get("chess_corners").is_none());
     }
 
     #[test]

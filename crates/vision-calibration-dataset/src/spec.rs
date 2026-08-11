@@ -284,23 +284,16 @@ pub struct DetectorSpec {
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct ChessCornersDetectorSpec {
-    /// Acceptance threshold mode. `None` keeps the detector default.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threshold_mode: Option<ChessThresholdMode>,
-    /// Acceptance threshold value. `None` keeps the detector default.
+    /// Absolute acceptance threshold on the raw ChESS corner response: a
+    /// corner is kept when its response exceeds this value. `None` keeps the
+    /// detector default.
+    ///
+    /// The threshold is always absolute. Manifests written before 0.8.0 may
+    /// carry a sibling `threshold_mode` key; drop it — `deny_unknown_fields`
+    /// rejects it, and the `"relative"` mode it selected no longer exists in
+    /// the upstream corner detector.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threshold_value: Option<f32>,
-}
-
-/// ChESS threshold interpretation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(JsonSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum ChessThresholdMode {
-    /// Threshold in native ChESS response units.
-    Absolute,
-    /// Threshold as a fraction of the image maximum response.
-    Relative,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

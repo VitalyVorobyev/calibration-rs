@@ -16,8 +16,8 @@ workspace = true
 
 [features]
 default = ["chessboard", "charuco", "puzzleboard", "ringgrid"]
-chessboard = ["dep:calib-targets", "dep:chess-corners"]
-charuco = ["dep:calib-targets", "dep:chess-corners"]
+chessboard = ["dep:calib-targets"]
+charuco = ["dep:calib-targets"]
 puzzleboard = ["dep:calib-targets"]
 ringgrid = ["dep:ringgrid"]
 schemars = ["dep:schemars"]
@@ -29,7 +29,6 @@ thiserror = { workspace = true }
 image = { workspace = true }
 schemars = { workspace = true, optional = true }
 calib-targets = { workspace = true, optional = true }
-chess-corners = { workspace = true, optional = true }
 ringgrid = { workspace = true, optional = true }
 
 [dev-dependencies]

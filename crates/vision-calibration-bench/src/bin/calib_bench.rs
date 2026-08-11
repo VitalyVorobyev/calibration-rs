@@ -7,10 +7,9 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use vision_calibration_bench::record::BenchRecord;
 use vision_calibration_bench::registry::{
-    BenchChessThresholdMode, BenchDistortionFixMask, BenchEntry, BenchHandEyeMode,
-    BenchScheimpflugFixMask, BenchSensorMode, ChessCornersDetectorOverride, DetectorOverride,
-    HandeyeBaOverride, ManualInitSeed, ProblemKind, RigHandeyeOverride, SingleCamHandeyeOverride,
-    load_registry,
+    BenchDistortionFixMask, BenchEntry, BenchHandEyeMode, BenchScheimpflugFixMask, BenchSensorMode,
+    ChessCornersDetectorSpec, DetectorOverride, HandeyeBaOverride, ManualInitSeed, ProblemKind,
+    RigHandeyeOverride, SingleCamHandeyeOverride, load_registry,
 };
 use vision_calibration_pipeline::analysis::ReprojLevel;
 
@@ -1074,8 +1073,7 @@ fn set_chess_threshold(entry: &mut BenchEntry, threshold: f32) {
     entry
         .detector
         .get_or_insert_with(DetectorOverride::default)
-        .chess_corners = Some(ChessCornersDetectorOverride {
-        threshold_mode: Some(BenchChessThresholdMode::Absolute),
+        .chess_corners = Some(ChessCornersDetectorSpec {
         threshold_value: Some(threshold),
     });
 }

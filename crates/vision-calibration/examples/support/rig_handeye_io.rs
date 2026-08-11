@@ -4,7 +4,7 @@
 //! robot poses for hand-eye calibration scenarios.
 
 use anyhow::{Context, Result, ensure};
-use calib_targets::chessboard::{ChessboardDetection, DetectorParams};
+use calib_targets::chessboard::{ChessboardDetection, ChessboardParams};
 use calib_targets::detect::{self, default_chess_config};
 use image::ImageReader;
 use std::path::Path;
@@ -31,7 +31,7 @@ fn image2_filename(index: usize) -> String {
 
 pub fn load_rig_handeye_input_with_progress<F>(
     imgs_dir: &Path,
-    board_params: &DetectorParams,
+    board_params: &ChessboardParams,
     square_size_m: Real,
     max_views: Option<usize>,
     mut progress: F,
@@ -149,7 +149,7 @@ where
 
 fn detect_view(
     path: &Path,
-    board_params: &DetectorParams,
+    board_params: &ChessboardParams,
     square_size_m: Real,
 ) -> Result<Option<CorrespondenceView>> {
     let img = ImageReader::open(path)

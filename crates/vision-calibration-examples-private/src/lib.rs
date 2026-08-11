@@ -267,7 +267,7 @@ pub fn detect_target(
     );
     let spec = PuzzleBoardSpec::new(rows, cols, cell_size_mm as f32)
         .map_err(|e| anyhow!("puzzleboard spec: {e}"))?;
-    let mut params = PuzzleBoardParams::for_board(&spec);
+    let mut params = PuzzleBoardParams::for_board(spec);
     params.decode.search_all_components = false;
     params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
     let result =
@@ -325,15 +325,15 @@ pub fn detect_charuco(
         "DICT_4X4_1000" => builtins::DICT_4X4_1000,
         other => return Err(anyhow!("unsupported ChArUco dictionary '{other}'")),
     };
-    let board = CharucoBoardSpec {
+    let board = CharucoBoardSpec::new(
         rows,
         cols,
-        cell_size: (cell_size_mm / 1000.0) as f32,
+        (cell_size_mm / 1000.0) as f32,
         marker_size_rel,
-        dictionary: dict,
-        marker_layout: MarkerLayout::OpenCvCharuco,
-    };
-    let params = CharucoParams::for_board(&board);
+        dict,
+    )
+    .with_marker_layout(MarkerLayout::OpenCvCharuco);
+    let params = CharucoParams::for_board(board);
     let chess_config = detect::default_chess_config();
     let corners = detect::detect_corners(tile, &chess_config);
     let detector = CharucoDetector::new(params).map_err(|e| anyhow!("charuco detector: {e}"))?;

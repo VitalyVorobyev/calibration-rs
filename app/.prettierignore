@@ -8,11 +8,14 @@ bun.lock
 playwright-report
 test-results
 
-# Rust-emitted JSON Schemas (B-QUAL2): byte-for-byte owned by the
-# `emit_schemas` binary and drift-checked against it, so prettier must not
-# reformat them. The generated *.ts under src/types/generated IS formatted
-# (the generate:types script runs prettier over it) and stays checked.
+# Rust-emitted JSON Schemas: byte-for-byte owned by their emitters and
+# drift-checked against them, so prettier must not reformat them.
+#   - schemas-generated/  <- app/src-tauri `emit_schemas` (diagnose wire types)
+#   - src/schemas/        <- `cargo xtask emit-schemas` (user-facing configs)
+# The generated *.ts under src/types/generated IS formatted (the
+# generate:types script runs prettier over it) and stays checked.
 schemas-generated
+src/schemas
 
 # Prettier's markdown formatter mis-reformats blockquote continuation
 # lines that contain a code span split across the wrap (observed

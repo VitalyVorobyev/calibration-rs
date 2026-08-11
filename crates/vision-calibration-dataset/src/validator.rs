@@ -419,9 +419,9 @@ fn expected_rotation_columns(format: RotationFormat) -> usize {
 mod tests {
     use super::*;
     use crate::spec::{
-        CameraSource, ChessCornersDetectorSpec, ChessThresholdMode, DatasetSpec, DetectorSpec,
-        ImagePattern, PoseColumnMap, PoseConvention, RobotPoseFormat, RobotPoseSource,
-        RotationFormat, TargetSpec, Topology, TransformConvention, TranslationUnits,
+        CameraSource, ChessCornersDetectorSpec, DatasetSpec, DetectorSpec, ImagePattern,
+        PoseColumnMap, PoseConvention, RobotPoseFormat, RobotPoseSource, RotationFormat,
+        TargetSpec, Topology, TransformConvention, TranslationUnits,
     };
 
     fn planar_chessboard_minimal() -> DatasetSpec {
@@ -658,7 +658,6 @@ mod tests {
         let mut spec = planar_chessboard_minimal();
         spec.detector = Some(DetectorSpec {
             chess_corners: Some(ChessCornersDetectorSpec {
-                threshold_mode: Some(ChessThresholdMode::Absolute),
                 threshold_value: Some(30.0),
             }),
             min_features_per_view: None,
@@ -667,11 +666,24 @@ mod tests {
 
         let s = serde_json::to_string(&spec).unwrap();
         assert!(s.contains("chess_corners"));
-        assert!(s.contains("threshold_mode"));
         let back: DatasetSpec = serde_json::from_str(&s).unwrap();
         let chess = back.detector.unwrap().chess_corners.unwrap();
-        assert_eq!(chess.threshold_mode, Some(ChessThresholdMode::Absolute));
         assert_eq!(chess.threshold_value, Some(30.0));
+    }
+
+    #[test]
+    fn detector_chess_threshold_mode_is_rejected() {
+        // `threshold_mode` was removed in 0.8.0: chess-corners 1.0 collapsed
+        // its threshold enum into a single absolute `f32`. A pre-0.8.0
+        // manifest must fail loudly rather than silently ignore the key.
+        let err = serde_json::from_str::<ChessCornersDetectorSpec>(
+            r#"{"threshold_mode":"relative","threshold_value":0.25}"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("threshold_mode"),
+            "expected the stale key to be named, got: {err}"
+        );
     }
 
     #[test]
@@ -679,7 +691,6 @@ mod tests {
         let mut spec = planar_chessboard_minimal();
         spec.detector = Some(DetectorSpec {
             chess_corners: Some(ChessCornersDetectorSpec {
-                threshold_mode: Some(ChessThresholdMode::Absolute),
                 threshold_value: Some(0.0),
             }),
             min_features_per_view: None,

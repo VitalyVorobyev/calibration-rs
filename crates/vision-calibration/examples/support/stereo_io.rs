@@ -1,7 +1,7 @@
 //! Shared I/O helpers for the stereo rig calibration examples.
 
 use anyhow::{Context, Result, ensure};
-use calib_targets::chessboard::{ChessboardDetection, DetectorParams};
+use calib_targets::chessboard::{ChessboardDetection, ChessboardParams};
 use calib_targets::detect::{self, default_chess_config};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -33,7 +33,7 @@ pub struct StereoDatasetSummary {
 /// pairs.
 pub fn load_stereo_input_with_progress<F>(
     imgs_dir: &Path,
-    board_params: &DetectorParams,
+    board_params: &ChessboardParams,
     square_size_m: f64,
     max_views: Option<usize>,
     mut progress: F,
@@ -180,7 +180,7 @@ fn list_stereo_pair_indices(left_dir: &Path, right_dir: &Path) -> Result<Vec<usi
 
 fn detect_view(
     path: &Path,
-    board_params: &DetectorParams,
+    board_params: &ChessboardParams,
     square_size_m: f64,
 ) -> Result<Option<CorrespondenceView>> {
     let img = image::ImageReader::open(path)
@@ -189,8 +189,8 @@ fn detect_view(
         .with_context(|| format!("failed to decode {}", path.display()))?
         .to_luma8();
 
-    let detection = detect::detect_chessboard(&img, &default_chess_config(), board_params);
-    let Some(detection) = detection else {
+    let Ok(detection) = detect::detect_chessboard(&img, &default_chess_config(), board_params)
+    else {
         return Ok(None);
     };
     Ok(Some(detection_to_view_data(detection, square_size_m)?))
@@ -205,8 +205,8 @@ fn detection_to_view_data(
     for corner in detection.corners {
         let grid = corner.grid;
         points_3d.push(Pt3::new(
-            grid.i as f64 * square_size_m,
-            grid.j as f64 * square_size_m,
+            grid.u as f64 * square_size_m,
+            grid.v as f64 * square_size_m,
             0.0,
         ));
         points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));

@@ -22,7 +22,7 @@ mod stereo_charuco_io;
 mod stereo_io;
 
 use anyhow::{Context, Result, ensure};
-use calib_targets::chessboard::DetectorParams;
+use calib_targets::chessboard::ChessboardParams;
 use std::path::{Path, PathBuf};
 use stereo_charuco_io::{
     BOARD_CELL_SIZE_MM, BOARD_COLS, BOARD_DICTIONARY_NAME, BOARD_ROWS,
@@ -62,7 +62,7 @@ fn write_stereo_fixture(repo_root: &Path) -> Result<()> {
     );
 
     println!("[stereo] detecting chessboard corners (7×11, 30 mm)…");
-    let board_params = DetectorParams::default();
+    let board_params = ChessboardParams::default();
     let (input, summary) = load_stereo_input_with_progress(
         &imgs_dir,
         &board_params,

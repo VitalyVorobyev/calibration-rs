@@ -84,7 +84,6 @@ export type Preset = EnabledPreset | DisabledPreset;
 const RTV3D_MANIFEST_OVERRIDES = {
   detector: {
     chess_corners: {
-      threshold_mode: "absolute",
       threshold_value: 30.0,
     },
   },

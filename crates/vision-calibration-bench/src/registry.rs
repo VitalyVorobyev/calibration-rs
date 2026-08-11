@@ -22,6 +22,10 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::DistortionFixMask;
 use vision_calibration_dataset::DatasetSpec;
+
+/// Re-exported so callers naming [`DetectorOverride::chess_corners`] do not
+/// need a direct `vision-calibration-dataset` dependency.
+pub use vision_calibration_dataset::ChessCornersDetectorSpec;
 use vision_calibration_optim::{DistortionKind, HandEyeMode, RobustLoss, ScheimpflugFixMask};
 use vision_calibration_pipeline::common::config::RobotPoseConfig;
 use vision_calibration_pipeline::rig_handeye::{RigHandeyeConfig, SensorMode};
@@ -227,34 +231,16 @@ pub struct CameraLayout {
 #[serde(default)]
 pub struct DetectorOverride {
     /// ChESS corner extractor options shared by chessboard-like detectors.
+    ///
+    /// Reuses the dataset-manifest type rather than redeclaring it: the
+    /// benchmark registry and a `DatasetSpec` describe the same detector
+    /// override, so one definition keeps the two from drifting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub chess_corners: Option<ChessCornersDetectorOverride>,
+    pub chess_corners: Option<ChessCornersDetectorSpec>,
     /// Preserve older free-form detector keys that the benchmark does not
     /// interpret yet.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
-}
-
-/// ChESS corner extractor overrides.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct ChessCornersDetectorOverride {
-    /// Acceptance threshold mode.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threshold_mode: Option<BenchChessThresholdMode>,
-    /// Acceptance threshold value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threshold_value: Option<f32>,
-}
-
-/// Registry ChESS threshold mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BenchChessThresholdMode {
-    /// Threshold in native ChESS response units.
-    Absolute,
-    /// Threshold as a fraction of the image maximum response.
-    Relative,
 }
 
 /// Laser configuration for laserline problems.
