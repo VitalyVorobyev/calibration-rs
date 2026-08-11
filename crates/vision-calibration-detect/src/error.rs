@@ -17,4 +17,23 @@ pub enum DetectError {
     /// A detector configuration or target-geometry constraint was violated.
     #[error("{0}")]
     InvalidConfig(String),
+    /// The underlying detector backend failed for a reason other than "no
+    /// target in this frame".
+    ///
+    /// A frame that simply contains no target is **not** an error — every
+    /// detector reports that as an empty [`Feature`](crate::Feature) list.
+    /// This variant is reserved for genuine backend failures, so a
+    /// misconfigured board cannot masquerade as an unlucky image.
+    ///
+    /// The source is carried as a rendered string rather than a typed error:
+    /// the backends are optional dependencies behind per-detector features,
+    /// so a typed `#[source]` would leak them into this crate's public API
+    /// and make the variant's shape depend on the enabled feature set.
+    #[error("{detector} detector backend failed: {message}")]
+    Backend {
+        /// Detector name (`"ringgrid"`, `"chessboard"`, …).
+        detector: &'static str,
+        /// Rendered backend error.
+        message: String,
+    },
 }

@@ -85,7 +85,7 @@ pub mod tier_b {
     };
 
     use crate::detect::{
-        DetectorKind, charuco_params_for, chess_config_for_override, detect_chessboard_view,
+        ChessFrontEnd, DetectorKind, charuco_params_for, detect_chessboard_view,
         glob_sorted_images, load_image, puzzleboard_params_for,
     };
     #[cfg(feature = "laser")]
@@ -96,7 +96,10 @@ pub mod tier_b {
         ResidualSidecar, RobotCorrectionSummary, ScheimpflugArtifact, StageTiming, Timing,
         TransformArtifact, compact_reproj_report,
     };
-    use crate::registry::{BenchEntry, BoardGeometry, CameraLayout, DetectorOverride, ProblemKind};
+    use crate::registry::{
+        BenchEntry, BoardGeometry, CameraLayout, ChessCornersDetectorSpec, DetectorOverride,
+        ProblemKind,
+    };
 
     /// Lightweight per-dataset stage profile for diagnosing detector/extractor
     /// cost before running a full calibration solve.
@@ -431,7 +434,7 @@ pub mod tier_b {
         let mut images_used = 0usize;
         let mut features_detected = 0usize;
         let mut max_corners_per_image = 0usize;
-        let chess_config = chess_config_for_override(entry.detector.as_ref());
+        let front_end = ChessFrontEnd::from_override(entry.detector.as_ref());
         for (image_idx, path) in paths.iter().enumerate() {
             progress_images(entry, "detect", &cam.id, image_idx, paths.len());
             let img = load_image(path)?;
@@ -441,7 +444,7 @@ pub mod tier_b {
                 board.cols,
                 board.cell_size_m,
                 board.strict_grid,
-                &chess_config,
+                &front_end,
             ) {
                 Ok(Some(view)) => {
                     images_used += 1;
@@ -1258,7 +1261,7 @@ pub mod tier_b {
             total_poses = robot_poses.len();
             let square_size_m = board.cell_size_m;
             let folder = entry.data_root.join(&cam.folder);
-            let chess_config = chess_config_for_override(entry.detector.as_ref());
+            let front_end = ChessFrontEnd::from_override(entry.detector.as_ref());
             progress(
                 entry,
                 format!("detecting {} pose images for {}", robot_poses.len(), cam.id),
@@ -1280,7 +1283,7 @@ pub mod tier_b {
                     board.cols,
                     square_size_m,
                     board.strict_grid,
-                    &chess_config,
+                    &front_end,
                 ) {
                     Ok(Some(view)) => {
                         images_used += 1;
@@ -1913,12 +1916,11 @@ pub mod tier_b {
         let needs_default = detector
             .chess_corners
             .as_ref()
-            .map(|chess| chess.threshold_mode.is_none() && chess.threshold_value.is_none())
-            .unwrap_or(true);
+            .is_none_or(|chess| chess.threshold_value.is_none());
         if needs_default {
-            detector.chess_corners = Some(crate::registry::ChessCornersDetectorOverride {
-                threshold_mode: Some(crate::registry::BenchChessThresholdMode::Absolute),
+            detector.chess_corners = Some(ChessCornersDetectorSpec {
                 threshold_value: Some(30.0),
+                ..ChessCornersDetectorSpec::default()
             });
         }
         detector
@@ -2540,13 +2542,11 @@ pub mod tier_b {
             .collect()
     }
 
+    /// The absolute ChESS threshold this run used, for the diagnose report.
+    /// Since `chess-corners` 1.0 the threshold is always absolute, so this is
+    /// a plain lookup.
     fn chess_threshold_abs(detector: Option<&DetectorOverride>) -> Option<f32> {
-        let chess = detector.and_then(|d| d.chess_corners.as_ref())?;
-        match chess.threshold_mode {
-            Some(crate::registry::BenchChessThresholdMode::Absolute) => chess.threshold_value,
-            None => chess.threshold_value,
-            Some(crate::registry::BenchChessThresholdMode::Relative) => None,
-        }
+        detector?.chess_corners.as_ref()?.threshold_value
     }
 
     /// Profile target detection and laser extraction without running a solver.
@@ -3353,7 +3353,7 @@ pub mod tier_b {
         detector_override: Option<&DetectorOverride>,
     ) -> Result<DetectorKind> {
         let layout = board.layout.as_deref().unwrap_or("checkerboard");
-        let chess_config = chess_config_for_override(detector_override);
+        let front_end = ChessFrontEnd::from_override(detector_override);
         if layout.eq_ignore_ascii_case("charuco") {
             let dict = board
                 .dictionary
@@ -3368,10 +3368,11 @@ pub mod tier_b {
                 board.cell_size_m,
                 marker_scale,
                 dict,
+                &front_end,
             )?;
             Ok(DetectorKind::Charuco {
                 params: Box::new(params),
-                chess_config,
+                chess_config: front_end.chess,
             })
         } else if layout.eq_ignore_ascii_case("puzzleboard") {
             let params =
@@ -3383,7 +3384,7 @@ pub mod tier_b {
                 cols: board.cols,
                 require_known_grid: board.strict_grid,
                 square_size_m: board.cell_size_m,
-                chess_config,
+                front_end,
             })
         }
     }

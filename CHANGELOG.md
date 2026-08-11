@@ -5,6 +5,104 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-08-11
+
+Upstream detector-library migration: `calib-targets` 0.9 → 0.12,
+`chess-corners` 0.11 → 1.x, `ringgrid` 0.7 → 0.11. Each carried breaking
+API changes, and one carried a behavioural change that moves calibration
+numbers — hence a minor bump rather than a patch.
+
+### Changed (breaking, pre-1.0)
+
+- **`threshold_mode` is gone from the detector-override vocabulary.**
+  `chess-corners` 1.0 collapsed its `Threshold::{Absolute, Relative}` enum
+  into a single absolute `f32`; the `"relative"` mode (a fraction of the
+  image maximum response) has no successor. `ChessThresholdMode` is
+  deleted from `vision-calibration-detect` and `vision-calibration-dataset`,
+  along with the bench registry's parallel `BenchChessThresholdMode` /
+  `ChessCornersDetectorOverride`. `ChessCornersDetectorSpec` keeps only
+  `threshold_value`, now documented as an absolute floor on the raw ChESS
+  response. **Migration:** delete the `threshold_mode` key from manifests
+  and bench registries; `deny_unknown_fields` rejects it rather than
+  ignoring it. `"absolute"` values carry over unchanged — the workspace
+  default is still `15.0`. `"relative"` values have no equivalent and must
+  be re-tuned as absolute thresholds.
+- **The bench registry's ChESS override is now
+  `vision_calibration_dataset::ChessCornersDetectorSpec`** (re-exported
+  from `vision_calibration_bench::registry`) instead of a third
+  redeclaration of the same two fields.
+- **Detector behaviour: `min_corner_strength` now defaults to `33.0`**
+  (was `0.0`) via `calib-targets` 0.12, dropping weak, defocused corners
+  before the grid builder. `GraphBuildAlgorithm` is gone — `calib-targets`
+  collapsed its two grid builders into one, so the former `Topological`
+  opt-in is the only path. Chessboard and ChArUco detections change
+  accordingly; committed Fit baselines were re-run.
+- **`vision-calibration-detect` no longer depends on `chess-corners`**, and
+  `calib-targets` is taken with `default-features = false, features =
+  ["image"]` — its default set pulled `clap` and a CLI binary into every
+  consumer's dependency tree.
+
+### Added
+
+- `DetectError::Backend { detector, message }` in
+  `vision-calibration-detect`, for detector-backend failures that are not
+  "no target in this frame". Previously the ringgrid wrapper flattened
+  every backend error into an empty feature list, so a misconfigured board
+  surfaced much later as an unexplained initialisation failure.
+- `reject_ambiguous_detection` in `vision-calibration-detect`, applied by
+  all four detectors and the bench's ChArUco adapter. A planar target's
+  image-to-board map is a homography and so injective; a detection that
+  labels one pixel as several board points has mislabelled its grid, and
+  the whole view is rejected (reported as a skipped frame). Guards against
+  [calib-targets-rs#86](https://github.com/VitalyVorobyev/calib-targets-rs/issues/86),
+  where a ChArUco grid walk collapsed four consecutive board cells onto one
+  corner; on the affected camera this took the per-camera intrinsics
+  residual from 20.12 px to 1.10 px. See `D5-CHARUCO-LABELS` in
+  `docs/backlog.md` for the failure mode this does *not* cover and why.
+
+### Fixed
+
+- **`app/src/schemas/*.json` were being reformatted by Prettier**, drifting
+  from `cargo xtask emit-schemas` output. The `.prettierignore` entry meant
+  to protect them named `schemas-generated` (the *wire*-schema directory)
+  and never matched `src/schemas`. Both are ignored now.
+- **`cargo xtask emit-schemas --check` now runs in CI.** Only the
+  `app/src-tauri` wire-schema drift check was wired up, so a change to any
+  of the nine user-facing config types could silently leave the app's
+  schema-driven forms stale.
+
+### Internal
+
+- `nalgebra`, `faer` and `faer-ext` stay at 0.34 / 0.23 / 0.7. They are
+  pinned by `tiny-solver` 0.18, which `vision-calibration-optim` exchanges
+  both nalgebra and faer types with; 0.35 / 0.24 / 0.8 do not compile until
+  tiny-solver moves. Documented at the pin site and tracked in the backlog.
+- `criterion` 0.5 → 0.8; benches switched to `std::hint::black_box`
+  (`criterion::black_box` is deprecated in 0.8).
+- Removed the dead `num-dual` workspace-dependency entry — no crate
+  declared it.
+- `actions/checkout` v6 → v7 across all workflows.
+
+### Known issues
+
+- **ChArUco detections regress on small image tiles.** `calib-targets` 0.12's
+  grid builder can emit corner labels that are not projectively consistent —
+  distinct board cells assigned one image point, or a fully distinct but
+  scrambled lattice that no homography fits. On the private `rtv3d` regression
+  dataset (6-camera rig, 720×540 tiles) this takes the overall mean
+  reprojection from 1.196 px to 2.664 px, with one camera at 10.9 px; feature
+  counts drop 22 % and the degradation tracks that loss camera by camera.
+  Reported upstream as
+  [calib-targets-rs#86](https://github.com/VitalyVorobyev/calib-targets-rs/issues/86)
+  with a self-contained reproduction. `reject_ambiguous_detection` catches the
+  collapsed form; the scrambled form cannot be caught safely at the detector
+  boundary and needs the upstream fix. **If your ChArUco or chessboard results
+  got worse in 0.8.0, set `detector.chess_corners.min_corner_strength = 0.0`
+  in the manifest** to restore the 0.7.0 corner set — it recovers most, though
+  not all, of the loss. The `rtv3d` baseline is intentionally left frozen at
+  the 0.7.0 numbers rather than re-frozen; see `D5-CHARUCO-LABELS` in
+  `docs/backlog.md`.
+
 ## [0.7.0] - 2026-07-10
 
 `0.7.0` closes the production-grade program's Q (soundness close-out) and

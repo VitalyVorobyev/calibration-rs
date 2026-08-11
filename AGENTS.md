@@ -220,10 +220,10 @@ When trade-offs conflict (speed vs accuracy, stability vs cleanup):
 Backlog execution must be traceable task-by-task. The priority is a current
 **backlog** and current **documentation** — not a per-task paper trail.
 
-* Source of truth for execution status is `docs/backlog.md`.
+* Source of truth for execution status is `docs/backlog.md`. It holds **only open (`[ ]`) and parked (`[~]`) work**, so its length tracks what is left rather than what has been done. Completion notes live in `docs/backlog-archive.md`, grouped by track.
 * Implement one backlog task at a time (do not batch multiple tasks into one commit), unless tasks are tightly coupled and cannot be merged independently while keeping the workspace buildable. In that case, document the coupling explicitly in the backlog note and commit message.
 * Every completed task must include both of the following:
-  1. **Backlog update**: mark the task as complete in `docs/backlog.md` with a short completion note (date, a one-paragraph summary of what landed, optionally commit id). This note is the durable record — keep it informative.
+  1. **Backlog update**: mark the task `[x]` with a completion note (date, a one-paragraph summary of what landed, optionally commit id), then **move the entry** out of `docs/backlog.md` into `docs/backlog-archive.md` under its track heading. That note is the durable record — keep it informative. When a track's last open item closes, drop the whole track from the backlog and add a one-line entry under *Closed tracks*.
   2. **Dedicated commit**: commit only that task’s code/docs/tests updates.
 * Keep the **documentation that lives next to the code** current as part of the task: module/rustdoc, ADRs (`docs/adrs/`) for design decisions, and tutorials (`docs/tutorials/`) for new user-facing features. Update what the change touches; do **not** write a separate per-task report file (`docs/report/` is retired — historical entries are archived under `docs/internal/archive/report/` for reference only).
 * Recommended commit message format:

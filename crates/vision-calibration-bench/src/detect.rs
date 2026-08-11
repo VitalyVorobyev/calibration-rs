@@ -12,15 +12,14 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use calib_targets::aruco::builtins;
 use calib_targets::charuco::{CharucoBoardSpec, CharucoDetector, CharucoParams, MarkerLayout};
-use calib_targets::chessboard::{ChessboardDetection, DetectorParams, GraphBuildAlgorithm};
+use calib_targets::chessboard::{ChessboardDetection, ChessboardParams};
 use calib_targets::core::DetectorConfig;
 use calib_targets::detect::{self, default_chess_config};
 use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
-use chess_corners::Threshold;
 use image::imageops::FilterType;
 use vision_calibration_core::{CorrespondenceView, Pt2, Pt3};
 
-use crate::registry::{BenchChessThresholdMode, DetectorOverride};
+use crate::registry::DetectorOverride;
 
 /// Which detector a rig camera uses to find target features in an image.
 ///
@@ -44,8 +43,8 @@ pub enum DetectorKind {
         require_known_grid: bool,
         /// Metric square (cell) size in metres.
         square_size_m: f64,
-        /// ChESS corner detector configuration.
-        chess_config: DetectorConfig,
+        /// Resolved corner-stage thresholds.
+        front_end: ChessFrontEnd,
     },
     /// `calib-targets` ChArUco detector, parameterised by a board spec. Mirrors
     /// `stereo_charuco_session`'s detector exactly (same dict, marker scale,
@@ -72,14 +71,14 @@ impl DetectorKind {
                 cols,
                 require_known_grid,
                 square_size_m,
-                chess_config,
+                front_end,
             } => detect_chessboard_view(
                 img,
                 *rows,
                 *cols,
                 *square_size_m,
                 *require_known_grid,
-                chess_config,
+                front_end,
             ),
             DetectorKind::Charuco {
                 params,
@@ -90,28 +89,41 @@ impl DetectorKind {
     }
 }
 
-/// Build the ChESS corner detector config for a benchmark detector override.
-pub fn chess_config_for_override(detector: Option<&DetectorOverride>) -> DetectorConfig {
-    let mut config = default_chess_config();
-    let Some(override_cfg) = detector.and_then(|d| d.chess_corners.as_ref()) else {
-        return config;
-    };
-    if override_cfg.threshold_mode.is_none() && override_cfg.threshold_value.is_none() {
-        return config;
-    }
+/// The two corner-stage thresholds a registry entry can override, resolved
+/// once per dataset.
+///
+/// Mirrors `vision_calibration_detect::ChessCornersConfig`, which lowers the
+/// same registry/manifest fields for the app path. The two lowerings are
+/// deliberately separate: this one produces `calib-targets` types that
+/// `vision-calibration-detect` keeps out of its published API.
+#[derive(Clone, Debug)]
+pub struct ChessFrontEnd {
+    /// Corner-detector config (which response peaks become corners).
+    pub chess: DetectorConfig,
+    /// Board params carrying the grid-builder corner-strength floor.
+    pub board: ChessboardParams,
+}
 
-    let (current_mode, current_value) = match config.threshold {
-        Threshold::Absolute(v) => (BenchChessThresholdMode::Absolute, v),
-        Threshold::Relative(v) => (BenchChessThresholdMode::Relative, v),
-        _ => (BenchChessThresholdMode::Absolute, 15.0),
-    };
-    let mode = override_cfg.threshold_mode.unwrap_or(current_mode);
-    let value = override_cfg.threshold_value.unwrap_or(current_value);
-    config = config.with_threshold(match mode {
-        BenchChessThresholdMode::Absolute => Threshold::Absolute(value),
-        BenchChessThresholdMode::Relative => Threshold::Relative(value),
-    });
-    config
+impl ChessFrontEnd {
+    /// Resolve both thresholds from a benchmark detector override, falling
+    /// back to the `calib-targets` defaults for anything unset.
+    pub fn from_override(detector: Option<&DetectorOverride>) -> Self {
+        let chess_corners = detector.and_then(|d| d.chess_corners.as_ref());
+
+        let mut chess = default_chess_config();
+        if let Some(threshold) = chess_corners.and_then(|c| c.threshold_value) {
+            chess = chess.with_threshold(threshold);
+        }
+
+        // `calib-targets` 0.12 collapsed the two grid builders into one, so
+        // the former `GraphBuildAlgorithm::Topological` opt-in is the default.
+        let mut board = ChessboardParams::default();
+        if let Some(strength) = chess_corners.and_then(|c| c.min_corner_strength) {
+            board.min_corner_strength = strength;
+        }
+
+        Self { chess, board }
+    }
 }
 
 /// Build the ChArUco detector parameters used by `stereo_charuco_session`.
@@ -127,20 +139,18 @@ pub fn charuco_params_for(
     cell_size_m: f64,
     marker_size_rel: f32,
     dictionary: &str,
+    front_end: &ChessFrontEnd,
 ) -> Result<CharucoParams> {
     let dict = match dictionary {
         "DICT_4X4_1000" => builtins::DICT_4X4_1000,
         other => anyhow::bail!("unsupported ChArUco dictionary '{other}' (only DICT_4X4_1000)"),
     };
-    let board = CharucoBoardSpec {
-        rows,
-        cols,
-        cell_size: cell_size_m as f32,
-        marker_size_rel,
-        dictionary: dict,
-        marker_layout: MarkerLayout::OpenCvCharuco,
-    };
-    Ok(CharucoParams::for_board(&board))
+    let board = CharucoBoardSpec::new(rows, cols, cell_size_m as f32, marker_size_rel, dict)
+        .with_marker_layout(MarkerLayout::OpenCvCharuco);
+    let mut params = CharucoParams::for_board(board);
+    // ChArUco reaches the grid-builder floor through `CharucoParams::chessboard`.
+    params.chessboard.min_corner_strength = front_end.board.min_corner_strength;
+    Ok(params)
 }
 
 /// Build PuzzleBoard detector parameters for a known printed board.
@@ -151,7 +161,7 @@ pub fn puzzleboard_params_for(rows: u32, cols: u32, cell_size_m: f64) -> Result<
     let cell_size_mm = (cell_size_m * 1000.0) as f32;
     let spec = PuzzleBoardSpec::with_origin(rows, cols, cell_size_mm, 0, 0)
         .map_err(|e| anyhow::anyhow!("puzzleboard spec: {e}"))?;
-    let mut params = PuzzleBoardParams::for_board(&spec);
+    let mut params = PuzzleBoardParams::for_board(spec);
     params.decode.search_all_components = false;
     params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
     Ok(params)
@@ -178,12 +188,32 @@ pub fn detect_charuco_view(
         Err(_) => return Ok(None),
     };
 
-    let mut points_3d = Vec::with_capacity(detection.corners.len());
-    let mut points_2d = Vec::with_capacity(detection.corners.len());
-    for corner in detection.corners {
-        let target = corner.target_position;
-        points_3d.push(Pt3::new(target.x as f64, target.y as f64, 0.0));
-        points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
+    // `calib-targets` can label a run of consecutive board cells onto one
+    // physical corner, producing correspondences that share an image point
+    // (calib-targets-rs#86). One pixel cannot be several points on a planar
+    // target, and a view carrying such a pair has no consistent pose — the
+    // few residuals it yields are ~10^3 px and swamp the camera's mean.
+    // Route through the same guard the app-facing detectors use.
+    let features = vision_calibration_detect::reject_ambiguous_detection(
+        detection
+            .corners
+            .iter()
+            .map(|corner| vision_calibration_detect::Feature {
+                image_xy: [corner.position.x as f64, corner.position.y as f64],
+                world_xyz: [
+                    corner.target_position.x as f64,
+                    corner.target_position.y as f64,
+                    0.0,
+                ],
+            })
+            .collect(),
+    );
+
+    let mut points_3d = Vec::with_capacity(features.len());
+    let mut points_2d = Vec::with_capacity(features.len());
+    for f in features {
+        points_3d.push(Pt3::new(f.world_xyz[0], f.world_xyz[1], f.world_xyz[2]));
+        points_2d.push(Pt2::new(f.image_xy[0], f.image_xy[1]));
     }
 
     if points_3d.len() < 4 {
@@ -258,7 +288,7 @@ pub fn detect_puzzleboard_view(
 ///
 /// Mirrors `planar_real.rs::detect_chessboard` + `detection_to_view`:
 /// converts to luma8, runs `detect_chessboard` with the default chess config and
-/// the supplied [`DetectorParams`], then maps each detected corner's grid index
+/// default [`ChessboardParams`], then maps each detected corner's grid index
 /// to a metric `(i*square, j*square, 0)` target point and its pixel position.
 ///
 /// Returns `Ok(None)` when no board is found (so the caller can count it as a
@@ -272,12 +302,13 @@ pub fn detect_chessboard_view(
     cols: usize,
     square_size_m: f64,
     require_known_grid: bool,
-    chess_config: &DetectorConfig,
+    front_end: &ChessFrontEnd,
 ) -> Result<Option<CorrespondenceView>> {
     let luma = img.to_luma8();
-    let params = topological_chessboard_params();
-    let Some(detection) = detect::detect_chessboard(&luma, chess_config, &params) else {
-        return Ok(None);
+    let detection = match detect::detect_chessboard(&luma, &front_end.chess, &front_end.board) {
+        Ok(detection) => detection,
+        Err(detect::DetectError::NoDetection { .. }) => return Ok(None),
+        Err(err) => return Err(anyhow::anyhow!("chessboard detection failed: {err}")),
     };
     if require_known_grid && !detection_matches_known_grid(&detection, rows, cols) {
         return Ok(None);
@@ -285,18 +316,12 @@ pub fn detect_chessboard_view(
     Ok(Some(detection_to_view(detection, square_size_m)?))
 }
 
-fn topological_chessboard_params() -> DetectorParams {
-    let mut params = DetectorParams::default();
-    params.graph_build_algorithm = GraphBuildAlgorithm::Topological;
-    params
-}
-
 fn detection_matches_known_grid(detection: &ChessboardDetection, rows: usize, cols: usize) -> bool {
     if detection.corners.len() != rows * cols {
         return false;
     }
-    let max_i = detection.corners.iter().map(|c| c.grid.i).max();
-    let max_j = detection.corners.iter().map(|c| c.grid.j).max();
+    let max_i = detection.corners.iter().map(|c| c.grid.u).max();
+    let max_j = detection.corners.iter().map(|c| c.grid.v).max();
     matches!(
         (max_i, max_j),
         (Some(i), Some(j)) if i >= 0
@@ -308,7 +333,7 @@ fn detection_matches_known_grid(detection: &ChessboardDetection, rows: usize, co
 
 /// Map a [`ChessboardDetection`] to a [`CorrespondenceView`] using the board's
 /// metric square size. Identical convention to the example
-/// (`grid.i * square`, `grid.j * square`, `z = 0`).
+/// (`grid.u * square`, `grid.v * square`, `z = 0`).
 fn detection_to_view(
     detection: ChessboardDetection,
     square_size_m: f64,
@@ -318,8 +343,8 @@ fn detection_to_view(
     for corner in detection.corners {
         let grid = corner.grid;
         points_3d.push(Pt3::new(
-            grid.i as f64 * square_size_m,
-            grid.j as f64 * square_size_m,
+            grid.u as f64 * square_size_m,
+            grid.v as f64 * square_size_m,
             0.0,
         ));
         points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
@@ -416,7 +441,7 @@ fn take_digits(it: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::ChessCornersDetectorOverride;
+    use crate::registry::ChessCornersDetectorSpec;
 
     #[test]
     fn natural_cmp_orders_numeric_suffixes() {
@@ -430,19 +455,53 @@ mod tests {
     }
 
     #[test]
-    fn chess_corner_override_applies_absolute_threshold() {
+    fn chess_corner_override_applies_both_thresholds() {
         let detector = DetectorOverride {
-            chess_corners: Some(ChessCornersDetectorOverride {
-                threshold_mode: Some(BenchChessThresholdMode::Absolute),
+            chess_corners: Some(ChessCornersDetectorSpec {
                 threshold_value: Some(30.0),
+                min_corner_strength: Some(0.0),
             }),
             extra: Default::default(),
         };
 
-        let config = chess_config_for_override(Some(&detector));
-        assert!(
-            matches!(config.threshold, Threshold::Absolute(v) if (v - 30.0).abs() < f32::EPSILON)
-        );
+        let front_end = ChessFrontEnd::from_override(Some(&detector));
+        assert!((front_end.chess.threshold - 30.0).abs() < f32::EPSILON);
+        assert_eq!(front_end.board.min_corner_strength, 0.0);
+    }
+
+    #[test]
+    fn absent_chess_corner_override_keeps_detector_defaults() {
+        let defaults = ChessboardParams::default();
+        for detector in [None, Some(&DetectorOverride::default())] {
+            let front_end = ChessFrontEnd::from_override(detector);
+            assert_eq!(front_end.chess.threshold, default_chess_config().threshold);
+            assert_eq!(
+                front_end.board.min_corner_strength,
+                defaults.min_corner_strength
+            );
+        }
+    }
+
+    /// The registry override and the app-path override must lower to the
+    /// same numbers — they are the same two user-facing knobs.
+    #[test]
+    fn front_end_matches_the_detect_crate_lowering() {
+        let spec = ChessCornersDetectorSpec {
+            threshold_value: Some(21.0),
+            min_corner_strength: Some(7.0),
+        };
+        let front_end = ChessFrontEnd::from_override(Some(&DetectorOverride {
+            chess_corners: Some(spec),
+            extra: Default::default(),
+        }));
+        // Same fields, same JSON shape, so the detect crate's
+        // `ChessCornersConfig` deserializes straight from this spec.
+        let via_detect: vision_calibration_detect::ChessCornersConfig =
+            serde_json::from_value(serde_json::to_value(spec).unwrap()).unwrap();
+        assert_eq!(via_detect.threshold_value, Some(21.0));
+        assert_eq!(via_detect.min_corner_strength, Some(7.0));
+        assert!((front_end.chess.threshold - 21.0).abs() < f32::EPSILON);
+        assert_eq!(front_end.board.min_corner_strength, 7.0);
     }
 
     #[test]

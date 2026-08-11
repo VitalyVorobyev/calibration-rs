@@ -28,7 +28,7 @@ use serde_json::Value;
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::chess_options::{ChessCornersConfig, chess_config_for_override};
+use crate::chess_options::{ChessCornersConfig, apply_board_override, chess_config_for_override};
 use crate::{DetectError, Detector, Feature};
 
 /// ChArUco detector configuration. Mirrors the shape of the charuco
@@ -89,14 +89,8 @@ pub fn validate_charuco_layout(rows: u32, cols: u32, dictionary: &str) -> Result
     })?;
     // Unit geometry: `CharucoBoard::new` only inspects rows/cols and the
     // dictionary capacity here; cell/marker size are placeholders.
-    let spec = CharucoBoardSpec {
-        rows,
-        cols,
-        cell_size: 1.0,
-        marker_size_rel: 0.5,
-        dictionary,
-        marker_layout: MarkerLayout::OpenCvCharuco,
-    };
+    let spec = CharucoBoardSpec::new(rows, cols, 1.0, 0.5, dictionary)
+        .with_marker_layout(MarkerLayout::OpenCvCharuco);
     CharucoBoard::new(spec)
         .map(|_| ())
         .map_err(|e| DetectError::InvalidConfig(format!("invalid charuco board: {e}")))
@@ -112,15 +106,21 @@ fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams, DetectError> {
             cfg.marker_size_m, cfg.square_size_m
         )));
     }
-    let board = CharucoBoardSpec {
-        rows: cfg.rows,
-        cols: cfg.cols,
-        cell_size: cfg.square_size_m as f32,
-        marker_size_rel: (cfg.marker_size_m / cfg.square_size_m) as f32,
+    // The marker layout is spelled out rather than left to `MarkerLayout`'s
+    // default: it fixes the marker numbering that our world coordinates are
+    // indexed against, so an upstream default change must not move it
+    // silently.
+    let board = CharucoBoardSpec::new(
+        cfg.rows,
+        cfg.cols,
+        cfg.square_size_m as f32,
+        (cfg.marker_size_m / cfg.square_size_m) as f32,
         dictionary,
-        marker_layout: MarkerLayout::OpenCvCharuco,
-    };
-    Ok(CharucoParams::for_board(&board))
+    )
+    .with_marker_layout(MarkerLayout::OpenCvCharuco);
+    let mut params = CharucoParams::for_board(board);
+    apply_board_override(cfg.chess_corners, &mut params.chessboard);
+    Ok(params)
 }
 
 /// Stateless ChArUco detector instance.
@@ -162,18 +162,20 @@ impl Detector for CharucoDetector {
 
         // `target_position` is metric because the board spec's
         // `cell_size` was given in metres.
-        Ok(detection
-            .corners
-            .into_iter()
-            .map(|corner| Feature {
-                image_xy: [corner.position.x as f64, corner.position.y as f64],
-                world_xyz: [
-                    corner.target_position.x as f64,
-                    corner.target_position.y as f64,
-                    0.0,
-                ],
-            })
-            .collect())
+        Ok(crate::reject_ambiguous_detection(
+            detection
+                .corners
+                .into_iter()
+                .map(|corner| Feature {
+                    image_xy: [corner.position.x as f64, corner.position.y as f64],
+                    world_xyz: [
+                        corner.target_position.x as f64,
+                        corner.target_position.y as f64,
+                        0.0,
+                    ],
+                })
+                .collect(),
+        ))
     }
 }
 

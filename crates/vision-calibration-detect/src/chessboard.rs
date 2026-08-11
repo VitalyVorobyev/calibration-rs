@@ -5,7 +5,7 @@
 //! grid index are filtered out — calibration consumes 2D-3D
 //! correspondences, so an unindexed corner is unusable.
 
-use calib_targets::chessboard::DetectorParams as ChessboardDetectorParams;
+use calib_targets::chessboard::ChessboardParams;
 use calib_targets::detect;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,7 +13,7 @@ use serde_json::Value;
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::chess_options::{ChessCornersConfig, chess_config_for_override};
+use crate::chess_options::{ChessCornersConfig, apply_board_override, chess_config_for_override};
 use crate::{DetectError, Detector, Feature};
 
 /// Chessboard detector configuration. Mirrors the shape of the
@@ -63,12 +63,21 @@ impl Detector for ChessboardDetector {
         // The underlying detector auto-labels corners from
         // intersection clustering — `rows`/`cols` from our config are
         // used only for output validation, not as input parameters.
-        let board_params = ChessboardDetectorParams::default();
+        let mut board_params = ChessboardParams::default();
+        apply_board_override(cfg.chess_corners, &mut board_params);
         let chess_cfg = chess_config_for_override(cfg.chess_corners);
 
-        let detection = detect::detect_chessboard(&luma, &chess_cfg, &board_params);
-        let Some(detection) = detection else {
-            return Ok(Vec::new());
+        // No board in frame is "no features", not an error. Every other
+        // `DetectError` variant is a genuine backend failure and propagates.
+        let detection = match detect::detect_chessboard(&luma, &chess_cfg, &board_params) {
+            Ok(detection) => detection,
+            Err(detect::DetectError::NoDetection { .. }) => return Ok(Vec::new()),
+            Err(err) => {
+                return Err(DetectError::Backend {
+                    detector: "chessboard",
+                    message: err.to_string(),
+                });
+            }
         };
 
         // Filter to corners whose grid index falls inside the expected
@@ -79,19 +88,19 @@ impl Detector for ChessboardDetector {
         let mut features = Vec::new();
         for corner in detection.corners {
             let grid = corner.grid;
-            if grid.i < 0 || grid.j < 0 || grid.i >= max_i || grid.j >= max_j {
+            if grid.u < 0 || grid.v < 0 || grid.u >= max_i || grid.v >= max_j {
                 continue;
             }
             features.push(Feature {
                 image_xy: [corner.position.x as f64, corner.position.y as f64],
                 world_xyz: [
-                    grid.i as f64 * cfg.square_size_m,
-                    grid.j as f64 * cfg.square_size_m,
+                    grid.u as f64 * cfg.square_size_m,
+                    grid.v as f64 * cfg.square_size_m,
                     0.0,
                 ],
             });
         }
-        Ok(features)
+        Ok(crate::reject_ambiguous_detection(features))
     }
 }
 

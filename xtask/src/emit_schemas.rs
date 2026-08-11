@@ -70,11 +70,16 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
             println!("schemas up to date ({} files)", entries.len());
             Ok(())
         } else {
-            for path in &drift {
-                eprintln!("schema drift: {}", path.display());
+            for entry in &drift {
+                entry.report();
             }
+            let hint = if drift.iter().any(|d| matches!(d, Drift::LineEndings(_))) {
+                "; the CRLF ones need an LF checkout (`git add --renormalize .`), not a re-emit"
+            } else {
+                ""
+            };
             bail!(
-                "{} schema(s) out of date; run `cargo xtask emit-schemas` and commit the result",
+                "{} schema(s) out of date; run `cargo xtask emit-schemas` and commit the result{hint}",
                 drift.len()
             )
         }
@@ -88,12 +93,29 @@ fn schema_value<T: JsonSchema>() -> Value {
     serde_json::to_value(schema_for!(T)).expect("JsonSchema serialization is infallible")
 }
 
-fn write_or_check(
-    path: &Path,
-    schema: &Value,
-    check: bool,
-    drift: &mut Vec<PathBuf>,
-) -> Result<()> {
+/// Why a committed schema no longer matches what the generator produces.
+enum Drift {
+    /// The file is missing, or its content genuinely differs — a config type
+    /// changed and the schema was not re-emitted.
+    Stale(PathBuf),
+    /// The content matches once CRLF is normalized: the working copy was
+    /// checked out with the wrong line endings, not left stale. Re-emitting
+    /// fixes nothing — `.gitattributes`' `eol=lf` rule is what prevents this.
+    LineEndings(PathBuf),
+}
+
+impl Drift {
+    fn report(&self) {
+        match self {
+            Self::Stale(path) => eprintln!("schema drift: {}", path.display()),
+            Self::LineEndings(path) => {
+                eprintln!("line-ending drift (CRLF on disk): {}", path.display());
+            }
+        }
+    }
+}
+
+fn write_or_check(path: &Path, schema: &Value, check: bool, drift: &mut Vec<Drift>) -> Result<()> {
     let mut text =
         serde_json::to_string_pretty(schema).context("rendering schema as pretty JSON")?;
     text.push('\n');
@@ -102,12 +124,16 @@ fn write_or_check(
         let on_disk = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(_) => {
-                drift.push(path.to_path_buf());
+                drift.push(Drift::Stale(path.to_path_buf()));
                 return Ok(());
             }
         };
         if on_disk != text {
-            drift.push(path.to_path_buf());
+            drift.push(if on_disk.replace("\r\n", "\n") == text {
+                Drift::LineEndings(path.to_path_buf())
+            } else {
+                Drift::Stale(path.to_path_buf())
+            });
         }
         return Ok(());
     }

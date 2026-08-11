@@ -10,7 +10,7 @@
 //! marker pixel size is unknown for an arbitrary dataset image, and adaptive
 //! mode auto-selects scale tiers rather than relying on a hand-tuned prior.
 
-use ringgrid::{BoardLayout, Detector as RinggridDetectorImpl};
+use ringgrid::{Detector as RinggridDetectorImpl, TargetLayout};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -20,9 +20,15 @@ use schemars::JsonSchema;
 use crate::{DetectError, Detector, Feature};
 
 /// Coded ring-grid detector configuration. Mirrors the geometry of the
-/// ringgrid variant in `vision_calibration_dataset::TargetSpec` (and, in
-/// turn, `ringgrid::BoardLayout`) so the dispatcher can translate one to
-/// the other directly.
+/// ringgrid variant in `vision_calibration_dataset::TargetSpec` so the
+/// dispatcher can translate one to the other directly.
+///
+/// The flat shape below describes exactly one point in `ringgrid`'s
+/// compositional target space: a **hexagonal lattice of 16-sector coded
+/// rings, with no origin fiducials**. `ringgrid` 0.9+ can also express
+/// rectangular lattices and plain (uncoded) annuli; those are deliberately
+/// not surfaced here — no dataset in this workspace uses them, and a config
+/// knob without a consumer is a knob that rots.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -42,13 +48,18 @@ pub struct RinggridConfig {
 }
 
 impl RinggridConfig {
-    /// Build the `ringgrid` board layout this config describes. The
+    /// Build the `ringgrid` target layout this config describes. The
     /// `ringgrid` API works in millimetres, so metric fields are scaled
     /// here; geometry validation (radii ordering, marker-vs-pitch fit) is
-    /// delegated to `BoardLayout::new`.
-    fn board_layout(&self) -> Result<BoardLayout, DetectError> {
+    /// delegated to `TargetLayout::coded_hex`.
+    ///
+    /// `coded_hex` takes the same six arguments in the same order as the
+    /// `BoardLayout::new` this used to call, and derives the same
+    /// geometry-based board name, so the layout is unchanged by the
+    /// `ringgrid` 0.7 → 0.11 migration.
+    fn board_layout(&self) -> Result<TargetLayout, DetectError> {
         let mm = |m: f64| (m * 1000.0) as f32;
-        BoardLayout::new(
+        TargetLayout::coded_hex(
             mm(self.pitch_m),
             self.rows as usize,
             self.long_row_cols as usize,
@@ -85,22 +96,37 @@ impl Detector for RinggridDetector {
         let detector = RinggridDetectorImpl::new(board);
 
         let luma = image.to_luma8();
-        let result = detector.detect_adaptive(&luma);
+
+        // Neither `ringgrid::DetectError` variant means "no board in this
+        // frame" — an empty frame yields `Ok` with zero markers.
+        // `UnsupportedTarget` is a configuration bug and `IncompleteBoard`
+        // can only fire under `require_complete_board`, which this wrapper
+        // never sets. Both are real failures and must not be flattened into
+        // an empty feature list, which would surface much later as an
+        // unexplained initialisation failure.
+        let result = detector
+            .detect_adaptive(&luma)
+            .map_err(|e| DetectError::Backend {
+                detector: "ringgrid",
+                message: e.to_string(),
+            })?;
 
         // A decoded marker contributes a correspondence only when its id
         // maps to a known board position (`board_xy_mm`); undecoded or
         // off-board detections are dropped. `center` is always raw image
         // pixels. `board_xy_mm` is in millimetres → convert to metres.
-        Ok(result
-            .detected_markers
-            .into_iter()
-            .filter_map(|marker| {
-                marker.board_xy_mm.map(|xy_mm| Feature {
-                    image_xy: marker.center,
-                    world_xyz: [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0],
+        Ok(crate::reject_ambiguous_detection(
+            result
+                .detected_markers
+                .into_iter()
+                .filter_map(|marker| {
+                    marker.board_xy_mm.map(|xy_mm| Feature {
+                        image_xy: marker.center,
+                        world_xyz: [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0],
+                    })
                 })
-            })
-            .collect())
+                .collect(),
+        ))
     }
 }
 
@@ -137,6 +163,59 @@ mod tests {
             .render_target_png(&PngTargetOptions::default())
             .expect("render ring-grid PNG");
         image::DynamicImage::ImageLuma8(gray)
+    }
+
+    /// Pin the geometry the config lowers to, independently of detection.
+    ///
+    /// The render→detect round-trip below uses one layout for both halves, so
+    /// it cannot catch a layout that is wrong but self-consistent — a swapped
+    /// `rows`/`long_row_cols`, or a metres value passed where millimetres were
+    /// expected, would survive it. These assertions are against values derived
+    /// from the config by hand.
+    #[test]
+    fn config_lowers_to_the_declared_board_geometry() {
+        let cfg: RinggridConfig = serde_json::from_value(board_config()).unwrap();
+        let board = cfg.board_layout().unwrap();
+
+        // A 5-row hex board whose long rows hold 5 markers alternates
+        // 5/4/5/4/5 = 23 cells. Swapping rows and long_row_cols would still
+        // give 23 here, so also check the extent below.
+        assert_eq!(board.n_cells(), 23);
+
+        assert!(
+            (board.pitch_mm() - 20.0).abs() < 1e-4,
+            "pitch is millimetres"
+        );
+        assert!((board.ring().outer_radius_mm - 6.0).abs() < 1e-4);
+        assert!((board.ring().inner_radius_mm - 3.0).abs() < 1e-4);
+        assert!(board.is_coded(), "ring markers must be self-identifying");
+        assert!(board.fiducials().is_none(), "coded boards carry no dots");
+
+        // Extent distinguishes a 5-row/5-long-col board from its transpose.
+        // In this axial layout the nearest-neighbour distance along a row is
+        // `pitch * sqrt(3)` (`min_center_spacing_mm`) and the row step is
+        // `1.5 * pitch`; five rows and five long-row columns give four gaps
+        // on each axis.
+        let (xs, ys): (Vec<f32>, Vec<f32>) = board
+            .cells()
+            .iter()
+            .map(|c| (c.xy_mm[0], c.xy_mm[1]))
+            .unzip();
+        let span = |v: &[f32]| {
+            v.iter().cloned().fold(f32::MIN, f32::max) - v.iter().cloned().fold(f32::MAX, f32::min)
+        };
+        let expected_x = 4.0 * board.min_center_spacing_mm();
+        assert!(
+            (span(&xs) - expected_x).abs() < 1e-3,
+            "x span should be 4 nearest-neighbour steps ({expected_x}), got {}",
+            span(&xs)
+        );
+        let expected_y = 4.0 * 1.5 * 20.0;
+        assert!(
+            (span(&ys) - expected_y).abs() < 1e-3,
+            "y span should be 4 row steps ({expected_y}), got {}",
+            span(&ys)
+        );
     }
 
     #[test]
@@ -178,7 +257,7 @@ mod tests {
     #[test]
     fn invalid_board_geometry_rejected() {
         // Inner radius >= outer radius is an impossible board; the wrapped
-        // `BoardLayout::new` must reject it before any detection.
+        // `TargetLayout::new` must reject it before any detection.
         let mut cfg = board_config();
         cfg["marker_inner_radius_m"] = json!(OUTER_M);
         let img = image::DynamicImage::new_luma8(64, 64);

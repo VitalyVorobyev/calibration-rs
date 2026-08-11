@@ -34,16 +34,16 @@ pub struct StereoCharucoDatasetSummary {
 
 /// Build ChArUco detector params used by the stereo example.
 pub fn make_charuco_detector_params() -> CharucoParams {
-    let board = CharucoBoardSpec {
-        rows: BOARD_ROWS,
-        cols: BOARD_COLS,
-        cell_size: BOARD_CELL_SIZE_MM as f32,
-        marker_size_rel: BOARD_MARKER_SIZE_REL,
-        dictionary: builtins::DICT_4X4_1000,
-        marker_layout: MarkerLayout::OpenCvCharuco,
-    };
+    let board = CharucoBoardSpec::new(
+        BOARD_ROWS,
+        BOARD_COLS,
+        BOARD_CELL_SIZE_MM as f32,
+        BOARD_MARKER_SIZE_REL,
+        builtins::DICT_4X4_1000,
+    )
+    .with_marker_layout(MarkerLayout::OpenCvCharuco);
 
-    CharucoParams::for_board(&board)
+    CharucoParams::for_board(board)
 }
 
 /// Load stereo ChArUco dataset from `base_dir/cam1` and `base_dir/cam2`.
@@ -198,7 +198,7 @@ fn detect_view(path: &Path, charuco_params: &CharucoParams) -> Result<Option<Cor
 }
 
 fn detection_to_view_data(
-    detection: calib_targets::charuco::CharucoDetectionResult,
+    detection: calib_targets::charuco::CharucoDetection,
 ) -> Result<Option<CorrespondenceView>> {
     let mut points_3d = Vec::new();
     let mut points_2d = Vec::new();

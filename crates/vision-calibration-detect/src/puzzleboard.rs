@@ -80,7 +80,7 @@ impl Detector for PuzzleboardDetector {
         let cell_size_mm = (cfg.cell_size_m * 1000.0) as f32;
         let spec = PuzzleBoardSpec::new(cfg.rows, cfg.cols, cell_size_mm)
             .map_err(|e| DetectError::InvalidConfig(format!("invalid puzzleboard spec: {e}")))?;
-        let mut params = PuzzleBoardParams::for_board(&spec);
+        let mut params = PuzzleBoardParams::for_board(spec);
         params.decode.search_all_components = false;
         params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
 
@@ -120,7 +120,7 @@ impl Detector for PuzzleboardDetector {
                 world_xyz: [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0],
             });
         }
-        Ok(features)
+        Ok(crate::reject_ambiguous_detection(features))
     }
 }
 

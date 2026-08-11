@@ -18,7 +18,6 @@ default = ["tier-a"]
 tier-a = []
 tier-b = [
     "dep:calib-targets",
-    "dep:chess-corners",
     "dep:image",
     "dep:glob",
     "dep:vision-calibration-detect",
@@ -46,7 +45,6 @@ nalgebra = { workspace = true }
 
 # Tier-B (full pipeline: detector + image I/O) — gated behind `tier-b`.
 calib-targets = { workspace = true, optional = true }
-chess-corners = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 glob = { workspace = true, optional = true }
 # Detection cache for the manifest-driven acceptance run path (S4).

@@ -1,7 +1,7 @@
 //! Shared I/O helpers for the KUKA hand-eye examples.
 
 use anyhow::{Context, Result, ensure};
-use calib_targets::chessboard::{ChessboardDetection, DetectorParams};
+use calib_targets::chessboard::{ChessboardDetection, ChessboardParams};
 use calib_targets::detect::{self, default_chess_config};
 use image::ImageReader;
 use nalgebra::{Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
@@ -27,13 +27,13 @@ pub struct DatasetSummary {
     pub square_size_m: f64,
 }
 
-pub fn kuka_chessboard_params() -> DetectorParams {
-    DetectorParams::default()
+pub fn kuka_chessboard_params() -> ChessboardParams {
+    ChessboardParams::default()
 }
 
 pub fn load_kuka_dataset_with_progress<F>(
     base_path: &Path,
-    board_params: &DetectorParams,
+    board_params: &ChessboardParams,
     mut progress: F,
 ) -> Result<(Vec<ViewSample>, DatasetSummary)>
 where
@@ -63,9 +63,9 @@ where
 
         let detection = match detect::detect_chessboard(&img, &default_chess_config(), board_params)
         {
-            Some(result) => result,
-            None => {
-                eprintln!("Skipping view {:02}: chessboard not detected", image_index);
+            Ok(result) => result,
+            Err(err) => {
+                eprintln!("Skipping view {image_index:02}: {err}");
                 continue;
             }
         };
@@ -161,8 +161,8 @@ fn detection_to_view_data(
     for corner in detection.corners {
         let grid = corner.grid;
         points_3d.push(Pt3::new(
-            grid.i as f64 * square_size_m,
-            grid.j as f64 * square_size_m,
+            grid.u as f64 * square_size_m,
+            grid.v as f64 * square_size_m,
             0.0,
         ));
         points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));

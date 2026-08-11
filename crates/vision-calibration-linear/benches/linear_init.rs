@@ -8,7 +8,9 @@
 
 #![allow(missing_docs)]
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 use nalgebra::{UnitQuaternion, Vector3};
 use vision_calibration_core::{
     BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, Pt2, Pt3, Real,

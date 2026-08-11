@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -33,6 +33,13 @@ jobs:
       - name: Cargo test
         run: cargo test --workspace --all-features
 
+      # The app's schema-driven config forms are generated from the pipeline
+      # config types. Without this gate a config-struct change silently leaves
+      # `app/src/schemas/` stale and the form loses (or keeps) a field.
+      # Counterpart of the `app-src-tauri` job's wire-type schema check.
+      - name: Check generated config schemas are up to date
+        run: cargo run -p xtask -- emit-schemas --check
+
       - name: Cargo doc
         run: cargo doc --no-deps --workspace
 
@@ -41,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Rust 1.93
         uses: dtolnay/rust-toolchain@1.93
@@ -62,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (with LFS data)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           lfs: true
 
@@ -84,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -125,7 +132,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up bun
         uses: oven-sh/setup-bun@v2
@@ -195,7 +202,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Tauri 2's Linux backend links against GTK/WebKitGTK at build time;
       # these are the packages tauri-apps' own CI recipes install on
