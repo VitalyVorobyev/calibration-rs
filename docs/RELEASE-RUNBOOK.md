@@ -192,16 +192,46 @@ cargo run --release -p vision-calibration-bench --features "tier-b laser" \
 
 # 7. Publish dry-run in DAG order (§2) — catches E0432-style path-dep
 #    resolution failures (§4) before they wedge the real publish job.
+#    Read §5.1 first: on a lockstep bump most of these are EXPECTED to fail.
 for c in vision-calibration-core vision-geometry vision-calibration-dataset \
          vision-calibration-detect vision-calibration-linear \
          vision-calibration-optim vision-mvg vision-calibration-pipeline \
          vision-calibration; do
-  cargo publish -p "$c" --dry-run --locked || break
+  echo "=== $c ==="; cargo publish -p "$c" --dry-run --locked
 done
 
 # 8. Trusted Publishing coverage (§3) — manual crates.io UI check, one page
 #    per crate in the DAG. No CLI shortcut; just go look.
 ```
+
+### 5.1 How to read the step-7 dry-run
+
+`cargo publish --dry-run` strips path dependencies and resolves every
+workspace dep against the crates.io index. On a **lockstep bump** the new
+version is not on the index yet, so every crate that depends on another
+workspace crate necessarily fails with:
+
+```
+candidate versions found which didn't match: 0.7.0, 0.6.0, …
+location searched: crates.io index
+```
+
+That is the expected result, not a defect — those crates only become
+verifiable once their dependencies are actually published, which is exactly
+what `release.yml` does by publishing in DAG order. For `0.8.0` the
+leaf-only crates (`vision-calibration-core`, `-dataset`, `-detect`) passed
+and the other six reported the message above.
+
+What step 7 *does* catch is the §4 failure: a crate whose dependency is
+already on the index at the version being requested, but whose registry copy
+lacks an item the local source uses. That shows up as a compile error
+(`E0432` and friends), not as "candidate versions found". **Triage rule:**
+"candidate versions" on a lockstep bump is fine; any *compile* error is a
+hard stop.
+
+Do not "fix" this by loosening the `[workspace.dependencies]` pins to accept
+the previous version — that would let a crate publish against a stale
+dependency and reintroduce the `0.6.0` incident.
 
 ## 6. Tag and what fires
 

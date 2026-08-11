@@ -33,10 +33,18 @@ dispatched server-side — no per-detector code path to learn.
 | `puzzleboard` | `layout` (`"puzzle_<R>x<C>"`), `cell_size_m` | Self-identifying; a single partial view is globally consistent. |
 | `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m` | Coded **hex-lattice** of ring markers — `long_row_cols` is the longest (even) row; shorter rows derive from the lattice. |
 
-An optional ChESS corner-stage override (`[detector.chess_corners]`,
-`threshold_value` — an absolute floor on the raw corner response) applies to
-the chess-based detectors (chessboard / charuco) and is hashed into the
-detection-cache key.
+Two optional ChESS overrides (`[detector.chess_corners]`) apply to the
+chess-based detectors (chessboard / charuco) and are hashed into the
+detection-cache key, so changing either re-runs detection:
+
+- `threshold_value` — absolute floor on the raw corner response, gating which
+  response peaks become corners at all.
+- `min_corner_strength` — floor on corner strength for entering the grid
+  builder, gating which of those corners are trusted as lattice nodes.
+  Defaults to `33.0`, which drops weak, defocused corners. **Set it to `0.0`
+  on small or soft image tiles**, where the floor can remove a third of the
+  board and the resulting sparse view conditions worse than the weak corners
+  did — that shows up as a diverged camera, not a slightly worse residual.
 
 ## Structure
 
