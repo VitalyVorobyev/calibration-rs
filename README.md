@@ -17,161 +17,76 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MSRV](https://img.shields.io/badge/MSRV-1.93-blue.svg)](https://blog.rust-lang.org/2025/10/30/Rust-1.93.0/)
 
-A Rust workspace for end-to-end camera calibration: math primitives, linear solvers, non-linear
-refinement, and session-based pipelines. Supports perspective cameras, laserline calibration,
-multi-camera rigs, and hand-eye calibration.
+**Camera calibration in Rust, from images to a validated metric model.** Point
+it at a folder of calibration images and get back intrinsics, distortion,
+multi-camera rig extrinsics, hand-eye transforms, and laser-plane geometry —
+with per-feature residuals you can inspect, JSON checkpoints you can resume
+from, and a desktop app to see what the numbers mean.
 
-## Diligence Statement
+Available as a Rust crate, a Python package, and a GUI.
 
-This project is developed with AI coding assistants (`Codex` and `Claude Code`) as implementation tools.
-Not every code path is manually line-reviewed by a human before merge. The project author is an expert in
-computer vision, validates algorithmic behavior and numerical results, and enforces quality gates
-(`fmt`/`clippy`/tests/docs/Python checks) before release. This is engineering-assisted development, not
-"vibe coding."
+## What it calibrates
 
-## Architecture
+| Workflow | Solves for | Typical input |
+|---|---|---|
+| **Planar intrinsics** | `fx, fy, cx, cy, skew` + Brown-Conrady distortion | one camera, N views of a flat target |
+| **Scheimpflug intrinsics** | the above + sensor tilt (`tilt_x`, `tilt_y`) | a tilted-sensor camera |
+| **Rig extrinsics** | per-camera intrinsics + camera-to-rig poses | 2+ synchronised cameras |
+| **Single-camera hand-eye** | intrinsics + camera-to-gripper (or -to-base) transform | camera on/observing a robot arm |
+| **Rig hand-eye** | rig extrinsics + hand-eye, eye-in-hand or eye-to-hand | multi-camera head on a robot |
+| **Laserline device** | camera + laser-plane geometry | camera + line projector |
+| **Rig laserline device** | one laser plane per camera, upstream calibration frozen | multi-camera laser triangulation head |
+| **Rig hand-eye + laserline** | all of the above in one joint bundle adjustment | full laser-profiling station |
 
-```
-                           ┌─────────────────────────┐
-                           │    vision-calibration   │  ◄── Unified API facade
-                           │    (public interface)   │
-                           └───────────┬─────────────┘
-                                       │
-              ┌────────────────────────┼────────────────────────┐
-              │                        │                        │
-              ▼                        ▼                        ▼
-┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
-│     vc-pipeline     │  │      vc-optim       │  │      vc-linear      │
-│  Session API, JSON  │  │   Non-linear BA     │  │   Linear solvers    │
-│   I/O, workflows    │  │   LM optimization   │  │   Initialization    │
-└─────────┬───────────┘  └─────────┬───────────┘  └─────────┬───────────┘
-          │                        │                        │
-          └────────────────────────┼────────────────────────┘
-                                   │
-                                   ▼
-                       ┌─────────────────────┐
-                       │       vc-core       │  ◄── Math types, camera
-                       │   Types, models,    │      models, RANSAC
-                       │       RANSAC        │
-                       └─────────────────────┘
-```
+Each is a *problem type* driven through the same session API: set input, run
+init and optimize steps, export. Sessions serialize to JSON, so a long run can
+be checkpointed, inspected, and resumed.
 
-The diagram shows the core layering; the full workspace adds `vision-geometry`
-/ `vision-mvg` (two-view and multiple-view geometry, re-exported through the
-facade as `geometry` / `mvg`) and `vision-calibration-dataset` /
-`vision-calibration-detect` (dataset manifests + target detectors feeding the
-pipeline's `dataset_runner`). See [ADR 0006](docs/adrs/0006-layered-crate-architecture.md).
+**Targets** — chessboard, ChArUco, PuzzleBoard, and coded ring-grid, behind one
+detector interface with a content-addressed detection cache (re-running with
+unchanged images and unchanged detector parameters costs a filesystem read, not
+a re-detection).
 
-## Crate Summary
+**Camera model** — cameras compose as `pixel = K(sensor(distortion(projection(dir))))`,
+so a Scheimpflug (tilted-sensor) camera is the pinhole model with a non-identity
+sensor homography rather than a separate code path. See
+[ADR 0005](docs/adrs/0005-composable-camera-model.md).
 
-Nine crates.io crates + the PyPI extension crate (plus unpublished
-bench/examples support crates):
-
-| Crate | Description |
-|-------|-------------|
-| **vision-calibration** | Facade re-exporting all sub-crates for a unified API surface |
-| **vision-calibration-core** | Math types (nalgebra), composable camera models, RANSAC, synthetic data |
-| **vision-calibration-linear** | Closed-form solvers: homography, Zhang, PnP, epipolar, hand-eye, laserline |
-| **vision-calibration-optim** | Non-linear LM refinement: planar intrinsics, rig, hand-eye, laserline |
-| **vision-calibration-pipeline** | Session API, step functions, JSON checkpointing, dataset runner |
-| **vision-geometry** | Deterministic two-view solvers: epipolar, homography, triangulation, camera matrix |
-| **vision-mvg** | MVG pipelines: robust pose recovery, N-view triangulation, bundle adjustment, Scheimpflug-aware rectification, dense stereo |
-| **vision-calibration-dataset** | `DatasetSpec` manifest, validator, folder sniffer |
-| **vision-calibration-detect** | Target detectors (chessboard / ChArUco / puzzleboard / ring-grid) + detection cache |
-| **vision-calibration-py** | Python bindings (PyO3/maturin) for all high-level workflows |
-
-## Quick Start
-
-Add the facade crate to your `Cargo.toml`:
+## Install
 
 ```toml
-vision-calibration = "0.7"
+# Cargo.toml
+vision-calibration = "0.8"
 ```
-
-Or track `main` directly:
-
-```toml
-vision-calibration = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
-```
-
-The facade is module-first: prefer `vision_calibration::<workflow>::...` namespaces
-or `vision_calibration::prelude::*` rather than relying on broad top-level symbols.
-
-### Python Package
-
-Install from PyPI:
 
 ```bash
 pip install vision-calibration
 ```
 
-Or build and install the local Python package:
+The Rust facade is module-first — reach for `vision_calibration::<workflow>::…`
+or `vision_calibration::prelude::*` rather than broad top-level imports.
 
-```bash
-maturin develop -m crates/vision-calibration-py/Cargo.toml
-```
+## Quick start
 
-Use the Python API:
+Calibrate a single camera's intrinsics from planar correspondences:
 
-```python
-import vision_calibration as vc
-
-print(vc.__version__)
-
-obs = vc.Observation(
-    points_3d=[(0.0, 0.0, 0.0), (0.1, 0.0, 0.0), (0.1, 0.1, 0.0), (0.0, 0.1, 0.0)],
-    points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
-)
-dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
-config = vc.PlanarCalibrationConfig(
-    solver=vc.SolverConfig(max_iters=80, robust_loss=vc.robust_huber(1.0))
-)
-result = vc.run_planar_intrinsics(dataset, config)
-print(result.mean_reproj_error)
-```
-
-### Planar Intrinsics Calibration
-
-```rust,no_run
+```rust
 use vision_calibration::prelude::*;
 use vision_calibration::planar_intrinsics::{step_init, step_optimize};
 
-fn main() -> anyhow::Result<()> {
-    let dataset: PlanarDataset = todo!("load calibration data");
+let dataset: PlanarDataset = /* your 2D↔3D correspondences, N views */;
 
-    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-    session.set_input(dataset)?;
+let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+session.set_input(dataset)?;
 
-    step_init(&mut session, None)?;
-    step_optimize(&mut session, None)?;
+step_init(&mut session, None)?;      // Zhang's method + linear distortion fit
+step_optimize(&mut session, None)?;  // Levenberg-Marquardt bundle adjustment
 
-    let result = session.export()?;
-    println!("Camera: {:?}", result.params.camera);
-    Ok(())
-}
+let result = session.export()?;
+println!("{:?} at {:.4} px", result.params.camera, result.mean_reproj_error);
 ```
 
-### Scheimpflug Intrinsics Calibration
-
-```rust,no_run
-use vision_calibration::core::PlanarDataset;
-use vision_calibration::session::CalibrationSession;
-use vision_calibration::scheimpflug_intrinsics::{
-    ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem, run_calibration,
-};
-
-fn main() -> anyhow::Result<()> {
-    let dataset: PlanarDataset = todo!("load planar correspondences");
-    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
-    session.set_input(dataset)?;
-
-    let config = ScheimpflugIntrinsicsConfig::default();
-    run_calibration(&mut session, Some(config))?;
-    let result = session.export()?;
-    println!("scheimpflug reproj error: {:.4}px", result.mean_reproj_error);
-    Ok(())
-}
-```
+The same thing from Python:
 
 ```python
 import vision_calibration as vc
@@ -181,207 +96,106 @@ obs = vc.Observation(
     points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
 )
 dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
-result = vc.run_scheimpflug_intrinsics(
+result = vc.run_planar_intrinsics(
     dataset,
-    vc.ScheimpflugIntrinsicsCalibrationConfig(
-        fix_scheimpflug={"tilt_x": False, "tilt_y": False}
-    ),
+    vc.PlanarCalibrationConfig(solver=vc.SolverConfig(max_iters=80)),
 )
 print(result.mean_reproj_error)
 ```
 
-### Laserline Device Calibration
+Every workflow also has a `run_calibration` convenience function that runs its
+steps in order, for when you do not need to intervene between them.
 
-```rust,no_run
-use vision_calibration::session::CalibrationSession;
-use vision_calibration::laserline_device::{LaserlineDeviceProblem, run_calibration};
+## Starting from a folder of images
 
-fn main() -> anyhow::Result<()> {
-    let input = todo!("load laserline calibration data");
+You do not have to assemble correspondences yourself. Describe the dataset once
+in a `DatasetSpec` manifest — where the images are, what target is on them, how
+views pair across cameras, where robot poses come from — and the *dataset
+runner* detects features and builds the problem input for you:
 
-    let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
-    session.set_input(input)?;
-    run_calibration(&mut session, None)?;
+```rust
+use std::path::Path;
+use vision_calibration::dataset::DatasetSpec;
+use vision_calibration::dataset_runner::build_planar_input;
+use vision_calibration::detect::FsDetectionCache;
 
-    let export = session.export()?;
-    Ok(())
-}
+let spec: DatasetSpec = serde_json::from_str(&std::fs::read_to_string("dataset.json")?)?;
+let cache = FsDetectionCache::new(".detect-cache");
+let run = build_planar_input(&spec, Path::new("."), &cache, false)?;
+println!("{} of {} views usable", run.usable_views, run.total_views);
+
+let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+session.set_input(run.dataset)?;
 ```
 
-### Single-Camera Hand-Eye Calibration
+`cargo run -p vision-calibration-dataset --features cli --bin generate-manifest`
+sniffs a folder and writes a starting manifest; the validator flags anything it
+could not determine rather than guessing.
 
-```rust,no_run
-use vision_calibration::session::CalibrationSession;
-use vision_calibration::single_cam_handeye::{
-    SingleCamHandeyeProblem,
-    SingleCamHandeyeInput, SingleCamHandeyeView, HandeyeMeta,
-    step_intrinsics_init, step_intrinsics_optimize,
-    step_handeye_init, step_handeye_optimize,
-};
+## Desktop app
 
-fn main() -> anyhow::Result<()> {
-    let input: SingleCamHandeyeInput = todo!("load hand-eye data");
-
-    let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
-    session.set_input(input)?;
-
-    // 4-step calibration: intrinsics init/optimize, then hand-eye init/optimize
-    step_intrinsics_init(&mut session, None)?;
-    step_intrinsics_optimize(&mut session, None)?;
-    step_handeye_init(&mut session, None)?;
-    step_handeye_optimize(&mut session, None)?;
-
-    let export = session.export()?;
-    println!("Reprojection error: {:.4} px", export.mean_reproj_error);
-    Ok(())
-}
-```
-
-### Synthetic Data Generation
-
-For tests and benchmarking you can generate deterministic synthetic correspondences:
-
-```rust,no_run
-use vision_calibration::synthetic::planar;
-use vision_calibration::core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole};
-
-fn main() -> anyhow::Result<()> {
-    let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
-    let dist = BrownConrady5 { k1: 0.0, k2: 0.0, k3: 0.0, p1: 0.0, p2: 0.0, iters: 8 };
-    let cam = Camera::new(Pinhole, dist, IdentitySensor, k);
-
-    let board = planar::grid_points(6, 5, 0.04);
-    let poses = planar::poses_yaw_y_z(5, -0.3, 0.15, 0.5, 0.1);
-    let views = planar::project_views_all(&cam, &board, &poses)?;
-    println!("generated {} views", views.len());
-    Ok(())
-}
-```
-
-## Session API
-
-All calibration workflows use the `CalibrationSession` state container with problem-specific
-step functions. Each problem type defines its own sequence of steps:
-
-| Problem Type | Steps |
-|---|---|
-| `PlanarIntrinsicsProblem` | `step_init` → `step_optimize` |
-| `ScheimpflugIntrinsicsProblem` | `step_init` → `step_optimize` (single camera with Scheimpflug tilt) |
-| `SingleCamHandeyeProblem` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
-| `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
-| `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` (pinhole or Scheimpflug rig via `RigExtrinsicsConfig::sensor`) |
-| `RigHandeyeProblem` | 6 steps: intrinsics (×2) → rig (×2) → hand-eye (×2) (pinhole or Scheimpflug rig via `RigHandeyeConfig::sensor`; supports `EyeInHand` and `EyeToHand`) |
-| `RigLaserlineDeviceProblem` | Per-camera laser-plane calibration for a Scheimpflug rig; takes a frozen `RigHandeyeExport` (Scheimpflug variant) as upstream calibration |
-| `RigHandeyeLaserlineProblem` | Joint rig hand-eye + laser-plane bundle adjustment (the full laser-device chain in one problem) |
-
-Each problem type also provides a `run_calibration` convenience function that runs all steps.
-
-### Rig family — pinhole + Scheimpflug
-
-The two rig problem types (`RigExtrinsicsProblem` and `RigHandeyeProblem`) handle both pinhole and
-Scheimpflug rigs through a `SensorMode` enum on their config. Set
-`config.sensor = SensorMode::Pinhole` (the default) for a standard rig, or
-`config.sensor = SensorMode::Scheimpflug { init_tilt_x, init_tilt_y, fix_scheimpflug, refine_scheimpflug_in_rig_ba }`
-for a Scheimpflug-tilted rig. Step functions dispatch on the mode and produce an export with a
-`sensors: Option<Vec<ScheimpflugParams>>` field — `None` for pinhole, `Some(_)` for Scheimpflug.
-
-`RigLaserlineDeviceProblem` extends a Scheimpflug rig hand-eye result with one laser plane per
-camera, all upstream parameters frozen; convert via
-`RigHandeyeExport::to_upstream_calibration(rig_se3_target_poses)` (errors on pinhole rigs since
-laserline calibration currently requires Scheimpflug sensor params).
-
-A `pixel_to_gripper_point` helper in the facade crate converts a raw pixel coordinate into the
-gripper frame in one call, composing undistortion → rig-frame ray → laser-plane intersection →
-hand-eye transform. It accepts a `RigHandeyeExport` (Scheimpflug variant required). See
-[`docs.rs/vision-calibration`](https://docs.rs/vision-calibration) for the full API reference,
-and [ADR 0013](docs/adrs/0013-rig-family-sensor-axis-refactor.md) for the rationale behind the
-sensor-axis collapse that unified the pinhole and Scheimpflug rig modules.
-Sessions support JSON serialization for checkpointing and resuming.
-
-For larger workflows, configs are grouped by responsibility (e.g. `init`, `solver`,
-`optimize`, `handeye_ba`) instead of large flat option bags.
-
-## Examples
-
-Run examples with:
-
-```bash
-cargo run -p vision-calibration --example planar_synthetic    # Synthetic planar intrinsics
-cargo run -p vision-calibration --example planar_real         # Real stereo images
-cargo run -p vision-calibration --example stereo_session      # Stereo rig extrinsics
-cargo run -p vision-calibration --example stereo_charuco_session  # Stereo ChArUco rig extrinsics
-cargo run -p vision-calibration --example handeye_synthetic   # Single-camera hand-eye
-cargo run -p vision-calibration --example handeye_session     # KUKA robot data
-cargo run -p vision-calibration --example rig_handeye_synthetic  # Multi-camera rig hand-eye
-```
-
-Python counterparts (requires local package installed into `./.venv`):
-
-```bash
-./.venv/bin/python crates/vision-calibration-py/examples/planar_synthetic.py
-./.venv/bin/python crates/vision-calibration-py/examples/planar_real.py
-./.venv/bin/python crates/vision-calibration-py/examples/stereo_session.py
-./.venv/bin/python crates/vision-calibration-py/examples/stereo_charuco_session.py
-./.venv/bin/python crates/vision-calibration-py/examples/handeye_synthetic.py
-./.venv/bin/python crates/vision-calibration-py/examples/handeye_session.py
-./.venv/bin/python crates/vision-calibration-py/examples/rig_handeye_synthetic.py
-./.venv/bin/python crates/vision-calibration-py/examples/laserline_device_session.py
-```
-
-Notes:
-
-- Python examples are in `crates/vision-calibration-py/examples/`.
-- Real-image examples use optional Python deps:
-  `./.venv/bin/python -m pip install "vision-calibration[examples]"`.
-
-## Desktop App
-
-`app/` is a Tauri 2 + React 19 + TypeScript desktop app that runs
-calibrations end-to-end and diagnoses the results (residual overlays, 3D rig
-viewer, epipolar sanity checks, dense stereo) without leaving a GUI. It uses
-**bun** exclusively — never `npm`/`pnpm`/`yarn`:
+`app/` is a Tauri 2 + React desktop application that runs calibrations
+end-to-end and — the part a terminal cannot give you — *diagnoses* them:
+residual overlays on the source images, per-pose and per-camera residual
+panels, a 3D rig viewer, epipolar sanity checks, and dense stereo.
 
 ```bash
 cd app
 bun install
-bun run tauri dev      # NOT `bun run dev` — that starts Vite only, without the Tauri APIs
+bun run tauri dev      # NOT `bun run dev` — that starts Vite without the Tauri APIs
 ```
 
-See [`app/README.md`](app/README.md) for workspace details and dev notes.
+It uses **bun** exclusively. See [`app/README.md`](app/README.md).
 
-## Camera Model
+## Examples
 
-`vision-calibration-core` models cameras as a composable pipeline:
-
-```
-pixel = K(sensor(distortion(projection(dir))))
-```
-
-Where:
-- `projection` maps a camera-frame direction to normalized coordinates (e.g., pinhole).
-- `distortion` warps normalized coordinates (Brown-Conrady radial and tangential).
-- `sensor` applies a homography (identity or Scheimpflug/tilt).
-- `K` maps sensor coordinates to pixels (`fx`, `fy`, `cx`, `cy`, `skew`).
-
-## Docs
-
-- API docs and book: https://vitalyvorobyev.github.io/calibration/
-- Book sources: `book/`
-- Examples: `crates/vision-calibration/examples/`
-
-## Design Principles
-
-- Correctness and numerical stability with explicit failure modes.
-- Deterministic outputs (seeded RNGs, stable ordering).
-- Performance-aware implementations (fixed-size math, minimal allocations).
-- API stability at the `vision-calibration` crate boundary and JSON schemas.
-
-## Development
+Runnable end-to-end, on synthetic and real data:
 
 ```bash
-cargo fmt --all                                              # Format
-cargo clippy --workspace --all-targets --all-features        # Lint
-cargo test --workspace --all-features                        # Test
-cargo doc --workspace --no-deps                              # Build docs
-python -m compileall crates/vision-calibration-py/python/vision_calibration
+cargo run -p vision-calibration --example planar_synthetic       # planar intrinsics, synthetic
+cargo run -p vision-calibration --example planar_real            # planar intrinsics, real images
+cargo run -p vision-calibration --example stereo_session         # stereo rig extrinsics
+cargo run -p vision-calibration --example stereo_charuco_session # stereo rig, ChArUco target
+cargo run -p vision-calibration --example handeye_synthetic      # single-camera hand-eye
+cargo run -p vision-calibration --example handeye_session        # hand-eye, KUKA robot data
+cargo run -p vision-calibration --example rig_handeye_synthetic  # multi-camera rig hand-eye
+cargo run -p vision-calibration --example laserline_device_session  # camera + laser plane
+cargo run -p vision-calibration --example mvg_two_view           # two-view geometry
+cargo run -p vision-calibration --example dense_stereo_real      # rectification + dense stereo
 ```
+
+Python counterparts live in `crates/vision-calibration-py/examples/`; the
+real-image ones need the optional extras
+(`pip install "vision-calibration[examples]"`).
+
+## Documentation
+
+- **[The book](https://vitalyvorobyev.github.io/calibration/)** — the camera
+  model, every solver, and a walkthrough per workflow. Start here.
+- **[API reference](https://docs.rs/vision-calibration)** — docs.rs.
+- **[Tutorials](docs/tutorials/)** — hands-on onboarding.
+- **[ADRs](docs/adrs/)** — why the design is the way it is.
+- **[CHANGELOG](CHANGELOG.md)** — what changed, and what to do about it.
+
+## Project
+
+A Rust workspace of eleven crates. Nine publish to crates.io — `-core`,
+`-linear`, `-optim`, `-pipeline`, `-dataset`, `-detect`, `vision-geometry`,
+`vision-mvg`, and the `vision-calibration` facade that re-exports them —
+plus `-py` (PyPI) and an internal benchmark crate. Layering is enforced:
+solvers do not know about pipelines, and pipelines do not know about the GUI.
+See [ADR 0006](docs/adrs/0006-layered-crate-architecture.md) and
+[AGENTS.md](AGENTS.md) for the rules, build commands, and contribution
+workflow.
+
+The project is pre-1.0 and breaking changes still happen; they are listed in
+the CHANGELOG with migration notes. MSRV is 1.93 ([policy](docs/MSRV.md)).
+
+**On how this is built:** development uses AI coding assistants (Codex and
+Claude Code) as implementation tools, so not every line is human-reviewed
+before merge. The author is a computer-vision engineer and validates
+algorithmic behaviour and numerical results against real datasets, with
+`fmt`/`clippy`/test/doc gates plus a registry-driven acceptance suite that
+hard-gates reprojection error on real calibration data before every release.
+
+Licensed under the [MIT License](LICENSE).
