@@ -85,7 +85,7 @@ pub mod tier_b {
     };
 
     use crate::detect::{
-        DetectorKind, charuco_params_for, chess_config_for_override, detect_chessboard_view,
+        ChessFrontEnd, DetectorKind, charuco_params_for, detect_chessboard_view,
         glob_sorted_images, load_image, puzzleboard_params_for,
     };
     #[cfg(feature = "laser")]
@@ -434,7 +434,7 @@ pub mod tier_b {
         let mut images_used = 0usize;
         let mut features_detected = 0usize;
         let mut max_corners_per_image = 0usize;
-        let chess_config = chess_config_for_override(entry.detector.as_ref());
+        let front_end = ChessFrontEnd::from_override(entry.detector.as_ref());
         for (image_idx, path) in paths.iter().enumerate() {
             progress_images(entry, "detect", &cam.id, image_idx, paths.len());
             let img = load_image(path)?;
@@ -444,7 +444,7 @@ pub mod tier_b {
                 board.cols,
                 board.cell_size_m,
                 board.strict_grid,
-                &chess_config,
+                &front_end,
             ) {
                 Ok(Some(view)) => {
                     images_used += 1;
@@ -1261,7 +1261,7 @@ pub mod tier_b {
             total_poses = robot_poses.len();
             let square_size_m = board.cell_size_m;
             let folder = entry.data_root.join(&cam.folder);
-            let chess_config = chess_config_for_override(entry.detector.as_ref());
+            let front_end = ChessFrontEnd::from_override(entry.detector.as_ref());
             progress(
                 entry,
                 format!("detecting {} pose images for {}", robot_poses.len(), cam.id),
@@ -1283,7 +1283,7 @@ pub mod tier_b {
                     board.cols,
                     square_size_m,
                     board.strict_grid,
-                    &chess_config,
+                    &front_end,
                 ) {
                     Ok(Some(view)) => {
                         images_used += 1;
@@ -1920,6 +1920,7 @@ pub mod tier_b {
         if needs_default {
             detector.chess_corners = Some(ChessCornersDetectorSpec {
                 threshold_value: Some(30.0),
+                ..ChessCornersDetectorSpec::default()
             });
         }
         detector
@@ -3352,7 +3353,7 @@ pub mod tier_b {
         detector_override: Option<&DetectorOverride>,
     ) -> Result<DetectorKind> {
         let layout = board.layout.as_deref().unwrap_or("checkerboard");
-        let chess_config = chess_config_for_override(detector_override);
+        let front_end = ChessFrontEnd::from_override(detector_override);
         if layout.eq_ignore_ascii_case("charuco") {
             let dict = board
                 .dictionary
@@ -3367,10 +3368,11 @@ pub mod tier_b {
                 board.cell_size_m,
                 marker_scale,
                 dict,
+                &front_end,
             )?;
             Ok(DetectorKind::Charuco {
                 params: Box::new(params),
-                chess_config,
+                chess_config: front_end.chess,
             })
         } else if layout.eq_ignore_ascii_case("puzzleboard") {
             let params =
@@ -3382,7 +3384,7 @@ pub mod tier_b {
                 cols: board.cols,
                 require_known_grid: board.strict_grid,
                 square_size_m: board.cell_size_m,
-                chess_config,
+                front_end,
             })
         }
     }

@@ -659,6 +659,7 @@ mod tests {
         spec.detector = Some(DetectorSpec {
             chess_corners: Some(ChessCornersDetectorSpec {
                 threshold_value: Some(30.0),
+                ..ChessCornersDetectorSpec::default()
             }),
             min_features_per_view: None,
         });
@@ -692,6 +693,7 @@ mod tests {
         spec.detector = Some(DetectorSpec {
             chess_corners: Some(ChessCornersDetectorSpec {
                 threshold_value: Some(0.0),
+                ..ChessCornersDetectorSpec::default()
             }),
             min_features_per_view: None,
         });

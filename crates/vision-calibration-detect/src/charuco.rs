@@ -28,7 +28,7 @@ use serde_json::Value;
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::chess_options::{ChessCornersConfig, chess_config_for_override};
+use crate::chess_options::{ChessCornersConfig, apply_board_override, chess_config_for_override};
 use crate::{DetectError, Detector, Feature};
 
 /// ChArUco detector configuration. Mirrors the shape of the charuco
@@ -118,7 +118,9 @@ fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams, DetectError> {
         dictionary,
     )
     .with_marker_layout(MarkerLayout::OpenCvCharuco);
-    Ok(CharucoParams::for_board(board))
+    let mut params = CharucoParams::for_board(board);
+    apply_board_override(cfg.chess_corners, &mut params.chessboard);
+    Ok(params)
 }
 
 /// Stateless ChArUco detector instance.

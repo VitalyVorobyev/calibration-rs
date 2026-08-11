@@ -294,6 +294,16 @@ pub struct ChessCornersDetectorSpec {
     /// the upstream corner detector.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threshold_value: Option<f32>,
+
+    /// Minimum corner strength for a detected corner to enter the grid
+    /// builder. `None` keeps the detector default (`33.0`).
+    ///
+    /// The default drops weakly-firing corners, which is the right trade
+    /// whenever corners are plentiful. Set `0.0` to disable it on small or
+    /// soft image tiles, where the floor can remove a third of the board and
+    /// the resulting sparse view conditions worse than the weak corners did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_corner_strength: Option<f32>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

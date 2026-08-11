@@ -1075,6 +1075,7 @@ fn set_chess_threshold(entry: &mut BenchEntry, threshold: f32) {
         .get_or_insert_with(DetectorOverride::default)
         .chess_corners = Some(ChessCornersDetectorSpec {
         threshold_value: Some(threshold),
+        ..ChessCornersDetectorSpec::default()
     });
 }
 

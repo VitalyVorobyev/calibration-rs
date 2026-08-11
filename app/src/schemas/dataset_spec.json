@@ -48,6 +48,14 @@
       "additionalProperties": false,
       "description": "ChESS corner extractor overrides.",
       "properties": {
+        "min_corner_strength": {
+          "description": "Minimum corner strength for a detected corner to enter the grid\nbuilder. `None` keeps the detector default (`33.0`).\n\nThe default drops weakly-firing corners, which is the right trade\nwhenever corners are plentiful. Set `0.0` to disable it on small or\nsoft image tiles, where the floor can remove a third of the board and\nthe resulting sparse view conditions worse than the weak corners did.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "threshold_value": {
           "description": "Absolute acceptance threshold on the raw ChESS corner response: a\ncorner is kept when its response exceeds this value. `None` keeps the\ndetector default.\n\nThe threshold is always absolute. Manifests written before 0.8.0 may\ncarry a sibling `threshold_mode` key; drop it — `deny_unknown_fields`\nrejects it, and the `\"relative\"` mode it selected no longer exists in\nthe upstream corner detector.",
           "format": "float",

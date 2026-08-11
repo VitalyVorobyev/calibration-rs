@@ -13,7 +13,7 @@ use serde_json::Value;
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::chess_options::{ChessCornersConfig, chess_config_for_override};
+use crate::chess_options::{ChessCornersConfig, apply_board_override, chess_config_for_override};
 use crate::{DetectError, Detector, Feature};
 
 /// Chessboard detector configuration. Mirrors the shape of the
@@ -63,7 +63,8 @@ impl Detector for ChessboardDetector {
         // The underlying detector auto-labels corners from
         // intersection clustering — `rows`/`cols` from our config are
         // used only for output validation, not as input parameters.
-        let board_params = ChessboardParams::default();
+        let mut board_params = ChessboardParams::default();
+        apply_board_override(cfg.chess_corners, &mut board_params);
         let chess_cfg = chess_config_for_override(cfg.chess_corners);
 
         // No board in frame is "no features", not an error. Every other
