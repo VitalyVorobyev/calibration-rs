@@ -40,6 +40,7 @@ pub use vision_calibration_optim::ScheimpflugFixMask;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct ScheimpflugIntrinsicsConfig {
     /// Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
@@ -203,7 +204,7 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
         output: &Self::Output,
         _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
-        let camera = output.params.camera.build();
+        let camera = output.params.camera.build()?;
         let target =
             compute_planar_target_residuals(&camera, input, &output.params.camera_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));

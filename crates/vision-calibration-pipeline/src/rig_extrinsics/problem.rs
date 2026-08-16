@@ -50,6 +50,7 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct RigExtrinsicsConfig {
     /// Per-camera linear-initialization stage settings.
     pub intrinsics: IntrinsicsInitConfig,

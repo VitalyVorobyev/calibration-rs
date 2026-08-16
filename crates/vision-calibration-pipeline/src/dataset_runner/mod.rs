@@ -28,11 +28,12 @@ use thiserror::Error;
 
 use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
 use vision_calibration_dataset::{
-    DatasetSpec, ImagePattern, TargetSpec, Topology, ValidationError,
+    ChessCornersDetectorSpec, DatasetSpec, ImagePattern, TargetSpec, Topology, ValidationError,
 };
 use vision_calibration_detect::{
-    CacheKey, CachedFeatures, CharucoDetector, ChessboardDetector, DetectionCache, Detector,
-    Feature, PuzzleboardDetector, RinggridDetector, validate_charuco_layout,
+    CacheKey, CachedFeatures, CharucoDetector, ChessCornersConfig, ChessboardDetector,
+    DetectionCache, Detector, Feature, PuzzleboardDetector, RinggridDetector,
+    validate_charuco_layout,
 };
 
 mod handeye;
@@ -255,19 +256,36 @@ pub enum RunError {
 // Shared helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Lower the manifest's ChESS override to the detector's own option type.
+///
+/// The two structs are declared in sibling crates that cannot depend on each
+/// other — `vision-calibration-dataset` is a dependency-free manifest schema,
+/// and `vision-calibration-detect` pulls in `image` and the detector
+/// backends. This is the single place their fields are mapped, and the
+/// destructuring below is exhaustive on purpose: adding a knob to the
+/// manifest without wiring it through here is a compile error, not a silently
+/// ignored setting.
+fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> ChessCornersConfig {
+    let ChessCornersDetectorSpec {
+        threshold_value,
+        min_corner_strength,
+    } = spec;
+    ChessCornersConfig {
+        threshold_value,
+        min_corner_strength,
+    }
+}
+
 fn target_to_detector_config(spec: &DatasetSpec) -> Result<(&'static str, Value), RunError> {
     let (name, mut config) = detector_config_for_target(&spec.target)?;
-    // `ChessCornersDetectorSpec` (manifest) and
-    // `vision_calibration_detect::ChessCornersConfig` (detector) share one
-    // serde shape by construction, so re-serializing is the whole lowering —
-    // a field-by-field copy here would be a second, drift-prone definition of
-    // the same mapping. `skip_serializing_if` drops unset knobs, so an
-    // all-default override serializes to `{}` and is not attached at all.
     if let Some(chess) = spec.detector.and_then(|d| d.chess_corners)
         && let Value::Object(map) = &mut config
     {
+        let chess = lower_chess_corners(chess);
+        // `skip_serializing_if` drops unset knobs, so an all-default override
+        // serializes to `{}`; attaching it would only bloat the cache key.
         let chess_json = serde_json::to_value(chess)
-            .expect("ChessCornersDetectorSpec is a plain record of Option<f32>; cannot fail");
+            .expect("ChessCornersConfig is a plain record of Option<f32>; cannot fail");
         if chess_json.as_object().is_some_and(|o| !o.is_empty()) {
             map.insert("chess_corners".to_string(), chess_json);
         }
@@ -705,13 +723,17 @@ mod tests {
         let (_name, config) = target_to_detector_config(&spec).unwrap();
         assert_eq!(config["chess_corners"]["threshold_value"], 30.0);
 
-        // The lowering is only correct if the manifest shape and the detector
-        // shape agree. Deserializing into the detector's own config (which is
-        // `deny_unknown_fields`) is what actually proves that, and would fail
-        // the moment either side grows a field the other lacks.
-        let lowered: vision_calibration_detect::ChessCornersConfig =
+        // `lower_chess_corners` destructures the manifest struct exhaustively,
+        // so a new manifest knob that is not wired through fails to compile.
+        // This checks the other direction: that what we emit still round-trips
+        // into the detector's own `deny_unknown_fields` config.
+        let lowered: ChessCornersConfig =
             serde_json::from_value(config["chess_corners"].clone()).unwrap();
         assert_eq!(lowered.threshold_value, Some(30.0));
+        assert_eq!(
+            lowered,
+            lower_chess_corners(spec.detector.unwrap().chess_corners.unwrap())
+        );
     }
 
     #[test]

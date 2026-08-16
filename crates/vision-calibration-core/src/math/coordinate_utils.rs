@@ -30,6 +30,13 @@ use crate::{DistortionModel, Mat3, Pt2, Real, Vec3};
 /// let normalized = pixel_to_normalized(pixel, &k);
 /// // normalized ≈ (0.0, 0.0) for a pixel at the principal point
 /// ```
+/// # Panics
+///
+/// Panics if `intrinsics` is singular. A calibration `K` never is — that
+/// would mean a zero focal length — so this signals a malformed matrix at
+/// the call site rather than bad data. The function is called per pixel in
+/// undistortion and disparity loops, which is why it does not return a
+/// `Result`: check `K` once, before the loop.
 pub fn pixel_to_normalized(pixel: Pt2, intrinsics: &Mat3) -> Pt2 {
     let k_inv = intrinsics
         .try_inverse()

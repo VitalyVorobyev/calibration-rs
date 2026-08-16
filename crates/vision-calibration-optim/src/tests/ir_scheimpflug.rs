@@ -1,19 +1,22 @@
-//! Integration test demonstrating Scheimpflug sensor parameter optimization.
+//! Tests demonstrating Scheimpflug sensor parameter optimization.
 //!
 //! This test validates that:
 //! 1. The Scheimpflug factor compiles correctly in the IR
 //! 2. The tiny-solver backend can optimize Scheimpflug parameters
 //! 3. Optimization converges to ground truth values for synthetic data
 
+use crate::backend::{BackendKind, BackendSolveOptions, solve_with_backend};
+use crate::ir::{
+    CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
+    RobustLoss,
+};
+use crate::params::distortion::{DISTORTION_DIM, pack_distortion};
+use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
+use crate::params::pose_se3::iso3_to_se3_dvec;
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
 use std::collections::HashMap;
 use vision_calibration_core::{
     BrownConrady5, Camera, FxFyCxCySkew, Pinhole, Pt3, Real, ScheimpflugParams,
-};
-use vision_calibration_optim::{
-    BackendKind, BackendSolveOptions, CameraModelDesc, DISTORTION_DIM, FactorKind, FixedMask,
-    INTRINSICS_DIM, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock, RobustLoss,
-    iso3_to_se3_dvec, pack_distortion, pack_intrinsics, solve_with_backend,
 };
 
 #[test]

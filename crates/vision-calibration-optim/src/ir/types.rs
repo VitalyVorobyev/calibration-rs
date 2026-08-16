@@ -19,6 +19,13 @@ pub enum ManifoldKind {
     /// SE(3) pose stored as `[qx, qy, qz, qw, tx, ty, tz]`.
     SE3,
     /// SO(3) rotation stored as quaternion `[qx, qy, qz, qw]`.
+    ///
+    /// Wired through the backend but not currently reached: every shipped
+    /// problem that carries a rotation carries it as part of a full SE3 pose.
+    #[allow(
+        dead_code,
+        reason = "backend capability; no shipped problem uses a bare rotation"
+    )]
     SO3,
     /// S2 unit sphere stored as `[x, y, z]`.
     S2,
@@ -74,11 +81,6 @@ impl FixedMask {
         Self {
             fixed_indices: indices.iter().copied().collect(),
         }
-    }
-
-    /// Returns `true` if the index is fixed.
-    pub fn is_fixed(&self, idx: usize) -> bool {
-        self.fixed_indices.contains(&idx)
     }
 
     /// Returns `true` if all indices `[0, dim)` are fixed.
@@ -158,7 +160,7 @@ impl ProjectionKind {
     }
 }
 
-/// Distortion slot of a [`CameraModelDesc`].
+/// Which distortion model a camera carries.
 ///
 /// `dim() == 0` means the factor takes no distortion parameter block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -284,6 +286,7 @@ impl CameraModelDesc {
     };
 
     /// Number of leading camera parameter blocks implied by the descriptor.
+    #[cfg(test)]
     pub fn num_cam_blocks(self) -> usize {
         1 + usize::from(self.distortion.dim() > 0) + usize::from(self.sensor.dim() > 0)
     }
@@ -665,6 +668,7 @@ impl ProblemIR {
     }
 
     /// Finds a parameter by name.
+    #[cfg(test)]
     pub fn param_by_name(&self, name: &str) -> Option<ParamId> {
         self.params.iter().find(|p| p.name == name).map(|p| p.id)
     }

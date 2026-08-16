@@ -52,7 +52,7 @@
       "type": "object"
     },
     "DistortionKind": {
-      "description": "Distortion slot of a [`CameraModelDesc`].\n\n`dim() == 0` means the factor takes no distortion parameter block.",
+      "description": "Which distortion model a camera carries.\n\n`dim() == 0` means the factor takes no distortion parameter block.",
       "oneOf": [
         {
           "const": "none",
@@ -110,6 +110,7 @@
       "type": "object"
     },
     "IntrinsicsInitConfig": {
+      "additionalProperties": false,
       "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
       "properties": {
         "fix_k3": {
@@ -237,6 +238,7 @@
       "type": "object"
     },
     "SolverConfig": {
+      "additionalProperties": false,
       "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor the Scheimpflug single-cam tilt valley; 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
       "properties": {
         "max_iters": {
@@ -265,6 +267,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
   "description": "Configuration for planar Scheimpflug intrinsics calibration.\n\nGrouped per ADR 0024. Two defaults deviate from the shared sub-structs'\nown defaults, documented at each field: `init.fix_tangential` is `true`\n(was hard-coded in `steps.rs` before ADR 0024 — tilt and tangential\ndistortion are coupled, so a free tangential term is ill-posed during the\nlinear stage), `solver.max_iters` is 120 (the tilt valley needs more\nheadroom than a plain intrinsics solve), and `fix_camera.distortion` is\n`radial_only` (k3/p1/p2 fixed) rather than the shared `k3`-only default.",
   "properties": {
     "distortion_model": {

@@ -92,9 +92,13 @@ impl PlanarIntrinsicsParams {
 
     /// Build the runtime [`CameraModel`] for residual computation.
     ///
-    /// Panics only if a stored homography sensor is not invertible (cannot
-    /// arise from the standard planar calibration path).
-    pub fn build_camera(&self) -> CameraModel {
+    /// # Errors
+    ///
+    /// Returns [`vision_calibration_core::Error::Singular`] if a stored
+    /// homography sensor is not invertible. The standard planar path always
+    /// writes an identity sensor, so this is reachable only via a hand-edited
+    /// or corrupted export.
+    pub fn build_camera(&self) -> Result<CameraModel, vision_calibration_core::Error> {
         self.camera.build()
     }
 
@@ -421,7 +425,10 @@ pub fn optimize_planar_intrinsics_with_backend(
         sensor: SensorParams::Identity,
         intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
     };
-    let camera_model = camera_params.build();
+    // The sensor is `Identity` two lines up, so `build` cannot fail here.
+    let camera_model = camera_params
+        .build()
+        .expect("identity sensor is always invertible");
 
     let views_with_poses: Vec<View<TargetPose>> = dataset
         .views

@@ -46,7 +46,7 @@ pub(crate) struct ScheimpflugIntrinsicsState {
 
 impl ScheimpflugIntrinsicsState {
     /// Check if initialization has been run.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
+    #[cfg(test)]
     pub fn is_initialized(&self) -> bool {
         self.initial_intrinsics.is_some()
             && self.initial_distortion.is_some()
@@ -55,7 +55,7 @@ impl ScheimpflugIntrinsicsState {
     }
 
     /// Check if optimization has been run.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
+    #[cfg(test)]
     pub fn is_optimized(&self) -> bool {
         self.final_cost.is_some()
     }
@@ -74,12 +74,6 @@ impl ScheimpflugIntrinsicsState {
     pub fn clear_optimization(&mut self) {
         self.final_cost = None;
         self.mean_reproj_error = None;
-    }
-
-    /// Clear all intermediate state.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
-    pub fn clear(&mut self) {
-        *self = Self::default();
     }
 }
 

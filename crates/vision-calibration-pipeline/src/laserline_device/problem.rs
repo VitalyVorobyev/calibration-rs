@@ -31,6 +31,7 @@ pub type LaserlineDeviceInput = LaserlineDataset;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct LaserlineDeviceConfig {
     /// Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
@@ -54,6 +55,7 @@ pub struct LaserlineDeviceConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct LaserlineDeviceOptimizeConfig {
     /// Robust loss for calibration reprojection residuals.
     pub calib_loss: vision_calibration_optim::RobustLoss,

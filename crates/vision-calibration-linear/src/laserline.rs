@@ -111,7 +111,7 @@ impl LaserlinePlaneSolver {
         // Sort eigenvalues to identify smallest and second-smallest
         let mut indexed_eigenvalues: Vec<(usize, f64)> =
             eigen.eigenvalues.iter().copied().enumerate().collect();
-        indexed_eigenvalues.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        indexed_eigenvalues.sort_by(|a, b| a.1.total_cmp(&b.1));
 
         let (min_idx, min_eigenvalue) = indexed_eigenvalues[0];
         let (_second_idx, second_eigenvalue) = indexed_eigenvalues[1];

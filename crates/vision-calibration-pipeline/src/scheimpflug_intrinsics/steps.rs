@@ -20,6 +20,7 @@ use vision_calibration_optim::{
 };
 
 use crate::planar_family::{estimate_view_homographies, recover_planar_poses_from_homographies};
+use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
 use super::problem::{
@@ -325,15 +326,6 @@ pub fn step_init_with_seed(
         sensor,
         poses,
     })
-}
-
-fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
-    match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
-        (false, true) => format!("(manual: {})", manual.join(", ")),
-        (true, false) => format!("(auto: {})", auto.join(", ")),
-        (true, true) => "(empty)".to_string(),
-    }
 }
 
 /// Initialize intrinsics, distortion, sensor tilt, and poses from observations

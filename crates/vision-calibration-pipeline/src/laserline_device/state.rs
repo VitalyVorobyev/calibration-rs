@@ -26,18 +26,6 @@ pub(crate) struct LaserlineDeviceState {
 }
 
 impl LaserlineDeviceState {
-    /// Check if initialization has been run.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
-    pub fn is_initialized(&self) -> bool {
-        self.initial_params.is_some()
-    }
-
-    /// Check if optimization has been run.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
-    pub fn is_optimized(&self) -> bool {
-        self.final_cost.is_some()
-    }
-
     /// Clear optimization results, keeping initialization.
     pub fn clear_optimization(&mut self) {
         self.final_cost = None;
@@ -45,11 +33,5 @@ impl LaserlineDeviceState {
         self.mean_laser_error = None;
         self.per_view_reproj_errors = None;
         self.per_view_laser_errors = None;
-    }
-
-    /// Clear everything including initialization.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
-    pub fn clear(&mut self) {
-        *self = Self::default();
     }
 }

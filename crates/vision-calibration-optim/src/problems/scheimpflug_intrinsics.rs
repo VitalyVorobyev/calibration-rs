@@ -712,7 +712,10 @@ fn compute_mean_reproj_error(
         sensor: SensorParams::Scheimpflug { params: sensor },
         intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
     }
-    .build();
+    .build()
+    // A Scheimpflug sensor compiles its own homography from tilt angles and
+    // is invertible by construction; only `SensorParams::Homography` can fail.
+    .expect("Scheimpflug sensor homography is always invertible");
     let mut sum = 0.0;
     let mut count = 0usize;
 

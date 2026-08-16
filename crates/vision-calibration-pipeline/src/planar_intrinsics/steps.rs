@@ -46,6 +46,7 @@ use vision_calibration_optim::{DistortionKind, optimize_planar_intrinsics};
 use crate::planar_family::{
     bootstrap_planar_intrinsics, estimate_view_homographies, recover_planar_poses_from_homographies,
 };
+use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
 use super::problem::PlanarIntrinsicsProblem;
@@ -317,15 +318,6 @@ pub fn step_init_with_seed(
     })
 }
 
-fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
-    match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
-        (false, true) => format!("(manual: {})", manual.join(", ")),
-        (true, false) => format!("(auto: {})", auto.join(", ")),
-        (true, true) => "(empty)".to_string(),
-    }
-}
-
 /// Build `CameraParams` for an extended distortion model by embedding the
 /// BC5 linear-init coefficients as starting values and zeroing extra DOF.
 ///
@@ -519,7 +511,7 @@ pub fn step_filter(
         )));
     }
 
-    let camera = output.params.build_camera();
+    let camera = output.params.build_camera()?;
 
     let mut filtered_views = Vec::new();
     let mut total_removed = 0usize;

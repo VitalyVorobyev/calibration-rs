@@ -30,9 +30,8 @@ pub mod homography;
 pub mod math;
 pub mod triangulation;
 
-pub use camera_matrix::*;
-pub use epipolar::*;
+// Items are reached through their owning module — `epipolar::fundamental_8point`,
+// `camera_matrix::Mat34` — so that a reader can tell where a solver lives and
+// so adding a `pub fn` to a submodule does not silently widen the crate root.
+// Only the error type is lifted, because it is shared by all of them.
 pub use error::{GeometryError, Result};
-pub use homography::*;
-pub use math::*;
-pub use triangulation::*;

@@ -41,6 +41,7 @@ use vision_calibration_optim::{
     optimize_planar_intrinsics,
 };
 
+use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
 use super::problem::{SingleCamHandeyeInput, SingleCamHandeyeProblem};
@@ -321,15 +322,6 @@ pub fn step_intrinsics_init(
     opts: Option<IntrinsicsInitOptions>,
 ) -> Result<SingleCamIntrinsicsInitResult, Error> {
     step_intrinsics_init_with_seed(session, SingleCamIntrinsicsManualInit::default(), opts)
-}
-
-fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
-    match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
-        (false, true) => format!("(manual: {})", manual.join(", ")),
-        (true, false) => format!("(auto: {})", auto.join(", ")),
-        (true, true) => "(empty)".to_string(),
-    }
 }
 
 /// Optimize intrinsics using non-linear least squares.

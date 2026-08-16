@@ -14,6 +14,38 @@ numbers — hence a minor bump rather than a patch.
 
 ### Changed (breaking, pre-1.0)
 
+- **Problem configs reject unknown fields.** All sixteen pipeline `*Config`
+  types (the eight problem configs and the grouped sub-structs they share)
+  now carry `#[serde(deny_unknown_fields)]`; the generated JSON Schemas say
+  `additionalProperties: false` to match. Previously a mistyped key was
+  silently dropped and the field fell back to its Rust default — a wrong
+  calibration with no error, which the Python test suite had been guarding
+  against by hand. **Migration:** fix the key. Any config that was already
+  correct is unaffected.
+- **`CameraParams::build` returns `Result`.** It could panic on a
+  non-invertible sensor homography, and `CameraParams` deserializes straight
+  from an export file — so a hand-edited or corrupted export aborted the
+  process instead of returning an error.
+  `PlanarIntrinsicsParams::build_camera` follows.
+- **`vision-calibration-optim` no longer exposes the optimization IR.**
+  `ProblemIR`, `ResidualBlock`, `FactorKind`, `ParamSlotSpec`,
+  `ManifoldKind`, `CameraModelDesc`, `LaserChain`, `ReprojChain`,
+  `SensorKind`, `ProjectionKind`, `FixedMask`, `BackendKind`,
+  `BackendSolution`, `solve_with_backend`, and the `pack_*`/`unpack_*`
+  helpers are now private — 22 items with no consumer anywhere, which
+  publishing would have frozen into the semver contract. They were also a
+  hazard: the factor kernels assert invariants only this crate's builders
+  establish, so a hand-built IR panicked inside the solver loop. Callers use
+  the `optimize_*` entry points.
+- **`vision-geometry` items are reached through their module.** The crate
+  root globbed five submodules, giving every solver two public paths and
+  silently widening the root whenever a submodule gained a `pub fn`. Use
+  `vision_geometry::epipolar::fundamental_8point` rather than
+  `vision_geometry::fundamental_8point`; `GeometryError` and `Result` stay at
+  the root. Every in-tree caller already used the module path.
+- **`ReprojLevel::Laser` is removed.** It was never constructed by any
+  builder — a public enum variant, and therefore a semver commitment, to a
+  feature that does not exist.
 - **`threshold_mode` is gone from the detector-override vocabulary.**
   `chess-corners` 1.0 collapsed its `Threshold::{Absolute, Relative}` enum
   into a single absolute `f32`; the `"relative"` mode (a fraction of the
@@ -49,6 +81,14 @@ numbers — hence a minor bump rather than a patch.
   "no target in this frame". Previously the ringgrid wrapper flattened
   every backend error into an empty feature list, so a misconfigured board
   surfaced much later as an unexplained initialisation failure.
+- **Facade exports for three error payloads and the detection-cache item
+  type.** `vision_calibration::Error` has `Core`/`Linear`/`Optim` variants
+  whose payload types the facade never exported, so a facade-only consumer
+  could match a variant but not inspect it; they are now `core::Error`,
+  `linear::Error` and `optim::Error`. Likewise
+  `detect::{Feature, DetectError, reject_ambiguous_detection}` — without
+  `Feature`, the exported `DetectionCache` trait could not be implemented
+  through the facade at all.
 - `reject_ambiguous_detection` in `vision-calibration-detect`, applied by
   all four detectors. A planar target's image-to-board map is a homography
   and so injective; a detection that labels one pixel as several board
@@ -91,6 +131,18 @@ numbers — hence a minor bump rather than a patch.
 - Removed the dead `num-dual` workspace-dependency entry — no crate
   declared it.
 - `actions/checkout` v6 → v7 across all workflows.
+- Deleted unused IR helpers, four byte-identical copies of
+  `format_init_source`, and nineteen `*State` accessors that existed only to
+  be called by their own unit tests.
+- Float sorts in `vision-mvg`'s degeneracy/homography paths and
+  `vision-calibration-linear`'s laser-plane fit use `total_cmp` instead of
+  `partial_cmp(..).unwrap()`, which panicked on a NaN produced upstream by a
+  divergent solve.
+- `session::current_timestamp` returns `0` rather than panicking on a
+  pre-1970 clock. It stamps every `session.export()`.
+- The manifest's ChESS override is lowered to the detector's option type by
+  an exhaustive destructuring rather than an untyped JSON round-trip, so a
+  new manifest knob that is not wired through fails to compile.
 
 ## [0.7.0] - 2026-07-10
 

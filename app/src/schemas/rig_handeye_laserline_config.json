@@ -97,7 +97,7 @@
       "type": "object"
     },
     "DistortionKind": {
-      "description": "Distortion slot of a [`CameraModelDesc`].\n\n`dim() == 0` means the factor takes no distortion parameter block.",
+      "description": "Which distortion model a camera carries.\n\n`dim() == 0` means the factor takes no distortion parameter block.",
       "oneOf": [
         {
           "const": "none",
@@ -180,6 +180,7 @@
       ]
     },
     "HandeyeBaConfig": {
+      "additionalProperties": false,
       "description": "Final hand-eye bundle-adjustment options (ADR 0024; renamed and reshaped\nfrom `RigHandeyeBaConfig`, keeping robot-pose refinement in the shared\n[`RobotPoseConfig`] group).",
       "properties": {
         "refine_cam_se3_rig": {
@@ -203,6 +204,7 @@
       "type": "object"
     },
     "HandeyeInitConfig": {
+      "additionalProperties": false,
       "description": "Hand-eye linear-initialization stage options (Tsai-Lenz DLT).\n\nShared by every hand-eye problem's `handeye_init` config group.",
       "properties": {
         "handeye_mode": {
@@ -250,6 +252,7 @@
       "type": "object"
     },
     "IntrinsicsInitConfig": {
+      "additionalProperties": false,
       "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
       "properties": {
         "fix_k3": {
@@ -295,6 +298,7 @@
       ]
     },
     "RigConfig": {
+      "additionalProperties": false,
       "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nShared by every rig problem's `rig` config group (`RigExtrinsicsConfig`\ntoday; `RigHandeyeConfig` follows in a later ADR 0024 wave).",
       "properties": {
         "reference_camera_idx": {
@@ -315,6 +319,7 @@
       "type": "object"
     },
     "RigHandeyeConfig": {
+      "additionalProperties": false,
       "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\n0.7.0 removed the old `rig.fix_first_rig_pose: bool = true` field:\nthe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge, and the extra per-view pose constraint was\nevidence-backed redundant and mildly pessimizing (see\n`docs/notes/rig-extrinsics.md` §Gauge, which documents the equivalent\n`RigExtrinsicsConfig` finding). View-0's rig-from-target pose is now\nalways free in the rig BA.",
       "properties": {
         "handeye_ba": {
@@ -403,6 +408,7 @@
       "type": "object"
     },
     "RigHandeyeLaserlineBaConfig": {
+      "additionalProperties": false,
       "description": "Final joint BA options (ADR 0024).\n\n0.7.0 removed `fix_first_camera_extrinsic: bool`: the joint stage now always\npins the upstream rig's reference camera (`handeye.rig.reference_camera_idx`)\n— see `joint_fix_extrinsics`, fixing the old index-0 hard-coding bug.\n`JointCameraFixMask` (structurally identical to core's [`CameraFixMask`])\nis deleted in favor of the core type directly.",
       "properties": {
         "calib_loss": {
@@ -468,6 +474,7 @@
       "type": "object"
     },
     "RigLaserlineDeviceConfig": {
+      "additionalProperties": false,
       "description": "Configuration for rig laserline calibration.\n\nGrouped per ADR 0024. `solver.max_iters` defaults to 200: this stage\nrefines only per-camera laser-plane parameters against an already-frozen\nrig geometry (1 DOF per view per camera), so iterations are nearly free.",
       "properties": {
         "laser_residual_type": {
@@ -486,6 +493,7 @@
       "type": "object"
     },
     "RobotPoseConfig": {
+      "additionalProperties": false,
       "description": "Robot-pose refinement options for hand-eye bundle adjustment.\n\nReplaces the `robot_rot_sigma` / `robot_trans_sigma` /\n`refine_robot_poses` trio that used to be duplicated verbatim across\n`SingleCamHandeyeConfig`, `RigHandeyeBaConfig`, and the joint\nrig+hand-eye+laser BA config.",
       "properties": {
         "refine": {
@@ -700,6 +708,7 @@
       ]
     },
     "SolverConfig": {
+      "additionalProperties": false,
       "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor the Scheimpflug single-cam tilt valley; 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
       "properties": {
         "max_iters": {
@@ -728,6 +737,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
   "description": "Configuration for joint rig hand-eye laserline calibration.",
   "properties": {
     "handeye": {

@@ -100,6 +100,7 @@ pub struct RigHandeyeLaserlineOutput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct RigHandeyeLaserlineConfig {
     /// Warm-start rig hand-eye stage.
     pub handeye: RigHandeyeConfig,
@@ -136,6 +137,7 @@ impl Default for RigHandeyeLaserlineConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct RigHandeyeLaserlineBaConfig {
     /// Non-linear solve stage settings for the joint stage.
     ///

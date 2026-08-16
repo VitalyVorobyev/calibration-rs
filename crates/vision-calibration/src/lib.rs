@@ -510,6 +510,12 @@ pub mod core {
         SensorParams, ThinPrism, Vec2, Vec3, View, distort_to_pixel, make_pinhole_camera,
         pinhole_camera_params, pixel_to_normalized,
     };
+
+    /// The error type carried by [`crate::Error::Core`].
+    ///
+    /// Exported so a facade-only consumer can inspect the payload, not just
+    /// match the variant.
+    pub use vision_calibration_core::Error;
 }
 
 /// Canonical input-data manifest (`DatasetSpec` and friends).
@@ -555,7 +561,8 @@ pub mod dataset_runner {
 /// trait.
 pub mod detect {
     pub use vision_calibration_detect::{
-        CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache,
+        CacheError, CacheKey, CachedFeatures, DetectError, DetectionCache, Feature,
+        FsDetectionCache, reject_ambiguous_detection,
     };
 }
 
@@ -571,8 +578,8 @@ pub mod detect {
 /// The curated [`prelude`](linear::prelude) gathers the most-used items.
 pub mod linear {
     pub use vision_calibration_linear::{
-        distortion_fit, extrinsics, handeye, iterative_intrinsics, laserline, math, planar_pose,
-        pnp, scheimpflug_init, zhang_intrinsics,
+        Error, distortion_fit, extrinsics, handeye, iterative_intrinsics, laserline, math,
+        planar_pose, pnp, scheimpflug_init, zhang_intrinsics,
     };
 
     pub mod prelude {
@@ -625,6 +632,8 @@ pub mod optim {
     /// [`scheimpflug_intrinsics::ScheimpflugIntrinsicsConfig`](crate::scheimpflug_intrinsics::ScheimpflugIntrinsicsConfig),
     /// and the rig `SensorMode::Scheimpflug` variant.
     pub use vision_calibration_optim::DistortionKind;
+    /// The error type carried by [`crate::Error::Optim`].
+    pub use vision_calibration_optim::Error;
     /// Hand-eye configuration mode (eye-in-hand vs eye-to-hand).
     pub use vision_calibration_optim::HandEyeMode;
     /// Laser-plane parameter type.

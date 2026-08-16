@@ -101,7 +101,7 @@ fn make_dataset<C: CameraProject>(camera: &C, poses: &[Iso3]) -> PlanarDataset {
 }
 
 fn reproj_rms(export: &ScheimpflugIntrinsicsExport, dataset: &PlanarDataset) -> f64 {
-    let camera = export.params.camera.build();
+    let camera = export.params.camera.build().unwrap();
     let poses = &export.params.camera_se3_target;
     let mut sum_sq = 0.0;
     let mut n = 0usize;

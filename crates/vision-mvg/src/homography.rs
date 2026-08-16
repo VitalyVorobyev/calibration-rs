@@ -70,7 +70,7 @@ pub fn decompose_homography(h: &HomographyMatrix) -> Result<Vec<HomographyDecomp
     let eig = hth.symmetric_eigen();
 
     let mut indices = [0usize, 1, 2];
-    indices.sort_by(|&a, &b| eig.eigenvalues[b].partial_cmp(&eig.eigenvalues[a]).unwrap());
+    indices.sort_by(|&a, &b| eig.eigenvalues[b].total_cmp(&eig.eigenvalues[a]));
     let l1 = eig.eigenvalues[indices[0]];
     let l3 = eig.eigenvalues[indices[2]];
     let v1 = eig.eigenvectors.column(indices[0]).into_owned();
@@ -271,7 +271,7 @@ mod tests {
         // For pure rotation, t should be ~zero.
         let best = decomps
             .iter()
-            .min_by(|a, b| a.t.norm().partial_cmp(&b.t.norm()).unwrap())
+            .min_by(|a, b| a.t.norm().total_cmp(&b.t.norm()))
             .unwrap();
         assert!(
             best.t.norm() < 1e-6,

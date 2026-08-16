@@ -42,9 +42,12 @@
 //!         },
 //!     },
 //! };
-//! let cam = params.build();
+//! // `build` is fallible only for a `SensorParams::Homography` that is
+//! // not invertible; an identity sensor always succeeds.
+//! let cam = params.build()?;
 //! let px = cam.project_point_c(&nalgebra::Vector3::new(0.1, 0.2, 1.0));
 //! assert!(px.is_some());
+//! # Ok::<(), vision_calibration_core::Error>(())
 //! ```
 
 /// Typed error enum for this crate.

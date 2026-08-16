@@ -85,6 +85,7 @@ impl SingleCamHandeyeInput {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct SingleCamHandeyeConfig {
     /// Per-camera linear-initialization stage settings.
     pub intrinsics: IntrinsicsInitConfig,

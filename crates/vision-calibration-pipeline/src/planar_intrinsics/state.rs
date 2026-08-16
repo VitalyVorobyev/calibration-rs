@@ -61,13 +61,13 @@ impl PlanarState {
     ///
     /// Initialization is considered complete when both initial intrinsics
     /// and initial poses are available.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
+    #[cfg(test)]
     pub fn is_initialized(&self) -> bool {
         self.initial_intrinsics.is_some() && self.initial_poses.is_some()
     }
 
     /// Check if optimization has been run.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
+    #[cfg(test)]
     pub fn is_optimized(&self) -> bool {
         self.final_cost.is_some()
     }
@@ -102,7 +102,7 @@ impl PlanarState {
     }
 
     /// Clear everything including initialization.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
+    #[cfg(test)]
     pub fn clear(&mut self) {
         *self = Self::default();
     }

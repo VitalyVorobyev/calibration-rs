@@ -57,6 +57,7 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct RigHandeyeConfig {
     /// Per-camera linear-initialization stage settings.
     pub intrinsics: IntrinsicsInitConfig,
@@ -100,6 +101,7 @@ pub struct RigHandeyeIntrinsicsManualInit {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct HandeyeBaConfig {
     /// Robot-pose refinement settings for the final hand-eye BA.
     pub robot_poses: RobotPoseConfig,

@@ -66,6 +66,7 @@ pub struct PlanarIntrinsicsProblem;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct PlanarIntrinsicsConfig {
     /// Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
@@ -225,7 +226,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         // Length-mismatch is a logic error inside the pipeline (output came
         // out of an optimizer that ran on `input`); surface it as a typed
         // error rather than panicking.
-        let cam = output.params.build_camera();
+        let cam = output.params.build_camera()?;
         let target =
             compute_planar_target_residuals(&cam, input, &output.params.camera_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));

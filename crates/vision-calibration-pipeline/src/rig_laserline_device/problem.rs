@@ -119,6 +119,7 @@ pub struct RigLaserlineDeviceInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct RigLaserlineDeviceConfig {
     /// Non-linear solve stage settings. `robust_loss` is **not consulted**
     /// by this problem — the underlying per-camera laserline solver picks

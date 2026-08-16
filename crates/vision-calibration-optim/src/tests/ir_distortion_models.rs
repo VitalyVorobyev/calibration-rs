@@ -1,19 +1,21 @@
-//! Integration tests for the Rational-8 and Division-1 distortion models.
+//! Tests for the Rational-8 and Division-1 distortion models.
 //!
 //! Each test builds a synthetic ground-truth camera, generates planar observations,
 //! constructs a `ProblemIR` by hand using the new `CameraModelDesc` constants,
 //! perturbs the initial values, solves via the tiny-solver backend, and asserts
 //! convergence to ground truth within tight tolerances.
 
+use crate::backend::{BackendKind, BackendSolveOptions, solve_with_backend};
+use crate::ir::{
+    CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
+    RobustLoss,
+};
+use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
+use crate::params::pose_se3::iso3_to_se3_dvec;
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
 use std::collections::HashMap;
 use vision_calibration_core::{
     Camera, Division, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, RationalPolynomial, Real,
-};
-use vision_calibration_optim::{
-    BackendKind, BackendSolveOptions, CameraModelDesc, FactorKind, FixedMask, INTRINSICS_DIM,
-    ManifoldKind, ProblemIR, ReprojChain, ResidualBlock, RobustLoss, iso3_to_se3_dvec,
-    pack_intrinsics, solve_with_backend,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

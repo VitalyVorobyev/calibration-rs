@@ -44,6 +44,7 @@ pub(crate) fn default_distortion_kind() -> DistortionKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct IntrinsicsInitConfig {
     /// Number of iterations for iterative intrinsics estimation.
     pub init_iterations: usize,
@@ -113,6 +114,7 @@ impl IntrinsicsInitConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct SolverConfig {
     /// Maximum iterations for the non-linear optimizer.
     pub max_iters: usize,
@@ -141,6 +143,7 @@ impl Default for SolverConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct RobotPoseConfig {
     /// Refine robot poses with per-view se(3) corrections.
     pub refine: bool,
@@ -196,6 +199,7 @@ impl RobotPoseConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct HandeyeInitConfig {
     /// Hand-eye mode: `EyeInHand` or `EyeToHand`.
     pub handeye_mode: HandEyeMode,
@@ -219,6 +223,7 @@ impl Default for HandeyeInitConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct RigConfig {
     /// Reference camera index for the rig frame (identity extrinsics).
     pub reference_camera_idx: usize,

@@ -48,7 +48,7 @@ mod tests {
                 },
             },
         };
-        let cam = params.build();
+        let cam = params.build().unwrap();
 
         let px = Point2::new(1000.0, 200.0);
         let ray = cam.backproject_pixel(&px);
@@ -80,7 +80,7 @@ mod tests {
                 },
             },
         };
-        let cam = params.build();
+        let cam = params.build().unwrap();
 
         let px = Point2::new(900.0, 500.0);
         let ray = cam.backproject_pixel(&px);

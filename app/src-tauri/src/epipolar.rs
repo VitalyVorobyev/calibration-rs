@@ -358,7 +358,9 @@ fn build_camera_geometry(
         intrinsics: IntrinsicsParams::FxFyCxCySkew { params: k },
     };
     Ok(CameraGeometry {
-        model: params.build(),
+        model: params
+            .build()
+            .map_err(|e| format!("camera model is unusable: {e}"))?,
         k,
     })
 }
