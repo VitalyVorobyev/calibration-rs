@@ -4,8 +4,10 @@ This repository is a multi-crate Rust workspace for **end-to-end camera calibrat
 from math primitives and linear solvers to non-linear refinement, pipelines, facade APIs,
 and Python bindings.
 
-Crates (nine crates.io-publishable + the PyPI extension + two unpublished
-support crates):
+Crates — eleven workspace members (nine crates.io-publishable, the PyPI
+extension, and the unpublished benchmark crate), plus
+`vision-calibration-examples-private`, which lives outside this workspace
+entirely (its own `[workspace]`) and path-pins the published crates:
 
 * **`vision-calibration-core`** — math aliases (+ `linalg` numerics), composable camera models, and a generic RANSAC engine.
 * **`vision-calibration-linear`** — closed-form / linear initialisation blocks (homography, PnP, epipolar, rig extrinsics, hand–eye).
@@ -17,8 +19,8 @@ support crates):
 * **`vision-calibration-pipeline`** — session framework, the eight problem types, `dataset_runner`.
 * **`vision-calibration`** — facade crate re-exporting the above for a stable, ergonomic API.
 * **`vision-calibration-py`** — PyO3/maturin Python extension crate exposing high-level workflows (PyPI).
-* **`vision-calibration-bench`** (unpublished) — registry-driven dataset benchmarks + regression records.
-* **`vision-calibration-examples-private`** (unpublished) — private-dataset acceptance runners (rtv3d family).
+* **`vision-calibration-bench`** (workspace member, `publish = false`) — registry-driven dataset benchmarks + regression records.
+* **`vision-calibration-examples-private`** (*outside* the workspace) — private-dataset acceptance runners (rtv3d family).
 
 The codebase prioritizes:
 
@@ -48,7 +50,8 @@ If you are an automated agent (Codex, etc.), follow these rules strictly.
 * `vision-calibration` is top-level entry points (facade only, no logic).
 * `vision-calibration-py` **may depend on** `vision-calibration` (preferred) and Python binding tooling crates.
 * `vision-calibration-bench` / `vision-calibration-examples-private`
-  (unpublished) consume the facade + pipeline for dataset runs.
+  (unpublished) consume the facade + pipeline for dataset runs. `bench` also
+  reaches core/optim/dataset directly; that is deliberate and confined to it.
 
 ### Where code goes
 

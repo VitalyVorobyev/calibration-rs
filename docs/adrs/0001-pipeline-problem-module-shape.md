@@ -13,9 +13,10 @@ Existing workflows (`planar_intrinsics`, `single_cam_handeye`, `rig_extrinsics`,
 - `state.rs` for intermediate pipeline state
 - `steps.rs` for step functions + convenience `run_calibration`
 
-Current Scheimpflug flow is implemented as a single file:
-[scheimpflug_intrinsics.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/scheimpflug_intrinsics.rs).
-It does not define a `ProblemType` and bypasses session state/checkpointing patterns.
+At the time of writing, the Scheimpflug flow was a single
+`scheimpflug_intrinsics.rs` that defined no `ProblemType` and bypassed the
+session state/checkpointing patterns. (It now follows the module shape this
+ADR settles on.)
 
 ## Decision
 

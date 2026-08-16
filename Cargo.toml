@@ -14,7 +14,7 @@ members = [
     "xtask",
 ]
 # `app/src-tauri/` is its own crate — it pulls in the Tauri build-time
-# dep tree and is built from `app/` (or via `npm run tauri dev`), not
+# dep tree and is built from `app/` (or via `bun run tauri dev`), not
 # from the workspace root. See ADR 0014.
 exclude = ["app"]
 

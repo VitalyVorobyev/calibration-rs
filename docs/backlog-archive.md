@@ -5,9 +5,9 @@ kept verbatim and grouped by track. This is the durable record; the live
 [backlog](backlog.md) carries only open and parked work.
 
 Paths and APIs quoted below were accurate when the task closed and may since
-have moved — check the code before acting on one. Links into
-`docs/internal/` point at working notes that are gitignored and exist only on
-the author's machine.
+have moved — check the code before acting on one. Most links into
+`docs/internal/` resolve; a few point at working notes that were never
+committed.
 
 ## S — Device-spec → seed initialization (Phase I)
 
@@ -17,7 +17,7 @@ acceptance route** (ADR 0022); from-scratch stays experimental.
 
 - [x] S1-SPEC-ADR - **Done 2026-07-02.** ADR 0023 accepted: `DeviceSpec`
   schema + `device_seed` derivation fns, re-exported via the facade. See
-  ADR 0023, `docs/DESIGN-device-spec.md`.
+  ADR 0023.
 - [x] S2-SPEC-INTRINSICS - **Done 2026-07-02.** Both intrinsics examples load
   `privatedata/<ds>/spec.json` and derive seeds via
   `device_seed::scheimpflug_seed`; env-knob focal overrides deleted. Gate:
@@ -344,6 +344,13 @@ count though extrinsics/hand-eye don't need full density (P2, conditional).
 
 ## M — camera models (gated on M0)
 
+- [x] M-WIRE - **Done 2026-07-10.** Pipeline-selection plumbing for the
+  extended distortion models: `distortion_model: DistortionKind` selects
+  BrownConrady5 / Rational8 / ThinPrism9 / Division1 on both single-camera
+  intrinsics workflows, with a model-agnostic export contract. Config
+  placement landed with the ADR 0024 vocabulary, the Python binding with
+  the parity fill, and the app selector with the schema-driven forms.
+
 - [x] M0-GENERIFY - **Done 2026-06-12** (ADR 0020). `FactorKind` = 4 families
   (`ReprojPoint`, `LaserPointToPlane`, `LaserLineDistance`, `Se3TangentPrior`)
   with `CameraModelDesc` as data, ZST-kernel monomorphization; net ~-1.9k LoC
@@ -355,6 +362,24 @@ count though extrinsics/hand-eye don't need full density (P2, conditional).
   `docs/internal/archive/report/2026-06-14-M-distortion-models.md`.
 
 ## C — MVG (multiple-view geometry)
+
+- [x] C1-FOLLOWUP - De-duplicate geometric solvers shared between `linear`
+  and `geometry`. **Resolved 2026-07-04** — low-level `math` primitives
+  deduped into `vision_calibration_core::linalg`; higher-level solvers
+  (`homography`, `epipolar`, `camera_matrix`, `triangulation`) were already
+  deduped in PR #72 (net −1811 LoC), confirmed via Q7-SOLVER-DEDUP.
+  - [x] Promote `vision-geometry`/`vision-mvg` to the crates.io publish set.
+    **Done 2026-06-17** (user call); the actual first `cargo publish` is a
+    manual step.
+  - [ ] PyO3 bindings for the MVG surface — **deferred** (A5 Python parity was
+    dropped: no Python consumer, and the py crate binds the calibration facade
+    only). Revisit if a consumer appears.
+- [x] C5-DENSE - Dense stereo matcher. **Direction reset + implementation
+  done 2026-06-21** (user-supervised): amended ADR 0015 — the matcher ships
+  pure-Rust in `vision-mvg::dense` (block matching + SGM aggregation, ZNCC
+  via summed-area tables, no new deps), scored by a bench harness; synthetic
+  slanted-plane recovery hits 94% density at 0.18 px RMS. OpenCV SGBM
+  baseline **closed as env-blocked** 2026-07-02 (no OpenCV env available).
 
 - [x] C1-CRATES - **Done 2026-06-14.** Landed `vision-geometry` (20 tests) +
   `vision-mvg` (31 tests, optional `refine` feature), ported fresh from the
@@ -398,12 +423,69 @@ count though extrinsics/hand-eye don't need full density (P2, conditional).
   public surface onto `thiserror` enums; caught and fixed a NaN-rejection
   regression (`ensure!(x>0.0)` → hand-written `if` silently accepted NaN)
   across 10 sites.
+- [x] D5-CHARUCO-LABELS - **Done 2026-08-16** (fixed upstream, verified
+  here). `calib-targets` 0.12.0's grid builder could emit corner labels that
+  were not projectively consistent, in two shapes with one cause: a
+  *collapsed* assignment (distinct lattice nodes sharing one `position`) and
+  a *scrambled* one (all positions distinct, but no homography fitting any
+  subset — 3 of 18 inliers after refitting on the best 12). Both make the
+  affected view's pose meaningless.
+
+  Diagnostic that separated them cleanly with no ground truth: fit a
+  homography to the detection's own `(grid, position)` pairs. Over 20 views
+  of the worst camera, 18 healthy views fit at 0.56-0.99 px median, the two
+  broken ones at 7.7-7.8 px.
+
+  `reject_ambiguous_detection` (detect crate) covered the collapsed case and
+  stays — the invariant "one pixel is one board point" holds under any lens.
+  The scrambled case needed the grid builder, and got it: `calib-targets`
+  0.12.1 adds a lattice-orientation parity invariant (a homography preserves
+  orientation over any region not crossing its vanishing line, so the sign
+  of `e_u x e_v` is the same at every cell of a correctly labelled component
+  — a sign test with no tolerance to tune) plus two-way injectivity in both
+  component merges, makes ChArUco run the chessboard's wrong-label geometry
+  check, and sizes the ChArUco re-detection window from the pitch predicted
+  at each corner.
+
+  Measured on `rtv3d` (6-camera ChArUco rig hand-eye, 720x540 tiles),
+  per-camera mean reprojection:
+
+  | camera | 0.7.0 | 0.12.0 | 0.12.1 |
+  |---|---|---|---|
+  | 0 | 1.048 | 0.964 | **0.894** |
+  | 1 | 1.050 | 1.038 | **0.836** |
+  | 2 | 1.099 | 1.545 | **0.797** |
+  | 3 | 1.092 | 1.777 | **0.769** |
+  | 4 | 1.261 | 10.926 | **0.845** |
+  | 5 | 1.538 | 1.452 | **1.232** |
+  | overall | 1.196 | 2.664 | **0.915** |
+
+  Every camera now beats the 0.7.0 baseline on 21 % fewer features (1473 ->
+  1161 — the `min_corner_strength = 33.0` default that 0.12 introduced,
+  unrelated to the labelling bug). The baseline had been deliberately left
+  frozen at the 0.7.0 numbers rather than re-frozen on a regression; it was
+  re-frozen on this improvement. Full acceptance: 21 of 21 datasets pass.
+- [x] D3-PY-PARITY - **Audit done 2026-06-21, gaps filled 2026-07-09.**
+  7 of 8 workflows were bound; the audit found `rig_handeye_laserline`
+  unbound, the MVG surface unbound, `distortion_model` unmirrored, and the
+  low-level modules unbound by design. All but the MVG surface (deferred,
+  no Python consumer) were closed by R5-PY-PARITY, which also added
+  `scripts/check_binding_parity.py` to CI so the next workflow cannot be
+  added in Rust and forgotten in Python.
 - [x] D5-DOCS-TRUTH - **Done 2026-07-02.** Documentation truth pass: ROADMAP
   refreshed to HEAD, this backlog gained the S/Q/R/B-QUAL sections, ADR
   status notes added, README/AGENTS.md crate tables brought to the 10-crate
   reality, stale internal handoffs archived to `docs/internal/archive/`.
 
 ## B — app (extend; sequencing serves V-track)
+
+- [x] B-LASER - **Re-scoped into B-UX2-ELEVATION** 2026-07-02: laser-pixel
+  overlay in Diagnose compare mode, point-to-plane (mm) panel, single-cam
+  laser plane in the 3D viewer. (Core laser views shipped 2026-06-12.)
+- [x] B-INFRA - **Absorbed 2026-07-02** into B-QUAL1-LINT-CI (CI entry),
+  B-QUAL2-TSRS (ts-rs codegen), B-QUAL4-SMOKE (`resource_dir` presets +
+  Playwright). Vitest unit-slice sub-item shipped 2026-06-15 (18 tests over
+  `inferExportKind`/`exportKindLabel`/`mergeConfig`).
 
 - [x] B3C-PUZZLEBOARD - **Done 2026-06-14.** `PuzzleboardDetector` wraps
   `calib-targets::detect_puzzleboard` behind the sealed `Detector` trait;

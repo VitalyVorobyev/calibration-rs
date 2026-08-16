@@ -169,96 +169,24 @@ python3 -m compileall crates/vision-calibration-py/python/vision_calibration
 
 ## MSRV
 
-Workspace MSRV: **1.93** (raised from 1.88 on 2026-05-23). No
-transitive deps are pinned for MSRV reasons; `cargo update` is safe.
-CI gate: `MSRV (1.93)` in `.github/workflows/ci.yml`. See
-`docs/MSRV.md` for history and bump policy.
+Workspace MSRV: **1.93**. CI gate: `MSRV (1.93)` in
+`.github/workflows/ci.yml`. History and bump policy live in
+[`docs/MSRV.md`](../docs/MSRV.md).
 
-## Releasing — version-source lockstep
+## Releasing
 
-Four version sources must move together on every bump. The PR that
-prepares a release (the one that the release tag will point at) must
-update **all four** in the same commit, or the release tag will wedge
-in CI:
-
-1. `Cargo.toml` `workspace.package.version` (line ~21).
-2. `Cargo.toml` `[workspace.dependencies]` path-dep pins for the nine
-   publishable workspace crates (`vision-calibration*` plus
-   `vision-geometry` and `vision-mvg`, lines ~33–45).
-3. `crates/vision-calibration-py/pyproject.toml` `project.version` —
-   the one that `release-pypi.yml`'s `Verify tag/version sync` job
-   reads directly. **Not** wired into `[workspace.package]`.
-4. `crates/vision-calibration-examples-private/Cargo.toml` (1 package
-   version + 6 path-dep pins — the count grows as it gains deps; grep,
-   don't trust this number). Out of the publish set but still
-   compiled in CI.
-
-**Publish set (2026-06-17; DAG corrected 2026-07-04 to match
-`release.yml`):** `vision-geometry` and `vision-mvg` joined the publish
-set — nine publishable crates total. Crates.io publish order follows the
-dependency DAG: `vision-calibration-core` → `vision-geometry` →
-`vision-calibration-dataset` → `vision-calibration-detect` →
-`vision-calibration-linear` → `vision-calibration-optim` →
-`vision-mvg` → `vision-calibration-pipeline` → `vision-calibration`.
-(`vision-calibration-py` is `publish = false` on crates.io — it ships to
-PyPI via `release-pypi.yml`.) `vision-geometry`/`vision-mvg` have never been
-published, so their first crates.io version is the current workspace version
-(a fresh `0.x` crate may be published at `0.6.0`); the already-published crates
-only need re-publishing on the next workspace-wide version bump.
-
-`Cargo.lock` refreshes by running `cargo build --workspace` once after
-the `.toml` edits — only the workspace crate `version` strings change
-(no dep resolution).
-
-**Why this section exists.** `0.4.0` and `0.5.0` shipped to crates.io
-but never reached PyPI: each release missed the `pyproject.toml` bump,
-which tripped the `release-pypi.yml` verify gate and skipped the
-wheel build / upload. `0.5.1` repaired this; see the fix commit for
-the full failure map.
-
-`0.6.0` exists because of a second trap: PR #67 added the public
-`vision_calibration_core::linalg` module to the already-published
-`core@0.5.1` **without** a version bump, so local `core@0.5.1` diverged
-from the immutable crates.io `core@0.5.1`. Publishing `vision-geometry`
-(which re-exports `core::linalg`) then failed `--dry-run` with `E0432`,
-because publish strips path deps and resolved the *old* registry
-`core@0.5.1` that has no `linalg`. **Lesson:** adding public API to an
-already-published crate is a release event — it must ride a
-workspace-wide version bump, never land at the same version. The whole
-post-v0.5.1 DAG (PRs #66–#70) was unpublished, so `0.6.0` re-releases
-all nine crates together in DAG order.
-
-**Pre-tag local check** (catches the four most common release breakages
-before the tag is pushed):
-
-```bash
-# All four version sources must print the same vX.Y.Z.
-grep -RHn 'version = "' Cargo.toml \
-    crates/vision-calibration-py/pyproject.toml \
-    crates/vision-calibration-examples-private/Cargo.toml \
-  | grep -v 'edition\|rust-version'
-
-# The publish-docs.yml gate (RUSTDOCFLAGS=-D warnings) only runs on
-# push-to-main, not on PRs. Run it locally before tagging — it catches
-# broken intra-doc-links that the ci.yml `cargo doc` step swallows.
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-
-# Confirm the pyo3 build still passes — the release-pypi.yml verify
-# job also rebuilds the extension before the wheel jobs fan out.
-maturin develop -m crates/vision-calibration-py/Cargo.toml
-python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
-```
+[`docs/RELEASE-RUNBOOK.md`](../docs/RELEASE-RUNBOOK.md) is the source of
+truth: the four version sources that must move in one commit, the crates.io
+publish DAG, the per-crate Trusted Publishing setup, the pre-tag checklist,
+and how to read a `cargo publish --dry-run` failure during a lockstep bump.
+Read it before touching a version string — it also records why each rule
+exists, which is what stops the next release repeating an old failure.
 
 ## Planning
 
-- **Backlog** in `docs/backlog.md` is the source-of-truth task tracker
-  (AGENTS.md §11), and holds **only open and parked work**. On completing a
-  task, mark it `[x]` with a dated, informative one-paragraph completion note —
-  that note is the durable record — then **move the entry** to
-  `docs/backlog-archive.md`. **No per-task `docs/report/`
-  files** (retired; historical entries archived under
-  `docs/internal/archive/report/` for reference only). Maintaining the backlog +
-  the docs next to the code matters more than any separate paper trail.
+- **Backlog workflow** — AGENTS.md §11 is the source of truth: one task per
+  commit, `docs/backlog.md` holds only open and parked work, and a completed
+  task's dated note moves to `docs/backlog-archive.md` as the durable record.
 - ADRs in `docs/adrs/` — design decisions (see README there). 0011 covers
   manual init, 0012 covers per-feature residuals, 0013 covers the
   `rig_family` sensor-axis refactor (the Scheimpflug rig modules collapse).
@@ -268,14 +196,10 @@ python -m unittest discover -s crates/vision-calibration-py/tests -p "test_*.py"
 
 ## Strategic Roadmap
 
-`docs/ROADMAP.md` is authoritative — read it rather than trusting a summary
-here. As of 2026-08-11: Tracks **A** (calibration core), **S** (device-spec →
-seed init), **Q** (soundness proofs + regression gates), **R** (API/config
-revision), **C** (MVG, including the pure-Rust dense matcher) and the benchmark
-harness are **done**; **O** is closed won't-do. Live work is **B** (desktop app
-elevation), **D** (the v1.0 gate), and two externally-blocked items —
-`D4-NALGEBRA-035` (waiting on `tiny-solver`) and `D5-CHARUCO-LABELS` (waiting on
-`calib-targets`). Open tasks live in `docs/backlog.md`; completed ones in
-`docs/backlog-archive.md`.
+[`docs/ROADMAP.md`](../docs/ROADMAP.md) is authoritative — read it rather
+than working from a summary here, which is exactly what goes stale. Open
+tasks live in [`docs/backlog.md`](../docs/backlog.md); completed ones, with
+their durable completion notes, in
+[`docs/backlog-archive.md`](../docs/backlog-archive.md).
 
 We are pre-1.0; breaking changes are acceptable.

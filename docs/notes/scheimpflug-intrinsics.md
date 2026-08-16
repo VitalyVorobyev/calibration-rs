@@ -135,10 +135,9 @@ reopening of the Phase A sweep design is warranted by this run.
 ## Evidence
 
 - **Acceptance gates**: `calib-bench accept` — `rtv3d_ref_cam0..5` gated
-  at ≤ 0.5 px/camera, `rtv3d_ringgrid_cam0..5` at ≤ 1.0 px/camera (the
-  provisional pre-Q3 ringgrid bar), both against the ADR 0023 device-spec
-  seed (S4).
-- **Basin study**: `calib-bench basin` (this note), Q6.
+  at ≤ 0.5 px/camera, `rtv3d_ringgrid_cam0..5` at ≤ 0.7 px/camera, both
+  against the ADR 0023 device-spec seed.
+- **Basin study**: `calib-bench basin` (this note).
 - **Related**: ADR 0022 (seeded init is the supported default — the
   from-scratch fragility this decision steps around), ADR 0023
   (`DeviceSpec` schema and seed derivation), `docs/notes/planar-intrinsics.md`

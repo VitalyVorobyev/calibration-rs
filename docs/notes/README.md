@@ -21,11 +21,11 @@ algorithm assumes, what it cannot observe, and how it degrades":
    invariance, rectification `|Δv|` bounds) — not where they would only
    restate the implementation.
 4. **Committed regression Fit record + gate** via the bench machinery
-   (`calib-bench accept` per-entry gates today; Q2 adds baseline records
+   (`calib-bench accept` per-entry gates plus committed baseline records
    and drift gates).
 
 Initialization routines additionally get a **convergence-basin study**
-(perturb the seed over a radius grid, measure gate-pass rate — Q6), the
+(perturb the seed over a radius grid, measure gate-pass rate), the
 empirical evidence behind ADR 0022.
 
 Families (backlog Q1/Q8): planar intrinsics (template, this directory),
@@ -69,7 +69,7 @@ gate exists), two-view/triangulation.
 - [Rectification](rectification.md) — short pack: Scheimpflug tilt as a
   normalized-plane homography; row-alignment evidence (C4 gate).
 - [Ringgrid bias](ringgrid-bias.md) — Q3 close-out: the projective
-  ellipse-center bias is already removed inside the `ringgrid` 0.7
+  ellipse-center bias is already removed inside the `ringgrid` 0.7+
   detector; predicted bias (~0.09 px) is absent from the residual field,
   so the ~0.47 px floor is small-marker localization noise.
 - [rtv3d scale](rtv3d-scale.md) — Q5 close-out: the oracle-vs-measured

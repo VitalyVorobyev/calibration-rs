@@ -19,8 +19,8 @@ to `Cargo.lock`.
 
 ## When to raise MSRV again
 
-We are pre-1.0 and `release_goal_v1.md` does **not** commit to a
-specific floor; raise the MSRV when:
+We are pre-1.0 and do not commit to a specific floor; raise the MSRV
+when:
 
 - a transitive dep we want to track ships behind a newer toolchain, or
 - a stable language feature would meaningfully simplify the code.
