@@ -42,7 +42,7 @@ enum Command {
     List(ListArgs),
     /// Run deterministic diagnostic sweeps.
     Diagnose(DiagnoseArgs),
-    /// Convergence-basin study for the seeded Scheimpflug init (Q6):
+    /// Convergence-basin study for the seeded Scheimpflug init:
     /// perturb every registered `scheimpflug_intrinsics` entry's
     /// device-spec seed over a structured grid and report the gate
     /// pass-rate per cell, per dataset family. Never wired into CI.
@@ -378,7 +378,7 @@ fn cmd_accept(args: &AcceptArgs) -> Result<()> {
         let outcome = match run_dataset_record(entry) {
             Ok(record) => {
                 let mut outcome = evaluate_accept_gate(&record, gate);
-                // Regression baselines (Q2): gate first, then drift.
+                // Regression baselines: gate first, then drift.
                 if matches!(outcome, AcceptOutcome::Pass { .. }) {
                     outcome = apply_baseline_policy(args, &baselines_dir, entry, &record, outcome);
                 }
@@ -795,7 +795,7 @@ fn render_intrinsics_diagnose_report(
     ));
     out.push_str(
         "> Informational: this grades the *from-scratch* multistart floor \
-         (experimental — V7 parked). The acceptance gate is the seeded \
+         (experimental). The acceptance gate is the seeded \
          official route: `calib-bench accept`.\n\n",
     );
     out.push_str(&format!(

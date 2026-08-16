@@ -73,25 +73,19 @@ impl RigExtrinsicsState {
     }
 
     /// Check if rig BA has been run.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
+    #[cfg(test)]
     pub fn has_rig_optimized(&self) -> bool {
         self.rig_ba_final_cost.is_some()
     }
 
     /// Clear rig-related results, keeping per-camera intrinsics and sensors.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
+    #[cfg(test)]
     pub fn clear_rig(&mut self) {
         self.initial_cam_se3_rig = None;
         self.initial_rig_se3_target = None;
         self.rig_ba_final_cost = None;
         self.rig_ba_reproj_error = None;
         self.rig_ba_per_cam_reproj_errors = None;
-    }
-
-    /// Clear everything.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
-    pub fn clear(&mut self) {
-        *self = Self::default();
     }
 }
 

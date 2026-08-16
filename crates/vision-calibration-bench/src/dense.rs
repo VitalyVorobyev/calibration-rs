@@ -12,12 +12,12 @@
 //! * **OpenCV SGBM baseline** — lives outside this crate, in a separate binary
 //!   or feature-gated crate, because it requires a local OpenCV install.  It
 //!   implements [`DenseMatcher`] and is scored by [`evaluate`].
-//! * **Pure-Rust matcher** — the ultimate goal of Track C5; will live inside
+//! * **Pure-Rust matcher** — the ultimate goal; will live inside
 //!   this workspace and implement the same trait.
 //!
 //! Both are scored against [`synthetic_rectified_pair`] (analytic ground
 //! truth) and, later, against real stereo pairs whose ground-truth depth comes
-//! from the calibrated target plane produced by Track C4 Scheimpflug
+//! from the calibrated target plane produced by Scheimpflug
 //! rectification.
 //!
 //! # Reproducibility
@@ -453,7 +453,7 @@ impl DenseMatcher for OracleMatcher {
 }
 
 // ---------------------------------------------------------------------------
-// Pure-Rust block-matcher adapter (Track C5 deliverable)
+// Pure-Rust block-matcher adapter
 // ---------------------------------------------------------------------------
 
 use vision_calibration::mvg::dense as mvgd;

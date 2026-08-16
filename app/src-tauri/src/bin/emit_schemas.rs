@@ -1,4 +1,4 @@
-//! Emit a JSON Schema for the diagnose app's wire types (B-QUAL2).
+//! Emit a JSON Schema for the diagnose app's wire types.
 //!
 //! Single source of truth: the Rust `#[derive(schemars::JsonSchema)]` on the
 //! pipeline `*Export` types (ADR 0018) and on this crate's Tauri command
@@ -170,7 +170,7 @@ mod schema_export {
         json!({
             "$schema": "http://json-schema.org/draft-07/schema#",
             "title": "DiagnoseWireTypes",
-            "description": "Generated wire types for the diagnose app (B-QUAL2). \
+            "description": "Generated wire types for the diagnose app. \
                 Do not edit by hand — run `bun run generate:types`. The top-level \
                 wrapper only anchors the `definitions`; consumers import the \
                 individual interfaces.",

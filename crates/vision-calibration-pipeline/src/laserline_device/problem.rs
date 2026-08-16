@@ -31,6 +31,7 @@ pub type LaserlineDeviceInput = LaserlineDataset;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct LaserlineDeviceConfig {
     /// Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
@@ -43,7 +44,7 @@ pub struct LaserlineDeviceConfig {
     /// `robust_loss` is **not consulted** by this problem: laser-carrying
     /// stages track calibration and laser residuals as independent families
     /// with their own robust losses (`optimize.calib_loss`,
-    /// `optimize.laser_loss` — ADR 0024 D3). Only `max_iters`/`verbosity`
+    /// `optimize.laser_loss` — see [ADR 0024](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/adrs/0024-config-vocabulary.md)). Only `max_iters`/`verbosity`
     /// apply here.
     pub solver: SolverConfig,
     /// Bundle-adjustment options.
@@ -54,6 +55,7 @@ pub struct LaserlineDeviceConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct LaserlineDeviceOptimizeConfig {
     /// Robust loss for calibration reprojection residuals.
     pub calib_loss: vision_calibration_optim::RobustLoss,
@@ -142,7 +144,7 @@ pub struct LaserlineDeviceOutput {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct LaserlineDeviceExport {
-    /// Export-type discriminator (R7) — always [`ExportKind::LaserlineDevice`].
+    /// Export-type discriminator — always [`ExportKind::LaserlineDevice`].
     pub kind: ExportKind,
     /// Pipeline output including optimized parameters and summary statistics.
     pub estimate: LaserlineEstimate,

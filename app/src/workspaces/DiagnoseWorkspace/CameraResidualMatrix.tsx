@@ -14,7 +14,7 @@ interface CameraResidualMatrixProps {
 /** Cameras × poses grid coloured by mean reprojection residual, reusing
  * the FrameCanvas severity scale. Only rendered for multi-camera
  * exports; click a cell to jump the viewer to that `(pose, camera)`
- * (B-UX2). Tooltip carries the exact numbers. */
+ *. Tooltip carries the exact numbers. */
 export function CameraResidualMatrix({
   residuals,
   selectedPose,

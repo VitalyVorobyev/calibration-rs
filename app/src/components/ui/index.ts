@@ -1,4 +1,4 @@
-/** Internal component set (B-UX1-DESIGN-SYSTEM). See the "Design system"
+/** Internal component set. See the "Design system"
  * section in app/README.md for the rules on adding to this set — small,
  * exactly what the app needs, nothing speculative. */
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from "./Button";

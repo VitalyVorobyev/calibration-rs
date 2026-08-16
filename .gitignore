@@ -1,19 +1,38 @@
 target
-stereo
-Cargo.lock
-DS8
 *.pyc
-data/stereo_charuco
-REVIEW.md
-crates/vision-calibration-bench/registry/private.json
-# Internal — benchmark progress reports, planning docs, task tracker
-docs/report/
-docs/internal/
-docs/backlog.md
-# `app/src-tauri/` is a binary (the diagnose viewer) — the rest of the
-# workspace is libraries. Binaries pin their dep tree via Cargo.lock, so
-# override the global ignore for that one path.
+__pycache__/
+.DS_Store
+
+# Calibration image sets. Only `data/kuka_1` is committed (via LFS) and so
+# only it can run in CI; the rest are large and local-only. Their `.toml`
+# descriptors next to them are tracked and stay tracked — an ignore rule
+# does not untrack an existing file.
+/data/stereo/
+/data/stereo_charuco/
+/data/DS8/
+
+# Private dataset registry: paths and gates for datasets that are not ours
+# to publish. The *baselines* derived from them are committed, deliberately
+# — they hold reprojection statistics only.
+/crates/vision-calibration-bench/registry/private.json
+
+# Lockfiles. The workspace root's is tracked, and so is `app/src-tauri/`'s
+# (that crate is a binary, and binaries pin their dep tree). The rule below
+# exists for `crates/vision-calibration-examples-private/`, which is its own
+# workspace and whose lockfile we do not carry.
+Cargo.lock
+!/Cargo.lock
 !/app/src-tauri/Cargo.lock
+
+# Scratch output from the review skills.
+REVIEW.md
+
+# Retired per-task working notes. New ones stay local; the ~20 already
+# committed here stay committed, because ADRs and proof-pack notes link to
+# them. The durable record of completed work is `docs/backlog-archive.md`,
+# not these.
+docs/internal/
+
 # codegraph daemon runtime state (machine-local)
 .codegraph/daemon.pid
 .codegraph/codegraph.lock

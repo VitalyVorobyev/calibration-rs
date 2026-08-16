@@ -57,7 +57,7 @@ pub fn detect_pure_rotation(parallax_angles: &[Real], threshold_deg: Real) -> bo
         return true;
     }
     let mut sorted = parallax_angles.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sorted.sort_by(|a, b| a.total_cmp(b));
     let median = sorted[sorted.len() / 2];
     median < threshold_deg
 }
@@ -115,7 +115,7 @@ pub fn analyze_scene(corrs: &[Correspondence2D], r: &Mat3, t: &Vec3) -> SceneDia
         0.0
     } else {
         let mut sorted = parallax_angles.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(|a, b| a.total_cmp(b));
         sorted[sorted.len() / 2]
     };
 
@@ -133,7 +133,7 @@ pub fn analyze_scene(corrs: &[Correspondence2D], r: &Mat3, t: &Vec3) -> SceneDia
         if depths.is_empty() {
             0.0
         } else {
-            depths.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            depths.sort_by(|a, b| a.total_cmp(b));
             let median_depth = depths[depths.len() / 2];
             if median_depth.abs() > 1e-12 {
                 t.norm() / median_depth

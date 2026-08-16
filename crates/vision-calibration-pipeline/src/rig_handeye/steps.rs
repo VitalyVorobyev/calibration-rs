@@ -1564,7 +1564,7 @@ pub fn step_rig_init(
 /// - Optionally: per-camera intrinsics (if `refine_intrinsics_in_rig_ba` is true)
 ///
 /// The reference camera (`rig.reference_camera_idx`) alone removes the rig's
-/// full 6-DOF gauge freedom; no rig-from-target pose is fixed (ADR 0024 D2 —
+/// full 6-DOF gauge freedom; no rig-from-target pose is fixed (see [ADR 0024](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/adrs/0024-config-vocabulary.md) —
 /// the old `fix_first_rig_pose` knob was evidence-backed redundant and
 /// mildly pessimizing; see `docs/notes/rig-extrinsics.md` §Gauge).
 ///
@@ -1618,7 +1618,7 @@ pub fn step_rig_optimize(
         .map(|i| i == config.rig.reference_camera_idx)
         .collect();
 
-    // ADR 0024 D2: the reference-camera fix above removes the full 6-DOF rig
+    // The reference-camera fix above removes the full 6-DOF rig
     // gauge on its own; no rig-from-target pose is additionally pinned (the
     // old `fix_first_rig_pose` knob was evidence-backed redundant and mildly
     // pessimizing; see `docs/notes/rig-extrinsics.md` §Gauge).

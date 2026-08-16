@@ -1,4 +1,4 @@
-/** Shared setup for jsdom component tests (B-QUAL3). Only wired for the
+/** Shared setup for jsdom component tests. Only wired for the
  * `jsdom` project via `vitest.config.ts`'s `environmentMatchGlobs` — the
  * guards below make it a no-op when it happens to load under the plain
  * `node` environment (the pure-logic unit tests), so one setup file

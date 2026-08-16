@@ -20,7 +20,6 @@
 //!   Only meaningful for multi-camera rigs.
 //! - [`ReprojLevel::HandEye`] — the board pose comes from the robot pose composed
 //!   with the hand-eye chain (fully constrained). This is the headline number.
-//! - [`ReprojLevel::Laser`] — reserved; unused by the builders here.
 //!
 //! Reading the deltas:
 //!
@@ -78,8 +77,6 @@ pub enum ReprojLevel {
     RigExtrinsic,
     /// Board pose from the robot pose composed with the hand-eye chain.
     HandEye,
-    /// Reserved for laser-plane residuals; unused by the builders here.
-    Laser,
 }
 
 /// Aggregate statistics over the finite `error_px` values of a residual slice.
@@ -271,9 +268,8 @@ impl ReprojReport {
 fn level_rank(level: ReprojLevel) -> u8 {
     match level {
         ReprojLevel::Intrinsic => 0,
-        ReprojLevel::Laser => 1,
-        ReprojLevel::RigExtrinsic => 2,
-        ReprojLevel::HandEye => 3,
+        ReprojLevel::RigExtrinsic => 1,
+        ReprojLevel::HandEye => 2,
     }
 }
 
@@ -291,7 +287,7 @@ pub fn planar_intrinsics_report<M>(
     export: &PlanarIntrinsicsExport,
     views: &[View<M>],
 ) -> Result<ReprojReport, Error> {
-    let cam = export.params.build_camera();
+    let cam = export.params.build_camera()?;
     let k = export.params.intrinsics();
     let residuals = if !export.per_feature_residuals.target.is_empty() {
         export.per_feature_residuals.target.clone()
@@ -370,11 +366,11 @@ pub fn rig_extrinsics_report<M>(
 /// versus the rig + robot + hand-eye chain — the multi-camera analogue of the
 /// single-camera hand-eye diagnostic.
 ///
-/// A separate `RigExtrinsic` level is omitted by this legacy builder because
-/// the export's `rig_se3_target` is itself derived from the hand-eye chain, so
-/// reprojecting through `cam_se3_rig * rig_se3_target` would reproduce the
-/// `HandEye` level exactly. Use [`rig_handeye_report_with_rig_stage`] when the
-/// caller has retained the rig-BA poses.
+/// This builder reports two levels, not three: the export's `rig_se3_target`
+/// is itself derived from the hand-eye chain, so reprojecting through
+/// `cam_se3_rig * rig_se3_target` would reproduce the `HandEye` level exactly.
+/// Use [`rig_handeye_report_with_rig_stage`] instead when the caller still has
+/// the rig-BA poses, which gives a genuinely independent middle level.
 pub fn rig_handeye_report<M>(
     export: &RigHandeyeExport,
     dataset: &RigDataset<M>,

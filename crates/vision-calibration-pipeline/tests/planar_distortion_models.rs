@@ -229,7 +229,7 @@ fn rational8_pipeline_noiseless_round_trip() {
     assert!((k_out.fy - k_gt.fy).abs() < 5.0, "fy not converged");
 
     // Verify reprojection with the exported camera model.
-    let cam_out = export.params.build_camera();
+    let cam_out = export.params.build_camera().unwrap();
     let rms_check = reproj_rms(&cam_out, &dataset, &export.params.camera_se3_target);
     println!("[Rational8] direct reproj rms={rms_check:.4e}");
     assert!(
@@ -278,7 +278,7 @@ fn thinprism9_pipeline_noiseless_round_trip() {
     assert!((k_out.fx - k_gt.fx).abs() < 5.0, "fx not converged");
     assert!((k_out.fy - k_gt.fy).abs() < 5.0, "fy not converged");
 
-    let cam_out = export.params.build_camera();
+    let cam_out = export.params.build_camera().unwrap();
     let rms_check = reproj_rms(&cam_out, &dataset, &export.params.camera_se3_target);
     println!("[ThinPrism9] direct reproj rms={rms_check:.4e}");
     assert!(
@@ -319,7 +319,7 @@ fn division1_pipeline_noiseless_round_trip() {
     assert!((k_out.fx - k_gt.fx).abs() < 5.0, "fx not converged");
     assert!((k_out.fy - k_gt.fy).abs() < 5.0, "fy not converged");
 
-    let cam_out = export.params.build_camera();
+    let cam_out = export.params.build_camera().unwrap();
     let rms_check = reproj_rms(&cam_out, &dataset, &export.params.camera_se3_target);
     println!("[Division1] direct reproj rms={rms_check:.4e}");
     assert!(
@@ -405,7 +405,7 @@ fn planar_config_distortion_model_json_roundtrip() {
 
 #[test]
 fn planar_config_missing_distortion_model_defaults_to_bc5() {
-    // Simulate a pre-M-WIRE config JSON that has no `distortion_model` field.
+    // Simulate a config JSON written before `distortion_model` existed that has no `distortion_model` field.
     // Serialize the default config, strip the distortion_model key, and verify
     // deserialization still produces BrownConrady5 (via #[serde(default=...)]).
     let default_config = PlanarIntrinsicsConfig::default();

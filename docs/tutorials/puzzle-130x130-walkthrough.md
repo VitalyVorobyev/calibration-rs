@@ -178,5 +178,3 @@ stack.
 - [ADR 0006](../adrs/0006-layered-crate-architecture.md) — why the
   workspace is split into `core` / `linear` / `optim` / `pipeline` /
   facade.
-- [Roadmap](../ROADMAP.md) — where the puzzle rig sits in the broader
-  plan.

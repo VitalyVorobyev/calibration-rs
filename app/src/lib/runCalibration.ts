@@ -2,7 +2,7 @@
  * Tauri commands. Mirrors the Rust `RunResponse` enum (see
  * app/src-tauri/src/run.rs) so the React side can match on `kind` rather
  * than parsing strings, and streams stage progress over a
- * `tauri::ipc::Channel<RunProgress>` (B-UX2). */
+ * `tauri::ipc::Channel<RunProgress>`. */
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { RunProgress, RunStage } from "../types/generated/diagnose-wire";
 

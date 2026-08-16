@@ -145,11 +145,14 @@ impl<E> ExportRecord<E> {
 }
 
 /// Get the current Unix timestamp in seconds.
+///
+/// A clock set before 1970 yields `0` rather than panicking: this stamps
+/// session metadata and export records, and a nonsense timestamp is a far
+/// better outcome there than aborting a calibration that has already run.
 pub fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
+        .map_or(0, |d| d.as_secs())
 }
 
 #[cfg(test)]

@@ -151,7 +151,7 @@ impl<S: RealField + Copy> DistortionModel<S> for RationalPolynomial<S> {
         // for extreme wide-FOV inputs (radius >~ 1.3 with strong terms), where
         // the map is still invertible but the fixed point oscillates — same
         // limitation as OpenCV `undistortPoints`. A robust wide-FOV inverse
-        // (Newton / 1D-radial solve) is tracked under backlog `M-WIRE`.
+        // (Newton / 1D-radial solve) is not implemented.
         let xd = n_dist.x;
         let yd = n_dist.y;
         let mut x = xd;
@@ -382,7 +382,7 @@ mod tests {
         }
     }
 
-    /// Codex P2 guard: a strong positive-k1 pincushion at normalized radius ~1
+    /// A strong positive-k1 pincushion at normalized radius ~1
     /// must round-trip through the iterative inverse without diverging or NaN.
     /// The previous `x -= distort(x) - x_d` update overshot badly here.
     #[test]

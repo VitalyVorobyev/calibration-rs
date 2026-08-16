@@ -34,7 +34,7 @@
       "type": "object"
     },
     "DistortionKind": {
-      "description": "Distortion slot of a [`CameraModelDesc`].\n\n`dim() == 0` means the factor takes no distortion parameter block.",
+      "description": "Which distortion model a camera carries.\n\n`dim() == 0` means the factor takes no distortion parameter block.",
       "oneOf": [
         {
           "const": "none",
@@ -64,6 +64,7 @@
       ]
     },
     "IntrinsicsInitConfig": {
+      "additionalProperties": false,
       "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
       "properties": {
         "fix_k3": {
@@ -94,6 +95,7 @@
       "type": "object"
     },
     "RigConfig": {
+      "additionalProperties": false,
       "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nShared by every rig problem's `rig` config group (`RigExtrinsicsConfig`\ntoday; `RigHandeyeConfig` follows in a later ADR 0024 wave).",
       "properties": {
         "reference_camera_idx": {
@@ -283,6 +285,7 @@
       ]
     },
     "SolverConfig": {
+      "additionalProperties": false,
       "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor the Scheimpflug single-cam tilt valley; 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
       "properties": {
         "max_iters": {
@@ -311,7 +314,8 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Configuration for multi-camera rig extrinsics calibration.\n\nGrouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\nD2 (ADR 0024) removed the old `fix_first_rig_pose: bool = true` field:\nthe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge, and the extra per-view pose constraint was\nevidence-backed redundant and mildly pessimizing (see\n`docs/notes/rig-extrinsics.md` §Gauge). View-0's rig-from-target pose is\nnow always free in the rig BA.",
+  "additionalProperties": false,
+  "description": "Configuration for multi-camera rig extrinsics calibration.\n\nGrouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\n0.7.0 removed the old `fix_first_rig_pose: bool = true` field:\nthe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge, and the extra per-view pose constraint was\nevidence-backed redundant and mildly pessimizing (see\n`docs/notes/rig-extrinsics.md` §Gauge). View-0's rig-from-target pose is\nnow always free in the rig BA.",
   "properties": {
     "intrinsics": {
       "$ref": "#/$defs/IntrinsicsInitConfig",

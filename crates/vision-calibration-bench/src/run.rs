@@ -726,7 +726,7 @@ pub mod tier_b {
     ) -> Result<ScheimpflugSeededSolve> {
         // `ScheimpflugIntrinsicsConfig::fix_scheimpflug` takes the single canonical
         // `vision_calibration_optim::ScheimpflugFixMask` (already imported at module
-        // scope; R1 API audit merged the former pipeline-local duplicate into it).
+        // scope; 0.7.0 merged the former pipeline-local duplicate into it).
         use vision_calibration::scheimpflug_intrinsics::{
             ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
             step_init_with_seed as sch_step_init_with_seed, step_optimize as sch_step_optimize,
@@ -769,7 +769,7 @@ pub mod tier_b {
     /// solve-configuration details.
     ///
     /// The from-scratch multistart stays in [`diagnose_intrinsics`]
-    /// (informational — V7 is parked); this seeded path is what
+    /// (informational); this seeded path is what
     /// `calib-bench accept` gates on.
     pub fn run_scheimpflug_intrinsics(entry: &BenchEntry) -> Result<BenchRecord> {
         anyhow::ensure!(
@@ -833,7 +833,7 @@ pub mod tier_b {
             // Single-camera Scheimpflug intrinsics emits Fit-only metrics and no
             // camera artifact. The `camera_artifact("brown_conrady5", …)` path is
             // reached only by the rig runs, which stay Brown-Conrady even after the
-            // Q4-MWIRE distortion-model selection (rig BA is BC5-typed).
+            // Distortion-model selection (rig BA is BC5-typed).
             artifacts: None,
             delta_to_prior: None,
             timing,
@@ -1814,7 +1814,7 @@ pub mod tier_b {
     ///
     /// **Informational only** (S4, 2026-07-02): the 0.4 px threshold below
     /// grades the *from-scratch* multistart floor, which is an experimental
-    /// path — V7 is parked. The acceptance gate is the seeded official
+    /// path. The acceptance gate is the seeded official
     /// route (`calib-bench accept`, per-entry `AcceptGate`); a `pass:
     /// false` in this report is a data point, not a failure of the dataset.
     pub fn diagnose_intrinsics(entry: &BenchEntry) -> Result<IntrinsicsDiagnoseReport> {
@@ -2864,7 +2864,10 @@ pub mod tier_b {
             return Ok(None);
         }
 
-        progress(entry, "extracting laser observations for V5 joint BA");
+        progress(
+            entry,
+            "extracting laser observations for the joint bundle adjustment",
+        );
         let n_cam = entry.cameras.len();
         let mut per_cam_images_used = vec![0usize; n_cam];
         let mut per_cam_points = vec![0usize; n_cam];
@@ -3071,7 +3074,7 @@ pub mod tier_b {
         progress(
             entry,
             format!(
-                "V5 laserline + joint BA over {} laser views",
+                "laserline + joint BA over {} laser views",
                 observations.views.len()
             ),
         );
@@ -3106,10 +3109,10 @@ pub mod tier_b {
             .set_config(laser_cfg)
             .context("set laserline config failed")?;
         run_rig_laserline_device_calibration(&mut laser_session)
-            .context("RigLaserlineDevice V5 stage failed")?;
+            .context("RigLaserlineDevice stage failed")?;
         let laser_export = laser_session
             .export()
-            .context("export V5 laserline stage failed")?;
+            .context("export laserline stage failed")?;
 
         let mut laser_metrics = observations.metrics;
         apply_laserline_stage_stats(&mut laser_metrics, &laser_export.per_camera_stats);
@@ -3196,7 +3199,7 @@ pub mod tier_b {
         };
         let joint_est =
             optimize_rig_handeye_laserline(joint_dataset, joint_initial, joint_opts, backend_opts)
-                .context("final V5 optimize_rig_handeye_laserline failed")?;
+                .context("final optimize_rig_handeye_laserline failed")?;
         apply_joint_laser_stats(&mut laser_metrics, &joint_est.per_cam_stats);
 
         Ok(Some(JointV5Result {

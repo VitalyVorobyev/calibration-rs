@@ -941,7 +941,7 @@
               "$ref": "#/definitions/ExportKind"
             }
           ],
-          "description": "Export-type discriminator (R7) — always [`ExportKind::LaserlineDevice`]."
+          "description": "Export-type discriminator — always [`ExportKind::LaserlineDevice`]."
         },
         "mean_reproj_error": {
           "description": "Mean reprojection error (pixels).",
@@ -1199,7 +1199,7 @@
               "$ref": "#/definitions/ExportKind"
             }
           ],
-          "description": "Export-type discriminator (R7) — always [`ExportKind::PlanarIntrinsics`]."
+          "description": "Export-type discriminator — always [`ExportKind::PlanarIntrinsics`]."
         },
         "mean_reproj_error": {
           "description": "Mean reprojection error (pixels).",
@@ -1359,7 +1359,7 @@
               "$ref": "#/definitions/ExportKind"
             }
           ],
-          "description": "Export-type discriminator (R7) — always [`ExportKind::RigExtrinsics`]."
+          "description": "Export-type discriminator — always [`ExportKind::RigExtrinsics`]."
         },
         "mean_reproj_error": {
           "description": "Mean reprojection error (pixels).",
@@ -1487,7 +1487,7 @@
               "$ref": "#/definitions/ExportKind"
             }
           ],
-          "description": "Export-type discriminator (R7) — always [`ExportKind::RigHandeye`]."
+          "description": "Export-type discriminator — always [`ExportKind::RigHandeye`]."
         },
         "mean_reproj_error": {
           "description": "Mean reprojection error (pixels).",
@@ -1643,7 +1643,7 @@
               "$ref": "#/definitions/ExportKind"
             }
           ],
-          "description": "Export-type discriminator (R7) — always [`ExportKind::RigHandeyeLaserline`]."
+          "description": "Export-type discriminator — always [`ExportKind::RigHandeyeLaserline`]."
         },
         "laser_planes_cam": {
           "description": "Per-camera laser planes in camera frame.",
@@ -1840,7 +1840,7 @@
         },
         "cameras": {
           "default": [],
-          "description": "Frozen upstream cameras (pinhole part), echoed so the export is\nself-contained for downstream viewers (3D rig scene, epipolar) —\nsame field names as `RigHandeyeExport`. Empty on pre-B-laser\nexports (`serde(default)`).",
+          "description": "Frozen upstream cameras (pinhole part), echoed so the export is\nself-contained for downstream viewers (3D rig scene, epipolar) —\nsame field names as `RigHandeyeExport`. Empty on older\nexports (`serde(default)`).",
           "items": {
             "$ref": "#/definitions/Camera"
           },
@@ -1863,7 +1863,7 @@
               "$ref": "#/definitions/ExportKind"
             }
           ],
-          "description": "Export-type discriminator (R7) — always [`ExportKind::RigLaserlineDevice`]."
+          "description": "Export-type discriminator — always [`ExportKind::RigLaserlineDevice`]."
         },
         "laser_planes_cam": {
           "description": "Per-camera laser planes in their own camera frames.",
@@ -1946,7 +1946,7 @@
       "type": "object"
     },
     "RunStage": {
-      "description": "Coarse pipeline stage a run is currently executing. The runner\nexposes exactly these three boundaries without reaching into the\nper-topology `run_calibration` wrappers (each of which fuses\ninit + optimize) or the `dataset_runner` build functions (which fuse\nimage decode + feature detection and loop cameras internally with no\ncallback). Finer granularity — per-camera detection, per-LM-iteration\n— would require a progress hook threaded through the core crates; the\npipeline API has none today (see the module docs / B-UX2 report).",
+      "description": "Coarse pipeline stage a run is currently executing. The runner\nexposes exactly these three boundaries without reaching into the\nper-topology `run_calibration` wrappers (each of which fuses\ninit + optimize) or the `dataset_runner` build functions (which fuse\nimage decode + feature detection and loop cameras internally with no\ncallback). Finer granularity — per-camera detection, per-LM-iteration\n— would require a progress hook threaded through the core crates; the\npipeline API has none today (see the module docs).",
       "oneOf": [
         {
           "const": "detect",
@@ -1985,7 +1985,7 @@
               "$ref": "#/definitions/ExportKind"
             }
           ],
-          "description": "Export-type discriminator (R7) — always [`ExportKind::ScheimpflugIntrinsics`]."
+          "description": "Export-type discriminator — always [`ExportKind::ScheimpflugIntrinsics`]."
         },
         "mean_reproj_error": {
           "description": "Mean per-point reprojection error in pixels.",
@@ -2232,7 +2232,7 @@
               "$ref": "#/definitions/ExportKind"
             }
           ],
-          "description": "Export-type discriminator (R7) — always [`ExportKind::SingleCamHandeye`]."
+          "description": "Export-type discriminator — always [`ExportKind::SingleCamHandeye`]."
         },
         "mean_reproj_error": {
           "description": "Mean reprojection error (pixels).",
@@ -2376,7 +2376,7 @@
       "type": "object"
     }
   },
-  "description": "Generated wire types for the diagnose app (B-QUAL2). Do not edit by hand — run `bun run generate:types`. The top-level wrapper only anchors the `definitions`; consumers import the individual interfaces.",
+  "description": "Generated wire types for the diagnose app. Do not edit by hand — run `bun run generate:types`. The top-level wrapper only anchors the `definitions`; consumers import the individual interfaces.",
   "properties": {
     "disparity_result": {
       "$ref": "#/definitions/DisparityResult"

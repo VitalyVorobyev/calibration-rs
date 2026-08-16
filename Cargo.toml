@@ -14,7 +14,7 @@ members = [
     "xtask",
 ]
 # `app/src-tauri/` is its own crate — it pulls in the Tauri build-time
-# dep tree and is built from `app/` (or via `npm run tauri dev`), not
+# dep tree and is built from `app/` (or via `bun run tauri dev`), not
 # from the workspace root. See ADR 0014.
 exclude = ["app"]
 
@@ -73,7 +73,12 @@ criterion = "0.8"
 # `calib-targets`' default feature set includes `cli`, which drags `clap` and
 # a binary target into every consumer. We only need the `image`-backed
 # `detect` helpers.
-calib-targets = { version = "0.12", default-features = false, features = ["image"] }
+#
+# The floor is 0.12.1, not 0.12: 0.12.0's grid builder could label a planar
+# board non-projectively — several lattice nodes collapsed onto one pixel, or
+# a sub-block displaced by a whole lattice step — which passes a corner-count
+# check while making the view's pose meaningless.
+calib-targets = { version = "0.12.1", default-features = false, features = ["image"] }
 ringgrid = "0.11"
 
 [workspace.lints.rust]

@@ -1,5 +1,5 @@
 //! Regression test for the `planar_synthetic_with_images` example
-//! (Track B / ADR 0014 fixture for the diagnose UI).
+//! (ADR 0014 fixture for the diagnose UI).
 //!
 //! Calls the same generation function the example does, into a tempdir,
 //! and asserts:

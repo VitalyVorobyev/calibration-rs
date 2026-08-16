@@ -222,7 +222,7 @@ fn pipeline_converges_rig_laserline() {
 
     // Viewer contract: the export echoes the frozen upstream rig
     // geometry so the diagnose / 3D workspaces can render it without
-    // the hand-eye export (B-laser). Same field names as
+    // the hand-eye export. Same field names as
     // RigHandeyeExport.
     assert_eq!(export.cameras.len(), 2);
     assert_eq!(export.cam_se3_rig.len(), 2);

@@ -98,7 +98,7 @@ bun run test:e2e       # Playwright smoke: boots the app, checks it doesn't fall
 
 ## Design system
 
-B-UX1-DESIGN-SYSTEM consolidated the hand-rolled chrome that had
+A shared component set consolidated the hand-rolled chrome that had
 accumulated across the five workspaces (buttons, panels, section headers,
 toolbar selects, tables, status banners, empty states — each workspace had
 grown its own copy) into one small component set, and closed the token
@@ -183,7 +183,7 @@ today, not a speculative general-purpose design system.
 ### Run progress & cancellation
 
 Long solves stream **stage progress** and are **cancellable at stage
-boundaries** (B-UX2). The wiring, end to end:
+boundaries**. The wiring, end to end:
 
 - The frontend mints a per-run `runId` (`crypto.randomUUID`) and a
   `tauri::ipc::Channel<RunProgress>`, and passes both to
@@ -231,8 +231,8 @@ any machine: no extra dev-root configuration, no bundled-resource plumbing
 (which wouldn't apply to `privatedata/` presets anyway — private datasets
 are never meant to ship inside an installer). True asset bundling via
 Tauri's `resource_dir` API remains a distinct, separate concern for
-`B-DIST` (shipping *public* bundled datasets inside a release installer),
-not the dev-preset path.
+shipping *public* bundled datasets inside a release installer, not the
+dev-preset path.
 
 ### Testing (`bun run test` / `bun run test:e2e`)
 
@@ -277,7 +277,7 @@ Two layers, run by different tools:
 
 The TypeScript interfaces the app uses for calibration `*Export` payloads
 and Tauri command responses are **generated from the Rust types**, not
-hand-written (B-QUAL2). The single source of truth is the
+hand-written. The single source of truth is the
 `#[derive(schemars::JsonSchema)]` on the pipeline `*Export` types and the
 `app/src-tauri` command structs; edit those and regenerate. Two stages:
 
@@ -300,6 +300,5 @@ generated shapes.
 ## Out of scope
 
 Signed installers, in-app detection wrap beyond the Run workspace, and
-init-failure diagnosis remain open backlog items — see `docs/backlog.md`
-(`B-DIST-INSTALLERS` and related `B-*` entries) and ADR 0014's
+init-failure diagnosis are not implemented; see ADR 0014's
 deferred-features list.

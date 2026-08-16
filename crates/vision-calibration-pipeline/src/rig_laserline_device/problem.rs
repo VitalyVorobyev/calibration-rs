@@ -119,6 +119,7 @@ pub struct RigLaserlineDeviceInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct RigLaserlineDeviceConfig {
     /// Non-linear solve stage settings. `robust_loss` is **not consulted**
     /// by this problem — the underlying per-camera laserline solver picks
@@ -147,7 +148,7 @@ impl Default for RigLaserlineDeviceConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigLaserlineDeviceExport {
-    /// Export-type discriminator (R7) — always [`ExportKind::RigLaserlineDevice`].
+    /// Export-type discriminator — always [`ExportKind::RigLaserlineDevice`].
     pub kind: ExportKind,
     /// Per-camera laser planes in rig frame.
     pub laser_planes_rig: Vec<LaserPlane>,
@@ -158,7 +159,7 @@ pub struct RigLaserlineDeviceExport {
 
     /// Frozen upstream cameras (pinhole part), echoed so the export is
     /// self-contained for downstream viewers (3D rig scene, epipolar) —
-    /// same field names as `RigHandeyeExport`. Empty on pre-B-laser
+    /// same field names as `RigHandeyeExport`. Empty on older
     /// exports (`serde(default)`).
     #[serde(default)]
     pub cameras: Vec<PinholeCamera>,

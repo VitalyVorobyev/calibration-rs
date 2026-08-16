@@ -239,12 +239,12 @@ export type HandEyeMode = "EyeInHand" | "EyeToHand";
  * image decode + feature detection and loop cameras internally with no
  * callback). Finer granularity — per-camera detection, per-LM-iteration
  * — would require a progress hook threaded through the core crates; the
- * pipeline API has none today (see the module docs / B-UX2 report).
+ * pipeline API has none today (see the module docs).
  */
 export type RunStage = "detect" | "solve" | "export";
 
 /**
- * Generated wire types for the diagnose app (B-QUAL2). Do not edit by hand — run `bun run generate:types`. The top-level wrapper only anchors the `definitions`; consumers import the individual interfaces.
+ * Generated wire types for the diagnose app. Do not edit by hand — run `bun run generate:types`. The top-level wrapper only anchors the `definitions`; consumers import the individual interfaces.
  */
 export interface DiagnoseWireTypes {
   disparity_result?: DisparityResult;
@@ -380,7 +380,7 @@ export interface LaserlineDeviceExport {
    */
   image_manifest?: ImageManifest | null;
   /**
-   * Export-type discriminator (R7) — always [`ExportKind::LaserlineDevice`].
+   * Export-type discriminator — always [`ExportKind::LaserlineDevice`].
    */
   kind: ExportKind;
   /**
@@ -826,7 +826,7 @@ export interface PlanarIntrinsicsExport {
    */
   image_manifest?: ImageManifest | null;
   /**
-   * Export-type discriminator (R7) — always [`ExportKind::PlanarIntrinsics`].
+   * Export-type discriminator — always [`ExportKind::PlanarIntrinsics`].
    */
   kind: ExportKind;
   /**
@@ -914,7 +914,7 @@ export interface RigExtrinsicsExport {
    */
   image_manifest?: ImageManifest | null;
   /**
-   * Export-type discriminator (R7) — always [`ExportKind::RigExtrinsics`].
+   * Export-type discriminator — always [`ExportKind::RigExtrinsics`].
    */
   kind: ExportKind;
   /**
@@ -1013,7 +1013,7 @@ export interface RigHandeyeExport {
    */
   image_manifest?: ImageManifest | null;
   /**
-   * Export-type discriminator (R7) — always [`ExportKind::RigHandeye`].
+   * Export-type discriminator — always [`ExportKind::RigHandeye`].
    */
   kind: ExportKind;
   /**
@@ -1090,7 +1090,7 @@ export interface RigHandeyeLaserlineExport {
    */
   image_manifest?: ImageManifest | null;
   /**
-   * Export-type discriminator (R7) — always [`ExportKind::RigHandeyeLaserline`].
+   * Export-type discriminator — always [`ExportKind::RigHandeyeLaserline`].
    */
   kind: ExportKind;
   /**
@@ -1197,7 +1197,7 @@ export interface RigLaserlineDeviceExport {
   /**
    * Frozen upstream cameras (pinhole part), echoed so the export is
    * self-contained for downstream viewers (3D rig scene, epipolar) —
-   * same field names as `RigHandeyeExport`. Empty on pre-B-laser
+   * same field names as `RigHandeyeExport`. Empty on older
    * exports (`serde(default)`).
    */
   cameras?: Camera[];
@@ -1212,7 +1212,7 @@ export interface RigLaserlineDeviceExport {
    */
   image_manifest?: ImageManifest | null;
   /**
-   * Export-type discriminator (R7) — always [`ExportKind::RigLaserlineDevice`].
+   * Export-type discriminator — always [`ExportKind::RigLaserlineDevice`].
    */
   kind: ExportKind;
   /**
@@ -1274,7 +1274,7 @@ export interface ScheimpflugIntrinsicsExport {
    */
   image_manifest?: ImageManifest | null;
   /**
-   * Export-type discriminator (R7) — always [`ExportKind::ScheimpflugIntrinsics`].
+   * Export-type discriminator — always [`ExportKind::ScheimpflugIntrinsics`].
    */
   kind: ExportKind;
   /**
@@ -1357,7 +1357,7 @@ export interface SingleCamHandeyeExport {
    */
   image_manifest?: ImageManifest | null;
   /**
-   * Export-type discriminator (R7) — always [`ExportKind::SingleCamHandeye`].
+   * Export-type discriminator — always [`ExportKind::SingleCamHandeye`].
    */
   kind: ExportKind;
   /**

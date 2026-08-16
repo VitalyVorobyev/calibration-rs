@@ -1,4 +1,4 @@
-//! In-process calibration runner for the Run workspace (B3b/B3c).
+//! In-process calibration runner for the Run workspace.
 //!
 //! Takes a JSON-encoded [`DatasetSpec`] manifest plus a JSON-encoded
 //! per-problem `*Config`, dispatches on the manifest's topology to the
@@ -81,7 +81,7 @@ pub struct RunSuccess {
     pub total_views: usize,
     /// Whether at least one detection was served from the cache.
     /// (Sanity check for "second run is faster"; precise per-image
-    /// hit/miss counts come in B3e.)
+    /// hit/miss counts are not surfaced yet.)
     pub cache_used: bool,
 }
 
@@ -92,7 +92,7 @@ pub struct RunSuccess {
 /// image decode + feature detection and loop cameras internally with no
 /// callback). Finer granularity — per-camera detection, per-LM-iteration
 /// — would require a progress hook threaded through the core crates; the
-/// pipeline API has none today (see the module docs / B-UX2 report).
+/// pipeline API has none today (see the module docs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -496,7 +496,7 @@ where
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = planar_run.usable_views > 0; // refined in B3e with hit/miss counts
+    let cache_used = planar_run.usable_views > 0; // hit/miss counts are not surfaced yet
 
     let mut export = match run_session::<P>(planar_run.dataset.clone(), config_json, run, ctx) {
         Ok(v) => v,
@@ -530,7 +530,7 @@ fn run_single_cam_handeye_topology(
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = handeye_run.usable_views > 0; // refined in B3e with hit/miss counts
+    let cache_used = handeye_run.usable_views > 0; // hit/miss counts are not surfaced yet
     let usable_views = handeye_run.usable_views;
     let total_views = handeye_run.total_views;
 
@@ -579,7 +579,7 @@ fn run_laserline_topology(
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = laser_run.usable_views > 0; // refined in B3e with hit/miss counts
+    let cache_used = laser_run.usable_views > 0; // hit/miss counts are not surfaced yet
     let usable_views = laser_run.usable_views;
     let total_views = laser_run.total_views;
 
@@ -634,7 +634,7 @@ fn run_rig_laserline_topology(
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = laser_run.usable_views > 0; // refined in B3e with hit/miss counts
+    let cache_used = laser_run.usable_views > 0; // hit/miss counts are not surfaced yet
     let usable_views = laser_run.usable_views;
     let total_views = laser_run.total_views;
     let view_paths = laser_run.view_paths.clone();
@@ -745,7 +745,7 @@ where
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = rig_run.usable_views > 0; // refined in B3e with hit/miss counts
+    let cache_used = rig_run.usable_views > 0; // hit/miss counts are not surfaced yet
     let usable_views = rig_run.usable_views;
     let total_views = rig_run.total_views;
 
@@ -1496,8 +1496,8 @@ mod tests {
             other => panic!("rig laserline stage: expected Ok, got {other:?}"),
         };
         // Persist the stage-2 export so the app can open it (laser
-        // overlay + 3D planes). Stop-gap until B3e ships in-app
-        // "save export to file".
+        // overlay + 3D planes). Stop-gap until the app grows a
+        // "save export to file" action.
         std::fs::write(
             data_dir.join("rig_laserline_export.json"),
             serde_json::to_string(&laser.export).unwrap(),

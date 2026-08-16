@@ -78,13 +78,13 @@ impl SingleCamHandeyeState {
     }
 
     /// Check if hand-eye optimization has been run.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
+    #[cfg(test)]
     pub fn has_handeye_optimized(&self) -> bool {
         self.handeye_final_cost.is_some()
     }
 
     /// Clear hand-eye results, keeping intrinsics.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
+    #[cfg(test)]
     pub fn clear_handeye(&mut self) {
         self.initial_gripper_se3_camera = None;
         self.initial_camera_se3_base = None;
@@ -92,12 +92,6 @@ impl SingleCamHandeyeState {
         self.initial_gripper_se3_target = None;
         self.handeye_final_cost = None;
         self.handeye_reproj_error = None;
-    }
-
-    /// Clear everything.
-    #[allow(dead_code)] // state-introspection helper; exercised by unit tests
-    pub fn clear(&mut self) {
-        *self = Self::default();
     }
 }
 

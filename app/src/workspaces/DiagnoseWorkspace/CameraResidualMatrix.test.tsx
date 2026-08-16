@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** Component test for the cross-camera residual matrix (B-UX2): renders a
+/** Component test for the cross-camera residual matrix: renders a
  * cameras × poses grid for multi-camera exports, jumps to (pose, camera)
  * on cell click, and renders nothing for single-camera exports. The
  * aggregation is covered by `lib/residualStats.test.ts`. */

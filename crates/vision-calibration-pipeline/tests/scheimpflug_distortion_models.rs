@@ -101,7 +101,7 @@ fn make_dataset<C: CameraProject>(camera: &C, poses: &[Iso3]) -> PlanarDataset {
 }
 
 fn reproj_rms(export: &ScheimpflugIntrinsicsExport, dataset: &PlanarDataset) -> f64 {
-    let camera = export.params.camera.build();
+    let camera = export.params.camera.build().unwrap();
     let poses = &export.params.camera_se3_target;
     let mut sum_sq = 0.0;
     let mut n = 0usize;
@@ -422,7 +422,7 @@ fn config_distortion_model_json_roundtrip() {
 
 #[test]
 fn config_missing_distortion_model_defaults_to_bc5() {
-    // A pre-M-WIRE config JSON has no `distortion_model` field: it must
+    // A config JSON written before `distortion_model` existed has no `distortion_model` field: it must
     // deserialize to BrownConrady5 via #[serde(default = ...)].
     let default_config = ScheimpflugIntrinsicsConfig::default();
     let mut json_val: serde_json::Value = serde_json::to_value(&default_config).unwrap();

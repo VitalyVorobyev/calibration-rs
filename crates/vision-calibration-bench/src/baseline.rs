@@ -1,4 +1,4 @@
-//! Committed regression baselines for the acceptance suite (Q2).
+//! Committed regression baselines for the acceptance suite.
 //!
 //! A baseline is a slim, committed snapshot of a dataset's accepted fit
 //! (`baselines/<dataset_id>.json`). `calib-bench accept` compares every
@@ -8,7 +8,7 @@
 //!
 //! Baselines hold only reprojection statistics (no images, no residual
 //! dumps), so private-dataset baselines are safe to commit; they carry the
-//! same information as the dated notes in `docs/backlog.md`.
+//! same information a run summary prints.
 
 use std::path::{Path, PathBuf};
 

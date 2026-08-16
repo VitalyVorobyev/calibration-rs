@@ -85,6 +85,7 @@ impl SingleCamHandeyeInput {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct SingleCamHandeyeConfig {
     /// Per-camera linear-initialization stage settings.
     pub intrinsics: IntrinsicsInitConfig,
@@ -108,7 +109,7 @@ pub struct SingleCamHandeyeConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct SingleCamHandeyeExport {
-    /// Export-type discriminator (R7) — always [`ExportKind::SingleCamHandeye`].
+    /// Export-type discriminator — always [`ExportKind::SingleCamHandeye`].
     pub kind: ExportKind,
 
     /// Calibrated camera (intrinsics + distortion).

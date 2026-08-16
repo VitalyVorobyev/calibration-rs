@@ -110,7 +110,7 @@ pub fn repo_root_cmd() -> Result<String, String> {
         })
 }
 
-/// Heuristically infer a `DatasetSpec` from a dataset folder (B3d).
+/// Heuristically infer a `DatasetSpec` from a dataset folder.
 ///
 /// Walks `folder`, groups images into cameras, detects a robot-pose file,
 /// and guesses the topology — leaving every field it cannot determine at a

@@ -135,4 +135,3 @@ consume it facade-only.
 - ADR 0016 — dataset manifest (the sibling schema and serde conventions)
 - ADR 0009 — pose naming (`frame_se3_frame`)
 - ADR 0019 — fail-fast on ambiguity (validation posture)
-- `docs/DESIGN-device-spec.md` — working design artifact for this change

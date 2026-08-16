@@ -65,7 +65,7 @@ describe("mergeConfig", () => {
   });
 });
 
-// B-QUAL4: manifestPath must stay repo-root-relative (RunWorkspace resolves
+// manifestPath must stay repo-root-relative (RunWorkspace resolves
 // it to an absolute path at load time via `repoRoot()` / `repo_root_cmd`),
 // so no developer's personal checkout path leaks back into source control.
 describe("BUILTIN_PRESETS manifest paths", () => {

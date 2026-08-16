@@ -100,6 +100,7 @@ pub struct RigHandeyeLaserlineOutput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct RigHandeyeLaserlineConfig {
     /// Warm-start rig hand-eye stage.
     pub handeye: RigHandeyeConfig,
@@ -128,7 +129,7 @@ impl Default for RigHandeyeLaserlineConfig {
 
 /// Final joint BA options (ADR 0024).
 ///
-/// D2 removed `fix_first_camera_extrinsic: bool`: the joint stage now always
+/// 0.7.0 removed `fix_first_camera_extrinsic: bool`: the joint stage now always
 /// pins the upstream rig's reference camera (`handeye.rig.reference_camera_idx`)
 /// — see `joint_fix_extrinsics`, fixing the old index-0 hard-coding bug.
 /// `JointCameraFixMask` (structurally identical to core's [`CameraFixMask`])
@@ -136,6 +137,7 @@ impl Default for RigHandeyeLaserlineConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct RigHandeyeLaserlineBaConfig {
     /// Non-linear solve stage settings for the joint stage.
     ///
@@ -205,7 +207,7 @@ impl Default for RigHandeyeLaserlineBaConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeLaserlineExport {
-    /// Export-type discriminator (R7) — always [`ExportKind::RigHandeyeLaserline`].
+    /// Export-type discriminator — always [`ExportKind::RigHandeyeLaserline`].
     pub kind: ExportKind,
     /// Per-camera laser planes in rig frame.
     pub laser_planes_rig: Vec<LaserPlane>,
@@ -500,7 +502,7 @@ pub(crate) fn joint_fix_scheimpflug(
     vec![config.fix_scheimpflug; n]
 }
 
-/// D2 (ADR 0024): the joint stage always pins the upstream rig's reference
+/// The joint stage always pins the upstream rig's reference
 /// camera extrinsic — the old `fix_first_camera_extrinsic: bool` knob
 /// hard-coded index 0 regardless of `reference_camera_idx` (a bug); this
 /// always honors the configured reference camera instead.

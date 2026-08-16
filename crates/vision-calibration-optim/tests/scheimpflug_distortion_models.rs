@@ -116,6 +116,7 @@ fn built_camera(params: &ScheimpflugIntrinsicsParams) -> CameraModel {
         },
     }
     .build()
+    .expect("Scheimpflug sensor homography is always invertible")
 }
 
 /// Mean reprojection RMS for a built camera over the dataset.

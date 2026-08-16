@@ -5,7 +5,7 @@ use super::{
     BrownConrady5, Camera, Division, FxFyCxCySkew, HomographySensor, IdentitySensor, NoDistortion,
     Pinhole, ProjectionModel, RationalPolynomial, ScheimpflugParams, SensorModel, ThinPrism,
 };
-use crate::Real;
+use crate::{Error, Real};
 
 /// Serializable projection model parameters.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -101,8 +101,13 @@ pub type CameraModel = Camera<Real, AnyProjection, AnyDistortion, AnySensor, Any
 impl CameraParams {
     /// Build a concrete camera model from this parameter set.
     ///
-    /// Panics if a provided homography is not invertible.
-    pub fn build(&self) -> CameraModel {
+    /// # Errors
+    ///
+    /// Returns [`Error::Singular`] if a
+    /// [`SensorParams::Homography`] is not invertible. `CameraParams`
+    /// deserializes straight from an export file, so this is reachable with
+    /// hand-edited or corrupted input, not only with a programming mistake.
+    pub fn build(&self) -> Result<CameraModel, Error> {
         let proj = match self.projection {
             ProjectionParams::Pinhole => AnyProjection::Pinhole(Pinhole),
         };
@@ -121,7 +126,7 @@ impl CameraParams {
                 let h = Matrix3::from_row_slice(&[
                     h[0][0], h[0][1], h[0][2], h[1][0], h[1][1], h[1][2], h[2][0], h[2][1], h[2][2],
                 ]);
-                let h_inv = h.try_inverse().expect("Homography not invertible");
+                let h_inv = h.try_inverse().ok_or(Error::Singular)?;
                 AnySensor::Homography(HomographySensor { h, h_inv })
             }
             SensorParams::Scheimpflug { params } => AnySensor::Homography(params.compile()),
@@ -131,7 +136,7 @@ impl CameraParams {
             IntrinsicsParams::FxFyCxCySkew { params } => AnyIntrinsics::FxFyCxCySkew(params),
         };
 
-        Camera::new(proj, dist, sensor, k)
+        Ok(Camera::new(proj, dist, sensor, k))
     }
 }
 
@@ -257,7 +262,7 @@ mod tests {
                 },
             },
         };
-        let cam = params.build();
+        let cam = params.build().unwrap();
         let px = cam.project_point_c(&nalgebra::Vector3::new(0.1, 0.2, 1.0));
         assert!(px.is_some());
     }

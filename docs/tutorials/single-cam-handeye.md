@@ -208,8 +208,7 @@ today:
   let input = result.input;
   ```
 
-- **`spec.json`** ([ADR 0023](../adrs/0023-device-spec-seed-derivation.md),
-  design record: [`docs/DESIGN-device-spec.md`](../DESIGN-device-spec.md))
+- **`spec.json`** ([ADR 0023](../adrs/0023-device-spec-seed-derivation.md))
   describes *the physical device*: lens focal length, pixel pitch,
   Scheimpflug mount tilt, nominal rig layout. It feeds
   `vision_calibration::device_seed`'s derivation functions

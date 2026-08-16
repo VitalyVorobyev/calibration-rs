@@ -14,6 +14,7 @@ use vision_calibration_optim::{
     LaserPlane, LaserlineParams, LaserlineStats, compute_laserline_stats, optimize_laserline,
 };
 
+use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
 use super::problem::{LaserlineDeviceConfig, LaserlineDeviceOutput, LaserlineDeviceProblem};
@@ -321,15 +322,6 @@ pub fn step_init_with_seed(
         plane,
         plane_rmse,
     })
-}
-
-fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
-    match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
-        (false, true) => format!("(manual: {})", manual.join(", ")),
-        (true, false) => format!("(auto: {})", auto.join(", ")),
-        (true, true) => "(empty)".to_string(),
-    }
 }
 
 /// Initialize intrinsics, poses, and laser plane from observations using full

@@ -25,7 +25,7 @@ pub type ScheimpflugIntrinsicsInput = PlanarDataset;
 ///
 /// Re-exported from `vision-calibration-optim`, which owns the single
 /// canonical definition; this pipeline module used to keep a byte-identical
-/// duplicate (R1 API audit, 2026-07-08 merged them into one type).
+/// duplicate (0.7.0 merged them into one type).
 pub use vision_calibration_optim::ScheimpflugFixMask;
 
 /// Configuration for planar Scheimpflug intrinsics calibration.
@@ -40,6 +40,7 @@ pub use vision_calibration_optim::ScheimpflugFixMask;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct ScheimpflugIntrinsicsConfig {
     /// Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
@@ -47,7 +48,7 @@ pub struct ScheimpflugIntrinsicsConfig {
     pub solver: SolverConfig,
     /// Distortion model refined during optimization.
     ///
-    /// Brown-Conrady5 is the default and is byte-identical to the pre-M-WIRE
+    /// Brown-Conrady5 is the default and is byte-identical to the pre-0.7.0
     /// path. The extended models (Rational8, ThinPrism9, Division1) are wired
     /// through the single-camera Scheimpflug path; the linear init always
     /// produces Brown-Conrady coefficients, which are embedded into the chosen
@@ -118,7 +119,7 @@ pub struct ScheimpflugIntrinsicsResult {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ScheimpflugIntrinsicsExport {
-    /// Export-type discriminator (R7) — always [`ExportKind::ScheimpflugIntrinsics`].
+    /// Export-type discriminator — always [`ExportKind::ScheimpflugIntrinsics`].
     pub kind: ExportKind,
     /// Estimated parameters.
     pub params: ScheimpflugIntrinsicsParams,
@@ -203,7 +204,7 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
         output: &Self::Output,
         _config: &Self::Config,
     ) -> Result<Self::Export, Error> {
-        let camera = output.params.camera.build();
+        let camera = output.params.camera.build()?;
         let target =
             compute_planar_target_residuals(&camera, input, &output.params.camera_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));

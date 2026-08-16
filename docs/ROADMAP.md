@@ -4,18 +4,19 @@ Where the project is and where it is going. Design reasoning lives in
 [ADRs](adrs/); the task list lives in the [backlog](backlog.md); completed work
 is recorded in [`backlog-archive.md`](backlog-archive.md).
 
-## Status (2026-08-11)
+## Status (2026-08-16)
 
-**Version line 0.x**, latest release **0.8.0** — nine crates.io crates plus the
-PyPI extension. Pre-1.0: breaking changes are acceptable and are listed in the
+**Version line 0.x**, latest published release **0.7.0**, with **0.8.0**
+prepared and awaiting its tag — nine crates.io crates plus the PyPI
+extension. Pre-1.0: breaking changes are acceptable and are listed in the
 [CHANGELOG](../CHANGELOG.md) with migration notes.
 
 The **production-grade program** approved 2026-07-02 is through its planned
 phases. Tracks **S** (device-spec → seed initialization), **Q** (proof packs +
 regression gates) and **R** (API/config revision) are complete, as are Tracks
 **A** (calibration core), **O** (closed won't-do) and the benchmark harness.
-What remains before v1.0 is the app-quality tail, the v1.0 gate itself, and two
-externally-blocked items.
+What remains before v1.0 is the app-quality tail, the v1.0 gate itself, and one
+externally-blocked item.
 
 | Track | State | What's left |
 |---|---|---|
@@ -26,9 +27,9 @@ externally-blocked items.
 | **B** — desktop app | in progress | B-UX2 elevation; two lint/toolchain items |
 | **C** — MVG | done, tail parked | PyO3 bindings for MVG (deferred, no consumer) |
 | **M** — camera models | additive layer done | M4 fisheye parked post-1.0 |
-| **P** — performance | P1 done | P2 conditional, P3 parked post-1.0 |
+| **P** — performance | done bar two | P2 conditional, P3 parked post-1.0 |
 | **V** — rtv3d validation | done | V7 intrinsics floor parked (user call) |
-| **D** — earn v1.0 | ratcheting | D4 release gate; two upstream blocks |
+| **D** — earn v1.0 | ratcheting | D4 release gate; one upstream block |
 
 ## Path to v1.0
 
@@ -36,10 +37,10 @@ The exit criteria, in the order they gate a release:
 
 1. **Acceptance.** One command runs every on-disk registered dataset through
    the seeded official route with hard gates (`calib-bench accept`).
-   *Currently red on one dataset:* `rtv3d` regressed with `calib-targets` 0.12
-   and is blocked on
-   [calib-targets-rs#86](https://github.com/VitalyVorobyev/calib-targets-rs/issues/86)
-   — see `D5-CHARUCO-LABELS`. Its baseline is deliberately not re-frozen.
+   *Met as of 2026-08-16:* 21 of 21 registered datasets pass, 0 fail. The
+   `rtv3d` ChArUco regression that had held this red is fixed upstream in
+   `calib-targets` 0.12.1 and its baseline is re-frozen on the improved
+   numbers.
 2. **Soundness.** A proof pack per shipped algorithm family (math note,
    synthetic-GT matrix, property tests, committed regression record + gate),
    plus a convergence-basin study for seeded init. *Met.*
@@ -95,7 +96,8 @@ exists in the acceptance set.
 Opened after a from-scratch Scheimpflug rig calibration took 30+ minutes on a
 dense board. Root cause was dense linear algebra, not the algorithms:
 `nalgebra::svd(true, true)` was pathologically slow across ~20 sites and has
-been replaced (**P1**, init 30 min → 9 ms). **P2** (a corner budget for the
+been replaced (init 30 min → 9 ms). Benchmarks, per-stage timing records and
+the remaining hot-path work are all closed. **P2** (a corner budget for the
 joint rig + hand-eye BA) is conditional on acceptance-run wall time becoming
 painful; **P3** (tiny-solver autodiff/assembly cost, analytic Jacobians,
 parallelism) is parked post-1.0.
@@ -111,15 +113,14 @@ are done. Open:
   unadoptable while `tiny-solver` 0.18 is built against 0.34 / 0.23 / 0.7 and
   `vision-calibration-optim` exchanges both libraries' types across that
   boundary. Re-check on each tiny-solver release.
-- **D5-CHARUCO-LABELS** — the `calib-targets` 0.12 ChArUco labelling
-  regression; blocks exit criterion 1.
 
 ## Closed tracks
 
 Full completion notes in
 [`backlog-archive.md`](backlog-archive.md).
 
-- **A — Calibration core.** Manual init ([ADR 0011](adrs/0011-manual-initialization-workflow.md)),
+- **A — Calibration core.** (Closed before the archive was split by track,
+  so it has no archive section of its own.) Manual init ([ADR 0011](adrs/0011-manual-initialization-workflow.md)),
   per-feature residuals ([ADR 0012](adrs/0012-per-feature-reprojection-residuals.md)),
   Scheimpflug EyeToHand, and the `rig_family` sensor-axis collapse
   ([ADR 0013](adrs/0013-rig-family-sensor-axis-refactor.md)) that unified the

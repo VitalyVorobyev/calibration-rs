@@ -1,5 +1,5 @@
 /** Pure residual-aggregation helpers for the Diagnose stats panels
- * (B-UX2). Both operate on the `per_feature_residuals.target` array every
+ *. Both operate on the `per_feature_residuals.target` array every
  * `*Export` carries (ADR 0012); neither touches React or Tauri, so they
  * unit-test in a plain Node environment.
  *

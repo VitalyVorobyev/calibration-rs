@@ -31,36 +31,27 @@ pub struct Feature {
 /// board" signal every detector already uses for an empty frame), not just
 /// the offending correspondences. A duplicated image point is not a local
 /// blemish, it is evidence that the grid walk lost track of which corner it
-/// was on; the labels that did *not* happen to collide are produced by the
-/// same broken walk and are no more trustworthy. Measured on a ChArUco rig
-/// view that collapsed four consecutive board cells onto one corner: dropping
-/// only the duplicates left six survivors that reprojected at ~1800 px, while
-/// every healthy view in the same camera sat under 1.3 px.
+/// was on; the labels that did *not* happen to collide come from the same
+/// broken walk and are no more trustworthy. Dropping only the duplicates
+/// leaves a handful of survivors that reproject in the thousands of pixels
+/// and silently dominate the camera's mean.
 ///
-/// The caller sees a skipped view, which is a normal and well-handled outcome
-/// — vastly preferable to a view with no consistent pose, whose handful of
-/// ~10³ px residuals silently dominates a camera's mean.
+/// The caller sees a skipped view, which is a normal and well-handled
+/// outcome — vastly preferable to a view with no consistent pose.
 ///
-/// Observed against `calib-targets` 0.12 ChArUco detections; reported as
-/// <https://github.com/VitalyVorobyev/calib-targets-rs/issues/86>. This guard
-/// stays regardless of that fix: it costs one pass over the features and
-/// converts a silent, hard-to-attribute accuracy loss into a skipped frame.
+/// The check costs one pass over the features. It is a cheap invariant, not
+/// a workaround: it holds under any lens and any viewpoint, so it is always
+/// safe to apply.
 ///
 /// # What this does *not* catch
 ///
-/// Duplicated points are the degenerate extreme of a broader upstream
-/// failure: the detector can also emit a set of labels that is fully distinct
-/// yet still wrong. The general test is projective — for a planar target the
-/// grid-to-image map is a homography, so a detection can be checked against
-/// itself by fitting one to its own labels. Measured over 20 views of one
-/// camera, 18 healthy views fit at 0.56–0.99 px median while the two broken
-/// ones sat at 7.7–7.8 px, with no subset of the bad labels admitting a fit.
-///
-/// That test is deliberately *not* applied here. It is only valid when lens
-/// distortion over the observed corners is small — the map is really
-/// `homography ∘ distortion` — so on a wide-angle camera it would reject
-/// perfectly good views. It belongs upstream, inside the grid builder that
-/// knows the lattice it just walked, which is what the issue above asks for.
+/// Duplicated points are the degenerate extreme of a broader failure: a
+/// detector can also emit labels that are fully distinct yet still wrong,
+/// with no homography fitting any subset. Testing for that requires the
+/// lattice the grid builder just walked, so it belongs in the detector
+/// backend rather than at this boundary — applying a projective test here
+/// would need to assume distortion is small over the observed corners, and
+/// would reject good views on wide-angle cameras.
 pub fn reject_ambiguous_detection(features: Vec<Feature>) -> Vec<Feature> {
     use std::collections::HashSet;
 

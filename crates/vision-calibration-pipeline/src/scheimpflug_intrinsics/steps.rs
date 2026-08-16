@@ -20,6 +20,7 @@ use vision_calibration_optim::{
 };
 
 use crate::planar_family::{estimate_view_homographies, recover_planar_poses_from_homographies};
+use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
 use super::problem::{
@@ -327,15 +328,6 @@ pub fn step_init_with_seed(
     })
 }
 
-fn format_init_source(manual: &[&str], auto: &[&str]) -> String {
-    match (manual.is_empty(), auto.is_empty()) {
-        (false, false) => format!("(manual: {}; auto: {})", manual.join(", "), auto.join(", ")),
-        (false, true) => format!("(manual: {})", manual.join(", ")),
-        (true, false) => format!("(auto: {})", auto.join(", ")),
-        (true, true) => "(empty)".to_string(),
-    }
-}
-
 /// Initialize intrinsics, distortion, sensor tilt, and poses from observations
 /// using full auto-init.
 ///
@@ -639,7 +631,7 @@ fn scheimpflug_camera_params(
 ///
 /// Returns `None` for [`DistortionKind::BrownConrady5`] — the default path
 /// carries the Brown-Conrady seed directly and wraps it on demand, keeping the
-/// numerics byte-identical to the pre-M-WIRE code.
+/// numerics byte-identical to the single-model code it replaced.
 ///
 /// [`DistortionKind::None`] is rejected by the optimizer (a Scheimpflug solve
 /// always carries distortion); it is mapped to `None` here so the default path

@@ -47,6 +47,6 @@ nalgebra = { workspace = true }
 calib-targets = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 glob = { workspace = true, optional = true }
-# Detection cache for the manifest-driven acceptance run path (S4).
+# Detection cache for the manifest-driven acceptance run path.
 vision-calibration-detect = { workspace = true, optional = true }
 vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.git", tag = "v0.1.0", optional = true }

@@ -80,6 +80,7 @@
       "type": "object"
     },
     "IntrinsicsInitConfig": {
+      "additionalProperties": false,
       "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
       "properties": {
         "fix_k3": {
@@ -110,6 +111,7 @@
       "type": "object"
     },
     "LaserlineDeviceOptimizeConfig": {
+      "additionalProperties": false,
       "description": "Bundle-adjustment options for laserline device calibration.",
       "properties": {
         "calib_loss": {
@@ -284,6 +286,7 @@
       "type": "object"
     },
     "SolverConfig": {
+      "additionalProperties": false,
       "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor the Scheimpflug single-cam tilt valley; 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
       "properties": {
         "max_iters": {
@@ -312,6 +315,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
   "description": "Configuration for laserline device calibration.\n\nGrouped per ADR 0024.",
   "properties": {
     "init": {
@@ -328,7 +332,7 @@
     },
     "solver": {
       "$ref": "#/$defs/SolverConfig",
-      "description": "Non-linear solve stage settings.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`optimize.calib_loss`,\n`optimize.laser_loss` — ADR 0024 D3). Only `max_iters`/`verbosity`\napply here."
+      "description": "Non-linear solve stage settings.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`optimize.calib_loss`,\n`optimize.laser_loss` — see [ADR 0024](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/adrs/0024-config-vocabulary.md)). Only `max_iters`/`verbosity`\napply here."
     }
   },
   "required": [

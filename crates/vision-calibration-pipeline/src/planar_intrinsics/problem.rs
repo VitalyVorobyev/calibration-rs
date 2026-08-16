@@ -62,10 +62,11 @@ pub struct PlanarIntrinsicsProblem;
 /// Grouped per ADR 0024: linear-init and non-linear-solve settings live in
 /// the shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs;
 /// `distortion_model`, `fix_camera`, and `fix_poses` stay top-level (they
-/// are not shared with any other problem type as of R3).
+/// are not shared with any other problem type today).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct PlanarIntrinsicsConfig {
     /// Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
@@ -135,7 +136,7 @@ impl PlanarIntrinsicsConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PlanarIntrinsicsExport {
-    /// Export-type discriminator (R7) — always [`ExportKind::PlanarIntrinsics`].
+    /// Export-type discriminator — always [`ExportKind::PlanarIntrinsics`].
     pub kind: ExportKind,
     /// Calibrated parameters.
     pub params: PlanarIntrinsicsParams,
@@ -225,7 +226,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
         // Length-mismatch is a logic error inside the pipeline (output came
         // out of an optimizer that ran on `input`); surface it as a typed
         // error rather than panicking.
-        let cam = output.params.build_camera();
+        let cam = output.params.build_camera()?;
         let target =
             compute_planar_target_residuals(&cam, input, &output.params.camera_se3_target)?;
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));

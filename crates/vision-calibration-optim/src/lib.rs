@@ -149,22 +149,19 @@ mod problems;
 
 pub use error::Error;
 
-pub use crate::backend::{
-    BackendKind, BackendSolution, BackendSolveOptions, SolveReport, solve_with_backend,
-};
+// The IR (`ProblemIR` and its factor/parameter/manifold vocabulary), the
+// backend dispatch, and the parameter-packing helpers are *implementation*.
+// They are how a problem is lowered to a solver, not something a caller
+// assembles: the factor kernels `expect` invariants that only this crate's
+// builders establish, so a hand-built IR panics inside the solve loop rather
+// than failing to compile. Callers reach for the `optimize_*` entry points
+// below, which is what every consumer in this workspace does.
+pub use crate::backend::{BackendSolveOptions, SolveReport};
 
-pub use crate::ir::{
-    CameraModelDesc, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind,
-    ParamSlotSpec, ProblemIR, ProjectionKind, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
-};
+pub use crate::ir::{DistortionKind, HandEyeMode, RobustLoss};
 
-pub use crate::params::distortion::{
-    DISTORTION_DIM, distortion_kind, pack_distortion, pack_distortion_params,
-    unpack_distortion_params, with_leading_radial,
-};
-pub use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
+pub use crate::params::distortion::with_leading_radial;
 pub use crate::params::laser_plane::LaserPlane;
-pub use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 
 pub use crate::problems::planar_intrinsics::{
     PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
@@ -213,3 +210,6 @@ pub use crate::problems::rig_handeye_laserline_bundle::{
     RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions, RigHandeyeLaserlineView,
     evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
 };
+
+#[cfg(test)]
+mod tests;

@@ -1,4 +1,4 @@
-//! Export-type discriminator (R7).
+//! Export-type discriminator.
 //!
 //! Every pipeline `*Export` carries a `kind: ExportKind` tag as its first
 //! field so consumers narrow on a single value instead of probing which

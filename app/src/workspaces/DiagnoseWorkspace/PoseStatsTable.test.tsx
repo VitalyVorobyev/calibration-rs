@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** Component test for the multi-pose residual stats table (B-UX2):
+/** Component test for the multi-pose residual stats table:
  * renders per-pose rows from mocked residuals, sorts on header click, and
  * jumps to a pose on row click. The aggregation itself is covered by
  * `lib/residualStats.test.ts`; this asserts the wiring. */

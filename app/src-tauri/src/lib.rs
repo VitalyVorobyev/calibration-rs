@@ -25,7 +25,7 @@ use export_cache::ExportCache;
 use run::RunRegistry;
 
 /// Tauri command payload/response types re-exported for the `emit_schemas`
-/// binary (B-QUAL2). Public only under `schema-export` so it never widens
+/// binary. Public only under `schema-export` so it never widens
 /// the app's runtime surface. These are exactly the roots `emit_schemas`
 /// calls `subschema_for::<…>()` on directly; `PointCloud` is *not* listed
 /// here even though it's public in `disparity` — it only reaches the

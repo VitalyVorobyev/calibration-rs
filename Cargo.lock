@@ -300,9 +300,9 @@ checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
 name = "calib-targets"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c538f428180e340f1f7f6fdf8959df008ff15be07205bba1c8cba91e75e8d87"
+checksum = "62dfc27990941755c7b6a3d2f77d2b16e36f9fa1bb4fac8125ab3086753a40cc"
 dependencies = [
  "calib-targets-aruco",
  "calib-targets-charuco",
@@ -319,9 +319,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-aruco"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82511fb662deb6fb3a29c6e31491d1df20a9d25b7eb258a56eda7850a4d2fd1c"
+checksum = "d2d428ee923970e58422b963ca39f2a2a4196df4884bf14fdd1490738c638d93"
 dependencies = [
  "calib-targets-core",
  "log",
@@ -332,9 +332,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-charuco"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "623ff9c0905d1a805d0adfa8b4959b1bc37beb2ebf7b49dffb5a996e3801ff41"
+checksum = "55985ea693562caa1572698ae96336efaf76602e651c379856211f1b293f69ae"
 dependencies = [
  "calib-targets-aruco",
  "calib-targets-chessboard",
@@ -349,28 +349,28 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-chessboard"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "988d0e4061e83e5b54eda2bff96e0122ee8bea2f5ad325faf2aaffcb32ca902c"
+checksum = "c35a46d7b30a255bc61dec9623e13790af738f615bbeed93f12ba1397c26ae6e"
 dependencies = [
  "calib-targets-core",
  "kiddo",
  "log",
  "nalgebra 0.35.0",
- "projective-grid 0.13.0",
+ "projective-grid 0.14.0",
  "serde",
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "calib-targets-core"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d53e65ae82249d3b406ed8788ceae8bf95578078366246ecfe545e337efd4a8d"
+checksum = "eb4553ba7857c2e51340fcb67cceffd39780dcb536b843d0e5ce33707029dadc"
 dependencies = [
  "chess-corners",
  "nalgebra 0.35.0",
- "projective-grid 0.13.0",
+ "projective-grid 0.14.0",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -378,9 +378,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-marker"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35a0168f7fdc01fb8dc687ce706c37a9b239c508d4be94cde3c08c51066a0e79"
+checksum = "aeb52c8f13407d611559ba3ca3c8d9a5e8cddfe1c2986112b32600cd3919c7f2"
 dependencies = [
  "calib-targets-chessboard",
  "calib-targets-core",
@@ -392,9 +392,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-print"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09fe082733f15dc37247024087eee0f111eb78c7cd1def72b083d31473686306"
+checksum = "af8443cbccfadc79c04e050943454c5b956223745f6df019c0fd48695f86030d"
 dependencies = [
  "calib-targets-aruco",
  "calib-targets-charuco",
@@ -409,9 +409,9 @@ dependencies = [
 
 [[package]]
 name = "calib-targets-puzzleboard"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "275e3f561a666e85802432d84e3423270e249655721a996fe20f098e9dfd9a3b"
+checksum = "e13876aa0386b45bb03f515fda7450e6c0a4d08b5b4099c4389149c08e5a0864"
 dependencies = [
  "calib-targets-chessboard",
  "calib-targets-core",
@@ -430,9 +430,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.4.2"
+version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d262e149917187838d5b42777c8253bcb64500067342904e7d429499a6f277e"
+checksum = "509591b7bcd67f4ef775afad7662703b4935daaa6ec0e5605cfb1090b32a2b6d"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -906,9 +906,9 @@ dependencies = [
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.10"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26b73573e6edcd2af0cdf47bd6cb58f0b3839491263c314eaad1ccf24430e1de"
+checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
 
 [[package]]
 name = "fixed"
@@ -935,21 +935,21 @@ dependencies = [
 
 [[package]]
 name = "futures-core"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cd50c473c80f6d7c3670a752354b8e569b1a7cbfdc0419ec88e5edad85e0dc7"
+checksum = "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
 
 [[package]]
 name = "futures-task"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b231ed28831efb4a61a08580c4bc233ec56bc009f4cd8f52da2c3cb97df0c109"
+checksum = "cd417de3d1d015fc3bfd2b1ea46dfc7bab72ef86f1cc7cc9c78e728b34a6d1fd"
 
 [[package]]
 name = "futures-util"
-version = "0.3.33"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a77a90a256fce34da66415271e30f94ee91c57b04b8a2c042d9cf3220179deaa"
+checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
 dependencies = [
  "futures-core",
  "futures-task",
@@ -1782,9 +1782,9 @@ dependencies = [
 
 [[package]]
 name = "num-integer"
-version = "0.1.46"
+version = "0.1.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7969661fd2958a5cb096e56c8e1ad0444ac2bbcd0061bd28660485a44879858f"
+checksum = "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b"
 dependencies = [
  "num-traits",
 ]
@@ -1871,9 +1871,9 @@ checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
 name = "pest"
-version = "2.8.8"
+version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7df728be843c7070fab6ab7c328c4e9e9d78e23bf749c0669c86ee7ebfa050a2"
+checksum = "5a07a60cc7a4d00c91f95c685609d1d2f79050e6804b70ebedd7650f0b839bcf"
 dependencies = [
  "memchr",
  "ucd-trie",
@@ -1881,9 +1881,9 @@ dependencies = [
 
 [[package]]
 name = "pest_derive"
-version = "2.8.8"
+version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e2dd6fc3b26b3462ee188aac870f5a41d398f1cd5e2408d16531bd71c9591fd"
+checksum = "b3a83744a5c8455b8b3e0dc5031362780a347c878bdd11584d1a8984228cc88d"
 dependencies = [
  "pest",
  "pest_generator",
@@ -1891,9 +1891,9 @@ dependencies = [
 
 [[package]]
 name = "pest_generator"
-version = "2.8.8"
+version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a7a9205cfb6f596a9e8b689c0a15f9ceb7a1aafae7aaf788150ac65b29975b6"
+checksum = "e0cd3451aa3de60d4b9a1e736885e4dea6b31617598026f12256ad566d63304a"
 dependencies = [
  "pest",
  "pest_meta",
@@ -1904,9 +1904,9 @@ dependencies = [
 
 [[package]]
 name = "pest_meta"
-version = "2.8.8"
+version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85abd351c0de1e8384fc791a0737111a350394937e92b956b743dac12429f57c"
+checksum = "e04d3a0849e241d7dfce834c83b1c5edc8622009e8dd51a12ba1927c32f05496"
 dependencies = [
  "pest",
 ]
@@ -2032,9 +2032,9 @@ dependencies = [
 
 [[package]]
 name = "projective-grid"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "003f1d39a8c0eb4c70064e49834b366e1f11803d379cc7a45f697c5b66b9321f"
+checksum = "1164dbbb715b17eb7b6dc61e6c2a66a52932a5dd64f8490ebf62115de64b3f0b"
 dependencies = [
  "delaunator",
  "kiddo",
@@ -2498,9 +2498,9 @@ dependencies = [
 
 [[package]]
 name = "safe_arch"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a52ec151f024d703f9fd65abb7cbe81e7cdb39f18917a3a37e3014470dc7c59"
+checksum = "42c6efa15875e6ecb39ca61fb0b0c1a40b84fac5a5ffe71eef7d1000c8eb3f5f"
 dependencies = [
  "bytemuck",
 ]
@@ -3350,7 +3350,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de2aaf408e58689c2096682331b1f42bb2d9f2ed6b11560407d023cd0a6c634e"
 dependencies = [
  "bytemuck",
- "safe_arch 1.1.0",
+ "safe_arch 1.2.0",
 ]
 
 [[package]]

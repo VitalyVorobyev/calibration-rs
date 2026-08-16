@@ -394,7 +394,7 @@ mod tests {
         assert!((bias[1] - (center[1] - proj[1])).abs() < 1e-9);
     }
 
-    /// End-to-end diagnosis on the private ring-grid cameras (Q3-RINGGRID-BIAS).
+    /// End-to-end diagnosis on the private ring-grid cameras.
     ///
     /// `#[ignore]`d: needs `--features tier-b` and the private dataset. Run
     /// with `cargo test -p vision-calibration-bench --features tier-b

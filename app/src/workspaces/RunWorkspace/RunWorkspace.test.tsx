@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** Happy-path component test for RunWorkspace (B-QUAL3-3): pick a
+/** Happy-path component test for RunWorkspace: pick a
  * built-in preset, trigger Run, and assert the success banner renders
  * from a mocked `run_calibration_cmd` response.
  *

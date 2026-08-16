@@ -12,7 +12,7 @@ import type {
 
 /** Discriminated union over every calibration export the diagnose app can
  * load. Members are the generated (Rust-sourced) `*Export` interfaces, each
- * carrying its own `kind` discriminator (R7), so this stays in lockstep with
+ * carrying its own `kind` discriminator, so this stays in lockstep with
  * the pipeline via `bun run generate:types`. */
 export type CalibrationExport =
   | PlanarIntrinsicsExport
@@ -52,7 +52,7 @@ function isWireExportKind(kind: string): kind is WireExportKind {
   return Object.prototype.hasOwnProperty.call(WIRE_KIND_LABELS, kind);
 }
 
-/** Classify a loaded export by its `kind` discriminator (R7).
+/** Classify a loaded export by its `kind` discriminator.
  *
  * Every pipeline `*Export` serializes a required `kind` tag, so classification
  * is a single field read validated against the known vocabulary — no more
