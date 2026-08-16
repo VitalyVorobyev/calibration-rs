@@ -15,7 +15,7 @@ const WIRE_KINDS: Exclude<ExportKind, "unknown">[] = [
 
 const ALL_KINDS: ExportKind[] = [...WIRE_KINDS, "unknown"];
 
-// detectExportKind now reads the `kind` discriminator (R7) every pipeline
+// detectExportKind now reads the `kind` discriminator every pipeline
 // `*Export` serializes, validated against the known vocabulary — no more
 // probing which required fields are present.
 describe("detectExportKind", () => {
@@ -44,7 +44,7 @@ describe("detectExportKind", () => {
   it("returns unknown for a missing or unrecognised tag", () => {
     expect(detectExportKind({})).toBe("unknown");
     expect(detectExportKind({ kind: "not_a_real_kind" })).toBe("unknown");
-    // Fields but no tag (e.g. a hand-edited or pre-R7 payload): unknown.
+    // Fields but no tag (e.g. a hand-edited payload, or one predating the tag): unknown.
     expect(detectExportKind({ cameras: [], cam_se3_rig: [], rig_se3_target: [] })).toBe(
       "unknown",
     );

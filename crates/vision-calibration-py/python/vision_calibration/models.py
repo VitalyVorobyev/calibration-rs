@@ -56,7 +56,7 @@ _RADIAL_ONLY_DISTORTION_FIX_MASK: dict[str, bool] = {
 
 @dataclass(slots=True)
 class IntrinsicsInitConfig:
-    """Shared per-camera linear-initialization stage (ADR 0024).
+    """Shared per-camera linear-initialization stage.
 
     Zhang's method plus an iterative Brown-Conrady distortion fit. Shared by
     every intrinsics-bearing problem's ``init``/``intrinsics`` config group.
@@ -87,7 +87,7 @@ class IntrinsicsInitConfig:
 
 @dataclass(slots=True)
 class SolverConfig:
-    """Shared non-linear solve stage settings (ADR 0024)."""
+    """Shared non-linear solve stage settings."""
 
     max_iters: int = 50
     verbosity: int = 0
@@ -112,7 +112,7 @@ class SolverConfig:
 
 @dataclass(slots=True)
 class RobotPoseConfig:
-    """Shared robot-pose refinement settings for hand-eye BA (ADR 0024)."""
+    """Shared robot-pose refinement settings for hand-eye BA."""
 
     refine: bool = True
     rot_sigma: float = 0.5 * 3.141592653589793 / 180.0
@@ -137,7 +137,7 @@ class RobotPoseConfig:
 
 @dataclass(slots=True)
 class HandeyeInitConfig:
-    """Shared hand-eye linear-initialization settings (Tsai-Lenz DLT, ADR 0024)."""
+    """Shared hand-eye linear-initialization settings (Tsai-Lenz DLT)."""
 
     handeye_mode: HandEyeMode = "EyeInHand"
     min_motion_angle_deg: float = 5.0
@@ -160,7 +160,7 @@ class HandeyeInitConfig:
 
 @dataclass(slots=True)
 class RigConfig:
-    """Shared multi-camera rig frame options (ADR 0024): reference camera and
+    """Shared multi-camera rig frame options: reference camera and
     rig-BA scope. Mirrors ``vision_calibration_pipeline::common::config::RigConfig``.
     """
 
@@ -185,7 +185,7 @@ class RigConfig:
 
 @dataclass(slots=True)
 class CameraFixMask:
-    """Combined per-camera intrinsics + distortion fix mask (ADR 0024)."""
+    """Combined per-camera intrinsics + distortion fix mask."""
 
     intrinsics: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_INTRINSICS_FIX_MASK))
     distortion: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_DISTORTION_FIX_MASK))
@@ -573,7 +573,7 @@ class LaserlineDataset:
 class PlanarCalibrationConfig:
     """Configuration for planar intrinsics calibration.
 
-    Grouped per ADR 0024: linear-init and non-linear-solve settings live in
+    Grouped configuration: linear-init and non-linear-solve settings live in
     the shared :class:`IntrinsicsInitConfig` / :class:`SolverConfig`
     sub-objects. ``distortion_model`` selects which distortion model is fitted
     (default ``"brown_conrady5"``); the extended models (``"rational8"``,
@@ -632,7 +632,7 @@ class PlanarCalibrationConfig:
 class SingleCamHandeyeCalibrationConfig:
     """Configuration for single-camera hand-eye calibration.
 
-    Grouped per ADR 0024: per-camera linear init, hand-eye linear init,
+    Grouped configuration: per-camera linear init, hand-eye linear init,
     non-linear solve, and robot-pose refinement each live in their own
     shared sub-object.
     """
@@ -687,7 +687,7 @@ class SingleCamHandeyeCalibrationConfig:
 class RigExtrinsicsCalibrationConfig:
     """Configuration for rig extrinsics calibration.
 
-    Grouped per ADR 0024. ``sensor`` selects the rig sensor flavour
+    Grouped configuration. ``sensor`` selects the rig sensor flavour
     (:class:`PinholeSensorMode` default, or :class:`ScheimpflugSensorMode` for
     a rig of Scheimpflug cameras).
     """
@@ -736,7 +736,7 @@ class RigExtrinsicsCalibrationConfig:
 
 @dataclass(slots=True)
 class HandeyeBaConfig:
-    """Final hand-eye bundle-adjustment options (ADR 0024).
+    """Final hand-eye bundle-adjustment options.
 
     Renamed and reshaped from ``RigHandeyeBaConfig``: robot-pose refinement
     now lives in the shared ``RobotPoseConfig`` group, and
@@ -776,7 +776,7 @@ class HandeyeBaConfig:
 class RigHandeyeCalibrationConfig:
     """Configuration for rig hand-eye calibration.
 
-    Grouped per ADR 0024, sharing sub-objects with the other rig/hand-eye
+    Grouped configuration, sharing sub-objects with the other rig/hand-eye
     configs. ``sensor`` selects the rig sensor flavour
     (:class:`PinholeSensorMode` default, or :class:`ScheimpflugSensorMode`).
     (``manual_init`` is still Rust-only.)
@@ -844,7 +844,7 @@ class RigHandeyeCalibrationConfig:
 class LaserlineDeviceOptimizeConfig:
     """Bundle-adjustment options for laserline-device calibration.
 
-    ``fix_camera`` (ADR 0024) collapses the old ``fix_intrinsics`` /
+    ``fix_camera`` collapses the old ``fix_intrinsics`` /
     ``fix_distortion`` / ``fix_k3`` boolean trio into one
     [`CameraFixMask`]. It is honored only at the granularity the
     underlying laserline solver supports: ``intrinsics`` is all-or-nothing
@@ -944,7 +944,7 @@ class LaserlineDeviceCalibrationConfig:
 class ScheimpflugIntrinsicsCalibrationConfig:
     """Configuration for planar Scheimpflug intrinsics calibration.
 
-    Grouped per ADR 0024. Two defaults deviate from the shared sub-objects'
+    Grouped configuration. Two defaults deviate from the shared sub-objects'
     own defaults, mirroring the Rust config: ``init.fix_tangential`` is
     ``True`` (tilt and tangential distortion are coupled, so a free
     tangential term is ill-posed during the linear stage), and
@@ -1863,7 +1863,7 @@ class RigLaserlineDeviceInput:
 class RigLaserlineDeviceCalibrationConfig:
     """Configuration for rig laserline device calibration.
 
-    Grouped per ADR 0024. ``solver.max_iters`` defaults to 200: this stage
+    Grouped configuration. ``solver.max_iters`` defaults to 200: this stage
     refines only per-camera laser-plane parameters against an
     already-frozen rig geometry (1 DOF per view per camera), so iterations
     are nearly free.
@@ -1975,7 +1975,7 @@ class RigHandeyeLaserlineDataset:
 
 @dataclass(slots=True)
 class RigHandeyeLaserlineBaConfig:
-    """Final joint bundle-adjustment stage settings (ADR 0024).
+    """Final joint bundle-adjustment stage settings.
 
     ``default_camera_fix.distortion`` defaults to `radial_only` (k1, k2 free;
     k3, p1, p2 fixed) and ``fix_scheimpflug`` freezes tilt during the joint

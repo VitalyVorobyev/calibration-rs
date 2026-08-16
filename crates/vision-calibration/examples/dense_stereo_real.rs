@@ -5,7 +5,7 @@
 //! 1. read the frozen `RigExtrinsics` calibration (`viewer_export.json`) — two
 //!    `K` matrices, Brown-Conrady distortion, and the inter-camera pose;
 //! 2. undistort + Scheimpflug-aware **rectify** one synchronized pair
-//!    (`Im_L_1` / `Im_R_1`) so rows align (Track C4);
+//!    (`Im_L_1` / `Im_R_1`) so rows align;
 //! 3. **dense-match** the rectified pair ([`mvg::dense::match_block`]);
 //! 4. write inspectable PNGs and a planarity-fit metric.
 //!
@@ -70,7 +70,7 @@ fn main() {
     let right_src = load_gray_downscaled(&data_dir.join("imgs/rightcamera/Im_R_1.png"), DOWNSCALE);
     let (w, h) = (left_src.width, left_src.height);
 
-    // --- rectify (Track C4) ---
+    // --- rectify ---
     let rect = rectify_stereo_pair(
         &RectifyCamera::pinhole(k0),
         &RectifyCamera::pinhole(k1),

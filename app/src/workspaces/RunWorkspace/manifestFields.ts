@@ -1,4 +1,4 @@
-/** Helpers for the B3d manifest UX: vendor-aware guidance for fields the
+/** Helpers for the manifest-sniff UX: vendor-aware guidance for fields the
  * sniffer or runner could not resolve, plus small manifest mutators used by
  * the unresolved notice and the AskUser modal. */
 

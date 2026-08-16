@@ -1,4 +1,4 @@
-//! Criterion benchmarks for the linear-init hot paths (Track P / P4).
+//! Criterion benchmarks for the linear-init hot paths.
 //!
 //! These guard the dense-SVD-hang fixes (P1): a regression that reinstates the
 //! pathological `nalgebra::svd(true, true)` path on a tall design matrix would

@@ -82,7 +82,7 @@ pub struct RigExtrinsicsConfig {
 }
 ```
 
-`fix_first_rig_pose` is gone (ADR 0024 D2): the reference-camera fix alone
+`fix_first_rig_pose` is gone as of 0.7.0: the reference-camera fix alone
 removes the rig's 6-DOF gauge freedom, so a second pose-gauge knob was
 redundant (and measurably, mildly pessimizing).
 

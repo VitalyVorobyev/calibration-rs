@@ -62,7 +62,7 @@ pub struct PlanarIntrinsicsProblem;
 /// Grouped per ADR 0024: linear-init and non-linear-solve settings live in
 /// the shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs;
 /// `distortion_model`, `fix_camera`, and `fix_poses` stay top-level (they
-/// are not shared with any other problem type as of R3).
+/// are not shared with any other problem type today).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -135,7 +135,7 @@ impl PlanarIntrinsicsConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PlanarIntrinsicsExport {
-    /// Export-type discriminator (R7) — always [`ExportKind::PlanarIntrinsics`].
+    /// Export-type discriminator — always [`ExportKind::PlanarIntrinsics`].
     pub kind: ExportKind,
     /// Calibrated parameters.
     pub params: PlanarIntrinsicsParams,

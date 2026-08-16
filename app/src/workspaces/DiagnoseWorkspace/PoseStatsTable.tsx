@@ -33,7 +33,7 @@ function sortStats(
 }
 
 /** Sortable per-pose reprojection stats. Click a header to sort, click a
- * row to jump the viewer to that pose (B-UX2). */
+ * row to jump the viewer to that pose. */
 export function PoseStatsTable({
   residuals,
   selectedPose,

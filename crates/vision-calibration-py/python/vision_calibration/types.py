@@ -228,7 +228,7 @@ class ScheimpflugIntrinsicsExport(TypedDict):
 
 
 class IntrinsicsInitConfig(TypedDict, total=False):
-    """Shared per-camera linear-initialization stage (ADR 0024)."""
+    """Shared per-camera linear-initialization stage."""
 
     init_iterations: int
     fix_k3: bool
@@ -237,7 +237,7 @@ class IntrinsicsInitConfig(TypedDict, total=False):
 
 
 class SolverConfig(TypedDict, total=False):
-    """Shared non-linear solve stage settings (ADR 0024)."""
+    """Shared non-linear solve stage settings."""
 
     max_iters: int
     verbosity: int
@@ -245,7 +245,7 @@ class SolverConfig(TypedDict, total=False):
 
 
 class RobotPoseConfig(TypedDict, total=False):
-    """Shared robot-pose refinement settings (ADR 0024)."""
+    """Shared robot-pose refinement settings."""
 
     refine: bool
     rot_sigma: float
@@ -253,14 +253,14 @@ class RobotPoseConfig(TypedDict, total=False):
 
 
 class HandeyeInitConfig(TypedDict, total=False):
-    """Shared hand-eye linear-initialization settings (ADR 0024)."""
+    """Shared hand-eye linear-initialization settings."""
 
     handeye_mode: HandEyeMode
     min_motion_angle_deg: float
 
 
 class CameraFixMask(TypedDict, total=False):
-    """Combined per-camera intrinsics + distortion fix mask (ADR 0024)."""
+    """Combined per-camera intrinsics + distortion fix mask."""
 
     intrinsics: JsonObject
     distortion: JsonObject
@@ -304,7 +304,7 @@ class SingleCamHandeyeConfig(TypedDict, total=False):
 
 
 class RigConfig(TypedDict, total=False):
-    """Shared multi-camera rig frame options (ADR 0024)."""
+    """Shared multi-camera rig frame options."""
 
     reference_camera_idx: int
     refine_intrinsics_in_rig_ba: bool
@@ -318,7 +318,7 @@ class RigExtrinsicsConfig(TypedDict, total=False):
 
 
 class HandeyeBaConfig(TypedDict, total=False):
-    """Final hand-eye bundle-adjustment options (ADR 0024)."""
+    """Final hand-eye bundle-adjustment options."""
 
     robot_poses: RobotPoseConfig
     refine_cam_se3_rig: bool
@@ -368,7 +368,7 @@ class ScheimpflugIntrinsicsConfig(TypedDict, total=False):
 
 
 class RigHandeyeLaserlineBaConfig(TypedDict, total=False):
-    """Final joint bundle-adjustment stage settings (ADR 0024)."""
+    """Final joint bundle-adjustment stage settings."""
 
     solver: SolverConfig
     laser_residual_type: LaserlineResidualType

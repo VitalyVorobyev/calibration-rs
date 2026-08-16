@@ -1,4 +1,4 @@
-//! Pure-Rust dense stereo matching (Track C5, ADR 0015 amended 2026-06-21).
+//! Pure-Rust dense stereo matching.
 //!
 //! [`match_block`] is a block-matching stereo correspondence search: for every
 //! pixel of the (rectified) left image it finds the horizontal shift that best

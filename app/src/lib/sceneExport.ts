@@ -1,5 +1,5 @@
 /** Adapt a loaded export into the rig-shaped view the 3D scene renders
- * (B-UX2 / B-LASER follow-up).
+ *.
  *
  * The 3D workspace draws `cameras` + `cam_se3_rig` + `rig_se3_target`
  * (+ `laser_planes_rig`). Rig exports carry those directly. A

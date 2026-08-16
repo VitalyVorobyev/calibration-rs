@@ -247,7 +247,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Configuration for planar intrinsics calibration.\n\nGrouped per ADR 0024: linear-init and non-linear-solve settings live in\nthe shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs;\n`distortion_model`, `fix_camera`, and `fix_poses` stay top-level (they\nare not shared with any other problem type as of R3).",
+  "description": "Configuration for planar intrinsics calibration.\n\nGrouped per ADR 0024: linear-init and non-linear-solve settings live in\nthe shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs;\n`distortion_model`, `fix_camera`, and `fix_poses` stay top-level (they\nare not shared with any other problem type today).",
   "properties": {
     "distortion_model": {
       "$ref": "#/$defs/DistortionKind",

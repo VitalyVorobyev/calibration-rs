@@ -81,7 +81,7 @@ pub fn pack_distortion_params(d: &DistortionParams) -> DVector<f64> {
 /// coefficients follow the mask bit of the *family* they belong to:
 ///
 /// - **BrownConrady5** `[k1, k2, k3, p1, p2]`: exactly [`DistortionFixMask::to_indices`]
-///   (byte-identical to the pre-M-WIRE path).
+///   (byte-identical to the single-model path it replaced).
 /// - **Rational8** `[k1, k2, k3, k4, k5, k6, p1, p2]`: `k1,k2,k3,p1,p2` by name;
 ///   the higher-order radial block `k4,k5,k6` follows the `k3` bit (OpenCV-style
 ///   — it is the same radial family, promoted/demoted together).

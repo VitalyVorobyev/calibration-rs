@@ -47,7 +47,7 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 /// Grouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the
 /// [`SensorMode`] field `sensor` selects the sensor flavour.
 ///
-/// D2 (ADR 0024) removed the old `rig.fix_first_rig_pose: bool = true` field:
+/// 0.7.0 removed the old `rig.fix_first_rig_pose: bool = true` field:
 /// the reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
 /// the full 6-DOF rig gauge, and the extra per-view pose constraint was
 /// evidence-backed redundant and mildly pessimizing (see
@@ -217,7 +217,7 @@ impl RigHandeyeOutput {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigHandeyeExport {
-    /// Export-type discriminator (R7) — always [`ExportKind::RigHandeye`].
+    /// Export-type discriminator — always [`ExportKind::RigHandeye`].
     pub kind: ExportKind,
 
     /// Per-camera calibrated intrinsics + distortion (pinhole core).

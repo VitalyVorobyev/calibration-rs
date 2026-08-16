@@ -639,7 +639,7 @@ fn scheimpflug_camera_params(
 ///
 /// Returns `None` for [`DistortionKind::BrownConrady5`] — the default path
 /// carries the Brown-Conrady seed directly and wraps it on demand, keeping the
-/// numerics byte-identical to the pre-M-WIRE code.
+/// numerics byte-identical to the single-model code it replaced.
 ///
 /// [`DistortionKind::None`] is rejected by the optimizer (a Scheimpflug solve
 /// always carries distortion); it is mapped to `None` here so the default path

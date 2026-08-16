@@ -533,7 +533,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\nD2 (ADR 0024) removed the old `rig.fix_first_rig_pose: bool = true` field:\nthe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge, and the extra per-view pose constraint was\nevidence-backed redundant and mildly pessimizing (see\n`docs/notes/rig-extrinsics.md` §Gauge, which documents the equivalent\n`RigExtrinsicsConfig` finding). View-0's rig-from-target pose is now\nalways free in the rig BA.",
+  "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\n0.7.0 removed the old `rig.fix_first_rig_pose: bool = true` field:\nthe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge, and the extra per-view pose constraint was\nevidence-backed redundant and mildly pessimizing (see\n`docs/notes/rig-extrinsics.md` §Gauge, which documents the equivalent\n`RigExtrinsicsConfig` finding). View-0's rig-from-target pose is now\nalways free in the rig BA.",
   "properties": {
     "handeye_ba": {
       "$ref": "#/$defs/HandeyeBaConfig",

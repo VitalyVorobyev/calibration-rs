@@ -405,7 +405,7 @@ fn planar_config_distortion_model_json_roundtrip() {
 
 #[test]
 fn planar_config_missing_distortion_model_defaults_to_bc5() {
-    // Simulate a pre-M-WIRE config JSON that has no `distortion_model` field.
+    // Simulate a config JSON written before `distortion_model` existed that has no `distortion_model` field.
     // Serialize the default config, strip the distortion_model key, and verify
     // deserialization still produces BrownConrady5 (via #[serde(default=...)]).
     let default_config = PlanarIntrinsicsConfig::default();

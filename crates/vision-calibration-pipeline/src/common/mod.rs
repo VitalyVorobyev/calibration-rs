@@ -20,7 +20,7 @@
 //! module's top level are ephemeral per-call step overrides. Keeping them in
 //! separate modules avoids confusing the two.
 //!
-//! [`ExportKind`] is the shared export vocabulary (R7): the serde
+//! [`ExportKind`] is the shared export vocabulary: the serde
 //! discriminator every `*Export` carries.
 
 /// Shared config sub-structs embedded by grouped top-level `*Config` types

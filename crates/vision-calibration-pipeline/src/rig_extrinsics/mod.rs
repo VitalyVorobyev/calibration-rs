@@ -51,7 +51,7 @@
 //! # Default Behavior
 //!
 //! - Reference camera: index 0 (`rig.reference_camera_idx`); its extrinsic
-//!   fix alone removes the rig's full 6-DOF gauge freedom (ADR 0024 D2 — no
+//!   fix alone removes the rig's full 6-DOF gauge freedom (see [ADR 0024](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/adrs/0024-config-vocabulary.md) — no
 //!   rig-from-target pose is additionally pinned)
 //! - Intrinsics: NOT re-refined in rig BA (set `rig.refine_intrinsics_in_rig_ba: true` to enable)
 //! - k3 distortion fixed by default

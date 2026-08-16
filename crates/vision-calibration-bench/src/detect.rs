@@ -188,12 +188,10 @@ pub fn detect_charuco_view(
         Err(_) => return Ok(None),
     };
 
-    // `calib-targets` can label a run of consecutive board cells onto one
-    // physical corner, producing correspondences that share an image point
-    // (calib-targets-rs#86). One pixel cannot be several points on a planar
-    // target, and a view carrying such a pair has no consistent pose — the
-    // few residuals it yields are ~10^3 px and swamp the camera's mean.
-    // Route through the same guard the app-facing detectors use.
+    // One pixel cannot be several points on a planar target, and a view
+    // carrying such a pair has no consistent pose — the few residuals it
+    // yields are ~10^3 px and swamp the camera's mean. Route through the same
+    // guard the app-facing detectors use.
     let features = vision_calibration_detect::reject_ambiguous_detection(
         detection
             .corners

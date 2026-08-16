@@ -21,7 +21,7 @@ authoritative reference and stays green in CI.
 
 ## Target detectors
 
-All four calibration-target detectors are wired end-to-end (as of 2026-06-14);
+All four calibration-target detectors are wired end-to-end;
 the target type is chosen by the `[target]` table's `kind` in `dataset.toml`
 (or the Run workspace's schema-driven manifest form). Detection is cached and
 dispatched server-side — no per-detector code path to learn.

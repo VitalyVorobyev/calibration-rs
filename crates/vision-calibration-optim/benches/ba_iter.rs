@@ -1,4 +1,4 @@
-//! Criterion benchmark for one per-camera bundle-adjustment solve (Track P / P4).
+//! Criterion benchmark for one per-camera bundle-adjustment solve.
 //!
 //! Exercises the `tiny-solver` LM loop end-to-end on a representative planar
 //! intrinsics problem (10×7 board, 10 views → ~700 reprojection residuals). This

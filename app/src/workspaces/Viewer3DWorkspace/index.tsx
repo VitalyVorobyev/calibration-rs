@@ -35,7 +35,7 @@ export function Viewer3DWorkspace() {
 
   // Rig exports render directly; a single-camera laserline export is
   // lifted into a one-camera rig at the origin so its laser plane + poses
-  // show up too (B-LASER follow-up).
+  // show up too.
   const sceneData = useMemo(() => (data ? adaptSceneExport(data) : null), [data]);
 
   if (!data || !kind || !sceneData) {

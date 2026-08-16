@@ -15,7 +15,7 @@
  *   7. Status banner — sticky top-of-workspace during / after a run.
  *      Runner `ask_user` ambiguities surface as a modal (AskUserModal).
  *
- * All 8 topologies + 4 detectors run end-to-end (B3c). B3d adds "Sniff
+ * All 8 topologies + 4 detectors run end-to-end, plus "Sniff
  * folder" → heuristic manifest (the `sniff_folder` Tauri command), with the
  * fields the sniffer can't determine left in `_unresolved` and surfaced as
  * red badges + a blocked Run until the user fills and clears them.
@@ -345,7 +345,7 @@ export function RunWorkspace() {
   };
 
   // Pick a foreign dataset folder and heuristically infer a manifest
-  // (B3d). The sniffer leaves fields it can't determine in `_unresolved`,
+  //. The sniffer leaves fields it can't determine in `_unresolved`,
   // which drives the red badge + blocked Run below.
   const handleSniffFolder = async () => {
     if (!inTauri) {

@@ -875,7 +875,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// ADR 0024 R4 review fix: `LaserlineSolveOptions::fix_camera:
+    /// `LaserlineSolveOptions::fix_camera:
     /// CameraFixMask` replaced the `{fix_intrinsics, fix_distortion,
     /// fix_k3}` bool trio. Pin that the *default* mask lowers to the exact
     /// same IR `FixedMask`s as the old default trio

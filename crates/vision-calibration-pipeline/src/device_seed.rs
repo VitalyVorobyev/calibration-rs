@@ -124,7 +124,7 @@ pub fn rig_intrinsics_seed(
 /// This is deliberately *not* a `RigHandeyeRigManualInit`: ADR 0011 couples
 /// `cam_se3_rig` with the data-dependent per-view `rig_se3_target`
 /// (both-or-neither), so combining the nominals with per-view estimates is
-/// the caller's job (Track S3).
+/// the caller's job.
 pub fn nominal_cam_se3_rig(
     spec: &DeviceSpec,
     camera_ids: &[&str],
@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn focal_px_from_datasheet() {
-        // The S1 acceptance formula: f_px = f_mm / pixel_pitch.
+        // f_px = f_mm / pixel_pitch.
         let mut cam = camera("cam0");
         cam.focal_mm = 16.0;
         cam.pixel_pitch_um = 4.8;

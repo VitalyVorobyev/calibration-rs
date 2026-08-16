@@ -88,7 +88,7 @@ session.update_config(|c| {
 Laser-carrying stages (laserline device, rig-handeye-laserline) do not use
 `solver.robust_loss` — they track calibration and laser residuals as
 independent families with their own `calib_loss`/`laser_loss` fields
-instead (ADR 0024 D3).
+instead (see ADR 0024).
 
 The backend applies the loss function during residual evaluation, modifying both the cost and the Jacobian.
 

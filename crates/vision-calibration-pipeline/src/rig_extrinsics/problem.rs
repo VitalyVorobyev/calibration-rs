@@ -41,7 +41,7 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 /// Grouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the
 /// [`SensorMode`] field `sensor` selects the sensor flavour.
 ///
-/// D2 (ADR 0024) removed the old `fix_first_rig_pose: bool = true` field:
+/// 0.7.0 removed the old `fix_first_rig_pose: bool = true` field:
 /// the reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
 /// the full 6-DOF rig gauge, and the extra per-view pose constraint was
 /// evidence-backed redundant and mildly pessimizing (see
@@ -148,7 +148,7 @@ impl RigExtrinsicsOutput {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RigExtrinsicsExport {
-    /// Export-type discriminator (R7) — always [`ExportKind::RigExtrinsics`].
+    /// Export-type discriminator — always [`ExportKind::RigExtrinsics`].
     pub kind: ExportKind,
 
     /// Per-camera calibrated intrinsics + distortion (pinhole core).

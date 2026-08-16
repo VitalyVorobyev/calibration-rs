@@ -109,7 +109,7 @@ pub struct BenchEntry {
     /// resolve against `data_root`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_spec: Option<PathBuf>,
-    /// Hard acceptance gate evaluated by `calib-bench accept` (S4).
+    /// Hard acceptance gate evaluated by `calib-bench accept`.
     /// `None` means the entry is not in the acceptance set — the runner
     /// reports it loudly instead of silently passing it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -131,7 +131,7 @@ pub struct BenchEntry {
     pub notes: Option<String>,
 }
 
-/// Hard per-dataset acceptance gate (`calib-bench accept`, S4).
+/// Hard per-dataset acceptance gate (`calib-bench accept`).
 ///
 /// The seeded official route (ADR 0022/0023) must bring **every** camera's
 /// mean reprojection error at or under the threshold; a non-finite mean is
@@ -306,7 +306,7 @@ pub struct PoseSource {
 
 /// Manual initialization seed.
 ///
-/// Placeholder (`serde_json::Value`); the real, typed shape arrives in Phase 2
+/// Placeholder (`serde_json::Value`); the real, typed shape is not defined yet
 /// alongside manual-init support.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]

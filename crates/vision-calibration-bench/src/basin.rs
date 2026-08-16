@@ -1,5 +1,5 @@
 //! Convergence-basin study for the seeded Scheimpflug initialization
-//! (Q6-BASIN-STUDY; the quantitative evidence behind ADR 0022/0023).
+//! (the quantitative evidence behind ADR 0022/0023).
 //!
 //! `calib-bench basin` answers: *how much spec error can the ADR
 //! 0022/0023 seeded route absorb before it stops converging?* For every
@@ -294,7 +294,7 @@ mod tier_b {
         }
 
         // A study that swept nothing has produced no basin evidence; printing
-        // the decision rule would be a vacuous PASS (never a silent pass — S4).
+        // the decision rule would be a vacuous PASS (never a silent pass).
         anyhow::ensure!(
             swept_cameras > 0,
             "basin study swept zero cameras — every selected entry is absent \
@@ -404,7 +404,7 @@ mod tier_b {
         out.push_str("================================================================\n");
         out.push_str("WARNING: the seeded-init basin does NOT cover the realistic\n");
         out.push_str("spec-error envelope (focal ±5%, tilt ±2°) on every camera.\n");
-        out.push_str("This finding REOPENS the Phase A sweep design (docs/backlog.md Q6).\n");
+        out.push_str("This finding REOPENS the sweep design.\n");
         out.push_str("================================================================\n\n");
         for v in violations {
             let _ = writeln!(out, "- {v}");

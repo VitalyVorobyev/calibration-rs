@@ -77,7 +77,7 @@ pub struct LaserlineRunResult {
     /// Used to populate the export's `image_manifest` after the solve.
     pub view_paths: Vec<PathBuf>,
     /// One *laser* image path per accepted view, aligned with
-    /// `view_paths`. Not yet rendered anywhere (B-laser).
+    /// `view_paths`. Not yet rendered anywhere.
     pub laser_paths: Vec<PathBuf>,
     /// Number of views with ≥4 target features and ≥`min_points`
     /// laser pixels.

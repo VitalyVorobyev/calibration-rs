@@ -16,7 +16,7 @@ import { exportKindLabel } from "../../store/exportKind";
 import type { FrameKey, TargetFeatureResidual, ViewportTransform } from "../../types";
 import { IDENTITY_TRANSFORM } from "../../types";
 import { EpipolarOverlay, type OverlayPoint } from "./EpipolarOverlay";
-// Generated wire type (B-QUAL2); aliased to avoid colliding with the
+// Generated wire type; aliased to avoid colliding with the
 // `EpipolarOverlay` overlay component imported just above.
 import type { EpipolarOverlay as EpipolarOverlayResult } from "../../types/generated/diagnose-wire";
 

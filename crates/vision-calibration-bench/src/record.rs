@@ -612,7 +612,7 @@ pub struct ParamDelta {
 /// struct is `None` ([`Timing::stages`]) for the single-stage runners and for
 /// records written before this breakdown existed. The fields sum to
 /// [`Timing::optimize_ms`]. This split localizes where the joint BA spends its
-/// time (Track P / P3) instead of lumping every stage into one number.
+/// time instead of lumping every stage into one number.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageTiming {
     /// Per-camera intrinsics linear init.
@@ -647,7 +647,7 @@ pub struct Timing {
     /// Time spent in detection (0 for Tier-A).
     pub detection_ms: u64,
     /// Per-stage breakdown of the optimization phase (multi-stage rig
-    /// pipelines only); `None` for single-stage runners and pre-P5 records.
+    /// pipelines only); `None` for single-stage runners and records written before per-stage timing existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stages: Option<StageTiming>,
 }
@@ -815,7 +815,7 @@ mod tests {
         assert_json_roundtrip(&sample_record());
     }
 
-    /// A pre-P5 record (no `stages` field) deserializes with `stages: None`, and
+    /// A record written before per-stage timing (no `stages` field) deserializes with `stages: None`, and
     /// a record carrying per-stage timing round-trips intact.
     #[test]
     fn timing_stages_back_compat_and_roundtrip() {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** Component tests for DiagnoseWorkspace (B-QUAL3-2; trimmed by a later
+/** Component tests for DiagnoseWorkspace (trimmed by a later
  * review pass): render the workspace against the two shapes that
  * actually change its render branches, plus the empty state.
  *

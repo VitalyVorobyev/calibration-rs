@@ -12,7 +12,7 @@ Every intrinsics-bearing problem type picks a lens distortion model and a
 per-parameter fix mask. Get it wrong and you either overfit sparse data
 (a free `k3` on 20 views chases noise) or underfit a genuinely distorted
 wide-angle lens. This tutorial explains the available models, the default
-fix mask and why it's the default, and — grounded in the Q4 measurement
+fix mask and why it's the default, and — grounded in the measurement
 study — when reaching for a richer model actually buys you anything.
 
 ## Mental model
@@ -53,7 +53,8 @@ named bits are `{k1, k2, k3, p1, p2}` — always BC5-shaped, even when the
 active model is one of the extended ones. `fix_mask_indices` translates
 the mask **by name** onto each model's packed layout:
 
-- `BrownConrady5`: identity (byte-identical to the pre-Q4 path).
+- `BrownConrady5`: identity (byte-identical to the single-model path it
+  replaced).
 - `Rational8`: the higher-order radial block `k4, k5, k6` follows the `k3` bit.
 - `ThinPrism9`: the prism block `s1..s4` is fixed iff **both** `p1` and `p2` are fixed.
 - `Division1`: the single `lambda` follows the `k1` bit.
@@ -123,7 +124,7 @@ config.fix_camera = CameraFixMask {
 
 Switching `distortion_model` alone does **not** free the model's extra
 coefficients — they stay at their zero seed unless the fix mask also frees
-them (see the Q4 measurement below for why this matters).
+them (see the comparison below for why this matters).
 
 ### 3. Scheimpflug path (seeded)
 
@@ -155,32 +156,29 @@ The linear init stage always produces Brown-Conrady coefficients; they are
 embedded into the chosen model with any extra degrees of freedom zeroed
 before the non-linear refine.
 
-## The Q4 measurement: does a richer model actually help?
+## Does a richer model actually help?
 
-`Q4-MWIRE-SCHEIMPFLUG` (2026-07-04) measured mean reprojection error under
-each distortion model on the two private Scheimpflug rigs, `rtv3d_ref`
-(6 cameras) and `rtv3d_ringgrid` (6 cameras), via the `Q4_DISTORTION_SWEEP=1`
-env-gated sweep in the private intrinsics examples. **Under the production
-`radial_only` fix mask** — the config every shipped bench baseline uses —
-**the model choice alone does not move the seeded floor**:
+Selecting a richer `distortion_model` is not, on its own, a change to what
+is optimized — and that surprises people. We measured mean reprojection
+error under each model on two six-camera Scheimpflug rigs. **Under the
+`radial_only` fix mask** — the configuration every shipped baseline uses —
+**the model choice alone does not move the floor**:
 
-- `rtv3d_ref`: `BrownConrady5 = Rational8 = ThinPrism9 = 0.3316 px` median
+- Rig A: `BrownConrady5 = Rational8 = ThinPrism9 = 0.3316 px` median
   mean-reproj (the extra `k4-k6` / `s1-s4` coefficients stay at their zero
   seed under `radial_only` and never move); `Division1 = 0.3358 px`
-  (stable, but its worst camera, cam3, sits alone at `0.838 px`).
-- `rtv3d_ringgrid`: `0.4739 px` for the three polynomial models,
-  `0.4745 px` for `Division1`.
+  (stable, but its worst camera sits alone at `0.838 px`).
+- Rig B: `0.4739 px` for the three polynomial models, `0.4745 px` for
+  `Division1`.
 
-This is expected: `radial_only` only frees `k1`/`k2` (or `lambda`), so
+This is expected: `radial_only` frees only `k1`/`k2` (or `lambda`), so
 `Rational8` and `ThinPrism9` are Brown-Conrady in every model but name.
 
-An earlier all-coefficients-free sweep (before the `fix_mask_indices`
-codex-review fix landed) hinted that the extra degrees of freedom *can*
-help — the ringgrid knife-edge camera (cam1) improved `0.5008 → 0.4988 px`
-— but the same all-free configuration **diverged** on `rtv3d_ref`'s
-thin-data cameras 3 and 4. A controlled all-free sweep needs a proper
-per-camera warm start to be safe; that is tracked as a follow-up, not
-shipped.
+Freeing *every* coefficient does move the numbers, in both directions. On
+one rig it improved the hardest camera slightly (`0.5008 → 0.4988 px`); on
+the other it **diverged** on the two cameras with the thinnest data. An
+all-free configuration needs a per-camera warm start to be safe, which is
+why it is not the default.
 
 ### Practical guidance
 
@@ -195,8 +193,8 @@ shipped.
   unlock any new degrees of freedom.
 - Freeing every extra coefficient is genuinely experimental: it needs a
   per-camera warm start to avoid diverging on thin-data views. Do not do
-  this on production data without first reproducing the Q4 measurement on
-  your own dataset.
+  this on production data without first reproducing the comparison above
+  on your own dataset.
 
 ## Common variations
 
@@ -218,8 +216,8 @@ shipped.
 - [ADR 0020](../adrs/0020-camera-model-as-data-factor-ir.md) — the
   descriptor-as-data IR design `DistortionKind` dispatches through.
 - [ADR 0022](../adrs/0022-scheimpflug-intrinsics-seeded-default.md) — why
-  Scheimpflug intrinsics is seeded by default, and the 2026-07-04 note
-  with the full Q4 mechanics.
+  Scheimpflug intrinsics is seeded by default, and the full mechanics of
+  the model comparison above.
 - [`docs/notes/scheimpflug-intrinsics.md`](../notes/scheimpflug-intrinsics.md)
   — the Scheimpflug proof-pack stub, including the basin study this
   tutorial's seeded-route guidance builds on.

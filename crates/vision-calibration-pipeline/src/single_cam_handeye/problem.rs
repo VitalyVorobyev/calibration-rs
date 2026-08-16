@@ -108,7 +108,7 @@ pub struct SingleCamHandeyeConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct SingleCamHandeyeExport {
-    /// Export-type discriminator (R7) — always [`ExportKind::SingleCamHandeye`].
+    /// Export-type discriminator — always [`ExportKind::SingleCamHandeye`].
     pub kind: ExportKind,
 
     /// Calibrated camera (intrinsics + distortion).

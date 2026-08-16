@@ -21,7 +21,7 @@ default = []
 refine = ["vision-mvg/refine"]
 # Forward `schemars::JsonSchema` derives on the config + `*Export` types
 # (ADR 0018). Consumed by the diagnose app's schema emitter to generate
-# TypeScript from the Rust types (B-QUAL2). Off by default so library
+# TypeScript from the Rust types. Off by default so library
 # consumers don't pull in schemars.
 schemars = ["vision-calibration-pipeline/schemars"]
 

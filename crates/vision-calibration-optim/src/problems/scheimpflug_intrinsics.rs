@@ -113,7 +113,7 @@ impl ScheimpflugBounds {
 /// The distortion is model-agnostic ([`DistortionParams`]) so the Scheimpflug
 /// path supports Brown-Conrady5 (the default) as well as the extended
 /// Rational8 / ThinPrism9 / Division1 models. Brown-Conrady5 remains
-/// byte-identical to the pre-M-WIRE path (packed vector `[k1, k2, k3, p1, p2]`,
+/// byte-identical to the single-model path it replaced (packed vector `[k1, k2, k3, p1, p2]`,
 /// descriptor `PINHOLE4_DIST5_SCHEIMPFLUG2`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheimpflugIntrinsicsParams {
@@ -247,7 +247,7 @@ pub struct ScheimpflugIntrinsicsEstimate {
 /// Select the Scheimpflug-sensor [`CameraModelDesc`] for a distortion kind.
 ///
 /// Brown-Conrady5 maps to `PINHOLE4_DIST5_SCHEIMPFLUG2` (byte-identical to the
-/// pre-M-WIRE path); the extended models map to their Scheimpflug siblings.
+/// single-model path it replaced); the extended models map to their Scheimpflug siblings.
 /// The identity-distortion `None` kind has no Scheimpflug descriptor and is
 /// rejected — a Scheimpflug intrinsics solve always carries a distortion model.
 fn scheimpflug_model_desc(kind: DistortionKind) -> Result<CameraModelDesc, Error> {
@@ -282,7 +282,7 @@ fn build_scheimpflug_intrinsics_ir(
     // Translate the Brown-Conrady-shaped `fix_distortion` mask onto the packed
     // layout of the active model. `fix_mask_indices` is the single name-based
     // mechanism shared with the pipeline's staging masks; for Brown-Conrady5 it
-    // is exactly `mask.to_indices()` (byte-identical to the pre-M-WIRE path),
+    // is exactly `mask.to_indices()` (byte-identical to the single-model path it replaced),
     // and it carries the same "which coefficients are free" invariants onto the
     // extended models (see `fix_mask_indices`).
     let fix_distortion_indices = fix_mask_indices(&opts.fix_distortion, kind);

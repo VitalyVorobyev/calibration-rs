@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** Component tests for the schema-driven `ConfigForm` (B-QUAL3-1).
+/** Component tests for the schema-driven `ConfigForm`.
  *
  * Renders against the real generated `PlanarIntrinsicsConfig` schema
  * fixture (not a hand-rolled toy schema) so the tests exercise the same
