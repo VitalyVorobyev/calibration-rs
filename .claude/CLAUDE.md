@@ -103,7 +103,7 @@ Plus `vision-calibration-py` (PyO3 bindings, depends on facade only).
 
 ### Python Bindings
 
-Built with [maturin](https://www.maturin.rs/) + PyO3 0.28 (`abi3-py310`, cdylib `_vision_calibration`). Dev build:
+Built with [maturin](https://www.maturin.rs/) + PyO3 0.29 (`abi3-py310`, cdylib `_vision_calibration`). Dev build:
 
 ```bash
 maturin develop -m crates/vision-calibration-py/Cargo.toml
