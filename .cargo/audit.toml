@@ -1,0 +1,19 @@
+# `cargo audit` configuration — the single source of truth for advisory
+# ignores, read by both a developer's local `cargo audit` and the
+# `Security Audit` workflow. Keeping the list here rather than in the
+# workflow's `ignore:` input is what makes a local run agree with CI.
+#
+# Every entry needs a reason and a re-check trigger. Only genuine
+# vulnerabilities belong here; `unmaintained`/`yanked` findings are
+# warnings and do not fail the gate (`denyWarnings` stays false), so
+# silencing them would only hide a future real advisory in the same crate.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2024-0436: the `paste` crate is unmaintained (INFO-level
+    # advisory, not a vulnerability). It is pulled in transitively as a
+    # proc-macro (build-time only, zero runtime exposure) via
+    # gemm -> faer -> tiny-solver, simba -> nalgebra, and rav1e -> image.
+    # Re-check when those upstreams migrate to `pastey`.
+    "RUSTSEC-2024-0436",
+]
