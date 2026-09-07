@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-09-07
+
+Maintenance release. No public API change in any published crate — the
+dependency work is confined to the `publish = false` Python bindings crate,
+a feature-gated binary, and CI. Cut so the advisory fixes reach the
+published crates and the PyPI wheel.
+
+### Security
+
+- **`pyo3` 0.28 → 0.29** in `vision-calibration-py`, closing
+  [RUSTSEC-2026-0176](https://rustsec.org/advisories/RUSTSEC-2026-0176)
+  (out-of-bounds read in `nth`/`nth_back` for the `PyList` and `PyTuple`
+  iterators) and
+  [RUSTSEC-2026-0177](https://rustsec.org/advisories/RUSTSEC-2026-0177)
+  (missing `Sync` bound on `PyCFunction::new_closure`). `pythonize` and
+  `pyo3-build-config` move with it. The Python API and the `abi3-py310`
+  wheel tag are unchanged; MSRV is unaffected (pyo3 0.29 requires 1.83).
+- **`app/src-tauri` lockfile**, which nothing had ever audited: `plist`
+  1.9 → 1.10 pulls `quick-xml` 0.42, closing
+  [RUSTSEC-2026-0194](https://rustsec.org/advisories/RUSTSEC-2026-0194)
+  (quadratic run time on duplicate-attribute checks) and
+  [RUSTSEC-2026-0195](https://rustsec.org/advisories/RUSTSEC-2026-0195)
+  (unbounded namespace-declaration allocation); `crossbeam-epoch`
+  0.9.18 → 0.9.21 closes
+  [RUSTSEC-2026-0204](https://rustsec.org/advisories/RUSTSEC-2026-0204).
+- **`chacha20`** 0.10.1 → 0.10.2 (the 0.10.1 release was yanked; reaches us
+  transitively through `rand`).
+
+### Changed
+
+- **`toml` 0.8 → 1** in `vision-calibration-dataset`'s optional `cli`
+  feature. Internal to the `generate-manifest` binary.
+
+### Fixed
+
+- **The `Security Audit` workflow is load-bearing again.** It had been red
+  every Monday since 2026-06-15 without anyone noticing, for three
+  independent reasons, all now fixed: `createIssues: false` meant a failing
+  scheduled run notified nobody; there was no `pull_request` trigger, so the
+  PR that introduced a vulnerable dependency was green and the failure
+  surfaced up to six days later; and it scanned only the root lockfile, so
+  `app/src-tauri` — outside the workspace per ADR 0014, and what ships as
+  the desktop bundle — was never audited at all. The job now matrixes over
+  both lockfiles, runs on manifest- and lockfile-touching PRs, and files an
+  issue when the weekly run on `main` goes red. Advisory ignores moved to a
+  new `.cargo/audit.toml` so a local `cargo audit` gives the same answer
+  as CI.
+- **Stale GitHub Action pins**: `actions/cache` v4 → v6,
+  `actions/upload-artifact` v4 → v7 (aligning `app-bundle.yml` with
+  `release-pypi.yml`), `actions/setup-python` v6 → v7. A new
+  `.github/dependabot.yml` keeps the action pins current from here on.
+
 ## [0.8.0] - 2026-08-16
 
 Upstream detector-library migration: `calib-targets` 0.9 → 0.12.1,

@@ -5830,7 +5830,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vision-calibration"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "vision-calibration-core",
  "vision-calibration-dataset",
@@ -5844,7 +5844,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-core"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "nalgebra 0.34.2",
  "rand 0.10.1",
@@ -5855,7 +5855,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-dataset"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5864,7 +5864,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-detect"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "calib-targets",
  "image",
@@ -5876,7 +5876,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-linear"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "log",
  "nalgebra 0.34.2",
@@ -5888,7 +5888,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-optim"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "faer",
  "faer-ext",
@@ -5902,7 +5902,7 @@ dependencies = [
 
 [[package]]
 name = "vision-calibration-pipeline"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "glob",
  "image",
@@ -5922,7 +5922,7 @@ dependencies = [
 
 [[package]]
 name = "vision-geometry"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "nalgebra 0.34.2",
  "thiserror 2.0.18",
@@ -5944,7 +5944,7 @@ dependencies = [
 
 [[package]]
 name = "vision-mvg"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "nalgebra 0.34.2",
  "thiserror 2.0.18",
