@@ -1,24 +1,45 @@
 name: Security Audit
+
 on:
   schedule:
     - cron: '0 5 * * 1'
   workflow_dispatch:
+  # Audit a dependency change in the PR that makes it, not up to six days
+  # later on the next scheduled run. The path filter matters: the action
+  # builds `cargo-audit` from source (~3 min), so code-only PRs — the large
+  # majority — pay nothing for this job.
+  pull_request:
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.cargo/audit.toml'
+      - '.github/workflows/audit.yml'
 
 permissions:
   contents: read
+  # `createIssues` defaults to `github.ref == refs/heads/main`, so the weekly
+  # run on main files (and updates) an issue while PR runs stay quiet. Between
+  # 2026-06-15 and 2026-09-07 this workflow was red every Monday and nobody
+  # noticed, because it used to pass `createIssues: false`.
+  issues: write
 
 jobs:
   audit:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # `app/src-tauri` is outside the cargo workspace (ADR 0014) and keeps
+        # its own lockfile, so the root scan never saw it — yet it is what
+        # ships as the desktop bundle. Audit both.
+        lockfile:
+          - Cargo.lock
+          - app/src-tauri/Cargo.lock
     steps:
       - uses: actions/checkout@v7
+      # Ignores live in `.cargo/audit.toml` (read from the repo root, so one
+      # file governs both lockfiles) rather than an `ignore:` input here —
+      # that way a local `cargo audit` gives the same answer as CI.
       - uses: actions-rust-lang/audit@v1
         with:
-          createIssues: false
-          # RUSTSEC-2024-0436: the `paste` crate is unmaintained (INFO-level
-          # advisory, not a vulnerability). It is pulled in transitively as a
-          # proc-macro (build-time only, zero runtime exposure) via
-          # gemm -> faer -> tiny-solver, simba -> nalgebra, and rav1e -> image.
-          # Upstream crates will eventually migrate to `pastey`; no direct
-          # action required on our side.
-          ignore: RUSTSEC-2024-0436
+          file: ${{ matrix.lockfile }}
