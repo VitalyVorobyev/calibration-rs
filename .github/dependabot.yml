@@ -1,0 +1,25 @@
+# Keeps GitHub Action pins from silently drifting a major version behind, as
+# they did before the 2026-09 chore sweep (cache v4, upload-artifact v4,
+# setup-python v6). Grouped into a single monthly PR rather than one per
+# action.
+#
+# The `cargo` and `npm` ecosystems are deliberately NOT enabled:
+#
+#   * Cargo versions here are chosen by hand against real constraints —
+#     `tiny-solver` dictates the `nalgebra`/`faer`/`faer-ext` trio, and
+#     `calib-targets`' 0.12.1 floor is a correctness floor (see the comments
+#     in the root `Cargo.toml`). Bot PRs would mostly be un-mergeable noise.
+#     Advisories are covered by `.github/workflows/audit.yml` instead, which
+#     is the check that actually matters.
+#   * The desktop app uses bun (AGENTS.md §12) and dependabot does not
+#     understand `app/bun.lock`.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns:
+          - "*"
