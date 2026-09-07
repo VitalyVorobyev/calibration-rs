@@ -23,3 +23,13 @@ updates:
       actions:
         patterns:
           - "*"
+    ignore:
+      # `dtolnay/rust-toolchain@<ref>` selects the *Rust toolchain*, not a
+      # version of the action — `@stable` in most jobs, `@1.93` in the MSRV
+      # gate, which tracks docs/MSRV.md rather than the newest Rust release.
+      # Dependabot reads that `1.93` as a version pin and proposes bumping it
+      # (it opened exactly that PR the day this file landed), which would move
+      # the gate off our MSRV while leaving the step named "Install Rust 1.93"
+      # and the job named "MSRV (1.93)" — a gate that lies about what it
+      # checks. Bump the MSRV by hand, via docs/MSRV.md's policy.
+      - dependency-name: "dtolnay/rust-toolchain"
