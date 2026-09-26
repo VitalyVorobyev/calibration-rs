@@ -19,7 +19,8 @@
     "generate:schemas": "cargo run --manifest-path src-tauri/Cargo.toml --features schema-export --bin emit_schemas",
     "generate:schemas:check": "cargo run --manifest-path src-tauri/Cargo.toml --features schema-export --bin emit_schemas -- --check",
     "generate:types:ts": "bun scripts/generate-types.mjs && prettier --write src/types/generated",
-    "generate:types": "bun run generate:schemas && bun run generate:types:ts"
+    "generate:types": "bun run generate:schemas && bun run generate:types:ts",
+    "test:screens": "playwright test -c playwright.screens.config.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",

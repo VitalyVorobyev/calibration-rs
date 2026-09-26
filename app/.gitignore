@@ -13,3 +13,5 @@ dist/*
 # Playwright smoke-test artifacts (B-QUAL4).
 playwright-report
 test-results
+# The screenshot suite's local baseline (playwright.screens.config.ts).
+e2e/.screens
