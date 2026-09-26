@@ -24,7 +24,7 @@ interface FrameCanvasProps {
    * `frame` is a laser-kind frame (with `residuals={[]}`). Observed
    * pixels are colored by point-to-plane distance; the projected laser
    * line is drawn from the first record that carries endpoints. */
-  laserResiduals?: LaserFeatureResidual[];
+  laserResiduals?: LaserFeatureResidual[] | undefined;
   /** Decoded image element. `null` while loading. */
   image: HTMLImageElement | null;
   /** Controlled transform. When provided, the canvas treats it as
@@ -32,10 +32,10 @@ interface FrameCanvasProps {
    * When `undefined` the canvas keeps an internal transform — the
    * single-pane mode used by `DiagnoseWorkspace`. Compare mode passes
    * a shared transform from above. */
-  transform?: ViewportTransform;
-  onTransformChange?: (t: ViewportTransform) => void;
+  transform?: ViewportTransform | undefined;
+  onTransformChange?: ((t: ViewportTransform) => void) | undefined;
   /** Surfaced when something fails (the parent owns the error UI). */
-  onError?: (msg: string) => void;
+  onError?: ((msg: string) => void) | undefined;
   /** Called on `mousemove` with image-pixel coordinates (ROI-local,
    * matching the residual frame). `null` when the cursor leaves the
    * image area. */
@@ -44,7 +44,7 @@ interface FrameCanvasProps {
    * cursor movement, distinguishing it from a pan-drag) at the given
    * image-pixel coordinates. Used by the epipolar workspace to pick a
    * pane-A pixel for the overlay request. */
-  onPick?: (pixel: { x: number; y: number }) => void;
+  onPick?: ((pixel: { x: number; y: number }) => void) | undefined;
   /** Visual ring drawn around the canvas when this pane is the
    * keyboard-active pane in compare mode. */
   active?: boolean;

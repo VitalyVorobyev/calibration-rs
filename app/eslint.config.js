@@ -1,13 +1,14 @@
-// ESLint 9 flat config (B-QUAL1-LINT-CI). Type-aware typescript-eslint is
-// enabled via `projectService` — the workspace is small (~40 files) so the
-// extra type-checking pass stays fast (well under a second locally).
+// The shared vitavision flat config (@vitavision/config-eslint): type-aware
+// typescript-eslint, @eslint-react, the hooks rules. This file adds only what
+// is this app's own: its ignores, the untyped config/e2e files, Fast Refresh,
+// and the advisory hooks rules explained below.
 import js from "@eslint/js";
+import { recommended } from "@vitavision/config-eslint";
 import tseslint from "typescript-eslint";
-import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
 
-export default tseslint.config(
+export default [
   {
     // dist/ is the Vite build output, src-tauri/ is a separate Rust crate
     // (its `target/` and Tauri's codegen `gen/` are not JS at all),
@@ -21,52 +22,33 @@ export default tseslint.config(
       "node_modules/**",
       "tsconfig.tsbuildinfo",
       "src/types/generated/**",
+      "e2e/.screens/**",
+      "test-results/**",
       // Node ESM build script outside tsconfig's `include: ["src"]`, so the
       // type-aware project service can't resolve it (B-QUAL2 codegen).
       "scripts/**",
     ],
   },
   js.configs.recommended,
-  tseslint.configs.recommendedTypeChecked,
+  ...recommended({ tsconfigRootDir: import.meta.dirname }),
   {
-    languageOptions: {
-      parserOptions: {
-        projectService: true,
-        tsconfigRootDir: import.meta.dirname,
-      },
-      globals: globals.browser,
-    },
+    languageOptions: { globals: globals.browser },
   },
   {
-    // Vite/Vitest/ESLint's own config files sit outside `tsconfig.json`'s
-    // `include: ["src"]`, so they get no type-aware linting — plain
-    // syntactic rules only, with Node (not browser) globals.
-    files: ["*.config.{js,ts}"],
-    extends: [tseslint.configs.disableTypeChecked],
+    // Vite/Vitest/ESLint/Playwright config files and the Playwright e2e specs
+    // (B-QUAL4) sit outside `tsconfig.json`'s `include: ["src"]`, so they get
+    // no type-aware linting — plain syntactic rules only, with Node globals.
+    files: ["*.config.{js,ts}", "e2e/**/*.{ts,tsx}"],
+    ...tseslint.configs.disableTypeChecked,
     languageOptions: {
-      globals: globals.node,
-    },
-  },
-  {
-    // Playwright e2e specs (B-QUAL4) live outside `tsconfig.json`'s
-    // `include: ["src"]` too — same syntactic-only treatment as the
-    // config files above. Node globals for the test/config code; `page`
-    // callbacks execute in the browser but are still authored/typed as
-    // plain TS closures, so no browser globals are needed here.
-    files: ["e2e/**/*.{ts,tsx}", "playwright.config.ts"],
-    extends: [tseslint.configs.disableTypeChecked],
-    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
       globals: globals.node,
     },
   },
   {
     files: ["**/*.{ts,tsx}"],
-    plugins: {
-      "react-hooks": reactHooks,
-      "react-refresh": reactRefresh,
-    },
+    plugins: { "react-refresh": reactRefresh },
     rules: {
-      ...reactHooks.configs["recommended-latest"].rules,
       // Vite preset, downgraded to `warn`: several widget files
       // intentionally co-locate small pure helpers/types with the
       // component they serve (e.g. TargetBoard.tsx + computeBoardBbox,
@@ -76,8 +58,8 @@ export default tseslint.config(
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
 
       // New in eslint-plugin-react-hooks 7 (adopted with the eslint 10
-      // bump). Both are advisory here rather than blocking, for different
-      // reasons — see B-QUAL-HOOKS7 in docs/backlog.md.
+      // bump). Advisory here rather than blocking — see B-QUAL-HOOKS7 in
+      // docs/backlog.md.
       //
       // `purity` cannot tell an event handler from render code, so it
       // reports the `Date.now()` that stamps a run's start time inside
@@ -91,6 +73,11 @@ export default tseslint.config(
       // keying the component. Rewriting five call sites is app work, not
       // part of a dependency bump.
       "react-hooks/set-state-in-effect": "warn",
+      // Same family, same reason (lab-ui PLAN L2-3): refs and props read or
+      // written during render. Each fix changes when a screen renders, which
+      // a toolchain upgrade must not, so they wait for the per-screen work.
+      "react-hooks/refs": "warn",
+      "react-hooks/immutability": "warn",
     },
   },
-);
+];

@@ -43,11 +43,11 @@ export function PoseStepper({
     if (poseValues.length === 0) return;
     const idx = poseValues.indexOf(selectedPose);
     if (idx < 0) {
-      onSelectPose(poseValues[delta >= 0 ? 0 : poseValues.length - 1]);
+      onSelectPose(poseValues[delta >= 0 ? 0 : poseValues.length - 1]!);
       return;
     }
     const n = poseValues.length;
-    const next = poseValues[(((idx + delta) % n) + n) % n];
+    const next = poseValues[(((idx + delta) % n) + n) % n]!;
     onSelectPose(next);
   };
 
@@ -59,7 +59,7 @@ export function PoseStepper({
     }
     // Snap to nearest valid pose. Sparse manifests routinely have gaps
     // (poses 0, 2, 5, …) so an exact match isn't guaranteed.
-    let best = poseValues[0];
+    let best = poseValues[0]!;
     let bestDist = Math.abs(best - parsed);
     for (const v of poseValues) {
       const d = Math.abs(v - parsed);

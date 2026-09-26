@@ -51,11 +51,11 @@ function CameraStepper({
     if (cameraValues.length === 0) return;
     const idx = cameraValues.indexOf(selectedCamera);
     if (idx < 0) {
-      onSelectCamera(cameraValues[delta >= 0 ? 0 : cameraValues.length - 1]);
+      onSelectCamera(cameraValues[delta >= 0 ? 0 : cameraValues.length - 1]!);
       return;
     }
     const n = cameraValues.length;
-    onSelectCamera(cameraValues[(((idx + delta) % n) + n) % n]);
+    onSelectCamera(cameraValues[(((idx + delta) % n) + n) % n]!);
   };
 
   const idx = cameraValues.indexOf(selectedCamera);

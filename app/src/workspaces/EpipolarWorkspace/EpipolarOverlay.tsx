@@ -19,17 +19,17 @@ interface EpipolarOverlayProps {
   transform: ViewportTransform;
   /** Polyline in image-pixel coordinates. Renders inside the scaled
    * group so the line scales with the image. */
-  polyline?: [number, number][];
+  polyline?: [number, number][] | undefined;
   /** Polyline stroke color. */
-  polylineColor?: string;
+  polylineColor?: string | undefined;
   /** Crosshair markers (selected feature, hover ghost, tie-line dots). */
-  markers?: OverlayPoint[];
+  markers?: OverlayPoint[] | undefined;
   /** Optional label drawn at the top-left of the overlay. */
-  caption?: string;
+  caption?: string | undefined;
   /** Optional pixel-anchored text annotation drawn near `px` (canvas
    * pixel space, fixed on-screen size). Used to flag the picked
    * feature's residual distance to the epipolar polyline. */
-  annotation?: { px: [number, number]; text: string; color: string };
+  annotation?: { px: [number, number]; text: string; color: string } | undefined;
 }
 
 /** SVG layer drawn over a FrameCanvas. The SVG fills the canvas's

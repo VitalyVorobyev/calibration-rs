@@ -59,9 +59,9 @@ function computeFrame(positions: Float32Array): Frame {
   let cy = 0;
   let cz = 0;
   for (let i = 0; i < positions.length; i += 3) {
-    cx += positions[i];
-    cy += positions[i + 1];
-    cz += positions[i + 2];
+    cx += positions[i]!;
+    cy += positions[i + 1]!;
+    cz += positions[i + 2]!;
   }
   cx /= n;
   cy /= n;
@@ -69,9 +69,9 @@ function computeFrame(positions: Float32Array): Frame {
 
   let r = 1e-3;
   for (let i = 0; i < positions.length; i += 3) {
-    const dx = positions[i] - cx;
-    const dy = positions[i + 1] - cy;
-    const dz = positions[i + 2] - cz;
+    const dx = positions[i]! - cx;
+    const dy = positions[i + 1]! - cy;
+    const dz = positions[i + 2]! - cz;
     r = Math.max(r, Math.hypot(dx, dy, dz));
   }
 

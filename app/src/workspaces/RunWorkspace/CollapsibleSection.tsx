@@ -25,7 +25,7 @@ interface CollapsibleSectionProps {
   summary?: string;
   defaultOpen?: boolean;
   children: React.ReactNode;
-  badge?: string;
+  badge?: string | undefined;
   badgeVariant?: "default" | "destructive";
 }
 

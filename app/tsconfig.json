@@ -1,20 +1,15 @@
 {
+  // The shared compiler options (strict, noUncheckedIndexedAccess,
+  // exactOptionalPropertyTypes, verbatimModuleSyntax, bundler resolution)
+  // come from @vitavision/config-ts. The target matches vite.config.ts's
+  // `build.target`, which the Tauri WebViews set.
+  "extends": "@vitavision/config-ts/tsconfig.json",
   "compilerOptions": {
     "target": "ES2021",
-    "useDefineForClassFields": true,
     "lib": ["ES2021", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "bundler",
+    "useDefineForClassFields": true,
     "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "resolveJsonModule": true
   },
   "include": ["src"]
 }

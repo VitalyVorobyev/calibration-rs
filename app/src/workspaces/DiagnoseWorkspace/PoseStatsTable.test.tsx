@@ -26,7 +26,9 @@ const RESIDUALS = [res(0, 1), res(1, 5), res(2, 3)];
 /** Pose values of the body rows in render order. */
 function bodyPoseOrder(): string[] {
   const rows = screen.getAllByRole("row").slice(1); // drop header
-  return rows.map((row) => within(row).getAllByRole("cell")[0].textContent?.trim() ?? "");
+  return rows.map(
+    (row) => within(row).getAllByRole("cell")[0]!.textContent?.trim() ?? "",
+  );
 }
 
 afterEach(cleanup);

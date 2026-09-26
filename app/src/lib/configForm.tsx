@@ -27,7 +27,7 @@ export interface JsonSchema {
   required?: string[];
   items?: JsonSchema;
   oneOf?: JsonSchema[];
-  description?: string;
+  description?: string | undefined;
   format?: string;
   minimum?: number;
   maximum?: number;
@@ -173,12 +173,12 @@ function externalVariant(variant: JsonSchema, ctx: FormCtx): ExternalVariant | n
   }
   const required = v.required ?? [];
   const props = v.properties ?? {};
-  if (required.length === 1 && props[required[0]]) {
-    return { tag: required[0], schema: props[required[0]] };
+  if (required.length === 1 && props[required[0]!]) {
+    return { tag: required[0]!, schema: props[required[0]!]! };
   }
   const keys = Object.keys(props);
   if (keys.length === 1) {
-    return { tag: keys[0], schema: props[keys[0]] };
+    return { tag: keys[0]!, schema: props[keys[0]!]! };
   }
   return null;
 }
@@ -293,7 +293,7 @@ function OneOfField({ schema, value, onChange, ctx, label }: FieldProps) {
       : ({} as Record<string, unknown>);
   const currentKind = typeof obj.kind === "string" ? obj.kind : (variantTags[0] ?? "");
   const activeIdx = variantTags.findIndex((t) => t === currentKind);
-  const active = activeIdx >= 0 ? variants[activeIdx] : variants[0];
+  const active = activeIdx >= 0 ? variants[activeIdx]! : variants[0]!;
 
   return (
     <fieldset className="flex flex-col gap-2 rounded-md border border-border bg-bg-soft p-3">

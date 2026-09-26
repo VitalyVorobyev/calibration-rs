@@ -360,7 +360,7 @@ function EpipolarBody(props: BodyProps) {
     const cs = data.cam_se3_rig;
     if (!cs || cs.length <= cameraA || cs.length <= cameraB) return null;
     if (cameraA === cameraB) return null;
-    return relativeCameraPose(cs[cameraA], cs[cameraB]);
+    return relativeCameraPose(cs[cameraA]!, cs[cameraB]!);
   }, [data, cameraA, cameraB]);
 
   const tieMarkersA = useMemo<OverlayPoint[]>(() => {
@@ -571,7 +571,7 @@ function distanceToPolyline(
 ): number {
   let best = Infinity;
   for (let i = 0; i < polyline.length - 1; i++) {
-    const d = distanceToSegment(point, polyline[i], polyline[i + 1]);
+    const d = distanceToSegment(point, polyline[i]!, polyline[i + 1]!);
     if (d < best) best = d;
   }
   return best;
@@ -596,14 +596,14 @@ interface PaneProps {
   frame: FrameKey | null;
   transform: ViewportTransform;
   onTransformChange: (t: ViewportTransform) => void;
-  onPick?: (pixel: { x: number; y: number }) => void;
-  polyline?: [number, number][];
-  polylineColor?: string;
-  markers?: OverlayPoint[];
-  caption?: string;
+  onPick?: ((pixel: { x: number; y: number }) => void) | undefined;
+  polyline?: [number, number][] | undefined;
+  polylineColor?: string | undefined;
+  markers?: OverlayPoint[] | undefined;
+  caption?: string | undefined;
   image: HTMLImageElement | null;
   handleRef: React.MutableRefObject<FrameCanvasHandle | null>;
-  annotation?: { px: [number, number]; text: string; color: string };
+  annotation?: { px: [number, number]; text: string; color: string } | undefined;
 }
 
 function Pane({

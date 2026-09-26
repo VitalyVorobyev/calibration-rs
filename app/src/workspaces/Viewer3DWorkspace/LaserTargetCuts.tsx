@@ -58,7 +58,7 @@ export function LaserTargetCuts({
             />
           </bufferGeometry>
           <lineBasicMaterial
-            color={CUT_COLORS[idx % CUT_COLORS.length]}
+            color={CUT_COLORS[idx % CUT_COLORS.length]!}
             transparent
             opacity={0.95}
           />
@@ -124,5 +124,5 @@ function clipImplicitLineToBbox(
   }
 
   if (pts.length < 2) return null;
-  return { a: pts[0], b: pts[1] };
+  return { a: pts[0]!, b: pts[1]! };
 }

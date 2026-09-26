@@ -60,7 +60,11 @@ export function LaserPlane({
   }, [halfExtent]);
 
   return (
-    <group position={position} quaternion={quaternion} onClick={onSelect}>
+    <group
+      position={position}
+      quaternion={quaternion}
+      {...(onSelect !== undefined ? { onClick: onSelect } : {})}
+    >
       <mesh>
         <planeGeometry args={[halfExtent * 2, halfExtent * 2]} />
         <meshBasicMaterial

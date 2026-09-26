@@ -69,6 +69,7 @@ bun run tauri build    # bundle the desktop app (installer/binary)
 bun run generate:types # regenerate TS wire types from the Rust source
 bun run test           # Vitest: pure-logic unit tests + jsdom component tests
 bun run test:e2e       # Playwright smoke: boots the app, checks it doesn't fall over
+bun run test:screens   # screenshots of every workspace vs. a local baseline
 ```
 
 > **Important.** Use `bun run tauri dev`, **not** `bun run dev`. The
@@ -240,8 +241,8 @@ Two layers, run by different tools:
 
 - **Vitest (`bun run test`)** — `src/**/*.test.ts` are pure-logic unit tests
   (Node environment, no DOM); `src/**/*.test.tsx` are component tests
-  (jsdom, via `@testing-library/react`) selected by
-  `vitest.config.ts`'s `environmentMatchGlobs`. Component tests mock the
+  (jsdom, via `@testing-library/react`), each opting in with a
+  `// @vitest-environment jsdom` pragma. Component tests mock the
   Tauri IPC layer with `@tauri-apps/api/mocks`' `mockIPC` (one seam:
   `window.__TAURI_INTERNALS__.invoke`) — see
   `src/workspaces/DiagnoseWorkspace/DiagnoseWorkspace.test.tsx` and
@@ -272,6 +273,13 @@ Two layers, run by different tools:
 `bunx playwright install chromium --with-deps` installs the browser once
 (cached locally / in CI); CI runs `test:e2e` as an extra step in the
 `app-frontend` job.
+
+- **Screenshots (`bun run test:screens`)** — `e2e/screens.spec.ts` under its
+  own `playwright.screens.config.ts` (port 1421): every workspace empty, and
+  Diagnose with the planar fixture loaded through the mocked IPC. The
+  baseline in `e2e/.screens/` is local and uncommitted — capture it with
+  `--update-snapshots` before a change (a dependency upgrade, say) and
+  compare after it on the same machine. Not run in CI.
 
 ### Generated wire types (`bun run generate:types`)
 

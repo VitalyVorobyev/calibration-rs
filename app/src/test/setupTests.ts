@@ -1,8 +1,8 @@
-/** Shared setup for jsdom component tests. Only wired for the
- * `jsdom` project via `vitest.config.ts`'s `environmentMatchGlobs` — the
- * guards below make it a no-op when it happens to load under the plain
- * `node` environment (the pure-logic unit tests), so one setup file
- * covers both without branching in `vitest.config.ts`. */
+/** Shared setup for jsdom component tests. Every test file loads it; a
+ * component test opts into jsdom with a `// @vitest-environment jsdom`
+ * pragma, and the guards below make this a no-op under the plain `node`
+ * environment (the pure-logic unit tests), so one setup file covers both
+ * without branching in `vitest.config.ts`. */
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 

@@ -160,7 +160,7 @@ function decodeLuminance(img: HTMLImageElement): Uint8Array {
   const lum = new Uint8Array(w * h);
   for (let i = 0, j = 0; i < rgba.length; i += 4, j++) {
     // Rec. 601 luma — close enough for diagnostic readout.
-    lum[j] = (0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]) | 0;
+    lum[j] = (0.299 * rgba[i]! + 0.587 * rgba[i + 1]! + 0.114 * rgba[i + 2]!) | 0;
   }
   return lum;
 }
@@ -182,7 +182,7 @@ export function getPixelLum(data: ImageData, x: number, y: number): number | nul
   if (xi < 0 || yi < 0 || xi >= data.naturalWidth || yi >= data.naturalHeight) {
     return null;
   }
-  return data.luminance[yi * data.naturalWidth + xi];
+  return data.luminance[yi * data.naturalWidth + xi]!;
 }
 
 /** Compute a fixed-bin histogram over a sub-rectangle of the image. */
@@ -204,10 +204,10 @@ export function rectHistogram(
   for (let y = y0; y < y1; y++) {
     const row = y * w;
     for (let x = x0; x < x1; x++) {
-      const v = lum[row + x];
+      const v = lum[row + x]!;
       let bin = (v * scale) | 0;
       if (bin >= binCount) bin = binCount - 1;
-      bins[bin]++;
+      bins[bin]!++;
     }
   }
   return bins;
