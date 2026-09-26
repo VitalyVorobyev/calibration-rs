@@ -466,7 +466,7 @@ function LaserResidualLegend({
   hist,
 }: {
   residuals: LaserFeatureResidual[];
-  hist?: FeatureResidualHistogram | null;
+  hist?: FeatureResidualHistogram | null | undefined;
 }) {
   const mm = residuals
     .map((r) => r.residual_m)

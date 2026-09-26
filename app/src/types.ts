@@ -93,7 +93,7 @@ export interface FrameKey {
   label: string;
   /** Absolute path to the PNG on disk. */
   abs_path: string;
-  roi?: PixelRect;
+  roi?: PixelRect | undefined;
 }
 
 /** Viewport transform applied to the canvas before drawing the image

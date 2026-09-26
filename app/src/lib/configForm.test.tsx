@@ -95,7 +95,7 @@ describe("ConfigForm", () => {
     fireEvent.change(maxIters, { target: { value: "77" } });
 
     expect(onChange).toHaveBeenCalledTimes(1);
-    const next = onChange.mock.calls[0][0] as typeof DEFAULT_PLANAR_CONFIG;
+    const next = onChange.mock.calls[0]![0] as typeof DEFAULT_PLANAR_CONFIG;
     expect(next.solver.max_iters).toBe(77);
     // Sibling fields are untouched by the edit.
     expect(next.solver.verbosity).toBe(0);
@@ -120,7 +120,7 @@ describe("ConfigForm", () => {
     fireEvent.click(k3);
 
     expect(onChange).toHaveBeenCalledTimes(1);
-    const next = onChange.mock.calls[0][0] as typeof DEFAULT_PLANAR_CONFIG;
+    const next = onChange.mock.calls[0]![0] as typeof DEFAULT_PLANAR_CONFIG;
     expect(next.fix_camera.distortion.k3).toBe(false);
     expect(next.fix_camera.distortion.k1).toBe(false); // untouched sibling
     expect(next.fix_camera.intrinsics).toEqual(
@@ -145,7 +145,7 @@ describe("ConfigForm", () => {
     fireEvent.change(distortionModel, { target: { value: "rational8" } });
 
     expect(onChange).toHaveBeenCalledTimes(1);
-    const next = onChange.mock.calls[0][0] as typeof DEFAULT_PLANAR_CONFIG;
+    const next = onChange.mock.calls[0]![0] as typeof DEFAULT_PLANAR_CONFIG;
     expect(next.distortion_model).toBe("rational8");
   });
 
@@ -166,7 +166,7 @@ describe("ConfigForm", () => {
     fireEvent.change(robustLoss, { target: { value: "Huber" } });
 
     expect(onChange).toHaveBeenCalledTimes(1);
-    const next = onChange.mock.calls[0][0] as {
+    const next = onChange.mock.calls[0]![0] as {
       solver: { robust_loss: { Huber?: { scale: number } } };
     };
     expect(Object.keys(next.solver.robust_loss)).toEqual(["Huber"]);

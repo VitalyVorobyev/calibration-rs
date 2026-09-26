@@ -45,7 +45,7 @@ describe("adaptSceneExport", () => {
 
     const adapted = adaptSceneExport(laser);
     expect(adapted.cameras).toHaveLength(1);
-    expect(adapted.cameras?.[0].k.fx).toBe(1000);
+    expect(adapted.cameras?.[0]!.k.fx).toBe(1000);
     // Camera pinned at the rig origin (identity extrinsic).
     expect(adapted.cam_se3_rig).toEqual([
       { rotation: [0, 0, 0, 1], translation: [0, 0, 0] },

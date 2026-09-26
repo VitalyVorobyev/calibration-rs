@@ -37,14 +37,14 @@ function median(sortedAsc: number[]): number {
   const n = sortedAsc.length;
   if (n === 0) return 0;
   const mid = n >> 1;
-  return n % 2 === 1 ? sortedAsc[mid] : (sortedAsc[mid - 1] + sortedAsc[mid]) / 2;
+  return n % 2 === 1 ? sortedAsc[mid]! : (sortedAsc[mid - 1]! + sortedAsc[mid]!) / 2;
 }
 
 function summarize(errors: number[]): { mean: number; median: number; max: number } {
   if (errors.length === 0) return { mean: 0, median: 0, max: 0 };
   const sorted = [...errors].sort((a, b) => a - b);
   const mean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
-  return { mean, median: median(sorted), max: sorted[sorted.length - 1] };
+  return { mean, median: median(sorted), max: sorted[sorted.length - 1]! };
 }
 
 /** One row per pose, sorted by ascending pose index. Poses are taken

@@ -53,7 +53,11 @@ export function TargetBoard({
   const cy = (bbox.y0 + bbox.y1) / 2;
 
   return (
-    <group matrix={matrix} matrixAutoUpdate={false} onClick={onSelect}>
+    <group
+      matrix={matrix}
+      matrixAutoUpdate={false}
+      {...(onSelect !== undefined ? { onClick: onSelect } : {})}
+    >
       <mesh position={[cx, cy, 0]}>
         <planeGeometry args={[bbox.x1 - bbox.x0, bbox.y1 - bbox.y0]} />
         <meshBasicMaterial

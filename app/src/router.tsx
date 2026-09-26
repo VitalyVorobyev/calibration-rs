@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { createHashRouter, Navigate } from "react-router-dom";
+import { createHashRouter, Navigate } from "react-router";
 import { AppShell } from "./layouts/AppShell";
 import { DepthWorkspace } from "./workspaces/DepthWorkspace";
 import { DiagnoseWorkspace } from "./workspaces/DiagnoseWorkspace";

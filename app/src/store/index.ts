@@ -14,9 +14,9 @@ import { detectExportKind } from "./exportKind";
 function nextInWrap(arr: number[], current: number, delta: number): number {
   if (arr.length === 0) return current;
   const idx = arr.indexOf(current);
-  if (idx < 0) return delta >= 0 ? arr[0] : arr[arr.length - 1];
+  if (idx < 0) return delta >= 0 ? arr[0]! : arr[arr.length - 1]!;
   const n = arr.length;
-  return arr[(((idx + delta) % n) + n) % n];
+  return arr[(((idx + delta) % n) + n) % n]!;
 }
 
 interface MaterializedExport {
@@ -88,7 +88,7 @@ function materializeExport(
   const posesByCamera = new Map([...posesByCameraSet].map(([k, v]) => [k, sortNum(v)]));
   const camerasByPose = new Map([...camerasByPoseSet].map(([k, v]) => [k, sortNum(v)]));
 
-  const first = frames[0];
+  const first = frames[0]!;
   const second =
     frames.find((f) => f.pose !== first.pose || f.camera !== first.camera) ?? first;
 

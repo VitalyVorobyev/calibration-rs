@@ -60,11 +60,11 @@ export function setAtPath(obj: unknown, path: string, value: unknown): unknown {
   const keys = path.split(".");
   let cur = root;
   for (let i = 0; i < keys.length - 1; i++) {
-    const k = keys[i];
+    const k = keys[i]!;
     if (typeof cur[k] !== "object" || cur[k] === null) cur[k] = {};
     cur = cur[k] as Record<string, unknown>;
   }
-  cur[keys[keys.length - 1]] = value;
+  cur[keys[keys.length - 1]!] = value;
   return root;
 }
 

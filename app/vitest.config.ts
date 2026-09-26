@@ -7,16 +7,15 @@ import react from "@vitejs/plugin-react";
 // `bun run test` fast and isolated from the app shell.
 //
 // `*.test.tsx` component tests (B-QUAL3) render through
-// `@testing-library/react` and need a DOM — `environmentMatchGlobs`
-// switches those files to `jsdom` while every `.test.ts` file keeps the
-// original fast `node` environment. The React plugin is only needed for
-// the jsdom project (JSX/Fast-Refresh transform); it's a no-op for the
-// plain-TS unit tests.
+// `@testing-library/react` and need a DOM — each one starts with a
+// `// @vitest-environment jsdom` pragma, while every `.test.ts` file keeps
+// the fast `node` environment. The React plugin is only needed for the
+// jsdom tests (JSX/Fast-Refresh transform); it's a no-op for the plain-TS
+// unit tests.
 export default defineConfig({
   plugins: [react()],
   test: {
     environment: "node",
-    environmentMatchGlobs: [["src/**/*.test.tsx", "jsdom"]],
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["src/test/setupTests.ts"],
   },

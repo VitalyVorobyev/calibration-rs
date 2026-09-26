@@ -171,8 +171,8 @@ function buildEdgeGeometry(corners: [number, number, number][]): BufferGeometry 
     verts.push(...apex, ...c);
   }
   for (let i = 0; i < 4; i++) {
-    const a = corners[i];
-    const b = corners[(i + 1) % 4];
+    const a = corners[i]!;
+    const b = corners[(i + 1) % 4]!;
     verts.push(...a, ...b);
   }
   const g = new BufferGeometry();
@@ -186,7 +186,7 @@ function buildEdgeGeometry(corners: [number, number, number][]): BufferGeometry 
 function buildFarPlaneHitbox(corners: [number, number, number][]): BufferGeometry {
   // Triangulate the quad as (0, 1, 2) + (0, 2, 3).
   const [a, b, c, d] = corners;
-  const verts: number[] = [...a, ...b, ...c, ...a, ...c, ...d];
+  const verts: number[] = [...a!, ...b!, ...c!, ...a!, ...c!, ...d!];
   const g = new BufferGeometry();
   g.setAttribute("position", new Float32BufferAttribute(verts, 3));
   return g;
@@ -201,23 +201,23 @@ function buildFrustumHitbox(corners: [number, number, number][]): BufferGeometry
   const [a, b, c, d] = padded;
   const verts: number[] = [
     ...apex,
-    ...a,
-    ...b,
+    ...a!,
+    ...b!,
     ...apex,
-    ...b,
-    ...c,
+    ...b!,
+    ...c!,
     ...apex,
-    ...c,
-    ...d,
+    ...c!,
+    ...d!,
     ...apex,
-    ...d,
-    ...a,
-    ...a,
-    ...b,
-    ...c,
-    ...a,
-    ...c,
-    ...d,
+    ...d!,
+    ...a!,
+    ...a!,
+    ...b!,
+    ...c!,
+    ...a!,
+    ...c!,
+    ...d!,
   ];
   const g = new BufferGeometry();
   g.setAttribute("position", new Float32BufferAttribute(verts, 3));

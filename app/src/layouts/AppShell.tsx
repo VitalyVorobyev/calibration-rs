@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet } from "react-router";
 import { Banner, Button } from "../components/ui";
 import { Logo } from "../components/Logo";
 import { isTauriContext } from "../lib/tauri";
