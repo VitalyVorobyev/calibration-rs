@@ -84,13 +84,20 @@ fn tsai_lenz_allpairs(
     stream_b: &[Iso3],
     min_angle_deg: Real,
 ) -> Result<Iso3, Error> {
+    // No per-pair A/B axis test: A and B share their rotation axis whenever
+    // the hand-eye rotation is the identity (a camera bolted square to the
+    // flange) or rotates about that axis, and such pairs are perfectly
+    // informative. What the solve needs is a well-posed *set* of pairs.
     let pairs = build_all_pairs_impl(
         base_se3_gripper,
         stream_b,
         min_angle_deg,
-        true, // reject_axis_parallel
-        1e-3, // axis_parallel_eps
+        false, // reject_axis_parallel
+        0.0,   // axis_parallel_eps
     )?;
+    if !robot_axes_span_two_directions(&pairs, 1e-3) {
+        return Err(Error::NoValidMotionPairs);
+    }
 
     let rot_x = estimate_rotation_allpairs_weighted(&pairs)?;
     let g_tra = estimate_translation_allpairs_weighted(&pairs, &rot_x)?;
@@ -99,6 +106,25 @@ fn tsai_lenz_allpairs(
         UnitQuaternion::from_rotation_matrix(&nalgebra::Rotation3::from_matrix_unchecked(rot_x));
     let trans = Translation3::from(g_tra);
     Ok(Isometry3::from_parts(trans, rot))
+}
+
+/// Whether the robot motions of `pairs` rotate about at least two axes that
+/// are not parallel (sine of the angle between them ≥ `eps`).
+///
+/// This is Tsai–Lenz's condition for a unique solution: with every rotation
+/// axis parallel, the rotation of X about that axis and the translation along
+/// it are unobservable.
+fn robot_axes_span_two_directions(pairs: &[MotionPair], eps: Real) -> bool {
+    let axes: Vec<Vector3<Real>> = pairs
+        .iter()
+        .map(|p| log_so3(&p.rot_a))
+        .filter(|w| w.norm() > 1e-9)
+        .map(|w| w.normalize())
+        .collect();
+    let Some(first) = axes.first() else {
+        return false;
+    };
+    axes.iter().any(|a| first.cross(a).norm() >= eps)
 }
 
 /// Build a single motion pair from two pose samples.
@@ -178,8 +204,11 @@ fn is_good_pair(
 /// `base_se3_gripper` are gripper poses in the base frame, and
 /// `target_se3_camera` are camera poses in the target frame (`T_T_C`).
 ///
-/// Pairs with too-small rotations or near-parallel rotation axes can be
-/// rejected to improve conditioning.
+/// Pairs with too-small rotations can be rejected. `reject_axis_parallel`
+/// additionally drops pairs whose `A` and `B` rotation axes are parallel;
+/// note that this is **not** an ill-conditioning test — it holds for every
+/// pair when the hand-eye rotation is the identity — so the Tsai–Lenz
+/// initialisers in this module do not use it.
 pub fn build_all_pairs(
     base_se3_gripper: &[Iso3],
     target_se3_camera: &[Iso3],
@@ -414,5 +443,80 @@ mod tests {
         // Tolerances can be relaxed if you later add noise.
         assert!(dt < 1e-6, "translation error too large: {}", dt);
         assert!(ang < 1e-6, "rotation error too large: {}", ang);
+    }
+
+    /// Synthetic eye-in-hand streams: robot poses rotating about several
+    /// axes, and `target_se3_camera = Y⁻¹ · base_se3_gripper · X`.
+    fn streams(x: &Iso3, y: &Iso3, poses: &[Iso3]) -> Vec<Iso3> {
+        poses.iter().map(|bg| y.inverse() * bg * x).collect()
+    }
+
+    fn varied_robot_poses() -> Vec<Iso3> {
+        (0..8)
+            .map(|k| {
+                let kf = k as Real;
+                make_iso(
+                    (
+                        0.25 * (kf * 0.9).sin(),
+                        0.2 * (kf * 1.3).cos(),
+                        0.3 * (kf * 0.7).sin(),
+                    ),
+                    (0.1 * kf.sin(), -0.05 * kf, 0.8 + 0.03 * kf),
+                )
+            })
+            .collect()
+    }
+
+    /// calibration-rs#124: a camera mounted square to the flange (identity
+    /// rotation, pure offset) makes every pair's A and B axes parallel; the
+    /// former per-pair filter rejected them all.
+    #[test]
+    fn handeye_dlt_recovers_an_identity_rotation_mount() {
+        let x_gt = make_iso((0.0, 0.0, 0.0), (0.04, 0.0, 0.03));
+        let y_gt = make_iso((0.0, 0.0, 0.3), (0.45, 0.15, 0.0));
+        let robot = varied_robot_poses();
+        let cams = streams(&x_gt, &y_gt, &robot);
+        let x_est = estimate_handeye_dlt(&robot, &cams, 1.0).unwrap();
+        let (dt, ang) = pose_error(&x_est, &x_gt);
+        assert!(dt < 1e-9 && ang < 1e-9, "dt {dt}, angle {ang}");
+        let y_est = estimate_gripper_se3_target_dlt(
+            &robot,
+            &robot
+                .iter()
+                .map(|bg| (y_gt.inverse() * bg * x_gt).inverse())
+                .collect::<Vec<_>>(),
+            1.0,
+        );
+        assert!(y_est.is_ok());
+    }
+
+    /// Also when X rotates about an axis some robot motions share.
+    #[test]
+    fn handeye_dlt_recovers_a_mount_rotated_about_a_motion_axis() {
+        let x_gt = make_iso((0.0, 0.0, 0.7), (0.02, -0.01, 0.05));
+        let y_gt = make_iso((0.1, -0.05, 0.2), (-0.2, 0.1, 1.0));
+        let mut robot = varied_robot_poses();
+        // Two poses differing by a pure rotation about z: their pair's A and B
+        // axes coincide.
+        robot.push(robot[0] * make_iso((0.0, 0.0, 0.5), (0.0, 0.0, 0.0)));
+        let cams = streams(&x_gt, &y_gt, &robot);
+        let x_est = estimate_handeye_dlt(&robot, &cams, 1.0).unwrap();
+        let (dt, ang) = pose_error(&x_est, &x_gt);
+        assert!(dt < 1e-9 && ang < 1e-9, "dt {dt}, angle {ang}");
+    }
+
+    /// Every robot motion about one axis leaves X underdetermined: rejected.
+    #[test]
+    fn handeye_dlt_rejects_motions_about_a_single_axis() {
+        let x_gt = make_iso((0.2, -0.1, 0.05), (0.1, -0.05, 0.2));
+        let y_gt = make_iso((-0.1, 0.05, 0.2), (-0.2, 0.1, 1.0));
+        let robot: Vec<Iso3> = (0..6)
+            .map(|k| make_iso((0.0, 0.0, 0.3 * k as Real), (0.1, 0.0, 0.8)))
+            .collect();
+        let cams = streams(&x_gt, &y_gt, &robot);
+        assert!(matches!(
+            estimate_handeye_dlt(&robot, &cams, 1.0),
+            Err(Error::NoValidMotionPairs)
+        ));
     }
 }

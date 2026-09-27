@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Hand-eye initialisation accepts a camera mounted square to the flange**
+  ([#124](https://github.com/VitalyVorobyev/calibration-rs/issues/124)).
+  The Tsai–Lenz initialisers dropped every motion pair whose robot and
+  camera rotation axes were parallel. That is true of *every* pair when the
+  hand-eye rotation is the identity, so such setups failed with
+  `NoValidMotionPairs` even with well-spread robot poses. Parallel A/B axes
+  are not ill-conditioned; the solve needs the robot motions to rotate
+  about at least two non-parallel axes, which is now what is checked.
+  Acceptance results are unchanged.
+
 ## [0.8.2] - 2026-09-27
 
 Patch release. Undistortion now converges at the corners of wide-angle
