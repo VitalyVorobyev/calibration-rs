@@ -63,7 +63,11 @@ image = { version = "0.25" }
 
 glob = "0.3"
 regex = "1"
-rand = { version = "0.10" }
+# Default features off: `sys_rng`/`thread_rng` pull `getrandom`, which does not
+# build for `wasm32-unknown-unknown` without a JS backend. Library crates only
+# need seeded RNGs (determinism rule), so each member opts into the features it
+# uses.
+rand = { version = "0.10", default-features = false }
 tracing = { version = "0.1" }
 tiny-solver = "0.18"
 faer = "0.23"
