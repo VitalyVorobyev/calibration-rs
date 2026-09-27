@@ -38,7 +38,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
-rand = { workspace = true }
+rand = { workspace = true, features = ["thread_rng"] }
 # Robot-pose parsing for the Tier-B hand-eye runner (row-major 4x4 -> Iso3).
 # Math-only; already a transitive dep, pulled in directly here.
 nalgebra = { workspace = true }
