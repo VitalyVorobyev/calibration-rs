@@ -23,6 +23,99 @@ impl<S: RealField + Copy> DistortionModel<S> for NoDistortion {
     }
 }
 
+/// Solve `distort(n_u) = n_dist` for `n_u` by Newton's method, starting at
+/// `n_dist`.
+///
+/// `eval(x, y)` returns the distorted point and its 2×2 Jacobian
+/// `[[∂x_d/∂x, ∂x_d/∂y], [∂y_d/∂x, ∂y_d/∂y]]`. Convergence is quadratic:
+/// wide-angle Brown-Conrady corners (k1 ≈ −0.35 at a normalized radius of
+/// ~0.8) reach machine precision in four steps, where the former
+/// fixed-point iteration needed 25 (calibration-rs#120).
+///
+/// Each step is halved (up to 30 times) until it reduces the residual, so a
+/// Newton step never makes the estimate worse. The iteration stops when the
+/// step is below a few ULPs of the point, when the residual is exactly zero,
+/// when the Jacobian is singular, or after `max_iters` steps.
+fn newton_undistort<S, F>(n_dist: &Point2<S>, max_iters: u32, eval: F) -> Point2<S>
+where
+    S: RealField + Copy,
+    F: Fn(S, S) -> ((S, S), [[S; 2]; 2]),
+{
+    let (xd, yd) = (n_dist.x, n_dist.y);
+    let half = S::from_f64(0.5).unwrap();
+    let tol = S::from_f64(4.0).unwrap() * S::default_epsilon();
+    let tol2 = tol * tol;
+
+    let mut x = xd;
+    let mut y = yd;
+    let ((fx, fy), mut jac) = eval(x, y);
+    let mut ex = fx - xd;
+    let mut ey = fy - yd;
+    let mut res2 = ex * ex + ey * ey;
+
+    for _ in 0..max_iters {
+        if res2 == S::zero() {
+            break;
+        }
+        let [[a, b], [c, d]] = jac;
+        let det = a * d - b * c;
+        if det == S::zero() || !det.is_finite() {
+            break;
+        }
+        // δ = J⁻¹·e
+        let mut dx = (d * ex - b * ey) / det;
+        let mut dy = (a * ey - c * ex) / det;
+
+        let mut accepted = None;
+        for _ in 0..30 {
+            let (nx, ny) = (x - dx, y - dy);
+            let ((gx, gy), njac) = eval(nx, ny);
+            let (nex, ney) = (gx - xd, gy - yd);
+            let nres2 = nex * nex + ney * ney;
+            if nres2.is_finite() && nres2 < res2 {
+                accepted = Some((nx, ny, nex, ney, nres2, njac));
+                break;
+            }
+            dx *= half;
+            dy *= half;
+        }
+        let Some((nx, ny, nex, ney, nres2, njac)) = accepted else {
+            break;
+        };
+        let step2 = dx * dx + dy * dy;
+        (x, y, ex, ey, res2, jac) = (nx, ny, nex, ney, nres2, njac);
+        if step2 <= tol2 * (S::one() + x * x + y * y) {
+            break;
+        }
+    }
+    Point2::new(x, y)
+}
+
+/// Jacobian of `(x·R + x_tan, y·R + y_tan)` for a radial factor `R(r²)` with
+/// derivative `dR = dR/d(r²)` and Brown-Conrady tangential terms.
+fn radial_tangential_jacobian<S: RealField + Copy>(
+    x: S,
+    y: S,
+    radial: S,
+    d_radial: S,
+    p1: S,
+    p2: S,
+) -> [[S; 2]; 2] {
+    let two = S::one() + S::one();
+    let six = S::from_f64(6.0).unwrap();
+    let cross = two * x * y * d_radial + two * p1 * x + two * p2 * y;
+    [
+        [
+            radial + two * x * x * d_radial + two * p1 * y + six * p2 * x,
+            cross,
+        ],
+        [
+            cross,
+            radial + two * y * y * d_radial + six * p1 * y + two * p2 * x,
+        ],
+    ]
+}
+
 /// Brown-Conrady 5-parameter radial-tangential distortion model.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -37,11 +130,25 @@ pub struct BrownConrady5<S: RealField> {
     pub p1: S,
     /// Tangential coefficient p2.
     pub p2: S,
-    /// Iterations for undistortion.
+    /// Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).
     pub iters: u32,
 }
 
 impl<S: RealField + Copy> BrownConrady5<S> {
+    /// The forward map and its Jacobian, for Newton undistortion.
+    fn distort_with_jacobian(&self, x: S, y: S) -> ((S, S), [[S; 2]; 2]) {
+        let r2 = x * x + y * y;
+        let r4 = r2 * r2;
+        let two = S::one() + S::one();
+        let three = two + S::one();
+        let radial = S::one() + self.k1 * r2 + self.k2 * r4 + self.k3 * r4 * r2;
+        let d_radial = self.k1 + two * self.k2 * r2 + three * self.k3 * r4;
+        (
+            self.distort_impl(x, y),
+            radial_tangential_jacobian(x, y, radial, d_radial, self.p1, self.p2),
+        )
+    }
+
     fn distort_impl(&self, x: S, y: S) -> (S, S) {
         let r2 = x * x + y * y;
         let r4 = r2 * r2;
@@ -68,18 +175,8 @@ impl<S: RealField + Copy> DistortionModel<S> for BrownConrady5<S> {
     }
 
     fn undistort(&self, n_dist: &Point2<S>) -> Point2<S> {
-        let mut x = n_dist.x;
-        let mut y = n_dist.y;
-
-        let iters = if self.iters == 0 { 8 } else { self.iters };
-        for _ in 0..iters {
-            let (xd, yd) = self.distort_impl(x, y);
-            let ex = xd - n_dist.x;
-            let ey = yd - n_dist.y;
-            x -= ex;
-            y -= ey;
-        }
-        Point2::new(x, y)
+        let iters = if self.iters == 0 { 20 } else { self.iters };
+        newton_undistort(n_dist, iters, |x, y| self.distort_with_jacobian(x, y))
     }
 }
 
@@ -90,7 +187,8 @@ impl<S: RealField + Copy> DistortionModel<S> for BrownConrady5<S> {
 /// Forward map: `x_d = x * (1 + k1·r² + k2·r⁴ + k3·r⁶) / (1 + k4·r² + k5·r⁴ + k6·r⁶) + x_tan`,
 /// where the tangential correction `x_tan` follows the Brown-Conrady convention.
 ///
-/// Undistortion uses fixed-point iteration (default 10 iterations).
+/// Undistortion solves the forward map by Newton's method (at most `iters`
+/// steps, default 20).
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RationalPolynomial<S: RealField> {
@@ -110,11 +208,29 @@ pub struct RationalPolynomial<S: RealField> {
     pub p1: S,
     /// Tangential coefficient p2.
     pub p2: S,
-    /// Iterations for undistortion (0 → 10).
+    /// Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).
     pub iters: u32,
 }
 
 impl<S: RealField + Copy> RationalPolynomial<S> {
+    /// The forward map and its Jacobian, for Newton undistortion.
+    fn distort_with_jacobian(&self, x: S, y: S) -> ((S, S), [[S; 2]; 2]) {
+        let r2 = x * x + y * y;
+        let r4 = r2 * r2;
+        let two = S::one() + S::one();
+        let three = two + S::one();
+        let num = S::one() + self.k1 * r2 + self.k2 * r4 + self.k3 * r4 * r2;
+        let den = S::one() + self.k4 * r2 + self.k5 * r4 + self.k6 * r4 * r2;
+        let d_num = self.k1 + two * self.k2 * r2 + three * self.k3 * r4;
+        let d_den = self.k4 + two * self.k5 * r2 + three * self.k6 * r4;
+        let radial = num / den;
+        let d_radial = (d_num * den - num * d_den) / (den * den);
+        (
+            self.distort_impl(x, y),
+            radial_tangential_jacobian(x, y, radial, d_radial, self.p1, self.p2),
+        )
+    }
+
     fn distort_impl(&self, x: S, y: S) -> (S, S) {
         let r2 = x * x + y * y;
         let r4 = r2 * r2;
@@ -143,39 +259,12 @@ impl<S: RealField + Copy> DistortionModel<S> for RationalPolynomial<S> {
     }
 
     fn undistort(&self, n_dist: &Point2<S>) -> Point2<S> {
-        // Stable fixed point `x_u = (x_d - tangential) / radial` (matching the
-        // optimizer kernel). The plain `x -= distort(x) - x_d` update has an
-        // identity Jacobian and can diverge for strong coefficients; dividing by
-        // the radial factor keeps it contracting within the calibrated field of
-        // view (normalized radius up to ~1.2). It is NOT guaranteed to converge
-        // for extreme wide-FOV inputs (radius >~ 1.3 with strong terms), where
-        // the map is still invertible but the fixed point oscillates — same
-        // limitation as OpenCV `undistortPoints`. A robust wide-FOV inverse
-        // (Newton / 1D-radial solve) is not implemented.
-        let xd = n_dist.x;
-        let yd = n_dist.y;
-        let mut x = xd;
-        let mut y = yd;
-        let two = S::one() + S::one();
-
-        let iters = if self.iters == 0 { 10 } else { self.iters };
-        for _ in 0..iters {
-            let r2 = x * x + y * y;
-            let r4 = r2 * r2;
-            let r6 = r4 * r2;
-
-            let num = S::one() + self.k1 * r2 + self.k2 * r4 + self.k3 * r6;
-            let den = S::one() + self.k4 * r2 + self.k5 * r4 + self.k6 * r6;
-            let radial = num / den;
-
-            let xy = x * y;
-            let x_tan = two * self.p1 * xy + self.p2 * (r2 + two * x * x);
-            let y_tan = self.p1 * (r2 + two * y * y) + two * self.p2 * xy;
-
-            x = (xd - x_tan) / radial;
-            y = (yd - y_tan) / radial;
-        }
-        Point2::new(x, y)
+        // Newton on the forward map. It converges within the invertible part
+        // of the field; beyond the fold of a strong wide-FOV model (where the
+        // forward map stops being monotone in r) no inverse exists and the
+        // result is the last step that reduced the residual.
+        let iters = if self.iters == 0 { 20 } else { self.iters };
+        newton_undistort(n_dist, iters, |x, y| self.distort_with_jacobian(x, y))
     }
 }
 
@@ -187,7 +276,8 @@ impl<S: RealField + Copy> DistortionModel<S> for RationalPolynomial<S> {
 /// that add higher-order sensor shift terms:
 /// `x_d += s1·r² + s2·r⁴`,  `y_d += s3·r² + s4·r⁴`.
 ///
-/// Undistortion uses fixed-point iteration (default 10 iterations).
+/// Undistortion solves the forward map by Newton's method (at most `iters`
+/// steps, default 20).
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ThinPrism<S: RealField> {
@@ -209,11 +299,30 @@ pub struct ThinPrism<S: RealField> {
     pub s3: S,
     /// Thin-prism coefficient s4 (y correction, r⁴).
     pub s4: S,
-    /// Iterations for undistortion (0 → 10).
+    /// Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).
     pub iters: u32,
 }
 
 impl<S: RealField + Copy> ThinPrism<S> {
+    /// The forward map and its Jacobian, for Newton undistortion.
+    fn distort_with_jacobian(&self, x: S, y: S) -> ((S, S), [[S; 2]; 2]) {
+        let r2 = x * x + y * y;
+        let r4 = r2 * r2;
+        let two = S::one() + S::one();
+        let three = two + S::one();
+        let radial = S::one() + self.k1 * r2 + self.k2 * r4 + self.k3 * r4 * r2;
+        let d_radial = self.k1 + two * self.k2 * r2 + three * self.k3 * r4;
+        let mut jac = radial_tangential_jacobian(x, y, radial, d_radial, self.p1, self.p2);
+        // Thin-prism terms: s1·r² + s2·r⁴ in x, s3·r² + s4·r⁴ in y.
+        let dpx = two * (self.s1 + two * self.s2 * r2);
+        let dpy = two * (self.s3 + two * self.s4 * r2);
+        jac[0][0] += dpx * x;
+        jac[0][1] += dpx * y;
+        jac[1][0] += dpy * x;
+        jac[1][1] += dpy * y;
+        (self.distort_impl(x, y), jac)
+    }
+
     fn distort_impl(&self, x: S, y: S) -> (S, S) {
         let r2 = x * x + y * y;
         let r4 = r2 * r2;
@@ -244,34 +353,8 @@ impl<S: RealField + Copy> DistortionModel<S> for ThinPrism<S> {
     }
 
     fn undistort(&self, n_dist: &Point2<S>) -> Point2<S> {
-        // Stable fixed point `x_u = (x_d - tangential - prism) / radial`
-        // (matching the optimizer kernel); see `RationalPolynomial::undistort`
-        // for why the plain subtraction update is avoided.
-        let xd = n_dist.x;
-        let yd = n_dist.y;
-        let mut x = xd;
-        let mut y = yd;
-        let two = S::one() + S::one();
-
-        let iters = if self.iters == 0 { 10 } else { self.iters };
-        for _ in 0..iters {
-            let r2 = x * x + y * y;
-            let r4 = r2 * r2;
-            let r6 = r4 * r2;
-
-            let radial = S::one() + self.k1 * r2 + self.k2 * r4 + self.k3 * r6;
-
-            let xy = x * y;
-            let x_tan = two * self.p1 * xy + self.p2 * (r2 + two * x * x);
-            let y_tan = self.p1 * (r2 + two * y * y) + two * self.p2 * xy;
-
-            let prism_x = self.s1 * r2 + self.s2 * r4;
-            let prism_y = self.s3 * r2 + self.s4 * r4;
-
-            x = (xd - x_tan - prism_x) / radial;
-            y = (yd - y_tan - prism_y) / radial;
-        }
-        Point2::new(x, y)
+        let iters = if self.iters == 0 { 20 } else { self.iters };
+        newton_undistort(n_dist, iters, |x, y| self.distort_with_jacobian(x, y))
     }
 }
 
@@ -493,5 +576,152 @@ mod tests {
                 "division roundtrip failed at ({x},{y}): d={d:?} u={u:?}"
             );
         }
+    }
+    // ── Newton undistortion (calibration-rs#120) ────────────────────────────
+
+    /// The lenses of calibration-rs#120 (found by etendue gate G3.1), each of
+    /// which the former fixed-point iteration failed at the image corners.
+    fn issue_120_models() -> Vec<(&'static str, Box<dyn DistortionModel<f64>>)> {
+        vec![
+            (
+                "brown mild",
+                Box::new(BrownConrady5 {
+                    k1: -0.08,
+                    k2: 0.02,
+                    ..Default::default()
+                }),
+            ),
+            (
+                "brown wide-angle barrel",
+                Box::new(BrownConrady5 {
+                    k1: -0.35,
+                    k2: 0.15,
+                    k3: -0.03,
+                    p1: 5e-4,
+                    p2: -3e-4,
+                    iters: 0,
+                }),
+            ),
+            (
+                "brown pincushion",
+                Box::new(BrownConrady5 {
+                    k1: 0.15,
+                    k2: 0.05,
+                    ..Default::default()
+                }),
+            ),
+            (
+                "rational",
+                Box::new(RationalPolynomial {
+                    k1: 0.8,
+                    k2: 0.2,
+                    k3: 0.01,
+                    k4: 1.1,
+                    k5: 0.35,
+                    k6: 0.02,
+                    p1: 1e-4,
+                    p2: 1e-4,
+                    iters: 0,
+                }),
+            ),
+            (
+                "thin prism",
+                Box::new(ThinPrism {
+                    k1: -0.1,
+                    k2: 0.03,
+                    s1: 1e-3,
+                    s2: -5e-4,
+                    s3: 8e-4,
+                    s4: 2e-4,
+                    ..Default::default()
+                }),
+            ),
+        ]
+    }
+
+    /// `distort(undistort(d)) = d` to ~1e-15 over the distorted normalized
+    /// field of a 2048×1536, f = 1800 px image (corners at |x| 0.57, |y| 0.43),
+    /// extended to ±0.65 × ±0.5 to cover a 4°-tilted Scheimpflug sensor. (The
+    /// wide-angle barrel folds at a distorted radius of ~0.945: beyond it
+    /// there is no inverse.) At f = 1800 the bound is ~2e-12 px.
+    #[test]
+    fn newton_undistort_converges_at_the_corners() {
+        let n = 41;
+        for (name, m) in issue_120_models() {
+            let mut worst = 0.0f64;
+            for i in 0..n {
+                for j in 0..n {
+                    let x = -0.65 + 1.3 * i as f64 / (n - 1) as f64;
+                    let y = -0.5 + 1.0 * j as f64 / (n - 1) as f64;
+                    let d = Point2::new(x, y);
+                    let back = m.distort(&m.undistort(&d));
+                    worst = worst.max((back - d).norm());
+                }
+            }
+            assert!(worst < 1e-15, "{name}: worst residual {worst:e}");
+        }
+    }
+
+    /// The analytic Jacobians agree with central differences.
+    #[test]
+    fn newton_jacobians_match_finite_differences() {
+        fn check(name: &str, f: impl Fn(f64, f64) -> ((f64, f64), [[f64; 2]; 2])) {
+            let h = 1e-6;
+            for &(x, y) in &[(0.31, -0.22), (-0.55, 0.41), (0.02, 0.6), (0.7, 0.5)] {
+                let (_, jac) = f(x, y);
+                let d = |dx: f64, dy: f64| {
+                    let ((px, py), _) = f(x + dx, y + dy);
+                    let ((mx, my), _) = f(x - dx, y - dy);
+                    ((px - mx) / (2.0 * h), (py - my) / (2.0 * h))
+                };
+                let (dxx, dyx) = d(h, 0.0);
+                let (dxy, dyy) = d(0.0, h);
+                let fd = [[dxx, dxy], [dyx, dyy]];
+                for r in 0..2 {
+                    for c in 0..2 {
+                        assert!(
+                            (jac[r][c] - fd[r][c]).abs() < 1e-8,
+                            "{name}: J[{r}][{c}] = {} vs {} at ({x},{y})",
+                            jac[r][c],
+                            fd[r][c]
+                        );
+                    }
+                }
+            }
+        }
+        let bc = BrownConrady5 {
+            k1: -0.35,
+            k2: 0.15,
+            k3: -0.03,
+            p1: 5e-4,
+            p2: -3e-4,
+            iters: 0,
+        };
+        check("brown", |x, y| bc.distort_with_jacobian(x, y));
+        let rp = RationalPolynomial {
+            k1: 0.8,
+            k2: 0.2,
+            k3: 0.01,
+            k4: 1.1,
+            k5: 0.35,
+            k6: 0.02,
+            p1: 1e-3,
+            p2: -2e-3,
+            iters: 0,
+        };
+        check("rational", |x, y| rp.distort_with_jacobian(x, y));
+        let tp = ThinPrism {
+            k1: -0.1,
+            k2: 0.03,
+            k3: 0.01,
+            p1: 1e-3,
+            p2: -1e-3,
+            s1: 2e-3,
+            s2: -5e-4,
+            s3: 8e-4,
+            s4: 2e-4,
+            iters: 0,
+        };
+        check("thin prism", |x, y| tp.distort_with_jacobian(x, y));
     }
 }

@@ -4,7 +4,7 @@
       "description": "Brown-Conrady 5-parameter radial-tangential distortion model.",
       "properties": {
         "iters": {
-          "description": "Iterations for undistortion.",
+          "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"

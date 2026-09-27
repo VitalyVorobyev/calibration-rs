@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Iterative undistortion converges at the image corners**
+  ([#120](https://github.com/VitalyVorobyev/calibration-rs/issues/120)).
+  `BrownConrady5`, `RationalPolynomial` and `ThinPrism` `undistort` now solve
+  the forward map by Newton's method with analytic 2×2 Jacobians and a
+  residual-decreasing step, instead of a fixed number of fixed-point steps.
+  A wide-angle barrel lens (k1 −0.35) at the corners of a 2048×1536,
+  f = 1800 px image was off by 0.32 px after the default 8 steps (0.65 px
+  with a 4.2° Scheimpflug tilt); Newton reaches ~5e-13 px in four.
+  `iters` keeps its meaning as the iteration cap; `0` now means 20 for all
+  three models (was 8 or 10). Explicit small caps (5, 8) remain enough.
+- **`vision-calibration-core` builds for `wasm32-unknown-unknown`**
+  ([#119](https://github.com/VitalyVorobyev/calibration-rs/pull/119)).
+
 ## [0.8.1] - 2026-09-07
 
 Maintenance release. No public API change in any published crate — the
