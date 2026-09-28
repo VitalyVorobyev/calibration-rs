@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-09-28
+
+Patch release. Hand-eye calibration no longer rejects a camera mounted
+square to the flange. No public signature changes.
+
 ### Fixed
 
 - **Hand-eye initialisation accepts a camera mounted square to the flange**
