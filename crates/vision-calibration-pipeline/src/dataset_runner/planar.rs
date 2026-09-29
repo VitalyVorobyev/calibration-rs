@@ -81,7 +81,6 @@ pub fn build_planar_input(
     for image_path in &images {
         let (features, _cache_hit) = detect_features(
             detector.as_ref(),
-            detector_name,
             &detector_config,
             &key_config,
             roi,

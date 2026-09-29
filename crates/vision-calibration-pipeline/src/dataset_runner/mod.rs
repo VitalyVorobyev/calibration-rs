@@ -545,38 +545,6 @@ fn pattern_repr(p: &ImagePattern) -> String {
     }
 }
 
-/// Revision of a detector's output, spliced into its cache key so an entry
-/// written before a change to what the detector returns is not served after
-/// it. Bump a detector's revision when its features change for the same image
-/// and config.
-///
-/// - `chessboard` 2: labels are bounded by `cols` across and `rows` down.
-///   Revision 1 bounded them the other way round, dropping the corners of a
-///   board seen as declared.
-fn output_revision(detector_name: &str) -> Option<u32> {
-    match detector_name {
-        "chessboard" => Some(2),
-        _ => None,
-    }
-}
-
-/// The cache key of one image's detection: [`CacheKey::from_inputs`] on the
-/// key config, plus the detector's [`output_revision`].
-pub(crate) fn detection_cache_key(
-    bytes: &[u8],
-    detector_name: &str,
-    key_config: &Value,
-) -> CacheKey {
-    let Some(revision) = output_revision(detector_name) else {
-        return CacheKey::from_inputs(bytes, detector_name, key_config);
-    };
-    let mut config = key_config.clone();
-    if let Value::Object(map) = &mut config {
-        map.insert("_revision".to_string(), json!(revision));
-    }
-    CacheKey::from_inputs(bytes, detector_name, &config)
-}
-
 /// Run one image through the cache-or-detect path shared by every
 /// converter: read bytes → cache lookup → on miss, decode, crop to
 /// ROI, detect in the camera pixel frame, store.
@@ -585,7 +553,6 @@ pub(crate) fn detection_cache_key(
 #[allow(clippy::too_many_arguments)]
 fn detect_features(
     detector: &dyn Detector,
-    detector_name: &str,
     detector_config: &Value,
     key_config: &Value,
     roi: Option<[u32; 4]>,
@@ -594,7 +561,7 @@ fn detect_features(
     force_redetect: bool,
 ) -> Result<(Vec<Feature>, bool), RunError> {
     let bytes = std::fs::read(image_path)?;
-    let key = detection_cache_key(&bytes, detector_name, key_config);
+    let key = CacheKey::for_detector(&bytes, detector, key_config);
 
     let cached: Option<CachedFeatures> = if force_redetect {
         None
@@ -617,7 +584,7 @@ fn detect_features(
     let detected = detector
         .detect_json(&img_for_detect, detector_config)
         .map_err(|e| RunError::Detection {
-            detector: detector_name.to_string(),
+            detector: detector.name().to_string(),
             path: image_path.to_path_buf(),
             source: e,
         })?;
@@ -774,23 +741,6 @@ mod tests {
         assert_eq!(
             lowered,
             lower_chess_corners(spec.detector.unwrap().chess_corners.unwrap())
-        );
-    }
-
-    #[test]
-    fn chessboard_cache_keys_carry_the_output_revision() {
-        // Entries written before the label-bounds fix hold truncated
-        // detections; they must not be served for the same image and config.
-        let config = json!({"rows": 17, "cols": 28, "square_size_m": 0.02});
-        assert_ne!(
-            detection_cache_key(b"img", "chessboard", &config),
-            CacheKey::from_inputs(b"img", "chessboard", &config)
-        );
-        // Detectors without a revision keep their existing keys.
-        let charuco = json!({"rows": 8});
-        assert_eq!(
-            detection_cache_key(b"img", "charuco", &charuco),
-            CacheKey::from_inputs(b"img", "charuco", &charuco)
         );
     }
 

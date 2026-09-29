@@ -165,7 +165,6 @@ pub(super) fn build_rig_core(
             };
             let (features, _cache_hit) = detect_features(
                 detector.as_ref(),
-                detector_name,
                 &detector_config,
                 &key_configs[cam_idx],
                 spec.cameras[cam_idx].roi_xywh,
@@ -253,14 +252,15 @@ fn finish<Meta>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dataset_runner::detection_cache_key;
     use serde_json::json;
     use std::io::Write;
     use vision_calibration_dataset::{
         CameraSource, ImagePattern, PoseColumnMap, PoseConvention, PosePairing, RobotPoseFormat,
         RobotPoseSource, RotationFormat, TargetSpec, TransformConvention, TranslationUnits,
     };
-    use vision_calibration_detect::{CachedFeatures, Feature, FsDetectionCache};
+    use vision_calibration_detect::{
+        CacheKey, CachedFeatures, ChessboardDetector, Feature, FsDetectionCache,
+    };
 
     /// Synthetic features on the chessboard lattice — enough (≥4) for
     /// the runner to accept the view.
@@ -290,7 +290,7 @@ mod tests {
         let bytes = rel_path.as_bytes(); // content only needs to be unique
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
-        let key = detection_cache_key(bytes, "chessboard", &detector_config());
+        let key = CacheKey::for_detector(bytes, &ChessboardDetector, &detector_config());
         cache.put(&key, &CachedFeatures { features }).unwrap();
         path
     }
