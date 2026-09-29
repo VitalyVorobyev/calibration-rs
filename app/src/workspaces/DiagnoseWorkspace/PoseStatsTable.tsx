@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { colorForError } from "../../components/FrameCanvas";
+import { colorForError } from "../../lib/errorColors";
 import { Table, Td, Th } from "../../components/ui";
 import { computePoseResidualStats, type PoseResidualStat } from "../../lib/residualStats";
 import type { TargetFeatureResidual } from "../../types";

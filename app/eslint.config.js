@@ -49,33 +49,13 @@ export default [
     files: ["**/*.{ts,tsx}"],
     plugins: { "react-refresh": reactRefresh },
     rules: {
-      // Vite preset, downgraded to `warn`: several widget files
-      // intentionally co-locate small pure helpers/types with the
-      // component they serve (e.g. TargetBoard.tsx + computeBoardBbox,
-      // FrameCanvas.tsx + colorForError). Splitting every helper into
-      // its own module purely to satisfy Fast Refresh is not worth the
-      // churn; `warn` still surfaces the HMR papercut without blocking CI.
+      // Vite preset: component files export only components (helpers live in
+      // sibling modules) so Fast Refresh keeps component state on edit.
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
 
-      // New in eslint-plugin-react-hooks 7 (adopted with the eslint 10
-      // bump). Advisory here rather than blocking — see B-QUAL-HOOKS7 in
-      // docs/backlog.md.
-      //
-      // `purity` cannot tell an event handler from render code, so it
-      // reports the `Date.now()` that stamps a run's start time inside
-      // RunWorkspace's async submit handler. That call is legitimate; the
-      // rule is wrong about it, and there is no narrower suppression that
-      // does not also blind the file to real purity violations.
-      "react-hooks/purity": "warn",
-      // `set-state-in-effect` flags the "reset derived state when the
-      // input changes" effect in useImageData / DiagnoseWorkspace. The
-      // pattern is correct, just one render pass more expensive than
-      // keying the component. Rewriting five call sites is app work, not
-      // part of a dependency bump.
-      "react-hooks/set-state-in-effect": "warn",
-      // Same family, same reason (lab-ui PLAN L2-3): refs and props read or
-      // written during render. Each fix changes when a screen renders, which
-      // a toolchain upgrade must not, so they wait for the per-screen work.
+      // Advisory rather than blocking: refs and props read or written
+      // during render (lab-ui PLAN L2-3). Each fix changes when a screen
+      // renders, so they wait for the per-screen work.
       "react-hooks/refs": "warn",
       "react-hooks/immutability": "warn",
     },

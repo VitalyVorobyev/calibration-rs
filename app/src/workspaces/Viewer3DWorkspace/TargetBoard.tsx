@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { iso3FromWire } from "../../lib/se3";
 import type { Iso3Wire } from "../../store/types";
 import type { TargetFeatureResidual } from "../../types";
+import { computeBoardBbox } from "./boardGeometry";
 
 interface TargetBoardProps {
   /** `rig_se3_target` (T_R_T) for the pose this board represents. */
@@ -78,33 +79,4 @@ export function TargetBoard({
       </line>
     </group>
   );
-}
-
-export interface Bbox2 {
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
-}
-
-export function computeBoardBbox(residuals: TargetFeatureResidual[]): Bbox2 {
-  if (residuals.length === 0) {
-    // Fallback when residuals don't carry geometry — a 100 mm × 100 mm
-    // square centred on the target origin.
-    return { x0: -0.05, y0: -0.05, x1: 0.05, y1: 0.05 };
-  }
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const r of residuals) {
-    const [x, y] = r.target_xyz_m;
-    if (x < x0) x0 = x;
-    if (y < y0) y0 = y;
-    if (x > x1) x1 = x;
-    if (y > y1) y1 = y;
-  }
-  // Pad by 5 % to keep the marker dots from sitting on the outline.
-  const pad = Math.max(x1 - x0, y1 - y0) * 0.05;
-  return { x0: x0 - pad, y0: y0 - pad, x1: x1 + pad, y1: y1 + pad };
 }

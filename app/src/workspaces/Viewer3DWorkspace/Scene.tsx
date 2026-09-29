@@ -123,36 +123,38 @@ export function Scene({
           line segments so it reads as a quiet reference. */}
       <axesHelper args={[0.05]} />
 
-      {cameras.map((camera, i) => {
-        const pose = camSe3Rig[i];
-        if (!pose) return null;
-        const dims = cameraDimensions.get(i) ?? fallbackImage;
-        return (
-          <CameraFrustum
-            key={`cam-${i}`}
-            camera={camera}
-            camSe3Rig={pose}
-            imageWidth={dims.width}
-            imageHeight={dims.height}
-            farDepth={FAR_DEPTH_M}
-            color={i === cameraA ? colors.active : colors.inactive}
-            active={i === cameraA}
-            onSelect={() => setCamera(i, "A")}
-            label={`cam ${i}`}
-          />
-        );
-      })}
+      {cameras
+        .map((camera, id) => ({ camera, id }))
+        .map(({ camera, id }) => {
+          const pose = camSe3Rig[id];
+          if (!pose) return null;
+          const dims = cameraDimensions.get(id) ?? fallbackImage;
+          return (
+            <CameraFrustum
+              key={`cam-${id}`}
+              camera={camera}
+              camSe3Rig={pose}
+              imageWidth={dims.width}
+              imageHeight={dims.height}
+              farDepth={FAR_DEPTH_M}
+              color={id === cameraA ? colors.active : colors.inactive}
+              active={id === cameraA}
+              onSelect={() => setCamera(id, "A")}
+              label={`cam ${id}`}
+            />
+          );
+        })}
 
       {showLaserPlanes &&
-        laserQuads.map((quad, i) => (
+        laserQuads.map((quad) => (
           <LaserPlane
-            key={`laser-plane-${i}`}
+            key={`laser-plane-${quad.camera}`}
             plane={quad.plane}
             anchor={quad.anchor}
             halfExtent={quad.halfExtent}
-            color={i === cameraA ? colors.active : colors.inactive}
-            active={i === cameraA}
-            onSelect={() => setCamera(i, "A")}
+            color={quad.camera === cameraA ? colors.active : colors.inactive}
+            active={quad.camera === cameraA}
+            onSelect={() => setCamera(quad.camera, "A")}
           />
         ))}
 
@@ -194,6 +196,8 @@ export function Scene({
 }
 
 interface LaserQuad {
+  /** Index of the camera that owns the plane. */
+  camera: number;
   plane: LaserPlaneWire;
   anchor: [number, number, number];
   halfExtent: number;
@@ -216,6 +220,7 @@ function computeLaserQuads(planes: LaserPlaneWire[], camSe3Rig: Iso3Wire[]): Las
       // the rig origin with a fixed extent.
       const anchor = n.clone().multiplyScalar(-plane.distance);
       return {
+        camera: i,
         plane,
         anchor: [anchor.x, anchor.y, anchor.z],
         halfExtent: LASER_QUAD_FALLBACK_HALF_EXTENT_M,
@@ -230,6 +235,7 @@ function computeLaserQuads(planes: LaserPlaneWire[], camSe3Rig: Iso3Wire[]): Las
       Math.max(LASER_QUAD_MIN_HALF_EXTENT_M, 1.5 * Math.abs(signed)),
     );
     return {
+      camera: i,
       plane,
       anchor: [anchor.x, anchor.y, anchor.z],
       halfExtent,

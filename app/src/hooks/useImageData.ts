@@ -15,6 +15,13 @@ export interface ImageData {
   luminance: Uint8Array;
 }
 
+/** Decoded pixels tagged with the request key they were loaded for, so a
+ * hook can drop them as soon as its inputs move on to a different key. */
+interface Loaded {
+  key: string;
+  data: ImageData;
+}
+
 /** Loads a frame's PNG via the Tauri `load_image` command and decodes
  * its luminance buffer once, so both `FrameCanvas` (drawing) and
  * `DiagnoseWorkspace` (cursor readout + histogram) can share the same
@@ -23,52 +30,33 @@ export function useImageData(
   frame: FrameKey | null,
   onError?: (msg: string) => void,
 ): ImageData | null {
-  const [data, setData] = useState<ImageData | null>(null);
+  // Depend on the path only, not `frame` itself: the caller may hand us a
+  // fresh `FrameKey` object each render even when the path is unchanged,
+  // and re-fetching on every render would defeat the point of this hook.
+  const path = frame?.abs_path ?? null;
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   useEffect(() => {
-    if (!frame) {
-      setData(null);
-      return;
-    }
+    if (path === null) return;
     let cancelled = false;
-    setData(null);
-    invoke<string>("load_image", { path: frame.abs_path })
-      .then((dataUrl) => {
-        if (cancelled) return;
-        const img = new Image();
-        img.onload = () => {
-          if (cancelled) return;
-          try {
-            const luminance = decodeLuminance(img);
-            setData({
-              image: img,
-              naturalWidth: img.naturalWidth,
-              naturalHeight: img.naturalHeight,
-              luminance,
-            });
-          } catch (e) {
-            onError?.(`Pixel decode failed: ${String(e)}`);
-          }
-        };
-        img.onerror = () => {
-          if (!cancelled) onError?.("Image failed to decode.");
-        };
-        img.src = dataUrl;
-      })
+    invoke<string>("load_image", { path })
+      .then((dataUrl) =>
+        decodeImageDataUrl(
+          dataUrl,
+          () => cancelled,
+          (data) => setLoaded({ key: path, data }),
+          onError,
+        ),
+      )
       .catch((e) => {
         if (!cancelled) onError?.(`Could not load image: ${e}`);
       });
     return () => {
       cancelled = true;
     };
-    // Depend on `frame.abs_path` only, not `frame` itself: the caller may
-    // hand us a fresh `FrameKey` object each render even when the path is
-    // unchanged, and re-fetching on every render would defeat the point
-    // of this hook. Same pattern as `useUndistortedImageData` below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frame?.abs_path, onError]);
+  }, [path, onError]);
 
-  return data;
+  return path !== null && loaded?.key === path ? loaded.data : null;
 }
 
 /** Loads a frame through the backend's canonical camera model into the
@@ -80,41 +68,41 @@ export function useUndistortedImageData(
   camera: number,
   onError?: (msg: string) => void,
 ): ImageData | null {
-  const [data, setData] = useState<ImageData | null>(null);
+  // Depend on the individual `frame` / `frame.roi` fields actually read,
+  // not the object itself (see `useImageData`).
+  const path = frame?.abs_path ?? null;
+  const roiX = frame?.roi?.x;
+  const roiY = frame?.roi?.y;
+  const roiW = frame?.roi?.w;
+  const roiH = frame?.roi?.h;
+  const key = `${path}|${camera}|${roiX},${roiY},${roiW},${roiH}`;
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   useEffect(() => {
-    if (!frame) {
-      setData(null);
-      return;
-    }
+    if (path === null) return;
+    const roi =
+      roiX === undefined || roiY === undefined || roiW === undefined || roiH === undefined
+        ? null
+        : { x: roiX, y: roiY, w: roiW, h: roiH };
     let cancelled = false;
-    setData(null);
-    invoke<string>("load_undistorted_image", {
-      path: frame.abs_path,
-      camera,
-      roi: frame.roi ?? null,
-    })
-      .then((dataUrl) => decodeImageDataUrl(dataUrl, () => cancelled, setData, onError))
+    invoke<string>("load_undistorted_image", { path, camera, roi })
+      .then((dataUrl) =>
+        decodeImageDataUrl(
+          dataUrl,
+          () => cancelled,
+          (data) => setLoaded({ key, data }),
+          onError,
+        ),
+      )
       .catch((e) => {
         if (!cancelled) onError?.(`Could not load undistorted image: ${e}`);
       });
     return () => {
       cancelled = true;
     };
-    // Same rationale as `useImageData` above: depend on the individual
-    // `frame`/`frame.roi` fields actually read, not the object itself.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    frame?.abs_path,
-    frame?.roi?.x,
-    frame?.roi?.y,
-    frame?.roi?.w,
-    frame?.roi?.h,
-    camera,
-    onError,
-  ]);
+  }, [path, roiX, roiY, roiW, roiH, camera, key, onError]);
 
-  return data;
+  return path !== null && loaded?.key === key ? loaded.data : null;
 }
 
 function decodeImageDataUrl(

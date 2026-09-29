@@ -44,7 +44,7 @@ export function Histogram({
         const isCursor = cursorBin === i;
         return (
           <rect
-            key={i}
+            key={x}
             x={x}
             y={height - h}
             width={Math.max(barW - 0.5, 0.5)}

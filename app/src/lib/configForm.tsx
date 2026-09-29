@@ -7,7 +7,7 @@
  * polished yet. ~250 LoC; rich array / number-range / file-picker
  * widgets are future work.
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 // Shared base style for every bare `<input>`/`<select>`/`<textarea>` this
 // form renders. `bg-surface` (not the `bg-bg` several call sites used
@@ -287,6 +287,8 @@ function OneOfField({ schema, value, onChange, ctx, label }: FieldProps) {
     const k = v.properties?.kind;
     return typeof k?.const === "string" ? k.const : null;
   });
+  // The variant list is static schema: a variant's position is its identity.
+  const variantOptions = variantTags.map((tag, id) => ({ id, tag }));
   const obj =
     value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
@@ -312,14 +314,14 @@ function OneOfField({ schema, value, onChange, ctx, label }: FieldProps) {
           onChange({ kind: tag });
         }}
       >
-        {variantTags.map((t, i) =>
-          t ? (
-            <option key={t} value={t}>
-              {t}
+        {variantOptions.map(({ id, tag }) =>
+          tag ? (
+            <option key={id} value={tag}>
+              {tag}
             </option>
           ) : (
-            <option key={`v${i}`} value="">
-              variant {i}
+            <option key={id} value="">
+              variant {id}
             </option>
           ),
         )}
@@ -439,10 +441,24 @@ function stringifyArrayItem(v: unknown): string {
 
 function StringArrayField({ value, onChange }: FieldProps) {
   const arr = Array.isArray(value) ? (value as unknown[]).map(stringifyArrayItem) : [];
+  // Each row carries a stable id so editing or removing an entry keeps the
+  // focus and state of the other rows. Ids are re-synced during render when
+  // the array length changes from outside (schema switch, preset load).
+  const [rowIds, setRowIds] = useState<{ ids: number[]; next: number }>({
+    ids: [],
+    next: 0,
+  });
+  let ids = rowIds.ids;
+  if (ids.length !== arr.length) {
+    let next = rowIds.next;
+    ids = ids.slice(0, arr.length);
+    while (ids.length < arr.length) ids.push(next++);
+    setRowIds({ ids, next });
+  }
   return (
     <div className="flex flex-col gap-1">
       {arr.map((entry, i) => (
-        <div key={i} className="flex gap-1">
+        <div key={ids[i]} className="flex gap-1">
           <input
             type="text"
             value={entry}
@@ -455,7 +471,10 @@ function StringArrayField({ value, onChange }: FieldProps) {
           />
           <button
             type="button"
-            onClick={() => onChange(arr.filter((_, j) => j !== i))}
+            onClick={() => {
+              setRowIds({ ids: ids.filter((_, j) => j !== i), next: rowIds.next });
+              onChange(arr.filter((_, j) => j !== i));
+            }}
             className="rounded border border-border px-2 text-[11px]"
           >
             ×

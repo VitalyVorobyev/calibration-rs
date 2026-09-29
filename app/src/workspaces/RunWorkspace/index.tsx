@@ -22,7 +22,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import * as TOML from "toml";
 
@@ -106,6 +106,11 @@ function topologyOf(manifest: unknown): string {
  * and cancellation. `crypto.randomUUID` is available in every Tauri
  * webview and modern browser; fall back to a timestamp+random string in
  * the rare environment that lacks it (older jsdom). */
+/** Wall-clock epoch ms, for display-only timestamps. */
+function nowMs(): number {
+  return Date.now();
+}
+
 function newRunId(): string {
   const c = globalThis.crypto;
   if (c && typeof c.randomUUID === "function") return c.randomUUID();
@@ -197,6 +202,17 @@ export function RunWorkspace() {
   // load), swap the config schema and reset the config to that
   // topology's defaults.
   const prevTopologyRef = useRef(topology);
+  // Reads the latest manifest without making the effect re-fire on every
+  // manifest edit: it must only fire on topology *changes*.
+  const syncJsonEditor = useEffectEvent((defaults: unknown) => {
+    if (jsonEditorRef.current) {
+      jsonEditorRef.current.value = JSON.stringify(
+        { manifest, config: defaults },
+        null,
+        2,
+      );
+    }
+  });
   useEffect(() => {
     if (prevTopologyRef.current === topology) return;
     prevTopologyRef.current = topology;
@@ -204,20 +220,11 @@ export function RunWorkspace() {
     void fetchDefaultConfig(topology, inTauri).then((defaults) => {
       if (cancelled) return;
       setConfig(defaults);
-      if (jsonEditorRef.current) {
-        jsonEditorRef.current.value = JSON.stringify(
-          { manifest, config: defaults },
-          null,
-          2,
-        );
-      }
+      syncJsonEditor(defaults);
     });
     return () => {
       cancelled = true;
     };
-    // `manifest` is intentionally read, not depended on: this effect
-    // only fires on topology *changes*.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topology, inTauri]);
 
   // ── Derived summary strings for collapsible headers ──────────────────────
@@ -464,7 +471,7 @@ export function RunWorkspace() {
       kind: "running",
       runId,
       stage: null,
-      startedAt: Date.now(),
+      startedAt: nowMs(),
       cancelRequested: false,
     });
     try {
@@ -973,9 +980,7 @@ interface ElapsedClockProps {
 function ElapsedClock({ startedAt }: ElapsedClockProps) {
   const [elapsedMs, setElapsedMs] = useState(() => Date.now() - startedAt);
   useEffect(() => {
-    const tick = () => setElapsedMs(Date.now() - startedAt);
-    tick();
-    const id = setInterval(tick, 200);
+    const id = setInterval(() => setElapsedMs(Date.now() - startedAt), 200);
     return () => clearInterval(id);
   }, [startedAt]);
   return (

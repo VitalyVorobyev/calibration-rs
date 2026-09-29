@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CompareViewer, type CompareViewerHandle } from "../../components/CompareViewer";
-import {
-  FrameCanvas,
-  type FrameCanvasHandle,
-  colorForError,
-  colorForLaserError,
-} from "../../components/FrameCanvas";
+import { FrameCanvas, type FrameCanvasHandle } from "../../components/FrameCanvas";
+import { colorForError, colorForLaserError } from "../../lib/errorColors";
 import { Histogram } from "../../components/Histogram";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
 import { ZoomControls } from "../../components/ZoomControls";
@@ -84,16 +80,13 @@ export function DiagnoseWorkspace() {
   const hasStats = targetResiduals.length > 0;
 
   // A non-target export (or one loaded while stats are open) must not
-  // strand the workspace on an empty panel.
-  useEffect(() => {
-    if (!hasStats) setShowStats(false);
-  }, [hasStats]);
+  // strand the workspace on an empty panel. Adjusting state during render
+  // (rather than in an effect) avoids painting the stale panel first.
+  if (!hasStats && showStats) setShowStats(false);
 
   // Loading a non-laser export while laser view is active would strand
   // the workspace on a mode with no data — drop back to target view.
-  useEffect(() => {
-    if (!hasLaser) setLaserView(false);
-  }, [hasLaser]);
+  if (!hasLaser && laserView) setLaserView(false);
 
   const laserFrame = useMemo<FrameKey | null>(() => {
     return (
@@ -131,9 +124,12 @@ export function DiagnoseWorkspace() {
 
   // Reset cursor whenever the frame changes — the previous cursor's
   // (x, y) no longer maps to the new image.
-  useEffect(() => {
+  const activePath = activeFrame?.abs_path;
+  const [cursorPath, setCursorPath] = useState(activePath);
+  if (cursorPath !== activePath) {
+    setCursorPath(activePath);
     setCursor(null);
-  }, [activeFrame?.abs_path]);
+  }
 
   const handleCursor = useCallback(
     (c: { x: number; y: number } | null) => {
