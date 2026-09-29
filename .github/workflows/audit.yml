@@ -18,9 +18,7 @@ on:
 permissions:
   contents: read
   # `createIssues` defaults to `github.ref == refs/heads/main`, so the weekly
-  # run on main files (and updates) an issue while PR runs stay quiet. Between
-  # 2026-06-15 and 2026-09-07 this workflow was red every Monday and nobody
-  # noticed, because it used to pass `createIssues: false`.
+  # run on main files (and updates) an issue while PR runs stay quiet.
   issues: write
 
 jobs:
