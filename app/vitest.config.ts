@@ -6,7 +6,7 @@ import react from "@vitejs/plugin-react";
 // exportKindLabel, mergeConfig) are dependency-free, so this keeps
 // `bun run test` fast and isolated from the app shell.
 //
-// `*.test.tsx` component tests (B-QUAL3) render through
+// `*.test.tsx` component tests render through
 // `@testing-library/react` and need a DOM — each one starts with a
 // `// @vitest-environment jsdom` pragma, while every `.test.ts` file keeps
 // the fast `node` environment. The React plugin is only needed for the

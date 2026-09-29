@@ -73,3 +73,7 @@ pub use vision_geometry::epipolar::{
 pub use vision_geometry::homography::{dlt_homography, dlt_homography_ransac};
 pub use vision_geometry::math::{normalize_points_2d, normalize_points_3d};
 pub use vision_geometry::triangulation::triangulate_point_linear;
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

@@ -118,10 +118,8 @@ impl Default for FilterOptions {
 
 /// Typed return value of [`step_init`] / [`step_init_with_seed`].
 ///
-/// Carries the seeded-or-fitted initial estimates that examples and downstream
-/// consumers used to read out of `session.state.initial_*` via `.as_ref().unwrap()`.
-/// The same values continue to be written into `session.state` for backwards
-/// compatibility — see ADR 0011.
+/// Carries the seeded-or-fitted initial estimates. The same values are also
+/// written into `session.state` — see ADR 0011.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PlanarInitResult {
@@ -135,8 +133,8 @@ pub struct PlanarInitResult {
 
 /// Typed return value of [`step_optimize`].
 ///
-/// Aggregates the optimization metrics that examples used to read out of
-/// `session.state` after the planar-intrinsics solve.
+/// Aggregates the optimization metrics of the planar-intrinsics solve; the same
+/// values are also written into `session.state`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PlanarOptimizeResult {

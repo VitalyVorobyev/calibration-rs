@@ -1,10 +1,8 @@
 //! Integration test: Scheimpflug-flavoured rig extrinsics via the unified
-//! `RigExtrinsicsProblem` (post A6 collapse).
+//! `RigExtrinsicsProblem`.
 //!
 //! Synthetic 2-camera rig with Scheimpflug tilt, 4 views, runs all 4 steps,
-//! checks convergence and JSON export round-trip. Mirrors the original
-//! `rig_scheimpflug_extrinsics` integration test that lived here before A6
-//! merged the Scheimpflug variant into the pinhole module.
+//! checks convergence and JSON export round-trip.
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{

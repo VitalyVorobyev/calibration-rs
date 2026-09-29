@@ -58,3 +58,7 @@ pub mod single_cam_handeye;
 
 // Manifest-driven dataset runner (ADR 0016 + ADR 0017)
 pub mod dataset_runner;
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

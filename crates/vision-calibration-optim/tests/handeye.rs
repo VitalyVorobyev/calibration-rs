@@ -371,7 +371,8 @@ fn mean_reproj_error_eye_in_hand(
     total_error / total_points as Real
 }
 
-/// TODO: do not use build_handeye_ir here
+/// Refining per-view robot poses recovers the hand-eye transform better than
+/// holding the noisy measured robot poses fixed.
 #[test]
 fn eye_in_hand_robot_pose_refinement_improves_handeye() {
     let intrinsics_gt = FxFyCxCySkew {

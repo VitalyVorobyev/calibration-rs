@@ -10,14 +10,16 @@ non-linear refinement in `vision-calibration-optim` or `vision-calibration-pipel
 
 | Category | Algorithms |
 |----------|------------|
-| **Homography** | Normalized DLT, RANSAC wrapper |
-| **Intrinsics** | Zhang's method, iterative with distortion |
-| **Pose (PnP)** | DLT, P3P, EPnP, RANSAC variants |
-| **Epipolar** | 8-point, 7-point fundamental; 5-point essential |
-| **Triangulation** | Linear DLT |
+| **Intrinsics** | Zhang's method, iterative with distortion, Scheimpflug-tilt initialization |
+| **Pose (PnP)** | DLT, P3P, EPnP, DLT in RANSAC |
+| **Planar pose** | Pose from homography + intrinsics |
 | **Rig** | Multi-camera extrinsics initialization |
-| **Hand-eye** | Tsai-Lenz (AX=XB) |
+| **Hand-eye** | Tsai-Lenz (AX=XB), eye-in-hand and eye-to-hand |
 | **Laserline** | Multi-view laser plane fitting |
+
+Two-view solvers (homography DLT, fundamental/essential matrices, camera matrix,
+linear triangulation) live in
+[`vision-geometry`](https://crates.io/crates/vision-geometry).
 
 ## Expected Accuracy
 
@@ -28,119 +30,108 @@ These solvers are **initialization-grade**. Regression tests validate:
 | Zhang intrinsics | fx/fy ~5%, cx/cy ~8px | No distortion |
 | Iterative intrinsics | fx/fy ~10-40% | With distortion |
 | Planar pose | R <0.05 rad, t <5 units | Square = 30 units |
-| Fundamental (8-pt) | Scaled error <0.07 | |
-| Essential (5-pt) | Residuals ~3x GT | |
-| Triangulation | p90 error <2 units | Ground-truth poses |
 
 Thresholds are intentionally loose for stable initialization.
 
 ## Coordinate Conventions
 
 - **Poses**: `T_C_W` (transform from world/board into camera frame)
-- **Fundamental matrix**: Accepts pixel coordinates
-- **Essential matrix**: Expects normalized coordinates (after K^-1)
 - **PnP solvers**: Accept pixel coordinates + intrinsics (normalize internally)
 
 ## Usage Examples
 
-### Homography Estimation
-
-```rust
-use vision_calibration_linear::homography::dlt_homography;
-use vision_calibration_core::Pt2;
-
-let world = vec![Pt2::new(0.0, 0.0), Pt2::new(1.0, 0.0), Pt2::new(1.0, 1.0), Pt2::new(0.0, 1.0)];
-let image = vec![Pt2::new(120.0, 200.0), Pt2::new(220.0, 198.0), Pt2::new(225.0, 300.0), Pt2::new(118.0, 302.0)];
-
-let h = dlt_homography(&world, &image)?;
-println!("H = {h}");
-# Ok::<(), anyhow::Error>(())
-```
-
 ### PnP (Perspective-n-Point)
 
-```rust
-use vision_calibration_linear::pnp::{pnp_dlt, p3p_kneip, pnp_ransac};
-use vision_calibration_core::{Pt2, Pt3, Mat3};
+```rust,no_run
+use vision_calibration_core::{FxFyCxCySkew, Pt2, Pt3, RansacOptions};
+use vision_calibration_linear::pnp::PnpSolver;
 
-let points_3d = vec![Pt3::new(0.0, 0.0, 0.0), /* ... */];
-let points_2d = vec![Pt2::new(320.0, 240.0), /* ... */];
-let k = Mat3::identity(); // Intrinsics matrix
+# fn main() -> Result<(), vision_calibration_linear::Error> {
+let world: Vec<Pt3> = vec![/* target points, target frame */];
+let image: Vec<Pt2> = vec![/* matching pixel observations */];
+let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
 
-// Direct DLT (all points)
-let pose = pnp_dlt(&points_3d, &points_2d, &k)?;
+// Direct DLT (all points); the pose is T_C_W
+let pose = PnpSolver::dlt(&world, &image, &k)?;
 
-// RANSAC for outlier rejection
-let (pose, inliers) = pnp_ransac(&points_3d, &points_2d, &k, ransac_opts)?;
-# Ok::<(), anyhow::Error>(())
+// DLT inside RANSAC for outlier rejection
+let (pose, inliers) = PnpSolver::dlt_ransac(&world, &image, &k, &RansacOptions::default())?;
+# Ok(())
+# }
 ```
 
 ### Iterative Intrinsics (with Distortion)
 
-```rust
-use vision_calibration_linear::iterative_intrinsics::{IterativeIntrinsicsSolver, IterativeCalibView, IterativeIntrinsicsOptions};
+```rust,no_run
+use vision_calibration_core::PlanarDataset;
+use vision_calibration_linear::prelude::*;
 
-let views: Vec<IterativeCalibView> = /* prepare views */;
-let opts = IterativeIntrinsicsOptions::default();
-let result = IterativeIntrinsicsSolver::estimate(&views, opts)?;
-
-println!("K: fx={}, fy={}", result.intrinsics.fx, result.intrinsics.fy);
-println!("Distortion: k1={}, k2={}", result.distortion.k1, result.distortion.k2);
-# Ok::<(), anyhow::Error>(())
+# fn main() -> Result<(), vision_calibration_linear::Error> {
+# let dataset: PlanarDataset = unimplemented!();
+let camera = estimate_intrinsics_iterative(&dataset, IterativeIntrinsicsOptions::default())?;
+println!("intrinsics: {:?}", camera.k);
+# Ok(())
+# }
 ```
 
 ### Hand-Eye Calibration
 
-```rust
-use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
+```rust,no_run
 use vision_calibration_core::Iso3;
+use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 
-let base_se3_gripper: Vec<Iso3> = /* T_B_G from robot controller */;
-
-// EyeInHand: estimate gripper->camera from target->camera poses (T_T_C).
-let target_se3_camera: Vec<Iso3> = /* e.g. invert camera_se3_target (T_C_T) */;
+# fn main() -> Result<(), vision_calibration_linear::Error> {
+let base_se3_gripper: Vec<Iso3> = vec![/* T_B_G from the robot controller */];
 let min_angle_deg = 5.0;
-let gripper_se3_camera = estimate_handeye_dlt(&base_se3_gripper, &target_se3_camera, min_angle_deg)?;
 
-// EyeToHand: estimate gripper->target from camera->target poses (T_C_T).
-let camera_se3_target: Vec<Iso3> = /* from PnP / planar pose (T_C_T) */;
-let gripper_se3_target = estimate_gripper_se3_target_dlt(&base_se3_gripper, &camera_se3_target, min_angle_deg)?;
-# Ok::<(), anyhow::Error>(())
+// Eye-in-hand: gripper -> camera from target -> camera poses.
+let target_se3_camera: Vec<Iso3> = vec![/* inverted PnP poses */];
+let gripper_se3_camera =
+    estimate_handeye_dlt(&base_se3_gripper, &target_se3_camera, min_angle_deg)?;
+
+// Eye-to-hand: gripper -> target from camera -> target poses.
+let camera_se3_target: Vec<Iso3> = vec![/* PnP / planar poses */];
+let gripper_se3_target =
+    estimate_gripper_se3_target_dlt(&base_se3_gripper, &camera_se3_target, min_angle_deg)?;
+# Ok(())
+# }
 ```
 
 ### Laserline Plane Fitting
 
-```rust
+```rust,no_run
+use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole};
 use vision_calibration_linear::laserline::{LaserlinePlaneSolver, LaserlineView};
 
-let views: Vec<LaserlineView> = /* views with laser pixels */;
-let camera = /* calibrated camera */;
+# fn main() -> Result<(), vision_calibration_linear::Error> {
+let views: Vec<LaserlineView> = vec![/* views with laser pixels */];
+# let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
+# let camera = Camera::new(Pinhole, BrownConrady5::default(), IdentitySensor, k);
 
-// Multi-view fitting breaks single-view collinearity
+// Multiple views at different poses break single-view collinearity.
 let estimate = LaserlinePlaneSolver::from_views(&views, &camera)?;
-println!("Plane normal: {:?}", estimate.normal);
-# Ok::<(), anyhow::Error>(())
+println!("plane normal: {:?}", estimate.normal);
+# Ok(())
+# }
 ```
 
 ## Modules
 
 | Module | Description |
 |--------|-------------|
-| `homography` | DLT homography + RANSAC |
+| `scheimpflug_init` | Tilt-aware intrinsics initialization |
 | `zhang_intrinsics` | Zhang's closed-form intrinsics |
 | `iterative_intrinsics` | Iterative K + distortion estimation |
 | `distortion_fit` | Distortion from homography residuals |
 | `planar_pose` | Pose from homography + K |
 | `pnp` | DLT, P3P, EPnP, RANSAC |
-| `epipolar` | Fundamental/essential matrices |
-| `triangulation` | Linear triangulation |
 | `extrinsics` | Multi-camera rig initialization |
 | `handeye` | Tsai-Lenz hand-eye |
 | `laserline` | Laser plane estimation |
 
 ## See Also
 
-- [vision-calibration-core](../vision-calibration-core): Math types, camera models, RANSAC engine
-- [vision-calibration-optim](../vision-calibration-optim): Non-linear refinement
-- [vision-calibration-pipeline](../vision-calibration-pipeline): High-level calibration pipelines
-- [Book: Linear Calibration](../../book/src/linear.md)
+- [vision-calibration-core](https://crates.io/crates/vision-calibration-core): Math types, camera models, RANSAC engine
+- [vision-calibration-optim](https://crates.io/crates/vision-calibration-optim): Non-linear refinement
+- [vision-calibration-pipeline](https://crates.io/crates/vision-calibration-pipeline): High-level calibration pipelines
+- [Book: Linear Calibration](https://vitalyvorobyev.github.io/calibration-rs/linear_overview.html)

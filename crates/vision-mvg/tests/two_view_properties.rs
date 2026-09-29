@@ -1,4 +1,4 @@
-//! Property tests for two-view / triangulation invariants (Q8,
+//! Property tests for two-view / triangulation invariants (math note:
 //! `docs/notes/two-view-triangulation.md`).
 //!
 //! These are deterministic parameter sweeps (no external proptest dependency —

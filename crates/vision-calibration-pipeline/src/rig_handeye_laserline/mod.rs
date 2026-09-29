@@ -1,8 +1,8 @@
 //! Joint rig hand-eye + laserline calibration.
 //!
-//! This pipeline matches the rtv3d V5 benchmark flow: run rig hand-eye,
-//! initialize per-camera laser planes from the frozen hand-eye geometry, then
-//! jointly refine the rig/hand-eye/laser parameters.
+//! The pipeline runs rig hand-eye, initializes per-camera laser planes from the
+//! frozen hand-eye geometry, then jointly refines the rig/hand-eye/laser
+//! parameters.
 
 mod problem;
 mod state;

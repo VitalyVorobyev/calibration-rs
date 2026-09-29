@@ -1,5 +1,5 @@
 //! Integration test: Scheimpflug-flavoured rig hand-eye via the unified
-//! `RigHandeyeProblem` (post A6.3 collapse).
+//! `RigHandeyeProblem`.
 //!
 //! Synthetic EyeInHand rig with 2 cameras and Scheimpflug tilt. Runs all 6
 //! steps and asserts intrinsics, hand-eye, and JSON export round-trip.

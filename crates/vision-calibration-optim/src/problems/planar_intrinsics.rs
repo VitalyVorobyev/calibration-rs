@@ -52,8 +52,8 @@ impl PlanarIntrinsicsParams {
 
     /// Construct from a concrete [`PinholeCamera`] (Brown-Conrady) and poses.
     ///
-    /// Convenience back-compat wrapper used by rig calibration and tests that
-    /// operate with the concrete `PinholeCamera` type.
+    /// Convenience wrapper for rig calibration and tests that operate with the
+    /// concrete `PinholeCamera` type.
     ///
     /// # Errors
     ///

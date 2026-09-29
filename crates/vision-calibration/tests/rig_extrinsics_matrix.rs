@@ -1,5 +1,5 @@
-//! Synthetic-GT matrix test for the multi-camera rig extrinsics family (Q8,
-//! `docs/notes/README.md`; math note: `docs/notes/rig-extrinsics.md`).
+//! Synthetic-GT matrix test for the multi-camera rig extrinsics family
+//! (math note: `docs/notes/rig-extrinsics.md`).
 //!
 //! Ground-truth grid × noise levels: every cell builds an exact synthetic
 //! two-camera rig via `vision_calibration::synthetic`, runs the *standard*

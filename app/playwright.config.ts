@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-/** Playwright smoke config (B-QUAL4). Boots the plain Vite dev server
+/** Playwright smoke config. Boots the plain Vite dev server
  * (`bun run dev`, not `bun run tauri dev` — Tauri isn't available
  * headlessly in CI) on the same port the app always uses
  * (`vite.config.ts`'s `server.port: 1420`), then drives it in a real

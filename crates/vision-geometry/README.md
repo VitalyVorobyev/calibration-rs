@@ -27,7 +27,7 @@ linear triangulation, and camera matrix decomposition.
 
 ```rust
 use vision_calibration_core::Pt2;
-use vision_geometry::dlt_homography;
+use vision_geometry::homography::dlt_homography;
 
 let world = vec![
     Pt2::new(0.0, 0.0),
@@ -44,7 +44,7 @@ let image = vec![
 
 let h = dlt_homography(&world, &image)?;
 println!("H = {h}");
-# Ok::<(), anyhow::Error>(())
+# Ok::<(), vision_geometry::GeometryError>(())
 ```
 
 ## See Also

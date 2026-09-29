@@ -15,7 +15,7 @@ import type { Iso3Wire, PinholeCameraWire } from "../../store/types";
 import type { FrameKey } from "../../types";
 import { Scene } from "./Scene";
 
-/** B1.2 + B2.4 — 3D rig scene + side panel that breaks down the
+/** 3D rig scene + side panel that breaks down the
  * selected camera's intrinsics, the camera→target extrinsic for the
  * active pose, and the selected camera's pose relative to a chosen
  * reference camera (default cam 0). Click a frustum to pick a camera;

@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn correspondence_view_deserialize_rejects_short_weights() {
-        // JSON payload with weights shorter than points — previously would
+        // JSON payload with weights shorter than points must not
         // bypass new_with_weights validation and panic later in weight(idx).
         let json = r#"{
             "points_3d": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],

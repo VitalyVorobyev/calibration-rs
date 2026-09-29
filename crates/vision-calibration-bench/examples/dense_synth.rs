@@ -1,4 +1,4 @@
-//! Visual + quantitative evidence for the C5 pure-Rust dense matcher on
+//! Visual + quantitative evidence for the pure-Rust dense matcher on
 //! synthetic ground truth.
 //!
 //! Runs [`BlockMatcher`] (and the [`OracleMatcher`] reference) on a deterministic
@@ -93,7 +93,7 @@ mod real {
         save_rgb(&out_dir.join("composite.png"), comp_w, H, &composite);
 
         // ---- report ----
-        println!("C5 dense matcher — synthetic slanted-plane evidence");
+        println!("Dense matcher — synthetic slanted-plane evidence");
         println!(
             "  image {W}x{H}, disparity range [{lo:.2}, {hi:.2}] px, block {}, search {}..{}",
             opts.block_size,

@@ -253,7 +253,7 @@ fn division_optimization_synthetic() {
     // Seed lambda at exactly 0.0 (the natural distortion-free seed). The rationalized
     // distort form `2/(1 + √(1 - 4λr²))` is analytic at λ = 0 with ∂scale/∂λ = r², so
     // autodiff yields a non-zero Jacobian column and the solver recovers lambda from
-    // zero — this guards the codex P2 (zero-Jacobian degeneracy at λ = 0).
+    // zero — this guards against the zero-Jacobian degeneracy at λ = 0.
     let lambda_init: f64 = 0.0;
 
     let poses_init = perturbed_poses(&poses_gt);

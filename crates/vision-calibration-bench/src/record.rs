@@ -819,13 +819,14 @@ mod tests {
     /// a record carrying per-stage timing round-trips intact.
     #[test]
     fn timing_stages_back_compat_and_roundtrip() {
-        // Legacy JSON without the `stages` key → None (serde default).
-        let legacy = r#"{"init_ms":5,"optimize_ms":120,"total_ms":130,"detection_ms":1200}"#;
-        let t: Timing = serde_json::from_str(legacy).unwrap();
+        // JSON without the `stages` key → None (serde default).
+        let without_stages =
+            r#"{"init_ms":5,"optimize_ms":120,"total_ms":130,"detection_ms":1200}"#;
+        let t: Timing = serde_json::from_str(without_stages).unwrap();
         assert_eq!(t.stages, None);
 
         // A record with stages round-trips, and a None-stages record omits the
-        // key entirely (skip_serializing_if), staying byte-identical to legacy.
+        // key entirely (skip_serializing_if), staying byte-identical to a record with no stages.
         let with_stages = Timing {
             init_ms: 9,
             optimize_ms: 200,

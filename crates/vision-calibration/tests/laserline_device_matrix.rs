@@ -1,5 +1,5 @@
-//! Synthetic-GT matrix test for the laserline device family (Q8,
-//! `docs/notes/README.md`; math note: `docs/notes/laserline-bundle.md`).
+//! Synthetic-GT matrix test for the laserline device family
+//! (math note: `docs/notes/laserline-bundle.md`).
 //!
 //! Ground-truth laser-plane grid (2 orientations × 2 working distances) ×
 //! pixel-noise levels. Every cell builds an exact synthetic laserline dataset

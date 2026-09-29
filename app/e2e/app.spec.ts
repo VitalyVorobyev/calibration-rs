@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 
-/** (a) + (b) of B-QUAL4-SMOKE: the app boots outside any Tauri runtime
+/** Smoke tests: the app boots outside any Tauri runtime
  * (a plain `bun run dev` tab, exactly like a developer opening
  * localhost:1420 in a browser by mistake — see the app's own banner
  * copy about this) and every workspace mounts via left-rail navigation

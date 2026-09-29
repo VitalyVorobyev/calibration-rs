@@ -304,7 +304,7 @@ fn report(art: &vision_calibration_examples_private::RefArtifacts, accums: &[Cam
             "→ Scheimpflug model + reprojection computation VALIDATED against the OpenCV-convention oracle."
         );
         println!(
-            "  RMS/p95 inflation above is a detector corner-outlier tail (parked V7 floor), not a model bias."
+            "  RMS/p95 inflation above is a detector corner-outlier tail, not a model bias."
         );
     } else {
         println!(

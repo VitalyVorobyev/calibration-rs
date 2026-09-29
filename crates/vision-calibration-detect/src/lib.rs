@@ -95,3 +95,7 @@ pub trait Detector: sealed::Sealed + Send + Sync {
         None
     }
 }
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

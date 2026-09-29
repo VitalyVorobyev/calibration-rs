@@ -17,7 +17,7 @@ This crate provides the foundational building blocks used by all other crates in
 
 Cameras are modeled as a composable pipeline:
 
-```
+```text
 pixel = K(sensor(distortion(projection(dir))))
 ```
 
@@ -51,6 +51,9 @@ if let Some(pixel) = camera.project_point(&p_cam) {
 
 ```rust
 use vision_calibration_core::synthetic::planar;
+# use vision_calibration_core::{Camera, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCySkew};
+# let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
+# let camera = Camera::new(Pinhole, BrownConrady5::default(), IdentitySensor, k);
 
 // Generate a 6x5 chessboard with 40mm squares
 let board_points = planar::grid_points(6, 5, 0.04);
@@ -59,23 +62,28 @@ let board_points = planar::grid_points(6, 5, 0.04);
 let poses = planar::poses_yaw_y_z(5, -0.3, 0.15, 0.5, 0.1);
 
 // Project all views (requires a camera)
-let views = planar::project_views_all(&camera, &board_points, &poses)?;
+let views = planar::project_views_all(&camera, &board_points, &poses).unwrap();
 ```
 
 ### RANSAC
 
-```rust
-use vision_calibration_core::ransac::{Ransac, RansacModel, RansacConfig};
+Implement `Estimator` for your model, then fit robustly:
 
-// Implement RansacModel for your problem, then:
-let config = RansacConfig {
-    max_iterations: 1000,
-    inlier_threshold: 3.0,
+```rust,no_run
+use vision_calibration_core::{Estimator, RansacOptions, ransac_fit};
+
+# fn fit<E: Estimator>(data: &[E::Datum]) {
+let opts = RansacOptions {
+    max_iters: 1000,
+    thresh: 3.0,
     min_inliers: 10,
-    seed: Some(42), // Deterministic
+    ..RansacOptions::default() // deterministic: fixed seed
 };
-let ransac = Ransac::new(config);
-let result = ransac.run(&data)?;
+let result = ransac_fit::<E>(data, &opts);
+if result.success {
+    let _model = result.model;
+}
+# }
 ```
 
 ## Modules
@@ -90,6 +98,6 @@ let result = ransac.run(&data)?;
 
 ## See Also
 
-- [vision-calibration-linear](../vision-calibration-linear): Linear solvers using these primitives
-- [vision-calibration-optim](../vision-calibration-optim): Non-linear refinement
-- [Book: Core Concepts](../../book/src/concepts.md)
+- [vision-calibration-linear](https://crates.io/crates/vision-calibration-linear): Linear solvers using these primitives
+- [vision-calibration-optim](https://crates.io/crates/vision-calibration-optim): Non-linear refinement
+- [Book: Introduction](https://vitalyvorobyev.github.io/calibration-rs/introduction.html)

@@ -290,10 +290,10 @@ mod tests {
         let restored: FrameRef = serde_json::from_str(&json).unwrap();
         assert_eq!(restored, laser);
 
-        // Pre-ADR-0021§5 JSON (no `kind` field) deserializes as Target.
-        let legacy: FrameRef =
+        // JSON without a `kind` field deserializes as Target (ADR 0021 §5).
+        let no_kind: FrameRef =
             serde_json::from_str(r#"{"pose":3,"camera":1,"path":"b.png"}"#).unwrap();
-        assert_eq!(legacy.kind, FrameKind::Target);
+        assert_eq!(no_kind.kind, FrameKind::Target);
     }
 
     #[test]

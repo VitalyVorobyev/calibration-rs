@@ -75,7 +75,7 @@ pub struct DatasetSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pose_convention: Option<PoseConvention>,
 
-    /// Field paths the AI manifest generator could not determine.
+    /// Field paths the manifest generator could not determine.
     /// Validated to be empty before the runner accepts the manifest.
     /// Populated as e.g. `["pose_convention.transform"]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "_unresolved")]
@@ -309,10 +309,8 @@ pub struct ChessCornersDetectorSpec {
     /// kept when its response exceeds it. Under Radon it is a fraction in
     /// `(0, 1]` of the frame's maximum response.
     ///
-    /// Manifests written before 0.8.0 may carry a sibling `threshold_mode`
-    /// key; drop it — `deny_unknown_fields` rejects it, and the ChESS
-    /// `"relative"` mode it selected no longer exists in the upstream corner
-    /// detector.
+    /// A sibling `threshold_mode` key is rejected by `deny_unknown_fields`:
+    /// the corner detector has no threshold mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threshold_value: Option<f32>,
 

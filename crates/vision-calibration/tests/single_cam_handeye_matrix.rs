@@ -1,5 +1,5 @@
-//! Synthetic-GT matrix test for the single-camera hand-eye family (Q8,
-//! `docs/notes/README.md`; math note: `docs/notes/hand-eye.md`).
+//! Synthetic-GT matrix test for the single-camera hand-eye family
+//! (math note: `docs/notes/hand-eye.md`).
 //!
 //! Ground-truth grid × noise levels: every cell builds an exact synthetic
 //! dataset via `vision_calibration::synthetic`, runs the *standard*

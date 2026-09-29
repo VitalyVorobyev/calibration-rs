@@ -640,8 +640,7 @@ mod tests {
                 .is_none()
         );
         // ADR 0014: image_manifest defaults to None and absent from the wire
-        // when not populated, preserving JSON byte-stability for legacy
-        // exports.
+        // when not populated, keeping existing serialized JSON byte-stable.
         assert!(restored.image_manifest.is_none());
         assert!(!json.contains("image_manifest"));
     }

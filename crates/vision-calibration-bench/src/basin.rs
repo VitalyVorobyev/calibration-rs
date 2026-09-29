@@ -191,7 +191,7 @@ mod tier_b {
         (lower, upper)
     }
 
-    /// Run the Q6 convergence-basin study over `entries` (already
+    /// Run the convergence-basin study over `entries` (already
     /// filesystem-resolved, i.e. `data_root` absolute) and render the
     /// markdown report. Returns `Err` only for operational failures
     /// (bad registry data, a family with zero available cameras across
@@ -221,7 +221,7 @@ mod tier_b {
 
         let cells = all_cells();
         let mut out = String::new();
-        out.push_str("# Q6 Convergence-Basin Study — Seeded Scheimpflug Intrinsics\n\n");
+        out.push_str("# Convergence-Basin Study — Seeded Scheimpflug Intrinsics\n\n");
         out.push_str(
             "Perturbs the ADR 0023 device-spec seed over a structured per-axis \
              grid and re-runs the ADR 0022 seeded route, gating each cell on \
@@ -371,7 +371,7 @@ mod tier_b {
             pp_bounds.0, pp_bounds.1
         );
 
-        // Decision rule (ADR 0022/0023, Q6): the basin must comfortably
+        // Decision rule (ADR 0022/0023): the basin must comfortably
         // contain realistic spec error — focal ±5 %, tilt ±2°.
         if focal_bounds.0 > 0.95 || focal_bounds.1 < 1.05 {
             envelope_violations.push(format!(

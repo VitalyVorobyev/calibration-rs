@@ -1,6 +1,5 @@
 //! Synthetic-GT matrix test for planar intrinsics — the template proof-pack
-//! test (Q1, `docs/notes/README.md`; math note:
-//! `docs/notes/planar-intrinsics.md`).
+//! test (math note: `docs/notes/planar-intrinsics.md`).
 //!
 //! Ground-truth grid × noise levels: every cell builds an exact synthetic
 //! dataset via `vision_calibration::synthetic`, runs the standard

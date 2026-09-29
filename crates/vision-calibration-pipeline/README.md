@@ -2,96 +2,56 @@
 
 End-to-end calibration workflows and a session API for `calibration-rs`.
 
-This crate provides two complementary approaches for camera calibration:
-1. **Session API**: Structured workflows with artifact management + JSON checkpointing
-2. **Imperative Functions**: Direct access to pipeline functions for custom workflows
+Each workflow is a `CalibrationSession<P>` over a problem type `P`, driven by
+free step functions. Sessions hold input, config, intermediate state and
+export, and can be checkpointed to JSON (`to_json` / `from_json`).
 
-## Features
+## Workflows
 
-- **Planar intrinsics calibration**: Zhang's method with Brown-Conrady distortion
-- **JSON I/O**: Serialize/deserialize inputs, configs, and results
-- **Checkpointing**: Save and resume session state
+| Module | Problem type |
+|---|---|
+| `planar_intrinsics` | `PlanarIntrinsicsProblem` |
+| `scheimpflug_intrinsics` | `ScheimpflugIntrinsicsProblem` |
+| `single_cam_handeye` | `SingleCamHandeyeProblem` |
+| `laserline_device` | `LaserlineDeviceProblem` |
+| `rig_extrinsics` | `RigExtrinsicsProblem` |
+| `rig_handeye` | `RigHandeyeProblem` |
+| `rig_laserline_device` | `RigLaserlineDeviceProblem` |
+| `rig_handeye_laserline` | `RigHandeyeLaserlineProblem` |
 
-## Dual API Design
+Each module also provides a `run_calibration` function that runs all steps.
 
-### Session API
+## Session API
 
-Best for standard workflows with branching, artifact tracking, and checkpointing:
+```rust,no_run
+use vision_calibration_pipeline::session::CalibrationSession;
+use vision_calibration_pipeline::planar_intrinsics::{
+    PlanarIntrinsicsProblem, step_init, step_optimize,
+};
+use vision_calibration_core::PlanarDataset;
 
-```rust
-use vision_calibration_pipeline::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsProblem};
-use vision_calibration_pipeline::session::{CalibrationSession, ExportOptions, FilterOptions};
-use vision_calibration_pipeline::PlanarDataset;
-
-// Create session
+# fn main() -> anyhow::Result<()> {
+# let dataset: PlanarDataset = unimplemented!();
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+session.set_input(dataset)?;
 
-// Add observations (a PlanarDataset: Vec<View<NoMeta>>)
-let obs_id = session.add_observations(dataset);
+// Linear initialization, then non-linear refinement.
+step_init(&mut session, None)?;
+step_optimize(&mut session, None)?;
 
-// Initialize (linear solver)
-let config = PlanarIntrinsicsConfig::default();
-let init_id = session.run_init(obs_id, config.clone())?;
-
-// Save checkpoint
+// Optional: checkpoint the session state as JSON.
 let checkpoint = session.to_json()?;
 
-// Optimize (non-linear refinement)
-let result_id = session.run_optimize(obs_id, init_id, config)?;
-
-// Filter outliers and re-optimize (optional)
-let obs_filtered = session.run_filter_obs(obs_id, result_id, FilterOptions::default())?;
-
-// Export results
-let estimate = session.run_export(result_id, ExportOptions::default())?;
+let export = session.export()?;
+# let _ = (checkpoint, export);
+# Ok(())
+# }
 ```
-
-### Imperative Functions API
-
-Best for custom workflows requiring intermediate inspection:
-
-```rust
-use vision_calibration_pipeline::planar_intrinsics::{
-    planar_init_seed_from_views, run_planar_intrinsics, PlanarIntrinsicsConfig,
-};
-use vision_calibration_pipeline::PlanarDataset;
-
-let config = PlanarIntrinsicsConfig::default();
-let seed = planar_init_seed_from_views(&dataset, config.init_opts.clone())?;
-let estimate = run_planar_intrinsics(&dataset, &config)?;
-```
-
-## JSON I/O Example
-
-```rust
-use vision_calibration_pipeline::{PlanarDataset, PlanarIntrinsicsConfig, run_planar_intrinsics};
-
-// Load from JSON
-let input: PlanarDataset = serde_json::from_str(&input_json)?;
-let config: PlanarIntrinsicsConfig = serde_json::from_str(&config_json)?;
-
-// Run calibration
-let estimate = run_planar_intrinsics(&input, &config)?;
-
-// Save results
-let output_json = serde_json::to_string_pretty(&estimate)?;
-```
-
-## When to Use Each API
-
-| Scenario | Recommended API |
-|----------|----------------|
-| Standard single-camera calibration | Session |
-| Need checkpointing between stages | Session |
-| Inspect linear initialization quality | Imperative |
-| Custom multi-step workflow | Imperative |
-| Integration into larger system | Imperative |
-| Research and experimentation | Imperative |
 
 ## See Also
 
-- [vision-calibration-core](../vision-calibration-core): Math types and camera models
-- [vision-calibration-linear](../vision-calibration-linear): Linear initialization solvers
-- [vision-calibration-optim](../vision-calibration-optim): Non-linear optimization
-- [Book: Pipelines](../../book/src/pipeline.md)
-- [functions.md](src/functions.md): Comprehensive API reference
+- [vision-calibration](https://crates.io/crates/vision-calibration): facade crate re-exporting this API
+- [vision-calibration-core](https://crates.io/crates/vision-calibration-core): math types and camera models
+- [vision-calibration-linear](https://crates.io/crates/vision-calibration-linear): linear initialization solvers
+- [vision-calibration-optim](https://crates.io/crates/vision-calibration-optim): non-linear optimization
+- [Book: session API](https://vitalyvorobyev.github.io/calibration-rs/session.html)

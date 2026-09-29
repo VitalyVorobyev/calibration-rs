@@ -1609,7 +1609,7 @@ class RigHandeyeResult:
 
     `sensors` is `None` for pinhole rigs and `Some(_)` for Scheimpflug rigs
     (one entry per camera); matches the Rust ``RigHandeyeExport.sensors``
-    field (A6.3 unified hand-eye family).
+    field.
     """
 
     cameras: list[PinholeBrownConradyCamera]

@@ -5,8 +5,7 @@
 //! required fields are present. The tag serializes snake_case
 //! (`"planar_intrinsics"`, …) — the same vocabulary as the problem-module
 //! names — and is **required** on deserialize: a missing tag is an error, not
-//! a silent default. The 0.7.0 breaking window regenerates every committed
-//! export so nothing relies on the pre-tag shape.
+//! a silent default.
 
 use serde::{Deserialize, Serialize};
 

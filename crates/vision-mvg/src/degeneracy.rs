@@ -269,7 +269,7 @@ mod tests {
             })
             .collect();
 
-        // analyze_scene no longer takes an essential matrix.
+        // `analyze_scene` needs only the correspondences and the relative pose.
         let diag = analyze_scene(&corrs, &r, &t);
         assert!(!diag.is_pure_rotation);
         assert!(diag.median_parallax_deg > 0.0);

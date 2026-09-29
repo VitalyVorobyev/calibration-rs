@@ -235,14 +235,14 @@ export const BUILTIN_PRESETS: Preset[] = [
     configOverrides: RTV3D_HAND_EYE_CONFIG_OVERRIDES,
   },
 
-  // ── Enabled: rtv3d joint rig + laserline (V5 parity) ─────────────────────
+  // ── Enabled: rtv3d joint rig + laserline ─────────────────────
   {
     id: "rtv3d-laser",
     name: "rtv3d laser planes",
     group: "rtv3d 6-device Scheimpflug rig (local)",
     topology: "RigHandeyeLaserline",
     targetKind: "charuco",
-    targetSummary: "joint hand-eye + 6 laser planes · V5 path · EyeToHand",
+    targetSummary: "joint hand-eye + 6 laser planes · EyeToHand",
     imageCount: 20,
     manifestPath: "privatedata/rtv3d/dataset_laser.toml",
     manifestOverrides: RTV3D_JOINT_LASER_MANIFEST_OVERRIDES,
@@ -258,8 +258,8 @@ export const BUILTIN_PRESETS: Preset[] = [
         calib_weight: 1.0,
         laser_weight: 10000.0,
         robot_poses: { refine: true },
-        // fix_first_camera_extrinsic is gone (ADR 0024 D2): the joint
-        // stage always pins handeye.rig.reference_camera_idx.
+        // The joint solve always gauge-fixes camera 0 (ADR 0024): it pins
+        // handeye.rig.reference_camera_idx.
         fix_scheimpflug: { tilt_x: true, tilt_y: true },
         default_camera_fix: {
           intrinsics: { fx: false, fy: false, cx: true, cy: true },
@@ -304,7 +304,7 @@ export const BUILTIN_PRESETS: Preset[] = [
     targetSummary: "puzzleboard puzzle_130x130",
     imageCount: null,
     disabledReason:
-      "Puzzleboard detection is now wired (B3C-PUZZLEBOARD); this card stays disabled until a DS8 puzzleboard manifest is committed — the DS8 data ships without a dataset.toml. Any puzzleboard/ringgrid dataset can already be run via the manifest editor.",
+      "Puzzleboard detection is wired; this card stays disabled until a DS8 puzzleboard manifest is committed — the DS8 data ships without a dataset.toml. Any puzzleboard/ringgrid dataset can already be run via the manifest editor.",
     milestone: "needs manifest",
   },
 ];

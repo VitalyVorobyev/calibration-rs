@@ -1,5 +1,5 @@
 // Convert the Rust-generated JSON Schema (schemas-generated/diagnose_wire.json)
-// into TypeScript interfaces under src/types/generated/ (B-QUAL2).
+// into TypeScript interfaces under src/types/generated/.
 //
 // Stage 2 of the two-stage `generate:types` pipeline: stage 1 is the Rust
 // emitter (`generate:schemas`, needs cargo), this stage is TS-only (needs
@@ -20,7 +20,7 @@ const outPath = resolve(appDir, "src/types/generated/diagnose-wire.ts");
 
 const banner = `/**
  * DO NOT EDIT — generated from the Rust wire types by
- * \`bun run generate:types\` (B-QUAL2). The source of truth is the
+ * \`bun run generate:types\`. The source of truth is the
  * \`#[derive(schemars::JsonSchema)]\` types in the calibration workspace and
  * the diagnose Tauri commands; edit those and regenerate.
  */`;

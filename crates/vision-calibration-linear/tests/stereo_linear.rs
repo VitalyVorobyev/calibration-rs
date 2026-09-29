@@ -295,9 +295,8 @@ fn stereo_fundamental_and_essential_match_ground_truth() {
     let f_est = fundamental_8point(&pts_l, &pts_r).expect("fundamental");
     let f_gt = mat3_from_array(&data.fundamental);
     let f_err = scaled_error_mat3(&f_est, &f_gt);
-    // Re-pinned for the `vision-geometry` 8-point (the 0.7.0 solver dedup). Its
-    // `fundamental_8point` applies Hartley normalization, which the old
-    // linear-crate solver did not. Against the analytic golden F this fixture's
+    // Pinned for the `vision-geometry` 8-point. Its
+    // `fundamental_8point` applies Hartley normalization. Against the analytic golden F this fixture's
     // normalized estimate lands at ~0.077 (vs ~0.06 unnormalized) — a noise-level
     // shift, and the normalized path is the numerically robust one (it does not
     // hang on dense inputs). The golden F is kept as ground truth; only the

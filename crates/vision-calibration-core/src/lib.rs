@@ -84,9 +84,8 @@ mod view;
 pub use error::Error;
 
 // Crate-root public surface, re-exported explicitly from the (private) modules.
-// Each list reproduces every item the corresponding `pub use <module>::*;` glob
-// used to flatten into the crate root. Keep these lists curated: adding a new
-// `pub` item to a private module no longer silently widens the public API.
+// Keep these lists curated: a new `pub` item in a private module is not public
+// until it is listed here.
 #[cfg(feature = "schemars")]
 pub use math::Iso3Schema;
 pub use math::{
@@ -895,3 +894,7 @@ mod tests {
         assert_eq!(h.max, 3.0);
     }
 }
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

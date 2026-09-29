@@ -213,3 +213,7 @@ pub use crate::problems::rig_handeye_laserline_bundle::{
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

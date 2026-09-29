@@ -53,10 +53,8 @@ impl RinggridConfig {
     /// here; geometry validation (radii ordering, marker-vs-pitch fit) is
     /// delegated to `TargetLayout::coded_hex`.
     ///
-    /// `coded_hex` takes the same six arguments in the same order as the
-    /// `BoardLayout::new` this used to call, and derives the same
-    /// geometry-based board name, so the layout is unchanged by the
-    /// `ringgrid` 0.7 → 0.11 migration.
+    /// `coded_hex` takes the six board-geometry arguments and derives a
+    /// geometry-based board name.
     fn board_layout(&self) -> Result<TargetLayout, DetectError> {
         let mm = |m: f64| (m * 1000.0) as f32;
         TargetLayout::coded_hex(

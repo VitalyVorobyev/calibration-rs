@@ -1,11 +1,9 @@
 //! End-to-end rig calibration on the 130x130 puzzleboard dataset.
 //!
-//! Post-A6 layout: drives the unified `rig_handeye::RigHandeyeProblem` with
+//! Drives the unified `rig_handeye::RigHandeyeProblem` with
 //! `SensorMode::Scheimpflug`. Per-camera intrinsics + distortion + tilt seeds
 //! are supplied via `step_intrinsics_init_all_with_seed` and the
-//! `RigHandeyeIntrinsicsManualInit` struct (replacing the pre-A6
-//! `RigScheimpflugHandeyeIntrinsicsConfig::{initial_cameras, initial_sensors}`
-//! knobs). The narrow-FOV `(k1, p1, p2 free; k2, k3 fixed)` distortion mask is
+//! `RigHandeyeIntrinsicsManualInit` struct. The narrow-FOV `(k1, p1, p2 free; k2, k3 fixed)` distortion mask is
 //! expressed via `SensorMode::Scheimpflug.distortion_mask_in_percam_ba`.
 //!
 //! Pipeline:
@@ -174,8 +172,7 @@ fn main() -> Result<()> {
         use vision_calibration::rig_handeye as rh;
         let step_t = Instant::now();
         // Seed intrinsics + distortion + sensors per camera (homogeneous rig)
-        // via the unified manual-init API. Replaces the pre-A6
-        // `cfg.intrinsics.initial_cameras` / `initial_sensors` knobs.
+        // via the unified manual-init API.
         let mut manual_init = RigHandeyeIntrinsicsManualInit::default();
         manual_init.per_cam_intrinsics = Some(per_cam_intrinsics_seed);
         manual_init.per_cam_distortion = Some(per_cam_distortion_seed);
@@ -348,7 +345,7 @@ fn main() -> Result<()> {
         rig_se3_target.push(rt);
     }
 
-    // Build the upstream calibration via the unified post-A6 helper.
+    // Build the upstream calibration via the unified helper.
     // `to_upstream_calibration` errors on pinhole rigs (laserline still
     // requires Scheimpflug sensor params); we configured Scheimpflug above so
     // the unwrap is safe.

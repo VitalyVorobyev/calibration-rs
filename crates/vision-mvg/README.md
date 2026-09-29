@@ -23,27 +23,25 @@ estimation wrappers, and triangulation helpers with diagnostics.
 
 ```rust
 use vision_calibration_core::Pt2;
-use vision_mvg::recover_relative_pose;
+use vision_mvg::{Correspondence2D, recover_relative_pose};
 
-let left = vec![
-    Pt2::new(-0.1, 0.2),
-    Pt2::new(0.3, -0.1),
-    Pt2::new(0.4, 0.5),
-    Pt2::new(-0.2, -0.3),
-    Pt2::new(0.1, 0.0),
+// Correspondences in normalized camera coordinates (at least 5).
+let pairs = [
+    ((-0.1, 0.2), (-0.08, 0.19)),
+    ((0.3, -0.1), (0.32, -0.11)),
+    ((0.4, 0.5), (0.42, 0.48)),
+    ((-0.2, -0.3), (-0.18, -0.28)),
+    ((0.1, 0.0), (0.12, -0.01)),
 ];
-let right = vec![
-    Pt2::new(-0.08, 0.19),
-    Pt2::new(0.32, -0.11),
-    Pt2::new(0.42, 0.48),
-    Pt2::new(-0.18, -0.28),
-    Pt2::new(0.12, -0.01),
-];
+let corrs: Vec<Correspondence2D> = pairs
+    .iter()
+    .map(|&((x1, y1), (x2, y2))| Correspondence2D::new(Pt2::new(x1, y1), Pt2::new(x2, y2)))
+    .collect();
 
-let pose = recover_relative_pose(&left, &right)?;
-println!("rotation = {:?}", pose.rotation);
-println!("translation = {:?}", pose.translation);
-# Ok::<(), anyhow::Error>(())
+let pose = recover_relative_pose(&corrs)?;
+println!("rotation = {:?}", pose.r);
+println!("translation direction = {:?}", pose.t);
+# Ok::<(), vision_mvg::MvgError>(())
 ```
 
 ## See Also

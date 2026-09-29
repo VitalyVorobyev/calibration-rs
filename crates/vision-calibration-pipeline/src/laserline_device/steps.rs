@@ -76,8 +76,8 @@ pub struct DeviceOptimizeOptions {
 
 /// Typed return value of [`step_init`] / [`step_init_with_seed`].
 ///
-/// Carries the seeded-or-fitted initial estimates that the same values continue
-/// to be written into `session.state` for backwards compatibility — see ADR 0011.
+/// Carries the seeded-or-fitted initial estimates. The same values are also
+/// written into `session.state` — see ADR 0011.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LaserlineDeviceInitResult {
@@ -96,8 +96,8 @@ pub struct LaserlineDeviceInitResult {
 
 /// Typed return value of [`step_optimize`].
 ///
-/// Aggregates the optimization metrics that examples used to read out of
-/// `session.state` after the laserline-device solve.
+/// Aggregates the optimization metrics of the laserline-device solve; the same
+/// values are also written into `session.state`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LaserlineDeviceOptimizeResult {

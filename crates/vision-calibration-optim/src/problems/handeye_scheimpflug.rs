@@ -82,7 +82,7 @@ pub struct HandEyeScheimpflugParams {
     /// - `EyeToHand`: `rig_from_base` (`T_R_B`)
     pub handeye: Iso3,
     /// Calibration target poses. Either one pose (fixed-target mode) or one
-    /// per view (legacy `relax_target_poses`).
+    /// per view (per-view target mode, `relax_target_poses`).
     pub target_poses: Vec<Iso3>,
 }
 
@@ -103,9 +103,9 @@ pub struct HandEyeScheimpflugSolveOptions {
     pub fix_extrinsics: Vec<bool>,
     /// Fix hand-eye transform.
     pub fix_handeye: bool,
-    /// View indices to fix (legacy per-view target mode only).
+    /// View indices to fix (per-view target mode only).
     pub fix_target_poses: Vec<usize>,
-    /// Legacy mode: relax per-view target poses.
+    /// Per-view target mode: relax per-view target poses.
     pub relax_target_poses: bool,
     /// Refine robot poses with per-view se(3) corrections.
     pub refine_robot_poses: bool,

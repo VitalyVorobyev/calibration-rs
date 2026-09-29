@@ -1,7 +1,7 @@
 //! Server-side dense stereo matching for the Depth workspace.
 //!
 //! Given a synchronized stereo pair and the loaded rig calibration, this
-//! rectifies the pair (Track C4), dense-matches it
+//! rectifies the pair, dense-matches it
 //! ([`vision_calibration::mvg::dense::match_block`], block or semi-global), and
 //! returns colormapped PNG data URLs plus quality metrics. Math lives here, not
 //! in the frontend, so rectification + distortion use the canonical

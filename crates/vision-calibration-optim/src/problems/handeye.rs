@@ -16,8 +16,9 @@
 //! - optional priors on delta_i (anisotropic rotation/translation sigmas)
 //! - when delta_i are enabled, delta_0 is fixed to zero to remove gauge freedom
 //!
-//! Legacy mode can relax per-view target poses, but that is discouraged for a
-//! physically fixed target because it weakens hand-eye observability.
+//! Per-view target mode (`relax_target_poses`) relaxes the target pose per view,
+//! but that is discouraged for a physically fixed target because it weakens
+//! hand-eye observability.
 
 use crate::Error;
 use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
@@ -107,7 +108,7 @@ pub struct HandEyeParams {
     /// - Default (fixed target):
     ///   - `EyeInHand`: the first pose is used as the initial `base_from_target` (`T_B_T`)
     ///   - `EyeToHand`: the first pose is used as the initial `gripper_from_target` (`T_G_T`)
-    /// - Legacy (`relax_target_poses = true`): one pose per view is required.
+    /// - Per-view target mode (`relax_target_poses = true`): one pose per view is required.
     pub target_poses: Vec<Iso3>,
 }
 
@@ -125,9 +126,9 @@ pub struct HandEyeSolveOptions {
     pub fix_extrinsics: Vec<bool>,
     /// Fix hand-eye transform (for testing with known hand-eye).
     pub fix_handeye: bool,
-    /// View indices to fix (legacy per-view target mode only).
+    /// View indices to fix (per-view target mode only).
     pub fix_target_poses: Vec<usize>,
-    /// Legacy mode: relax per-view target poses instead of a fixed target.
+    /// Per-view target mode: relax per-view target poses instead of a fixed target.
     pub relax_target_poses: bool,
     /// Refine robot poses with per-view se(3) corrections and strong priors.
     ///
@@ -447,7 +448,7 @@ fn compute_handeye_reproj_error(
 ///
 /// State vector:
 /// - intrinsics/distortion, extrinsics, hand-eye transform
-/// - target pose (fixed by default, per-view in legacy mode)
+/// - target pose (fixed by default, per-view in per-view target mode)
 /// - optional per-view robot pose deltas (se(3) tangent)
 ///
 /// Residuals:

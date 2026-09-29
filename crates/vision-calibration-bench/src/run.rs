@@ -609,7 +609,7 @@ pub mod tier_b {
     /// `device_seed::scheimpflug_seed`.
     ///
     /// Detection is the expensive step. [`run_scheimpflug_intrinsics`] calls
-    /// this once and immediately solves; the Q6 convergence-basin study
+    /// this once and immediately solves; the convergence-basin study
     /// (`vision_calibration_bench::basin`) calls this once per camera and
     /// replays [`solve_scheimpflug_seeded`] over many perturbed copies of
     /// `seed` without re-detecting.
@@ -717,7 +717,7 @@ pub mod tier_b {
     /// iterations.
     ///
     /// `label` only affects progress logging (`entry.id` from
-    /// [`run_scheimpflug_intrinsics`], or a per-cell label from the Q6
+    /// [`run_scheimpflug_intrinsics`], or a per-cell label from the
     /// basin study).
     pub fn solve_scheimpflug_seeded(
         dataset: PlanarDataset,
@@ -726,7 +726,7 @@ pub mod tier_b {
     ) -> Result<ScheimpflugSeededSolve> {
         // `ScheimpflugIntrinsicsConfig::fix_scheimpflug` takes the single canonical
         // `vision_calibration_optim::ScheimpflugFixMask` (already imported at module
-        // scope; 0.7.0 merged the former pipeline-local duplicate into it).
+        // scope).
         use vision_calibration::scheimpflug_intrinsics::{
             ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
             step_init_with_seed as sch_step_init_with_seed, step_optimize as sch_step_optimize,
@@ -1166,7 +1166,7 @@ pub mod tier_b {
     /// Supports two pose-pairing modes, dispatched on
     /// [`crate::registry::PoseSource::format`]:
     ///
-    /// - **`"rowmajor4x4"` (legacy)**: mirrors
+    /// - **`"rowmajor4x4"`**: mirrors
     ///   `crates/vision-calibration/examples/handeye_session.rs`. Loads the
     ///   robot poses (row-major 4×4 per line) and pairs image `{i+1:02}.png`
     ///   with pose row `i`. Board is detected with a chessboard detector.
@@ -1255,7 +1255,7 @@ pub mod tier_b {
                 }
             }
         } else {
-            // ── Legacy rowmajor4x4 path (kuka_1) ────────────────────────────
+            // ── rowmajor4x4 path (kuka_1) ────────────────────────────
             let robot_poses =
                 load_robot_poses_for(pose_src, &entry.data_root.join(&pose_src.path))?;
             total_poses = robot_poses.len();
@@ -1812,7 +1812,7 @@ pub mod tier_b {
     /// target, run staged multistart single-camera solves, and report raw
     /// all-corner reprojection distributions.
     ///
-    /// **Informational only** (S4, 2026-07-02): the 0.4 px threshold below
+    /// **Informational only:** the 0.4 px threshold below
     /// grades the *from-scratch* multistart floor, which is an experimental
     /// path. The acceptance gate is the seeded official
     /// route (`calib-bench accept`, per-entry `AcceptGate`); a `pass:
@@ -2651,7 +2651,7 @@ pub mod tier_b {
     /// Same as `progress` but keyed by an arbitrary label rather than a
     /// [`BenchEntry`] — used by [`solve_scheimpflug_seeded`], whose caller
     /// may be a plain dataset id (`run_scheimpflug_intrinsics`) or a
-    /// per-cell label (the Q6 convergence-basin study).
+    /// per-cell label (the convergence-basin study).
     pub fn progress_label(label: &str, message: impl std::fmt::Display) {
         if std::env::var_os("CALIB_BENCH_QUIET").is_none() {
             eprintln!("[calib-bench:{label}] {message}");

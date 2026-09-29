@@ -534,7 +534,7 @@ fn distortion_parameter_masking_works() {
 #[test]
 fn rejects_pose_count_mismatch_instead_of_panicking() {
     // A caller supplying fewer poses than views must get a typed error, not a
-    // panic on `pose_ids[view_idx]` (codex P2 regression guard).
+    // panic on `pose_ids[view_idx]`.
     let SyntheticScenario {
         dataset,
         mut poses_gt,
@@ -562,7 +562,7 @@ fn rejects_pose_count_mismatch_instead_of_panicking() {
 fn rejects_non_identity_sensor() {
     // Planar intrinsics selects the camera model from the distortion kind only;
     // a non-identity sensor would be silently dropped. It must be rejected
-    // up front (codex P2 regression guard).
+    // up front.
     let SyntheticScenario {
         dataset, poses_gt, ..
     } = build_synthetic_scenario(0.0);

@@ -130,7 +130,7 @@ pub struct ScheimpflugIntrinsicsParams {
 impl ScheimpflugIntrinsicsParams {
     /// Construct a parameter pack from concrete Brown-Conrady distortion.
     ///
-    /// Back-compat entry point for rig calibration and Brown-Conrady callers;
+    /// Convenience entry point for rig calibration and Brown-Conrady callers;
     /// wraps `distortion` into [`DistortionParams::BrownConrady5`].
     ///
     /// # Errors
@@ -414,9 +414,8 @@ pub fn optimize_scheimpflug_intrinsics_with_backend(
 ///    refine that frees the principal point, with box bounds forbidding the
 ///    `fx → 0 / cx → -1e19` runaway.
 ///
-/// This is the library form of the recipe previously prototyped in the
-/// `vision-calibration-bench` multi-start staging path; the cheap-sweep split
-/// keeps the cost near a single full solve even with a dense target and 5 seeds.
+/// This is the library form of the multi-start staging recipe also used by the
+/// `vision-calibration-bench` staging path; the cheap-sweep split keeps the cost near a single full solve even with a dense target and 5 seeds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ScheimpflugStagedInitOptions {

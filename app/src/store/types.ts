@@ -34,10 +34,9 @@ export type PinholeCameraWire = Camera;
 export type LaserPlaneWire = LaserPlane;
 
 /** Loose union over the seven calibration export shapes. The viewer
- * (B1.0) only consumes the residuals + manifest + mean reprojection
+ * only consumes the residuals + manifest + mean reprojection
  * error; rig-only fields (cameras, cam_se3_rig, rig_se3_target) are
- * optional and refined inside Viewer3DWorkspace / EpipolarWorkspace
- * once those phases land. */
+ * optional and read by Viewer3DWorkspace / EpipolarWorkspace. */
 export interface AnyExport {
   /** Export-type discriminator. Present on every export the current
    * pipeline emits; typed optional only because `AnyExport` is a loose

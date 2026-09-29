@@ -9,8 +9,8 @@
 //! mount tilt (`≈ −5°`) — via [`step_init_with_seed`], then optimize. Under the
 //! tilt↔focal↔distortion degeneracy, from-scratch [`step_init`] (no seed) is
 //! **experimental** and may converge to a wrong tilt/focal basin; it logs a
-//! warning when used. The seeded path is gated to ≤ 0.5 px mean reprojection on
-//! the private `rtv3d_ref` rig.
+//! warning when used. The seeded path is regression-gated to ≤ 0.5 px mean
+//! reprojection on real Scheimpflug data.
 
 mod problem;
 mod state;

@@ -393,11 +393,6 @@ fn parse_sensors(
     Ok(Some(out))
 }
 
-/// Vector3 alias to keep imports tidy if/when the algorithm grows beyond
-/// the current single-call shape.
-#[allow(dead_code)]
-type V3 = Vector3<f64>;
-
 fn raw_pixel_to_undistorted_pixel(geometry: &CameraGeometry, px: [f64; 2]) -> [f64; 2] {
     let ray = geometry.model.backproject_pixel(&Point2::new(px[0], px[1]));
     normalized_to_pixel(&geometry.k, ray.point.x, ray.point.y)

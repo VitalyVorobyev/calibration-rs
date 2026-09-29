@@ -49,24 +49,3 @@ detection-cache key, so changing any of them re-runs detection:
   on small or soft image tiles**, where the floor can remove a third of the
   board and the resulting sparse view conditions worse than the weak corners
   did — that shows up as a diverged camera, not a slightly worse residual.
-
-## Structure
-
-Each tutorial is self-contained and follows the same outline:
-
-1. **Why** — what problem the feature solves, who it is for.
-2. **Mental model** — one or two paragraphs of necessary background. No
-   geometry derivations — those live in the ADRs.
-3. **Walkthrough** — a minimum-viable code path with explanations between
-   each step.
-4. **Common variations** — small recipes for the obvious follow-on questions.
-5. **What to read next** — pointers into ADRs, source files, and other
-   tutorials.
-
-## How tutorials relate to ADRs
-
-ADRs in [`docs/adrs/`](../adrs/) explain *why* the API is shaped a particular
-way. Tutorials explain *how to use* the resulting API. When the two
-diverge, the ADR is authoritative for design intent and the tutorial is
-authoritative for the working code path; please file an issue when you spot
-drift.

@@ -400,7 +400,7 @@ fn planar_config_distortion_model_json_roundtrip() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Backward compat: config without distortion_model field defaults to BC5
+// A config without a `distortion_model` field defaults to BC5
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]

@@ -1,5 +1,5 @@
 //! Scheimpflug-aware stereo rectification validated against the `rtv3d_ref`
-//! reference oracle (C4 / D4 gate).
+//! reference oracle.
 //!
 //! The `rtv3d_ref` `artifacts.json` (the customer's "QUICK" oracle) calibrates a
 //! 6-camera Scheimpflug rig to sub-pixel reprojection error. Each camera carries
