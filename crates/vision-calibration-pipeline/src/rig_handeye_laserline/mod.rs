@@ -13,3 +13,5 @@ pub use problem::{
     RigHandeyeLaserlineInput, RigHandeyeLaserlineOutput, RigHandeyeLaserlineProblem,
 };
 pub use steps::run_calibration;
+// The input's view types, so the workflow is usable from this module alone.
+pub use vision_calibration_optim::{RigHandeyeLaserlineView, RigLaserlineView, RobotPoseMeta};

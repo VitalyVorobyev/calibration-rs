@@ -492,10 +492,10 @@ pub mod rig_handeye {
 /// plane in the rig frame.
 pub mod rig_laserline_device {
     pub use vision_calibration_pipeline::rig_laserline_device::{
-        RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
-        RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem, RigUpstreamCalibration,
-        StepOptions, pixel_to_gripper_point, run_calibration, step_init, step_init_with_seed,
-        step_optimize,
+        RigLaserlineDataset, RigLaserlineDeviceConfig, RigLaserlineDeviceExport,
+        RigLaserlineDeviceInput, RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem,
+        RigLaserlineView, RigUpstreamCalibration, StepOptions, pixel_to_gripper_point,
+        run_calibration, step_init, step_init_with_seed, step_optimize,
     };
 }
 
@@ -504,7 +504,7 @@ pub mod rig_handeye_laserline {
     pub use vision_calibration_pipeline::rig_handeye_laserline::{
         RigHandeyeLaserlineBaConfig, RigHandeyeLaserlineConfig, RigHandeyeLaserlineExport,
         RigHandeyeLaserlineInput, RigHandeyeLaserlineOutput, RigHandeyeLaserlineProblem,
-        run_calibration,
+        RigHandeyeLaserlineView, RigLaserlineView, RobotPoseMeta, run_calibration,
     };
 }
 

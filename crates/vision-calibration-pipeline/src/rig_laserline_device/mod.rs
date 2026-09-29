@@ -19,3 +19,5 @@ pub use steps::{
     RigLaserlineDeviceManualInit, StepOptions, run_calibration, step_init, step_init_with_seed,
     step_optimize,
 };
+// The input's dataset types, so the workflow is usable from this module alone.
+pub use vision_calibration_optim::{RigLaserlineDataset, RigLaserlineView};
