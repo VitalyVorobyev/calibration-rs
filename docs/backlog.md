@@ -12,18 +12,6 @@ in [ADRs](adrs/).
 
 ## B-QUAL / B-UX / B-DIST — app to production grade (Phase III)
 
-- [ ] B-QUAL-HOOKS7 - `eslint-plugin-react-hooks` 7 (adopted 2026-08-11
-  with the eslint 10 bump) ships two new rules, both set to `warn` in
-  `app/eslint.config.js` rather than blocking CI:
-  - `react-hooks/set-state-in-effect` — five real sites
-    (`useImageData.ts` ×2, `DiagnoseWorkspace/index.tsx` ×3) reset derived
-    state from an effect when their input changes. Correct, but one render
-    pass more than keying the component would cost. Rewrite when touching
-    those components anyway.
-  - `react-hooks/purity` — one report, a **false positive**: the
-    `Date.now()` stamping a run's start time in RunWorkspace's async
-    submit handler. The rule cannot distinguish an event handler from
-    render. Re-check on plugin updates; drop the override if it learns to.
 - [ ] B-QUAL-TS7 - TypeScript 7 is **blocked upstream**: `typescript-eslint`
   hard-errors on it (`typescript-eslint does not support TS 7.0`, tracking
   issue typescript-eslint#10940). Adopting it today means dropping the

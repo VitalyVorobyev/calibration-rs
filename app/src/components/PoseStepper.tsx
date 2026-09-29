@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 interface PoseStepperProps {
   /** All valid pose values (from manifest / export). Sorted ascending. */
@@ -34,10 +34,12 @@ export function PoseStepper({
   // whenever the parent moves it (arrow keys, click on a frustum,
   // wrap-around step). Avoid clobbering the user's typing while the
   // input is focused.
-  useEffect(() => {
-    if (document.activeElement === inputRef.current) return;
-    setDraft(String(selectedPose));
-  }, [selectedPose]);
+  const [focused, setFocused] = useState(false);
+  const [syncedPose, setSyncedPose] = useState(selectedPose);
+  if (syncedPose !== selectedPose) {
+    setSyncedPose(selectedPose);
+    if (!focused) setDraft(String(selectedPose));
+  }
 
   const stepBy = (delta: number) => {
     if (poseValues.length === 0) return;
@@ -92,7 +94,11 @@ export function PoseStepper({
         ref={inputRef}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          commit();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             commit();

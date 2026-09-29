@@ -1,11 +1,11 @@
 import {
-  forwardRef,
   useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
+  type Ref,
 } from "react";
 import type {
   FrameKey,
@@ -14,6 +14,7 @@ import type {
   ViewportTransform,
 } from "../types";
 import { IDENTITY_TRANSFORM } from "../types";
+import { colorForError, colorForLaserError } from "../lib/errorColors";
 
 interface FrameCanvasProps {
   frame: FrameKey;
@@ -48,6 +49,8 @@ interface FrameCanvasProps {
   /** Visual ring drawn around the canvas when this pane is the
    * keyboard-active pane in compare mode. */
   active?: boolean;
+  /** Receives the imperative zoom/fit handle. */
+  ref?: Ref<FrameCanvasHandle>;
 }
 
 /** Pixel-distance threshold below which a mousedown→mouseup pair is a
@@ -66,164 +69,143 @@ const ARROW_GAIN = 30;
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 16;
 
-export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
-  function FrameCanvas(
-    {
-      frame,
-      residuals,
-      laserResiduals,
-      image,
-      transform: controlled,
-      onTransformChange,
-      onError,
-      onCursor,
-      onPick,
-      active,
-    },
-    ref,
-  ) {
-    void onError;
-    const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const containerRef = useRef<HTMLDivElement | null>(null);
-    const [container, setContainer] = useState({ w: 0, h: 0 });
-    const [internal, setInternal] = useState<ViewportTransform>(IDENTITY_TRANSFORM);
-    const isControlled = controlled !== undefined;
-    const transform = controlled ?? internal;
+export function FrameCanvas({
+  frame,
+  residuals,
+  laserResiduals,
+  image,
+  transform: controlled,
+  onTransformChange,
+  onError,
+  onCursor,
+  onPick,
+  active,
+  ref,
+}: FrameCanvasProps) {
+  void onError;
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [container, setContainer] = useState({ w: 0, h: 0 });
+  const [internal, setInternal] = useState<ViewportTransform>(IDENTITY_TRANSFORM);
+  const isControlled = controlled !== undefined;
+  const transform = controlled ?? internal;
 
-    const setTransform = useCallback(
-      (next: ViewportTransform | ((prev: ViewportTransform) => ViewportTransform)) => {
-        const value = typeof next === "function" ? next(transform) : next;
-        if (isControlled) {
-          onTransformChange?.(value);
-        } else {
-          setInternal(value);
-          onTransformChange?.(value);
-        }
-      },
-      [isControlled, onTransformChange, transform],
-    );
-
-    const roi = frame.roi;
-
-    useLayoutEffect(() => {
-      const el = containerRef.current;
-      if (!el) return;
-      const observer = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-          const { width, height } = entry.contentRect;
-          setContainer({ w: Math.max(1, width | 0), h: Math.max(1, height | 0) });
-        }
-      });
-      observer.observe(el);
-      return () => observer.disconnect();
-    }, []);
-
-    const computeFit = useCallback((): ViewportTransform => {
-      const sw = roi?.w ?? image?.naturalWidth ?? 0;
-      const sh = roi?.h ?? image?.naturalHeight ?? 0;
-      if (sw === 0 || sh === 0 || container.w === 0 || container.h === 0) {
-        return IDENTITY_TRANSFORM;
+  const setTransform = useCallback(
+    (next: ViewportTransform | ((prev: ViewportTransform) => ViewportTransform)) => {
+      const value = typeof next === "function" ? next(transform) : next;
+      if (isControlled) {
+        onTransformChange?.(value);
+      } else {
+        setInternal(value);
+        onTransformChange?.(value);
       }
-      const scale = Math.min(container.w / sw, container.h / sh);
-      const tx = (container.w - scale * sw) / 2;
-      const ty = (container.h - scale * sh) / 2;
-      return { scale, tx, ty };
-    }, [roi, image, container]);
+    },
+    [isControlled, onTransformChange, transform],
+  );
 
-    // Auto-fit on frame change is owned by the canvas only in
-    // uncontrolled mode. When the parent controls the transform
-    // (compare mode with linked panes), it decides when to re-fit.
-    useEffect(() => {
-      if (isControlled) return;
-      if (!image || container.w === 0 || container.h === 0) return;
+  const roi = frame.roi;
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setContainer({ w: Math.max(1, width | 0), h: Math.max(1, height | 0) });
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const computeFit = useCallback((): ViewportTransform => {
+    const sw = roi?.w ?? image?.naturalWidth ?? 0;
+    const sh = roi?.h ?? image?.naturalHeight ?? 0;
+    if (sw === 0 || sh === 0 || container.w === 0 || container.h === 0) {
+      return IDENTITY_TRANSFORM;
+    }
+    const scale = Math.min(container.w / sw, container.h / sh);
+    const tx = (container.w - scale * sw) / 2;
+    const ty = (container.h - scale * sh) / 2;
+    return { scale, tx, ty };
+  }, [roi, image, container]);
+
+  // Auto-fit on frame change is owned by the canvas only in
+  // uncontrolled mode. When the parent controls the transform
+  // (compare mode with linked panes), it decides when to re-fit.
+  // The fit is applied during render, keyed on the inputs it depends on,
+  // so the first painted frame is already fitted.
+  const [fitInputs, setFitInputs] = useState({
+    path: frame.abs_path,
+    image,
+    container,
+    roi,
+    isControlled,
+  });
+  if (
+    fitInputs.path !== frame.abs_path ||
+    fitInputs.image !== image ||
+    fitInputs.container !== container ||
+    fitInputs.roi !== roi ||
+    fitInputs.isControlled !== isControlled
+  ) {
+    setFitInputs({ path: frame.abs_path, image, container, roi, isControlled });
+    if (!isControlled && image && container.w !== 0 && container.h !== 0) {
       setInternal(computeFit());
-    }, [frame.abs_path, image, container, computeFit, isControlled]);
+    }
+  }
 
-    useImperativeHandle(
-      ref,
-      () => ({
-        fit: () => setTransform(computeFit()),
-        reset1to1: () => {
-          const sw = roi?.w ?? image?.naturalWidth ?? 0;
-          const sh = roi?.h ?? image?.naturalHeight ?? 0;
-          setTransform({
-            scale: 1,
-            tx: (container.w - sw) / 2,
-            ty: (container.h - sh) / 2,
-          });
-        },
-        zoomBy: (factor) =>
-          setTransform((t) => zoomAround(t, factor, container.w / 2, container.h / 2)),
-      }),
-      [computeFit, roi, image, container, setTransform],
-    );
-
-    const handleWheel = useCallback(
-      (e: React.WheelEvent<HTMLCanvasElement>) => {
-        e.preventDefault();
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const rect = canvas.getBoundingClientRect();
-        const cx = e.clientX - rect.left;
-        const cy = e.clientY - rect.top;
-        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-        setTransform((t) => zoomAround(t, factor, cx, cy));
-      },
-      [setTransform],
-    );
-
-    const dragRef = useRef<{
-      startX: number;
-      startY: number;
-      tx0: number;
-      ty0: number;
-    } | null>(null);
-    const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (e.button !== 0) return;
-      dragRef.current = {
-        startX: e.clientX,
-        startY: e.clientY,
-        tx0: transform.tx,
-        ty0: transform.ty,
-      };
-    };
-    const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const rect = canvas.getBoundingClientRect();
-        const cx = e.clientX - rect.left;
-        const cy = e.clientY - rect.top;
-        const ix = (cx - transform.tx) / transform.scale;
-        const iy = (cy - transform.ty) / transform.scale;
+  useImperativeHandle(
+    ref,
+    () => ({
+      fit: () => setTransform(computeFit()),
+      reset1to1: () => {
         const sw = roi?.w ?? image?.naturalWidth ?? 0;
         const sh = roi?.h ?? image?.naturalHeight ?? 0;
-        if (ix >= 0 && iy >= 0 && ix < sw && iy < sh) {
-          onCursor?.({ x: ix, y: iy });
-        } else {
-          onCursor?.(null);
-        }
-      }
-      const d = dragRef.current;
-      if (d) {
-        setTransform((t) => ({
-          ...t,
-          tx: d.tx0 + (e.clientX - d.startX),
-          ty: d.ty0 + (e.clientY - d.startY),
-        }));
-      }
-    };
-    const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      const d = dragRef.current;
-      dragRef.current = null;
-      // Distinguish click from pan-drag by total cursor movement.
-      // Below the threshold we treat it as a pick; above it the user
-      // was dragging and shouldn't accidentally select a feature.
-      if (!d || !onPick) return;
-      const dx = e.clientX - d.startX;
-      const dy = e.clientY - d.startY;
-      if (Math.hypot(dx, dy) > CLICK_DRAG_THRESHOLD_PX) return;
+        setTransform({
+          scale: 1,
+          tx: (container.w - sw) / 2,
+          ty: (container.h - sh) / 2,
+        });
+      },
+      zoomBy: (factor) =>
+        setTransform((t) => zoomAround(t, factor, container.w / 2, container.h / 2)),
+    }),
+    [computeFit, roi, image, container, setTransform],
+  );
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
       const canvas = canvasRef.current;
       if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      setTransform((t) => zoomAround(t, factor, cx, cy));
+    },
+    [setTransform],
+  );
+
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    tx0: number;
+    ty0: number;
+  } | null>(null);
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return;
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      tx0: transform.tx,
+      ty0: transform.ty,
+    };
+  };
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (canvas) {
       const rect = canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
@@ -232,63 +214,89 @@ export const FrameCanvas = forwardRef<FrameCanvasHandle, FrameCanvasProps>(
       const sw = roi?.w ?? image?.naturalWidth ?? 0;
       const sh = roi?.h ?? image?.naturalHeight ?? 0;
       if (ix >= 0 && iy >= 0 && ix < sw && iy < sh) {
-        onPick({ x: ix, y: iy });
+        onCursor?.({ x: ix, y: iy });
+      } else {
+        onCursor?.(null);
       }
-    };
-    const handleMouseLeave = () => {
-      dragRef.current = null;
-      onCursor?.(null);
-    };
+    }
+    const d = dragRef.current;
+    if (d) {
+      setTransform((t) => ({
+        ...t,
+        tx: d.tx0 + (e.clientX - d.startX),
+        ty: d.ty0 + (e.clientY - d.startY),
+      }));
+    }
+  };
+  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    // Distinguish click from pan-drag by total cursor movement.
+    // Below the threshold we treat it as a pick; above it the user
+    // was dragging and shouldn't accidentally select a feature.
+    if (!d || !onPick) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (Math.hypot(dx, dy) > CLICK_DRAG_THRESHOLD_PX) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const ix = (cx - transform.tx) / transform.scale;
+    const iy = (cy - transform.ty) / transform.scale;
+    const sw = roi?.w ?? image?.naturalWidth ?? 0;
+    const sh = roi?.h ?? image?.naturalHeight ?? 0;
+    if (ix >= 0 && iy >= 0 && ix < sw && iy < sh) {
+      onPick({ x: ix, y: iy });
+    }
+  };
+  const handleMouseLeave = () => {
+    dragRef.current = null;
+    onCursor?.(null);
+  };
 
-    useEffect(() => {
-      const canvas = canvasRef.current;
-      if (!canvas || !image || container.w === 0) return;
-      canvas.width = container.w;
-      canvas.height = container.h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.imageSmoothingEnabled = false;
-      ctx.setTransform(
-        transform.scale,
-        0,
-        0,
-        transform.scale,
-        transform.tx,
-        transform.ty,
-      );
-      const sx = roi?.x ?? 0;
-      const sy = roi?.y ?? 0;
-      const sw = roi?.w ?? image.naturalWidth;
-      const sh = roi?.h ?? image.naturalHeight;
-      ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
-      drawResidualArrows(ctx, residuals, frame, transform.scale);
-      if (laserResiduals) {
-        drawLaserOverlay(ctx, laserResiduals, frame, transform.scale);
-      }
-    }, [image, container, transform, roi, residuals, laserResiduals, frame]);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !image || container.w === 0) return;
+    canvas.width = container.w;
+    canvas.height = container.h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.setTransform(transform.scale, 0, 0, transform.scale, transform.tx, transform.ty);
+    const sx = roi?.x ?? 0;
+    const sy = roi?.y ?? 0;
+    const sw = roi?.w ?? image.naturalWidth;
+    const sh = roi?.h ?? image.naturalHeight;
+    ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
+    drawResidualArrows(ctx, residuals, frame, transform.scale);
+    if (laserResiduals) {
+      drawLaserOverlay(ctx, laserResiduals, frame, transform.scale);
+    }
+  }, [image, container, transform, roi, residuals, laserResiduals, frame]);
 
-    return (
-      <div
-        ref={containerRef}
-        className={`relative h-full w-full overflow-hidden rounded-md bg-bg-soft transition-shadow ${
-          active ? "ring-1 ring-brand" : ""
-        }`}
-      >
-        <canvas
-          ref={canvasRef}
-          onWheel={handleWheel}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseLeave}
-          className="block h-full w-full cursor-grab [image-rendering:pixelated] active:cursor-grabbing"
-        />
-      </div>
-    );
-  },
-);
+  return (
+    <div
+      ref={containerRef}
+      className={`relative h-full w-full overflow-hidden rounded-md bg-bg-soft transition-shadow ${
+        active ? "ring-1 ring-brand" : ""
+      }`}
+    >
+      <canvas
+        ref={canvasRef}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        className="block h-full w-full cursor-grab [image-rendering:pixelated] active:cursor-grabbing"
+      />
+    </div>
+  );
+}
 
 function zoomAround(
   t: ViewportTransform,
@@ -361,25 +369,6 @@ function drawArrow(
     y2 - head * Math.sin(angle + Math.PI / 6),
   );
   ctx.stroke();
-}
-
-export function colorForError(err: number): string {
-  if (err < 1) return "#1abc9c";
-  if (err < 2) return "#2ecc71";
-  if (err < 5) return "#f1c40f";
-  if (err < 10) return "#e67e22";
-  return "#e74c3c";
-}
-
-/** Color scale for laser point-to-plane distance in millimeters.
- * Thresholds follow the device norm (<0.2 mm plane σ is healthy);
- * same palette as `colorForError` so the two legends read alike. */
-export function colorForLaserError(mm: number): string {
-  if (mm < 0.2) return "#1abc9c";
-  if (mm < 0.5) return "#2ecc71";
-  if (mm < 1.0) return "#f1c40f";
-  if (mm < 2.0) return "#e67e22";
-  return "#e74c3c";
 }
 
 function drawLaserOverlay(

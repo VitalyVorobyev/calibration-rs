@@ -63,14 +63,22 @@ export function EpipolarOverlay({
           />
         </g>
       )}
-      {markers?.map((m, i) => {
+      {markers?.map((m) => {
         const cx = m.px[0] * transform.scale + transform.tx;
         const cy = m.px[1] * transform.scale + transform.ty;
         const size = m.size ?? 6;
+        const key = `${m.px[0]},${m.px[1]},${m.dot ? "dot" : "cross"}`;
         return m.dot ? (
-          <circle key={i} cx={cx} cy={cy} r={size * 0.35} fill={m.color} opacity={0.75} />
+          <circle
+            key={key}
+            cx={cx}
+            cy={cy}
+            r={size * 0.35}
+            fill={m.color}
+            opacity={0.75}
+          />
         ) : (
-          <g key={i} stroke={m.color} strokeWidth={1.4}>
+          <g key={key} stroke={m.color} strokeWidth={1.4}>
             <line x1={cx - size} y1={cy} x2={cx + size} y2={cy} />
             <line x1={cx} y1={cy - size} x2={cx} y2={cy + size} />
             <circle cx={cx} cy={cy} r={size * 0.6} fill="none" />

@@ -113,8 +113,8 @@ export function CameraFrustum({
         <meshBasicMaterial color={color} transparent opacity={active ? 1 : 0.45} />
       </mesh>
       {active &&
-        corners.map((corner, i) => (
-          <mesh key={`corner-${i}`} position={corner} raycast={NO_RAYCAST}>
+        corners.map((corner) => (
+          <mesh key={`corner-${corner.join(",")}`} position={corner} raycast={NO_RAYCAST}>
             <sphereGeometry args={[farDepth * 0.05, 12, 8]} />
             <meshBasicMaterial color={color} transparent opacity={0.95} />
           </mesh>

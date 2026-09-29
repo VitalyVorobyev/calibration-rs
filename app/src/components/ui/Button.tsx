@@ -1,11 +1,10 @@
-import { forwardRef } from "react";
-import type { ButtonHTMLAttributes } from "react";
+import type { ComponentPropsWithRef } from "react";
 import { cx } from "./cx";
 
 export type ButtonVariant = "default" | "primary";
 export type ButtonSize = "sm" | "md" | "icon";
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends ComponentPropsWithRef<"button"> {
   /** `default` — bordered, neutral (the global `button` base in index.css).
    * `primary` — brand-filled CTA (Run, Apply). Only one exists because
    * that's the only two the app actually uses; see the ui/README note in
@@ -32,18 +31,16 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
  * the global `button { … }` base rule in index.css (border, background,
  * hover, disabled, focus-visible) rather than re-declaring it — see the
  * design note in app/README.md. */
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  {
-    variant = "default",
-    size = "sm",
-    pressed,
-    disabled,
-    className,
-    type = "button",
-    ...rest
-  },
+export function Button({
+  variant = "default",
+  size = "sm",
+  pressed,
+  disabled,
+  className,
+  type = "button",
   ref,
-) {
+  ...rest
+}: ButtonProps) {
   const variantClass =
     variant === "primary"
       ? disabled
@@ -61,4 +58,4 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       {...rest}
     />
   );
-});
+}
