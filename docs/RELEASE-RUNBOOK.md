@@ -1,9 +1,7 @@
 # Release Runbook
 
 A checklist to follow under pressure when cutting a `calibration-rs`
-release. For the *why* behind each rule see `.claude/CLAUDE.md`'s
-"Releasing — version-source lockstep" section — that is the source of
-truth this runbook distills; if the two disagree, fix this file.
+release. This file is the source of truth for the release procedure.
 
 We are pre-1.0: breaking changes are expected and are batched into a
 single minor (`0.x.0`) bump rather than dribbled across patch releases.
@@ -12,14 +10,10 @@ single minor (`0.x.0`) bump rather than dribbled across patch releases.
 
 Four files, updated in the **same commit**:
 
-1. `Cargo.toml` → `[workspace.package] version` (~line 21).
+1. `Cargo.toml` → `[workspace.package] version`.
 2. `Cargo.toml` → `[workspace.dependencies]` path-dep `version = "…"`
-   pins for every publishable workspace crate (~lines 33–45). As of
-   0.7.0 that is **nine** crates: `vision-calibration-core`,
-   `vision-geometry`, `vision-calibration-dataset`,
-   `vision-calibration-detect`, `vision-calibration-linear`,
-   `vision-calibration-optim`, `vision-mvg`,
-   `vision-calibration-pipeline`, `vision-calibration`.
+   pins for **every publishable workspace crate** (the crates in the §2 DAG;
+   grep `path = "crates/` in that table to list them).
 3. `crates/vision-calibration-py/pyproject.toml` → `[project] version`.
    **Not** wired into `[workspace.package]` — `release-pypi.yml`'s
    `Verify tag/version sync` job reads this file directly and will
@@ -28,12 +22,9 @@ Four files, updated in the **same commit**:
    package `version` **plus every path-dep `version = "…"` pin inside
    it**. This crate is outside the crates.io publish set but is still
    compiled in CI, so a stale pin here breaks the examples build, not
-   the release. **Count the pins before assuming there are four** — the
-   pin count tracks how many published crates the private examples
-   depend on and has grown over time (6 as of 0.7.0: `vision-calibration`,
-   `vision-calibration-core`, `vision-calibration-optim`,
-   `vision-calibration-pipeline`, `vision-calibration-detect`,
-   `vision-mvg`). Grep the file, don't trust a remembered number.
+   the release. **Grep the file for every `version = "…"` pin** — the pin
+   count tracks how many published crates the private examples depend on and
+   changes over time, so don't trust a remembered number.
 
 After editing all four, refresh the lockfile once:
 
@@ -43,8 +34,7 @@ cargo build --workspace   # only workspace-crate version strings change in Cargo
 
 ### The app crate is a fifth place to check, not a fifth lockstep source
 
-`app/src-tauri/Cargo.toml` has its own product `version` (currently
-`0.1.0`, independent of the workspace — do not bump it as part of a
+`app/src-tauri/Cargo.toml` has its own product `version` (independent of the workspace — do not bump it as part of a
 library release) but pulls in `vision-calibration` via a **path** dep.
 Check whether that path dep (or any other workspace-crate path dep in
 this file) carries a `version = "…"` constraint:
@@ -86,7 +76,7 @@ The job is idempotent (skips a crate/version already on the index) and
 `sleep 20`s between publishes for index propagation, so a mid-release
 failure can be fixed and the tag-triggered workflow re-run safely.
 
-## 3. Per-crate Trusted Publishing gotcha (2026-07-08 incident)
+## 3. Per-crate Trusted Publishing
 
 crates.io Trusted Publishing (OIDC, no long-lived token) is configured
 **per crate**, not per repo. Every crate in the DAG above needs its own
@@ -99,15 +89,10 @@ Trusted Publisher entry on crates.io:
 **A crate that has never been published cannot have Trusted Publishing
 configured before its first upload** — crates.io only offers the
 "add a trusted publisher" UI on a crate that already exists. `release.yml`
-handles this gracefully for a first-ever publish (404 on the sparse
-index → warn and skip rather than hard-fail), but that means a newly
-promoted crate can silently sit **unpublished** across a whole release
-if nobody follows up with `cargo publish` by hand + the crates.io UI
-config. This is exactly what happened to `vision-mvg` in the 0.6.0
-release (`vision-geometry`/`vision-mvg` joined the publish set that
-release and `vision-mvg` never got a Trusted Publisher entry, so it
-quietly never reached crates.io until the gap was noticed and fixed
-out of band).
+handles a first-ever publish gracefully (404 on the sparse index -> warn and
+skip rather than hard-fail), so a newly promoted crate can silently sit
+**unpublished** across a whole release unless someone publishes it by hand and
+configures the crates.io UI.
 
 **When a crate joins the publish set for the first time:**
 
@@ -123,26 +108,20 @@ that (a) the crate exists and (b) it has a Trusted Publisher entry for
 fine" — go look, especially for crates newer than the last release you
 personally drove.
 
-### Earlier incident: PyPI pyproject drift (0.4.0 / 0.5.0)
+### PyPI pyproject drift
 
-`0.4.0` and `0.5.0` shipped to crates.io but never reached PyPI:
-`crates/vision-calibration-py/pyproject.toml`'s `project.version` was
-not bumped alongside the workspace, which tripped `release-pypi.yml`'s
-`Verify tag/version sync` job and skipped the wheel/sdist build and
-upload for both tags. `0.5.1` was cut specifically to repair this.
-Lesson: the pyproject version is not part of `[workspace.package]` and
-is easy to forget — it's source #3 in §1 above precisely because of
-this incident.
+The pyproject version is not part of `[workspace.package]`; if it is not
+bumped, `release-pypi.yml`'s `Verify tag/version sync` job skips the wheel/sdist
+build and upload while crates.io still publishes. That is why it is source #3
+in §1.
 
 ## 4. "Adding public API to a published crate is a release event"
 
-`0.6.0` exists because PR #67 added the public
-`vision_calibration_core::linalg` module to the **already-published**
-`core@0.5.1` without a version bump. Local `core@0.5.1` then diverged
-from the immutable registry `core@0.5.1`. Publishing `vision-geometry`
-(which re-exports `core::linalg`) failed `--dry-run` with `E0432`,
-because `cargo publish` strips path deps and resolves the registry's
-*old* `core@0.5.1`, which has no `linalg`.
+Adding a public item to a crate at a version already published makes the
+local crate diverge from the immutable registry copy. `cargo publish` strips
+path deps and resolves the registry's *old* version, so a dependent crate
+(e.g. `vision-geometry` re-exporting a new `core` module) fails `--dry-run`
+with `E0432`.
 
 **Rule:** once a crate has a version on crates.io, any change to its
 public surface — new module, new item, changed signature — must ride a
@@ -156,7 +135,7 @@ next bump.
 Run all of these locally before pushing the tag. All must pass.
 
 ```bash
-# 1. All four version sources print the same vX.Y.Z (see §1 for what to grep —
+# 1. All four version sources print the same X.Y.Z (see §1 for what to grep —
 #    remember examples-private has more than one path-dep pin per crate).
 grep -RHn 'version = "' Cargo.toml \
     crates/vision-calibration-py/pyproject.toml \
@@ -212,15 +191,14 @@ version is not on the index yet, so every crate that depends on another
 workspace crate necessarily fails with:
 
 ```
-candidate versions found which didn't match: 0.7.0, 0.6.0, …
+candidate versions found which didn't match: X.Y.Z, …
 location searched: crates.io index
 ```
 
 That is the expected result, not a defect — those crates only become
 verifiable once their dependencies are actually published, which is exactly
-what `release.yml` does by publishing in DAG order. For `0.8.0` the
-leaf-only crates (`vision-calibration-core`, `-dataset`, `-detect`) passed
-and the other six reported the message above.
+what `release.yml` does by publishing in DAG order. Only crates with no workspace-crate
+dependency (e.g. `vision-calibration-core`, `-dataset`, `-detect`) pass.
 
 What step 7 *does* catch is the §4 failure: a crate whose dependency is
 already on the index at the version being requested, but whose registry copy
@@ -231,7 +209,7 @@ hard stop.
 
 Do not "fix" this by loosening the `[workspace.dependencies]` pins to accept
 the previous version — that would let a crate publish against a stale
-dependency and reintroduce the `0.6.0` incident.
+dependency and reintroduce the stale-registry failure of §4.
 
 ## 6. Tag and what fires
 
@@ -249,7 +227,7 @@ Three workflows key off `push: tags: 'v*'`:
 
 | Workflow | Triggers | Produces |
 |---|---|---|
-| `release.yml` | tag push | gates (fmt/clippy/test) → publishes the nine crates to crates.io in DAG order (§2) → GitHub release with auto-generated notes |
+| `release.yml` | tag push | gates (fmt/clippy/test) → publishes every publishable crate to crates.io in DAG order (§2) → GitHub release with auto-generated notes |
 | `release-pypi.yml` | tag push | verifies tag/version sync → builds wheels (Linux/macOS/Windows, abi3-py310) + sdist → publishes to PyPI |
 | `app-bundle.yml` | tag push (also `workflow_dispatch`) | unsigned macOS (`.app`/`.dmg`) and Linux (AppImage/`.deb`) desktop bundles, uploaded as **workflow-run artifacts only** — not attached to the GitHub release, not signed/notarized |
 

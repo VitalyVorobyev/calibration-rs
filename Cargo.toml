@@ -23,9 +23,7 @@ resolver = "2"
 [workspace.package]
 version = "0.8.3"
 edition = "2024"
-# MSRV is 1.93. Bumped from 1.88 on 2026-05-23 to drop the
-# `fixed`/`kiddo` lockfile pins that kept breaking under `cargo update`.
-# See docs/MSRV.md.
+# MSRV policy: docs/MSRV.md.
 rust-version = "1.93"
 license = "MIT"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]

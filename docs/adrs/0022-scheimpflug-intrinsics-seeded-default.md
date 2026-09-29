@@ -2,47 +2,6 @@
 
 - Status: Accepted
 - Date: 2026-06-17
-- Note (2026-07-02): the production-grade program builds on this decision —
-  seeded init is the **official acceptance route** for all datasets. Track S
-  turns the hand-coded seeds into a structured `DeviceSpec` layer (ADR 0023,
-  planned), and **Q6** adds the convergence-basin study quantifying how much
-  spec error the seeded route tolerates (the empirical evidence backing this
-  ADR). See `docs/backlog.md` Tracks S/Q.
-- Note (2026-07-04): Q4-MWIRE-SCHEIMPFLUG generalized the seeded route beyond
-  Brown-Conrady-5. `ScheimpflugIntrinsicsConfig::distortion_model` (default
-  `DistortionKind::BrownConrady5`) now selects the model `step_optimize`
-  refines. The Phase A `k1` multi-start grid `{0, −0.20, −0.40}` generalizes
-  through `with_leading_radial`, which sweeps the **leading radial term** —
-  `k1` for BrownConrady5/Rational8/ThinPrism9, `lambda` for Division1 — and is
-  a no-op for `DistortionKind::None`. The `fix_distortion`
-  (`DistortionFixMask`) mask — five named bits `{k1, k2, k3, p1, p2}` — is
-  translated **by name** onto each model's packed layout by
-  `fix_mask_indices` (the single mechanism used for both user masks and the
-  A0/A1 staging masks). For BrownConrady5 it is exactly
-  `DistortionFixMask::to_indices()` (byte-identical to the pre-M-WIRE path).
-  For the extended models the shared coefficients map by name and each model's
-  extra coefficients follow the mask bit of the family they belong to:
-  Rational8's higher-order radial block `k4,k5,k6` follows the `k3` bit;
-  ThinPrism9's prism block `s1..s4` is fixed iff **both** `p1` and `p2` are
-  fixed; Division1's single `lambda` follows the leading-radial `k1` bit
-  (consistent with `with_leading_radial`). This keeps the staging invariants —
-  A0 all-fixed, A1 `{k1,k2 free; k3/p1/p2 fixed}` and the default `fix_k3`
-  semantics — intact across every model. Rigs are unaffected:
-  `SensorMode::Scheimpflug::distortion_model` remains BC5-typed
-  and is rejected up front for non-BC5 values in `validate_config` (ADR
-  0019) — the joint rig bundle adjustment stays Brown-Conrady-only.
-- Note (2026-07-04): **Q6-BASIN-STUDY closes the forward pointer above** —
-  `calib-bench basin` (`crates/vision-calibration-bench/src/basin.rs`)
-  perturbs the ADR 0023 device-spec seed over independent focal / tilt /
-  principal-point sweeps and re-runs the seeded route per cell, gated on
-  each entry's acceptance threshold. Measured on both private families
-  (`rtv3d_ref`, 6 cameras, gate ≤ 0.5 px; `rtv3d_ringgrid`, 6 cameras, gate
-  ≤ 1.0 px): the all-camera-pass basin is ×[0.85, 1.30] on focal and
-  ±4° on tilt (the full tested tilt sweep — no failure observed at any
-  offset) on **both** families, comfortably containing the decision
-  rule's realistic-spec-error envelope (focal ±5 %, tilt ±2°) with 2-3×
-  margin. See `docs/notes/scheimpflug-intrinsics.md` for the full tables
-  and `docs/backlog.md` Q6 for the completion note.
 
 ## Context
 
@@ -56,9 +15,8 @@ into a wrong tilt/focal basin.
 
 Two prior efforts confirm the fragility:
 
-- The P6 work added a tilt-aware linear initializer plus a rig-level
-  auto-recovery pass (see `docs/internal/archive/report/2026-06-16-P6-PERCAM-CONVERGENCE-*.md`).
-  It reaches `~0.41 px` mean on the private `rtv3d_ref` rig from scratch, but is
+- A tilt-aware linear initializer plus a rig-level auto-recovery pass
+  reaches `~0.41 px` mean on the private `rtv3d_ref` rig from scratch, but is
   basin-fragile: a public synthetic regression failed at the branch base, and the
   final joint hand-eye leaves camera 0 at `~0.528 px`.
 - Two further from-scratch sessions on `rtv3d_ref` had only partial success — the
@@ -113,6 +71,36 @@ run "pass".
 From-scratch `step_init` (no intrinsics seed) is retained for convenience but is
 documented as experimental and emits a non-fatal warning in the session init log.
 
+Seeded init is the **official acceptance route** for all datasets; seeds come
+from the structured `DeviceSpec` layer (ADR 0023).
+
+**Distortion model.** `ScheimpflugIntrinsicsConfig::distortion_model` (default
+`DistortionKind::BrownConrady5`) selects the model `step_optimize` refines. The
+Phase A `k1` multi-start grid generalizes through `with_leading_radial`, which
+sweeps the **leading radial term** (`k1` for BrownConrady5/Rational8/ThinPrism9,
+`lambda` for Division1) and is a no-op for `DistortionKind::None`. The
+`fix_distortion` (`DistortionFixMask`) mask, five named bits `{k1, k2, k3, p1,
+p2}`, is translated **by name** onto each model's packed layout by
+`fix_mask_indices` (used for both user masks and the staging masks). For
+BrownConrady5 it is `DistortionFixMask::to_indices()`. For the extended models
+each extra coefficient follows the bit of its family: Rational8's `k4,k5,k6`
+follow `k3`; ThinPrism9's `s1..s4` are fixed iff **both** `p1` and `p2` are
+fixed; Division1's `lambda` follows the leading-radial `k1` bit. The staging
+invariants (A0 all-fixed, A1 `{k1,k2}` free with `k3/p1/p2` fixed, default
+`fix_k3`) hold across every model. Rigs are unaffected:
+`SensorMode::Scheimpflug::distortion_model` remains BC5-typed and is rejected
+up front for non-BC5 values in `validate_config` (ADR 0019).
+
+**Convergence basin.** `calib-bench basin`
+(`crates/vision-calibration-bench/src/basin.rs`) perturbs the ADR 0023
+device-spec seed over independent focal / tilt / principal-point sweeps and
+re-runs the seeded route per cell against each entry's acceptance threshold.
+On both private families (`rtv3d_ref`, gate <= 0.5 px; `rtv3d_ringgrid`, gate
+<= 1.0 px; 6 cameras each) the all-camera-pass basin is x[0.85, 1.30] on focal
+and +-4 deg on tilt (the full tested sweep), containing the realistic
+spec-error envelope (focal +-5 %, tilt +-2 deg) with 2-3x margin. Full tables:
+`docs/notes/scheimpflug-intrinsics.md`.
+
 ## Consequences
 
 - **Deterministic, robust production path.** A coarse shared seed (nominal focal +
@@ -149,5 +137,5 @@ documented as experimental and emits a non-fatal warning in the session init log
 - ADR 0011 — manual initialization workflow (`ScheimpflugManualInit`, the seeding
   mechanism this builds on).
 - ADR 0005 — composable camera model (the `sensor` tilt stage).
-- `docs/internal/archive/report/2026-06-16-P6-PERCAM-CONVERGENCE-tilt-aware-init.md` and
-  `…-diagnosis.md` — the from-scratch fragility this decision steps around.
+- ADR 0023 — device-spec seed derivation (structured source of the seeds).
+- `docs/notes/scheimpflug-intrinsics.md` — convergence-basin evidence.

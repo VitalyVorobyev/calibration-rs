@@ -88,8 +88,8 @@ solver tolerance (< 1e-4 px).
   `{0, 0.15, 0.3} px`, standard `step_init → step_optimize` pipeline;
   asserts focal/pp/k1 recovery and the residual noise floor per cell.
 - **Acceptance gates**: `calib-bench accept` — `stereo_left`/`stereo_right`
-  (planar entries) gated at ≤ 0.4 px per camera from measured baselines
-  (S4); Q2 adds committed Fit records with drift gates.
+  (planar entries) gated at ≤ 0.4 px per camera from measured baselines;
+  committed Fit records with drift gates.
 - **Related**: ADR 0022 (the Scheimpflug sibling's seeded route and why
   from-scratch is fragile there — the tilt↔focal↔distortion trade-off does
   not arise in the frontal planar family).

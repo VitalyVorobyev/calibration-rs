@@ -1,7 +1,6 @@
 # Math notes — the proof-pack standard
 
-Track Q of the production-grade program requires a **proof pack** per
-algorithm family before v1.0. A proof pack is the minimum evidence that a
+Each algorithm family has a **proof pack**: the minimum evidence that the
 family is *sound* — not merely "tests pass", but "we can state what the
 algorithm assumes, what it cannot observe, and how it degrades":
 
@@ -28,12 +27,11 @@ Initialization routines additionally get a **convergence-basin study**
 (perturb the seed over a radius grid, measure gate-pass rate), the
 empirical evidence behind ADR 0022.
 
-Families (backlog Q1/Q8): planar intrinsics (template, this directory),
+Families: planar intrinsics (template, this directory),
 Scheimpflug intrinsics (seeded), rig extrinsics, hand-eye, laserline
-bundle, ringgrid detection/bias (Q3), rectification (short note — the C4
-gate exists), two-view/triangulation.
+bundle, ringgrid detection/bias, rectification (short note — its gate exists), two-view/triangulation.
 
-## Regression baselines (Q2)
+## Regression baselines
 
 - **Fit baselines** live in `crates/vision-calibration-bench/baselines/`
   (committed; reprojection statistics only). `calib-bench accept` compares
@@ -51,7 +49,7 @@ gate exists), two-view/triangulation.
 - [Planar intrinsics](planar-intrinsics.md) — Zhang init + Brown–Conrady
   refinement (the template pack).
 - [Scheimpflug intrinsics](scheimpflug-intrinsics.md) — stub pack: model
-  summary, the ADR 0022/0023 seeded route, and the Q6 convergence-basin
+  summary, the ADR 0022/0023 seeded route, and the convergence-basin
   study (`calib-bench basin`) with measured basins for `rtv3d_ref` /
   `rtv3d_ringgrid`.
 - [Hand-eye](hand-eye.md) — Tsai–Lenz AX=XB init + joint BA;
@@ -67,11 +65,11 @@ gate exists), two-view/triangulation.
   solvers, pose recovery + cheirality, DLT+GN triangulation; parallax
   degeneracy made quantitative.
 - [Rectification](rectification.md) — short pack: Scheimpflug tilt as a
-  normalized-plane homography; row-alignment evidence (C4 gate).
-- [Ringgrid bias](ringgrid-bias.md) — Q3 close-out: the projective
+  normalized-plane homography; row-alignment evidence.
+- [Ringgrid bias](ringgrid-bias.md) — the projective
   ellipse-center bias is already removed inside the `ringgrid` 0.7+
   detector; predicted bias (~0.09 px) is absent from the residual field,
   so the ~0.47 px floor is small-marker localization noise.
-- [rtv3d scale](rtv3d-scale.md) — Q5 close-out: the oracle-vs-measured
+- [rtv3d scale](rtv3d-scale.md) — the oracle-vs-measured
   scale gap was a pipeline-stage bookkeeping artifact; 5.2 mm cell
   confirmed, joint-BA hexagon matches the oracle to 0.08 %.

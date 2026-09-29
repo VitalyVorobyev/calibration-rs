@@ -11,9 +11,8 @@ detector config (4 detectors × their own params), and the new
 `DatasetSpec` (camera sources, target spec, robot poses, pose
 conventions). Hand-writing React forms for ~120 fields across that
 surface is not the actual cost — _keeping them in sync as configs
-change pre-1.0 is_. We've already churned config shapes during A6,
-ADR 0013, the manifest sweep, and the move from `*Input` JSON to
-`DatasetSpec`. Hand-written forms drift silently every time.
+change pre-1.0 is_. Config shapes churn (ADR 0013, the manifest sweep, the move from `*Input`
+JSON to `DatasetSpec`), and hand-written forms drift silently every time.
 
 The grill session settled the principle ("schema-driven"); this ADR
 pins the architecture.
@@ -36,7 +35,7 @@ The feature flag keeps schemars optional for downstream consumers
 (Python bindings, CI builds that don't need schemas) but the workspace
 quality gate runs with `--all-features` so drift surfaces in CI.
 
-Coverage in PR 1: all 7 problem-type configs, their sub-configs, the
+Coverage: all problem-type configs, their sub-configs, the
 shared option types (`RobustLoss`, `HandEyeMode`, `IntrinsicsFixMask`,
 `DistortionFixMask`, `ScheimpflugFixMask`, `ScheimpflugParams`,
 `SensorMode`, `LaserlineResidualType`), plus the new `DatasetSpec`
@@ -45,7 +44,7 @@ tree.
 ### 2. Schema emission via xtask, committed to the app
 
 `cargo xtask emit-schemas` writes JSON Schemas to
-`app/src/schemas/<name>.json` (8 files in PR 1). The schemas are
+`app/src/schemas/<name>.json` (one file per config family). The schemas are
 committed to the repo so:
 
 - Frontend builds don't need a Rust toolchain in their critical path.
@@ -63,7 +62,7 @@ review time.
 ### 3. Form rendering: `<ConfigForm schema={…} value={…} onChange={…}/>`
 
 The React side renders any of the emitted schemas through a single
-component (PR 1 task #9):
+component:
 
 - v0: wrap `@rjsf/core` (well-known JSON Schema form library).
 - Per-field overrides via the React-JSON-Schema-Form `uiSchema`
@@ -78,7 +77,7 @@ component (PR 1 task #9):
 
 `*Config` types in this workspace are made entirely of internal types
 plus primitives — no `nalgebra::Isometry3` or other foreign types in
-the config tree. PR 1's feasibility check on `PlanarIntrinsicsConfig`
+the config tree. The feasibility check on `PlanarIntrinsicsConfig`
 and `RigHandeyeConfig` confirmed schemars derives compile cleanly
 without any `#[schemars(with = …)]` shims. If a foreign type _does_
 appear in a config later (e.g. an `Iso3` initial-pose seed), the
@@ -105,51 +104,27 @@ edited by users.
 - Schemars adds one transitive dep when the feature is enabled. The
   base build cost (no schemars) is unchanged.
 
-## Status of work
+## Wire types and export discriminator
 
-- ✅ `schemars` feature flag on `vision-calibration-{core, optim,
-  pipeline, dataset, detect}`.
-- ✅ `JsonSchema` derive on every `*Config` and the foreign option
-  types referenced from configs.
-- ✅ `cargo xtask emit-schemas` tool with `--check` mode.
-- ✅ 8 schemas committed under `app/src/schemas/`.
-- ⏳ React `<ConfigForm/>` component (PR 1 task #9).
-- ⏳ CI `--check` step in `.github/workflows/` (small, deferred).
+The `schemars` surface covers every `*Config` and also every pipeline `*Export`
+type (and its closure: `SolveReport`, `LaserlineEstimate`/`LaserlineStats`,
+`CameraParams`, `PerFeatureResiduals`, `ImageManifest`, an `Iso3Schema` wire
+proxy for nalgebra isometries, ...), behind the same feature gate. The desktop
+app's TypeScript wire types are generated from these schemas
+(`app/src-tauri/src/bin/emit_schemas.rs` -> `app/schemas-generated/diagnose_wire.json`
+-> `app/src/types/generated/diagnose-wire.ts`, drift-checked in CI), so there
+are no hand-written mirrors. Config schemas are the runtime source for
+`<ConfigForm/>`; export schemas are build-time codegen inputs only.
 
-## Amendment (2026-07-10, B-QUAL2)
-
-The `schemars` surface was widened beyond the original config-only scope:
-every pipeline `*Export` type (and its closure — `SolveReport`,
-`LaserlineEstimate`/`LaserlineStats`, `CameraParams`,
-`PerFeatureResiduals`, `ImageManifest`, an `Iso3Schema` wire proxy for
-nalgebra isometries, …) now derives `JsonSchema` behind the same
-feature gate. Rationale: the desktop app's TypeScript wire types are
-generated from these schemas (`app/src-tauri/src/bin/emit_schemas.rs` →
-`app/schemas-generated/diagnose_wire.json` →
-`app/src/types/generated/diagnose-wire.ts`, drift-checked in CI),
-replacing the hand-written mirrors and `inferExportKind` shape-sniffing.
-Config schemas remain the runtime source for `<ConfigForm/>`; export
-schemas are build-time codegen inputs only. Shipped with the 0.7.0 bump.
-
-## Amendment (2026-07-10, R7 — export discriminator)
-
-Shape-sniffing on the consumer side was the last vestige of the
-"probe which required fields are present" contract. Every pipeline
-`*Export` now serializes a **required** `kind` discriminator — a shared
-`ExportKind` unit enum (`vision_calibration::common::ExportKind`,
-`#[serde(rename_all = "snake_case")]`, one variant per problem type),
-set on construction and carried as each export's first field. Consumers
-narrow on the single tag; deserialize is strict (a missing `kind`
-errors, no `serde(default)`), so the tag is a hard contract rather than
-best-effort. The 0.7.0 breaking window regenerated every committed
-export, so nothing depends on the pre-tag wire shape.
-
-The enum derives `JsonSchema`, so it flows through the same
-`emit_schemas` → `diagnose_wire.json` → `diagnose-wire.ts` pipeline as a
-`"planar_intrinsics" | "scheimpflug_intrinsics" | …` union. The app's
-`detectExportKind` collapsed from ~50 lines of field probes to a single
-validated read of `data.kind` against that generated union; the label
-`Record<ExportKind, string>` is now the single source of both the label
-vocabulary and the recognised-kind set (a renamed/added Rust variant
-fails the TypeScript build until the record is updated). Python export
-result parsers read specific keys and ignore `kind` harmlessly.
+Every pipeline `*Export` serializes a **required** `kind` discriminator: the
+shared `ExportKind` unit enum (`vision_calibration::common::ExportKind`,
+`#[serde(rename_all = "snake_case")]`, one variant per problem type), carried
+as each export's first field. Consumers narrow on the single tag rather than
+probing which fields are present; deserialize is strict (a missing `kind`
+errors, no `serde(default)`). The enum derives `JsonSchema`, so it flows
+through the same pipeline as a `"planar_intrinsics" | "scheimpflug_intrinsics"
+| ...` union. The app's `detectExportKind` is a single validated read of
+`data.kind` against that union, and its label `Record<ExportKind, string>` is
+the single source of the label vocabulary and the recognised-kind set (a
+renamed/added Rust variant fails the TypeScript build until the record is
+updated). Python export result parsers read specific keys and ignore `kind`.

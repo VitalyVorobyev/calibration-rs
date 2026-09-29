@@ -99,20 +99,7 @@ This applies to:
   branch in some catch-all. Compile-time enforcement of "did you
   handle this?" through pattern matching.
 - The `AskUser` modal is the second-most-important UI affordance in
-  the Run workspace (after the Run button itself). PR 3 invests in
-  its UX accordingly.
+  the Run workspace (after the Run button itself). It warrants matching UX investment.
 - The CLI parity means the AI-manifest generator can run unattended
   against a folder and produce either a complete manifest or a
   human-readable list of "you need to tell me about: …".
-
-## Status of work
-
-- ✅ `_unresolved` field in `DatasetSpec` with validator enforcement.
-- ✅ Closed-enum frame conventions with no defaults (ADR 0016).
-- ✅ `AskUser` variant in `pipeline::dataset_runner::RunError`.
-- ✅ `EmptyImageMatch`, `InsufficientUsableViews`,
-  `UnsupportedTopology`, `UnsupportedTarget`, and `MissingPoseConvention`
-  variants for the structurally-rejectable ambiguities.
-- ⏳ React `AskUserModal` component (PR 1 task #10).
-- ⏳ Tauri event channel for resuming a paused conversion after the
-  user answers (PR 3, alongside the AI-manifest UI).

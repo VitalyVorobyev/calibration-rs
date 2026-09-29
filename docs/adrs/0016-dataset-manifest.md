@@ -5,11 +5,9 @@
 
 ## Context
 
-After B0/B0.5/B0.6/B1/B2 shipped (Tauri 2 viewer with Diagnose / Viewer3D /
-Epipolar workspaces), the user committed to making the Tauri app the
-primary calibration tool — full workflow inside the UI: foreign datasets,
+The Tauri app is the primary calibration tool — full workflow inside the UI: foreign datasets,
 all 8 problem types, all 4 target detectors, every config knob exposed.
-That commitment forces an answer to a question we deferred during B0: how
+That commitment forces an answer to a question the viewer alone does not answer: how
 do we ingest data in arbitrary on-disk layouts without making users
 copy / rename / reshape their files to fit a workspace convention?
 
@@ -86,10 +84,10 @@ produce plausible-looking but wrong calibrations on roughly half of
 real datasets (KUKA / ABB / UR / Fanuc all differ on at least one
 axis).
 
-### 4. AI manifest generator (PR 3)
+### 4. AI manifest generator
 
-The runtime contract is that an external generator (CLI binary in PR 3,
-in-app command in PR 5) inspects a foreign folder and emits a
+The runtime contract is that an external generator (CLI binary or
+in-app command) inspects a foreign folder and emits a
 `dataset.toml` populating fields it can determine and listing the rest
 in `_unresolved`. v0 of the generator is heuristic-only (regex / file
 extension / vendor signature / README scraping). LLM-backed inference
@@ -108,16 +106,3 @@ for hard cases is deferred to its own ADR.
   translation but degree Euler) is a code change, not a manifest
   change. This is a deliberate trade-off: predictable behaviour over
   unbounded extensibility.
-
-## Status of work
-
-- ✅ `vision-calibration-dataset` crate landed with `DatasetSpec`,
-  validator, and 7 unit tests.
-- ✅ Schema emitted to `app/src/schemas/dataset_spec.json` via
-  `cargo xtask emit-schemas`.
-- ✅ `pipeline::dataset_runner::build_planar_input` consumes the
-  manifest end-to-end (validation → detection → IR) for the
-  PlanarIntrinsics topology with the Chessboard target.
-- ⏳ Coverage extension to the other 7 topologies + 3 detectors
-  (PR 2).
-- ⏳ AI manifest generator (PR 3).

@@ -76,7 +76,7 @@ jobs:
       - name: Cargo build (wasm32-unknown-unknown)
         run: cargo build -p vision-calibration-core -p vision-calibration-dataset --target wasm32-unknown-unknown --locked
 
-  # S4 acceptance harness — cheap public subset. The full suite (private
+  # Acceptance harness — cheap public subset. The full suite (private
   # datasets included) runs locally via `calib-bench accept`. CI runs the
   # only fully-committed public dataset: kuka_1 (30 LFS images, ~12 s run) —
   # the stereo/DS8/stereo_charuco image dirs are gitignored, local-only.
@@ -181,7 +181,7 @@ jobs:
         working-directory: app
         run: bun run test
 
-      # Playwright smoke (B-QUAL4): boots the plain Vite dev server (no
+      # Playwright smoke: boots the plain Vite dev server (no
       # Tauri build, no Rust toolchain) and drives it in real Chromium.
       # Tauri IPC is either absent (empty-state assertions) or mocked at
       # the `window.__TAURI_INTERNALS__` seam per-spec — see
@@ -209,7 +209,8 @@ jobs:
       # Drift stage 2 (schema → TypeScript, bun-only). Regenerate the TS from
       # the committed schema and fail if it differs from what's checked in.
       # Stage 1 (Rust → schema) lives in the `app-src-tauri` job, which has the
-      # cargo toolchain; splitting keeps this job Rust-free. See B-QUAL2.
+      # cargo toolchain; splitting keeps this job Rust-free (`bun run generate:types`
+      # regenerates both stages locally).
       - name: Check generated types are up to date
         working-directory: app
         run: |
@@ -264,6 +265,7 @@ jobs:
 
       # Drift stage 1 (Rust wire types → JSON schema, cargo-only). Fails if a
       # `*Export` / command-type change wasn't regenerated. Stage 2 (schema →
-      # TypeScript) runs in the bun-only `app-frontend` job. See B-QUAL2.
+      # TypeScript) runs in the bun-only `app-frontend` job (`bun run generate:types`
+      # regenerates both stages locally).
       - name: Check generated schema is up to date
         run: cargo run --manifest-path app/src-tauri/Cargo.toml --features schema-export --bin emit_schemas -- --check

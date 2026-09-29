@@ -7,8 +7,7 @@
 
 Every `*Export` type in `vision-calibration-pipeline` currently exposes only
 `mean_reproj_error: f64` plus `per_cam_reproj_errors: Vec<f64>`. There is no way
-for a downstream consumer (the planned Tauri/React diagnose UI in roadmap track
-B5; ad-hoc analyses; the puzzle 130x130 viewer) to drill into per-(view, camera,
+for a downstream consumer (the Tauri/React diagnose UI, ADR 0014; ad-hoc analyses; the puzzle 130x130 viewer) to drill into per-(view, camera,
 feature) errors without re-running geometry — re-projecting target points and
 recomputing laser point-to-plane residuals using the calibrated camera +
 extrinsics + target poses.
