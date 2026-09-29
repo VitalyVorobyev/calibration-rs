@@ -49,15 +49,26 @@
       "description": "ChESS corner extractor overrides.",
       "properties": {
         "min_corner_strength": {
-          "description": "Minimum corner strength for a detected corner to enter the grid\nbuilder. `None` keeps the detector default (`33.0`).\n\nThe default drops weakly-firing corners, which is the right trade\nwhenever corners are plentiful. Set `0.0` to disable it on small or\nsoft image tiles, where the floor can remove a third of the board and\nthe resulting sparse view conditions worse than the weak corners did.",
+          "description": "Minimum corner strength for a detected corner to enter the grid\nbuilder. `None` keeps the detector default (`33.0`). The floor is on\nthe strategy's response scale; under Radon the default never binds.\n\nThe default drops weakly-firing corners, which is the right trade\nwhenever corners are plentiful. Set `0.0` to disable it on small or\nsoft image tiles, where the floor can remove a third of the board and\nthe resulting sparse view conditions worse than the weak corners did.",
           "format": "float",
           "type": [
             "number",
             "null"
           ]
         },
+        "strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CornerStrategySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Corner detector. `None` keeps ChESS."
+        },
         "threshold_value": {
-          "description": "Absolute acceptance threshold on the raw ChESS corner response: a\ncorner is kept when its response exceeds this value. `None` keeps the\ndetector default.\n\nThe threshold is always absolute. Manifests written before 0.8.0 may\ncarry a sibling `threshold_mode` key; drop it — `deny_unknown_fields`\nrejects it, and the `\"relative\"` mode it selected no longer exists in\nthe upstream corner detector.",
+          "description": "Acceptance threshold on the corner response. `None` keeps the\nstrategy's default.\n\nUnder ChESS it is an absolute floor on the raw response: a corner is\nkept when its response exceeds it. Under Radon it is a fraction in\n`(0, 1]` of the frame's maximum response.\n\nManifests written before 0.8.0 may carry a sibling `threshold_mode`\nkey; drop it — `deny_unknown_fields` rejects it, and the ChESS\n`\"relative\"` mode it selected no longer exists in the upstream corner\ndetector.",
           "format": "float",
           "type": [
             "number",
@@ -66,6 +77,21 @@
         }
       },
       "type": "object"
+    },
+    "CornerStrategySpec": {
+      "description": "The corner detector a chessboard-like detector runs.",
+      "oneOf": [
+        {
+          "const": "chess",
+          "description": "The ChESS response. Fast; the default.",
+          "type": "string"
+        },
+        {
+          "const": "radon",
+          "description": "The whole-image Radon response. Several times slower than ChESS, and\nless biased at a corner's sub-pixel position on sharp, finely sampled\nboards (e.g. rendered ones).",
+          "type": "string"
+        }
+      ]
     },
     "DetectorSpec": {
       "additionalProperties": false,

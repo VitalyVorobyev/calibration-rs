@@ -19,7 +19,7 @@ use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, Puzzl
 use image::imageops::FilterType;
 use vision_calibration_core::{CorrespondenceView, Pt2, Pt3};
 
-use crate::registry::DetectorOverride;
+use crate::registry::{CornerStrategySpec, DetectorOverride};
 
 /// Which detector a rig camera uses to find target features in an image.
 ///
@@ -89,8 +89,8 @@ impl DetectorKind {
     }
 }
 
-/// The two corner-stage thresholds a registry entry can override, resolved
-/// once per dataset.
+/// The corner detector and the two corner-stage thresholds a registry entry
+/// can override, resolved once per dataset.
 ///
 /// Mirrors `vision_calibration_detect::ChessCornersConfig`, which lowers the
 /// same registry/manifest fields for the app path. The two lowerings are
@@ -110,7 +110,10 @@ impl ChessFrontEnd {
     pub fn from_override(detector: Option<&DetectorOverride>) -> Self {
         let chess_corners = detector.and_then(|d| d.chess_corners.as_ref());
 
-        let mut chess = default_chess_config();
+        let mut chess = match chess_corners.and_then(|c| c.strategy) {
+            None | Some(CornerStrategySpec::Chess) => default_chess_config(),
+            Some(CornerStrategySpec::Radon) => DetectorConfig::radon(),
+        };
         if let Some(threshold) = chess_corners.and_then(|c| c.threshold_value) {
             chess = chess.with_threshold(threshold);
         }
@@ -458,6 +461,7 @@ mod tests {
             chess_corners: Some(ChessCornersDetectorSpec {
                 threshold_value: Some(30.0),
                 min_corner_strength: Some(0.0),
+                ..ChessCornersDetectorSpec::default()
             }),
             extra: Default::default(),
         };
@@ -485,7 +489,8 @@ mod tests {
     #[test]
     fn front_end_matches_the_detect_crate_lowering() {
         let spec = ChessCornersDetectorSpec {
-            threshold_value: Some(21.0),
+            strategy: Some(CornerStrategySpec::Radon),
+            threshold_value: Some(0.21),
             min_corner_strength: Some(7.0),
         };
         let front_end = ChessFrontEnd::from_override(Some(&DetectorOverride {
@@ -496,9 +501,16 @@ mod tests {
         // `ChessCornersConfig` deserializes straight from this spec.
         let via_detect: vision_calibration_detect::ChessCornersConfig =
             serde_json::from_value(serde_json::to_value(spec).unwrap()).unwrap();
-        assert_eq!(via_detect.threshold_value, Some(21.0));
+        assert_eq!(
+            via_detect.strategy,
+            Some(vision_calibration_detect::CornerStrategy::Radon)
+        );
+        assert_eq!(via_detect.threshold_value, Some(0.21));
         assert_eq!(via_detect.min_corner_strength, Some(7.0));
-        assert!((front_end.chess.threshold - 21.0).abs() < f32::EPSILON);
+        assert_eq!(
+            front_end.chess,
+            DetectorConfig::radon().with_threshold(0.21)
+        );
         assert_eq!(front_end.board.min_corner_strength, 7.0);
     }
 

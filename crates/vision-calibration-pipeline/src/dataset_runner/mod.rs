@@ -28,11 +28,12 @@ use thiserror::Error;
 
 use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
 use vision_calibration_dataset::{
-    ChessCornersDetectorSpec, DatasetSpec, ImagePattern, TargetSpec, Topology, ValidationError,
+    ChessCornersDetectorSpec, CornerStrategySpec, DatasetSpec, ImagePattern, TargetSpec, Topology,
+    ValidationError,
 };
 use vision_calibration_detect::{
     CacheKey, CachedFeatures, CharucoDetector, ChessCornersConfig, ChessboardDetector,
-    DetectionCache, Detector, Feature, PuzzleboardDetector, RinggridDetector,
+    CornerStrategy, DetectionCache, Detector, Feature, PuzzleboardDetector, RinggridDetector,
     validate_charuco_layout,
 };
 
@@ -267,10 +268,15 @@ pub enum RunError {
 /// ignored setting.
 fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> ChessCornersConfig {
     let ChessCornersDetectorSpec {
+        strategy,
         threshold_value,
         min_corner_strength,
     } = spec;
     ChessCornersConfig {
+        strategy: strategy.map(|s| match s {
+            CornerStrategySpec::Chess => CornerStrategy::Chess,
+            CornerStrategySpec::Radon => CornerStrategy::Radon,
+        }),
         threshold_value,
         min_corner_strength,
     }
@@ -285,7 +291,7 @@ fn target_to_detector_config(spec: &DatasetSpec) -> Result<(&'static str, Value)
         // `skip_serializing_if` drops unset knobs, so an all-default override
         // serializes to `{}`; attaching it would only bloat the cache key.
         let chess_json = serde_json::to_value(chess)
-            .expect("ChessCornersConfig is a plain record of Option<f32>; cannot fail");
+            .expect("ChessCornersConfig is a plain record of options; cannot fail");
         if chess_json.as_object().is_some_and(|o| !o.is_empty()) {
             map.insert("chess_corners".to_string(), chess_json);
         }
@@ -539,6 +545,38 @@ fn pattern_repr(p: &ImagePattern) -> String {
     }
 }
 
+/// Revision of a detector's output, spliced into its cache key so an entry
+/// written before a change to what the detector returns is not served after
+/// it. Bump a detector's revision when its features change for the same image
+/// and config.
+///
+/// - `chessboard` 2: labels are bounded by `cols` across and `rows` down.
+///   Revision 1 bounded them the other way round, dropping the corners of a
+///   board seen as declared.
+fn output_revision(detector_name: &str) -> Option<u32> {
+    match detector_name {
+        "chessboard" => Some(2),
+        _ => None,
+    }
+}
+
+/// The cache key of one image's detection: [`CacheKey::from_inputs`] on the
+/// key config, plus the detector's [`output_revision`].
+pub(crate) fn detection_cache_key(
+    bytes: &[u8],
+    detector_name: &str,
+    key_config: &Value,
+) -> CacheKey {
+    let Some(revision) = output_revision(detector_name) else {
+        return CacheKey::from_inputs(bytes, detector_name, key_config);
+    };
+    let mut config = key_config.clone();
+    if let Value::Object(map) = &mut config {
+        map.insert("_revision".to_string(), json!(revision));
+    }
+    CacheKey::from_inputs(bytes, detector_name, &config)
+}
+
 /// Run one image through the cache-or-detect path shared by every
 /// converter: read bytes → cache lookup → on miss, decode, crop to
 /// ROI, detect in the camera pixel frame, store.
@@ -556,7 +594,7 @@ fn detect_features(
     force_redetect: bool,
 ) -> Result<(Vec<Feature>, bool), RunError> {
     let bytes = std::fs::read(image_path)?;
-    let key = CacheKey::from_inputs(&bytes, detector_name, key_config);
+    let key = detection_cache_key(&bytes, detector_name, key_config);
 
     let cached: Option<CachedFeatures> = if force_redetect {
         None
@@ -715,13 +753,15 @@ mod tests {
         });
         spec.detector = Some(DetectorSpec {
             chess_corners: Some(ChessCornersDetectorSpec {
-                threshold_value: Some(30.0),
+                strategy: Some(CornerStrategySpec::Radon),
+                threshold_value: Some(0.2),
                 ..ChessCornersDetectorSpec::default()
             }),
             min_features_per_view: None,
         });
         let (_name, config) = target_to_detector_config(&spec).unwrap();
-        assert_eq!(config["chess_corners"]["threshold_value"], 30.0);
+        assert_eq!(config["chess_corners"]["strategy"], "radon");
+        assert_eq!(config["chess_corners"]["threshold_value"], 0.2f32 as f64);
 
         // `lower_chess_corners` destructures the manifest struct exhaustively,
         // so a new manifest knob that is not wired through fails to compile.
@@ -729,10 +769,28 @@ mod tests {
         // into the detector's own `deny_unknown_fields` config.
         let lowered: ChessCornersConfig =
             serde_json::from_value(config["chess_corners"].clone()).unwrap();
-        assert_eq!(lowered.threshold_value, Some(30.0));
+        assert_eq!(lowered.strategy, Some(CornerStrategy::Radon));
+        assert_eq!(lowered.threshold_value, Some(0.2));
         assert_eq!(
             lowered,
             lower_chess_corners(spec.detector.unwrap().chess_corners.unwrap())
+        );
+    }
+
+    #[test]
+    fn chessboard_cache_keys_carry_the_output_revision() {
+        // Entries written before the label-bounds fix hold truncated
+        // detections; they must not be served for the same image and config.
+        let config = json!({"rows": 17, "cols": 28, "square_size_m": 0.02});
+        assert_ne!(
+            detection_cache_key(b"img", "chessboard", &config),
+            CacheKey::from_inputs(b"img", "chessboard", &config)
+        );
+        // Detectors without a revision keep their existing keys.
+        let charuco = json!({"rows": 8});
+        assert_eq!(
+            detection_cache_key(b"img", "charuco", &charuco),
+            CacheKey::from_inputs(b"img", "charuco", &charuco)
         );
     }
 

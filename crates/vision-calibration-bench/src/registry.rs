@@ -25,7 +25,7 @@ use vision_calibration_dataset::DatasetSpec;
 
 /// Re-exported so callers naming [`DetectorOverride::chess_corners`] do not
 /// need a direct `vision-calibration-dataset` dependency.
-pub use vision_calibration_dataset::ChessCornersDetectorSpec;
+pub use vision_calibration_dataset::{ChessCornersDetectorSpec, CornerStrategySpec};
 use vision_calibration_optim::{DistortionKind, HandEyeMode, RobustLoss, ScheimpflugFixMask};
 use vision_calibration_pipeline::common::config::RobotPoseConfig;
 use vision_calibration_pipeline::rig_handeye::{RigHandeyeConfig, SensorMode};
