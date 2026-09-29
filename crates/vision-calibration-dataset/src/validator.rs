@@ -2,7 +2,8 @@
 //! otherwise surface as a fail-fast `AskUser` event downstream.
 
 use crate::spec::{
-    DatasetSpec, ImagePattern, RobotPoseFormat, RobotPoseSource, RotationFormat, Topology,
+    CornerStrategySpec, DatasetSpec, ImagePattern, RobotPoseFormat, RobotPoseSource,
+    RotationFormat, Topology,
 };
 use thiserror::Error;
 
@@ -198,11 +199,18 @@ fn validate_detector_override(spec: &DatasetSpec) -> Result<(), ValidationError>
     };
     if let Some(chess) = &detector.chess_corners
         && let Some(value) = chess.threshold_value
-        && value <= 0.0
     {
-        return Err(ValidationError::BadDetectorOverride(format!(
-            "chess_corners.threshold_value must be positive, got {value}"
-        )));
+        if value <= 0.0 {
+            return Err(ValidationError::BadDetectorOverride(format!(
+                "chess_corners.threshold_value must be positive, got {value}"
+            )));
+        }
+        if chess.strategy == Some(CornerStrategySpec::Radon) && value > 1.0 {
+            return Err(ValidationError::BadDetectorOverride(format!(
+                "chess_corners.threshold_value is a fraction of the maximum response \
+                 under the radon strategy and must be at most 1, got {value}"
+            )));
+        }
     }
     Ok(())
 }
@@ -698,6 +706,25 @@ mod tests {
             min_features_per_view: None,
         });
         let err = validate(&spec).unwrap_err();
+        assert!(matches!(err, ValidationError::BadDetectorOverride(_)));
+    }
+
+    #[test]
+    fn detector_radon_threshold_is_a_fraction() {
+        let with = |threshold: f32| {
+            let mut spec = planar_chessboard_minimal();
+            spec.detector = Some(DetectorSpec {
+                chess_corners: Some(ChessCornersDetectorSpec {
+                    strategy: Some(CornerStrategySpec::Radon),
+                    threshold_value: Some(threshold),
+                    ..ChessCornersDetectorSpec::default()
+                }),
+                min_features_per_view: None,
+            });
+            spec
+        };
+        validate(&with(0.2)).unwrap();
+        let err = validate(&with(15.0)).unwrap_err();
         assert!(matches!(err, ValidationError::BadDetectorOverride(_)));
     }
 

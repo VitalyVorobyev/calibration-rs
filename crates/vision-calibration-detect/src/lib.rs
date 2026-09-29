@@ -48,7 +48,7 @@ pub use feature::{Feature, reject_ambiguous_detection};
 #[cfg(feature = "charuco")]
 pub use charuco::{CharucoConfig, CharucoDetector, validate_charuco_layout, validate_dictionary};
 #[cfg(any(feature = "charuco", feature = "chessboard"))]
-pub use chess_options::ChessCornersConfig;
+pub use chess_options::{ChessCornersConfig, CornerStrategy};
 #[cfg(feature = "chessboard")]
 pub use chessboard::{ChessboardConfig, ChessboardDetector};
 #[cfg(feature = "puzzleboard")]
@@ -85,4 +85,13 @@ pub trait Detector: sealed::Sealed + Send + Sync {
         image: &image::DynamicImage,
         config: &Value,
     ) -> Result<Vec<Feature>, DetectError>;
+
+    /// Revision of this detector's output, folded into its cache key by
+    /// [`CacheKey::for_detector`]. Bump it when the features returned for
+    /// the same image and config change, so stale cache entries are not
+    /// served. `None` (the default) leaves the key as
+    /// [`CacheKey::from_inputs`] computes it.
+    fn output_revision(&self) -> Option<u32> {
+        None
+    }
 }

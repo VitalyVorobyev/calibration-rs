@@ -22,7 +22,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-use crate::Feature;
+use crate::{Detector, Feature};
 
 /// Errors raised by [`DetectionCache`] implementations.
 #[derive(Debug, Error)]
@@ -57,6 +57,21 @@ impl CacheKey {
             detector: detector.to_string(),
             config_hash: hash_canonical_json(config),
         }
+    }
+
+    /// Build the key of one detection by `detector`: [`Self::from_inputs`]
+    /// on its name and `config`, with its
+    /// [`output_revision`](Detector::output_revision), when set, added to
+    /// the config as `_revision`.
+    pub fn for_detector(image_bytes: &[u8], detector: &dyn Detector, config: &Value) -> Self {
+        let Some(revision) = detector.output_revision() else {
+            return Self::from_inputs(image_bytes, detector.name(), config);
+        };
+        let mut config = config.clone();
+        if let Value::Object(map) = &mut config {
+            map.insert("_revision".to_string(), Value::from(revision));
+        }
+        Self::from_inputs(image_bytes, detector.name(), &config)
     }
 
     /// Filename-safe encoding (`<image>-<detector>-<config>.json`).
@@ -197,6 +212,21 @@ mod tests {
     use super::*;
     use serde_json::json;
     use tempfile::tempdir;
+
+    #[test]
+    #[cfg(all(feature = "chessboard", feature = "puzzleboard"))]
+    fn detector_keys_carry_the_output_revision() {
+        let config = json!({ "rows": 17, "cols": 28, "square_size_m": 0.02 });
+        assert_ne!(
+            CacheKey::for_detector(b"img", &crate::ChessboardDetector, &config),
+            CacheKey::from_inputs(b"img", "chessboard", &config)
+        );
+        // A detector without a revision keeps the plain key.
+        assert_eq!(
+            CacheKey::for_detector(b"img", &crate::PuzzleboardDetector, &config),
+            CacheKey::from_inputs(b"img", "puzzleboard", &config)
+        );
+    }
 
     #[test]
     fn key_is_deterministic_under_field_reordering() {

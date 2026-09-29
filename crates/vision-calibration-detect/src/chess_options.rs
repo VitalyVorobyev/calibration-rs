@@ -1,14 +1,15 @@
 //! Shared ChESS corner-stage options for chessboard-like detectors.
 //!
-//! Two thresholds, at two different stages of the same pipeline:
+//! The corner detector's `strategy` (ChESS or Radon), and two thresholds at
+//! two different stages of the same pipeline:
 //!
 //! 1. `threshold_value` gates the **corner detector** — which response peaks
 //!    become corners at all.
 //! 2. `min_corner_strength` gates the **grid builder** — which of those
 //!    corners are strong enough to be trusted as lattice nodes.
 //!
-//! Both default to `calib-targets`' tuned values and only need overriding for
-//! inputs at the edges of what those values were tuned for.
+//! All three default to `calib-targets`' tuned values and only need
+//! overriding for inputs at the edges of what those values were tuned for.
 
 use calib_targets::chessboard::ChessboardParams;
 use calib_targets::core::DetectorConfig;
@@ -18,23 +19,48 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
+/// The `chess-corners` corner detector a chessboard-like detector runs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CornerStrategy {
+    /// The ChESS response ([`default_chess_config`]). Fast; the default.
+    #[default]
+    Chess,
+    /// The whole-image Radon response (`DetectorConfig::radon`). Several
+    /// times slower than ChESS, and less biased at a corner's sub-pixel
+    /// position on sharp, finely sampled boards (e.g. rendered ones).
+    Radon,
+}
+
 /// ChESS corner extractor overrides.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct ChessCornersConfig {
-    /// Absolute acceptance threshold on the raw ChESS response: a corner is
-    /// kept when its response exceeds this value. `None` keeps
-    /// [`default_chess_config`]'s noise-floor cutoff (`15.0`).
+    /// Corner detector. `None` keeps ChESS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<CornerStrategy>,
+
+    /// Acceptance threshold on the corner response. `None` keeps the
+    /// strategy's default.
     ///
-    /// The threshold is always absolute. `chess-corners` 1.0 collapsed its
-    /// former `Threshold::{Absolute, Relative}` enum into a single `f32`;
-    /// there is no longer a "fraction of the image maximum" mode.
+    /// Its meaning depends on the strategy, as in `chess-corners`:
+    /// - ChESS: an absolute floor on the raw response; a corner is kept when
+    ///   its response exceeds it. The default is [`default_chess_config`]'s
+    ///   noise-floor cutoff (`15.0`).
+    /// - Radon: a fraction in `(0, 1]` of the frame's maximum response,
+    ///   because the Radon score has no portable absolute scale. The default
+    ///   is `chess-corners`' (`0.28`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threshold_value: Option<f32>,
 
     /// Minimum corner strength for a detected corner to enter the grid
     /// builder. `None` keeps the detector default (`33.0`).
+    ///
+    /// The floor is on the strategy's response scale. Radon's scores are
+    /// orders of magnitude larger than ChESS's, so the default never binds
+    /// under Radon.
     ///
     /// The default drops weakly-firing corners — defocused board edges and
     /// marker-bit saddles fire at ≈15–30 against a sharp board's ≈90+ — which
@@ -54,7 +80,10 @@ pub struct ChessCornersConfig {
 pub(crate) fn chess_config_for_override(
     override_cfg: Option<ChessCornersConfig>,
 ) -> DetectorConfig {
-    let config = default_chess_config();
+    let config = match override_cfg.and_then(|cfg| cfg.strategy) {
+        None | Some(CornerStrategy::Chess) => default_chess_config(),
+        Some(CornerStrategy::Radon) => DetectorConfig::radon(),
+    };
     match override_cfg.and_then(|cfg| cfg.threshold_value) {
         Some(threshold) => config.with_threshold(threshold),
         None => config,
@@ -86,6 +115,39 @@ mod tests {
             ..ChessCornersConfig::default()
         }));
         assert_eq!(config.threshold, 30.0);
+    }
+
+    #[test]
+    fn radon_strategy_selects_the_radon_detector() {
+        let radon = chess_config_for_override(Some(ChessCornersConfig {
+            strategy: Some(CornerStrategy::Radon),
+            ..ChessCornersConfig::default()
+        }));
+        assert_eq!(radon, DetectorConfig::radon());
+
+        // The threshold is still the caller's, read on Radon's relative scale.
+        let tuned = chess_config_for_override(Some(ChessCornersConfig {
+            strategy: Some(CornerStrategy::Radon),
+            threshold_value: Some(0.1),
+            ..ChessCornersConfig::default()
+        }));
+        assert_eq!(tuned, DetectorConfig::radon().with_threshold(0.1));
+
+        let chess = chess_config_for_override(Some(ChessCornersConfig {
+            strategy: Some(CornerStrategy::Chess),
+            ..ChessCornersConfig::default()
+        }));
+        assert_eq!(chess, default_chess_config());
+    }
+
+    #[test]
+    fn strategy_serializes_snake_case() {
+        let cfg: ChessCornersConfig = serde_json::from_str(r#"{"strategy": "radon"}"#).unwrap();
+        assert_eq!(cfg.strategy, Some(CornerStrategy::Radon));
+        assert_eq!(
+            serde_json::to_string(&cfg).unwrap(),
+            r#"{"strategy":"radon"}"#
+        );
     }
 
     #[test]

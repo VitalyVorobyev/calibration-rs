@@ -28,11 +28,12 @@ use thiserror::Error;
 
 use vision_calibration_core::{CorrespondenceView, NoMeta, Pt2, Pt3, View};
 use vision_calibration_dataset::{
-    ChessCornersDetectorSpec, DatasetSpec, ImagePattern, TargetSpec, Topology, ValidationError,
+    ChessCornersDetectorSpec, CornerStrategySpec, DatasetSpec, ImagePattern, TargetSpec, Topology,
+    ValidationError,
 };
 use vision_calibration_detect::{
     CacheKey, CachedFeatures, CharucoDetector, ChessCornersConfig, ChessboardDetector,
-    DetectionCache, Detector, Feature, PuzzleboardDetector, RinggridDetector,
+    CornerStrategy, DetectionCache, Detector, Feature, PuzzleboardDetector, RinggridDetector,
     validate_charuco_layout,
 };
 
@@ -267,10 +268,15 @@ pub enum RunError {
 /// ignored setting.
 fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> ChessCornersConfig {
     let ChessCornersDetectorSpec {
+        strategy,
         threshold_value,
         min_corner_strength,
     } = spec;
     ChessCornersConfig {
+        strategy: strategy.map(|s| match s {
+            CornerStrategySpec::Chess => CornerStrategy::Chess,
+            CornerStrategySpec::Radon => CornerStrategy::Radon,
+        }),
         threshold_value,
         min_corner_strength,
     }
@@ -285,7 +291,7 @@ fn target_to_detector_config(spec: &DatasetSpec) -> Result<(&'static str, Value)
         // `skip_serializing_if` drops unset knobs, so an all-default override
         // serializes to `{}`; attaching it would only bloat the cache key.
         let chess_json = serde_json::to_value(chess)
-            .expect("ChessCornersConfig is a plain record of Option<f32>; cannot fail");
+            .expect("ChessCornersConfig is a plain record of options; cannot fail");
         if chess_json.as_object().is_some_and(|o| !o.is_empty()) {
             map.insert("chess_corners".to_string(), chess_json);
         }
@@ -547,7 +553,6 @@ fn pattern_repr(p: &ImagePattern) -> String {
 #[allow(clippy::too_many_arguments)]
 fn detect_features(
     detector: &dyn Detector,
-    detector_name: &str,
     detector_config: &Value,
     key_config: &Value,
     roi: Option<[u32; 4]>,
@@ -556,7 +561,7 @@ fn detect_features(
     force_redetect: bool,
 ) -> Result<(Vec<Feature>, bool), RunError> {
     let bytes = std::fs::read(image_path)?;
-    let key = CacheKey::from_inputs(&bytes, detector_name, key_config);
+    let key = CacheKey::for_detector(&bytes, detector, key_config);
 
     let cached: Option<CachedFeatures> = if force_redetect {
         None
@@ -579,7 +584,7 @@ fn detect_features(
     let detected = detector
         .detect_json(&img_for_detect, detector_config)
         .map_err(|e| RunError::Detection {
-            detector: detector_name.to_string(),
+            detector: detector.name().to_string(),
             path: image_path.to_path_buf(),
             source: e,
         })?;
@@ -715,13 +720,15 @@ mod tests {
         });
         spec.detector = Some(DetectorSpec {
             chess_corners: Some(ChessCornersDetectorSpec {
-                threshold_value: Some(30.0),
+                strategy: Some(CornerStrategySpec::Radon),
+                threshold_value: Some(0.2),
                 ..ChessCornersDetectorSpec::default()
             }),
             min_features_per_view: None,
         });
         let (_name, config) = target_to_detector_config(&spec).unwrap();
-        assert_eq!(config["chess_corners"]["threshold_value"], 30.0);
+        assert_eq!(config["chess_corners"]["strategy"], "radon");
+        assert_eq!(config["chess_corners"]["threshold_value"], 0.2f32 as f64);
 
         // `lower_chess_corners` destructures the manifest struct exhaustively,
         // so a new manifest knob that is not wired through fails to compile.
@@ -729,7 +736,8 @@ mod tests {
         // into the detector's own `deny_unknown_fields` config.
         let lowered: ChessCornersConfig =
             serde_json::from_value(config["chess_corners"].clone()).unwrap();
-        assert_eq!(lowered.threshold_value, Some(30.0));
+        assert_eq!(lowered.strategy, Some(CornerStrategy::Radon));
+        assert_eq!(lowered.threshold_value, Some(0.2));
         assert_eq!(
             lowered,
             lower_chess_corners(spec.detector.unwrap().chess_corners.unwrap())

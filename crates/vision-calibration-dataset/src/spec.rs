@@ -279,24 +279,46 @@ pub struct DetectorSpec {
     pub min_features_per_view: Option<usize>,
 }
 
+/// The corner detector a chessboard-like detector runs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CornerStrategySpec {
+    /// The ChESS response. Fast; the default.
+    #[default]
+    Chess,
+    /// The whole-image Radon response. Several times slower than ChESS, and
+    /// less biased at a corner's sub-pixel position on sharp, finely sampled
+    /// boards (e.g. rendered ones).
+    Radon,
+}
+
 /// ChESS corner extractor overrides.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct ChessCornersDetectorSpec {
-    /// Absolute acceptance threshold on the raw ChESS corner response: a
-    /// corner is kept when its response exceeds this value. `None` keeps the
-    /// detector default.
+    /// Corner detector. `None` keeps ChESS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<CornerStrategySpec>,
+
+    /// Acceptance threshold on the corner response. `None` keeps the
+    /// strategy's default.
     ///
-    /// The threshold is always absolute. Manifests written before 0.8.0 may
-    /// carry a sibling `threshold_mode` key; drop it — `deny_unknown_fields`
-    /// rejects it, and the `"relative"` mode it selected no longer exists in
-    /// the upstream corner detector.
+    /// Under ChESS it is an absolute floor on the raw response: a corner is
+    /// kept when its response exceeds it. Under Radon it is a fraction in
+    /// `(0, 1]` of the frame's maximum response.
+    ///
+    /// Manifests written before 0.8.0 may carry a sibling `threshold_mode`
+    /// key; drop it — `deny_unknown_fields` rejects it, and the ChESS
+    /// `"relative"` mode it selected no longer exists in the upstream corner
+    /// detector.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threshold_value: Option<f32>,
 
     /// Minimum corner strength for a detected corner to enter the grid
-    /// builder. `None` keeps the detector default (`33.0`).
+    /// builder. `None` keeps the detector default (`33.0`). The floor is on
+    /// the strategy's response scale; under Radon the default never binds.
     ///
     /// The default drops weakly-firing corners, which is the right trade
     /// whenever corners are plentiful. Set `0.0` to disable it on small or

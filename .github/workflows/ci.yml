@@ -95,6 +95,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Unit tests that read LFS images are `#[ignore]`d in the build jobs,
+      # which check out LFS pointers only.
+      - name: LFS-image unit tests
+        run: cargo test -p vision-calibration-detect --lib -- --ignored
+
       - name: Run acceptance gates (kuka_1)
         run: >-
           cargo run --release -p vision-calibration-bench --features tier-b

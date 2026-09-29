@@ -28,17 +28,21 @@ dispatched server-side — no per-detector code path to learn.
 
 | `kind` | Manifest fields | Notes |
 |---|---|---|
-| `chessboard` | `rows`, `cols` (interior corners), `square_size_m` | Plain checkerboard. |
+| `chessboard` | `rows`, `cols` (interior corners), `square_size_m` | Plain checkerboard. `cols` corners across the image, `rows` down; a board seen turned by 90° is also accepted. |
 | `charuco` | `rows`, `cols` (squares), `square_size_m`, `marker_size_m`, `dictionary` | Sparse — only decoded cells contribute corners. |
 | `puzzleboard` | `layout` (`"puzzle_<R>x<C>"`), `cell_size_m` | Self-identifying; a single partial view is globally consistent. |
 | `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m` | Coded **hex-lattice** of ring markers — `long_row_cols` is the longest (even) row; shorter rows derive from the lattice. |
 
-Two optional ChESS overrides (`[detector.chess_corners]`) apply to the
-chess-based detectors (chessboard / charuco) and are hashed into the
-detection-cache key, so changing either re-runs detection:
+Three optional corner-detector overrides (`[detector.chess_corners]`) apply
+to the chess-based detectors (chessboard / charuco) and are hashed into the
+detection-cache key, so changing any of them re-runs detection:
 
-- `threshold_value` — absolute floor on the raw corner response, gating which
-  response peaks become corners at all.
+- `strategy` — `"chess"` (the default) or `"radon"`. Radon is several times
+  slower and less biased at a corner's sub-pixel position on sharp, finely
+  sampled boards, such as rendered ones.
+- `threshold_value` — floor on the corner response, gating which response
+  peaks become corners at all. Absolute under ChESS; under Radon a fraction
+  in `(0, 1]` of the frame's maximum response.
 - `min_corner_strength` — floor on corner strength for entering the grid
   builder, gating which of those corners are trusted as lattice nodes.
   Defaults to `33.0`, which drops weak, defocused corners. **Set it to `0.0`

@@ -196,7 +196,6 @@ pub fn build_laserline_device_input(
             .expect("single-camera pairing never produces gap slots");
         let (features, _cache_hit) = detect_features(
             detector.as_ref(),
-            detector_name,
             &detector_config,
             &key_config,
             roi,
@@ -882,7 +881,7 @@ mod tests {
         CameraSource, PoseConvention, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
         TransformConvention, TranslationUnits,
     };
-    use vision_calibration_detect::FsDetectionCache;
+    use vision_calibration_detect::{ChessboardDetector, FsDetectionCache};
 
     /// Deterministic extractor: `n` points along a horizontal line.
     /// Counts calls so tests can assert the cache-hit path.
@@ -950,7 +949,7 @@ mod tests {
         let bytes = rel_path.as_bytes();
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
-        let key = CacheKey::from_inputs(bytes, "chessboard", &detector_config());
+        let key = CacheKey::for_detector(bytes, &ChessboardDetector, &detector_config());
         cache.put(&key, &CachedFeatures { features }).unwrap();
         path
     }

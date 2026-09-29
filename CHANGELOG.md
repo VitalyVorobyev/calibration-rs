@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The dataset runner's chessboard detector keeps the whole board.** It
+  bounded `calib-targets`' labels by `u < rows` and `v < cols`, but those
+  labels run `u` across the image and `v` down it, so a board seen as its
+  manifest declares it (`cols` across, `rows` down) lost the corners past
+  column `rows`. Both committed chessboard datasets were affected: `kuka_1`
+  kept 289 of 476 corners per view, `stereo` 49 of 77. The bounds are now
+  `u < cols`, `v < rows`, as the benchmark detector already had them; a
+  board seen turned by 90° is still kept whole. Chessboard detection-cache
+  keys carry a revision, so entries written before the fix are re-detected
+  rather than served.
+
+### Added
+
+- **Radon corner detection for chessboard and ChArUco targets.**
+  `ChessCornersDetectorSpec::strategy` (manifest `[detector.chess_corners]`,
+  benchmark registry) and `ChessCornersConfig::strategy` select
+  `chess-corners`' `"radon"` detector in place of the default `"chess"`.
+  Under Radon, `threshold_value` is a fraction in `(0, 1]` of the frame's
+  maximum response; the validator rejects values above 1.
+
 ## [0.8.3] - 2026-09-28
 
 Patch release. Hand-eye calibration no longer rejects a camera mounted
