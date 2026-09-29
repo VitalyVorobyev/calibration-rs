@@ -47,13 +47,11 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 /// Grouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the
 /// [`SensorMode`] field `sensor` selects the sensor flavour.
 ///
-/// 0.7.0 removed the old `rig.fix_first_rig_pose: bool = true` field:
-/// the reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
-/// the full 6-DOF rig gauge, and the extra per-view pose constraint was
-/// evidence-backed redundant and mildly pessimizing (see
-/// `docs/notes/rig-extrinsics.md` §Gauge, which documents the equivalent
-/// `RigExtrinsicsConfig` finding). View-0's rig-from-target pose is now
-/// always free in the rig BA.
+/// The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
+/// the full 6-DOF rig gauge; an extra per-view pose constraint would be
+/// redundant and mildly pessimizing (see `docs/notes/rig-extrinsics.md`
+/// §Gauge, which documents the equivalent `RigExtrinsicsConfig` finding).
+/// View-0's rig-from-target pose is always free in the rig BA.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -812,7 +810,7 @@ mod tests {
     #[test]
     fn export_image_manifest_defaults_absent_from_wire() {
         // ADR 0014: when the pipeline emits an export the manifest is
-        // None and `skip_serializing_if` keeps the legacy JSON byte-stable.
+        // None and `skip_serializing_if` keeps existing serialized JSON byte-stable.
         let output = make_dummy_output();
         let config = RigHandeyeConfig::default();
         let dummy_view = RigView {

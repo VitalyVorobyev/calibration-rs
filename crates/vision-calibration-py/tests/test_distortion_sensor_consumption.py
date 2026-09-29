@@ -58,8 +58,8 @@ class PlanarDistortionModelConsumptionTest(unittest.TestCase):
 
     def test_none_model_yields_no_distortion_dataclass(self) -> None:
         # `DistortionKind::None` solves fine and exports `{"type": "none"}`; the
-        # typed result must parse it (regression: it used to raise after a
-        # successful solve because the dispatcher had no "none" entry).
+        # typed result must parse it (regression guard: the dispatcher must have a
+        # "none" entry, or parsing raises after a successful solve).
         result = self._run("none")
         self.assertIsInstance(result.camera, vc.PinholeCamera)
         self.assertIsInstance(result.camera.distortion, vc.NoDistortion)

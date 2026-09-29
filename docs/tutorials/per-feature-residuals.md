@@ -1,6 +1,5 @@
 # Per-feature reprojection residuals
 
-> Onboarding tutorial for [ADR 0012](../adrs/0012-per-feature-reprojection-residuals.md).
 > Runnable companion: [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs).
 
 ## Why

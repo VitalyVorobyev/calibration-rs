@@ -267,7 +267,7 @@ pub async fn run_calibration_cmd(
 
     let response = result.map_err(|e| format!("runner task panicked: {e}"))?;
     if let RunResponse::Ok(success) = &response {
-        cache.set("<live-run>".to_string(), success.export.clone());
+        cache.set(success.export.clone());
     }
     Ok(response)
 }
@@ -1524,8 +1524,8 @@ mod tests {
         for (cam, s) in stats.iter().enumerate() {
             // Plane-fit sanity gate, not an oracle-beating gate: with
             // the upstream frozen at ~1.5 px the plane fit lands near
-            // ~1 mm; sub-0.1 mm needs the joint BA (V5, out of scope
-            // here). 2 mm flags a broken plane / wrong chain.
+            // ~1 mm; sub-0.1 mm needs the joint rig + laserline
+            // refinement (not run here). 2 mm flags a broken plane / wrong chain.
             let laser_err = s["mean_laser_error"].as_f64().unwrap();
             eprintln!("cam {cam}: mean point-to-plane {:.4} mm", laser_err * 1e3);
             assert!(
@@ -1558,7 +1558,7 @@ mod tests {
             handeye.usable_views, laser.usable_views, laser.duration_ms
         );
 
-        // ── Stage 3: joint app quality path (V5 parity) ───────────────────
+        // ── Stage 3: joint rig + laserline refinement ───────────────────
         let mut joint_manifest = read_manifest("dataset_laser.toml");
         joint_manifest["topology"] = json!("rig_handeye_laserline");
         joint_manifest["upstream_calibration"] = serde_json::Value::Null;
@@ -1571,8 +1571,8 @@ mod tests {
         joint_config["joint_ba"]["calib_weight"] = json!(1.0);
         joint_config["joint_ba"]["laser_weight"] = json!(10000.0);
         joint_config["joint_ba"]["robot_poses"]["refine"] = json!(true);
-        // D2 (ADR 0024): `fix_first_camera_extrinsic` is gone — the joint
-        // stage always pins `handeye.rig.reference_camera_idx`.
+        // The joint solve always gauge-fixes camera 0 (ADR 0024): it pins
+        // `handeye.rig.reference_camera_idx`.
         joint_config["joint_ba"]["fix_scheimpflug"] = json!({"tilt_x": true, "tilt_y": true});
         joint_config["joint_ba"]["default_camera_fix"] = json!({
             "intrinsics": {"fx": false, "fy": false, "cx": true, "cy": true},

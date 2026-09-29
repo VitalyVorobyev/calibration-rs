@@ -3,7 +3,7 @@
 //! Exercises the `tiny-solver` LM loop end-to-end on a representative planar
 //! intrinsics problem (10×7 board, 10 views → ~700 reprojection residuals). This
 //! is the per-camera BA stage of the rig pipeline and the natural place to
-//! measure P3 backend work (autodiff Jacobian vs JᵀJ assembly vs linear solve).
+//! measure backend work (autodiff Jacobian vs JᵀJ assembly vs linear solve).
 //! Deterministic synthetic data keeps the numbers comparable across runs.
 
 #![allow(missing_docs)]

@@ -6,7 +6,7 @@
 //! All scenarios use noiseless synthetic data (modest Scheimpflug tilt) so the
 //! reprojection RMS through the exported camera must be below 1e-2 px.
 //! Brown-Conrady5 is the default-path regression. Config JSON roundtrip (incl.
-//! `None`) and missing-field back-compat guard the serde contract.
+//! `None`) and a config missing the field guard the serde contract.
 
 #![allow(missing_docs)]
 

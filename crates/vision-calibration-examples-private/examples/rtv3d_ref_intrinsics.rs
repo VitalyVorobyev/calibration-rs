@@ -12,7 +12,7 @@
 //!
 //! Why not from scratch? On this data (strong radial distortion, k1≈−0.43, plus
 //! a ≈−5° tilt) Zhang-from-scratch underestimates the focal and the solve settles
-//! into a wrong tilt/focal basin — see ADR 0022 and the P6 diagnosis. A coarse
+//! into a wrong tilt/focal basin — see ADR 0022. A coarse
 //! seed removes that fragility.
 //!
 //! **Acceptance gate:** every camera must reach mean reprojection ≤ 0.5 px. The
@@ -302,7 +302,7 @@ fn run_distortion_sweep(spec: &DeviceSpec, per_cam_views: &[Vec<View<NoMeta>>], 
         DistortionKind::Division1,
     ];
     println!(
-        "\n── Q4 distortion-model sweep (mean reprojection px; informational, does NOT affect gate) ──"
+        "\n── distortion-model sweep (mean reprojection px; informational, does NOT affect gate) ──"
     );
     print!("  {:<13} |", "model");
     for c in 0..NUM_CAMERAS {

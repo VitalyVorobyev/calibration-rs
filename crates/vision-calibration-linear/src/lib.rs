@@ -83,3 +83,7 @@ pub mod prelude {
     };
     pub use vision_geometry::homography::dlt_homography;
 }
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

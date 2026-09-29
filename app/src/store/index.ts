@@ -195,7 +195,7 @@ export const useStore = create<AppState>()(
       // about to interact with. If the commit fails the frontend
       // surfaces the error and stays on the previous export.
       try {
-        await invoke("set_active_export", { path, export: data });
+        await invoke("set_active_export", { export: data });
       } catch (e) {
         set({
           loadError: `Could not commit export to backend cache: ${String(e)}`,

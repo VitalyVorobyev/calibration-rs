@@ -179,8 +179,8 @@ fn rtv3d_like_poses() -> Vec<Iso3> {
 
 /// rtv3d_ref-like synthetic dataset: strong radial distortion (k1 ≈ −0.43) plus
 /// a ≈−5° Scheimpflug tilt — the regime where Zhang-from-scratch underestimates
-/// the focal and the LM settles into a wrong tilt/focal basin (see ADR 0022 and
-/// the P6 diagnosis). Returns the dataset and the ground-truth intrinsics /
+/// the focal and the LM settles into a wrong tilt/focal basin (see ADR 0022).
+/// Returns the dataset and the ground-truth intrinsics /
 /// distortion / sensor for recovery checks.
 fn make_rtv3d_like_dataset() -> (
     PlanarDataset,

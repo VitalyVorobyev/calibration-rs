@@ -6,7 +6,7 @@
 ## Context
 
 The eight problem configs grew independently and now spell the same concept
-up to four different ways. A field-inventory survey (2026-07-08, R2) found:
+up to four different ways. A field inventory found:
 
 1. The linear-init iteration count is named `init_iterations`
    (planar, scheimpflug, rig-handeye), `intrinsics_init_iterations`
@@ -23,14 +23,14 @@ up to four different ways. A field-inventory survey (2026-07-08, R2) found:
 4. The Scheimpflug tilt mask has three config spellings
    (`fix_scheimpflug`, `fix_scheimpflug_in_intrinsics`,
    `fix_scheimpflug_tilt`) over two distinct Rust types both named
-   `ScheimpflugFixMask` (merged by R1).
+   `ScheimpflugFixMask`.
 5. Pose-gauge fixing is spelled four ways: `fix_poses: Vec<usize>`,
    `fix_first_pose: bool`, `fix_first_rig_pose: bool`,
    `fix_target_ref: bool` — plus `fix_first_camera_extrinsic: bool`,
    which hard-codes camera index 0 instead of honoring
    `reference_camera_idx` (a bug).
 6. `fix_first_rig_pose` is redundant with the reference-camera gauge fix
-   and empirically mildly pessimizing (Q8 rig-extrinsics proof pack:
+   and empirically mildly pessimizing (rig-extrinsics proof pack:
    0.134 px vs 0.124 px on the wide matrix cell with it on vs off; see
    `docs/notes/rig-extrinsics.md` §Gauge).
 7. `max_iters`/`verbosity` are `usize` everywhere except
@@ -46,7 +46,7 @@ hard renames with no compatibility aliases.
 
 ## Decision
 
-### D1 — grouped shape everywhere, shared sub-structs
+### grouped shape everywhere, shared sub-structs
 
 All eight top-level configs become grouped. The shared building blocks are
 defined once in `vision_calibration_pipeline::common::config` (re-exported
@@ -87,7 +87,7 @@ Naming rules:
   all-free, distortion `{k3: fixed}`). The structurally-identical
   `JointCameraFixMask` (rig-handeye-laserline) is deleted in favor of
   `CameraFixMask`.
-- The Scheimpflug tilt mask is the single (post-R1) `ScheimpflugFixMask`,
+- The Scheimpflug tilt mask is the single `ScheimpflugFixMask`,
   and its config field is `fix_scheimpflug` in all three exposure points
   (single-cam config, `SensorMode::Scheimpflug`, joint BA — the joint BA's
   `fix_scheimpflug_tilt: bool` widens to the mask with default both-fixed).
@@ -102,7 +102,7 @@ Naming rules:
   from converged stages); 200 rig-laserline frozen-geometry stage (cheap
   1-DOF-per-view problem, iterations are nearly free).
 
-### D2 — remove the redundant gauge knob (the only behavior change)
+### Remove the redundant gauge knob (the only behavior change)
 
 - `fix_first_rig_pose` is deleted from `RigExtrinsicsConfig` and
   `RigHandeyeRigConfig`. The reference-camera fix alone removes the full
@@ -112,8 +112,8 @@ Naming rules:
   the implementation now always pins `reference_camera_idx` (fixing the
   index-0 hard-coding bug).
 - `RigLaserlineDeviceConfig`'s effective `max_iters`-when-unset changes from
-  100 to 200. Pre-R3, the step function's own `Option<usize>` override
-  parameter defaulted to `cfg.max_iters.unwrap_or(100)`; post-R3 the config
+  100 to 200. Previously the step function's own `Option<usize>` override
+  parameter defaulted to `cfg.max_iters.unwrap_or(100)`; now the config
   itself is grouped into `solver: SolverConfig` with `max_iters: usize = 200`
   and there is no lower `unwrap_or` layer left to disagree with it. Every
   real caller (bench, app, examples) already passed `200` explicitly, so
@@ -123,12 +123,11 @@ Naming rules:
   1-DOF-per-view problem, so a higher iteration ceiling costs effectively
   nothing when it does trigger.
 
-These are the only intentional numeric-behavior changes in the R3 rollout.
-Expected effect is unchanged-or-slightly-improved fits; the acceptance
-drift gates arbitrate, and any refreeze rides the R3 PR with before/after
-numbers.
+These are the only intentional numeric-behavior changes. Expected effect is
+unchanged-or-slightly-improved fits; the acceptance drift gates arbitrate, and
+any refreeze is reviewed with before/after numbers.
 
-### D3 — robust-loss vocabulary
+### robust-loss vocabulary
 
 Non-laser problems: the single `robust_loss` inside `SolverConfig`.
 Laser-carrying stages keep the two-family split (`calib_loss`, `laser_loss`,
@@ -143,13 +142,13 @@ are genuinely different residual families. The per-stage defaults are
   `laser_weight = 1e4` — a warm-started polish on already-cleaned inputs
   where the laser term pins metric scale (see `docs/notes/rtv3d-scale.md`).
 
-### D4 — `distortion_model` placement
+### `distortion_model` placement
 
 Unchanged: a live multi-valued choice in the two single-camera intrinsics
 configs; schema-symmetric but validated-to-BC5 inside
 `SensorMode::Scheimpflug` for rigs; absent (implicitly BC5) elsewhere.
 
-### D5 — target top-level shapes
+### target top-level shapes
 
 | Config | Groups |
 |---|---|
@@ -171,8 +170,8 @@ configs; schema-symmetric but validated-to-BC5 inside
 | `LaserlineDeviceOptimizeConfig.{fix_intrinsics: bool, fix_distortion: bool, fix_k3: bool}` | `optimize.fix_camera: CameraFixMask` |
 | `fix_scheimpflug_in_intrinsics`, `fix_scheimpflug_tilt` | `fix_scheimpflug` |
 | `fix_first_pose: bool` | `fix_poses: Vec<usize>` (`[0]`) |
-| `fix_first_rig_pose` | *(deleted — D2)* |
-| `fix_first_camera_extrinsic` | *(deleted — D2; reference camera always pinned)* |
+| `fix_first_rig_pose` | *(deleted)* |
+| `fix_first_camera_extrinsic` | *(deleted; reference camera always pinned)* |
 | `robot_rot_sigma` + `robot_trans_sigma` + `refine_robot_poses` | `robot_poses: RobotPoseConfig { refine, rot_sigma, trans_sigma }` |
 | `max_iters: Option<usize>`, `verbosity: Option<usize>` (rig-laserline) | `solver.max_iters: usize = 200`, `solver.verbosity: usize = 0` |
 | flat `max_iters`/`verbosity`/`robust_loss` | `solver: SolverConfig` |
@@ -180,7 +179,7 @@ configs; schema-symmetric but validated-to-BC5 inside
 
 ## Consequences
 
-- **Wire shape changes for all eight configs.** Consumers migrating in R3:
+- **Wire shape changes for all eight configs.** Consumers affected:
   pipeline problem/steps modules; bench (`registry.rs` override structs,
   `run.rs` config literals, `record.rs`); the app (`run.rs` test payloads,
   `RunWorkspace/presets.ts` override trees); the Python mirror
@@ -190,8 +189,7 @@ configs; schema-symmetric but validated-to-BC5 inside
 - The schema-driven UI (ADR 0018) regenerates from `default_config_cmd`
   and picks up the grouped shapes automatically; only hand-written preset
   overrides need edits.
-- The D2 deletions may shift rig-family fit numbers marginally (improvement
-  direction expected); the Q2 drift gates and a reviewed refreeze arbitrate.
-- Python parity gaps discovered during the survey (missing
-  `RigHandeyeConfig.sensor` mirror, missing `RigHandeyeLaserlineConfig`
-  mirror) are R5's scope, tracked separately.
+- The deletions may shift rig-family fit numbers marginally (improvement
+  direction expected); the acceptance drift gates and a reviewed refreeze arbitrate.
+- Python parity gaps found by the inventory (missing `RigHandeyeConfig.sensor`
+  mirror, missing `RigHandeyeLaserlineConfig` mirror) are out of scope here.

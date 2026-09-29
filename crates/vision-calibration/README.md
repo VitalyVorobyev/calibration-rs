@@ -6,10 +6,10 @@ This is the recommended crate for most users. It re-exports all sub-crates throu
 
 ## Features
 
-- **Session API**: Structured calibration workflows with step functions, state tracking, and JSON checkpointing
-- **6 workflows**: Planar intrinsics, Scheimpflug intrinsics, single-camera hand-eye, rig extrinsics, rig hand-eye, laserline device
-- **Prelude module**: Minimal imports for planar "hello world" calibration
-- **Foundation access**: Direct access to core types, linear solvers, and optimization when needed
+- **Session API**: structured calibration workflows with step functions, state tracking, and JSON checkpointing
+- **Eight workflows**: planar intrinsics, Scheimpflug intrinsics, single-camera hand-eye, laserline device, rig extrinsics, rig hand-eye, rig laserline device, rig hand-eye + laserline
+- **Prelude module**: minimal imports for planar "hello world" calibration
+- **Foundation access**: core types, linear solvers, optimization, two-view geometry and MVG when needed
 
 ## Quick Start
 
@@ -17,7 +17,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-vision-calibration = { git = "https://github.com/VitalyVorobyev/calibration-rs" }
+vision-calibration = "0.9"
 ```
 
 ### Planar Intrinsics Calibration
@@ -26,6 +26,7 @@ vision-calibration = { git = "https://github.com/VitalyVorobyev/calibration-rs" 
 use vision_calibration::prelude::*;
 use vision_calibration::planar_intrinsics::{step_init, step_optimize};
 
+# fn main() -> anyhow::Result<()> {
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 # let dataset: PlanarDataset = unimplemented!();
 session.set_input(dataset)?;
@@ -34,6 +35,8 @@ step_init(&mut session, None)?;
 step_optimize(&mut session, None)?;
 
 let result = session.export()?;
+# Ok(())
+# }
 ```
 
 ### Single-Camera Hand-Eye Calibration
@@ -46,6 +49,7 @@ use vision_calibration::single_cam_handeye::{
     step_handeye_init, step_handeye_optimize,
 };
 
+# fn main() -> anyhow::Result<()> {
 let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
 # let input = unimplemented!();
 session.set_input(input)?;
@@ -56,6 +60,8 @@ step_handeye_init(&mut session, None)?;
 step_handeye_optimize(&mut session, None)?;
 
 let result = session.export()?;
+# Ok(())
+# }
 ```
 
 ### Scheimpflug Intrinsics Calibration
@@ -80,73 +86,62 @@ println!("mean reprojection error: {:.4}", result.mean_reproj_error);
 # }
 ```
 
-### Using the Prelude
-
-```rust,no_run
-use vision_calibration::prelude::*;
-
-// Minimal hello-world imports:
-// CalibrationSession + planar problem + planar runner + core planar types.
-```
-
-## Available Problem Types
+## Problem Types
 
 | Problem Type | Steps |
 |---|---|
 | `PlanarIntrinsicsProblem` | `step_init` → `step_optimize` |
-| `SingleCamHandeyeProblem` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
-| `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
-| `RigHandeyeProblem` | All 6 steps (intrinsics + rig + hand-eye) |
-| `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
 | `ScheimpflugIntrinsicsProblem` | `step_init` → `step_optimize` |
+| `SingleCamHandeyeProblem` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
+| `LaserlineDeviceProblem` | `step_init` → `step_optimize` |
+| `RigExtrinsicsProblem` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
+| `RigHandeyeProblem` | rig extrinsics steps → `step_handeye_init` → `step_handeye_optimize` |
+| `RigLaserlineDeviceProblem` | `step_init` → `step_optimize` (frozen rig hand-eye export as input) |
+| `RigHandeyeLaserlineProblem` | `run_calibration` (joint solve) |
 
-Each problem type also provides a `run_calibration` convenience function that runs all steps.
+Each problem type also provides a `run_calibration` convenience function that
+runs all steps. The per-module documentation lists the exact step names and
+options.
 
 ## Module Organization
 
 | Module | Description |
 |--------|-------------|
-| `session` | Calibration session framework (`CalibrationSession`, `ProblemType`) |
-| `planar_intrinsics` | Single-camera intrinsics (Zhang's method) |
-| `single_cam_handeye` | Single camera + hand-eye calibration |
-| `rig_extrinsics` | Multi-camera rig extrinsics |
-| `rig_handeye` | Multi-camera rig + hand-eye |
-| `laserline_device` | Camera + laser plane device |
-| `scheimpflug_intrinsics` | Single-camera planar intrinsics with Scheimpflug tilt |
-| `core` | Math types, camera models, RANSAC |
-| `linear` | Closed-form initialization algorithms |
-| `optim` | Non-linear optimization |
+| `session`, `common` | Session framework (`CalibrationSession`, `ProblemType`) and shared step/config types |
+| `planar_intrinsics`, `scheimpflug_intrinsics` | Single-camera intrinsics (Zhang's method; Scheimpflug tilt) |
+| `single_cam_handeye`, `laserline_device` | Hand-eye and camera + laser plane calibration |
+| `rig_extrinsics`, `rig_handeye`, `rig_laserline_device`, `rig_handeye_laserline` | Multi-camera rig workflows |
+| `device_seed`, `dataset_runner` | Device-spec seeding and manifest-driven dataset runs |
+| `dataset`, `detect` | Dataset manifests and target detection |
+| `analysis` | Reprojection-error analysis |
+| `core`, `linear`, `optim` | Math types and camera models, closed-form solvers, non-linear optimization |
+| `geometry`, `mvg` | Two-view geometry solvers; N-view MVG (bundle adjustment, rectification, dense stereo) |
 | `synthetic` | Deterministic synthetic data generation |
 | `prelude` | Convenient re-exports |
 
-## When to Use This Crate vs. Sub-Crates
-
-| Use Case | Recommended |
-|----------|-------------|
-| General calibration tasks | `vision-calibration` (this crate) |
-| Only need math types/camera models | `vision-calibration-core` |
-| Only need linear initialization | `vision-calibration-linear` |
-| Building custom optimization | `vision-calibration-optim` |
-| Need pipeline + JSON I/O | `vision-calibration-pipeline` |
-
 ## Examples
 
-See `examples/` directory:
+Run from a repository checkout with `cargo run --release -p vision-calibration --example <name>`.
+Examples marked "committed data" read datasets under `data/` in the repository.
 
-| Example | Problem Type | Data |
+| Example | Workflow | Data |
 |---------|---|---|
 | `planar_synthetic` | Planar intrinsics | Synthetic |
-| `planar_real` | Planar intrinsics | Real stereo images |
-| `stereo_session` | Rig extrinsics | Real stereo images |
-| `stereo_charuco_session` | Rig extrinsics | Real stereo ChArUco images |
+| `planar_synthetic_with_images` | Planar intrinsics + image manifest | Synthetic |
+| `planar_real` | Planar intrinsics | Committed data (`data/stereo`) |
+| `stereo_session` | Rig extrinsics | Committed data (`data/stereo`) |
+| `stereo_charuco_session` | Rig extrinsics | Committed data (`data/stereo_charuco`) |
+| `manual_init_proof` | Rig extrinsics, manual init | Committed data (`data/stereo_charuco`) |
 | `handeye_synthetic` | Single-camera hand-eye | Synthetic |
-| `handeye_session` | Single-camera hand-eye | KUKA robot data |
+| `handeye_session` | Single-camera hand-eye | Committed data (`data/kuka_1`) |
 | `rig_handeye_synthetic` | Rig hand-eye | Synthetic |
-| `laserline_device_session` | Laserline device | Session API demo |
+| `laserline_device_session` | Laserline device | Synthetic |
+| `mvg_two_view` | Two-view MVG | Synthetic |
+| `dense_stereo_real` | Dense stereo | Committed data (`data/stereo`) |
+| `viewer_fixtures` | Viewer export generation | Committed data |
 
 ## See Also
 
-- [vision-calibration-core](../vision-calibration-core): Core primitives
-- [vision-calibration-linear](../vision-calibration-linear): Linear solvers
-- [vision-calibration-optim](../vision-calibration-optim): Non-linear optimization
-- [vision-calibration-pipeline](../vision-calibration-pipeline): Pipelines and session API
+- [Book](https://vitalyvorobyev.github.io/calibration-rs)
+- [API reference](https://vitalyvorobyev.github.io/calibration-rs/api/vision-calibration/index.html)
+- [vision-calibration-pipeline](https://crates.io/crates/vision-calibration-pipeline): pipelines and session API

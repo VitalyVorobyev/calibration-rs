@@ -140,8 +140,7 @@ pub struct RefHandeye {
     pub tcp_se3_sensor: [[f64; 4]; 4],
 }
 
-/// One laser plane from a reference `artifacts.json`, in the legacy
-/// origin/axes representation (columns are 3x1). Parsed for completeness; the
+/// One laser plane from a reference `artifacts.json`, in the origin/axes representation (columns are 3x1). Parsed for completeness; the
 /// laser stage is out of scope for the reprojection-parity harness.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RefLaserPlane {

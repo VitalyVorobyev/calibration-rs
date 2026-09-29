@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn export_image_manifest_defaults_absent_from_wire() {
         // ADR 0014: when the pipeline emits an export the manifest is
-        // None and `skip_serializing_if` keeps the legacy JSON byte-stable.
+        // None and `skip_serializing_if` keeps existing serialized JSON byte-stable.
         let export = make_minimal_export();
         assert!(export.image_manifest.is_none());
 

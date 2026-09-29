@@ -24,8 +24,7 @@ pub type ScheimpflugIntrinsicsInput = PlanarDataset;
 /// Optimization mask for Scheimpflug tilt parameters.
 ///
 /// Re-exported from `vision-calibration-optim`, which owns the single
-/// canonical definition; this pipeline module used to keep a byte-identical
-/// duplicate (0.7.0 merged them into one type).
+/// canonical definition.
 pub use vision_calibration_optim::ScheimpflugFixMask;
 
 /// Configuration for planar Scheimpflug intrinsics calibration.
@@ -48,8 +47,7 @@ pub struct ScheimpflugIntrinsicsConfig {
     pub solver: SolverConfig,
     /// Distortion model refined during optimization.
     ///
-    /// Brown-Conrady5 is the default and is byte-identical to the pre-0.7.0
-    /// path. The extended models (Rational8, ThinPrism9, Division1) are wired
+    /// Brown-Conrady5 is the default. The extended models (Rational8, ThinPrism9, Division1) are wired
     /// through the single-camera Scheimpflug path; the linear init always
     /// produces Brown-Conrady coefficients, which are embedded into the chosen
     /// model with any extra degrees of freedom zeroed before the non-linear

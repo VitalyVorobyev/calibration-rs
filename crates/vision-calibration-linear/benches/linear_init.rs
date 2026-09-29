@@ -1,6 +1,6 @@
 //! Criterion benchmarks for the linear-init hot paths.
 //!
-//! These guard the dense-SVD-hang fixes (P1): a regression that reinstates the
+//! These guard the dense-SVD-hang fixes: a regression that reinstates the
 //! pathological `nalgebra::svd(true, true)` path on a tall design matrix would
 //! blow these timings up by orders of magnitude (the homography DLT once hung
 //! for >15 min on dense real data). Deterministic synthetic data keeps the

@@ -35,3 +35,7 @@ pub mod triangulation;
 // so adding a `pub fn` to a submodule does not silently widen the crate root.
 // Only the error type is lifted, because it is shared by all of them.
 pub use error::{GeometryError, Result};
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

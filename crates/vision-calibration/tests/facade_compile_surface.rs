@@ -22,6 +22,31 @@ fn facade_modules_compile_with_glob_import() {
     let _laserline_session: Option<
         session::CalibrationSession<laserline_device::LaserlineDeviceProblem>,
     > = None;
+    let _rig_laserline_session: Option<
+        session::CalibrationSession<rig_laserline_device::RigLaserlineDeviceProblem>,
+    > = None;
+    let _rig_handeye_laserline_session: Option<
+        session::CalibrationSession<rig_handeye_laserline::RigHandeyeLaserlineProblem>,
+    > = None;
+
+    // Every input type is constructible from its workflow module alone.
+    let _rig_laserline_view = rig_laserline_device::RigLaserlineView {
+        cameras: vec![None],
+        laser_pixels: vec![None],
+    };
+    let _rig_laserline_dataset: Option<rig_laserline_device::RigLaserlineDataset> = None;
+    let _rig_handeye_laserline_input = rig_handeye_laserline::RigHandeyeLaserlineInput {
+        views: vec![rig_handeye_laserline::RigHandeyeLaserlineView {
+            obs: rig_handeye_laserline::RigLaserlineView {
+                cameras: vec![None],
+                laser_pixels: vec![None],
+            },
+            meta: rig_handeye_laserline::RobotPoseMeta {
+                base_se3_gripper: core::Iso3::identity(),
+            },
+        }],
+        num_cameras: 1,
+    };
 
     // Planar intrinsics API.
     let _planar_step_init: fn(

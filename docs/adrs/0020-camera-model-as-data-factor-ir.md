@@ -2,21 +2,6 @@
 
 - Status: Accepted
 - Date: 2026-06-12
-- Note (2026-07-04, refines the 2026-07-02 note): the autodiff-first kernel
-  design did not make a hand-Jacobian backend *impossible* — the generic
-  kernels can produce exact Jacobians via dual numbers for an API like
-  apex-solver's `Factor::linearize` — but apex-solver's manifold/loss/
-  convention gaps made bridging not worth it (Track O closed won't-do
-  2026-07-04, see the ADR 0008 note). The accepted trade stands: generic
-  `residual<T: RealField>` kernels over hand-derived Jacobians.
-- Note (2026-07-04): Q4-MWIRE-SCHEIMPFLUG extended the Scheimpflug path past
-  the `None | BrownConrady5` distortion pair shown in the `CameraModelDesc`
-  snippet below — `ScheimpflugIntrinsicsConfig::distortion_model`
-  (`vision-calibration-pipeline`) now selects any `DistortionKind` (None,
-  BrownConrady5, Rational8, ThinPrism9, Division1) for the single-camera
-  seeded route, exercising exactly the descriptor-as-data dispatch this ADR
-  describes. Rig `SensorMode::Scheimpflug` stays BC5-typed and fails fast on
-  other models. See ADR 0022's 2026-07-04 note for the optim-side mechanics.
 
 ## Context
 
@@ -38,8 +23,8 @@ The variant set is the product of three independent axes:
 3. **Residual family** — point reprojection, laser point-to-plane, laser
    line-distance.
 
-Four new camera models are planned (rational k4–k6 distortion, thin-prism
-s1–s4, division model, Kannala-Brandt fisheye projection). Added naively, each
+Further camera models (rational k4–k6 distortion, thin-prism s1–s4, division
+model, Kannala-Brandt fisheye projection) are the growth case. Added naively, each
 would multiply variants across every chain and family — dozens of new enum
 arms, kernels, validation blocks, and backend structs per model. That growth
 pattern made new camera models effectively unaffordable, which is the gate
@@ -103,8 +88,8 @@ per factor** in `compile_factor` via a single `dispatch_camera_model!` table
 and monomorphizes a generic factor struct over the kernel types. The
 camera-model axis — the axis that grows — is therefore fully compile-time.
 
-Combinatorics: dispatch rows = |projection·distortion·sensor| (4 today, 20
-with all planned models), shared by all families and all chains. Chains do
+Combinatorics: dispatch rows = |projection·distortion·sensor| (4 for the base models, growing
+with each added model), shared by all families and all chains. Chains do
 not multiply anything.
 
 ### Extension recipe (one new camera model)
@@ -143,15 +128,23 @@ plain hand-eye chain; rig chain ≡ explicit isometry composition).
   block and the rig laser bundle freezes it, so a pinhole upstream is exactly
   zero tilt. `RigHandeyeExport::to_upstream_calibration` and
   `pixel_to_gripper_point` now accept pinhole exports.
-- A future second backend (if ever revived — Track O closed won't-do
-  2026-07-04; an autodiff-native stack like `factrs` would be the target)
-  consumes the same descriptors and builds its own dispatch — nothing
+- A future second backend (an autodiff-native stack like `factrs` would be
+  the target) consumes the same descriptors and builds its own dispatch — nothing
   tiny-solver-specific leaks into the IR.
 - Public (pre-1.0) breaking change: the enumerated `FactorKind` variants are
   gone; emitters construct descriptor factors. The laser factor names changed
   to the more accurate `LaserPointToPlane` (1D, meters) and
   `LaserLineDistance` (1D, pixels); the config-level
   `LaserlineResidualType` enum is unchanged.
+- The autodiff-first kernel design does not make a hand-Jacobian backend
+  impossible (dual numbers over the generic kernels give exact Jacobians), but
+  the accepted trade is generic `residual<T: RealField>` kernels over
+  hand-derived Jacobians; tiny-solver is the sole backend (ADR 0008).
+- `ScheimpflugIntrinsicsConfig::distortion_model` selects any `DistortionKind`
+  (None, BrownConrady5, Rational8, ThinPrism9, Division1) for the single-camera
+  seeded route, exercising the descriptor-as-data dispatch. Rig
+  `SensorMode::Scheimpflug` stays BC5-typed and fails fast on other models (ADR
+  0022).
 
 ## Alternatives considered
 

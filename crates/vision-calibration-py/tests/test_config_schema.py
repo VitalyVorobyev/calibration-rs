@@ -1,4 +1,4 @@
-"""Config-payload schema tests for the R5 parity additions (no solver).
+"""Config-payload schema tests for the calibration configs (no solver).
 
 These pin the ``to_payload()`` shape of the new/changed calibration configs to
 what the Rust ``serde`` derives expect. The failure mode they guard against is

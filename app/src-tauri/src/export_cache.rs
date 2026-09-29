@@ -2,7 +2,7 @@
 //!
 //! `compute_epipolar_overlay` is invoked once per click in the epipolar
 //! workspace; re-reading and re-parsing the export JSON on every call
-//! would be wasteful. We hold the most recent `(path, json)` pair in a
+//! would be wasteful. We hold the most recent export JSON in a
 //! `tauri::State<ExportCache>` singleton, populated by `load_export` and
 //! invalidated when a new export is loaded.
 
@@ -13,11 +13,6 @@ use std::sync::Mutex;
 /// cam_se3_rig, …) without committing the cache to a particular shape.
 #[derive(Debug, Clone)]
 pub struct CachedExport {
-    /// Absolute path the export was loaded from. Kept around so future
-    /// commands can disambiguate stale caches after a reload — read by
-    /// debug logs but not yet by command code.
-    #[allow(dead_code)]
-    pub path: String,
     /// Parsed export JSON.
     pub value: serde_json::Value,
 }
@@ -34,9 +29,9 @@ impl ExportCache {
     }
 
     /// Replace the cached export.
-    pub fn set(&self, path: String, value: serde_json::Value) {
+    pub fn set(&self, value: serde_json::Value) {
         let mut guard = self.inner.lock().expect("export cache mutex poisoned");
-        *guard = Some(CachedExport { path, value });
+        *guard = Some(CachedExport { value });
     }
 
     /// Run `f` against the cached export under the lock. Returns `None`

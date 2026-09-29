@@ -1,24 +1,18 @@
-//! C5 dense-matching benchmark harness (ADR 0015, amended 2026-06-21).
+//! Dense-matching benchmark harness (ADR 0015).
 //!
-//! This module defines the **infrastructure** for benchmarking dense stereo
-//! matchers: image buffers, a disparity map type, the [`DenseMatcher`] trait,
-//! synthetic rectified ground-truth fixtures, and error metrics.  It does
-//! **not** contain any real matching algorithm.
+//! Infrastructure for benchmarking dense stereo matchers: image buffers, a
+//! disparity map type, the [`DenseMatcher`] trait, synthetic rectified
+//! ground-truth fixtures, and error metrics.
 //!
-//! # Architecture
+//! # Matchers
 //!
-//! Two concrete implementations will eventually plug in here:
+//! * [`BlockMatcher`] adapts the pure-Rust `vision_mvg::dense` matcher.
+//! * [`OracleMatcher`] returns the ground truth, to validate the metrics.
+//! * An OpenCV SGBM baseline can implement [`DenseMatcher`] outside this crate,
+//!   in an environment with OpenCV installed.
 //!
-//! * **OpenCV SGBM baseline** — lives outside this crate, in a separate binary
-//!   or feature-gated crate, because it requires a local OpenCV install.  It
-//!   implements [`DenseMatcher`] and is scored by [`evaluate`].
-//! * **Pure-Rust matcher** — the ultimate goal; will live inside
-//!   this workspace and implement the same trait.
-//!
-//! Both are scored against [`synthetic_rectified_pair`] (analytic ground
-//! truth) and, later, against real stereo pairs whose ground-truth depth comes
-//! from the calibrated target plane produced by Scheimpflug
-//! rectification.
+//! All are scored by [`evaluate`] against [`synthetic_rectified_pair`]
+//! (analytic ground truth).
 //!
 //! # Reproducibility
 //!
@@ -723,7 +717,7 @@ mod tests {
     // Pure-Rust block matcher, scored through the harness
     // -----------------------------------------------------------------------
 
-    /// The C5 matcher run through the full harness (synthetic GT + `evaluate`)
+    /// The block matcher run through the full harness (synthetic GT + `evaluate`)
     /// must recover the slanted plane densely and accurately. This is the
     /// quantitative gate that mirrors what the visual `dense_synth` example
     /// renders.

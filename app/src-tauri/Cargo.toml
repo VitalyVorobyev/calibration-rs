@@ -9,7 +9,7 @@ edition = "2024"
 rust-version = "1.93"
 publish = false
 # Disambiguates the app binary from the secondary `emit_schemas` bin
-# target (B-QUAL2) for tools that pick "the" binary without honoring
+# target for tools that pick "the" binary without honoring
 # `required-features` — see `tauri.conf.json`'s `mainBinaryName`.
 default-run = "calibration-diagnose"
 
@@ -17,13 +17,13 @@ default-run = "calibration-diagnose"
 # (`/Cargo.toml`) — Tauri's tauri-build pulls in a substantial build-time
 # dep tree that we do not want polluting `cargo build --workspace` for
 # the calibration library itself. Build it from inside `app/` (or via
-# `npm run tauri dev`), not from the repo root.
+# `bun run tauri dev`), not from the repo root.
 
 [lib]
 name = "calibration_diagnose_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
-# JSON Schema emitter (B-QUAL2). No `required-features` gate — Tauri's
+# JSON Schema emitter. No `required-features` gate — Tauri's
 # release bundler copies every declared `[[bin]]` target unconditionally and
 # errors if one is missing, so this must always produce *a* binary. The gate
 # lives inside `emit_schemas.rs` instead: without `--features schema-export`
@@ -67,7 +67,7 @@ toml = "0.8"
 # `cargo tauri build`. `tauri dev` enables what it needs from the CLI.
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-# JSON Schema emission (B-QUAL2): derive `JsonSchema` on the Tauri
+# JSON Schema emission: derive `JsonSchema` on the Tauri
 # command payload/response types and forward the facade's `schemars`
 # feature so the `*Export` types are schema-able too.
 schema-export = ["dep:schemars", "vision-calibration/schemars"]

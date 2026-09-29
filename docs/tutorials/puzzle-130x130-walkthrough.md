@@ -140,11 +140,6 @@ for (i, h) in pf.target_hist_per_camera.as_ref().unwrap().iter().enumerate() {
 `stage3_export.per_feature_residuals` extends this with `laser` records
 giving per-pixel point-to-plane and pixel-to-projected-line distances.
 
-The puzzle viewer in
-[`puzzle_130x130_rig/viewer.rs`](../../crates/vision-calibration-examples-private/examples/puzzle_130x130_rig/viewer.rs)
-predates the `per_feature_residuals` schema — it builds the same shape
-inline. A planned follow-up swaps it to consume the export field directly.
-
 ## Pixel → gripper mapping
 
 The example demonstrates `rig_laserline_device::pixel_to_gripper_point`,

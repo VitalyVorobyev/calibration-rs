@@ -361,7 +361,7 @@ fn run_distortion_sweep(spec: &DeviceSpec, per_cam_views: &[Vec<View<NoMeta>>], 
         DistortionKind::Division1,
     ];
     println!(
-        "\n── Q4 distortion-model sweep (mean reprojection px; informational, does NOT affect gate) ──"
+        "\n── distortion-model sweep (mean reprojection px; informational, does NOT affect gate) ──"
     );
     print!("  {:<13} |", "model");
     for c in 0..NUM_CAMERAS {

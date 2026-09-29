@@ -4,8 +4,15 @@
 //! - Single-camera intrinsics calibration (Zhang's method with distortion)
 //! - Single-camera intrinsics calibration with Scheimpflug tilt
 //! - Single-camera hand-eye calibration (camera on robot arm)
+//! - Laserline device calibration (camera + laser plane)
 //! - Multi-camera rig extrinsics calibration
 //! - Multi-camera rig + hand-eye calibration
+//! - Rig laserline device calibration (frozen rig hand-eye as input)
+//! - Joint rig + hand-eye + laserline calibration
+//!
+//! Alongside the workflows it exposes dataset manifests ([`dataset`]), target
+//! detection ([`detect`]), two-view geometry ([`geometry`]) and N-view MVG
+//! ([`mvg`]).
 //!
 //! # Quick Start
 //!
@@ -43,6 +50,15 @@
 //! - [`rig_handeye`] - Multi-camera rig + hand-eye
 //! - [`laserline_device`] - Single camera + laser plane device
 //! - [`scheimpflug_intrinsics`] - Single-camera planar intrinsics with Scheimpflug tilt
+//! - [`rig_laserline_device`] - Multi-camera rig + laser plane device
+//! - [`rig_handeye_laserline`] - Joint rig + hand-eye + laser plane calibration
+//!
+//! ## Data, Detection and Geometry
+//!
+//! - [`dataset`] / [`dataset_runner`] - Dataset manifests and manifest-driven runs
+//! - [`detect`] - Calibration-target detection
+//! - [`geometry`] - Two-view solvers (homography, epipolar, triangulation)
+//! - [`mvg`] - N-view MVG (bundle adjustment, rectification, dense stereo)
 //!
 //! ## Foundation Crates (Advanced Users)
 //!
@@ -74,6 +90,8 @@
 //! | [`RigHandeyeProblem`](rig_handeye) | `RigHandeyeInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` → `step_handeye_init` → `step_handeye_optimize` |
 //! | [`LaserlineDeviceProblem`](laserline_device) | `LaserlineDeviceInput` | `step_init` → `step_optimize` |
 //! | [`ScheimpflugIntrinsicsProblem`](scheimpflug_intrinsics) | `PlanarDataset` | `step_init` → `step_optimize` |
+//! | [`RigLaserlineDeviceProblem`](rig_laserline_device) | `RigLaserlineDeviceInput` | `step_init` → `step_optimize` |
+//! | [`RigHandeyeLaserlineProblem`](rig_handeye_laserline) | `RigHandeyeLaserlineInput` | `run_calibration` (joint solve) |
 
 #![deny(missing_docs)]
 
@@ -91,7 +109,7 @@ pub mod scheimpflug_intrinsics {
         ScheimpflugFixMask,
         ScheimpflugIntrinsicsConfig,
         ScheimpflugIntrinsicsExport,
-        // Typed step results (Phase 1c of 0.5.0 API revision)
+        // Typed step results
         ScheimpflugIntrinsicsInitResult,
         ScheimpflugIntrinsicsInput,
         ScheimpflugIntrinsicsOptimizeResult,
@@ -211,7 +229,7 @@ pub mod planar_intrinsics {
         FilterOptions,
         IntrinsicsInitOptions,
         IntrinsicsOptimizeOptions,
-        // Typed step results (Phase 1a of 0.5.0 API revision)
+        // Typed step results
         PlanarInitResult,
         // Problem type and config
         PlanarIntrinsicsConfig,
@@ -271,7 +289,7 @@ pub mod single_cam_handeye {
         IntrinsicsOptimizeOptions,
         SingleCamHandeyeConfig,
         SingleCamHandeyeExport,
-        // Typed step results (Phase 1a of 0.5.0 API revision)
+        // Typed step results
         SingleCamHandeyeInitResult,
         SingleCamHandeyeInput,
         // Manual init seeds (ADR 0011)
@@ -321,7 +339,7 @@ pub mod laserline_device {
         DeviceOptimizeOptions,
         LaserlineDeviceConfig,
         LaserlineDeviceExport,
-        // Typed step results (Phase 1c of 0.5.0 API revision)
+        // Typed step results
         LaserlineDeviceInitResult,
         LaserlineDeviceInput,
         LaserlineDeviceManualInit,
@@ -374,10 +392,10 @@ pub mod rig_extrinsics {
         RigExtrinsicsInput,
         // Manual init seeds (ADR 0011)
         RigExtrinsicsManualInit,
-        // Output (pinhole or Scheimpflug variant; A6 unified rig family)
+        // Output (pinhole or Scheimpflug variant)
         RigExtrinsicsOutput,
         RigExtrinsicsProblem,
-        // Typed step results (Phase 1a of 0.5.0 API revision)
+        // Typed step results
         RigInitResult,
         RigIntrinsicsInitAllResult,
         RigIntrinsicsManualInit,
@@ -435,7 +453,7 @@ pub mod rig_handeye {
         IntrinsicsOptimizeOptions,
         RigHandeyeConfig,
         RigHandeyeExport,
-        // Typed step results (Phase 1a of 0.5.0 API revision)
+        // Typed step results
         RigHandeyeHandeyeInitResult,
         // Manual init seeds (ADR 0011)
         RigHandeyeHandeyeManualInit,
@@ -444,7 +462,7 @@ pub mod rig_handeye {
         RigHandeyeIntrinsicsInitAllResult,
         RigHandeyeIntrinsicsManualInit,
         RigHandeyeIntrinsicsOptimizeAllResult,
-        // Output (pinhole or Scheimpflug variant; A6 unified rig family)
+        // Output (pinhole or Scheimpflug variant)
         RigHandeyeOutput,
         RigHandeyeProblem,
         RigHandeyeRigInitResult,
@@ -474,10 +492,10 @@ pub mod rig_handeye {
 /// plane in the rig frame.
 pub mod rig_laserline_device {
     pub use vision_calibration_pipeline::rig_laserline_device::{
-        RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
-        RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem, RigUpstreamCalibration,
-        StepOptions, pixel_to_gripper_point, run_calibration, step_init, step_init_with_seed,
-        step_optimize,
+        RigLaserlineDataset, RigLaserlineDeviceConfig, RigLaserlineDeviceExport,
+        RigLaserlineDeviceInput, RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem,
+        RigLaserlineView, RigUpstreamCalibration, StepOptions, pixel_to_gripper_point,
+        run_calibration, step_init, step_init_with_seed, step_optimize,
     };
 }
 
@@ -486,7 +504,7 @@ pub mod rig_handeye_laserline {
     pub use vision_calibration_pipeline::rig_handeye_laserline::{
         RigHandeyeLaserlineBaConfig, RigHandeyeLaserlineConfig, RigHandeyeLaserlineExport,
         RigHandeyeLaserlineInput, RigHandeyeLaserlineOutput, RigHandeyeLaserlineProblem,
-        run_calibration,
+        RigHandeyeLaserlineView, RigLaserlineView, RobotPoseMeta, run_calibration,
     };
 }
 
@@ -727,3 +745,7 @@ pub mod analysis {
         handeye_observer_se3_target,
     };
 }
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

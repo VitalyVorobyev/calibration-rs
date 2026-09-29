@@ -129,11 +129,9 @@ impl Default for RigHandeyeLaserlineConfig {
 
 /// Final joint BA options (ADR 0024).
 ///
-/// 0.7.0 removed `fix_first_camera_extrinsic: bool`: the joint stage now always
-/// pins the upstream rig's reference camera (`handeye.rig.reference_camera_idx`)
-/// — see `joint_fix_extrinsics`, fixing the old index-0 hard-coding bug.
-/// `JointCameraFixMask` (structurally identical to core's [`CameraFixMask`])
-/// is deleted in favor of the core type directly.
+/// The joint stage always pins the upstream rig's reference camera
+/// (`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Camera
+/// fixing uses core's [`CameraFixMask`] directly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -143,8 +141,8 @@ pub struct RigHandeyeLaserlineBaConfig {
     ///
     /// `robust_loss` is **not consulted** by this problem: laser-carrying
     /// stages track calibration and laser residuals as independent families
-    /// with their own robust losses (`calib_loss`, `laser_loss` — ADR 0024
-    /// D3). Only `max_iters`/`verbosity` apply here.
+    /// with their own robust losses (`calib_loss`, `laser_loss` — ADR 0024).
+    /// Only `max_iters`/`verbosity` apply here.
     pub solver: SolverConfig,
     /// Which laser residual drives the joint solve.
     pub laser_residual_type: LaserlineResidualType,

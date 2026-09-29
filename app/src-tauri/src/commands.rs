@@ -57,16 +57,15 @@ pub async fn load_export(path: String) -> Result<LoadExportResult, String> {
 ///
 /// Called by the frontend after [`load_export`] returned and the
 /// frontend's validation (image_manifest required, frames non-empty,
-/// …) passed. Writes `path` + the parsed `export` into the
+/// …) passed. Writes the parsed `export` into the
 /// [`ExportCache`] so subsequent math commands operate on exactly the
 /// dataset the user is looking at.
 #[tauri::command]
 pub async fn set_active_export(
-    path: String,
     export: serde_json::Value,
     cache: State<'_, ExportCache>,
 ) -> Result<(), String> {
-    cache.set(path, export);
+    cache.set(export);
     Ok(())
 }
 

@@ -12,17 +12,14 @@ are datasheet/drawing values the device owner already has. But as shipped,
 those seeds are hand-coded constants and env knobs scattered across the
 private examples (`RTV3D_REF_FOCAL`, `RTV3D_RINGGRID_FOCAL`,
 `RTV3D_RINGGRID_TILT_X`, `NOMINAL_TILT_X`, `RTV3D_SEED=generic|oracle`).
-Every new dataset re-invents its own seeding, the ringgrid rig needed an
-env-var *sweep* to find a focal the spec should have provided, and the
-acceptance harness (S4) has no structured way to ask "what does the device
+Every new dataset would re-invent its own seeding, and the
+acceptance harness has no structured way to ask "what does the device
 spec say?".
 
-Track S introduces a structured **device-spec → seed** layer: a sidecar
+This ADR introduces a structured **device-spec → seed** layer: a sidecar
 `spec.json` next to each dataset manifest describing the *hardware* (not the
 data), plus derivation functions producing the existing ADR 0011 manual-init
-structs. Note the manual-init surface has moved since ADR 0011 was written:
-the `RigScheimpflug*` problem types were collapsed by ADR 0013 — the rig
-targets today are `RigExtrinsics`/`RigHandeye` with
+structs. The rig targets (ADR 0013 collapsed the `RigScheimpflug*` problem types) are `RigExtrinsics`/`RigHandeye` with
 `SensorMode::Scheimpflug`, seeded through `RigHandeyeIntrinsicsManualInit`
 (`per_cam_intrinsics`/`per_cam_sensors`), `RigHandeyeRigManualInit`, and
 `RigHandeyeHandeyeManualInit`.
@@ -91,7 +88,7 @@ functions map spec → existing manual-init types and return typed
 - `nominal_cam_se3_rig(spec, camera_ids) -> Vec<Iso3>` — deliberately *not* a
   `RigHandeyeRigManualInit`: ADR 0011 couples `cam_se3_rig` with per-view
   `rig_se3_target` (both-or-neither), and target poses are data-dependent.
-  S3 combines these nominals with per-view estimates.
+  Callers combine these nominals with per-view estimates.
 - `handeye_seed(spec) -> RigHandeyeHandeyeManualInit` — the mode-tagged mount
   maps onto the mode-dependent `handeye` field; `mode_target_pose` stays
   `None`.
@@ -110,21 +107,20 @@ consume it facade-only.
   a typed error.
 - **`sensor_size_mm` field** — derivable (`pitch × resolution`), would create
   a second source of truth.
-- **Metric-anchor field now** — reserved for Q5 (known target dimension /
-  baseline prior pins the rtv3d absolute scale); added when it has a consumer.
+- **Metric-anchor field now** — deferred (a known target dimension /
+  baseline prior would pin absolute scale); added when it has a consumer.
 - **Multiple pose representations (quaternion variant)** — one representation
   suffices for nominal mounts; additive schema change if ever needed.
 
 ## Consequences
 
-- S2 replaces the hand-coded constants in `rtv3d_ref_intrinsics` /
-  `rtv3d_ringgrid_intrinsics` with `spec.json` loading; the
-  `RTV3D_*_FOCAL`/`TILT` env knobs (including the ringgrid focal sweep) are
-  deleted. Gate unchanged: all cameras ≤ 0.5 px, now with zero env vars.
-- S3 wires `nominal_cam_se3_rig` + `handeye_seed` into the rig examples; S4's
-  acceptance registry references spec files per dataset.
-- Q6's convergence-basin study quantifies how much spec error the seeded
-  route tolerates, closing the loop on "datasheet-grade nominals are enough".
+- The private intrinsics examples load `spec.json` instead of hand-coded
+  constants or env knobs; the gate is unchanged (all cameras ≤ 0.5 px).
+- The rig examples use `nominal_cam_se3_rig` + `handeye_seed`; the acceptance
+  registry references a spec file per dataset.
+- The convergence-basin study (ADR 0022,
+  `docs/notes/scheimpflug-intrinsics.md`) quantifies how much spec error the
+  seeded route tolerates: datasheet-grade nominals are enough.
 - Schema evolution is versioned and additive-first; breaking revisions bump
   `version` and are release events for the dataset crate.
 

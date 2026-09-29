@@ -203,7 +203,7 @@ synthetic distance bounds above.
   per-feature residuals zero on perfect data, pose-count guards);
   `optim::factors::laserline` (rig-chain residual = single-pose composition).
 - **Acceptance gates**: `calib-bench accept` on the `rtv3d` laser entries
-  (laser residual gated at the mm scale above); Q2 committed Fit records add
+  (laser residual gated at the mm scale above); committed Fit records add
   drift gates.
 - **Related**: ADR 0021 (laser-frame manifest, injected `LaserPixelExtractor`,
   per-view laser images), ADR 0012 (per-feature laser residuals on export),

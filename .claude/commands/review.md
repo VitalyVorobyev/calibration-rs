@@ -10,17 +10,12 @@ Task ID or description of what to review: $ARGUMENTS
 
 1. **Inspect changes**: Run `git diff` to see all uncommitted changes. If reviewing a recent commit, use `git show HEAD`.
 
-2. **Check against spec**: If a task ID is given, read the spec from `docs/backlog.md` or the task report. Verify each acceptance criterion.
+2. **Check against spec**: If a task ID is given, read the spec from `docs/backlog.md`. Verify each acceptance criterion.
 
 3. **Quality checks**:
 
-   a. **Gates** — run and report results:
-   ```
-   cargo fmt --all -- --check
-   cargo clippy --workspace --all-targets --all-features -- -D warnings
-   cargo test --workspace --all-features
-   cargo doc --workspace --no-deps 2>&1 | grep -E "warning|error" | head -20
-   ```
+   a. **Gates** — run the canonical gates from AGENTS.md §3 (plus §12 for
+      `app/` changes) and report results.
 
    b. **API design**:
    - Are public type/function names consistent with existing patterns?

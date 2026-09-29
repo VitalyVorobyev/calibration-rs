@@ -68,7 +68,7 @@
           "description": "Corner detector. `None` keeps ChESS."
         },
         "threshold_value": {
-          "description": "Acceptance threshold on the corner response. `None` keeps the\nstrategy's default.\n\nUnder ChESS it is an absolute floor on the raw response: a corner is\nkept when its response exceeds it. Under Radon it is a fraction in\n`(0, 1]` of the frame's maximum response.\n\nManifests written before 0.8.0 may carry a sibling `threshold_mode`\nkey; drop it — `deny_unknown_fields` rejects it, and the ChESS\n`\"relative\"` mode it selected no longer exists in the upstream corner\ndetector.",
+          "description": "Acceptance threshold on the corner response. `None` keeps the\nstrategy's default.\n\nUnder ChESS it is an absolute floor on the raw response: a corner is\nkept when its response exceeds it. Under Radon it is a fraction in\n`(0, 1]` of the frame's maximum response.\n\nA sibling `threshold_mode` key is rejected by `deny_unknown_fields`:\nthe corner detector has no threshold mode.",
           "format": "float",
           "type": [
             "number",
@@ -675,7 +675,7 @@
   "description": "Top-level dataset manifest. Authoritative description of where\nthe user's calibration data lives and how to interpret it.",
   "properties": {
     "_unresolved": {
-      "description": "Field paths the AI manifest generator could not determine.\nValidated to be empty before the runner accepts the manifest.\nPopulated as e.g. `[\"pose_convention.transform\"]`.",
+      "description": "Field paths the manifest generator could not determine.\nValidated to be empty before the runner accepts the manifest.\nPopulated as e.g. `[\"pose_convention.transform\"]`.",
       "items": {
         "type": "string"
       },

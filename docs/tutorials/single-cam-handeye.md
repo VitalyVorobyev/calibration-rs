@@ -139,7 +139,7 @@ Brown-Conrady distortion); `export.per_feature_residuals` carries
 per-corner reprojection records (see
 [Per-feature residuals](./per-feature-residuals.md)).
 
-## Config shape (post-ADR-0024)
+## Config shape
 
 `SingleCamHandeyeConfig` groups four shared sub-structs from
 `vision_calibration::common::config`:

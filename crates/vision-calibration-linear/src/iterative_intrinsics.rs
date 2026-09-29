@@ -251,7 +251,7 @@ const MIN_VALID_VIEWS: usize = 3;
 /// Build per-view homographies, **skipping** views whose DLT is singular /
 /// degenerate, and return `(view_index, homography)` pairs so callers can keep
 /// views and homographies aligned. Errors only if fewer than [`MIN_VALID_VIEWS`]
-/// survive — so one bad view in a dense capture no longer fails the camera.
+/// survive — so one bad view in a dense capture does not fail the camera.
 fn valid_view_homographies<F, E>(n_views: usize, mut dlt: F) -> Result<Vec<(usize, Mat3)>, Error>
 where
     F: FnMut(usize) -> Result<Mat3, E>,

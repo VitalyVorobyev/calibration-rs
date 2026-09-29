@@ -2,16 +2,27 @@
 
 Python bindings for `calibration-rs`.
 
-This crate exposes high-level calibration workflows from `vision-calibration`:
+This crate exposes the high-level calibration workflows from `vision-calibration`
+as typed Python runners:
 
-- planar intrinsics
-- single-camera hand-eye
-- rig extrinsics
-- rig hand-eye
-- laserline device
-- scheimpflug intrinsics
+| Runner | Workflow |
+|---|---|
+| `run_planar_intrinsics` | Planar intrinsics |
+| `run_scheimpflug_intrinsics` | Planar intrinsics with Scheimpflug tilt |
+| `run_single_cam_handeye` | Single-camera hand-eye |
+| `run_laserline_device` | Camera + laser plane |
+| `run_rig_extrinsics` | Multi-camera rig extrinsics |
+| `run_rig_handeye` | Rig + hand-eye |
+| `run_rig_laserline_device` | Rig laser plane (frozen rig hand-eye input) |
+| `run_rig_handeye_laserline` | Joint rig + hand-eye + laser plane |
 
-## Build locally
+## Install
+
+```bash
+pip install vision-calibration
+```
+
+To build from source instead:
 
 ```bash
 maturin develop -m crates/vision-calibration-py/Cargo.toml
@@ -58,77 +69,16 @@ result = vc.run_scheimpflug_intrinsics(dataset, config)
 print(result.camera.sensor)
 ```
 
-## Migration: hard break to typed high-level API
-
-High-level runner functions now require typed dataset/config objects.
-Raw mapping/list payloads are no longer accepted by:
-
-- `run_planar_intrinsics`
-- `run_scheimpflug_intrinsics`
-- `run_single_cam_handeye`
-- `run_rig_extrinsics`
-- `run_rig_handeye`
-- `run_laserline_device`
-
-Before (no longer supported):
-
-```python
-import vision_calibration as vc
-
-result = vc.run_scheimpflug_intrinsics(
-    {"views": [...]},
-    {"max_iters": 80},
-)
-```
-
-After (typed high-level API):
-
-```python
-import vision_calibration as vc
-
-dataset = vc.PlanarDataset(views=[...])
-config = vc.ScheimpflugIntrinsicsCalibrationConfig(max_iters=80)
-result = vc.run_scheimpflug_intrinsics(dataset, config)
-```
-
-If you still need raw serde payload control for migration/interop, use low-level
-helpers from `vision_calibration._api` (for example
-`_run_scheimpflug_intrinsics_raw`).
-
 ## Runnable Python examples
 
-Python workflow examples live in `crates/vision-calibration-py/examples/` and
-mirror the Rust examples from `crates/vision-calibration/examples/`.
-
-Install detector dependencies for real-image examples:
-
-```bash
-./.venv/bin/python -m pip install "vision-calibration[examples]"
-```
-
-Run all:
+Workflow examples live in `crates/vision-calibration-py/examples/` and mirror the
+Rust examples in `crates/vision-calibration/examples/`. The real-image examples
+need the detector extras (`pip install "vision-calibration[examples]"`) and the
+datasets under `data/` in the repository.
 
 ```bash
-for f in crates/vision-calibration-py/examples/*.py; do ./.venv/bin/python "$f"; done
+for f in crates/vision-calibration-py/examples/*.py; do python "$f"; done
 ```
 
-Run individual examples:
-
-```bash
-./.venv/bin/python crates/vision-calibration-py/examples/planar_synthetic.py
-./.venv/bin/python crates/vision-calibration-py/examples/planar_real.py
-./.venv/bin/python crates/vision-calibration-py/examples/stereo_session.py
-./.venv/bin/python crates/vision-calibration-py/examples/stereo_charuco_session.py
-./.venv/bin/python crates/vision-calibration-py/examples/handeye_synthetic.py
-./.venv/bin/python crates/vision-calibration-py/examples/handeye_session.py
-./.venv/bin/python crates/vision-calibration-py/examples/rig_handeye_synthetic.py
-./.venv/bin/python crates/vision-calibration-py/examples/laserline_device_session.py
-```
-
-Notes:
-
-- `planar_real.py`, `stereo_session.py`, `stereo_charuco_session.py`, and
-  `handeye_session.py` run detector-based corner extraction from real images
-  using `calib-targets`.
-- `vision_calibration.types` is low-level compatibility surface for advanced
-  interop only; prefer typed dataclasses/models for new code.
+`vision_calibration.types` is an advanced-interop surface for raw serde payloads;
+prefer the typed dataclasses/models for new code.

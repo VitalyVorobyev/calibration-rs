@@ -9,7 +9,7 @@ Area or goal: $ARGUMENTS
 ## Process
 
 1. **Read current state**:
-   - `docs/backlog.md` — current milestones and task status
+   - `docs/backlog.md` — open and parked tasks
    - `docs/adrs/` — active architecture decisions
    - `CLAUDE.md` — project conventions
    - Relevant source files for the area in question
@@ -23,7 +23,7 @@ Area or goal: $ARGUMENTS
 3. **Produce task specifications**. For each task, output:
 
 ```
-### Task: M<n>-T<nn> — <title>
+### Task: <TRACK>-<SHORT-NAME> — <title>
 
 **Scope**: What changes and why.
 
@@ -34,12 +34,12 @@ Area or goal: $ARGUMENTS
 - [ ] Criterion 1 (testable)
 - [ ] Criterion 2
 
-**Dependencies**: None | M<n>-T<nn>
+**Dependencies**: None | <task ID>
 
 **Risk/Notes**: Any design uncertainties or alternatives considered.
 ```
 
-4. **If proposing a new milestone**: Include milestone-level acceptance criteria and ADR links.
+4. **If proposing a new track**: include its acceptance criteria and ADR links.
 
 5. **If the area needs an ADR first**: Draft the ADR instead of tasks. ADRs go in `docs/adrs/` with the next available number.
 

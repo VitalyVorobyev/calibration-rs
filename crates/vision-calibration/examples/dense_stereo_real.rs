@@ -1,4 +1,4 @@
-//! Real-data evidence for the C5 pure-Rust dense matcher.
+//! Real-data evidence for the pure-Rust dense matcher.
 //!
 //! Runs the full pipeline on the committed `data/stereo` chessboard rig:
 //!
@@ -133,7 +133,7 @@ fn main() {
     save_disparity(&out_dir.join("disparity.png"), &disp, lo, hi);
     save_overlay(&out_dir.join("overlay.png"), &rect_left, &disp, lo, hi);
 
-    println!("C5 dense matcher — real chessboard rig evidence (data/stereo)");
+    println!("Dense matcher — real chessboard rig evidence (data/stereo)");
     println!("  source 1024x576 → matched {w}x{h} (downscale {DOWNSCALE}x)");
     println!(
         "  baseline {:.3} m, board depth {:.3} m, f_rect {:.1} px",

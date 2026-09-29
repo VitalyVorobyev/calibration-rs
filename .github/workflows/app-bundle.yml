@@ -81,15 +81,8 @@ jobs:
         working-directory: app
         run: bun install --frozen-lockfile
 
-      # DMG packaging shells out to `create-dmg`, which drives Finder via
-      # AppleScript to lay out the volume window/icons. That can fail with
-      # "AppleEvent timed out" in environments without an interactive Aqua
-      # session (observed locally in a sandboxed shell during development).
-      # `macos-latest` hosted runners have historically built Tauri DMGs
-      # fine, but if this step ever goes red with that error, the fix is to
-      # drop `dmg` from `bundle.targets` in `tauri.conf.json` (or matrix it)
-      # and ship the `.app` (optionally zipped) instead — Tauri's DMG config
-      # has no flag to skip the AppleScript styling step.
+      # If DMG packaging fails with "AppleEvent timed out" (create-dmg needs an
+      # Aqua session), drop `dmg` from `bundle.targets` in `tauri.conf.json`.
       - name: Build bundles
         working-directory: app
         run: bun run tauri build

@@ -1,8 +1,9 @@
 //! Canonical input-data manifest for calibration-rs.
 //!
 //! [`DatasetSpec`] is the single on-disk wire format the user authors —
-//! either by hand or via AI heuristics that inspect a foreign dataset —
-//! describing where images, robot poses, and target metadata live. The
+//! either by hand or starting from the skeleton [`sniff_folder`] infers from a
+//! dataset's folder layout — describing where images, robot poses, and target
+//! metadata live. The
 //! manifest is _descriptive_, never prescriptive: data stays where the
 //! user put it and the manifest just points at it.
 //!
@@ -12,11 +13,10 @@
 //!
 //! # Tiered fields
 //!
-//! Every field is tagged either `infer_from_data` (an AI manifest
-//! generator is expected to populate it from filenames / folder
-//! structure / sample data) or `human_or_doc_required` (the AI is
-//! forbidden from guessing — it must read documentation or ask the
-//! user). When inference fails, the field is left `null` and the
+//! Every field is tagged either `infer_from_data` (a manifest generator such
+//! as [`sniff_folder`] may populate it from filenames / folder structure) or
+//! `human_or_doc_required` (never guessed — it must come from documentation
+//! or the user). When inference fails, the field is left `null` and the
 //! field path is recorded in [`DatasetSpec::unresolved`]; the runner
 //! refuses to proceed until that list is empty.
 //!
@@ -44,3 +44,7 @@ pub use spec::{
     TranslationUnits,
 };
 pub use validator::{ValidationError, validate};
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

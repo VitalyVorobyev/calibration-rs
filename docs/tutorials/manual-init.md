@@ -1,6 +1,5 @@
 # Manual initialization (warm-start)
 
-> Onboarding tutorial for [ADR 0011](../adrs/0011-manual-initialization-workflow.md).
 > Runnable companion: [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs).
 
 ## Why

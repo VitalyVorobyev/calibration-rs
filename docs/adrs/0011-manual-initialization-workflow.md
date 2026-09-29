@@ -86,9 +86,9 @@ For `LaserlineDevice`, the sensor model is a hardware property (not a calibrated
 always taken from `session.config.init.sensor_init` regardless of manual init. The corresponding
 `LaserlineDeviceManualInit` struct intentionally omits a `sensor` field.
 
-## Implementation status (2026-04-29)
+## Implementation status
 
-All nine problem types support manual init. Per-problem types and their step_set_* functions:
+All problem types support manual init. Per-problem types and their step_set_* functions:
 
 | Problem type                  | ManualInit type(s)                                                 |
 |-------------------------------|---------------------------------------------------------------------|
@@ -98,13 +98,8 @@ All nine problem types support manual init. Per-problem types and their step_set
 | `SingleCamHandeye`            | `SingleCamIntrinsicsManualInit` + `SingleCamHandeyeManualInit`      |
 | `RigExtrinsics`               | `RigIntrinsicsManualInit` + `RigExtrinsicsManualInit`               |
 | `RigHandeye`                  | `RigHandeyeIntrinsicsManualInit` + `RigHandeyeRigManualInit` + `RigHandeyeHandeyeManualInit` |
-| `RigScheimpflugExtrinsics`    | `RigScheimpflugIntrinsicsManualInit` + `RigScheimpflugExtrinsicsRigManualInit` |
-| `RigScheimpflugHandeye`       | `RigScheimpflugHandeyeIntrinsicsManualInit` + `RigScheimpflugHandeyeRigManualInit` + `RigScheimpflugHandeyeHandeyeManualInit` |
 | `RigLaserlineDevice`          | `RigLaserlineDeviceManualInit` (planes only)                        |
 
-The `RigScheimpflugHandeye` intrinsics stage internally delegates to the existing
-`step_intrinsics_init_all` with `manual` seeds temporarily injected into
-`config.intrinsics.initial_cameras` / `initial_sensors` (preserving Zhang+fallback logic).
 `per_cam_distortion` only takes effect when `per_cam_intrinsics` is also seeded for that problem
 type.
 

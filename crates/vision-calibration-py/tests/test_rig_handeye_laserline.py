@@ -1,4 +1,4 @@
-"""Runtime test for the R5 ``run_rig_handeye_laserline`` binding.
+"""Runtime test for the ``run_rig_handeye_laserline`` binding.
 
 The synthetic rig mirrors the Rust ``setup_synthetic_rig`` fixture in
 ``vision-calibration-optim`` (two cameras fixed in the robot base, a target

@@ -8,23 +8,24 @@ design separates problem definition from solver implementation using an intermed
 
 ## Features
 
-- ✅ **Automatic differentiation support** (factors are `RealField`-generic)
-- ✅ **Backend-agnostic IR** (`ir::ProblemIR`) with robust losses and manifolds
-- ✅ **Levenberg–Marquardt backend** (tiny-solver) with sparse linear solvers
-- ✅ **Built-in problems**
-  - `planar_intrinsics`: pinhole intrinsics + Brown-Conrady5 + per-view poses
-  - `rig_extrinsics`: multi-camera rig BA (supports missing observations)
-  - `handeye`: multi-camera rig + robot hand-eye BA (EyeInHand / EyeToHand) with optional robot pose refinement
-  - `laserline_bundle`: laserline bundle refinement
-- ✅ **Structured parameter fixing** via `IntrinsicsFixMask` / `DistortionFixMask` / `CameraFixMask` (+ per-camera overrides)
-- ✅ **Robust loss functions** (`None`, `Huber`, `Cauchy`, `Arctan`)
-- ✅ **Manifold-aware optimization** for SE(3) parameters
+- **Automatic differentiation**: factors are generic over `RealField`
+- **Backend-agnostic IR** (`ir::ProblemIR`) with robust losses and manifolds
+- **Levenberg–Marquardt backend** (tiny-solver) with sparse linear solvers
+- **Built-in problems** (`problems::*`):
+  - `planar_intrinsics`, `scheimpflug_intrinsics`: single-camera intrinsics + per-view poses
+  - `rig_extrinsics`, `rig_extrinsics_scheimpflug`: multi-camera rig bundle adjustment (supports missing observations)
+  - `handeye`, `handeye_scheimpflug`: rig + robot hand-eye (eye-in-hand / eye-to-hand) with optional robot pose refinement
+  - `laserline_bundle`, `laserline_rig_bundle`: laser plane refinement (single camera / rig)
+  - `rig_handeye_laserline_bundle`: joint rig + hand-eye + laser plane
+- **Structured parameter fixing** via `IntrinsicsFixMask` / `DistortionFixMask` / `CameraFixMask` (+ per-camera overrides)
+- **Robust loss functions** (`None`, `Huber`, `Cauchy`, `Arctan`)
+- **Manifold-aware optimization** for SE(3) parameters
 
 ## Architecture
 
 The optimization pipeline consists of three stages:
 
-```
+```text
 Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Domain Result
 ```
 
@@ -38,52 +39,55 @@ Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Doma
 - **`params`** - Parameter block definitions (intrinsics, distortion, poses)
 - **`factors`** - Residual functions with autodiff support
 - **`backend`** - Solver implementations (currently tiny-solver with Levenberg-Marquardt)
-- **`problems`** - High-level problem builders (planar intrinsics, rig extrinsics, hand-eye, laserline)
+- **`problems`** - High-level problem builders (intrinsics, rig extrinsics, hand-eye, laserline)
 
 ## Quick Start
 
 ### Planar Intrinsics Calibration
 
-```rust
-use vision_calibration_optim::planar_intrinsics::*;
-use vision_calibration_core::{BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, IntrinsicsFixMask};
-use vision_calibration_optim::ir::RobustLoss;
-use vision_calibration_optim::BackendSolveOptions;
-
-// 1. Prepare observations (world points + image detections)
-let views: Vec<CorrespondenceView> = Vec::new(); // fill from a detector
-let dataset = PlanarDataset::new(views)?;
-
-// 2. Initialize with linear method (from vision-calibration-linear crate)
-let init = PlanarIntrinsicsInit {
-    intrinsics: FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 },
-    distortion: BrownConrady5 { k1: 0.0, k2: 0.0, k3: 0.0, p1: 0.0, p2: 0.0, iters: 8 },
-    poses: Vec::new(), // initial poses from homographies
+```rust,no_run
+use vision_calibration_core::{
+    BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Iso3, PlanarDataset, Pt2,
+    Pt3, View,
+};
+use vision_calibration_optim::{
+    optimize_planar_intrinsics, BackendSolveOptions, PlanarIntrinsicsParams,
+    PlanarIntrinsicsSolveOptions, RobustLoss,
 };
 
-// 3. Configure optimization
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+// 1. Prepare observations (target points + image detections); fill from a detector.
+let view = View::without_meta(CorrespondenceView::new(
+    vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(1.0, 0.0, 0.0), Pt3::new(1.0, 1.0, 0.0), Pt3::new(0.0, 1.0, 0.0)],
+    vec![Pt2::new(100.0, 100.0), Pt2::new(200.0, 100.0), Pt2::new(200.0, 200.0), Pt2::new(100.0, 200.0)],
+)?);
+let dataset = PlanarDataset::new(vec![view])?;
+
+// 2. Initial parameters (from vision-calibration-linear or a prior calibration).
+let init = PlanarIntrinsicsParams::new_from_components(
+    FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 },
+    BrownConrady5 { k1: 0.0, k2: 0.0, k3: 0.0, p1: 0.0, p2: 0.0, iters: 8 },
+    vec![Iso3::identity()], // one pose per view
+)?;
+
+// 3. Configure the solve.
 let opts = PlanarIntrinsicsSolveOptions {
     robust_loss: RobustLoss::Huber { scale: 2.0 },
-    fix_intrinsics: IntrinsicsFixMask::default(),
-    fix_distortion: DistortionFixMask::default(), // k3 fixed by default
-    fix_poses: vec![0], // fix one pose for gauge freedom
+    fix_distortion: DistortionFixMask { k3: true, ..Default::default() },
     ..Default::default()
 };
 
-// 4. Run optimization
-let result = optimize_planar_intrinsics(dataset, init, opts, BackendSolveOptions::default())?;
-
-println!("Calibrated camera: {:?}", result.camera);
-println!("Final cost: {}", result.final_cost);
+// 4. Optimize.
+let result = optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default())?;
+println!("Calibrated camera: {:?}", result.params.camera);
+# Ok(())
+# }
 ```
 
 ### Other Built-In Problems
 
-- Rig extrinsics (multi-camera BA): `vision_calibration_optim::problems::rig_extrinsics`
-- Hand-eye (rig + robot BA): `vision_calibration_optim::handeye`
-- Laserline bundle refinement: `vision_calibration_optim::problems::laserline_bundle`
-
-For end-to-end examples, see the integration tests linked below.
+Each lives in `vision_calibration_optim::problems::<name>` (see the feature list
+above); the integration tests listed under [Examples](#examples) show end-to-end use.
 
 ## Parameter Fixing
 
@@ -91,7 +95,7 @@ Selectively fix parameters during optimization:
 
 ```rust
 use vision_calibration_core::{DistortionFixMask, IntrinsicsFixMask};
-use vision_calibration_optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
+use vision_calibration_optim::PlanarIntrinsicsSolveOptions;
 
 let opts = PlanarIntrinsicsSolveOptions {
     // Fix intrinsics, optimize only distortion
@@ -113,8 +117,8 @@ let opts = PlanarIntrinsicsSolveOptions {
 Handle outliers with M-estimators:
 
 ```rust
-use vision_calibration_optim::ir::RobustLoss;
-use vision_calibration_optim::planar_intrinsics::PlanarIntrinsicsSolveOptions;
+use vision_calibration_optim::RobustLoss;
+use vision_calibration_optim::PlanarIntrinsicsSolveOptions;
 
 // Huber loss: L2 near zero, L1 for outliers
 let opts = PlanarIntrinsicsSolveOptions {
@@ -128,41 +132,6 @@ let opts = PlanarIntrinsicsSolveOptions {
     ..Default::default()
 };
 ```
-
-## Testing with Real Data
-
-The crate includes integration tests using both synthetic and real data:
-
-```bash
-# Run all tests including real data integration
-cargo test --package vision-calibration-optim
-
-# Run specific integration test
-cargo test --package vision-calibration-optim --test planar_intrinsics_real_data
-```
-
-Other useful tests:
-- `cargo test --package vision-calibration-optim --test rig_extrinsics`
-- `cargo test --package vision-calibration-optim --test handeye`
-- `cargo test --package vision-calibration-optim --test laserline_bundle`
-
-## Implementation Status
-
-| Feature | Status |
-|---------|--------|
-| Backend-agnostic IR | ✅ Complete |
-| tiny-solver backend (LM) | ✅ Complete |
-| Planar intrinsics problem | ✅ Complete |
-| Rig extrinsics problem | ✅ Complete |
-| Hand-eye problem | ✅ Complete |
-| Robot pose refinement (hand-eye) | ✅ Complete |
-| Laserline bundle problem | ✅ Complete |
-| Pinhole reprojection | ✅ Complete |
-| Brown-Conrady distortion | ✅ Complete (k1, k2, k3, p1, p2) |
-| Parameter fixing | ✅ Complete |
-| Robust loss functions | ✅ Complete |
-| Real data validation | ✅ Complete |
-| Ceres backend | ❌ Not implemented |
 
 ## Performance Tips
 
@@ -182,15 +151,15 @@ The implementation uses several techniques for robustness:
 
 ## Examples
 
-Integration tests with full examples:
-- [`tests/planar_intrinsics_real_data.rs`](tests/planar_intrinsics_real_data.rs)
+Integration tests with full end-to-end use (run with `cargo test -p vision-calibration-optim --test <name>`):
+- [`tests/planar_intrinsics.rs`](tests/planar_intrinsics.rs), [`tests/planar_intrinsics_real_data.rs`](tests/planar_intrinsics_real_data.rs)
 - [`tests/rig_extrinsics.rs`](tests/rig_extrinsics.rs)
 - [`tests/handeye.rs`](tests/handeye.rs)
-- [`tests/laserline_bundle.rs`](tests/laserline_bundle.rs)
+- [`tests/laserline_bundle.rs`](tests/laserline_bundle.rs), [`tests/rig_laserline.rs`](tests/rig_laserline.rs)
 
 ## See Also
 
-- [vision-calibration-core](../vision-calibration-core): Math types, camera models, RANSAC framework
-- [vision-calibration-linear](../vision-calibration-linear): Closed-form initialization solvers
-- [vision-calibration-pipeline](../vision-calibration-pipeline): High-level end-to-end calibration pipelines
-- [Book: Non-linear Optimization](../../book/src/nonlinear.md)
+- [vision-calibration-core](https://crates.io/crates/vision-calibration-core): Math types, camera models, RANSAC framework
+- [vision-calibration-linear](https://crates.io/crates/vision-calibration-linear): Closed-form initialization solvers
+- [vision-calibration-pipeline](https://crates.io/crates/vision-calibration-pipeline): High-level end-to-end calibration pipelines
+- [Book: Non-linear Optimization](https://vitalyvorobyev.github.io/calibration-rs/nlls_overview.html)

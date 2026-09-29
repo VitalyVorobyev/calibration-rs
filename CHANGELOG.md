@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The laser-rig workflows are usable from the facade alone.**
+  `rig_laserline_device` now re-exports `RigLaserlineDataset` and
+  `RigLaserlineView`, and `rig_handeye_laserline` re-exports
+  `RigHandeyeLaserlineView`, `RigLaserlineView` and `RobotPoseMeta`, so
+  their `*Input` types can be built without depending on
+  `vision-calibration-optim` directly.
 - **The dataset runner's chessboard detector keeps the whole board.** It
   bounded `calib-targets`' labels by `u < rows` and `v < cols`, but those
   labels run `u` across the image and `v` down it, so a board seen as its

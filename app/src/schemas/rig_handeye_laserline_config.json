@@ -320,7 +320,7 @@
     },
     "RigHandeyeConfig": {
       "additionalProperties": false,
-      "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\n0.7.0 removed the old `rig.fix_first_rig_pose: bool = true` field:\nthe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge, and the extra per-view pose constraint was\nevidence-backed redundant and mildly pessimizing (see\n`docs/notes/rig-extrinsics.md` §Gauge, which documents the equivalent\n`RigExtrinsicsConfig` finding). View-0's rig-from-target pose is now\nalways free in the rig BA.",
+      "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (see `docs/notes/rig-extrinsics.md`\n§Gauge, which documents the equivalent `RigExtrinsicsConfig` finding).\nView-0's rig-from-target pose is always free in the rig BA.",
       "properties": {
         "handeye_ba": {
           "$ref": "#/$defs/HandeyeBaConfig",
@@ -409,7 +409,7 @@
     },
     "RigHandeyeLaserlineBaConfig": {
       "additionalProperties": false,
-      "description": "Final joint BA options (ADR 0024).\n\n0.7.0 removed `fix_first_camera_extrinsic: bool`: the joint stage now always\npins the upstream rig's reference camera (`handeye.rig.reference_camera_idx`)\n— see `joint_fix_extrinsics`, fixing the old index-0 hard-coding bug.\n`JointCameraFixMask` (structurally identical to core's [`CameraFixMask`])\nis deleted in favor of the core type directly.",
+      "description": "Final joint BA options (ADR 0024).\n\nThe joint stage always pins the upstream rig's reference camera\n(`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Camera\nfixing uses core's [`CameraFixMask`] directly.",
       "properties": {
         "calib_loss": {
           "$ref": "#/$defs/RobustLoss",
@@ -455,7 +455,7 @@
         },
         "solver": {
           "$ref": "#/$defs/SolverConfig",
-          "description": "Non-linear solve stage settings for the joint stage.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`calib_loss`, `laser_loss` — ADR 0024\nD3). Only `max_iters`/`verbosity` apply here."
+          "description": "Non-linear solve stage settings for the joint stage.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`calib_loss`, `laser_loss` — ADR 0024).\nOnly `max_iters`/`verbosity` apply here."
         }
       },
       "required": [
@@ -494,7 +494,7 @@
     },
     "RobotPoseConfig": {
       "additionalProperties": false,
-      "description": "Robot-pose refinement options for hand-eye bundle adjustment.\n\nReplaces the `robot_rot_sigma` / `robot_trans_sigma` /\n`refine_robot_poses` trio that used to be duplicated verbatim across\n`SingleCamHandeyeConfig`, `RigHandeyeBaConfig`, and the joint\nrig+hand-eye+laser BA config.",
+      "description": "Robot-pose refinement options for hand-eye bundle adjustment.\n\nShared by `SingleCamHandeyeConfig`, `RigHandeyeBaConfig`, and the joint\nrig+hand-eye+laser BA config.",
       "properties": {
         "refine": {
           "description": "Refine robot poses with per-view se(3) corrections.",

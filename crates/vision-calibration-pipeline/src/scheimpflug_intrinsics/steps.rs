@@ -68,8 +68,8 @@ pub struct ScheimpflugManualInit {
 
 /// Typed return value of [`step_init`] / [`step_init_with_seed`].
 ///
-/// Carries the seeded-or-fitted initial estimates. The same values continue to
-/// be written into `session.state` for backwards compatibility — see ADR 0011.
+/// Carries the seeded-or-fitted initial estimates. The same values are also
+/// written into `session.state` — see ADR 0011.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ScheimpflugIntrinsicsInitResult {
@@ -85,8 +85,8 @@ pub struct ScheimpflugIntrinsicsInitResult {
 
 /// Typed return value of [`step_optimize`].
 ///
-/// Aggregates the optimization metrics that examples used to read out of
-/// `session.state` after the Scheimpflug-intrinsics solve.
+/// Aggregates the optimization metrics of the Scheimpflug-intrinsics solve; the same
+/// values are also written into `session.state`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ScheimpflugIntrinsicsOptimizeResult {

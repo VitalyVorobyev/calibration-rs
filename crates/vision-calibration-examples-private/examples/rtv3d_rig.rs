@@ -17,7 +17,7 @@
 //! 3. `RigLaserlineDeviceProblem` consuming the frozen upstream rig
 //!    calibration to recover the 6 laser planes (skipped without laser data).
 //! 4. Joint rig + hand-eye + laser-plane BA (skipped without laser data).
-//! 5. Compare everything against the legacy-system oracle in
+//! 5. Compare everything against the reference-system oracle in
 //!    `artifacts.json` (camera 5 is degenerate there: fx=51, 127 px reproj).
 //!
 //! Environment:
@@ -161,9 +161,9 @@ fn main() -> Result<()> {
     // absolute scale).
     cfg.handeye_ba.robot_poses.refine =
         std::env::var("RTV3D_REFINE_ROBOT").map_or(true, |v| v != "0");
-    // Scheimpflug: both tilts free (the legacy system also frees tau_x/tau_y;
+    // Scheimpflug: both tilts free (the reference system also frees tau_x/tau_y;
     // oracle tilts reach 0.27 rad). Distortion: k1, k2 free; k3 + tangential
-    // fixed, matching the legacy config (`fix_k3: true, fix_tangent: true`).
+    // fixed, matching the reference config (`fix_k3: true, fix_tangent: true`).
     cfg.sensor = SensorMode::Scheimpflug {
         init_tilt_x: 0.0,
         init_tilt_y: 0.0,
@@ -734,7 +734,7 @@ fn build_intrinsics_seed(
 
 // ───────────────────────────── oracle ─────────────────────────────────────
 
-/// Per-camera reference calibration parsed from the legacy `artifacts.json`.
+/// Per-camera reference calibration parsed from the reference `artifacts.json`.
 #[derive(Debug)]
 struct OracleCamera {
     fx: f64,
@@ -847,7 +847,7 @@ fn load_oracle(path: &Path) -> Result<Oracle> {
 
 // ───────────────────────────── comparison ────────────────────────────────
 
-/// Compare against the legacy oracle.
+/// Compare against the reference oracle.
 ///
 /// Hard criteria (the "beat the oracle" verdict):
 /// - per-camera reprojection: our best stage (joint BA when laser data is
@@ -855,8 +855,8 @@ fn load_oracle(path: &Path) -> Result<Oracle> {
 ///   0–4; cam 5 must merely be sane (< 10 px; oracle cam 5 is broken).
 /// - extrinsic scale: per-camera |t| within 10 % of the oracle norms
 ///   (cams 1–4). Full pose deltas are NOT a criterion: the tilt ↔ principal
-///   point ↔ rotation valley means our parameterization and the legacy one
-///   describe the same optics with different splits, and the legacy camera
+///   point ↔ rotation valley means our parameterization and the reference one
+///   describe the same optics with different splits, and the reference camera
 ///   frame convention differs (rotated AOI), so parameter-by-parameter pose
 ///   comparison is ill-posed. The tables are still printed as information.
 /// - laser σ: per-camera point-to-plane RMS < oracle `standard_deviation_mm`.
@@ -949,7 +949,7 @@ fn compare_to_oracle(
     let extrinsics_source = joint_cam_se3_rig.unwrap_or(&rig_export.cam_se3_rig);
     println!("\nextrinsics vs oracle camera_se3_sensor (rig frame = cam 0):");
     println!(
-        "note: ours = {} extrinsics; rot/trans deltas are informational — the legacy",
+        "note: ours = {} extrinsics; rot/trans deltas are informational — the reference",
         if joint_cam_se3_rig.is_some() {
             "joint-BA (laser-informed)"
         } else {

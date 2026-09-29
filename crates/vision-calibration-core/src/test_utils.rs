@@ -52,8 +52,8 @@ pub struct CornerInfo {
 ///
 /// This is a wrapper around [`crate::math::undistort_pixel`] that accepts
 /// the Brown-Conrady distortion model specifically. Use this function in tests
-/// for backward compatibility, or use the generic version from the math module
-/// for production code.
+/// that work with the concrete Brown-Conrady model, or the generic version from
+/// the math module for production code.
 ///
 /// # Arguments
 /// * `pixel` - Distorted pixel coordinate
@@ -73,8 +73,7 @@ pub fn undistort_pixel_normalized(
 /// Project normalized coordinates to pixel coordinates using intrinsics.
 ///
 /// This is a wrapper around [`crate::math::normalized_to_pixel`]. Use this
-/// function in tests for backward compatibility, or use the version from
-/// the math module for production code.
+/// function in tests, or the version from the math module for production code.
 ///
 /// # Arguments
 /// * `normalized` - Normalized coordinates (on Z=1 plane)

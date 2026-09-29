@@ -1,9 +1,8 @@
 //! Shared config sub-structs embedded by grouped top-level `*Config` types.
 //!
-//! ADR 0024 (field-inventory survey, 2026-07-08) found the same handful of
-//! concepts — per-camera linear init, non-linear solve settings, robot-pose
-//! refinement, hand-eye linear init — spelled up to four different ways
-//! across the eight problem configs. This module holds the single canonical
+//! The same handful of concepts — per-camera linear init, non-linear solve
+//! settings, robot-pose refinement, hand-eye linear init — recur across the
+//! eight problem configs (ADR 0024). This module holds the single canonical
 //! definition of each; top-level `*Config` types embed them as named groups
 //! (`init: IntrinsicsInitConfig`, `solver: SolverConfig`, ...) instead of
 //! re-declaring the same fields flat.
@@ -136,9 +135,7 @@ impl Default for SolverConfig {
 
 /// Robot-pose refinement options for hand-eye bundle adjustment.
 ///
-/// Replaces the `robot_rot_sigma` / `robot_trans_sigma` /
-/// `refine_robot_poses` trio that used to be duplicated verbatim across
-/// `SingleCamHandeyeConfig`, `RigHandeyeBaConfig`, and the joint
+/// Shared by `SingleCamHandeyeConfig`, `RigHandeyeBaConfig`, and the joint
 /// rig+hand-eye+laser BA config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -166,9 +163,8 @@ impl Default for RobotPoseConfig {
 impl RobotPoseConfig {
     /// Validate that `rot_sigma`/`trans_sigma` are strictly positive.
     ///
-    /// Replaces the 3 copy-pasted positivity checks that used to live in
-    /// `validate_config` for `SingleCamHandeyeConfig`, `RigHandeyeConfig`,
-    /// and `RigHandeyeLaserlineConfig`. Whether the check is gated on
+    /// Called from `validate_config` of `SingleCamHandeyeConfig`,
+    /// `RigHandeyeConfig`, and `RigHandeyeLaserlineConfig`. Whether the check is gated on
     /// `self.refine` is each caller's own choice — the problem types
     /// disagree on this (`SingleCamHandeyeProblem` only requires positive
     /// sigmas when `refine` is enabled; the rig problem types always

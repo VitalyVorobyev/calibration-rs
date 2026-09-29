@@ -52,7 +52,7 @@ magnitude. Centering and isotropic scaling equalize the columns. Regression:
 `fundamental_8point_epipolar_constraint_pixel_coords` asserts the normalized
 residual `< 1e-6` at pixel scale, which does not hold unnormalized.
 
-**Null-space extraction (P1-SVD-SWEEP).** The **1-D** homogeneous solves
+**Null-space extraction.** The **1-D** homogeneous solves
 (8-point `F`, `essential_linear`, homography, camera-matrix, and triangulation
 DLTs) take their null vector from `vision_calibration_core::linalg::null_space`
 — the smallest-eigenvalue eigenvector of `AᵀA` via a *symmetric*
@@ -177,8 +177,7 @@ additionally scale ~`1/parallax`.
   degeneracy guards (`epipolar/essential.rs`, `epipolar/decomposition.rs`),
   cheirality (`cheirality.rs`), triangulation recovery/refinement
   (`triangulation.rs`), and scene degeneracy detectors (`degeneracy.rs`).
-- **Related**: ADR 0006 (the `vision-geometry` / `vision-mvg` split); the
-  P1-SVD-SWEEP (`docs/internal/archive/report/2026-06-16-P1-SVD-SWEEP-finish-centralize.md`) —
-  `null_space` / `AᵀA` replacing dense SVD in the 1-D null-space solvers;
+- **Related**: ADR 0006 (the `vision-geometry` / `vision-mvg` split); `null_space` / `AᵀA`
+  (not dense SVD) in the 1-D null-space solvers;
   `docs/notes/planar-intrinsics.md` (Zhang init shares the Hartley-normalized
   DLT homography).

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { installTauriMock } from "./support/tauriMock";
 import { ONE_PX_PNG_DATA_URL, PLANAR_EXPORT_FIXTURE } from "./support/fixtures";
 
-/** (c) of B-QUAL4-SMOKE: Diagnose renders a fixture export loaded
+/** Smoke test: Diagnose renders a fixture export loaded
  * through the mocked Tauri IPC layer. Exercises the full "Open
  * Export…" path end-to-end in a real browser: the dialog plugin's
  * `plugin:dialog|open`, `load_export`, `set_active_export`, and

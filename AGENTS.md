@@ -29,7 +29,7 @@ The codebase prioritizes:
 * **Performance** (avoid unnecessary allocations; efficient linear algebra)
 * **API stability** in the top-level `vision-calibration` crate and JSON schemas
 
-If you are an automated agent (Codex, etc.), follow these rules strictly.
+Automated agents: follow these rules strictly.
 
 ---
 
@@ -92,21 +92,20 @@ If you are an automated agent (Codex, etc.), follow these rules strictly.
 
 ## 3) Build, test, and quality gates
 
-Before opening a PR, run:
+The canonical gate list; CI runs the same checks. Before opening a PR, run:
 
-* `cargo fmt --all`
-* `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-* `cargo test --workspace --all-features`
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+cargo xtask emit-schemas --check          # when config/export types change
+python3 -m compileall crates/vision-calibration-py/python/vision_calibration
+```
 
-Also check minimal builds where relevant:
-
-* `cargo test -p vision-calibration-core`
-* `cargo test -p vision-calibration`
-* `cargo test -p vision-calibration-py`
-
-When Python package files are modified, also run:
-
-* `python -m compileall crates/vision-calibration-py/python/vision_calibration`
+Also check minimal builds where relevant (`cargo test -p vision-calibration-core`,
+`-p vision-calibration`, `-p vision-calibration-py`). App changes have their own
+gates (§12).
 
 **Do not** introduce new warnings. Avoid `#[allow(...)]` unless justified.
 
@@ -220,15 +219,27 @@ When trade-offs conflict (speed vs accuracy, stability vs cleanup):
 
 ## 11) Backlog implementation workflow (mandatory)
 
-Backlog execution must be traceable task-by-task. The priority is a current
-**backlog** and current **documentation** — not a per-task paper trail.
+The priority is a current **backlog** and current **documentation**, not a
+paper trail. History lives in `CHANGELOG.md`, PR descriptions and git.
 
-* Source of truth for execution status is `docs/backlog.md`. It holds **only open (`[ ]`) and parked (`[~]`) work**, so its length tracks what is left rather than what has been done. Completion notes live in `docs/backlog-archive.md`, grouped by track.
-* Implement one backlog task at a time (do not batch multiple tasks into one commit), unless tasks are tightly coupled and cannot be merged independently while keeping the workspace buildable. In that case, document the coupling explicitly in the backlog note and commit message.
-* Every completed task must include both of the following:
-  1. **Backlog update**: mark the task `[x]` with a completion note (date, a one-paragraph summary of what landed, optionally commit id), then **move the entry** out of `docs/backlog.md` into `docs/backlog-archive.md` under its track heading. That note is the durable record — keep it informative. When a track's last open item closes, drop the whole track from the backlog and add a one-line entry under *Closed tracks*.
-  2. **Dedicated commit**: commit only that task’s code/docs/tests updates.
-* Keep the **documentation that lives next to the code** current as part of the task: module/rustdoc, ADRs (`docs/adrs/`) for design decisions, and tutorials (`docs/tutorials/`) for new user-facing features. Update what the change touches; do **not** write a separate per-task report file (`docs/report/` is retired — historical entries are archived under `docs/internal/archive/report/` for reference only).
+* `docs/backlog.md` is the source of truth for what is left. It holds **only
+  open (`[ ]`) and parked (`[~]`) work**; a parked entry states why and what
+  would reopen it.
+* Implement one backlog task at a time (one commit per task), unless tasks are
+  so tightly coupled that neither builds alone; then say so in the commit
+  message.
+* Completing a task means, in the same commit:
+  1. **Delete** its entry from `docs/backlog.md` (and the track heading once
+     it is empty).
+  2. Add a user-visible change to `CHANGELOG.md` under `[Unreleased]`.
+  3. Update the documentation next to the code: rustdoc, ADRs (`docs/adrs/`)
+     for design decisions, tutorials (`docs/tutorials/`) and the book
+     (`book/`) for user-facing features.
+* The commit message and PR description carry the rest (what landed, why,
+  tests run). Do not write per-task report files.
+* Documentation states the current design. Do not narrate history
+  ("previously", "was renamed", dated notes) and do not cite backlog/track
+  IDs in code comments or user-facing docs.
 * Recommended commit message format:
   * `feat(backlog): <task-id> <short description>`
   * `fix(backlog): <task-id> <short description>`
@@ -244,7 +255,10 @@ Backlog execution must be traceable task-by-task. The priority is a current
 * **Always use `bun`**, never `npm`/`pnpm`/`yarn`. Commands (run from `app/`):
   `bun install`, `bun run tauri dev` (launches the app — `bun run dev` alone
   is Vite-only and the Tauri IPC surface is absent), `bun run build`,
-  `bun run tauri build`.
+  `bun run tauri build`. Gates: `bun run lint`, `bun run format:check`,
+  `bun run typecheck`, `bun run test`, `bun run build`; and from
+  `app/src-tauri`: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
+  `cargo test`.
 * `app/src-tauri` is **excluded from the root Cargo workspace**
   (`/Cargo.toml`'s `exclude = ["app"]`) and pins its own `Cargo.lock`.
   `cargo build|test --workspace` at the repo root does **not** cover it;

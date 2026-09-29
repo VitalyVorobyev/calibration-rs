@@ -1,5 +1,4 @@
-//! Synthetic-GT matrix test for the two-view / triangulation family (Q8,
-//! `docs/notes/README.md`; math note: `docs/notes/two-view-triangulation.md`).
+//! Synthetic-GT matrix test for the two-view / triangulation family (math note: `docs/notes/two-view-triangulation.md`).
 //!
 //! Ground-truth grid (baseline / parallax regimes) × pixel-noise levels. Every
 //! cell builds an exact synthetic stereo pair with a known intrinsic `K` and a

@@ -5,7 +5,7 @@
 
 ## Context
 
-The diagnose-first viewer (B0–B2) is read-only: every iteration round-
+The diagnose viewer is read-only: every iteration round-
 trips through `cargo run --example` to produce a fresh export. The new
 "complete workflow in the app" commitment (ADR 0016) introduces
 in-process re-runs, which exposes a latency issue: at typical detection
@@ -31,7 +31,7 @@ ADR pins the contract.
   cached detections.
 - `detector_name` — the `Detector::name()` string (e.g. `"chessboard"`).
   Cleanly partitions entries between detectors so adding a new detector
-  in PR 2 doesn't touch existing entries.
+  doesn't touch existing entries.
 - `canonical_config_hash` — 64-bit FNV-1a of the detector config
   serialised to JSON _with sorted keys_, so semantically identical
   configs (e.g. `{"a":1,"b":2}` vs `{"b":2,"a":1}`) collide as
@@ -59,7 +59,7 @@ The default `FsDetectionCache` writes one JSON file per entry under
 `<root>/<key>.json`. In production the runner points it at
 `~/.cache/calibration-rs/<dataset_id>/`; tests use `tempfile::tempdir()`.
 
-### 3. Designed in from PR 1
+### 3. Designed in from the start
 
 Every detector entry point in the runner goes through the cache from
 day one. Bolting a cache on later means changing every call site
@@ -70,7 +70,7 @@ natural shape anyway.
 ### 4. Force-redetect escape hatch
 
 A single `force_redetect: bool` flag on the runner (and exposed in the
-Run workspace UI in PR 3) bypasses cache reads for clean runs without
+Run workspace UI) bypasses cache reads for clean runs without
 clobbering existing entries. Used for "I changed something inside the
 detector implementation, not its config" cases.
 
@@ -91,19 +91,9 @@ free (just a re-run with the new code). Pre-1.0 we exploit this; post-
 - Re-running with the same params is essentially free; A/B comparisons
   become cheap.
 - The cache is shared between the in-app runner and the existing
-  `cargo run --example` paths once the examples migrate (a bonus, not
-  required for PR 1).
+  `cargo run --example` paths once the examples migrate (a bonus).
 - The 64-bit hash is not collision-proof — but we're not defending
   against adversarial collisions, only accidental ones, and FNV-1a is
   more than enough for a dataset's worth of entries.
 - Cache root is per-dataset to keep entries scoped; deleting a
   dataset's cache is a single `rm -rf`.
-
-## Status of work
-
-- ✅ `DetectionCache` trait, `CacheKey`, `CachedFeatures`, and
-  `FsDetectionCache` in `vision-calibration-detect`.
-- ✅ 5 cache unit tests (key-determinism, key-changes-on-change,
-  fs roundtrip, miss-on-unknown-root).
-- ✅ Wired into `pipeline::dataset_runner::build_planar_input`.
-- ⏳ Per-dataset cache root selection in the Tauri runner (PR 1 task #8).

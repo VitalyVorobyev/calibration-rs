@@ -1,6 +1,6 @@
 /**
  * DO NOT EDIT — generated from the Rust wire types by
- * `bun run generate:types` (B-QUAL2). The source of truth is the
+ * `bun run generate:types`. The source of truth is the
  * `#[derive(schemars::JsonSchema)]` types in the calibration workspace and
  * the diagnose Tauri commands; edit those and regenerate.
  */

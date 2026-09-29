@@ -5,14 +5,11 @@ Family: coded ring-grid targets on the seeded Scheimpflug intrinsics route
 wrapping the external `ringgrid` crate; bench accept path
 `vision_calibration_bench::run::run_scheimpflug_intrinsics`).
 
-Question (backlog Q3-RINGGRID-BIAS): the ring-grid cameras floor at ~0.47 px
-mean reprojection, ~0.17 px above the puzzleboard sibling (`rtv3d_ref`, ~0.30 px)
-on the same rig. Is that gap the projected ellipse-center bias of the ring
-markers — a systematic, correctable projective effect — or detector noise?
-
-**Answer: it is not the projective bias.** That bias is ~0.09 px here and is
-already removed at the detector level; the residual floor is small-marker
-localization noise. No pipeline-side correction was added. Details below.
+**Finding:** the ring-grid cameras floor at ~0.47 px mean reprojection, ~0.17 px
+above the puzzleboard sibling (`rtv3d_ref`, ~0.30 px) on the same rig. That
+floor is not the projected ellipse-center bias of the ring markers: the bias is
+~0.09 px here and is already removed at the detector level. The residual floor
+is small-marker localization noise, and the pipeline applies no correction.
 
 ## Mechanism
 
@@ -75,7 +72,7 @@ order of magnitude below the ~0.47 px residual floor and below the ~0.17 px gap
 to the puzzleboard sibling — so even entirely uncorrected it could not explain
 the gap.
 
-## Correction: why not
+## Why the pipeline applies no correction
 
 The `ringgrid` detector (≥ 0.7, `CircleRefinementMethod::ProjectiveCenter`, on by
 default) already removes the *projective* part of this bias at the observation
@@ -90,8 +87,7 @@ that default.
 A model-based re-correction in the pipeline would therefore either (a)
 double-correct the already-removed bias (strictly harmful), or (b) merely
 reproduce the detector's projective correction, whose only unmodeled remainder
-is the second-order distortion term (negligible here). Per the workspace's
-honesty-over-heroics rule, **no correction was wired**. The conic-center math
+is the second-order distortion term (negligible here). So **no correction is applied**. The conic-center math
 ships as a tested diagnostic module, not a pipeline stage; `FactorKind`, the
 optimization IR, the detector wrapper, and the pipeline are untouched.
 
@@ -121,13 +117,11 @@ peripheral-growth pattern in the (already tiny) bias.
 
 Conclusion: the ~0.47 px ring-grid floor is small-marker ellipse-fit /
 localization noise (ring markers a few pixels across, with the pencil amplifying
-edge-fit noise), not correctable projective ellipse-center bias. The Q3 outcome
-is a documented diagnostic plus a gate tightening, not a correction.
+edge-fit noise), not correctable projective ellipse-center bias.
 
-- **Before/after:** detection, model, and residuals are unchanged (no
-  correction wired); the six per-camera accept means stay 0.4601 / 0.5008 /
-  0.4852 / 0.4625 / 0.4248 / 0.4867 px. The acceptance gate tightened from the
-  provisional 1.0 px to 0.7 px (~1.4× the worst mean); baselines are unchanged.
+- **Gate:** the six per-camera accept means are 0.4601 / 0.5008 / 0.4852 /
+  0.4625 / 0.4248 / 0.4867 px; the acceptance gate is 0.7 px (~1.4× the worst
+  mean).
 - **Diagnostic module + tests:**
   `crates/vision-calibration-bench/src/ringgrid_bias.rs`
   (`conic_center_matches_sampled_ellipse_fit`,

@@ -3,7 +3,7 @@
 Family: Scheimpflug-aware stereo rectification
 (`vision-mvg::rectification::rectify_stereo_pair(left, right, cam1_se3_cam0,
 opts) -> StereoRectification`), re-exported as `vision_calibration::mvg::rectification`.
-This is deliberately a *short* pack: the C4 gate (below) already pins the
+This is deliberately a *short* pack: the real-data gate (below) already pins the
 family end-to-end, and the module doc carries the full derivation.
 
 ## Model
@@ -51,13 +51,13 @@ rectified pair. The row-alignment property is invariant to the choice of
   Scheimpflug model (`crates/vision-mvg/src/rectification.rs` tests) —
   rectified rows of corresponding points agree to `< 1e-6 px`; the zero-tilt
   path reproduces pinhole rectification exactly.
-- **C4 / D4 gate (real data)**: the `rtv3d_ref_rectify` example
+- **Real-data gate**: the `rtv3d_ref_rectify` example
   (examples-private) rectifies all oracle camera pairs of the `rtv3d_ref`
   Scheimpflug rig (real `K`, asymmetric per-camera ~−5° tilts, rig
   extrinsics) — worst rectified row disagreement **3.4e-13 px**.
-- **Downstream consumer**: the dense block matcher (`vision-mvg::dense`,
-  C5) and the app's Depth workspace run on these rectified pairs; the C5
+- **Downstream consumer**: the dense block matcher (`vision-mvg::dense`)
+  and the app's Depth workspace run on these rectified pairs; the dense
   bench (`data/stereo`) is an implicit integration gate.
 - **Related**: ADR 0005 (camera model; `H_tilt` as sensor stage),
   `docs/notes/two-view-triangulation.md` (the epipolar geometry being
-  rectified), backlog C4-RECTIFY completion note (PR #74).
+  rectified).

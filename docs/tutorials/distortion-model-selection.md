@@ -1,7 +1,5 @@
 # Distortion model selection
 
-> Onboarding tutorial for [ADR 0020](../adrs/0020-camera-model-as-data-factor-ir.md)
-> and [ADR 0022](../adrs/0022-scheimpflug-intrinsics-seeded-default.md).
 > Runnable companions:
 > [`planar_distortion_models.rs`](../../crates/vision-calibration-pipeline/tests/planar_distortion_models.rs),
 > [`scheimpflug_distortion_models.rs`](../../crates/vision-calibration-pipeline/tests/scheimpflug_distortion_models.rs).
@@ -86,7 +84,7 @@ parameter, not a distortion one.
 
 `with_leading_radial` sweeps the model's **leading radial term** — `k1`
 for `BrownConrady5`/`Rational8`/`ThinPrism9`, `lambda` for `Division1`, a
-no-op for `None` — during the seeded route's Phase A multi-start (see
+no-op for `None` — during the seeded route's k1 multi-start sweep (see
 [ADR 0022](../adrs/0022-scheimpflug-intrinsics-seeded-default.md) and the
 [manual initialization](./manual-init.md) tutorial for why Scheimpflug
 intrinsics starts from a seed at all).

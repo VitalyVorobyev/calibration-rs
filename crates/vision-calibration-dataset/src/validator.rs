@@ -682,9 +682,9 @@ mod tests {
 
     #[test]
     fn detector_chess_threshold_mode_is_rejected() {
-        // `threshold_mode` was removed in 0.8.0: chess-corners 1.0 collapsed
-        // its threshold enum into a single absolute `f32`. A pre-0.8.0
-        // manifest must fail loudly rather than silently ignore the key.
+        // `threshold_mode` is rejected: chess-corners has no threshold mode, only
+        // a single absolute `f32`. A manifest carrying the key must fail loudly
+        // rather than silently ignore it.
         let err = serde_json::from_str::<ChessCornersDetectorSpec>(
             r#"{"threshold_mode":"relative","threshold_value":0.25}"#,
         )

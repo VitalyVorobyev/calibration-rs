@@ -16,13 +16,13 @@ Use the Agent tool (subagent_type: "Plan") to:
 2. Read the facade crate's `lib.rs` and the pipeline crate's `lib.rs` to understand current API surface
 3. Assess what work is needed for the given goal
 4. Produce a **task specification** with:
-   - Task ID (next available `M<n>-T<nn>` from backlog)
+   - Task ID (an existing backlog ID, or a new `<TRACK>-<SHORT-NAME>` such as `B-UX2-ELEVATION`)
    - Clear scope: what changes, what files, what stays unchanged
    - Acceptance criteria (testable conditions)
    - Files likely to be modified
    - Any dependencies on other tasks
 
-If the goal maps to an existing backlog item, use that task ID. If it requires a new milestone or task, propose one.
+If the goal maps to an existing backlog item, use that task ID. Otherwise propose a new one.
 
 Save the task spec in your response — do NOT write it to a file yet.
 
@@ -37,14 +37,7 @@ Use the Agent tool (subagent_type: "general-purpose") to implement the task spec
 
 ### Phase 3: Gate Check
 
-Run these commands sequentially and collect results:
-
-```
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-cargo doc --workspace --no-deps 2>&1 | grep -E "warning|error" | head -20
-```
+Run the canonical gates from AGENTS.md §3 (plus §12 for `app/` changes).
 
 If any gate fails, go back to Phase 2 with the failure details. Maximum 2 retries.
 
@@ -66,9 +59,8 @@ If REJECTED: go back to Phase 2 with the feedback (max 2 retries total across al
 
 If approved and all gates pass:
 
-1. Mark the task `[x]` in `docs/backlog.md` and record the outcome as a
-   dated, informative one-paragraph completion note there — that backlog note
-   is the durable record (the per-task `docs/report/` policy is retired)
+1. Apply AGENTS.md §11: delete the task's backlog entry, add a CHANGELOG
+   `[Unreleased]` line for user-visible changes, update the docs it touches
 2. Stage all changed files (be specific, no `git add -A`)
 3. Commit with message format: `feat(backlog): <task-id> <short description>`
 

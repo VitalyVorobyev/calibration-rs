@@ -179,23 +179,17 @@ real-image ones need the optional extras
 
 ## Project
 
-A Rust workspace of eleven crates. Nine publish to crates.io — `-core`,
+A Rust workspace. The crates.io packages are `vision-calibration-core`,
 `-linear`, `-optim`, `-pipeline`, `-dataset`, `-detect`, `vision-geometry`,
-`vision-mvg`, and the `vision-calibration` facade that re-exports them —
-plus `-py` (PyPI) and an internal benchmark crate. Layering is enforced:
+`vision-mvg`, and the `vision-calibration` facade that re-exports them; the
+Python bindings (`-py`) ship to PyPI, and an internal benchmark crate is not
+published. Layering is enforced:
 solvers do not know about pipelines, and pipelines do not know about the GUI.
 See [ADR 0006](docs/adrs/0006-layered-crate-architecture.md) and
 [AGENTS.md](AGENTS.md) for the rules, build commands, and contribution
 workflow.
 
 The project is pre-1.0 and breaking changes still happen; they are listed in
-the CHANGELOG with migration notes. MSRV is 1.93 ([policy](docs/MSRV.md)).
-
-**On how this is built:** development uses AI coding assistants (Codex and
-Claude Code) as implementation tools, so not every line is human-reviewed
-before merge. The author is a computer-vision engineer and validates
-algorithmic behaviour and numerical results against real datasets, with
-`fmt`/`clippy`/test/doc gates plus a registry-driven acceptance suite that
-hard-gates reprojection error on real calibration data before every release.
+the CHANGELOG. MSRV is 1.93 ([policy](docs/MSRV.md)).
 
 Licensed under the [MIT License](LICENSE).

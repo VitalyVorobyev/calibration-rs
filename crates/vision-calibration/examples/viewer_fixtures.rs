@@ -13,7 +13,7 @@
 //! - `data/stereo_charuco/` — stereo rig (22×22 ChArUco, 1.35 mm)
 //!
 //! `data/kuka_1/` is single-camera hand-eye and the SingleCamHandeye
-//! export does not yet carry `image_manifest` (B3 follow-up). `data/DS8/`
+//! export does not carry `image_manifest`. `data/DS8/`
 //! has no example wired up yet.
 
 #[path = "support/stereo_charuco_io.rs"]

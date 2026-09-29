@@ -148,7 +148,7 @@ geometry; enabling refinement re-opens `K_i, d_i` under the usual
   recovered relative pose unchanged and slightly *lowered* the mean
   reprojection error (0.124 vs 0.134 px), consistent with a redundant
   constraint rather than a gauge necessity. On exact data it was harmless
-  (the fixed value equals the ground-truth pose). ADR 0024 (R3, 2026-07)
+  (the fixed value equals the ground-truth pose). ADR 0024
   deleted the knob and the constraint outright — view 0's rig-from-target
   pose is now always free in the rig BA; the reference-camera fix above is
   the only gauge-removal mechanism.
@@ -206,7 +206,7 @@ Both rows scale cleanly with `a`. Two observations worth calling out:
   including a missing-reference-view case).
 - **Acceptance gates**: `calib-bench accept` — the `stereo_left`/
   `stereo_right` planar entries gate the per-camera intrinsics that feed
-  the rig; Q2 committed Fit records add drift gates.
+  the rig; committed Fit records add drift gates.
 - **Related**: ADR 0013 (`rig_family` sensor-axis refactor; pinhole ↔
   Scheimpflug unification), ADR 0009 (`frame_se3_frame` / SE(3) storage),
   `docs/notes/planar-intrinsics.md` (the per-camera projection/distortion
