@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-29
+
+Minor release. The dataset runner's chessboard detector keeps the whole
+board, chess-based detectors can use Radon corners, and the laser-rig
+workflows are usable from the facade alone. Documentation — READMEs, the
+book, tutorials and rustdoc — is brought up to date with the API, and
+crate READMEs are now compiled as doctests.
+
+### Migration
+
+- `ChessCornersConfig` (detect) and `ChessCornersDetectorSpec` (dataset)
+  gain a `strategy` field. Struct literals must add it or end with
+  `..Default::default()`. Manifests and JSON are unaffected: the field is
+  optional.
+
 ### Fixed
 
 - **The laser-rig workflows are usable from the facade alone.**
@@ -34,6 +49,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `chess-corners`' `"radon"` detector in place of the default `"chess"`.
   Under Radon, `threshold_value` is a fraction in `(0, 1]` of the frame's
   maximum response; the validator rejects values above 1.
+- `Detector::output_revision` and `CacheKey::for_detector`: a detector's
+  output revision is part of its detection-cache key, so a change to what
+  a detector returns invalidates entries written before it.
+
+### Security
+
+- Desktop app: dependency refresh (Tauri 2.12) clears the `unic-*`,
+  `anyhow` and yanked `chacha20` advisories. The two left, in the
+  Linux-only GTK3 stack Tauri pins (`glib` 0.18, `proc-macro-error`), are
+  not reachable from the app and are tracked in `.cargo/audit.toml`.
 
 ## [0.8.3] - 2026-09-28
 

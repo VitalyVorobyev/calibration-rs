@@ -20,9 +20,9 @@ Four files, updated in the **same commit**:
    skip the wheel/sdist build + PyPI upload if it drifts.
 4. `crates/vision-calibration-examples-private/Cargo.toml` → the
    package `version` **plus every path-dep `version = "…"` pin inside
-   it**. This crate is outside the crates.io publish set but is still
-   compiled in CI, so a stale pin here breaks the examples build, not
-   the release. **Grep the file for every `version = "…"` pin** — the pin
+   it**. This crate is outside the crates.io publish set and CI; it is
+   built locally against sibling checkouts, so a stale pin breaks the
+   private examples, not the release. **Grep the file for every `version = "…"` pin** — the pin
    count tracks how many published crates the private examples depend on and
    changes over time, so don't trust a remembered number.
 
