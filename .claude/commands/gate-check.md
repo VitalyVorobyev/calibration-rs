@@ -4,13 +4,8 @@ Run the full quality gate checklist and report results.
 
 ## Gates
 
-Run each command and report pass/fail:
-
-1. `cargo fmt --all -- --check`
-2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-3. `cargo test --workspace --all-features`
-4. `cargo doc --workspace --no-deps 2>&1 | grep -E "warning|error" | head -30`
-5. `python3 -m compileall crates/vision-calibration-py/python/vision_calibration 2>&1`
+Run every command in the canonical gate list (AGENTS.md §3; add §12 when
+`app/` changed) and report pass/fail for each.
 
 ## Output Format
 
@@ -20,6 +15,7 @@ Gate Results:
   clippy:  PASS/FAIL
   tests:   PASS/FAIL (N passed, M failed)
   doc:     PASS/FAIL (N warnings)
+  schemas: PASS/FAIL
   python:  PASS/FAIL
 ```
 

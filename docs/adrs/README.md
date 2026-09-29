@@ -5,8 +5,8 @@ This directory stores architecture decision records for `calibration-rs`.
 Process:
 
 1. Capture design decisions in ADRs first.
-2. Track implementation work in `docs/backlog.md`; move it to
-   `docs/backlog-archive.md` on completion.
+2. Track implementation work in `docs/backlog.md`; delete the entry on
+   completion (AGENTS.md §11).
 
 Status legend:
 
