@@ -4,26 +4,33 @@
 
 ## Structure
 
-```rust
-pub struct CalibrationSession<P: ProblemType> {
-    pub metadata: SessionMetadata,
-    pub config: P::Config,
-    pub state: P::State,
-    pub exports: Vec<ExportRecord<P::Export>>,
-    pub log: Vec<LogEntry>,
-    // input and output are private — access via methods
-}
-```
+A session has two public fields and otherwise exposes its data through methods:
 
-| Field | Access | Purpose |
-|-------|--------|---------|
-| `metadata` | `pub` | Problem type name, schema version, timestamps |
-| `config` | `pub` | Algorithm parameters (iterations, fix masks, loss functions) |
-| input | `input()`, `set_input()` | Observation data (set once per calibration run) |
-| `state` | `pub` | Mutable intermediate results (modified by step functions) |
-| output | `output()`, `set_output()` | Final calibration result (set by the last step) |
-| `exports` | `pub` | Timestamped export records |
-| `log` | `pub` | Audit trail of operations |
+| Member | Access | Purpose |
+|--------|--------|---------|
+| `config` | `pub` field | Algorithm parameters (iterations, fix masks, loss functions) |
+| `exports` | `pub` field | Timestamped `ExportRecord`s created by `export()` |
+| input | `input()`, `require_input()`, `set_input()`, `clear_input()` | Observation data |
+| output | `output()`, `require_output()` | Final calibration result, set by the last step |
+| `metadata()` | method | `SessionMetadata`: problem type name, schema version, timestamps, description |
+| `log()` | method | Audit trail of operations, `&[LogEntry]` |
+
+Intermediate state is internal to the pipeline. Read intermediate results from the typed values returned by each step function (for example `PlanarInitResult`), from `log()`, or from `export()`.
+
+The public methods of `CalibrationSession<P>`:
+
+| Group | Methods |
+|-------|---------|
+| Construction | `new()`, `with_description(..)`, `with_input(..)` |
+| Input | `set_input`, `input`, `input_mut`, `require_input`, `require_input_mut`, `has_input`, `clear_input` |
+| Config | `set_config`, `update_config` |
+| Output | `output`, `output_mut`, `require_output`, `set_output`, `has_output`, `clear_output` |
+| Export | `export`, `export_with_notes`, `export_peek` |
+| Validation | `validate` |
+| Log | `log`, `log_success`, `log_success_with_notes`, `log_failure` |
+| Metadata | `metadata` |
+| Reset | `reset_state`, `reset_output`, `reset` |
+| Serialization | `to_json`, `from_json` |
 
 ## Lifecycle
 
@@ -33,7 +40,7 @@ pub struct CalibrationSession<P: ProblemType> {
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 // Or with a description:
 let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::with_description(
-    "Lab camera calibration 2024-01-15"
+    "Lab camera calibration"
 );
 ```
 
@@ -84,7 +91,7 @@ std::fs::write("calibration.json", &json)?;
 
 // Restore
 let json = std::fs::read_to_string("calibration.json")?;
-let restored = CalibrationSession::<PlanarIntrinsicsProblem>::from_json(&json)?;
+let mut restored = CalibrationSession::<PlanarIntrinsicsProblem>::from_json(&json)?;
 
 // Resume from where we left off
 step_optimize(&mut restored, None)?;
@@ -103,9 +110,9 @@ When input or configuration changes, computed state may need to be cleared:
 |-------|---------------|
 | `set_input()` | Clear state and output (`CLEAR_COMPUTED`) |
 | `update_config()` | Keep everything (`KEEP_ALL`) |
-| `clear_input()` | Clear everything (`CLEAR_ALL`) |
+| `clear_input()` | Same as `set_input()` (`CLEAR_COMPUTED`), then the input is removed |
 
-These defaults can be overridden per problem type.
+Each problem type may override these policies.
 
 ## Audit Log
 
@@ -122,17 +129,19 @@ pub struct LogEntry {
 
 The log records what was done and when, useful for tracking calibration history.
 
-## Accessing State
+## Reading Results
 
 ```rust
 // Input (required before steps)
 let input = session.require_input()?;  // Returns error if no input
 
-// Intermediate state (available after init)
-if let Some(k) = &session.state.initial_intrinsics {
-    println!("Init fx={:.1}", k.fx);
-}
+// Intermediate results: the typed value returned by each step
+let init = step_init(&mut session, None)?;
+println!("Init fx={:.1}", init.intrinsics.fx);
 
 // Output (available after optimize)
 let output = session.require_output()?;
+
+// Session bookkeeping
+println!("{} ({} log entries)", session.metadata().problem_type, session.log().len());
 ```

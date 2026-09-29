@@ -25,14 +25,25 @@ All based on `nalgebra` with `f64` precision:
 | `IdentitySensor` | (none) | No sensor tilt |
 | `ScheimpflugParams` | `tilt_x, tilt_y` | Scheimpflug tilt |
 | `Camera<S,P,D,Sm,K>` | `proj, dist, sensor, k` | Composable camera |
+| `CameraParams` | `projection, distortion, sensor, intrinsics` | Serializable camera description (see [Serialization](params.md)) |
+
+## Selectors and Modes
+
+| Type | Variants | Used by |
+|------|----------|---------|
+| `DistortionKind` | `None`, `BrownConrady5`, `Rational8`, `ThinPrism9`, `Division1` | `distortion_model` in the planar and Scheimpflug intrinsics configs, and (Brown-Conrady only) the Scheimpflug rig mode |
+| `SensorMode` | `Pinhole`, `Scheimpflug { init_tilt_x, init_tilt_y, fix_scheimpflug, distortion_mask_in_percam_ba, refine_scheimpflug_in_rig_ba, distortion_model }` | `sensor` in `RigExtrinsicsConfig` and `RigHandeyeConfig` (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)) |
+| `RobustLoss` | `None`, `Huber { scale }`, `Cauchy { scale }`, `Arctan { scale }` | `solver.robust_loss` and the laser `calib_loss` / `laser_loss` |
+| `HandEyeMode` | `EyeInHand`, `EyeToHand` | `handeye_init.handeye_mode` |
 
 ## Observation Types
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| `CorrespondenceView` | `points_3d, points_2d, weights` | 2D-3D correspondences |
+| `CorrespondenceView` | `points_3d, points_2d, weights` | 2D-3D correspondences (build with `CorrespondenceView::new(..)?`) |
 | `View<Meta>` | `obs, meta` | Observation + metadata |
 | `PlanarDataset` | `views: Vec<View<NoMeta>>` | Planar calibration input |
+| `RigViewObs` | `cameras: Vec<Option<CorrespondenceView>>` | Per-camera observations of one rig frame |
 | `RigView<Meta>` | `obs: RigViewObs, meta` | Multi-camera view |
 | `RigDataset<Meta>` | `num_cameras, views` | Multi-camera input |
 | `ReprojectionStats` | `mean, rms, max, count` | Error statistics |
@@ -44,40 +55,40 @@ All based on `nalgebra` with `f64` precision:
 | `IntrinsicsFixMask` | `fx, fy, cx, cy` (bool each) | Fix individual intrinsics |
 | `DistortionFixMask` | `k1, k2, k3, p1, p2` (bool each) | Fix individual distortion params |
 | `CameraFixMask` | `intrinsics, distortion` | Combined camera fix mask |
-| `FixedMask` | opaque (`all_free()`, `all_fixed(dim)`, `fix_indices(&[usize])`) | IR-level parameter fixing |
+| `ScheimpflugFixMask` | `tilt_x, tilt_y` (bool each) | Fix individual sensor tilt angles |
 
-## Optimization IR Types
+## Shared Config Groups
 
-| Type | Description |
-|------|-------------|
-| `ProblemIR` | Complete optimization problem |
-| `ParamBlock` | Parameter group (id, name, dim, manifold, fixed) |
-| `ResidualBlock` | Residual definition (params, loss, factor) |
-| `ParamId` | Unique parameter identifier |
-| `FactorKind` | Residual family (reprojection / laser / prior) with camera model + chain as data |
-| `CameraModelDesc` | Projection × distortion × sensor descriptor carried by factors |
-| `ReprojChain` / `LaserChain` | Pose-chain descriptors carried by factors |
-| `ManifoldKind` | Parameter geometry (Euclidean, SE3, SO3, S2) |
-| `RobustLoss` | Loss function (None, Huber, Cauchy, Arctan) |
+Every problem's `*Config` embeds the same small structs by stage:
+
+| Type | Fields | Purpose |
+|------|--------|---------|
+| `IntrinsicsInitConfig` | `init_iterations, fix_k3, fix_tangential, zero_skew` | Per-camera linear initialization |
+| `SolverConfig` | `max_iters, verbosity, robust_loss` | Non-linear solve |
+| `RobotPoseConfig` | `refine, rot_sigma, trans_sigma` | Robot-pose refinement in hand-eye bundle adjustment |
+| `HandeyeInitConfig` | `handeye_mode, min_motion_angle_deg` | Hand-eye linear initialization |
+| `RigConfig` | `reference_camera_idx, refine_intrinsics_in_rig_ba` | Rig frame options |
 
 ## Session Types
 
 | Type | Description |
 |------|-------------|
 | `CalibrationSession<P>` | Generic session container |
-| `SessionMetadata` | Problem name, version, timestamps |
-| `LogEntry` | Audit log entry (timestamp, operation, success) |
+| `SessionMetadata` | Problem name, version, timestamps (read via `session.metadata()`) |
+| `LogEntry` | Audit log entry (timestamp, operation, success, notes; read via `session.log()`) |
 | `ExportRecord<E>` | Timestamped export |
 | `InvalidationPolicy` | What to clear on input/config change |
 
-## Backend Types
+## Optimization Backend Types
+
+`vision-calibration-optim` keeps the IR (`ProblemIR`, `ParamBlock`, `ResidualBlock`, `FactorKind`, `ManifoldKind`, ...) and backend dispatch internal; see [Backend-Agnostic IR Architecture](ir_architecture.md). Two backend types are public:
 
 | Type | Description |
 |------|-------------|
-| `BackendSolveOptions` | Solver settings (max_iters, tolerances, etc.) |
-| `BackendSolution` | Optimized params + solve report |
-| `SolveReport` | Initial/final cost, iterations, termination |
-| `LinearSolverType` | SparseCholesky or SparseQR |
+| `BackendSolveOptions` | `max_iters`, `verbosity`, `linear_solver: Option<LinearSolverKind>`, `min_abs_decrease`, `min_rel_decrease`, `min_error` |
+| `SolveReport` | `final_cost`, `num_iters` |
+
+Inside the crate, `LinearSolverKind` (`SparseCholesky` or `SparseQR`) selects the linear solver and `BackendSolution` carries the optimized `params` and a `solve_report`.
 
 ## Hand-Eye Types
 

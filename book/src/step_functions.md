@@ -10,40 +10,39 @@ Step functions are free functions that operate on a mutable session reference:
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<()>
+) -> Result<PlanarInitResult, Error>
 ```
 
 Each step:
-1. Reads input and/or state from the session
+1. Reads the input, config, and the results of earlier steps from the session
 2. Performs one phase of the calibration (e.g., initialization or optimization)
-3. Updates the session state (and possibly output)
+3. Updates the session (and possibly its output)
 4. Logs the operation
+5. Returns a typed result value summarizing what it computed
 
 ### Advantages
 
-**Intermediate inspection**: Examine the state between steps.
+**Intermediate inspection**: Examine the typed result of each step.
 
 ```rust
-step_init(&mut session, None)?;
+let init = step_init(&mut session, None)?;
 
 // Inspect initialization quality before committing to optimization
-let init_k = session.state.initial_intrinsics.as_ref().unwrap();
-if (init_k.fx - expected_fx).abs() / expected_fx > 0.5 {
+if (init.intrinsics.fx - expected_fx).abs() / expected_fx > 0.5 {
     eprintln!("Warning: init fx={:.0} is far from expected {:.0}",
-              init_k.fx, expected_fx);
+              init.intrinsics.fx, expected_fx);
 }
 
-step_optimize(&mut session, None)?;
+let opt = step_optimize(&mut session, None)?;
+println!("{:.3} px after {} iterations", opt.mean_reproj_error, opt.iterations);
 ```
 
 **Per-step configuration**: Override options for individual steps.
 
 ```rust
 // Use more iterations for optimization
-let opts = IntrinsicsOptimizeOptions {
-    max_iters: Some(200),
-    ..Default::default()
-};
+let mut opts = IntrinsicsOptimizeOptions::default();
+opts.max_iters = Some(200);
 step_optimize(&mut session, Some(opts))?;
 ```
 
@@ -65,6 +64,10 @@ std::fs::write("after_init.json", &checkpoint)?;
 step_optimize(&mut session, None)?;
 ```
 
+## Manual Seeds
+
+Every problem with an initialization step also has a `*_with_seed` variant (for example `step_init_with_seed` taking a `PlanarManualInit`) that accepts a coarse prior for some parameters and auto-estimates the rest. The plain `step_init` is the same call with an empty seed.
+
 ## Pipeline Functions
 
 Pipeline functions chain all steps into a single call:
@@ -72,7 +75,7 @@ Pipeline functions chain all steps into a single call:
 ```rust
 pub fn run_calibration(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-) -> Result<()> {
+) -> Result<(), Error> {
     step_init(session, None)?;
     step_optimize(session, None)?;
     Ok(())
@@ -92,16 +95,24 @@ run_calibration(&mut session)?;
 let export = session.export()?;
 ```
 
-## Available Pipeline Functions
+## Available Steps and Pipeline Functions
 
-| Problem | Pipeline function | Steps |
-|---------|------------------|-------|
-| `PlanarIntrinsicsProblem` | `run_calibration()` | init → optimize |
-| `SingleCamHandeyeProblem` | `single_cam_handeye::run_calibration()` | 4 steps |
-| `RigExtrinsicsProblem` | `rig_extrinsics::run_calibration()` | 4 steps |
-| `RigHandeyeProblem` | `rig_handeye::run_calibration()` | 6 steps |
-| `LaserlineDeviceProblem` | `run_calibration(session, config)` | init → optimize |
-| `ScheimpflugIntrinsicsProblem` | `scheimpflug_intrinsics::run_calibration(session, config)` | init → optimize |
+Paths are relative to the facade module named after the problem (`vision_calibration::<module>`).
+
+| Problem | Module | Steps | Pipeline function |
+|---------|--------|-------|-------------------|
+| `PlanarIntrinsicsProblem` | `planar_intrinsics` | `step_init`, `step_optimize`, `step_filter` | `run_calibration(session)`, `run_calibration_with_filtering(session, filter_opts)` |
+| `ScheimpflugIntrinsicsProblem` | `scheimpflug_intrinsics` | `step_init`, `step_optimize` | `run_calibration(session, config)` |
+| `SingleCamHandeyeProblem` | `single_cam_handeye` | `step_intrinsics_init`, `step_intrinsics_optimize`, `step_handeye_init`, `step_handeye_optimize` | `run_calibration(session)` |
+| `LaserlineDeviceProblem` | `laserline_device` | `step_init`, `step_optimize` | `run_calibration(session, config)` |
+| `RigExtrinsicsProblem` | `rig_extrinsics` | `step_intrinsics_init_all`, `step_intrinsics_optimize_all`, `step_rig_init`, `step_rig_optimize` | `run_calibration(session)` |
+| `RigHandeyeProblem` | `rig_handeye` | the four rig steps above plus `step_handeye_init`, `step_handeye_optimize` | `run_calibration(session)` |
+| `RigLaserlineDeviceProblem` | `rig_laserline_device` | `step_init`, `step_optimize` | `run_calibration(session)` |
+| `RigHandeyeLaserlineProblem` | `rig_handeye_laserline` | (none; the pipeline is a single joint solve) | `run_calibration(session)` |
+
+The `*_with_seed` variants exist for `step_init` / `step_intrinsics_init` / `step_intrinsics_init_all` / `step_rig_init` / `step_handeye_init` of the problems above.
+
+`step_filter` removes high-residual points from the session input, which invalidates the computed state; run `step_init` and `step_optimize` again afterwards. `run_calibration_with_filtering` does exactly that: solve, filter, solve.
 
 ## Recommendation
 

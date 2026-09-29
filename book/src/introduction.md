@@ -25,13 +25,16 @@ The library covers the full calibration pipeline:
 
 ## Workspace Structure
 
-calibration-rs is organized as a 5-crate Rust workspace with a layered architecture:
+calibration-rs is organized as a layered Rust workspace with a layered architecture:
 
 ```
 vision-calibration (facade)
-    → vision-calibration-pipeline (sessions, workflows)
+    → vision-calibration-pipeline (sessions, workflows, dataset runner)
         → vision-calibration-optim (non-linear refinement)
         → vision-calibration-linear (initialization)
+        → vision-calibration-dataset / -detect (manifest, detectors)
+    → vision-mvg (N-view geometry, rectification, dense stereo)
+        → vision-geometry (two-view solvers)
             → vision-calibration-core (primitives, camera models, RANSAC)
 ```
 
@@ -45,16 +48,16 @@ Readers familiar with OpenCV's calibration module will find analogous functional
 |--------|---------------|
 | `cv::calibrateCamera` | Planar intrinsics pipeline (Zhang init + bundle adjustment) |
 | `cv::solvePnP` | `PnpSolver::p3p()`, `PnpSolver::dlt()` |
-| `cv::findHomography` | `HomographySolver::dlt()`, `dlt_homography_ransac()` |
-| `cv::findFundamentalMat` | `EpipolarSolver::fundamental_8point()` |
-| `cv::findEssentialMat` | `EpipolarSolver::essential_5point()` |
+| `cv::findHomography` | `dlt_homography()`, `dlt_homography_ransac()` |
+| `cv::findFundamentalMat` | `fundamental_8point()` |
+| `cv::findEssentialMat` | `essential_5point()` |
 | `cv::stereoCalibrate` | Rig extrinsics pipeline |
 
 calibration-rs differs from OpenCV in several ways: it is written in pure Rust, uses a composable camera model with generic type parameters, provides a backend-agnostic optimization IR, and offers a session framework with JSON checkpointing for production workflows.
 
 ## Book Organization
 
-The book is structured in seven parts:
+The book is structured in seven parts (plus appendices):
 
 - **Part I: Camera Model** — the composable projection pipeline (pinhole, distortion, sensor tilt, intrinsics)
 - **Part II: Geometric Primitives** — rigid transforms, RANSAC, robust loss functions

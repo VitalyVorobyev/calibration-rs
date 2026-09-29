@@ -1,7 +1,5 @@
 # References and Further Reading
 
-> **[COLLAB]** Please help curate and prioritize this reference list, and add any additional references.
-
 ## Foundational Textbooks
 
 - **Hartley, R.I. & Zisserman, A.** (2004). *Multiple View Geometry in Computer Vision*. 2nd edition. Cambridge University Press. — The definitive reference for projective geometry, fundamental/essential matrices, homography, triangulation, and bundle adjustment.
@@ -42,4 +40,3 @@
 
 - **Sola, J., Deray, J., & Atchuthan, D.** (2018). "A Micro Lie Theory for State Estimation in Robotics." *arXiv:1812.01537*. — Accessible introduction to Lie groups for robotics and vision, covering SO(3), SE(3), and their tangent spaces.
 
-<!-- [COLLAB]: Add any additional references relevant to the implementations -->

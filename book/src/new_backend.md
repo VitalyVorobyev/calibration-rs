@@ -1,6 +1,6 @@
 # Adding a New Solver Backend
 
-The backend-agnostic IR design allows adding new optimization backends without modifying problem definitions. This chapter describes what a backend must implement and how to integrate it.
+The backend-agnostic IR design allows adding new optimization backends without modifying problem definitions. This chapter is a guide for contributors working inside the `vision-calibration-optim` crate; the backend types are not part of its public API.
 
 ## The `OptimBackend` Trait
 
@@ -9,19 +9,19 @@ pub trait OptimBackend {
     fn solve(
         &self,
         ir: &ProblemIR,
-        initial_params: &HashMap<String, DVector<f64>>,
+        initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
-    ) -> Result<BackendSolution>;
+    ) -> Result<BackendSolution, Error>;
 }
 ```
 
 A backend receives:
 - **`ir`**: The problem structure (parameter blocks, residual blocks, factor kinds)
-- **`initial_params`**: Initial values for all parameter blocks (keyed by name)
+- **`initial`**: Initial values for all parameter blocks (keyed by name)
 - **`opts`**: Solver options (max iterations, tolerances, verbosity)
 
 And returns:
-- **`BackendSolution`**: Optimized parameter values (keyed by parameter name) and a solve report
+- **`BackendSolution`**: Optimized parameter values (`params`, keyed by parameter name) and a `solve_report` (`final_cost`, `num_iters`)
 
 ## What a Backend Must Handle
 
@@ -70,62 +70,22 @@ Return optimized values as a `HashMap<String, DVector<f64>>` keyed by parameter 
 
 ## Implementation Pattern
 
-A typical backend has two phases:
+`TinySolverBackend` (in `backend/tiny_solver_backend.rs`) is the reference implementation. It has two phases inside `solve`:
 
-### Compile Phase
+1. **Compile** — validate the IR, then create one solver parameter per `ParamBlock` (manifold, fixed indices, bounds) and one cost function per `ResidualBlock` (from its `FactorKind`, with the robust loss applied).
+2. **Solve** — run the optimizer with the convergence criteria from `BackendSolveOptions`, then extract the final parameter values into a `BackendSolution`.
 
-Translate the IR into solver-specific data structures:
+## Registering the Backend
 
-```rust
-fn compile(&self, ir: &ProblemIR) -> SolverProblem {
-    for param in &ir.params {
-        // Create solver parameter with manifold and fixing
-    }
-    for residual in &ir.residuals {
-        // Create solver cost function from FactorKind
-    }
-}
-```
-
-### Solve Phase
-
-Run the optimizer and extract results:
+Add a variant to `BackendKind` and a match arm in `solve_with_backend`, which is the single dispatch point used by every problem:
 
 ```rust
-fn solve(&self, problem: SolverProblem, opts: &BackendSolveOptions)
-    -> BackendSolution
-{
-    // Set convergence criteria from opts
-    // Run optimization loop
-    // Extract final parameter values
-    // Build SolveReport
+pub enum BackendKind {
+    TinySolver,
+    // MyBackend,
 }
 ```
-
-## Potential Backends
-
-| Backend | Description | Advantages |
-|---------|-------------|------------|
-| tiny-solver | Current. Rust-native LM. | Pure Rust, no external deps |
-| Ceres-RS | Rust bindings to Google Ceres | Battle-tested, many features |
-| Custom GN | Hand-written Gauss-Newton | Full control, educational |
-| L-BFGS | Quasi-Newton for large problems | Memory-efficient |
 
 ## Testing
 
-A new backend should pass the same convergence tests as the existing backend:
-
-```rust
-#[test]
-fn new_backend_planar_converges() {
-    // Same synthetic data and initial values as tiny-solver tests
-    let (ir, init) = build_planar_test_problem();
-
-    let solution = MyNewBackend.solve(&ir, &init, &opts)?;
-
-    // Verify same convergence quality
-    assert!(solution.report.final_cost < 1e-4);
-}
-```
-
-Run the full test suite with both backends to ensure equivalent results.
+A new backend should pass the same convergence tests as the existing backend: solve the same synthetic problems from the same initial values and check that `solution.solve_report.final_cost` reaches an equivalent level. Compare the results of the existing `vision-calibration-optim` problem tests between the two backends.

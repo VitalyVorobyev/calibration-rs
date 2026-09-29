@@ -17,9 +17,8 @@ of a genuinely **new residual family**:
 5. Write tests with synthetic ground truth
 
 (Adding a new **camera model** is a different, smaller recipe: one descriptor
-enum variant + one kernel type + one dispatch-table row; see
-[ADR 0020](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/adrs/0020-camera-model-as-data-factor-ir.md)
-and the [Factor Catalog](factor_catalog.md).)
+enum variant + one kernel type + one dispatch-table row; see the
+[Factor Catalog](factor_catalog.md).)
 
 ## Step 1: Generic Residual Function
 

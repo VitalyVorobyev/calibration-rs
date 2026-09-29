@@ -6,7 +6,7 @@ This chapter walks through a minimal camera calibration using synthetic data. By
 
 ```toml
 [dependencies]
-vision-calibration = "0.2"
+vision-calibration = "0.9"
 ```
 
 ## Minimal Example
@@ -15,6 +15,7 @@ The following program generates synthetic calibration data, runs the two-step ca
 
 ```rust
 use anyhow::Result;
+use vision_calibration::core::make_pinhole_camera;
 use vision_calibration::planar_intrinsics::{step_init, step_optimize};
 use vision_calibration::prelude::*;
 use vision_calibration::synthetic::planar;
