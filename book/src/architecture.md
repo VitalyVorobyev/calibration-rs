@@ -5,20 +5,23 @@ calibration-rs is organized as a layered workspace of Rust crates plus Python bi
 ## Crate Dependency Graph
 
 ```
-vision-calibration          (facade: re-exports everything)
+vision-calibration (facade: re-exports everything)
     │
-    └── vision-calibration-pipeline    (sessions, workflows, step functions)
-            │
-            ├── vision-calibration-optim   (non-linear optimization)
-            │       │
-            │       └── vision-calibration-core
-            │
-            └── vision-calibration-linear  (closed-form initialization)
-                    │
-                    └── vision-calibration-core
+    ├── vision-calibration-pipeline   (sessions, problem types, dataset runner)
+    │       ├── vision-calibration-optim     (non-linear optimization)
+    │       ├── vision-calibration-linear    (closed-form initialization)
+    │       ├── vision-calibration-dataset   (dataset manifest)
+    │       ├── vision-calibration-detect    (target detectors, detection cache)
+    │       └── vision-geometry
+    │
+    └── vision-mvg                    (N-view geometry, rectification, dense stereo)
+            └── vision-geometry       (two-view solvers)
+
+vision-calibration-core is the base layer: linear, optim, vision-geometry
+and vision-mvg all depend on it.
 ```
 
-**Key rule**: `vision-calibration-linear` and `vision-calibration-optim` are peers. They both depend on `vision-calibration-core` but never on each other. This keeps initialization algorithms free of optimization dependencies and vice versa.
+**Key rule**: `vision-calibration-linear` and `vision-calibration-optim` are peers. They both depend on `vision-calibration-core` but never on each other. This keeps initialization algorithms free of optimization dependencies and vice versa. `vision-calibration-linear` may also use `vision-geometry`; `vision-calibration-pipeline` does not depend on `vision-mvg` (the facade re-exports it directly).
 
 ## Crate Responsibilities
 
@@ -33,20 +36,38 @@ The foundation layer providing:
 - **Synthetic data utilities** — grid generation, pose sampling, projection
 - **Reprojection error computation** — single-camera and multi-camera rig
 
+### vision-geometry
+
+Deterministic two-view solvers, all free functions in per-topic modules:
+
+| Module | Functions |
+|--------|-----------|
+| `homography` | `dlt_homography`, `dlt_homography_ransac` |
+| `epipolar` | `fundamental_8point`, `essential_5point` |
+| `triangulation` | `triangulate_point_linear`, `triangulate_point` |
+| `camera_matrix` | `dlt_camera_matrix` |
+
+Through the facade they are reached as `vision_calibration::geometry::homography::dlt_homography`, and so on.
+
+### vision-mvg
+
+N-view geometry on top of `vision-geometry`: calibrated relative-pose recovery, N-view triangulation, bundle adjustment (with the `refine` feature), Scheimpflug-aware stereo rectification, and dense stereo matching. Facade path: `vision_calibration::mvg`.
+
+### vision-calibration-dataset and vision-calibration-detect
+
+`vision-calibration-dataset` defines `DatasetSpec`, the on-disk manifest describing images, robot poses, and target metadata. `vision-calibration-detect` provides the target detectors (chessboard, ChArUco, PuzzleBoard, ring grid) and a filesystem detection cache. The pipeline's `dataset_runner` turns a manifest into calibration inputs.
+
 ### vision-calibration-linear
 
-Closed-form initialization solvers. Each produces an approximate estimate suitable for seeding non-linear optimization:
+Closed-form initialization solvers (the two-view solvers live in `vision-geometry`). Each produces an approximate estimate suitable for seeding non-linear optimization:
 
 | Solver | Input | Output |
 |--------|-------|--------|
 | Zhang's method | Homographies | Intrinsics $K$ |
 | Distortion fit | $K$ + homographies | Brown-Conrady coefficients |
 | Iterative intrinsics | Observations | Joint $K$ + distortion |
-| Homography DLT | 2D-2D correspondences | $3 \times 3$ homography |
 | Planar pose | $K$ + homography | SE(3) pose |
 | P3P / DLT PnP | 3D-2D + $K$ | SE(3) pose |
-| 5-point essential | Normalized correspondences | Essential matrix |
-| 8-/7-point fundamental | Pixel correspondences | Fundamental matrix |
 | Tsai-Lenz hand-eye | Robot + camera motions | Hand-eye SE(3) |
 | Rig extrinsics | Per-camera poses | Camera-to-rig SE(3) |
 | Laser plane | Laser pixels + target poses | Plane (normal + distance) |
@@ -68,7 +89,7 @@ The session framework providing production-ready workflows:
 - **Step functions** — free functions operating on `&mut CalibrationSession<P>` (e.g., `step_init`, `step_optimize`)
 - **Pipeline functions** — convenience wrappers chaining all steps
 - **JSON checkpointing** — full serialization for session persistence
-- Six problem types: `PlanarIntrinsicsProblem`, `ScheimpflugIntrinsicsProblem`, `SingleCamHandeyeProblem`, `RigExtrinsicsProblem`, `RigHandeyeProblem`, `LaserlineDeviceProblem`
+- Eight problem types: `PlanarIntrinsicsProblem`, `ScheimpflugIntrinsicsProblem`, `SingleCamHandeyeProblem`, `LaserlineDeviceProblem`, `RigExtrinsicsProblem`, `RigHandeyeProblem`, `RigLaserlineDeviceProblem`, `RigHandeyeLaserlineProblem`. The two rig problems cover pinhole and Scheimpflug rigs via `SensorMode`.
 
 ### vision-calibration
 
@@ -78,13 +99,15 @@ Unified facade crate that re-exports everything through a clean module hierarchy
 use vision_calibration::prelude::*;            // Minimal planar hello-world imports
 use vision_calibration::planar_intrinsics::*;  // Planar workflow
 use vision_calibration::core::*;               // Math types
-use vision_calibration::linear::homography;    // Linear solvers (per-module paths)
+use vision_calibration::linear::pnp;           // Linear solvers (per-module paths)
+use vision_calibration::geometry::homography;  // Two-view solvers
+use vision_calibration::mvg::rectification;    // N-view geometry
 use vision_calibration::optim::RobustLoss;     // Optimization vocabulary (hand-picked)
 ```
 
 ### vision-calibration-py
 
-Python bindings crate (`maturin`/PyO3) exposing high-level session workflows.
+Python bindings crate (`maturin`/PyO3) exposing high-level session workflows; published to PyPI.
 
 ## Data Flow
 
@@ -138,7 +161,7 @@ Each stage can be mixed and matched. For example, a standard camera uses `Pinhol
 Problems are defined as an intermediate representation (IR) that is independent of any specific solver. The IR is then *compiled* to a solver-specific form:
 
 ```
-Problem Builder  →  ProblemIR  →  Backend.compile()  →  Backend.solve()
+Problem Builder  →  ProblemIR  →  OptimBackend::solve()
                   (generic)       (solver-specific)
 ```
 

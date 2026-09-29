@@ -12,7 +12,7 @@ where $\rho$ is the loss function applied to each residual $r_i$. The standard (
 
 ## Available Loss Functions
 
-calibration-rs provides three robust loss functions, each parameterized by a scale $c > 0$ that controls the transition from quadratic (inlier) to robust (outlier) behavior.
+`RobustLoss` has four variants: `None` (plain squared loss) and three robust loss functions, each parameterized by a scale $c > 0$ that controls the transition from quadratic (inlier) to robust (outlier) behavior.
 
 ### Huber Loss
 
@@ -65,7 +65,7 @@ The scale $c$ sets the boundary between "inlier" and "outlier" behavior:
 
 ## Usage in calibration-rs
 
-Robust losses are specified per-residual block in the optimization IR:
+Robust losses are selected with the `RobustLoss` enum:
 
 ```rust
 pub enum RobustLoss {
@@ -77,7 +77,7 @@ pub enum RobustLoss {
 ```
 
 Each non-laser problem type exposes the loss function via its shared
-`solver: SolverConfig` group (ADR 0024):
+`solver: SolverConfig` group:
 
 ```rust
 session.update_config(|c| {
@@ -88,7 +88,7 @@ session.update_config(|c| {
 Laser-carrying stages (laserline device, rig-handeye-laserline) do not use
 `solver.robust_loss` — they track calibration and laser residuals as
 independent families with their own `calib_loss`/`laser_loss` fields
-instead (see ADR 0024).
+instead.
 
 The backend applies the loss function during residual evaluation, modifying both the cost and the Jacobian.
 

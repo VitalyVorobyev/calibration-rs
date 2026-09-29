@@ -48,8 +48,7 @@ After optimization, expect <2% intrinsics error and <1 px mean reprojection erro
 
 ## Configuration
 
-Grouped per ADR 0024 — `init` and `solver` are shared sub-structs reused
-across every intrinsics-bearing problem type:
+`init` and `solver` are shared sub-structs reused by every intrinsics-bearing problem type:
 
 ```rust
 pub struct PlanarIntrinsicsConfig {
@@ -63,10 +62,31 @@ pub struct PlanarIntrinsicsConfig {
     // { max_iters: usize = 50, verbosity: usize = 0, robust_loss: RobustLoss = None }
 
     pub distortion_model: DistortionKind,   // Distortion model (default: BrownConrady5)
+                                            // (see "Distortion Models" below)
     pub fix_camera: CameraFixMask,          // { intrinsics: IntrinsicsFixMask, distortion: DistortionFixMask }
     pub fix_poses: Vec<usize>,              // Fix specific view poses
 }
 ```
+
+### Distortion Models
+
+`distortion_model: DistortionKind` selects the lens model that is fitted:
+
+| Variant | Parameters | Model |
+|---------|-----------|-------|
+| `DistortionKind::None` | (none) | No distortion |
+| `DistortionKind::BrownConrady5` | `k1, k2, k3, p1, p2` | Brown-Conrady radial + tangential (default) |
+| `DistortionKind::Rational8` | `k1..k6, p1, p2` | OpenCV rational polynomial |
+| `DistortionKind::ThinPrism9` | `k1, k2, k3, p1, p2, s1..s4` | Brown-Conrady + thin prism |
+| `DistortionKind::Division1` | `lambda` | Fitzgibbon division model |
+
+```rust
+use vision_calibration::optim::DistortionKind;
+
+session.update_config(|c| c.distortion_model = DistortionKind::Rational8)?;
+```
+
+For the non-default models, `export.params.distortion()` returns `None`; read the coefficients from `export.params.camera.distortion` (`DistortionParams`, see [Serialization and Runtime-Dynamic Types](params.md)).
 
 ### Fix Masks
 
@@ -105,11 +125,9 @@ session.update_config(|c| {
 })?;
 
 // Run pipeline
-step_init(&mut session, None)?;
-
 // Inspect initialization
-let init_k = session.state.initial_intrinsics.as_ref().unwrap();
-println!("Init fx={:.1}, fy={:.1}", init_k.fx, init_k.fy);
+let init = step_init(&mut session, None)?;
+println!("Init fx={:.1}, fy={:.1}", init.intrinsics.fx, init.intrinsics.fy);
 
 step_optimize(&mut session, None)?;
 
@@ -127,15 +145,17 @@ After optimization, views or individual observations with high reprojection erro
 ```rust
 use vision_calibration::planar_intrinsics::{step_filter, FilterOptions};
 
-let filter_opts = FilterOptions {
-    max_reproj_error: 2.0,      // Remove observations > 2 px
-    min_points_per_view: 10,     // Minimum points to keep a view
-    remove_sparse_views: true,   // Drop views below threshold
-};
+let mut filter_opts = FilterOptions::default();
+filter_opts.max_reproj_error = 2.0;      // Remove observations > 2 px
+filter_opts.min_points_per_view = 10;    // Minimum points to keep a view
+filter_opts.remove_sparse_views = true;  // Drop views below threshold
 step_filter(&mut session, filter_opts)?;
 
-// Re-optimize with cleaned data
+// Filtering edits the input, which clears the computed state: run both steps again
+step_init(&mut session, None)?;
 step_optimize(&mut session, None)?;
+
+// Or, in one call: run_calibration_with_filtering(&mut session, filter_opts)?
 ```
 
 > **OpenCV equivalence**: `cv::calibrateCamera` performs both initialization and optimization internally. calibration-rs separates these steps for inspection and customization.

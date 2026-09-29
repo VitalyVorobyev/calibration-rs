@@ -93,8 +93,8 @@ $$d_\perp = \frac{|(\mathbf{q} - \mathbf{p}_0) \times \hat{\mathbf{d}}_{\text{2D
 
 ## Configuration
 
-Grouped per ADR 0024 — `init` and `solver` are the shared sub-structs;
-`optimize` groups the laser-specific bundle-adjustment knobs:
+`init` and `solver` are the shared sub-structs; `optimize` groups the
+laser-specific bundle-adjustment settings:
 
 ```rust
 pub struct LaserlineDeviceConfig {

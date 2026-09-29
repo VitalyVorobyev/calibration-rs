@@ -63,7 +63,7 @@ Joint optimization of all parameters:
 
 ## Configuration
 
-Grouped per ADR 0024 — shared sub-structs (`IntrinsicsInitConfig`, `RigConfig`,
+Settings are grouped by stage; the shared sub-structs (`IntrinsicsInitConfig`, `RigConfig`,
 `SolverConfig`) are reused across every rig-family problem type:
 
 ```rust
@@ -82,9 +82,7 @@ pub struct RigExtrinsicsConfig {
 }
 ```
 
-`fix_first_rig_pose` is gone as of 0.7.0: the reference-camera fix alone
-removes the rig's 6-DOF gauge freedom, so a second pose-gauge knob was
-redundant (and measurably, mildly pessimizing).
+The reference camera (`rig.reference_camera_idx`) is fixed at identity, which removes the rig's 6-DOF gauge freedom; no separate pose-gauge setting is needed.
 
 ## Input Format
 

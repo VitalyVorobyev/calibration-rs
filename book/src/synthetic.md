@@ -1,7 +1,5 @@
 # Synthetic Data Generation
 
-> **[COLLAB]** This appendix benefits from user collaboration on recommended noise levels and realistic test scenarios.
-
 calibration-rs provides utilities for generating synthetic calibration data, used in examples and tests. Synthetic data allows testing with known ground truth, verifying convergence, and debugging algorithm issues.
 
 ## Board Point Generation
@@ -27,7 +25,7 @@ let poses = planar::poses_yaw_y_z(
     0.5,    // start Z distance (meters)
     0.05,   // Z step
 );
-// Returns Vec<Iso3>: camera-to-board transforms
+// Returns Vec<Iso3>: cam_se3_target (board-to-camera) transforms
 ```
 
 Poses are generated looking at the board center, with rotation around the Y axis (yaw) and varying distance along Z.
@@ -44,44 +42,27 @@ This applies the full camera model (projection + distortion + intrinsics) to gen
 
 ## Adding Noise
 
-<!-- [COLLAB]: Provide recommended noise levels for different scenarios -->
-
-For realistic testing, add Gaussian noise to the projected pixels:
+For realistic testing, project with deterministic uniform pixel noise. `UniformPixelNoise` is a pure function of `(seed, view index, point index)`, so datasets are identical across platforms and library versions:
 
 ```rust
-use rand::Rng;
-let mut rng = rand::thread_rng();
-let noise_sigma = 0.5; // pixels
+use vision_calibration::synthetic::noise::UniformPixelNoise;
 
-for view in &mut views {
-    for pixel in view.points_2d.iter_mut() {
-        pixel.x += rng.gen::<f64>() * noise_sigma;
-        pixel.y += rng.gen::<f64>() * noise_sigma;
-    }
-}
+let noise = UniformPixelNoise { seed: 42, max_abs_px: 0.5 }; // uniform in [-0.5, 0.5] px per axis
+let views = planar::project_views_noisy(&camera, &board_points, &poses, &noise)?;
 ```
 
-Typical noise levels:
+Typical noise levels (`max_abs_px`):
 
-| Scenario | Noise sigma (px) |
+| Scenario | Noise (px) |
 |----------|-----------------|
 | Ideal (testing convergence) | 0.0 |
 | High-quality detector | 0.1 - 0.3 |
 | Standard detector | 0.3 - 1.0 |
 | Noisy conditions | 1.0 - 3.0 |
 
-## Deterministic Seeds
-
-All examples and tests use fixed random seeds for reproducibility:
-
-```rust
-use rand::SeedableRng;
-let rng = rand::rngs::StdRng::seed_from_u64(42);
-```
+Set a fixed `seed` in examples and tests for reproducibility.
 
 ## Common Test Scenarios
-
-<!-- [COLLAB]: Add recommended scenarios for validating new algorithms -->
 
 ### Minimal (3 views, no noise)
 For verifying algorithm correctness. Should converge to machine precision.

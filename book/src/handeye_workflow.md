@@ -83,7 +83,7 @@ This penalizes deviations from the nominal robot poses, allowing small correctio
 
 ## Configuration
 
-Grouped per ADR 0024 — shared sub-structs (`IntrinsicsInitConfig`,
+Settings are grouped by stage; the shared sub-structs (`IntrinsicsInitConfig`,
 `HandeyeInitConfig`, `SolverConfig`, `RobotPoseConfig`) are reused across
 every hand-eye problem type:
 

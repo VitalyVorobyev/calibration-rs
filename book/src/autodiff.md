@@ -20,8 +20,10 @@ For multi-variable functions, **hyper-dual numbers** or **multi-dual numbers** g
 
 All residual functions in calibration-rs are written **generic over the scalar type**:
 
+A simplified pinhole + Brown-Conrady reprojection residual looks like this (the shipped kernels, such as `reproj_residual_model_generic`, additionally take the camera-model chain as data):
+
 ```rust
-fn reproj_residual_pinhole4_dist5_se3_generic<T: RealField>(
+fn reproj_residual_generic<T: RealField>(
     intr: DVectorView<'_, T>,  // [fx, fy, cx, cy]
     dist: DVectorView<'_, T>,  // [k1, k2, k3, p1, p2]
     pose: DVectorView<'_, T>,  // [qx, qy, qz, qw, tx, ty, tz]
