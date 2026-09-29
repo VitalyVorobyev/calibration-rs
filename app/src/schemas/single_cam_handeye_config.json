@@ -68,7 +68,7 @@
     },
     "RobotPoseConfig": {
       "additionalProperties": false,
-      "description": "Robot-pose refinement options for hand-eye bundle adjustment.\n\nReplaces the `robot_rot_sigma` / `robot_trans_sigma` /\n`refine_robot_poses` trio that used to be duplicated verbatim across\n`SingleCamHandeyeConfig`, `RigHandeyeBaConfig`, and the joint\nrig+hand-eye+laser BA config.",
+      "description": "Robot-pose refinement options for hand-eye bundle adjustment.\n\nShared by `SingleCamHandeyeConfig`, `RigHandeyeBaConfig`, and the joint\nrig+hand-eye+laser BA config.",
       "properties": {
         "refine": {
           "description": "Refine robot poses with per-view se(3) corrections.",
