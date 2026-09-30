@@ -367,24 +367,16 @@ export function DiagnoseWorkspace() {
                   onSelectPose={(pose) => setSelectedPose(pose, "A")}
                 />
               </Panel>
-              <Panel
-                title="Cross-camera matrix"
-                actions={
-                  <span className="font-mono text-[10px] text-fg-muted">
-                    mean px per cell
-                  </span>
-                }
-              >
-                <CameraResidualMatrix
-                  residuals={targetResiduals}
-                  selectedPose={selectedPose}
-                  selectedCamera={cameraA}
-                  onSelect={(pose, camera) => {
-                    setSelectedPose(pose, "A");
-                    setCamera(camera, "A");
-                  }}
-                />
-              </Panel>
+              {/* Renders nothing (not even its panel) for a single-camera export. */}
+              <CameraResidualMatrix
+                residuals={targetResiduals}
+                selectedPose={selectedPose}
+                selectedCamera={cameraA}
+                onSelect={(pose, camera) => {
+                  setSelectedPose(pose, "A");
+                  setCamera(camera, "A");
+                }}
+              />
             </aside>
           </DensityProvider>
         )}

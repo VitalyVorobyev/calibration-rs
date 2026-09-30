@@ -1,4 +1,4 @@
-import { cn, focusRing } from "@vitavision/ui";
+import { cn, focusRing, Panel } from "@vitavision/ui";
 import { useMemo } from "react";
 import { colorForError } from "../../lib/errorColors";
 import { computeCameraPoseMatrix } from "../../lib/residualStats";
@@ -33,69 +33,79 @@ export function CameraResidualMatrix({
   }
 
   return (
-    <section aria-label="Cross-camera residual matrix" className="flex flex-col gap-1.5">
-      <div className="overflow-x-auto">
-        {/* A raw <table>, not ui's data-driven `Table`: this grid needs a
+    <Panel
+      title="Cross-camera matrix"
+      actions={
+        <span className="font-mono text-[10px] text-fg-muted">mean px per cell</span>
+      }
+    >
+      <section
+        aria-label="Cross-camera residual matrix"
+        className="flex flex-col gap-1.5"
+      >
+        <div className="overflow-x-auto">
+          {/* A raw <table>, not ui's data-driven `Table`: this grid needs a
             sticky row-header column and per-cell buttons. */}
-        <table className="border-collapse font-mono text-[10px] tabular-nums">
-          <thead>
-            <tr>
-              <th
-                scope="col"
-                className={cn(STICKY, "p-1 text-left font-medium text-fg-muted")}
-              >
-                cam\pose
-              </th>
-              {matrix.poses.map((pose) => (
+          <table className="border-collapse font-mono text-[10px] tabular-nums">
+            <thead>
+              <tr>
                 <th
-                  key={pose}
                   scope="col"
-                  className={cn(
-                    "p-1 text-center font-medium",
-                    pose === selectedPose ? "text-signal" : "text-fg-muted",
-                  )}
+                  className={cn(STICKY, "p-1 text-left font-medium text-fg-muted")}
                 >
-                  {pose}
+                  cam\pose
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {matrix.cameras.map((camera) => (
-              <tr key={camera}>
-                <th
-                  scope="row"
-                  className={cn(
-                    STICKY,
-                    "p-1 text-left font-medium",
-                    camera === selectedCamera ? "text-signal" : "text-fg-muted",
-                  )}
-                >
-                  {camera}
-                </th>
-                {matrix.poses.map((pose) => {
-                  const cell = matrix.cells.get(camera)?.get(pose);
-                  const active = pose === selectedPose && camera === selectedCamera;
-                  return (
-                    <td key={pose} className="p-0.5">
-                      <MatrixCell
-                        mean={cell?.mean ?? null}
-                        count={cell?.count ?? 0}
-                        pose={pose}
-                        camera={camera}
-                        active={active}
-                        onSelect={onSelect}
-                      />
-                    </td>
-                  );
-                })}
+                {matrix.poses.map((pose) => (
+                  <th
+                    key={pose}
+                    scope="col"
+                    className={cn(
+                      "p-1 text-center font-medium",
+                      pose === selectedPose ? "text-signal" : "text-fg-muted",
+                    )}
+                  >
+                    {pose}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <MatrixLegend />
-    </section>
+            </thead>
+            <tbody>
+              {matrix.cameras.map((camera) => (
+                <tr key={camera}>
+                  <th
+                    scope="row"
+                    className={cn(
+                      STICKY,
+                      "p-1 text-left font-medium",
+                      camera === selectedCamera ? "text-signal" : "text-fg-muted",
+                    )}
+                  >
+                    {camera}
+                  </th>
+                  {matrix.poses.map((pose) => {
+                    const cell = matrix.cells.get(camera)?.get(pose);
+                    const active = pose === selectedPose && camera === selectedCamera;
+                    return (
+                      <td key={pose} className="p-0.5">
+                        <MatrixCell
+                          mean={cell?.mean ?? null}
+                          count={cell?.count ?? 0}
+                          pose={pose}
+                          camera={camera}
+                          active={active}
+                          onSelect={onSelect}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <MatrixLegend />
+      </section>
+    </Panel>
   );
 }
 
