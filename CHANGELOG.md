@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **App: the vitavision design system.** The Tauri app drops its local
+  component kit and HSL tokens for the published `@vitavision/ui` (0.8):
+  IBM Plex type, the shared light and dark palettes, and a system / light /
+  dark theme toggle (stored under `calib-theme`, as before). ESLint's
+  `tokensOnly` rule now keeps colour in `app/src` on the design tokens.
+
 ## [0.9.0] - 2026-09-29
 
 Minor release. The dataset runner's chessboard detector keeps the whole
