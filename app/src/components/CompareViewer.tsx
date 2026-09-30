@@ -191,9 +191,7 @@ export function CompareViewer({
 function PaneLabel({ frame, active }: { frame: FrameKey; active: boolean }) {
   return (
     <div
-      className={`mt-1 font-mono text-[11px] ${
-        active ? "text-brand" : "text-muted-foreground"
-      }`}
+      className={`mt-1 font-mono text-[11px] ${active ? "text-signal" : "text-fg-muted"}`}
     >
       pose {frame.pose} · cam {frame.camera}
     </div>

@@ -1,6 +1,13 @@
+import {
+  DensityProvider,
+  Empty,
+  Panel,
+  Select,
+  ToggleChip,
+  Tooltip,
+} from "@vitavision/ui";
 import { useMemo, useState } from "react";
 import { PoseStepper } from "../../components/PoseStepper";
-import { Button, EmptyState, Panel, SectionHeader, Select } from "../../components/ui";
 import {
   iso3DistanceM,
   iso3EulerXYZDeg,
@@ -14,6 +21,9 @@ import { exportKindLabel } from "../../store/exportKind";
 import type { Iso3Wire, PinholeCameraWire } from "../../store/types";
 import type { FrameKey } from "../../types";
 import { Scene } from "./Scene";
+
+/** The quiet right-aligned caption in an info-rail panel's header. */
+const SUBTITLE = "font-mono text-[10px] text-fg-muted";
 
 /** 3D rig scene + side panel that breaks down the
  * selected camera's intrinsics, the camera→target extrinsic for the
@@ -40,10 +50,12 @@ export function Viewer3DWorkspace() {
 
   if (!data || !kind || !sceneData) {
     return (
-      <EmptyState
-        title="3D viewer"
-        body="Load a rig export to see cameras and target poses in 3D."
-      />
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <h2 className="text-sm font-semibold tracking-tight text-fg">3D viewer</h2>
+        <Empty className="flex-1 justify-center rounded-panel border border-dashed border-line bg-surface px-6 [&>p]:max-w-md">
+          Load a rig export to see cameras and target poses in 3D.
+        </Empty>
+      </div>
     );
   }
 
@@ -58,12 +70,14 @@ export function Viewer3DWorkspace() {
 
   if (!isRig) {
     return (
-      <EmptyState
-        title="3D viewer"
-        body={`The 3D viewer needs a rig export (cameras + cam_se3_rig + rig_se3_target) or a single-camera laserline device. The current export is ${exportKindLabel(
-          kind,
-        )} — its remaining single-camera shapes will land in a follow-up.`}
-      />
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <h2 className="text-sm font-semibold tracking-tight text-fg">3D viewer</h2>
+        <Empty className="flex-1 justify-center rounded-panel border border-dashed border-line bg-surface px-6 [&>p]:max-w-md">
+          {`The 3D viewer needs a rig export (cameras + cam_se3_rig + rig_se3_target) or a single-camera laserline device. The current export is ${exportKindLabel(
+            kind,
+          )} — its remaining single-camera shapes will land in a follow-up.`}
+        </Empty>
+      </div>
     );
   }
 
@@ -97,37 +111,49 @@ export function Viewer3DWorkspace() {
               onSelectPose={(next) => setSelectedPose(next, "A")}
             />
           )}
-          <Select
-            label="ref cam"
-            value={safeRefCamera}
-            options={cameraIndices}
-            onChange={setReferenceCamera}
-            title="Reference camera for the relative-pose readout"
-          />
-          <Button
-            pressed={showAllPoses}
-            onClick={() => setShowAllPoses((v) => !v)}
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-[11px] tracking-wider text-fg-muted uppercase">
+              ref cam
+            </span>
+            <Tooltip content="Reference camera for the relative-pose readout">
+              <span>
+                <Select
+                  aria-label="ref cam"
+                  className="h-7 w-16 font-mono text-xs"
+                  value={String(safeRefCamera)}
+                  options={cameraIndices.map((i) => ({
+                    value: String(i),
+                    label: String(i),
+                  }))}
+                  onValueChange={(v) => setReferenceCamera(Number(v))}
+                />
+              </span>
+            </Tooltip>
+          </div>
+          <ToggleChip
+            checked={showAllPoses}
+            onCheckedChange={setShowAllPoses}
             title="Toggle ghost rendering of every target pose"
           >
-            {showAllPoses ? "All poses ✓" : "All poses"}
-          </Button>
+            All poses
+          </ToggleChip>
           {hasLaserPlanes && (
-            <Button
-              pressed={showLaserPlanes}
-              onClick={() => setShowLaserPlanes((v) => !v)}
+            <ToggleChip
+              checked={showLaserPlanes}
+              onCheckedChange={setShowLaserPlanes}
               title="Toggle the calibrated laser planes (rig frame)"
             >
-              {showLaserPlanes ? "Laser planes ✓" : "Laser planes"}
-            </Button>
+              Laser planes
+            </ToggleChip>
           )}
-          <span className="font-mono text-[11px] text-muted-foreground">
+          <span className="font-mono text-[11px] text-fg-muted">
             {exportKindLabel(kind)}
           </span>
         </div>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_18rem] gap-3 overflow-hidden">
-        <div className="relative overflow-hidden rounded-md border border-border">
+        <div className="relative overflow-hidden rounded-control border border-line">
           <Scene
             data={sceneData}
             showAllPoses={showAllPoses}
@@ -135,7 +161,7 @@ export function Viewer3DWorkspace() {
             cameraDimensions={cameraDimensions}
             fallbackImage={{ width: 1024, height: 768 }}
           />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between border-t border-border bg-bg-soft/80 px-3 py-1.5 font-mono text-[10px] text-muted-foreground backdrop-blur-sm">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between border-t border-line bg-raised/80 px-3 py-1.5 font-mono text-[10px] text-fg-muted backdrop-blur-sm">
             <span>
               cameras {numCameras} · poses {numPoses}
             </span>
@@ -146,24 +172,26 @@ export function Viewer3DWorkspace() {
           </div>
         </div>
 
-        <Panel
-          as="aside"
-          className="flex min-h-0 flex-col gap-3 overflow-y-auto text-[12px]"
-        >
-          <CameraIntrinsicsPanel cameraIndex={safeCameraA} camera={selectedCameraData} />
-          <TargetExtrinsicsPanel
-            cameraIndex={safeCameraA}
-            poseIndex={safePose}
-            camSe3Rig={selectedCamSe3Rig}
-            rigSe3Target={targetPose}
-          />
-          <RelativePosePanel
-            referenceCamera={safeRefCamera}
-            selectedCamera={safeCameraA}
-            referenceCamSe3Rig={referenceCamSe3Rig}
-            selectedCamSe3Rig={selectedCamSe3Rig}
-          />
-        </Panel>
+        <DensityProvider value="compact">
+          <aside className="flex min-h-0 flex-col gap-2.5 overflow-y-auto text-[12px]">
+            <CameraIntrinsicsPanel
+              cameraIndex={safeCameraA}
+              camera={selectedCameraData}
+            />
+            <TargetExtrinsicsPanel
+              cameraIndex={safeCameraA}
+              poseIndex={safePose}
+              camSe3Rig={selectedCamSe3Rig}
+              rigSe3Target={targetPose}
+            />
+            <RelativePosePanel
+              referenceCamera={safeRefCamera}
+              selectedCamera={safeCameraA}
+              referenceCamSe3Rig={referenceCamSe3Rig}
+              selectedCamSe3Rig={selectedCamSe3Rig}
+            />
+          </aside>
+        </DensityProvider>
       </div>
     </div>
   );
@@ -176,53 +204,51 @@ interface CameraIntrinsicsPanelProps {
 
 function CameraIntrinsicsPanel({ cameraIndex, camera }: CameraIntrinsicsPanelProps) {
   return (
-    <section>
-      <SectionHeader
-        className="mb-1.5"
-        title="Selected camera"
-        subtitle={`cam ${cameraIndex}`}
-      />
+    <Panel
+      title="Selected camera"
+      actions={<span className={SUBTITLE}>{`cam ${cameraIndex}`}</span>}
+    >
       {camera ? (
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums">
-          <div className="col-span-2 mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+          <div className="col-span-2 mt-1 text-[10px] uppercase tracking-wider text-fg-muted">
             intrinsics
           </div>
-          <span className="text-muted-foreground">fx</span>
+          <span className="text-fg-muted">fx</span>
           <span>{camera.k.fx.toFixed(2)} px</span>
-          <span className="text-muted-foreground">fy</span>
+          <span className="text-fg-muted">fy</span>
           <span>{camera.k.fy.toFixed(2)} px</span>
-          <span className="text-muted-foreground">cx</span>
+          <span className="text-fg-muted">cx</span>
           <span>{camera.k.cx.toFixed(2)} px</span>
-          <span className="text-muted-foreground">cy</span>
+          <span className="text-fg-muted">cy</span>
           <span>{camera.k.cy.toFixed(2)} px</span>
           {camera.k.skew !== 0 && (
             <>
-              <span className="text-muted-foreground">skew</span>
+              <span className="text-fg-muted">skew</span>
               <span>{camera.k.skew.toFixed(4)}</span>
             </>
           )}
           {camera.dist && (
             <>
-              <div className="col-span-2 mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+              <div className="col-span-2 mt-2 text-[10px] uppercase tracking-wider text-fg-muted">
                 distortion (Brown-Conrady)
               </div>
-              <span className="text-muted-foreground">k1</span>
+              <span className="text-fg-muted">k1</span>
               <span>{camera.dist.k1.toFixed(5)}</span>
-              <span className="text-muted-foreground">k2</span>
+              <span className="text-fg-muted">k2</span>
               <span>{camera.dist.k2.toFixed(5)}</span>
-              <span className="text-muted-foreground">p1</span>
+              <span className="text-fg-muted">p1</span>
               <span>{camera.dist.p1.toFixed(5)}</span>
-              <span className="text-muted-foreground">p2</span>
+              <span className="text-fg-muted">p2</span>
               <span>{camera.dist.p2.toFixed(5)}</span>
-              <span className="text-muted-foreground">k3</span>
+              <span className="text-fg-muted">k3</span>
               <span>{camera.dist.k3.toFixed(5)}</span>
             </>
           )}
         </div>
       ) : (
-        <p className="text-[11px] text-muted-foreground">no camera at this index</p>
+        <p className="text-[11px] text-fg-muted">no camera at this index</p>
       )}
-    </section>
+    </Panel>
   );
 }
 
@@ -241,10 +267,9 @@ function TargetExtrinsicsPanel({
 }: TargetExtrinsicsPanelProps) {
   if (!camSe3Rig || !rigSe3Target) {
     return (
-      <section>
-        <SectionHeader className="mb-1.5" title="Target extrinsic" subtitle="—" />
-        <p className="text-[11px] text-muted-foreground">no pose data</p>
-      </section>
+      <Panel title="Target extrinsic" actions={<span className={SUBTITLE}>—</span>}>
+        <p className="text-[11px] text-fg-muted">no pose data</p>
+      </Panel>
     );
   }
   const t = targetInCameraPose(camSe3Rig, rigSe3Target);
@@ -252,28 +277,28 @@ function TargetExtrinsicsPanel({
   const euler = iso3EulerXYZDeg(t);
   const angle = iso3RotationAngleDeg(t);
   return (
-    <section>
-      <SectionHeader
-        className="mb-1.5"
-        title="Target extrinsic"
-        subtitle={`cam ${cameraIndex} → pose ${poseIndex}`}
-      />
+    <Panel
+      title="Target extrinsic"
+      actions={
+        <span className={SUBTITLE}>{`cam ${cameraIndex} → pose ${poseIndex}`}</span>
+      }
+    >
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums">
-        <span className="text-muted-foreground">distance</span>
+        <span className="text-fg-muted">distance</span>
         <span>
           {(dist * 1000).toFixed(1)} mm
-          <span className="ml-1 text-muted-foreground">({dist.toFixed(3)} m)</span>
+          <span className="ml-1 text-fg-muted">({dist.toFixed(3)} m)</span>
         </span>
-        <span className="text-muted-foreground">euler X</span>
+        <span className="text-fg-muted">euler X</span>
         <span>{formatDeg(euler.x)}</span>
-        <span className="text-muted-foreground">euler Y</span>
+        <span className="text-fg-muted">euler Y</span>
         <span>{formatDeg(euler.y)}</span>
-        <span className="text-muted-foreground">euler Z</span>
+        <span className="text-fg-muted">euler Z</span>
         <span>{formatDeg(euler.z)}</span>
-        <span className="text-muted-foreground">|rot|</span>
+        <span className="text-fg-muted">|rot|</span>
         <span>{formatDeg(angle)}</span>
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -292,25 +317,26 @@ function RelativePosePanel({
 }: RelativePosePanelProps) {
   if (!referenceCamSe3Rig || !selectedCamSe3Rig) {
     return (
-      <section>
-        <SectionHeader className="mb-1.5" title="Relative pose" subtitle="—" />
-        <p className="text-[11px] text-muted-foreground">no pose data</p>
-      </section>
+      <Panel title="Relative pose" actions={<span className={SUBTITLE}>—</span>}>
+        <p className="text-[11px] text-fg-muted">no pose data</p>
+      </Panel>
     );
   }
   if (referenceCamera === selectedCamera) {
     return (
-      <section>
-        <SectionHeader
-          className="mb-1.5"
-          title="Relative pose"
-          subtitle={`cam ${referenceCamera} ↔ cam ${selectedCamera}`}
-        />
-        <p className="text-[11px] text-muted-foreground">
+      <Panel
+        title="Relative pose"
+        actions={
+          <span
+            className={SUBTITLE}
+          >{`cam ${referenceCamera} ↔ cam ${selectedCamera}`}</span>
+        }
+      >
+        <p className="text-[11px] text-fg-muted">
           selected camera is the reference — pick a different camera (click a frustum) to
           see a relative pose.
         </p>
-      </section>
+      </Panel>
     );
   }
   const rel = relativeCameraPose(referenceCamSe3Rig, selectedCamSe3Rig);
@@ -318,34 +344,36 @@ function RelativePosePanel({
   const euler = iso3EulerXYZDeg(rel);
   const angle = iso3RotationAngleDeg(rel);
   return (
-    <section>
-      <SectionHeader
-        className="mb-1.5"
-        title="Relative pose"
-        subtitle={`cam ${referenceCamera} ⇒ cam ${selectedCamera}`}
-      />
+    <Panel
+      title="Relative pose"
+      actions={
+        <span
+          className={SUBTITLE}
+        >{`cam ${referenceCamera} ⇒ cam ${selectedCamera}`}</span>
+      }
+    >
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums">
-        <span className="text-muted-foreground">baseline</span>
+        <span className="text-fg-muted">baseline</span>
         <span>
           {(dist * 1000).toFixed(1)} mm
-          <span className="ml-1 text-muted-foreground">({dist.toFixed(4)} m)</span>
+          <span className="ml-1 text-fg-muted">({dist.toFixed(4)} m)</span>
         </span>
-        <span className="text-muted-foreground">tx</span>
+        <span className="text-fg-muted">tx</span>
         <span>{(rel.translation[0] * 1000).toFixed(1)} mm</span>
-        <span className="text-muted-foreground">ty</span>
+        <span className="text-fg-muted">ty</span>
         <span>{(rel.translation[1] * 1000).toFixed(1)} mm</span>
-        <span className="text-muted-foreground">tz</span>
+        <span className="text-fg-muted">tz</span>
         <span>{(rel.translation[2] * 1000).toFixed(1)} mm</span>
-        <span className="text-muted-foreground">euler X</span>
+        <span className="text-fg-muted">euler X</span>
         <span>{formatDeg(euler.x)}</span>
-        <span className="text-muted-foreground">euler Y</span>
+        <span className="text-fg-muted">euler Y</span>
         <span>{formatDeg(euler.y)}</span>
-        <span className="text-muted-foreground">euler Z</span>
+        <span className="text-fg-muted">euler Z</span>
         <span>{formatDeg(euler.z)}</span>
-        <span className="text-muted-foreground">|rot|</span>
+        <span className="text-fg-muted">|rot|</span>
         <span>{formatDeg(angle)}</span>
       </div>
-    </section>
+    </Panel>
   );
 }
 

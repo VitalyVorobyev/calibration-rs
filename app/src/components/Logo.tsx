@@ -42,8 +42,8 @@ export function Logo({ size = 24, className }: LogoProps) {
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <circle cx={102.7} cy={112} r={11.8} fill="hsl(var(--background))" />
-        <circle cx={102.6} cy={112} r={8.1} fill="hsl(var(--brand))" />
+        <circle cx={102.7} cy={112} r={11.8} fill="var(--surface)" />
+        <circle cx={102.6} cy={112} r={8.1} fill="var(--signal)" />
       </g>
     </svg>
   );

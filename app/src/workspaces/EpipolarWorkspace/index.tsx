@@ -1,9 +1,9 @@
+import { Empty, ErrorBox, Select, ToggleChip } from "@vitavision/ui";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FrameCanvas, type FrameCanvasHandle } from "../../components/FrameCanvas";
 import { PoseStepper } from "../../components/PoseStepper";
 import { ZoomControls } from "../../components/ZoomControls";
-import { Banner, Button, EmptyState, Select } from "../../components/ui";
 import { useUndistortedImageData } from "../../hooks/useImageData";
 import {
   iso3DistanceM,
@@ -58,10 +58,14 @@ export function EpipolarWorkspace() {
 
   if (!data || !kind) {
     return (
-      <EmptyState
-        title="Epipolar geometry"
-        body="Load a rig export to inspect epipolar geometry between cameras."
-      />
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <h2 className="text-sm font-semibold tracking-tight text-fg">
+          Epipolar geometry
+        </h2>
+        <Empty className="flex-1 justify-center rounded-panel border border-dashed border-line bg-surface px-6 [&>p]:max-w-md">
+          Load a rig export to inspect epipolar geometry between cameras.
+        </Empty>
+      </div>
     );
   }
 
@@ -71,12 +75,16 @@ export function EpipolarWorkspace() {
     data.cameras.length >= 2;
   if (!isRig) {
     return (
-      <EmptyState
-        title="Epipolar geometry"
-        body={`Epipolar geometry only applies to rig exports (rig_extrinsics, rig_handeye, rig_handeye_laserline, rig_laserline_device). The current export is ${exportKindLabel(
-          kind,
-        )}.`}
-      />
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <h2 className="text-sm font-semibold tracking-tight text-fg">
+          Epipolar geometry
+        </h2>
+        <Empty className="flex-1 justify-center rounded-panel border border-dashed border-line bg-surface px-6 [&>p]:max-w-md">
+          {`Epipolar geometry only applies to rig exports (rig_extrinsics, rig_handeye, rig_handeye_laserline, rig_laserline_device). The current export is ${exportKindLabel(
+            kind,
+          )}.`}
+        </Empty>
+      </div>
     );
   }
 
@@ -367,7 +375,7 @@ function EpipolarBody(props: BodyProps) {
     if (!showTieLines) return [];
     return undistortedResidualsA.map((r) => ({
       px: r.observed_px,
-      color: "var(--color-muted-foreground, #888)",
+      color: "var(--fg-muted)",
       dot: true,
       size: 4,
     }));
@@ -377,7 +385,7 @@ function EpipolarBody(props: BodyProps) {
     if (!showTieLines) return [];
     return undistortedResidualsB.map((r) => ({
       px: r.observed_px,
-      color: "var(--color-muted-foreground, #888)",
+      color: "var(--fg-muted)",
       dot: true,
       size: 4,
     }));
@@ -387,7 +395,7 @@ function EpipolarBody(props: BodyProps) {
     if (!showFeatures) return [];
     return undistortedResidualsA.map((r) => ({
       px: r.observed_px,
-      color: "var(--color-accent, #888)",
+      color: "var(--fg-muted)",
       dot: true,
       size: 6,
     }));
@@ -396,7 +404,7 @@ function EpipolarBody(props: BodyProps) {
     if (!showFeatures) return [];
     return undistortedResidualsB.map((r) => ({
       px: r.observed_px,
-      color: "var(--color-accent, #888)",
+      color: "var(--fg-muted)",
       dot: true,
       size: 6,
     }));
@@ -409,7 +417,7 @@ function EpipolarBody(props: BodyProps) {
       ? [
           {
             px: picked.px,
-            color: "var(--color-brand, #1abc9c)",
+            color: "var(--signal)",
             size: 8,
           } satisfies OverlayPoint,
         ]
@@ -422,7 +430,7 @@ function EpipolarBody(props: BodyProps) {
       ? [
           {
             px: ghostInB.observed_px,
-            color: "var(--color-brand, #1abc9c)",
+            color: "var(--signal)",
             size: 8,
           } satisfies OverlayPoint,
         ]
@@ -431,7 +439,7 @@ function EpipolarBody(props: BodyProps) {
       ? [
           {
             px: overlay.epipole_b,
-            color: "var(--color-destructive, #e74c3c)",
+            color: "var(--defect)",
             size: 7,
           } satisfies OverlayPoint,
         ]
@@ -465,46 +473,58 @@ function EpipolarBody(props: BodyProps) {
             onSelectPose={(next) => setSelectedPose(next, "A")}
           />
         )}
-        <Select
-          label="cam A"
-          value={cameraA}
-          options={camerasInPose}
-          onChange={(v) => setCamera(v, "A")}
-        />
-        <Select
-          label="cam B"
-          value={cameraB}
-          options={camerasInPose}
-          onChange={(v) => setCamera(v, "B")}
-        />
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[11px] tracking-wider text-fg-muted uppercase">
+            cam A
+          </span>
+          <Select
+            aria-label="cam A"
+            className="h-7 w-16 font-mono text-xs"
+            value={String(cameraA)}
+            options={camerasInPose.map((i) => ({ value: String(i), label: String(i) }))}
+            onValueChange={(v) => setCamera(Number(v), "A")}
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[11px] tracking-wider text-fg-muted uppercase">
+            cam B
+          </span>
+          <Select
+            aria-label="cam B"
+            className="h-7 w-16 font-mono text-xs"
+            value={String(cameraB)}
+            options={camerasInPose.map((i) => ({ value: String(i), label: String(i) }))}
+            onValueChange={(v) => setCamera(Number(v), "B")}
+          />
+        </div>
         <ZoomControls
           onFit={() => drivePane("A", (h) => h.fit())}
           onOneToOne={() => drivePane("A", (h) => h.reset1to1())}
           onZoomIn={() => drivePane("A", (h) => h.zoomBy(1.25))}
           onZoomOut={() => drivePane("A", (h) => h.zoomBy(1 / 1.25))}
         />
-        <Button
-          pressed={linked}
-          onClick={() => setLinked((v) => !v)}
+        <ToggleChip
+          checked={linked}
+          onCheckedChange={setLinked}
           title="Share zoom + pan between both panes (common AOI)"
         >
-          {linked ? "Linked ✓" : "Linked"}
-        </Button>
-        <Button
-          pressed={showFeatures}
-          onClick={() => setShowFeatures((v) => !v)}
+          Linked
+        </ToggleChip>
+        <ToggleChip
+          checked={showFeatures}
+          onCheckedChange={setShowFeatures}
           title="Show every detected feature as a clickable dot"
         >
-          {showFeatures ? "Features ✓" : "Features"}
-        </Button>
-        <Button
-          pressed={showTieLines}
-          onClick={() => setShowTieLines((v) => !v)}
+          Features
+        </ToggleChip>
+        <ToggleChip
+          checked={showTieLines}
+          onCheckedChange={setShowTieLines}
           title="Render every observed feature as a faint dot (both panes)"
         >
-          {showTieLines ? "Tie-points ✓" : "Tie-points"}
-        </Button>
-        <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+          Tie-points
+        </ToggleChip>
+        <span className="ml-auto font-mono text-[11px] text-fg-muted">
           {exportKindLabel(kind)}
         </span>
       </div>
@@ -518,9 +538,9 @@ function EpipolarBody(props: BodyProps) {
         samplesClipped={overlay?.samples_clipped ?? null}
       />
 
-      {overlayError && <Banner variant="error">{overlayError}</Banner>}
+      {overlayError && <ErrorBox>{overlayError}</ErrorBox>}
 
-      <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-hidden rounded-md bg-bg-soft p-2">
+      <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-hidden rounded-control bg-raised p-2">
         <Pane
           frame={frameA}
           transform={linked ? linkedTransform : transformA}
@@ -540,7 +560,7 @@ function EpipolarBody(props: BodyProps) {
           transform={linked ? linkedTransform : transformB}
           onTransformChange={linked ? setLinkedTransform : setTransformB}
           polyline={clippedPolyline}
-          polylineColor="var(--color-brand, #1abc9c)"
+          polylineColor="var(--signal)"
           markers={markersB}
           image={imageB?.image ?? null}
           caption={frameB ? `pane B · cam ${cameraB} · undistorted` : undefined}
@@ -552,10 +572,10 @@ function EpipolarBody(props: BodyProps) {
                   text: `Δ ${ghostDistancePx.toFixed(2)} px`,
                   color:
                     ghostDistancePx < 1
-                      ? "var(--color-brand, #1abc9c)"
+                      ? "var(--signal)"
                       : ghostDistancePx < 5
-                        ? "var(--color-foreground, #888)"
-                        : "var(--color-destructive, #e74c3c)",
+                        ? "var(--fg)"
+                        : "var(--defect)",
                 }
               : undefined
           }
@@ -621,7 +641,7 @@ function Pane({
 }: PaneProps) {
   if (!frame) {
     return (
-      <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-[12px] text-muted-foreground">
+      <div className="flex h-full items-center justify-center rounded-control border border-dashed border-line text-[12px] text-fg-muted">
         no frame for this (pose, camera)
       </div>
     );
@@ -702,7 +722,7 @@ function RelativePoseStrip({
 }: RelativePoseStripProps) {
   if (!relativePose) {
     return (
-      <div className="font-mono text-[11px] text-muted-foreground">
+      <div className="font-mono text-[11px] text-fg-muted">
         cam {cameraA} ↔ cam {cameraB}: pick two distinct cameras for relative pose
       </div>
     );
@@ -711,25 +731,23 @@ function RelativePoseStrip({
   const euler = iso3EulerXYZDeg(relativePose);
   const angle = iso3RotationAngleDeg(relativePose);
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-fg-muted">
       <span>
         cam {cameraA} ⇒ cam {cameraB}:
       </span>
       <span>
         baseline{" "}
-        <span className="text-foreground tabular-nums">
-          {(dist * 1000).toFixed(1)} mm
-        </span>
+        <span className="text-fg tabular-nums">{(dist * 1000).toFixed(1)} mm</span>
       </span>
       <span>
-        rot <span className="text-foreground tabular-nums">{angle.toFixed(2)}°</span>
+        rot <span className="text-fg tabular-nums">{angle.toFixed(2)}°</span>
         <span className="ml-1">
           ({euler.x.toFixed(1)}, {euler.y.toFixed(1)}, {euler.z.toFixed(1)})°
         </span>
       </span>
       {pickedFeature != null && (
         <span>
-          feature <span className="text-foreground tabular-nums">#{pickedFeature}</span>
+          feature <span className="text-fg tabular-nums">#{pickedFeature}</span>
         </span>
       )}
       {ghostDistancePx != null && (
@@ -738,10 +756,10 @@ function RelativePoseStrip({
           <span
             className={`ml-1 tabular-nums ${
               ghostDistancePx < 1
-                ? "text-brand"
+                ? "text-signal"
                 : ghostDistancePx < 5
-                  ? "text-foreground"
-                  : "text-destructive"
+                  ? "text-fg"
+                  : "text-defect"
             }`}
           >
             {ghostDistancePx.toFixed(2)} px
@@ -750,7 +768,7 @@ function RelativePoseStrip({
       )}
       {samplesClipped != null && samplesClipped > 0 && (
         <span title="number of depth samples whose projection diverged">
-          clipped <span className="text-foreground tabular-nums">{samplesClipped}</span>
+          clipped <span className="text-fg tabular-nums">{samplesClipped}</span>
         </span>
       )}
     </div>

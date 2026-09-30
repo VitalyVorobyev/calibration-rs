@@ -146,7 +146,7 @@ Drives a calibration end-to-end without leaving the app:
    dataset directory.
 2. Review the manifest and config sections — the schema-driven forms
    surface every field with its default and description.
-3. Click **Run**. Resolve any `AskUserModal` prompt if one appears.
+3. Click **Run**. Answer the "Input needed" dialog if one appears.
 4. On success you land in Diagnose with the fresh export already loaded.
 
 ## Common variations

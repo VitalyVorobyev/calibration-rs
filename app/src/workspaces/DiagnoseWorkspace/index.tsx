@@ -1,3 +1,4 @@
+import { DensityProvider, ErrorBox, Panel, ToggleChip } from "@vitavision/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CompareViewer, type CompareViewerHandle } from "../../components/CompareViewer";
 import { FrameCanvas, type FrameCanvasHandle } from "../../components/FrameCanvas";
@@ -5,7 +6,6 @@ import { colorForError, colorForLaserError } from "../../lib/errorColors";
 import { Histogram } from "../../components/Histogram";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
 import { ZoomControls } from "../../components/ZoomControls";
-import { Banner, Button, Panel, SectionHeader } from "../../components/ui";
 import { getPixelLum, rectHistogram, useImageData } from "../../hooks/useImageData";
 import { useKeyboardNav } from "../../hooks/useKeyboardNav";
 import { useStore } from "../../store";
@@ -261,62 +261,58 @@ export function DiagnoseWorkspace() {
           />
         )}
         {data && (
-          <Button
-            pressed={compare}
-            onClick={() => {
-              setCompare((v) => {
-                if (!v) setLaserView(false);
-                return !v;
-              });
+          <ToggleChip
+            checked={compare}
+            onCheckedChange={(next) => {
+              if (next) setLaserView(false);
+              setCompare(next);
             }}
             title="Toggle compare mode"
           >
-            {compare ? "Compare ✓" : "Compare"}
-          </Button>
+            Compare
+          </ToggleChip>
         )}
         {data && hasLaser && (
-          <Button
-            pressed={laserView}
-            onClick={() => {
-              setLaserView((v) => {
-                if (!v) setCompare(false);
-                return !v;
-              });
+          <ToggleChip
+            checked={laserView}
+            onCheckedChange={(next) => {
+              if (next) setCompare(false);
+              setLaserView(next);
             }}
             title="Show the laser frame with point-to-plane residuals"
           >
-            {laserView ? "Laser ✓" : "Laser"}
-          </Button>
+            Laser
+          </ToggleChip>
         )}
         {data && compare && (
-          <Button
-            pressed={linked}
-            onClick={() => setLinked((v) => !v)}
+          <ToggleChip
+            checked={linked}
+            onCheckedChange={setLinked}
             title="Toggle linked viewport (L)"
           >
-            {linked ? "Linked" : "Unlinked"}
-          </Button>
+            Linked
+          </ToggleChip>
         )}
         {data && hasStats && (
-          <Button
-            pressed={showStats}
-            onClick={() => setShowStats((v) => !v)}
+          <ToggleChip
+            checked={showStats}
+            onCheckedChange={setShowStats}
             title="Per-pose residual stats + cross-camera matrix"
           >
-            {showStats ? "Stats ✓" : "Stats"}
-          </Button>
+            Stats
+          </ToggleChip>
         )}
         {data && typeof data.mean_reproj_error === "number" && (
-          <span className="ml-auto font-mono text-xs text-muted-foreground">
+          <span className="ml-auto font-mono text-xs text-fg-muted">
             mean reproj: {data.mean_reproj_error.toFixed(3)} px
           </span>
         )}
       </div>
 
-      {error && <Banner variant="error">{error}</Banner>}
+      {error && <ErrorBox>{error}</ErrorBox>}
 
       <div className="flex min-h-0 flex-1 gap-2.5 overflow-hidden">
-        <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-md bg-bg-soft p-2">
+        <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-control bg-raised p-2">
           {data && frame && compare && rightFrame ? (
             <CompareViewer
               leftFrame={frame}
@@ -342,11 +338,11 @@ export function DiagnoseWorkspace() {
               onError={setError}
             />
           ) : data && showLaser ? (
-            <div className="m-auto text-[13px] text-muted-foreground">
+            <div className="m-auto text-[13px] text-fg-muted">
               No laser frame in the manifest for pose {selectedPose} · cam {cameraA}.
             </div>
           ) : (
-            <div className="m-auto text-[13px] text-muted-foreground">
+            <div className="m-auto text-[13px] text-fg-muted">
               Open an <code>export.json</code> from a calibration run with an
               <code> image_manifest</code>. Use ← / → for pose, ↑ / ↓ for camera; toggle
               Compare to view two frames side by side.
@@ -355,20 +351,23 @@ export function DiagnoseWorkspace() {
         </div>
 
         {data && showStats && hasStats && (
-          <Panel
-            as="aside"
-            className="flex min-h-0 w-[19rem] shrink-0 flex-col gap-4 overflow-y-auto"
-          >
-            <div className="flex flex-col gap-2">
-              <SectionHeader title="Per-pose residuals" subtitle="click a row to jump" />
-              <PoseStatsTable
-                residuals={targetResiduals}
-                selectedPose={selectedPose}
-                onSelectPose={(pose) => setSelectedPose(pose, "A")}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <SectionHeader title="Cross-camera matrix" subtitle="mean px per cell" />
+          <DensityProvider value="compact">
+            <aside className="flex min-h-0 w-[19rem] shrink-0 flex-col gap-2.5 overflow-y-auto">
+              <Panel
+                title="Per-pose residuals"
+                actions={
+                  <span className="font-mono text-[10px] text-fg-muted">
+                    click a row to jump
+                  </span>
+                }
+              >
+                <PoseStatsTable
+                  residuals={targetResiduals}
+                  selectedPose={selectedPose}
+                  onSelectPose={(pose) => setSelectedPose(pose, "A")}
+                />
+              </Panel>
+              {/* Renders nothing (not even its panel) for a single-camera export. */}
               <CameraResidualMatrix
                 residuals={targetResiduals}
                 selectedPose={selectedPose}
@@ -378,8 +377,8 @@ export function DiagnoseWorkspace() {
                   setCamera(camera, "A");
                 }}
               />
-            </div>
-          </Panel>
+            </aside>
+          </DensityProvider>
         )}
       </div>
 
@@ -405,7 +404,7 @@ export function DiagnoseWorkspace() {
             />
           )}
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
               histogram
             </span>
             <Histogram bins={roiHistogram ?? []} cursorBin={cursorBin} />
@@ -419,10 +418,10 @@ export function DiagnoseWorkspace() {
 
 function CursorChip({ cursor }: { cursor: CursorReadout | null }) {
   return (
-    <span className="inline-flex min-w-[12rem] items-center gap-2 rounded-md border border-border bg-surface px-2 py-1 font-mono text-[11px] text-muted-foreground">
+    <span className="inline-flex min-w-[12rem] items-center gap-2 rounded-control border border-line bg-surface px-2 py-1 font-mono text-[11px] text-fg-muted">
       <span className="uppercase tracking-wider">cursor</span>
       {cursor ? (
-        <span className="text-foreground tabular-nums">
+        <span className="text-fg tabular-nums">
           ({cursor.x.toFixed(0)}, {cursor.y.toFixed(0)})
           {cursor.intensity != null ? ` · I=${cursor.intensity}` : ""}
         </span>
@@ -441,7 +440,7 @@ function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
   const max = errs.length > 0 ? Math.max(...errs) : 0;
   const diverged = residuals.length - errs.length;
   return (
-    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-fg-muted">
       <span>features {residuals.length}</span>
       <span>diverged {diverged}</span>
       <span>mean {mean.toFixed(3)} px</span>
@@ -472,7 +471,7 @@ function LaserResidualLegend({
   const max = mm.length > 0 ? Math.max(...mm) : 0;
   const missed = residuals.length - mm.length;
   return (
-    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-fg-muted">
       <span>laser pts {residuals.length}</span>
       <span>no-intersect {missed}</span>
       <span>mean {mean.toFixed(3)} mm</span>

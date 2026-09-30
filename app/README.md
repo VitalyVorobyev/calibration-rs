@@ -91,10 +91,9 @@ markers, board sizing from residuals, the laser-plane → fan placement
   model (so a distorted field of view bows), and falls back to the pinhole
   `K⁻¹` outside Tauri (`src/lib/frustumRays.ts`).
 - **Colours.** The packages read `@vitavision/ui` token names (`--signal`,
-  `--fg-muted`, `--defect`, …). `index.css` defines those as plain aliases
-  of this app's palette; `useSceneColors` re-reads them when `.dark`
-  toggles, and `@vitavision/three`'s `normalizeColor` turns their
-  space-separated `hsl()` into an `rgb()` three.js parses.
+  `--fg-muted`, `--defect`, …), which `@vitavision/ui/styles.css` defines
+  (see "Design system" below); `useSceneColors` re-reads them when `.dark`
+  toggles.
 - **Layers and picking.** Package gizmos live on `GIZMO_LAYER`, which this
   viewer's own `Canvas` enables on its camera and raycaster. Board and fan
   outlines are not pickable (three.js hits a `Line` within 1 world unit, a
@@ -103,34 +102,42 @@ markers, board sizing from residuals, the laser-plane → fan placement
 
 ## Design system
 
-Components live in `app/src/components/ui/` (barrel: `index.ts`):
+The UI is built on [`@vitavision/ui`](https://github.com/VitalyVorobyev/lab-ui/tree/main/packages/ui),
+the design system shared by the vitavision lab apps: one visual language,
+no app-local component kit.
 
-- `Button` — `variant` `default` | `primary`; `size` `sm` | `md` | `icon`;
-  `pressed` drives toggle look and `aria-pressed`.
-- `Panel` — bordered card surface for side rails.
-- `SectionHeader` — small uppercase subsection heading with optional right-side
-  subtitle or action.
-- `Select` — compact toolbar "label + native `<select>`".
-- `Table` / `Th` / `Td` — shared table shell (mono, tabular-nums, sticky
-  columns); sort/hover logic stays with each table.
-- `Banner` — left-accent status banner (`error` / `success` / `warning` /
-  `neutral`).
-- `Badge` — small pill label.
-- `EmptyState` — whole-workspace "no data loaded" placeholder.
+- **Components.** Use the package's primitives — `Button`, `ToggleChip`
+  (on/off toolbar layers), `SegmentedControl`, `Select`, `Input`/`Textarea`,
+  `Panel` (with `DensityProvider value="compact"` in side rails), `Table`,
+  `Badge`, `Callout`/`ErrorBox`, `Empty`, `Dialog`, `Disclosure`, `Tooltip`,
+  `ThemeToggle`. Read the props in the package (its `etc/ui.api.md` API
+  report) rather than guessing. A shape the package lacks goes to lab-ui once
+  a second app needs it, not into `src/components/`.
+- **Tokens.** `src/index.css` imports `tailwindcss`, `@vitavision/ui/fonts.css`
+  and `@vitavision/ui/styles.css` and adds only the root sizing. Colour comes
+  from the semantic tokens: elevation `ground` / `surface` / `raised` /
+  `overlay`, borders `line` / `line-strong`, text `fg` / `fg-muted` /
+  `fg-subtle`, the one accent `signal` (focus, selection, the primary
+  action), and the verdicts `normal` / `defect` / `warn`, reserved for
+  verdicts. Utilities are `bg-surface`, `text-fg-muted`, `border-line`, …;
+  in SVG or inline styles use the custom property itself
+  (`fill="var(--signal)"`). The values are hex, so never wrap them in
+  `hsl(...)`. Radii are `rounded-control` and `rounded-panel`.
+- **Fonts.** IBM Plex Sans and IBM Plex Mono, served by `fonts.css` (no
+  fontsource packages).
+- **Theme.** Light / dark / system, stored in `localStorage` under
+  `calib-theme` (`src/lib/theme.ts`). The inline script in `index.html`
+  paints the `.dark` class before the first paint; `main.tsx` calls
+  `initTheme("calib-theme")` so "system" keeps following the OS, and wraps
+  the app in `TooltipProvider` (`ThemeToggle` and `Tooltip` throw without
+  it). The header's `ThemeToggle` cycles system → light → dark.
+- **Lint (gate G5.1).** `eslint.config.js` applies `tokensOnly(["src/**"])`
+  from `@vitavision/config-eslint`: no raw Tailwind palette classes
+  (`bg-slate-500`) and no hex literals in `src/`. The only exemptions are
+  data-colour files listed there with their reason (the residual colour ramp
+  in `lib/errorColors.ts`, the per-laser palette in `LaserTargetCuts.tsx`).
 
 `components/ZoomControls.tsx` is the zoom/fit/1:1 cluster for `FrameCanvas`.
-
-Tokens are HSL triplets in `app/src/index.css` (Tailwind 4 `@theme`, `:root` /
-`.dark`), exposed as `--color-*` properties. `--brand` is a bare `H S% L%`
-triplet, so use `hsl(var(--brand))` in SVG/canvas contexts or the
-`bg-brand`/`text-brand` utilities in the DOM, never a bare `var(--brand)`.
-Use `bg-surface` for elevated content (there is no `bg-bg` token).
-
-**Rules for adding UI:** use the `ui/` set; don't hand-roll a button, panel,
-banner, badge, or table shell in a workspace file. If a genuinely new shape
-recurs three or more times, add it to `ui/` following the existing pattern
-(typed props, Tailwind classes on the tokens, no new runtime dependency). Don't
-add variants speculatively.
 
 ## Run progress and cancellation
 

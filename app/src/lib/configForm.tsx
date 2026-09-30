@@ -7,14 +7,20 @@
  * polished yet. ~250 LoC; rich array / number-range / file-picker
  * widgets are future work.
  */
+import { Button, cn, focusRingInset } from "@vitavision/ui";
 import { useMemo, useState } from "react";
 
 // Shared base style for every bare `<input>`/`<select>`/`<textarea>` this
-// form renders. `bg-surface` (not the `bg-bg` several call sites used
-// before this pass) — `--color-bg` was never declared as a design token,
-// so `bg-bg` silently produced no background at all, leaving every field
-// visually flat against its parent fieldset (`bg-bg-soft`).
-const FIELD_CLASS = "rounded border border-border bg-surface px-2 py-1 text-[12px]";
+// form renders: @vitavision/ui's control look (line-strong border, focus
+// ring) at the form's compact size. Native elements rather than ui's
+// `Select`/`Input` because the tests and the schema walker address them as
+// plain form controls; they carry token classes, not the old global
+// `select {}`/`button {}` base rules.
+const FIELD_CLASS = cn(
+  "rounded-control border border-line-strong bg-surface px-2 py-1 text-xs text-fg",
+  "hover:border-fg-subtle",
+  focusRingInset,
+);
 
 // ─── Schema type (loose) ────────────────────────────────────────────────────
 export interface JsonSchema {
@@ -132,20 +138,20 @@ function ObjectField({ schema, value, onChange, ctx, label }: FieldProps) {
       ? (value as Record<string, unknown>)
       : ({} as Record<string, unknown>);
   return (
-    <fieldset className="flex flex-col gap-2 rounded-md border border-border bg-bg-soft p-3">
+    <fieldset className="flex flex-col gap-2 rounded-control border border-line bg-raised p-3">
       {(label || schema.description) && (
         <legend className="px-1 text-[12px] font-semibold tracking-tight">
           {label ?? ""}
         </legend>
       )}
       {schema.description && (
-        <p className="text-[11px] text-muted-foreground">{schema.description}</p>
+        <p className="text-[11px] text-fg-muted">{schema.description}</p>
       )}
       {Object.entries(props).map(([key, sub]) => (
         <div key={key} className="flex flex-col gap-1">
-          <label className="text-[11px] font-medium text-muted-foreground">
+          <label className="text-[11px] font-medium text-fg-muted">
             {key}
-            {required.includes(key) && <span className="ml-1 text-brand">*</span>}
+            {required.includes(key) && <span className="ml-1 text-signal">*</span>}
           </label>
           <SchemaField
             schema={sub}
@@ -206,12 +212,12 @@ function ExternalTaggedOneOfField({ schema, value, onChange, ctx, label }: Field
         : undefined;
 
   return (
-    <fieldset className="flex flex-col gap-2 rounded-md border border-border bg-bg-soft p-3">
+    <fieldset className="flex flex-col gap-2 rounded-control border border-line bg-raised p-3">
       {label && (
         <legend className="px-1 text-[12px] font-semibold tracking-tight">{label}</legend>
       )}
       {schema.description && (
-        <p className="text-[11px] text-muted-foreground">{schema.description}</p>
+        <p className="text-[11px] text-fg-muted">{schema.description}</p>
       )}
       <select
         className={FIELD_CLASS}
@@ -298,12 +304,12 @@ function OneOfField({ schema, value, onChange, ctx, label }: FieldProps) {
   const active = activeIdx >= 0 ? variants[activeIdx]! : variants[0]!;
 
   return (
-    <fieldset className="flex flex-col gap-2 rounded-md border border-border bg-bg-soft p-3">
+    <fieldset className="flex flex-col gap-2 rounded-control border border-line bg-raised p-3">
       {label && (
         <legend className="px-1 text-[12px] font-semibold tracking-tight">{label}</legend>
       )}
       {schema.description && (
-        <p className="text-[11px] text-muted-foreground">{schema.description}</p>
+        <p className="text-[11px] text-fg-muted">{schema.description}</p>
       )}
       <select
         className={FIELD_CLASS}
@@ -411,7 +417,7 @@ function BoolField({ value, onChange }: FieldProps) {
       type="checkbox"
       checked={v}
       onChange={(e) => onChange(e.target.checked)}
-      className="h-4 w-4"
+      className="h-4 w-4 accent-signal"
     />
   );
 }
@@ -467,27 +473,25 @@ function StringArrayField({ value, onChange }: FieldProps) {
               copy[i] = e.target.value;
               onChange(copy);
             }}
-            className={`flex-1 ${FIELD_CLASS}`}
+            className={cn("flex-1", FIELD_CLASS)}
           />
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Remove entry"
             onClick={() => {
               setRowIds({ ids: ids.filter((_, j) => j !== i), next: rowIds.next });
               onChange(arr.filter((_, j) => j !== i));
             }}
-            className="rounded border border-border px-2 text-[11px]"
+            className="w-7 px-0"
           >
             ×
-          </button>
+          </Button>
         </div>
       ))}
-      <button
-        type="button"
-        onClick={() => onChange([...arr, ""])}
-        className="self-start rounded border border-border px-2 py-1 text-[11px]"
-      >
+      <Button size="sm" onClick={() => onChange([...arr, ""])} className="self-start">
         + add
-      </button>
+      </Button>
     </div>
   );
 }
@@ -506,7 +510,7 @@ function JsonField({ value, onChange }: FieldProps) {
         }
       }}
       rows={6}
-      className={`${FIELD_CLASS} font-mono text-[11px]`}
+      className={cn(FIELD_CLASS, "font-mono text-[11px]")}
     />
   );
 }

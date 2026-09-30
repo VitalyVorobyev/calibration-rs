@@ -1,8 +1,11 @@
+import { cn, focusRing, Panel } from "@vitavision/ui";
 import { useMemo } from "react";
 import { colorForError } from "../../lib/errorColors";
-import { Table, Td, Th } from "../../components/ui";
 import { computeCameraPoseMatrix } from "../../lib/residualStats";
 import type { TargetFeatureResidual } from "../../types";
+
+/** Pins the camera column while the pose axis scrolls horizontally. */
+const STICKY = "sticky left-0 z-10 bg-surface";
 
 interface CameraResidualMatrixProps {
   residuals: TargetFeatureResidual[];
@@ -30,64 +33,79 @@ export function CameraResidualMatrix({
   }
 
   return (
-    <section aria-label="Cross-camera residual matrix" className="flex flex-col gap-1.5">
-      <div className="overflow-x-auto">
-        <Table size="xs">
-          <thead>
-            <tr>
-              <Th sticky className="p-1 text-muted-foreground">
-                cam\pose
-              </Th>
-              {matrix.poses.map((pose) => (
-                <Th
-                  key={pose}
-                  align="center"
-                  className={
-                    pose === selectedPose ? "p-1 text-brand" : "p-1 text-muted-foreground"
-                  }
+    <Panel
+      title="Cross-camera matrix"
+      actions={
+        <span className="font-mono text-[10px] text-fg-muted">mean px per cell</span>
+      }
+    >
+      <section
+        aria-label="Cross-camera residual matrix"
+        className="flex flex-col gap-1.5"
+      >
+        <div className="overflow-x-auto">
+          {/* A raw <table>, not ui's data-driven `Table`: this grid needs a
+            sticky row-header column and per-cell buttons. */}
+          <table className="border-collapse font-mono text-[10px] tabular-nums">
+            <thead>
+              <tr>
+                <th
+                  scope="col"
+                  className={cn(STICKY, "p-1 text-left font-medium text-fg-muted")}
                 >
-                  {pose}
-                </Th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {matrix.cameras.map((camera) => (
-              <tr key={camera}>
-                <Th
-                  scope="row"
-                  sticky
-                  className={
-                    camera === selectedCamera
-                      ? "p-1 text-brand"
-                      : "p-1 text-muted-foreground"
-                  }
-                >
-                  {camera}
-                </Th>
-                {matrix.poses.map((pose) => {
-                  const cell = matrix.cells.get(camera)?.get(pose);
-                  const active = pose === selectedPose && camera === selectedCamera;
-                  return (
-                    <Td key={pose} className="p-0.5">
-                      <MatrixCell
-                        mean={cell?.mean ?? null}
-                        count={cell?.count ?? 0}
-                        pose={pose}
-                        camera={camera}
-                        active={active}
-                        onSelect={onSelect}
-                      />
-                    </Td>
-                  );
-                })}
+                  cam\pose
+                </th>
+                {matrix.poses.map((pose) => (
+                  <th
+                    key={pose}
+                    scope="col"
+                    className={cn(
+                      "p-1 text-center font-medium",
+                      pose === selectedPose ? "text-signal" : "text-fg-muted",
+                    )}
+                  >
+                    {pose}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </Table>
-      </div>
-      <MatrixLegend />
-    </section>
+            </thead>
+            <tbody>
+              {matrix.cameras.map((camera) => (
+                <tr key={camera}>
+                  <th
+                    scope="row"
+                    className={cn(
+                      STICKY,
+                      "p-1 text-left font-medium",
+                      camera === selectedCamera ? "text-signal" : "text-fg-muted",
+                    )}
+                  >
+                    {camera}
+                  </th>
+                  {matrix.poses.map((pose) => {
+                    const cell = matrix.cells.get(camera)?.get(pose);
+                    const active = pose === selectedPose && camera === selectedCamera;
+                    return (
+                      <td key={pose} className="p-0.5">
+                        <MatrixCell
+                          mean={cell?.mean ?? null}
+                          count={cell?.count ?? 0}
+                          pose={pose}
+                          camera={camera}
+                          active={active}
+                          onSelect={onSelect}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <MatrixLegend />
+      </section>
+    </Panel>
   );
 }
 
@@ -113,11 +131,14 @@ function MatrixCell({ mean, count, pose, camera, active, onSelect }: MatrixCellP
       onClick={() => onSelect(pose, camera)}
       title={title}
       aria-label={title}
-      className={`flex h-6 w-8 items-center justify-center rounded-[3px] text-[9px] transition-transform hover:scale-105 ${
+      className={cn(
+        "flex h-6 w-8 items-center justify-center rounded-[3px] text-[9px] transition-transform hover:scale-105",
         observed
           ? "border-none text-black/75"
-          : "border border-dashed border-border text-muted-foreground"
-      } ${active ? "ring-1 ring-brand" : ""}`}
+          : "border border-dashed border-line text-fg-muted",
+        active && "ring-1 ring-signal",
+        focusRing,
+      )}
       style={{ background: observed ? colorForError(mean) : "transparent" }}
     >
       {observed ? mean.toFixed(1) : "·"}
@@ -134,7 +155,7 @@ function MatrixLegend() {
     { err: 20, label: "≥10" },
   ];
   return (
-    <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+    <div className="flex items-center gap-2 font-mono text-[10px] text-fg-muted">
       <span>px</span>
       {swatches.map((s) => (
         <span key={s.label} className="inline-flex items-center gap-1">

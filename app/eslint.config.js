@@ -1,9 +1,9 @@
 // The shared vitavision flat config (@vitavision/config-eslint): type-aware
 // typescript-eslint, @eslint-react, the hooks rules. This file adds only what
 // is this app's own: its ignores, the untyped config/e2e files, Fast Refresh,
-// and the advisory hooks rules explained below.
+// the advisory hooks rules explained below, and gate G5.1 (`tokensOnly`) on src/.
 import js from "@eslint/js";
-import { recommended } from "@vitavision/config-eslint";
+import { recommended, tokensOnly } from "@vitavision/config-eslint";
 import tseslint from "typescript-eslint";
 import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
@@ -59,5 +59,20 @@ export default [
       "react-hooks/refs": "warn",
       "react-hooks/immutability": "warn",
     },
+  },
+  // Gate G5.1 (lab-ui PLAN §5): in src/, colour comes from the @vitavision/ui
+  // design tokens — no raw Tailwind palette classes, no hex literals.
+  tokensOnly(["src/**"]),
+  {
+    // Data colour, not chrome: these files hold literal colours on purpose.
+    files: [
+      // The residual-magnitude ramp (px and mm) FrameCanvas draws on a <canvas>
+      // and the legends/matrix echo; a data scale, the same in both themes.
+      "src/lib/errorColors.ts",
+      // Categorical per-laser-plane palette for the 3D scene's cut lines
+      // (three.js materials, not CSS).
+      "src/workspaces/Viewer3DWorkspace/LaserTargetCuts.tsx",
+    ],
+    rules: { "vitavision/tokens-only": "off" },
   },
 ];

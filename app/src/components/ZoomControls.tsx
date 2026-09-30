@@ -1,4 +1,4 @@
-import { Button } from "./ui";
+import { Button } from "@vitavision/ui";
 
 export interface ZoomControlsProps {
   onFit: () => void;
@@ -25,7 +25,9 @@ export function ZoomControls({
   return (
     <div className="flex items-center gap-1">
       <Button
-        size="icon"
+        variant="ghost"
+        size="sm"
+        className="w-7 px-0 font-mono"
         onClick={onZoomOut}
         title={hints ? "Zoom out (−)" : "Zoom out"}
         aria-label="Zoom out"
@@ -33,17 +35,19 @@ export function ZoomControls({
         −
       </Button>
       <Button
-        size="icon"
+        variant="ghost"
+        size="sm"
+        className="w-7 px-0 font-mono"
         onClick={onZoomIn}
         title={hints ? "Zoom in (+)" : "Zoom in"}
         aria-label="Zoom in"
       >
         +
       </Button>
-      <Button onClick={onFit} title={hints ? "Fit (f)" : "Fit"}>
+      <Button size="sm" onClick={onFit} title={hints ? "Fit (f)" : "Fit"}>
         Fit
       </Button>
-      <Button onClick={onOneToOne} title={hints ? "1:1 (1)" : "1:1"}>
+      <Button size="sm" onClick={onOneToOne} title={hints ? "1:1 (1)" : "1:1"}>
         1:1
       </Button>
     </div>

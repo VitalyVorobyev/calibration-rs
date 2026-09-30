@@ -3,7 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
     <title>calibration-rs diagnose</title>
+    <script>
+      // Duplicated from @vitavision/ui's theme.ts on purpose, and it must stay in
+      // agreement with it (see the package README). The class has to be on <html>
+      // before the first paint, which is before any module has been fetched.
+      // main.tsx then calls initTheme("calib-theme") so "system" keeps following the OS.
+      (function () {
+        try {
+          var stored = localStorage.getItem("calib-theme");
+          var dark =
+            stored === "dark" ||
+            ((stored === null || stored === "system") &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (_) {
+          // Storage unavailable: fall through to the light palette defined on :root.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -31,6 +31,16 @@ function bodyPoseOrder(): string[] {
   );
 }
 
+/** The body row whose pose cell reads `pose`. */
+function rowForPose(pose: string): HTMLElement {
+  const row = screen
+    .getAllByRole("row")
+    .slice(1)
+    .find((r) => within(r).getAllByRole("cell")[0]!.textContent?.trim() === pose);
+  if (!row) throw new Error(`no row for pose ${pose}`);
+  return row;
+}
+
 afterEach(cleanup);
 
 describe("PoseStatsTable", () => {
@@ -46,7 +56,8 @@ describe("PoseStatsTable", () => {
     render(
       <PoseStatsTable residuals={RESIDUALS} selectedPose={0} onSelectPose={() => {}} />,
     );
-    fireEvent.click(screen.getByRole("columnheader", { name: /pose/i }));
+    const header = screen.getByRole("columnheader", { name: /pose/i });
+    fireEvent.click(within(header).getByRole("button"));
     expect(bodyPoseOrder()).toEqual(["0", "1", "2"]);
   });
 
@@ -59,8 +70,16 @@ describe("PoseStatsTable", () => {
         onSelectPose={onSelectPose}
       />,
     );
-    fireEvent.click(screen.getByTitle("Jump to pose 2"));
+    fireEvent.click(rowForPose("2"));
     expect(onSelectPose).toHaveBeenCalledWith(2);
+  });
+
+  it("marks the selected pose's row as current", () => {
+    render(
+      <PoseStatsTable residuals={RESIDUALS} selectedPose={2} onSelectPose={() => {}} />,
+    );
+    expect(rowForPose("2").getAttribute("aria-current")).toBe("true");
+    expect(rowForPose("1").getAttribute("aria-current")).toBeNull();
   });
 
   it("renders a placeholder when there are no residuals", () => {
