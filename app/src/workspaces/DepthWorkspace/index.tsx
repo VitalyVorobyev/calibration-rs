@@ -1,7 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
+import {
+  Button,
+  Empty,
+  ErrorBox,
+  SegmentedControl,
+  Select,
+  ToggleChip,
+} from "@vitavision/ui";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { PoseStepper } from "../../components/PoseStepper";
-import { Banner, Button, EmptyState, Select } from "../../components/ui";
 import { useStore } from "../../store";
 import type { DisparityResult } from "../../types/generated/diagnose-wire";
 
@@ -25,6 +32,8 @@ const VIEW_LABEL: Record<ViewMode, string> = {
   depth: "depth",
   "3d": "3D cloud",
 };
+
+const VIEW_MODES = Object.keys(VIEW_LABEL) as ViewMode[];
 
 /** Dense stereo / depth workspace: rectify a synchronized pair and dense-match
  * it server-side, then show the colormapped disparity. */
@@ -67,10 +76,14 @@ export function DepthWorkspace() {
 
   if (!data || !kind) {
     return (
-      <EmptyState
-        title="Depth (dense stereo)"
-        body="Load a rig export (two cameras + extrinsics) to compute dense disparity."
-      />
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <h2 className="text-sm font-semibold tracking-tight text-fg">
+          Depth (dense stereo)
+        </h2>
+        <Empty className="flex-1 justify-center rounded-panel border border-dashed border-line bg-surface px-6 [&>p]:max-w-md">
+          Load a rig export (two cameras + extrinsics) to compute dense disparity.
+        </Empty>
+      </div>
     );
   }
   const isRig =
@@ -79,10 +92,14 @@ export function DepthWorkspace() {
     data.cameras.length >= 2;
   if (!isRig) {
     return (
-      <EmptyState
-        title="Depth (dense stereo)"
-        body="Dense matching needs a stereo rig export (two cameras with extrinsics)."
-      />
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <h2 className="text-sm font-semibold tracking-tight text-fg">
+          Depth (dense stereo)
+        </h2>
+        <Empty className="flex-1 justify-center rounded-panel border border-dashed border-line bg-surface px-6 [&>p]:max-w-md">
+          Dense matching needs a stereo rig export (two cameras with extrinsics).
+        </Empty>
+      </div>
     );
   }
 
@@ -131,42 +148,60 @@ export function DepthWorkspace() {
           selectedPose={selectedPose}
           onSelectPose={(p) => setSelectedPose(p)}
         />
-        <Select
-          label="left"
-          value={cameraA}
-          options={cameraValues}
-          onChange={(v) => setCamera(v, "A")}
-        />
-        <Select
-          label="right"
-          value={cameraB}
-          options={cameraValues}
-          onChange={(v) => setCamera(v, "B")}
-        />
-        <Button
-          pressed={semiGlobal}
-          onClick={() => setSemiGlobal((v) => !v)}
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[11px] tracking-wider text-fg-muted uppercase">
+            left
+          </span>
+          <Select
+            aria-label="left"
+            className="h-7 w-16 font-mono text-xs"
+            value={String(cameraA)}
+            options={cameraValues.map((i) => ({ value: String(i), label: String(i) }))}
+            onValueChange={(v) => setCamera(Number(v), "A")}
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[11px] tracking-wider text-fg-muted uppercase">
+            right
+          </span>
+          <Select
+            aria-label="right"
+            className="h-7 w-16 font-mono text-xs"
+            value={String(cameraB)}
+            options={cameraValues.map((i) => ({ value: String(i), label: String(i) }))}
+            onValueChange={(v) => setCamera(Number(v), "B")}
+          />
+        </div>
+        <ToggleChip
+          checked={semiGlobal}
+          onCheckedChange={setSemiGlobal}
           title="Semi-global aggregation: fills low-texture regions"
         >
-          {semiGlobal ? "SGM ✓" : "SGM"}
-        </Button>
-        <Button variant="primary" onClick={() => void compute()} disabled={!canCompute}>
+          SGM
+        </ToggleChip>
+        <Button
+          variant="primary"
+          size="sm"
+          loading={loading}
+          onClick={() => void compute()}
+          disabled={!canCompute}
+        >
           {loading ? "Matching…" : "Compute disparity"}
         </Button>
         {result && (
-          <div className="ml-auto flex items-center gap-1">
-            {(Object.keys(VIEW_LABEL) as ViewMode[]).map((m) => (
-              <Button key={m} pressed={viewMode === m} onClick={() => setViewMode(m)}>
-                {VIEW_LABEL[m]}
-              </Button>
-            ))}
-          </div>
+          <SegmentedControl
+            aria-label="View"
+            className="ml-auto"
+            value={viewMode}
+            options={VIEW_MODES.map((m) => ({ value: m, label: VIEW_LABEL[m] }))}
+            onValueChange={(v) => setViewMode(v as ViewMode)}
+          />
         )}
       </div>
 
-      {error && <Banner variant="error">{error}</Banner>}
+      {error && <ErrorBox>{error}</ErrorBox>}
 
-      <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-md bg-bg-soft">
+      <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-control bg-raised">
         {viewMode === "3d" && cloud ? (
           <Suspense fallback={<Hint>Loading 3D…</Hint>}>
             <div className="absolute inset-0">
@@ -191,7 +226,7 @@ export function DepthWorkspace() {
       </div>
 
       {result && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-fg-muted">
           <Stat label="mode" value={result.semiGlobal ? "semi-global" : "block"} />
           <Stat label="density" value={`${(result.density * 100).toFixed(1)}%`} />
           <Stat
@@ -212,15 +247,13 @@ export function DepthWorkspace() {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <span>
-      {label} <span className="text-foreground tabular-nums">{value}</span>
+      {label} <span className="text-fg tabular-nums">{value}</span>
     </span>
   );
 }
 
 function Hint({ children }: { children: React.ReactNode }) {
   return (
-    <p className="max-w-[26rem] text-center text-[12px] text-muted-foreground">
-      {children}
-    </p>
+    <p className="max-w-[26rem] text-center text-[12px] text-fg-muted">{children}</p>
   );
 }

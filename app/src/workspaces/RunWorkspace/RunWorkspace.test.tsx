@@ -12,6 +12,7 @@
  */
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { TooltipProvider } from "@vitavision/ui";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RunWorkspace } from "./index";
@@ -85,17 +86,18 @@ afterEach(() => {
 
 /** Finds the "stereo-left" preset card and returns its "Use preset" button. */
 function stereoLeftUseButton(): HTMLElement {
-  const name = screen.getByText("Stereo · cam-left");
-  const card = name.closest(".rounded-lg");
-  if (!card) throw new Error("preset card container not found");
-  return within(card as HTMLElement).getByRole("button", { name: "Use preset" });
+  const card = screen.getByRole("article", { name: "Stereo · cam-left" });
+  return within(card).getByRole("button", { name: "Use preset" });
 }
 
 describe("RunWorkspace happy path", () => {
   it("selects a preset, runs, and renders the mocked success response", async () => {
     render(
       <MemoryRouter>
-        <RunWorkspace />
+        {/* main.tsx mounts the app under a TooltipProvider; ui's Tooltip needs it. */}
+        <TooltipProvider>
+          <RunWorkspace />
+        </TooltipProvider>
       </MemoryRouter>,
     );
 
@@ -149,7 +151,10 @@ describe("RunWorkspace progress + cancellation", () => {
 
     render(
       <MemoryRouter>
-        <RunWorkspace />
+        {/* main.tsx mounts the app under a TooltipProvider; ui's Tooltip needs it. */}
+        <TooltipProvider>
+          <RunWorkspace />
+        </TooltipProvider>
       </MemoryRouter>,
     );
 

@@ -110,7 +110,7 @@ export function EpipolarOverlay({
               fontFamily="var(--font-mono, monospace)"
               fontSize={11}
               fill={annotation.color}
-              stroke="hsl(var(--bg-soft))"
+              stroke="var(--raised)"
               strokeWidth={3}
               paintOrder="stroke"
             >

@@ -6,7 +6,7 @@
  * pointer-events are suppressed via Tailwind so no click handler is
  * needed.
  */
-import { Badge, Button, type BadgeVariant } from "../../components/ui";
+import { Badge, Button, cn, Tooltip } from "@vitavision/ui";
 import type { Preset } from "./presets";
 
 interface PresetCardProps {
@@ -19,30 +19,30 @@ export function PresetCard({ preset, isActive, onUse }: PresetCardProps) {
   const disabled = preset.disabled === true;
 
   return (
-    <div
-      className={[
-        "flex flex-col gap-3 rounded-lg border p-4 transition-colors",
+    <article
+      aria-label={preset.name}
+      data-state={disabled ? "disabled" : isActive ? "active" : undefined}
+      className={cn(
+        "flex flex-col gap-3 rounded-panel border p-4 transition-colors",
         disabled
-          ? "border-border opacity-40 cursor-not-allowed select-none"
+          ? "cursor-not-allowed border-line bg-surface opacity-40 select-none"
           : isActive
-            ? "border-brand bg-brand/[0.06]"
-            : "border-border bg-bg-soft hover:border-brand/50 cursor-pointer",
-      ].join(" ")}
+            ? "border-signal bg-signal/[0.06]"
+            : "cursor-pointer border-line bg-surface hover:border-line-strong",
+      )}
     >
       {/* Card header: name + badges */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-1 min-w-0">
           <span
-            className={[
-              "text-[13px] font-semibold leading-snug",
-              disabled ? "text-muted-foreground" : "text-foreground",
-            ].join(" ")}
+            className={cn(
+              "text-[13px] leading-snug font-semibold",
+              disabled ? "text-fg-muted" : "text-fg",
+            )}
           >
             {preset.name}
           </span>
-          <span className="text-[11px] text-muted-foreground truncate">
-            {preset.group}
-          </span>
+          <span className="text-[11px] text-fg-muted truncate">{preset.group}</span>
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -51,17 +51,19 @@ export function PresetCard({ preset, isActive, onUse }: PresetCardProps) {
 
           {/* Milestone badge for disabled cards */}
           {disabled && (
-            <Badge
-              className="font-mono uppercase tracking-widest"
-              title={preset.disabledReason}
-            >
-              {preset.milestone}
-            </Badge>
+            <Tooltip content={preset.disabledReason}>
+              {/* A focusable wrapper: the tooltip's trigger must take focus. */}
+              <span tabIndex={0} className="rounded-control">
+                <Badge className="font-mono tracking-widest uppercase">
+                  {preset.milestone}
+                </Badge>
+              </span>
+            </Tooltip>
           )}
 
           {/* Active indicator for the currently selected preset */}
           {!disabled && isActive && (
-            <span className="font-mono text-[10px] uppercase tracking-widest text-brand">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-signal">
               active
             </span>
           )}
@@ -75,61 +77,35 @@ export function PresetCard({ preset, isActive, onUse }: PresetCardProps) {
           <MetaRow icon="images" label={`${preset.imageCount} images`} />
         )}
         {disabled && (
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {preset.disabledReason}
-          </p>
+          <p className="mt-1 text-[11px] text-fg-muted">{preset.disabledReason}</p>
         )}
       </div>
 
       {/* Action button — only for enabled cards */}
       {!disabled && (
         <Button
-          variant={isActive ? "primary" : "default"}
-          size="md"
+          variant={isActive ? "primary" : "secondary"}
           onClick={() => onUse(preset)}
           className="mt-auto"
         >
           {isActive ? "Preset active" : "Use preset"}
         </Button>
       )}
-    </div>
+    </article>
   );
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
+/** The topology name. Neutral for every topology: the verdict colours are
+ * reserved for verdicts, so a topology is not colour-coded. */
 function TopologyBadge({ topology }: { topology: string }) {
-  return (
-    <Badge variant={topologyVariant(topology)} className="px-2">
-      {topology}
-    </Badge>
-  );
-}
-
-/** Deterministic color mapping for known topology names. Unknown names fall
- * back to a neutral muted style so future topologies never cause a render
- * error. */
-function topologyVariant(topology: string): BadgeVariant {
-  switch (topology) {
-    case "PlanarIntrinsics":
-      return "brand";
-    case "ScheimpflugIntrinsics":
-      return "accent";
-    case "RigExtrinsics":
-    case "RigHandeye":
-    case "RigHandeyeLaserline":
-    case "RigLaserlineDevice":
-      return "success";
-    case "SingleCamHandeye":
-      return "warning";
-    default:
-      return "neutral";
-  }
+  return <Badge className="px-2">{topology}</Badge>;
 }
 
 function MetaRow({ icon, label }: { icon: "target" | "images"; label: string }) {
   return (
-    <div className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+    <div className="flex items-center gap-1.5 font-mono text-[11px] text-fg-muted">
       {icon === "target" ? (
         // Crosshair icon
         <svg

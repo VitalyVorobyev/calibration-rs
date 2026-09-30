@@ -1,3 +1,4 @@
+import { Button } from "@vitavision/ui";
 import { PoseStepper } from "./PoseStepper";
 
 interface PoseCameraStepperProps {
@@ -64,30 +65,32 @@ function CameraStepper({
 
   return (
     <div className="flex items-center gap-1">
-      <span className="font-mono text-[11px] text-muted-foreground">cam</span>
-      <button
-        type="button"
+      <span className="font-mono text-[11px] text-fg-muted">cam</span>
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => stepBy(-1)}
         aria-label="previous camera"
-        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
+        className="w-7 px-0 font-mono"
         title="previous camera"
       >
         ◀
-      </button>
+      </Button>
       <span className="min-w-[1.5rem] text-center font-mono text-xs tabular-nums">
         {selectedCamera}
       </span>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => stepBy(+1)}
         aria-label="next camera"
-        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
+        className="w-7 px-0 font-mono"
         title="next camera"
       >
         ▶
-      </button>
+      </Button>
       <span
-        className="font-mono text-[10px] tabular-nums text-muted-foreground"
+        className="font-mono text-[10px] tabular-nums text-fg-muted"
         title={`${idx + 1} of ${cameraValues.length} cameras`}
       >
         {ordinalLabel}

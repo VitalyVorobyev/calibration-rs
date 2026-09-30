@@ -10,8 +10,8 @@ const Viewer3DWorkspace = lazy(() =>
 
 function ViewerFallback() {
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center rounded-md border border-dashed border-border bg-bg-soft">
-      <p className="text-[13px] text-muted-foreground">Loading 3D scene…</p>
+    <div className="flex min-h-0 flex-1 items-center justify-center rounded-panel border border-dashed border-line bg-surface">
+      <p className="text-[13px] text-fg-muted">Loading 3D scene…</p>
     </div>
   );
 }

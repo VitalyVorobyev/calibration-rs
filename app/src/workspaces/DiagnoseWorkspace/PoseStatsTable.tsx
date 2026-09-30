@@ -1,6 +1,6 @@
+import { cn, focusRing, Table, type Column } from "@vitavision/ui";
 import { useMemo, useState } from "react";
 import { colorForError } from "../../lib/errorColors";
-import { Table, Td, Th } from "../../components/ui";
 import { computePoseResidualStats, type PoseResidualStat } from "../../lib/residualStats";
 import type { TargetFeatureResidual } from "../../types";
 
@@ -32,8 +32,9 @@ function sortStats(
   return desc ? sorted.reverse() : sorted;
 }
 
-/** Sortable per-pose reprojection stats. Click a header to sort, click a
- * row to jump the viewer to that pose. */
+/** Sortable per-pose reprojection stats (@vitavision/ui `Table`). Click a
+ * header to sort, click a row (or Tab to it and press Enter) to jump the
+ * viewer to that pose; the selected pose's row is `aria-current`. */
 export function PoseStatsTable({
   residuals,
   selectedPose,
@@ -57,79 +58,78 @@ export function PoseStatsTable({
 
   if (stats.length === 0) {
     return (
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[11px] text-fg-muted">
         No per-feature residuals in this export.
       </p>
     );
   }
 
+  const columns: Column<PoseResidualStat>[] = COLUMNS.map((col) => ({
+    key: col.key,
+    numeric: col.numeric,
+    header: (
+      <button
+        type="button"
+        onClick={() => onHeader(col.key)}
+        title={`Sort by ${col.label}`}
+        className={cn(
+          "cursor-pointer select-none rounded-control uppercase tracking-wider hover:text-fg",
+          focusRing,
+        )}
+      >
+        {col.label}
+        {sortKey === col.key ? (desc ? " ↓" : " ↑") : ""}
+      </button>
+    ),
+    cell: (s) => renderCell(col.key, s, s.pose === selectedPose),
+  }));
+
   return (
     <section aria-label="Per-pose residual stats">
-      <Table className="w-full">
-        <thead>
-          <tr className="border-b border-border text-muted-foreground">
-            {COLUMNS.map((col) => (
-              <Th
-                key={col.key}
-                align={col.numeric ? "right" : "left"}
-                onClick={() => onHeader(col.key)}
-                className="cursor-pointer select-none py-1 uppercase tracking-wider hover:text-foreground"
-                title={`Sort by ${col.label}`}
-              >
-                {col.label}
-                {sortKey === col.key ? (desc ? " ↓" : " ↑") : ""}
-              </Th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((s) => {
-            const active = s.pose === selectedPose;
-            return (
-              <tr
-                key={s.pose}
-                onClick={() => onSelectPose(s.pose)}
-                className={`cursor-pointer border-b border-border/50 transition-colors hover:bg-bg-soft ${
-                  active ? "bg-brand/[0.08]" : ""
-                }`}
-                title={`Jump to pose ${s.pose}`}
-              >
-                <Td className={`py-1 ${active ? "text-brand" : "text-foreground"}`}>
-                  {s.pose}
-                </Td>
-                <Td align="right" className="py-1 text-muted-foreground">
-                  {s.count}
-                  {s.diverged > 0 ? (
-                    <span
-                      className="ml-1 text-[10px] text-destructive"
-                      title={`${s.diverged} diverged corner${s.diverged !== 1 ? "s" : ""}`}
-                    >
-                      +{s.diverged}✗
-                    </span>
-                  ) : null}
-                </Td>
-                <Td align="right" className="py-1">
-                  <ErrorCell value={s.mean} count={s.count} />
-                </Td>
-                <Td align="right" className="py-1">
-                  <ErrorCell value={s.median} count={s.count} />
-                </Td>
-                <Td align="right" className="py-1">
-                  <ErrorCell value={s.max} count={s.count} />
-                </Td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </Table>
+      <Table
+        columns={columns}
+        rows={sorted}
+        rowKey={(s) => s.pose}
+        onRowClick={(s) => onSelectPose(s.pose)}
+        isRowActive={(s) => s.pose === selectedPose}
+      />
     </section>
   );
+}
+
+function renderCell(key: SortKey, s: PoseResidualStat, active: boolean) {
+  switch (key) {
+    case "pose":
+      return (
+        <span
+          className={cn("font-mono tabular-nums", active ? "text-signal" : "text-fg")}
+        >
+          {s.pose}
+        </span>
+      );
+    case "count":
+      return (
+        <span className="text-fg-muted">
+          {s.count}
+          {s.diverged > 0 ? (
+            <span
+              className="ml-1 text-[10px] text-defect"
+              title={`${s.diverged} diverged corner${s.diverged !== 1 ? "s" : ""}`}
+            >
+              +{s.diverged}✗
+            </span>
+          ) : null}
+        </span>
+      );
+    default:
+      return <ErrorCell value={s[key]} count={s.count} />;
+  }
 }
 
 /** One px-error value, dotted with the shared severity color. Renders a
  * muted dash when the pose has no finite corners. */
 function ErrorCell({ value, count }: { value: number; count: number }) {
-  if (count === 0) return <span className="text-muted-foreground">—</span>;
+  if (count === 0) return <span className="text-fg-muted">—</span>;
   return (
     <span className="inline-flex items-center justify-end gap-1.5">
       <span
@@ -137,7 +137,7 @@ function ErrorCell({ value, count }: { value: number; count: number }) {
         style={{ background: colorForError(value) }}
         aria-hidden="true"
       />
-      <span className="text-foreground">{value.toFixed(3)}</span>
+      <span className="text-fg">{value.toFixed(3)}</span>
     </span>
   );
 }

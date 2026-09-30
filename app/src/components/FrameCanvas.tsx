@@ -281,8 +281,8 @@ export function FrameCanvas({
   return (
     <div
       ref={containerRef}
-      className={`relative h-full w-full overflow-hidden rounded-md bg-bg-soft transition-shadow ${
-        active ? "ring-1 ring-brand" : ""
+      className={`relative h-full w-full overflow-hidden rounded-control bg-raised transition-shadow ${
+        active ? "ring-1 ring-signal" : ""
       }`}
     >
       <canvas

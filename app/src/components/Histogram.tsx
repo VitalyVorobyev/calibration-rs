@@ -9,8 +9,8 @@ interface HistogramProps {
   className?: string;
 }
 
-/** Simple SVG histogram bar chart. Bars are grey-on-bg-soft; the
- * cursor bin is recoloured to `--brand` when supplied. The component
+/** Simple SVG histogram bar chart. Bars are grey-on-`--raised`; the
+ * cursor bin is recoloured to `--signal` when supplied. The component
  * is presentational only — bin computation lives in the
  * `useImageData` hook. */
 export function Histogram({
@@ -24,7 +24,7 @@ export function Histogram({
   if (max === 0) {
     return (
       <svg width={width} height={height} className={className} aria-hidden>
-        <rect width={width} height={height} fill="hsl(var(--bg-soft))" />
+        <rect width={width} height={height} fill="var(--raised)" />
       </svg>
     );
   }
@@ -37,7 +37,7 @@ export function Histogram({
       viewBox={`0 0 ${width} ${height}`}
       aria-label="grayscale histogram"
     >
-      <rect width={width} height={height} fill="hsl(var(--bg-soft))" />
+      <rect width={width} height={height} fill="var(--raised)" />
       {bins.map((v, i) => {
         const h = (v / max) * (height - 2);
         const x = i * barW;
@@ -49,7 +49,11 @@ export function Histogram({
             y={height - h}
             width={Math.max(barW - 0.5, 0.5)}
             height={h}
-            fill={isCursor ? "hsl(var(--brand))" : "hsl(var(--muted-foreground) / 0.55)"}
+            fill={
+              isCursor
+                ? "var(--signal)"
+                : "color-mix(in srgb, var(--fg-muted) 55%, transparent)"
+            }
           />
         );
       })}

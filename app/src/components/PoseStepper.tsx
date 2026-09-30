@@ -1,3 +1,4 @@
+import { Button, Input } from "@vitavision/ui";
 import { useRef, useState } from "react";
 
 interface PoseStepperProps {
@@ -80,17 +81,18 @@ export function PoseStepper({
 
   return (
     <div className="flex items-center gap-1">
-      <span className="font-mono text-[11px] text-muted-foreground">{label}</span>
-      <button
-        type="button"
+      <span className="font-mono text-[11px] text-fg-muted">{label}</span>
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => stepBy(-1)}
         aria-label={`previous ${label}`}
-        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
+        className="w-7 px-0 font-mono"
         title={`previous ${label}`}
       >
         ◀
-      </button>
-      <input
+      </Button>
+      <Input
         ref={inputRef}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -109,20 +111,21 @@ export function PoseStepper({
           }
         }}
         inputMode="numeric"
-        className="h-7 w-14 rounded-md border border-border bg-surface px-1 text-center font-mono text-xs tabular-nums text-foreground"
+        className="h-7 w-14 px-1 text-center font-mono text-xs tabular-nums"
         aria-label={`${label} value`}
       />
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => stepBy(+1)}
         aria-label={`next ${label}`}
-        className="grid h-7 w-7 place-items-center !p-0 font-mono text-xs"
+        className="w-7 px-0 font-mono"
         title={`next ${label}`}
       >
         ▶
-      </button>
+      </Button>
       <span
-        className="font-mono text-[10px] tabular-nums text-muted-foreground"
+        className="font-mono text-[10px] tabular-nums text-fg-muted"
         title={`${idx + 1} of ${poseValues.length} poses`}
       >
         {ordinalLabel}

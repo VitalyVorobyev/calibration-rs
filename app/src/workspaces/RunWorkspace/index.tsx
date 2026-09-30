@@ -13,7 +13,7 @@
  *   5. Calibration config section — collapsible, schema-driven ConfigForm.
  *   6. Advanced JSON editor — third collapsible, lowest priority.
  *   7. Status banner — sticky top-of-workspace during / after a run.
- *      Runner `ask_user` ambiguities surface as a modal (AskUserModal).
+ *      Runner `ask_user` ambiguities surface as a dialog (AskUserDialog).
  *
  * All 8 topologies + 4 detectors run end-to-end, plus "Sniff
  * folder" → heuristic manifest (the `sniff_folder` Tauri command), with the
@@ -26,7 +26,16 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import * as TOML from "toml";
 
-import { Banner, Button } from "../../components/ui";
+import {
+  Badge,
+  Button,
+  Callout,
+  Dialog,
+  DialogClose,
+  Disclosure,
+  Input,
+  Textarea,
+} from "@vitavision/ui";
 import { ConfigForm, type JsonSchema } from "../../lib/configForm";
 import {
   cancelRun,
@@ -37,8 +46,6 @@ import {
 import { dirnamePath, isTauriContext, joinPath, repoRoot } from "../../lib/tauri";
 import datasetSchemaJson from "../../schemas/dataset_spec.json";
 import { useStore } from "../../store";
-import { AskUserModal } from "./AskUserModal";
-import { CollapsibleSection } from "./CollapsibleSection";
 import {
   applyAskUserChoice,
   clearUnresolved,
@@ -248,6 +255,16 @@ export function RunWorkspace() {
   const mergedJson = useMemo<string>(() => {
     return JSON.stringify({ manifest, config }, null, 2);
   }, [manifest, config]);
+
+  // The editor sits in a `Disclosure` (a native <details>), which keeps it
+  // mounted while collapsed, so `defaultValue` alone would go stale after a
+  // form edit. Re-sync whenever the merged state changes — except while the
+  // editor has focus, so an in-progress edit (applied on blur) is not clobbered.
+  useEffect(() => {
+    const editor = jsonEditorRef.current;
+    if (editor && editor.ownerDocument.activeElement !== editor)
+      editor.value = mergedJson;
+  }, [mergedJson]);
 
   // ── Preset loader ────────────────────────────────────────────────────────
 
@@ -563,8 +580,10 @@ export function RunWorkspace() {
       {/* 1. Header strip */}
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-0.5">
-          <h2 className="text-sm font-semibold tracking-tight">Run calibration</h2>
-          <p className="font-mono text-[11px] text-muted-foreground">
+          <h2 className="text-sm font-semibold tracking-tight text-fg">
+            Run calibration
+          </h2>
+          <p className="font-mono text-[11px] text-fg-muted">
             {info.label} + {targetKindOf(manifest)}, end-to-end
             {!info.supported && info.unsupportedReason
               ? ` — ${info.unsupportedReason}`
@@ -574,7 +593,6 @@ export function RunWorkspace() {
 
         <div className="flex items-center gap-2">
           <Button
-            size="md"
             onClick={() => void handleSniffFolder()}
             disabled={isRunning}
             title="Pick a dataset folder and auto-generate a manifest"
@@ -584,8 +602,8 @@ export function RunWorkspace() {
 
           <Button
             variant="primary"
-            size="md"
-            className="!px-5"
+            className="px-5"
+            loading={isRunning}
             onClick={() => void handleRun()}
             disabled={runBlocked}
             title={runBlockReason}
@@ -629,18 +647,22 @@ export function RunWorkspace() {
       )}
 
       {/* 4. Manifest section */}
-      <CollapsibleSection
-        title="Manifest"
-        summary={manifestSummary}
+      <Disclosure
+        className={SECTION_CLASS}
         defaultOpen={hasUnresolved}
-        badge={
-          hasUnresolved
-            ? `${unresolved.length} unresolved`
-            : manifestDir
-              ? undefined
-              : "unset"
+        summary={
+          <SectionSummary
+            title="Manifest"
+            summary={manifestSummary}
+            badge={
+              hasUnresolved ? (
+                <Badge tone="defect">{unresolved.length} unresolved</Badge>
+              ) : manifestDir ? undefined : (
+                <Badge tone="info">unset</Badge>
+              )
+            }
+          />
         }
-        badgeVariant={hasUnresolved ? "destructive" : "default"}
       >
         <ConfigForm
           schema={datasetSchema}
@@ -648,10 +670,13 @@ export function RunWorkspace() {
           onChange={setManifest}
           rootLabel="dataset"
         />
-      </CollapsibleSection>
+      </Disclosure>
 
       {/* 5. Calibration config section */}
-      <CollapsibleSection title="Calibration config" summary={configSummary}>
+      <Disclosure
+        className={SECTION_CLASS}
+        summary={<SectionSummary title="Calibration config" summary={configSummary} />}
+      >
         {info.schema ? (
           <ConfigForm
             schema={info.schema}
@@ -660,31 +685,40 @@ export function RunWorkspace() {
             rootLabel="config"
           />
         ) : (
-          <p className="text-[12px] text-muted-foreground">
+          <p className="text-[12px] text-fg-muted">
             {info.unsupportedReason ?? `No config form for topology "${topology}" yet.`}
           </p>
         )}
-      </CollapsibleSection>
+      </Disclosure>
 
       {/* 6. Advanced JSON editor */}
-      <CollapsibleSection title="Advanced JSON editor" summary="merged manifest + config">
-        <textarea
+      <Disclosure
+        className={SECTION_CLASS}
+        summary={
+          <SectionSummary
+            title="Advanced JSON editor"
+            summary="merged manifest + config"
+          />
+        }
+      >
+        <Textarea
           ref={jsonEditorRef}
+          aria-label="Merged manifest and config JSON"
           defaultValue={mergedJson}
           onBlur={(e) => handleJsonBlur(e.target.value)}
           rows={18}
           spellCheck={false}
-          className="w-full rounded-md border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground outline-none focus:border-brand/60 resize-y"
+          className="resize-y px-3 py-2 font-mono text-[11px] leading-relaxed"
         />
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
+        <p className="mt-1.5 text-[11px] text-fg-muted">
           Edits applied on blur. Both <code className="font-mono">manifest</code> and{" "}
           <code className="font-mono">config</code> keys are required at the top level.
         </p>
-      </CollapsibleSection>
+      </Disclosure>
 
-      {/* AskUser modal — runner ambiguity that needs a choice (ADR 0019). */}
+      {/* AskUser dialog — runner ambiguity that needs a choice (ADR 0019). */}
       {status.kind === "ask_user" && (
-        <AskUserModal
+        <AskUserDialog
           field={status.field}
           prompt={status.prompt}
           suggestions={status.suggestions}
@@ -705,36 +739,33 @@ interface UnresolvedNoticeProps {
 
 function UnresolvedNotice({ paths, onResolve }: UnresolvedNoticeProps) {
   return (
-    <Banner variant="error" className="flex flex-col gap-2 !p-3 text-[12px]">
-      <p className="font-semibold text-destructive">
-        {paths.length} field{paths.length !== 1 ? "s" : ""} need your input before this
-        dataset can run
-      </p>
-      <p className="text-[11px] text-muted-foreground">
+    <Callout
+      tone="error"
+      title={`${paths.length} field${paths.length !== 1 ? "s" : ""} need your input before this dataset can run`}
+    >
+      <p className="text-xs">
         The sniffer left these blank rather than guess. Fill each one in the Manifest form
         below, then mark it resolved.
       </p>
-      <ul className="flex flex-col gap-1.5">
+      <ul className="mt-2 flex flex-col gap-1.5">
         {paths.map((path) => (
           <li key={path} className="flex items-start gap-2">
-            <code className="mt-0.5 shrink-0 font-mono text-[11px] text-foreground">
-              {path}
-            </code>
-            <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+            <code className="mt-0.5 shrink-0 font-mono text-[11px] text-fg">{path}</code>
+            <span className="min-w-0 flex-1 text-[11px] text-fg-muted">
               {hintFor(path) ?? "Provide a value in the Manifest form."}
             </span>
-            <button
-              type="button"
+            <Button
+              size="sm"
               onClick={() => onResolve(path)}
-              className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+              className="h-6 shrink-0 px-2 text-[11px]"
               title="Remove this field from _unresolved once you've filled it in"
             >
               mark resolved
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
-    </Banner>
+    </Callout>
   );
 }
 
@@ -767,17 +798,11 @@ function QuickStartGrid({ activePresetId, onUse, onCollapse }: QuickStartGridPro
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-[12px] font-semibold tracking-tight text-foreground">
-          Quick start
-        </h3>
+        <h3 className="text-[12px] font-semibold tracking-tight text-fg">Quick start</h3>
         {activePresetId && (
-          <button
-            type="button"
-            onClick={onCollapse}
-            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-          >
+          <Button variant="ghost" size="sm" onClick={onCollapse}>
             collapse
-          </button>
+          </Button>
         )}
       </div>
 
@@ -804,10 +829,10 @@ interface ActivePresetBarProps {
 
 function ActivePresetBar({ preset, onChangePreset }: ActivePresetBarProps) {
   return (
-    <div className="flex items-center justify-between rounded-md border border-brand/40 bg-brand/[0.05] px-3 py-2">
+    <div className="flex items-center justify-between rounded-control border border-signal/40 bg-signal/[0.05] px-3 py-2">
       <div className="flex items-center gap-2">
         {/* Brand check mark */}
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/20 text-brand">
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-signal/20 text-signal">
           <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
             <path
               d="M1 4L3 6L7 2"
@@ -818,22 +843,18 @@ function ActivePresetBar({ preset, onChangePreset }: ActivePresetBarProps) {
             />
           </svg>
         </span>
-        <span className="text-[12px] font-medium text-foreground">
+        <span className="text-[12px] font-medium text-fg">
           {preset ? preset.name : "Custom"}
         </span>
         {preset && (
-          <span className="font-mono text-[11px] text-muted-foreground">
+          <span className="font-mono text-[11px] text-fg-muted">
             {preset.targetSummary}
           </span>
         )}
       </div>
-      <button
-        type="button"
-        onClick={onChangePreset}
-        className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-      >
+      <Button variant="ghost" size="sm" onClick={onChangePreset}>
         change
-      </button>
+      </Button>
     </div>
   );
 }
@@ -854,7 +875,7 @@ function PathsStrip({
   onPickManifest,
 }: PathsStripProps) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-border bg-bg-soft px-3 py-2">
+    <div className="flex flex-col gap-1.5 rounded-control border border-line bg-raised px-3 py-2">
       <PathRow
         label="Folder"
         value={manifestDir}
@@ -881,20 +902,19 @@ interface PathRowProps {
 function PathRow({ label, value, onEdit, editTitle }: PathRowProps) {
   return (
     <div className="flex items-center gap-2">
-      <span className="w-14 shrink-0 text-[11px] font-medium text-muted-foreground">
-        {label}
+      <span className="w-14 shrink-0 text-[11px] font-medium text-fg-muted">{label}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg">
+        {value ?? <span className="text-fg-muted">—</span>}
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground">
-        {value ?? <span className="text-muted-foreground">—</span>}
-      </span>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={onEdit}
         title={editTitle}
-        className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+        className="h-6 shrink-0 px-2 text-[11px]"
       >
         edit
-      </button>
+      </Button>
     </div>
   );
 }
@@ -922,48 +942,44 @@ function StatusBanner({ status, onCancel }: StatusBannerProps) {
 
   if (status.kind === "cancelled") {
     return (
-      <Banner variant="neutral" className="flex items-center gap-2 !p-3 text-[12px]">
-        <span className="font-medium text-foreground">Run cancelled</span>
-        <span className="font-mono text-muted-foreground">
+      <Callout tone="info" title="Run cancelled">
+        <span className="font-mono text-xs">
           stopped at the stage boundary — no export was produced
         </span>
-      </Banner>
+      </Callout>
     );
   }
 
   if (status.kind === "ok") {
     return (
-      <Banner variant="success" className="flex items-center gap-2 !p-3 text-[12px]">
-        <span className="text-success">Solve completed</span>
-        <span className="font-mono text-muted-foreground">
-          {status.durationMs} ms · {status.usable}/{status.total} usable views
-          {status.cacheUsed ? " · cache" : ""}
+      <Callout tone="success" title="Solve completed">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-xs">
+            {status.durationMs} ms · {status.usable}/{status.total} usable views
+            {status.cacheUsed ? " · cache" : ""}
+          </span>
+          <span className="ml-auto text-xs">Routing to /diagnose…</span>
         </span>
-        <span className="ml-auto text-muted-foreground">Routing to /diagnose…</span>
-      </Banner>
+      </Callout>
     );
   }
 
   if (status.kind === "validation") {
     return (
-      <Banner variant="neutral" className="!p-3 text-[12px]">
-        <span className="font-medium text-foreground">Validation failed: </span>
-        <code className="font-mono text-muted-foreground">{status.message}</code>
-      </Banner>
+      <Callout tone="info" title="Validation failed">
+        <code className="font-mono text-xs">{status.message}</code>
+      </Callout>
     );
   }
 
-  // `ask_user` is presented as a modal (see AskUserModal), not an inline banner.
+  // `ask_user` is presented as a dialog (see AskUserDialog), not an inline banner.
   if (status.kind === "ask_user") return null;
 
   // Error
   return (
-    <Banner variant="error" className="!p-3 text-[12px]">
-      <span className="font-semibold text-destructive">
-        Run failed ({status.category}):{" "}
-      </span>
-      <code className="font-mono text-foreground">{status.message}</code>
-    </Banner>
+    <Callout tone="error" title={`Run failed (${status.category})`}>
+      <code className="font-mono text-xs text-fg">{status.message}</code>
+    </Callout>
   );
 }
 
@@ -984,7 +1000,7 @@ function ElapsedClock({ startedAt }: ElapsedClockProps) {
     return () => clearInterval(id);
   }, [startedAt]);
   return (
-    <span className="ml-auto font-mono text-muted-foreground tabular-nums">
+    <span className="ml-auto font-mono text-xs font-normal text-fg-muted tabular-nums">
       {formatElapsed(elapsedMs)}
     </span>
   );
@@ -1010,38 +1026,43 @@ function RunProgressPanel({
 }: RunProgressPanelProps) {
   const rows = computeStageRows(stage, { cancelled: cancelRequested });
   return (
-    <Banner variant="neutral" className="flex flex-col gap-2 !p-3 text-[12px]">
-      <div className="flex items-center gap-2">
-        {cancelRequested ? (
-          <span className="text-foreground">Cancelling…</span>
-        ) : (
-          <>
-            <SpinnerIcon />
-            <span className="text-foreground">Detection + calibration in progress…</span>
-          </>
-        )}
-        <ElapsedClock startedAt={startedAt} />
+    <Callout
+      tone="info"
+      title={
+        <span className="flex items-center gap-2">
+          {cancelRequested ? (
+            "Cancelling…"
+          ) : (
+            <>
+              <SpinnerIcon />
+              Detection + calibration in progress…
+            </>
+          )}
+          <ElapsedClock startedAt={startedAt} />
+        </span>
+      }
+      actions={
         <Button
           size="sm"
-          className="!px-2.5 font-medium"
           onClick={onCancel}
           disabled={cancelRequested}
           title="Stop the run at the next stage boundary"
         >
           {cancelRequested ? "Cancelling…" : "Cancel"}
         </Button>
-      </div>
+      }
+    >
       <ul className="flex flex-col gap-1">
         {rows.map((row) => (
           <StageRowItem key={row.id} row={row} />
         ))}
       </ul>
       {!cancelRequested && (
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="mt-2 block font-mono text-[10px] text-fg-muted">
           first run is slowest; second hits the detection cache
         </span>
       )}
-    </Banner>
+    </Callout>
   );
 }
 
@@ -1052,12 +1073,12 @@ function StageRowItem({ row }: { row: StageRow }) {
       <span
         className={
           row.state === "done"
-            ? "text-success"
+            ? "text-normal"
             : row.state === "active"
-              ? "text-foreground"
+              ? "text-fg"
               : row.state === "cancelled"
-                ? "text-muted-foreground line-through"
-                : "text-muted-foreground"
+                ? "text-fg-muted line-through"
+                : "text-fg-muted"
         }
       >
         {row.label}
@@ -1070,7 +1091,7 @@ function StageStateIcon({ state }: { state: StageRow["state"] }) {
   if (state === "active") return <SpinnerIcon />;
   if (state === "done") {
     return (
-      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-success">
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-normal">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-label="done">
           <path
             d="M1.5 5L4 7.5L8.5 2.5"
@@ -1085,7 +1106,7 @@ function StageStateIcon({ state }: { state: StageRow["state"] }) {
   }
   if (state === "cancelled") {
     return (
-      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-muted-foreground">
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-fg-muted">
         <svg width="9" height="9" viewBox="0 0 9 9" fill="none" aria-label="cancelled">
           <path
             d="M1.5 1.5L7.5 7.5M7.5 1.5L1.5 7.5"
@@ -1103,7 +1124,7 @@ function StageStateIcon({ state }: { state: StageRow["state"] }) {
       className="flex h-3.5 w-3.5 shrink-0 items-center justify-center"
       aria-label="pending"
     >
-      <span className="h-1.5 w-1.5 rounded-full border border-muted-foreground/60" />
+      <span className="h-1.5 w-1.5 rounded-full border border-fg-muted/60" />
     </span>
   );
 }
@@ -1135,5 +1156,125 @@ function SpinnerIcon() {
         strokeLinecap="round"
       />
     </svg>
+  );
+}
+
+// ── Collapsible section summary ─────────────────────────────────────────────
+
+/** The bordered box every collapsible form section (`Disclosure`) sits in. */
+const SECTION_CLASS = "rounded-panel border border-line bg-surface px-3 py-2";
+
+interface SectionSummaryProps {
+  title: string;
+  /** Short descriptor, shown only while the section is collapsed. */
+  summary: string;
+  badge?: React.ReactNode;
+}
+
+/** The `summary` line of a form section: the title, an optional badge, and
+ * the collapsed-state descriptor (hidden once the `<details>` is open). */
+function SectionSummary({ title, summary, badge }: SectionSummaryProps) {
+  return (
+    <>
+      <span className="text-xs font-semibold tracking-tight text-fg">{title}</span>
+      {badge}
+      <span className="ml-auto min-w-0 truncate pl-3 font-mono text-[11px] font-normal text-fg-muted group-open:hidden">
+        {summary}
+      </span>
+    </>
+  );
+}
+
+// ── AskUser dialog ───────────────────────────────────────────────────────────
+
+interface AskUserDialogProps {
+  field: string;
+  prompt: string;
+  suggestions: string[];
+  /** Apply a chosen value for `field` to the manifest. */
+  onApply: (choice: string) => void;
+  /** Close without applying. */
+  onDismiss: () => void;
+}
+
+/** Dialog for a runner `ask_user` event (ADR 0019 fail-fast).
+ *
+ * The dataset runner raises an `ask_user` event when it hits an ambiguity it
+ * refuses to guess (e.g. how images pair into views). This surfaces the
+ * field + prompt, renders each suggestion as a click-to-apply button, and
+ * offers a free-text input for open-ended fields. Applying writes the choice
+ * into the manifest (via `applyAskUserChoice`) and dismisses — the user
+ * reviews the form and re-runs, staying in control. */
+function AskUserDialog({
+  field,
+  prompt,
+  suggestions,
+  onApply,
+  onDismiss,
+}: AskUserDialogProps) {
+  const [freeText, setFreeText] = useState("");
+  const hint = hintFor(field);
+  const trimmed = freeText.trim();
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onDismiss();
+      }}
+      title="Input needed"
+      description={prompt}
+      footer={
+        <DialogClose asChild>
+          <Button variant="ghost">Dismiss</Button>
+        </DialogClose>
+      }
+    >
+      <div className="mt-3 flex flex-col gap-3">
+        <code className="font-mono text-[11px] text-fg-muted">{field}</code>
+        {hint && hint !== prompt && (
+          <p className="text-xs leading-relaxed text-fg-muted">{hint}</p>
+        )}
+
+        {suggestions.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-fg-muted">Choose one:</span>
+            <div className="flex flex-wrap gap-1.5">
+              {suggestions.map((s) => (
+                <Button
+                  key={s}
+                  size="sm"
+                  className="font-mono"
+                  onClick={() => onApply(s)}
+                >
+                  {s}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-fg-muted">Or enter a value:</span>
+          <div className="flex gap-1.5">
+            <Input
+              type="text"
+              aria-label={`Value for ${field}`}
+              value={freeText}
+              onChange={(e) => setFreeText(e.target.value)}
+              placeholder={field}
+              className="min-w-0 flex-1 font-mono text-xs"
+            />
+            <Button
+              variant="primary"
+              disabled={trimmed === ""}
+              onClick={() => onApply(trimmed)}
+            >
+              Apply
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Dialog>
   );
 }

@@ -108,7 +108,7 @@ export function CameraFrustum({
           center
           style={{ pointerEvents: "none" }}
         >
-          <span className="rounded border border-brand/70 bg-bg-soft/90 px-1.5 py-0.5 font-mono text-[10px] text-brand shadow-sm">
+          <span className="rounded border border-signal/70 bg-raised/90 px-1.5 py-0.5 font-mono text-[10px] text-signal shadow-sm">
             {label}
           </span>
         </Html>
