@@ -1,5 +1,7 @@
 import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
+import { GIZMO_LAYER } from "@vitavision/three";
+import { FrameAxes, useSceneColors } from "@vitavision/three-react";
 import { useMemo } from "react";
 import { Vector3 } from "three";
 import { cameraPositionInRig, iso3FromWire } from "../../lib/se3";
@@ -12,10 +14,10 @@ import type {
 } from "../../store/types";
 import type { TargetFeatureResidual } from "../../types";
 import { CameraFrustum } from "./CameraFrustum";
+import { laserFanPose } from "./laserFanPose";
 import { LaserPlane } from "./LaserPlane";
 import { LaserTargetCuts } from "./LaserTargetCuts";
 import { TargetBoard } from "./TargetBoard";
-import { useThemeColors } from "./useThemeColors";
 
 interface SceneProps {
   data: AnyExport;
@@ -54,7 +56,9 @@ export function Scene({
   cameraDimensions,
   fallbackImage,
 }: SceneProps) {
-  const colors = useThemeColors();
+  // Tokens via `@vitavision/three-react`; index.css aliases its token
+  // names onto this app's palette.
+  const colors = useSceneColors();
   const cameras = data.cameras ?? EMPTY_CAMERAS;
   const camSe3Rig = data.cam_se3_rig ?? EMPTY_ISO3;
   const rigSe3Target = data.rig_se3_target ?? EMPTY_ISO3;
@@ -95,12 +99,14 @@ export function Scene({
   const activePoseResiduals =
     selectedPose >= 0 ? (residualsByPose.get(selectedPose) ?? []) : [];
 
-  // Anchor + size each laser plane around its owning camera (plane i
-  // belongs to camera i): the quad is centred on the camera position
-  // projected onto the plane, sized from the camera↔plane distance —
-  // the natural scale of the device's measurement volume.
-  const laserQuads = useMemo(
-    () => computeLaserQuads(laserPlanesRig, camSe3Rig),
+  // Root each laser plane's fan at its owning camera (plane i belongs to
+  // camera i); see `laserFanPose`.
+  const laserFans = useMemo(
+    () =>
+      laserPlanesRig.map((plane, camera) => ({
+        camera,
+        ...laserFanPose(plane, camSe3Rig[camera]),
+      })),
     [laserPlanesRig, camSe3Rig],
   );
 
@@ -115,13 +121,19 @@ export function Scene({
       }}
       gl={{ antialias: true }}
       style={{ background: colors.background }}
+      // `@vitavision/three` puts its gizmos on GIZMO_LAYER. A canvas other
+      // than the package's `SceneCanvas` must enable it on its camera and
+      // raycaster, or they are neither drawn nor picked.
+      onCreated={({ camera, raycaster }) => {
+        camera.layers.enable(GIZMO_LAYER);
+        raycaster.layers.enable(GIZMO_LAYER);
+      }}
     >
       <ambientLight intensity={0.5} />
       <directionalLight position={[1, 2, 1]} intensity={0.4} />
 
-      {/* Rig origin gizmo. axesHelper isn't theme-aware; use thin
-          line segments so it reads as a quiet reference. */}
-      <axesHelper args={[0.05]} />
+      {/* Rig origin: X defect, Y normal, Z signal. */}
+      <FrameAxes size={0.05} />
 
       {cameras
         .map((camera, id) => ({ camera, id }))
@@ -132,12 +144,13 @@ export function Scene({
           return (
             <CameraFrustum
               key={`cam-${id}`}
+              cameraIndex={id}
               camera={camera}
               camSe3Rig={pose}
               imageWidth={dims.width}
               imageHeight={dims.height}
               farDepth={FAR_DEPTH_M}
-              color={id === cameraA ? colors.active : colors.inactive}
+              color={id === cameraA ? colors.signal : colors.muted}
               active={id === cameraA}
               onSelect={() => setCamera(id, "A")}
               label={`cam ${id}`}
@@ -146,15 +159,13 @@ export function Scene({
         })}
 
       {showLaserPlanes &&
-        laserQuads.map((quad) => (
+        laserFans.map((fan) => (
           <LaserPlane
-            key={`laser-plane-${quad.camera}`}
-            plane={quad.plane}
-            anchor={quad.anchor}
-            halfExtent={quad.halfExtent}
-            color={quad.camera === cameraA ? colors.active : colors.inactive}
-            active={quad.camera === cameraA}
-            onSelect={() => setCamera(quad.camera, "A")}
+            key={`laser-plane-${fan.camera}`}
+            matrix={fan.matrix}
+            reach={fan.reach}
+            active={fan.camera === cameraA}
+            onSelect={() => setCamera(fan.camera, "A")}
           />
         ))}
 
@@ -167,8 +178,8 @@ export function Scene({
             key={`board-${poseIdx}`}
             rigSe3Target={pose}
             residuals={residuals}
-            color={poseIdx === selectedPose ? colors.active : colors.inactive}
-            fillColor={colors.boardFill}
+            color={poseIdx === selectedPose ? colors.signal : colors.muted}
+            fillColor={colors.signal}
             ghost={showAllPoses && poseIdx !== selectedPose}
             onSelect={() => setSelectedPose(poseIdx, "A")}
           />
@@ -193,54 +204,6 @@ export function Scene({
       />
     </Canvas>
   );
-}
-
-interface LaserQuad {
-  /** Index of the camera that owns the plane. */
-  camera: number;
-  plane: LaserPlaneWire;
-  anchor: [number, number, number];
-  halfExtent: number;
-}
-
-const LASER_QUAD_MIN_HALF_EXTENT_M = 0.05;
-const LASER_QUAD_MAX_HALF_EXTENT_M = 0.3;
-const LASER_QUAD_FALLBACK_HALF_EXTENT_M = 0.15;
-
-/** Anchor each plane at its camera's position projected onto the plane
- * and size it from the camera-to-plane distance (clamped) — keeps the
- * quad in the device's working volume regardless of where the plane's
- * closest point to the rig origin lands. */
-function computeLaserQuads(planes: LaserPlaneWire[], camSe3Rig: Iso3Wire[]): LaserQuad[] {
-  return planes.map((plane, i) => {
-    const n = new Vector3(...plane.normal).normalize();
-    const camPose = camSe3Rig[i];
-    if (!camPose) {
-      // No owning camera — fall back to the plane's closest point to
-      // the rig origin with a fixed extent.
-      const anchor = n.clone().multiplyScalar(-plane.distance);
-      return {
-        camera: i,
-        plane,
-        anchor: [anchor.x, anchor.y, anchor.z],
-        halfExtent: LASER_QUAD_FALLBACK_HALF_EXTENT_M,
-      };
-    }
-    const [px, py, pz] = cameraPositionInRig(camPose);
-    const p = new Vector3(px, py, pz);
-    const signed = n.dot(p) + plane.distance;
-    const anchor = p.clone().addScaledVector(n, -signed);
-    const halfExtent = Math.min(
-      LASER_QUAD_MAX_HALF_EXTENT_M,
-      Math.max(LASER_QUAD_MIN_HALF_EXTENT_M, 1.5 * Math.abs(signed)),
-    );
-    return {
-      camera: i,
-      plane,
-      anchor: [anchor.x, anchor.y, anchor.z],
-      halfExtent,
-    };
-  });
 }
 
 interface FitResult {

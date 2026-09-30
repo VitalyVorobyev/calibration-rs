@@ -27,6 +27,8 @@
     "@react-three/fiber": "^9.8.1",
     "@tauri-apps/api": "^2.12.0",
     "@tauri-apps/plugin-dialog": "^2.8.0",
+    "@vitavision/three": "^0.1.0",
+    "@vitavision/three-react": "^0.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router": "^8.4.0",

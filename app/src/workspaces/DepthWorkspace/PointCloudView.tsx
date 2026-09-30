@@ -1,7 +1,7 @@
 import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
+import { useSceneColors } from "@vitavision/three-react";
 import { useMemo } from "react";
-import { useThemeColors } from "../Viewer3DWorkspace/useThemeColors";
 
 interface PointCloudViewProps {
   /** Flat `[x, y, z, …]` positions (reference-camera frame, metres). */
@@ -13,7 +13,7 @@ interface PointCloudViewProps {
 /** Orbitable WebGL point cloud reprojected from the disparity map. Lazy-loaded
  * (Three.js is heavy) and framed automatically from the cloud bounds. */
 export function PointCloudView({ positions, colors }: PointCloudViewProps) {
-  const theme = useThemeColors();
+  const theme = useSceneColors();
   const frame = useMemo(() => computeFrame(positions), [positions]);
 
   return (

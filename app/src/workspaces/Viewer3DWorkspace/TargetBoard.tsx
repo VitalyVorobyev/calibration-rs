@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { TargetBoard as TargetBoardObject, disposeObject } from "@vitavision/three";
+import { useEffect, useMemo } from "react";
 import { iso3FromWire } from "../../lib/se3";
 import type { Iso3Wire } from "../../store/types";
 import type { TargetFeatureResidual } from "../../types";
@@ -20,9 +21,12 @@ interface TargetBoardProps {
   onSelect?: () => void;
 }
 
-/** Translucent plane mesh sized to the bounding box of the per-pose
- * `target_xyz_m` residual records, transformed by `rig_se3_target` so
- * it sits at the right place in the rig frame. */
+/** `@vitavision/three`'s `TargetBoard`, sized to the bounding box of the
+ * per-pose `target_xyz_m` residual records and placed by `rig_se3_target`
+ * so it sits at the right place in the rig frame. Drawn translucent
+ * (`setOpacity`); the non-ghost board is `setActive`, so its outline
+ * stays visible through other geometry. Its outline is never pickable:
+ * picks land on the surface. */
 export function TargetBoard({
   rigSe3Target,
   residuals,
@@ -33,23 +37,22 @@ export function TargetBoard({
 }: TargetBoardProps) {
   const matrix = useMemo(() => iso3FromWire(rigSe3Target), [rigSe3Target]);
   const bbox = useMemo(() => computeBoardBbox(residuals), [residuals]);
+  const width = bbox.x1 - bbox.x0;
+  const height = bbox.y1 - bbox.y0;
 
-  // Outline: the four corners as a closed line loop. Drawn separately
-  // from the filled mesh so the wire frame stays sharp under any
-  // opacity setting.
-  const outlinePoints: [number, number, number][] = [
-    [bbox.x0, bbox.y0, 0],
-    [bbox.x1, bbox.y0, 0],
-    [bbox.x1, bbox.y1, 0],
-    [bbox.x0, bbox.y1, 0],
-    [bbox.x0, bbox.y0, 0],
-  ];
+  const board = useMemo(
+    () => new TargetBoardObject({ width, height, color: "gray", edgeColor: "gray" }),
+    [width, height],
+  );
+  useEffect(() => () => disposeObject(board), [board]);
+  useEffect(() => {
+    board.setColors(fillColor, color);
+    board.setOpacity(ghost ? 0.04 : 0.18);
+    board.setActive(!ghost);
+  }, [board, fillColor, color, ghost]);
 
-  // `planeGeometry` is centered at the local origin, but the outline
-  // uses absolute board coordinates (target_xyz_m starts at the board
-  // origin, often a corner — not symmetric around zero). Translate the
-  // mesh so the centered plane aligns with the absolute outline,
-  // otherwise fill and outline are visibly offset by half the bbox.
+  // The package board is centred on its origin, but target_xyz_m starts
+  // at the board origin (often a corner), so shift it onto the bbox.
   const cx = (bbox.x0 + bbox.x1) / 2;
   const cy = (bbox.y0 + bbox.y1) / 2;
 
@@ -59,24 +62,7 @@ export function TargetBoard({
       matrixAutoUpdate={false}
       {...(onSelect !== undefined ? { onClick: onSelect } : {})}
     >
-      <mesh position={[cx, cy, 0]}>
-        <planeGeometry args={[bbox.x1 - bbox.x0, bbox.y1 - bbox.y0]} />
-        <meshBasicMaterial
-          color={fillColor}
-          transparent
-          opacity={ghost ? 0.04 : 0.18}
-          depthWrite={false}
-        />
-      </mesh>
-      <line>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            args={[new Float32Array(outlinePoints.flat()), 3]}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial color={color} transparent opacity={ghost ? 0.25 : 1} />
-      </line>
+      <primitive object={board} position={[cx, cy, 0]} />
     </group>
   );
 }

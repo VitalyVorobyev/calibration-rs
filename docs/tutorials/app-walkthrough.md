@@ -68,9 +68,11 @@ rig, with or without a laser stage) — the header shows which one is loaded.
 
 ### 3D viewer (`⌘2`)
 
-A Three.js scene of the calibrated rig: one frustum per camera, the
-target board at the selected pose (or all poses at once), and laser
-planes when the export carries them. Click a frustum to select a camera
+A Three.js scene of the calibrated rig: one frustum per camera (bounded
+by the back-projected image border, so lens distortion shows), the target
+board at the selected pose (or all poses at once), and each laser plane as
+a light-sheet fan rooted beside its camera when the export carries them.
+Click a frustum to select a camera
 and see its intrinsics plus its pose relative to a chosen reference
 camera; click a board to select a pose. Rig exports render directly; a
 single-camera `laserline_device` export also renders — its camera sits at

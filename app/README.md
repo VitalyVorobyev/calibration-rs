@@ -27,7 +27,8 @@ Five routes, selectable from the left rail (`app/src/workspaces/`):
 - **3D** (`Viewer3DWorkspace`) — camera frustums, target board poses, and laser
   planes for rig/hand-eye/laserline exports, with a panel of intrinsics and
   relative camera poses. A single-camera `laserline_device` export is lifted
-  into a one-camera rig at the origin (`src/lib/sceneExport.ts`).
+  into a one-camera rig at the origin (`src/lib/sceneExport.ts`). Drawn with the
+  shared vitavision 3D primitives; see [3D scene primitives](#3d-scene-primitives).
 - **Epipolar** (`EpipolarWorkspace`) — click-to-sample epipolar geometry
   between two camera views of a rig export (raw and undistorted).
 - **Depth** (`DepthWorkspace`) — rectifies a camera pair, computes disparity
@@ -72,6 +73,33 @@ detects this and shows a banner.
 - Backend (`app/src-tauri/src/`): `commands.rs` (export/image loading,
   undistortion, epipolar overlay), `run.rs` (calibration runner, folder
   sniffing), `disparity.rs` (dense stereo).
+
+## 3D scene primitives
+
+The 3D viewer's frustums, target boards, laser fans, rig axes and scene
+colours come from [`@vitavision/three`](https://github.com/VitalyVorobyev/lab-ui/tree/main/packages/three)
+(framework-agnostic three.js objects plus the SE(3) wire helpers `lib/se3.ts`
+delegates to) and [`@vitavision/three-react`](https://github.com/VitalyVorobyev/lab-ui/tree/main/packages/three-react)
+(R3F wrappers, `useSceneColors`). What stays in `Viewer3DWorkspace/` is this
+app's own: the rig-frame `Canvas` and auto-fit, the camera label and apex
+markers, board sizing from residuals, the laser-plane → fan placement
+(`laserFanPose.ts`), and the laser/board cut lines.
+
+- **Frustum rays.** The packages do no camera math: a frustum takes its
+  image border's viewing rays. `useBorderRays` asks the backend's
+  `undistort_points` to back-project the border through the full camera
+  model (so a distorted field of view bows), and falls back to the pinhole
+  `K⁻¹` outside Tauri (`src/lib/frustumRays.ts`).
+- **Colours.** The packages read `@vitavision/ui` token names (`--signal`,
+  `--fg-muted`, `--defect`, …). `index.css` defines those as plain aliases
+  of this app's palette; `useSceneColors` re-reads them when `.dark`
+  toggles, and `@vitavision/three`'s `normalizeColor` turns their
+  space-separated `hsl()` into an `rgb()` three.js parses.
+- **Layers and picking.** Package gizmos live on `GIZMO_LAYER`, which this
+  viewer's own `Canvas` enables on its camera and raycaster. Board and fan
+  outlines are not pickable (three.js hits a `Line` within 1 world unit, a
+  metre here); frustums pick through a hull padded by `pickPadding` 1.18
+  plus a sphere at the optical centre.
 
 ## Design system
 
