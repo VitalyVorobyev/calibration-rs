@@ -69,6 +69,22 @@
     color-scheme: light;
   }
 
+  :root {
+    /* Scene colours for the 3D viewer. `@vitavision/three-react`'s
+       `useSceneColors` reads the `@vitavision/ui` token names below and
+       re-reads them when `.dark` toggles; `@vitavision/three`'s
+       `normalizeColor` turns this palette's space-separated `hsl()` into
+       an `rgb()` three.js parses. `--surface` is not aliased: this app
+       already uses that name for an HSL triplet (the viewer passes its
+       board colours explicitly). */
+    --ground: hsl(var(--bg-soft));
+    --fg: hsl(var(--foreground));
+    --fg-muted: hsl(var(--muted-foreground));
+    --signal: hsl(var(--brand));
+    --normal: hsl(var(--success));
+    --defect: hsl(var(--destructive));
+  }
+
   .dark {
     /* Dark mode — "Observatory" */
     --background: 222 47% 11%;
