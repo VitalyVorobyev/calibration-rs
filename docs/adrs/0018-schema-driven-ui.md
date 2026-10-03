@@ -61,6 +61,10 @@ review time.
 
 ### 3. Form rendering: `<ConfigForm schema={…} value={…} onChange={…}/>`
 
+> Update: the in-house generator became `SchemaValueForm` in the shared
+> `@vitavision/forms` package (`<SchemaValueForm schema value onValueChange/>`),
+> which the app now uses; `app/src/lib/configForm.tsx` is gone.
+
 The React side renders any of the emitted schemas through a single
 component:
 
@@ -114,7 +118,7 @@ app's TypeScript wire types are generated from these schemas
 (`app/src-tauri/src/bin/emit_schemas.rs` -> `app/schemas-generated/diagnose_wire.json`
 -> `app/src/types/generated/diagnose-wire.ts`, drift-checked in CI), so there
 are no hand-written mirrors. Config schemas are the runtime source for
-`<ConfigForm/>`; export schemas are build-time codegen inputs only.
+`<SchemaValueForm/>`; export schemas are build-time codegen inputs only.
 
 Every pipeline `*Export` serializes a **required** `kind` discriminator: the
 shared `ExportKind` unit enum (`vision_calibration::common::ExportKind`,

@@ -5,6 +5,9 @@
    so the package's class names are found without one here. */
 @import "@vitavision/ui/fonts.css";
 @import "@vitavision/ui/styles.css";
+/* @vitavision/forms (SchemaValueForm): nothing to style, but it declares the
+   `@source` that finds the form's class names. Import it after ui's. */
+@import "@vitavision/forms/styles.css";
 
 @layer base {
   html,

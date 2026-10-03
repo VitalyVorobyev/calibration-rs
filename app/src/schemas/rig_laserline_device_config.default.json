@@ -1,0 +1,8 @@
+{
+  "laser_residual_type": "LineDistNormalized",
+  "solver": {
+    "max_iters": 200,
+    "robust_loss": "None",
+    "verbosity": 0
+  }
+}

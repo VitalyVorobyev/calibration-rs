@@ -1,0 +1,20 @@
+{
+  "intrinsics": {
+    "fix_k3": true,
+    "fix_tangential": false,
+    "init_iterations": 2,
+    "zero_skew": true
+  },
+  "rig": {
+    "reference_camera_idx": 0,
+    "refine_intrinsics_in_rig_ba": false
+  },
+  "sensor": {
+    "kind": "Pinhole"
+  },
+  "solver": {
+    "max_iters": 50,
+    "robust_loss": "None",
+    "verbosity": 0
+  }
+}

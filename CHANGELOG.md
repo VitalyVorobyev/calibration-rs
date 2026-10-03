@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **App: the Run workspace's config forms are `SchemaValueForm`.** The
+  hand-written `configForm.tsx` is replaced by the shared `@vitavision/forms`
+  (0.7; `@vitavision/ui` moves to 0.11). Same schemas and the same whole-value
+  in/out, now with labelled groups, switches, bounds and units, switches for
+  nullable blocks and an inline error for invalid JSON. `cargo xtask
+  emit-schemas` also writes `app/src/schemas/<name>.default.json`
+  (`Config::default()` for every config type, drift-checked), and a test
+  round-trips each schema through the form with its default.
+
 - **App: the vitavision design system.** The Tauri app drops its local
   component kit and HSL tokens for the published `@vitavision/ui` (0.8):
   IBM Plex type, the shared light and dark palettes, and a system / light /

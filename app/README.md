@@ -68,8 +68,9 @@ detects this and shows a banner.
   dependency tree is heavy. It pins its own `Cargo.lock` and is built from
   inside `app/`; `cargo test --workspace` at the repo root does not cover it.
 - Frontend (`app/src/`): `workspaces/`, `components/`, `hooks/`, `layouts/`,
-  `lib/`, `schemas/` (JSON Schemas for the Run config forms), `types/generated/`
-  (generated wire types), `store/`.
+  `lib/`, `schemas/` (JSON Schemas for the Run config forms, plus each config's
+  `<name>.default.json`; both emitted by `cargo xtask emit-schemas`),
+  `types/generated/` (generated wire types), `store/`.
 - Backend (`app/src-tauri/src/`): `commands.rs` (export/image loading,
   undistortion, epipolar overlay), `run.rs` (calibration runner, folder
   sniffing), `disparity.rs` (dense stereo).

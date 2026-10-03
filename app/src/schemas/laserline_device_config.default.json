@@ -1,0 +1,52 @@
+{
+  "init": {
+    "fix_k3": true,
+    "fix_tangential": false,
+    "init_iterations": 2,
+    "zero_skew": true
+  },
+  "optimize": {
+    "calib_loss": {
+      "Huber": {
+        "scale": 1.0
+      }
+    },
+    "calib_weight": 1.0,
+    "fix_camera": {
+      "distortion": {
+        "k1": false,
+        "k2": false,
+        "k3": true,
+        "p1": false,
+        "p2": false
+      },
+      "intrinsics": {
+        "cx": false,
+        "cy": false,
+        "fx": false,
+        "fy": false
+      }
+    },
+    "fix_plane": false,
+    "fix_poses": [
+      0
+    ],
+    "fix_sensor": true,
+    "laser_loss": {
+      "Huber": {
+        "scale": 0.01
+      }
+    },
+    "laser_residual_type": "LineDistNormalized",
+    "laser_weight": 1.0
+  },
+  "sensor_init": {
+    "tilt_x": 0.0,
+    "tilt_y": 0.0
+  },
+  "solver": {
+    "max_iters": 50,
+    "robust_loss": "None",
+    "verbosity": 0
+  }
+}

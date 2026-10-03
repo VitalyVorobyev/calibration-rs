@@ -1,0 +1,36 @@
+{
+  "distortion_model": "brown_conrady5",
+  "fix_camera": {
+    "distortion": {
+      "k1": false,
+      "k2": false,
+      "k3": true,
+      "p1": true,
+      "p2": true
+    },
+    "intrinsics": {
+      "cx": false,
+      "cy": false,
+      "fx": false,
+      "fy": false
+    }
+  },
+  "fix_poses": [
+    0
+  ],
+  "fix_scheimpflug": {
+    "tilt_x": false,
+    "tilt_y": false
+  },
+  "init": {
+    "fix_k3": true,
+    "fix_tangential": true,
+    "init_iterations": 2,
+    "zero_skew": true
+  },
+  "solver": {
+    "max_iters": 120,
+    "robust_loss": "None",
+    "verbosity": 0
+  }
+}
