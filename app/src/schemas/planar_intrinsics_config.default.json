@@ -1,0 +1,30 @@
+{
+  "distortion_model": "brown_conrady5",
+  "fix_camera": {
+    "distortion": {
+      "k1": false,
+      "k2": false,
+      "k3": true,
+      "p1": false,
+      "p2": false
+    },
+    "intrinsics": {
+      "cx": false,
+      "cy": false,
+      "fx": false,
+      "fy": false
+    }
+  },
+  "fix_poses": [],
+  "init": {
+    "fix_k3": true,
+    "fix_tangential": false,
+    "init_iterations": 2,
+    "zero_skew": true
+  },
+  "solver": {
+    "max_iters": 50,
+    "robust_loss": "None",
+    "verbosity": 0
+  }
+}

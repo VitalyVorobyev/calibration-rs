@@ -1,7 +1,9 @@
 //! Emit JSON Schemas for the workspace's user-facing config types.
 //!
-//! Output goes to `app/src/schemas/<name>.json`. The Tauri app reads these
-//! files at build time to drive schema-driven forms in the Run workspace.
+//! Output goes to `app/src/schemas/<name>.json`, plus `<name>.default.json` (the
+//! type's `Default` value) for every config that has one. The Tauri app reads the
+//! schemas at build time to drive schema-driven forms in the Run workspace; the
+//! defaults feed the app's form round-trip tests.
 //!
 //! With `--check`, the command instead verifies that the on-disk schemas
 //! match what would be generated from current source. CI runs this to
@@ -9,6 +11,7 @@
 
 use anyhow::{Context, Result, bail};
 use schemars::{JsonSchema, schema_for};
+use serde::Serialize;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -26,48 +29,43 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
     let out_dir = workspace_root.join("app/src/schemas");
     std::fs::create_dir_all(&out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
 
-    let entries: Vec<(&str, Value)> = vec![
-        ("dataset_spec", schema_value::<DatasetSpec>()),
-        (
-            "planar_intrinsics_config",
-            schema_value::<PlanarIntrinsicsConfig>(),
-        ),
-        (
-            "scheimpflug_intrinsics_config",
-            schema_value::<ScheimpflugIntrinsicsConfig>(),
-        ),
-        (
-            "single_cam_handeye_config",
-            schema_value::<SingleCamHandeyeConfig>(),
-        ),
-        (
-            "laserline_device_config",
-            schema_value::<LaserlineDeviceConfig>(),
-        ),
-        (
-            "rig_extrinsics_config",
-            schema_value::<RigExtrinsicsConfig>(),
-        ),
-        ("rig_handeye_config", schema_value::<RigHandeyeConfig>()),
-        (
-            "rig_handeye_laserline_config",
-            schema_value::<RigHandeyeLaserlineConfig>(),
-        ),
-        (
-            "rig_laserline_device_config",
-            schema_value::<RigLaserlineDeviceConfig>(),
-        ),
+    // (name, schema, `Config::default()` serialised — `None` for a type with no `Default`).
+    let entries: Vec<(&str, Value, Option<Value>)> = vec![
+        ("dataset_spec", schema_value::<DatasetSpec>(), None),
+        entry::<PlanarIntrinsicsConfig>("planar_intrinsics_config"),
+        entry::<ScheimpflugIntrinsicsConfig>("scheimpflug_intrinsics_config"),
+        entry::<SingleCamHandeyeConfig>("single_cam_handeye_config"),
+        entry::<LaserlineDeviceConfig>("laserline_device_config"),
+        entry::<RigExtrinsicsConfig>("rig_extrinsics_config"),
+        entry::<RigHandeyeConfig>("rig_handeye_config"),
+        entry::<RigHandeyeLaserlineConfig>("rig_handeye_laserline_config"),
+        entry::<RigLaserlineDeviceConfig>("rig_laserline_device_config"),
     ];
 
     let mut drift = Vec::new();
-    for (name, schema) in &entries {
-        let path = out_dir.join(format!("{name}.json"));
-        write_or_check(&path, schema, check, &mut drift)?;
+    let mut files = 0;
+    for (name, schema, default) in &entries {
+        write_or_check(
+            &out_dir.join(format!("{name}.json")),
+            schema,
+            check,
+            &mut drift,
+        )?;
+        files += 1;
+        if let Some(default) = default {
+            write_or_check(
+                &out_dir.join(format!("{name}.default.json")),
+                default,
+                check,
+                &mut drift,
+            )?;
+            files += 1;
+        }
     }
 
     if check {
         if drift.is_empty() {
-            println!("schemas up to date ({} files)", entries.len());
+            println!("schemas up to date ({files} files)");
             Ok(())
         } else {
             for entry in &drift {
@@ -84,9 +82,16 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
             )
         }
     } else {
-        println!("emitted {} schemas to {}", entries.len(), out_dir.display());
+        println!("emitted {files} files to {}", out_dir.display());
         Ok(())
     }
+}
+
+/// A config type's schema and its `Default` value — the app's form tests round-trip the
+/// latter through the former.
+fn entry<T: JsonSchema + Default + Serialize>(name: &str) -> (&str, Value, Option<Value>) {
+    let default = serde_json::to_value(T::default()).expect("a config serialises to JSON");
+    (name, schema_value::<T>(), Some(default))
 }
 
 fn schema_value<T: JsonSchema>() -> Value {

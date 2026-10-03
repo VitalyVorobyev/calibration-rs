@@ -1439,7 +1439,7 @@ mod tests {
 
         // ── Stage 1: rig hand-eye (Scheimpflug, EyeToHand) ────────────────
         // Same overrides the rtv3d_rig example settled on; every one is
-        // plain config JSON, i.e. reachable from the app's ConfigForm.
+        // plain config JSON, i.e. reachable from the app's config form.
         let mut handeye_config = default_config_cmd("rig_handeye".into()).unwrap();
         handeye_config["intrinsics"]["fix_tangential"] = json!(true);
         handeye_config["manual_init"] = rtv3d_manual_intrinsics_init();

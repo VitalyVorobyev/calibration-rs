@@ -6,7 +6,7 @@
  * unsupported topologies, mirroring the dispatch in
  * `app/src-tauri/src/run.rs`.
  */
-import type { JsonSchema } from "../../lib/configForm";
+import type { JsonSchema } from "@vitavision/forms";
 
 import laserlineDeviceConfigSchemaJson from "../../schemas/laserline_device_config.json";
 import planarConfigSchemaJson from "../../schemas/planar_intrinsics_config.json";
@@ -18,7 +18,7 @@ import scheimpflugConfigSchemaJson from "../../schemas/scheimpflug_intrinsics_co
 import singleCamHandeyeConfigSchemaJson from "../../schemas/single_cam_handeye_config.json";
 
 // schemars-emitted JSON Schemas; cast through unknown since both shapes
-// are JSON-compatible (our JsonSchema interface is intentionally loose).
+// are JSON-compatible (forms' JsonSchema interface is intentionally loose).
 const planarConfigSchema = planarConfigSchemaJson as unknown as JsonSchema;
 const scheimpflugConfigSchema = scheimpflugConfigSchemaJson as unknown as JsonSchema;
 const singleCamHandeyeConfigSchema =
@@ -35,7 +35,7 @@ const rigLaserlineDeviceConfigSchema =
 export interface TopologyInfo {
   /** Human-readable label for headers and summaries. */
   label: string;
-  /** Config schema driving the ConfigForm; null when unsupported. */
+  /** Config schema driving the config form; null when unsupported. */
   schema: JsonSchema | null;
   /** Whether the Tauri runner can execute this topology today. */
   supported: boolean;

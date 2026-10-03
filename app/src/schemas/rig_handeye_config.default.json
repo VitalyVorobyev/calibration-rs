@@ -1,0 +1,33 @@
+{
+  "handeye_ba": {
+    "refine_cam_se3_rig": false,
+    "refine_scheimpflug": false,
+    "robot_poses": {
+      "refine": true,
+      "rot_sigma": 0.008726646259971648,
+      "trans_sigma": 0.001
+    }
+  },
+  "handeye_init": {
+    "handeye_mode": "EyeInHand",
+    "min_motion_angle_deg": 5.0
+  },
+  "intrinsics": {
+    "fix_k3": true,
+    "fix_tangential": false,
+    "init_iterations": 2,
+    "zero_skew": true
+  },
+  "rig": {
+    "reference_camera_idx": 0,
+    "refine_intrinsics_in_rig_ba": false
+  },
+  "sensor": {
+    "kind": "Pinhole"
+  },
+  "solver": {
+    "max_iters": 50,
+    "robust_loss": "None",
+    "verbosity": 0
+  }
+}

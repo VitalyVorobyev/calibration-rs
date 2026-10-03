@@ -9,8 +9,8 @@
  *      Visible once a manifest dir is known.
  *   3b. Unresolved-fields notice — shown when the manifest carries
  *      `_unresolved` (e.g. from a sniffed folder); blocks Run (ADR 0019).
- *   4. Manifest section — collapsible, schema-driven ConfigForm.
- *   5. Calibration config section — collapsible, schema-driven ConfigForm.
+ *   4. Manifest section — collapsible, schema-driven SchemaValueForm.
+ *   5. Calibration config section — collapsible, schema-driven SchemaValueForm.
  *   6. Advanced JSON editor — third collapsible, lowest priority.
  *   7. Status banner — sticky top-of-workspace during / after a run.
  *      Runner `ask_user` ambiguities surface as a dialog (AskUserDialog).
@@ -36,7 +36,7 @@ import {
   Input,
   Textarea,
 } from "@vitavision/ui";
-import { ConfigForm, type JsonSchema } from "../../lib/configForm";
+import { SchemaValueForm, type JsonSchema } from "@vitavision/forms";
 import {
   cancelRun,
   runCalibration,
@@ -45,6 +45,7 @@ import {
 } from "../../lib/runCalibration";
 import { dirnamePath, isTauriContext, joinPath, repoRoot } from "../../lib/tauri";
 import datasetSchemaJson from "../../schemas/dataset_spec.json";
+import planarDefaultConfig from "../../schemas/planar_intrinsics_config.default.json";
 import { useStore } from "../../store";
 import {
   applyAskUserChoice,
@@ -58,7 +59,7 @@ import { computeStageRows, formatElapsed, type StageRow } from "./runStages";
 import { topologyInfo } from "./topologies";
 
 // schemars-emitted JSON Schema; cast through unknown since both shapes
-// are JSON-compatible (our JsonSchema interface is intentionally loose).
+// are JSON-compatible (forms' JsonSchema interface is intentionally loose).
 const datasetSchema = datasetSchemaJson as unknown as JsonSchema;
 
 // ── Default form values ──────────────────────────────────────────────────────
@@ -81,27 +82,10 @@ const DEFAULT_DATASET: unknown = {
 };
 
 // Browser-context fallback only — inside Tauri the defaults come from
-// `default_config_cmd` (Rust `Config::default()`), the single source
-// of truth. Grouped shape per ADR 0024 — mirrors `PlanarIntrinsicsConfig::default()`.
-const DEFAULT_PLANAR_CONFIG: unknown = {
-  init: {
-    init_iterations: 2,
-    fix_k3: true,
-    fix_tangential: false,
-    zero_skew: true,
-  },
-  solver: {
-    max_iters: 50,
-    verbosity: 0,
-    robust_loss: "None",
-  },
-  distortion_model: "brown_conrady5",
-  fix_camera: {
-    intrinsics: { fx: false, fy: false, cx: false, cy: false },
-    distortion: { k1: false, k2: false, k3: true, p1: false, p2: false },
-  },
-  fix_poses: [],
-};
+// `default_config_cmd` (Rust `Config::default()`), the single source of
+// truth. This is the same value, emitted by `cargo xtask emit-schemas` (and
+// drift-checked in CI), so it cannot fall behind the Rust default.
+const DEFAULT_PLANAR_CONFIG: unknown = planarDefaultConfig;
 
 /** Topology of a manifest value, defaulting to planar. */
 function topologyOf(manifest: unknown): string {
@@ -664,11 +648,11 @@ export function RunWorkspace() {
           />
         }
       >
-        <ConfigForm
+        <SchemaValueForm
           schema={datasetSchema}
           value={manifest}
-          onChange={setManifest}
-          rootLabel="dataset"
+          onValueChange={setManifest}
+          columns={1}
         />
       </Disclosure>
 
@@ -678,11 +662,12 @@ export function RunWorkspace() {
         summary={<SectionSummary title="Calibration config" summary={configSummary} />}
       >
         {info.schema ? (
-          <ConfigForm
+          <SchemaValueForm
+            key={topology}
             schema={info.schema}
             value={config}
-            onChange={setConfig}
-            rootLabel="config"
+            onValueChange={setConfig}
+            columns={1}
           />
         ) : (
           <p className="text-[12px] text-fg-muted">
