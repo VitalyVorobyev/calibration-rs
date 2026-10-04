@@ -113,7 +113,10 @@ no app-local component kit.
   `Badge`, `Callout`/`ErrorBox`, `Empty`, `Dialog`, `Disclosure`, `Tooltip`,
   `ThemeToggle`. Read the props in the package (its `etc/ui.api.md` API
   report) rather than guessing. A shape the package lacks goes to lab-ui once
-  a second app needs it, not into `src/components/`.
+  a second app needs it, not into `src/components/`. Charts come from
+  [`@vitavision/charts`](https://github.com/VitalyVorobyev/lab-ui/tree/main/packages/charts)
+  (Diagnose's ROI luminance histogram is its `Histogram`; `src/index.css`
+  imports `@vitavision/charts/styles.css`).
 - **Tokens.** `src/index.css` imports `tailwindcss`, `@vitavision/ui/fonts.css`
   and `@vitavision/ui/styles.css` and adds only the root sizing. Colour comes
   from the semantic tokens: elevation `ground` / `surface` / `raised` /
