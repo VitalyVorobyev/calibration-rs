@@ -186,7 +186,7 @@ pub fn detect_charuco_view(
     let luma = img.to_luma8();
     let corners = detect::detect_corners(&luma, chess_config);
     let detector = CharucoDetector::new(params.clone())?;
-    let detection = match detector.detect(&detect::gray_view(&luma), &corners) {
+    let detection = match detector.detect_with_corners(&detect::gray_view(&luma), &corners) {
         Ok(detection) => detection,
         Err(_) => return Ok(None),
     };

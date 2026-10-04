@@ -85,10 +85,10 @@ pub trait Detector: sealed::Sealed + Send + Sync {
     ) -> Result<Vec<Feature>, DetectError>;
 
     /// Revision of this detector's output, folded into its cache key by
-    /// [`CacheKey::for_detector`]. Bump it when the features returned for
-    /// the same image and config change, so stale cache entries are not
-    /// served. `None` (the default) leaves the key as
-    /// [`CacheKey::from_inputs`] computes it.
+    /// [`CacheKey::for_detector`]. The key already carries this crate's
+    /// release; bump the revision when the features returned for the same
+    /// image and config change between releases, so stale cache entries are
+    /// not served. `None` (the default) adds nothing.
     fn output_revision(&self) -> Option<u32> {
         None
     }

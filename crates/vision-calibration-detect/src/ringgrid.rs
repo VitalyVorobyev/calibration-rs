@@ -131,7 +131,7 @@ impl Detector for RinggridDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ringgrid::PngTargetOptions;
+    use ringgrid::TargetRenderOptions;
     use serde_json::json;
 
     const PITCH_M: f64 = 0.020;
@@ -158,7 +158,7 @@ mod tests {
         let cfg: RinggridConfig = serde_json::from_value(board_config()).unwrap();
         let board = cfg.board_layout().unwrap();
         let gray = board
-            .render_target_png(&PngTargetOptions::default())
+            .render_target_png(&TargetRenderOptions::default())
             .expect("render ring-grid PNG");
         image::DynamicImage::ImageLuma8(gray)
     }

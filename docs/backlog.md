@@ -19,11 +19,6 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 
 Run in this order; each lands as one PR.
 
-- [ ] CHORE-DEPS - Dependency refresh: `cargo update` (workspace and
-  `app/src-tauri`, `tiny-solver` held at 0.18.0 until `O-TINYSOLVER-0183`),
-  `calib-targets` 0.12.1 → 0.15, `ringgrid` 0.11 → 0.13, app `bun update`,
-  `@vitavision/ui` 0.11, `json-schema-to-typescript` 16. Re-freeze bench
-  baselines only where detection drift is explained.
 - [ ] O-SOLVER-BENCH - `calib-bench solver`: a deterministic synthetic scene
   matrix over the eight problem types × scale × pixel noise × outliers (with
   Huber/Cauchy), recording optimize wall time, iterations, a
@@ -62,6 +57,11 @@ Run in this order; each lands as one PR.
   move.
 
 ## Deferred and parked
+
+- [ ] BENCH-DETECT-DEDUP - `vision-calibration-bench`'s Tier-B adapters
+  (`src/detect.rs`: chessboard, ChArUco, puzzleboard) duplicate the
+  detectors in `vision-calibration-detect`; route them through the detect
+  crate so detector changes land once. Unpublished crate, so not urgent.
 
 - [ ] C-PYO3-MVG - Python bindings for the MVG surface. Deferred: the
   Python package binds the calibration facade only, and nothing in Python

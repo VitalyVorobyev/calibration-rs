@@ -149,7 +149,7 @@ impl Detector for CharucoDetector {
         // A failed board identification (too few markers, no board in
         // frame) is "no features", not an error — same semantics as
         // the chessboard detector on a blank image.
-        let detection = match detector.detect(&detect::gray_view(&luma), &corners) {
+        let detection = match detector.detect_with_corners(&detect::gray_view(&luma), &corners) {
             Ok(detection) => detection,
             Err(_) => return Ok(Vec::new()),
         };
