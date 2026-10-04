@@ -125,7 +125,7 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Configuration for rig laserline calibration.\n\nGrouped per ADR 0024. `solver.max_iters` defaults to 200: this stage\nrefines only per-camera laser-plane parameters against an already-frozen\nrig geometry (1 DOF per view per camera), so iterations are nearly free.",
+  "description": "Configuration for rig laserline calibration.\n\nGrouped by stage. `solver.max_iters` defaults to 200: this stage\nrefines only per-camera laser-plane parameters against an already-frozen\nrig geometry (1 DOF per view per camera), so iterations are nearly free.",
   "properties": {
     "laser_residual_type": {
       "$ref": "#/$defs/LaserlineResidualType",

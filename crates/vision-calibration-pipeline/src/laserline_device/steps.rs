@@ -39,7 +39,6 @@ pub struct DeviceInitOptions {
 ///
 /// **Sensor is intentionally not in this struct** — for laserline devices the
 /// sensor model is a hardware property taken from `session.config.sensor_init`.
-/// See ADR 0011.
 ///
 /// Partial-seed semantics:
 /// - `intrinsics: Some` skips `estimate_intrinsics_iterative`. Distortion defaults
@@ -77,7 +76,7 @@ pub struct DeviceOptimizeOptions {
 /// Typed return value of [`step_init`] / [`step_init_with_seed`].
 ///
 /// Carries the seeded-or-fitted initial estimates. The same values are also
-/// written into `session.state` — see ADR 0011.
+/// written into `session.state`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LaserlineDeviceInitResult {

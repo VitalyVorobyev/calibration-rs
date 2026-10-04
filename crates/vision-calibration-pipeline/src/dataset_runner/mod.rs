@@ -13,11 +13,11 @@
 //! - [`build_single_cam_handeye_input`] — `SingleCamHandeye`
 //!   (`SingleCamHandeyeInput`, single camera + robot poses).
 //! - [`build_laserline_device_input`] / [`build_rig_laserline_device_input`]
-//!   — the laser topologies (ADR 0021). Laser-line extraction is
+//!   — the laser topologies. Laser-line extraction is
 //!   *injected* via the open [`LaserPixelExtractor`] trait because the
 //!   reference implementation (`vision-metrology`) is not on crates.io.
 //!
-//! Per ADR 0019, any ambiguity that cannot be auto-resolved at
+//! Any ambiguity that cannot be auto-resolved at
 //! conversion time is surfaced as a [`RunError::AskUser`] event so
 //! the UI can prompt the user instead of silently guessing.
 
@@ -186,7 +186,7 @@ pub enum RunError {
     #[error("cache error: {0}")]
     Cache(#[from] vision_calibration_detect::CacheError),
 
-    /// Runtime ambiguity that the runner refuses to guess (ADR 0019).
+    /// Runtime ambiguity that the runner refuses to guess.
     #[error("ask the user: {prompt}")]
     AskUser {
         /// Field path the runtime needs help with (e.g.

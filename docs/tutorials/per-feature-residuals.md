@@ -193,10 +193,6 @@ as native dicts/lists.
 
 ## What to read next
 
-- [ADR 0012](../adrs/0012-per-feature-reprojection-residuals.md) — schema
-  rationale, indexing convention, JSON-stability promise.
-- [ADR 0009](../adrs/0009-coordinate-and-pose-conventions.md) — pose
-  naming (`frame_se3_frame`).
 - [`PerFeatureResiduals`](../../crates/vision-calibration-core/src/types/residual.rs)
   — the struct definitions with full doc comments.
 - [`compute_rig_target_residuals`](../../crates/vision-calibration-core/src/lib.rs)

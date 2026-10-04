@@ -58,7 +58,7 @@ pub struct RigOptimizeOptions {
 
 /// Manual seeds for the **rig extrinsics stage** of rig hand-eye calibration.
 ///
-/// `cam_se3_rig` and `rig_se3_target` are coupled per ADR 0011 — both must be
+/// `cam_se3_rig` and `rig_se3_target` are coupled — both must be
 /// `Some` or both `None`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -1564,9 +1564,8 @@ pub fn step_rig_init(
 /// - Optionally: per-camera intrinsics (if `refine_intrinsics_in_rig_ba` is true)
 ///
 /// The reference camera (`rig.reference_camera_idx`) alone removes the rig's
-/// full 6-DOF gauge freedom; no rig-from-target pose is fixed (see [ADR 0024](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/adrs/0024-config-vocabulary.md) —
-/// the old `fix_first_rig_pose` knob was evidence-backed redundant and
-/// mildly pessimizing; see `docs/notes/rig-extrinsics.md` §Gauge).
+/// full 6-DOF gauge freedom; no rig-from-target pose is fixed; an extra
+/// per-view pose constraint would be redundant and mildly pessimizing.
 ///
 /// Requires [`step_rig_init`] to be run first.
 ///

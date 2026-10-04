@@ -38,13 +38,12 @@ pub type RigExtrinsicsInput = RigDataset<NoMeta>;
 
 /// Configuration for multi-camera rig extrinsics calibration.
 ///
-/// Grouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the
+/// Grouped by stage. Shared between pinhole and Scheimpflug rigs; the
 /// [`SensorMode`] field `sensor` selects the sensor flavour.
 ///
 /// The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
 /// the full 6-DOF rig gauge; an extra per-view pose constraint would be
-/// redundant and mildly pessimizing (see `docs/notes/rig-extrinsics.md`
-/// §Gauge). View-0's rig-from-target pose is always free in the rig BA.
+/// redundant and mildly pessimizing. View-0's rig-from-target pose is always free in the rig BA.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -179,13 +178,13 @@ pub struct RigExtrinsicsExport {
     /// Per-camera reprojection errors (pixels).
     pub per_cam_reproj_errors: Vec<f64>,
 
-    /// Per-feature reprojection residuals (ADR 0012). For rig extrinsics
+    /// Per-feature reprojection residuals. For rig extrinsics
     /// `target` is populated and `laser` is empty. `target_hist_per_camera`
     /// is `Some(vec)` with one entry per camera.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
 
-    /// Optional image manifest (ADR 0014, viewer-side contract). When
+    /// Optional image manifest (viewer-side contract). When
     /// populated, downstream viewers (the diagnose UI) can locate the source
     /// image for each `(pose, camera)` slot. Tiled multi-camera frames
     /// (e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point

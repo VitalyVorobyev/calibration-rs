@@ -181,7 +181,7 @@
     },
     "HandeyeBaConfig": {
       "additionalProperties": false,
-      "description": "Final hand-eye bundle-adjustment options (ADR 0024; renamed and reshaped\nfrom `RigHandeyeBaConfig`, keeping robot-pose refinement in the shared\n[`RobotPoseConfig`] group).",
+      "description": "Final hand-eye bundle-adjustment options; robot-pose refinement lives in\nthe shared [`RobotPoseConfig`] group.",
       "properties": {
         "refine_cam_se3_rig": {
           "description": "Refine cam_se3_rig in hand-eye BA (default: false).\nWhen true, rig extrinsics are further refined during hand-eye optimization.",
@@ -260,7 +260,7 @@
           "type": "boolean"
         },
         "fix_tangential": {
-          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (was hard-coded before\nADR 0024 — the tilt/tangential-distortion coupling makes a free\ntangential term ill-posed during the linear stage).",
+          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (the tilt/tangential-distortion\ncoupling makes a free tangential term ill-posed during the linear\nstage).",
           "type": "boolean"
         },
         "init_iterations": {
@@ -299,7 +299,7 @@
     },
     "RigConfig": {
       "additionalProperties": false,
-      "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nShared by every rig problem's `rig` config group (`RigExtrinsicsConfig`\ntoday; `RigHandeyeConfig` follows in a later ADR 0024 wave).",
+      "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nThe `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.",
       "properties": {
         "reference_camera_idx": {
           "description": "Reference camera index for the rig frame (identity extrinsics).",
@@ -320,7 +320,7 @@
     },
     "RigHandeyeConfig": {
       "additionalProperties": false,
-      "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (see `docs/notes/rig-extrinsics.md`\n§Gauge, which documents the equivalent `RigExtrinsicsConfig` finding).\nView-0's rig-from-target pose is always free in the rig BA.",
+      "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped by stage. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (as for `RigExtrinsicsConfig`).\nView-0's rig-from-target pose is always free in the rig BA.",
       "properties": {
         "handeye_ba": {
           "$ref": "#/$defs/HandeyeBaConfig",
@@ -409,7 +409,7 @@
     },
     "RigHandeyeLaserlineBaConfig": {
       "additionalProperties": false,
-      "description": "Final joint BA options (ADR 0024).\n\nThe joint stage always pins the upstream rig's reference camera\n(`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Camera\nfixing uses core's [`CameraFixMask`] directly.",
+      "description": "Final joint BA options.\n\nThe joint stage always pins the upstream rig's reference camera\n(`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Camera\nfixing uses core's [`CameraFixMask`] directly.",
       "properties": {
         "calib_loss": {
           "$ref": "#/$defs/RobustLoss",
@@ -455,7 +455,7 @@
         },
         "solver": {
           "$ref": "#/$defs/SolverConfig",
-          "description": "Non-linear solve stage settings for the joint stage.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`calib_loss`, `laser_loss` — ADR 0024).\nOnly `max_iters`/`verbosity` apply here."
+          "description": "Non-linear solve stage settings for the joint stage.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`calib_loss`, `laser_loss`).\nOnly `max_iters`/`verbosity` apply here."
         }
       },
       "required": [
@@ -475,7 +475,7 @@
     },
     "RigLaserlineDeviceConfig": {
       "additionalProperties": false,
-      "description": "Configuration for rig laserline calibration.\n\nGrouped per ADR 0024. `solver.max_iters` defaults to 200: this stage\nrefines only per-camera laser-plane parameters against an already-frozen\nrig geometry (1 DOF per view per camera), so iterations are nearly free.",
+      "description": "Configuration for rig laserline calibration.\n\nGrouped by stage. `solver.max_iters` defaults to 200: this stage\nrefines only per-camera laser-plane parameters against an already-frozen\nrig geometry (1 DOF per view per camera), so iterations are nearly free.",
       "properties": {
         "laser_residual_type": {
           "$ref": "#/$defs/LaserlineResidualType",
@@ -668,7 +668,7 @@
             "distortion_model": {
               "$ref": "#/$defs/DistortionKind",
               "default": "brown_conrady5",
-              "description": "Distortion model for the per-camera Scheimpflug intrinsics.\n\nOnly [`DistortionKind::BrownConrady5`] (the default) is supported:\nthe joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5\nmodels are rejected up front by the rig `validate_config` (ADR 0019)\nrather than deep in the solver. The field exists for schema\nsymmetry with the single-camera Scheimpflug path."
+              "description": "Distortion model for the per-camera Scheimpflug intrinsics.\n\nOnly [`DistortionKind::BrownConrady5`] (the default) is supported:\nthe joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5\nmodels are rejected up front by the rig `validate_config`\nrather than deep in the solver. The field exists for schema\nsymmetry with the single-camera Scheimpflug path."
             },
             "fix_scheimpflug": {
               "$ref": "#/$defs/ScheimpflugFixMask",

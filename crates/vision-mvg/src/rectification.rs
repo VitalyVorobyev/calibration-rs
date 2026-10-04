@@ -8,7 +8,7 @@
 //!
 //! # Why the tilt is "free"
 //!
-//! In this project's camera model (ADR 0005) a pixel is formed as
+//! In this project's camera model a pixel is formed as
 //!
 //! ```text
 //! pixel = K · H_tilt · x_n            (homogeneous, then dehomogenize)
@@ -45,7 +45,7 @@
 //!   is the *rotation* part of rectification; distortion is handled separately,
 //!   exactly as OpenCV splits `initUndistortRectifyMap`.
 //! - The relative pose is `cam1_se3_cam0` (`T_C1_C0`): it maps a point from
-//!   camera 0's frame into camera 1's frame (ADR 0009). For a
+//!   camera 0's frame into camera 1's frame. For a
 //!   `RigExtrinsicsExport` with camera 0 as the reference this is simply
 //!   `cam_se3_rig[1]`.
 //! - Camera 0 is treated as the left/reference camera; its frame is the world

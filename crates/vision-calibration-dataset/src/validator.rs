@@ -10,7 +10,7 @@ use thiserror::Error;
 /// Validation failure modes.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ValidationError {
-    /// The manifest still has unresolved fields. Per ADR 0019 the
+    /// The manifest still has unresolved fields. The
     /// runner refuses to dispatch until they are filled in.
     #[error("manifest has unresolved fields: {0:?}")]
     Unresolved(Vec<String>),
@@ -71,7 +71,7 @@ pub enum ValidationError {
 
     /// The headerless `rowmajor4x4` format has a fixed 16-values-per-line
     /// layout; a `columns` mapping or a non-matrix rotation format would
-    /// be silently ignored, so both are rejected up front (ADR 0019).
+    /// be silently ignored, so both are rejected up front.
     #[error("pose format rowmajor4x4 {problem}")]
     BadMatrixPoseConfig {
         /// What is inconsistent (human-readable).
@@ -88,7 +88,7 @@ pub enum ValidationError {
     },
 
     /// A laser-only manifest field is set on a topology that does not
-    /// use it. Per ADR 0019 an ignored field is a fail-fast event —
+    /// use it. An ignored field is a fail-fast event —
     /// the user almost certainly selected the wrong topology.
     #[error("topology {topology:?} does not use {field}")]
     FieldUnusedByTopology {
@@ -126,7 +126,7 @@ pub enum ValidationError {
 }
 
 /// Validate the structural invariants of a manifest. Does not touch
-/// the filesystem (e.g. doesn't expand globs). Per ADR 0019, callers
+/// the filesystem (e.g. doesn't expand globs). Callers
 /// should reject the manifest as soon as any error fires.
 pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
     if !spec.unresolved.is_empty() {
@@ -215,7 +215,7 @@ fn validate_detector_override(spec: &DatasetSpec) -> Result<(), ValidationError>
     Ok(())
 }
 
-/// Laser-field rules (ADR 0021): laser topologies require laser
+/// Laser-field rules: laser topologies require laser
 /// sources everywhere; non-laser topologies must not carry any of the
 /// laser-only fields (an ignored field is a fail-fast event).
 fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {

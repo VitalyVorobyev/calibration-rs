@@ -4,7 +4,7 @@ Run the full quality gate checklist and report results.
 
 ## Gates
 
-Run every command in the canonical gate list (AGENTS.md §3; add §12 when
+Run every command in the canonical gate list (AGENTS.md §3; add §10 when
 `app/` changed) and report pass/fail for each.
 
 ## Output Format

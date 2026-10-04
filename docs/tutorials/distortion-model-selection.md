@@ -46,7 +46,7 @@ joint rig bundle adjustment is Brown-Conrady-typed throughout.
 ### The fix mask
 
 `CameraFixMask { intrinsics: IntrinsicsFixMask, distortion: DistortionFixMask }`
-is the one per-parameter mask idiom (ADR 0024). `DistortionFixMask`'s five
+is the one per-parameter mask idiom. `DistortionFixMask`'s five
 named bits are `{k1, k2, k3, p1, p2}` — always BC5-shaped, even when the
 active model is one of the extended ones. `fix_mask_indices` translates
 the mask **by name** onto each model's packed layout:
@@ -84,8 +84,7 @@ parameter, not a distortion one.
 
 `with_leading_radial` sweeps the model's **leading radial term** — `k1`
 for `BrownConrady5`/`Rational8`/`ThinPrism9`, `lambda` for `Division1`, a
-no-op for `None` — during the seeded route's k1 multi-start sweep (see
-[ADR 0022](../adrs/0022-scheimpflug-intrinsics-seeded-default.md) and the
+no-op for `None` — during the seeded route's k1 multi-start sweep (see the
 [manual initialization](./manual-init.md) tutorial for why Scheimpflug
 intrinsics starts from a seed at all).
 
@@ -211,14 +210,6 @@ why it is not the default.
 
 ## What to read next
 
-- [ADR 0020](../adrs/0020-camera-model-as-data-factor-ir.md) — the
-  descriptor-as-data IR design `DistortionKind` dispatches through.
-- [ADR 0022](../adrs/0022-scheimpflug-intrinsics-seeded-default.md) — why
-  Scheimpflug intrinsics is seeded by default, and the full mechanics of
-  the model comparison above.
-- [`docs/notes/scheimpflug-intrinsics.md`](../notes/scheimpflug-intrinsics.md)
-  — the Scheimpflug proof-pack stub, including the basin study this
-  tutorial's seeded-route guidance builds on.
 - [Manual initialization](./manual-init.md) — the `ScheimpflugManualInit`
   seeding mechanism used in the walkthrough above.
 - [Per-feature residuals](./per-feature-residuals.md) — drill into

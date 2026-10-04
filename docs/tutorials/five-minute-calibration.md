@@ -148,9 +148,3 @@ options.
   the pipeline.
 - [Per-feature residuals](./per-feature-residuals.md) — drill into the
   per-corner errors after a calibration finishes.
-- [Puzzle 130×130 walkthrough](./puzzle-130x130-walkthrough.md) — the same
-  pattern at industrial scale (Scheimpflug rig, laser plane, robot
-  hand-eye, real data).
-- [ADR 0007](../adrs/0007-session-framework.md) — why the API is shaped
-  around sessions and external step functions instead of a single
-  `Calibrator::run()` call.

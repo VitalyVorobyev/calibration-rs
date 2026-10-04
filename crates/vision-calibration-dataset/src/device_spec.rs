@@ -4,13 +4,12 @@
 //! lens focal lengths, sensor pixel pitch, Scheimpflug mount tilt, and the
 //! rig's nominal mechanical layout — as transcribed from datasheets and
 //! mechanical drawings. It is the structured source for the seeded
-//! initialization route (ADR 0022): derivation functions in the pipeline
-//! crate turn a `DeviceSpec` into the ADR 0011 manual-init seeds.
+//! initialization route: derivation functions in the pipeline
+//! crate turn a `DeviceSpec` into manual-init seeds.
 //!
 //! Units are datasheet-natural and encoded in field names (`_mm`, `_um`,
 //! `_px`, `_deg`); unit conversion happens exactly once, in the derivation
-//! layer. Poses follow the ADR 0009 `frame_se3_frame` naming. See ADR 0023
-//! for the design rationale.
+//! layer. Poses follow the `frame_se3_frame` naming.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -280,7 +279,7 @@ impl DeviceSpec {
     }
 
     /// Structural validation: fail-fast on transcription errors
-    /// (ADR 0019). Called by [`DeviceSpec::from_path`].
+    /// Called by [`DeviceSpec::from_path`].
     pub fn validate(&self) -> Result<(), DeviceSpecError> {
         if self.version > DEVICE_SPEC_VERSION {
             return Err(DeviceSpecError::UnsupportedVersion {

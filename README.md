@@ -12,7 +12,7 @@
 [![PyPI](https://img.shields.io/pypi/v/vision-calibration.svg)](https://pypi.org/project/vision-calibration/)
 [![Docs.rs](https://docs.rs/vision-calibration/badge.svg)](https://docs.rs/vision-calibration)
 [![CI](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/ci.yml)
-[![Docs](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/publish-docs.yml/badge.svg)](https://vitalyvorobyev.github.io/calibration/)
+[![Docs](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/publish-docs.yml/badge.svg)](https://vitalyvorobyev.github.io/calibration-rs/)
 [![Audit](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/VitalyVorobyev/calibration-rs/actions/workflows/audit.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MSRV](https://img.shields.io/badge/MSRV-1.93-blue.svg)](https://blog.rust-lang.org/2025/10/30/Rust-1.93.0/)
@@ -49,14 +49,13 @@ a re-detection).
 
 **Camera model** — cameras compose as `pixel = K(sensor(distortion(projection(dir))))`,
 so a Scheimpflug (tilted-sensor) camera is the pinhole model with a non-identity
-sensor homography rather than a separate code path. See
-[ADR 0005](docs/adrs/0005-composable-camera-model.md).
+sensor homography rather than a separate code path.
 
 ## Install
 
 ```toml
 # Cargo.toml
-vision-calibration = "0.8"
+vision-calibration = "0.9"
 ```
 
 ```bash
@@ -170,26 +169,22 @@ real-image ones need the optional extras
 
 ## Documentation
 
-- **[The book](https://vitalyvorobyev.github.io/calibration/)** — the camera
+- **[The book](https://vitalyvorobyev.github.io/calibration-rs/)** — the camera
   model, every solver, and a walkthrough per workflow. Start here.
 - **[API reference](https://docs.rs/vision-calibration)** — docs.rs.
 - **[Tutorials](docs/tutorials/)** — hands-on onboarding.
-- **[ADRs](docs/adrs/)** — why the design is the way it is.
 - **[CHANGELOG](CHANGELOG.md)** — what changed, and what to do about it.
 
 ## Project
 
-A Rust workspace. The crates.io packages are `vision-calibration-core`,
-`-linear`, `-optim`, `-pipeline`, `-dataset`, `-detect`, `vision-geometry`,
-`vision-mvg`, and the `vision-calibration` facade that re-exports them; the
-Python bindings (`-py`) ship to PyPI, and an internal benchmark crate is not
-published. Layering is enforced:
-solvers do not know about pipelines, and pipelines do not know about the GUI.
-See [ADR 0006](docs/adrs/0006-layered-crate-architecture.md) and
-[AGENTS.md](AGENTS.md) for the rules, build commands, and contribution
-workflow.
+The `vision-calibration` facade re-exports the crates.io packages
+`vision-calibration-core`, `-linear`, `-optim`, `-pipeline`, `-dataset`,
+`-detect`, `vision-geometry` and `vision-mvg`; the Python bindings ship to
+PyPI. The book's
+[architecture chapter](https://vitalyvorobyev.github.io/calibration-rs/architecture.html)
+shows how they layer.
 
-The project is pre-1.0 and breaking changes still happen; they are listed in
-the CHANGELOG. MSRV is 1.93 ([policy](docs/MSRV.md)).
+The project is pre-1.0: breaking changes still happen, and the CHANGELOG lists
+each with migration notes. MSRV is 1.93 ([policy](docs/MSRV.md)).
 
 Licensed under the [MIT License](LICENSE).

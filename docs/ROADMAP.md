@@ -25,21 +25,13 @@ in the CHANGELOG with migration notes.
 4. **App CI green** — lint (zero warnings), format, typecheck, unit,
    component and smoke tests, generated IPC types in sync.
 5. **Docs current** — README, crate READMEs, the book, tutorials, ADRs and
-   this file describe the code as it is.
+   this file describe the code as it is, and user-facing docs carry no
+   internal references (`cargo xtask check-docs`).
 
 ## Open work
 
-| Item | Status | Blocker / trigger |
-|---|---|---|
-| `B-UX2-ELEVATION` — app empty states, error surfaces, image grid, detection overlay, coverage map | open | gate: frontend review with no high-severity findings |
-| `B-QUAL-TS7` — TypeScript 7 | blocked | `typescript-eslint` support for TS 7 |
-| `D4-NALGEBRA-035` — nalgebra 0.35 / faer 0.24 | blocked | a `tiny-solver` release built on them |
-| `D4-RELEASE` — cut v1.0 | open | the exit criteria above |
-| `C-PYO3-MVG` — Python bindings for the MVG surface | deferred | a Python consumer |
-| `P2-BA-DENSITY` — corner budget for joint rig BA | conditional | acceptance wall time > ~5 min |
-| `P3-BACKEND-COST` — solver hot-path profiling | parked | post-1.0 |
-| `M4-FISHEYE` — Kannala-Brandt projection | parked | post-1.0, a fisheye dataset |
-| `V7-RTV3D-INTRINSICS-FLOOR` | parked | do not reopen unprompted |
+Tracked in the [backlog](backlog.md); each entry names its blocker or
+trigger.
 
 ## Standing decisions
 

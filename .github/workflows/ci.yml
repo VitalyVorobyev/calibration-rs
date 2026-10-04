@@ -40,6 +40,11 @@ jobs:
       - name: Check generated config schemas are up to date
         run: cargo run -p xtask -- emit-schemas --check
 
+      # User-facing docs (READMEs, book, tutorials, CHANGELOG, published
+      # rustdoc, the Python package) must not cite internal material.
+      - name: Check user-facing docs
+        run: cargo run -p xtask -- check-docs
+
       - name: Cargo doc
         run: cargo doc --no-deps --workspace
 

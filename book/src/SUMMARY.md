@@ -82,7 +82,6 @@
 
 - [Adding a New Optimization Problem](new_problem.md)
 - [Adding a New Pipeline Problem Type](new_pipeline.md)
-- [Adding a New Solver Backend](new_backend.md)
 
 ---
 

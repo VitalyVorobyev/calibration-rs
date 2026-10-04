@@ -140,7 +140,7 @@ are genuinely different residual families. The per-stage defaults are
   must robustify detector tails.
 - Joint rig BA: `calib_loss = None`, `laser_loss = None`,
   `laser_weight = 1e4` — a warm-started polish on already-cleaned inputs
-  where the laser term pins metric scale (see `docs/notes/rtv3d-scale.md`).
+  where the laser term pins metric scale (see `docs/notes/laserline-bundle.md (metric scale)`).
 
 ### `distortion_model` placement
 

@@ -1,4 +1,4 @@
-//! Content-addressed detection cache (ADR 0017).
+//! Content-addressed detection cache.
 //!
 //! The cache is keyed on
 //! `(image_content_hash, detector_name, canonical_config_hash)` where:
@@ -78,8 +78,8 @@ impl CacheKey {
     ///
     /// The detector segment is sanitized so the result is a legal file
     /// name on every supported OS — notably Windows/NTFS, which rejects
-    /// `< > : " / \ | ? *`. Laser namespaces use a `laser:<name>` form
-    /// (ADR 0021), so the `:` must be stripped or the on-disk cache
+    /// `< > : " / \ | ? *`. Laser namespaces use a `laser:<name>` form,
+    /// so the `:` must be stripped or the on-disk cache
     /// write fails with `ERROR_INVALID_NAME` (OS error 87).
     pub fn file_name(&self) -> String {
         format!(

@@ -181,9 +181,9 @@ pub struct LaserlineSolveOptions {
     /// Per-parameter mask for fixing camera intrinsics/distortion during
     /// optimization. Lowered to the IR at full per-field granularity (see
     /// `vision_calibration_core::IntrinsicsFixMask::to_indices` and
-    /// `vision_calibration_core::DistortionFixMask::to_indices`) — unlike
-    /// the pre-ADR-0024 `{fix_intrinsics, fix_distortion, fix_k3}` bool trio
-    /// this replaces, any individual field may be fixed independently.
+    /// `vision_calibration_core::DistortionFixMask::to_indices`) — any
+    /// individual field may be fixed independently (no all-or-nothing bool
+    /// groups).
     pub fix_camera: CameraFixMask,
     /// Fix Scheimpflug sensor parameters during optimization
     pub fix_sensor: bool,

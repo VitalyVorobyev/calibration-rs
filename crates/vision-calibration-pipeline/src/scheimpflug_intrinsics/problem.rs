@@ -29,9 +29,9 @@ pub use vision_calibration_optim::ScheimpflugFixMask;
 
 /// Configuration for planar Scheimpflug intrinsics calibration.
 ///
-/// Grouped per ADR 0024. Two defaults deviate from the shared sub-structs'
+/// Grouped by stage. Two defaults deviate from the shared sub-structs'
 /// own defaults, documented at each field: `init.fix_tangential` is `true`
-/// (was hard-coded in `steps.rs` before ADR 0024 — tilt and tangential
+/// (tilt and tangential
 /// distortion are coupled, so a free tangential term is ill-posed during the
 /// linear stage), `solver.max_iters` is 120 (the tilt valley needs more
 /// headroom than a plain intrinsics solve), and `fix_camera.distortion` is
@@ -127,7 +127,7 @@ pub struct ScheimpflugIntrinsicsExport {
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors (single element for single-camera workflows).
     pub per_cam_reproj_errors: Vec<f64>,
-    /// Per-feature reprojection residuals (ADR 0012). Single-camera, target
+    /// Per-feature reprojection residuals. Single-camera, target
     /// only — `laser` is empty; `target_hist_per_camera` is
     /// `Some(vec![one_entry])`.
     #[serde(default)]

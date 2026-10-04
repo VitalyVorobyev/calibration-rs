@@ -24,6 +24,23 @@ Backend pattern:
 
 Factor functions are generic over `T: RealField` for autodiff compatibility. The IR is pure data (no derivative concepts in `ProblemIR` or `OptimBackend`); the kernels are autodiff-capable rather than autodiff-dependent. tiny-solver is the sole backend; the IR still isolates problem definitions from the solver API.
 
+### Backend contract
+
+A backend (`OptimBackend::solve(ir, initial, opts) -> BackendSolution`,
+private to `vision-calibration-optim`, registered in the single dispatch
+`solve_with_backend`) must:
+
+- validate the IR, then allocate one parameter per `ParamBlock`, initialized
+  from `initial` (keyed by block **name**);
+- apply the block's manifold (`Euclidean`, `SE3` 7→6, `SO3` 4→3, `S2` 3→2),
+  its fixed mask, and its bounds;
+- evaluate every `ResidualBlock` through its `FactorKind`'s generic kernel,
+  with the block's `RobustLoss` (`Huber`, `Cauchy`, `Arctan`) applied;
+- return the optimized values keyed by block name, plus a `SolveReport`.
+
+A new backend is accepted when it reproduces the existing optim problem tests
+from the same initial values.
+
 ## Consequences
 
 - New backends require only a `compile` + `solve` implementation.

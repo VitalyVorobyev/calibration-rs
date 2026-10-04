@@ -46,7 +46,7 @@ pub struct DatasetSpec {
     pub robot_poses: Option<RobotPoseSource>,
 
     /// Laser-line extraction parameters for the laser topologies.
-    /// `None` means defaults (ADR 0021) — extraction tuning has safe
+    /// `None` means defaults — extraction tuning has safe
     /// defaults and is not a fail-fast ambiguity. Rejected on
     /// non-laser topologies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -113,7 +113,7 @@ pub struct CameraSource {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub roi_xywh: Option<[u32; 4]>,
 
-    /// Laser-frame image source for the laser topologies (ADR 0021).
+    /// Laser-frame image source for the laser topologies.
     /// One laser image per view, captured by the same sensor with the
     /// line projector on; `roi_xywh` applies to laser frames too.
     /// Laser images pair with target views through `pose_pairing`.
@@ -143,7 +143,7 @@ pub enum ImagePattern {
 // Laser extraction
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Laser-line extraction parameters (ADR 0021). Consumed by the
+/// Laser-line extraction parameters. Consumed by the
 /// runner's injected `LaserPixelExtractor`; hashed (canonical JSON)
 /// into the detection-cache key so edits re-extract.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

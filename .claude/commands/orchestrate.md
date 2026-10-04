@@ -37,7 +37,7 @@ Use the Agent tool (subagent_type: "general-purpose") to implement the task spec
 
 ### Phase 3: Gate Check
 
-Run the canonical gates from AGENTS.md §3 (plus §12 for `app/` changes).
+Run the canonical gates from AGENTS.md §3 (plus §10 for `app/` changes).
 
 If any gate fails, go back to Phase 2 with the failure details. Maximum 2 retries.
 
@@ -59,7 +59,7 @@ If REJECTED: go back to Phase 2 with the feedback (max 2 retries total across al
 
 If approved and all gates pass:
 
-1. Apply AGENTS.md §11: delete the task's backlog entry, add a CHANGELOG
+1. Apply AGENTS.md §9: delete the task's backlog entry, add a CHANGELOG
    `[Unreleased]` line for user-visible changes, update the docs it touches
 2. Stage all changed files (be specific, no `git add -A`)
 3. Commit with message format: `feat(backlog): <task-id> <short description>`

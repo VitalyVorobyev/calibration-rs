@@ -30,7 +30,7 @@ pub(crate) struct ScheimpflugIntrinsicsState {
 
     /// Whether `initial_sensor` was a user-provided tilt seed (vs auto-estimated).
     /// When `true`, the optimization trusts that tilt basin directly instead of
-    /// running the cold-start multi-start tilt sweep (see ADR 0022).
+    /// running the cold-start multi-start tilt sweep.
     #[serde(default)]
     pub initial_sensor_manual: bool,
 

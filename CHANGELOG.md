@@ -21,8 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **App: the vitavision design system.** The Tauri app drops its local
   component kit and HSL tokens for the published `@vitavision/ui` (0.8):
   IBM Plex type, the shared light and dark palettes, and a system / light /
-  dark theme toggle (stored under `calib-theme`, as before). ESLint's
-  `tokensOnly` rule now keeps colour in `app/src` on the design tokens.
+  dark theme toggle (stored under `calib-theme`, as before).
+- **Self-contained documentation.** The READMEs, the book, the tutorials and
+  the API docs state their rationale inline rather than pointing at internal
+  design records. The app README is a user guide. The tutorial built on a
+  private dataset is removed, and the book's link and install version are
+  corrected.
 
 ## [0.9.0] - 2026-09-29
 
@@ -113,7 +117,6 @@ signature changes; `iters` keeps its meaning as the iteration cap.
   `iters` keeps its meaning as the iteration cap; `0` now means 20 for all
   three models (was 8 or 10). Explicit small caps (5, 8) remain enough.
 - **`vision-calibration-core` builds for `wasm32-unknown-unknown`**
-  ([#119](https://github.com/VitalyVorobyev/calibration-rs/pull/119)).
 
 ## [0.8.1] - 2026-09-07
 
@@ -156,7 +159,7 @@ published crates and the PyPI wheel.
   scheduled run notified nobody; there was no `pull_request` trigger, so the
   PR that introduced a vulnerable dependency was green and the failure
   surfaced up to six days later; and it scanned only the root lockfile, so
-  `app/src-tauri` — outside the workspace per ADR 0014, and what ships as
+  `app/src-tauri` — outside the workspace, and what ships as
   the desktop bundle — was never audited at all. The job now matrixes over
   both lockfiles, runs on manifest- and lockfile-touching PRs, and files an
   issue when the weekly run on `main` goes red. Advisory ignores moved to a
@@ -331,8 +334,7 @@ across patch releases.
   `RigExtrinsicsConfig`, `RigHandeyeConfig`, `LaserlineDeviceConfig`, and
   `RigLaserlineDeviceConfig` all reshape to the grouped form; five old
   `RigHandeye*` sub-structs are gone. `SensorMode::Scheimpflug`'s
-  `fix_scheimpflug_in_intrinsics` field is renamed `fix_scheimpflug`. See
-  [ADR 0024](docs/adrs/0024-config-vocabulary.md).
+  `fix_scheimpflug_in_intrinsics` field is renamed `fix_scheimpflug`.
 - **Public API cleanup.** Deleted the deprecated
   `pixel_to_gripper_point` shim and `LaserlinePlaneSolver::from_view`;
   merged the duplicate `ScheimpflugFixMask` definitions into the one optim
@@ -392,7 +394,7 @@ across patch releases.
   matching over summed-area tables with parabolic sub-pixel refinement and
   three invalidation filters (min-correlation, uniqueness, left-right
   consistency), plus opt-in Hirschmüller semi-global (SGM) cost
-  aggregation. ADR 0015 amended: the matcher ships pure-Rust in
+  aggregation. The matcher ships pure-Rust in
   `vision-mvg`; an OpenCV SGBM baseline is confined to the unpublished,
   benchmark-only `vision-calibration-bench` crate.
 - **Facade `vision_calibration::mvg`.** The MVG surface
@@ -401,11 +403,10 @@ across patch releases.
   now reachable from the facade, mirroring the `geometry` module; `refine`
   gates `bundle_adjust`.
 - **`vision_calibration_dataset::device_spec` +
-  `vision_calibration_pipeline::device_seed`
-  ([ADR 0023](docs/adrs/0023-device-spec-seed-derivation.md)).**
+  `vision_calibration_pipeline::device_seed`.**
   A `DeviceSpec` sidecar schema (datasheet-natural units: focal length,
   pixel pitch, resolution, Scheimpflug mount angles, rig mechanical
-  layout) that derives ADR 0011 manual-init seeds — intrinsics, rig
+  layout) that derives manual-init seeds — intrinsics, rig
   layout, hand-eye mounts — instead of hand-coded per-example constants.
   Facade re-export `vision_calibration::device_seed`; spec-seeded init is
   now the **official calibration route**.
@@ -414,12 +415,7 @@ across patch releases.
   official route with a hard per-entry gate, committed Fit-record
   baselines and drift gates (`--regression-tol`, `--freeze-baselines`),
   and a convergence-basin study subcommand sweeping focal / tilt /
-  principal-point perturbations around the ADR 0023 seed.
-- **Proof-pack standard.** `docs/notes/README.md` documents the
-  math-note + synthetic-GT matrix test + property test + committed
-  Fit record pattern; math notes and matrix tests landed for planar
-  intrinsics, Scheimpflug intrinsics, hand-eye, rig extrinsics, laserline
-  bundle, and two-view/triangulation.
+  principal-point perturbations around the spec-derived seed.
 - **App: Depth workspace.** Dense stereo matching (block/SGM
   toggle) through the rectifier, plus depth-from-disparity reprojection
   and an interactive 3D point cloud view (React-Three-Fiber, code-split).
@@ -449,7 +445,6 @@ across patch releases.
   parity script now runs in CI.
 - New tutorials: multiple-view geometry, distortion-model selection,
   single-camera hand-eye, and an app walkthrough.
-- ADR 0023 (DeviceSpec schema) and ADR 0024 (config vocabulary).
 
 ### Fixed
 
@@ -457,7 +452,7 @@ across patch releases.
   `Rotation3::from_matrix` silently mis-converges on exact 180° rotations
   (wrong axis); the row-major pose loader and `base_se3_gripper` now use
   an SVD polar-decomposition `nearest_rotation` instead. Robot poses at
-  exactly 180° (common on the rtv3d rigs) previously diverged hand-eye
+  exactly 180° (common on real robot rigs) previously diverged hand-eye
   calibration to ~1700 px reprojection error.
 - `bundle_adjust`'s gauge anchor now falls back to the lowest-index
   *observed* camera instead of always fixing camera 0 (which left the
@@ -480,7 +475,7 @@ publish set (nine publishable crates total). This section backfills the
 
 ### Changed
 - **BREAKING (`vision-calibration-optim`): camera model as data in the
-  factor IR** ([ADR 0020](docs/adrs/0020-camera-model-as-data-factor-ir.md)).
+  factor IR**.
   The 18 enumerated `FactorKind` variants
   (`ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta`, …) are
   replaced by four families — `ReprojPoint`, `LaserPointToPlane`,
@@ -525,7 +520,7 @@ publish set (nine publishable crates total). This section backfills the
 ## [0.5.0] - 2026-05-21
 
 `0.5.0` bundles two pre-1.0 breaking efforts plus the first desktop
-viewer scaffold: the rig-family sensor-axis refactor (ADR 0013) and a
+viewer scaffold: the rig-family sensor-axis refactor and a
 batched public-API-surface revision applied before the library's
 contract stabilizes. Pre-1.0, breaking changes are expected and are
 collected here in a single minor bump rather than dribbled across
@@ -536,7 +531,7 @@ typed `step_*` return values), opt-in *diagnostics* (`session.log()` /
 sealed). The three surfaces are documented on the facade's own module docs.
 
 ### Added
-- **Diagnose UI scaffold ([ADR 0014](docs/adrs/0014-tauri-desktop-app.md)).**
+- **Diagnose UI scaffold.**
   - `vision_calibration_core::{ImageManifest, FrameRef, PixelRect}` — new
     viewer-facing image-data contract. Pose-major frame list with optional
     per-frame ROI for tiled multi-camera images. Re-exported from
@@ -562,14 +557,6 @@ sealed). The three surfaces are documented on the facade's own module docs.
     `load_image`. One UI surface: file-open + (pose, camera) dropdown
     + canvas with per-feature residual arrows colored by error
     bucket. See `app/README.md`.
-- **ADR 0014** ([`docs/adrs/0014-tauri-desktop-app.md`](docs/adrs/0014-tauri-desktop-app.md))
-  records the Tauri 2 + React + TypeScript framework choice (vs
-  rerun.io and egui), the decision to build diagnosis before the run
-  workflow, the initial viewer-only scope, and the `ImageManifest`
-  Export-side contract.
-- **ADR 0013** ([`docs/adrs/0013-rig-family-sensor-axis-refactor.md`](docs/adrs/0013-rig-family-sensor-axis-refactor.md))
-  records the rig family sensor-axis refactor decision: composition over
-  traits, single-axis collapse, alternatives considered.
 - **Typed `step_*` return values.** Every step function now returns a
   typed, non-`Option` result instead of `()` — e.g.
   `step_init -> PlanarInitResult`, `step_optimize -> PlanarOptimizeResult`,
@@ -587,9 +574,9 @@ sealed). The three surfaces are documented on the facade's own module docs.
   `vision_calibration::common`.
 
 ### Changed (breaking, pre-1.0)
-- **Rig family sensor-axis refactor (ADR 0013).** The pinhole and Scheimpflug
+- **Rig family sensor-axis refactor.** The pinhole and Scheimpflug
   rig modules collapse into a single workflow per problem family. Five rig
-  sibling modules become three (~−2,300 LoC across PRs #36, #37, #38).
+  sibling modules become three (~−2,300 LoC).
   - `vision_calibration_pipeline::rig_scheimpflug_extrinsics` — module
     deleted. Migrate to `rig_extrinsics::RigExtrinsicsProblem` with
     `RigExtrinsicsConfig::sensor = SensorMode::Scheimpflug { … }`.
@@ -648,7 +635,7 @@ Every break and the concrete migration a consumer must apply:
 | `vision-calibration-optim` no longer re-exports `core` types. | `vision_calibration_optim::{RigDataset, RigViewObs, View}` | `vision_calibration_core::{RigDataset, RigViewObs, View}` |
 | `pixel_to_gripper_point` moved into the `rig_laserline_device` module. | `vision_calibration::pixel_to_gripper_point(...)` | `vision_calibration::rig_laserline_device::pixel_to_gripper_point(...)` — the old crate-root path remains as a `#[deprecated]` alias for one release |
 | `#[non_exhaustive]` added to growth-prone public types: all `*Export`, `*Config`, `*ManualInit`, and `*Result` structs/enums (including `PlanarRunResult`, `RigExtrinsicsOutput`, `RigHandeyeOutput`, `LogEntry`, `SessionMetadata`, the per-problem `*Options` structs, and the diagnostic types `ReprojectionStats`, `FeatureResidualHistogram`, `PerFeatureResiduals`, `TargetFeatureResidual`, `LaserFeatureResidual`, `FrameRef`, `ImageManifest`, `PixelRect`). | `Config { a, b }` (bare struct literal) | `Config { a, b, ..Default::default() }`, or a constructor / `Config::default()` then field assignment. Serde round-trips are unchanged. |
-| `ProblemType` is now sealed. The seven problem types are a closed set (ADR 0013); a new `pub(crate)` `ProblemState` supertrait blocks downstream `impl`. | `impl ProblemType for MyProblem { ... }` | not supported — use one of the seven built-in problem types |
+| `ProblemType` is now sealed. The seven problem types are a closed set; a new `pub(crate)` `ProblemState` supertrait blocks downstream `impl`. | `impl ProblemType for MyProblem { ... }` | not supported — use one of the seven built-in problem types |
 | `Detector` (`vision-calibration-detect`) is now sealed via a private supertrait. | `impl Detector for MyDetector { ... }` | not supported downstream — use the provided detectors |
 | `vision_calibration_core::test_utils` is no longer public API. The module is `#[doc(hidden)]` and gated behind a non-default `test-utils` feature. | `use vision_calibration_core::test_utils::*;` | enable `features = ["test-utils"]` on the dev-dependency, or migrate to `vision_calibration_core::synthetic` helpers |
 | RANSAC scaffolding (`Estimator`, `RansacOptions`, `RansacResult`, `ransac_fit`) is `#[doc(hidden)]`. Still `pub` for cross-crate use, but no longer part of the documented surface. | (documented API) | treat as internal; do not rely on it |
@@ -673,8 +660,6 @@ Every break and the concrete migration a consumer must apply:
   rig-frame ray → plane intersection → hand-eye transform.
 - New IR factor kinds `ReprojPointPinhole4Dist5Scheimpflug2{TwoSE3,HandEye,HandEyeRobotDelta}` with
   matching TinySolver adapters and autodiff-ready residual generics.
-- New private example crate `vision-calibration-examples-private` (publish = false) with
-  `examples/puzzle_130x130_rig.rs` running the full pipeline on a sensor dataset.
 
 ## [0.3.0] - 2026-04-12
 
@@ -750,5 +735,4 @@ Every break and the concrete migration a consumer must apply:
 ### Changed
 - Updated `vision-calibration-linear` lib.rs to export new `distortion_fit` and `iterative_intrinsics` modules
 - Refactored test files to use shared utilities from `vision-calibration-core::test_utils`, eliminating code duplication
-- Updated CLAUDE.md with detailed documentation of iterative intrinsics feature and typical workflow
 - Expanded rustdoc across `vision-calibration-linear` algorithms and updated top-level README to reflect new solver coverage

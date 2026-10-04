@@ -59,7 +59,7 @@ pub struct PlanarIntrinsicsProblem;
 
 /// Configuration for planar intrinsics calibration.
 ///
-/// Grouped per ADR 0024: linear-init and non-linear-solve settings live in
+/// Grouped by stage: linear-init and non-linear-solve settings live in
 /// the shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs;
 /// `distortion_model`, `fix_camera`, and `fix_poses` stay top-level (they
 /// are not shared with any other problem type today).
@@ -146,12 +146,12 @@ pub struct PlanarIntrinsicsExport {
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors (single element for single-camera workflows).
     pub per_cam_reproj_errors: Vec<f64>,
-    /// Per-feature reprojection residuals (ADR 0012). For planar intrinsics
+    /// Per-feature reprojection residuals. For planar intrinsics
     /// only `target` is populated; `laser` is empty. `target_hist_per_camera`
     /// is `Some(vec![one_entry])` since this problem type is single-camera.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
-    /// Optional image manifest (ADR 0014, viewer-side contract). When
+    /// Optional image manifest (viewer-side contract). When
     /// populated, downstream viewers (the diagnose UI) can locate the source
     /// image for each `(pose, camera)` slot. `None` means "no images
     /// shipped"; the calibration pipeline never reads this field.

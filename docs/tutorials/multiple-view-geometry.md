@@ -27,7 +27,7 @@ conventions matter:
   specific intrinsics.
 - **Pixel coordinates** — what rectification consumes (it folds `K` back in).
 
-Poses follow the project convention (ADR 0009): `T_C1_C0` maps a point from
+Poses follow the project convention: `T_C1_C0` maps a point from
 camera 0's frame into camera 1's frame (`p_c1 = R · p_c0 + t`).
 
 The surface, in dependency order:
@@ -110,8 +110,7 @@ let p_right = rect.rectify_right(&undistorted_pixel1);
 
 Inputs are **undistorted** pixels — remove lens distortion first (the rectifying
 homography is the rotation part of rectification, exactly as OpenCV splits
-`initUndistortRectifyMap`). See [ADR 0015](../adrs/0015-mvg-ceiling.md) for the
-crate's scope boundary.
+`initUndistortRectifyMap`).
 
 ### 4. Dense matching
 
@@ -173,10 +172,6 @@ cargo run -p vision-calibration --example dense_stereo_real --release
 
 ## What to read next
 
-- [ADR 0015](../adrs/0015-mvg-ceiling.md) — the MVG crate's scope ceiling
-  (no SfM / pose-graph / loop closure).
-- [ADR 0009](../adrs/0009-coordinate-and-pose-conventions.md) — pose and frame
-  conventions (`frame_se3_frame`, `T_C_W`).
 - Crate docs for `vision_calibration::mvg::{pose_recovery, triangulation,
   bundle_adjust, rectification, dense, robust}`.
 - The low-level solvers underneath: `vision_calibration::geometry`

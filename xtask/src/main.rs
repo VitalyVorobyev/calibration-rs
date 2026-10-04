@@ -1,25 +1,30 @@
-//! Workspace task runner. Currently exposes `emit-schemas`, which writes
-//! JSON Schemas for every `*Config`, `*Input`, and `DatasetSpec` type into
-//! `app/src/schemas/`. The Tauri app reads those files at build time to
-//! drive its schema-driven config forms.
+//! Workspace task runner.
+//!
+//! - `emit-schemas [--check]` writes JSON Schemas for every `*Config`,
+//!   `*Input`, and `DatasetSpec` type into `app/src/schemas/`; the Tauri app
+//!   reads them at build time to drive its schema-driven config forms.
+//! - `check-docs` fails when user-facing docs cite internal material or pin
+//!   a stale version (see `check_docs`).
 
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
+mod check_docs;
 mod emit_schemas;
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let cmd = args
-        .next()
-        .context("usage: cargo xtask <command>\n\ncommands:\n  emit-schemas [--check]\n")?;
+    let cmd = args.next().context(
+        "usage: cargo xtask <command>\n\ncommands:\n  emit-schemas [--check]\n  check-docs\n",
+    )?;
 
     match cmd.as_str() {
         "emit-schemas" => {
             let check = args.any(|a| a == "--check");
             emit_schemas::run(&workspace_root()?, check)
         }
-        other => bail!("unknown xtask `{other}`; available: emit-schemas [--check]",),
+        "check-docs" => check_docs::run(&workspace_root()?),
+        other => bail!("unknown xtask `{other}`; available: emit-schemas [--check], check-docs"),
     }
 }
 

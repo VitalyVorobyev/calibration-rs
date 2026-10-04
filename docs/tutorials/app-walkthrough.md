@@ -2,10 +2,7 @@
 
 > Practical guide for running calibrations and inspecting results through
 > the Tauri desktop app — aimed at an engineer *using* the app, not at
-> app development. Design records: [ADR 0014](../adrs/0014-tauri-desktop-app.md)
-> (diagnose viewer), [ADR 0018](../adrs/0018-schema-driven-ui.md)
-> (schema-driven config forms), [ADR 0019](../adrs/0019-fail-fast-on-ambiguity.md)
-> (ask-user-on-ambiguity).
+> app development.
 
 ## Why
 
@@ -103,18 +100,17 @@ stereo rig export (two cameras with extrinsics) — same gate as Epipolar.
 Drives a calibration end-to-end without leaving the app:
 
 1. **Quick-start presets** — a card grid of committed datasets
-   (`data/stereo`, `data/stereo_charuco`, `data/kuka_1`, plus a few
-   `privatedata/rtv3d` cards for local development) spanning most
-   problem types. Clicking a card loads its manifest and applies any
-   `configOverrides` the preset carries (e.g. the rtv3d presets need
-   Scheimpflug sensors and EyeToHand — see
+   (`data/stereo`, `data/stereo_charuco`, `data/kuka_1`) spanning
+   several problem types. Clicking a card loads its manifest and applies any
+   `configOverrides` the preset carries (e.g. a preset may need
+   Scheimpflug sensors or an EyeToHand rig — see
    [`presets.ts`](../../app/src/workspaces/RunWorkspace/presets.ts)).
 2. **Sniff folder** — pick an arbitrary dataset folder and the app
    heuristically infers a manifest (`sniff_folder`). Fields it can't
    determine are left `_unresolved` and block Run until you fill them in
    the manifest form (a red badge marks each one).
 3. **Manifest** and **calibration config** sections — collapsible,
-   schema-driven forms (ADR 0018) generated from the same JSON Schema the
+   schema-driven forms generated from the same JSON Schema the
    Rust config types derive, so every field the pipeline accepts is
    editable without hand-writing JSON. An **advanced JSON editor** is
    available for anything the form doesn't expose yet.
@@ -127,7 +123,7 @@ Drives a calibration end-to-end without leaving the app:
    navigates to Diagnose after a short delay. On an unresolvable ambiguity
    (e.g. a hand-eye dataset with no `pose_pairing` set — see the
    [single-camera hand-eye tutorial](./single-cam-handeye.md)) a modal
-   asks you to pick between the suggested options (ADR 0019) instead of
+   asks you to pick between the suggested options instead of
    guessing. Validation failures and IPC errors surface inline.
 
 ## Walkthrough: load an export into Diagnose
@@ -169,18 +165,10 @@ Drives a calibration end-to-end without leaving the app:
   silently reverts your edits.
 - **Laser datasets**: see [Laser topologies from a dataset
   manifest](./laser-dataset-manifest.md) for the two-stage
-  (`rig_handeye` → `rig_laserline_device`) manifest shape the rtv3d
-  presets exercise.
+  (`rig_handeye` → `rig_laserline_device`) manifest shape for
+  rig laser setups.
 
 ## What to read next
 
-- [ADR 0014](../adrs/0014-tauri-desktop-app.md) — why a Tauri desktop app
-  at all, and the v0 diagnose-viewer scope.
-- [ADR 0018](../adrs/0018-schema-driven-ui.md) — how the Run workspace's
-  config forms stay in sync with the Rust config types.
-- [ADR 0019](../adrs/0019-fail-fast-on-ambiguity.md) — the ask-user
-  contract behind the Run workspace's modal.
 - [Laser dataset manifest](./laser-dataset-manifest.md) — the
   `dataset.toml` shape the Run workspace's manifest form edits.
-- [Puzzle 130×130 walkthrough](./puzzle-130x130-walkthrough.md) — the
-  full-scale calibration one of these workspaces would diagnose.

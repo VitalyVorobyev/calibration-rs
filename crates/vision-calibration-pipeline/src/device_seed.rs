@@ -1,7 +1,7 @@
-//! Device-spec → manual-init seed derivation (ADR 0023).
+//! Device-spec → manual-init seed derivation.
 //!
 //! Maps a [`DeviceSpec`] — datasheet values plus the nominal mechanical
-//! layout — onto the ADR 0011 manual-init structs consumed by
+//! layout — onto the manual-init structs consumed by
 //! `step_init_with_seed` and friends. All unit conversion between the
 //! datasheet-natural spec (`mm`, `µm`, degrees) and the internal
 //! representation (pixels, radians, and **metres** for world-frame
@@ -79,7 +79,7 @@ pub enum DeviceSeedError {
 
 /// Seed for a single-camera Scheimpflug intrinsics session.
 ///
-/// Intrinsics and sensor tilt are always seeded (ADR 0022: both are
+/// Intrinsics and sensor tilt are always seeded (both are
 /// load-bearing). A camera without a `scheimpflug` entry is frontal *by
 /// design*, so it seeds an identity tilt — the spec asserts knowledge of
 /// the mount, absence is not ignorance. Distortion and poses stay `None`
@@ -121,7 +121,7 @@ pub fn rig_intrinsics_seed(
 /// caller's `camera_ids` order. Translations are converted to the
 /// pipeline's world unit (metres).
 ///
-/// This is deliberately *not* a `RigHandeyeRigManualInit`: ADR 0011 couples
+/// This is deliberately *not* a `RigHandeyeRigManualInit`: the manual-init contract couples
 /// `cam_se3_rig` with the data-dependent per-view `rig_se3_target`
 /// (both-or-neither), so combining the nominals with per-view estimates is
 /// the caller's job.
@@ -148,7 +148,7 @@ pub fn nominal_cam_se3_rig(
 
 /// Full rig-stage seed: nominal `cam_se3_rig` from the mechanical layout,
 /// combined with per-view `rig_se3_target` anchored on measured per-camera
-/// target poses (ADR 0011 couples the two fields — both must be seeded
+/// target poses (the two fields are coupled — both must be seeded
 /// together).
 ///
 /// `per_cam_target_poses` is `[view][cam] -> Option<cam_se3_target>` in the

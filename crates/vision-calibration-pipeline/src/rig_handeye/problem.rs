@@ -44,13 +44,12 @@ pub type RigHandeyeInput = RigDataset<RobotPoseMeta>;
 
 /// Configuration for multi-camera rig hand-eye calibration.
 ///
-/// Grouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the
+/// Grouped by stage. Shared between pinhole and Scheimpflug rigs; the
 /// [`SensorMode`] field `sensor` selects the sensor flavour.
 ///
 /// The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
 /// the full 6-DOF rig gauge; an extra per-view pose constraint would be
-/// redundant and mildly pessimizing (see `docs/notes/rig-extrinsics.md`
-/// §Gauge, which documents the equivalent `RigExtrinsicsConfig` finding).
+/// redundant and mildly pessimizing (as for `RigExtrinsicsConfig`).
 /// View-0's rig-from-target pose is always free in the rig BA.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -93,9 +92,8 @@ pub struct RigHandeyeIntrinsicsManualInit {
     pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
 
-/// Final hand-eye bundle-adjustment options (ADR 0024; renamed and reshaped
-/// from `RigHandeyeBaConfig`, keeping robot-pose refinement in the shared
-/// [`RobotPoseConfig`] group).
+/// Final hand-eye bundle-adjustment options; robot-pose refinement lives in
+/// the shared [`RobotPoseConfig`] group.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -240,8 +238,8 @@ pub struct RigHandeyeExport {
     /// hand-eye chain (`handeye_observer_se3_target`) so downstream
     /// viewers (3D scene, epipolar overlay) can read board poses
     /// without re-implementing the chain. One entry per input view.
-    /// `#[serde(default)]` keeps older exports forward-compatible at
-    /// load time; they decode with an empty Vec.
+    /// `#[serde(default)]` lets exports without this field load;
+    /// they decode with an empty Vec.
     #[serde(default)]
     #[cfg_attr(
         feature = "schemars",
@@ -298,14 +296,14 @@ pub struct RigHandeyeExport {
     /// Per-camera reprojection errors (pixels).
     pub per_cam_reproj_errors: Vec<f64>,
 
-    /// Per-feature reprojection residuals (ADR 0012). Per-view
+    /// Per-feature reprojection residuals. Per-view
     /// `rig_se3_target` is derived from the handeye chain
     /// (see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)),
     /// then composed with `cam_se3_rig` for projection.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
 
-    /// Optional image manifest (ADR 0014, viewer-side contract). When
+    /// Optional image manifest (viewer-side contract). When
     /// populated, downstream viewers (the diagnose UI) can locate the source
     /// image for each `(pose, camera)` slot. Tiled multi-camera frames
     /// (e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point

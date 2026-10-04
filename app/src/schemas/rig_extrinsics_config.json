@@ -72,7 +72,7 @@
           "type": "boolean"
         },
         "fix_tangential": {
-          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (was hard-coded before\nADR 0024 — the tilt/tangential-distortion coupling makes a free\ntangential term ill-posed during the linear stage).",
+          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (the tilt/tangential-distortion\ncoupling makes a free tangential term ill-posed during the linear\nstage).",
           "type": "boolean"
         },
         "init_iterations": {
@@ -96,7 +96,7 @@
     },
     "RigConfig": {
       "additionalProperties": false,
-      "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nShared by every rig problem's `rig` config group (`RigExtrinsicsConfig`\ntoday; `RigHandeyeConfig` follows in a later ADR 0024 wave).",
+      "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nThe `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.",
       "properties": {
         "reference_camera_idx": {
           "description": "Reference camera index for the rig frame (identity extrinsics).",
@@ -245,7 +245,7 @@
             "distortion_model": {
               "$ref": "#/$defs/DistortionKind",
               "default": "brown_conrady5",
-              "description": "Distortion model for the per-camera Scheimpflug intrinsics.\n\nOnly [`DistortionKind::BrownConrady5`] (the default) is supported:\nthe joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5\nmodels are rejected up front by the rig `validate_config` (ADR 0019)\nrather than deep in the solver. The field exists for schema\nsymmetry with the single-camera Scheimpflug path."
+              "description": "Distortion model for the per-camera Scheimpflug intrinsics.\n\nOnly [`DistortionKind::BrownConrady5`] (the default) is supported:\nthe joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5\nmodels are rejected up front by the rig `validate_config`\nrather than deep in the solver. The field exists for schema\nsymmetry with the single-camera Scheimpflug path."
             },
             "fix_scheimpflug": {
               "$ref": "#/$defs/ScheimpflugFixMask",
@@ -315,7 +315,7 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Configuration for multi-camera rig extrinsics calibration.\n\nGrouped per ADR 0024. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (see `docs/notes/rig-extrinsics.md`\n§Gauge). View-0's rig-from-target pose is always free in the rig BA.",
+  "description": "Configuration for multi-camera rig extrinsics calibration.\n\nGrouped by stage. Shared between pinhole and Scheimpflug rigs; the\n[`SensorMode`] field `sensor` selects the sensor flavour.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing. View-0's rig-from-target pose is always free in the rig BA.",
   "properties": {
     "intrinsics": {
       "$ref": "#/$defs/IntrinsicsInitConfig",

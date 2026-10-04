@@ -8,7 +8,7 @@ Task ID or specification: $ARGUMENTS
 
 ## Process
 
-1. **Load the task**: If given a task ID (e.g., `M5-T01`), find it in `docs/backlog.md`. If given inline spec, use that.
+1. **Load the task**: If given a task ID (e.g., `D4-RELEASE`), find it in `docs/backlog.md`. If given inline spec, use that.
 
 2. **Read context**:
    - Read all files listed in the task spec's "Files to modify"

@@ -113,7 +113,7 @@ pub struct RigLaserlineDeviceInput {
 
 /// Configuration for rig laserline calibration.
 ///
-/// Grouped per ADR 0024. `solver.max_iters` defaults to 200: this stage
+/// Grouped by stage. `solver.max_iters` defaults to 200: this stage
 /// refines only per-camera laser-plane parameters against an already-frozen
 /// rig geometry (1 DOF per view per camera), so iterations are nearly free.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,8 +159,8 @@ pub struct RigLaserlineDeviceExport {
 
     /// Frozen upstream cameras (pinhole part), echoed so the export is
     /// self-contained for downstream viewers (3D rig scene, epipolar) —
-    /// same field names as `RigHandeyeExport`. Empty on older
-    /// exports (`serde(default)`).
+    /// same field names as `RigHandeyeExport`. Empty when absent
+    /// in the JSON (`serde(default)`).
     #[serde(default)]
     pub cameras: Vec<PinholeCamera>,
     /// Frozen upstream Scheimpflug sensor parameters (zero tilt for
@@ -186,14 +186,14 @@ pub struct RigLaserlineDeviceExport {
     /// reprojection.
     #[serde(default)]
     pub mean_reproj_error: f64,
-    /// Per-feature reprojection + laser residuals (ADR 0012). Multi-camera
+    /// Per-feature reprojection + laser residuals. Multi-camera
     /// rig: `target` covers per-corner reprojection (when present) and
     /// `laser` covers per-pixel laser distances. Both per-camera histograms
     /// are populated.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
 
-    /// Optional image manifest (ADR 0014, viewer-side contract). When
+    /// Optional image manifest (viewer-side contract). When
     /// populated, downstream viewers (the diagnose / 3D / epipolar UIs)
     /// can locate the source image for each `(pose, camera)` slot.
     /// Tiled multi-camera frames (e.g. 6× 720×540 horizontal strips on

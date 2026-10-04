@@ -127,7 +127,7 @@ impl Default for RigHandeyeLaserlineConfig {
     }
 }
 
-/// Final joint BA options (ADR 0024).
+/// Final joint BA options.
 ///
 /// The joint stage always pins the upstream rig's reference camera
 /// (`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Camera
@@ -141,7 +141,7 @@ pub struct RigHandeyeLaserlineBaConfig {
     ///
     /// `robust_loss` is **not consulted** by this problem: laser-carrying
     /// stages track calibration and laser residuals as independent families
-    /// with their own robust losses (`calib_loss`, `laser_loss` — ADR 0024).
+    /// with their own robust losses (`calib_loss`, `laser_loss`).
     /// Only `max_iters`/`verbosity` apply here.
     pub solver: SolverConfig,
     /// Which laser residual drives the joint solve.

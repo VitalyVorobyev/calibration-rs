@@ -598,7 +598,7 @@
       "type": "object"
     },
     "FrameKind": {
-      "description": "What a frame depicts, distinguishing target images from laser-on images.\n\nLaser problem types capture two images per `(pose, camera)` slot: one of\nthe calibration target and one with the laser line on. Both can appear in\nthe same [`ImageManifest`], discriminated by [`FrameRef::kind`]\n(ADR 0021 §5).\n\nSerialized in `snake_case`; absent in JSON means [`FrameKind::Target`],\nwhich keeps pre-existing exports byte-stable and forward-readable.",
+      "description": "What a frame depicts, distinguishing target images from laser-on images.\n\nLaser problem types capture two images per `(pose, camera)` slot: one of\nthe calibration target and one with the laser line on. Both can appear in\nthe same [`ImageManifest`], discriminated by [`FrameRef::kind`].\n\nSerialized in `snake_case`; absent in JSON means [`FrameKind::Target`],\nwhich keeps exports without laser frames byte-stable and forward-readable.",
       "oneOf": [
         {
           "const": "target",
@@ -627,7 +627,7 @@
               "$ref": "#/definitions/FrameKind"
             }
           ],
-          "description": "What the frame depicts. Absent in JSON means [`FrameKind::Target`],\nso exports written before ADR 0021 §5 deserialize unchanged."
+          "description": "What the frame depicts. Absent in JSON means [`FrameKind::Target`],\nso target-only exports deserialize unchanged."
         },
         "path": {
           "description": "Image path relative to the enclosing [`ImageManifest::root`].",
@@ -933,7 +933,7 @@
               "type": "null"
             }
           ],
-          "description": "Optional image manifest (ADR 0014, viewer-side contract). Per\naccepted view (pose = kept-view index, camera = 0): one frame\nfor the *target* image plus one of kind `laser` for the laser\nimage (ADR 0021 §5). `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
+          "description": "Optional image manifest (viewer-side contract). Per\naccepted view (pose = kept-view index, camera = 0): one frame\nfor the *target* image plus one of kind `laser` for the laser\nimage. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
         },
         "kind": {
           "allOf": [
@@ -963,7 +963,7 @@
             }
           ],
           "default": {},
-          "description": "Per-feature reprojection + laser residuals (ADR 0012). Single-camera:\n`target_hist_per_camera` and `laser_hist_per_camera` each carry\n`Some(vec![one_entry])`."
+          "description": "Per-feature reprojection + laser residuals. Single-camera:\n`target_hist_per_camera` and `laser_hist_per_camera` each carry\n`Some(vec![one_entry])`."
         },
         "stats": {
           "allOf": [
@@ -1191,7 +1191,7 @@
               "type": "null"
             }
           ],
-          "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. `None` means \"no images\nshipped\"; the calibration pipeline never reads this field."
+          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. `None` means \"no images\nshipped\"; the calibration pipeline never reads this field."
         },
         "kind": {
           "allOf": [
@@ -1229,7 +1229,7 @@
             }
           ],
           "default": {},
-          "description": "Per-feature reprojection residuals (ADR 0012). For planar intrinsics\nonly `target` is populated; `laser` is empty. `target_hist_per_camera`\nis `Some(vec![one_entry])` since this problem type is single-camera."
+          "description": "Per-feature reprojection residuals. For planar intrinsics\nonly `target` is populated; `laser` is empty. `target_hist_per_camera`\nis `Some(vec![one_entry])` since this problem type is single-camera."
         },
         "report": {
           "allOf": [
@@ -1351,7 +1351,7 @@
               "type": "null"
             }
           ],
-          "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
+          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
         },
         "kind": {
           "allOf": [
@@ -1381,7 +1381,7 @@
             }
           ],
           "default": {},
-          "description": "Per-feature reprojection residuals (ADR 0012). For rig extrinsics\n`target` is populated and `laser` is empty. `target_hist_per_camera`\nis `Some(vec)` with one entry per camera."
+          "description": "Per-feature reprojection residuals. For rig extrinsics\n`target` is populated and `laser` is empty. `target_hist_per_camera`\nis `Some(vec)` with one entry per camera."
         },
         "rig_se3_target": {
           "description": "Per-view rig poses: `rig_se3_target` (T_R_T).",
@@ -1479,7 +1479,7 @@
               "type": "null"
             }
           ],
-          "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
+          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
         },
         "kind": {
           "allOf": [
@@ -1509,7 +1509,7 @@
             }
           ],
           "default": {},
-          "description": "Per-feature reprojection residuals (ADR 0012). Per-view\n`rig_se3_target` is derived from the handeye chain\n(see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)),\nthen composed with `cam_se3_rig` for projection."
+          "description": "Per-feature reprojection residuals. Per-view\n`rig_se3_target` is derived from the handeye chain\n(see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)),\nthen composed with `cam_se3_rig` for projection."
         },
         "rig_se3_base": {
           "anyOf": [
@@ -1524,7 +1524,7 @@
         },
         "rig_se3_target": {
           "default": [],
-          "description": "Per-view rig poses: `rig_se3_target` (T_R_T), derived from the\nhand-eye chain (`handeye_observer_se3_target`) so downstream\nviewers (3D scene, epipolar overlay) can read board poses\nwithout re-implementing the chain. One entry per input view.\n`#[serde(default)]` keeps older exports forward-compatible at\nload time; they decode with an empty Vec.",
+          "description": "Per-view rig poses: `rig_se3_target` (T_R_T), derived from the\nhand-eye chain (`handeye_observer_se3_target`) so downstream\nviewers (3D scene, epipolar overlay) can read board poses\nwithout re-implementing the chain. One entry per input view.\n`#[serde(default)]` lets exports without this field load;\nthey decode with an empty Vec.",
           "items": {
             "$ref": "#/definitions/Iso3Schema"
           },
@@ -1840,7 +1840,7 @@
         },
         "cameras": {
           "default": [],
-          "description": "Frozen upstream cameras (pinhole part), echoed so the export is\nself-contained for downstream viewers (3D rig scene, epipolar) —\nsame field names as `RigHandeyeExport`. Empty on older\nexports (`serde(default)`).",
+          "description": "Frozen upstream cameras (pinhole part), echoed so the export is\nself-contained for downstream viewers (3D rig scene, epipolar) —\nsame field names as `RigHandeyeExport`. Empty when absent\nin the JSON (`serde(default)`).",
           "items": {
             "$ref": "#/definitions/Camera"
           },
@@ -1855,7 +1855,7 @@
               "type": "null"
             }
           ],
-          "description": "Optional image manifest (ADR 0014, viewer-side contract). When\npopulated, downstream viewers (the diagnose / 3D / epipolar UIs)\ncan locate the source image for each `(pose, camera)` slot.\nTiled multi-camera frames (e.g. 6× 720×540 horizontal strips on\nthe puzzle 130×130 rig) point multiple `FrameRef`s at the same\n`path` with disjoint ROIs. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
+          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose / 3D / epipolar UIs)\ncan locate the source image for each `(pose, camera)` slot.\nTiled multi-camera frames (e.g. 6× 720×540 horizontal strips on\nthe puzzle 130×130 rig) point multiple `FrameRef`s at the same\n`path` with disjoint ROIs. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
         },
         "kind": {
           "allOf": [
@@ -1899,7 +1899,7 @@
             }
           ],
           "default": {},
-          "description": "Per-feature reprojection + laser residuals (ADR 0012). Multi-camera\nrig: `target` covers per-corner reprojection (when present) and\n`laser` covers per-pixel laser distances. Both per-camera histograms\nare populated."
+          "description": "Per-feature reprojection + laser residuals. Multi-camera\nrig: `target` covers per-corner reprojection (when present) and\n`laser` covers per-pixel laser distances. Both per-camera histograms\nare populated."
         },
         "rig_se3_target": {
           "default": [],
@@ -2015,7 +2015,7 @@
             }
           ],
           "default": {},
-          "description": "Per-feature reprojection residuals (ADR 0012). Single-camera, target\nonly — `laser` is empty; `target_hist_per_camera` is\n`Some(vec![one_entry])`."
+          "description": "Per-feature reprojection residuals. Single-camera, target\nonly — `laser` is empty; `target_hist_per_camera` is\n`Some(vec![one_entry])`."
         },
         "report": {
           "allOf": [
@@ -2254,7 +2254,7 @@
             }
           ],
           "default": {},
-          "description": "Per-feature reprojection residuals (ADR 0012). Single-camera, target\nonly. Per-view `cam_se3_target` is derived from the handeye chain\n(see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target))."
+          "description": "Per-feature reprojection residuals. Single-camera, target\nonly. Per-view `cam_se3_target` is derived from the handeye chain\n(see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target))."
         },
         "robot_deltas": {
           "description": "Per-view robot pose deltas (se(3) tangent: [rx, ry, rz, tx, ty, tz]).\nOnly present if robot refinement was enabled.",
