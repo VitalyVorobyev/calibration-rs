@@ -14,7 +14,6 @@ import {
 import { useStore } from "../../store";
 import { exportKindLabel } from "../../store/exportKind";
 import type { FrameKey, TargetFeatureResidual, ViewportTransform } from "../../types";
-import { IDENTITY_TRANSFORM } from "../../types";
 import { EpipolarOverlay, type OverlayPoint } from "./EpipolarOverlay";
 // Generated wire type; aliased to avoid colliding with the
 // `EpipolarOverlay` overlay component imported just above.
@@ -41,10 +40,9 @@ export function EpipolarWorkspace() {
   const [showFeatures, setShowFeatures] = useState<boolean>(true);
   const [showTieLines, setShowTieLines] = useState<boolean>(false);
 
-  const [transformA, setTransformA] = useState<ViewportTransform>(IDENTITY_TRANSFORM);
-  const [transformB, setTransformB] = useState<ViewportTransform>(IDENTITY_TRANSFORM);
-  const [linkedTransform, setLinkedTransform] =
-    useState<ViewportTransform>(IDENTITY_TRANSFORM);
+  const [transformA, setTransformA] = useState<ViewportTransform | null>(null);
+  const [transformB, setTransformB] = useState<ViewportTransform | null>(null);
+  const [linkedTransform, setLinkedTransform] = useState<ViewportTransform | null>(null);
 
   const [picked, setPicked] = useState<{
     px: [number, number];
@@ -141,9 +139,9 @@ interface BodyProps {
   setShowFeatures: (v: boolean | ((prev: boolean) => boolean)) => void;
   showTieLines: boolean;
   setShowTieLines: (v: boolean | ((prev: boolean) => boolean)) => void;
-  transformA: ViewportTransform;
-  transformB: ViewportTransform;
-  linkedTransform: ViewportTransform;
+  transformA: ViewportTransform | null;
+  transformB: ViewportTransform | null;
+  linkedTransform: ViewportTransform | null;
   setTransformA: (t: ViewportTransform) => void;
   setTransformB: (t: ViewportTransform) => void;
   setLinkedTransform: (t: ViewportTransform) => void;
@@ -614,7 +612,7 @@ function distanceToSegment(
 
 interface PaneProps {
   frame: FrameKey | null;
-  transform: ViewportTransform;
+  transform: ViewportTransform | null;
   onTransformChange: (t: ViewportTransform) => void;
   onPick?: ((pixel: { x: number; y: number }) => void) | undefined;
   polyline?: [number, number][] | undefined;
@@ -689,15 +687,15 @@ function PaneInner({
           transform={transform}
           onTransformChange={onTransformChange}
           onPick={onPick}
-        />
-        <EpipolarOverlay
-          transform={transform}
-          polyline={polyline}
-          polylineColor={polylineColor}
-          markers={markers}
-          caption={caption}
-          annotation={annotation}
-        />
+        >
+          <EpipolarOverlay
+            polyline={polyline}
+            polylineColor={polylineColor}
+            markers={markers}
+            caption={caption}
+            annotation={annotation}
+          />
+        </FrameCanvas>
       </div>
     </div>
   );

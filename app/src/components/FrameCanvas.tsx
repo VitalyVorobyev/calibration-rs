@@ -1,20 +1,37 @@
 import {
-  useCallback,
-  useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type Ref,
+  type RefObject,
 } from "react";
+import {
+  ImageLayer,
+  ImageStage,
+  imageViewBox,
+  useScreenPx,
+  useStage,
+  type StageContext,
+  type StageView,
+} from "@vitavision/stage2d";
 import type {
   FrameKey,
   LaserFeatureResidual,
   TargetFeatureResidual,
   ViewportTransform,
 } from "../types";
-import { IDENTITY_TRANSFORM } from "../types";
-import { colorForError, colorForLaserError } from "../lib/errorColors";
+import {
+  buildLaserOverlay,
+  buildResidualArrows,
+  LASER_LINE_STROKE,
+  LASER_UNRESOLVED_FILL,
+  OBSERVED_DOT_FILL,
+  STROKE_PX,
+} from "./frameOverlayPaths";
 
 interface FrameCanvasProps {
   frame: FrameKey;
@@ -28,34 +45,33 @@ interface FrameCanvasProps {
   laserResiduals?: LaserFeatureResidual[] | undefined;
   /** Decoded image element. `null` while loading. */
   image: HTMLImageElement | null;
-  /** Controlled transform. When provided, the canvas treats it as
-   * authoritative and emits all updates via `onTransformChange`.
-   * When `undefined` the canvas keeps an internal transform — the
-   * single-pane mode used by `DiagnoseWorkspace`. Compare mode passes
-   * a shared transform from above. */
-  transform?: ViewportTransform | undefined;
+  /** Controlled transform. When provided (`null` included: "open at fit,
+   * then report it"), the viewer treats it as authoritative and emits all
+   * updates via `onTransformChange`. When `undefined` it keeps an internal
+   * transform and re-fits whenever the frame, image or ROI changes — the
+   * single-pane mode used by `DiagnoseWorkspace`. Compare mode passes a
+   * shared transform from above. */
+  transform?: ViewportTransform | null | undefined;
   onTransformChange?: ((t: ViewportTransform) => void) | undefined;
   /** Surfaced when something fails (the parent owns the error UI). */
   onError?: ((msg: string) => void) | undefined;
-  /** Called on `mousemove` with image-pixel coordinates (ROI-local,
-   * matching the residual frame). `null` when the cursor leaves the
-   * image area. */
+  /** Called while the pointer moves over the image with ROI-local
+   * image-pixel coordinates (pixel *centres* at integers, the convention
+   * of the residuals). `null` when the cursor leaves the image area. */
   onCursor?: (cursor: { x: number; y: number } | null) => void;
-  /** Called on a discrete left-click (mousedown → mouseup with little
-   * cursor movement, distinguishing it from a pan-drag) at the given
-   * image-pixel coordinates. Used by the epipolar workspace to pick a
-   * pane-A pixel for the overlay request. */
+  /** Called on a discrete click (a press that never became a pan-drag) at
+   * the given ROI-local image-pixel coordinates (centre convention). Used
+   * by the epipolar workspace to pick a pane-A pixel. */
   onPick?: ((pixel: { x: number; y: number }) => void) | undefined;
-  /** Visual ring drawn around the canvas when this pane is the
+  /** Visual ring drawn around the viewer when this pane is the
    * keyboard-active pane in compare mode. */
   active?: boolean;
   /** Receives the imperative zoom/fit handle. */
   ref?: Ref<FrameCanvasHandle>;
+  /** Extra stage layers, drawn in the frame's ROI-local image
+   * coordinates above the residuals (e.g. the epipolar overlay). */
+  children?: ReactNode;
 }
-
-/** Pixel-distance threshold below which a mousedown→mouseup pair is a
- * click (firing `onPick`) and above which it's a pan-drag. */
-const CLICK_DRAG_THRESHOLD_PX = 4;
 
 /** Imperative handle the toolbar uses to drive zoom/fit. */
 export interface FrameCanvasHandle {
@@ -64,10 +80,72 @@ export interface FrameCanvasHandle {
   zoomBy(factor: number): void;
 }
 
-const ARROW_LENGTH_CAP_PX = 40;
-const ARROW_GAIN = 30;
-const SCALE_MIN = 0.25;
-const SCALE_MAX = 16;
+const LABEL = "Frame viewer";
+
+/** Mirrors the enclosing stage's context into a ref, so the imperative
+ * handle and the click handler (both outside the stage) can use it. */
+function StageBridge({ ctxRef }: { ctxRef: RefObject<StageContext | null> }) {
+  const ctx = useStage();
+  useLayoutEffect(() => {
+    ctxRef.current = ctx;
+  });
+  useLayoutEffect(
+    () => () => {
+      ctxRef.current = null;
+    },
+    [ctxRef],
+  );
+  return null;
+}
+
+/** Residual arrows and the laser overlay as batched SVG paths. */
+function ResidualLayer({
+  frame,
+  residuals,
+  laserResiduals,
+}: {
+  frame: FrameKey;
+  residuals: TargetFeatureResidual[];
+  laserResiduals: LaserFeatureResidual[] | undefined;
+}) {
+  const { image } = useStage();
+  const unit = useScreenPx()(1);
+  const { pose, camera } = frame;
+  const arrows = useMemo(
+    () => buildResidualArrows(residuals, { pose, camera }, unit),
+    [residuals, pose, camera, unit],
+  );
+  const laser = useMemo(
+    () =>
+      laserResiduals ? buildLaserOverlay(laserResiduals, { pose, camera }, unit) : null,
+    [laserResiduals, pose, camera, unit],
+  );
+  const stroke = STROKE_PX * unit;
+  return (
+    <svg
+      viewBox={imageViewBox(image)}
+      className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+      aria-hidden="true"
+    >
+      {arrows.arrows.map((a) => (
+        <path key={a.color} d={a.d} fill="none" stroke={a.color} strokeWidth={stroke} />
+      ))}
+      {arrows.dots && <path d={arrows.dots} fill={OBSERVED_DOT_FILL} />}
+      {laser?.line && (
+        <path
+          d={laser.line}
+          fill="none"
+          stroke={LASER_LINE_STROKE}
+          strokeWidth={stroke}
+        />
+      )}
+      {laser?.dots.map((d) => (
+        <path key={d.color} d={d.d} fill={d.color} />
+      ))}
+      {laser?.unresolved && <path d={laser.unresolved} fill={LASER_UNRESOLVED_FILL} />}
+    </svg>
+  );
+}
 
 export function FrameCanvas({
   frame,
@@ -81,324 +159,118 @@ export function FrameCanvas({
   onPick,
   active,
   ref,
+  children,
 }: FrameCanvasProps) {
-  void onError;
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [container, setContainer] = useState({ w: 0, h: 0 });
-  const [internal, setInternal] = useState<ViewportTransform>(IDENTITY_TRANSFORM);
+  const ctxRef = useRef<StageContext | null>(null);
   const isControlled = controlled !== undefined;
-  const transform = controlled ?? internal;
-
-  const setTransform = useCallback(
-    (next: ViewportTransform | ((prev: ViewportTransform) => ViewportTransform)) => {
-      const value = typeof next === "function" ? next(transform) : next;
-      if (isControlled) {
-        onTransformChange?.(value);
-      } else {
-        setInternal(value);
-        onTransformChange?.(value);
-      }
-    },
-    [isControlled, onTransformChange, transform],
-  );
+  const [internal, setInternal] = useState<StageView | null>(null);
+  // While controlled, mirror the parent's view so that handing control back
+  // (unlinking compare panes) continues from what is on screen: an already
+  // measured stage never re-opens a `null` view on its own.
+  if (isControlled && controlled && internal !== controlled) setInternal(controlled);
+  const view = isControlled ? controlled : internal;
 
   const roi = frame.roi;
+  const width = roi?.w ?? image?.naturalWidth ?? 0;
+  const height = roi?.h ?? image?.naturalHeight ?? 0;
 
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        setContainer({ w: Math.max(1, width | 0), h: Math.max(1, height | 0) });
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const computeFit = useCallback((): ViewportTransform => {
-    const sw = roi?.w ?? image?.naturalWidth ?? 0;
-    const sh = roi?.h ?? image?.naturalHeight ?? 0;
-    if (sw === 0 || sh === 0 || container.w === 0 || container.h === 0) {
-      return IDENTITY_TRANSFORM;
-    }
-    const scale = Math.min(container.w / sw, container.h / sh);
-    const tx = (container.w - scale * sw) / 2;
-    const ty = (container.h - scale * sh) / 2;
-    return { scale, tx, ty };
-  }, [roi, image, container]);
-
-  // Auto-fit on frame change is owned by the canvas only in
-  // uncontrolled mode. When the parent controls the transform
-  // (compare mode with linked panes), it decides when to re-fit.
-  // The fit is applied during render, keyed on the inputs it depends on,
-  // so the first painted frame is already fitted.
-  const [fitInputs, setFitInputs] = useState({
-    path: frame.abs_path,
-    image,
-    container,
-    roi,
-    isControlled,
-  });
-  if (
-    fitInputs.path !== frame.abs_path ||
-    fitInputs.image !== image ||
-    fitInputs.container !== container ||
-    fitInputs.roi !== roi ||
-    fitInputs.isControlled !== isControlled
-  ) {
-    setFitInputs({ path: frame.abs_path, image, container, roi, isControlled });
-    if (!isControlled && image && container.w !== 0 && container.h !== 0) {
-      setInternal(computeFit());
-    }
+  // Uncontrolled: a new frame, image or ROI re-opens at fit. Done during
+  // render, keyed on the inputs, so the first painted frame is already fitted.
+  const fitKey = `${frame.abs_path}|${roi?.x},${roi?.y},${roi?.w},${roi?.h}`;
+  const [fitInputs, setFitInputs] = useState({ fitKey, image });
+  if (fitInputs.fitKey !== fitKey || fitInputs.image !== image) {
+    setFitInputs({ fitKey, image });
+    if (!isControlled) setInternal(null);
   }
 
   useImperativeHandle(
     ref,
     () => ({
-      fit: () => setTransform(computeFit()),
+      fit: () => ctxRef.current?.fit(),
       reset1to1: () => {
-        const sw = roi?.w ?? image?.naturalWidth ?? 0;
-        const sh = roi?.h ?? image?.naturalHeight ?? 0;
-        setTransform({
+        const ctx = ctxRef.current;
+        if (!ctx) return;
+        ctx.setView({
           scale: 1,
-          tx: (container.w - sw) / 2,
-          ty: (container.h - sh) / 2,
+          tx: (ctx.box.width - ctx.image.width) / 2,
+          ty: (ctx.box.height - ctx.image.height) / 2,
         });
       },
-      zoomBy: (factor) =>
-        setTransform((t) => zoomAround(t, factor, container.w / 2, container.h / 2)),
+      zoomBy: (factor) => {
+        const ctx = ctxRef.current;
+        if (ctx) ctx.zoomTo(ctx.view.scale * factor);
+      },
     }),
-    [computeFit, roi, image, container, setTransform],
+    [],
   );
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLCanvasElement>) => {
-      e.preventDefault();
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-      setTransform((t) => zoomAround(t, factor, cx, cy));
-    },
-    [setTransform],
-  );
+  const ringClass = active ? "ring-1 ring-signal" : "";
 
-  const dragRef = useRef<{
-    startX: number;
-    startY: number;
-    tx0: number;
-    ty0: number;
-  } | null>(null);
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (e.button !== 0) return;
-    dragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      tx0: transform.tx,
-      ty0: transform.ty,
-    };
-  };
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      const ix = (cx - transform.tx) / transform.scale;
-      const iy = (cy - transform.ty) / transform.scale;
-      const sw = roi?.w ?? image?.naturalWidth ?? 0;
-      const sh = roi?.h ?? image?.naturalHeight ?? 0;
-      if (ix >= 0 && iy >= 0 && ix < sw && iy < sh) {
-        onCursor?.({ x: ix, y: iy });
-      } else {
-        onCursor?.(null);
-      }
-    }
-    const d = dragRef.current;
-    if (d) {
-      setTransform((t) => ({
-        ...t,
-        tx: d.tx0 + (e.clientX - d.startX),
-        ty: d.ty0 + (e.clientY - d.startY),
-      }));
-    }
-  };
-  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const d = dragRef.current;
-    dragRef.current = null;
-    // Distinguish click from pan-drag by total cursor movement.
-    // Below the threshold we treat it as a pick; above it the user
-    // was dragging and shouldn't accidentally select a feature.
-    if (!d || !onPick) return;
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
-    if (Math.hypot(dx, dy) > CLICK_DRAG_THRESHOLD_PX) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
-    const ix = (cx - transform.tx) / transform.scale;
-    const iy = (cy - transform.ty) / transform.scale;
-    const sw = roi?.w ?? image?.naturalWidth ?? 0;
-    const sh = roi?.h ?? image?.naturalHeight ?? 0;
-    if (ix >= 0 && iy >= 0 && ix < sw && iy < sh) {
-      onPick({ x: ix, y: iy });
-    }
-  };
-  const handleMouseLeave = () => {
-    dragRef.current = null;
-    onCursor?.(null);
-  };
+  if (!image || width === 0 || height === 0) {
+    return (
+      <div
+        role="application"
+        aria-label={LABEL}
+        className={`h-full w-full rounded-control border border-line bg-raised ${ringClass}`}
+      />
+    );
+  }
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !image || container.w === 0) return;
-    canvas.width = container.w;
-    canvas.height = container.h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.imageSmoothingEnabled = false;
-    ctx.setTransform(transform.scale, 0, 0, transform.scale, transform.tx, transform.ty);
-    const sx = roi?.x ?? 0;
-    const sy = roi?.y ?? 0;
-    const sw = roi?.w ?? image.naturalWidth;
-    const sh = roi?.h ?? image.naturalHeight;
-    ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
-    drawResidualArrows(ctx, residuals, frame, transform.scale);
-    if (laserResiduals) {
-      drawLaserOverlay(ctx, laserResiduals, frame, transform.scale);
-    }
-  }, [image, container, transform, roi, residuals, laserResiduals, frame]);
+  const inside = (p: { x: number; y: number }) =>
+    p.x >= -0.5 && p.y >= -0.5 && p.x < width - 0.5 && p.y < height - 0.5;
+
+  const handleClick = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const ctx = ctxRef.current;
+    if (!onPick || !ctx) return;
+    const p = ctx.toImage({ x: e.clientX, y: e.clientY });
+    if (inside(p)) onPick({ x: p.x, y: p.y });
+  };
 
   return (
-    <div
-      ref={containerRef}
-      className={`relative h-full w-full overflow-hidden rounded-control bg-raised transition-shadow ${
-        active ? "ring-1 ring-signal" : ""
-      }`}
+    <ImageStage
+      image={{ width, height }}
+      view={view}
+      onView={(next) => {
+        if (!isControlled) setInternal(next);
+        onTransformChange?.(next);
+      }}
+      initialView="fit"
+      // The workspaces own the keyboard (f, 1, +, -, arrows step poses); the
+      // stage's own shortcuts would zoom twice.
+      shortcuts={false}
+      label={LABEL}
+      className={`bg-raised ${ringClass}`}
+      onHover={(p) => onCursor?.(p && inside(p) ? { x: p.x, y: p.y } : null)}
+      onBackgroundClick={handleClick}
     >
-      <canvas
-        ref={canvasRef}
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
-        className="block h-full w-full cursor-grab [image-rendering:pixelated] active:cursor-grabbing"
+      <StageBridge ctxRef={ctxRef} />
+      {/* The ROI crop: the full image offset by the ROI origin, clipped to the stage. */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div
+          className="absolute"
+          style={{
+            left: -(roi?.x ?? 0),
+            top: -(roi?.y ?? 0),
+            width: image.naturalWidth,
+            height: image.naturalHeight,
+          }}
+        >
+          {/* Pixelated from 1:1 up, as the old canvas drew it: residuals are read
+              against individual pixels. */}
+          <ImageLayer
+            src={image.src}
+            alt=""
+            pixelatedAbove={1}
+            onError={() => onError?.(`Could not display ${frame.abs_path}`)}
+          />
+        </div>
+      </div>
+      <ResidualLayer
+        frame={frame}
+        residuals={residuals}
+        laserResiduals={laserResiduals}
       />
-    </div>
+      {children}
+    </ImageStage>
   );
-}
-
-function zoomAround(
-  t: ViewportTransform,
-  factor: number,
-  cx: number,
-  cy: number,
-): ViewportTransform {
-  const next = clampScale(t.scale * factor);
-  const real = next / t.scale;
-  return {
-    scale: next,
-    tx: cx - (cx - t.tx) * real,
-    ty: cy - (cy - t.ty) * real,
-  };
-}
-
-function clampScale(s: number): number {
-  return Math.min(SCALE_MAX, Math.max(SCALE_MIN, s));
-}
-
-function drawResidualArrows(
-  ctx: CanvasRenderingContext2D,
-  all: TargetFeatureResidual[],
-  frame: FrameKey,
-  scale: number,
-) {
-  const arrows = all.filter((r) => r.pose === frame.pose && r.camera === frame.camera);
-  const inv = 1 / scale;
-  for (const r of arrows) {
-    if (!r.projected_px) continue;
-    const ox = r.observed_px[0];
-    const oy = r.observed_px[1];
-    const dx0 = r.projected_px[0] - r.observed_px[0];
-    const dy0 = r.projected_px[1] - r.observed_px[1];
-    const mag = Math.hypot(dx0, dy0);
-    if (mag < 1e-6) continue;
-    const gain = Math.min(ARROW_GAIN, ARROW_LENGTH_CAP_PX / Math.max(mag, 1e-6));
-    const dx = dx0 * gain;
-    const dy = dy0 * gain;
-    ctx.strokeStyle = colorForError(r.error_px ?? mag);
-    ctx.lineWidth = 1.5 * inv;
-    drawArrow(ctx, ox, oy, ox + dx, oy + dy, inv);
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.beginPath();
-    ctx.arc(ox, oy, 1.6 * inv, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-function drawArrow(
-  ctx: CanvasRenderingContext2D,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  inv: number,
-) {
-  const angle = Math.atan2(y2 - y1, x2 - x1);
-  const head = 4 * inv;
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.lineTo(
-    x2 - head * Math.cos(angle - Math.PI / 6),
-    y2 - head * Math.sin(angle - Math.PI / 6),
-  );
-  ctx.moveTo(x2, y2);
-  ctx.lineTo(
-    x2 - head * Math.cos(angle + Math.PI / 6),
-    y2 - head * Math.sin(angle + Math.PI / 6),
-  );
-  ctx.stroke();
-}
-
-function drawLaserOverlay(
-  ctx: CanvasRenderingContext2D,
-  all: LaserFeatureResidual[],
-  frame: FrameKey,
-  scale: number,
-) {
-  const records = all.filter((r) => r.pose === frame.pose && r.camera === frame.camera);
-  const inv = 1 / scale;
-
-  // Projected laser line: identical endpoints on every record of the
-  // view, so the first carrier suffices.
-  const line = records.find((r) => r.projected_line_px)?.projected_line_px;
-  if (line) {
-    ctx.strokeStyle = "rgba(64, 156, 255, 0.6)";
-    ctx.lineWidth = 1.5 * inv;
-    ctx.beginPath();
-    ctx.moveTo(line[0][0], line[0][1]);
-    ctx.lineTo(line[1][0], line[1][1]);
-    ctx.stroke();
-  }
-
-  for (const r of records) {
-    ctx.fillStyle =
-      r.residual_m != null
-        ? colorForLaserError(Math.abs(r.residual_m) * 1e3)
-        : "rgba(255,255,255,0.4)";
-    ctx.beginPath();
-    ctx.arc(r.observed_px[0], r.observed_px[1], 1.4 * inv, 0, Math.PI * 2);
-    ctx.fill();
-  }
 }

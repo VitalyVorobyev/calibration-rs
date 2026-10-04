@@ -4,6 +4,8 @@
 // component code typed without forcing a brittle 1:1 binding to every
 // Rust field.
 
+import type { StageView } from "@vitavision/stage2d";
+
 export interface PixelRect {
   x: number;
   y: number;
@@ -96,21 +98,14 @@ export interface FrameKey {
   roi?: PixelRect | undefined;
 }
 
-/** Viewport transform applied to the canvas before drawing the image
- * + residuals. `scale` is the zoom factor; `(tx, ty)` is the
- * translation in canvas pixels. Identity is `{ scale: 1, tx: 0, ty: 0 }`.
- * Wheel zoom anchors at the cursor; reset on frame change. */
-export interface ViewportTransform {
-  scale: number;
-  tx: number;
-  ty: number;
-}
-
-export const IDENTITY_TRANSFORM: ViewportTransform = { scale: 1, tx: 0, ty: 0 };
+/** Viewport transform of a frame viewer: the stage's `StageView`.
+ * `scale` is CSS pixels per image pixel; `(tx, ty)` is the offset of the
+ * image's top-left corner in CSS pixels. */
+export type ViewportTransform = StageView;
 
 /** Cursor readout emitted by FrameCanvas on mouse move. Coordinates
  * are in image-pixel space (the ROI-local frame the residuals live
- * in); `intensity` is luminance ∈ [0, 255] when the underlying pixel
+ * in, pixel centres at integers); `intensity` is luminance ∈ [0, 255] when the underlying pixel
  * is decodable, or null at the canvas's edge / outside the image. */
 export interface CursorReadout {
   x: number;

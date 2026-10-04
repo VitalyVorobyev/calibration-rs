@@ -138,7 +138,14 @@ no app-local component kit.
   data-colour files listed there with their reason (the residual colour ramp
   in `lib/errorColors.ts`, the per-laser palette in `LaserTargetCuts.tsx`).
 
-`components/ZoomControls.tsx` is the zoom/fit/1:1 cluster for `FrameCanvas`.
+`components/FrameCanvas.tsx` is the 2D frame viewer: an `ImageStage` from
+[`@vitavision/stage2d`](https://github.com/VitalyVorobyev/lab-ui/tree/main/packages/stage2d)
+with the ROI crop as its image and the residual arrows, laser overlay and
+epipolar markers as batched SVG layers (`frameOverlayPaths.ts`,
+`EpipolarWorkspace/markerPaths.ts`): one `<path>` per colour, never one
+element per feature. Overlay coordinates are the detectors' own: the centre
+of pixel *i* is at *i*. `components/ZoomControls.tsx` is the zoom/fit/1:1
+cluster that drives it from outside the stage.
 
 ## Run progress and cancellation
 
@@ -168,7 +175,7 @@ installer would use Tauri's `resource_dir` instead.
   (Node); `src/**/*.test.tsx` are jsdom component tests (opt in with
   `// @vitest-environment jsdom`). Component tests mock IPC with
   `@tauri-apps/api/mocks`' `mockIPC`; `src/test/setupTests.ts` stubs
-  `ResizeObserver` and `HTMLCanvasElement.getContext`.
+  `ResizeObserver`.
 - **Playwright (`bun run test:e2e`)** — `e2e/` smoke tests against the plain
   Vite dev server (no Tauri/Rust toolchain). `app.spec.ts` checks every
   workspace mounts with no console errors and no Tauri mock;

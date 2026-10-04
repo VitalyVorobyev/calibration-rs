@@ -8,6 +8,9 @@
 /* @vitavision/forms (SchemaValueForm): nothing to style, but it declares the
    `@source` that finds the form's class names. Import it after ui's. */
 @import "@vitavision/forms/styles.css";
+/* @vitavision/stage2d (the 2D frame viewer): overlay role tokens and its own
+   `@source`. Import it after ui's. */
+@import "@vitavision/stage2d/styles.css";
 
 @layer base {
   html,
