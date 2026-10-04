@@ -11,6 +11,8 @@
 /* @vitavision/stage2d (the 2D frame viewer): overlay role tokens and its own
    `@source`. Import it after ui's. */
 @import "@vitavision/stage2d/styles.css";
+/* @vitavision/charts (Histogram): its own `@source`. Import it after ui's. */
+@import "@vitavision/charts/styles.css";
 
 @layer base {
   html,

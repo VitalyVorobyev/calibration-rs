@@ -27,6 +27,7 @@
     "@react-three/fiber": "^9.8.1",
     "@tauri-apps/api": "^2.12.0",
     "@tauri-apps/plugin-dialog": "^2.8.0",
+    "@vitavision/charts": "^0.8.0",
     "@vitavision/forms": "^0.7.0",
     "@vitavision/stage2d": "^0.10.0",
     "@vitavision/three": "^0.1.0",

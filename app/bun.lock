@@ -9,6 +9,7 @@
         "@react-three/fiber": "^9.8.1",
         "@tauri-apps/api": "^2.12.0",
         "@tauri-apps/plugin-dialog": "^2.8.0",
+        "@vitavision/charts": "^0.8.0",
         "@vitavision/forms": "^0.7.0",
         "@vitavision/stage2d": "^0.10.0",
         "@vitavision/three": "^0.1.0",
@@ -410,6 +411,8 @@
     "@use-gesture/core": ["@use-gesture/core@10.3.1", "", {}, "sha512-WcINiDt8WjqBdUXye25anHiNxPc0VOrlT8F6LLkU6cycrOGUDyY/yyFmsg3k8i5OLvv25llc0QC45GhR/C8llw=="],
 
     "@use-gesture/react": ["@use-gesture/react@10.3.1", "", { "dependencies": { "@use-gesture/core": "10.3.1" }, "peerDependencies": { "react": ">= 16.8.0" } }, "sha512-Yy19y6O2GJq8f7CHf7L0nxL8bf4PZCPaVOCgJrusOeFHY1LvHgYXnmnXg6N5iwAnbgbZCDjo60SiM6IPJi9C5g=="],
+
+    "@vitavision/charts": ["@vitavision/charts@0.8.0", "", { "dependencies": { "@vitavision/ui": "^0.11.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-epwwaA6pKCPOoUikNH9+Yzm38vrJwWpMUtQrK+bt6URP3Uy4j5WAlvGKT3jTZoXnHOg16O3yk5EvKwblmeOrhQ=="],
 
     "@vitavision/config-eslint": ["@vitavision/config-eslint@0.1.0", "", { "dependencies": { "@eslint-react/eslint-plugin": "^5.20.8", "eslint-plugin-react-hooks": "^7.1.1", "eslint-plugin-storybook": "^10.6.0", "typescript-eslint": "^8.70.1" }, "peerDependencies": { "eslint": "^10.11.0", "typescript": "^6.0.3" } }, "sha512-pDoahF2AErSqt0JVbR8PhrS/93RLy//fEVZbJld0IUFXYmRkBsuRTXWcpp6/fa99hGJTCUPevv5Y2cWNaYFXuA=="],
 

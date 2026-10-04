@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CompareViewer, type CompareViewerHandle } from "../../components/CompareViewer";
 import { FrameCanvas, type FrameCanvasHandle } from "../../components/FrameCanvas";
 import { colorForError, colorForLaserError } from "../../lib/errorColors";
-import { Histogram } from "../../components/Histogram";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
 import { ZoomControls } from "../../components/ZoomControls";
 import { getPixelLum, rectHistogram, useImageData } from "../../hooks/useImageData";
@@ -11,6 +10,7 @@ import { useKeyboardNav } from "../../hooks/useKeyboardNav";
 import { useStore } from "../../store";
 import { CameraResidualMatrix } from "./CameraResidualMatrix";
 import { PoseStatsTable } from "./PoseStatsTable";
+import { RoiHistogram } from "./RoiHistogram";
 import type {
   CursorReadout,
   FeatureResidualHistogram,
@@ -115,12 +115,6 @@ export function DiagnoseWorkspace() {
     };
     return rectHistogram(imageData, r, HISTOGRAM_BINS);
   }, [imageData, activeFrame]);
-
-  const cursorBin = useMemo<number | null>(() => {
-    if (!cursor || cursor.intensity == null) return null;
-    const bin = Math.floor((cursor.intensity * HISTOGRAM_BINS) / 256);
-    return Math.min(bin, HISTOGRAM_BINS - 1);
-  }, [cursor]);
 
   // Reset cursor whenever the frame changes — the previous cursor's
   // (x, y) no longer maps to the new image.
@@ -407,7 +401,10 @@ export function DiagnoseWorkspace() {
             <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
               histogram
             </span>
-            <Histogram bins={roiHistogram ?? []} cursorBin={cursorBin} />
+            <RoiHistogram
+              counts={roiHistogram ?? []}
+              intensity={cursor?.intensity ?? null}
+            />
           </div>
           <CursorChip cursor={cursor} />
         </div>
