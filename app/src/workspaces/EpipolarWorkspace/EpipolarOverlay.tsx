@@ -1,123 +1,109 @@
-import type { ViewportTransform } from "../../types";
+import { imageViewBox, useScreenPx, useStage } from "@vitavision/stage2d";
+import {
+  buildMarkerPaths,
+  CROSS_STROKE_PX,
+  DOT_OPACITY,
+  type MarkerSpec,
+} from "./markerPaths";
 
-export interface OverlayPoint {
-  /** Pixel coordinates in the canvas's image-pixel frame (ROI-local). */
-  px: [number, number];
-  /** Visual color (typically token-derived). */
-  color: string;
-  /** Optional radius in CSS pixels; defaults to 6. */
-  size?: number;
-  /** When true, render as a filled dot rather than a crosshair. */
-  dot?: boolean;
-}
+export type OverlayPoint = MarkerSpec;
 
 interface EpipolarOverlayProps {
-  /** Viewport transform of the underlying FrameCanvas. The polyline is
-   * drawn in image-pixel space so it follows zoom/pan; crosshairs are
-   * drawn in canvas-pixel space so they stay a fixed on-screen size
-   * regardless of zoom. */
-  transform: ViewportTransform;
-  /** Polyline in image-pixel coordinates. Renders inside the scaled
-   * group so the line scales with the image. */
+  /** Polyline in image-pixel coordinates; follows zoom/pan. */
   polyline?: [number, number][] | undefined;
   /** Polyline stroke color. */
   polylineColor?: string | undefined;
-  /** Crosshair markers (selected feature, hover ghost, tie-line dots). */
+  /** Crosshair markers (selected feature, hover ghost, tie-line dots),
+   * kept a fixed on-screen size regardless of zoom. */
   markers?: OverlayPoint[] | undefined;
-  /** Optional label drawn at the top-left of the overlay. */
+  /** Optional label drawn at the top-left of the viewport. */
   caption?: string | undefined;
-  /** Optional pixel-anchored text annotation drawn near `px` (canvas
-   * pixel space, fixed on-screen size). Used to flag the picked
-   * feature's residual distance to the epipolar polyline. */
+  /** Optional pixel-anchored text annotation drawn near `px` (image
+   * pixels, fixed on-screen size). Used to flag the picked feature's
+   * residual distance to the epipolar polyline. */
   annotation?: { px: [number, number]; text: string; color: string } | undefined;
 }
 
-/** SVG layer drawn over a FrameCanvas. The SVG fills the canvas's
- * container; an inner group is transformed by the viewport so the
- * polyline lines up with the underlying image, while crosshairs and
- * dots are drawn in the outer canvas-pixel space so they keep a stable
- * on-screen size as the user zooms. */
+/** Stage layer for the epipolar workspace. Everything is drawn in the
+ * frame's image coordinates (inside the stage's transform); sizes that must
+ * not follow the zoom (markers, text, strokes) come from the screen-pixel
+ * unit, and the caption is placed at a fixed viewport position by mapping
+ * that position back into image coordinates. */
 export function EpipolarOverlay({
-  transform,
   polyline,
   polylineColor = "currentColor",
   markers,
   caption,
   annotation,
 }: EpipolarOverlayProps) {
+  const { image, view } = useStage();
+  const px = useScreenPx();
+  const unit = px(1);
+  const paths = buildMarkerPaths(markers ?? [], unit);
+  // Viewport (css) -> image-coordinate: the stage is translated by `tx`
+  // and scaled by `scale`, and the viewBox is shifted by the pixel centre.
+  const atViewport = (cx: number, cy: number) => ({
+    x: (cx - view.tx) / view.scale - 0.5,
+    y: (cy - view.ty) / view.scale - 0.5,
+  });
+  const captionAt = atViewport(8, 16);
   return (
     <svg
-      className="pointer-events-none absolute inset-0 h-full w-full"
+      viewBox={imageViewBox(image)}
+      className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
     >
       {polyline && polyline.length > 1 && (
-        <g
-          transform={`translate(${transform.tx} ${transform.ty}) scale(${transform.scale})`}
-        >
-          <polyline
-            points={polyline.map((p) => `${p[0]},${p[1]}`).join(" ")}
-            fill="none"
-            stroke={polylineColor}
-            strokeWidth={1 / transform.scale}
-            strokeLinejoin="round"
-          />
-        </g>
+        <polyline
+          points={polyline.map((p) => `${p[0]},${p[1]}`).join(" ")}
+          fill="none"
+          stroke={polylineColor}
+          strokeWidth={unit}
+          strokeLinejoin="round"
+        />
       )}
-      {markers?.map((m) => {
-        const cx = m.px[0] * transform.scale + transform.tx;
-        const cy = m.px[1] * transform.scale + transform.ty;
-        const size = m.size ?? 6;
-        const key = `${m.px[0]},${m.px[1]},${m.dot ? "dot" : "cross"}`;
-        return m.dot ? (
-          <circle
-            key={key}
-            cx={cx}
-            cy={cy}
-            r={size * 0.35}
-            fill={m.color}
-            opacity={0.75}
-          />
+      {paths.map((p) =>
+        p.kind === "dot" ? (
+          <path key={p.key} d={p.d} fill={p.color} opacity={DOT_OPACITY} />
         ) : (
-          <g key={key} stroke={m.color} strokeWidth={1.4}>
-            <line x1={cx - size} y1={cy} x2={cx + size} y2={cy} />
-            <line x1={cx} y1={cy - size} x2={cx} y2={cy + size} />
-            <circle cx={cx} cy={cy} r={size * 0.6} fill="none" />
-          </g>
-        );
-      })}
+          <path
+            key={p.key}
+            d={p.d}
+            fill="none"
+            stroke={p.color}
+            strokeWidth={CROSS_STROKE_PX * unit}
+          />
+        ),
+      )}
       {caption && (
         <text
-          x={8}
-          y={16}
+          x={captionAt.x}
+          y={captionAt.y}
           fontFamily="var(--font-mono, monospace)"
-          fontSize={11}
+          fontSize={px(11)}
           fill="currentColor"
           opacity={0.7}
         >
           {caption}
         </text>
       )}
-      {annotation &&
-        (() => {
-          const cx = annotation.px[0] * transform.scale + transform.tx;
-          const cy = annotation.px[1] * transform.scale + transform.ty;
-          // Offset upward-right of the anchor so the label clears the
-          // crosshair drawn at the same pixel.
-          return (
-            <text
-              x={cx + 10}
-              y={cy - 8}
-              fontFamily="var(--font-mono, monospace)"
-              fontSize={11}
-              fill={annotation.color}
-              stroke="var(--raised)"
-              strokeWidth={3}
-              paintOrder="stroke"
-            >
-              {annotation.text}
-            </text>
-          );
-        })()}
+      {annotation && (
+        // Offset upward-right of the anchor so the label clears the
+        // crosshair drawn at the same pixel.
+        <text
+          x={annotation.px[0] + px(10)}
+          y={annotation.px[1] - px(8)}
+          fontFamily="var(--font-mono, monospace)"
+          fontSize={px(11)}
+          fill={annotation.color}
+          stroke="var(--raised)"
+          strokeWidth={px(3)}
+          paintOrder="stroke"
+        >
+          {annotation.text}
+        </text>
+      )}
     </svg>
   );
 }

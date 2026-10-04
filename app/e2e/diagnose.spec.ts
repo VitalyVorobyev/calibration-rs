@@ -24,7 +24,7 @@ test("Diagnose renders a fixture export loaded through mocked Tauri IPC", async 
   await page.getByRole("button", { name: "Open Export…" }).click();
 
   await expect(page.getByText("mean reproj: 0.220 px")).toBeVisible();
-  await expect(page.locator("canvas")).toBeVisible();
+  await expect(page.getByRole("application", { name: "Frame viewer" })).toBeVisible();
   // The header badge switches from the generic subtitle to the loaded
   // export's classification (store/exportKind.ts).
   await expect(page.getByText("Planar intrinsics")).toBeVisible();

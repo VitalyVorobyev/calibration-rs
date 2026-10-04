@@ -75,7 +75,9 @@ describe("DiagnoseWorkspace", () => {
     expect(useStore.getState().loadError).toBeNull();
 
     const { container } = render(<DiagnoseWorkspace />);
-    expect(container.querySelector("canvas")).toBeTruthy();
+    expect(
+      container.querySelector('[role="application"][aria-label="Frame viewer"]'),
+    ).toBeTruthy();
   });
 
   it("renders a laser-manifest export (laserline_device)", () => {
@@ -85,6 +87,8 @@ describe("DiagnoseWorkspace", () => {
     expect(useStore.getState().loadError).toBeNull();
 
     const { container } = render(<DiagnoseWorkspace />);
-    expect(container.querySelector("canvas")).toBeTruthy();
+    expect(
+      container.querySelector('[role="application"][aria-label="Frame viewer"]'),
+    ).toBeTruthy();
   });
 });

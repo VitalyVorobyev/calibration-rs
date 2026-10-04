@@ -6,7 +6,6 @@ import type {
   TargetFeatureResidual,
   ViewportTransform,
 } from "../types";
-import { IDENTITY_TRANSFORM } from "../types";
 import { FrameCanvas, type FrameCanvasHandle } from "./FrameCanvas";
 
 interface CompareViewerProps {
@@ -49,8 +48,7 @@ export function CompareViewer({
   const leftRef = useRef<FrameCanvasHandle | null>(null);
   const rightRef = useRef<FrameCanvasHandle | null>(null);
 
-  const [linkedTransform, setLinkedTransform] =
-    useState<ViewportTransform>(IDENTITY_TRANSFORM);
+  const [linkedTransform, setLinkedTransform] = useState<ViewportTransform | null>(null);
   const leftImageData = useImageData(leftFrame, onError);
   const rightImageData = useImageData(rightFrame, onError);
 
@@ -92,7 +90,7 @@ export function CompareViewer({
       onCursorChange?.({
         x: c.x,
         y: c.y,
-        intensity: getPixelLum(data, srcX, srcY),
+        intensity: getPixelLum(data, Math.round(srcX), Math.round(srcY)),
       });
     },
     [leftImageData, rightImageData, leftFrame, rightFrame, onCursorChange],
@@ -156,7 +154,10 @@ export function CompareViewer({
 
   return (
     <div className="grid h-full w-full grid-cols-2 gap-2">
-      <div className="flex h-full flex-col" onMouseDown={() => onActivePane("left")}>
+      <div
+        className="flex h-full flex-col"
+        onPointerDownCapture={() => onActivePane("left")}
+      >
         <FrameCanvas
           ref={leftRef}
           frame={leftFrame}
@@ -170,7 +171,10 @@ export function CompareViewer({
         />
         <PaneLabel frame={leftFrame} active={activePane === "left"} />
       </div>
-      <div className="flex h-full flex-col" onMouseDown={() => onActivePane("right")}>
+      <div
+        className="flex h-full flex-col"
+        onPointerDownCapture={() => onActivePane("right")}
+      >
         <FrameCanvas
           ref={rightRef}
           frame={rightFrame}

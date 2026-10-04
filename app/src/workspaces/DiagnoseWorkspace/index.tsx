@@ -143,7 +143,7 @@ export function DiagnoseWorkspace() {
       setCursor({
         x: c.x,
         y: c.y,
-        intensity: getPixelLum(imageData, srcX, srcY),
+        intensity: getPixelLum(imageData, Math.round(srcX), Math.round(srcY)),
       });
     },
     [imageData, activeFrame],

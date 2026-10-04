@@ -10,6 +10,7 @@
         "@tauri-apps/api": "^2.12.0",
         "@tauri-apps/plugin-dialog": "^2.8.0",
         "@vitavision/forms": "^0.7.0",
+        "@vitavision/stage2d": "^0.10.0",
         "@vitavision/three": "^0.1.0",
         "@vitavision/three-react": "^0.1.0",
         "@vitavision/ui": "^0.11.0",
@@ -415,6 +416,8 @@
     "@vitavision/config-ts": ["@vitavision/config-ts@0.1.0", "", { "peerDependencies": { "tsdown": "0.23.0", "typescript": "^6.0.3" }, "optionalPeers": ["tsdown"] }, "sha512-2I0BYpc0kt2co9ZGZVSqS3OnFM1jYufKLl5Ww4+KVT67PfohwCWt8Q37gatLgIAG4yKns5jKsXx9KUu99yZIzw=="],
 
     "@vitavision/forms": ["@vitavision/forms@0.7.0", "", { "dependencies": { "@vitavision/ui": "^0.11.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-LC/5LKOPat9rWR6Q7F1UIDiAqBrgT6ppc8ExTVQw3Bt1ceN9B+6S/JNZXcQh5P09Iea94L3CC3/Egjn2QNSFvw=="],
+
+    "@vitavision/stage2d": ["@vitavision/stage2d@0.10.0", "", { "dependencies": { "@vitavision/ui": "^0.11.0", "lucide-react": "^1.48.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-foA3NwbdfJfgWmYINEZ7dxtx5PRSaMWuBLpDn0wY6jJzW6oQkReaWIyEa0D0JIZYmnvtw1Fa3wZZ8Ey6Of35Tg=="],
 
     "@vitavision/three": ["@vitavision/three@0.1.0", "", { "peerDependencies": { "three": "^0.186.0" } }, "sha512-wSa0OuTRFdJFigUVcaEz+FXFtFvFZ08dIegyfFIGLDY2Ghm+30mBNMNrv6JvKiAxikssZ9dqSjISgKNkJIXtJA=="],
 

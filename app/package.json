@@ -28,6 +28,7 @@
     "@tauri-apps/api": "^2.12.0",
     "@tauri-apps/plugin-dialog": "^2.8.0",
     "@vitavision/forms": "^0.7.0",
+    "@vitavision/stage2d": "^0.10.0",
     "@vitavision/three": "^0.1.0",
     "@vitavision/three-react": "^0.1.0",
     "@vitavision/ui": "^0.11.0",

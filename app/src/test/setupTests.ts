@@ -14,7 +14,7 @@ if (typeof window !== "undefined") {
   ).IS_REACT_ACT_ENVIRONMENT = true;
 
   // jsdom has no layout engine, so ResizeObserver is unimplemented.
-  // FrameCanvas (via DiagnoseWorkspace) observes its container on mount;
+  // The frame viewer (stage2d's ImageStage, via DiagnoseWorkspace) observes its viewport on mount;
   // without a stub `new ResizeObserver(...)` throws a ReferenceError.
   if (typeof window.ResizeObserver === "undefined") {
     class StubResizeObserver {
@@ -24,14 +24,6 @@ if (typeof window !== "undefined") {
     }
     window.ResizeObserver = StubResizeObserver;
   }
-
-  // jsdom implements <canvas> but not a 2D rendering context (that needs
-  // the native `canvas` package). FrameCanvas already no-ops when
-  // `getContext` returns null; stub it directly rather than pulling in
-  // node-canvas, which keeps the component tests dependency-free and
-  // silences jsdom's noisy "not implemented" console error.
-  HTMLCanvasElement.prototype.getContext = (() =>
-    null) as typeof HTMLCanvasElement.prototype.getContext;
 
   // Every test unmounts its own tree; DOM tests would otherwise leak
   // between `it()` blocks since `globals: true` isn't set.
