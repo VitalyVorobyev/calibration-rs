@@ -4,7 +4,7 @@
 //! to stdout. Fields the heuristics cannot determine (board geometry, target
 //! kind, frame convention, ambiguous topology) are emitted at placeholder
 //! values and listed under `_unresolved`; the runner refuses the manifest
-//! until that list is cleared (ADR 0019). This is the CLI front end to
+//! until that list is cleared. This is the CLI front end to
 //! [`sniff_folder`], the same inference the app's "Sniff folder" command uses.
 //!
 //! Usage: `generate-manifest <dataset-folder>`

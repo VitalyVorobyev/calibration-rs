@@ -1,4 +1,4 @@
-//! Per-export image manifest for the diagnose UI (ADR 0014).
+//! Per-export image manifest for the diagnose UI.
 //!
 //! `ImageManifest` is an optional addition to selected `*Export` types that
 //! lets a downstream viewer (the Tauri/React diagnose UI; ad-hoc
@@ -68,11 +68,10 @@ pub struct ImageManifest {
 ///
 /// Laser problem types capture two images per `(pose, camera)` slot: one of
 /// the calibration target and one with the laser line on. Both can appear in
-/// the same [`ImageManifest`], discriminated by [`FrameRef::kind`]
-/// (ADR 0021 §5).
+/// the same [`ImageManifest`], discriminated by [`FrameRef::kind`].
 ///
 /// Serialized in `snake_case`; absent in JSON means [`FrameKind::Target`],
-/// which keeps pre-existing exports byte-stable and forward-readable.
+/// which keeps exports without laser frames byte-stable and forward-readable.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -117,7 +116,7 @@ pub struct FrameRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub roi: Option<PixelRect>,
     /// What the frame depicts. Absent in JSON means [`FrameKind::Target`],
-    /// so exports written before ADR 0021 §5 deserialize unchanged.
+    /// so target-only exports deserialize unchanged.
     #[serde(default, skip_serializing_if = "FrameKind::is_target")]
     pub kind: FrameKind,
 }

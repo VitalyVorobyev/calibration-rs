@@ -143,6 +143,16 @@ The intrinsics inherit the planar family's degeneracies (fronto-parallel
 focal↔distance trade-off, weak principal point under weak distortion, `k3`
 collinearity → `fix_k3: true`) — see `docs/notes/planar-intrinsics.md`.
 
+**Metric scale in the joint rig + hand-eye + laser BA.** On the six-camera
+rtv3d Scheimpflug rig, the camera-and-rig-only stage leaves a shallow
+direction trading overall rig scale against tilt, principal point and pose:
+its extrinsics came out ~10 % small (hexagon edges 88.9 ± 0.4 mm), with the
+shape intact. The joint BA, with the converged tilts frozen and the laser
+point-to-plane term added, pins that direction: 98.21 ± 0.41 mm against the
+reference calibration's 98.13 ± 1.10 mm (0.08 %). Scale comparisons must
+therefore use the joint-BA extrinsics. The board's 5.2 mm cell is confirmed;
+a cell-size error would give a fixed ratio, not a stage-dependent one.
+
 ## Gauge
 
 - **No global gauge.** The plane lives in the physical camera frame, which is

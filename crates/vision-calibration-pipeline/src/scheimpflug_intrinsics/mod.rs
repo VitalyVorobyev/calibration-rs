@@ -3,7 +3,7 @@
 //! This module follows the standard pipeline shape used in this workspace:
 //! `problem` + `state` + `steps`.
 //!
-//! # Recommended workflow (ADR 0022)
+//! # Recommended workflow
 //!
 //! Seed a coarse prior — the nominal focal (lens spec) and the nominal Scheimpflug
 //! mount tilt (`≈ −5°`) — via [`step_init_with_seed`], then optimize. Under the

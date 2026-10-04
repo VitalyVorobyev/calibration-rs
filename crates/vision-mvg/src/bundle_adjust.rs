@@ -6,14 +6,14 @@
 //!
 //! Per-camera intrinsics `K` are held constant (baked into each reprojection
 //! factor, not exposed as parameter blocks); only the extrinsic poses and the
-//! world points move. This respects the ADR 0015 MVG ceiling for this crate: no
+//! world points move. This respects this crate's scope: no
 //! structure-from-motion, no pose-graph optimization, no loop closure — just a
 //! final joint refinement over an already-initialized reconstruction.
 //!
 //! # Conventions
 //!
 //! - Poses are `T_C_W` ([`Iso3`]): they map a world point into the camera
-//!   frame (`p_cam = R · p_world + t`). See ADR 0009.
+//!   frame (`p_cam = R · p_world + t`).
 //! - Observations are **pixel** coordinates; the frozen `K` projects the
 //!   camera-frame ray to pixels.
 //! - The reconstruction carries a 7-DOF similarity gauge freedom. Fixing the

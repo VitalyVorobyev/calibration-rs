@@ -118,7 +118,7 @@
           "type": "boolean"
         },
         "fix_tangential": {
-          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (was hard-coded before\nADR 0024 — the tilt/tangential-distortion coupling makes a free\ntangential term ill-posed during the linear stage).",
+          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (the tilt/tangential-distortion\ncoupling makes a free tangential term ill-posed during the linear\nstage).",
           "type": "boolean"
         },
         "init_iterations": {
@@ -250,7 +250,7 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Configuration for planar intrinsics calibration.\n\nGrouped per ADR 0024: linear-init and non-linear-solve settings live in\nthe shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs;\n`distortion_model`, `fix_camera`, and `fix_poses` stay top-level (they\nare not shared with any other problem type today).",
+  "description": "Configuration for planar intrinsics calibration.\n\nGrouped by stage: linear-init and non-linear-solve settings live in\nthe shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs;\n`distortion_model`, `fix_camera`, and `fix_poses` stay top-level (they\nare not shared with any other problem type today).",
   "properties": {
     "distortion_model": {
       "$ref": "#/$defs/DistortionKind",

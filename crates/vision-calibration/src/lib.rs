@@ -148,7 +148,7 @@ pub mod session {
 /// same type.
 ///
 /// The nested [`common::config`] module holds the sibling set of shared
-/// **config** sub-structs (ADR 0024) — the grouped building blocks embedded
+/// **config** sub-structs — the grouped building blocks embedded
 /// by top-level `*Config` types (`init: IntrinsicsInitConfig`, `solver:
 /// SolverConfig`, ...).
 pub mod common {
@@ -158,7 +158,7 @@ pub mod common {
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
-    /// types (ADR 0024): per-camera linear init, non-linear solve, robot-pose
+    /// types: per-camera linear init, non-linear solve, robot-pose
     /// refinement, hand-eye linear init, and rig frame options.
     pub mod config {
         pub use vision_calibration_pipeline::common::config::{
@@ -167,13 +167,13 @@ pub mod common {
     }
 }
 
-/// Device-spec → manual-init seed derivation (ADR 0023).
+/// Device-spec → manual-init seed derivation.
 ///
 /// [`DeviceSpec`](device_seed::DeviceSpec) is the sidecar `spec.json` schema
 /// describing the capture hardware (lens focal, pixel pitch, Scheimpflug
-/// mount tilt, nominal rig layout); the functions here derive the ADR 0011
-/// manual-init seeds that make spec-seeded initialization (ADR 0022) the
-/// structured default.
+/// mount tilt, nominal rig layout); the functions here derive the
+/// manual-init seeds that make spec-seeded initialization the structured
+/// default.
 pub mod device_seed {
     pub use vision_calibration_pipeline::device_seed::{
         // Schema types (from `vision-calibration-dataset`)
@@ -558,7 +558,7 @@ pub mod dataset {
 ///
 /// Re-exported from the pipeline crate's `dataset_runner` module — see that
 /// module's doc comment for the full list of `build_*_input` converters and
-/// the ADR 0019 ask-user-on-ambiguity contract that
+/// the ask-user-on-ambiguity contract that
 /// [`RunError::AskUser`](dataset_runner::RunError::AskUser) implements.
 pub mod dataset_runner {
     pub use vision_calibration_pipeline::dataset_runner::{

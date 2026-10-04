@@ -3490,6 +3490,7 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "regex",
  "schemars",
  "serde",
  "serde_json",

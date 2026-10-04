@@ -1,35 +1,31 @@
 # AGENTS.md — calibration-rs
 
-This repository is a multi-crate Rust workspace for **end-to-end camera calibration**:
-from math primitives and linear solvers to non-linear refinement, pipelines, facade APIs,
-and Python bindings.
+A multi-crate Rust workspace for **end-to-end camera calibration**: math
+primitives and linear solvers, non-linear refinement, pipelines, a facade API,
+Python bindings and a desktop app.
 
-Crates — eleven workspace members (nine crates.io-publishable, the PyPI
-extension, and the unpublished benchmark crate), plus
-`vision-calibration-examples-private`, which lives outside this workspace
-entirely (its own `[workspace]`) and path-pins the published crates:
+Twelve workspace members — nine crates.io packages, the PyPI extension, the
+unpublished benchmark crate and `xtask` — plus
+`vision-calibration-examples-private`, which lives outside the workspace (its
+own `[workspace]`) and path-pins the published crates:
 
-* **`vision-calibration-core`** — math aliases (+ `linalg` numerics), composable camera models, and a generic RANSAC engine.
-* **`vision-calibration-linear`** — closed-form / linear initialisation blocks (homography, PnP, epipolar, rig extrinsics, hand–eye).
-* **`vision-calibration-optim`** — non-linear least squares IR, robust kernels, and solver backends (tiny-solver LM).
+* **`vision-calibration-core`** — math aliases (+ `linalg` numerics), composable camera models, RANSAC, synthetic-data helpers.
+* **`vision-calibration-linear`** — closed-form / linear initialisation (homography, PnP, epipolar, rig extrinsics, hand–eye).
+* **`vision-calibration-optim`** — non-linear least-squares IR, robust kernels, solver backends (tiny-solver).
 * **`vision-geometry`** — deterministic two-view solvers (epipolar, homography, triangulation, camera matrix).
 * **`vision-mvg`** — MVG pipelines: robust pose recovery, N-view triangulation, bundle adjustment (`refine` feature), Scheimpflug-aware rectification, dense stereo.
 * **`vision-calibration-dataset`** — `DatasetSpec` manifest, validator, folder sniffer.
 * **`vision-calibration-detect`** — target detectors (chessboard / ChArUco / puzzleboard / ring-grid) behind the sealed `Detector` trait + detection cache.
 * **`vision-calibration-pipeline`** — session framework, the eight problem types, `dataset_runner`.
-* **`vision-calibration`** — facade crate re-exporting the above for a stable, ergonomic API.
-* **`vision-calibration-py`** — PyO3/maturin Python extension crate exposing high-level workflows (PyPI).
-* **`vision-calibration-bench`** (workspace member, `publish = false`) — registry-driven dataset benchmarks + regression records.
-* **`vision-calibration-examples-private`** (*outside* the workspace) — private-dataset acceptance runners (rtv3d family).
+* **`vision-calibration`** — facade re-exporting the above; the compatibility boundary.
+* **`vision-calibration-py`** — PyO3/maturin Python package (PyPI).
+* **`vision-calibration-bench`** (`publish = false`) — registry-driven dataset benchmarks + regression records (`calib-bench`).
+* **`xtask`** — `cargo xtask emit-schemas`, `cargo xtask check-docs`.
+* **`vision-calibration-examples-private`** (*outside* the workspace) — private-dataset acceptance runners.
 
-The codebase prioritizes:
-
-* **Correctness & numerical stability**
-* **Determinism** (same inputs + seed → same outputs)
-* **Performance** (avoid unnecessary allocations; efficient linear algebra)
-* **API stability** in the top-level `vision-calibration` crate and JSON schemas
-
-Automated agents: follow these rules strictly.
+Priorities, in order: **correctness and numerical stability**, **determinism**
+(same inputs + seed → same outputs), **performance**, and **API stability** of
+the facade and the JSON schemas.
 
 ---
 
@@ -44,10 +40,12 @@ Automated agents: follow these rules strictly.
 * `vision-mvg` **may depend on** `vision-geometry` and `vision-calibration-core`.
 * `vision-calibration-dataset` and `vision-calibration-detect` are the
   manifest/detector layer feeding the pipeline's `dataset_runner`.
+  `detect` stays nalgebra-free at its boundary (plain arrays), so detector
+  crates may use a different nalgebra than the solver stack.
 * `vision-calibration-pipeline` **may depend on** core, linear, optim,
   geometry, dataset, and detect (not `vision-mvg` — the facade re-exports
   the MVG surface directly).
-* `vision-calibration` is top-level entry points (facade only, no logic).
+* `vision-calibration` is the facade: re-exports only, no logic.
 * `vision-calibration-py` **may depend on** `vision-calibration` (preferred) and Python binding tooling crates.
 * `vision-calibration-bench` / `vision-calibration-examples-private`
   (unpublished) consume the facade + pipeline for dataset runs. `bench` also
@@ -55,169 +53,140 @@ Automated agents: follow these rules strictly.
 
 ### Where code goes
 
-* **Math types, `linalg` numerics, camera models, RANSAC** → `vision-calibration-core`
-* **Closed-form/linear solvers** → `vision-calibration-linear`
-* **NLLS IR, robust kernels, solver backends** → `vision-calibration-optim`
+* **Math types, `linalg` numerics, camera models, RANSAC, synthetic generators** → core
+* **Closed-form/linear solvers** → linear
+* **NLLS IR, robust kernels, solver backends** → optim
 * **Deterministic two-view solvers** → `vision-geometry`
-* **MVG pipelines (pose recovery, triangulation, BA, rectification, dense stereo)** → `vision-mvg`
-* **Dataset manifests / sniffing** → `vision-calibration-dataset`; **target detectors** → `vision-calibration-detect`
-* **Sessions, problem types, dataset runner** → `vision-calibration-pipeline`
-* **Public re-exports/docs** → `vision-calibration`
-* **Python module bindings, Python package glue, and wheel packaging** → `vision-calibration-py`
+* **MVG pipelines** → `vision-mvg`
+* **Dataset manifests / sniffing** → dataset; **target detectors** → detect
+* **Sessions, problem types, dataset runner** → pipeline
+* **Public re-exports** → `vision-calibration`
+* **Python bindings and packaging** → `vision-calibration-py`
 
 ### API exposure
 
-* `vision-calibration` is the compatibility boundary. Keep its public surface stable.
-* Keep facade APIs module-first; avoid duplicating the same symbols at module, top-level, and prelude simultaneously.
-* Lower crates are “sharp tools”: keep APIs small and documented; avoid breaking changes without semver notes.
+* The facade is the compatibility boundary; keep its surface stable and
+  module-first. Do not expose the same symbol at module, top-level and prelude
+  at once.
+* Lower crates are sharp tools: small, documented APIs; breaking changes go in
+  the CHANGELOG with migration notes.
+
+### Adding a problem type
+
+1. Module `vision-calibration-pipeline/src/<name>/` with `mod.rs`,
+   `problem.rs`, `state.rs`, `steps.rs`.
+2. Implement `ProblemType` (Config, Input, State, Output, Export).
+3. Step functions plus a `run_calibration` wrapper.
+4. Re-export from the facade (`vision-calibration/src/lib.rs`).
+5. Python binding in `vision-calibration-py`.
 
 ---
 
-## 2) Project goals and non-goals
+## 2) Goals and non-goals
 
-### Goals
+Goals: reliable calibration for perspective cameras and laserline systems;
+clear separation of **initialisation**, **refinement** and **orchestration**;
+pluggable optimization backends; JSON-serializable configs, inputs and outputs
+for reproducible runs.
 
-* Reliable, end-to-end camera calibration for perspective cameras and laserline systems.
-* Clear separation between **initialisation**, **refinement**, and **pipeline orchestration**.
-* Pluggable optimization backends and robust estimation where needed.
-* JSON-serializable configs/inputs/outputs for reproducible runs.
-
-### Non-goals (unless explicitly requested)
-
-* Heavy ML dependencies in default builds.
-* Non-deterministic outputs.
-* Bulky dependencies in `vision-calibration-core`.
+Non-goals unless requested: heavy ML dependencies in default builds,
+non-deterministic outputs, bulky dependencies in core.
 
 ---
 
-## 3) Build, test, and quality gates
+## 3) Quality gates
 
-The canonical gate list; CI runs the same checks. Before opening a PR, run:
+The canonical list; CI runs the same checks. Before opening a PR:
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+cargo xtask check-docs                    # user-facing docs (§7)
 cargo xtask emit-schemas --check          # when config/export types change
 python3 -m compileall crates/vision-calibration-py/python/vision_calibration
 ```
 
 Also check minimal builds where relevant (`cargo test -p vision-calibration-core`,
-`-p vision-calibration`, `-p vision-calibration-py`). App changes have their own
-gates (§12).
-
-**Do not** introduce new warnings. Avoid `#[allow(...)]` unless justified.
+`-p vision-calibration`, `-p vision-calibration-py`). App changes have their
+own gates (§10). No new warnings; `#[allow(...)]` only with a stated reason.
 
 ---
 
 ## 4) Coding conventions
 
-### Determinism
-
-* Use explicit RNG seeds; do not use `thread_rng` in algorithms.
-* Preserve deterministic ordering in outputs (avoid `HashMap` iteration order for public results).
-
-### Numerics
-
-* Use `vision_calibration_core::Real` (`f64`) consistently.
-* Normalize inputs where algorithms require it (e.g., DLT/8-point).
-* Guard against degenerate configurations and report errors explicitly.
-
-### Error handling
-
-* Prefer `Result` for user-facing APIs; reserve `assert!` for internal invariants.
-* Avoid panics in pipeline/CLI paths when input validation can fail.
-
-### Configuration shape
-
-* Prefer grouped config structs by stage/responsibility (`init`, `solver`, `optimize`, `ba`) over flat boolean-heavy bags.
-* Keep field semantics explicit and mode-safe (especially for frame/mode-dependent transforms).
-
-### Allocations / hot paths
-
-* Avoid per-point heap allocations in tight loops.
-* Reuse buffers where possible.
-* Prefer fixed-size matrices for tiny systems.
-
-### Optimization
-
-* Prefer analytic Jacobians; if finite differences are used, document step size and scaling.
-* Keep parameterizations well-conditioned (e.g., axis-angle or Lie algebra for rotations).
+* **Determinism** — explicit RNG seeds (never `thread_rng` in algorithms);
+  deterministic ordering in outputs (no `HashMap` iteration order in public
+  results).
+* **Numerics** — `vision_calibration_core::Real` (`f64`) throughout;
+  normalize where the algorithm requires it (DLT, 8-point); detect degenerate
+  configurations and return an error.
+* **Errors** — `Result` for user-facing APIs; `assert!` only for internal
+  invariants; no panics in pipeline/CLI paths on invalid input.
+* **Config shape** — grouped by stage (`init`, `solver`, `optimize`, `ba`),
+  not flat boolean bags; field semantics explicit and mode-safe.
+* **Hot paths** — no per-point heap allocations in tight loops; reuse
+  buffers; fixed-size matrices for tiny systems; no repeated `svd`/`sqrt` in
+  inner loops. If performance could change meaningfully, add a benchmark or
+  state the rationale.
+* **Optimization** — residual kernels generic over `T: RealField` for
+  autodiff; rotations on Lie-group manifolds; document any finite-difference
+  step size.
 
 ---
 
-## 5) Performance rules
+## 5) Testing policy
 
-When modifying core solvers or pipelines:
+Every algorithmic change ships with tests:
 
-* Avoid repeated expensive ops in inner loops (`svd`, `sqrt`, normalizations) unless required.
-* Keep memory access contiguous and cache-friendly.
-* If performance could change meaningfully, add a micro-benchmark or document rationale.
-
----
-
-## 6) Testing policy
-
-Every algorithmic change must include tests.
-
-Minimum expectations:
-
-* Synthetic correctness tests for new solvers/refiners.
-* Edge cases: noisy data, partial observations, and degenerate configurations.
-* JSON roundtrip tests for any new config/input/output structs.
-* Regression tests for pipeline outputs (within tolerance).
+* synthetic ground-truth tests for new solvers and refiners;
+* edge cases: noise, partial observations, degenerate configurations;
+* JSON round-trips for new config/input/output structs;
+* regression tests for pipeline outputs (within tolerance).
 
 ---
 
-## 7) Documentation expectations
+## 6) Dependencies
 
-When adding/changing:
-
-* public types
-* configuration parameters / thresholds
-* algorithm behavior
-
-You must update:
-
-* rustdoc for affected items
-* README and/or `book/` docs
-* a minimal example snippet showing the new usage
-* for Python bindings: `python/vision_calibration/types.py` and `python/vision_calibration/__init__.pyi`
+* Core stays lightweight; heavy dependencies elsewhere go behind features.
+* New dependencies need a reason and a compatible license.
+* `nalgebra` / `faer` / `faer-ext` are pinned by the solver backends, which
+  exchange those types with optim (see the root `Cargo.toml` comment).
 
 ---
 
-## 8) Dependency policy
+## 7) Documentation
 
-* `vision-calibration-core`: keep dependencies minimal and lightweight.
-* Other crates may add ergonomic dependencies, but prefer feature flags for heavy deps.
-* Any new dependency must be justified and license-compatible.
+When public types, config parameters or algorithm behavior change, update the
+rustdoc, the README and/or the book, a minimal usage example, and for Python
+`python/vision_calibration/types.py` and `__init__.pyi`.
 
----
-
-## 9) PR/commit expectations (for agents)
-
-* Keep PRs focused (one feature/fix at a time).
-* Include: summary, tests run, and any perf notes.
-* If behavior changes: state it explicitly and provide a config/flag or migration notes.
-
-Suggested commit prefixes:
-
-* `feat:`, `fix:`, `refactor:`, `perf:`, `docs:`, `test:`
+**User-facing docs never cite internal material.** User-facing means the
+READMEs (root, crates, `app/README.md`), `book/src`, `docs/tutorials`, the
+CHANGELOG, published crates' rustdoc, and the Python package. They must not
+mention ADRs, `docs/notes` / `docs/internal` / backlog / roadmap paths,
+backlog or track IDs, PR numbers, private datasets, or agent files, and they
+state the current design without narrating history. Rationale a reader needs
+is stated inline. `cargo xtask check-docs` enforces the mechanical part.
+Dev-facing docs (`AGENTS.md`, `.claude/`, `docs/adrs`, `docs/notes`,
+`docs/ROADMAP.md`, `docs/backlog.md`, `app/DEVELOPING.md`) may cite anything.
 
 ---
 
-## 10) If you’re unsure
+## 8) PRs and commits
 
-When trade-offs conflict (speed vs accuracy, stability vs cleanup):
-
-* Preserve correctness.
-* Add configuration/feature flags for opt-in behavior.
-* Add tests and (if needed) a benchmark to justify the change.
+* One focused change per PR: summary, tests run, perf notes.
+* Behavior changes are stated explicitly, with a config/flag or migration
+  notes.
+* Commit prefixes: `feat:`, `fix:`, `refactor:`, `perf:`, `docs:`, `test:`,
+  `chore:`.
+* When trade-offs conflict, preserve correctness; make new behavior opt-in and
+  justify it with tests or a benchmark.
 
 ---
 
-## 11) Backlog implementation workflow (mandatory)
+## 9) Backlog workflow (mandatory)
 
 The priority is a current **backlog** and current **documentation**, not a
 paper trail. History lives in `CHANGELOG.md`, PR descriptions and git.
@@ -225,8 +194,8 @@ paper trail. History lives in `CHANGELOG.md`, PR descriptions and git.
 * `docs/backlog.md` is the source of truth for what is left. It holds **only
   open (`[ ]`) and parked (`[~]`) work**; a parked entry states why and what
   would reopen it.
-* Implement one backlog task at a time (one commit per task), unless tasks are
-  so tightly coupled that neither builds alone; then say so in the commit
+* One backlog task at a time (one commit per task), unless tasks are so
+  tightly coupled that neither builds alone; then say so in the commit
   message.
 * Completing a task means, in the same commit:
   1. **Delete** its entry from `docs/backlog.md` (and the track heading once
@@ -237,30 +206,32 @@ paper trail. History lives in `CHANGELOG.md`, PR descriptions and git.
      (`book/`) for user-facing features.
 * The commit message and PR description carry the rest (what landed, why,
   tests run). Do not write per-task report files.
-* Documentation states the current design. Do not narrate history
-  ("previously", "was renamed", dated notes) and do not cite backlog/track
-  IDs in code comments or user-facing docs.
-* Recommended commit message format:
-  * `feat(backlog): <task-id> <short description>`
-  * `fix(backlog): <task-id> <short description>`
-  * `docs(backlog): <task-id> <short description>`
+* Documentation states the current design. Do not narrate history and do not
+  cite backlog/track IDs in code comments or user-facing docs.
+* Commit message format: `feat(backlog): <task-id> <short description>`
+  (likewise `fix(backlog)`, `docs(backlog)`).
 
 ---
 
-## 12) Desktop app (`app/`)
+## 10) Desktop app (`app/`)
 
-* Tauri 2 + React 19 + TypeScript desktop app; frontend in `app/src/`
-  (five workspaces under `app/src/workspaces/`: Run, Diagnose, 3D, Epipolar,
-  Depth), Rust Tauri backend in `app/src-tauri/src/`.
-* **Always use `bun`**, never `npm`/`pnpm`/`yarn`. Commands (run from `app/`):
-  `bun install`, `bun run tauri dev` (launches the app — `bun run dev` alone
-  is Vite-only and the Tauri IPC surface is absent), `bun run build`,
-  `bun run tauri build`. Gates: `bun run lint`, `bun run format:check`,
+* Tauri 2 + React 19 + TypeScript; frontend in `app/src/` (five workspaces
+  under `app/src/workspaces/`: Run, Diagnose, 3D, Epipolar, Depth), Rust Tauri
+  backend in `app/src-tauri/src/`.
+* **Always `bun`**, never `npm`/`pnpm`/`yarn`; the lockfile is `bun.lock`, and
+  `tauri.conf.json`'s `beforeDevCommand`/`beforeBuildCommand` call `bun run …`.
+  `bun run tauri dev` launches the app (`bun run dev` alone is Vite-only, with
+  no Tauri IPC).
+* UI comes from `@vitavision/ui` (components, tokens, fonts) and the 3D viewer
+  from `@vitavision/three` / `@vitavision/three-react`; no app-local component
+  kit. ESLint's `tokensOnly` rule keeps colour in `app/src` on the design
+  tokens.
+* Gates (from `app/`): `bun run lint`, `bun run format:check`,
   `bun run typecheck`, `bun run test`, `bun run build`; and from
-  `app/src-tauri`: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
-  `cargo test`.
+  `app/src-tauri`: `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings`, `cargo test`.
 * `app/src-tauri` is **excluded from the root Cargo workspace**
-  (`/Cargo.toml`'s `exclude = ["app"]`) and pins its own `Cargo.lock`.
-  `cargo build|test --workspace` at the repo root does **not** cover it;
-  build/test it from `app/` instead.
-* See `app/README.md` and `docs/adrs/0014-tauri-desktop-app.md`.
+  (`exclude = ["app"]`) and pins its own `Cargo.lock`; root
+  `cargo build|test --workspace` does **not** cover it.
+* Developer guide: `app/DEVELOPING.md`; design rationale:
+  `docs/adrs/0014-tauri-desktop-app.md`.

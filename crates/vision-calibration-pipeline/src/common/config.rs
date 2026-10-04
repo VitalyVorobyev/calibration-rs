@@ -2,7 +2,7 @@
 //!
 //! The same handful of concepts — per-camera linear init, non-linear solve
 //! settings, robot-pose refinement, hand-eye linear init — recur across the
-//! eight problem configs (ADR 0024). This module holds the single canonical
+//! eight problem configs. This module holds the single canonical
 //! definition of each; top-level `*Config` types embed them as named groups
 //! (`init: IntrinsicsInitConfig`, `solver: SolverConfig`, ...) instead of
 //! re-declaring the same fields flat.
@@ -52,9 +52,9 @@ pub struct IntrinsicsInitConfig {
     /// Fix tangential distortion (p1, p2) during initialization.
     ///
     /// Defaults to `false` here; the Scheimpflug intrinsics problem
-    /// overrides its own `init` default to `true` (was hard-coded before
-    /// ADR 0024 — the tilt/tangential-distortion coupling makes a free
-    /// tangential term ill-posed during the linear stage).
+    /// overrides its own `init` default to `true` (the tilt/tangential-distortion
+    /// coupling makes a free tangential term ill-posed during the linear
+    /// stage).
     pub fix_tangential: bool,
     /// Enforce zero skew during initialization.
     pub zero_skew: bool,
@@ -168,7 +168,7 @@ impl RobotPoseConfig {
     /// `self.refine` is each caller's own choice — the problem types
     /// disagree on this (`SingleCamHandeyeProblem` only requires positive
     /// sigmas when `refine` is enabled; the rig problem types always
-    /// validate) and this helper preserves each site's pre-existing
+    /// validate) and this helper preserves each site's own
     /// behavior rather than picking one.
     ///
     /// # Errors
@@ -214,8 +214,7 @@ impl Default for HandeyeInitConfig {
 
 /// Multi-camera rig frame options: reference-camera gauge and rig-BA scope.
 ///
-/// Shared by every rig problem's `rig` config group (`RigExtrinsicsConfig`
-/// today; `RigHandeyeConfig` follows in a later ADR 0024 wave).
+/// The `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]

@@ -7,9 +7,8 @@
 //! manifest is _descriptive_, never prescriptive: data stays where the
 //! user put it and the manifest just points at it.
 //!
-//! See ADR 0016 for the design rationale, and ADR 0019 for the
-//! fail-fast-on-ambiguity contract that the [`DatasetSpec::unresolved`]
-//! field enables.
+//! The [`DatasetSpec::unresolved`] field enables a fail-fast-on-ambiguity
+//! contract: the runner refuses a manifest until it is cleared.
 //!
 //! # Tiered fields
 //!

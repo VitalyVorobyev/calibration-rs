@@ -44,8 +44,6 @@ pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 ///   corresponding bootstrap output. The auto path's tangential-distortion zeroing
 ///   (workflow invariant — Scheimpflug pipelines fix tangential) is **not** applied
 ///   when the user supplies a manual `distortion` — they get exactly what they pass.
-///
-/// See ADR 0011 for the design rationale.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ScheimpflugManualInit {
@@ -69,7 +67,7 @@ pub struct ScheimpflugManualInit {
 /// Typed return value of [`step_init`] / [`step_init_with_seed`].
 ///
 /// Carries the seeded-or-fitted initial estimates. The same values are also
-/// written into `session.state` — see ADR 0011.
+/// written into `session.state`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ScheimpflugIntrinsicsInitResult {
@@ -337,7 +335,7 @@ pub fn step_init_with_seed(
 /// under the tilt↔focal↔distortion degeneracy: on strong-distortion + tilted data
 /// it can settle into a wrong tilt/focal basin. The **supported** workflow is
 /// [`step_init_with_seed`] with a coarse focal seed plus the nominal Scheimpflug
-/// mount tilt — see ADR 0022.
+/// mount tilt.
 pub fn step_init(
     session: &mut CalibrationSession<ScheimpflugIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,

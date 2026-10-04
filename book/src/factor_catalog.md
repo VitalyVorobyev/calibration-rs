@@ -46,9 +46,7 @@ Each descriptor maps to zero-sized **kernel types** (one per slot) whose
 static methods are generic over the autodiff scalar `T: RealField`. The
 backend matches the descriptor once per factor and monomorphizes the residual
 over the kernels — there is no per-evaluation dispatch on the camera-model
-axis. Adding a camera model means one descriptor variant, one kernel type,
-and one row in the backend dispatch table (see
-[Adding a New Solver Backend](new_backend.md)).
+axis.
 
 ## Reprojection Chains
 

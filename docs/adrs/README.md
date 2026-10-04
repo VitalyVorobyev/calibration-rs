@@ -6,7 +6,7 @@ Process:
 
 1. Capture design decisions in ADRs first.
 2. Track implementation work in `docs/backlog.md`; delete the entry on
-   completion (AGENTS.md §11).
+   completion (AGENTS.md §9).
 
 Status legend:
 

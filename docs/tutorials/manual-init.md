@@ -156,7 +156,7 @@ step_intrinsics_init_all_with_seed(
 ```
 
 This unblocks scenarios where Zhang's method fails on borderline data —
-e.g., the puzzle 130x130 rig case that motivated [ADR 0011](../adrs/0011-manual-initialization-workflow.md).
+e.g., strongly tilted Scheimpflug rigs.
 
 ### Coupling rule (rig stage)
 
@@ -174,14 +174,10 @@ stage's `mode_target_pose` is mode-dependent:
 - `EyeToHand`: `handeye = T_R_B`, `mode_target_pose = T_G_T`.
 
 If you seed `handeye` but not `mode_target_pose`, the latter is auto-derived
-from the chain (see [ADR 0009](../adrs/0009-coordinate-and-pose-conventions.md)
-for the convention).
+from the chain.
 
 ## What to read next
 
-- [ADR 0011](../adrs/0011-manual-initialization-workflow.md) — full design
-  rationale, including the partial-seed semantics and the
-  `#[non_exhaustive]` rule.
 - [Per-feature residuals](./per-feature-residuals.md) — once a calibration
   finishes, drill into per-corner errors.
 - [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs)

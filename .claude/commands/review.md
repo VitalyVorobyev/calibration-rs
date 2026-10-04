@@ -14,7 +14,7 @@ Task ID or description of what to review: $ARGUMENTS
 
 3. **Quality checks**:
 
-   a. **Gates** — run the canonical gates from AGENTS.md §3 (plus §12 for
+   a. **Gates** — run the canonical gates from AGENTS.md §3 (plus §10 for
       `app/` changes) and report results.
 
    b. **API design**:

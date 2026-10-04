@@ -187,7 +187,7 @@ where
 }
 
 /// Project multiple views and apply deterministic pixel noise — the
-/// standard input for a synthetic-GT matrix test (`docs/notes/README.md`):
+/// standard input for a synthetic-GT matrix test:
 /// sweep a ground-truth parameter grid × noise levels, feed each cell
 /// through the solver under test, and assert recovery within tolerance.
 ///

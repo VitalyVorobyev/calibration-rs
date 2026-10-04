@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Shared rules — crate layering, where code goes, quality gates, testing,
+Shared rules — layering, where code goes, quality gates, testing, docs,
 backlog workflow, desktop app — live in AGENTS.md and apply here in full:
 
 @../AGENTS.md
@@ -14,19 +14,11 @@ cargo build --workspace
 cargo test -p vision-calibration-core     # one crate
 cargo fmt --all
 cargo xtask emit-schemas                  # regenerate JSON schemas
+cargo xtask check-docs                    # user-facing docs gate
 maturin develop -m crates/vision-calibration-py/Cargo.toml   # Python dev build
 ```
 
-Desktop app (`app/`, Tauri 2 + React + TypeScript). **Always bun**, never
-`npm`/`pnpm`/`yarn`; the lockfile is `bun.lock`, and `tauri.conf.json`'s
-`beforeDevCommand`/`beforeBuildCommand` must call `bun run …`.
-
-```bash
-cd app
-bun install
-bun run tauri dev      # the app; `bun run dev` is Vite only, without Tauri APIs
-bun run tauri build    # bundle
-```
+App commands and the bun-only rule: AGENTS.md §10.
 
 ## Engineering principles & critical review
 
@@ -34,9 +26,9 @@ Hold every change to a high design bar, and keep the workspace from
 drifting into undisciplined, copy-paste code:
 
 - **SOLID** — one responsibility per type/module; extend behavior through
-  the detector / refiner / orientation traits, not by editing parallel
-  match arms; depend on trait abstractions (`Detector`, the refiner
-  traits), not concretions.
+  traits (`Detector`, `ProblemType`, the camera-model kernels, the solver
+  backends), not by editing parallel match arms; depend on abstractions,
+  not concretions.
 - **DRY / single source of truth** — one canonical definition per concept.
   Lower config to core params in exactly one place; never let a
   threshold's or parameter's meaning diverge across crates.
@@ -66,21 +58,11 @@ CHANGELOG with migration notes.
   `Camera<S, P, D, Sm, K>`.
 - **Sessions** ([ADR 0007](../docs/adrs/0007-session-framework.md)): every
   workflow is `CalibrationSession<P: ProblemType>` driven by free step
-  functions:
-
-  ```rust
-  let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
-  session.set_input(data)?;
-  step_init(&mut session, None)?;
-  step_optimize(&mut session, None)?;
-  let result = session.export()?;
-  ```
-
+  functions (`set_input` → `step_init` → `step_optimize` → `export`).
   Eight problem types: `PlanarIntrinsics`, `ScheimpflugIntrinsics`,
   `SingleCamHandeye`, `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`,
-  `RigLaserlineDevice`, `RigHandeyeLaserline`. The rig types cover pinhole
-  and Scheimpflug rigs through `SensorMode`
-  ([ADR 0013](../docs/adrs/0013-rig-family-sensor-axis-refactor.md)).
+  `RigLaserlineDevice`, `RigHandeyeLaserline`; the rig types cover pinhole
+  and Scheimpflug rigs through `SensorMode`.
 - **Optimization IR** ([ADR 0008](../docs/adrs/0008-backend-agnostic-optimization-ir.md)):
   problems are `ProblemIR` (parameter + residual blocks) compiled to a
   solver backend; factors are generic over `T: RealField` for autodiff
@@ -94,23 +76,15 @@ CHANGELOG with migration notes.
   config/export types; ~5 % tolerance for linear init, < 1 % after
   optimization.
 
-## Adding a problem type
-
-1. Module `vision-calibration-pipeline/src/<name>/` with `mod.rs`,
-   `problem.rs`, `state.rs`, `steps.rs`.
-2. Implement `ProblemType` (Config, Input, State, Output, Export).
-3. Step functions plus a `run_calibration` wrapper.
-4. Re-export from the facade (`vision-calibration/src/lib.rs`).
-5. Python binding in `vision-calibration-py`.
-
 ## Where things are
 
-- [`docs/ROADMAP.md`](../docs/ROADMAP.md) — v1.0 criteria and open work;
-  [`docs/backlog.md`](../docs/backlog.md) — the task list.
-- [`docs/adrs/`](../docs/adrs/README.md) — design decisions.
+- [`docs/backlog.md`](../docs/backlog.md) — what is left;
+  [`docs/ROADMAP.md`](../docs/ROADMAP.md) — v1.0 exit criteria and standing
+  decisions.
+- [`docs/adrs/`](../docs/adrs/README.md) — design decisions;
+  [`docs/notes/`](../docs/notes/README.md) — proof packs.
 - [`docs/RELEASE-RUNBOOK.md`](../docs/RELEASE-RUNBOOK.md) — read before
-  touching any version string.
-- [`docs/MSRV.md`](../docs/MSRV.md) — MSRV policy (`rust-version` in
-  `Cargo.toml`).
+  touching any version string; [`docs/MSRV.md`](../docs/MSRV.md) — MSRV
+  policy.
 - `.claude/commands/` — `/orchestrate`, `/architect`, `/implement`,
   `/review`, `/gate-check`.

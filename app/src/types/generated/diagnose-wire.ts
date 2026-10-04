@@ -10,11 +10,10 @@
  *
  * Laser problem types capture two images per `(pose, camera)` slot: one of
  * the calibration target and one with the laser line on. Both can appear in
- * the same [`ImageManifest`], discriminated by [`FrameRef::kind`]
- * (ADR 0021 §5).
+ * the same [`ImageManifest`], discriminated by [`FrameRef::kind`].
  *
  * Serialized in `snake_case`; absent in JSON means [`FrameKind::Target`],
- * which keeps pre-existing exports byte-stable and forward-readable.
+ * which keeps exports without laser frames byte-stable and forward-readable.
  */
 export type FrameKind = "target" | "laser";
 /**
@@ -372,10 +371,10 @@ export interface LaserlineDeviceExport {
    */
   estimate: LaserlineEstimate;
   /**
-   * Optional image manifest (ADR 0014, viewer-side contract). Per
+   * Optional image manifest (viewer-side contract). Per
    * accepted view (pose = kept-view index, camera = 0): one frame
    * for the *target* image plus one of kind `laser` for the laser
-   * image (ADR 0021 §5). `None` means "no images shipped"; the
+   * image. `None` means "no images shipped"; the
    * calibration pipeline never reads this field.
    */
   image_manifest?: ImageManifest | null;
@@ -392,7 +391,7 @@ export interface LaserlineDeviceExport {
    */
   per_cam_reproj_errors: number[];
   /**
-   * Per-feature reprojection + laser residuals (ADR 0012). Single-camera:
+   * Per-feature reprojection + laser residuals. Single-camera:
    * `target_hist_per_camera` and `laser_hist_per_camera` each carry
    * `Some(vec![one_entry])`.
    */
@@ -597,7 +596,7 @@ export interface FrameRef {
   camera: number;
   /**
    * What the frame depicts. Absent in JSON means [`FrameKind::Target`],
-   * so exports written before ADR 0021 §5 deserialize unchanged.
+   * so target-only exports deserialize unchanged.
    */
   kind?: FrameKind;
   /**
@@ -819,7 +818,7 @@ export interface LaserlineStats {
  */
 export interface PlanarIntrinsicsExport {
   /**
-   * Optional image manifest (ADR 0014, viewer-side contract). When
+   * Optional image manifest (viewer-side contract). When
    * populated, downstream viewers (the diagnose UI) can locate the source
    * image for each `(pose, camera)` slot. `None` means "no images
    * shipped"; the calibration pipeline never reads this field.
@@ -842,7 +841,7 @@ export interface PlanarIntrinsicsExport {
    */
   per_cam_reproj_errors: number[];
   /**
-   * Per-feature reprojection residuals (ADR 0012). For planar intrinsics
+   * Per-feature reprojection residuals. For planar intrinsics
    * only `target` is populated; `laser` is empty. `target_hist_per_camera`
    * is `Some(vec![one_entry])` since this problem type is single-camera.
    */
@@ -904,7 +903,7 @@ export interface RigExtrinsicsExport {
    */
   cameras: Camera[];
   /**
-   * Optional image manifest (ADR 0014, viewer-side contract). When
+   * Optional image manifest (viewer-side contract). When
    * populated, downstream viewers (the diagnose UI) can locate the source
    * image for each `(pose, camera)` slot. Tiled multi-camera frames
    * (e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point
@@ -926,7 +925,7 @@ export interface RigExtrinsicsExport {
    */
   per_cam_reproj_errors: number[];
   /**
-   * Per-feature reprojection residuals (ADR 0012). For rig extrinsics
+   * Per-feature reprojection residuals. For rig extrinsics
    * `target` is populated and `laser` is empty. `target_hist_per_camera`
    * is `Some(vec)` with one entry per camera.
    */
@@ -1003,7 +1002,7 @@ export interface RigHandeyeExport {
    */
   handeye_mode: HandEyeMode;
   /**
-   * Optional image manifest (ADR 0014, viewer-side contract). When
+   * Optional image manifest (viewer-side contract). When
    * populated, downstream viewers (the diagnose UI) can locate the source
    * image for each `(pose, camera)` slot. Tiled multi-camera frames
    * (e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point
@@ -1025,7 +1024,7 @@ export interface RigHandeyeExport {
    */
   per_cam_reproj_errors: number[];
   /**
-   * Per-feature reprojection residuals (ADR 0012). Per-view
+   * Per-feature reprojection residuals. Per-view
    * `rig_se3_target` is derived from the handeye chain
    * (see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)),
    * then composed with `cam_se3_rig` for projection.
@@ -1042,8 +1041,8 @@ export interface RigHandeyeExport {
    * hand-eye chain (`handeye_observer_se3_target`) so downstream
    * viewers (3D scene, epipolar overlay) can read board poses
    * without re-implementing the chain. One entry per input view.
-   * `#[serde(default)]` keeps older exports forward-compatible at
-   * load time; they decode with an empty Vec.
+   * `#[serde(default)]` lets exports without this field load;
+   * they decode with an empty Vec.
    */
   rig_se3_target?: Iso3Schema[];
   /**
@@ -1197,12 +1196,12 @@ export interface RigLaserlineDeviceExport {
   /**
    * Frozen upstream cameras (pinhole part), echoed so the export is
    * self-contained for downstream viewers (3D rig scene, epipolar) —
-   * same field names as `RigHandeyeExport`. Empty on older
-   * exports (`serde(default)`).
+   * same field names as `RigHandeyeExport`. Empty when absent
+   * in the JSON (`serde(default)`).
    */
   cameras?: Camera[];
   /**
-   * Optional image manifest (ADR 0014, viewer-side contract). When
+   * Optional image manifest (viewer-side contract). When
    * populated, downstream viewers (the diagnose / 3D / epipolar UIs)
    * can locate the source image for each `(pose, camera)` slot.
    * Tiled multi-camera frames (e.g. 6× 720×540 horizontal strips on
@@ -1234,7 +1233,7 @@ export interface RigLaserlineDeviceExport {
    */
   per_camera_stats: LaserlineStats[];
   /**
-   * Per-feature reprojection + laser residuals (ADR 0012). Multi-camera
+   * Per-feature reprojection + laser residuals. Multi-camera
    * rig: `target` covers per-corner reprojection (when present) and
    * `laser` covers per-pixel laser distances. Both per-camera histograms
    * are populated.
@@ -1290,7 +1289,7 @@ export interface ScheimpflugIntrinsicsExport {
    */
   per_cam_reproj_errors: number[];
   /**
-   * Per-feature reprojection residuals (ADR 0012). Single-camera, target
+   * Per-feature reprojection residuals. Single-camera, target
    * only — `laser` is empty; `target_hist_per_camera` is
    * `Some(vec![one_entry])`.
    */
@@ -1369,7 +1368,7 @@ export interface SingleCamHandeyeExport {
    */
   per_cam_reproj_errors: number[];
   /**
-   * Per-feature reprojection residuals (ADR 0012). Single-camera, target
+   * Per-feature reprojection residuals. Single-camera, target
    * only. Per-view `cam_se3_target` is derived from the handeye chain
    * (see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)).
    */

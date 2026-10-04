@@ -14,7 +14,7 @@
 //! silently diverge per problem.
 //!
 //! The [`config`] submodule holds the sibling set of shared **config**
-//! sub-structs (ADR 0024) — the grouped building blocks that top-level
+//! sub-structs — the grouped building blocks that top-level
 //! `*Config` types embed (`init: IntrinsicsInitConfig`, `solver:
 //! SolverConfig`, ...). Those are persisted configuration; the types at this
 //! module's top level are ephemeral per-call step overrides. Keeping them in
@@ -23,8 +23,7 @@
 //! [`ExportKind`] is the shared export vocabulary: the serde
 //! discriminator every `*Export` carries.
 
-/// Shared config sub-structs embedded by grouped top-level `*Config` types
-/// (ADR 0024).
+/// Shared config sub-structs embedded by grouped top-level `*Config` types.
 pub mod config;
 
 mod export_kind;

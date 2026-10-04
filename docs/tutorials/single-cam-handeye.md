@@ -18,7 +18,7 @@ poses.
 - **Input**: `SingleCamHandeyeInput { views: Vec<View<HandeyeMeta>> }`.
   Each view pairs planar-target 2D-3D correspondences with the gripper
   pose at capture time — `HandeyeMeta { base_se3_gripper: Iso3 }`.
-- **Pose naming**: the project's `frame_se3_frame` convention (ADR 0009).
+- **Pose naming**: the project's `frame_se3_frame` convention.
   `base_se3_gripper` reads "gripper pose expressed in the base frame"
   (`T_B_G`). The unknowns the calibration solves for are named the same
   way: `gripper_se3_camera` (EyeInHand) or `camera_se3_base` (EyeToHand).
@@ -42,7 +42,7 @@ poses.
   step_handeye_optimize     ← joint hand-eye bundle adjustment
   ```
 
-  Each has a `*_with_seed` sibling (ADR 0011) and its own typed
+  Each has a `*_with_seed` sibling and its own typed
   step-result struct (`SingleCamIntrinsicsInitResult`,
   `SingleCamHandeyeOptimizeResult`, …) mirroring the fields written into
   `session.state`.
@@ -192,8 +192,7 @@ Two different manifests cover two different needs — it's worth being
 precise about which one `SingleCamHandeyeProblem` actually consumes
 today:
 
-- **`dataset.toml`** ([ADR 0016](../adrs/0016-dataset-manifest.md))
-  describes *where the data lives*: image glob patterns, the target
+- **`dataset.toml`** describes *where the data lives*: image glob patterns, the target
   definition, the robot-pose file and its `pose_convention`, and how
   images pair with pose rows (`pose_pairing`).
   `vision_calibration::dataset_runner::build_single_cam_handeye_input`
@@ -208,12 +207,11 @@ today:
   let input = result.input;
   ```
 
-- **`spec.json`** ([ADR 0023](../adrs/0023-device-spec-seed-derivation.md))
-  describes *the physical device*: lens focal length, pixel pitch,
+- **`spec.json`** describes *the physical device*: lens focal length, pixel pitch,
   Scheimpflug mount tilt, nominal rig layout. It feeds
   `vision_calibration::device_seed`'s derivation functions
   (`scheimpflug_seed`, `rig_intrinsics_seed`, `nominal_cam_se3_rig`,
-  `handeye_seed`, `rig_layout_seed`), which build ADR 0011 manual-init
+  `handeye_seed`, `rig_layout_seed`), which build manual-init
   seeds for the **rig** family of problem types.
 
   As of this writing there is **no `single_cam_handeye`-specific
@@ -237,13 +235,6 @@ same identity `step_handeye_init_with_seed` uses to auto-derive
 
 ## What to read next
 
-- [ADR 0009](../adrs/0009-coordinate-and-pose-conventions.md) —
-  `frame_se3_frame` naming and the EyeInHand/EyeToHand pose conventions
-  in full.
-- [ADR 0011](../adrs/0011-manual-initialization-workflow.md) — manual
-  seeding, including the hand-eye coupling rule.
-- [ADR 0024](../adrs/0024-config-vocabulary.md) — why the config is
-  grouped this way.
 - [Manual initialization](./manual-init.md) and
   [Per-feature residuals](./per-feature-residuals.md) — the two
   tutorials this one builds on.

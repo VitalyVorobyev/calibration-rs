@@ -320,7 +320,7 @@ fn main() -> Result<()> {
     let mut joint_stats_sigma_mm: Option<Vec<f64>> = None;
     let mut joint_reproj_px: Option<Vec<f64>> = None;
     // `cam_se3_rig` refined by the joint (laser-informed) BA — the most
-    // metrically constrained extrinsics available. See docs/notes/rtv3d-scale.md:
+    // metrically constrained extrinsics available. See docs/notes/laserline-bundle.md (metric scale):
     // the hand-eye-stage `rig_export.cam_se3_rig` alone under-determines
     // absolute scale by ~10 %; the joint BA (laser point-to-plane term)
     // resolves it and matches the oracle's healthy cameras almost exactly.
@@ -864,14 +864,14 @@ fn load_oracle(path: &Path) -> Result<Oracle> {
 ///   differ; σ is the physically meaningful fit quality).
 ///
 /// The `|t| ours` column (and the printed neighbor-edge hexagon table, see
-/// see docs/notes/rtv3d-scale.md) uses `joint_cam_se3_rig` — the laser-informed joint-BA
+/// see docs/notes/laserline-bundle.md (metric scale)) uses `joint_cam_se3_rig` — the laser-informed joint-BA
 /// extrinsics — when available, falling back to the hand-eye-stage
 /// `rig_export.cam_se3_rig` otherwise. The two disagree by a uniform ~10 %
 /// scale factor: the hand-eye stage alone under-determines absolute scale,
 /// and the joint BA's laser point-to-plane term resolves it. Comparing the
 /// oracle against the hand-eye-stage extrinsics (as earlier reports did)
 /// manufactures an apparent scale mismatch that isn't present once the
-/// laser-informed extrinsics are used — see `docs/notes/rtv3d-scale.md`.
+/// laser-informed extrinsics are used — see `docs/notes/laserline-bundle.md (metric scale)`.
 fn compare_to_oracle(
     oracle: &Oracle,
     rig_export: &vision_calibration::rig_handeye::RigHandeyeExport,
@@ -945,7 +945,7 @@ fn compare_to_oracle(
 
     // Prefer the laser-informed joint-BA extrinsics (best available scale
     // constraint); fall back to the hand-eye-stage export when no laser
-    // data was present. See docs/notes/rtv3d-scale.md.
+    // data was present. See docs/notes/laserline-bundle.md (metric scale).
     let extrinsics_source = joint_cam_se3_rig.unwrap_or(&rig_export.cam_se3_rig);
     println!("\nextrinsics vs oracle camera_se3_sensor (rig frame = cam 0):");
     println!(
@@ -990,7 +990,7 @@ fn compare_to_oracle(
         );
     }
 
-    // ─── Hexagon neighbor-edge diagnostic (see docs/notes/rtv3d-scale.md) ─────────────────
+    // ─── Hexagon neighbor-edge diagnostic (see docs/notes/laserline-bundle.md (metric scale)) ─────────────────
     // The rig is a regular hexagon of 6 cameras: sum the |t| column above
     // pairwise between mechanical *neighbors* (0-1-2-3-4-5-0), not just
     // radially from cam 0, to get a rotation/parameterization-independent

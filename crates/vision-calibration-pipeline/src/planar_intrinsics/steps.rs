@@ -72,8 +72,6 @@ pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 ///   iterative intrinsics estimator and does not run when intrinsics are seeded.
 /// - When `intrinsics` is `None`, the bootstrap auto-fit runs and any `Some` field
 ///   overrides the corresponding bootstrap output.
-///
-/// See ADR 0011 for the design rationale.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct PlanarManualInit {
@@ -119,7 +117,7 @@ impl Default for FilterOptions {
 /// Typed return value of [`step_init`] / [`step_init_with_seed`].
 ///
 /// Carries the seeded-or-fitted initial estimates. The same values are also
-/// written into `session.state` — see ADR 0011.
+/// written into `session.state`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PlanarInitResult {

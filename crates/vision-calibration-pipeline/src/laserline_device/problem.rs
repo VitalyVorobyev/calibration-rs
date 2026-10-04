@@ -27,7 +27,7 @@ pub type LaserlineDeviceInput = LaserlineDataset;
 
 /// Configuration for laserline device calibration.
 ///
-/// Grouped per ADR 0024.
+/// Settings are grouped by stage.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -44,7 +44,7 @@ pub struct LaserlineDeviceConfig {
     /// `robust_loss` is **not consulted** by this problem: laser-carrying
     /// stages track calibration and laser residuals as independent families
     /// with their own robust losses (`optimize.calib_loss`,
-    /// `optimize.laser_loss` — see [ADR 0024](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/adrs/0024-config-vocabulary.md)). Only `max_iters`/`verbosity`
+    /// `optimize.laser_loss`). Only `max_iters`/`verbosity`
     /// apply here.
     pub solver: SolverConfig,
     /// Bundle-adjustment options.
@@ -154,16 +154,16 @@ pub struct LaserlineDeviceExport {
     pub mean_reproj_error: f64,
     /// Per-camera reprojection errors (single element for single-camera workflows).
     pub per_cam_reproj_errors: Vec<f64>,
-    /// Per-feature reprojection + laser residuals (ADR 0012). Single-camera:
+    /// Per-feature reprojection + laser residuals. Single-camera:
     /// `target_hist_per_camera` and `laser_hist_per_camera` each carry
     /// `Some(vec![one_entry])`.
     #[serde(default)]
     pub per_feature_residuals: PerFeatureResiduals,
 
-    /// Optional image manifest (ADR 0014, viewer-side contract). Per
+    /// Optional image manifest (viewer-side contract). Per
     /// accepted view (pose = kept-view index, camera = 0): one frame
     /// for the *target* image plus one of kind `laser` for the laser
-    /// image (ADR 0021 §5). `None` means "no images shipped"; the
+    /// image. `None` means "no images shipped"; the
     /// calibration pipeline never reads this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,

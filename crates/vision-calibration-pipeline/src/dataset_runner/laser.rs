@@ -1,5 +1,5 @@
 //! `DatasetSpec → LaserlineDeviceInput / RigLaserlineDeviceInput`
-//! converters for the laser topologies (ADR 0021).
+//! converters for the laser topologies.
 //!
 //! Laser-line extraction is *injected* via [`LaserPixelExtractor`]:
 //! the reference implementation wraps `vision-metrology`, which is not
@@ -44,7 +44,7 @@ use super::{
     features_to_obs, pattern_repr, pick_detector, rig::build_rig_core, target_to_detector_config,
 };
 
-/// Injected laser-line extractor (ADR 0021).
+/// Injected laser-line extractor.
 ///
 /// Unlike the sealed [`Detector`](vision_calibration_detect::Detector)
 /// trait this one is **open**: the reference implementation lives in
@@ -722,7 +722,7 @@ fn load_upstream_export(path: &Path) -> Result<RigHandeyeExport, RunError> {
 }
 
 /// Per-view rig→target pose through the frozen hand-eye chain
-/// (ADR 0021 §4, same math as the rtv3d example):
+/// (hand-eye chain, frozen):
 ///
 /// - `EyeInHand`:  `T_R_T = T_G_R⁻¹ · T_B_G⁻¹ · T_B_T`
 /// - `EyeToHand`:  `T_R_T = T_R_B · T_B_G · T_G_T`

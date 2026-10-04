@@ -5,8 +5,7 @@
 //! custom viewers) can drill into per-(view, camera, feature) errors without
 //! recomputing geometry.
 //!
-//! See [ADR 0012](https://github.com/VitalyVorobyev/calibration-rs/blob/main/docs/adrs/0012-per-feature-reprojection-residuals.md)
-//! for the schema and the indexing convention. Helpers that produce these
+//! Helpers that produce these
 //! records from a calibrated camera + dataset live alongside this module
 //! (`vision_calibration_core::compute_planar_target_residuals`,
 //! `compute_rig_target_residuals`, `build_feature_histogram`) and in

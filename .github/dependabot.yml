@@ -11,7 +11,7 @@
 #     in the root `Cargo.toml`). Bot PRs would mostly be un-mergeable noise.
 #     Advisories are covered by `.github/workflows/audit.yml` instead, which
 #     is the check that actually matters.
-#   * The desktop app uses bun (AGENTS.md §12) and dependabot does not
+#   * The desktop app uses bun (AGENTS.md §10) and dependabot does not
 #     understand `app/bun.lock`.
 version: 2
 updates:

@@ -60,7 +60,7 @@ bundle, ringgrid detection/bias, rectification (short note — its gate exists),
   narrow-vs-wide baseline noise trade.
 - [Laserline bundle](laserline-bundle.md) — S² plane block + 1D stripe
   residuals; stripe non-collinearity identifiability, the soft distance
-  DOF, rig-axis reuse.
+  DOF, rig-axis reuse, how the laser term fixes metric rig scale.
 - [Two-view / triangulation](two-view-triangulation.md) — 8/7/5-point
   solvers, pose recovery + cheirality, DLT+GN triangulation; parallax
   degeneracy made quantitative.
@@ -70,6 +70,3 @@ bundle, ringgrid detection/bias, rectification (short note — its gate exists),
   ellipse-center bias is already removed inside the `ringgrid` 0.7+
   detector; predicted bias (~0.09 px) is absent from the residual field,
   so the ~0.47 px floor is small-marker localization noise.
-- [rtv3d scale](rtv3d-scale.md) — the oracle-vs-measured
-  scale gap was a pipeline-stage bookkeeping artifact; 5.2 mm cell
-  confirmed, joint-BA hexagon matches the oracle to 0.08 %.

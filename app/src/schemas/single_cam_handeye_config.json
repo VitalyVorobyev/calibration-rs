@@ -44,7 +44,7 @@
           "type": "boolean"
         },
         "fix_tangential": {
-          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (was hard-coded before\nADR 0024 — the tilt/tangential-distortion coupling makes a free\ntangential term ill-posed during the linear stage).",
+          "description": "Fix tangential distortion (p1, p2) during initialization.\n\nDefaults to `false` here; the Scheimpflug intrinsics problem\noverrides its own `init` default to `true` (the tilt/tangential-distortion\ncoupling makes a free tangential term ill-posed during the linear\nstage).",
           "type": "boolean"
         },
         "init_iterations": {
@@ -202,7 +202,7 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Configuration for single-camera hand-eye calibration.\n\nGrouped per ADR 0024: per-camera linear init, hand-eye linear init,\nnon-linear solve, and robot-pose refinement each live in their own\nshared sub-struct. Every group's own `Default` is the plain workspace\ndefault (no per-problem override is needed here, unlike\n`ScheimpflugIntrinsicsConfig`).",
+  "description": "Configuration for single-camera hand-eye calibration.\n\nGrouped by stage: per-camera linear init, hand-eye linear init,\nnon-linear solve, and robot-pose refinement each live in their own\nshared sub-struct. Every group's own `Default` is the plain workspace\ndefault (no per-problem override is needed here, unlike\n`ScheimpflugIntrinsicsConfig`).",
   "properties": {
     "handeye_init": {
       "$ref": "#/$defs/HandeyeInitConfig",

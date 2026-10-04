@@ -199,7 +199,7 @@ pub trait ProblemType: ProblemState + Sized + 'static {
     ///
     /// Called by [`CalibrationSession::export`](super::CalibrationSession::export).
     /// The input + config are provided so exports can attach per-feature
-    /// reprojection residuals (ADR 0012) and other input-dependent diagnostic
+    /// reprojection residuals and other input-dependent diagnostic
     /// data.
     fn export(
         input: &Self::Input,

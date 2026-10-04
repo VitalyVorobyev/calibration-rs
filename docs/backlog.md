@@ -1,7 +1,7 @@
 # Backlog
 
 Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
-(AGENTS.md §11); the CHANGELOG and git history record what landed. The
+(AGENTS.md §9); the CHANGELOG and git history record what landed. The
 [ROADMAP](ROADMAP.md) gives the v1.0 criteria these serve.
 
 ## App
@@ -15,6 +15,37 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
   rejects TS 7 (typescript-eslint#10940), and adopting it would drop the
   type-aware lint config. Revisit when typescript-eslint supports TS 7.
 
+## Solver backends
+
+Run in this order; each lands as one PR.
+
+- [ ] CHORE-DEPS - Dependency refresh: `cargo update` (workspace and
+  `app/src-tauri`, `tiny-solver` held at 0.18.0 until `O-TINYSOLVER-0183`),
+  `calib-targets` 0.12.1 → 0.15, `ringgrid` 0.11 → 0.13, app `bun update`,
+  `@vitavision/ui` 0.11, `json-schema-to-typescript` 16. Re-freeze bench
+  baselines only where detection drift is explained.
+- [ ] O-SOLVER-BENCH - `calib-bench solver`: a deterministic synthetic scene
+  matrix over the eight problem types × scale × pixel noise × outliers (with
+  Huber/Cauchy), recording optimize wall time, iterations, a
+  solver-independent objective ½Σρ(‖r‖²), inlier reprojection RMS and
+  ground-truth parameter errors; JSON records, a Markdown table and
+  `--compare`. Shared geometry generators move into `core::synthetic`.
+- [ ] O-TINYSOLVER-0183 - `tiny-solver` 0.18.3. The in-repo LM measures cost
+  with `Problem::compute_cost` (Σρ, not the squared norm of the
+  loss-corrected residuals, so robust solves stop short today), gains the
+  relative step-size stop, and `SolveReport.final_cost` is defined as
+  ½Σρ. Re-baseline robust-loss tests; state the measured `--compare` deltas.
+- [ ] O-FACTRS-BACKEND - factrs as a first-class second backend:
+  `SolverBackend { TinySolver, Factrs }` selectable through
+  `BackendSolveOptions` and `SolverConfig.backend` (Rust, JSON, Python, app);
+  one shared LM over a linearize/cost/retract trait for both engines; full
+  factor coverage (block fusion for the 6-variable arity limit, a custom
+  S²×ℝ plane variable, masked fixed components, Arctan loss, post-step
+  bounds); cross-backend parity tests; ADR 0025; book "Solver backends".
+- [ ] O-BACKEND-COMPARE - Backend axis in `calib-bench solver` and a backend
+  override in `calib-bench run`; publish the comparison in the book and
+  recommend a default (the default changes only on the user's decision).
+
 ## v1.0
 
 - [ ] D4-RELEASE - Cut v1.0 once the ROADMAP exit criteria hold.
@@ -26,7 +57,9 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
   to compile. `vision-calibration-detect` must stay nalgebra-free (it
   converts to plain arrays at its boundary); that is what lets
   `calib-targets`' nalgebra 0.35 coexist. Re-check on each tiny-solver
-  release.
+  release (0.18.3 is still on 0.34 / 0.23 / 0.7). `factrs` 0.3 pins the
+  same versions, so once `O-FACTRS-BACKEND` lands both backends must
+  move.
 
 ## Deferred and parked
 

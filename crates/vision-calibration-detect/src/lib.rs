@@ -18,8 +18,6 @@
 //! (filesystem read only, no detection re-run); changing detector
 //! params auto-invalidates that detector's entries while leaving
 //! others intact.
-//!
-//! See ADR 0017 for the cache contract.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

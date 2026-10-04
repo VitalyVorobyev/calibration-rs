@@ -1,4 +1,4 @@
-//! Heuristic dataset folder → [`DatasetSpec`] skeleton (ADR 0016 / 0019).
+//! Heuristic dataset folder → [`DatasetSpec`] skeleton.
 //!
 //! [`sniff_folder`] walks a dataset directory and infers **only what is
 //! structurally unambiguous**: camera directories, image globs, robot-pose
@@ -6,7 +6,7 @@
 //! domain knowledge — board geometry, target kind, sensor mode, frame
 //! convention, and the topology when it is genuinely ambiguous — is left at
 //! a best-guess placeholder and its dotted field path is recorded in
-//! [`DatasetSpec::unresolved`]. Per ADR 0019 the runner refuses to proceed
+//! [`DatasetSpec::unresolved`]. The runner refuses to proceed
 //! until that list is cleared, so placeholders are never trusted
 //! numerically; they exist only so the manifest deserializes and the
 //! schema-driven form has something to edit.
@@ -55,7 +55,7 @@ const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "tif", "tiff", "bmp"];
 /// [`unresolved`](DatasetSpec::unresolved) list unless every field could be
 /// inferred (which, for board geometry, never happens in v0). Callers are
 /// expected to surface the unresolved paths to the user and block execution
-/// until they are filled and cleared (ADR 0019).
+/// until they are filled and cleared.
 pub fn sniff_folder(root: &Path) -> Result<DatasetSpec, SniffError> {
     if !root.is_dir() {
         return Err(SniffError::NotADirectory(root.to_path_buf()));

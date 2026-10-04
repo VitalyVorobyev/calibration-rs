@@ -4,7 +4,7 @@
 //! used by `rig_extrinsics`, `rig_handeye`, `rig_laserline_device`, and their
 //! Scheimpflug siblings.
 //!
-//! Per ADR 0013, the shared abstraction is
+//! The shared abstraction is
 //! sensor-axis-only: each workflow module keeps its own `state.rs`,
 //! `problem.rs`, and `steps.rs` and consumes these helpers for sensor-aware
 //! bootstrap. The workflow axis (extrinsics-only / hand-eye / laser-plane)
@@ -84,7 +84,7 @@ pub enum SensorMode {
         ///
         /// Only [`DistortionKind::BrownConrady5`] (the default) is supported:
         /// the joint rig bundle adjustment is Brown-Conrady-typed. Non-BC5
-        /// models are rejected up front by the rig `validate_config` (ADR 0019)
+        /// models are rejected up front by the rig `validate_config`
         /// rather than deep in the solver. The field exists for schema
         /// symmetry with the single-camera Scheimpflug path.
         #[serde(default = "crate::common::config::default_distortion_kind")]
@@ -124,8 +124,7 @@ impl SensorMode {
 ///
 /// **Invariant:** when `scheimpflug` is `Some`, its length equals
 /// `cameras.len()`. Use [`Self::pinhole`] or [`Self::scheimpflug`] to construct
-/// to enforce this; direct field access is allowed inside the pipeline crate
-/// for migration ergonomics.
+/// to enforce this; direct field access is allowed inside the pipeline crate.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct RigSensorBundle {
     pub cameras: Vec<PinholeCamera>,
@@ -168,7 +167,7 @@ impl RigSensorBundle {
 
 /// Manual seeds for the per-camera rig intrinsics bootstrap.
 ///
-/// All fields are `Option<T>` per ADR 0011. A `None` field runs the
+/// All fields are `Option<T>`. A `None` field runs the
 /// corresponding auto step. `per_cam_sensors` is consulted only when
 /// [`bootstrap_rig_intrinsics`] is called with [`SensorFlavour::Scheimpflug`];
 /// supplying it for a pinhole bootstrap is silently ignored.

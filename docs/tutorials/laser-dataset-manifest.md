@@ -2,8 +2,7 @@
 
 How to describe a laser-triangulation dataset in `dataset.toml` so the
 Run workspace (or the `dataset_runner` API) can calibrate
-`LaserlineDevice` / `RigLaserlineDevice` end-to-end. Design record:
-[ADR 0021](../adrs/0021-laser-frame-manifest.md).
+`LaserlineDevice` / `RigLaserlineDevice` end-to-end.
 
 ## Why
 
@@ -30,7 +29,7 @@ hand-eye calibration.
   frozen hand-eye chain, so the laser views do not need to match the
   upstream run's views.
 
-## Walkthrough — rig laserline (rtv3d shape)
+## Walkthrough — rig laserline (Scheimpflug rig, eye-to-hand)
 
 ```toml
 version = 1
@@ -76,7 +75,7 @@ pattern = "laser_*.png"
 Run the hand-eye stage first (`topology = "rig_handeye"`, same cameras
 and poses, no laser fields) and save its export as
 `rig_handeye_export.json`. In the app, both stages are one Run click
-each; the rtv3d presets carry the right config overrides
+each; the matching presets carry the right config overrides
 (Scheimpflug sensors, EyeToHand, `PointToPlane` laser residuals).
 
 Single-camera `LaserlineDevice` is the same minus `robot_poses` /
@@ -124,13 +123,4 @@ The Tauri app's implementation is
   otherwise its plane is unconstrained and the runner fails fast.
 - **Vertical laser lines:** `scan_axis = "rows"` (one point per row).
 - **Re-extraction:** edit `[laser]` and the cache key changes —
-  nothing stale is served. Same contract as detector configs
-  (ADR 0017).
-
-## What to read next
-
-- [ADR 0021](../adrs/0021-laser-frame-manifest.md) — design decisions
-  and the publishing constraint behind the injected extractor.
-- [ADR 0016](../adrs/0016-dataset-manifest.md) — the manifest itself.
-- `app/src-tauri/src/run.rs` (`rtv3d_laser_end_to_end`) — the
-  two-stage acceptance test over the rtv3d dataset.
+  nothing stale is served. Same contract as detector configs.

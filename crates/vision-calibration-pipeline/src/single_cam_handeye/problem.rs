@@ -77,7 +77,7 @@ impl SingleCamHandeyeInput {
 
 /// Configuration for single-camera hand-eye calibration.
 ///
-/// Grouped per ADR 0024: per-camera linear init, hand-eye linear init,
+/// Grouped by stage: per-camera linear init, hand-eye linear init,
 /// non-linear solve, and robot-pose refinement each live in their own
 /// shared sub-struct. Every group's own `Default` is the plain workspace
 /// default (no per-problem override is needed here, unlike
@@ -164,7 +164,7 @@ pub struct SingleCamHandeyeExport {
     /// Per-camera reprojection errors (pixels). Single element for single-camera.
     pub per_cam_reproj_errors: Vec<f64>,
 
-    /// Per-feature reprojection residuals (ADR 0012). Single-camera, target
+    /// Per-feature reprojection residuals. Single-camera, target
     /// only. Per-view `cam_se3_target` is derived from the handeye chain
     /// (see [`handeye_observer_se3_target`](vision_calibration_optim::handeye_observer_se3_target)).
     #[serde(default)]

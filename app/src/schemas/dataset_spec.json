@@ -21,7 +21,7 @@
               "type": "null"
             }
           ],
-          "description": "Laser-frame image source for the laser topologies (ADR 0021).\nOne laser image per view, captured by the same sensor with the\nline projector on; `roi_xywh` applies to laser frames too.\nLaser images pair with target views through `pose_pairing`."
+          "description": "Laser-frame image source for the laser topologies.\nOne laser image per view, captured by the same sensor with the\nline projector on; `roi_xywh` applies to laser frames too.\nLaser images pair with target views through `pose_pairing`."
         },
         "roi_xywh": {
           "description": "Optional rectangular ROI in source-image pixels — `[x, y, w, h]`.\nWhen set, only the cropped region is fed to the detector and\nstored in the export's image manifest.",
@@ -166,7 +166,7 @@
     },
     "LaserExtractionSpec": {
       "additionalProperties": false,
-      "description": "Laser-line extraction parameters (ADR 0021). Consumed by the\nrunner's injected `LaserPixelExtractor`; hashed (canonical JSON)\ninto the detection-cache key so edits re-extract.",
+      "description": "Laser-line extraction parameters. Consumed by the\nrunner's injected `LaserPixelExtractor`; hashed (canonical JSON)\ninto the detection-cache key so edits re-extract.",
       "properties": {
         "min_points": {
           "default": 20,
@@ -715,7 +715,7 @@
           "type": "null"
         }
       ],
-      "description": "Laser-line extraction parameters for the laser topologies.\n`None` means defaults (ADR 0021) — extraction tuning has safe\ndefaults and is not a fail-fast ambiguity. Rejected on\nnon-laser topologies."
+      "description": "Laser-line extraction parameters for the laser topologies.\n`None` means defaults — extraction tuning has safe\ndefaults and is not a fail-fast ambiguity. Rejected on\nnon-laser topologies."
     },
     "pose_convention": {
       "anyOf": [
