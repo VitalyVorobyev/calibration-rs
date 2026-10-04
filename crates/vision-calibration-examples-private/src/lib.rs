@@ -337,7 +337,7 @@ pub fn detect_charuco(
     let corners = detect::detect_corners(tile, &chess_config);
     let detector = CharucoDetector::new(params).map_err(|e| anyhow!("charuco detector: {e}"))?;
     let detection = detector
-        .detect(&detect::gray_view(tile), &corners)
+        .detect_with_corners(&detect::gray_view(tile), &corners)
         .map_err(|e| anyhow!("charuco detect: {e}"))?;
 
     let mut points_3d = Vec::with_capacity(detection.corners.len());

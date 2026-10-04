@@ -12,6 +12,9 @@
 //! * `canonical_config_hash` is the hash of the detector config
 //!   serialized to JSON with sorted keys, so semantically equal
 //!   configs produce identical keys regardless of struct field order.
+//!   [`CacheKey::for_detector`] hashes the config together with this
+//!   crate's release and the detector's output revision, so upgrading the
+//!   detector stack recomputes cached detections.
 //!
 //! The default [`FsDetectionCache`] persists entries as JSON files
 //! under `<root>/<key>.json`. Tests can use it with a `tempfile::tempdir()`
@@ -60,18 +63,23 @@ impl CacheKey {
     }
 
     /// Build the key of one detection by `detector`: [`Self::from_inputs`]
-    /// on its name and `config`, with its
-    /// [`output_revision`](Detector::output_revision), when set, added to
-    /// the config as `_revision`.
+    /// on its name and `config`, together with this crate's release and the
+    /// detector's [`output_revision`](Detector::output_revision), when set.
+    ///
+    /// Keying on the release means an upgrade of the detector stack — this
+    /// crate or the target-detection crates it wraps — recomputes cached
+    /// detections instead of serving the previous detector's output.
     pub fn for_detector(image_bytes: &[u8], detector: &dyn Detector, config: &Value) -> Self {
-        let Some(revision) = detector.output_revision() else {
-            return Self::from_inputs(image_bytes, detector.name(), config);
-        };
-        let mut config = config.clone();
-        if let Value::Object(map) = &mut config {
-            map.insert("_revision".to_string(), Value::from(revision));
+        let mut keyed = serde_json::Map::new();
+        keyed.insert("config".to_string(), config.clone());
+        keyed.insert(
+            "release".to_string(),
+            Value::from(env!("CARGO_PKG_VERSION")),
+        );
+        if let Some(revision) = detector.output_revision() {
+            keyed.insert("revision".to_string(), Value::from(revision));
         }
-        Self::from_inputs(image_bytes, detector.name(), &config)
+        Self::from_inputs(image_bytes, detector.name(), &Value::Object(keyed))
     }
 
     /// Filename-safe encoding (`<image>-<detector>-<config>.json`).
@@ -215,16 +223,25 @@ mod tests {
 
     #[test]
     #[cfg(all(feature = "chessboard", feature = "puzzleboard"))]
-    fn detector_keys_carry_the_output_revision() {
+    fn detector_keys_carry_the_release_and_output_revision() {
         let config = json!({ "rows": 17, "cols": 28, "square_size_m": 0.02 });
-        assert_ne!(
+        let release = env!("CARGO_PKG_VERSION");
+        assert_eq!(
             CacheKey::for_detector(b"img", &crate::ChessboardDetector, &config),
-            CacheKey::from_inputs(b"img", "chessboard", &config)
+            CacheKey::from_inputs(
+                b"img",
+                "chessboard",
+                &json!({ "config": config, "release": release, "revision": 2 })
+            )
         );
-        // A detector without a revision keeps the plain key.
+        // A detector without a revision is keyed on the release alone.
         assert_eq!(
             CacheKey::for_detector(b"img", &crate::PuzzleboardDetector, &config),
-            CacheKey::from_inputs(b"img", "puzzleboard", &config)
+            CacheKey::from_inputs(
+                b"img",
+                "puzzleboard",
+                &json!({ "config": config, "release": release })
+            )
         );
     }
 

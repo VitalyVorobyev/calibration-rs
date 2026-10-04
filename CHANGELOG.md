@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   design records. The app README is a user guide. The tutorial built on a
   private dataset is removed, and the book's link and install version are
   corrected.
+- **Detector dependencies.** `calib-targets` 0.15 (with `chess-corners`
+  1.3) and `ringgrid` 0.13. Chessboard and ChArUco calibrations of the
+  bundled datasets and ring-grid detections are unchanged; on a real
+  puzzleboard rig the new decoder recovers up to 11 % more corners per
+  camera. The app moves to Tauri 2.12.1.
+
+### Fixed
+
+- **Detection caches follow detector upgrades.** A cache entry is keyed on
+  the `vision-calibration-detect` release as well as the image, detector
+  and config, so upgrading recomputes detections instead of serving those
+  of the previous detector. Existing caches are recomputed once.
 
 ## [0.9.0] - 2026-09-29
 
