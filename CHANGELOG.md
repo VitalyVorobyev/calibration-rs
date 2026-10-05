@@ -47,7 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generator is deterministic for a given seed.
 - **`calib-bench solver`.** A deterministic synthetic benchmark of the
   non-linear solve across the eight problem types, with JSON records,
-  Markdown tables and a `compare` subcommand.
+  Markdown tables and a `compare` subcommand. `--backend` picks the solver
+  backend for every scene, so `compare` doubles as a backend comparison;
+  `calib-bench run` and `accept` take `--backend` too.
 
 ### Changed
 

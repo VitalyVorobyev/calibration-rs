@@ -117,6 +117,42 @@ cannot map, with an `InvalidInput` error: a partially fixed SE(3) or S²
 block, bounds on a non-vector block, or one camera's parameter blocks
 combined differently in two factors.
 
+## Performance and Quality
+
+Measured on a synthetic benchmark of the eight workflows: 150 scenes across
+three sizes (8 to 36 views), two pixel-noise levels and 5 % outliers under
+Huber or Cauchy losses, timed as the median of three runs on an Apple M4 Pro
+(8 performance + 4 efficiency cores). Times are the median non-linear solve
+per scene, all stages included.
+
+| Problem | tiny-solver | factrs | factrs / tiny-solver | final-cost agreement |
+|---|---:|---:|---:|---:|
+| Planar intrinsics | 27 ms | 33 ms | 1.24× | ≤ 4e-07 |
+| Scheimpflug intrinsics | 195 ms | 423 ms | 2.19× | ≤ 3e-07 |
+| Single-camera hand-eye | 186 ms | 254 ms | 1.39× | ≤ 1e-08 |
+| Laserline device | 73 ms | 158 ms | 2.14× | ≤ 2e-05 |
+| Rig extrinsics | 92 ms | 135 ms | 1.49× | ≤ 9e-06 |
+| Rig extrinsics (Scheimpflug) | 388 ms | 791 ms | 2.04× | ≤ 4e-07 |
+| Rig hand-eye | 414 ms | 611 ms | 1.46× | ≤ 2e-04 |
+| Rig laserline | 28 ms | 70 ms | 2.48× | — |
+| Rig hand-eye + laser | 819 ms | 1499 ms | 1.68× | ≤ 2e-05 |
+
+**Quality is the same.** The backends end at the same final cost (the
+largest relative difference is 2e-4, typically below 1e-7), take the same
+number of iterations in 137 of 144 scenes, and recover the same parameters.
+
+**Speed depends on the cores available.** tiny-solver evaluates residual
+blocks in parallel; factrs evaluates them on one thread. On a single thread
+factrs is 2.4–3.3× *faster* (measured on the planar intrinsics, laserline
+device and rig hand-eye scenes); its dual numbers have a fixed size and live
+on the stack, while tiny-solver's are allocated on the heap. With all cores,
+tiny-solver's 3.7–5.7× parallel speed-up wins.
+
+**Which to use.** tiny-solver, the default, is faster whenever the solve has
+the machine's cores to itself. factrs uses a core more efficiently, so it is
+the better choice when cores are scarce: a single-threaded deployment, or an
+application running many calibrations at once.
+
 ## Solver Options
 
 ```rust

@@ -1,10 +1,10 @@
 //! Serializable records of a solver benchmark run.
 //!
-//! New optional fields (for example a solver `backend`) are added with
+//! New optional fields (the solver `backend`, for example) are added with
 //! `#[serde(default)]`, so reports written by older builds keep loading.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_optim::SolveReport;
+use vision_calibration_optim::{SolveReport, SolverBackend};
 
 use super::metrics::QualityMetrics;
 use super::scenes::SceneSpec;
@@ -121,6 +121,9 @@ impl SolverRunRecord {
 pub struct SolverBenchReport {
     /// [`SOLVER_SCHEMA_VERSION`].
     pub schema_version: u32,
+    /// Solver backend every scene ran on.
+    #[serde(default)]
+    pub backend: SolverBackend,
     /// Git SHA the binary ran from.
     pub git_sha: String,
     /// Run start, Unix epoch seconds.

@@ -17,7 +17,7 @@ use vision_calibration::core::{
 };
 use vision_calibration::laserline_device::{LaserlineDeviceConfig, LaserlineDeviceInput};
 use vision_calibration::optim::{
-    HandEyeMode, LaserPlane, LaserlineMeta, RobotPoseMeta, RobustLoss,
+    HandEyeMode, LaserPlane, LaserlineMeta, RobotPoseMeta, RobustLoss, SolverBackend,
 };
 use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
 use vision_calibration::rig_extrinsics::{
@@ -28,7 +28,7 @@ use vision_calibration::rig_handeye_laserline::{
     RigHandeyeLaserlineConfig, RigHandeyeLaserlineInput, RigHandeyeLaserlineView, RigLaserlineView,
 };
 use vision_calibration::rig_laserline_device::{
-    RigLaserlineDataset, RigLaserlineDeviceInput, RigUpstreamCalibration,
+    RigLaserlineDataset, RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigUpstreamCalibration,
 };
 use vision_calibration::scheimpflug_intrinsics::{
     ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsInput, ScheimpflugManualInit,
@@ -355,6 +355,8 @@ pub enum SceneData {
     RigLaserline {
         /// Input (dataset + upstream calibration).
         input: RigLaserlineDeviceInput,
+        /// Solver configuration.
+        config: RigLaserlineDeviceConfig,
     },
     /// Joint rig hand-eye + laser.
     RigHandeyeLaserline {
@@ -363,6 +365,26 @@ pub enum SceneData {
         /// Solver configuration.
         config: RigHandeyeLaserlineConfig,
     },
+}
+
+impl SceneData {
+    /// Solve every stage of the scene's problem with `backend`.
+    pub fn set_backend(&mut self, backend: SolverBackend) {
+        match self {
+            SceneData::Planar { config, .. } => config.solver.backend = backend,
+            SceneData::Scheimpflug { config, .. } => config.solver.backend = backend,
+            SceneData::SingleCamHandeye { config, .. } => config.solver.backend = backend,
+            SceneData::Laserline { config, .. } => config.solver.backend = backend,
+            SceneData::Rig { config, .. } => config.solver.backend = backend,
+            SceneData::RigHandeye { config, .. } => config.solver.backend = backend,
+            SceneData::RigLaserline { config, .. } => config.solver.backend = backend,
+            SceneData::RigHandeyeLaserline { config, .. } => {
+                config.handeye.solver.backend = backend;
+                config.laserline_init.solver.backend = backend;
+                config.joint_ba.solver.backend = backend;
+            }
+        }
+    }
 }
 
 /// A generated scene.
@@ -1157,6 +1179,7 @@ fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
                 upstream,
                 initial_planes_cam: None,
             },
+            config: RigLaserlineDeviceConfig::default(),
         },
     })
 }

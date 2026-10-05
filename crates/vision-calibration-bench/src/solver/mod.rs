@@ -30,15 +30,17 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use metrics::{GtErrors, QualityMetrics};
 use record::{RunStatus, SOLVER_SCHEMA_VERSION, SolverBenchReport, SolverRunRecord};
 use scenes::{Preset, Problem, Scene, SceneSpec, scene_specs};
+use vision_calibration::optim::SolverBackend;
 
 /// Default number of timed repeats per scene.
 pub const DEFAULT_REPEATS: usize = 3;
 
-/// Generate, solve and score one scene. Never fails: errors (including
-/// panics inside a solver) become an `Error` record.
-pub fn run_scene(spec: &SceneSpec, repeats: usize) -> SolverRunRecord {
+/// Generate, solve and score one scene on `backend`. Never fails: errors
+/// (including panics inside a solver) become an `Error` record.
+pub fn run_scene(spec: &SceneSpec, repeats: usize, backend: SolverBackend) -> SolverRunRecord {
     let attempt = catch_unwind(AssertUnwindSafe(|| -> anyhow::Result<SolverRunRecord> {
-        let scene = Scene::build(spec)?;
+        let mut scene = Scene::build(spec)?;
+        scene.data.set_backend(backend);
         let measured = drivers::measure(&scene, repeats)?;
         let metrics = QualityMetrics::evaluate(
             &measured.residuals,
@@ -62,16 +64,22 @@ pub fn run_scene(spec: &SceneSpec, repeats: usize) -> SolverRunRecord {
     }
 }
 
-/// Run a preset. `filter` restricts the run to the listed problems (empty =
-/// all). Scenes run sequentially in preset order.
-pub fn run(preset: Preset, repeats: usize, filter: &[Problem]) -> SolverBenchReport {
+/// Run a preset on `backend`. `filter` restricts the run to the listed
+/// problems (empty = all). Scenes run sequentially in preset order.
+pub fn run(
+    preset: Preset,
+    repeats: usize,
+    filter: &[Problem],
+    backend: SolverBackend,
+) -> SolverBenchReport {
     let records = scene_specs(preset)
         .into_iter()
         .filter(|s| filter.is_empty() || filter.contains(&s.problem))
-        .map(|spec| run_scene(&spec, repeats))
+        .map(|spec| run_scene(&spec, repeats, backend))
         .collect();
     SolverBenchReport {
         schema_version: SOLVER_SCHEMA_VERSION,
+        backend,
         git_sha: crate::record::git_sha(),
         timestamp_unix_secs: crate::record::unix_epoch_secs_string(),
         preset: preset.to_string(),
@@ -117,6 +125,14 @@ fn gt_summary(gt: &GtErrors) -> String {
     parts.join(", ")
 }
 
+/// The serde spelling of a backend (`tiny_solver` / `factrs`).
+pub fn backend_name(backend: SolverBackend) -> String {
+    serde_json::to_value(backend)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| format!("{backend:?}"))
+}
+
 fn opt(v: Option<f64>, f: impl Fn(f64) -> String) -> String {
     v.map_or_else(|| "-".to_string(), f)
 }
@@ -126,7 +142,8 @@ pub fn render_markdown(report: &SolverBenchReport) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "# Solver benchmark ({} preset, {} repeats, {})\n",
+        "# Solver benchmark ({} backend, {} preset, {} repeats, {})\n",
+        backend_name(report.backend),
         report.preset,
         report.repeats,
         &report.git_sha[..report.git_sha.len().min(10)]
@@ -204,6 +221,10 @@ pub struct SceneComparison {
     pub optimize_ratio: Option<f64>,
     /// `(b.objective - a.objective) / |a.objective|`.
     pub objective_rel_delta: Option<f64>,
+    /// Relative change of the backend's own `SolveReport.final_cost` (the
+    /// full robust objective, laser terms and priors included). Both
+    /// backends report `½ Σ ρ`, so it compares across them.
+    pub final_cost_rel_delta: Option<f64>,
     /// `b.inlier_rms - a.inlier_rms`, pixels.
     pub inlier_rms_delta: Option<f64>,
     /// `(name, a, b)` for every ground-truth error present in both.
@@ -215,6 +236,8 @@ pub struct SceneComparison {
 /// Result of comparing two reports.
 #[derive(Debug, Clone, Default)]
 pub struct Comparison {
+    /// Backends of the `(a, b)` reports.
+    pub backends: (SolverBackend, SolverBackend),
     /// Scenes present in both, in `a` order.
     pub matched: Vec<SceneComparison>,
     /// Scene ids only in `a`.
@@ -236,7 +259,10 @@ pub fn compare(a: &SolverBenchReport, b: &SolverBenchReport) -> Comparison {
         b.records.iter().map(|r| (r.scene.id(), r)).collect();
     let ids_a: std::collections::BTreeSet<String> =
         a.records.iter().map(|r| r.scene.id()).collect();
-    let mut out = Comparison::default();
+    let mut out = Comparison {
+        backends: (a.backend, b.backend),
+        ..Comparison::default()
+    };
     for ra in &a.records {
         let id = ra.scene.id();
         match index_b.get(&id) {
@@ -257,6 +283,7 @@ fn compare_scene(id: String, a: &SolverRunRecord, b: &SolverRunRecord) -> SceneC
         id,
         optimize_ratio: None,
         objective_rel_delta: None,
+        final_cost_rel_delta: None,
         inlier_rms_delta: None,
         gt: Vec::new(),
         regressions: Vec::new(),
@@ -275,6 +302,14 @@ fn compare_scene(id: String, a: &SolverRunRecord, b: &SolverRunRecord) -> SceneC
         c.optimize_ratio = Some(ratio);
         if ratio > TIME_RATIO_REGRESSION && tb.optimize_ms > TIME_FLOOR_MS {
             c.regressions.push(format!("optimize {ratio:.2}x slower"));
+        }
+    }
+    if let (Some(ra), Some(rb)) = (&a.solve_report, &b.solve_report) {
+        let rel = (rb.final_cost - ra.final_cost) / ra.final_cost.abs().max(f64::MIN_POSITIVE);
+        c.final_cost_rel_delta = Some(rel);
+        if rel > OBJECTIVE_REL_REGRESSION {
+            c.regressions
+                .push(format!("final cost +{:.2}%", rel * 100.0));
         }
     }
     if let (Some(ma), Some(mb)) = (&a.metrics, &b.metrics) {
@@ -304,12 +339,16 @@ fn compare_scene(id: String, a: &SolverRunRecord, b: &SolverRunRecord) -> SceneC
 
 /// Render a comparison as Markdown.
 pub fn render_comparison(cmp: &Comparison) -> String {
-    let mut out = String::from("# Solver benchmark comparison (b vs a)\n\n");
+    let mut out = format!(
+        "# Solver benchmark comparison (b: {} vs a: {})\n\n",
+        backend_name(cmp.backends.1),
+        backend_name(cmp.backends.0)
+    );
     let _ = writeln!(
         out,
-        "| scene | optimize x | Δ objective | Δ inlier RMS px | GT errors a -> b | flags |"
+        "| scene | optimize x | Δ final cost | Δ objective | Δ inlier RMS px | GT errors a -> b | flags |"
     );
-    let _ = writeln!(out, "|---|---:|---:|---:|---|---|");
+    let _ = writeln!(out, "|---|---:|---:|---:|---:|---|---|");
     for s in &cmp.matched {
         let gt =
             s.gt.iter()
@@ -318,9 +357,10 @@ pub fn render_comparison(cmp: &Comparison) -> String {
                 .join(", ");
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} |",
             s.id,
             opt(s.optimize_ratio, |v| format!("{v:.2}")),
+            opt(s.final_cost_rel_delta, |v| format!("{:+.3e}", v)),
             opt(s.objective_rel_delta, |v| format!("{:+.3e}", v)),
             opt(s.inlier_rms_delta, |v| format!("{v:+.4}")),
             gt,
@@ -389,6 +429,7 @@ mod tests {
     fn report(records: Vec<SolverRunRecord>) -> SolverBenchReport {
         SolverBenchReport {
             schema_version: SOLVER_SCHEMA_VERSION,
+            backend: SolverBackend::TinySolver,
             git_sha: "x".into(),
             timestamp_unix_secs: "0".into(),
             preset: "quick".into(),

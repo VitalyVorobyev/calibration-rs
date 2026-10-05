@@ -26,7 +26,9 @@ use vision_calibration_dataset::DatasetSpec;
 /// Re-exported so callers naming [`DetectorOverride::chess_corners`] do not
 /// need a direct `vision-calibration-dataset` dependency.
 pub use vision_calibration_dataset::{ChessCornersDetectorSpec, CornerStrategySpec};
-use vision_calibration_optim::{DistortionKind, HandEyeMode, RobustLoss, ScheimpflugFixMask};
+use vision_calibration_optim::{
+    DistortionKind, HandEyeMode, RobustLoss, ScheimpflugFixMask, SolverBackend,
+};
 use vision_calibration_pipeline::common::config::RobotPoseConfig;
 use vision_calibration_pipeline::rig_handeye::{RigHandeyeConfig, SensorMode};
 use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
@@ -120,6 +122,10 @@ pub struct BenchEntry {
     /// Rig hand-eye configuration overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rig_handeye: Option<RigHandeyeOverride>,
+    /// Solver backend for every non-linear stage of `run` / `accept`
+    /// (`calib-bench run --backend` sets it); `None` = the default backend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solver_backend: Option<SolverBackend>,
     /// Stability-sampling configuration.
     #[serde(default)]
     pub stability: StabilityCfg,
@@ -129,6 +135,13 @@ pub struct BenchEntry {
     /// Free-form notes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+}
+
+impl BenchEntry {
+    /// The solver backend this entry runs on.
+    pub fn solver_backend(&self) -> SolverBackend {
+        self.solver_backend.unwrap_or_default()
+    }
 }
 
 /// Hard per-dataset acceptance gate (`calib-bench accept`).
@@ -765,6 +778,7 @@ mod tests {
                     robot_trans_sigma: None,
                 }),
             }),
+            solver_backend: Some(SolverBackend::Factrs),
             stability: StabilityCfg::default(),
             crossval: CrossvalCfg::default(),
             notes: Some("real-data acceptance".into()),

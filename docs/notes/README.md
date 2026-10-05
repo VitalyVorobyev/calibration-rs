@@ -58,7 +58,14 @@ bundle, ringgrid detection/bias, rectification (short note — its gate exists),
   it joins scenes by id and flags optimize-time ratio, objective,
   inlier-RMS and ground-truth-error regressions. Timings are
   machine-specific, so compare runs from one machine; the objective and
-  error columns are comparable anywhere.
+  error columns are comparable anywhere. `--backend factrs` runs every scene
+  on the factrs backend (the report records it), so
+  `compare tiny.json factrs.json` is a backend comparison, which also
+  compares the solvers' own `final_cost` (½Σρ for both). The reference
+  comparison (Apple M4 Pro, 2026-10-05) is in
+  `crates/vision-calibration-bench/results/solver-backends/`; the book's
+  "Solver Backends" chapter summarizes it. `calib-bench run` / `accept`
+  take `--backend` too (every non-linear stage of a dataset).
 
 ## Notes
 

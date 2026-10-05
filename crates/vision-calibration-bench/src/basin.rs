@@ -130,7 +130,7 @@ mod tier_b {
         label: &str,
     ) -> bool {
         let seeded = cell.apply(seed);
-        match solve_scheimpflug_seeded(dataset.clone(), seeded, label) {
+        match solve_scheimpflug_seeded(dataset.clone(), seeded, label, Default::default()) {
             Ok(solve) => {
                 let errors: Vec<f64> = solve
                     .export
@@ -441,6 +441,7 @@ mod tier_b {
                 }),
                 single_cam_handeye: None,
                 rig_handeye: None,
+                solver_backend: None,
                 stability: Default::default(),
                 crossval: Default::default(),
                 notes: None,
