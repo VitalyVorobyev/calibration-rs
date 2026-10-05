@@ -2,10 +2,10 @@
 //!
 //! Each test builds a synthetic ground-truth camera, generates planar observations,
 //! constructs a `ProblemIR` by hand using the new `CameraModelDesc` constants,
-//! perturbs the initial values, solves via the tiny-solver backend, and asserts
+//! perturbs the initial values, solves with each backend, and asserts
 //! convergence to ground truth within tight tolerances.
 
-use crate::backend::{BackendKind, BackendSolveOptions, solve_with_backend};
+use crate::backend::{self, BackendSolveOptions, SolverBackend};
 use crate::ir::{
     CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
     RobustLoss,
@@ -71,8 +71,9 @@ fn perturbed_intrinsics() -> FxFyCxCySkew<Real> {
     }
 }
 
-fn backend_opts() -> BackendSolveOptions {
+fn backend_opts(backend: SolverBackend) -> BackendSolveOptions {
     BackendSolveOptions {
+        backend,
         max_iters: 200,
         verbosity: 0,
         min_abs_decrease: Some(1e-14),
@@ -88,6 +89,15 @@ fn backend_opts() -> BackendSolveOptions {
 
 #[test]
 fn rational_optimization_synthetic() {
+    rational_case(SolverBackend::TinySolver);
+}
+
+#[test]
+fn rational_optimization_synthetic_factrs() {
+    rational_case(SolverBackend::Factrs);
+}
+
+fn rational_case(engine: SolverBackend) {
     let intrinsics_gt = gt_intrinsics();
 
     let dist_gt = RationalPolynomial {
@@ -181,7 +191,7 @@ fn rational_optimization_synthetic() {
 
     ir.validate().expect("rational IR must be valid");
 
-    let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts())
+    let solution = backend::solve(&ir, &initial_map, &backend_opts(engine))
         .expect("rational optimization must succeed");
 
     let cam_final = solution.params.get("cam").unwrap();
@@ -223,6 +233,15 @@ fn rational_optimization_synthetic() {
 
 #[test]
 fn division_optimization_synthetic() {
+    division_case(SolverBackend::TinySolver);
+}
+
+#[test]
+fn division_optimization_synthetic_factrs() {
+    division_case(SolverBackend::Factrs);
+}
+
+fn division_case(engine: SolverBackend) {
     let intrinsics_gt = gt_intrinsics();
     let lambda_gt: Real = -0.3;
     let dist_gt = Division { lambda: lambda_gt };
@@ -308,7 +327,7 @@ fn division_optimization_synthetic() {
 
     ir.validate().expect("division IR must be valid");
 
-    let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts())
+    let solution = backend::solve(&ir, &initial_map, &backend_opts(engine))
         .expect("division optimization must succeed");
 
     let cam_final = solution.params.get("cam").unwrap();

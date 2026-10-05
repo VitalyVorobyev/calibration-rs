@@ -9,7 +9,7 @@
 //! of freedom.
 
 use crate::Error;
-use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
+use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
     CameraModelDesc, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
@@ -194,7 +194,7 @@ pub fn optimize_handeye_scheimpflug(
     backend_opts: BackendSolveOptions,
 ) -> Result<HandEyeScheimpflugEstimate, Error> {
     let (ir, initial_map) = build_handeye_scheimpflug_ir(&dataset, &initial, &opts)?;
-    let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)?;
+    let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
 
     let cameras = (0..dataset.data.num_cameras)
         .map(|cam_idx| {

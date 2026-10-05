@@ -4,7 +4,7 @@
 //! enabling robust loss to operate per point rather than per view.
 
 use crate::Error;
-use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
+use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
     CameraModelDesc, DistortionKind, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
@@ -355,7 +355,7 @@ fn build_planar_intrinsics_ir(
     Ok((ir, initial_map))
 }
 
-/// Optimize planar intrinsics using the default tiny-solver backend.
+/// Optimize planar intrinsics with the backend `backend_opts` selects.
 ///
 /// # Errors
 ///
@@ -366,31 +366,10 @@ pub fn optimize_planar_intrinsics(
     opts: PlanarIntrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
 ) -> Result<PlanarIntrinsicsEstimate, Error> {
-    optimize_planar_intrinsics_with_backend(
-        dataset,
-        initial,
-        opts,
-        BackendKind::TinySolver,
-        backend_opts,
-    )
-}
-
-/// Optimize planar intrinsics using the selected backend.
-///
-/// # Errors
-///
-/// Returns [`Error`] if IR construction or solver backend fails.
-pub fn optimize_planar_intrinsics_with_backend(
-    dataset: &PlanarDataset,
-    initial: &PlanarIntrinsicsParams,
-    opts: PlanarIntrinsicsSolveOptions,
-    backend: BackendKind,
-    backend_opts: BackendSolveOptions,
-) -> Result<PlanarIntrinsicsEstimate, Error> {
     let kind = distortion_params_to_kind(&initial.camera.distortion);
 
     let (ir, initial_map) = build_planar_intrinsics_ir(dataset, initial, &opts)?;
-    let solution = solve_with_backend(backend, &ir, &initial_map, &backend_opts)?;
+    let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
 
     let cam_vec = solution
         .params

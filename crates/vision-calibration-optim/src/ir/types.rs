@@ -126,6 +126,65 @@ pub enum RobustLoss {
     },
 }
 
+impl RobustLoss {
+    /// The loss `ρ(s)` at a squared residual norm `s = ‖r‖²`, in the Ceres
+    /// convention: `ρ(s) = s` without a loss; Huber `2k√s − k²` beyond
+    /// `s = k²`; Cauchy `k² ln(1 + s/k²)`; Arctan `k·atan(s/k)`. A residual
+    /// block contributes `½ ρ(‖r‖²)` to the objective.
+    pub fn rho(self, s: f64) -> f64 {
+        match self {
+            RobustLoss::None => s,
+            RobustLoss::Huber { scale: k } => {
+                if s > k * k {
+                    2.0 * k * s.sqrt() - k * k
+                } else {
+                    s
+                }
+            }
+            RobustLoss::Cauchy { scale: k } => {
+                let k2 = k * k;
+                k2 * (1.0 + s * (1.0 / k2)).ln()
+            }
+            RobustLoss::Arctan { scale: k } => k * s.atan2(k),
+        }
+    }
+
+    /// `ρ′(s)`, the derivative of [`rho`](Self::rho): a block's weight in
+    /// an iteratively reweighted linearization.
+    pub(crate) fn rho_prime(self, s: f64) -> f64 {
+        match self {
+            RobustLoss::None => 1.0,
+            RobustLoss::Huber { scale: k } => {
+                if s > k * k {
+                    (k / s.sqrt()).max(f64::MIN)
+                } else {
+                    1.0
+                }
+            }
+            RobustLoss::Cauchy { scale: k } => (1.0 / (1.0 + s * (1.0 / (k * k)))).max(f64::MIN),
+            RobustLoss::Arctan { scale: k } => {
+                (1.0 / (1.0 + s * s * (1.0 / (k * k)))).max(f64::MIN)
+            }
+        }
+    }
+
+    /// Rejects a non-positive or NaN scale.
+    fn validate(self) -> Result<(), Error> {
+        let (name, scale) = match self {
+            RobustLoss::None => return Ok(()),
+            RobustLoss::Huber { scale } => ("Huber", scale),
+            RobustLoss::Cauchy { scale } => ("Cauchy", scale),
+            RobustLoss::Arctan { scale } => ("Arctan", scale),
+        };
+        if scale.is_nan() || scale <= 0.0 {
+            return Err(Error::invalid_input(format!(
+                "{name} scale must be positive"
+            )));
+        }
+        Ok(())
+    }
+}
+
 /// Hand-eye calibration mode.
 ///
 /// Specifies the transform chain used for hand-eye calibration.
@@ -286,8 +345,7 @@ impl CameraModelDesc {
     };
 
     /// Number of leading camera parameter blocks implied by the descriptor.
-    #[cfg(test)]
-    pub fn num_cam_blocks(self) -> usize {
+    pub(crate) fn num_cam_blocks(self) -> usize {
         1 + usize::from(self.distortion.dim() > 0) + usize::from(self.sensor.dim() > 0)
     }
 
@@ -725,6 +783,7 @@ impl ProblemIR {
         }
 
         for (r_idx, residual) in self.residuals.iter().enumerate() {
+            residual.loss.validate()?;
             if residual.residual_dim != residual.factor.residual_dim() {
                 return Err(Error::invalid_input(format!(
                     "residual {} dim {} does not match factor expectation {}",
@@ -775,6 +834,57 @@ impl ProblemIR {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `ρ` and `ρ′` are the tiny-solver losses' values bit for bit, and `ρ′`
+    /// is the derivative of `ρ`.
+    #[test]
+    fn robust_loss_matches_tiny_solver_and_differentiates() {
+        use tiny_solver::loss_functions::{ArctanLoss, CauchyLoss, HuberLoss, Loss};
+        let k = 1.7;
+        let cases: [(RobustLoss, Option<Box<dyn Loss>>); 4] = [
+            (RobustLoss::None, None),
+            (
+                RobustLoss::Huber { scale: k },
+                Some(Box::new(HuberLoss::new(k))),
+            ),
+            (
+                RobustLoss::Cauchy { scale: k },
+                Some(Box::new(CauchyLoss::new(k))),
+            ),
+            (
+                RobustLoss::Arctan { scale: k },
+                Some(Box::new(ArctanLoss::new(k))),
+            ),
+        ];
+        for (loss, tiny) in cases {
+            for s in [0.0, 1e-6, 0.3, 2.0, k * k, 7.5, 400.0] {
+                let [rho, rho1, _] = tiny.as_ref().map_or([s, 1.0, 0.0], |l| l.evaluate(s));
+                assert_eq!(loss.rho(s), rho, "{loss:?} rho({s})");
+                assert_eq!(loss.rho_prime(s), rho1, "{loss:?} rho'({s})");
+                if s > 0.0 && s != k * k {
+                    let h = 1e-6 * s.max(1e-3);
+                    let fd = (loss.rho(s + h) - loss.rho(s - h)) / (2.0 * h);
+                    assert!(
+                        (fd - loss.rho_prime(s)).abs() < 1e-6,
+                        "{loss:?} rho'({s}) = {} vs finite difference {fd}",
+                        loss.rho_prime(s)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn validate_rejects_non_positive_loss_scales() {
+        for loss in [
+            RobustLoss::Huber { scale: 0.0 },
+            RobustLoss::Cauchy { scale: -1.0 },
+            RobustLoss::Arctan { scale: f64::NAN },
+        ] {
+            assert!(loss.validate().is_err(), "{loss:?}");
+        }
+        assert!(RobustLoss::Huber { scale: 1.0 }.validate().is_ok());
+    }
 
     const MODELS: [CameraModelDesc; 3] = [
         CameraModelDesc::PINHOLE4,

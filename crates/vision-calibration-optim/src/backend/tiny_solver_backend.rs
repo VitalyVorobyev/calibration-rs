@@ -2,19 +2,12 @@ use crate::Error;
 use crate::backend::lm::{self, LinearizationEngine, LmSolution};
 use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
 use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveReport};
-use crate::factors::camera_kernels::{
-    BrownConrady5Kernel, DistortionKernel, DivisionKernel, IdentitySensorKernel,
-    NoDistortionKernel, PinholeKernel, ProjectionKernel, RationalKernel, Scheimpflug2Kernel,
-    SensorKernel, ThinPrismKernel,
-};
+use crate::factors::camera_kernels::{DistortionKernel, ProjectionKernel, SensorKernel};
 use crate::factors::laserline::{
     laser_line_distance_model_generic, laser_point_to_plane_model_generic,
 };
 use crate::factors::reprojection_model::reproj_residual_model_generic;
-use crate::ir::{
-    DistortionKind, FactorKind, LaserChain, ManifoldKind, ProblemIR, ProjectionKind, ReprojChain,
-    RobustLoss, SensorKind,
-};
+use crate::ir::{FactorKind, LaserChain, ManifoldKind, ProblemIR, ReprojChain, RobustLoss};
 use faer::sparse::SparseColMat;
 use nalgebra::DVector;
 use std::collections::HashMap;
@@ -227,6 +220,25 @@ impl LinearizationEngine for TinySolverEngine<'_> {
     }
 }
 
+/// Residual, dense Jacobian and robust cost `Σρ` of `ir` at `initial`, as
+/// the shared LM sees them.
+#[cfg(test)]
+pub(super) fn linearize_at(
+    ir: &ProblemIR,
+    initial: &HashMap<String, DVector<f64>>,
+) -> (DVector<f64>, nalgebra::DMatrix<f64>, f64) {
+    use faer_ext::IntoNalgebra;
+    let (problem, init) = TinySolverBackend.compile(ir, initial).expect("compile IR");
+    let blocks = problem.initialize_parameter_blocks(&init);
+    let engine = TinySolverEngine::new(&problem, &blocks);
+    let (r, j) = engine.linearize(&blocks);
+    (
+        r.as_ref().into_nalgebra().column(0).clone_owned(),
+        j.to_dense().as_ref().into_nalgebra().clone_owned(),
+        engine.cost(&blocks),
+    )
+}
+
 fn total_variable_dimension(parameter_blocks: &HashMap<String, ParameterBlock>) -> usize {
     parameter_blocks
         .values()
@@ -281,27 +293,14 @@ fn params_from_blocks(
         .collect()
 }
 
-fn compile_loss(loss: RobustLoss) -> Result<Option<Box<dyn Loss + Send>>, Error> {
+/// The tiny-solver loss for an IR loss; scales are checked by
+/// [`ProblemIR::validate`].
+fn compile_loss(loss: RobustLoss) -> Option<Box<dyn Loss + Send>> {
     match loss {
-        RobustLoss::None => Ok(None),
-        RobustLoss::Huber { scale } => {
-            if scale.is_nan() || scale <= 0.0 {
-                return Err(Error::invalid_input("Huber scale must be positive"));
-            }
-            Ok(Some(Box::new(HuberLoss::new(scale))))
-        }
-        RobustLoss::Cauchy { scale } => {
-            if scale.is_nan() || scale <= 0.0 {
-                return Err(Error::invalid_input("Cauchy scale must be positive"));
-            }
-            Ok(Some(Box::new(CauchyLoss::new(scale))))
-        }
-        RobustLoss::Arctan { scale } => {
-            if scale.is_nan() || scale <= 0.0 {
-                return Err(Error::invalid_input("Arctan scale must be positive"));
-            }
-            Ok(Some(Box::new(ArctanLoss::new(scale))))
-        }
+        RobustLoss::None => None,
+        RobustLoss::Huber { scale } => Some(Box::new(HuberLoss::new(scale))),
+        RobustLoss::Cauchy { scale } => Some(Box::new(CauchyLoss::new(scale))),
+        RobustLoss::Arctan { scale } => Some(Box::new(ArctanLoss::new(scale))),
     }
 }
 
@@ -310,50 +309,8 @@ type CompiledFactor = (
     Option<Box<dyn Loss + Send>>,
 );
 
-/// Camera-model dispatch table: maps a [`CameraModelDesc`](crate::ir::CameraModelDesc)
-/// to concrete kernel types and expands `$mk!(P, D, S)` for the matched row.
-///
-/// Adding a camera model = one descriptor enum variant + one kernel type +
-/// one row here. Chains are factor data and do not multiply rows.
-macro_rules! dispatch_camera_model {
-    ($model:expr, $mk:ident) => {
-        match ($model.projection, $model.distortion, $model.sensor) {
-            (ProjectionKind::Pinhole, DistortionKind::None, SensorKind::None) => {
-                $mk!(PinholeKernel, NoDistortionKernel, IdentitySensorKernel)
-            }
-            (ProjectionKind::Pinhole, DistortionKind::BrownConrady5, SensorKind::None) => {
-                $mk!(PinholeKernel, BrownConrady5Kernel, IdentitySensorKernel)
-            }
-            (ProjectionKind::Pinhole, DistortionKind::None, SensorKind::Scheimpflug2) => {
-                $mk!(PinholeKernel, NoDistortionKernel, Scheimpflug2Kernel)
-            }
-            (ProjectionKind::Pinhole, DistortionKind::BrownConrady5, SensorKind::Scheimpflug2) => {
-                $mk!(PinholeKernel, BrownConrady5Kernel, Scheimpflug2Kernel)
-            }
-            (ProjectionKind::Pinhole, DistortionKind::Rational8, SensorKind::None) => {
-                $mk!(PinholeKernel, RationalKernel, IdentitySensorKernel)
-            }
-            (ProjectionKind::Pinhole, DistortionKind::Rational8, SensorKind::Scheimpflug2) => {
-                $mk!(PinholeKernel, RationalKernel, Scheimpflug2Kernel)
-            }
-            (ProjectionKind::Pinhole, DistortionKind::ThinPrism9, SensorKind::None) => {
-                $mk!(PinholeKernel, ThinPrismKernel, IdentitySensorKernel)
-            }
-            (ProjectionKind::Pinhole, DistortionKind::ThinPrism9, SensorKind::Scheimpflug2) => {
-                $mk!(PinholeKernel, ThinPrismKernel, Scheimpflug2Kernel)
-            }
-            (ProjectionKind::Pinhole, DistortionKind::Division1, SensorKind::None) => {
-                $mk!(PinholeKernel, DivisionKernel, IdentitySensorKernel)
-            }
-            (ProjectionKind::Pinhole, DistortionKind::Division1, SensorKind::Scheimpflug2) => {
-                $mk!(PinholeKernel, DivisionKernel, Scheimpflug2Kernel)
-            }
-        }
-    };
-}
-
 fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor, Error> {
-    let loss = compile_loss(residual.loss)?;
+    let loss = compile_loss(residual.loss);
     match &residual.factor {
         FactorKind::Se3TangentPrior { sqrt_info } => {
             let factor = TinySe3TangentPriorFactor {
@@ -379,7 +336,7 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
                     }) as Box<dyn tiny_solver::factors::FactorImpl + Send>
                 };
             }
-            let factor = dispatch_camera_model!(model, mk);
+            let factor = crate::backend::dispatch_camera_model!(model, mk);
             Ok((factor, loss))
         }
         FactorKind::LaserPointToPlane {
@@ -398,7 +355,7 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
                     }) as Box<dyn tiny_solver::factors::FactorImpl + Send>
                 };
             }
-            let factor = dispatch_camera_model!(model, mk);
+            let factor = crate::backend::dispatch_camera_model!(model, mk);
             Ok((factor, loss))
         }
         FactorKind::LaserLineDistance {
@@ -417,7 +374,7 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
                     }) as Box<dyn tiny_solver::factors::FactorImpl + Send>
                 };
             }
-            let factor = dispatch_camera_model!(model, mk);
+            let factor = crate::backend::dispatch_camera_model!(model, mk);
             Ok((factor, loss))
         }
     }
@@ -568,6 +525,7 @@ mod tests {
             min_abs_decrease: Some(0.0),
             min_rel_decrease: Some(0.0),
             min_error: Some(1e-24),
+            ..BackendSolveOptions::default()
         };
         let (params, num_iters) = solve_problem(&problem, &initial, &opts)
             .expect("LM should recover after increasing damping");
@@ -615,7 +573,7 @@ mod tests {
                     1,
                     &["x"],
                     Box::new(OffsetFactor(y)),
-                    compile_loss(loss).unwrap(),
+                    compile_loss(loss),
                 );
             }
             let cost_at = |x: f64| {

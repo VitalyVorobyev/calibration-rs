@@ -7,5 +7,6 @@
 //! parameter slots. Testing the lowering still requires reaching those, so
 //! these are unit tests.
 
+mod backend_parity;
 mod ir_distortion_models;
 mod ir_scheimpflug;

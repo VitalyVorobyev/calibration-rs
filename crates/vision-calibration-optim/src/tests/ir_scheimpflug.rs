@@ -2,10 +2,10 @@
 //!
 //! This test validates that:
 //! 1. The Scheimpflug factor compiles correctly in the IR
-//! 2. The tiny-solver backend can optimize Scheimpflug parameters
+//! 2. Each backend can optimize Scheimpflug parameters
 //! 3. Optimization converges to ground truth values for synthetic data
 
-use crate::backend::{BackendKind, BackendSolveOptions, solve_with_backend};
+use crate::backend::{self, BackendSolveOptions, SolverBackend};
 use crate::ir::{
     CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
     RobustLoss,
@@ -21,6 +21,15 @@ use vision_calibration_core::{
 
 #[test]
 fn scheimpflug_optimization_synthetic() {
+    scheimpflug_case(SolverBackend::TinySolver);
+}
+
+#[test]
+fn scheimpflug_optimization_synthetic_factrs() {
+    scheimpflug_case(SolverBackend::Factrs);
+}
+
+fn scheimpflug_case(engine: SolverBackend) {
     // Ground truth camera parameters
     let intrinsics_gt = FxFyCxCySkew {
         fx: 800.0,
@@ -180,6 +189,7 @@ fn scheimpflug_optimization_synthetic() {
 
     // Solve
     let backend_opts = BackendSolveOptions {
+        backend: engine,
         max_iters: 50,
         verbosity: 0,
         min_abs_decrease: Some(1e-10),
@@ -188,8 +198,7 @@ fn scheimpflug_optimization_synthetic() {
         ..Default::default()
     };
 
-    let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)
-        .expect("optimization failed");
+    let solution = backend::solve(&ir, &initial_map, &backend_opts).expect("optimization failed");
 
     // Extract results
     let cam_final = solution.params.get("cam").unwrap();

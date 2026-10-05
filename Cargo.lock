@@ -706,6 +706,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69dde51e8fef5e12c1d65e0929b03d66e4c0c18282bc30ed2ca050ad6f44dd82"
 
 [[package]]
+name = "downcast-rs"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -819,6 +825,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "factrs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "156d1ea13549a08acf1d79cc834d9538262226a9a00899511edd912ef5449e76"
+dependencies = [
+ "downcast-rs",
+ "dyn-clone",
+ "factrs-proc",
+ "faer",
+ "faer-ext",
+ "foldhash",
+ "indexmap",
+ "log",
+ "matrixcompare",
+ "nalgebra 0.34.2",
+ "num-dual 0.13.7",
+ "pad-adapter",
+ "paste",
+ "simba 0.9.1",
+ "statrs",
+]
+
+[[package]]
+name = "factrs-proc"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97f1e4da4f0f379db2aae5338654bd4aa2cc824a7473808f7394c33ddf22b612"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "faer"
 version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -922,6 +962,12 @@ dependencies = [
  "miniz_oxide 0.9.1",
  "zlib-rs",
 ]
+
+[[package]]
+name = "foldhash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "futures-core"
@@ -1492,6 +1538,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "matrixcompare"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37832ba820e47c93d66b4360198dccb004b43c74abc3ac1ce1fed54e65a80445"
+dependencies = [
+ "matrixcompare-core",
+ "num-traits",
+]
+
+[[package]]
+name = "matrixcompare-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0bdabb30db18805d5290b3da7ceaccbddba795620b86c02145d688e04900a73"
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1572,6 +1634,7 @@ dependencies = [
  "glam 0.30.10",
  "glam 0.31.1",
  "glam 0.32.1",
+ "matrixcompare-core",
  "matrixmultiply",
  "nalgebra-macros",
  "num-complex",
@@ -1780,6 +1843,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-dual"
+version = "0.13.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf1a798053cf80ae959272b98688f2afb18ddef5b651a5964d41c4e2b4031c32"
+dependencies = [
+ "approx",
+ "nalgebra 0.34.2",
+ "num-traits",
+ "simba 0.9.1",
+]
+
+[[package]]
 name = "num-integer"
 version = "0.1.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1845,6 +1920,12 @@ checksum = "8c7c9e0d9b23589f26070720bac724174bfec1083e82f7854cdd0267518343c0"
 dependencies = [
  "num-traits",
 ]
+
+[[package]]
+name = "pad-adapter"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56d80efc4b6721e8be2a10a5df21a30fa0b470f1539e53d8b4e6e75faf938b63"
 
 [[package]]
 name = "page_size"
@@ -2692,6 +2773,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "statrs"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a3fe7c28c6512e766b0874335db33c94ad7b8f9054228ae1c2abd47ce7d335e"
+dependencies = [
+ "approx",
+ "num-traits",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2836,7 +2927,7 @@ dependencies = [
  "faer-ext",
  "log",
  "nalgebra 0.34.2",
- "num-dual",
+ "num-dual 0.12.1",
  "num-traits",
  "rayon",
  "simba 0.9.1",
@@ -3099,6 +3190,7 @@ name = "vision-calibration-optim"
 version = "0.9.0"
 dependencies = [
  "criterion",
+ "factrs",
  "faer",
  "faer-ext",
  "nalgebra 0.34.2",
