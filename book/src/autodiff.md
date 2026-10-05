@@ -99,22 +99,18 @@ Every arithmetic operation on `T` values propagates derivatives automatically th
 
 ## Backend Integration
 
-The backend wraps each generic residual function in a solver-specific factor struct that implements the solver's cost function interface:
+Each backend wraps the generic residual function in its own residual type, choosing the kernel types from the factor's camera descriptor through one shared dispatch table:
 
 ```
 FactorKind::ReprojPoint { model: PINHOLE4_DIST5, chain: SinglePose, pw, uv, w }
     ↓ (compile step — kernel types selected from the descriptor)
-TinySolverFactor {
-    evaluate: |params| {
-        reproj_residual_model_generic::<PinholeKernel, BrownConrady5Kernel, IdentitySensorKernel, T>(
-            params["cam"], params["dist"], params["pose/k"],
-            pw, uv, w
-        )
-    }
-}
+residual(params) =
+    reproj_residual_model_generic::<PinholeKernel, BrownConrady5Kernel, IdentitySensorKernel, T>(
+        chain, params, pw, uv, w,
+    )
 ```
 
-The tiny-solver backend then calls `evaluate` with dual numbers to compute both residuals and Jacobians in a single pass.
+Both evaluate it with dual numbers to get residuals and Jacobians in one pass. tiny-solver's duals have a dynamic size; factrs' are sized at compile time to the factor's tangent dimension (for example 15 for a Brown-Conrady camera and one SE(3) pose), so they live on the stack.
 
 ## SE(3) Exponential Map
 

@@ -27,6 +27,8 @@ LaserPlanePayload: TypeAlias = JsonObject
 Se3Delta: TypeAlias = tuple[float, float, float, float, float, float] | list[float]
 
 HandEyeMode: TypeAlias = Literal["EyeInHand", "EyeToHand"]
+# Engine that linearizes the problem; both reach the same minimizer.
+SolverBackend: TypeAlias = Literal["tiny_solver", "factrs"]
 LaserlineResidualType: TypeAlias = Literal["PointToPlane", "LineDistNormalized"]
 ScheimpflugFixMask: TypeAlias = JsonObject
 
@@ -142,6 +144,7 @@ ScheimpflugIntrinsicsInput: TypeAlias = JsonObject
 
 class SolveReport(TypedDict):
     final_cost: float
+    num_iters: int
 
 
 class PlanarIntrinsicsParams(TypedDict):
@@ -242,6 +245,7 @@ class SolverConfig(TypedDict, total=False):
     max_iters: int
     verbosity: int
     robust_loss: RobustLoss
+    backend: SolverBackend
 
 
 class RobotPoseConfig(TypedDict, total=False):

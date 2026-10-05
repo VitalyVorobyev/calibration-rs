@@ -142,7 +142,7 @@ pub struct RigHandeyeLaserlineBaConfig {
     /// `robust_loss` is **not consulted** by this problem: laser-carrying
     /// stages track calibration and laser residuals as independent families
     /// with their own robust losses (`calib_loss`, `laser_loss`).
-    /// Only `max_iters`/`verbosity` apply here.
+    /// `max_iters`, `verbosity` and `backend` apply.
     pub solver: SolverConfig,
     /// Which laser residual drives the joint solve.
     pub laser_residual_type: LaserlineResidualType,

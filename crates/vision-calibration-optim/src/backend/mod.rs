@@ -3,6 +3,97 @@
 //! Backends are responsible for translating the IR into solver-native graphs,
 //! applying manifolds and constraints, and returning a solved parameter map.
 
+/// Camera-model dispatch table: maps a [`CameraModelDesc`](crate::ir::CameraModelDesc)
+/// to concrete kernel types and expands `$mk!(P, D, S)` for the matched row.
+///
+/// Adding a camera model = one descriptor enum variant + one kernel type +
+/// one row here. Chains are factor data and do not multiply rows. Every
+/// backend compiles its factors through this one table.
+macro_rules! dispatch_camera_model {
+    ($model:expr, $mk:ident) => {{
+        use $crate::factors::camera_kernels as kernels;
+        use $crate::ir::{DistortionKind as Dist, ProjectionKind as Proj, SensorKind as Sensor};
+        match ($model.projection, $model.distortion, $model.sensor) {
+            (Proj::Pinhole, Dist::None, Sensor::None) => {
+                $mk!(
+                    kernels::PinholeKernel,
+                    kernels::NoDistortionKernel,
+                    kernels::IdentitySensorKernel
+                )
+            }
+            (Proj::Pinhole, Dist::BrownConrady5, Sensor::None) => {
+                $mk!(
+                    kernels::PinholeKernel,
+                    kernels::BrownConrady5Kernel,
+                    kernels::IdentitySensorKernel
+                )
+            }
+            (Proj::Pinhole, Dist::None, Sensor::Scheimpflug2) => {
+                $mk!(
+                    kernels::PinholeKernel,
+                    kernels::NoDistortionKernel,
+                    kernels::Scheimpflug2Kernel
+                )
+            }
+            (Proj::Pinhole, Dist::BrownConrady5, Sensor::Scheimpflug2) => {
+                $mk!(
+                    kernels::PinholeKernel,
+                    kernels::BrownConrady5Kernel,
+                    kernels::Scheimpflug2Kernel
+                )
+            }
+            (Proj::Pinhole, Dist::Rational8, Sensor::None) => {
+                $mk!(
+                    kernels::PinholeKernel,
+                    kernels::RationalKernel,
+                    kernels::IdentitySensorKernel
+                )
+            }
+            (Proj::Pinhole, Dist::Rational8, Sensor::Scheimpflug2) => {
+                $mk!(
+                    kernels::PinholeKernel,
+                    kernels::RationalKernel,
+                    kernels::Scheimpflug2Kernel
+                )
+            }
+            (Proj::Pinhole, Dist::ThinPrism9, Sensor::None) => {
+                $mk!(
+                    kernels::PinholeKernel,
+                    kernels::ThinPrismKernel,
+                    kernels::IdentitySensorKernel
+                )
+            }
+            (Proj::Pinhole, Dist::ThinPrism9, Sensor::Scheimpflug2) => {
+                $mk!(
+                    kernels::PinholeKernel,
+                    kernels::ThinPrismKernel,
+                    kernels::Scheimpflug2Kernel
+                )
+            }
+            (Proj::Pinhole, Dist::Division1, Sensor::None) => {
+                $mk!(
+                    kernels::PinholeKernel,
+                    kernels::DivisionKernel,
+                    kernels::IdentitySensorKernel
+                )
+            }
+            (Proj::Pinhole, Dist::Division1, Sensor::Scheimpflug2) => {
+                $mk!(
+                    kernels::PinholeKernel,
+                    kernels::DivisionKernel,
+                    kernels::Scheimpflug2Kernel
+                )
+            }
+        }
+    }};
+}
+pub(crate) use dispatch_camera_model;
+
+mod factrs_backend;
+mod lm;
+#[cfg(test)]
+mod parity_tests;
+mod s2;
 mod tiny_solver_backend;
 mod tiny_solver_manifolds;
 
@@ -13,11 +104,33 @@ use std::collections::HashMap;
 
 use crate::ir::ProblemIR;
 
-pub use tiny_solver_backend::TinySolverBackend;
+use factrs_backend::FactrsBackend;
+use tiny_solver_backend::TinySolverBackend;
+
+/// Which engine linearizes the problem.
+///
+/// Both run the same Levenberg–Marquardt loop over the same residual
+/// kernels and reach the same minimizer; they differ in how they build the
+/// Jacobian and how they fold in a robust loss.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SolverBackend {
+    /// `tiny-solver`: dynamic-size forward-mode dual numbers; a robust loss
+    /// enters through the Triggs correction (second-order exact).
+    #[default]
+    TinySolver,
+    /// `factrs`: static-size forward-mode dual numbers; a robust loss enters
+    /// through iterative reweighting (each block scaled by `√ρ′`).
+    Factrs,
+}
 
 /// Backend-agnostic solver options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendSolveOptions {
+    /// Linearization engine.
+    #[serde(default)]
+    pub backend: SolverBackend,
     /// Maximum number of iterations for the optimizer.
     pub max_iters: usize,
     /// Verbosity level (backend-specific).
@@ -35,6 +148,7 @@ pub struct BackendSolveOptions {
 impl Default for BackendSolveOptions {
     fn default() -> Self {
         Self {
+            backend: SolverBackend::default(),
             max_iters: 100,
             verbosity: 0,
             linear_solver: Some(LinearSolverKind::SparseCholesky),
@@ -89,27 +203,21 @@ pub trait OptimBackend {
     ) -> Result<BackendSolution, Error>;
 }
 
-/// Supported solver backends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackendKind {
-    /// tiny-solver Levenberg-Marquardt backend.
-    TinySolver,
-}
-
-/// Solve a problem using the selected backend.
+/// Solve `ir` from `initial` with the backend `opts.backend` selects.
 ///
-/// This is the main backend-agnostic entry point used by problems.
+/// This is the backend-agnostic entry point every problem uses.
 ///
 /// # Errors
 ///
-/// Returns [`Error::Numerical`] if the solver fails.
-pub fn solve_with_backend(
-    backend: BackendKind,
+/// Returns [`Error::InvalidInput`] for an IR the backend cannot compile and
+/// [`Error::Numerical`] if the solve fails.
+pub(crate) fn solve(
     ir: &ProblemIR,
     initial: &HashMap<String, DVector<f64>>,
     opts: &BackendSolveOptions,
 ) -> Result<BackendSolution, Error> {
-    match backend {
-        BackendKind::TinySolver => TinySolverBackend.solve(ir, initial, opts),
+    match opts.backend {
+        SolverBackend::TinySolver => TinySolverBackend.solve(ir, initial, opts),
+        SolverBackend::Factrs => FactrsBackend.solve(ir, initial, opts),
     }
 }

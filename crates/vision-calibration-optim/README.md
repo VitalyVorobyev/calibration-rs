@@ -10,7 +10,9 @@ design separates problem definition from solver implementation using an intermed
 
 - **Automatic differentiation**: factors are generic over `RealField`
 - **Backend-agnostic IR** (`ir::ProblemIR`) with robust losses and manifolds
-- **Levenberg–Marquardt backend** (tiny-solver) with sparse linear solvers
+- **One Levenberg–Marquardt loop, two backends**: tiny-solver (default) or factrs
+  linearize the problem, selected by `BackendSolveOptions::backend`; sparse
+  Cholesky or QR linear solvers
 - **Built-in problems** (`problems::*`):
   - `planar_intrinsics`, `scheimpflug_intrinsics`: single-camera intrinsics + per-view poses
   - `rig_extrinsics`, `rig_extrinsics_scheimpflug`: multi-camera rig bundle adjustment (supports missing observations)
@@ -30,15 +32,15 @@ Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Doma
 ```
 
 1. **Problem Definition** - Build a `ProblemIR` describing parameters, factors, and constraints
-2. **Backend Compilation** - Translate IR into solver-specific problem (e.g., `TinySolverBackend`)
-3. **Optimization** - Run solver and extract solution as domain types
+2. **Backend Compilation** - Translate the IR into the selected backend's problem (`SolverBackend`: tiny-solver or factrs)
+3. **Optimization** - Run the shared Levenberg–Marquardt loop and extract the solution as domain types
 
 ### Key Components
 
 - **`ir`** - Backend-agnostic intermediate representation
 - **`params`** - Parameter block definitions (intrinsics, distortion, poses)
 - **`factors`** - Residual functions with autodiff support
-- **`backend`** - Solver implementations (currently tiny-solver with Levenberg-Marquardt)
+- **`backend`** - The Levenberg–Marquardt loop and its two linearization engines (tiny-solver, factrs)
 - **`problems`** - High-level problem builders (intrinsics, rig extrinsics, hand-eye, laserline)
 
 ## Quick Start

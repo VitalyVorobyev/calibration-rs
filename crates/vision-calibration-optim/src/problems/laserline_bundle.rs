@@ -5,7 +5,9 @@
 //! with laser line observations to estimate laser plane parameters in camera frame.
 
 use crate::Error;
-use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
+#[cfg(test)]
+use crate::backend::SolverBackend;
+use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
 use crate::factors::laserline::{laser_line_dist_core, laser_point_to_plane_core};
 use crate::ir::{
@@ -643,7 +645,7 @@ pub fn optimize_laserline(
     backend_opts: &BackendSolveOptions,
 ) -> Result<LaserlineEstimate, Error> {
     let (ir, initial_map) = build_laserline_ir(dataset, initial, opts)?;
-    let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, backend_opts)?;
+    let solution = backend::solve(&ir, &initial_map, backend_opts)?;
     extract_solution(solution, dataset.len())
 }
 
@@ -867,12 +869,15 @@ mod tests {
         // Remove intrinsics from initial values
         initial_map.remove("intrinsics");
 
-        // Should fail compilation due to missing parameter
-        use crate::backend::{OptimBackend, TinySolverBackend};
-        let backend = TinySolverBackend;
-        let backend_opts = BackendSolveOptions::default();
-        let result = backend.solve(&ir, &initial_map, &backend_opts);
-        assert!(result.is_err());
+        // Every backend must refuse to compile with a missing parameter.
+        for backend in [SolverBackend::TinySolver, SolverBackend::Factrs] {
+            let backend_opts = BackendSolveOptions {
+                backend,
+                ..BackendSolveOptions::default()
+            };
+            let result = crate::backend::solve(&ir, &initial_map, &backend_opts);
+            assert!(result.is_err(), "{backend:?}");
+        }
     }
 
     /// `LaserlineSolveOptions::fix_camera:

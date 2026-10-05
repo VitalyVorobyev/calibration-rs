@@ -15,6 +15,7 @@
     "trans_sigma": 0.001
   },
   "solver": {
+    "backend": "tiny_solver",
     "max_iters": 50,
     "robust_loss": "None",
     "verbosity": 0

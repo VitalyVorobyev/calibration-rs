@@ -7,5 +7,6 @@ pub use types::{
     ManifoldKind, ProblemIR, ProjectionKind, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
 };
 
+pub(crate) use types::ParamBlock;
 #[cfg(test)]
 pub use types::{ParamId, ParamSlotSpec};

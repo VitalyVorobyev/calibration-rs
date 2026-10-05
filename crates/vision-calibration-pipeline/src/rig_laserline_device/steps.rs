@@ -181,7 +181,7 @@ pub fn step_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(cfg.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(cfg.solver.verbosity),
-        ..Default::default()
+        ..cfg.solver.backend_options()
     };
 
     let estimate = match optimize_rig_laserline(

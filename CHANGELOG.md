@@ -12,9 +12,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SolveReport.final_cost` is the robust objective `½ Σ ρ(‖rᵢ‖²)` at the
   solution (`½‖r‖²` without a loss). For robust solves the reported value
   changes and is not comparable with earlier releases.
+- `BackendSolveOptions` has a `backend` field (default
+  `SolverBackend::TinySolver`). Struct literals that list every field add it
+  or end with `..BackendSolveOptions::default()`.
+- `optimize_planar_intrinsics_with_backend` and
+  `optimize_scheimpflug_intrinsics_with_backend` are removed:
+  `optimize_planar_intrinsics` / `optimize_scheimpflug_intrinsics` take the
+  backend from `BackendSolveOptions::backend`.
+- `PlanarIntrinsicsConfig::backend_opts()` and
+  `LaserlineDeviceConfig::backend_opts()` are removed; use
+  `config.solver.backend_options()`, which carries the backend too.
+- `SolverConfig` has a `backend` field (JSON `"backend": "tiny_solver" |
+  "factrs"`, default `tiny_solver`). Existing configs load unchanged.
 
 ### Added
 
+- **factrs solver backend.** Every workflow can solve with `factrs` instead
+  of `tiny-solver` through `solver.backend` (Rust `SolverBackend`, JSON,
+  Python `SolverConfig(backend="factrs")`, the app's config forms). Both
+  backends run one shared Levenberg–Marquardt loop over the same residual
+  kernels and reach the same minimizer; factrs builds Jacobians with
+  static-size dual numbers and applies a robust loss by iterative
+  reweighting, tiny-solver with dynamic-size dual numbers and the Triggs
+  correction. `tiny-solver` stays the default.
+- **`RobustLoss::rho`** evaluates a loss at a squared residual norm, the
+  definition both backends use.
 - **Synthetic scene generators in `vision_calibration_core::synthetic`.**
   `synthetic::poses` (`make_iso`, `pose_error` / `PoseError`,
   `tilted_board_poses`, `centered_board_poses` over `BoardPoseSpec`, seeded
@@ -55,6 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Robust loss documentation matches the solver.** The book and the
+  `RobustLoss` docs state every loss as `ρ(s)` of the squared residual norm,
+  the convention the solver minimizes; the Arctan loss's scale is in
+  squared-residual units (down-weighting sets in near `‖r‖ ≈ √scale`).
 - **Robust solves reach the robust minimum.** The Levenberg–Marquardt loop
   judges each step by the robust objective Σρ(‖r‖²) instead of the squared
   norm of the loss-corrected residuals, which stopped Huber, Cauchy and

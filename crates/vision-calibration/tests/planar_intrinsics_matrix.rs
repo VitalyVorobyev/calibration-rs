@@ -12,7 +12,10 @@ use vision_calibration::core::{
     BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, IntrinsicsParams, Iso3, Pinhole,
     PlanarDataset, Pt3, View,
 };
-use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
+use vision_calibration::optim::SolverBackend;
+use vision_calibration::planar_intrinsics::{
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init, step_optimize,
+};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::synthetic::{noise::UniformPixelNoise, planar, poses};
 
@@ -48,10 +51,40 @@ fn poses() -> Vec<Iso3> {
     poses::tilted_board_poses(&tilts, (0.125, 0.1), 0.55, 0.05)
 }
 
-/// Run the standard planar pipeline on one synthetic dataset; return
+/// Run the standard planar pipeline on one synthetic dataset with both
+/// solver backends, check that they agree, and return the default backend's
 /// (recovered intrinsics, recovered distortion, mean reprojection px).
 fn solve(dataset: PlanarDataset) -> (FxFyCxCySkew<f64>, BrownConrady5<f64>, f64) {
+    let tiny = solve_on(dataset.clone(), SolverBackend::TinySolver);
+    let factrs = solve_on(dataset, SolverBackend::Factrs);
+    // Both backends run the same Levenberg–Marquardt loop to the same
+    // minimum; they differ only in their stopping point within the
+    // convergence tolerance.
+    let (a, b) = (&tiny.0, &factrs.0);
+    for (name, x, y, tol) in [
+        ("fx", a.fx, b.fx, 1e-4),
+        ("fy", a.fy, b.fy, 1e-4),
+        ("cx", a.cx, b.cx, 1e-4),
+        ("cy", a.cy, b.cy, 1e-4),
+        ("k1", tiny.1.k1, factrs.1.k1, 1e-6),
+        ("k2", tiny.1.k2, factrs.1.k2, 1e-5),
+    ] {
+        assert!(
+            (x - y).abs() <= tol,
+            "backends disagree on {name}: {x} vs {y}"
+        );
+    }
+    tiny
+}
+
+fn solve_on(
+    dataset: PlanarDataset,
+    backend: SolverBackend,
+) -> (FxFyCxCySkew<f64>, BrownConrady5<f64>, f64) {
     let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    let mut config = PlanarIntrinsicsConfig::default();
+    config.solver.backend = backend;
+    session.set_config(config).expect("config");
     session.set_input(dataset).expect("input");
     step_init(&mut session, None).expect("init");
     step_optimize(&mut session, None).expect("optimize");

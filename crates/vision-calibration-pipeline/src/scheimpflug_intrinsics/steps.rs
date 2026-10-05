@@ -409,7 +409,7 @@ pub fn step_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters,
         verbosity,
-        ..Default::default()
+        ..session.config.solver.backend_options()
     };
     let estimate = if trust_seed_tilt {
         // Trusted warm start (ADR 0022): k1 multi-start sweep (Phase A) followed by
@@ -489,8 +489,7 @@ pub fn step_optimize(
                 fix_intrinsics_and_tilt_and_dist.clone(),
                 BackendSolveOptions {
                     max_iters: pose_adapt_iters,
-                    verbosity,
-                    ..Default::default()
+                    ..backend_opts.clone()
                 },
             ) {
                 Ok(r) => r,
@@ -512,8 +511,7 @@ pub fn step_optimize(
                 prefit_opts_free_k1.clone(),
                 BackendSolveOptions {
                     max_iters: pre_iters,
-                    verbosity,
-                    ..Default::default()
+                    ..backend_opts.clone()
                 },
             ) && candidate.mean_reproj_error.is_finite()
             {

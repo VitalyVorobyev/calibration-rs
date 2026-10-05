@@ -1,7 +1,7 @@
 //! Scheimpflug planar intrinsics optimization using the backend-agnostic IR.
 
 use crate::Error;
-use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
+use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{Bound, CameraModelDesc, DistortionKind, RobustLoss};
 use crate::params::distortion::{distortion_kind, fix_mask_indices, unpack_distortion_params};
 use crate::params::intrinsics::unpack_intrinsics;
@@ -314,7 +314,7 @@ fn build_scheimpflug_intrinsics_ir(
     )
 }
 
-/// Optimize Scheimpflug intrinsics using the default tiny-solver backend.
+/// Optimize Scheimpflug intrinsics with the backend `backend_opts` selects.
 ///
 /// # Errors
 ///
@@ -325,30 +325,9 @@ pub fn optimize_scheimpflug_intrinsics(
     opts: ScheimpflugIntrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
 ) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
-    optimize_scheimpflug_intrinsics_with_backend(
-        dataset,
-        initial,
-        opts,
-        BackendKind::TinySolver,
-        backend_opts,
-    )
-}
-
-/// Optimize Scheimpflug intrinsics using the selected backend.
-///
-/// # Errors
-///
-/// Returns [`Error`] if IR construction or solver backend fails.
-pub fn optimize_scheimpflug_intrinsics_with_backend(
-    dataset: &PlanarDataset,
-    initial: &ScheimpflugIntrinsicsParams,
-    opts: ScheimpflugIntrinsicsSolveOptions,
-    backend: BackendKind,
-    backend_opts: BackendSolveOptions,
-) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
     let kind = distortion_kind(&initial.distortion);
     let (ir, initial_map) = build_scheimpflug_intrinsics_ir(dataset, initial, &opts)?;
-    let solution = solve_with_backend(backend, &ir, &initial_map, &backend_opts)?;
+    let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
 
     let intrinsics = unpack_intrinsics(
         solution
@@ -477,15 +456,13 @@ fn solve_stage(
     dataset: &PlanarDataset,
     params: &ScheimpflugIntrinsicsParams,
     opts: ScheimpflugIntrinsicsSolveOptions,
-    backend: BackendKind,
     backend_opts: &BackendSolveOptions,
     iters: usize,
 ) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
-    optimize_scheimpflug_intrinsics_with_backend(
+    optimize_scheimpflug_intrinsics(
         dataset,
         params,
         opts,
-        backend,
         BackendSolveOptions {
             max_iters: iters,
             ..backend_opts.clone()
@@ -555,17 +532,9 @@ pub fn optimize_scheimpflug_intrinsics_staged(
     staged_opts: &ScheimpflugStagedInitOptions,
     backend_opts: BackendSolveOptions,
 ) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
-    let backend = BackendKind::TinySolver;
-
     // No tilt to estimate ⇒ no degeneracy ⇒ a single direct solve suffices.
     if final_opts.fix_scheimpflug.tilt_x && final_opts.fix_scheimpflug.tilt_y {
-        return optimize_scheimpflug_intrinsics_with_backend(
-            dataset,
-            initial,
-            final_opts,
-            backend,
-            backend_opts,
-        );
+        return optimize_scheimpflug_intrinsics(dataset, initial, final_opts, backend_opts);
     }
 
     let max_iters = backend_opts.max_iters.max(1);
@@ -597,7 +566,6 @@ pub fn optimize_scheimpflug_intrinsics_staged(
                     fix_poses.clone(),
                     Some(init_bounds),
                 ),
-                backend,
                 &backend_opts,
                 sweep_iters,
             ) {
@@ -638,7 +606,6 @@ pub fn optimize_scheimpflug_intrinsics_staged(
             fix_poses.clone(),
             Some(init_bounds),
         ),
-        backend,
         &backend_opts,
         max_iters,
     )?;
@@ -665,14 +632,7 @@ pub fn optimize_scheimpflug_intrinsics_staged(
         bounds: Some(init_bounds),
         ..final_opts
     };
-    match solve_stage(
-        dataset,
-        &r1.params,
-        refine_opts,
-        backend,
-        &backend_opts,
-        max_iters,
-    ) {
+    match solve_stage(dataset, &r1.params, refine_opts, &backend_opts, max_iters) {
         // Accept only if freeing the principal point did not regress the fit.
         Ok(refined)
             if refined.mean_reproj_error.is_finite()

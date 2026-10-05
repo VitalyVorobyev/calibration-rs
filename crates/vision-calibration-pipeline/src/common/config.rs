@@ -16,7 +16,9 @@
 
 use serde::{Deserialize, Serialize};
 use vision_calibration_linear::prelude::{DistortionFitOptions, IterativeIntrinsicsOptions};
-use vision_calibration_optim::{DistortionKind, HandEyeMode, RobustLoss};
+use vision_calibration_optim::{
+    BackendSolveOptions, DistortionKind, HandEyeMode, RobustLoss, SolverBackend,
+};
 
 /// Fixed iteration count for the inner Brown-Conrady distortion fit loop.
 ///
@@ -121,6 +123,10 @@ pub struct SolverConfig {
     pub verbosity: usize,
     /// Robust loss function for outlier handling.
     pub robust_loss: RobustLoss,
+    /// Engine that linearizes the problem for the Levenberg–Marquardt loop.
+    /// Both reach the same minimizer; see [`SolverBackend`].
+    #[serde(default)]
+    pub backend: SolverBackend,
 }
 
 impl Default for SolverConfig {
@@ -129,6 +135,21 @@ impl Default for SolverConfig {
             max_iters: 50,
             verbosity: 0,
             robust_loss: RobustLoss::None,
+            backend: SolverBackend::default(),
+        }
+    }
+}
+
+impl SolverConfig {
+    /// The solver options this stage runs with. A step that adjusts them (an
+    /// iteration budget, say) overrides fields of this value, so the backend
+    /// choice always comes from the config.
+    pub fn backend_options(&self) -> BackendSolveOptions {
+        BackendSolveOptions {
+            backend: self.backend,
+            max_iters: self.max_iters,
+            verbosity: self.verbosity,
+            ..BackendSolveOptions::default()
         }
     }
 }

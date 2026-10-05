@@ -423,7 +423,7 @@ pub fn step_optimize(
     // Get effective options
     let opts = opts.unwrap_or_default();
     let solve_opts = session.config.solve_opts();
-    let mut backend_opts = session.config.backend_opts();
+    let mut backend_opts = session.config.solver.backend_options();
     if let Some(max_iters) = opts.max_iters {
         backend_opts.max_iters = max_iters;
     }

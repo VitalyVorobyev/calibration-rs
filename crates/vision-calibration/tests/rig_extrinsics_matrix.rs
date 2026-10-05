@@ -21,6 +21,7 @@ use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, NoMeta, PinholeCamera, Pt3, RigDataset,
     RigView, RigViewObs, make_pinhole_camera,
 };
+use vision_calibration::optim::SolverBackend;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblem,
     RigIntrinsicsManualInit, run_calibration, step_intrinsics_init_all_with_seed, step_rig_init,
@@ -152,12 +153,46 @@ fn build_rig_dataset(
     RigDataset::new(views, num_cameras).expect("valid rig dataset")
 }
 
-/// Run the standard four-step rig pipeline with the given reference camera and
-/// return the export.
+/// Run the standard four-step rig pipeline with the given reference camera on
+/// both solver backends, check that they agree, and return the default
+/// backend's export.
 fn solve(input: RigExtrinsicsInput, reference_camera_idx: usize) -> RigExtrinsicsExport {
+    let tiny = solve_on(
+        input.clone(),
+        reference_camera_idx,
+        SolverBackend::TinySolver,
+    );
+    let factrs = solve_on(input, reference_camera_idx, SolverBackend::Factrs);
+    for (c, (a, b)) in tiny.cameras.iter().zip(&factrs.cameras).enumerate() {
+        for (name, x, y) in [
+            ("fx", a.k.fx, b.k.fx),
+            ("fy", a.k.fy, b.k.fy),
+            ("cx", a.k.cx, b.k.cx),
+            ("cy", a.k.cy, b.k.cy),
+        ] {
+            assert!(
+                (x - y).abs() <= 1e-2,
+                "cam {c}: backends disagree on {name}: {x} vs {y}"
+            );
+        }
+    }
+    for (c, (a, b)) in tiny.cam_se3_rig.iter().zip(&factrs.cam_se3_rig).enumerate() {
+        let dt = (a.translation.vector - b.translation.vector).norm();
+        let dr = a.rotation.angle_to(&b.rotation);
+        assert!(dt <= 1e-5 && dr <= 1e-5, "cam {c}: rig {dt} m / {dr} rad");
+    }
+    tiny
+}
+
+fn solve_on(
+    input: RigExtrinsicsInput,
+    reference_camera_idx: usize,
+    backend: SolverBackend,
+) -> RigExtrinsicsExport {
     let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
     let mut config = RigExtrinsicsConfig::default();
     config.rig.reference_camera_idx = reference_camera_idx;
+    config.solver.backend = backend;
     session.set_config(config).expect("config");
     session.set_input(input).expect("input");
     run_calibration(&mut session).expect("calibration");

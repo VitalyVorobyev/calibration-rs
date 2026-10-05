@@ -9,8 +9,10 @@
 //! The optimization pipeline has three stages:
 //!
 //! 1. **Problem Definition** - Build a \[`ir::ProblemIR`\] describing parameters, factors, and constraints
-//! 2. **Backend Compilation** - Translate IR into solver-specific problem (e.g., \[`backend::TinySolverBackend`\])
-//! 3. **Optimization** - Run solver and extract solution as domain types
+//! 2. **Backend Compilation** - Translate the IR into the selected backend's problem
+//!    ([`SolverBackend`]: tiny-solver or factrs)
+//! 3. **Optimization** - Run the shared Levenberg–Marquardt loop and extract the
+//!    solution as domain types
 //!
 //! ```text
 //! Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Domain Result
@@ -21,7 +23,8 @@
 //! - **\[`ir`\]** - Backend-agnostic intermediate representation for optimization problems
 //! - **\[`params`\]** - Parameter block definitions (intrinsics, distortion, poses)
 //! - **\[`factors`\]** - Residual functions with automatic differentiation support
-//! - **\[`backend`\]** - Solver implementations (currently tiny-solver with Levenberg-Marquardt)
+//! - **\[`backend`\]** - The Levenberg–Marquardt loop and its two linearization engines
+//!   (tiny-solver, factrs), selected by [`BackendSolveOptions::backend`]
 //! - **\[`problems`\]** - High-level calibration problem builders (planar intrinsics, etc.)
 //!
 //! # Examples
@@ -156,7 +159,7 @@ pub use error::Error;
 // builders establish, so a hand-built IR panics inside the solve loop rather
 // than failing to compile. Callers reach for the `optimize_*` entry points
 // below, which is what every consumer in this workspace does.
-pub use crate::backend::{BackendSolveOptions, SolveReport};
+pub use crate::backend::{BackendSolveOptions, SolveReport, SolverBackend};
 
 pub use crate::ir::{DistortionKind, HandEyeMode, RobustLoss};
 

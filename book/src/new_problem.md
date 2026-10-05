@@ -13,7 +13,7 @@ of a genuinely **new residual family**:
 1. Define the generic residual function in `factors/`
 2. Add a `FactorKind` variant in `ir/types.rs`
 3. Create a problem builder in `problems/`
-4. Integrate with the backend in `backend/tiny_solver_backend.rs`
+4. Integrate with both backends (`backend/tiny_solver_backend.rs` and `backend/factrs_backend/`)
 5. Write tests with synthetic ground truth
 
 (Adding a new **camera model** is a different, smaller recipe: one descriptor
@@ -138,8 +138,9 @@ pub fn build_my_problem_ir(
 
 ## Step 4: Backend Integration
 
-In `crates/vision-calibration-optim/src/backend/tiny_solver_backend.rs`, add
-a factor struct implementing tiny-solver's `Factor<T>` plus a match arm in
+Both backends compile every factor kind. In
+`crates/vision-calibration-optim/src/backend/tiny_solver_backend.rs`, add a
+factor struct implementing tiny-solver's `Factor<T>` plus a match arm in
 `compile_factor()`:
 
 ```rust
@@ -172,6 +173,15 @@ If the new family is camera-model-aware, make the struct generic over the
 kernel types and construct it through the `dispatch_camera_model!` table the
 way `TinyReprojFactor<P, D, S>` is.
 
+In `backend/factrs_backend/residuals.rs`, add the factrs residual: a struct
+implementing factrs' `Residual` and the `ResidualN` trait for its variable
+count, whose `residualN` unpacks the variables into the IR's parameter
+blocks and calls the same generic function, plus an arm in
+`build_factor()`. Camera-aware factors use the `camera_residual!` macro.
+Then add the new kind to the cross-backend parity cases in
+`backend/parity_tests.rs`, which check that both backends produce the same
+residual and Jacobian.
+
 ## Step 5: Tests
 
 Write a test with synthetic ground truth in `crates/vision-calibration-optim/tests/`:
@@ -191,9 +201,7 @@ fn my_problem_converges() {
 
     // 4. Build and solve
     let (ir, init_vals) = build_my_problem_ir(&data, &initial, &opts)?;
-    let solution = solve_with_backend(
-        BackendKind::TinySolver, &ir, &init_vals, &backend_opts,
-    )?;
+    let solution = backend::solve(&ir, &init_vals, &backend_opts)?;
 
     // 5. Verify convergence
     let solved_a = &solution.params["param_a"];

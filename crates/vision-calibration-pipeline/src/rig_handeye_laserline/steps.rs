@@ -79,7 +79,7 @@ pub fn run_calibration(
     let backend_opts = BackendSolveOptions {
         max_iters: config.joint_ba.solver.max_iters,
         verbosity: config.joint_ba.solver.verbosity,
-        ..Default::default()
+        ..config.joint_ba.solver.backend_options()
     };
 
     let estimate =

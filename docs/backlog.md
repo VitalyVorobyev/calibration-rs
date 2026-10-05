@@ -19,13 +19,6 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 
 Run in this order; each lands as one PR.
 
-- [ ] O-FACTRS-BACKEND - factrs as a first-class second backend:
-  `SolverBackend { TinySolver, Factrs }` selectable through
-  `BackendSolveOptions` and `SolverConfig.backend` (Rust, JSON, Python, app);
-  one shared LM over a linearize/cost/retract trait for both engines; full
-  factor coverage (block fusion for the 6-variable arity limit, a custom
-  S²×ℝ plane variable, masked fixed components, Arctan loss, post-step
-  bounds); cross-backend parity tests; ADR 0025; book "Solver backends".
 - [ ] O-BACKEND-COMPARE - Backend axis in `calib-bench solver` and a backend
   override in `calib-bench run`; publish the comparison in the book and
   recommend a default (the default changes only on the user's decision).
@@ -54,16 +47,15 @@ scenes are the gate).
 
 - [ ] D4-RELEASE - Cut v1.0 once the ROADMAP exit criteria hold.
 - [ ] D4-NALGEBRA-035 - Move to `nalgebra` 0.35 / `faer` 0.24 /
-  `faer-ext` 0.8. **Blocked on `tiny-solver`**, still built against
+  `faer-ext` 0.8. **Blocked on both backends**, still built against
   0.34 / 0.23 / 0.7: `vision-calibration-optim` passes nalgebra and faer
-  types across that boundary (`Factor<T: nalgebra::RealField>`,
-  `faer::sparse::SparseColMat`, `faer_ext::IntoNalgebra`), so a bump fails
-  to compile. `vision-calibration-detect` must stay nalgebra-free (it
-  converts to plain arrays at its boundary); that is what lets
-  `calib-targets`' nalgebra 0.35 coexist. Re-check on each tiny-solver
-  release (0.18.3 is still on 0.34 / 0.23 / 0.7). `factrs` 0.3 pins the
-  same versions, so once `O-FACTRS-BACKEND` lands both backends must
-  move.
+  types across the tiny-solver boundary (`Factor<T: nalgebra::RealField>`,
+  `faer::sparse::SparseColMat`, `faer_ext::IntoNalgebra`) and the factrs
+  one (its variables and residual traits), so a bump fails to compile.
+  `vision-calibration-detect` must stay nalgebra-free (it converts to plain
+  arrays at its boundary); that is what lets `calib-targets`' nalgebra 0.35
+  coexist. Re-check on each tiny-solver and factrs release (tiny-solver
+  0.18.3 and factrs 0.3.0 are on 0.34 / 0.23 / 0.7).
 
 ## Deferred and parked
 

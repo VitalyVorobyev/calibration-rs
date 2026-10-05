@@ -51,7 +51,7 @@
 - [Manifold Optimization](manifolds.md)
 - [Backend-Agnostic IR Architecture](ir_architecture.md)
 - [Autodiff and Generic Residual Functions](autodiff.md)
-- [Levenberg-Marquardt Backend](lm_backend.md)
+- [Solver Backends](solver_backends.md)
 - [Factor Catalog Reference](factor_catalog.md)
 
 ---

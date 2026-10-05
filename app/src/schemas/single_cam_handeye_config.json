@@ -102,12 +102,12 @@
         },
         {
           "additionalProperties": false,
-          "description": "Huber loss with transition scale.",
+          "description": "Huber loss: quadratic up to `‖r‖ = scale`, linear beyond.",
           "properties": {
             "Huber": {
               "properties": {
                 "scale": {
-                  "description": "Scale parameter controlling quadratic-to-linear transition.",
+                  "description": "Transition residual norm, in residual units (pixels for\nreprojection).",
                   "format": "double",
                   "type": "number"
                 }
@@ -125,12 +125,12 @@
         },
         {
           "additionalProperties": false,
-          "description": "Cauchy loss with scale parameter.",
+          "description": "Cauchy loss: logarithmic growth, influence decreasing beyond\n`‖r‖ ≈ scale`.",
           "properties": {
             "Cauchy": {
               "properties": {
                 "scale": {
-                  "description": "Scale parameter controlling outlier down-weighting.",
+                  "description": "Residual norm where down-weighting sets in, in residual units.",
                   "format": "double",
                   "type": "number"
                 }
@@ -148,12 +148,12 @@
         },
         {
           "additionalProperties": false,
-          "description": "Arctangent loss with bounded influence.",
+          "description": "Arctangent loss: bounded, influence vanishing for large residuals.",
           "properties": {
             "Arctan": {
               "properties": {
                 "scale": {
-                  "description": "Scale parameter controlling curvature.",
+                  "description": "Transition in squared-residual units: down-weighting sets in near\n`‖r‖ ≈ √scale`.",
                   "format": "double",
                   "type": "number"
                 }
@@ -171,10 +171,30 @@
         }
       ]
     },
+    "SolverBackend": {
+      "description": "Which engine linearizes the problem.\n\nBoth run the same Levenberg–Marquardt loop over the same residual\nkernels and reach the same minimizer; they differ in how they build the\nJacobian and how they fold in a robust loss.",
+      "oneOf": [
+        {
+          "const": "tiny_solver",
+          "description": "`tiny-solver`: dynamic-size forward-mode dual numbers; a robust loss\nenters through the Triggs correction (second-order exact).",
+          "type": "string"
+        },
+        {
+          "const": "factrs",
+          "description": "`factrs`: static-size forward-mode dual numbers; a robust loss enters\nthrough iterative reweighting (each block scaled by `√ρ′`).",
+          "type": "string"
+        }
+      ]
+    },
     "SolverConfig": {
       "additionalProperties": false,
       "description": "Non-linear solve stage options shared across problem types.\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor the Scheimpflug single-cam tilt valley; 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
       "properties": {
+        "backend": {
+          "$ref": "#/$defs/SolverBackend",
+          "default": "tiny_solver",
+          "description": "Engine that linearizes the problem for the Levenberg–Marquardt loop.\nBoth reach the same minimizer; see [`SolverBackend`]."
+        },
         "max_iters": {
           "description": "Maximum iterations for the non-linear optimizer.",
           "format": "uint",

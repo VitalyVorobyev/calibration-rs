@@ -4,7 +4,7 @@
 //! and per-view rig poses (`T_R_T`, target-to-rig).
 
 use crate::Error;
-use crate::backend::{BackendKind, BackendSolveOptions, SolveReport, solve_with_backend};
+use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
     CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
     RobustLoss,
@@ -224,7 +224,7 @@ pub fn optimize_rig_extrinsics(
     backend_opts: BackendSolveOptions,
 ) -> Result<RigExtrinsicsEstimate, Error> {
     let (ir, initial_map) = build_rig_extrinsics_ir(&dataset, &initial, &opts)?;
-    let solution = solve_with_backend(BackendKind::TinySolver, &ir, &initial_map, &backend_opts)?;
+    let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
 
     // Extract per-camera calibrated parameters
     let cameras = (0..dataset.num_cameras)
