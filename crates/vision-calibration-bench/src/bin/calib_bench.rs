@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use vision_calibration::optim::SolverBackend;
 use vision_calibration_bench::record::BenchRecord;
 use vision_calibration_bench::registry::{
     BenchDistortionFixMask, BenchEntry, BenchHandEyeMode, BenchScheimpflugFixMask, BenchSensorMode,
@@ -89,6 +90,15 @@ struct SolverRunArgs {
     /// Write the Markdown report here (it is always printed to stdout).
     #[arg(long)]
     md: Option<PathBuf>,
+    /// Solver backend for every scene: `tiny_solver` or `factrs`.
+    #[arg(long, default_value = "tiny_solver", value_parser = parse_backend)]
+    backend: SolverBackend,
+}
+
+/// Parse a solver backend from its serde spelling.
+fn parse_backend(s: &str) -> Result<SolverBackend> {
+    serde_json::from_value(serde_json::Value::String(s.to_owned()))
+        .map_err(|_| anyhow::anyhow!("unknown backend `{s}`; expected `tiny_solver` or `factrs`"))
 }
 
 /// Arguments for `solver compare`.
@@ -114,6 +124,10 @@ struct RunArgs {
     /// printed to stdout stays compact.
     #[arg(long)]
     residuals_out: Option<PathBuf>,
+    /// Solver backend for every non-linear stage: `tiny_solver` or `factrs`
+    /// (default: the entry's, else tiny-solver).
+    #[arg(long, value_parser = parse_backend)]
+    backend: Option<SolverBackend>,
 }
 
 /// Arguments for the `accept` subcommand.
@@ -139,6 +153,9 @@ struct AcceptArgs {
     /// to overall mean/RMS and every per-camera mean).
     #[arg(long, default_value_t = 0.05)]
     regression_tol: f64,
+    /// Solver backend for every entry: `tiny_solver` or `factrs`.
+    #[arg(long, value_parser = parse_backend)]
+    backend: Option<SolverBackend>,
 }
 
 /// Arguments for the `basin` subcommand.
@@ -380,6 +397,11 @@ fn cmd_accept(args: &AcceptArgs) -> Result<()> {
         entries.retain(|e| args.only.iter().any(|id| id == &e.id));
     }
     anyhow::ensure!(!entries.is_empty(), "no datasets selected for acceptance");
+    if args.backend.is_some() {
+        for entry in &mut entries {
+            entry.solver_backend = args.backend;
+        }
+    }
 
     let mut outcomes: Vec<(String, AcceptOutcome)> = Vec::new();
     for entry in &entries {
@@ -557,7 +579,10 @@ fn evaluate_accept_gate(
 }
 
 fn cmd_run(args: &RunArgs) -> Result<()> {
-    let entry = load_entry(&args.dataset, args.registry.as_deref())?;
+    let mut entry = load_entry(&args.dataset, args.registry.as_deref())?;
+    if args.backend.is_some() {
+        entry.solver_backend = args.backend;
+    }
     let record = run_dataset_record(&entry)?;
 
     if let Some(path) = &args.residuals_out {
@@ -1297,7 +1322,7 @@ fn cmd_solver(args: &SolverArgs) -> Result<()> {
     use vision_calibration_bench::solver;
     match &args.command {
         SolverCommand::Run(run) => {
-            let report = solver::run(run.preset, run.repeats.max(1), &run.only);
+            let report = solver::run(run.preset, run.repeats.max(1), &run.only, run.backend);
             let md = solver::render_markdown(&report);
             print!("{md}");
             if let Some(path) = &run.out {

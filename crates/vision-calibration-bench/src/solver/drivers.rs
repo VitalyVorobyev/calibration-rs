@@ -295,8 +295,9 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
                 report,
             )
         }
-        SceneData::RigLaserline { input } => {
+        SceneData::RigLaserline { input, config } => {
             let mut s = CalibrationSession::<RigLaserlineDeviceProblem>::new();
+            s.set_config(config.clone())?;
             s.set_input(input.clone())?;
             ph.init(|| rl_init(&mut s))?;
             ph.optimize(|| rl_optimize(&mut s, None))?;

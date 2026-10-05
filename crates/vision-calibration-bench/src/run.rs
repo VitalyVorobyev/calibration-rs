@@ -33,10 +33,11 @@ pub mod tier_b {
     };
     use vision_calibration::optim::{HandEyeMode, RobotPoseMeta};
     use vision_calibration::planar_intrinsics::{
-        PlanarIntrinsicsExport, PlanarIntrinsicsProblem, step_init, step_optimize,
+        PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem, step_init,
+        step_optimize,
     };
     use vision_calibration::rig_extrinsics::{
-        RigExtrinsicsExport, RigExtrinsicsProblem, step_intrinsics_init_all,
+        RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsProblem, step_intrinsics_init_all,
         step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
     };
     // Rig hand-eye step fns share names with the rig-extrinsics ones, so alias.
@@ -76,8 +77,8 @@ pub mod tier_b {
         BackendSolveOptions, LaserlineResidualType, RigHandeyeLaserlineDataset,
         RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
         RigLaserlineView, RobustLoss, ScheimpflugFixMask, ScheimpflugIntrinsicsParams,
-        ScheimpflugIntrinsicsSolveOptions, SolveReport, optimize_rig_handeye_laserline,
-        optimize_scheimpflug_intrinsics,
+        ScheimpflugIntrinsicsSolveOptions, SolveReport, SolverBackend,
+        optimize_rig_handeye_laserline, optimize_scheimpflug_intrinsics,
     };
     #[cfg(feature = "laser")]
     use vision_metrology::{
@@ -508,6 +509,9 @@ pub mod tier_b {
         let views_for_report = views.clone();
         let dataset = PlanarDataset::new(views).context("failed to build PlanarDataset")?;
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.solver.backend = entry.solver_backend();
+        session.set_config(config).context("set_config failed")?;
         session.set_input(dataset).context("set_input failed")?;
 
         progress(entry, "initializing planar intrinsics");
@@ -723,6 +727,7 @@ pub mod tier_b {
         dataset: PlanarDataset,
         seed: ScheimpflugManualInit,
         label: &str,
+        backend: SolverBackend,
     ) -> Result<ScheimpflugSeededSolve> {
         // `ScheimpflugIntrinsicsConfig::fix_scheimpflug` takes the single canonical
         // `vision_calibration_optim::ScheimpflugFixMask` (already imported at module
@@ -736,6 +741,7 @@ pub mod tier_b {
         session.set_input(dataset).context("set_input failed")?;
         let mut config = ScheimpflugIntrinsicsConfig::default();
         config.solver.max_iters = 120;
+        config.solver.backend = backend;
         config.fix_scheimpflug = ScheimpflugFixMask {
             tilt_x: false,
             tilt_y: false,
@@ -778,8 +784,13 @@ pub mod tier_b {
             entry.problem
         );
         let detected = detect_scheimpflug_seeded_input(entry)?;
-        let solve = solve_scheimpflug_seeded(detected.dataset, detected.seed, &entry.id)
-            .with_context(|| format!("entry `{}`: seeded solve failed", entry.id))?;
+        let solve = solve_scheimpflug_seeded(
+            detected.dataset,
+            detected.seed,
+            &entry.id,
+            entry.solver_backend(),
+        )
+        .with_context(|| format!("entry `{}`: seeded solve failed", entry.id))?;
         let export = solve.export;
 
         // ── Fit metrics (bench-recomputed + export-reported) ───────────────
@@ -1029,6 +1040,9 @@ pub mod tier_b {
         // into the session below).
         let dataset_for_report = input.clone();
         let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
+        let mut config = RigExtrinsicsConfig::default();
+        config.solver.backend = entry.solver_backend();
+        session.set_config(config).context("set_config failed")?;
         session.set_input(input).context("set_input failed")?;
 
         progress(entry, "initializing per-camera intrinsics");
@@ -1348,6 +1362,7 @@ pub mod tier_b {
         if let Some(overrides) = &entry.single_cam_handeye {
             overrides.apply_to(&mut config);
         }
+        config.solver.backend = entry.solver_backend();
         let robot_rot_sigma = config.robot_poses.rot_sigma;
         let robot_trans_sigma = config.robot_poses.trans_sigma;
         session
@@ -1612,6 +1627,7 @@ pub mod tier_b {
         if let Some(overrides) = &entry.rig_handeye {
             overrides.apply_to(&mut config);
         }
+        config.solver.backend = entry.solver_backend();
         if let Some(seed) = &entry.seed {
             let manual: RigHandeyeIntrinsicsManualInit = serde_json::from_value(seed.0.clone())
                 .with_context(|| {
@@ -3103,6 +3119,7 @@ pub mod tier_b {
             .context("set laserline input failed")?;
         let mut laser_cfg = RigLaserlineDeviceConfig::default();
         laser_cfg.solver.max_iters = 200;
+        laser_cfg.solver.backend = entry.solver_backend();
         laser_cfg.solver.verbosity = 0;
         laser_cfg.laser_residual_type = LaserlineResidualType::PointToPlane;
         laser_session
@@ -3193,6 +3210,7 @@ pub mod tier_b {
             ..Default::default()
         };
         let backend_opts = BackendSolveOptions {
+            backend: entry.solver_backend(),
             max_iters: 30,
             verbosity: 0,
             ..Default::default()

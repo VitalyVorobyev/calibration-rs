@@ -17,11 +17,16 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 
 ## Solver backends
 
-Run in this order; each lands as one PR.
-
-- [ ] O-BACKEND-COMPARE - Backend axis in `calib-bench solver` and a backend
-  override in `calib-bench run`; publish the comparison in the book and
-  recommend a default (the default changes only on the user's decision).
+- [~] O-FACTRS-PARALLEL - factrs is 2.4–3.3× faster than tiny-solver per
+  core but linearizes on one thread, so tiny-solver's rayon-parallel
+  residual evaluation (3.7–5.7× on an M4 Pro) makes it 1.2–2.5× faster
+  overall (book, "Solver Backends"). Parallel linearization would likely
+  make factrs the faster backend, but factrs' `VariableSafe` / `Residual`
+  trait objects are not `Send`/`Sync`, so neither `Values` nor `Factor`
+  can cross threads. **Blocked on factrs upstream** (a `Send + Sync` bound
+  on those traits), or on linearizing outside factrs' `Graph` from a
+  thread-safe copy of the variables; reopen with either, then re-run the
+  comparison and revisit the default backend with the user.
 
 ## Calibration quality
 

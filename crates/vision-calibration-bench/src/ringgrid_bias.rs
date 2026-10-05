@@ -451,7 +451,8 @@ mod tests {
             }
             let detected = detect_scheimpflug_seeded_input(&entry).expect("detect");
             let solve =
-                solve_scheimpflug_seeded(detected.dataset, detected.seed, id).expect("solve");
+                solve_scheimpflug_seeded(detected.dataset, detected.seed, id, Default::default())
+                    .expect("solve");
             let rep = diagnose(&solve.export, R_OUTER_M, R_INNER_M);
             println!(
                 "{:<20} {:>6}  {:>6.3}/{:>6.3}/{:>6.3}/{:>6.3}  {:>6.3}/{:>6.3}/{:>6.3}/{:>6.3}  {:>10.3}  {:>8.3}  {:>7.3}",
