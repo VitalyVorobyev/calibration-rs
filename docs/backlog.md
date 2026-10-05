@@ -19,12 +19,6 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 
 Run in this order; each lands as one PR.
 
-- [ ] O-SOLVER-BENCH - `calib-bench solver`: a deterministic synthetic scene
-  matrix over the eight problem types × scale × pixel noise × outliers (with
-  Huber/Cauchy), recording optimize wall time, iterations, a
-  solver-independent objective ½Σρ(‖r‖²), inlier reprojection RMS and
-  ground-truth parameter errors; JSON records, a Markdown table and
-  `--compare`. Shared geometry generators move into `core::synthetic`.
 - [ ] O-TINYSOLVER-0183 - `tiny-solver` 0.18.3. The in-repo LM measures cost
   with `Problem::compute_cost` (Σρ, not the squared norm of the
   loss-corrected residuals, so robust solves stop short today), gains the

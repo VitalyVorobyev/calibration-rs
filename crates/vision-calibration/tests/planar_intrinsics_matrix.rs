@@ -8,14 +8,13 @@
 
 #![allow(missing_docs)]
 
-use nalgebra::{Rotation3, Translation3};
 use vision_calibration::core::{
     BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, IntrinsicsParams, Iso3, Pinhole,
     PlanarDataset, Pt3, View,
 };
 use vision_calibration::planar_intrinsics::{PlanarIntrinsicsProblem, step_init, step_optimize};
 use vision_calibration::session::CalibrationSession;
-use vision_calibration::synthetic::{noise::UniformPixelNoise, planar};
+use vision_calibration::synthetic::{noise::UniformPixelNoise, planar, poses};
 
 /// One cell of the ground-truth grid.
 struct GtCell {
@@ -34,7 +33,7 @@ fn board() -> Vec<Pt3> {
 }
 
 fn poses() -> Vec<Iso3> {
-    let angles: [(f64, f64); 8] = [
+    let tilts: [(f64, f64); 8] = [
         (0.00, 0.00),
         (0.18, -0.06),
         (-0.15, 0.10),
@@ -44,18 +43,9 @@ fn poses() -> Vec<Iso3> {
         (-0.20, -0.10),
         (0.12, -0.22),
     ];
-    angles
-        .iter()
-        .enumerate()
-        .map(|(i, (pitch, yaw))| {
-            // Center the 0.25 × 0.2 m board on the optical axis, distance
-            // ramping 0.55 → 0.90 m.
-            Iso3::from_parts(
-                Translation3::new(-0.125, -0.1, 0.55 + 0.05 * i as f64),
-                Rotation3::from_euler_angles(*pitch, *yaw, 0.0).into(),
-            )
-        })
-        .collect()
+    // Center the 0.25 × 0.2 m board on the optical axis, distance ramping
+    // 0.55 → 0.90 m.
+    poses::tilted_board_poses(&tilts, (0.125, 0.1), 0.55, 0.05)
 }
 
 /// Run the standard planar pipeline on one synthetic dataset; return

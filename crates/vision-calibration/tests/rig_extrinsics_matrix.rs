@@ -17,7 +17,6 @@
 
 #![allow(missing_docs)]
 
-use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, NoMeta, PinholeCamera, Pt3, RigDataset,
     RigView, RigViewObs, make_pinhole_camera,
@@ -27,7 +26,8 @@ use vision_calibration::rig_extrinsics::{
     RigIntrinsicsManualInit, run_calibration, step_intrinsics_init_all_with_seed, step_rig_init,
 };
 use vision_calibration::session::CalibrationSession;
-use vision_calibration::synthetic::{noise::UniformPixelNoise, planar};
+use vision_calibration::synthetic::poses::make_iso;
+use vision_calibration::synthetic::{noise::UniformPixelNoise, planar, poses};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ground-truth fixtures
@@ -39,14 +39,6 @@ struct GtCell {
     /// `cam1_se3_rig` = T_C1_R (rig = camera 0): the observable relative pose.
     cam1_se3_rig: Iso3,
     label: &'static str,
-}
-
-fn make_iso(angles: (f64, f64, f64), t: (f64, f64, f64)) -> Iso3 {
-    let rot = Rotation3::from_euler_angles(angles.0, angles.1, angles.2);
-    Iso3::from_parts(
-        Translation3::new(t.0, t.1, t.2),
-        UnitQuaternion::from_rotation_matrix(&rot),
-    )
 }
 
 /// Two rig cameras with distinct intrinsics (exercises per-camera intrinsics
@@ -88,7 +80,7 @@ fn board() -> Vec<Pt3> {
 /// from the shared views (see the math note, §identifiability). The board is
 /// re-centred on the optical axis so the rotations stay near fronto-parallel.
 fn rig_poses() -> Vec<Iso3> {
-    let angles: [(f64, f64); 8] = [
+    let tilts: [(f64, f64); 8] = [
         (0.00, 0.00),
         (0.16, -0.06),
         (-0.14, 0.10),
@@ -98,24 +90,14 @@ fn rig_poses() -> Vec<Iso3> {
         (-0.18, -0.10),
         (0.11, -0.20),
     ];
-    angles
-        .iter()
-        .enumerate()
-        .map(|(i, (pitch, yaw))| {
-            Iso3::from_parts(
-                // Board spans [0, 0.21] × [0, 0.15] m; recentre and ramp 0.60→0.81 m.
-                Translation3::new(-0.105, -0.075, 0.60 + 0.03 * i as f64),
-                Rotation3::from_euler_angles(*pitch, *yaw, 0.0).into(),
-            )
-        })
-        .collect()
+    // Board spans [0, 0.21] × [0, 0.15] m; recentre and ramp 0.60→0.81 m.
+    poses::tilted_board_poses(&tilts, (0.105, 0.075), 0.60, 0.03)
 }
 
 /// (Δtranslation in metres, Δrotation angle in radians) between two poses.
 fn pose_error(a: &Iso3, b: &Iso3) -> (f64, f64) {
-    let dt = (a.translation.vector - b.translation.vector).norm();
-    let r_diff = a.rotation.inverse() * b.rotation;
-    (dt, r_diff.angle())
+    let e = poses::pose_error(a, b);
+    (e.trans, e.rot_rad())
 }
 
 /// Relative pose T_C1_C0 = `cam_se3_rig[1] · cam_se3_rig[0]⁻¹` — the

@@ -673,10 +673,14 @@ pub mod optim {
 /// generator submodules genuinely useful to consumers are re-exported, not the
 /// whole module (which is primarily a test/example helper).
 pub mod synthetic {
+    /// Laser-stripe pixels on a planar target for a camera model.
+    pub use vision_calibration_core::synthetic::laser;
     /// Deterministic noise helpers (e.g. [`noise::UniformPixelNoise`]).
     pub use vision_calibration_core::synthetic::noise;
     /// Planar target generators: point grids, pose ramps, and projection helpers.
     pub use vision_calibration_core::synthetic::planar;
+    /// Board poses, robot stations, rig layouts, and the pose-error metric.
+    pub use vision_calibration_core::synthetic::poses;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -17,7 +17,7 @@
 
 use std::f64::consts::PI;
 
-use nalgebra::{Rotation3, Translation3, Vector2, Vector3};
+use nalgebra::{Rotation3, Translation3, Vector3};
 use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, PinholeCamera, Pt2, Pt3, Vec2, View,
     make_pinhole_camera,
@@ -28,6 +28,7 @@ use vision_calibration::laserline_device::{
 use vision_calibration::optim::{LaserPlane, LaserlineMeta, LaserlineView};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::synthetic::noise::UniformPixelNoise;
+use vision_calibration::synthetic::{laser, poses};
 
 // Board extent in target coordinates: a 9×7 grid of 30 mm cells spans
 // [0, 0.24] × [0, 0.18] m; its centre sits at (0.12, 0.09).
@@ -53,31 +54,20 @@ fn board() -> Vec<Pt3> {
 /// kept small relative to `board_half_extent · sin(tilt)`.
 fn poses(z0: f64) -> Vec<Iso3> {
     // pitch, yaw, roll (rad), depth jitter (m)
-    let specs: [(f64, f64, f64, f64); 6] = [
-        (0.00, 0.00, 0.00, 0.000),
-        (0.12, -0.05, 0.35, -0.012),
-        (-0.10, 0.09, -0.40, 0.010),
-        (0.06, 0.14, 0.60, 0.014),
-        (-0.13, -0.07, -0.25, -0.014),
-        (0.09, -0.15, 0.45, 0.008),
+    let spec = poses::BoardPoseSpec::new;
+    let specs = [
+        spec(0.00, 0.00, 0.00, 0.000),
+        spec(0.12, -0.05, 0.35, -0.012),
+        spec(-0.10, 0.09, -0.40, 0.010),
+        spec(0.06, 0.14, 0.60, 0.014),
+        spec(-0.13, -0.07, -0.25, -0.014),
+        spec(0.09, -0.15, 0.45, 0.008),
     ];
-    specs
-        .iter()
-        .map(|&(pitch, yaw, roll, dz)| {
-            let r = Rotation3::from_euler_angles(pitch, yaw, roll);
-            // Place the *board centre* (not its origin) on the optical axis at
-            // depth z0 + dz, for every rotation.
-            let center_local = Vector3::new(BOARD_CX, BOARD_CY, 0.0);
-            let t = Vector3::new(0.0, 0.0, z0 + dz) - r * center_local;
-            Iso3::from_parts(Translation3::from(t), r.into())
-        })
-        .collect()
+    poses::centered_board_poses(&specs, (BOARD_CX, BOARD_CY), z0)
 }
 
-/// Generate the on-board laser stripe for one view: intersect the (fixed,
-/// camera-frame) laser plane with the board plane (`z = 0` in target frame),
-/// sample points along the intersection line that fall inside the board
-/// extent, project them, and add deterministic pixel noise.
+/// On-board laser stripe for one view (see
+/// [`vision_calibration::synthetic::laser`]), with deterministic pixel noise.
 fn laser_pixels_for_view(
     camera: &PinholeCamera,
     cam_se3_target: &Iso3,
@@ -85,65 +75,16 @@ fn laser_pixels_for_view(
     view_idx: usize,
     noise: &UniformPixelNoise,
 ) -> Vec<Pt2> {
-    // Laser plane expressed in the target frame (board is z = 0 there).
-    let target_se3_cam = cam_se3_target.inverse();
-    let plane_t = plane.transform_by(&target_se3_cam);
-    let n = plane_t.normal.into_inner();
-    let d = plane_t.distance;
-
-    let n_xy = Vector2::new(n.x, n.y);
-    let horiz = n_xy.norm();
-    if horiz < 1e-9 {
-        // Laser plane parallel to the board: no stripe (a degenerate view).
-        return Vec::new();
-    }
-    let dir = Vector2::new(-n.y, n.x) / horiz;
-    // Foot of the perpendicular from the board centre onto the stripe line;
-    // any point on the line will do as the clip anchor.
-    let center = Vector2::new(BOARD_CX, BOARD_CY);
-    let signed = (n_xy.dot(&center) + d) / (horiz * horiz);
-    let p0 = center - signed * n_xy;
-
-    // Clip the infinite stripe line q(t) = p0 + t·dir to the board rectangle
-    // [0, BOARD_MAX_X] × [0, BOARD_MAX_Y] (parametric slab clipping), so the
-    // sampled pixels always land on the physical board.
-    let mut t_lo = f64::NEG_INFINITY;
-    let mut t_hi = f64::INFINITY;
-    for &(origin, delta, hi) in &[(p0.x, dir.x, BOARD_MAX_X), (p0.y, dir.y, BOARD_MAX_Y)] {
-        if delta.abs() < 1e-12 {
-            if origin < 0.0 || origin > hi {
-                return Vec::new(); // line runs outside this slab entirely
-            }
-        } else {
-            let mut ta = (0.0 - origin) / delta;
-            let mut tb = (hi - origin) / delta;
-            if ta > tb {
-                std::mem::swap(&mut ta, &mut tb);
-            }
-            t_lo = t_lo.max(ta);
-            t_hi = t_hi.min(tb);
-        }
-    }
-    if t_hi - t_lo < 0.05 {
-        return Vec::new(); // stripe misses the board or is too short
-    }
-    // Sample inside the on-board span, with a small margin off the edges.
-    let margin = 0.02 * (t_hi - t_lo);
-    let (a, b) = (t_lo + margin, t_hi - margin);
-
-    let mut pixels = Vec::new();
-    for i in 0..41 {
-        let t = a + (b - a) * (i as f64) / 40.0;
-        let x = p0.x + t * dir.x;
-        let y = p0.y + t * dir.y;
-        let p_cam = cam_se3_target.transform_point(&Pt3::new(x, y, 0.0));
-        if let Some(px) = camera.project_point(&p_cam) {
-            // Distinct key space from the corner noise (offset the point index).
-            let noisy = noise.apply(view_idx, 10_000 + i, Vec2::new(px.x, px.y));
-            pixels.push(Pt2::new(noisy.x, noisy.y));
-        }
-    }
-    pixels
+    let board = laser::BoardExtent::from_grid(BOARD_NX, BOARD_NY, BOARD_SPACING);
+    laser::laser_stripe_pixels(
+        camera,
+        cam_se3_target,
+        plane.normal.as_ref(),
+        plane.distance,
+        &board,
+        view_idx,
+        noise,
+    )
 }
 
 /// Build a full synthetic laserline dataset (target corners + laser pixels)

@@ -11,7 +11,6 @@
 
 #![allow(missing_docs)]
 
-use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration::core::{
     BrownConrady5, FxFyCxCySkew, Iso3, PinholeCamera, Pt3, make_pinhole_camera,
 };
@@ -22,7 +21,8 @@ use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeProblem, SingleCamHandeyeView, step_handeye_init, step_handeye_optimize,
     step_intrinsics_init, step_intrinsics_optimize,
 };
-use vision_calibration::synthetic::{noise::UniformPixelNoise, planar};
+use vision_calibration::synthetic::poses::make_iso;
+use vision_calibration::synthetic::{noise::UniformPixelNoise, planar, poses};
 
 /// One cell of the ground-truth grid: a focal regime and a hand-eye transform.
 struct GtCell {
@@ -41,34 +41,11 @@ fn board() -> Vec<Pt3> {
 /// Robot stations (`base_se3_gripper`, `T_B_G`) with strongly diverse rotation
 /// axes. Hand-eye identifiability *requires* ≥ 2 relative motions with
 /// non-parallel rotation axes (see the math note, §identifiability): the
-/// roll/pitch/yaw mix below supplies that, and the translation ramp spreads
-/// the target distance so Zhang's intrinsics init is well posed too.
+/// roll/pitch/yaw mix of the shared station table supplies that, and its
+/// translation ramp spreads the target distance so Zhang's intrinsics init is
+/// well posed too.
 fn robot_poses() -> Vec<Iso3> {
-    // (euler angles rad, translation m) per station.
-    type Station = ((f64, f64, f64), (f64, f64, f64));
-    let specs: [Station; 9] = [
-        ((0.00, 0.00, 0.00), (0.00, 0.00, 0.00)),
-        ((0.30, 0.00, 0.00), (0.10, 0.00, 0.00)), // roll
-        ((0.00, 0.30, 0.00), (0.00, 0.10, 0.00)), // pitch
-        ((0.00, 0.00, 0.30), (0.00, 0.00, 0.08)), // yaw
-        ((0.22, 0.20, 0.00), (0.05, -0.05, 0.02)),
-        ((-0.24, 0.00, 0.20), (-0.05, 0.05, 0.03)),
-        ((0.16, -0.18, 0.12), (0.02, -0.04, 0.05)),
-        ((-0.15, 0.22, -0.10), (-0.03, 0.03, 0.04)),
-        ((0.20, -0.10, 0.24), (0.04, 0.02, 0.01)),
-    ];
-    specs
-        .iter()
-        .map(|&(angles, t)| make_iso(angles, t))
-        .collect()
-}
-
-fn make_iso(angles: (f64, f64, f64), t: (f64, f64, f64)) -> Iso3 {
-    let rot = Rotation3::from_euler_angles(angles.0, angles.1, angles.2);
-    Iso3::from_parts(
-        Translation3::new(t.0, t.1, t.2),
-        UnitQuaternion::from_rotation_matrix(&rot),
-    )
+    poses::robot_stations(9, 0)
 }
 
 fn camera(fx: f64, fy: f64) -> PinholeCamera {
@@ -88,9 +65,8 @@ fn camera(fx: f64, fy: f64) -> PinholeCamera {
 
 /// (Δtranslation in metres, Δrotation angle in radians) between two poses.
 fn pose_error(a: &Iso3, b: &Iso3) -> (f64, f64) {
-    let dt = (a.translation.vector - b.translation.vector).norm();
-    let r_diff = a.rotation.inverse() * b.rotation;
-    (dt, r_diff.angle())
+    let e = poses::pose_error(a, b);
+    (e.trans, e.rot_rad())
 }
 
 /// Build the per-view EyeInHand observations for a ground-truth

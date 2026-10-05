@@ -3,7 +3,10 @@
 //! This module provides small, reusable building blocks for constructing
 //! synthetic calibration problems used in tests and examples:
 //! - planar target point grids,
-//! - simple pose generators,
+//! - simple pose generators ([`crate::synthetic::planar`] ramps;
+//!   [`crate::synthetic::poses`] board poses, robot stations, rig layouts and
+//!   a pose-error metric),
+//! - laser-stripe pixels on a planar target ([`crate::synthetic::laser`]),
 //! - projection helpers producing [`crate::CorrespondenceView`],
 //! - deterministic pseudo-random noise utilities.
 //!
@@ -25,5 +28,7 @@
 //! assert_eq!(views.len(), 5);
 //! ```
 
+pub mod laser;
 pub mod noise;
 pub mod planar;
+pub mod poses;

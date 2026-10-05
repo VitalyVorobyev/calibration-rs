@@ -11,6 +11,8 @@ use vision_calibration_bench::registry::{
     ChessCornersDetectorSpec, DetectorOverride, HandeyeBaOverride, ManualInitSeed, ProblemKind,
     RigHandeyeOverride, SingleCamHandeyeOverride, load_registry,
 };
+use vision_calibration_bench::solver::record::SolverBenchReport;
+use vision_calibration_bench::solver::scenes::{Preset, Problem};
 use vision_calibration_pipeline::analysis::ReprojLevel;
 
 /// Calibration benchmarking harness.
@@ -47,6 +49,55 @@ enum Command {
     /// device-spec seed over a structured grid and report the gate
     /// pass-rate per cell, per dataset family. Never wired into CI.
     Basin(BasinArgs),
+    /// Solver benchmark on synthetic ground-truth scenes: wall time, the
+    /// solver-independent objective and parameter errors, per problem type.
+    Solver(SolverArgs),
+}
+
+/// Arguments for the `solver` subcommand.
+#[derive(Parser)]
+struct SolverArgs {
+    #[command(subcommand)]
+    command: SolverCommand,
+}
+
+/// `solver` subcommands.
+#[derive(Subcommand)]
+enum SolverCommand {
+    /// Run a scene preset and print a Markdown summary.
+    Run(SolverRunArgs),
+    /// Compare two reports from `solver run` (b against the baseline a).
+    Compare(SolverCompareArgs),
+}
+
+/// Arguments for `solver run`.
+#[derive(Parser)]
+struct SolverRunArgs {
+    /// Scene preset.
+    #[arg(long, value_enum, default_value = "quick")]
+    preset: Preset,
+    /// Timed repeats per scene (after one warm-up run).
+    #[arg(long, default_value_t = vision_calibration_bench::solver::DEFAULT_REPEATS)]
+    repeats: usize,
+    /// Only run these problem types (repeat or comma-separate), e.g.
+    /// `planar_intrinsics,rig_extrinsics`.
+    #[arg(long, value_enum, value_delimiter = ',')]
+    only: Vec<Problem>,
+    /// Write the JSON report here.
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Write the Markdown report here (it is always printed to stdout).
+    #[arg(long)]
+    md: Option<PathBuf>,
+}
+
+/// Arguments for `solver compare`.
+#[derive(Parser)]
+struct SolverCompareArgs {
+    /// Baseline report (JSON).
+    a: PathBuf,
+    /// Report to judge against the baseline (JSON).
+    b: PathBuf,
 }
 
 /// Arguments for the `run` subcommand.
@@ -195,28 +246,6 @@ struct DiagnoseStagesArgs {
 /// Default registry path: `<crate>/registry/public.json`.
 fn default_registry_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("registry/public.json")
-}
-
-/// Current git SHA, or `"unknown"` if git is unavailable.
-#[cfg(feature = "tier-b")]
-fn git_sha() -> String {
-    std::process::Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
-/// Unix epoch seconds as a string (no chrono dependency).
-#[cfg(feature = "tier-b")]
-fn unix_epoch_secs_string() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs().to_string())
-        .unwrap_or_else(|_| "0".to_string())
 }
 
 /// Cargo features active for this build (best-effort).
@@ -600,8 +629,8 @@ fn run_dataset_record(entry: &BenchEntry) -> Result<BenchRecord> {
     };
 
     // Inject provenance the record type keeps pure (never read inside the run).
-    record.ident.git_sha = git_sha();
-    record.ident.timestamp_rfc3339 = unix_epoch_secs_string();
+    record.ident.git_sha = vision_calibration_bench::record::git_sha();
+    record.ident.timestamp_rfc3339 = vision_calibration_bench::record::unix_epoch_secs_string();
     record.ident.config_hash = 0;
     record.ident.features = active_features();
 
@@ -1264,6 +1293,34 @@ fn escape_md(s: &str) -> String {
     s.replace('|', "\\|").replace('\n', " ")
 }
 
+fn cmd_solver(args: &SolverArgs) -> Result<()> {
+    use vision_calibration_bench::solver;
+    match &args.command {
+        SolverCommand::Run(run) => {
+            let report = solver::run(run.preset, run.repeats.max(1), &run.only);
+            let md = solver::render_markdown(&report);
+            print!("{md}");
+            if let Some(path) = &run.out {
+                std::fs::write(path, serde_json::to_string_pretty(&report)?)
+                    .with_context(|| format!("writing {}", path.display()))?;
+            }
+            if let Some(path) = &run.md {
+                std::fs::write(path, &md).with_context(|| format!("writing {}", path.display()))?;
+            }
+        }
+        SolverCommand::Compare(cmp) => {
+            let load = |p: &Path| -> Result<SolverBenchReport> {
+                let text = std::fs::read_to_string(p)
+                    .with_context(|| format!("reading {}", p.display()))?;
+                serde_json::from_str(&text).with_context(|| format!("parsing {}", p.display()))
+            };
+            let comparison = solver::compare(&load(&cmp.a)?, &load(&cmp.b)?);
+            print!("{}", solver::render_comparison(&comparison));
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
@@ -1281,6 +1338,7 @@ fn main() -> Result<()> {
         }
         Command::Diagnose(args) => cmd_diagnose(&args)?,
         Command::Basin(args) => cmd_basin(&args)?,
+        Command::Solver(args) => cmd_solver(&args)?,
     }
     Ok(())
 }
