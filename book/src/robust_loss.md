@@ -4,11 +4,11 @@ Standard least squares minimizes the sum of squared residuals $\sum r_i^2$. This
 
 ## Problem Setup
 
-In non-linear least squares, we minimize:
+In non-linear least squares, calibration-rs minimizes
 
-$$\min_\theta \sum_{i=1}^{N} \rho(r_i(\theta))$$
+$$F(\theta) = \frac{1}{2} \sum_{i=1}^{N} \rho\left(s_i(\theta)\right), \qquad s_i = \lVert \mathbf{r}_i(\theta) \rVert^2,$$
 
-where $\rho$ is the loss function applied to each residual $r_i$. The standard (non-robust) case uses $\rho(r) = \frac{1}{2} r^2$.
+where $\mathbf{r}_i$ is a residual block (a reprojection's 2D pixel error, say) and $\rho$ is the loss applied to its squared norm. Without a robust loss $\rho(s) = s$, which gives the standard $\frac{1}{2} \sum \lVert \mathbf{r}_i \rVert^2$. This is the Ceres convention: $\rho(0) = 0$ and $\rho'(0) = 1$, so every loss agrees with least squares for small residuals. `RobustLoss::rho` evaluates it.
 
 ## Available Loss Functions
 
@@ -16,33 +16,35 @@ where $\rho$ is the loss function applied to each residual $r_i$. The standard (
 
 ### Huber Loss
 
-$$\rho(r) = \begin{cases} \frac{1}{2} r^2 & \text{if } |r| \leq c \\ c \left( |r| - \frac{c}{2} \right) & \text{if } |r| > c \end{cases}$$
+$$\rho(s) = \begin{cases} s & \text{if } s \leq c^2 \\ 2c\sqrt{s} - c^2 & \text{if } s > c^2 \end{cases}$$
 
 **Properties**:
-- Quadratic for small residuals, linear for large residuals
+- Quadratic in $\lVert \mathbf{r} \rVert$ for small residuals, linear for large ones
 - Continuous first derivative
-- **Influence function**: bounded at $\pm c$ — outliers contribute constant gradient, not growing
+- **Influence**: bounded — an outlier contributes a constant-magnitude gradient, not a growing one
 
 **When to use**: The default robust loss. Good general-purpose choice when you expect a moderate number of outliers.
 
 ### Cauchy Loss
 
-$$\rho(r) = \frac{c^2}{2} \ln\left(1 + \frac{r^2}{c^2}\right)$$
+$$\rho(s) = c^2 \ln\left(1 + \frac{s}{c^2}\right)$$
 
 **Properties**:
 - Grows logarithmically for large residuals (slower than linear)
 - Smooth everywhere
-- **Influence function**: $\psi(r) = r / (1 + r^2/c^2)$ — decreases to zero for large $|r|$, effectively down-weighting far outliers
+- **Influence**: $\rho'(s) = 1 / (1 + s/c^2)$ decreases to zero for large residuals, effectively down-weighting far outliers
 
 **When to use**: When outliers are far from the bulk of the data and should have near-zero influence.
 
 ### Arctan Loss
 
-$$\rho(r) = c^2 \arctan\left(\frac{r^2}{c^2}\right)$$
+$$\rho(s) = c \arctan\left(\frac{s}{c}\right)$$
+
+Here the scale is in squared-residual units: the transition is near $\lVert \mathbf{r} \rVert \approx \sqrt{c}$.
 
 **Properties**:
-- Bounded: $\rho(r) \to \frac{\pi}{2} c^2$ as $|r| \to \infty$
-- **Influence function** approaches zero for large residuals (redescending)
+- Bounded: $\rho(s) \to \frac{\pi}{2} c$ as $s \to \infty$
+- **Influence**: $\rho'(s) = 1 / (1 + s^2/c^2)$ approaches zero for large residuals (redescending)
 
 **When to use**: When very strong outlier rejection is needed. More aggressive than Cauchy but can make convergence harder.
 
@@ -50,7 +52,7 @@ $$\rho(r) = c^2 \arctan\left(\frac{r^2}{c^2}\right)$$
 
 | Loss | Large-$r$ growth | Outlier influence | Convergence |
 |------|-------------------|-------------------|-------------|
-| Quadratic ($r^2/2$) | Quadratic | Unbounded | Best |
+| None ($\rho(s) = s$) | Quadratic | Unbounded | Best |
 | Huber | Linear | Bounded (constant) | Good |
 | Cauchy | Logarithmic | Decreasing | Moderate |
 | Arctan | Bounded | Approaching zero | Can be tricky |
@@ -61,7 +63,7 @@ The scale $c$ sets the boundary between "inlier" and "outlier" behavior:
 
 - **Too small**: Treats good data as outliers, reducing effective sample size
 - **Too large**: Outliers still dominate (approaches standard least squares)
-- **Rule of thumb**: Set $c$ to the expected residual magnitude for good data points. For reprojection residuals, $c = 1\text{-}3$ pixels is typical.
+- **Rule of thumb**: For Huber and Cauchy, set $c$ to the expected residual magnitude for good data points; for reprojection residuals $c = 1\text{-}3$ pixels is typical. Arctan's scale is in squared units, so the equivalent is $c = 1\text{-}9$.
 
 ## Usage in calibration-rs
 
@@ -92,9 +94,14 @@ instead.
 
 The backend applies the loss function during residual evaluation, modifying both the cost and the Jacobian.
 
-## Iteratively Reweighted Least Squares (IRLS)
+## How the Solver Applies a Loss
 
-Under the hood, robust loss functions are typically implemented via IRLS: each residual is weighted by $w_i = \rho'(r_i) / r_i$, and the weighted least-squares problem is solved iteratively. The Levenberg-Marquardt backend handles this automatically.
+The Levenberg–Marquardt loop always measures progress with $F$ itself. To build each step's linear model, a backend folds the loss into the residual block and its Jacobian:
+
+- **tiny-solver** uses the Triggs correction, which matches $\rho$ to second order.
+- **factrs** uses iterative reweighting: the block and its Jacobian are scaled by $\sqrt{\rho'(s_i)}$.
+
+Both models have the same first-order change as $F$, so both converge to the same minimum; see [Solver Backends](solver_backends.md).
 
 ## Interaction with RANSAC
 

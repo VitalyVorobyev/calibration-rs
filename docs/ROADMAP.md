@@ -41,10 +41,12 @@ trigger.
 - **MVG stops short of SfM** ([ADR 0015](adrs/0015-mvg-ceiling.md)): two-view
   solvers, N-view pose recovery, triangulation, bundle adjustment,
   rectification and a pure-Rust dense matcher, nothing beyond.
-- **One solver backend.** tiny-solver LM behind the optimization IR
-  ([ADR 0008](adrs/0008-backend-agnostic-optimization-ir.md)). A second
-  backend is worth adding only if it brings autodiff, an S2 manifold and
-  documented robust losses.
+- **Two solver backends, one LM loop.** tiny-solver (default) and factrs
+  compile the optimization IR
+  ([ADR 0008](adrs/0008-backend-agnostic-optimization-ir.md)) and both drive
+  the shared Levenberg–Marquardt loop
+  ([ADR 0025](adrs/0025-factrs-backend-shared-lm.md)). The default changes
+  only on a measured comparison and the user's decision.
 
 ## Out of scope
 

@@ -22,13 +22,13 @@ Backend pattern:
 2. Backend `compile()` translates IR to solver-specific structures.
 3. Backend `solve()` runs optimization, returns `BackendSolution`.
 
-Factor functions are generic over `T: RealField` for autodiff compatibility. The IR is pure data (no derivative concepts in `ProblemIR` or `OptimBackend`); the kernels are autodiff-capable rather than autodiff-dependent. tiny-solver is the sole backend; the IR still isolates problem definitions from the solver API.
+Factor functions are generic over `T: RealField` for autodiff compatibility. The IR is pure data (no derivative concepts in `ProblemIR` or `OptimBackend`); the kernels are autodiff-capable rather than autodiff-dependent. Two backends compile it — tiny-solver and factrs — under one shared Levenberg–Marquardt loop (ADR 0025).
 
 ### Backend contract
 
 A backend (`OptimBackend::solve(ir, initial, opts) -> BackendSolution`,
 private to `vision-calibration-optim`, registered in the single dispatch
-`solve_with_backend`) must:
+`backend::solve` on `BackendSolveOptions::backend`) must:
 
 - validate the IR, then allocate one parameter per `ParamBlock`, initialized
   from `initial` (keyed by block **name**);
@@ -36,10 +36,14 @@ private to `vision-calibration-optim`, registered in the single dispatch
   its fixed mask, and its bounds;
 - evaluate every `ResidualBlock` through its `FactorKind`'s generic kernel,
   with the block's `RobustLoss` (`Huber`, `Cauchy`, `Arctan`) applied;
-- return the optimized values keyed by block name, plus a `SolveReport`.
+- drive the shared LM loop through a `LinearizationEngine` (ADR 0025)
+  rather than its own optimizer;
+- return the optimized values keyed by block name, plus a `SolveReport`
+  whose `final_cost` is `½ Σ ρ(‖r‖²)`.
 
-A new backend is accepted when it reproduces the existing optim problem tests
-from the same initial values.
+A new backend is accepted when every factor kind linearizes like the
+existing ones (`backend/parity_tests.rs`) and it reproduces the optim
+problem tests from the same initial values.
 
 ## Consequences
 

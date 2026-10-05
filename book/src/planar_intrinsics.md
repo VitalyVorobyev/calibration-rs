@@ -42,7 +42,7 @@ Constructs the optimization problem as IR:
 
 - **Parameter blocks**: `"cam"` (4D, Euclidean), `"dist"` (5D, Euclidean), `"pose/0"`...`"pose/M-1"` (7D, SE3)
 - **Residual blocks**: One `ReprojPoint { model: PINHOLE4_DIST5, chain: SinglePose, .. }` per observation (2D residual)
-- **Backend**: Levenberg-Marquardt via TinySolverBackend
+- **Solver**: the Levenberg–Marquardt loop on the backend `solver.backend` selects (tiny-solver by default; see [Solver Backends](solver_backends.md))
 
 After optimization, expect <2% intrinsics error and <1 px mean reprojection error.
 

@@ -11,7 +11,7 @@ own `[workspace]`) and path-pins the published crates:
 
 * **`vision-calibration-core`** — math aliases (+ `linalg` numerics), composable camera models, RANSAC, synthetic-data helpers.
 * **`vision-calibration-linear`** — closed-form / linear initialisation (homography, PnP, epipolar, rig extrinsics, hand–eye).
-* **`vision-calibration-optim`** — non-linear least-squares IR, robust kernels, solver backends (tiny-solver).
+* **`vision-calibration-optim`** — non-linear least-squares IR, robust kernels, one Levenberg–Marquardt loop over two solver backends (tiny-solver, factrs).
 * **`vision-geometry`** — deterministic two-view solvers (epipolar, homography, triangulation, camera matrix).
 * **`vision-mvg`** — MVG pipelines: robust pose recovery, N-view triangulation, bundle adjustment (`refine` feature), Scheimpflug-aware rectification, dense stereo.
 * **`vision-calibration-dataset`** — `DatasetSpec` manifest, validator, folder sniffer.

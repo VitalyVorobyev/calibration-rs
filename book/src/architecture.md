@@ -78,7 +78,7 @@ Non-linear refinement with a backend-agnostic architecture:
 
 1. **IR (Intermediate Representation)** — `ProblemIR` with `ParamBlock` and `ResidualBlock` types that describe optimization problems independently of any solver
 2. **Factors** — generic residual functions parameterized over `RealField` for automatic differentiation
-3. **Backends** — currently `TinySolverBackend` (Levenberg-Marquardt with sparse linear solvers)
+3. **Backends** — tiny-solver and factrs: two linearization engines driven by one Levenberg–Marquardt loop with sparse linear solvers
 4. **Problem builders** — domain-specific functions that construct IR from calibration data
 
 ### vision-calibration-pipeline

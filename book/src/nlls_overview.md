@@ -71,11 +71,11 @@ In bundle adjustment problems, the Jacobian $J$ is **sparse**: each residual dep
 - **Sparse Cholesky**: Efficient for well-structured problems
 - **Sparse QR**: More robust when the normal equations are ill-conditioned
 
-calibration-rs uses sparse linear solvers through the tiny-solver backend.
+calibration-rs solves the damped normal equations with sparse Cholesky or sparse QR; see [Solver Backends](solver_backends.md).
 
 ## Cost Function vs. Reprojection Error
 
-The optimizer minimizes the **cost** $F = \frac{1}{2} \sum r_i^2$. The commonly reported **mean reprojection error** is:
+The optimizer minimizes the **cost** $F = \frac{1}{2} \sum_i \rho_i(\lVert \mathbf{r}_i \rVert^2)$, which is $\frac{1}{2} \sum \lVert \mathbf{r}_i \rVert^2$ without a robust loss. The commonly reported **mean reprojection error** is:
 
 $$\bar{e} = \frac{1}{N} \sum_{i=1}^{N} \|\mathbf{r}_i\|$$
 
