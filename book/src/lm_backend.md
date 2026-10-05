@@ -116,7 +116,7 @@ pub struct SolveReport {
 }
 ```
 
-The cost is $F = \frac{1}{2} \sum r_i^2$ (half sum of squared residuals). Problem-specific code extracts domain types (cameras, poses, planes) from the raw parameter vectors.
+`final_cost` is the robust objective at the solution, $F = \frac{1}{2} \sum_i \rho_i(\lVert \mathbf{r}_i \rVert^2)$, where $\rho_i$ is the residual block's loss ($\rho(s) = s$ without one, so $F = \frac{1}{2} \sum \lVert \mathbf{r}_i \rVert^2$ for plain least squares). The Levenberg–Marquardt loop accepts or rejects each step on the change of this same objective. Problem-specific code extracts domain types (cameras, poses, planes) from the raw parameter vectors.
 
 ## Typical Convergence
 
@@ -124,7 +124,7 @@ For a well-initialized planar intrinsics problem:
 
 - **Final cost**: $\sim 10^{-2}$ - $10^0$ (sub-pixel residuals)
 - **Iterations**: 10-50 (depends on problem size and initial quality)
-- **Termination**: Usually relative decrease below `min_rel_decrease`
+- **Termination**: Usually relative decrease below `min_rel_decrease`; the loop also stops once a step can no longer change the parameters ($\lVert \Delta x \rVert \le 10^{-8} (\lVert x \rVert + 10^{-8})$)
 
 ## Error Handling
 

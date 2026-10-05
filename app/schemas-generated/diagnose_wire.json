@@ -2286,7 +2286,7 @@
       "description": "Summary of backend solve outcome.",
       "properties": {
         "final_cost": {
-          "description": "Final objective value reported by backend.",
+          "description": "The objective at the solution: `½ Σᵢ ρᵢ(‖rᵢ‖²)` over the residual\nblocks, where `ρᵢ` is the block's robust loss (`ρ(s) = s` without\none) — so `½‖r‖²` for a plain least-squares problem.",
           "format": "double",
           "type": "number"
         },

@@ -16,8 +16,7 @@
 //!   the pipeline export.
 //! - [`record`]: the serializable report.
 //!
-//! Two solves of one scene agree to roughly 1e-12 relative, not bit for bit:
-//! the backend orders its parameter blocks through a randomly seeded hash map.
+//! Two solves of one scene give bit-identical records, timing aside.
 
 pub mod drivers;
 pub mod metrics;

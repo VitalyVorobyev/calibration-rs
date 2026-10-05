@@ -58,14 +58,13 @@ pub enum LinearSolverKind {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SolveReport {
-    /// Final objective value reported by backend.
+    /// The objective at the solution: `½ Σᵢ ρᵢ(‖rᵢ‖²)` over the residual
+    /// blocks, where `ρᵢ` is the block's robust loss (`ρ(s) = s` without
+    /// one) — so `½‖r‖²` for a plain least-squares problem.
     pub final_cost: f64,
     /// Number of outer solver iterations executed.
     #[serde(default)]
     pub num_iters: usize,
-    // strongly consider adding:
-    // pub status: SolveStatus,
-    // pub time_ms: u64,
 }
 
 /// Solver output from a backend.

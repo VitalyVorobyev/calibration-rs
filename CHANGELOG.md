@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Migration
+
+- `SolveReport.final_cost` is the robust objective `½ Σ ρ(‖rᵢ‖²)` at the
+  solution (`½‖r‖²` without a loss). For robust solves the reported value
+  changes and is not comparable with earlier releases.
+
 ### Added
 
 - **Synthetic scene generators in `vision_calibration_core::synthetic`.**
@@ -49,6 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Robust solves reach the robust minimum.** The Levenberg–Marquardt loop
+  judges each step by the robust objective Σρ(‖r‖²) instead of the squared
+  norm of the loss-corrected residuals, which stopped Huber, Cauchy and
+  Arctan solves short of their minimum; it also stops once a step can no
+  longer change the parameters. Built on `tiny-solver` 0.18.3, which also
+  corrects the Cauchy loss value.
+- **Solves are bit-for-bit reproducible.** The solver lays out its
+  variables in a fixed order, so the same input gives identical results run
+  to run (it used to vary in the last digits). The non-linear solve is also
+  13–30 % faster on the synthetic benchmark.
 - **Detection caches follow detector upgrades.** A cache entry is keyed on
   the `vision-calibration-detect` release as well as the image, detector
   and config, so upgrading recomputes detections instead of serving those

@@ -38,6 +38,10 @@ const LM_MIN_DIAGONAL: f64 = 1e-6;
 const LM_MAX_DIAGONAL: f64 = 1e32;
 const LM_INITIAL_TRUST_REGION_RADIUS: f64 = 1e4;
 const LM_MAX_STEP_ATTEMPTS: usize = 32;
+/// Stop once a step is this small relative to the parameters
+/// (`‖dx‖ ≤ ε(‖x‖ + ε)`, Ceres' `parameter_tolerance`): it can no longer
+/// change them, accepted or not.
+const LM_RELATIVE_STEP_TOLERANCE: f64 = 1e-8;
 
 /// tiny-solver backend adapter.
 #[derive(Debug, Clone, Copy)]
@@ -159,8 +163,7 @@ impl OptimBackend for TinySolverBackend {
                 .ok_or_else(|| Error::numerical("tiny-solver failed to converge"))?;
 
         let param_blocks = problem.initialize_parameter_blocks(&params);
-        let residuals = problem.compute_residuals(&param_blocks, true);
-        let final_cost = 0.5 * residuals.as_ref().squared_norm_l2();
+        let final_cost = 0.5 * problem.compute_cost(&param_blocks);
 
         Ok(BackendSolution {
             params,
@@ -228,10 +231,18 @@ fn solve_levenberg_marquardt(
     let mut linear_solver = make_linear_solver(opt_options.linear_solver_type);
     let mut jacobi_scaling_diagonal = None;
     let mut damping = 1.0 / LM_INITIAL_TRUST_REGION_RADIUS;
-    let mut current_error = compute_error(problem, &parameter_blocks);
+    // The cost is the robust objective Σρ(‖r‖²); the linear model below is
+    // built from the loss-corrected residuals and Jacobian, whose
+    // first-order change matches it.
+    let mut current_error = problem.compute_cost(&parameter_blocks);
     if !current_error.is_finite() {
         return None;
     }
+
+    // Block names in a fixed order, so float sums over the blocks do not
+    // depend on hash order.
+    let mut block_names: Vec<String> = parameter_blocks.keys().cloned().collect();
+    block_names.sort_unstable();
 
     let mut num_iters = 0usize;
     for outer_iter in 0..opt_options.max_iteration {
@@ -259,8 +270,13 @@ fn solve_levenberg_marquardt(
             .mul(jac.as_ref());
         let jtr = jac.as_ref().transpose().mul(-&residuals);
 
-        let residual_norm2 = residuals.as_ref().squared_norm_l2();
+        let x_norm = block_names
+            .iter()
+            .map(|name| parameter_blocks[name].params.norm_squared())
+            .sum::<f64>()
+            .sqrt();
         let mut accepted = false;
+        let mut step_negligible = false;
         for step_attempt in 0..LM_MAX_STEP_ATTEMPTS {
             let mut jtj_regularized = jtj.clone();
             for i in 0..total_variable_dimension {
@@ -278,6 +294,10 @@ fn solve_levenberg_marquardt(
                 damping *= 2.0;
                 continue;
             }
+            if dx_na.norm() <= LM_RELATIVE_STEP_TOLERANCE * (x_norm + LM_RELATIVE_STEP_TOLERANCE) {
+                step_negligible = true;
+                break;
+            }
 
             let mut new_param_blocks = parameter_blocks.clone();
             apply_dx(
@@ -286,21 +306,16 @@ fn solve_levenberg_marquardt(
                 &variable_name_to_col_idx_dict,
             );
 
-            let new_residuals = problem.compute_residuals(&new_param_blocks, true);
-            let new_residual_norm2 = new_residuals.as_ref().squared_norm_l2();
-            let actual_residual_change = residual_norm2 - new_residual_norm2;
-            let linear_residual_change: faer::Mat<f64> =
+            let new_cost = problem.compute_cost(&new_param_blocks);
+            let actual_cost_change = current_error - new_cost;
+            let linear_cost_change: faer::Mat<f64> =
                 lm_step.transpose().mul(2.0 * &jtr - &jtj * &lm_step);
-            let predicted_residual_change = linear_residual_change[(0, 0)];
-            let rho = actual_residual_change / predicted_residual_change;
+            let predicted_cost_change = linear_cost_change[(0, 0)];
+            let rho = actual_cost_change / predicted_cost_change;
 
-            if rho.is_finite()
-                && rho > 0.0
-                && predicted_residual_change > 0.0
-                && new_residual_norm2.is_finite()
-            {
+            if rho.is_finite() && rho > 0.0 && predicted_cost_change > 0.0 && new_cost.is_finite() {
                 parameter_blocks = new_param_blocks;
-                current_error = new_residual_norm2;
+                current_error = new_cost;
                 let tmp = 2.0 * rho - 1.0;
                 damping *= (1.0_f64 / 3.0).max(1.0 - tmp * tmp * tmp);
                 accepted = true;
@@ -315,6 +330,12 @@ fn solve_levenberg_marquardt(
             damping *= 2.0;
         }
 
+        if step_negligible {
+            if opt_options.verbosity_level > 0 {
+                println!("tiny-solver lm stopped: relative step below tolerance");
+            }
+            break;
+        }
         if !accepted {
             if opt_options.verbosity_level > 0 {
                 println!(
@@ -409,13 +430,6 @@ fn apply_dx(
             param.update_params(param.plus_f64(dx_full.rows(0, tangent_size)));
         }
     });
-}
-
-fn compute_error(problem: &Problem, params: &HashMap<String, ParameterBlock>) -> f64 {
-    problem
-        .compute_residuals(params, true)
-        .as_ref()
-        .squared_norm_l2()
 }
 
 fn params_from_blocks(
@@ -690,7 +704,7 @@ mod tests {
         let mut initial = HashMap::new();
         initial.insert("x".to_owned(), DVector::from_element(1, 0.1));
         let initial_blocks = problem.initialize_parameter_blocks(&initial);
-        let initial_error = compute_error(&problem, &initial_blocks);
+        let initial_error = problem.compute_cost(&initial_blocks);
 
         let opts = BackendSolveOptions {
             max_iters: 25,
@@ -703,7 +717,7 @@ mod tests {
         let solution = solve_levenberg_marquardt(&problem, &initial, &opts)
             .expect("LM should recover after increasing damping");
         let solved_blocks = problem.initialize_parameter_blocks(&solution.params);
-        let solved_error = compute_error(&problem, &solved_blocks);
+        let solved_error = problem.compute_cost(&solved_blocks);
         let x = solution.params["x"][0];
         assert!(
             solution.num_iters > 0 && solution.num_iters <= opts.max_iters,
@@ -719,6 +733,80 @@ mod tests {
             (x - 1.0).abs() < 1e-6,
             "positive initial point should converge to the positive root, got {x}"
         );
+    }
+
+    /// `r = x - y` for one sample `y`.
+    #[derive(Debug, Clone)]
+    struct OffsetFactor(f64);
+
+    impl<T: RealField> Factor<T> for OffsetFactor {
+        fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
+            DVector::from_element(1, params[0][0].clone() - T::from_f64(self.0).unwrap())
+        }
+    }
+
+    /// LM must reach the minimum of the robust objective Σρ(‖r‖²), not stop
+    /// where the squared norm of the loss-corrected residuals stalls.
+    #[test]
+    fn lm_minimizes_the_robust_cost() {
+        let samples = [0.0, 0.1, -0.1, 0.05, 0.2, 4.0, 6.0];
+        for loss in [
+            RobustLoss::Huber { scale: 0.5 },
+            RobustLoss::Cauchy { scale: 0.5 },
+            RobustLoss::Arctan { scale: 0.5 },
+        ] {
+            let mut problem = Problem::new();
+            for &y in &samples {
+                problem.add_residual_block(
+                    1,
+                    &["x"],
+                    Box::new(OffsetFactor(y)),
+                    compile_loss(loss).unwrap(),
+                );
+            }
+            let cost_at = |x: f64| {
+                let mut values = HashMap::new();
+                values.insert("x".to_owned(), DVector::from_element(1, x));
+                problem.compute_cost(&problem.initialize_parameter_blocks(&values))
+            };
+            // Brute-force reference: a fine grid, then golden-section.
+            let mut best = (f64::INFINITY, 0.0);
+            for i in 0..=8000 {
+                let x = -2.0 + 8.0 * i as f64 / 8000.0;
+                let c = cost_at(x);
+                if c < best.0 {
+                    best = (c, x);
+                }
+            }
+            let (mut lo, mut hi) = (best.1 - 1e-3, best.1 + 1e-3);
+            let g = (5.0_f64.sqrt() - 1.0) / 2.0;
+            for _ in 0..100 {
+                let (a, b) = (hi - g * (hi - lo), lo + g * (hi - lo));
+                if cost_at(a) < cost_at(b) {
+                    hi = b
+                } else {
+                    lo = a
+                }
+            }
+            let x_ref = 0.5 * (lo + hi);
+
+            let mut initial = HashMap::new();
+            initial.insert("x".to_owned(), DVector::from_element(1, 1.5));
+            let opts = BackendSolveOptions {
+                max_iters: 200,
+                min_abs_decrease: Some(0.0),
+                min_rel_decrease: Some(0.0),
+                min_error: Some(0.0),
+                ..BackendSolveOptions::default()
+            };
+            let solution =
+                solve_levenberg_marquardt(&problem, &initial, &opts).expect("robust LM converges");
+            let x = solution.params["x"][0];
+            assert!(
+                (x - x_ref).abs() < 1e-6,
+                "{loss:?}: LM stopped at {x}, robust minimum is at {x_ref}"
+            );
+        }
     }
 
     use crate::ir::{CameraModelDesc, FixedMask, ParamSlotSpec, ResidualBlock};
