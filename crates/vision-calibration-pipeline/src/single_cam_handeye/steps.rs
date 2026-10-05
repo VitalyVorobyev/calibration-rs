@@ -381,7 +381,7 @@ pub fn step_intrinsics_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..Default::default()
+        ..config.solver.backend_options()
     };
 
     // Run optimization
@@ -701,7 +701,7 @@ pub fn step_handeye_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..Default::default()
+        ..config.solver.backend_options()
     };
 
     // Run optimization

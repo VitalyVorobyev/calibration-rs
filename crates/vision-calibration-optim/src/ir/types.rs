@@ -109,19 +109,22 @@ pub enum RobustLoss {
     /// No robustification (plain squared residual).
     #[default]
     None,
-    /// Huber loss with transition scale.
+    /// Huber loss: quadratic up to `‖r‖ = scale`, linear beyond.
     Huber {
-        /// Scale parameter controlling quadratic-to-linear transition.
+        /// Transition residual norm, in residual units (pixels for
+        /// reprojection).
         scale: f64,
     },
-    /// Cauchy loss with scale parameter.
+    /// Cauchy loss: logarithmic growth, influence decreasing beyond
+    /// `‖r‖ ≈ scale`.
     Cauchy {
-        /// Scale parameter controlling outlier down-weighting.
+        /// Residual norm where down-weighting sets in, in residual units.
         scale: f64,
     },
-    /// Arctangent loss with bounded influence.
+    /// Arctangent loss: bounded, influence vanishing for large residuals.
     Arctan {
-        /// Scale parameter controlling curvature.
+        /// Transition in squared-residual units: down-weighting sets in near
+        /// `‖r‖ ≈ √scale`.
         scale: f64,
     },
 }

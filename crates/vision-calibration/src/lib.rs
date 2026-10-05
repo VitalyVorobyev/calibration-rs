@@ -639,8 +639,9 @@ pub mod mvg {
 /// crate; the typical consumer never touches it directly — they go through
 /// the per-problem `step_*` functions, which wrap it. This module re-exports
 /// only the small value/enum vocabulary a facade consumer legitimately names:
-/// the robust-loss selector, the laser-plane parameter type, the hand-eye
-/// mode enum, and the per-problem input-construction `*Meta`/`*View` types.
+/// the robust-loss and solver-backend selectors, the laser-plane parameter
+/// type, the hand-eye mode enum, and the per-problem input-construction
+/// `*Meta`/`*View` types.
 ///
 /// The `compute_*_feature_residuals` / `handeye_observer_se3_target` helpers
 /// live in [`analysis`], not here.
@@ -664,6 +665,9 @@ pub mod optim {
     pub use vision_calibration_optim::RobotPoseMeta;
     /// Robust loss (M-estimator) selector for optimization.
     pub use vision_calibration_optim::RobustLoss;
+    /// Solver backend selector — the `backend` field of
+    /// [`common::config::SolverConfig`](crate::common::config::SolverConfig).
+    pub use vision_calibration_optim::SolverBackend;
 }
 
 /// Deterministic synthetic data generation for testing.

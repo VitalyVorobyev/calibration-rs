@@ -354,7 +354,7 @@ pub fn step_intrinsics_optimize_all(
                 let backend_opts = BackendSolveOptions {
                     max_iters,
                     verbosity,
-                    ..Default::default()
+                    ..config.solver.backend_options()
                 };
 
                 let result = optimize_planar_intrinsics(
@@ -406,7 +406,7 @@ pub fn step_intrinsics_optimize_all(
                 let backend_opts = BackendSolveOptions {
                     max_iters,
                     verbosity,
-                    ..Default::default()
+                    ..config.solver.backend_options()
                 };
 
                 // Staged multi-start init breaks the tilt/principal-point/
@@ -655,7 +655,7 @@ pub fn step_rig_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..Default::default()
+        ..config.solver.backend_options()
     };
 
     let output = match &config.sensor {

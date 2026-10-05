@@ -414,7 +414,7 @@ pub fn step_intrinsics_optimize_all(
                 let backend_opts = BackendSolveOptions {
                     max_iters,
                     verbosity,
-                    ..Default::default()
+                    ..config.solver.backend_options()
                 };
 
                 let result = optimize_planar_intrinsics(
@@ -469,7 +469,7 @@ pub fn step_intrinsics_optimize_all(
                 let backend_opts = BackendSolveOptions {
                     max_iters,
                     verbosity,
-                    ..Default::default()
+                    ..config.solver.backend_options()
                 };
 
                 let result = if session.state.per_cam_intrinsics_auto {
@@ -534,7 +534,7 @@ pub fn step_intrinsics_optimize_all(
         let backend_opts = BackendSolveOptions {
             max_iters,
             verbosity,
-            ..Default::default()
+            ..config.solver.backend_options()
         };
         if let Some(sensors) = optimized_sensors.as_mut() {
             recover_bad_scheimpflug_cameras_from_nominal(
@@ -1626,7 +1626,7 @@ pub fn step_rig_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..Default::default()
+        ..config.solver.backend_options()
     };
 
     // Convert input to NoMeta — both rig BA solvers expect NoMeta.
@@ -1994,7 +1994,7 @@ pub fn step_handeye_optimize(
     let backend_opts = BackendSolveOptions {
         max_iters: opts.max_iters.unwrap_or(config.solver.max_iters),
         verbosity: opts.verbosity.unwrap_or(config.solver.verbosity),
-        ..Default::default()
+        ..config.solver.backend_options()
     };
 
     let output = match &config.sensor {

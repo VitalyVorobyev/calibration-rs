@@ -8,8 +8,8 @@ use vision_calibration_core::{
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    BackendSolveOptions, LaserlineDataset, LaserlineEstimate, LaserlineResidualType,
-    LaserlineSolveOptions, LaserlineStats, compute_laserline_feature_residuals,
+    LaserlineDataset, LaserlineEstimate, LaserlineResidualType, LaserlineSolveOptions,
+    LaserlineStats, compute_laserline_feature_residuals,
 };
 
 use crate::common::ExportKind;
@@ -116,15 +116,6 @@ impl LaserlineDeviceConfig {
             fix_poses: self.optimize.fix_poses.clone(),
             fix_plane: self.optimize.fix_plane,
             laser_residual_type: self.optimize.laser_residual_type,
-        }
-    }
-
-    /// Convert to backend solver options.
-    pub fn backend_opts(&self) -> BackendSolveOptions {
-        BackendSolveOptions {
-            max_iters: self.solver.max_iters,
-            verbosity: self.solver.verbosity,
-            ..Default::default()
         }
     }
 }

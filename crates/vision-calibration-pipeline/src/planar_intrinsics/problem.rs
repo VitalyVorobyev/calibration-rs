@@ -11,8 +11,8 @@ use vision_calibration_core::{
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    BackendSolveOptions, DistortionKind, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
-    PlanarIntrinsicsSolveOptions, SolveReport,
+    DistortionKind, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+    SolveReport,
 };
 
 use crate::common::ExportKind;
@@ -118,15 +118,6 @@ impl PlanarIntrinsicsConfig {
             fix_intrinsics: self.fix_camera.intrinsics,
             fix_distortion: self.fix_camera.distortion,
             fix_poses: self.fix_poses.clone(),
-        }
-    }
-
-    /// Convert to backend solver options.
-    pub fn backend_opts(&self) -> BackendSolveOptions {
-        BackendSolveOptions {
-            max_iters: self.solver.max_iters,
-            verbosity: self.solver.verbosity,
-            ..Default::default()
         }
     }
 }
@@ -418,14 +409,19 @@ mod tests {
             solver: SolverConfig {
                 max_iters: 100,
                 verbosity: 2,
+                backend: vision_calibration_optim::SolverBackend::Factrs,
                 ..Default::default()
             },
             ..Default::default()
         };
 
-        let opts = config.backend_opts();
+        let opts = config.solver.backend_options();
         assert_eq!(opts.max_iters, 100);
         assert_eq!(opts.verbosity, 2);
+        assert_eq!(
+            opts.backend,
+            vision_calibration_optim::SolverBackend::Factrs
+        );
     }
 
     #[test]

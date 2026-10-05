@@ -45,6 +45,7 @@
     "tilt_y": 0.0
   },
   "solver": {
+    "backend": "tiny_solver",
     "max_iters": 50,
     "robust_loss": "None",
     "verbosity": 0

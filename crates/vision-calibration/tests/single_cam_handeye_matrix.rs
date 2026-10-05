@@ -14,7 +14,7 @@
 use vision_calibration::core::{
     BrownConrady5, FxFyCxCySkew, Iso3, PinholeCamera, Pt3, make_pinhole_camera,
 };
-use vision_calibration::optim::HandEyeMode;
+use vision_calibration::optim::{HandEyeMode, SolverBackend};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
     HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
@@ -102,16 +102,51 @@ fn solve(input: SingleCamHandeyeInput, mode: HandEyeMode) -> SingleCamHandeyeExp
     solve_with(input, mode, true)
 }
 
-/// Same, with control over robot-pose refinement (the default is `true`).
+/// Same, with control over robot-pose refinement (the default is `true`):
+/// both solver backends, checked to agree; the default backend's export.
 fn solve_with(
     input: SingleCamHandeyeInput,
     mode: HandEyeMode,
     refine_robot_poses: bool,
 ) -> SingleCamHandeyeExport {
+    let tiny = solve_on(
+        input.clone(),
+        mode,
+        refine_robot_poses,
+        SolverBackend::TinySolver,
+    );
+    let factrs = solve_on(input, mode, refine_robot_poses, SolverBackend::Factrs);
+    let (a, b) = (&tiny.camera.k, &factrs.camera.k);
+    for (name, x, y) in [
+        ("fx", a.fx, b.fx),
+        ("fy", a.fy, b.fy),
+        ("cx", a.cx, b.cx),
+        ("cy", a.cy, b.cy),
+    ] {
+        assert!(
+            (x - y).abs() <= 1e-2,
+            "backends disagree on {name}: {x} vs {y}"
+        );
+    }
+    if let (Some(a), Some(b)) = (tiny.gripper_se3_camera, factrs.gripper_se3_camera) {
+        let dt = (a.translation.vector - b.translation.vector).norm();
+        let dr = a.rotation.angle_to(&b.rotation);
+        assert!(dt <= 1e-5 && dr <= 1e-5, "hand-eye {dt} m / {dr} rad");
+    }
+    tiny
+}
+
+fn solve_on(
+    input: SingleCamHandeyeInput,
+    mode: HandEyeMode,
+    refine_robot_poses: bool,
+    backend: SolverBackend,
+) -> SingleCamHandeyeExport {
     let mut session = CalibrationSession::<SingleCamHandeyeProblem>::new();
     let mut config = SingleCamHandeyeConfig::default();
     config.handeye_init.handeye_mode = mode;
     config.robot_poses.refine = refine_robot_poses;
+    config.solver.backend = backend;
     session.set_config(config).expect("config");
     session.set_input(input).expect("input");
     step_intrinsics_init(&mut session, None).expect("intrinsics init");

@@ -23,9 +23,10 @@ use vision_calibration::core::{
     make_pinhole_camera,
 };
 use vision_calibration::laserline_device::{
-    LaserlineDeviceConfig, LaserlineDeviceProblem, run_calibration,
+    LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput, LaserlineDeviceProblem,
+    run_calibration,
 };
-use vision_calibration::optim::{LaserPlane, LaserlineMeta, LaserlineView};
+use vision_calibration::optim::{LaserPlane, LaserlineMeta, LaserlineView, SolverBackend};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::synthetic::noise::UniformPixelNoise;
 use vision_calibration::synthetic::{laser, poses};
@@ -131,6 +132,37 @@ fn build_dataset(
     views
 }
 
+/// Run the pipeline on both solver backends, check that they agree, and
+/// return the default backend's export.
+fn solve(dataset: LaserlineDeviceInput) -> LaserlineDeviceExport {
+    let run = |backend| {
+        let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+        session.set_input(dataset.clone()).expect("input");
+        let mut config = LaserlineDeviceConfig::default();
+        config.solver.backend = backend;
+        run_calibration(&mut session, Some(config)).expect("calibration");
+        session.export().expect("export")
+    };
+    let tiny = run(SolverBackend::TinySolver);
+    let factrs = run(SolverBackend::Factrs);
+    let (a, b) = (&tiny.estimate.params, &factrs.estimate.params);
+    for (name, x, y) in [
+        ("fx", a.intrinsics.fx, b.intrinsics.fx),
+        ("fy", a.intrinsics.fy, b.intrinsics.fy),
+        ("cx", a.intrinsics.cx, b.intrinsics.cx),
+        ("cy", a.intrinsics.cy, b.intrinsics.cy),
+    ] {
+        assert!(
+            (x - y).abs() <= 1e-2,
+            "backends disagree on {name}: {x} vs {y}"
+        );
+    }
+    let dn = a.plane.normal.angle(&b.plane.normal);
+    let dd = (a.plane.distance - b.plane.distance).abs();
+    assert!(dn <= 1e-5 && dd <= 1e-5, "plane {dn} rad / {dd} m");
+    tiny
+}
+
 #[test]
 fn laserline_device_recovers_plane_across_grid_and_noise() {
     let gt_intr = FxFyCxCySkew {
@@ -173,11 +205,7 @@ fn laserline_device_recovers_plane_across_grid_and_noise() {
                     );
                 }
 
-                let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
-                session.set_input(dataset).expect("input");
-                run_calibration(&mut session, Some(LaserlineDeviceConfig::default()))
-                    .expect("calibration");
-                let export = session.export().expect("export");
+                let export = solve(dataset);
                 let plane = &export.estimate.params.plane;
 
                 // Align to the GT sign (the S2 double cover: (n, d) ≡ (−n, −d)).

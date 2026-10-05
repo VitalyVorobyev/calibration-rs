@@ -10,7 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, cast
 
-from .types import DistortionModel, HandEyeMode, LaserlineResidualType, RobustLoss
+from .types import (
+    DistortionModel,
+    HandEyeMode,
+    LaserlineResidualType,
+    RobustLoss,
+    SolverBackend,
+)
 
 Vec2 = tuple[float, float]
 Vec3 = tuple[float, float, float]
@@ -92,12 +98,16 @@ class SolverConfig:
     max_iters: int = 50
     verbosity: int = 0
     robust_loss: RobustLoss = "None"
+    #: Engine that linearizes the problem: ``"tiny_solver"`` (default) or
+    #: ``"factrs"``. Both reach the same minimizer.
+    backend: SolverBackend = "tiny_solver"
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "max_iters": int(self.max_iters),
             "verbosity": int(self.verbosity),
             "robust_loss": cast(Any, self.robust_loss),
+            "backend": str(self.backend),
         }
 
     @classmethod
