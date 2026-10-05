@@ -67,7 +67,9 @@ regex = "1"
 # uses.
 rand = { version = "0.10", default-features = false }
 tracing = { version = "0.1" }
-tiny-solver = "0.18"
+# 0.18.3 is the floor: `Problem::compute_cost` (the robust objective the
+# LM measures) and the Cauchy loss fix.
+tiny-solver = "0.18.3"
 faer = "0.23"
 faer-ext = "0.7"
 criterion = "0.8"

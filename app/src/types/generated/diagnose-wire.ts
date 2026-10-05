@@ -559,7 +559,9 @@ export interface ScheimpflugParams {
  */
 export interface SolveReport {
   /**
-   * Final objective value reported by backend.
+   * The objective at the solution: `½ Σᵢ ρᵢ(‖rᵢ‖²)` over the residual
+   * blocks, where `ρᵢ` is the block's robust loss (`ρ(s) = s` without
+   * one) — so `½‖r‖²` for a plain least-squares problem.
    */
   final_cost: number;
   /**

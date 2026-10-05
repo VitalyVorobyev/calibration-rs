@@ -2828,9 +2828,9 @@ dependencies = [
 
 [[package]]
 name = "tiny-solver"
-version = "0.18.0"
+version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bffe415fc8910691a904077545fd61c0e7f43180ecb65706eaaf7ddb4c75104"
+checksum = "a7d8729c5556c8571fc9e2f0c171c43a2b1c675efe63f5ecff7dbc1fa70dab42"
 dependencies = [
  "faer",
  "faer-ext",

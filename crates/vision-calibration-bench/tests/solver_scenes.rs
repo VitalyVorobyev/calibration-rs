@@ -1,11 +1,6 @@
 //! One small scene per problem type through the real pipeline: the record is
 //! `Ok`, the objective is finite, ground-truth errors are small, and a second
-//! run reproduces the record (timing aside).
-//!
-//! Reproducibility is asserted to a 1e-8 relative tolerance, not bit-for-bit:
-//! the backend keys its parameter blocks in a randomly seeded `HashMap`, so the
-//! sparse-solver variable order (and with it the rounding of the last few
-//! digits) differs between two solves in the same process.
+//! run reproduces the record bit for bit (timing aside).
 
 use vision_calibration::optim::RobustLoss;
 use vision_calibration_bench::solver::metrics::GtErrors;
@@ -58,35 +53,7 @@ fn check(spec: SceneSpec, bounds: impl Fn(&GtErrors)) {
     let second = run_scene(&spec, 1);
     let a = serde_json::to_value(first.without_timing()).unwrap();
     let b = serde_json::to_value(second.without_timing()).unwrap();
-    assert_close(&a, &b, &spec.id());
-}
-
-/// Structural equality; numbers match to 1e-8 relative (1e-12 absolute).
-fn assert_close(a: &serde_json::Value, b: &serde_json::Value, ctx: &str) {
-    use serde_json::Value::{Array, Number, Object};
-    match (a, b) {
-        (Number(x), Number(y)) if x.is_f64() || y.is_f64() => {
-            let (x, y) = (x.as_f64().unwrap(), y.as_f64().unwrap());
-            assert!(
-                (x - y).abs() <= 1e-12 + 1e-8 * x.abs().max(y.abs()),
-                "{ctx}: {x} vs {y}"
-            );
-        }
-        (Array(x), Array(y)) => {
-            assert_eq!(x.len(), y.len(), "{ctx}");
-            x.iter().zip(y).for_each(|(x, y)| assert_close(x, y, ctx));
-        }
-        (Object(x), Object(y)) => {
-            assert_eq!(
-                x.keys().collect::<Vec<_>>(),
-                y.keys().collect::<Vec<_>>(),
-                "{ctx}"
-            );
-            x.iter()
-                .for_each(|(k, v)| assert_close(v, &y[k], &format!("{ctx}.{k}")));
-        }
-        _ => assert_eq!(a, b, "{ctx}"),
-    }
+    assert_eq!(a, b, "{}: a second run differs", spec.id());
 }
 
 #[test]

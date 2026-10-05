@@ -19,11 +19,6 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 
 Run in this order; each lands as one PR.
 
-- [ ] O-TINYSOLVER-0183 - `tiny-solver` 0.18.3. The in-repo LM measures cost
-  with `Problem::compute_cost` (Σρ, not the squared norm of the
-  loss-corrected residuals, so robust solves stop short today), gains the
-  relative step-size stop, and `SolveReport.final_cost` is defined as
-  ½Σρ. Re-baseline robust-loss tests; state the measured `--compare` deltas.
 - [ ] O-FACTRS-BACKEND - factrs as a first-class second backend:
   `SolverBackend { TinySolver, Factrs }` selectable through
   `BackendSolveOptions` and `SolverConfig.backend` (Rust, JSON, Python, app);
@@ -34,6 +29,26 @@ Run in this order; each lands as one PR.
 - [ ] O-BACKEND-COMPARE - Backend axis in `calib-bench solver` and a backend
   override in `calib-bench run`; publish the comparison in the book and
   recommend a default (the default changes only on the user's decision).
+
+## Calibration quality
+
+Found by `calib-bench solver` (well-conditioned synthetic scenes; the named
+scenes are the gate).
+
+- [ ] Q-LASERLINE-OUTLIERS - With 5 % of target corners displaced 10–30 px,
+  `laserline_device` under Huber or Cauchy (scale 1 px) settles off the
+  minimum: inlier RMS 0.16–0.30 px at σ 0.1 px (floor 0.14), focal error
+  0.4–1.8 %, laser plane up to 0.29° / 7.6 mm. The other problems (the
+  Scheimpflug rig aside, below) reach the floor on the same contamination,
+  and the robust-cost LM did not change it, so the init is the suspect. Gate:
+  `laserline_device/pinhole/*/n0.1/{huber,cauchy}` at the noise floor.
+- [ ] Q-SCHEIMPFLUG-RIG-PERCAM - The Scheimpflug rig's per-camera stage
+  (staged init, radial-only BA) lands off the minimum on clean data, even
+  seeded with each camera's nominal tilt: inlier RMS 0.21–0.26 px at
+  σ 0.1 px, principal point 26–44 px and tilt about 2.5° off. The rig BA
+  keeps intrinsics fixed, so it cannot recover; the single-camera Scheimpflug
+  problem reaches the floor on comparable data (principal point 1.4 px).
+  Gate: `rig_extrinsics/scheimpflug/*/clean` at the noise floor.
 
 ## v1.0
 
