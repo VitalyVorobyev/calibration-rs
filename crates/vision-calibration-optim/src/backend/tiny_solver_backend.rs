@@ -1,8 +1,7 @@
 use crate::Error;
+use crate::backend::lm::{self, LinearizationEngine, LmSolution};
 use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
-use crate::backend::{
-    BackendSolution, BackendSolveOptions, LinearSolverKind, OptimBackend, SolveReport,
-};
+use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveReport};
 use crate::factors::camera_kernels::{
     BrownConrady5Kernel, DistortionKernel, DivisionKernel, IdentitySensorKernel,
     NoDistortionKernel, PinholeKernel, ProjectionKernel, RationalKernel, Scheimpflug2Kernel,
@@ -16,32 +15,17 @@ use crate::ir::{
     DistortionKind, FactorKind, LaserChain, ManifoldKind, ProblemIR, ProjectionKind, ReprojChain,
     RobustLoss, SensorKind,
 };
-use faer::sparse::Triplet;
-use faer_ext::IntoNalgebra;
+use faer::sparse::SparseColMat;
 use nalgebra::DVector;
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::ops::Mul;
 use std::sync::Arc;
 use tiny_solver::factors::Factor;
-use tiny_solver::linear::sparse::LinearSolverType;
-use tiny_solver::linear::sparse::SparseLinearSolver;
-use tiny_solver::linear::{SparseCholeskySolver, SparseQRSolver};
 use tiny_solver::loss_functions::{ArctanLoss, CauchyLoss, HuberLoss, Loss};
 use tiny_solver::manifold::se3::SE3Manifold;
 use tiny_solver::manifold::so3::QuaternionManifold;
-use tiny_solver::optimizer::OptimizerOptions;
 use tiny_solver::parameter_block::ParameterBlock;
-use tiny_solver::problem::Problem;
-
-const LM_MIN_DIAGONAL: f64 = 1e-6;
-const LM_MAX_DIAGONAL: f64 = 1e32;
-const LM_INITIAL_TRUST_REGION_RADIUS: f64 = 1e4;
-const LM_MAX_STEP_ATTEMPTS: usize = 32;
-/// Stop once a step is this small relative to the parameters
-/// (`‖dx‖ ≤ ε(‖x‖ + ε)`, Ceres' `parameter_tolerance`): it can no longer
-/// change them, accepted or not.
-const LM_RELATIVE_STEP_TOLERANCE: f64 = 1e-8;
+use tiny_solver::problem::{Problem, SymbolicStructure};
 
 /// tiny-solver backend adapter.
 #[derive(Debug, Clone, Copy)]
@@ -158,217 +142,88 @@ impl OptimBackend for TinySolverBackend {
         opts: &BackendSolveOptions,
     ) -> Result<BackendSolution, Error> {
         let (problem, initial_map) = self.compile(ir, initial)?;
-        let LmSolution { params, num_iters } =
-            solve_levenberg_marquardt(&problem, &initial_map, opts)
-                .ok_or_else(|| Error::numerical("tiny-solver failed to converge"))?;
-
-        let param_blocks = problem.initialize_parameter_blocks(&params);
-        let final_cost = 0.5 * problem.compute_cost(&param_blocks);
+        let blocks = problem.initialize_parameter_blocks(&initial_map);
+        let engine = TinySolverEngine::new(&problem, &blocks);
+        let LmSolution {
+            state,
+            cost,
+            num_iters,
+        } = lm::levenberg_marquardt(&engine, blocks, opts)
+            .ok_or_else(|| Error::numerical("tiny-solver failed to converge"))?;
 
         Ok(BackendSolution {
-            params,
+            params: params_from_blocks(&state),
             solve_report: SolveReport {
-                final_cost,
+                final_cost: 0.5 * cost,
                 num_iters,
             },
         })
     }
 }
 
-fn to_optimizer_options(opts: &BackendSolveOptions) -> OptimizerOptions {
-    let mut options = OptimizerOptions {
-        max_iteration: opts.max_iters,
-        verbosity_level: opts.verbosity,
-        ..OptimizerOptions::default()
-    };
-    if let Some(solver) = opts.linear_solver {
-        options.linear_solver_type = match solver {
-            LinearSolverKind::SparseCholesky => LinearSolverType::SparseCholesky,
-            LinearSolverKind::SparseQR => LinearSolverType::SparseQR,
-        };
-    }
-    if let Some(v) = opts.min_abs_decrease {
-        options.min_abs_error_decrease_threshold = v;
-    }
-    if let Some(v) = opts.min_rel_decrease {
-        options.min_rel_error_decrease_threshold = v;
-    }
-    if let Some(v) = opts.min_error {
-        options.min_error_threshold = v;
-    }
-    options
+/// [`LinearizationEngine`] over a compiled tiny-solver [`Problem`]: its
+/// autodiff residual blocks with the Triggs loss correction, manifolds, fixed
+/// indices and bounds.
+struct TinySolverEngine<'p> {
+    problem: &'p Problem,
+    col_idx: HashMap<String, usize>,
+    /// `None` when every parameter is fixed.
+    symbolic: Option<SymbolicStructure>,
+    dim: usize,
+    /// Block names in a fixed order, so float sums over the blocks do not
+    /// depend on hash order.
+    block_names: Vec<String>,
 }
 
-/// Outcome of a Levenberg-Marquardt solve: optimized parameters plus the
-/// number of outer iterations executed.
-struct LmSolution {
-    params: HashMap<String, DVector<f64>>,
-    num_iters: usize,
-}
-
-fn solve_levenberg_marquardt(
-    problem: &Problem,
-    initial: &HashMap<String, DVector<f64>>,
-    opts: &BackendSolveOptions,
-) -> Option<LmSolution> {
-    let opt_options = to_optimizer_options(opts);
-    let mut parameter_blocks = problem.initialize_parameter_blocks(initial);
-    let variable_name_to_col_idx_dict =
-        problem.get_variable_name_to_col_idx_dict(&parameter_blocks);
-    let total_variable_dimension = total_variable_dimension(&parameter_blocks);
-    if total_variable_dimension == 0 {
-        return Some(LmSolution {
-            params: params_from_blocks(&parameter_blocks),
-            num_iters: 0,
-        });
-    }
-
-    let symbolic_structure = problem.build_symbolic_structure(
-        &parameter_blocks,
-        total_variable_dimension,
-        &variable_name_to_col_idx_dict,
-    );
-    let mut linear_solver = make_linear_solver(opt_options.linear_solver_type);
-    let mut jacobi_scaling_diagonal = None;
-    let mut damping = 1.0 / LM_INITIAL_TRUST_REGION_RADIUS;
-    // The cost is the robust objective Σρ(‖r‖²); the linear model below is
-    // built from the loss-corrected residuals and Jacobian, whose
-    // first-order change matches it.
-    let mut current_error = problem.compute_cost(&parameter_blocks);
-    if !current_error.is_finite() {
-        return None;
-    }
-
-    // Block names in a fixed order, so float sums over the blocks do not
-    // depend on hash order.
-    let mut block_names: Vec<String> = parameter_blocks.keys().cloned().collect();
-    block_names.sort_unstable();
-
-    let mut num_iters = 0usize;
-    for outer_iter in 0..opt_options.max_iteration {
-        num_iters = outer_iter + 1;
-        let last_error = current_error;
-        let (residuals, mut jac) = problem.compute_residual_and_jacobian(
-            &parameter_blocks,
-            &variable_name_to_col_idx_dict,
-            &symbolic_structure,
-        );
-
-        if jacobi_scaling_diagonal.is_none() {
-            jacobi_scaling_diagonal = Some(build_jacobi_scaling(&jac));
+impl<'p> TinySolverEngine<'p> {
+    fn new(problem: &'p Problem, blocks: &HashMap<String, ParameterBlock>) -> Self {
+        let col_idx = problem.get_variable_name_to_col_idx_dict(blocks);
+        let dim = total_variable_dimension(blocks);
+        let symbolic = (dim > 0).then(|| problem.build_symbolic_structure(blocks, dim, &col_idx));
+        let mut block_names: Vec<String> = blocks.keys().cloned().collect();
+        block_names.sort_unstable();
+        Self {
+            problem,
+            col_idx,
+            symbolic,
+            dim,
+            block_names,
         }
-        let scaling = jacobi_scaling_diagonal
-            .as_ref()
-            .expect("scaling initialized");
-        jac = jac * scaling;
+    }
+}
 
-        let jtj = jac
-            .as_ref()
-            .transpose()
-            .to_col_major()
-            .unwrap()
-            .mul(jac.as_ref());
-        let jtr = jac.as_ref().transpose().mul(-&residuals);
+impl LinearizationEngine for TinySolverEngine<'_> {
+    type State = HashMap<String, ParameterBlock>;
 
-        let x_norm = block_names
+    fn dim(&self) -> usize {
+        self.dim
+    }
+
+    fn cost(&self, x: &Self::State) -> f64 {
+        self.problem.compute_cost(x)
+    }
+
+    fn linearize(&self, x: &Self::State) -> (faer::Mat<f64>, SparseColMat<usize, f64>) {
+        let symbolic = self
+            .symbolic
+            .as_ref()
+            .expect("linearize is only called with free parameters");
+        self.problem
+            .compute_residual_and_jacobian(x, &self.col_idx, symbolic)
+    }
+
+    fn retract(&self, x: &Self::State, dx: &DVector<f64>) -> Self::State {
+        let mut out = x.clone();
+        apply_dx(dx, &mut out, &self.col_idx);
+        out
+    }
+
+    fn norm(&self, x: &Self::State) -> f64 {
+        self.block_names
             .iter()
-            .map(|name| parameter_blocks[name].params.norm_squared())
+            .map(|name| x[name].params.norm_squared())
             .sum::<f64>()
-            .sqrt();
-        let mut accepted = false;
-        let mut step_negligible = false;
-        for step_attempt in 0..LM_MAX_STEP_ATTEMPTS {
-            let mut jtj_regularized = jtj.clone();
-            for i in 0..total_variable_dimension {
-                let diag = jtj[(i, i)].clamp(LM_MIN_DIAGONAL, LM_MAX_DIAGONAL);
-                jtj_regularized[(i, i)] += damping * diag;
-            }
-
-            let Some(lm_step) = linear_solver.solve_jtj(&jtr, &jtj_regularized) else {
-                damping *= 2.0;
-                continue;
-            };
-            let dx = scaling * &lm_step;
-            let dx_na = dx.as_ref().into_nalgebra().column(0).clone_owned();
-            if !dx_na.iter().all(|v| v.is_finite()) {
-                damping *= 2.0;
-                continue;
-            }
-            if dx_na.norm() <= LM_RELATIVE_STEP_TOLERANCE * (x_norm + LM_RELATIVE_STEP_TOLERANCE) {
-                step_negligible = true;
-                break;
-            }
-
-            let mut new_param_blocks = parameter_blocks.clone();
-            apply_dx(
-                &dx_na,
-                &mut new_param_blocks,
-                &variable_name_to_col_idx_dict,
-            );
-
-            let new_cost = problem.compute_cost(&new_param_blocks);
-            let actual_cost_change = current_error - new_cost;
-            let linear_cost_change: faer::Mat<f64> =
-                lm_step.transpose().mul(2.0 * &jtr - &jtj * &lm_step);
-            let predicted_cost_change = linear_cost_change[(0, 0)];
-            let rho = actual_cost_change / predicted_cost_change;
-
-            if rho.is_finite() && rho > 0.0 && predicted_cost_change > 0.0 && new_cost.is_finite() {
-                parameter_blocks = new_param_blocks;
-                current_error = new_cost;
-                let tmp = 2.0 * rho - 1.0;
-                damping *= (1.0_f64 / 3.0).max(1.0 - tmp * tmp * tmp);
-                accepted = true;
-                if opt_options.verbosity_level > 1 {
-                    println!(
-                        "tiny-solver lm iter={outer_iter} attempt={step_attempt} error={current_error:.6e} rho={rho:.3e} damping={damping:.3e}"
-                    );
-                }
-                break;
-            }
-
-            damping *= 2.0;
-        }
-
-        if step_negligible {
-            if opt_options.verbosity_level > 0 {
-                println!("tiny-solver lm stopped: relative step below tolerance");
-            }
-            break;
-        }
-        if !accepted {
-            if opt_options.verbosity_level > 0 {
-                println!(
-                    "tiny-solver lm stopped: no accepted step after {LM_MAX_STEP_ATTEMPTS} damping retries"
-                );
-            }
-            break;
-        }
-
-        if current_error < opt_options.min_error_threshold {
-            break;
-        }
-        let abs_decrease = (last_error - current_error).abs();
-        if abs_decrease < opt_options.min_abs_error_decrease_threshold {
-            break;
-        }
-        if last_error > 0.0
-            && abs_decrease / last_error < opt_options.min_rel_error_decrease_threshold
-        {
-            break;
-        }
-    }
-
-    Some(LmSolution {
-        params: params_from_blocks(&parameter_blocks),
-        num_iters,
-    })
-}
-
-fn make_linear_solver(linear_solver_type: LinearSolverType) -> Box<dyn SparseLinearSolver> {
-    match linear_solver_type {
-        LinearSolverType::SparseCholesky => Box::new(SparseCholeskySolver::new()),
-        LinearSolverType::SparseQR => Box::new(SparseQRSolver::new()),
+            .sqrt()
     }
 }
 
@@ -383,21 +238,6 @@ fn total_variable_dimension(parameter_blocks: &HashMap<String, ParameterBlock>) 
             }
         })
         .sum()
-}
-
-fn build_jacobi_scaling(
-    jac: &faer::sparse::SparseColMat<usize, f64>,
-) -> faer::sparse::SparseColMat<usize, f64> {
-    let cols = jac.shape().1;
-    let jacobi_scaling_vec: Vec<Triplet<usize, usize, f64>> = (0..cols)
-        .map(|c| {
-            let v = jac.val_of_col(c).iter().map(|&i| i * i).sum::<f64>().sqrt();
-            Triplet::new(c, c, 1.0 / (1.0 + v))
-        })
-        .collect();
-
-    faer::sparse::SparseColMat::<usize, f64>::try_new_from_triplets(cols, cols, &jacobi_scaling_vec)
-        .unwrap()
 }
 
 fn apply_dx(
@@ -683,8 +523,23 @@ impl<T: nalgebra::RealField> Factor<T> for TinySe3TangentPriorFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::LinearSolverKind;
     use crate::ir::HandEyeMode;
+    use faer_ext::IntoNalgebra;
     use nalgebra::RealField;
+
+    /// Run the shared LM on a hand-built problem: the solved parameters and
+    /// the iteration count.
+    fn solve_problem(
+        problem: &Problem,
+        initial: &HashMap<String, DVector<f64>>,
+        opts: &BackendSolveOptions,
+    ) -> Option<(HashMap<String, DVector<f64>>, usize)> {
+        let blocks = problem.initialize_parameter_blocks(initial);
+        let engine = TinySolverEngine::new(problem, &blocks);
+        lm::levenberg_marquardt(&engine, blocks, opts)
+            .map(|s| (params_from_blocks(&s.state), s.num_iters))
+    }
 
     #[derive(Debug, Clone)]
     struct SquareMinusOneFactor;
@@ -714,15 +569,14 @@ mod tests {
             min_rel_decrease: Some(0.0),
             min_error: Some(1e-24),
         };
-        let solution = solve_levenberg_marquardt(&problem, &initial, &opts)
+        let (params, num_iters) = solve_problem(&problem, &initial, &opts)
             .expect("LM should recover after increasing damping");
-        let solved_blocks = problem.initialize_parameter_blocks(&solution.params);
+        let solved_blocks = problem.initialize_parameter_blocks(&params);
         let solved_error = problem.compute_cost(&solved_blocks);
-        let x = solution.params["x"][0];
+        let x = params["x"][0];
         assert!(
-            solution.num_iters > 0 && solution.num_iters <= opts.max_iters,
-            "iteration count should be within bounds, got {}",
-            solution.num_iters
+            num_iters > 0 && num_iters <= opts.max_iters,
+            "iteration count should be within bounds, got {num_iters}"
         );
 
         assert!(
@@ -799,9 +653,9 @@ mod tests {
                 min_error: Some(0.0),
                 ..BackendSolveOptions::default()
             };
-            let solution =
-                solve_levenberg_marquardt(&problem, &initial, &opts).expect("robust LM converges");
-            let x = solution.params["x"][0];
+            let (params, _) =
+                solve_problem(&problem, &initial, &opts).expect("robust LM converges");
+            let x = params["x"][0];
             assert!(
                 (x - x_ref).abs() < 1e-6,
                 "{loss:?}: LM stopped at {x}, robust minimum is at {x_ref}"

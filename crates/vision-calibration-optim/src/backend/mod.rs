@@ -3,6 +3,7 @@
 //! Backends are responsible for translating the IR into solver-native graphs,
 //! applying manifolds and constraints, and returning a solved parameter map.
 
+mod lm;
 mod tiny_solver_backend;
 mod tiny_solver_manifolds;
 
