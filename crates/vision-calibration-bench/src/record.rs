@@ -407,6 +407,30 @@ fn ratio(num: f64, den: f64) -> Option<f64> {
     }
 }
 
+/// Current git SHA, or `"unknown"` if git is unavailable.
+///
+/// Provenance only: callers inject it into records at the harness boundary.
+pub fn git_sha() -> String {
+    std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Unix epoch seconds as a string (no chrono dependency).
+///
+/// Provenance only: callers inject it into records at the harness boundary.
+pub fn unix_epoch_secs_string() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_else(|_| "0".to_string())
+}
+
 /// Identity and provenance of a benchmark run.
 ///
 /// `git_sha` and `timestamp_rfc3339` are injected by the harness from the

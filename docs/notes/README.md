@@ -43,6 +43,22 @@ bundle, ringgrid detection/bias, rectification (short note — its gate exists),
   `cargo bench -p vision-calibration-linear --bench linear_init -- --save-baseline main`
   (same for `-p vision-calibration-optim --bench ba_iter`), then compare a
   branch with `-- --baseline main`.
+- **Solver benchmark** (`calib-bench solver`) measures the non-linear solve
+  on deterministic synthetic scenes: all eight problem types (pinhole and
+  Scheimpflug rig variants) × scale (small / medium / large) × pixel noise
+  (0.1, 0.5 px) × outliers (none, or 5 % displaced by 10–30 px under Huber
+  or Cauchy). Per scene it records init and optimize wall time (median of
+  `--repeats` timed runs after a warm-up), the backend's iteration count, a
+  solver-independent objective `½ Σ ρ(e²)` over the exported target
+  residuals, inlier / all reprojection RMS, and ground-truth parameter
+  errors. `calib-bench solver run --preset quick --out a.json` takes a
+  fast reading (`--preset full` is the whole matrix; `--only` restricts the
+  problems; `--md` writes the tables). To judge a change, run the same
+  preset before and after and `calib-bench solver compare a.json b.json`:
+  it joins scenes by id and flags optimize-time ratio, objective,
+  inlier-RMS and ground-truth-error regressions. Timings are
+  machine-specific, so compare runs from one machine; the objective and
+  error columns are comparable anywhere.
 
 ## Notes
 

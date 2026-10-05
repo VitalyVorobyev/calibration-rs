@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Synthetic scene generators in `vision_calibration_core::synthetic`.**
+  `synthetic::poses` (`make_iso`, `pose_error` / `PoseError`,
+  `tilted_board_poses`, `centered_board_poses` over `BoardPoseSpec`, seeded
+  tilt and board-pose generators, `robot_stations`, `rig_layout`) and
+  `synthetic::laser` (`laser_stripe_pixels`, `BoardExtent`: the laser
+  plane's intersection with a planar target, projected through any camera
+  model). Both are re-exported by the facade's `synthetic` module. Every
+  generator is deterministic for a given seed.
+- **`calib-bench solver`.** A deterministic synthetic benchmark of the
+  non-linear solve across the eight problem types, with JSON records,
+  Markdown tables and a `compare` subcommand.
+
 ### Changed
 
 - **App: the Run workspace's config forms are `SchemaValueForm`.** The
