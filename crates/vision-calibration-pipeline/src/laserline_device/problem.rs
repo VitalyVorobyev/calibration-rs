@@ -44,8 +44,7 @@ pub struct LaserlineDeviceConfig {
     /// `robust_loss` is **not consulted** by this problem: laser-carrying
     /// stages track calibration and laser residuals as independent families
     /// with their own robust losses (`optimize.calib_loss`,
-    /// `optimize.laser_loss`). Only `max_iters`/`verbosity`
-    /// apply here.
+    /// `optimize.laser_loss`). `max_iters`, `verbosity` and `backend` apply.
     pub solver: SolverConfig,
     /// Bundle-adjustment options.
     pub optimize: LaserlineDeviceOptimizeConfig,

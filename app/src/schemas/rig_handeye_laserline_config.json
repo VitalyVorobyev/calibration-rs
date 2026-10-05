@@ -455,7 +455,7 @@
         },
         "solver": {
           "$ref": "#/$defs/SolverConfig",
-          "description": "Non-linear solve stage settings for the joint stage.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`calib_loss`, `laser_loss`).\nOnly `max_iters`/`verbosity` apply here."
+          "description": "Non-linear solve stage settings for the joint stage.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`calib_loss`, `laser_loss`).\n`max_iters`, `verbosity` and `backend` apply."
         }
       },
       "required": [

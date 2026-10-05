@@ -352,7 +352,7 @@
     },
     "solver": {
       "$ref": "#/$defs/SolverConfig",
-      "description": "Non-linear solve stage settings.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`optimize.calib_loss`,\n`optimize.laser_loss`). Only `max_iters`/`verbosity`\napply here."
+      "description": "Non-linear solve stage settings.\n\n`robust_loss` is **not consulted** by this problem: laser-carrying\nstages track calibration and laser residuals as independent families\nwith their own robust losses (`optimize.calib_loss`,\n`optimize.laser_loss`). `max_iters`, `verbosity` and `backend` apply."
     }
   },
   "required": [
