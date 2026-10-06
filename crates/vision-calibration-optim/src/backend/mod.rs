@@ -135,8 +135,6 @@ pub struct BackendSolveOptions {
     pub max_iters: usize,
     /// Verbosity level (backend-specific).
     pub verbosity: usize,
-    /// Optional linear solver selection.
-    pub linear_solver: Option<LinearSolverKind>,
     /// Absolute error decrease threshold for early termination.
     pub min_abs_decrease: Option<f64>,
     /// Relative error decrease threshold for early termination.
@@ -151,21 +149,11 @@ impl Default for BackendSolveOptions {
             backend: SolverBackend::default(),
             max_iters: 100,
             verbosity: 0,
-            linear_solver: Some(LinearSolverKind::SparseCholesky),
             min_abs_decrease: Some(1e-5),
             min_rel_decrease: Some(1e-5),
             min_error: Some(1e-10),
         }
     }
-}
-
-/// Linear solver selection (backend-agnostic).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LinearSolverKind {
-    /// Sparse Cholesky decomposition.
-    SparseCholesky,
-    /// Sparse QR decomposition.
-    SparseQR,
 }
 
 /// Summary of backend solve outcome.
@@ -219,5 +207,33 @@ pub(crate) fn solve(
     match opts.backend {
         SolverBackend::TinySolver => TinySolverBackend.solve(ir, initial, opts),
         SolverBackend::Factrs => FactrsBackend.solve(ir, initial, opts),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn options_json_round_trips() {
+        let opts = BackendSolveOptions {
+            backend: SolverBackend::Factrs,
+            max_iters: 7,
+            ..BackendSolveOptions::default()
+        };
+        let json = serde_json::to_string(&opts).unwrap();
+        let back: BackendSolveOptions = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.backend, SolverBackend::Factrs);
+        assert_eq!(back.max_iters, 7);
+        assert_eq!(back.min_rel_decrease, opts.min_rel_decrease);
+    }
+
+    #[test]
+    fn options_json_with_a_linear_solver_still_loads() {
+        let json = r#"{"max_iters": 5, "verbosity": 0, "linear_solver": "SparseQR",
+            "min_abs_decrease": null, "min_rel_decrease": null, "min_error": null}"#;
+        let opts: BackendSolveOptions = serde_json::from_str(json).unwrap();
+        assert_eq!(opts.max_iters, 5);
+        assert_eq!(opts.backend, SolverBackend::TinySolver);
     }
 }

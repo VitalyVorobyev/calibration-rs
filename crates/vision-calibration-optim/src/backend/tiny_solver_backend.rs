@@ -480,7 +480,6 @@ impl<T: nalgebra::RealField> Factor<T> for TinySe3TangentPriorFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::LinearSolverKind;
     use crate::ir::HandEyeMode;
     use faer_ext::IntoNalgebra;
     use nalgebra::RealField;
@@ -521,7 +520,6 @@ mod tests {
         let opts = BackendSolveOptions {
             max_iters: 25,
             verbosity: 0,
-            linear_solver: Some(LinearSolverKind::SparseCholesky),
             min_abs_decrease: Some(0.0),
             min_rel_decrease: Some(0.0),
             min_error: Some(1e-24),

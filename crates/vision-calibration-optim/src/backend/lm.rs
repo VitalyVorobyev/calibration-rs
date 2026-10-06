@@ -6,13 +6,13 @@
 //! Marquardt diagonal, the Ceres gain ratio, damping retries and the stopping
 //! rules — is written once, so backends differ only in how they linearize.
 
-use crate::backend::{BackendSolveOptions, LinearSolverKind};
+use crate::backend::BackendSolveOptions;
 use faer::sparse::{SparseColMat, Triplet};
 use faer_ext::IntoNalgebra;
 use nalgebra::DVector;
 use std::ops::Mul;
+use tiny_solver::linear::SparseCholeskySolver;
 use tiny_solver::linear::sparse::SparseLinearSolver;
-use tiny_solver::linear::{SparseCholeskySolver, SparseQRSolver};
 
 const LM_MIN_DIAGONAL: f64 = 1e-6;
 const LM_MAX_DIAGONAL: f64 = 1e32;
@@ -94,10 +94,7 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         return None;
     }
 
-    let mut linear_solver = make_linear_solver(
-        opts.linear_solver
-            .unwrap_or(LinearSolverKind::SparseCholesky),
-    );
+    let mut linear_solver = SparseCholeskySolver::new();
     let mut jacobi_scaling_diagonal = None;
     let mut damping = 1.0 / LM_INITIAL_TRUST_REGION_RADIUS;
 
@@ -205,13 +202,6 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         cost: current_cost,
         num_iters,
     })
-}
-
-fn make_linear_solver(kind: LinearSolverKind) -> Box<dyn SparseLinearSolver> {
-    match kind {
-        LinearSolverKind::SparseCholesky => Box::new(SparseCholeskySolver::new()),
-        LinearSolverKind::SparseQR => Box::new(SparseQRSolver::new()),
-    }
 }
 
 /// Column scaling `1 / (1 + ‖J_c‖)`, fixed from the first Jacobian.
