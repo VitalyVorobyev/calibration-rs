@@ -27,34 +27,25 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
   posted. **Blocked on factrs upstream**: the merge, then a release (nothing
   after 0.3.0, and `main` moved to faer 0.24, see D4-NALGEBRA-035). No code
   change here: the parallelism lives inside factrs' `Graph`.
-- [ ] O-TINYSOLVER-PERF - Adopt the tiny-solver Jacobian speed-ups once
-  released. On the tiny-solver fork, on 0.18.3:
+- [ ] O-TINYSOLVER-PERF - Adopt the tiny-solver speed-ups once released.
+  On the tiny-solver fork, on 0.18.3:
   - `perf/assemble-without-mutex` (A): residuals and Jacobian values
     assembled without the `Mutex`. Internal, fits 0.18.x, 1.18× on 12
     threads.
+  - `perf/symbolic-structure` (C, on A): the Jacobian pattern laid out by
+    a counting sort, with one lookup per variable instead of one per entry
+    plus a sort, and the values scattered in place. Internal, fits 0.18.x.
+    `build_symbolic_structure` was 18 % of a 12-thread solve with A+B; C
+    makes A+B solves 1.20× faster.
   - `perf/stride4-stack-duals` (B): stack duals in passes of 4 directions,
-    as in Ceres' `DynamicAutoDiffCostFunction`. With A: 2.6× on 12 threads
-    (1.8–3.9× by workflow) and 4.2× on one thread (3.9–5.0×), with
-    bit-identical results and no code change here. It adds supertraits to `FactorImpl` and `Manifold`, so
-    it is a 0.19 change upstream.
+    as in Ceres' `DynamicAutoDiffCostFunction`. It adds supertraits to
+    `FactorImpl` and `Manifold`, so it is a 0.19 change upstream.
 
-  A+B is faster than parallel factrs: 1.2× on 12 threads, 1.6× on one.
+  With A+B+C (local branch `calib-rs/perf-abc`), solves are 3.9× faster
+  than with 0.18.3 on 12 threads (1.8–5.8× per scene) and 1.5× faster than
+  parallel factrs, with bit-identical results and no code change here.
   **Trigger**: the tiny-solver release that carries them. Bump the floor in
   the root `Cargo.toml`, then rerun `calib-bench solver` to confirm.
-- [ ] O-LM-OVERHEAD - Cut the shared LM's own cost (`backend/lm.rs`). With
-  the faster linearization (O-TINYSOLVER-PERF or O-FACTRS-PARALLEL), a large
-  12-thread hand-eye solve spends 21–32 % forming JᵀJ, plus 17–30 % in setup
-  and read-back outside the loop. Linearization is 47–53 %, and the
-  Cholesky is negligible.
-  - JᵀJ is a general sparse×sparse product rebuilt every iteration, with
-    both triangles. The fix: build its structure once and fill only the
-    lower triangle.
-  - Every damping retry clones JᵀJ. The fix: damp the diagonal in place.
-  - `J·D` builds a new matrix. The fix: scale in place.
-  - Profile the setup (IR compile into the backend problem) and trim it.
-
-  Measure with `calib-bench solver`, and keep results bit-identical or
-  explain the change.
 
 ## Calibration quality
 
@@ -90,11 +81,10 @@ scenes are the gate).
   coexist. Re-check on each tiny-solver and factrs release (tiny-solver
   0.18.3 and factrs 0.3.0 are on 0.34 / 0.23 / 0.7).
   - factrs `main` is already on faer 0.24 / faer-ext 0.8 (nalgebra 0.34).
-    Our shared LM factors with tiny-solver's faer-0.23 `SparseCholeskySolver`
-    and takes factrs' Jacobian as a faer matrix. So the next factrs release
-    will not build until the LM owns its sparse solve, or the factrs engine
-    converts at the boundary.
-  - Owning the solve is also part of O-LM-OVERHEAD.
+    The shared LM owns its sparse solve (faer 0.23 directly) and reads a
+    Jacobian only as its pattern and values (`backend/normal_equations.rs`).
+    So the next factrs release needs the factrs engine to hand those slices
+    across as a faer-0.23 matrix: a zero-copy view, not a blocker.
 
 ## Deferred and parked
 
@@ -111,11 +101,12 @@ scenes are the gate).
   if the acceptance run for the six-camera rtv3d rig exceeds ~5 min.
 - [~] P3-BACKEND-COST - Close the remaining gap to Ceres. Planar
   intrinsics, against Ceres 2.2 at matched tolerances (2026-10-06):
-  - today we are 8–9× slower on 12 threads and about 22× slower on one
+  - today we are 7–9× slower on 12 threads and about 21× slower on one
     thread;
-  - with tiny-solver A+B we are about 4× and 5.7× slower.
+  - with tiny-solver A+B+C we are 2.6× slower on 12 threads and 4.5×
+    slower on one.
 
-  After O-TINYSOLVER-PERF and O-LM-OVERHEAD, what remains is linearization:
+  After O-TINYSOLVER-PERF, what remains is linearization:
   per-block library overhead, num-dual against Ceres' `Jet`, and
   differentiation through the SE(3) retraction. An analytic `ReprojPoint`
   Jacobian is the next lever. Parked until after 1.0. The harness and the IR
