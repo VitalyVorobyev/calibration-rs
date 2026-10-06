@@ -80,7 +80,7 @@ where $\rho_i$ is the residual block's loss ($\rho(s) = s$ without one; see
    are damped comparably.
 3. **Solves** the damped normal equations
    $(\tilde{J}^T\tilde{J} + \lambda D)\,\boldsymbol{\delta} = -\tilde{J}^T
-   \tilde{\mathbf{r}}$ with sparse Cholesky (default) or sparse QR, where
+   \tilde{\mathbf{r}}$ with sparse Cholesky, where
    $D$ is the diagonal of $\tilde{J}^T\tilde{J}$ clamped to
    $[10^{-6}, 10^{32}]$.
 4. **Applies** the step through each block's retraction (vector addition,
@@ -160,23 +160,16 @@ pub struct BackendSolveOptions {
     pub backend: SolverBackend,                  // default: TinySolver
     pub max_iters: usize,                        // default: 100
     pub verbosity: usize,                        // 0 = silent
-    pub linear_solver: Option<LinearSolverKind>, // default: Some(SparseCholesky)
     pub min_abs_decrease: Option<f64>,           // default: Some(1e-5)
     pub min_rel_decrease: Option<f64>,           // default: Some(1e-5)
     pub min_error: Option<f64>,                  // default: Some(1e-10)
 }
-
-pub enum LinearSolverKind {
-    SparseCholesky,  // Default: fast for well-conditioned problems
-    SparseQR,        // More robust for ill-conditioned problems
-}
 ```
 
-- **SparseCholesky** factors the normal equations directly. It is fast but
-  can fail when $J^TJ$ is poorly conditioned; the loop then raises the
-  damping and retries.
-- **SparseQR** factors $J$ itself. It is slower and more robust near
-  singular directions.
+The damped normal equations are always solved by sparse Cholesky. When the
+factorization fails (the damped $J^TJ$ is not numerically positive
+definite), the loop treats it as a rejected step: it raises the damping and
+retries.
 
 ## Solve Report
 

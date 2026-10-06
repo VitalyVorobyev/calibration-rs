@@ -85,10 +85,10 @@ Every problem's `*Config` embeds the same small structs by stage:
 
 | Type | Description |
 |------|-------------|
-| `BackendSolveOptions` | `max_iters`, `verbosity`, `linear_solver: Option<LinearSolverKind>`, `min_abs_decrease`, `min_rel_decrease`, `min_error` |
+| `BackendSolveOptions` | `backend`, `max_iters`, `verbosity`, `min_abs_decrease`, `min_rel_decrease`, `min_error` |
 | `SolveReport` | `final_cost`, `num_iters` |
 
-Inside the crate, `LinearSolverKind` (`SparseCholesky` or `SparseQR`) selects the linear solver and `BackendSolution` carries the optimized `params` and a `solve_report`.
+Inside the crate, `BackendSolution` carries the optimized `params` and a `solve_report`.
 
 ## Hand-Eye Types
 

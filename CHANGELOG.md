@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `config.solver.backend_options()`, which carries the backend too.
 - `SolverConfig` has a `backend` field (JSON `"backend": "tiny_solver" |
   "factrs"`, default `tiny_solver`). Existing configs load unchanged.
+- `BackendSolveOptions::linear_solver` and `LinearSolverKind` are removed:
+  the Levenberg–Marquardt loop always solves with sparse Cholesky. Drop the
+  field from struct literals; JSON that still carries `"linear_solver"`
+  loads unchanged, and the field is ignored.
 
 ### Added
 
@@ -79,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **No more uphill `SparseQR` steps.** The `SparseQR` linear solver solved
+  for the negated step, so the loop rejected every step and returned the
+  initial parameters. It also factored `JᵀJ` rather than `J`, so it was no
+  more robust than Cholesky; it is removed (see Migration).
 - **Robust loss documentation matches the solver.** The book and the
   `RobustLoss` docs state every loss as `ρ(s)` of the squared residual norm,
   the convention the solver minimizes; the Arctan loss's scale is in
