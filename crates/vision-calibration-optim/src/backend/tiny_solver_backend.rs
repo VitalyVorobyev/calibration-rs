@@ -29,7 +29,7 @@ impl TinySolverBackend {
         &self,
         ir: &ProblemIR,
         initial: &HashMap<String, DVector<f64>>,
-    ) -> Result<(Problem, HashMap<String, DVector<f64>>), Error> {
+    ) -> Result<Problem, Error> {
         ir.validate()?;
 
         let mut problem = Problem::new();
@@ -114,16 +114,15 @@ impl TinySolverBackend {
 
         for residual in &ir.residuals {
             let (factor, loss) = compile_factor(residual)?;
-            let param_names: Vec<String> = residual
+            let param_names: Vec<&str> = residual
                 .params
                 .iter()
-                .map(|id| ir.params[id.0].name.clone())
+                .map(|id| ir.params[id.0].name.as_str())
                 .collect();
-            let param_refs: Vec<&str> = param_names.iter().map(|s| s.as_str()).collect();
-            problem.add_residual_block(residual.residual_dim, &param_refs, factor, loss);
+            problem.add_residual_block(residual.residual_dim, &param_names, factor, loss);
         }
 
-        Ok((problem, initial.clone()))
+        Ok(problem)
     }
 }
 
@@ -134,8 +133,8 @@ impl OptimBackend for TinySolverBackend {
         initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
     ) -> Result<BackendSolution, Error> {
-        let (problem, initial_map) = self.compile(ir, initial)?;
-        let blocks = problem.initialize_parameter_blocks(&initial_map);
+        let problem = self.compile(ir, initial)?;
+        let blocks = problem.initialize_parameter_blocks(initial);
         let engine = TinySolverEngine::new(&problem, &blocks);
         let LmSolution {
             state,
@@ -228,8 +227,8 @@ pub(super) fn linearize_at(
     initial: &HashMap<String, DVector<f64>>,
 ) -> (DVector<f64>, nalgebra::DMatrix<f64>, f64) {
     use faer_ext::IntoNalgebra;
-    let (problem, init) = TinySolverBackend.compile(ir, initial).expect("compile IR");
-    let blocks = problem.initialize_parameter_blocks(&init);
+    let problem = TinySolverBackend.compile(ir, initial).expect("compile IR");
+    let blocks = problem.initialize_parameter_blocks(initial);
     let engine = TinySolverEngine::new(&problem, &blocks);
     let (r, j) = engine.linearize(&blocks);
     (
@@ -625,8 +624,8 @@ mod tests {
     /// parameter values.
     fn eval_residuals(ir: &ProblemIR, initial: &HashMap<String, DVector<f64>>) -> DVector<f64> {
         let backend = TinySolverBackend;
-        let (problem, init) = backend.compile(ir, initial).expect("compile IR");
-        let blocks = problem.initialize_parameter_blocks(&init);
+        let problem = backend.compile(ir, initial).expect("compile IR");
+        let blocks = problem.initialize_parameter_blocks(initial);
         let residuals = problem.compute_residuals(&blocks, true);
         residuals.as_ref().into_nalgebra().column(0).clone_owned()
     }

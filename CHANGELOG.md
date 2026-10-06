@@ -75,6 +75,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   design records. The app README is a user guide. The tutorial built on a
   private dataset is removed, and the book's link and install version are
   corrected.
+- **Faster Levenberg–Marquardt iterations.** The loop builds the sparsity
+  pattern of `JᵀJ` and the symbolic Cholesky analysis once per solve. Each
+  iteration then fills only the lower triangle, accumulating runs of
+  Jacobian rows that touch the same parameters in small dense blocks, and a
+  damping retry reuses the matrix instead of copying it. Results are
+  bit-for-bit unchanged. On the synthetic benchmark, solves are about 5 %
+  (tiny-solver) and 7 % (factrs) faster with all cores, and 9 % faster with
+  factrs on one core; the gain grows as the Jacobian gets cheaper to
+  evaluate.
 - **Detector dependencies.** `calib-targets` 0.15 (with `chess-corners`
   1.3) and `ringgrid` 0.13. Chessboard and ChArUco calibrations of the
   bundled datasets and ring-grid detections are unchanged; on a real

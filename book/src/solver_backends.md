@@ -82,7 +82,9 @@ where $\rho_i$ is the residual block's loss ($\rho(s) = s$ without one; see
    $(\tilde{J}^T\tilde{J} + \lambda D)\,\boldsymbol{\delta} = -\tilde{J}^T
    \tilde{\mathbf{r}}$ with sparse Cholesky, where
    $D$ is the diagonal of $\tilde{J}^T\tilde{J}$ clamped to
-   $[10^{-6}, 10^{32}]$.
+   $[10^{-6}, 10^{32}]$. The sparsity pattern of $\tilde{J}^T\tilde{J}$ and the
+   symbolic factorization are computed once per solve; each iteration fills
+   the values of the lower triangle only.
 4. **Applies** the step through each block's retraction (vector addition,
    $\mathbf{x} \cdot \exp(\boldsymbol{\delta})$ on SE(3), the exponential
    map on S²), then clamps bounded parameters to their bounds.

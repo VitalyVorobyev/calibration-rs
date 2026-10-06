@@ -7,15 +7,10 @@
 //! rules — is written once, so backends differ only in how they linearize.
 
 use crate::backend::BackendSolveOptions;
-use faer::sparse::{SparseColMat, Triplet};
-use faer_ext::IntoNalgebra;
+use crate::backend::normal_equations::{NormalEquations, jacobi_scaling, unscale};
+use faer::sparse::SparseColMat;
 use nalgebra::DVector;
-use std::ops::Mul;
-use tiny_solver::linear::SparseCholeskySolver;
-use tiny_solver::linear::sparse::SparseLinearSolver;
 
-const LM_MIN_DIAGONAL: f64 = 1e-6;
-const LM_MAX_DIAGONAL: f64 = 1e32;
 const LM_INITIAL_TRUST_REGION_RADIUS: f64 = 1e4;
 const LM_MAX_STEP_ATTEMPTS: usize = 32;
 /// Stop once a step is this small relative to the parameters
@@ -45,6 +40,10 @@ pub(crate) trait LinearizationEngine {
     fn cost(&self, x: &Self::State) -> f64;
 
     /// Loss-corrected residual (one column) and Jacobian at `x`.
+    ///
+    /// The Jacobian should have the same sparsity pattern at every `x`, with
+    /// each column's rows in ascending order: the normal-equation plan is
+    /// built for one pattern and rebuilt whenever it changes.
     fn linearize(&self, x: &Self::State) -> (faer::Mat<f64>, SparseColMat<usize, f64>);
 
     /// `x ⊕ dx`: the step applied through each block's retraction, with
@@ -68,7 +67,7 @@ pub(crate) struct LmSolution<S> {
 /// Minimize `engine.cost` from `x0`.
 ///
 /// Returns `None` when there is something to optimize but the initial cost is
-/// not finite.
+/// not finite, or the normal equations cannot be allocated.
 pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
     engine: &E,
     x0: E::State,
@@ -94,63 +93,45 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         return None;
     }
 
-    let mut linear_solver = SparseCholeskySolver::new();
-    let mut jacobi_scaling_diagonal = None;
+    let mut scaling: Option<Vec<f64>> = None;
+    let mut normal: Option<NormalEquations> = None;
     let mut damping = 1.0 / LM_INITIAL_TRUST_REGION_RADIUS;
 
     let mut num_iters = 0usize;
     for outer_iter in 0..max_iters {
         num_iters = outer_iter + 1;
         let last_cost = current_cost;
-        let (residuals, mut jac) = engine.linearize(&x);
+        let (residuals, jac) = engine.linearize(&x);
 
-        if jacobi_scaling_diagonal.is_none() {
-            jacobi_scaling_diagonal = Some(build_jacobi_scaling(&jac));
-        }
-        let scaling = jacobi_scaling_diagonal
-            .as_ref()
-            .expect("scaling initialized");
-        jac = jac * scaling;
-
-        let jtj = jac
-            .as_ref()
-            .transpose()
-            .to_col_major()
-            .unwrap()
-            .mul(jac.as_ref());
-        let jtr = jac.as_ref().transpose().mul(-&residuals);
+        let scaling = scaling.get_or_insert_with(|| jacobi_scaling(jac.as_ref()));
+        let normal = match &mut normal {
+            Some(normal) if normal.fits(jac.symbolic()) => normal,
+            slot => slot.insert(NormalEquations::new(jac.symbolic())?),
+        };
+        normal.assemble(jac.as_ref(), &residuals, scaling);
 
         let x_norm = engine.norm(&x);
         let mut accepted = false;
         let mut step_negligible = false;
         for step_attempt in 0..LM_MAX_STEP_ATTEMPTS {
-            let mut jtj_regularized = jtj.clone();
-            for i in 0..dim {
-                let diag = jtj[(i, i)].clamp(LM_MIN_DIAGONAL, LM_MAX_DIAGONAL);
-                jtj_regularized[(i, i)] += damping * diag;
-            }
-
-            let Some(lm_step) = linear_solver.solve_jtj(&jtr, &jtj_regularized) else {
+            let Some(lm_step) = normal.solve_damped(damping) else {
                 damping *= 2.0;
                 continue;
             };
-            let dx = scaling * &lm_step;
-            let dx_na = dx.as_ref().into_nalgebra().column(0).clone_owned();
-            if !dx_na.iter().all(|v| v.is_finite()) {
+            let dx = unscale(&lm_step, scaling);
+            if !dx.iter().all(|v| v.is_finite()) {
                 damping *= 2.0;
                 continue;
             }
-            if dx_na.norm() <= LM_RELATIVE_STEP_TOLERANCE * (x_norm + LM_RELATIVE_STEP_TOLERANCE) {
+            if dx.norm() <= LM_RELATIVE_STEP_TOLERANCE * (x_norm + LM_RELATIVE_STEP_TOLERANCE) {
                 step_negligible = true;
                 break;
             }
 
-            let x_new = engine.retract(&x, &dx_na);
+            let x_new = engine.retract(&x, &dx);
             let new_cost = engine.cost(&x_new);
             let actual_cost_change = current_cost - new_cost;
-            let linear_cost_change: faer::Mat<f64> =
-                lm_step.transpose().mul(2.0 * &jtr - &jtj * &lm_step);
-            let predicted_cost_change = linear_cost_change[(0, 0)];
+            let predicted_cost_change = normal.model_decrease(&lm_step);
             let rho = actual_cost_change / predicted_cost_change;
 
             if rho.is_finite() && rho > 0.0 && predicted_cost_change > 0.0 && new_cost.is_finite() {
@@ -202,17 +183,4 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         cost: current_cost,
         num_iters,
     })
-}
-
-/// Column scaling `1 / (1 + ‖J_c‖)`, fixed from the first Jacobian.
-fn build_jacobi_scaling(jac: &SparseColMat<usize, f64>) -> SparseColMat<usize, f64> {
-    let cols = jac.shape().1;
-    let jacobi_scaling_vec: Vec<Triplet<usize, usize, f64>> = (0..cols)
-        .map(|c| {
-            let v = jac.val_of_col(c).iter().map(|&i| i * i).sum::<f64>().sqrt();
-            Triplet::new(c, c, 1.0 / (1.0 + v))
-        })
-        .collect();
-
-    SparseColMat::<usize, f64>::try_new_from_triplets(cols, cols, &jacobi_scaling_vec).unwrap()
 }

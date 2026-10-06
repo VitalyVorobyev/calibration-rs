@@ -91,6 +91,7 @@ pub(crate) use dispatch_camera_model;
 
 mod factrs_backend;
 mod lm;
+mod normal_equations;
 #[cfg(test)]
 mod parity_tests;
 mod s2;
