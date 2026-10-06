@@ -17,16 +17,44 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 
 ## Solver backends
 
-- [~] O-FACTRS-PARALLEL - factrs is 2.4–3.3× faster than tiny-solver per
-  core but linearizes on one thread, so tiny-solver's rayon-parallel
-  residual evaluation (3.7–5.7× on an M4 Pro) makes it 1.2–2.5× faster
-  overall (book, "Solver Backends"). Parallel linearization would likely
-  make factrs the faster backend, but factrs' `VariableSafe` / `Residual`
-  trait objects are not `Send`/`Sync`, so neither `Values` nor `Factor`
-  can cross threads. **Blocked on factrs upstream** (a `Send + Sync` bound
-  on those traits), or on linearizing outside factrs' `Graph` from a
-  thread-safe copy of the variables; reopen with either, then re-run the
-  comparison and revisit the default backend with the user.
+- [~] O-FACTRS-PARALLEL - Parallel linearization for factrs. Measured on
+  2026-10-06 (`calib-bench solver`, full preset, M4 Pro, 12 threads): 3.6×
+  over serial factrs (2.6–4.8× by workflow) and 2.2× over today's
+  tiny-solver default, bit-identical results, no cost on one thread. The
+  change is two commits on the factrs fork, branch `feat/parallel-linearize`:
+  `Sync` next to upstream's `Send` bounds (#47), and rayon in
+  `Graph::linearize` / `Graph::error`. Issue and PR texts are drafted, not
+  posted. **Blocked on factrs upstream**: the merge, then a release (nothing
+  after 0.3.0, and `main` moved to faer 0.24, see D4-NALGEBRA-035). No code
+  change here: the parallelism lives inside factrs' `Graph`.
+- [ ] O-TINYSOLVER-PERF - Adopt the tiny-solver Jacobian speed-ups once
+  released. On the tiny-solver fork, on 0.18.3:
+  - `perf/assemble-without-mutex` (A): residuals and Jacobian values
+    assembled without the `Mutex`. Internal, fits 0.18.x, 1.18× on 12
+    threads.
+  - `perf/stride4-stack-duals` (B): stack duals in passes of 4 directions,
+    as in Ceres' `DynamicAutoDiffCostFunction`. With A: 2.6× on 12 threads
+    (1.8–3.9× by workflow) and 4.2× on one thread (3.9–5.0×), with
+    bit-identical results and no code change here. It adds supertraits to `FactorImpl` and `Manifold`, so
+    it is a 0.19 change upstream.
+
+  A+B is faster than parallel factrs: 1.2× on 12 threads, 1.6× on one.
+  **Trigger**: the tiny-solver release that carries them. Bump the floor in
+  the root `Cargo.toml`, then rerun `calib-bench solver` to confirm.
+- [ ] O-LM-OVERHEAD - Cut the shared LM's own cost (`backend/lm.rs`). With
+  the faster linearization (O-TINYSOLVER-PERF or O-FACTRS-PARALLEL), a large
+  12-thread hand-eye solve spends 21–32 % forming JᵀJ, plus 17–30 % in setup
+  and read-back outside the loop. Linearization is 47–53 %, and the
+  Cholesky is negligible.
+  - JᵀJ is a general sparse×sparse product rebuilt every iteration, with
+    both triangles. The fix: build its structure once and fill only the
+    lower triangle.
+  - Every damping retry clones JᵀJ. The fix: damp the diagonal in place.
+  - `J·D` builds a new matrix. The fix: scale in place.
+  - Profile the setup (IR compile into the backend problem) and trim it.
+
+  Measure with `calib-bench solver`, and keep results bit-identical or
+  explain the change.
 
 ## Calibration quality
 
@@ -61,6 +89,12 @@ scenes are the gate).
   arrays at its boundary); that is what lets `calib-targets`' nalgebra 0.35
   coexist. Re-check on each tiny-solver and factrs release (tiny-solver
   0.18.3 and factrs 0.3.0 are on 0.34 / 0.23 / 0.7).
+  - factrs `main` is already on faer 0.24 / faer-ext 0.8 (nalgebra 0.34).
+    Our shared LM factors with tiny-solver's faer-0.23 `SparseCholeskySolver`
+    and takes factrs' Jacobian as a faer matrix. So the next factrs release
+    will not build until the LM owns its sparse solve, or the factrs engine
+    converts at the boundary.
+  - Owning the solve is also part of O-LM-OVERHEAD.
 
 ## Deferred and parked
 
@@ -75,9 +109,17 @@ scenes are the gate).
 - [ ] P2-BA-DENSITY - Corner budget for the joint rig + hand-eye BA
   (spatially distributed subsample, or per-stage decimation). Schedule only
   if the acceptance run for the six-camera rtv3d rig exceeds ~5 min.
-- [~] P3-BACKEND-COST - Profile tiny-solver's autodiff/assembly/solve split
-  and evaluate analytic Jacobians, caching or rayon for the `ReprojPoint`
-  factor. Parked until after 1.0.
+- [~] P3-BACKEND-COST - Close the remaining gap to Ceres. Planar
+  intrinsics, against Ceres 2.2 at matched tolerances (2026-10-06):
+  - today we are 8–9× slower on 12 threads and about 22× slower on one
+    thread;
+  - with tiny-solver A+B we are about 4× and 5.7× slower.
+
+  After O-TINYSOLVER-PERF and O-LM-OVERHEAD, what remains is linearization:
+  per-block library overhead, num-dual against Ceres' `Jet`, and
+  differentiation through the SE(3) retraction. An analytic `ReprojPoint`
+  Jacobian is the next lever. Parked until after 1.0. The harness and the IR
+  export are on the local branch `exp/solver-perf`.
 - [~] M4-FISHEYE - Kannala-Brandt equidistant k1–k4 as a new
   `ProjectionModel`. Parked until after 1.0; no fisheye dataset exists in
   the acceptance set.
