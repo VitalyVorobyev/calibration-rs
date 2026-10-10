@@ -17,16 +17,27 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 
 ## Solver backends
 
-- [~] O-FACTRS-PARALLEL - Parallel linearization for factrs. Measured on
-  2026-10-06 (`calib-bench solver`, full preset, M4 Pro, 12 threads): 3.6×
-  over serial factrs (2.6–4.8× by workflow) and 2.2× over today's
-  tiny-solver default, bit-identical results, no cost on one thread. The
-  change is two commits on the factrs fork, branch `feat/parallel-linearize`:
-  `Sync` next to upstream's `Send` bounds (#47), and rayon in
-  `Graph::linearize` / `Graph::error`. Issue and PR texts are drafted, not
-  posted. **Blocked on factrs upstream**: the merge, then a release (nothing
-  after 0.3.0, and `main` moved to faer 0.24, see D4-NALGEBRA-035). No code
-  change here: the parallelism lives inside factrs' `Graph`.
+- [~] O-FACTRS-PARALLEL - Parallel linearization for factrs, proposed
+  upstream as rpl-cmu/fact-rs#55 with PR rpl-cmu/fact-rs#56: `Sync` next
+  to the `Send` bounds from fact-rs #47, and rayon in `Graph::linearize` /
+  `Graph::error` under factrs' existing `rayon` feature.
+  - **Measured** on 2026-10-10 at `00a8ab00`, M4 Pro, 12 threads:
+    `calib-bench solver run --preset full --backend factrs`, with factrs
+    patched to the fork's `calib-rs/parallel-on-0.3.0`.
+    - 3.9× over serial factrs (geometric mean; 2.6–5.1× by workflow).
+    - Bit-identical final costs and iteration counts.
+    - +0.4 % on one thread, about +5 % on the smallest scenes: rayon's
+      handoff costs about 7 µs per call.
+  - **Method and tables**: `REPORT.md` on the fork's
+    `notes/parallel-linearization` branch.
+  - **Blocked on factrs upstream**: the merge, then a release. fact-rs #55
+    asks for 0.4.0 instead of the pending 0.3.1, because fact-rs #47, #51
+    (faer 0.24) and #56 are all breaking.
+  - **Trigger**: that release. Then, in one commit:
+    - Require it in the root `Cargo.toml` with `features = ["rayon"]`. The
+      feature is off today, and without it nothing runs in parallel.
+    - Take its Jacobian as a faer-0.23 view (D4-NALGEBRA-035).
+    - Rerun `calib-bench solver` for both backends.
 - [ ] O-TINYSOLVER-PERF - Adopt the tiny-solver speed-ups once released.
   On the tiny-solver fork, on 0.18.3:
   - `perf/assemble-without-mutex` (A): residuals and Jacobian values
