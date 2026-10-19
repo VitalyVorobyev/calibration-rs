@@ -8,6 +8,7 @@
 //! - [`truth`] — a synthetic entry's true parameters, and a result's errors
 //!   against them in units of its σ.
 //! - [`synthetic`] — a benchmark scene → [`ObservationSet`] + [`Truth`].
+//! - [`compare`] — other libraries' results against the references.
 //! - `freeze` (feature `tier-b`) — dataset manifest + images →
 //!   [`ObservationSet`].
 //!
@@ -19,6 +20,7 @@
 //! true value, in units of the result's own σ. [`bless_entry`] writes the
 //! reference; [`freeze_synthetic_entry`] writes a synthetic entry's data.
 
+pub mod compare;
 #[cfg(feature = "tier-b")]
 pub mod freeze;
 pub mod manifest;

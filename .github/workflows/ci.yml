@@ -140,6 +140,13 @@ jobs:
           cargo run --release --locked -p vision-calibration-bench
           --bin calib-bench -- suite check --backend factrs --sigma 1
 
+      # The stored results of other libraries still read against the
+      # references (the table goes in the book's regression-suite chapter).
+      - name: Suite compare
+        run: >-
+          cargo run --release --locked -p vision-calibration-bench
+          --bin calib-bench -- suite compare
+
   # The parameter-uncertainty Monte-Carlo gates: a few hundred solves each,
   # so they are `#[ignore]`d in the debug test run and run here in release.
   uncertainty-gates:
