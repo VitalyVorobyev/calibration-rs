@@ -117,39 +117,6 @@
       }
     },
     {
-      "id": "stereo_charuco",
-      "visibility": "public",
-      "tiers": [
-        "b"
-      ],
-      "problem": "rig_extrinsics",
-      "data_root": "data/stereo_charuco",
-      "board": {
-        "rows": 22,
-        "cols": 22,
-        "cell_size_m": 0.00135,
-        "dictionary": "DICT_4X4_1000",
-        "layout": "charuco"
-      },
-      "cameras": [
-        {
-          "id": "cam1",
-          "folder": "cam1",
-          "filename_glob": "*.png"
-        },
-        {
-          "id": "cam2",
-          "folder": "cam2",
-          "filename_glob": "*.png"
-        }
-      ],
-      "prior_export": "data/stereo_charuco/calibration.json",
-      "notes": "mirrors crates/vision-calibration/examples/stereo_charuco_session.rs (cell 0.00135m, marker scale 0.75)",
-      "accept": {
-        "max_per_cam_mean_px": 0.8
-      }
-    },
-    {
       "id": "ds8",
       "visibility": "public",
       "tiers": [

@@ -3381,7 +3381,7 @@ pub mod tier_b {
                 .as_deref()
                 .context("charuco board needs a `dictionary`")?;
             // Marker scale: from BoardGeometry if present, else the OpenCV
-            // ChArUco default (0.75) used by the stereo_charuco example.
+            // OpenCV ChArUco default (0.75).
             let marker_scale = board.marker_size_rel.unwrap_or(0.75);
             let params = charuco_params_for(
                 board.rows as u32,

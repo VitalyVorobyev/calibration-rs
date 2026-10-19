@@ -99,9 +99,11 @@ stereo rig export (two cameras with extrinsics) — same gate as Epipolar.
 
 Drives a calibration end-to-end without leaving the app:
 
-1. **Quick-start presets** — a card grid of committed datasets
-   (`data/stereo`, `data/stereo_charuco`, `data/kuka_1`) spanning
-   several problem types. Clicking a card loads its manifest and applies any
+1. **Quick-start presets** — a card grid of public datasets: `data/kuka_1`
+   (single-camera hand-eye, committed to the repository) and `data/DS8`
+   (rig hand-eye; extract the archive from
+   [doi:10.15482/USDA.ADC/1340592](https://doi.org/10.15482/USDA.ADC/1340592)
+   into that folder). Clicking a card loads its manifest and applies any
    `configOverrides` the preset carries (e.g. a preset may need
    Scheimpflug sensors or an EyeToHand rig — see
    [`presets.ts`](../../app/src/workspaces/RunWorkspace/presets.ts)).

@@ -48,9 +48,11 @@ stays local-only, as do the private sets.
   `calib-bench suite fetch` downloads into a cache and verifies; a scheduled
   CI job runs `suite freeze` from the images and checks the observations
   still match `SHA256SUMS`. Then retire `bench/registry/public.json` and the
-  acceptance job's image run, and move `kuka_1` out of LFS. Decide the
-  licence of our own captures (`kuka_1`, `stereo`; MIT today, as the
-  repository) before the record is minted.
+  acceptance job's image run, and move `kuka_1` out of LFS (the
+  `planar_real`/`handeye_session` examples then name the fetch command). Our
+  captures are CC-BY-4.0. Once `data/stereo` is fetchable, its app presets
+  move from the local preset file back into `BUILTIN_PRESETS`, and a
+  real-image dense-stereo example can return.
 - [ ] DATA-OPENCV - OpenCV harness (`tools/compare/opencv/`, `uv`, pinned
   `opencv-python`) reading `ObservationSet`: `calibrateCameraExtended` (with
   its standard deviations), `stereoCalibrate`, `calibrateHandEye`,
@@ -66,18 +68,6 @@ stays local-only, as do the private sets.
   sample stereo chessboards; reference-only third-party sets (URL + checksum,
   never redistributed) such as RWHE-Calib; purpose-designed captures of our
   own under CC-BY-4.0. Parked until DATA-IMAGES.
-
-## Documentation
-
-- [ ] DOCS-DATA - User docs and examples rely on image sets the repository
-  does not ship: the five-minute and per-feature-residuals tutorials and
-  `manual_init_proof` use `data/stereo_charuco` (private); the book's planar
-  and stereo real-data chapters, `planar_real`, `stereo_session` and
-  `dense_stereo_real` use `data/stereo` (gitignored), and the facade README
-  calls both "committed data". Re-target the tutorials to `kuka_1` or to the
-  regression-suite observation files, fetch `data/stereo` from the image
-  record (DATA-IMAGES), and drop or mark the ChArUco examples as needing
-  your own data.
 
 ## App
 

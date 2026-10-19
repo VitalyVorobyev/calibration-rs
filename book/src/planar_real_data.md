@@ -4,10 +4,12 @@ This chapter walks through the `planar_real` example, which calibrates a camera 
 
 ## Dataset
 
-The example uses images from `data/stereo/imgs/leftcamera/`:
+The example uses the images in `data/kuka_1/`:
 
-- **Pattern**: 7×11 chessboard, 30 mm square size
-- **Images**: PNG files named `Im_L_<index>.png`
+- **Pattern**: 17×28 chessboard, 20 mm squares (the size is read from `squaresize.txt`)
+- **Images**: 30 PNG files `01.png` … `30.png`, 1928×1208 px
+
+The images are stored with Git LFS. If they are small text pointer files in your checkout, run `git lfs pull` first.
 
 ## Workflow
 
@@ -19,7 +21,7 @@ The example detects corners with the `calib_targets` crate (a dev-dependency of 
 use calib_targets::chessboard::{ChessboardDetection, ChessboardParams};
 use calib_targets::detect::{self, default_chess_config};
 
-const SQUARE_SIZE_M: f64 = 0.03; // 30 mm squares
+const SQUARE_SIZE_M: f64 = 0.02; // 20 mm squares
 
 let board_params = ChessboardParams::default();
 
@@ -73,7 +75,22 @@ println!("fx={:.2} fy={:.2} cx={:.2} cy={:.2}", k.fx, k.fy, k.cx, k.cy);
 println!("Mean reprojection error: {:.4} px", export.mean_reproj_error);
 ```
 
-### 4. Outlier Filtering
+### 4. Parameter Uncertainty
+
+The export carries the covariance of the estimated parameters (see [Parameter Uncertainty](uncertainty.md)):
+
+```rust
+use vision_calibration::core::Uncertainty;
+
+if let Uncertainty::Available(cov) = &export.uncertainty {
+    println!("fx = {:.2} ± {:.2} px", k.fx, cov.std_dev("fx").unwrap());
+    println!("corr(fx, cx) = {:+.3}", cov.correlation("fx", "cx").unwrap());
+}
+```
+
+On this dataset the example reports a mean reprojection error of about 0.13 px and `fx` ≈ 2058 px with a standard deviation of about 0.3 px.
+
+### 5. Outlier Filtering
 
 Real data usually contains a few poorly detected corners. `run_calibration_with_filtering` solves, removes observations above a reprojection-error threshold, and solves again:
 
@@ -116,7 +133,7 @@ Key outputs to examine:
 ## Running the Example
 
 ```bash
-cargo run -p vision-calibration --example planar_real
+cargo run -p vision-calibration --example planar_real --release
 ```
 
-The example prints per-step results including initialization accuracy, optimization convergence, and final calibrated parameters.
+The example prints per-step results including initialization accuracy, optimization convergence, the final calibrated parameters and their standard deviations. Its Python counterpart is `crates/vision-calibration-py/examples/planar_real.py`.

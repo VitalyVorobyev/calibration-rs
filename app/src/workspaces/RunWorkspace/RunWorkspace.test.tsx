@@ -84,9 +84,9 @@ afterEach(() => {
   useStore.getState().resetExport();
 });
 
-/** Finds the "stereo-left" preset card and returns its "Use preset" button. */
-function stereoLeftUseButton(): HTMLElement {
-  const card = screen.getByRole("article", { name: "Stereo · cam-left" });
+/** Finds the "KUKA handeye" preset card and returns its "Use preset" button. */
+function presetUseButton(): HTMLElement {
+  const card = screen.getByRole("article", { name: "KUKA handeye" });
   return within(card).getByRole("button", { name: "Use preset" });
 }
 
@@ -101,12 +101,12 @@ describe("RunWorkspace happy path", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(stereoLeftUseButton());
+    fireEvent.click(presetUseButton());
 
     // Preset load resolves asynchronously (load_text_file + TOML parse +
     // default_config_cmd); the quick-start grid collapses to the active-
     // preset bar once state settles.
-    await screen.findByText("Stereo · cam-left", {}, { timeout: 2000 });
+    await screen.findByText("KUKA handeye", {}, { timeout: 2000 });
     const runButton = await screen.findByRole("button", { name: "Run" });
     expect(runButton.hasAttribute("disabled")).toBe(false);
 
@@ -158,7 +158,7 @@ describe("RunWorkspace progress + cancellation", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(stereoLeftUseButton());
+    fireEvent.click(presetUseButton());
     const runButton = await screen.findByRole("button", { name: "Run" });
     fireEvent.click(runButton);
 

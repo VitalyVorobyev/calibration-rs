@@ -15,3 +15,5 @@ playwright-report
 test-results
 # The screenshot suite's local baseline (playwright.screens.config.ts).
 e2e/.screens
+# Run-workspace presets for datasets outside the repository.
+src/workspaces/RunWorkspace/presets.local.ts

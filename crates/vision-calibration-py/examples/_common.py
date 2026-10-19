@@ -6,6 +6,7 @@ virtual environment where `vision_calibration` is installed.
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 from typing import Iterable
@@ -13,6 +14,16 @@ from typing import Iterable
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def load_observation_input(dataset_id: str) -> dict:
+    """The calibration input of a committed observation set.
+
+    `regression/observations/<dataset_id>.json` holds the detected target
+    corners of one public dataset, so a calibration can run without the images.
+    """
+    path = repo_root() / "regression" / "observations" / f"{dataset_id}.json"
+    return json.loads(path.read_text(encoding="utf-8"))["input"]
 
 
 def norm3(v: Iterable[float]) -> float:

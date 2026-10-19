@@ -1,4 +1,4 @@
-# Planar intrinsics manifest for the right half of the bundled stereo
+# Planar intrinsics manifest for the right half of the stereo
 # dataset. Sibling of `dataset_left.toml`; identical board parameters,
 # different image folder.
 

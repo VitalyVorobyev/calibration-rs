@@ -123,8 +123,8 @@ are `NaN`):
 ```rust
 use vision_calibration::mvg::dense::{match_block, BlockMatchOptions, GrayImage};
 
-// `left` / `right` are rectified grayscale images (resample the source through
-// the rectifying homography first; see the dense_stereo_real example).
+// `left` / `right` are rectified grayscale images: resample each source image
+// through its rectifying homography first.
 let disp = match_block(&left, &right, &BlockMatchOptions {
     min_disparity: 0,
     num_disparities: 64,   // search [min, min + num)
@@ -137,16 +137,14 @@ let disp = match_block(&left, &right, &BlockMatchOptions {
 For low-texture surfaces (e.g. the flat interiors of chessboard squares), set
 `semi_global: true` to aggregate the cost along 8 paths with `sgm_p1`/`sgm_p2`
 smoothness penalties (Hirschmüller) — disparity then propagates into regions
-block matching leaves blank (on the real-data demo, ~21% → ~49% coverage). It's
-strictly additive: block matching stays the default.
+block matching leaves blank (on a real chessboard rig, ~21% → ~49% coverage).
+It's strictly additive: block matching stays the default.
 
-Two runnable demos write inspectable PNGs to `target/fixtures/`:
+A runnable demo writes inspectable PNGs (left | right | ground truth | estimate
+| error) to `target/fixtures/`:
 
 ```bash
-# synthetic ground truth: left | right | GT | estimate | error
 cargo run -p vision-calibration-bench --example dense_synth --features tier-b --release
-# real chessboard rig: undistort → rectify → match → disparity overlay
-cargo run -p vision-calibration --example dense_stereo_real --release
 ```
 
 ## Common variations

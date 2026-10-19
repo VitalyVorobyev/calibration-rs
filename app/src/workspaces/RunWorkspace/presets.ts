@@ -28,8 +28,8 @@ export interface EnabledPreset {
   /**
    * Optional config patch deep-merged over the topology's
    * `default_config_cmd` defaults when the preset is applied — for
-   * datasets whose defaults are wrong (e.g. rtv3d needs Scheimpflug
-   * sensors and EyeToHand). Keys mirror the Rust `*Config` JSON.
+   * datasets whose defaults are wrong (e.g. a rig of Scheimpflug
+   * cameras observed EyeToHand). Keys mirror the Rust `*Config` JSON.
    */
   configOverrides?: Record<string, unknown>;
   /**
@@ -81,134 +81,7 @@ export interface DisabledPreset {
 
 export type Preset = EnabledPreset | DisabledPreset;
 
-const RTV3D_MANIFEST_OVERRIDES = {
-  detector: {
-    chess_corners: {
-      threshold_value: 30.0,
-    },
-  },
-};
-
-const RTV3D_JOINT_LASER_MANIFEST_OVERRIDES = {
-  ...RTV3D_MANIFEST_OVERRIDES,
-  topology: "rig_handeye_laserline",
-  upstream_calibration: null,
-};
-
-const RTV3D_CAMERA_SEEDS = Array.from({ length: 6 }, () => ({
-  fx: 2000.0,
-  fy: 2000.0,
-  cx: 360.0,
-  cy: 270.0,
-  skew: 0.0,
-}));
-
-const RTV3D_DISTORTION_SEEDS = Array.from({ length: 6 }, () => ({
-  k1: 0.0,
-  k2: 0.0,
-  k3: 0.0,
-  p1: 0.0,
-  p2: 0.0,
-  iters: 8,
-}));
-
-const RTV3D_SENSOR_SEEDS = Array.from({ length: 6 }, () => ({
-  tilt_x: 0.0,
-  tilt_y: 0.0,
-}));
-
-const RTV3D_HAND_EYE_CONFIG_OVERRIDES = {
-  intrinsics: {
-    fix_tangential: true,
-  },
-  manual_init: {
-    per_cam_intrinsics: RTV3D_CAMERA_SEEDS,
-    per_cam_distortion: RTV3D_DISTORTION_SEEDS,
-    per_cam_sensors: RTV3D_SENSOR_SEEDS,
-  },
-  sensor: {
-    kind: "Scheimpflug",
-    init_tilt_x: 0.0,
-    init_tilt_y: 0.0,
-    fix_scheimpflug: { tilt_x: false, tilt_y: false },
-    distortion_mask_in_percam_ba: {
-      k1: false,
-      k2: false,
-      k3: true,
-      p1: true,
-      p2: true,
-    },
-    refine_scheimpflug_in_rig_ba: false,
-  },
-  rig: {
-    refine_intrinsics_in_rig_ba: false,
-  },
-  handeye_init: { handeye_mode: "EyeToHand" },
-  handeye_ba: { robot_poses: { refine: true } },
-  solver: { max_iters: 200, robust_loss: { Huber: { scale: 1.0 } } },
-};
-
 export const BUILTIN_PRESETS: Preset[] = [
-  // ── Enabled: stereo-left ────────────────────────────────────────────────
-  {
-    id: "stereo-left",
-    name: "Stereo · cam-left",
-    group: "Bundled stereo dataset",
-    topology: "PlanarIntrinsics",
-    targetKind: "chessboard",
-    targetSummary: "chessboard 7×11, 30 mm",
-    imageCount: 20,
-    manifestPath: "data/stereo/dataset_left.toml",
-  },
-
-  // ── Enabled: stereo-right ───────────────────────────────────────────────
-  {
-    id: "stereo-right",
-    name: "Stereo · cam-right",
-    group: "Bundled stereo dataset",
-    topology: "PlanarIntrinsics",
-    targetKind: "chessboard",
-    targetSummary: "chessboard 7×11, 30 mm",
-    imageCount: 20,
-    manifestPath: "data/stereo/dataset_right.toml",
-  },
-
-  // ── Enabled: stereo rig ─────────────────────────────────────────────────
-  {
-    id: "stereo-rig",
-    name: "Stereo rig",
-    group: "Bundled stereo dataset",
-    topology: "RigExtrinsics",
-    targetKind: "chessboard",
-    targetSummary: "chessboard 7×11, 30 mm · 2 cameras",
-    imageCount: 20,
-    manifestPath: "data/stereo/dataset_rig.toml",
-  },
-
-  // ── Enabled: stereo-charuco (single camera) ─────────────────────────────
-  {
-    id: "stereo-charuco",
-    name: "ChArUco · cam1",
-    group: "Stereo ChArUco dataset",
-    topology: "PlanarIntrinsics",
-    targetKind: "charuco",
-    targetSummary: "ChArUco 22×22, 1.35 mm, DICT_4X4_1000",
-    imageCount: 28,
-    manifestPath: "data/stereo_charuco/dataset_cam1.toml",
-  },
-
-  // ── Enabled: stereo-charuco rig (token pairing) ─────────────────────────
-  {
-    id: "stereo-charuco-rig",
-    name: "ChArUco rig",
-    group: "Stereo ChArUco dataset",
-    topology: "RigExtrinsics",
-    targetKind: "charuco",
-    targetSummary: "ChArUco 22×22 · 2 cameras · token pairing",
-    imageCount: 27,
-    manifestPath: "data/stereo_charuco/dataset_rig.toml",
-  },
-
   // ── Enabled: KUKA handeye (committed dataset) ────────────────────────────
   {
     id: "kuka-handeye",
@@ -221,90 +94,31 @@ export const BUILTIN_PRESETS: Preset[] = [
     manifestPath: "data/kuka_1/dataset.toml",
   },
 
-  // ── Enabled: rtv3d rig hand-eye (local-only dataset) ─────────────────────
+  // ── Enabled: DS8 rig hand-eye (public download) ──────────────────────
   {
-    id: "rtv3d-rig-handeye",
-    name: "rtv3d rig hand-eye",
-    group: "rtv3d 6-device Scheimpflug rig (local)",
+    id: "ds8-rig-handeye",
+    name: "DS8 rig hand-eye",
+    group: "DS8 dataset (USDA, public domain)",
     topology: "RigHandeye",
-    targetKind: "charuco",
-    targetSummary: "ChArUco 22×22, 5.2 mm · 6 tiled cameras · EyeToHand",
-    imageCount: 20,
-    manifestPath: "privatedata/rtv3d/dataset_rig_handeye.toml",
-    manifestOverrides: RTV3D_MANIFEST_OVERRIDES,
-    configOverrides: RTV3D_HAND_EYE_CONFIG_OVERRIDES,
+    targetKind: "chessboard",
+    targetSummary: "chessboard 10×14, 52 mm · 3 cameras · robot poses",
+    imageCount: 42,
+    manifestPath: "data/DS8/dataset.toml",
   },
+];
 
-  // ── Enabled: rtv3d joint rig + laserline ─────────────────────
+/** Presets for datasets outside the repository, from an optional untracked
+ *  `presets.local.ts` next to this file that exports
+ *  `LOCAL_PRESETS: Preset[]`. Without that file this is empty. */
+const localPresetModules = import.meta.glob<{ LOCAL_PRESETS: Preset[] }>(
+  "./presets.local.ts",
   {
-    id: "rtv3d-laser",
-    name: "rtv3d laser planes",
-    group: "rtv3d 6-device Scheimpflug rig (local)",
-    topology: "RigHandeyeLaserline",
-    targetKind: "charuco",
-    targetSummary: "joint hand-eye + 6 laser planes · EyeToHand",
-    imageCount: 20,
-    manifestPath: "privatedata/rtv3d/dataset_laser.toml",
-    manifestOverrides: RTV3D_JOINT_LASER_MANIFEST_OVERRIDES,
-    configOverrides: {
-      handeye: RTV3D_HAND_EYE_CONFIG_OVERRIDES,
-      laserline_init: {
-        solver: { max_iters: 200 },
-        laser_residual_type: "PointToPlane",
-      },
-      joint_ba: {
-        solver: { max_iters: 30 },
-        laser_residual_type: "PointToPlane",
-        calib_weight: 1.0,
-        laser_weight: 10000.0,
-        robot_poses: { refine: true },
-        // The joint solve always gauge-fixes camera 0 (ADR 0024): it pins
-        // handeye.rig.reference_camera_idx.
-        fix_scheimpflug: { tilt_x: true, tilt_y: true },
-        default_camera_fix: {
-          intrinsics: { fx: false, fy: false, cx: true, cy: true },
-          distortion: {
-            k1: false,
-            k2: false,
-            k3: true,
-            p1: true,
-            p2: true,
-          },
-        },
-      },
-    },
+    eager: true,
   },
+);
 
-  // ── Enabled: rtv3d frozen rig laserline diagnostic (ADR 0021) ────────────
-  {
-    id: "rtv3d-laser-frozen",
-    name: "rtv3d frozen laser diagnostic",
-    group: "rtv3d 6-device Scheimpflug rig (local)",
-    topology: "RigLaserlineDevice",
-    targetKind: "charuco",
-    targetSummary:
-      "plane-only diagnostic over a frozen hand-eye export (requires rig_handeye_export.json)",
-    imageCount: 20,
-    manifestPath: "privatedata/rtv3d/dataset_laser.toml",
-    manifestOverrides: RTV3D_MANIFEST_OVERRIDES,
-    configOverrides: {
-      solver: { max_iters: 200 },
-      laser_residual_type: "PointToPlane",
-    },
-  },
-
-  // ── Disabled: DS8 Scheimpflug ────────────────────────────────────────────
-  {
-    id: "ds8-scheimpflug",
-    disabled: true,
-    name: "DS8 Scheimpflug",
-    group: "DS8 dataset",
-    topology: "ScheimpflugIntrinsics",
-    targetKind: "puzzleboard",
-    targetSummary: "puzzleboard puzzle_130x130",
-    imageCount: null,
-    disabledReason:
-      "Puzzleboard detection is wired; this card stays disabled until a DS8 puzzleboard manifest is committed — the DS8 data ships without a dataset.toml. Any puzzleboard/ringgrid dataset can already be run via the manifest editor.",
-    milestone: "needs manifest",
-  },
+/** Every preset the Run workspace offers: the built-in ones, then the local ones. */
+export const PRESETS: Preset[] = [
+  ...BUILTIN_PRESETS,
+  ...Object.values(localPresetModules).flatMap((m) => m.LOCAL_PRESETS),
 ];

@@ -1,0 +1,33 @@
+# RigExtrinsics manifest for the stereo dataset — both cameras
+# in one rig solve. Image lists pair by index (both cameras shot the
+# same 20 views in the same order; the runner natural-sorts the globs
+# so Im_L_2 < Im_L_10).
+#
+# Board parameters: 7×11 interior corners, 30 mm squares.
+
+version = 1
+topology = "rig_extrinsics"
+description = "stereo-rig chessboard 7x11 30mm"
+
+[[cameras]]
+id = "leftcamera"
+
+[cameras.images]
+kind = "glob"
+pattern = "imgs/leftcamera/*.png"
+
+[[cameras]]
+id = "rightcamera"
+
+[cameras.images]
+kind = "glob"
+pattern = "imgs/rightcamera/*.png"
+
+[target]
+kind = "chessboard"
+rows = 7
+cols = 11
+square_size_m = 0.03
+
+[pose_pairing]
+kind = "by_index"

@@ -26,8 +26,7 @@ use crate::registry::{CornerStrategySpec, DetectorOverride};
 /// Chosen per registry entry from the [`crate::registry::BoardGeometry::layout`]
 /// string so the multi-camera rig runner ([`crate::run::run_rig_extrinsics`])
 /// can dispatch chessboard vs ChArUco without duplicating the per-view loop.
-/// Both arms return the same [`CorrespondenceView`] shape; the ChArUco arm is a
-/// thin port of `stereo_charuco_session`'s `support/stereo_charuco_io.rs`.
+/// Both arms return the same [`CorrespondenceView`] shape.
 #[derive(Clone)]
 pub enum DetectorKind {
     /// `calib-targets` chessboard detector. `square_size_m` is the metric cell
@@ -46,9 +45,8 @@ pub enum DetectorKind {
         /// Resolved corner-stage thresholds.
         front_end: ChessFrontEnd,
     },
-    /// `calib-targets` ChArUco detector, parameterised by a board spec. Mirrors
-    /// `stereo_charuco_session`'s detector exactly (same dict, marker scale,
-    /// `OpenCvCharuco` layout) so bench numbers reproduce the example.
+    /// `calib-targets` ChArUco detector, parameterised by a board spec
+    /// (dictionary, marker scale, `OpenCvCharuco` layout).
     Charuco {
         /// ChArUco detector parameters.
         params: Box<CharucoParams>,
@@ -129,7 +127,7 @@ impl ChessFrontEnd {
     }
 }
 
-/// Build the ChArUco detector parameters used by `stereo_charuco_session`.
+/// Build ChArUco detector parameters for a board.
 ///
 /// `rows`/`cols` are the board square counts, `cell_size_m` the metric cell
 /// pitch (metres), `marker_size_rel` the marker-to-cell scale, and `dictionary`
@@ -172,12 +170,11 @@ pub fn puzzleboard_params_for(rows: u32, cols: u32, cell_size_m: f64) -> Result<
 
 /// Detect ChArUco corners in one decoded image and build a [`CorrespondenceView`].
 ///
-/// Thin port of `stereo_charuco_io.rs::detect_view` + `detection_to_view_data`:
-/// converts to luma8, runs `detect_charuco`, then maps each corner's metric
+/// Converts to luma8, runs `detect_charuco`, then maps each corner's metric
 /// `target_position` (`x`, `y`, `z=0`) to its pixel position. The ChArUco
 /// detector returns *sparse* correspondences (not every cell is seen), so the
 /// resulting view has a variable length; `< 4` corners is treated as a skip
-/// (`Ok(None)`), exactly like the example.
+/// (`Ok(None)`).
 pub fn detect_charuco_view(
     img: &image::DynamicImage,
     params: &CharucoParams,

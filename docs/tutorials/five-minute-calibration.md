@@ -1,7 +1,7 @@
 # Five-minute calibration
 
 > Onboarding tutorial. Runnable companion:
-> [`stereo_charuco_session.rs`](../../crates/vision-calibration/examples/stereo_charuco_session.rs).
+> [`stereo_session.rs`](../../crates/vision-calibration/examples/stereo_session.rs).
 
 ## Why
 
@@ -32,31 +32,33 @@ the canonical step sequence.
 
 ## Walkthrough
 
-We'll calibrate a 2-camera ChArUco rig from the dataset bundled in `data/`.
+We'll calibrate a 2-camera rig from the chessboard corners committed in
+`regression/observations/stereo_rig.json`: 20 views of a 7×11 board with
+30 mm squares, already detected, so no images are needed.
 
 ### 1. Run the canned example
 
 ```bash
-cargo run -p vision-calibration --example stereo_charuco_session --release -- --max-views 8
+cargo run -p vision-calibration --example stereo_session --release
 ```
 
-This compiles, detects ChArUco corners in 8 image pairs, and runs the
-canonical pipeline. Expected output (excerpt):
+This loads the detected corners and runs the canonical pipeline. Expected
+output (excerpt):
 
 ```
 --- Step 2: Per-Camera Intrinsics Optimization ---
-  Camera 0: fx=21896.5, fy=21799.3, cx=918.4, cy=731.5, reproj_err=0.394px
-  Camera 1: fx=21652.4, fy=21562.0, cx=1304.9, cy=747.6, reproj_err=0.396px
+  Camera 0: fx=713.8, fy=724.7, cx=523.4, cy=286.0, reproj_err=0.234px
+  Camera 1: fx=724.8, fy=735.6, cx=513.9, cy=293.0, reproj_err=0.244px
 
 --- Step 4: Rig Bundle Adjustment ---
-  Rig BA mean reprojection error: 0.5435 px
-    Camera 0: 0.5969 px
-    Camera 1: 0.4869 px
-  Rig baseline (after BA): |t(cam1->rig)| = 0.1153 m (115.27 mm)
+  Rig BA mean reprojection error: 0.2496 px
+    Camera 0: 0.2448 px
+    Camera 1: 0.2544 px
+  Rig baseline (after BA): |c1 - c0| = 0.1895 m (189.45 mm)
 ```
 
 The full source is at
-[`crates/vision-calibration/examples/stereo_charuco_session.rs`](../../crates/vision-calibration/examples/stereo_charuco_session.rs).
+[`crates/vision-calibration/examples/stereo_session.rs`](../../crates/vision-calibration/examples/stereo_session.rs).
 
 ### 2. Walk the source
 
@@ -73,8 +75,8 @@ step_rig_optimize(&mut session, None)?;
 
 let export = session.export()?;
 let mean_reproj = export.mean_reproj_error;
-let baseline = (export.cam_se3_rig[1].translation.vector
-              - export.cam_se3_rig[0].translation.vector).norm();
+let centre = |i: usize| export.cam_se3_rig[i].inverse().translation.vector;
+let baseline = (centre(1) - centre(0)).norm();
 ```
 
 Notice:
@@ -108,13 +110,20 @@ Each problem type's facade module re-exports its types and step functions
 
 ## Common variations
 
-### Pre-detect corners off-line
+### Detect corners from images
 
-The `stereo_charuco_session` example calls `calib-targets` to detect
-corners as part of loading. For production use you typically pre-detect
-once and persist the resulting `RigExtrinsicsInput` (which is pure data:
-JSON-serialisable, no images needed). Run calibrations against the cached
-detections.
+The `planar_real` example detects a chessboard in the `data/kuka_1` images
+with `calib-targets` and calibrates the camera, reporting each parameter
+with its standard deviation (`fx = 2057.8 ± 0.3 px`):
+
+```bash
+cargo run -p vision-calibration --example planar_real --release
+```
+
+For production use you typically detect once and persist the resulting
+input (`PlanarDataset`, `RigExtrinsicsInput`, …), which is pure data:
+JSON-serialisable, no images needed, like the observation file this
+tutorial uses. Run calibrations against the cached detections.
 
 ### Use the convenience wrapper
 

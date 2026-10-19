@@ -5,59 +5,47 @@
 //! 2. Detect chessboard corners
 //! 3. Run initialization (Zhang's method with iterative distortion)
 //! 4. Run non-linear optimization (bundle adjustment)
-//! 5. Export and inspect results
+//! 5. Export and inspect results, with the uncertainty of the parameters
 //!
-//! Run with: `cargo run -p vision-calibration --example planar_real`
+//! Run with: `cargo run -p vision-calibration --example planar_real --release`
 //!
-//! Dataset: Uses left camera images from `data/stereo/imgs/leftcamera/`
+//! Dataset: the 30 images of `data/kuka_1/` (a 17×28 chessboard with 20 mm
+//! squares, 1928×1208 px). The images are stored with Git LFS; run
+//! `git lfs pull` first if they are pointer files in your checkout.
 
-use anyhow::{Context, Result};
-use calib_targets::chessboard::{ChessboardDetection, ChessboardParams};
-use calib_targets::detect::{self, default_chess_config};
+#[path = "support/handeye_io.rs"]
+mod handeye_io;
+
+use anyhow::Result;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use vision_calibration::core::Uncertainty;
 use vision_calibration::planar_intrinsics::{
     FilterOptions, run_calibration_with_filtering, step_init, step_optimize,
 };
 use vision_calibration::prelude::*;
 
-// Board parameters (matches stereo_linear.json)
-const BOARD_ROWS: u32 = 7;
-const BOARD_COLS: u32 = 11;
-const SQUARE_SIZE_M: f64 = 0.03; // 30mm squares
-
 fn main() -> Result<()> {
     println!("=== Planar Intrinsics Calibration (Real Images) ===\n");
 
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let imgs_dir = repo_root.join("data/stereo/imgs/leftcamera");
-
-    if !imgs_dir.exists() {
-        anyhow::bail!(
-            "Dataset not found at {}\nPlease ensure the stereo dataset is available.",
-            imgs_dir.display()
-        );
-    }
-
-    println!("Dataset: {}", imgs_dir.display());
-    println!(
-        "Board: {}x{}, square size {:.1}mm\n",
-        BOARD_ROWS,
-        BOARD_COLS,
-        SQUARE_SIZE_M * 1000.0
-    );
+    let data_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the facade crate lives two levels below the repository root")
+        .join("data/kuka_1");
+    println!("Dataset: {}", data_dir.display());
 
     // Detect chessboard corners in all images
     println!("Detecting chessboard corners...");
-    let views = load_views_with_progress(&imgs_dir)?;
-    println!("\nLoaded {} views\n", views.len());
+    let views = load_views(&data_dir)?;
+    println!("Loaded {} views\n", views.len());
 
     if views.len() < 3 {
         anyhow::bail!("Need at least 3 views for calibration, got {}", views.len());
     }
 
     // Create dataset
-    let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
+    let dataset = PlanarDataset::new(views.iter().cloned().map(View::without_meta).collect())?;
 
     // Create calibration session
     let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
@@ -107,14 +95,36 @@ fn main() -> Result<()> {
         println!("    (no Brown-Conrady5 distortion)");
     }
     println!(
-        "  Mean reprojection error: {:.4} px\n",
+        "  Mean reprojection error: {:.4} px",
         export.mean_reproj_error
     );
+    match &export.uncertainty {
+        Uncertainty::Available(cov) => {
+            println!("  Standard deviations:");
+            for label in &cov.labels {
+                println!(
+                    "    σ({label}) = {:.3e}",
+                    cov.std_dev(label).unwrap_or(f64::NAN)
+                );
+            }
+            println!(
+                "    corr(fx, cx) = {:+.3}",
+                cov.correlation("fx", "cx").unwrap_or(f64::NAN)
+            );
+            for noise in &cov.noise {
+                println!(
+                    "    corner noise σ ≈ {:.3} px ({} residuals)",
+                    noise.sigma, noise.count
+                );
+            }
+        }
+        Uncertainty::Unavailable { reason } => println!("  No uncertainty: {reason:?}"),
+    }
+    println!();
 
     // Alternative: run with filtering for outlier removal
     println!("--- Alternative: With Outlier Filtering ---");
-    let views2 = load_views_with_progress(&imgs_dir)?;
-    let dataset2 = PlanarDataset::new(views2.into_iter().map(View::without_meta).collect())?;
+    let dataset2 = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
 
     let mut session2 = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session2.set_input(dataset2)?;
@@ -134,89 +144,24 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_views_with_progress(imgs_dir: &Path) -> Result<Vec<CorrespondenceView>> {
-    let board_params = ChessboardParams::default();
-
-    // Find all left camera images
-    let mut indices: Vec<usize> = std::fs::read_dir(imgs_dir)?
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let name = e.file_name();
-            let name = name.to_str()?;
-            let name = name.strip_prefix("Im_L_")?.strip_suffix(".png")?;
-            name.parse().ok()
-        })
-        .collect();
-    indices.sort();
-
-    let total = indices.len();
-    let mut views = Vec::new();
-    let mut skipped = 0;
-
-    for (i, idx) in indices.iter().enumerate() {
-        print!(
-            "\r  Processing image {}/{} (Im_L_{}.png)",
-            i + 1,
-            total,
-            idx
-        );
-        io::stdout().flush()?;
-
-        let path = imgs_dir.join(format!("Im_L_{}.png", idx));
-        match detect_chessboard(&path, &board_params) {
-            Ok(Some(view)) => views.push(view),
-            Ok(None) => skipped += 1,
-            Err(e) => {
-                eprintln!("\nWarning: Failed to process Im_L_{}.png: {}", idx, e);
-                skipped += 1;
-            }
-        }
-    }
-
+/// Detects the chessboard in every image of the dataset, skipping images
+/// where it is not found.
+fn load_views(data_dir: &Path) -> Result<Vec<CorrespondenceView>> {
+    let (samples, summary) = handeye_io::load_kuka_dataset_with_progress(
+        data_dir,
+        &handeye_io::kuka_chessboard_params(),
+        |idx, total| {
+            print!("\r  Processing image {idx}/{total}");
+            let _ = io::stdout().flush();
+        },
+    )?;
     println!(
-        "\r  Processed {}/{} images ({} skipped)    ",
-        total, total, skipped
+        "\r  Processed {} images ({} skipped), {} corners, {:.0} mm squares",
+        summary.total_images,
+        summary.skipped_views,
+        summary.total_corners,
+        summary.square_size_m * 1000.0
     );
-
-    Ok(views)
-}
-
-fn detect_chessboard(
-    path: &Path,
-    board_params: &ChessboardParams,
-) -> Result<Option<CorrespondenceView>> {
-    let img = image::ImageReader::open(path)
-        .with_context(|| format!("Failed to open {}", path.display()))?
-        .decode()
-        .with_context(|| format!("Failed to decode {}", path.display()))?
-        .to_luma8();
-
-    let Ok(detection) = detect::detect_chessboard(&img, &default_chess_config(), board_params)
-    else {
-        return Ok(None);
-    };
-
-    Ok(Some(detection_to_view(detection)?))
-}
-
-fn detection_to_view(detection: ChessboardDetection) -> Result<CorrespondenceView> {
-    let mut points_3d = Vec::new();
-    let mut points_2d = Vec::new();
-
-    for corner in detection.corners {
-        let grid = corner.grid;
-        points_3d.push(Pt3::new(
-            grid.u as f64 * SQUARE_SIZE_M,
-            grid.v as f64 * SQUARE_SIZE_M,
-            0.0,
-        ));
-        points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
-    }
-
-    anyhow::ensure!(
-        points_3d.len() >= 4,
-        "Insufficient corners after grid filtering"
-    );
-
-    CorrespondenceView::new(points_3d, points_2d).map_err(|e| anyhow::anyhow!("{e}"))
+    debug_assert_eq!(summary.used_views, samples.len());
+    Ok(samples.into_iter().map(|s| s.view).collect())
 }
