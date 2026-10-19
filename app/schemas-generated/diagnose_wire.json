@@ -1528,6 +1528,20 @@
             "array",
             "null"
           ]
+        },
+        "uncertainty": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uncertainty"
+            }
+          ],
+          "default": {
+            "reason": {
+              "kind": "not_computed"
+            },
+            "status": "unavailable"
+          },
+          "description": "Covariance of the calibrated parameters: `fx ± σ`, correlations, and\nthe noise level the residuals imply."
         }
       },
       "required": [
@@ -1684,6 +1698,20 @@
             "array",
             "null"
           ]
+        },
+        "uncertainty": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uncertainty"
+            }
+          ],
+          "default": {
+            "reason": {
+              "kind": "not_computed"
+            },
+            "status": "unavailable"
+          },
+          "description": "Covariance of the calibrated parameters: `fx ± σ`, correlations, and\nthe noise level the residuals imply."
         }
       },
       "required": [
@@ -2413,6 +2441,20 @@
             "array",
             "null"
           ]
+        },
+        "uncertainty": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uncertainty"
+            }
+          ],
+          "default": {
+            "reason": {
+              "kind": "not_computed"
+            },
+            "status": "unavailable"
+          },
+          "description": "Covariance of the calibrated parameters: `fx ± σ`, correlations, and\nthe noise level the residuals imply."
         }
       },
       "required": [

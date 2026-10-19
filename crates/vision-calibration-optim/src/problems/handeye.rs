@@ -23,17 +23,18 @@
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
-    CameraModelDesc, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ReprojChain,
-    ResidualBlock, RobustLoss,
+    CameraModelDesc, DistortionKind, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR,
+    ReprojChain, ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
+use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    CameraFixMask, Iso3, PinholeCamera, Real, RigDataset, RigView, make_pinhole_camera,
+    CameraFixMask, Iso3, PinholeCamera, Real, RigDataset, RigView, Uncertainty, make_pinhole_camera,
 };
 
 /// Per-view robot metadata required by hand-eye calibration.
@@ -162,6 +163,9 @@ impl Default for HandEyeSolveOptions {
 pub struct HandEyeEstimate {
     /// Refined hand-eye parameters.
     pub params: HandEyeParams,
+    /// Covariance of the estimated parameters at the solution.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
     /// Backend solve report.
     pub report: SolveReport,
     /// Optional per-view robot pose deltas (se(3) tangent, `[rx, ry, rz, tx, ty, tz]`).
@@ -332,9 +336,16 @@ pub fn optimize_handeye(
     };
     let (mean_reproj_error, per_cam_reproj_errors) =
         compute_handeye_reproj_error(&dataset, &params, robot_deltas.as_ref());
+    let labels = RigLabelling {
+        distortion: DistortionKind::BrownConrady5.param_names(),
+        multi_camera: dataset.data.num_cameras > 1,
+        handeye_mode: Some(dataset.mode),
+    }
+    .labels(&ir, &solution);
 
     Ok(HandEyeEstimate {
         params,
+        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &labels),
         report: solution.solve_report,
         robot_deltas,
         mean_reproj_error,

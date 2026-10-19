@@ -18,7 +18,7 @@
 mod observations;
 
 use anyhow::{Result, ensure};
-use vision_calibration::core::Iso3;
+use vision_calibration::core::{Iso3, Uncertainty};
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsInput, RigExtrinsicsProblem, run_calibration, step_intrinsics_init_all,
@@ -136,8 +136,58 @@ fn main() -> Result<()> {
     for (i, err) in export2.per_cam_reproj_errors.iter().enumerate() {
         println!("    Camera {}: {:.4} px", i, err);
     }
+    println!();
+
+    // The baseline's standard deviation from the covariance of cam1's
+    // `cam_se3_rig` (conditional on the intrinsics, which the rig solve
+    // holds fixed by default).
+    println!("--- Uncertainty ---");
+    match &export2.uncertainty {
+        Uncertainty::Available(cov) => {
+            let (baseline, sigma) = baseline_with_sigma(&export2.cam_se3_rig[1], cov)?;
+            println!(
+                "  Baseline: {:.2} ± {:.3} mm",
+                baseline * 1000.0,
+                sigma * 1000.0
+            );
+            for noise in &cov.noise {
+                println!(
+                    "  Corner noise σ ≈ {:.3} px ({} residuals)",
+                    noise.sigma, noise.count
+                );
+            }
+        }
+        Uncertainty::Unavailable { reason } => println!("  No uncertainty: {reason:?}"),
+    }
 
     Ok(())
+}
+
+/// Camera 1's distance from camera 0 (the rig origin) and its standard
+/// deviation. Its centre is `c = −Rᵀt` for `cam_se3_rig = (R, t)`; under the
+/// right perturbation `(R, t)·Exp([ω, v])` it moves by `−v − ω × c`, and
+/// only `−v` changes `|c|` to first order, so `σ² = ĉᵀ Σ_vv ĉ`.
+fn baseline_with_sigma(
+    cam1_se3_rig: &Iso3,
+    cov: &vision_calibration::core::ParameterCovariance,
+) -> Result<(f64, f64)> {
+    let centre = cam1_se3_rig.inverse().translation.vector;
+    let unit = centre.normalize();
+    let index = |axis: &str| {
+        let label = format!("cam1.cam_se3_rig.{axis}");
+        cov.labels
+            .iter()
+            .position(|l| *l == label)
+            .ok_or_else(|| anyhow::anyhow!("no {label} in the covariance"))
+    };
+    let v = [index("tx")?, index("ty")?, index("tz")?];
+    let mut variance = 0.0;
+    for a in 0..3 {
+        for b in 0..3 {
+            variance += unit[a] * cov.covariance[v[a]][v[b]] * unit[b];
+        }
+    }
+    Ok((centre.norm(), variance.sqrt()))
 }
 
 fn parse_max_views(args: &[String]) -> Result<Option<usize>> {

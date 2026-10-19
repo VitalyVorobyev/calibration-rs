@@ -55,7 +55,16 @@ output (excerpt):
     Camera 0: 0.2448 px
     Camera 1: 0.2544 px
   Rig baseline (after BA): |c1 - c0| = 0.1895 m (189.45 mm)
+
+--- Uncertainty ---
+  Baseline: 189.45 ± 0.112 mm
+  Corner noise σ ≈ 0.189 px (6160 residuals)
 ```
+
+The `±` comes from the export's `uncertainty`: the covariance of the
+estimated parameters, here of camera 1's `cam_se3_rig`. It is conditional on
+the intrinsics, which the rig solve holds fixed by default. See the book
+chapter "Parameter Uncertainty".
 
 The full source is at
 [`crates/vision-calibration/examples/stereo_session.rs`](../../crates/vision-calibration/examples/stereo_session.rs).

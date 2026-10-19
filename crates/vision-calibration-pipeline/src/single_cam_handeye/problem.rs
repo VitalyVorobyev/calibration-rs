@@ -6,8 +6,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    ImageManifest, Iso3, PerFeatureResiduals, PinholeCamera, View, build_feature_histogram,
-    compute_planar_target_residuals_views,
+    ImageManifest, Iso3, PerFeatureResiduals, PinholeCamera, Uncertainty, View,
+    build_feature_histogram, compute_planar_target_residuals_views,
 };
 use vision_calibration_optim::{HandEyeEstimate, HandEyeMode, handeye_observer_se3_target};
 
@@ -176,6 +176,10 @@ pub struct SingleCamHandeyeExport {
     /// the calibration pipeline never reads this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,
+    /// Covariance of the calibrated parameters: `fx ± σ`, correlations, and
+    /// the noise level the residuals imply.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -344,6 +348,7 @@ impl ProblemType for SingleCamHandeyeProblem {
             per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
             per_feature_residuals,
             image_manifest: None,
+            uncertainty: output.uncertainty.clone(),
         })
     }
 }

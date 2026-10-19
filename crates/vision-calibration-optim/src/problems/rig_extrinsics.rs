@@ -6,17 +6,18 @@
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
-    CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
-    RobustLoss,
+    CameraModelDesc, DistortionKind, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
+    ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
+use crate::uncertainty::{self, RigLabelling};
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    CameraFixMask, Iso3, NoMeta, PinholeCamera, RigDataset, make_pinhole_camera,
+    CameraFixMask, Iso3, NoMeta, PinholeCamera, RigDataset, Uncertainty, make_pinhole_camera,
 };
 
 /// Dataset type for rig extrinsics optimization.
@@ -38,6 +39,9 @@ pub struct RigExtrinsicsParams {
 pub struct RigExtrinsicsEstimate {
     /// Refined rig extrinsics parameters.
     pub params: RigExtrinsicsParams,
+    /// Covariance of the estimated parameters at the solution.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
     /// Backend solve report.
     pub report: SolveReport,
     /// Mean reprojection error in pixels (computed post-optimization).
@@ -284,12 +288,21 @@ pub fn optimize_rig_extrinsics(
         0.0
     };
 
+    let labels = RigLabelling {
+        distortion: DistortionKind::BrownConrady5.param_names(),
+        multi_camera: dataset.num_cameras > 1,
+        handeye_mode: None,
+    }
+    .labels(&ir, &solution);
+    let uncertainty = uncertainty::labelled(&ir, &solution.uncertainty, &labels);
+
     Ok(RigExtrinsicsEstimate {
         params: RigExtrinsicsParams {
             cameras,
             cam_to_rig,
             rig_from_target,
         },
+        uncertainty,
         report: solution.solve_report,
         mean_reproj_error,
         per_cam_reproj_errors,

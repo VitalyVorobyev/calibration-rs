@@ -1248,6 +1248,7 @@ mod tests {
             per_cam_reproj_errors: vec![0.5; num_cameras],
             per_feature_residuals: PerFeatureResiduals::default(),
             image_manifest: None,
+            uncertainty: Default::default(),
         }
     }
 

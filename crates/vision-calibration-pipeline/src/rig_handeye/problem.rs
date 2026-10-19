@@ -7,7 +7,7 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCySkew, ImageManifest, Iso3,
-    PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset, ScheimpflugParams,
+    PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset, ScheimpflugParams, Uncertainty,
     build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
@@ -128,6 +128,14 @@ pub enum RigHandeyeOutput {
 }
 
 impl RigHandeyeOutput {
+    /// Covariance of the estimated parameters at the solution.
+    pub fn uncertainty(&self) -> &Uncertainty {
+        match self {
+            Self::Pinhole(e) => &e.uncertainty,
+            Self::Scheimpflug(e) => &e.uncertainty,
+        }
+    }
+
     /// Final solver cost after bundle adjustment converged.
     pub fn final_cost(&self) -> f64 {
         match self {
@@ -312,6 +320,10 @@ pub struct RigHandeyeExport {
     /// this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,
+    /// Covariance of the calibrated parameters: `fx ± σ`, correlations, and
+    /// the noise level the residuals imply.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -557,6 +569,7 @@ impl ProblemType for RigHandeyeProblem {
             // the dataset (e.g. a tiled-rig runner); the pipeline
             // itself never has image paths to fill in.
             image_manifest: None,
+            uncertainty: output.uncertainty().clone(),
         })
     }
 }
@@ -722,6 +735,7 @@ mod tests {
                 handeye: Iso3::identity(),
                 target_poses: vec![Iso3::identity()],
             },
+            uncertainty: Default::default(),
             report: SolveReport {
                 final_cost: 0.0,
                 num_iters: 0,

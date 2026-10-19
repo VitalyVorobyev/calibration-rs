@@ -63,15 +63,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Markdown tables and a `compare` subcommand. `--backend` picks the solver
   backend for every scene, so `compare` doubles as a backend comparison;
   `calib-bench run` and `accept` take `--backend` too.
-- **Parameter uncertainty in intrinsics results.** `PlanarIntrinsicsExport`
-  and `ScheimpflugIntrinsicsExport` (and their optimizer estimates) carry
-  `uncertainty`: the covariance of the estimated intrinsics, distortion and
-  tilt by label (`fx`, `k1`, `tilt_x`, …) with `std_dev` and `correlation`,
-  one block per view for the board poses, the fixed parameters it is
-  conditional on, and a robust estimate of the corner noise. When the data
+- **Parameter uncertainty in intrinsics, hand-eye and rig results.**
+  `PlanarIntrinsicsExport`, `ScheimpflugIntrinsicsExport`,
+  `SingleCamHandeyeExport`, `RigExtrinsicsExport` and `RigHandeyeExport`
+  (and their optimizer estimates) carry `uncertainty`: the covariance of the
+  estimated parameters by label (`fx`, `k1`, `tilt_x`, `cam1.fx`,
+  `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`, …) with `std_dev` and
+  `correlation`, one block per view for the board or rig poses and the
+  robot-pose corrections, the fixed parameters it is conditional on, and a
+  robust estimate of the corner noise. When the data
   does not determine a parameter the result says which
   (`rank_deficient`), and likewise for a parameter on a bound or a solve
-  that ran out of iterations. Robust losses are accounted for. Python:
+  that ran out of iterations. Robust losses and robot-pose priors are
+  accounted for. Python:
   `result.uncertainty` (`ParameterUncertainty`). See the book chapter
   "Parameter Uncertainty".
 - **Public regression suite** in `regression/`: image-free observations of
