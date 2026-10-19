@@ -7,8 +7,10 @@ mod image_manifest;
 mod observation;
 mod options;
 mod residual;
+mod uncertainty;
 
 pub use image_manifest::*;
 pub use observation::*;
 pub use options::*;
 pub use residual::*;
+pub use uncertainty::*;

@@ -11,18 +11,16 @@ and the projection uncertainty it implies, validated against Monte-Carlo
 scatter. Design: ADR 0026; evidence: `notes/uncertainty.md`. Order: UQ-EXPORT →
 UQ-PROJECTION → UQ-APP.
 
-- [ ] UQ-EXPORT - `Uncertainty` on every `*Export`. Core type with labelled
-  covariance over the global parameters (intrinsics, distortion, sensor,
-  extrinsics, hand-eye, planes), per-family `σ̂`, degrees of freedom and
-  per-view 6×6 pose marginals. Labels from one source
-  (`DistortionKind::param_names()` next to `dim()`). Intrinsics family first,
-  then hand-eye, rig and laser problems; only the final solve feeds the
-  export. The laserline and Scheimpflug defaults stop fixing pose 0 (a
-  speed convention, not a gauge), so default results are not conditional
-  on one view. Python dataclass with `std_dev(label)` / `correlation(a, b)`,
-  `types.py`, `__init__.pyi`, contract tests; a book chapter, README line and
-  the five-minute tutorial show `fx ± σ`. Gate: Monte-Carlo per problem
-  family.
+- [ ] UQ-EXPORT - `Uncertainty` on the remaining exports: single-camera
+  hand-eye, rig extrinsics, rig hand-eye, laserline device, rig laserline,
+  rig hand-eye laserline (planar and Scheimpflug intrinsics carry it). Labels
+  `cam<i>.fx`, `cam<i>.cam_se3_rig.rx`, `handeye.rx`, `plane<i>.nx`;
+  per-view blocks for rig poses and robot-pose corrections; only the final
+  solve feeds the export. The laserline default stops fixing pose 0. Gates:
+  Monte-Carlo per family (hand-eye with robot-pose priors; laser with two
+  residual kinds). Then the book chapter's scope, the five-minute tutorial
+  (`cam0.fx ± σ` on the rig), and the regression-suite drift gate in units
+  of σ.
 - [ ] UQ-PROJECTION - Projection uncertainty per camera: major-axis σ (px)
   on an image grid at a stated range (default: median target distance),
   `J_q Σ_θθ J_qᵀ` with exact derivatives from the generic camera kernels,
@@ -68,6 +66,18 @@ stays local-only, as do the private sets.
   sample stereo chessboards; reference-only third-party sets (URL + checksum,
   never redistributed) such as RWHE-Calib; purpose-designed captures of our
   own under CC-BY-4.0. Parked until DATA-IMAGES.
+
+## Documentation
+
+- [ ] DOCS-DATA - User docs and examples rely on image sets the repository
+  does not ship: the five-minute and per-feature-residuals tutorials and
+  `manual_init_proof` use `data/stereo_charuco` (private); the book's planar
+  and stereo real-data chapters, `planar_real`, `stereo_session` and
+  `dense_stereo_real` use `data/stereo` (gitignored), and the facade README
+  calls both "committed data". Re-target the tutorials to `kuka_1` or to the
+  regression-suite observation files, fetch `data/stereo` from the image
+  record (DATA-IMAGES), and drop or mark the ChArUco examples as needing
+  your own data.
 
 ## App
 

@@ -6,8 +6,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraFixMask, ImageManifest, PerFeatureResiduals, PlanarDataset, build_feature_histogram,
-    compute_planar_target_residuals,
+    CameraFixMask, ImageManifest, PerFeatureResiduals, PlanarDataset, Uncertainty,
+    build_feature_histogram, compute_planar_target_residuals,
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
@@ -148,6 +148,10 @@ pub struct PlanarIntrinsicsExport {
     /// shipped"; the calibration pipeline never reads this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,
+    /// Covariance of the calibrated parameters: `fx ± σ`, correlations, and
+    /// the noise level the residuals imply.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 impl ProblemState for PlanarIntrinsicsProblem {
@@ -235,6 +239,7 @@ impl ProblemType for PlanarIntrinsicsProblem {
             // the dataset (e.g. the `planar_synthetic_with_images` example);
             // the pipeline itself never has image paths to fill in.
             image_manifest: None,
+            uncertainty: output.uncertainty.clone(),
         })
     }
 }
@@ -448,6 +453,7 @@ mod tests {
                 num_iters: 0,
             },
             mean_reproj_error: 0.42,
+            uncertainty: Default::default(),
         };
 
         let dummy_view = vision_calibration_core::View::without_meta(
@@ -545,6 +551,7 @@ mod tests {
                 num_iters: 0,
             },
             mean_reproj_error: 0.0,
+            uncertainty: Default::default(),
         };
 
         let export =
@@ -613,6 +620,7 @@ mod tests {
                 num_iters: 0,
             },
             mean_reproj_error: 0.0,
+            uncertainty: Default::default(),
         };
         let export =
             PlanarIntrinsicsProblem::export(&dataset, &output, &PlanarIntrinsicsConfig::default())
@@ -671,6 +679,7 @@ mod tests {
             per_cam_reproj_errors: vec![0.0],
             per_feature_residuals: PerFeatureResiduals::default(),
             image_manifest: None,
+            uncertainty: Uncertainty::default(),
         };
         let mut frame = FrameRef::default();
         frame.path = std::path::PathBuf::from("pose_0_cam_0.png");

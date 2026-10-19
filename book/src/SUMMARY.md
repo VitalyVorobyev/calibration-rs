@@ -80,6 +80,7 @@
 
 # Validation
 
+- [Parameter Uncertainty](uncertainty.md)
 - [Regression Suite](regression_suite.md)
 
 ---

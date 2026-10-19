@@ -147,6 +147,42 @@ class SolveReport(TypedDict):
     num_iters: int
 
 
+ResidualKind: TypeAlias = Literal["reprojection", "laser_plane", "laser_line"]
+
+
+class ResidualNoise(TypedDict):
+    kind: ResidualKind
+    sigma: float
+    count: int
+
+
+class ViewCovariance(TypedDict):
+    view: int
+    labels: list[str]
+    covariance: list[list[float]]
+
+
+class UncertaintyUnavailableReason(TypedDict, total=False):
+    kind: Literal["not_converged", "rank_deficient", "at_bound", "no_redundancy", "not_computed"]
+    unobservable: list[str]
+    labels: list[str]
+
+
+class Uncertainty(TypedDict, total=False):
+    """`{"status": "available", labels, covariance, …}` or
+    `{"status": "unavailable", "reason": {...}}`."""
+
+    status: Literal["available", "unavailable"]
+    labels: list[str]
+    covariance: list[list[float]]
+    views: list[ViewCovariance]
+    fixed: list[str]
+    noise: list[ResidualNoise]
+    num_residuals: int
+    dof: int
+    reason: UncertaintyUnavailableReason
+
+
 class PlanarIntrinsicsParams(TypedDict):
     camera: CameraModel
     camera_se3_target: list[Transform]
@@ -157,6 +193,7 @@ class PlanarIntrinsicsExport(TypedDict):
     report: SolveReport
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: Uncertainty
 
 
 class SingleCamHandeyeExport(TypedDict):
@@ -228,6 +265,7 @@ class ScheimpflugIntrinsicsExport(TypedDict):
     report: SolveReport
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: Uncertainty
 
 
 class IntrinsicsInitConfig(TypedDict, total=False):

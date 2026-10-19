@@ -95,7 +95,7 @@ normalized estimation error squared against `χ²_n`.
 |--------|-------|------|--------|
 | Planar intrinsics | 8 views of an 8×6 board, ±0.5 px uniform noise, 300 runs | σ within ±10 %; NEES mean within 3 standard errors of χ²(8) | σ 0.94–1.04, NEES 8.07 |
 | Planar intrinsics, outliers | 5 % displaced 10–30 px, Huber / Cauchy (1 px), 200 runs | σ within ±20 %; NEES as above | Huber σ 0.91–1.00, NEES 8.55; Cauchy σ 0.95–1.05, NEES 7.98 |
-| Scheimpflug intrinsics | `scheimpflug_intrinsics/*` | σ within ±10 % | *pending* |
+| Scheimpflug intrinsics | 10 views of a 9×9 board, tilt (0.05, −0.02) rad, ±0.5 px uniform noise, 200 runs (`optim/tests/uncertainty.rs`) | σ within ±10 %; NEES as above | σ 0.90–1.04 (fx…tilt_y), NEES 8.75 |
 | Hand-eye | `single_cam_handeye/*`, with robot-pose refinement | σ within ±10 % | *pending* |
 | Rig extrinsics / hand-eye | `rig_*` scenes | σ within ±10 % | *pending* |
 | Laser | `laserline_device/*`, `rig_laserline_device/*` | σ within ±10 %, two families | *pending* |

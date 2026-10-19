@@ -1099,6 +1099,70 @@
       ],
       "type": "object"
     },
+    "ParameterCovariance": {
+      "description": "The covariance of a result's estimated parameters.",
+      "properties": {
+        "covariance": {
+          "description": "Covariance of the shared parameters: one row per label, symmetric.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "dof": {
+          "description": "Residuals minus estimated parameters.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fixed": {
+          "description": "Labels of the parameters held fixed. The covariance is conditional on\nthem.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "description": "Labels of the shared parameters, in the order of `covariance`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "noise": {
+          "description": "The noise level of each kind of residual, estimated from the\nresiduals at the solution.",
+          "items": {
+            "$ref": "#/definitions/ResidualNoise"
+          },
+          "type": "array"
+        },
+        "num_residuals": {
+          "description": "Number of scalar residuals, priors included.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "Per-view parameters, one block per view that has free ones.",
+          "items": {
+            "$ref": "#/definitions/ViewCovariance"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "labels",
+        "covariance",
+        "noise",
+        "num_residuals",
+        "dof"
+      ],
+      "type": "object"
+    },
     "PerFeatureResiduals": {
       "description": "Container bundled into every `*Export` carrying the per-feature drill-down\ndata the diagnose UI consumes.\n\nEmpty `Vec`s mean \"this problem type does not produce observations of that\nflavor\" (e.g., `PlanarIntrinsicsExport.per_feature_residuals.laser` is\nalways empty). The histogram fields are `Option`: `None` means the problem\ntype chose not to produce a per-camera aggregate; `Some(vec)` length must\nmatch `num_cameras`.",
       "properties": {
@@ -1238,6 +1302,20 @@
             }
           ],
           "description": "Solver report."
+        },
+        "uncertainty": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uncertainty"
+            }
+          ],
+          "default": {
+            "reason": {
+              "kind": "not_computed"
+            },
+            "status": "unavailable"
+          },
+          "description": "Covariance of the calibrated parameters: `fx ± σ`, correlations, and\nthe noise level the residuals imply."
         }
       },
       "required": [
@@ -1324,6 +1402,56 @@
           "type": "object"
         }
       ]
+    },
+    "ResidualKind": {
+      "description": "A kind of residual, which sets its unit.",
+      "oneOf": [
+        {
+          "const": "reprojection",
+          "description": "Target reprojection error, pixels.",
+          "type": "string"
+        },
+        {
+          "const": "laser_plane",
+          "description": "Laser point-to-plane distance, metres.",
+          "type": "string"
+        },
+        {
+          "const": "laser_line",
+          "description": "Laser line distance in the image, pixels.",
+          "type": "string"
+        }
+      ]
+    },
+    "ResidualNoise": {
+      "description": "The estimated noise level of one kind of residual.",
+      "properties": {
+        "count": {
+          "description": "Number of scalar residuals of this kind.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ResidualKind"
+            }
+          ],
+          "description": "The kind of residual."
+        },
+        "sigma": {
+          "description": "Gaussian-equivalent standard deviation of one scalar residual (one\npixel axis for reprojection), from the median absolute residual so\nthat outliers do not inflate it. In the residual's unit.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "sigma",
+        "count"
+      ],
+      "type": "object"
     },
     "RigExtrinsicsExport": {
       "description": "Export format for rig extrinsics calibration.\n\nCommon to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole\nrigs and `Some(_)` for Scheimpflug rigs, matching the configured\n[`SensorMode`].",
@@ -2024,6 +2152,20 @@
             }
           ],
           "description": "Backend solve report."
+        },
+        "uncertainty": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uncertainty"
+            }
+          ],
+          "default": {
+            "reason": {
+              "kind": "not_computed"
+            },
+            "status": "unavailable"
+          },
+          "description": "Covariance of the calibrated parameters: `fx ± σ`, `tilt_x ± σ`,\ncorrelations, and the noise level the residuals imply."
         }
       },
       "required": [
@@ -2372,6 +2514,172 @@
         "feature",
         "target_xyz_m",
         "observed_px"
+      ],
+      "type": "object"
+    },
+    "Uncertainty": {
+      "description": "The uncertainty of a result's estimated parameters.",
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ParameterCovariance"
+            }
+          ],
+          "description": "The covariance of the estimated parameters.",
+          "properties": {
+            "status": {
+              "const": "available",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No covariance, for the reason given.",
+          "properties": {
+            "reason": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/UncertaintyUnavailable"
+                }
+              ],
+              "description": "Why the covariance is not available."
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UncertaintyUnavailable": {
+      "description": "Why a result has no covariance.",
+      "oneOf": [
+        {
+          "description": "The solve stopped on its iteration budget, short of a minimum.",
+          "properties": {
+            "kind": {
+              "const": "not_converged",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The data does not determine these parameters (or combinations of\nthem): too few or too similar views, or a free gauge.",
+          "properties": {
+            "kind": {
+              "const": "rank_deficient",
+              "type": "string"
+            },
+            "unobservable": {
+              "description": "Labels of the parameters involved.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "unobservable"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "These parameters ended on a bound, where a Gaussian covariance does\nnot describe them.",
+          "properties": {
+            "kind": {
+              "const": "at_bound",
+              "type": "string"
+            },
+            "labels": {
+              "description": "Labels of the parameters on a bound.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "labels"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No more observations than estimated parameters.",
+          "properties": {
+            "kind": {
+              "const": "no_redundancy",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The result was produced or stored without uncertainty.",
+          "properties": {
+            "kind": {
+              "const": "not_computed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ViewCovariance": {
+      "description": "The covariance of one view's own parameters.",
+      "properties": {
+        "covariance": {
+          "description": "Their covariance: one row per label, symmetric.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "description": "Labels of the view's parameters, e.g. `camera_se3_target.rx`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "view": {
+          "description": "View index, as in the result's per-view lists.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "view",
+        "labels",
+        "covariance"
       ],
       "type": "object"
     }

@@ -274,12 +274,17 @@ pub enum DistortionKind {
 impl DistortionKind {
     /// Dimension of the distortion parameter block (0 = no block).
     pub fn dim(self) -> usize {
+        self.param_names().len()
+    }
+
+    /// Names of the distortion coefficients, in block order.
+    pub fn param_names(self) -> &'static [&'static str] {
         match self {
-            DistortionKind::None => 0,
-            DistortionKind::BrownConrady5 => 5,
-            DistortionKind::Rational8 => 8,
-            DistortionKind::ThinPrism9 => 9,
-            DistortionKind::Division1 => 1,
+            DistortionKind::None => &[],
+            DistortionKind::BrownConrady5 => &["k1", "k2", "k3", "p1", "p2"],
+            DistortionKind::Rational8 => &["k1", "k2", "k3", "k4", "k5", "k6", "p1", "p2"],
+            DistortionKind::ThinPrism9 => &["k1", "k2", "k3", "p1", "p2", "s1", "s2", "s3", "s4"],
+            DistortionKind::Division1 => &["lambda"],
         }
     }
 }
@@ -291,7 +296,7 @@ impl DistortionKind {
 pub enum SensorKind {
     /// Identity sensor; no parameter block.
     None,
-    /// Scheimpflug tilt `[tau_x, tau_y]`.
+    /// Scheimpflug tilt `[tilt_x, tilt_y]`.
     Scheimpflug2,
 }
 

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- The Scheimpflug intrinsics defaults (`ScheimpflugIntrinsicsConfig::fix_poses`,
+  `ScheimpflugIntrinsicsSolveOptions::fix_poses`, Python
+  `ScheimpflugIntrinsicsCalibrationConfig.fix_poses`) no longer hold view 0
+  fixed: the board fixes the target frame, so no pose needs to be, and a
+  fixed pose would make the reported uncertainty conditional on it. Results
+  move slightly; pass `fix_poses=[0]` for the previous behaviour.
+
 - Python: `ScheimpflugSensor.from_payload` reads only `tilt_x` / `tilt_y`;
   the `tau_x` / `tau_y` spellings, which no export emits, are not accepted.
 - `SolveReport.final_cost` is the robust objective `½ Σ ρ(‖rᵢ‖²)` at the
@@ -56,6 +63,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Markdown tables and a `compare` subcommand. `--backend` picks the solver
   backend for every scene, so `compare` doubles as a backend comparison;
   `calib-bench run` and `accept` take `--backend` too.
+- **Parameter uncertainty in intrinsics results.** `PlanarIntrinsicsExport`
+  and `ScheimpflugIntrinsicsExport` (and their optimizer estimates) carry
+  `uncertainty`: the covariance of the estimated intrinsics, distortion and
+  tilt by label (`fx`, `k1`, `tilt_x`, …) with `std_dev` and `correlation`,
+  one block per view for the board poses, the fixed parameters it is
+  conditional on, and a robust estimate of the corner noise. When the data
+  does not determine a parameter the result says which
+  (`rank_deficient`), and likewise for a parameter on a bound or a solve
+  that ran out of iterations. Robust losses are accounted for. Python:
+  `result.uncertainty` (`ParameterUncertainty`). See the book chapter
+  "Parameter Uncertainty".
 - **Public regression suite** in `regression/`: image-free observations of
   `kuka_1`, the stereo pair (each camera and the rig) and dataset 8 of Tabb
   and Ahmad Yousef's robot-world hand-eye data, checksummed in a standard

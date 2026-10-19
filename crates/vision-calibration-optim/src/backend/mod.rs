@@ -89,7 +89,7 @@ macro_rules! dispatch_camera_model {
 }
 pub(crate) use dispatch_camera_model;
 
-mod covariance;
+pub(crate) mod covariance;
 #[cfg(test)]
 mod covariance_tests;
 mod factrs_backend;
@@ -183,10 +183,6 @@ pub struct BackendSolution {
     /// Final robustified cost if supported by the backend.
     pub solve_report: SolveReport,
     /// Covariance of the free parameters at the solution.
-    #[allow(
-        dead_code,
-        reason = "read by the problem estimates once they carry uncertainty"
-    )]
     pub uncertainty: covariance::ParamUncertainty,
 }
 

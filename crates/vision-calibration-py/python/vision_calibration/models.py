@@ -974,7 +974,7 @@ class ScheimpflugIntrinsicsCalibrationConfig:
         )
     )
     fix_scheimpflug: dict[str, bool] = field(default_factory=lambda: dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK))
-    fix_poses: list[int] = field(default_factory=lambda: [0])
+    fix_poses: list[int] = field(default_factory=list)
 
     def to_payload(self) -> dict[str, Any]:
         fix_scheimpflug = dict(_DEFAULT_SCHEIMPFLUG_FIX_MASK)
@@ -1522,6 +1522,134 @@ class LaserlineStats:
 
 
 @dataclass(slots=True)
+class ResidualNoise:
+    """Estimated noise level of one kind of residual.
+
+    ``sigma`` is the Gaussian-equivalent standard deviation of one scalar
+    residual (one pixel axis for reprojection), from the median absolute
+    residual, so outliers do not inflate it. Unit: pixels for
+    ``"reprojection"`` and ``"laser_line"``, metres for ``"laser_plane"``.
+    """
+
+    kind: str
+    sigma: float
+    count: int
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ResidualNoise":
+        return cls(
+            kind=str(payload["kind"]),
+            sigma=float(payload["sigma"]),
+            count=int(payload["count"]),
+        )
+
+
+@dataclass(slots=True)
+class ViewCovariance:
+    """Covariance of one view's own parameters (e.g. its target pose)."""
+
+    view: int
+    labels: list[str]
+    covariance: list[list[float]]
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ViewCovariance":
+        return cls(
+            view=int(payload["view"]),
+            labels=[str(v) for v in cast(list[Any], payload["labels"])],
+            covariance=[
+                [float(v) for v in cast(list[Any], row)]
+                for row in cast(list[Any], payload["covariance"])
+            ],
+        )
+
+
+@dataclass(slots=True)
+class ParameterUncertainty:
+    """Covariance of a result's estimated parameters.
+
+    Parameters are named by labels such as ``"fx"``, ``"k1"`` or ``"tilt_x"``;
+    a pose's six labels end in ``rx, ry, rz`` (radians) and ``tx, ty, tz``
+    (metres). The covariance is first order, at the solution, and conditional
+    on the parameters listed in :attr:`fixed`.
+
+    When :attr:`available` is false, :attr:`reason` says why
+    (``"not_converged"``, ``"rank_deficient"``, ``"at_bound"``,
+    ``"no_redundancy"`` or ``"not_computed"``) and :attr:`reason_labels` names
+    the parameters involved.
+    """
+
+    available: bool
+    labels: list[str] = field(default_factory=list)
+    covariance: list[list[float]] = field(default_factory=list)
+    views: list[ViewCovariance] = field(default_factory=list)
+    fixed: list[str] = field(default_factory=list)
+    noise: list[ResidualNoise] = field(default_factory=list)
+    num_residuals: int = 0
+    dof: int = 0
+    reason: str | None = None
+    reason_labels: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any] | None) -> "ParameterUncertainty":
+        if payload is None:
+            return cls(available=False, reason="not_computed")
+        if payload["status"] == "unavailable":
+            reason = cast(Mapping[str, Any], payload["reason"])
+            names = reason.get("unobservable", reason.get("labels", []))
+            return cls(
+                available=False,
+                reason=str(reason["kind"]),
+                reason_labels=[str(v) for v in cast(list[Any], names)],
+            )
+        return cls(
+            available=True,
+            labels=[str(v) for v in cast(list[Any], payload["labels"])],
+            covariance=[
+                [float(v) for v in cast(list[Any], row)]
+                for row in cast(list[Any], payload["covariance"])
+            ],
+            views=[
+                ViewCovariance.from_payload(cast(Mapping[str, Any], v))
+                for v in cast(list[Any], payload.get("views", []))
+            ],
+            fixed=[str(v) for v in cast(list[Any], payload.get("fixed", []))],
+            noise=[
+                ResidualNoise.from_payload(cast(Mapping[str, Any], n))
+                for n in cast(list[Any], payload["noise"])
+            ],
+            num_residuals=int(payload["num_residuals"]),
+            dof=int(payload["dof"]),
+        )
+
+    def _index(self, label: str) -> int:
+        if not self.available:
+            raise ValueError(f"no covariance: {self.reason}")
+        try:
+            return self.labels.index(label)
+        except ValueError:
+            raise KeyError(f"no estimated parameter {label!r}") from None
+
+    def std_dev(self, label: str) -> float:
+        """Standard deviation of the parameter ``label``.
+
+        Raises :class:`KeyError` for a label that is not estimated (see
+        :attr:`labels` and :attr:`fixed`) and :class:`ValueError` when the
+        covariance is not available.
+        """
+        i = self._index(label)
+        return max(self.covariance[i][i], 0.0) ** 0.5
+
+    def correlation(self, a: str, b: str) -> float:
+        """Correlation coefficient of two parameters, in ``[-1, 1]``."""
+        i, j = self._index(a), self._index(b)
+        denom = (self.covariance[i][i] * self.covariance[j][j]) ** 0.5
+        if denom == 0.0:
+            return 0.0
+        return max(-1.0, min(1.0, self.covariance[i][j] / denom))
+
+
+@dataclass(slots=True)
 class PlanarCalibrationResult:
     """Result from :func:`vision_calibration.run_planar_intrinsics`.
 
@@ -1534,6 +1662,9 @@ class PlanarCalibrationResult:
     final_cost: float
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: ParameterUncertainty = field(
+        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    )
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "PlanarCalibrationResult":
@@ -1551,6 +1682,9 @@ class PlanarCalibrationResult:
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
             ],
+            uncertainty=ParameterUncertainty.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("uncertainty"))
+            ),
         )
 
 
@@ -1742,6 +1876,9 @@ class ScheimpflugIntrinsicsResult:
     final_cost: float
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: ParameterUncertainty = field(
+        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    )
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ScheimpflugIntrinsicsResult":
@@ -1758,6 +1895,9 @@ class ScheimpflugIntrinsicsResult:
             final_cost=float(report["final_cost"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
+            uncertainty=ParameterUncertainty.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("uncertainty"))
+            ),
         )
 
 
