@@ -1,84 +1,52 @@
-//! Stereo rig calibration session on real images.
+//! Stereo rig calibration session on real data.
 //!
 //! This example demonstrates multi-camera rig extrinsics calibration:
-//! 1. Load stereo image pairs from disk
-//! 2. Detect chessboard corners in both cameras
-//! 3. Initialize per-camera intrinsics (Zhang's method)
-//! 4. Optimize per-camera intrinsics (bundle adjustment)
-//! 5. Initialize rig extrinsics (camera-to-rig transforms)
-//! 6. Optimize rig jointly (bundle adjustment)
-//! 7. Export results including baseline measurement
+//! 1. Load the detected chessboard corners of a stereo pair
+//! 2. Initialize per-camera intrinsics (Zhang's method)
+//! 3. Optimize per-camera intrinsics (bundle adjustment)
+//! 4. Initialize rig extrinsics (camera-to-rig transforms)
+//! 5. Optimize rig jointly (bundle adjustment)
+//! 6. Export results including baseline measurement
 //!
 //! Run with: `cargo run -p vision-calibration --example stereo_session`
 //!
-//! Dataset: Uses `data/stereo/imgs/` (left/right camera pairs)
+//! Dataset: `regression/observations/stereo_rig.json`, the corners of a
+//! 7×11 chessboard with 30 mm squares, detected in 20 image pairs of a
+//! 1024×576 stereo camera.
 
-#[path = "support/stereo_io.rs"]
-mod stereo_io;
+#[path = "support/observations.rs"]
+mod observations;
 
 use anyhow::{Result, ensure};
-use calib_targets::chessboard::ChessboardParams;
-use std::io::{self, Write};
-use std::path::PathBuf;
-use stereo_io::load_stereo_input_with_progress;
 use vision_calibration::core::Iso3;
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
-    RigExtrinsicsProblem, run_calibration, step_intrinsics_init_all, step_intrinsics_optimize_all,
-    step_rig_init, step_rig_optimize,
+    RigExtrinsicsInput, RigExtrinsicsProblem, run_calibration, step_intrinsics_init_all,
+    step_intrinsics_optimize_all, step_rig_init, step_rig_optimize,
 };
-
-// Board parameters (matches stereo_linear.json)
-const BOARD_ROWS: u32 = 7;
-const BOARD_COLS: u32 = 11;
-const SQUARE_SIZE_M: f64 = 0.03; // 30mm squares
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let max_views = parse_max_views(&args)?;
 
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let imgs_dir = repo_root.join("data/stereo/imgs");
-    ensure!(
-        imgs_dir.exists(),
-        "stereo dataset not found at {}",
-        imgs_dir.display()
-    );
-
     println!("=== Stereo Rig Calibration Session ===\n");
-    println!("Dataset: {}", imgs_dir.display());
-    println!(
-        "Board: {}x{}, square size {:.1}mm",
-        BOARD_ROWS,
-        BOARD_COLS,
-        SQUARE_SIZE_M * 1000.0
-    );
+    println!("Dataset: {}", observations::path("stereo_rig").display());
+    let mut input: RigExtrinsicsInput = observations::load_input("stereo_rig")?;
     if let Some(n) = max_views {
-        println!("Max views: {n}");
+        input.views.truncate(n);
     }
-    println!();
-
-    let board_params = ChessboardParams::default();
-
-    println!("Detecting chessboard corners...");
-    let (input, summary) = load_stereo_input_with_progress(
-        &imgs_dir,
-        &board_params,
-        SQUARE_SIZE_M,
-        max_views,
-        |idx, total, image_index| {
-            print!("\r  Processing pair {idx}/{total} (index {image_index})");
-            let _ = io::stdout().flush();
-        },
-    )?;
-    println!();
+    let seen_by = |cam: usize| {
+        input
+            .views
+            .iter()
+            .filter(|v| v.obs.cameras[cam].is_some())
+            .count()
+    };
     println!(
-        "Loaded {} views from {} pairs ({} skipped), usable: left={}, right={}",
-        summary.used_views,
-        summary.total_pairs,
-        summary.skipped_views,
-        summary.usable_left,
-        summary.usable_right
+        "Loaded {} views, usable: left={}, right={}",
+        input.num_views(),
+        seen_by(0),
+        seen_by(1)
     );
     ensure!(
         input.num_views() >= 3,
@@ -89,14 +57,11 @@ fn main() -> Result<()> {
 
     // Create calibration session
     let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
-    session.set_input(input)?;
+    session.set_input(input.clone())?;
 
     // Step 1: Per-camera intrinsics initialization
     println!("--- Step 1: Per-Camera Intrinsics Initialization ---");
-    let _intr_init = step_intrinsics_init_all(&mut session, None)?;
-
-    // After init_all, per_cam_intrinsics contains the initialized cameras
-    // (the init step sets state.per_cam_intrinsics with initialized values)
+    step_intrinsics_init_all(&mut session, None)?;
     println!("  Initialization complete");
     println!();
 
@@ -155,23 +120,12 @@ fn main() -> Result<()> {
     let output = session.require_output()?;
     let cam_se3_rig: Vec<Iso3> = output.cam_to_rig().iter().map(|t| t.inverse()).collect();
     print_baseline("Rig baseline (after BA)", &cam_se3_rig);
+    println!();
 
-    // Alternative: run with filtering for outlier removal
+    // The same calibration through the one-call wrapper
     println!("--- Alternative: single facade function ---");
-    let (input2, _summary2) = load_stereo_input_with_progress(
-        &imgs_dir,
-        &board_params,
-        SQUARE_SIZE_M,
-        max_views,
-        |idx, total, image_index| {
-            print!("\r  Processing pair {idx}/{total} (index {image_index})");
-            let _ = io::stdout().flush();
-        },
-    )?;
-
     let mut session2 = CalibrationSession::<RigExtrinsicsProblem>::new();
-    session2.set_input(input2)?;
-
+    session2.set_input(input)?;
     run_calibration(&mut session2)?;
 
     let export2 = session2.export()?;
@@ -200,19 +154,18 @@ fn parse_max_views(args: &[String]) -> Result<Option<usize>> {
     Ok(None)
 }
 
-fn print_baseline(label: &str, cam_to_rig: &[Iso3]) {
-    if cam_to_rig.len() < 2 {
+/// The distance between the two camera centres. `cam_se3_rig[i]` maps rig
+/// coordinates into camera `i`, so camera `i`'s centre in the rig frame is
+/// the translation of its inverse.
+fn print_baseline(label: &str, cam_se3_rig: &[Iso3]) {
+    if cam_se3_rig.len() < 2 {
         return;
     }
-    // Baseline is distance between camera 0 origin and camera 1 origin in rig frame
-    // cam_to_rig[i] = T_C_R, so cam origin in rig frame = T_C_R^-1 * [0,0,0]
-    // Actually, translation of T_C_R is position of rig origin in camera frame
-    // For baseline: |T_1 * T_0^-1|
-    let t0 = cam_to_rig[0].inverse();
-    let t1 = cam_to_rig[1].inverse();
-    let baseline = (t1.translation.vector - t0.translation.vector).norm();
+    let c0 = cam_se3_rig[0].inverse().translation.vector;
+    let c1 = cam_se3_rig[1].inverse().translation.vector;
+    let baseline = (c1 - c0).norm();
     println!(
-        "  {label}: |t(cam1->rig)| = {baseline:.4} m ({:.2} mm)",
+        "  {label}: |c1 - c0| = {baseline:.4} m ({:.2} mm)",
         baseline * 1000.0
     );
 }

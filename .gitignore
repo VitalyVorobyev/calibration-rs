@@ -5,9 +5,9 @@ __pycache__/
 
 # Calibration image sets. Only `data/kuka_1` is committed (via LFS) and so
 # only it can run in CI; the rest are large and local-only. Their `.toml`
-# descriptors next to them are tracked and stay tracked — an ignore rule
-# does not untrack an existing file.
-/data/stereo/
+# manifests are tracked.
+/data/stereo/*
+!/data/stereo/dataset_*.toml
 /data/stereo_charuco/
 /data/DS8/*
 !/data/DS8/dataset.toml

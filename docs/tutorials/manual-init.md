@@ -1,6 +1,6 @@
 # Manual initialization (warm-start)
 
-> Runnable companion: [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs).
+> Runnable companion: [`manual_init.rs`](../../crates/vision-calibration/examples/manual_init.rs).
 
 ## Why
 
@@ -115,8 +115,8 @@ step_rig_init_with_seed(
 step_rig_optimize(&mut session_b, None)?;
 ```
 
-The output is bit-exact (`|Δ reproj| < 3e-15` px on the stereo ChArUco
-dataset). The example in `manual_init_proof.rs` asserts this.
+The output is bit-exact (`|Δ reproj| = 0` px on the stereo rig dataset).
+The example in `manual_init.rs` asserts this.
 
 ## Common variations
 
@@ -180,6 +180,6 @@ from the chain.
 
 - [Per-feature residuals](./per-feature-residuals.md) — once a calibration
   finishes, drill into per-corner errors.
-- [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs)
+- [`manual_init.rs`](../../crates/vision-calibration/examples/manual_init.rs)
   — the example this tutorial is built on. Run it with
-  `cargo run -p vision-calibration --example manual_init_proof --release -- --max-views=8`.
+  `cargo run -p vision-calibration --example manual_init --release`.

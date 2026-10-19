@@ -1,10 +1,11 @@
-//! End-to-end proof that ADR 0011 manual init works on real data.
+//! Manual initialization on real data.
 //!
-//! Loads `data/stereo_charuco/`, then runs the rig-extrinsics pipeline three
-//! ways and compares results:
+//! Loads the detected corners of a stereo chessboard pair
+//! (`regression/observations/stereo_rig.json`), then runs the rig-extrinsics
+//! pipeline three ways and compares results:
 //!
-//! 1. **Run A — full auto-init**: today's behaviour. Captures per-cam intrinsics
-//!    + cam-to-rig extrinsics + mean reprojection error.
+//! 1. **Run A — full auto-init**: per-camera intrinsics, cam-to-rig
+//!    extrinsics and the mean reprojection error.
 //! 2. **Run B — replay manual seed**: seeds Run A's per-cam intrinsics +
 //!    distortion via [`RigIntrinsicsManualInit`] AND seeds Run A's rig
 //!    initialization via [`RigExtrinsicsManualInit`], then skips per-camera
@@ -18,18 +19,12 @@
 //! Each run also prints the stage-init log lines so the `(manual: …)` /
 //! `(auto: …)` markers show the seed source.
 //!
-//! Run with: `cargo run -p vision-calibration --example manual_init_proof --release`
+//! Run with: `cargo run -p vision-calibration --example manual_init --release`
 
-#[path = "support/stereo_charuco_io.rs"]
-mod stereo_charuco_io;
+#[path = "support/observations.rs"]
+mod observations;
 
 use anyhow::{Result, ensure};
-use std::io::{self, Write};
-use std::path::PathBuf;
-use stereo_charuco_io::{
-    BOARD_CELL_SIZE_MM, BOARD_COLS, BOARD_DICTIONARY_NAME, BOARD_MARKER_SIZE_REL, BOARD_ROWS,
-    load_stereo_charuco_input_with_progress, make_charuco_detector_params,
-};
 use vision_calibration::core::{BrownConrady5, FxFyCxCySkew, Iso3, PinholeCamera};
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
@@ -41,42 +36,18 @@ use vision_calibration::session::LogEntry;
 
 fn main() -> Result<()> {
     let max_views = parse_max_views();
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let data_dir = repo_root.join("data/stereo_charuco");
-    ensure!(
-        data_dir.exists(),
-        "stereo ChArUco dataset not found at {}",
-        data_dir.display()
-    );
-
-    println!("=== Manual init proof on data/stereo_charuco ===\n");
-    println!("Dataset: {}", data_dir.display());
-    println!(
-        "Board: {}x{}, cell {:.4}mm, marker scale {:.2}, dict {}",
-        BOARD_ROWS, BOARD_COLS, BOARD_CELL_SIZE_MM, BOARD_MARKER_SIZE_REL, BOARD_DICTIONARY_NAME
-    );
-    println!("Max views: {max_views}\n");
-
-    let charuco_params = make_charuco_detector_params();
+    println!("=== Manual initialization on the stereo rig ===\n");
+    println!("Dataset: {}", observations::path("stereo_rig").display());
+    if let Some(n) = max_views {
+        println!("Max views: {n}");
+    }
+    println!();
 
     let load = || -> Result<RigExtrinsicsInput> {
-        let (input, summary) = load_stereo_charuco_input_with_progress(
-            &data_dir,
-            &charuco_params,
-            Some(max_views),
-            |idx, total, suffix| {
-                print!("\r  Detect pair {idx}/{total} ({suffix})");
-                let _ = io::stdout().flush();
-            },
-        )?;
-        println!(
-            "\n  Loaded {} views from {} pairs ({} skipped, left={} right={})",
-            summary.used_views,
-            summary.total_pairs,
-            summary.skipped_views,
-            summary.usable_left,
-            summary.usable_right
-        );
+        let mut input: RigExtrinsicsInput = observations::load_input("stereo_rig")?;
+        if let Some(n) = max_views {
+            input.views.truncate(n);
+        }
         Ok(input)
     };
 
@@ -182,7 +153,7 @@ fn main() -> Result<()> {
 
     ensure!(
         replay_ok && recover_ok,
-        "manual init proof failed: replay_ok={replay_ok}, recover_ok={recover_ok}"
+        "manual init check failed: replay_ok={replay_ok}, recover_ok={recover_ok}"
     );
     println!("\nAll checks passed.");
     Ok(())
@@ -294,7 +265,7 @@ fn print_init_logs(log: &[LogEntry], label: &str) {
     }
 }
 
-/// Demonstrate the ADR 0012 per-feature residuals on the exported result.
+/// Demonstrate the per-feature residuals of the exported result.
 ///
 /// Calls `session.export_peek()` (does not mutate the export collection),
 /// prints per-camera histograms, head/tail of the residual vector, and
@@ -394,17 +365,17 @@ fn print_per_feature_residuals_summary(
     Ok(())
 }
 
-fn parse_max_views() -> usize {
+fn parse_max_views() -> Option<usize> {
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
         if let Some(raw) = arg.strip_prefix("--max-views=") {
-            return raw.parse().expect("invalid --max-views");
+            return Some(raw.parse().expect("invalid --max-views"));
         }
         if arg == "--max-views"
             && let Some(raw) = iter.next()
         {
-            return raw.parse().expect("invalid --max-views");
+            return Some(raw.parse().expect("invalid --max-views"));
         }
     }
-    8
+    None
 }

@@ -89,6 +89,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Examples and tutorials run on data the repository ships.** `planar_real`
+  (Rust and Python) calibrates the `data/kuka_1` images and prints each
+  parameter's standard deviation; `stereo_session` (Rust and Python) and
+  `manual_init` (renamed from `manual_init_proof`) read the detected corners
+  in `regression/observations/stereo_rig.json`, so they need no images. The
+  five-minute, manual-initialization and per-feature-residuals tutorials and
+  the book's real-data chapters follow them. The `stereo_charuco_session`
+  (Rust and Python), `dense_stereo_real` and `viewer_fixtures` examples are
+  removed: they needed image sets the repository does not ship.
+- App: the quick-start presets are the `kuka_1` and DS8 datasets. Presets for
+  other local data go in an untracked
+  `app/src/workspaces/RunWorkspace/presets.local.ts`.
+- The `kuka_1` and stereo data of the regression suite is licensed CC BY 4.0.
 - **App: the Run workspace's config forms are `SchemaValueForm`.** The
   hand-written `configForm.tsx` is replaced by the shared `@vitavision/forms`
   (0.7; `@vitavision/ui` moves to 0.11). Same schemas and the same whole-value

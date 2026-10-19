@@ -1,6 +1,6 @@
 # Stereo Rig with Real Data
 
-This chapter walks through two examples that calibrate a stereo camera rig from synchronized left/right image pairs: `stereo_session` (chessboard) and `stereo_charuco_session` (ChArUco). Both feed `RigExtrinsicsProblem` and differ only in how the target is detected.
+This chapter walks through the `stereo_session` example, which calibrates a stereo camera rig from synchronized left/right views with `RigExtrinsicsProblem`.
 
 ## Building the Rig Dataset
 
@@ -45,51 +45,17 @@ for (i, err) in rig_opt.per_cam_reproj_errors.iter().enumerate() {
 
 `run_calibration(&mut session)` runs the same four steps in one call.
 
-## Chessboard Example
+## The Example Dataset
 
-### Dataset
-
-Located at `data/stereo/imgs/`:
-
-- **Left camera**: `leftcamera/Im_L_<index>.png`
-- **Right camera**: `rightcamera/Im_R_<index>.png`
-- **Pattern**: 7×11 chessboard, 30 mm square size
-
-Left and right images are paired by their shared index (the sorted intersection of the two folders). The detector is the same `calib_targets` chessboard detector used in the planar example:
+The example reads `regression/observations/stereo_rig.json`: the corners of a 7×11 chessboard with 30 mm squares, detected in 20 image pairs of a 1024×576 stereo camera. The file is part of the [regression suite](regression_suite.md); its `input` field is a serialized `RigExtrinsicsInput`, so it loads with `serde_json`:
 
 ```rust
-use calib_targets::chessboard::ChessboardParams;
-use calib_targets::detect::{self, default_chess_config};
-
-let board_params = ChessboardParams::default();
-let img = image::ImageReader::open(path)?.decode()?.to_luma8();
-let detection = detect::detect_chessboard(&img, &default_chess_config(), &board_params);
+let text = std::fs::read_to_string("regression/observations/stereo_rig.json")?;
+let mut file: serde_json::Value = serde_json::from_str(&text)?;
+let input: RigExtrinsicsInput = serde_json::from_value(file["input"].take())?;
 ```
 
-### Running
-
-```bash
-cargo run -p vision-calibration --example stereo_session
-cargo run -p vision-calibration --example stereo_session -- --max-views=15
-```
-
-`--max-views=N` limits the number of image pairs processed.
-
-## ChArUco Example
-
-### Dataset
-
-The example uses `data/stereo_charuco/`:
-
-- `cam1/Cam1_*.png` for camera 0
-- `cam2/Cam2_*.png` for camera 1
-- Pairing by shared filename suffix (deterministic sorted intersection)
-
-Non-PNG files (for example `Thumbs.db`) are ignored.
-
-### Detector
-
-A ChArUco board provides corner identities from its markers, so partially visible boards still yield correspondences. The board is described once:
+With your own images, detect the board in each camera's image of a pair and build the `RigView` as above. Pair the images by a shared index or timestamp; a camera whose detection fails contributes `None`. The detection step is the same as in [Planar Intrinsics with Real Data](planar_real_data.md). A ChArUco board identifies its corners by their markers, so a partly visible board still yields correspondences:
 
 ```rust
 use calib_targets::aruco::builtins;
@@ -107,32 +73,25 @@ let board = CharucoBoardSpec::new(
 let charuco_params = CharucoParams::for_board(board);
 
 let detection = detect::detect_charuco(&img, &charuco_params);
-```
-
-Each detected corner carries its board-frame position, which becomes the 3D point on the $Z = 0$ plane:
-
-```rust
 for corner in detection.corners {
-    let target = corner.target_position;
+    let target = corner.target_position; // board-frame position, metres
     points_3d.push(Pt3::new(target.x as f64, target.y as f64, 0.0));
     points_2d.push(Pt2::new(corner.position.x as f64, corner.position.y as f64));
 }
 ```
 
-Detections with fewer than 4 corners are discarded.
-
-### Running
+## Running
 
 ```bash
-cargo run -p vision-calibration --example stereo_charuco_session
-cargo run -p vision-calibration --example stereo_charuco_session -- --max-views=8
+cargo run -p vision-calibration --example stereo_session --release
+cargo run -p vision-calibration --example stereo_session --release -- --max-views=10
 ```
 
-Default: all detected stereo pairs are used. `--max-views` caps the number of pairs (a deterministic prefix of the sorted pairs).
+`--max-views=N` uses the first N views. The Python counterpart is `crates/vision-calibration-py/examples/stereo_session.py`.
 
 ## Interpreting Results
 
-Both examples print a dataset summary (`total_pairs`, `used_views`, `skipped_views`, `usable_left`, `usable_right`), per-camera intrinsics with per-camera reprojection errors, the rig BA reprojection error, and the baseline.
+The example prints the number of views each camera sees, per-camera intrinsics with per-camera reprojection errors, the rig BA reprojection error (about 0.25 px on this dataset), and the baseline (about 189 mm).
 
 - **Per-camera intrinsics**: cameras with the same lens should have similar focal lengths. Differences in principal point are normal.
 - **Baseline**: the norm of the translation between camera centers should match the physical distance between the cameras. For a horizontal stereo pair, expect a translation primarily along X and a rotation primarily around Y.

@@ -1,6 +1,6 @@
 # Per-feature reprojection residuals
 
-> Runnable companion: [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs).
+> Runnable companion: [`manual_init.rs`](../../crates/vision-calibration/examples/manual_init.rs).
 
 ## Why
 
@@ -90,12 +90,12 @@ if let Some(hists) = pf.target_hist_per_camera.as_ref() {
 }
 ```
 
-Real output from `manual_init_proof` (8-view stereo ChArUco):
+Real output from `manual_init` (the 20-view stereo chessboard rig):
 
 ```
-4865 target records (4865 converged, 0 divergent)
-cam 0: count=2503 mean=0.5969px max=1.8740px buckets [2114, 389, 0, 0, 0]
-cam 1: count=2362 mean=0.4869px max=1.6632px buckets [2233, 129, 0, 0, 0]
+3080 target records (3080 converged, 0 divergent)
+cam 0: count=1540 mean=0.2448px max=1.0262px buckets [1539, 1, 0, 0, 0]
+cam 1: count=1540 mean=0.2544px max=0.9146px buckets [1540, 0, 0, 0, 0]
 ```
 
 ### 3. Drill into the worst corner
@@ -128,7 +128,7 @@ to projected for every record.
 
 If the per-camera histogram's `mean` field disagrees with the export's
 `per_cam_reproj_errors`, something is inconsistent. The
-`manual_init_proof` example asserts this round-trip:
+`manual_init` example asserts this round-trip:
 
 ```rust
 let mean_from_records: f64 = pf
@@ -197,5 +197,6 @@ as native dicts/lists.
   — the struct definitions with full doc comments.
 - [`compute_rig_target_residuals`](../../crates/vision-calibration-core/src/lib.rs)
   — the workhorse that produces records for any rig pipeline.
-- [`manual_init_proof.rs`](../../crates/vision-calibration/examples/manual_init_proof.rs)
-  — the example this tutorial is built on; runs against `data/stereo_charuco/`.
+- [`manual_init.rs`](../../crates/vision-calibration/examples/manual_init.rs)
+  — the example this tutorial is built on; runs on the stereo rig observations
+  in `regression/observations/stereo_rig.json`.

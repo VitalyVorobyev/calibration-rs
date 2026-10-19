@@ -11,10 +11,10 @@ plain JSON, other calibration tools can run on exactly the same data.
 
 | Id | Problem | Data | Licence |
 |----|---------|------|---------|
-| `kuka_1` | `single_cam_handeye` | 30 eye-in-hand views of a 17×28 chessboard (20 mm) from a KUKA arm | MIT |
-| `stereo_left` | `planar_intrinsics` | 20 views of a 7×11 chessboard (30 mm), left camera | MIT |
-| `stereo_right` | `planar_intrinsics` | The same 20 views, right camera | MIT |
-| `stereo_rig` | `rig_extrinsics` | Both cameras of the stereo pair together | MIT |
+| `kuka_1` | `single_cam_handeye` | 30 eye-in-hand views of a 17×28 chessboard (20 mm) from a KUKA arm | CC BY 4.0 |
+| `stereo_left` | `planar_intrinsics` | 20 views of a 7×11 chessboard (30 mm), left camera | CC BY 4.0 |
+| `stereo_right` | `planar_intrinsics` | The same 20 views, right camera | CC BY 4.0 |
+| `stereo_rig` | `rig_extrinsics` | Both cameras of the stereo pair together | CC BY 4.0 |
 | `ds8` | `rig_handeye` | Three cameras on a Denso arm, 33 of 42 poses with a complete 10×14 chessboard (52 mm) | U.S. public domain |
 
 `ds8` is dataset 8 of Tabb and Ahmad Yousef, *Solving the robot-world

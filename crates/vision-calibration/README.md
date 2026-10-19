@@ -122,23 +122,22 @@ options.
 ## Examples
 
 Run from a repository checkout with `cargo run --release -p vision-calibration --example <name>`.
-Examples marked "committed data" read datasets under `data/` in the repository.
+Examples on real data read files committed to the repository: the `data/kuka_1`
+images (stored with Git LFS; run `git lfs pull` if they are pointer files), or
+the detected corners in `regression/observations/`, which need no images.
 
 | Example | Workflow | Data |
 |---------|---|---|
 | `planar_synthetic` | Planar intrinsics | Synthetic |
 | `planar_synthetic_with_images` | Planar intrinsics + image manifest | Synthetic |
-| `planar_real` | Planar intrinsics | Committed data (`data/stereo`) |
-| `stereo_session` | Rig extrinsics | Committed data (`data/stereo`) |
-| `stereo_charuco_session` | Rig extrinsics | Committed data (`data/stereo_charuco`) |
-| `manual_init_proof` | Rig extrinsics, manual init | Committed data (`data/stereo_charuco`) |
+| `planar_real` | Planar intrinsics, with parameter uncertainty | `data/kuka_1` images |
+| `stereo_session` | Rig extrinsics | `regression/observations/stereo_rig.json` |
+| `manual_init` | Rig extrinsics, manual init | `regression/observations/stereo_rig.json` |
 | `handeye_synthetic` | Single-camera hand-eye | Synthetic |
-| `handeye_session` | Single-camera hand-eye | Committed data (`data/kuka_1`) |
+| `handeye_session` | Single-camera hand-eye | `data/kuka_1` images |
 | `rig_handeye_synthetic` | Rig hand-eye | Synthetic |
 | `laserline_device_session` | Laserline device | Synthetic |
 | `mvg_two_view` | Two-view MVG | Synthetic |
-| `dense_stereo_real` | Dense stereo | Committed data (`data/stereo`) |
-| `viewer_fixtures` | Viewer export generation | Committed data |
 
 ## See Also
 

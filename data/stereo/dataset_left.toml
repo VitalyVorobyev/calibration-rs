@@ -1,10 +1,9 @@
-# Planar intrinsics manifest for the left half of the bundled stereo
+# Planar intrinsics manifest for the left half of the stereo
 # dataset. Pair with `dataset_right.toml` to calibrate each camera in
 # isolation, or feed the same data to the RigExtrinsics topology
 # directly.
 #
-# Board parameters: 7×11 interior corners, 30 mm squares (matches
-# crates/vision-calibration/examples/stereo_session.rs).
+# Board parameters: 7×11 interior corners, 30 mm squares.
 
 version = 1
 topology = "planar_intrinsics"

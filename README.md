@@ -158,13 +158,12 @@ Runnable end-to-end, on synthetic and real data:
 cargo run -p vision-calibration --example planar_synthetic       # planar intrinsics, synthetic
 cargo run -p vision-calibration --example planar_real            # planar intrinsics, real images
 cargo run -p vision-calibration --example stereo_session         # stereo rig extrinsics
-cargo run -p vision-calibration --example stereo_charuco_session # stereo rig, ChArUco target
+cargo run -p vision-calibration --example manual_init            # stereo rig, seeded initialization
 cargo run -p vision-calibration --example handeye_synthetic      # single-camera hand-eye
 cargo run -p vision-calibration --example handeye_session        # hand-eye, KUKA robot data
 cargo run -p vision-calibration --example rig_handeye_synthetic  # multi-camera rig hand-eye
 cargo run -p vision-calibration --example laserline_device_session  # camera + laser plane
 cargo run -p vision-calibration --example mvg_two_view           # two-view geometry
-cargo run -p vision-calibration --example dense_stereo_real      # rectification + dense stereo
 ```
 
 Python counterparts live in `crates/vision-calibration-py/examples/`; the
@@ -191,4 +190,7 @@ shows how they layer.
 The project is pre-1.0: breaking changes still happen, and the CHANGELOG lists
 each with migration notes. MSRV is 1.93 ([policy](docs/MSRV.md)).
 
-Licensed under the [MIT License](LICENSE).
+Licensed under the [MIT License](LICENSE). The calibration data in `data/`
+and `regression/` is licensed per dataset, as listed in
+[`regression/suite.toml`](regression/suite.toml): CC BY 4.0 for the `kuka_1`
+and stereo captures, U.S. public domain for DS8.

@@ -132,7 +132,11 @@ first). The UI shows a distinct "Run cancelled" state; the checklist logic is
 ## Repo-root resolution for built-in presets
 
 Quick Start presets (`src/workspaces/RunWorkspace/presets.ts`) store a
-**repo-root-relative** `manifestPath` (`data/…` or local-only `privatedata/…`).
+**repo-root-relative** `manifestPath` (`data/…`). The built-in list holds only
+datasets a fresh checkout can run (`data/kuka_1`, and `data/DS8` once its public
+archive is extracted there). Presets for local-only data go in an untracked
+`presets.local.ts` next to it, exporting `LOCAL_PRESETS: Preset[]`; `PRESETS`
+appends them when the file exists.
 `handleUsePreset` resolves the root through `lib/tauri.ts`'s `repoRoot()`, which
 calls `repo_root_cmd` (`env!("CARGO_MANIFEST_DIR")` two levels up) and joins it
 with `joinPath`. Because the app is always compiled from a local checkout, this

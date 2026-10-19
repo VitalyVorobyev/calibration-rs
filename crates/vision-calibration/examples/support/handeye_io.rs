@@ -1,4 +1,4 @@
-//! Shared I/O helpers for the KUKA hand-eye examples.
+//! Shared I/O helpers for the examples on the `kuka_1` dataset.
 
 use anyhow::{Context, Result, ensure};
 use calib_targets::chessboard::{ChessboardDetection, ChessboardParams};
@@ -11,6 +11,7 @@ use vision_calibration::core::{CorrespondenceView, Iso3, Pt2, Pt3};
 #[derive(Debug, Clone)]
 pub struct ViewSample {
     pub view: CorrespondenceView,
+    #[allow(dead_code)] // `planar_real` uses the views alone
     pub robot_pose: Iso3,
     #[allow(dead_code)]
     pub image_index: usize,

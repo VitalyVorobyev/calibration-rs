@@ -54,7 +54,7 @@ import {
   unresolvedPaths,
 } from "./manifestFields";
 import { PresetCard } from "./PresetCard";
-import { BUILTIN_PRESETS, mergeConfig, type EnabledPreset } from "./presets";
+import { PRESETS, mergeConfig, type EnabledPreset } from "./presets";
 import { computeStageRows, formatElapsed, type StageRow } from "./runStages";
 import { topologyInfo } from "./topologies";
 
@@ -296,7 +296,7 @@ export function RunWorkspace() {
       // Reset config to the preset topology's defaults (the topology
       // effect above only fires on topology *changes*, and switching
       // between same-topology presets must still reset), then apply
-      // the preset's overrides — datasets like rtv3d need non-default
+      // the preset's overrides — some datasets need non-default
       // config (Scheimpflug sensors, EyeToHand).
       let defaults = await fetchDefaultConfig(topologyOf(manifestWithOverrides), inTauri);
       if (preset.configOverrides) {
@@ -554,7 +554,7 @@ export function RunWorkspace() {
   // ── Active preset metadata ───────────────────────────────────────────────
 
   const activePreset = activePresetId
-    ? (BUILTIN_PRESETS.find((p) => p.id === activePresetId) as EnabledPreset | undefined)
+    ? (PRESETS.find((p) => p.id === activePresetId) as EnabledPreset | undefined)
     : undefined;
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -792,7 +792,7 @@ function QuickStartGrid({ activePresetId, onUse, onCollapse }: QuickStartGridPro
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {BUILTIN_PRESETS.map((preset) => (
+        {PRESETS.map((preset) => (
           <PresetCard
             key={preset.id}
             preset={preset}
