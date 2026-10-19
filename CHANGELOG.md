@@ -14,7 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ScheimpflugIntrinsicsCalibrationConfig.fix_poses`) no longer hold view 0
   fixed: the board fixes the target frame, so no pose needs to be, and a
   fixed pose would make the reported uncertainty conditional on it. Results
-  move slightly; pass `fix_poses=[0]` for the previous behaviour.
+  move slightly; pass `fix_poses=[0]` for the previous behaviour. The
+  laserline device defaults (`LaserlineDeviceOptimizeConfig::fix_poses`,
+  `LaserlineSolveOptions::fix_poses`, Python
+  `LaserlineDeviceOptimizeConfig.fix_poses`) likewise hold no pose fixed.
 
 - Python: `ScheimpflugSensor.from_payload` reads only `tilt_x` / `tilt_y`;
   the `tau_x` / `tau_y` spellings, which no export emits, are not accepted.
@@ -63,15 +66,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Markdown tables and a `compare` subcommand. `--backend` picks the solver
   backend for every scene, so `compare` doubles as a backend comparison;
   `calib-bench run` and `accept` take `--backend` too.
-- **Parameter uncertainty in intrinsics, hand-eye and rig results.**
+- **Parameter uncertainty in every result.**
   `PlanarIntrinsicsExport`, `ScheimpflugIntrinsicsExport`,
-  `SingleCamHandeyeExport`, `RigExtrinsicsExport` and `RigHandeyeExport`
-  (and their optimizer estimates) carry `uncertainty`: the covariance of the
+  `SingleCamHandeyeExport`, `RigExtrinsicsExport`, `RigHandeyeExport`,
+  `RigLaserlineDeviceExport` and `RigHandeyeLaserlineExport` (and their
+  optimizer estimates) carry `uncertainty`; the laserline device result
+  carries it in `estimate.uncertainty`. It is the covariance of the
   estimated parameters by label (`fx`, `k1`, `tilt_x`, `cam1.fx`,
-  `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`, …) with `std_dev` and
+  `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`, `plane.nx` … `plane.d`, …) with `std_dev` and
   `correlation`, one block per view for the board or rig poses and the
   robot-pose corrections, the fixed parameters it is conditional on, and a
-  robust estimate of the corner noise. When the data
+  robust estimate of the noise of each kind of residual (corners, laser;
+  per camera for the rig laserline, whose planes are solved apart). When the data
   does not determine a parameter the result says which
   (`rank_deficient`), and likewise for a parameter on a bound or a solve
   that ran out of iterations. Robust losses and robot-pose priors are

@@ -101,12 +101,17 @@ above.
   covariance maps through `diag([b₁ b₂], 1)`, where `b₁, b₂` is the S² tangent
   basis. The 4×4 block is positive semi-definite with its null direction along
   `n`, and it does not depend on the internal tangent basis.
+- **Cameras solved apart.** The rig laserline fits each camera's plane in
+  its own solve, with the rig calibration fixed. Its covariance is the
+  block-diagonal of the per-camera ones, and `ResidualNoise::camera` names
+  the camera each noise level belongs to; joint solves report one level per
+  family (`camera: None`).
 - **Labels** come from one source per block kind:
   - intrinsics `fx, fy, cx, cy`;
   - distortion from `DistortionKind::param_names()`, next to its `dim()`;
   - Scheimpflug `tilt_x, tilt_y`;
   - poses `rx, ry, rz, tx, ty, tz`;
-  - planes `nx, ny, nz, d`.
+  - planes `plane.nx, plane.ny, plane.nz, plane.d`.
 
   Each label is prefixed by its block's name (`cam0.fx`, `handeye.rx`).
 - The covariance is **conditional on everything fixed**: fixed coordinates,
@@ -166,9 +171,8 @@ a loss and 1.2–1.6× with one.
   conditional, and therefore optimistic. The fixed list says so; propagating
   earlier-stage covariance is future work.
 - A default that fixes an observable block for speed rather than for a gauge
-  makes the default result's covariance conditional on an arbitrary view.
-  The laserline and Scheimpflug defaults hold pose 0 fixed this way. These
-  defaults become free, which changes those results slightly.
+  makes the default result's covariance conditional on an arbitrary view, so
+  the laserline and Scheimpflug defaults hold no pose fixed.
 - Regression-suite drift gates can be stated in units of `σ`.
 - The LM loop reports whether a stopping rule ended it; the covariance is
   unavailable when the iteration budget did.

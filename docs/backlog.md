@@ -8,15 +8,24 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 
 Every calibration result carries the covariance of its estimated parameters
 and the projection uncertainty it implies, validated against Monte-Carlo
-scatter. Design: ADR 0026; evidence: `notes/uncertainty.md`. Order: UQ-EXPORT →
-UQ-PROJECTION → UQ-APP.
+scatter. Design: ADR 0026; evidence: `notes/uncertainty.md`. Order:
+UQ-SUITE-GATE → UQ-PROJECTION → UQ-APP.
 
-- [ ] UQ-EXPORT - `Uncertainty` on the laser exports: laserline device, rig
-  laserline, rig hand-eye laserline (intrinsics, hand-eye and rig results
-  carry it). Labels `plane.nx … plane.d`, `cam<i>.plane.nx` through
-  `uncertainty::RigLabelling`; only the final solve feeds the export. The
-  laserline default stops fixing pose 0. Gate: Monte-Carlo with both residual
-  kinds. Then the regression-suite drift gate in units of σ.
+- [ ] UQ-SUITE-GATE - The regression suite's parameter drift gate in units
+  of the reference result's σ: `|Δ| ≤ k·σ` for every label the reference
+  covariance reports (pose labels through the same tangent as the export),
+  replacing the relative tolerance; parameters without a σ (fixed, or an
+  unavailable covariance) keep the relative one. Pick `k` from the drift the
+  two backends show on the current entries.
+- [ ] UQ-LASER-LOSS - The laser loss defaults (`LaserlineSolveOptions`,
+  `LaserlineDeviceOptimizeConfig`, Python) are `Huber { scale: 0.01 }`, a
+  scale chosen for the point-to-plane residual in metres, while the default
+  residual is the line distance in pixels: at 0.01 px the fit is almost L1.
+  On the laserline Monte-Carlo scene that costs efficiency (σ of `plane.d`
+  1.58e-4 against 1.45e-4 at 1 px) and calibration (predicted σ 11 % high,
+  from the noisy density estimate an L1 covariance needs). Make the default
+  scale follow the residual's unit (1 px for the line distance), measure on
+  the rtv3d laser data, migration note.
 - [ ] UQ-PRIOR-WEIGHTS - Robot-pose refinement weighs pixel residuals at
   unit σ against the priors' `sqrt_info`, so with sub-pixel corners the
   priors are far too weak: on `kuka_1` (σ̂ 0.11 px) the robot-pose deltas
@@ -30,6 +39,10 @@ UQ-PROJECTION → UQ-APP.
   refine intrinsics in the final solve by default (results change), or
   report the per-camera intrinsics stage covariance alongside (loses the
   intrinsics–extrinsics correlation). Measure both on `stereo_rig` and `ds8`.
+  The per-camera Scheimpflug stage of both workflows still holds view 0
+  fixed (`fix_poses: vec![0]` in `rig_extrinsics/steps.rs` and
+  `rig_handeye/steps.rs`), which the single-camera Scheimpflug default no
+  longer does; drop it with this change.
 - [ ] UQ-PROJECTION - Projection uncertainty per camera: major-axis σ (px)
   on an image grid at a stated range (default: median target distance),
   `J_q Σ_θθ J_qᵀ` with exact derivatives from the generic camera kernels,
@@ -69,8 +82,7 @@ stays local-only, as do the private sets.
   for harness authors (the problem inputs need `JsonSchema` derives).
   `calib-bench suite compare` evaluates every result with one reprojection
   evaluator on the same observations and reports
-  parameter differences in units of our σ and our σ against OpenCV's. After
-  UQ-EXPORT, parameter drift gates switch to k·σ.
+  parameter differences in units of our σ and our σ against OpenCV's.
 - [~] DATA-MRCAL - mrcal comparison (parameters and projection uncertainty)
   in an Ubuntu CI job (`apt install mrcal`). Parked until DATA-OPENCV lands.
 - [~] DATA-MORE - More public entries, each after a licence check: OpenCV's

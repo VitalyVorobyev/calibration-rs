@@ -6,6 +6,51 @@
  */
 
 /**
+ * The uncertainty of a result's estimated parameters.
+ */
+export type Uncertainty =
+  | (ParameterCovariance & {
+      status: "available";
+    })
+  | {
+      /**
+       * Why the covariance is not available.
+       */
+      reason: UncertaintyUnavailable;
+      status: "unavailable";
+    };
+/**
+ * A kind of residual, which sets its unit.
+ */
+export type ResidualKind = "reprojection" | "laser_plane" | "laser_line";
+/**
+ * Why a result has no covariance.
+ */
+export type UncertaintyUnavailable =
+  | {
+      kind: "not_converged";
+    }
+  | {
+      kind: "rank_deficient";
+      /**
+       * Labels of the parameters involved.
+       */
+      unobservable: string[];
+    }
+  | {
+      kind: "at_bound";
+      /**
+       * Labels of the parameters on a bound.
+       */
+      labels: string[];
+    }
+  | {
+      kind: "no_redundancy";
+    }
+  | {
+      kind: "not_computed";
+    };
+/**
  * What a frame depicts, distinguishing target images from laser-on images.
  *
  * Laser problem types capture two images per `(pose, camera)` slot: one of
@@ -217,51 +262,6 @@ export type SensorParams =
       type: "scheimpflug";
     };
 /**
- * The uncertainty of a result's estimated parameters.
- */
-export type Uncertainty =
-  | (ParameterCovariance & {
-      status: "available";
-    })
-  | {
-      /**
-       * Why the covariance is not available.
-       */
-      reason: UncertaintyUnavailable;
-      status: "unavailable";
-    };
-/**
- * A kind of residual, which sets its unit.
- */
-export type ResidualKind = "reprojection" | "laser_plane" | "laser_line";
-/**
- * Why a result has no covariance.
- */
-export type UncertaintyUnavailable =
-  | {
-      kind: "not_converged";
-    }
-  | {
-      kind: "rank_deficient";
-      /**
-       * Labels of the parameters involved.
-       */
-      unobservable: string[];
-    }
-  | {
-      kind: "at_bound";
-      /**
-       * Labels of the parameters on a bound.
-       */
-      labels: string[];
-    }
-  | {
-      kind: "no_redundancy";
-    }
-  | {
-      kind: "not_computed";
-    };
-/**
  * Classic pinhole projection model.
  */
 export type Pinhole = null;
@@ -458,6 +458,12 @@ export interface LaserlineEstimate {
    * Backend solve report.
    */
   report: SolveReport;
+  /**
+   * Covariance of the refined parameters: intrinsics, distortion, sensor
+   * tilt and the laser plane (`plane.nx … plane.d`, in the camera frame),
+   * with each view's target pose as a per-view block.
+   */
+  uncertainty?: Uncertainty;
 }
 /**
  * Initial values for laserline bundle adjustment.
@@ -613,6 +619,83 @@ export interface SolveReport {
    * Number of outer solver iterations executed.
    */
   num_iters?: number;
+}
+/**
+ * The covariance of a result's estimated parameters.
+ */
+export interface ParameterCovariance {
+  /**
+   * Covariance of the shared parameters: one row per label, symmetric.
+   */
+  covariance: number[][];
+  /**
+   * Residuals minus estimated parameters.
+   */
+  dof: number;
+  /**
+   * Labels of the parameters held fixed. The covariance is conditional on
+   * them.
+   */
+  fixed?: string[];
+  /**
+   * Labels of the shared parameters, in the order of `covariance`.
+   */
+  labels: string[];
+  /**
+   * The noise level of each kind of residual, estimated from the
+   * residuals at the solution.
+   */
+  noise: ResidualNoise[];
+  /**
+   * Number of scalar residuals, priors included.
+   */
+  num_residuals: number;
+  /**
+   * Per-view parameters, one block per view that has free ones.
+   */
+  views?: ViewCovariance[];
+}
+/**
+ * The estimated noise level of one kind of residual.
+ */
+export interface ResidualNoise {
+  /**
+   * The camera, for a result that estimates each camera's noise apart
+   * (the rig laserline, which solves each camera's plane on its own);
+   * `None` for one level shared by every camera.
+   */
+  camera?: number | null;
+  /**
+   * Number of scalar residuals of this kind.
+   */
+  count: number;
+  /**
+   * The kind of residual.
+   */
+  kind: ResidualKind;
+  /**
+   * Gaussian-equivalent standard deviation of one scalar residual (one
+   * pixel axis for reprojection), from the median absolute residual so
+   * that outliers do not inflate it. In the residual's unit.
+   */
+  sigma: number;
+}
+/**
+ * The covariance of one view's own parameters.
+ */
+export interface ViewCovariance {
+  /**
+   * Their covariance: one row per label, symmetric.
+   */
+  covariance: number[][];
+  /**
+   * Labels of the view's parameters, e.g. `camera_se3_target.rx`.
+   */
+  labels: string[];
+  /**
+   * View index, as in the result's per-view lists.
+   */
+  view: number;
 }
 /**
  * Image manifest carried alongside a calibration export.
@@ -938,77 +1021,6 @@ export interface CameraParams {
   sensor: SensorParams;
 }
 /**
- * The covariance of a result's estimated parameters.
- */
-export interface ParameterCovariance {
-  /**
-   * Covariance of the shared parameters: one row per label, symmetric.
-   */
-  covariance: number[][];
-  /**
-   * Residuals minus estimated parameters.
-   */
-  dof: number;
-  /**
-   * Labels of the parameters held fixed. The covariance is conditional on
-   * them.
-   */
-  fixed?: string[];
-  /**
-   * Labels of the shared parameters, in the order of `covariance`.
-   */
-  labels: string[];
-  /**
-   * The noise level of each kind of residual, estimated from the
-   * residuals at the solution.
-   */
-  noise: ResidualNoise[];
-  /**
-   * Number of scalar residuals, priors included.
-   */
-  num_residuals: number;
-  /**
-   * Per-view parameters, one block per view that has free ones.
-   */
-  views?: ViewCovariance[];
-}
-/**
- * The estimated noise level of one kind of residual.
- */
-export interface ResidualNoise {
-  /**
-   * Number of scalar residuals of this kind.
-   */
-  count: number;
-  /**
-   * The kind of residual.
-   */
-  kind: ResidualKind;
-  /**
-   * Gaussian-equivalent standard deviation of one scalar residual (one
-   * pixel axis for reprojection), from the median absolute residual so
-   * that outliers do not inflate it. In the residual's unit.
-   */
-  sigma: number;
-}
-/**
- * The covariance of one view's own parameters.
- */
-export interface ViewCovariance {
-  /**
-   * Their covariance: one row per label, symmetric.
-   */
-  covariance: number[][];
-  /**
-   * Labels of the view's parameters, e.g. `camera_se3_target.rx`.
-   */
-  labels: string[];
-  /**
-   * View index, as in the result's per-view lists.
-   */
-  view: number;
-}
-/**
  * Export format for rig extrinsics calibration.
  *
  * Common to pinhole and Scheimpflug rigs. `sensors` is `None` for pinhole
@@ -1265,6 +1277,12 @@ export interface RigHandeyeLaserlineExport {
    * Per-camera Scheimpflug sensor parameters.
    */
   sensors: ScheimpflugParams[];
+  /**
+   * Covariance of the jointly refined parameters, labelled as the export
+   * fields (`cam1.fx`, `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`), with
+   * each camera's laser plane in its camera frame (`cam1.plane.nx`).
+   */
+  uncertainty?: Uncertainty;
 }
 /**
  * Per-camera statistics for [`RigHandeyeLaserlineEstimate`].
@@ -1381,6 +1399,13 @@ export interface RigLaserlineDeviceExport {
    * pinhole rigs), aligned with `cameras`.
    */
   sensors?: ScheimpflugParams[] | null;
+  /**
+   * Covariance of the laser planes in their camera frames
+   * (`cam1.plane.nx`), conditional on the upstream calibration. Each
+   * camera's plane is solved on its own, so each camera has its own
+   * noise levels.
+   */
+  uncertainty?: Uncertainty;
 }
 /**
  * A progress message streamed to the Run workspace over a

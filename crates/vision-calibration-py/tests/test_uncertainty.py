@@ -53,6 +53,42 @@ class ParameterUncertaintyParsingTest(unittest.TestCase):
         self.assertEqual(u.reason, "not_computed")
 
 
+class LaserResultUncertaintyTest(unittest.TestCase):
+    def test_rig_laserline_noise_names_its_camera(self) -> None:
+        plane = {"normal": [0.0, 0.0, 1.0], "distance": -0.3}
+        stats = {
+            "mean_reproj_error": 0.1,
+            "mean_laser_error": 0.2,
+            "per_view_reproj_errors": [0.1],
+            "per_view_laser_errors": [0.2],
+        }
+        uncertainty = {
+            "status": "available",
+            "labels": ["cam0.plane.d", "cam1.plane.d"],
+            "covariance": [[1e-8, 0.0], [0.0, 4e-8]],
+            "views": [],
+            "fixed": ["cam0.fx", "cam1.fx"],
+            "noise": [
+                {"kind": "laser_line", "sigma": 0.2, "count": 60, "camera": 0},
+                {"kind": "laser_line", "sigma": 0.3, "count": 60, "camera": 1},
+            ],
+            "num_residuals": 120,
+            "dof": 118,
+        }
+        result = vc.RigLaserlineDeviceResult.from_payload(
+            {
+                "laser_planes_rig": [plane, plane],
+                "laser_planes_cam": [plane, plane],
+                "per_camera_stats": [stats, stats],
+                "uncertainty": uncertainty,
+            }
+        )
+        self.assertAlmostEqual(result.uncertainty.std_dev("cam1.plane.d"), 2e-4)
+        self.assertEqual([n.camera for n in result.uncertainty.noise], [0, 1])
+        shared = vc.ParameterUncertainty.from_payload(_available_payload())
+        self.assertIsNone(shared.noise[0].camera)
+
+
 class ResultUncertaintyTest(unittest.TestCase):
     def test_planar_result_carries_the_covariance(self) -> None:
         result = vc.run_planar_intrinsics(

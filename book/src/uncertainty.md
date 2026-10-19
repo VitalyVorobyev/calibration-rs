@@ -1,10 +1,11 @@
 # Parameter Uncertainty
 
 A calibration result says not only what the parameters are but how well the
-data determines them. The intrinsics, hand-eye and rig results carry an
-`uncertainty`: the covariance of the estimated parameters at the solution,
-the noise level the residuals imply, and, when no covariance can be given,
-the reason.
+data determines them. Every result carries an `uncertainty`: the covariance
+of the estimated parameters at the solution, the noise level the residuals
+imply, and, when no covariance can be given, the reason. The laserline
+device result keeps it with its estimate, as `estimate.uncertainty` (in
+Python also `result.uncertainty`).
 
 Reprojection error alone does not answer this. A camera calibrated from a
 handful of similar views can reproject its own corners to 0.1 px and still have
@@ -56,7 +57,10 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
     labels each (`<pose>.rx` … `<pose>.tz`, see `views` below):
     `cam_se3_rig` per camera, the hand-eye pose (`gripper_se3_rig` or
     `rig_se3_base`, `gripper_se3_camera` or `camera_se3_base` for a single
-    camera) and the target pose (`base_se3_target` or `gripper_se3_target`).
+    camera) and the target pose (`base_se3_target` or `gripper_se3_target`);
+  - a laser plane `n · p + d = 0` in its camera's frame: `plane.nx`,
+    `plane.ny`, `plane.nz` and `plane.d` (metres). The normal is a unit
+    vector, so its three components have a covariance of rank 2.
 
   In a result with several cameras, each camera's labels carry its index:
   `cam1.fx`, `cam1.k1`, `cam1.cam_se3_rig.tx`. `std_dev(label)` is the square
@@ -81,8 +85,12 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
   σ leaves out the intrinsics' uncertainty.
 - **`noise`**: for each kind of residual, the Gaussian-equivalent standard
   deviation of one scalar residual. For reprojection that is the corner noise
-  per pixel axis. It is estimated from the median absolute residual, so a few
-  outliers do not inflate it.
+  per pixel axis; for the laser, the line distance in pixels or the
+  point-to-plane distance in metres. It is estimated from the median absolute
+  residual, so a few outliers do not inflate it. The rig laserline solves
+  each camera's plane on its own, with the rig calibration held fixed, so it
+  reports each camera's noise levels apart (`camera` names the camera) and
+  planes of different cameras are uncorrelated.
 - **`num_residuals`, `dof`**: the scalar residuals and the redundancy they
   leave after the estimated parameters.
 
@@ -108,8 +116,8 @@ not treat them as Gaussian noise either. Without a loss it is the classical
 `σ̂² (JᵀJ)⁻¹`.
 
 These σ were checked against Monte-Carlo scatter on synthetic scenes (single
-cameras, a stereo rig, an eye-in-hand camera), a few hundred noise
-realizations each. The predicted σ matched the empirical scatter within 10 %
+cameras, a stereo rig, an eye-in-hand camera, a laserline device with corner
+and laser residuals together), a few hundred noise realizations each. The predicted σ matched the empirical scatter within 10 %
 on clean data, and within 20 % with 5 % of the corners displaced by
 10–30 px under Huber or Cauchy.
 
@@ -131,8 +139,7 @@ unobservable together.
 
 ## Scope
 
-The intrinsics, hand-eye and rig workflows report uncertainty, from their
-final solve; the laser workflows report `not_computed`. Robot poses are taken
+Every workflow reports the uncertainty of its final solve. Robot poses are taken
 as exact unless the hand-eye solve refines them. Then the priors'
 standard deviations (`robot_rot_sigma`, `robot_trans_sigma`) are taken as
 the robot's true pose accuracy, and the covariance is that of the estimate

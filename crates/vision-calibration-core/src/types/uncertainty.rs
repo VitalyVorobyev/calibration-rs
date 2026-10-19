@@ -143,6 +143,11 @@ pub struct ResidualNoise {
     pub sigma: f64,
     /// Number of scalar residuals of this kind.
     pub count: usize,
+    /// The camera, for a result that estimates each camera's noise apart
+    /// (the rig laserline, which solves each camera's plane on its own);
+    /// `None` for one level shared by every camera.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera: Option<usize>,
 }
 
 /// A kind of residual, which sets its unit.
@@ -176,6 +181,7 @@ mod tests {
                 kind: ResidualKind::Reprojection,
                 sigma: 0.2,
                 count: 400,
+                camera: None,
             }],
             num_residuals: 400,
             dof: 380,
