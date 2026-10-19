@@ -1701,6 +1701,9 @@ class SingleCamHandeyeResult:
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: ParameterUncertainty = field(
+        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    )
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "SingleCamHandeyeResult":
@@ -1722,6 +1725,9 @@ class SingleCamHandeyeResult:
             robot_deltas=cast(list[list[float]] | None, payload.get("robot_deltas")),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
+            uncertainty=ParameterUncertainty.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("uncertainty"))
+            ),
         )
 
 
@@ -1733,6 +1739,9 @@ class RigExtrinsicsResult:
     cam_se3_rig: list[Pose]
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: ParameterUncertainty = field(
+        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    )
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigExtrinsicsResult":
@@ -1744,6 +1753,9 @@ class RigExtrinsicsResult:
             cam_se3_rig=[Pose.from_payload(cast(Mapping[str, Any], p)) for p in cast(list[Any], payload["cam_se3_rig"])],
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=[float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])],
+            uncertainty=ParameterUncertainty.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("uncertainty"))
+            ),
         )
 
 
@@ -1767,6 +1779,9 @@ class RigHandeyeResult:
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
     sensors: list[ScheimpflugSensor] | None = None
+    uncertainty: ParameterUncertainty = field(
+        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    )
 
     def to_payload(self) -> dict[str, Any]:
         """Convert to Rust/serde shape (``RigHandeyeExport``).
@@ -1834,6 +1849,9 @@ class RigHandeyeResult:
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
             ],
             sensors=sensors,
+            uncertainty=ParameterUncertainty.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("uncertainty"))
+            ),
         )
 
 

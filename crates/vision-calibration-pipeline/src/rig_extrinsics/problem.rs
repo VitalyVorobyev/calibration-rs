@@ -7,7 +7,7 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     Camera, FeatureResidualHistogram, ImageManifest, Iso3, NoMeta, PerFeatureResiduals, Pinhole,
-    PinholeCamera, RigDataset, ScheimpflugParams, build_feature_histogram,
+    PinholeCamera, RigDataset, ScheimpflugParams, Uncertainty, build_feature_histogram,
     compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
@@ -85,6 +85,14 @@ impl RigExtrinsicsOutput {
         match self {
             Self::Pinhole(e) => e.report.final_cost,
             Self::Scheimpflug(e) => e.report.final_cost,
+        }
+    }
+
+    /// Covariance of the estimated parameters at the solution.
+    pub fn uncertainty(&self) -> &Uncertainty {
+        match self {
+            Self::Pinhole(e) => &e.uncertainty,
+            Self::Scheimpflug(e) => &e.uncertainty,
         }
     }
 
@@ -193,6 +201,10 @@ pub struct RigExtrinsicsExport {
     /// this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,
+    /// Covariance of the calibrated parameters: `fx ± σ`, correlations, and
+    /// the noise level the residuals imply.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -400,6 +412,7 @@ impl ProblemType for RigExtrinsicsProblem {
             // the dataset; the pipeline itself never has image paths to
             // fill in. Mirrors the rig_handeye precedent.
             image_manifest: None,
+            uncertainty: output.uncertainty().clone(),
         })
     }
 }
@@ -606,6 +619,7 @@ mod tests {
                 cam_to_rig,
                 rig_from_target,
             },
+            uncertainty: Default::default(),
             report: SolveReport {
                 final_cost: 0.0,
                 num_iters: 0,
@@ -692,6 +706,7 @@ mod tests {
                 cam_to_rig,
                 rig_from_target,
             },
+            uncertainty: Default::default(),
             report: SolveReport {
                 final_cost: 0.0,
                 num_iters: 0,
@@ -768,6 +783,7 @@ mod tests {
                 cam_to_rig,
                 rig_from_target,
             },
+            uncertainty: Default::default(),
             report: SolveReport {
                 final_cost: 0.0,
                 num_iters: 0,

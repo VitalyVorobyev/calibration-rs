@@ -11,19 +11,20 @@
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
-    CameraModelDesc, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR, ReprojChain,
-    ResidualBlock, RobustLoss,
+    CameraModelDesc, DistortionKind, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR,
+    ReprojChain, ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use crate::problems::scheimpflug_intrinsics::ScheimpflugFixMask;
+use crate::uncertainty::{self, RigLabelling};
 use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraFixMask, FxFyCxCySkew, Iso3, Pinhole, PinholeCamera, Real,
-    RigDataset, RigView, ScheimpflugParams, make_pinhole_camera,
+    RigDataset, RigView, ScheimpflugParams, Uncertainty, make_pinhole_camera,
 };
 
 use super::handeye::RobotPoseMeta;
@@ -139,6 +140,9 @@ impl Default for HandEyeScheimpflugSolveOptions {
 pub struct HandEyeScheimpflugEstimate {
     /// Refined parameters.
     pub params: HandEyeScheimpflugParams,
+    /// Covariance of the estimated parameters at the solution.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
     /// Backend solve report.
     pub report: SolveReport,
     /// Optional per-view robot pose deltas.
@@ -283,8 +287,17 @@ pub fn optimize_handeye_scheimpflug(
     let (mean_reproj_error, per_cam_reproj_errors) =
         compute_reproj_error(&dataset, &params, robot_deltas.as_ref());
 
+    let labels = RigLabelling {
+        distortion: DistortionKind::BrownConrady5.param_names(),
+        multi_camera: dataset.data.num_cameras > 1,
+        handeye_mode: Some(dataset.mode),
+    }
+    .labels(&ir, &solution);
+    let uncertainty = uncertainty::labelled(&ir, &solution.uncertainty, &labels);
+
     Ok(HandEyeScheimpflugEstimate {
         params,
+        uncertainty,
         report: solution.solve_report,
         robot_deltas,
         mean_reproj_error,

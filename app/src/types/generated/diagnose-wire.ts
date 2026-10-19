@@ -1062,6 +1062,11 @@ export interface RigExtrinsicsExport {
    * `Some(_)` for Scheimpflug rigs (one entry per camera).
    */
   sensors?: ScheimpflugParams[] | null;
+  /**
+   * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
+   * the noise level the residuals imply.
+   */
+  uncertainty?: Uncertainty;
 }
 /**
  * A composable camera model: projection -> distortion -> sensor -> intrinsics.
@@ -1178,6 +1183,11 @@ export interface RigHandeyeExport {
    * `Some(_)` for Scheimpflug rigs (one entry per camera).
    */
   sensors?: ScheimpflugParams[] | null;
+  /**
+   * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
+   * the noise level the residuals imply.
+   */
+  uncertainty?: Uncertainty;
 }
 /**
  * Export format for joint rig hand-eye laserline calibration.
@@ -1506,4 +1516,9 @@ export interface SingleCamHandeyeExport {
    * Only present if robot refinement was enabled.
    */
   robot_deltas?: [number, number, number, number, number, number][] | null;
+  /**
+   * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
+   * the noise level the residuals imply.
+   */
+  uncertainty?: Uncertainty;
 }

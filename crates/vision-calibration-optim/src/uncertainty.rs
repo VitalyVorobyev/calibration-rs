@@ -4,12 +4,15 @@
 
 use std::collections::BTreeMap;
 
+use nalgebra::{DMatrix, Matrix3};
 use vision_calibration_core::{
-    ParameterCovariance, ResidualNoise, Uncertainty, UncertaintyUnavailable, ViewCovariance,
+    Iso3, ParameterCovariance, ResidualNoise, Uncertainty, UncertaintyUnavailable, ViewCovariance,
 };
 
+use crate::backend::BackendSolution;
 use crate::backend::covariance::{Coordinate, ParamUncertainty, UnavailableReason};
-use crate::ir::{ManifoldKind, ParamBlock, ProblemIR};
+use crate::ir::{HandEyeMode, ManifoldKind, ParamBlock, ProblemIR};
+use crate::params::pose_se3::se3_dvec_to_iso3;
 
 /// How one IR block's coordinates are named.
 pub(crate) struct BlockLabels {
@@ -21,6 +24,13 @@ pub(crate) struct BlockLabels {
     /// SE3 block's `[rx, ry, rz, tx, ty, tz]`, an S² block's `[nx, ny, nz]`).
     /// Per-view labels omit the view, which [`ViewCovariance::view`] carries.
     pub coordinates: Vec<String>,
+    /// For an SE3 block reported as the inverse of the pose it stores: the
+    /// stored pose at the solution.
+    pub inverse_of: Option<Iso3>,
+    /// A block the problem fixes by construction, such as the identity
+    /// camera-to-rig pose of a single-camera problem; it is not listed among
+    /// the fixed parameters.
+    pub internal: bool,
 }
 
 impl BlockLabels {
@@ -30,6 +40,19 @@ impl BlockLabels {
             view: None,
             name: name.to_string(),
             coordinates: coordinates.iter().map(|c| c.to_string()).collect(),
+            inverse_of: None,
+            internal: false,
+        }
+    }
+
+    /// A shared SE3 pose, labelled `<name>.rx … <name>.tz`.
+    pub(crate) fn shared_pose(name: &str) -> Self {
+        Self {
+            view: None,
+            name: name.to_string(),
+            coordinates: pose_labels(name),
+            inverse_of: None,
+            internal: false,
         }
     }
 
@@ -37,8 +60,22 @@ impl BlockLabels {
     pub(crate) fn view_pose(view: usize, name: &str) -> Self {
         Self {
             view: Some(view),
-            name: name.to_string(),
-            coordinates: pose_labels(name),
+            ..Self::shared_pose(name)
+        }
+    }
+
+    /// Report this SE3 block as the inverse of the stored pose `stored`.
+    fn inverted(self, stored: Iso3) -> Self {
+        Self {
+            inverse_of: Some(stored),
+            ..self
+        }
+    }
+
+    fn internal(self) -> Self {
+        Self {
+            internal: true,
+            ..self
         }
     }
 }
@@ -68,16 +105,18 @@ pub(crate) fn labelled(
                 UnavailableReason::NoRedundancy => UncertaintyUnavailable::NoRedundancy,
                 UnavailableReason::RankDeficient { unobservable } => {
                     UncertaintyUnavailable::RankDeficient {
-                        unobservable: unobservable.iter().map(label).collect(),
+                        unobservable: dedup(unobservable.iter().map(label)),
                     }
                 }
                 UnavailableReason::AtBound { coordinates } => UncertaintyUnavailable::AtBound {
-                    labels: coordinates.iter().map(label).collect(),
+                    labels: dedup(coordinates.iter().map(label)),
                 },
             };
             return Uncertainty::Unavailable { reason };
         }
     };
+
+    let matrix = report_inverses(&estimate.matrix, &estimate.coordinates, labels);
 
     // Matrix positions of the shared coordinates and of each view's.
     let mut shared = Vec::new();
@@ -91,7 +130,7 @@ pub(crate) fn labelled(
     let block = |positions: &[usize]| -> Vec<Vec<f64>> {
         positions
             .iter()
-            .map(|&a| positions.iter().map(|&b| estimate.matrix[(a, b)]).collect())
+            .map(|&a| positions.iter().map(|&b| matrix[(a, b)]).collect())
             .collect()
     };
     let local_label = |i: usize| {
@@ -125,26 +164,97 @@ pub(crate) fn labelled(
     })
 }
 
-/// A coordinate's label, with `view<i>.` in front of a per-view one.
-fn coordinate_label(labels: &BlockLabels, index: usize) -> String {
-    match labels.view {
-        None => labels.coordinates[index].clone(),
-        Some(view) => format!("view{view}.{}", labels.coordinates[index]),
+/// Labels in first-seen order, without repeats.
+fn dedup(labels: impl Iterator<Item = String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for label in labels {
+        if !out.contains(&label) {
+            out.push(label);
+        }
+    }
+    out
+}
+
+/// The covariance with every block flagged [`BlockLabels::inverse_of`]
+/// mapped to the tangent of the inverse pose.
+///
+/// For `T' = T·Exp(δ)`, `T'⁻¹ = T⁻¹·Exp(−Ad_T δ)`, so the inverse's
+/// right-perturbation coordinates are `−Ad_T δ` with, for `δ = [ω, v]`,
+/// `Ad_T = [[R, 0], [[t]× R, R]]`.
+fn report_inverses(
+    matrix: &DMatrix<f64>,
+    coordinates: &[Coordinate],
+    labels: &[BlockLabels],
+) -> DMatrix<f64> {
+    let mut map: Option<DMatrix<f64>> = None;
+    for (block, names) in labels.iter().enumerate() {
+        let Some(stored) = names.inverse_of else {
+            continue;
+        };
+        let positions: Vec<usize> = (0..coordinates.len())
+            .filter(|&i| coordinates[i].block == block)
+            .collect();
+        if positions.is_empty() {
+            continue; // fixed block
+        }
+        debug_assert_eq!(
+            positions.len(),
+            6,
+            "an inverted SE3 block is free as a whole"
+        );
+        let r = stored.rotation.to_rotation_matrix().into_inner();
+        let t = stored.translation.vector;
+        let tr = Matrix3::new(0.0, -t.z, t.y, t.z, 0.0, -t.x, -t.y, t.x, 0.0) * r;
+        let m = map.get_or_insert_with(|| DMatrix::identity(matrix.nrows(), matrix.ncols()));
+        for a in 0..3 {
+            for b in 0..3 {
+                let at = |row: usize, col: usize| (positions[row], positions[col]);
+                m[at(a, b)] = -r[(a, b)];
+                m[at(a + 3, b)] = -tr[(a, b)];
+                m[at(a + 3, b + 3)] = -r[(a, b)];
+                m[at(a, b + 3)] = 0.0;
+            }
+        }
+    }
+    match map {
+        Some(m) => &m * matrix * m.transpose(),
+        None => matrix.clone(),
     }
 }
 
-/// Labels of the fixed coordinates: each one of a shared block, a fully
-/// fixed per-view block by its name alone (`view3.camera_se3_target`).
+/// A coordinate's label, with `view<i>.` in front of a per-view one. An
+/// inverted block's coordinates mix under the inversion, so a statement
+/// about one of them names the block.
+fn coordinate_label(labels: &BlockLabels, index: usize) -> String {
+    let local = if labels.inverse_of.is_some() {
+        labels.name.clone()
+    } else {
+        labels.coordinates[index].clone()
+    };
+    match labels.view {
+        None => local,
+        Some(view) => format!("view{view}.{local}"),
+    }
+}
+
+/// Labels of the fixed coordinates: each one of a shared Euclidean block,
+/// a fully fixed pose or per-view block by its name alone
+/// (`view3.camera_se3_target`).
 fn fixed_labels(ir: &ProblemIR, labels: &[BlockLabels]) -> Vec<String> {
     let mut out = Vec::new();
     for (block, names) in ir.params.iter().zip(labels) {
+        if names.internal {
+            continue;
+        }
         let all_fixed = block.fixed.is_all_fixed(block.dim);
+        let euclidean = block.manifold == ManifoldKind::Euclidean;
         match (names.view, all_fixed) {
             (Some(view), true) => out.push(format!("view{view}.{}", names.name)),
+            (None, true) if !euclidean => out.push(names.name.clone()),
             (_, true) => {
                 out.extend((0..names.coordinates.len()).map(|i| coordinate_label(names, i)))
             }
-            (_, false) if block.manifold == ManifoldKind::Euclidean => out.extend(
+            (_, false) if euclidean => out.extend(
                 (0..block.dim)
                     .filter(|&i| block.fixed.contains(i))
                     .map(|i| coordinate_label(names, i)),
@@ -173,12 +283,102 @@ pub(crate) fn planar_block_labels(block: &ParamBlock, distortion: &[&str]) -> Bl
     }
 }
 
+/// The shape of a rig or hand-eye IR, for naming its blocks.
+pub(crate) struct RigLabelling<'a> {
+    /// Distortion coefficient names, the same for every camera.
+    pub distortion: &'a [&'a str],
+    /// Whether labels carry a `cam<i>.` prefix. Single-camera problems have
+    /// none: their camera is the rig, and its camera-to-rig pose is the
+    /// identity.
+    pub multi_camera: bool,
+    /// The hand-eye mode, which names the hand-eye and target poses.
+    pub handeye_mode: Option<HandEyeMode>,
+}
+
+impl RigLabelling<'_> {
+    /// Labels for every block of `ir` after `solution`.
+    pub(crate) fn labels(&self, ir: &ProblemIR, solution: &BackendSolution) -> Vec<BlockLabels> {
+        ir.params
+            .iter()
+            .map(|block| self.block(block, solution))
+            .collect()
+    }
+
+    /// Labels for the blocks of the rig and hand-eye IRs: `cam/<i>`,
+    /// `dist/<i>`, `sensor/<i>`, `extr/<i>` (stored as `rig_se3_cam`,
+    /// reported as `cam_se3_rig`), `handeye`, `target`, `target/<view>`,
+    /// `rig_pose/<view>` and `robot_delta/<view>`.
+    fn block(&self, block: &ParamBlock, solution: &BackendSolution) -> BlockLabels {
+        let (kind, index) = match block.name.split_once('/') {
+            Some((kind, index)) => (
+                kind,
+                Some(
+                    index
+                        .parse::<usize>()
+                        .unwrap_or_else(|_| panic!("unexpected rig IR block {}", block.name)),
+                ),
+            ),
+            None => (block.name.as_str(), None),
+        };
+        let camera = |name: &str, coordinates: &[&str]| {
+            let i = index.expect("per-camera blocks carry the camera index");
+            let prefix = |s: &str| {
+                if self.multi_camera {
+                    format!("cam{i}.{s}")
+                } else {
+                    s.to_string()
+                }
+            };
+            BlockLabels {
+                view: None,
+                name: prefix(name),
+                coordinates: coordinates.iter().map(|c| prefix(c)).collect(),
+                inverse_of: None,
+                internal: false,
+            }
+        };
+        let rig = if self.multi_camera { "rig" } else { "camera" };
+        let target = match self.handeye_mode {
+            Some(HandEyeMode::EyeInHand) => "base_se3_target",
+            Some(HandEyeMode::EyeToHand) => "gripper_se3_target",
+            None => "rig_se3_target",
+        };
+        match (kind, index) {
+            ("cam", Some(_)) => camera("intrinsics", &["fx", "fy", "cx", "cy"]),
+            ("dist", Some(_)) => camera("distortion", self.distortion),
+            ("sensor", Some(_)) => camera("sensor", &["tilt_x", "tilt_y"]),
+            ("extr", Some(_)) => {
+                let stored = se3_dvec_to_iso3(solution.params[&block.name].as_view())
+                    .expect("an SE3 block holds a pose");
+                let pose = camera("cam_se3_rig", &[]);
+                let labels = BlockLabels::shared_pose(&pose.name).inverted(stored);
+                if self.multi_camera {
+                    labels
+                } else {
+                    labels.internal()
+                }
+            }
+            ("handeye", None) => BlockLabels::shared_pose(&match self.handeye_mode {
+                Some(HandEyeMode::EyeToHand) => format!("{rig}_se3_base"),
+                _ => format!("gripper_se3_{rig}"),
+            }),
+            ("target", None) => BlockLabels::shared_pose(target),
+            ("target" | "rig_pose", Some(view)) => BlockLabels::view_pose(view, target),
+            ("robot_delta", Some(view)) => BlockLabels {
+                view: Some(view),
+                ..BlockLabels::shared_pose("robot_delta")
+            },
+            _ => panic!("unexpected rig IR block {}", block.name),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::backend::covariance::{CovarianceEstimate, FamilyNoise};
     use crate::ir::FixedMask;
-    use nalgebra::DMatrix;
+    use nalgebra::{Translation3, UnitQuaternion, Vector3};
     use vision_calibration_core::ResidualKind;
 
     fn ir() -> ProblemIR {
@@ -215,6 +415,21 @@ mod tests {
             .collect()
     }
 
+    fn estimate(coordinates: Vec<Coordinate>, matrix: DMatrix<f64>) -> ParamUncertainty {
+        let n = coordinates.len();
+        ParamUncertainty::Available(Box::new(CovarianceEstimate {
+            coordinates,
+            matrix,
+            families: vec![FamilyNoise {
+                family: ResidualKind::Reprojection,
+                num_residuals: 100,
+                sigma: 0.25,
+            }],
+            num_residuals: 100,
+            dof: 100 - n,
+        }))
+    }
+
     #[test]
     fn splits_shared_and_per_view_coordinates() {
         let ir = ir();
@@ -223,18 +438,9 @@ mod tests {
         coordinates.extend([0, 1, 3, 4].map(|index| Coordinate { block: 1, index }));
         coordinates.extend((0..6).map(|index| Coordinate { block: 3, index }));
         let n = coordinates.len();
-        let solve = ParamUncertainty::Available(Box::new(CovarianceEstimate {
-            coordinates,
-            matrix: DMatrix::from_fn(n, n, |i, j| if i == j { (i + 1) as f64 } else { 0.0 }),
-            families: vec![FamilyNoise {
-                family: ResidualKind::Reprojection,
-                num_residuals: 100,
-                sigma: 0.25,
-            }],
-            num_residuals: 100,
-            dof: 100 - n,
-        }));
-        let Uncertainty::Available(c) = labelled(&ir, &solve, &labels(&ir)) else {
+        let matrix = DMatrix::from_fn(n, n, |i, j| if i == j { (i + 1) as f64 } else { 0.0 });
+        let Uncertainty::Available(c) = labelled(&ir, &estimate(coordinates, matrix), &labels(&ir))
+        else {
             panic!("available");
         };
         assert_eq!(c.labels, ["fx", "fy", "cx", "cy", "k1", "k2", "p1", "p2"]);
@@ -264,5 +470,82 @@ mod tests {
                 }
             }
         );
+    }
+
+    /// The covariance of an inverted pose is that of the inverse's
+    /// right-perturbation coordinates: pushing samples `T·Exp(δ)` through
+    /// the inversion and taking `log(T⁻¹⁻¹·(T·Exp(δ))⁻¹)` gives `−Ad_T δ`.
+    #[test]
+    fn inverted_pose_covariance_matches_the_mapped_perturbation() {
+        let stored = Iso3::from_parts(
+            Translation3::new(0.12, -0.03, 0.4),
+            UnitQuaternion::from_euler_angles(0.2, -0.1, 0.3),
+        );
+        let mut ir = ProblemIR::new();
+        ir.add_param_block("extr/1", 7, ManifoldKind::SE3, FixedMask::all_free(), None);
+        let coordinates: Vec<Coordinate> =
+            (0..6).map(|index| Coordinate { block: 0, index }).collect();
+        // One direction at a time: Σ = e_k e_kᵀ maps to column k of −Ad_T.
+        for k in 0..6 {
+            let matrix = DMatrix::from_fn(6, 6, |i, j| if i == k && j == k { 1.0 } else { 0.0 });
+            let labels = vec![BlockLabels::shared_pose("cam1.cam_se3_rig").inverted(stored)];
+            let Uncertainty::Available(c) =
+                labelled(&ir, &estimate(coordinates.clone(), matrix), &labels)
+            else {
+                panic!("available");
+            };
+            // Finite-difference image of a small step along e_k.
+            let h = 1e-6;
+            let mut delta = [0.0; 6];
+            delta[k] = h;
+            let step = Iso3::from_parts(
+                Translation3::from(Vector3::new(delta[3], delta[4], delta[5])),
+                UnitQuaternion::from_scaled_axis(Vector3::new(delta[0], delta[1], delta[2])),
+            );
+            let moved = (stored * step).inverse();
+            let rel = stored * moved; // (T⁻¹)⁻¹ · T'⁻¹
+            let w = rel.rotation.scaled_axis() / h;
+            let v = rel.translation.vector / h;
+            let column = [w.x, w.y, w.z, v.x, v.y, v.z];
+            for i in 0..6 {
+                for j in 0..6 {
+                    let expected = column[i] * column[j];
+                    assert!(
+                        (c.covariance[i][j] - expected).abs() < 1e-5,
+                        "k={k} ({i},{j}): {} vs {expected}",
+                        c.covariance[i][j]
+                    );
+                }
+            }
+            assert_eq!(c.labels[0], "cam1.cam_se3_rig.rx");
+        }
+    }
+
+    #[test]
+    fn fully_fixed_poses_are_named_and_internal_blocks_omitted() {
+        let mut ir = ProblemIR::new();
+        ir.add_param_block(
+            "extr/0",
+            7,
+            ManifoldKind::SE3,
+            FixedMask::all_fixed(7),
+            None,
+        );
+        ir.add_param_block(
+            "handeye",
+            7,
+            ManifoldKind::SE3,
+            FixedMask::all_fixed(7),
+            None,
+        );
+        let solve = estimate(Vec::new(), DMatrix::zeros(0, 0));
+        let labels = vec![
+            BlockLabels::shared_pose("cam_se3_rig").internal(),
+            BlockLabels::shared_pose("gripper_se3_camera"),
+        ];
+        let Uncertainty::Available(c) = labelled(&ir, &solve, &labels) else {
+            panic!("available");
+        };
+        assert_eq!(c.fixed, ["gripper_se3_camera"]);
     }
 }

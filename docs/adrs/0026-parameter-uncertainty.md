@@ -25,12 +25,17 @@ reweighting. A covariance taken from it would depend on the backend.
 
 At the converged optimum `θ̂`, over the **free tangent coordinates** (`n` of
 them), the covariance is Huber's asymptotic covariance of an M-estimator,
-with one noise level per residual family `f`:
+with its moments pooled per residual family `f`:
 
 ```
-Σ = (Σ_f A_f / σ_f²  +  A_p)⁻¹,    A_f = Σ_{i∈f} JᵢᵀJᵢ,   A_p = Σ_priors JᵢᵀJᵢ
-σ_f² = E_f[ψ²] / E_f[ψ′]² · m / (m − n),    ψ = ρ′ r,   ψ′ = tr(ρ′ I + 2ρ″ r rᵀ)
+Σ = H⁻¹ G H⁻¹,    H = Σ_f κ_f A_f + A_p,    G = Σ_f s_f A_f + A_p
+A_f = Σ_{i∈f} JᵢᵀJᵢ,    A_p = Σ_priors JᵢᵀJᵢ
+κ_f = E_f[ψ′],    s_f = E_f[ψ²] · m / (m − n),    ψ = ρ′ r,   ψ′ = tr(ρ′ I + 2ρ″ r rᵀ)
 ```
+
+`H` is the curvature of the objective the solve minimized, `G` the scatter
+of its gradient. With one family and no priors, `Σ = σ_f² A_f⁻¹` with
+`σ_f² = s_f / κ_f²`, and `G` is not formed.
 
 - `Jᵢ` and `rᵢ` are the **raw** Jacobian and residual, from a loss-free
   linearization at `θ̂`. Residuals include their observation weight `w`.
@@ -46,6 +51,13 @@ with one noise level per residual family `f`:
   Observation weights are relative: `σ_f` absorbs their scale.
 - `A_p` stacks the prior residuals (`Se3TangentPrior`), whose `sqrt_info` is
   known information.
+- **The weights are the solve's.** The solver weighs each family's raw
+  residuals and the priors as the IR states them; it does not rescale a
+  family by its noise. So `Σ` is the sandwich for those weights, not the
+  inverse information `(Σ_f A_f/σ_f² + A_p)⁻¹` of an optimally weighted
+  solve. The two agree with one family and no priors; with robot-pose priors
+  the inverse-information form understated σ by up to 36 % against
+  Monte-Carlo scatter, the sandwich held 0.93–1.05.
 - `H` is assembled with the existing `NormalEquations` (unit-diagonal
   normalization, sparse Cholesky) in one routine shared by both backends.
 
@@ -59,6 +71,9 @@ a planar scene, with and without 5 % outliers displaced by 10–30 px:
   It was too noisy run to run, though: its mean NEES was 9.0 against 8.
 - The pooled form above held σ within 0.91–1.05 of the scatter in all three
   cases (clean, Huber, Cauchy), with NEES 8.0–8.6.
+- With priors or several families, pooling the moments per family inside
+  the sandwich keeps that stability; see "The weights are the solve's"
+  above.
 
 The proof pack records the gates.
 

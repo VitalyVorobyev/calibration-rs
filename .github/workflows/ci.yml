@@ -133,6 +133,26 @@ jobs:
           cargo run --release --locked -p vision-calibration-bench
           --bin calib-bench -- suite check
 
+  # The parameter-uncertainty Monte-Carlo gates: a few hundred solves each,
+  # so they are `#[ignore]`d in the debug test run and run here in release.
+  uncertainty-gates:
+    name: Uncertainty gates
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Monte-Carlo gates
+        run: >-
+          cargo test --release --locked -p vision-calibration-optim
+          --test uncertainty -- --ignored
+
   python-runtime:
     name: Python Runtime Tests
     needs: build

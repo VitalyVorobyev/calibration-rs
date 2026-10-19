@@ -1,5 +1,9 @@
 //! The reported parameter uncertainty against Monte-Carlo scatter, through
 //! the public solve functions.
+//!
+//! Each gate solves a few hundred noise realizations, so they are ignored in
+//! the default (debug) test run; CI runs them in release:
+//! `cargo test --release -p vision-calibration-optim --test uncertainty -- --ignored`.
 
 #![allow(missing_docs)]
 
@@ -7,15 +11,200 @@ use nalgebra::{DMatrix, DVector, Translation3, UnitQuaternion};
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 use vision_calibration_core::{
     BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionFixMask,
-    DistortionParams, FxFyCxCySkew, IntrinsicsParams, Iso3, PlanarDataset, ProjectionParams, Pt2,
-    Pt3, ScheimpflugParams, SensorParams, Uncertainty, Vec2, View,
+    DistortionParams, FxFyCxCySkew, IntrinsicsParams, Iso3, NoMeta, ParameterCovariance,
+    PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3, RigDataset, RigView, RigViewObs,
+    ScheimpflugParams, SensorParams, Uncertainty, Vec2, View, make_pinhole_camera,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions,
-    optimize_scheimpflug_intrinsics,
+    BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
+    RigExtrinsicsParams, RigExtrinsicsSolveOptions, RobotPoseMeta, ScheimpflugIntrinsicsParams,
+    ScheimpflugIntrinsicsSolveOptions, apply_robot_delta, optimize_handeye,
+    optimize_rig_extrinsics, optimize_scheimpflug_intrinsics,
 };
 
 const RUNS: u64 = 200;
+/// The empirical σ of `RUNS` realizations has a relative standard error of
+/// about `1/√(2·RUNS)`, 5 % at 200; a 20-parameter scene whose σ are not
+/// dominated by a few directions needs more runs for a ±10 % gate.
+const LARGE_SCENE_RUNS: u64 = 400;
+
+/// Predicted against empirical scatter over seeded noise realizations.
+#[derive(Default)]
+struct MonteCarlo {
+    labels: Vec<String>,
+    errors: Vec<DVector<f64>>,
+    predicted_var: Option<DVector<f64>>,
+    nees: f64,
+}
+
+impl MonteCarlo {
+    /// Records one run: the estimate's error for each shared label, in the
+    /// order of `cov.labels`.
+    fn push(&mut self, cov: &ParameterCovariance, error: impl Fn(&str) -> f64) {
+        if self.labels.is_empty() {
+            self.labels.clone_from(&cov.labels);
+        }
+        assert_eq!(self.labels, cov.labels, "labels are stable across runs");
+        let n = self.labels.len();
+        let error = DVector::from_iterator(n, self.labels.iter().map(|l| error(l)));
+        let matrix = DMatrix::from_fn(n, n, |i, j| cov.covariance[i][j]);
+        self.nees += (error.transpose() * matrix.clone().try_inverse().unwrap() * &error)[(0, 0)];
+        let var = matrix.diagonal();
+        self.predicted_var = Some(match self.predicted_var.take() {
+            Some(acc) => acc + var,
+            None => var,
+        });
+        self.errors.push(error);
+    }
+
+    /// Each predicted σ within `tolerance` of the empirical one, and the
+    /// mean NEES within three standard errors of χ²'s mean.
+    fn assert_calibrated(&self, tolerance: f64) {
+        let runs = self.errors.len() as f64;
+        let n = self.labels.len();
+        let predicted = (self.predicted_var.clone().unwrap() / runs).map(f64::sqrt);
+        let mean = self.errors.iter().fold(DVector::zeros(n), |a, e| a + e) / runs;
+        let empirical = (self
+            .errors
+            .iter()
+            .fold(DVector::zeros(n), |a, e| a + (e - &mean).map(|v| v * v))
+            / (runs - 1.0))
+            .map(f64::sqrt);
+        for (i, label) in self.labels.iter().enumerate() {
+            let ratio = predicted[i] / empirical[i];
+            assert!(
+                (ratio - 1.0).abs() < tolerance,
+                "{label}: predicted σ {:.3e}, empirical {:.3e} (ratio {ratio:.3})",
+                predicted[i],
+                empirical[i]
+            );
+        }
+        let k = n as f64;
+        let nees = self.nees / runs;
+        let band = 3.0 * (2.0 * k / runs).sqrt();
+        let ratios = predicted.component_div(&empirical);
+        eprintln!(
+            "{n} parameters: σ ratio {:.2}–{:.2}, NEES {nees:.2}",
+            ratios.min(),
+            ratios.max()
+        );
+        assert!(
+            (nees - k).abs() < band,
+            "NEES mean {nees:.3}, expected {k} ± {band:.3}"
+        );
+    }
+}
+
+/// The right-perturbation coordinates `[ω, v]` of `estimate = truth·Exp(δ)`,
+/// to first order.
+fn pose_error(truth: &Iso3, estimate: &Iso3) -> [f64; 6] {
+    let rel = truth.inverse() * estimate;
+    let w = rel.rotation.scaled_axis();
+    let v = rel.translation.vector;
+    [w.x, w.y, w.z, v.x, v.y, v.z]
+}
+
+/// The error of a labelled pose coordinate (`<name>.rx` … `<name>.tz`).
+fn pose_coordinate(truth: &Iso3, estimate: &Iso3, coordinate: &str) -> f64 {
+    let index = ["rx", "ry", "rz", "tx", "ty", "tz"]
+        .iter()
+        .position(|c| *c == coordinate)
+        .unwrap_or_else(|| panic!("unexpected pose coordinate {coordinate}"));
+    pose_error(truth, estimate)[index]
+}
+
+/// The error of a labelled pinhole-camera parameter.
+fn camera_error(truth: &PinholeCamera, estimate: &PinholeCamera, label: &str) -> f64 {
+    let (k, kt) = (&estimate.k, &truth.k);
+    let (d, dt) = (&estimate.dist, &truth.dist);
+    match label {
+        "fx" => k.fx - kt.fx,
+        "fy" => k.fy - kt.fy,
+        "cx" => k.cx - kt.cx,
+        "cy" => k.cy - kt.cy,
+        "k1" => d.k1 - dt.k1,
+        "k2" => d.k2 - dt.k2,
+        "p1" => d.p1 - dt.p1,
+        "p2" => d.p2 - dt.p2,
+        other => panic!("unexpected camera label {other}"),
+    }
+}
+
+/// A 9×9 board of 20 mm cells, centred on the target origin.
+fn board() -> Vec<Pt3> {
+    (0..81)
+        .map(|i| {
+            Pt3::new(
+                (i % 9) as f64 * 0.02 - 0.08,
+                (i / 9) as f64 * 0.02 - 0.08,
+                0.0,
+            )
+        })
+        .collect()
+}
+
+/// Ten board poses in front of a camera, varied in tilt.
+fn board_poses() -> Vec<Iso3> {
+    [
+        (0.0, 0.0, 0.0, -0.01, -0.01, 0.45),
+        (0.20, 0.0, 0.0, -0.02, 0.0, 0.50),
+        (-0.20, 0.0, 0.0, 0.01, -0.02, 0.48),
+        (0.0, 0.20, 0.0, -0.01, 0.01, 0.52),
+        (0.0, -0.20, 0.0, 0.02, -0.01, 0.47),
+        (0.15, 0.15, 0.0, -0.02, -0.02, 0.55),
+        (-0.15, 0.15, 0.05, 0.01, 0.0, 0.49),
+        (0.15, -0.15, -0.05, -0.01, 0.02, 0.53),
+        (-0.15, -0.15, 0.0, 0.0, -0.01, 0.46),
+        (0.10, -0.10, 0.10, -0.02, 0.01, 0.51),
+    ]
+    .map(|(rx, ry, rz, tx, ty, tz)| {
+        Iso3::from_parts(
+            Translation3::new(tx, ty, tz),
+            UnitQuaternion::from_euler_angles(rx, ry, rz),
+        )
+    })
+    .to_vec()
+}
+
+fn pinhole_truth(fx: f64, cx: f64) -> PinholeCamera {
+    make_pinhole_camera(
+        FxFyCxCySkew {
+            fx,
+            fy: fx + 5.0,
+            cx,
+            cy: 258.0,
+            skew: 0.0,
+        },
+        BrownConrady5 {
+            k1: -0.08,
+            k2: 0.04,
+            k3: 0.0,
+            p1: 0.0005,
+            p2: -0.0003,
+            iters: 8,
+        },
+    )
+}
+
+/// The board's projections in `camera` at `camera_se3_target`, with noise
+/// from stream `stream`.
+fn observe(
+    camera: &PinholeCamera,
+    camera_se3_target: &Iso3,
+    noise: &UniformPixelNoise,
+    stream: usize,
+) -> CorrespondenceView {
+    let (p3, p2): (Vec<Pt3>, Vec<Pt2>) = board()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| {
+            let uv = camera.project_point(&camera_se3_target.transform_point(p))?;
+            let uv = noise.apply(stream, i, Vec2::new(uv.x, uv.y));
+            Some((*p, Pt2::new(uv.x, uv.y)))
+        })
+        .unzip();
+    CorrespondenceView::new(p3, p2).unwrap()
+}
 
 fn truth() -> ScheimpflugIntrinsicsParams {
     let poses = [
@@ -129,12 +318,10 @@ fn value(params: &ScheimpflugIntrinsicsParams, label: &str) -> f64 {
 /// tilt) match their scatter over seeded noise within 10 %, and the NEES
 /// matches χ².
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn scheimpflug_covariance_matches_monte_carlo() {
     let gt = truth();
-    let mut errors: Vec<DVector<f64>> = Vec::new();
-    let mut predicted = None::<DVector<f64>>;
-    let mut nees = 0.0;
-    let mut labels = Vec::new();
+    let mut mc = MonteCarlo::default();
     for seed in 0..RUNS {
         let data = dataset(
             &gt,
@@ -155,46 +342,258 @@ fn scheimpflug_covariance_matches_monte_carlo() {
         assert!(cov.fixed.contains(&"k3".to_string()), "{:?}", cov.fixed);
         assert!(cov.fixed.contains(&"p1".to_string()), "{:?}", cov.fixed);
         assert_eq!(cov.views.len(), gt.camera_se3_target.len());
-        labels.clone_from(&cov.labels);
-        let n = labels.len();
-        let error = DVector::from_iterator(
-            n,
-            labels.iter().map(|l| value(&est.params, l) - value(&gt, l)),
-        );
-        let matrix = DMatrix::from_fn(n, n, |i, j| cov.covariance[i][j]);
-        nees += (error.transpose() * matrix.clone().try_inverse().unwrap() * &error)[(0, 0)];
-        let var = matrix.diagonal();
-        predicted = Some(predicted.map_or(var.clone(), |acc| acc + var));
-        errors.push(error);
+        mc.push(cov, |l| value(&est.params, l) - value(&gt, l));
     }
     assert_eq!(
-        labels,
+        mc.labels,
         ["fx", "fy", "cx", "cy", "k1", "k2", "tilt_x", "tilt_y"]
     );
+    mc.assert_calibrated(0.10);
+}
 
-    let runs = RUNS as f64;
-    let n = labels.len();
-    let predicted = (predicted.unwrap() / runs).map(f64::sqrt);
-    let mean = errors.iter().fold(DVector::zeros(n), |a, e| a + e) / runs;
-    let empirical = (errors
-        .iter()
-        .fold(DVector::zeros(n), |a, e| a + (e - &mean).map(|v| v * v))
-        / (runs - 1.0))
-        .map(f64::sqrt);
-    for (i, label) in labels.iter().enumerate() {
-        let ratio = predicted[i] / empirical[i];
-        assert!(
-            (ratio - 1.0).abs() < 0.10,
-            "{label}: predicted σ {:.3e}, empirical {:.3e} (ratio {ratio:.3})",
-            predicted[i],
-            empirical[i]
-        );
+/// A stereo rig whose cameras are refined with their extrinsics: the σ of
+/// both cameras' intrinsics and of camera 1's `cam_se3_rig` (reported as
+/// the inverse of the stored camera-to-rig pose) match their scatter.
+#[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
+fn rig_extrinsics_covariance_matches_monte_carlo() {
+    let cameras = [pinhole_truth(1150.0, 372.0), pinhole_truth(1120.0, 380.0)];
+    // rig_se3_cam: camera 1 sits 6 cm to the right, toed in.
+    let rig_se3_cam = [
+        Iso3::identity(),
+        Iso3::from_parts(
+            Translation3::new(0.06, 0.002, -0.004),
+            UnitQuaternion::from_euler_angles(0.01, -0.08, 0.005),
+        ),
+    ];
+    let rig_se3_target = board_poses();
+    let initial = RigExtrinsicsParams {
+        cameras: cameras.to_vec(),
+        cam_to_rig: rig_se3_cam.to_vec(),
+        rig_from_target: rig_se3_target.clone(),
+    };
+
+    let mut mc = MonteCarlo::default();
+    for seed in 0..RUNS {
+        let noise = UniformPixelNoise {
+            seed: 900 + seed,
+            max_abs_px: 0.5,
+        };
+        let views = rig_se3_target
+            .iter()
+            .enumerate()
+            .map(|(v, pose)| RigView {
+                meta: NoMeta,
+                obs: RigViewObs {
+                    cameras: (0..2)
+                        .map(|c| {
+                            let cam_se3_target = rig_se3_cam[c].inverse() * pose;
+                            Some(observe(&cameras[c], &cam_se3_target, &noise, 2 * v + c))
+                        })
+                        .collect(),
+                },
+            })
+            .collect();
+        let data = RigDataset::new(views, 2).unwrap();
+        let opts = RigExtrinsicsSolveOptions {
+            fix_extrinsics: vec![true, false],
+            ..Default::default()
+        };
+        let est =
+            optimize_rig_extrinsics(data, initial.clone(), opts, BackendSolveOptions::default())
+                .unwrap();
+        let Uncertainty::Available(cov) = &est.uncertainty else {
+            panic!("no covariance: {:?}", est.uncertainty);
+        };
+        assert!(cov.fixed.contains(&"cam0.cam_se3_rig".to_string()));
+        assert_eq!(cov.views[0].labels[0], "rig_se3_target.rx");
+        let cam_se3_rig_1 = (rig_se3_cam[1].inverse(), est.params.cam_to_rig[1].inverse());
+        mc.push(cov, |label| {
+            let (cam, rest) = label.split_once('.').unwrap();
+            let c: usize = cam.strip_prefix("cam").unwrap().parse().unwrap();
+            match rest.strip_prefix("cam_se3_rig.") {
+                Some(coordinate) => {
+                    assert_eq!(c, 1);
+                    pose_coordinate(&cam_se3_rig_1.0, &cam_se3_rig_1.1, coordinate)
+                }
+                None => camera_error(&cameras[c], &est.params.cameras[c], rest),
+            }
+        });
     }
-    let k = n as f64;
-    let nees = nees / runs;
-    let band = 3.0 * (2.0 * k / runs).sqrt();
-    assert!(
-        (nees - k).abs() < band,
-        "NEES mean {nees:.3}, expected {k} ± {band:.3}"
-    );
+    assert!(mc.labels.contains(&"cam1.cam_se3_rig.tz".to_string()));
+    mc.assert_calibrated(0.10);
+}
+
+/// An eye-in-hand scene: the camera, its hand-eye pose and the board in the
+/// base frame, and the robot poses that put the camera at each board pose
+/// (`camera_se3_target = X⁻¹ · B⁻¹ · Y`, so `B = Y · camera_se3_target⁻¹ · X⁻¹`).
+struct EyeInHand {
+    camera: PinholeCamera,
+    gripper_se3_camera: Iso3,
+    base_se3_target: Iso3,
+    camera_se3_target: Vec<Iso3>,
+    base_se3_gripper: Vec<Iso3>,
+}
+
+impl EyeInHand {
+    fn new() -> Self {
+        let gripper_se3_camera = Iso3::from_parts(
+            Translation3::new(0.03, -0.02, 0.08),
+            UnitQuaternion::from_euler_angles(0.1, -0.05, 0.3),
+        );
+        let base_se3_target = Iso3::from_parts(
+            Translation3::new(0.6, -0.1, 0.02),
+            UnitQuaternion::from_euler_angles(0.0, 0.05, 1.2),
+        );
+        let camera_se3_target = board_poses();
+        let base_se3_gripper = camera_se3_target
+            .iter()
+            .map(|c| base_se3_target * c.inverse() * gripper_se3_camera.inverse())
+            .collect();
+        Self {
+            camera: pinhole_truth(1150.0, 372.0),
+            gripper_se3_camera,
+            base_se3_target,
+            camera_se3_target,
+            base_se3_gripper,
+        }
+    }
+
+    fn initial(&self) -> HandEyeParams {
+        HandEyeParams {
+            cameras: vec![self.camera.clone()],
+            cam_to_rig: vec![Iso3::identity()],
+            handeye: self.gripper_se3_camera,
+            target_poses: vec![self.base_se3_target],
+        }
+    }
+
+    /// The dataset with pixel noise and the given (observed) robot poses.
+    fn dataset(&self, noise: &UniformPixelNoise, robot: &[Iso3]) -> HandEyeDataset {
+        let views = self
+            .camera_se3_target
+            .iter()
+            .zip(robot)
+            .enumerate()
+            .map(|(v, (c, b))| RigView {
+                meta: RobotPoseMeta {
+                    base_se3_gripper: *b,
+                },
+                obs: RigViewObs {
+                    cameras: vec![Some(observe(&self.camera, c, noise, v))],
+                },
+            })
+            .collect();
+        HandEyeDataset::new(views, 1, HandEyeMode::EyeInHand).unwrap()
+    }
+
+    /// The error of a shared label of a hand-eye estimate.
+    fn error(&self, est: &vision_calibration_optim::HandEyeEstimate, label: &str) -> f64 {
+        match label.split_once('.') {
+            Some(("gripper_se3_camera", c)) => {
+                pose_coordinate(&self.gripper_se3_camera, &est.params.handeye, c)
+            }
+            Some(("base_se3_target", c)) => {
+                pose_coordinate(&self.base_se3_target, &est.params.target_poses[0], c)
+            }
+            _ => camera_error(&self.camera, &est.params.cameras[0], label),
+        }
+    }
+}
+
+/// A single eye-in-hand camera with exact robot poses: the σ of the
+/// intrinsics, the hand-eye pose and the target pose match their scatter.
+#[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
+fn handeye_covariance_matches_monte_carlo() {
+    let scene = EyeInHand::new();
+    let mut mc = MonteCarlo::default();
+    for seed in 0..RUNS {
+        let noise = UniformPixelNoise {
+            seed: 1300 + seed,
+            max_abs_px: 0.5,
+        };
+        let data = scene.dataset(&noise, &scene.base_se3_gripper);
+        let opts = HandEyeSolveOptions {
+            fix_extrinsics: vec![true],
+            ..Default::default()
+        };
+        let est =
+            optimize_handeye(data, scene.initial(), opts, BackendSolveOptions::default()).unwrap();
+        let Uncertainty::Available(cov) = &est.uncertainty else {
+            panic!("no covariance: {:?}", est.uncertainty);
+        };
+        assert_eq!(
+            cov.fixed,
+            ["k3"],
+            "the identity camera-to-rig pose is not listed"
+        );
+        mc.push(cov, |label| scene.error(&est, label));
+    }
+    assert!(mc.labels.contains(&"gripper_se3_camera.tz".to_string()));
+    mc.assert_calibrated(0.10);
+}
+
+/// The same scene with robot poses perturbed as the robot-pose priors
+/// assume (view 0, the gauge, exact): refining them, the covariance counts
+/// the priors as known information, and the σ still match their scatter.
+#[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
+fn handeye_with_robot_pose_priors_matches_monte_carlo() {
+    let scene = EyeInHand::new();
+    let opts = HandEyeSolveOptions {
+        fix_extrinsics: vec![true],
+        refine_robot_poses: true,
+        ..Default::default()
+    };
+    // Uniform noise of the priors' standard deviation: half-width σ·√3.
+    let half_width = [
+        opts.robot_rot_sigma * 3f64.sqrt(),
+        opts.robot_trans_sigma * 3f64.sqrt(),
+    ];
+    let mut mc = MonteCarlo::default();
+    for seed in 0..LARGE_SCENE_RUNS {
+        let mut state = 0x5DEE_CE66_D1CE_4E5B ^ seed;
+        let mut uniform = move || {
+            // SplitMix64 to a value in [-1, 1).
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^= z >> 31;
+            (z >> 11) as f64 / (1u64 << 52) as f64 - 1.0
+        };
+        let robot: Vec<Iso3> = scene
+            .base_se3_gripper
+            .iter()
+            .enumerate()
+            .map(|(v, b)| {
+                if v == 0 {
+                    return *b;
+                }
+                let eps: [f64; 6] = std::array::from_fn(|i| -half_width[i / 3] * uniform());
+                apply_robot_delta(b, &eps)
+            })
+            .collect();
+        let noise = UniformPixelNoise {
+            seed: 1700 + seed,
+            max_abs_px: 0.5,
+        };
+        let data = scene.dataset(&noise, &robot);
+        let est = optimize_handeye(
+            data,
+            scene.initial(),
+            opts.clone(),
+            BackendSolveOptions::default(),
+        )
+        .unwrap();
+        let Uncertainty::Available(cov) = &est.uncertainty else {
+            panic!("no covariance: {:?}", est.uncertainty);
+        };
+        assert_eq!(cov.views.len(), scene.base_se3_gripper.len() - 1);
+        assert_eq!(cov.views[0].labels[0], "robot_delta.rx");
+        assert!(cov.fixed.contains(&"view0.robot_delta".to_string()));
+        mc.push(cov, |label| scene.error(&est, label));
+    }
+    mc.assert_calibrated(0.10);
 }

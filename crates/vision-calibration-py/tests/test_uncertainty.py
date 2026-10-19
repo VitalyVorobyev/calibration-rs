@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import math
 import unittest
+from pathlib import Path
 
 import vision_calibration as vc
 from _fixtures import planar_calibration_dataset
@@ -79,6 +81,33 @@ class ResultUncertaintyTest(unittest.TestCase):
         self.assertEqual(u.reason, "rank_deficient")
         self.assertIn("tilt_y", u.reason_labels)
         self.assertIn("cx", u.reason_labels)
+
+
+    def test_rig_result_names_each_camera(self) -> None:
+        # The committed stereo observations (two cameras, 20 views).
+        path = Path(__file__).resolve().parents[3] / "regression/observations/stereo_rig.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))["input"]
+        dataset = vc.RigExtrinsicsDataset(
+            num_cameras=payload["num_cameras"],
+            views=[
+                vc.RigExtrinsicsView(
+                    cameras=[
+                        None
+                        if cam is None
+                        else vc.Observation(points_3d=cam["points_3d"], points_2d=cam["points_2d"])
+                        for cam in view["obs"]["cameras"]
+                    ]
+                )
+                for view in payload["views"]
+            ],
+        )
+        u = vc.run_rig_extrinsics(dataset).uncertainty
+        self.assertTrue(u.available, u.reason)
+        self.assertIn("cam1.cam_se3_rig.tx", u.labels)
+        self.assertIn("cam0.cam_se3_rig", u.fixed)
+        self.assertLess(u.std_dev("cam1.cam_se3_rig.tx"), 1e-3)
+        self.assertEqual(len(u.views), 20)
+        self.assertEqual(u.views[0].labels[0], "rig_se3_target.rx")
 
 
 if __name__ == "__main__":

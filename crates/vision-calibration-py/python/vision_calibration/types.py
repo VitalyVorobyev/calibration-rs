@@ -206,6 +206,7 @@ class SingleCamHandeyeExport(TypedDict):
     robot_deltas: list[Se3Delta] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: Uncertainty
 
 
 class RigExtrinsicsExport(TypedDict):
@@ -213,6 +214,7 @@ class RigExtrinsicsExport(TypedDict):
     cam_se3_rig: list[Transform]
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: Uncertainty
 
 
 class RigHandeyeExport(TypedDict):
@@ -226,6 +228,7 @@ class RigHandeyeExport(TypedDict):
     robot_deltas: list[Se3Delta] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: Uncertainty
 
 
 class LaserlineParams(TypedDict):

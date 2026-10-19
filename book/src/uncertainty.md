@@ -1,8 +1,8 @@
 # Parameter Uncertainty
 
 A calibration result says not only what the parameters are but how well the
-data determines them. Every planar and Scheimpflug intrinsics result carries
-an `uncertainty`: the covariance of the estimated parameters at the solution,
+data determines them. The intrinsics, hand-eye and rig results carry an
+`uncertainty`: the covariance of the estimated parameters at the solution,
 the noise level the residuals imply, and, when no covariance can be given,
 the reason.
 
@@ -51,21 +51,34 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
   - intrinsics `fx, fy, cx, cy`;
   - distortion by coefficient name (`k1, k2, k3, p1, p2` for Brown-Conrady,
     `lambda` for the division model, and so on);
-  - the Scheimpflug tilt `tilt_x, tilt_y`, in radians.
+  - the Scheimpflug tilt `tilt_x, tilt_y`, in radians;
+  - the poses a result reports once, under their export names, with six
+    labels each (`<pose>.rx` … `<pose>.tz`, see `views` below):
+    `cam_se3_rig` per camera, the hand-eye pose (`gripper_se3_rig` or
+    `rig_se3_base`, `gripper_se3_camera` or `camera_se3_base` for a single
+    camera) and the target pose (`base_se3_target` or `gripper_se3_target`).
 
-  `std_dev(label)` is the square root of a diagonal entry, and
-  `correlation(a, b)` the normalized off-diagonal one.
+  In a result with several cameras, each camera's labels carry its index:
+  `cam1.fx`, `cam1.k1`, `cam1.cam_se3_rig.tx`. `std_dev(label)` is the square
+  root of a diagonal entry, and `correlation(a, b)` the normalized
+  off-diagonal one.
 - **`views`**: the parameters that belong to one view, each view's block
-  separately. For intrinsics results this is the board pose
-  `camera_se3_target`. A pose's six labels are `rx, ry, rz` (radians) and
-  `tx, ty, tz` (metres) of the perturbation `T · Exp(δ)` on the right. Both
-  are expressed in the pose's source frame, which is the target frame for
-  `camera_se3_target`. The correlation of a view's pose with the shared
-  parameters is not reported.
+  separately: the board pose `camera_se3_target` for intrinsics results,
+  `rig_se3_target` for rig results, and the robot-pose correction
+  `robot_delta` for hand-eye results that refine the robot poses. A pose's
+  six labels are `rx, ry, rz` (radians) and `tx, ty, tz` (metres) of the
+  perturbation `T · Exp(δ)` on the right. Both are expressed in the pose's
+  source frame, which is the target frame for `camera_se3_target`. The
+  correlation of a view's parameters with the shared ones is not reported.
 - **`fixed`**: the parameters the solve held fixed, such as `k3` with the
-  default configuration. The covariance is *conditional* on them: it does not
-  include their uncertainty, so fixing a parameter that the data cannot pin
-  down makes the others look better determined than they are.
+  default configuration, or `cam0.cam_se3_rig`, the reference camera that
+  defines the rig frame. A fixed pose is named once, without its six
+  coordinates. The covariance is *conditional* on them: it does not include
+  their uncertainty, so fixing a parameter that the data cannot pin down
+  makes the others look better determined than they are. The rig and rig
+  hand-eye workflows, for example, calibrate each camera's intrinsics first
+  and by default hold them fixed in the final solve, so their extrinsics'
+  σ leaves out the intrinsics' uncertainty.
 - **`noise`**: for each kind of residual, the Gaussian-equivalent standard
   deviation of one scalar residual. For reprojection that is the corner noise
   per pixel axis. It is estimated from the median absolute residual, so a few
@@ -94,10 +107,11 @@ residuals the loss down-weights. It does not ignore the outliers, and it does
 not treat them as Gaussian noise either. Without a loss it is the classical
 `σ̂² (JᵀJ)⁻¹`.
 
-These σ were checked against Monte-Carlo scatter on synthetic scenes, a few
-hundred noise realizations each. The predicted σ matched the empirical
-scatter within 10 % on clean data, and within 20 % with 5 % of the corners
-displaced by 10–30 px under Huber or Cauchy.
+These σ were checked against Monte-Carlo scatter on synthetic scenes (single
+cameras, a stereo rig, an eye-in-hand camera), a few hundred noise
+realizations each. The predicted σ matched the empirical scatter within 10 %
+on clean data, and within 20 % with 5 % of the corners displaced by
+10–30 px under Huber or Cauchy.
 
 ## When it is unavailable
 
@@ -117,7 +131,11 @@ unobservable together.
 
 ## Scope
 
-The planar and Scheimpflug intrinsics workflows report uncertainty; the
-hand-eye, rig and laser workflows report `not_computed`. The uncertainty of a
-projected point (how well a pixel's ray is determined across the image)
-follows from this covariance but is not reported.
+The intrinsics, hand-eye and rig workflows report uncertainty, from their
+final solve; the laser workflows report `not_computed`. Robot poses are taken
+as exact unless the hand-eye solve refines them. Then the priors'
+standard deviations (`robot_rot_sigma`, `robot_trans_sigma`) are taken as
+the robot's true pose accuracy, and the covariance is that of the estimate
+computed with those priors against the corner residuals. The uncertainty of a projected point (how well a
+pixel's ray is determined across the image) follows from this covariance but
+is not reported.

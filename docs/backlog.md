@@ -11,16 +11,25 @@ and the projection uncertainty it implies, validated against Monte-Carlo
 scatter. Design: ADR 0026; evidence: `notes/uncertainty.md`. Order: UQ-EXPORT →
 UQ-PROJECTION → UQ-APP.
 
-- [ ] UQ-EXPORT - `Uncertainty` on the remaining exports: single-camera
-  hand-eye, rig extrinsics, rig hand-eye, laserline device, rig laserline,
-  rig hand-eye laserline (planar and Scheimpflug intrinsics carry it). Labels
-  `cam<i>.fx`, `cam<i>.cam_se3_rig.rx`, `handeye.rx`, `plane<i>.nx`;
-  per-view blocks for rig poses and robot-pose corrections; only the final
-  solve feeds the export. The laserline default stops fixing pose 0. Gates:
-  Monte-Carlo per family (hand-eye with robot-pose priors; laser with two
-  residual kinds). Then the book chapter's scope, the five-minute tutorial
-  (`cam0.fx ± σ` on the rig), and the regression-suite drift gate in units
-  of σ.
+- [ ] UQ-EXPORT - `Uncertainty` on the laser exports: laserline device, rig
+  laserline, rig hand-eye laserline (intrinsics, hand-eye and rig results
+  carry it). Labels `plane.nx … plane.d`, `cam<i>.plane.nx` through
+  `uncertainty::RigLabelling`; only the final solve feeds the export. The
+  laserline default stops fixing pose 0. Gate: Monte-Carlo with both residual
+  kinds. Then the regression-suite drift gate in units of σ.
+- [ ] UQ-PRIOR-WEIGHTS - Robot-pose refinement weighs pixel residuals at
+  unit σ against the priors' `sqrt_info`, so with sub-pixel corners the
+  priors are far too weak: on `kuka_1` (σ̂ 0.11 px) the robot-pose deltas
+  absorb signal and σ(fx) is 0.95 px against 0.30 px with exact poses.
+  Rescale the reprojection family by its σ̂ (one re-solve) or the priors by
+  σ̂², and measure hand-eye accuracy against ground truth on synthetic
+  scenes; results change, so it needs a migration note.
+- [ ] UQ-RIG-INTRINSICS - Rig and rig hand-eye results hold the per-camera
+  intrinsics fixed in their final solve by default, so their covariance has
+  no intrinsics block and the extrinsics' σ is conditional on them. Decide:
+  refine intrinsics in the final solve by default (results change), or
+  report the per-camera intrinsics stage covariance alongside (loses the
+  intrinsics–extrinsics correlation). Measure both on `stereo_rig` and `ds8`.
 - [ ] UQ-PROJECTION - Projection uncertainty per camera: major-axis σ (px)
   on an image grid at a stated range (default: median target distance),
   `J_q Σ_θθ J_qᵀ` with exact derivatives from the generic camera kernels,

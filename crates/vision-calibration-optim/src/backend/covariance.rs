@@ -5,21 +5,25 @@
 //! column of each IR block coordinate. From there [`estimate`] works on IR
 //! terms alone, so both backends report the same covariance.
 //!
-//! The estimate is Huber's asymptotic covariance of an M-estimator, per
-//! residual family `f` (reprojection, laser plane, laser line):
+//! The estimate is Huber's asymptotic covariance of an M-estimator, pooled
+//! per residual family `f` (reprojection, laser plane, laser line):
 //!
 //! ```text
-//! Σ = (Σ_f A_f / σ_f² + A_p)⁻¹,   A_f = Σ_{i∈f} JᵢᵀJᵢ,   A_p = Σ_priors JᵢᵀJᵢ
-//! σ_f² = E_f[ψ²] / E_f[ψ′]² · m / (m − n)
+//! Σ = H⁻¹ G H⁻¹,   H = Σ_f κ_f A_f + A_p,   G = Σ_f s_f A_f + A_p
+//! A_f = Σ_{i∈f} JᵢᵀJᵢ,   A_p = Σ_priors JᵢᵀJᵢ
+//! κ_f = E_f[ψ′],   s_f = E_f[ψ²] · m / (m − n)
 //! ```
 //!
 //! with `ψ = ρ′ r` the residual's influence and `ψ′ = tr(ρ′ I + 2ρ″ r rᵀ)`
-//! its derivative, both averaged over the family's scalar residuals. Without
-//! a robust loss `σ_f²` is the classical `Σ‖r‖² / (m − n)`. With one, the
-//! outliers' bounded influence enters as it scatters the estimate: the
-//! IRLS form `σ̂² (JᵀWJ)⁻¹` overstates `σ` about twofold under Huber with 5 %
-//! outliers, and a per-residual sandwich, though calibrated in `σ`, is too
-//! noisy run to run. Priors carry known information.
+//! its derivative, both averaged over the family's scalar residuals. `H` is
+//! the curvature of the objective the solver minimized and `G` the scatter
+//! of its gradient, so the sandwich holds for the weights the solve used,
+//! with priors as known information. With one family and no priors it is
+//! `σ_f² A_f⁻¹`, `σ_f² = s_f / κ_f²`, and without a robust loss the classical
+//! `Σ‖r‖² / (m − n) · (JᵀJ)⁻¹`. With a loss, the outliers' bounded influence
+//! enters as it scatters the estimate: the IRLS form `σ̂² (JᵀWJ)⁻¹`
+//! overstates `σ` about twofold under Huber with 5 % outliers, and a
+//! per-residual sandwich, though calibrated in `σ`, is too noisy run to run.
 //! `H` is normalized to a unit diagonal and factored with the sparse
 //! Cholesky plan; a singular or near-singular `H` is diagnosed with a dense
 //! eigendecomposition and reported, not inverted.
@@ -205,7 +209,16 @@ pub(crate) fn estimate(
     // and get a unit diagonal.
     let mut normal = NormalEquations::new(raw.jacobian.symbolic())
         .expect("the solve planned a normal matrix of this pattern");
-    let mut h = information(&mut normal, &raw.jacobian, &blocks, dof_scale);
+    let moments = family_moments(&blocks, dof_scale);
+    let mut h = weighted_normal(&mut normal, &raw.jacobian, &blocks, |f| moments.kappa(f));
+    // `G ∝ H` when every group has the same `s / κ` (one family, no priors):
+    // then `Σ = (s / κ) H⁻¹` and `G` need not be formed.
+    let ratios: Vec<f64> = moments.groups.iter().map(|g| g.s / g.kappa).collect();
+    let proportional = ratios
+        .iter()
+        .all(|r| (r - ratios[0]).abs() <= 1e-12 * ratios[0].abs());
+    let g = (!proportional)
+        .then(|| weighted_normal(&mut normal, &raw.jacobian, &blocks, |f| moments.s(f)));
     let ncols = raw.jacobian.ncols();
     let mut is_free = vec![false; ncols];
     for &(_, c) in &free {
@@ -216,8 +229,8 @@ pub(crate) fn estimate(
         h[pattern.col_range(c).start] = 1.0;
     }
 
-    let sigma = match covariance(&normal, &mut h, ncols) {
-        Ok(sigma) => sigma,
+    let h_inverse = match covariance(&normal, &mut h, ncols) {
+        Ok(inverse) => inverse,
         Err(null) => {
             let by_column: HashMap<usize, Coordinate> =
                 free.iter().map(|&(c, col)| (col, c)).collect();
@@ -227,6 +240,13 @@ pub(crate) fn estimate(
                     null.iter().filter_map(|col| by_column.get(col).copied()),
                 ),
             });
+        }
+    };
+    let sigma = match g {
+        None => h_inverse * ratios[0],
+        Some(g) => {
+            let g = dense_symmetric(&normal, &g, ncols);
+            &h_inverse * g * &h_inverse
         }
     };
     let tangent_coords: Vec<Coordinate> = free.iter().map(|&(c, _)| c).collect();
@@ -305,52 +325,87 @@ fn residual_blocks(ir: &ProblemIR, residual: &Mat<f64>) -> Vec<BlockTerms> {
     out
 }
 
-/// `H = Σ_f A_f / σ_f² + A_p` as a lower triangle on `normal`'s pattern,
-/// with `σ_f²` Huber's asymptotic variance of an M-estimator with i.i.d.
-/// residuals: `E[ψ²] / E[ψ′]²` per scalar residual of the family, with
-/// `ψ = ρ′ r` and `ψ′` the trace of `ρ′ I + 2ρ″ r rᵀ`, times `m / (m − n)`
-/// for the degrees of freedom the fit absorbs. Without a loss this is the
-/// classical `σ̂² = Σ‖r‖² / (m − n)`.
-fn information(
-    normal: &mut NormalEquations,
-    jac: &SparseColMat<usize, f64>,
-    blocks: &[BlockTerms],
-    dof_scale: f64,
-) -> Vec<f64> {
-    // Row weights per group: 1/σ_f² on a family's rows, 1 on the priors'.
-    let mut groups: Vec<(Option<ResidualKind>, f64, f64, usize)> = Vec::new();
+/// One group of residual blocks (a family, or the priors) and its pooled
+/// moments.
+struct Group {
+    family: Option<ResidualKind>,
+    /// `κ = E[ψ′]`; 1 for priors.
+    kappa: f64,
+    /// `s = E[ψ²] · m / (m − n)`; 1 for priors.
+    s: f64,
+}
+
+struct Moments {
+    groups: Vec<Group>,
+}
+
+impl Moments {
+    fn group(&self, family: Option<ResidualKind>) -> &Group {
+        self.groups
+            .iter()
+            .find(|g| g.family == family)
+            .expect("every block's family is grouped")
+    }
+
+    fn kappa(&self, family: Option<ResidualKind>) -> f64 {
+        self.group(family).kappa
+    }
+
+    fn s(&self, family: Option<ResidualKind>) -> f64 {
+        self.group(family).s
+    }
+}
+
+/// Huber's pooled moments per group, for i.i.d. residuals within a family:
+/// `ψ = ρ′ r` and `ψ′` the trace of `ρ′ I + 2ρ″ r rᵀ` per scalar residual,
+/// with `E[ψ²]` scaled by `m / (m − n)` for the degrees of freedom the fit
+/// absorbs.
+fn family_moments(blocks: &[BlockTerms], dof_scale: f64) -> Moments {
+    // (family, Σψ², Σψ′, scalar residuals)
+    let mut sums: Vec<(Option<ResidualKind>, f64, f64, usize)> = Vec::new();
     for block in blocks {
-        let i = match groups.iter().position(|g| g.0 == block.family) {
+        let i = match sums.iter().position(|g| g.0 == block.family) {
             Some(i) => i,
             None => {
-                groups.push((block.family, 0.0, 0.0, 0));
-                groups.len() - 1
+                sums.push((block.family, 0.0, 0.0, 0));
+                sums.len() - 1
             }
         };
-        let g = &mut groups[i];
+        let g = &mut sums[i];
         g.1 += block.rho1 * block.rho1 * block.s;
         g.2 += block.rows.len() as f64 * block.rho1 + 2.0 * block.rho2 * block.s;
         g.3 += block.rows.len();
     }
-    let weight = |family: Option<ResidualKind>| -> f64 {
-        let g = groups
-            .iter()
-            .find(|g| g.0 == family)
-            .expect("grouped above");
-        match family {
-            None => 1.0,
-            Some(_) => {
-                let (psi2, dpsi) = (g.1 / g.3 as f64, g.2 / g.3 as f64);
-                let sigma2 = dof_scale * psi2 / (dpsi * dpsi);
-                1.0 / sigma2.max(f64::MIN_POSITIVE)
-            }
-        }
-    };
+    let groups = sums
+        .into_iter()
+        .map(|(family, psi2, dpsi, count)| match family {
+            None => Group {
+                family,
+                kappa: 1.0,
+                s: 1.0,
+            },
+            Some(_) => Group {
+                family,
+                kappa: (dpsi / count as f64).max(f64::MIN_POSITIVE),
+                s: (dof_scale * psi2 / count as f64).max(f64::MIN_POSITIVE),
+            },
+        })
+        .collect();
+    Moments { groups }
+}
+
+/// `Σ wᵢ JᵢᵀJᵢ` as a lower triangle on `normal`'s pattern, with the weight
+/// `w` of each block's group.
+fn weighted_normal(
+    normal: &mut NormalEquations,
+    jac: &SparseColMat<usize, f64>,
+    blocks: &[BlockTerms],
+    weight: impl Fn(Option<ResidualKind>) -> f64,
+) -> Vec<f64> {
     // `√w` per row, so the assembled `J̃ᵀJ̃` is `Σ wᵢ JᵢᵀJᵢ`.
     let mut row_scale = vec![0.0; jac.nrows()];
     for block in blocks {
-        let w = weight(block.family).sqrt();
-        row_scale[block.rows.clone()].fill(w);
+        row_scale[block.rows.clone()].fill(weight(block.family).sqrt());
     }
     let symbolic = jac.symbolic();
     let mut values = jac.val().to_vec();
@@ -406,8 +461,8 @@ fn family_noise(blocks: &[BlockTerms], residual: &Mat<f64>) -> Vec<FamilyNoise> 
         .collect()
 }
 
-/// `Σ = H⁻¹` for `H` given by its lower triangle, or the columns that make
-/// it singular. Inverted in the unit-diagonal frame `D H D`.
+/// `H⁻¹` for `H` given by its lower triangle, or the columns that make it
+/// singular. Inverted in the unit-diagonal frame `D H D`.
 fn covariance(
     normal: &NormalEquations,
     h: &mut [f64],

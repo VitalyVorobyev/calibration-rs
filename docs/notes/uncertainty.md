@@ -22,13 +22,19 @@ after their `sqrt_info`.
 At `θ̂`, with `Jᵢ = ∂rᵢ/∂θ` and `rᵢ` raw (loss-free) and `sᵢ = ‖rᵢ‖²`:
 
 ```
-Σ = (Σ_f A_f / σ_f² + A_p)⁻¹,   A_f = Σ_{i∈f} JᵢᵀJᵢ
-σ_f² = (Σ_{i∈f} ρ′ᵢ² sᵢ / m_f) / (Σ_{i∈f} (dᵢ ρ′ᵢ + 2ρ″ᵢ sᵢ) / m_f)² · m / (m − n)
+Σ = H⁻¹ G H⁻¹,   H = Σ_f κ_f A_f + A_p,   G = Σ_f s_f A_f + A_p,   A_f = Σ_{i∈f} JᵢᵀJᵢ
+κ_f = Σ_{i∈f} (dᵢ ρ′ᵢ + 2ρ″ᵢ sᵢ) / m_f,   s_f = Σ_{i∈f} ρ′ᵢ² sᵢ / m_f · m / (m − n)
 ```
 
-`dᵢ` is the block's residual dimension. This is Huber's asymptotic
-covariance of an M-estimator, `E[ψ²]/E[ψ′]² · (JᵀJ)⁻¹`, for i.i.d. residuals
-within a family. `ψ = ρ′ r` is the influence of a residual and `ψ′` its
+`dᵢ` is the block's residual dimension. With one family and no priors this
+is Huber's asymptotic covariance of an M-estimator, `E[ψ²]/E[ψ′]² · (JᵀJ)⁻¹`,
+for i.i.d. residuals within a family. With priors or several families the
+moments stay pooled per family, inside the sandwich for the weights the
+solve used: the solver weighs pixel residuals at unit σ against the priors'
+`sqrt_info`, not at `1/σ̂²`, so the inverse information of an optimally
+weighted solve, `(Σ_f A_f/σ_f² + A_p)⁻¹`, is not this estimate's
+covariance. Monte-Carlo with robot-pose priors put it at 0.64× the scatter
+for some coordinates; the sandwich held 0.93–1.05. `ψ = ρ′ r` is the influence of a residual and `ψ′` its
 derivative, `ρ′ I + 2ρ″ r rᵀ` (trace per scalar). The factor `m/(m − n)`
 accounts for the degrees of freedom the fit absorbs. Without a loss it
 reduces to the classical `σ̂² (JᵀJ)⁻¹`.
@@ -96,8 +102,9 @@ normalized estimation error squared against `χ²_n`.
 | Planar intrinsics | 8 views of an 8×6 board, ±0.5 px uniform noise, 300 runs | σ within ±10 %; NEES mean within 3 standard errors of χ²(8) | σ 0.94–1.04, NEES 8.07 |
 | Planar intrinsics, outliers | 5 % displaced 10–30 px, Huber / Cauchy (1 px), 200 runs | σ within ±20 %; NEES as above | Huber σ 0.91–1.00, NEES 8.55; Cauchy σ 0.95–1.05, NEES 7.98 |
 | Scheimpflug intrinsics | 10 views of a 9×9 board, tilt (0.05, −0.02) rad, ±0.5 px uniform noise, 200 runs (`optim/tests/uncertainty.rs`) | σ within ±10 %; NEES as above | σ 0.90–1.04 (fx…tilt_y), NEES 8.75 |
-| Hand-eye | `single_cam_handeye/*`, with robot-pose refinement | σ within ±10 % | *pending* |
-| Rig extrinsics / hand-eye | `rig_*` scenes | σ within ±10 % | *pending* |
+| Rig extrinsics | 2 cameras (intrinsics free), 10 views of a 9×9 board, ±0.5 px, 200 runs; `cam1.cam_se3_rig` through the inverse-pose adjoint | σ within ±10 %; NEES as above | σ 0.95–1.08 (22 parameters), NEES 22.37 |
+| Hand-eye, exact robot poses | eye-in-hand, intrinsics free, 10 poses, ±0.5 px, 200 runs | σ within ±10 %; NEES as above | σ 0.93–1.07 (20 parameters), NEES 19.93 |
+| Hand-eye, robot-pose priors | as above, robot poses perturbed with the priors' σ (0.5°, 1 mm; view 0 exact) and refined, 400 runs | σ within ±10 %; NEES as above | sandwich σ 0.93–1.05, NEES 20.91; inverse-information form 0.64–1.07 (rejected) |
 | Laser | `laserline_device/*`, `rig_laserline_device/*` | σ within ±10 %, two families | *pending* |
 | Backend parity | planar, with and without Huber | tiny-solver vs factrs `Σ` within 1e-6 relative | pass |
 | Rank deficiency | one camera through two free SE(3) blocks (a 6-DOF gauge) | `RankDeficient` naming the gauge blocks | pass |
