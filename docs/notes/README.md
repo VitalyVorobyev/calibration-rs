@@ -29,7 +29,8 @@ empirical evidence behind ADR 0022.
 
 Families: planar intrinsics (template, this directory),
 Scheimpflug intrinsics (seeded), rig extrinsics, hand-eye, laserline
-bundle, ringgrid detection/bias, rectification (short note — its gate exists), two-view/triangulation.
+bundle, ringgrid detection/bias, rectification (short note — its gate exists), two-view/triangulation,
+parameter uncertainty (`uncertainty.md`, across all families).
 
 ## Regression baselines
 

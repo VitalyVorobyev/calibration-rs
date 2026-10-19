@@ -18,6 +18,13 @@ Adopt the `frame_se3_frame` naming convention for all rigid transforms:
 
 SE3 storage order: `[qx, qy, qz, qw, tx, ty, tz]` (Hamilton quaternion, scalar-last, then translation).
 
+Covariance and tangent coordinates (ADR 0026):
+- An SE3 pose `a_se3_b` is perturbed on the right, `T · Exp([δθ, δt])`:
+  rotation first (radians), then translation (metres), both in frame `b`.
+  Pose covariances are 6×6 in this order.
+- A laser plane `n·p + d = 0` reports its covariance over `[nx, ny, nz, d]`.
+- A covariance is conditional on every fixed parameter.
+
 Coordinate expectations:
 - **Pixel coordinates**: used directly by homography, fundamental matrix, PnP solvers.
 - **Normalized coordinates**: `K^-1 * pixel`; used by essential matrix.

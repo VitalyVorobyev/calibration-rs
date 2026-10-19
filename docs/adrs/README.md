@@ -47,3 +47,4 @@ AGENTS.md. Numbers are never reused.
 - [0023 - `DeviceSpec`: Device Specification Schema and Seed Derivation](0023-device-spec-seed-derivation.md)
 - [0024 - One Config Vocabulary Across the Eight Problem Types](0024-config-vocabulary.md)
 - [0025 - A Second Backend (factrs) Under One Levenberg–Marquardt Loop](0025-factrs-backend-shared-lm.md)
+- [0026 - Parameter Uncertainty as a Standard Result](0026-parameter-uncertainty.md)
