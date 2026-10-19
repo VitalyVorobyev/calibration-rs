@@ -409,6 +409,33 @@ impl Compiled {
         cols
     }
 
+    /// The Jacobian column of each tangent coordinate of every IR block
+    /// (by id) under `order`; `None` where the coordinate is fixed.
+    pub(super) fn columns(&self, ir: &ProblemIR, order: &ValuesOrder) -> Vec<Vec<Option<usize>>> {
+        ir.params
+            .iter()
+            .map(|block| {
+                let slot = self.slots[block.id.0];
+                let var = &self.vars[slot.var()];
+                let start = order
+                    .get(Key(slot.var() as u64))
+                    .expect("every variable is ordered")
+                    .idx;
+                // Components of the variable this block's coordinates are.
+                let components: Vec<usize> = match slot {
+                    Slot::Vector { offset, dim, .. } => (offset..offset + dim).collect(),
+                    Slot::Se3 { .. } => (0..6).collect(),
+                    Slot::PlaneNormal { .. } => (0..2).collect(),
+                    Slot::PlaneDistance { .. } => vec![2],
+                };
+                components
+                    .into_iter()
+                    .map(|c| (!var.fixed.contains(&c)).then_some(start + c))
+                    .collect()
+            })
+            .collect()
+    }
+
     /// Clamp bounded components to their bounds.
     pub(super) fn clamp_bounds(&self, values: &mut Values) {
         for (index, var) in self.vars.iter().enumerate() {

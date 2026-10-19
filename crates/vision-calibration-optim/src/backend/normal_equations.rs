@@ -270,6 +270,25 @@ impl NormalEquations {
         }
     }
 
+    /// The lower-triangle pattern of `J̃ᵀJ̃`, diagonal included: each
+    /// column's rows ascending, the diagonal first.
+    pub(super) fn pattern(&self) -> SymbolicSparseColMatRef<'_, usize> {
+        self.pattern.as_ref()
+    }
+
+    /// `J̃ᵀJ̃` as last assembled: values on [`pattern`](Self::pattern).
+    pub(super) fn hessian(&self) -> &[f64] {
+        &self.hessian
+    }
+
+    /// Cholesky factor of the symmetric matrix whose lower triangle is
+    /// `values` on [`pattern`](Self::pattern); `None` when it is not
+    /// positive definite.
+    pub(super) fn factor(&self, values: &[f64]) -> Option<Llt<usize, f64>> {
+        let matrix = SparseColMatRef::new(self.pattern.as_ref(), values);
+        Llt::try_new_with_symbolic(self.llt.clone(), matrix, Side::Lower).ok()
+    }
+
     /// The step `δ` solving `(J̃ᵀJ̃ + λD)·δ = J̃ᵀ(−r)`, in scaled coordinates.
     ///
     /// Returns `None` when the damped matrix is not positive definite.

@@ -62,6 +62,9 @@ pub(crate) struct LmSolution<S> {
     pub cost: f64,
     /// Outer iterations executed.
     pub num_iters: usize,
+    /// Whether a stopping rule ended the loop, rather than the iteration
+    /// budget.
+    pub converged: bool,
 }
 
 /// Minimize `engine.cost` from `x0`.
@@ -87,6 +90,7 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
             state: x,
             cost: current_cost,
             num_iters: 0,
+            converged: true,
         });
     }
     if !current_cost.is_finite() {
@@ -98,6 +102,7 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
     let mut damping = 1.0 / LM_INITIAL_TRUST_REGION_RADIUS;
 
     let mut num_iters = 0usize;
+    let mut converged = false;
     for outer_iter in 0..max_iters {
         num_iters = outer_iter + 1;
         let last_cost = current_cost;
@@ -155,25 +160,27 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
             if verbosity > 0 {
                 println!("lm stopped: relative step below tolerance");
             }
+            converged = true;
             break;
         }
         if !accepted {
+            // No step decreases the cost, however small: a minimum to
+            // working precision.
             if verbosity > 0 {
                 println!(
                     "lm stopped: no accepted step after {LM_MAX_STEP_ATTEMPTS} damping retries"
                 );
             }
+            converged = true;
             break;
         }
 
-        if current_cost < min_error {
-            break;
-        }
         let abs_decrease = (last_cost - current_cost).abs();
-        if abs_decrease < min_abs_decrease {
-            break;
-        }
-        if last_cost > 0.0 && abs_decrease / last_cost < min_rel_decrease {
+        if current_cost < min_error
+            || abs_decrease < min_abs_decrease
+            || (last_cost > 0.0 && abs_decrease / last_cost < min_rel_decrease)
+        {
+            converged = true;
             break;
         }
     }
@@ -182,5 +189,6 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         state: x,
         cost: current_cost,
         num_iters,
+        converged,
     })
 }

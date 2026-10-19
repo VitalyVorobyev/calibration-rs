@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::backend::covariance::{self, RawLinearization};
 use crate::backend::lm::{self, LinearizationEngine, LmSolution};
 use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
 use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveReport};
@@ -7,7 +8,9 @@ use crate::factors::laserline::{
     laser_line_distance_model_generic, laser_point_to_plane_model_generic,
 };
 use crate::factors::reprojection_model::reproj_residual_model_generic;
-use crate::ir::{FactorKind, LaserChain, ManifoldKind, ProblemIR, ReprojChain, RobustLoss};
+use crate::ir::{
+    FactorKind, LaserChain, ManifoldKind, ParamBlock, ProblemIR, ReprojChain, RobustLoss,
+};
 use faer::sparse::SparseColMat;
 use nalgebra::DVector;
 use std::collections::HashMap;
@@ -140,16 +143,89 @@ impl OptimBackend for TinySolverBackend {
             state,
             cost,
             num_iters,
+            converged,
         } = lm::levenberg_marquardt(&engine, blocks, opts)
             .ok_or_else(|| Error::numerical("tiny-solver failed to converge"))?;
 
+        let params = params_from_blocks(&state);
+        // Without a robust loss the solve's own linearization is the raw one.
+        let raw = if ir.has_robust_loss() {
+            self.raw_linearization(ir, &params)?
+        } else {
+            raw_from_engine(ir, &engine, &state)
+        };
         Ok(BackendSolution {
-            params: params_from_blocks(&state),
+            uncertainty: covariance::estimate(ir, &params, raw, converged),
+            params,
             solve_report: SolveReport {
                 final_cost: 0.5 * cost,
                 num_iters,
             },
         })
+    }
+}
+
+impl TinySolverBackend {
+    /// The loss-free residual and Jacobian of `ir` at `params`, with each
+    /// IR block's columns; `None` when every coordinate is fixed.
+    pub(super) fn raw_linearization(
+        &self,
+        ir: &ProblemIR,
+        params: &HashMap<String, DVector<f64>>,
+    ) -> Result<Option<RawLinearization>, Error> {
+        let problem = self.compile(&ir.without_losses(), params)?;
+        let blocks = problem.initialize_parameter_blocks(params);
+        let engine = TinySolverEngine::new(&problem, &blocks);
+        Ok(raw_from_engine(ir, &engine, &blocks))
+    }
+}
+
+/// `engine`'s linearization at `state` with each IR block's columns, for an
+/// engine whose problem has no robust loss; `None` when every coordinate is
+/// fixed.
+fn raw_from_engine(
+    ir: &ProblemIR,
+    engine: &TinySolverEngine<'_>,
+    state: &HashMap<String, ParameterBlock>,
+) -> Option<RawLinearization> {
+    if engine.dim == 0 {
+        return None;
+    }
+    let (residual, jacobian) = engine.linearize(state);
+    let columns = ir
+        .params
+        .iter()
+        .map(|block| block_columns(block, engine.col_idx.get(&block.name).copied()))
+        .collect();
+    Some(RawLinearization {
+        residual,
+        jacobian,
+        columns,
+    })
+}
+
+/// The Jacobian column of each tangent coordinate of `block`, whose columns
+/// start at `start`: a manifold block's tangent in order (none when fully
+/// fixed), a Euclidean block's free components in order.
+fn block_columns(block: &ParamBlock, start: Option<usize>) -> Vec<Option<usize>> {
+    let tangent = covariance::tangent_dim(block.manifold, block.dim);
+    let Some(start) = start else {
+        return vec![None; tangent];
+    };
+    match block.manifold {
+        ManifoldKind::Euclidean => {
+            let mut next = start;
+            (0..block.dim)
+                .map(|i| {
+                    (!block.fixed.contains(i)).then(|| {
+                        next += 1;
+                        next - 1
+                    })
+                })
+                .collect()
+        }
+        _ if block.fixed.is_all_fixed(block.dim) => vec![None; tangent],
+        _ => (start..start + tangent).map(Some).collect(),
     }
 }
 
