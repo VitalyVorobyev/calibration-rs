@@ -95,6 +95,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Rotation updates exact at every step size.** The solver retracts SE(3)
+  and quaternion parameters through tiny-solver's rotation exponential,
+  which is now accurate to machine precision for small steps and keeps its
+  sign for rotations beyond 2π. Requires tiny-solver 0.18.7 or newer.
 - **No more uphill `SparseQR` steps.** The `SparseQR` linear solver solved
   for the negated step, so the loop rejected every step and returned the
   initial parameters. It also factored `JᵀJ` rather than `J`, so it was no
