@@ -39,9 +39,14 @@ use vision_calibration_core::{
 
 /// Per-view robot metadata required by hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RobotPoseMeta {
     /// Gripper pose expressed in the robot base frame (T_B_G).
     #[serde(alias = "robot_pose")]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "vision_calibration_core::Iso3Schema")
+    )]
     pub base_se3_gripper: Iso3,
 }
 

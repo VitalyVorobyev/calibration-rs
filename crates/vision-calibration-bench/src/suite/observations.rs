@@ -30,6 +30,7 @@ pub const OBSERVATION_SET_VERSION: u32 = 1;
 ///
 /// Serialized flat: `{"version", "cameras", "problem", "input"}`, where
 /// `problem` names the problem type and `input` is its input payload.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObservationSet {
     /// Format version; [`OBSERVATION_SET_VERSION`] for files this build
@@ -43,6 +44,7 @@ pub struct ObservationSet {
 }
 
 /// One camera of an [`ObservationSet`].
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObservedCamera {
@@ -53,6 +55,7 @@ pub struct ObservedCamera {
 }
 
 /// A problem type together with its input payload.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "problem", content = "input", rename_all = "snake_case")]
 pub enum ProblemInput {

@@ -1,9 +1,12 @@
-//! Emit JSON Schemas for the workspace's user-facing config types.
+//! Emit JSON Schemas for the workspace's user-facing config types and the
+//! regression suite's file formats.
 //!
-//! Output goes to `app/src/schemas/<name>.json`, plus `<name>.default.json` (the
-//! type's `Default` value) for every config that has one. The Tauri app reads the
-//! schemas at build time to drive schema-driven forms in the Run workspace; the
-//! defaults feed the app's form round-trip tests.
+//! Config schemas go to `app/src/schemas/<name>.json`, plus
+//! `<name>.default.json` (the type's `Default` value) for every config that has
+//! one. The Tauri app reads the schemas at build time to drive schema-driven
+//! forms in the Run workspace; the defaults feed the app's form round-trip
+//! tests. The suite's observation, truth and external-result formats go to
+//! `regression/schema/<name>.json`, for authors of comparison harnesses.
 //!
 //! With `--check`, the command instead verifies that the on-disk schemas
 //! match what would be generated from current source. CI runs this to
@@ -15,6 +18,8 @@ use serde::Serialize;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+use vision_calibration_bench::suite::compare::ExternalResult;
+use vision_calibration_bench::suite::{ObservationSet, Truth};
 use vision_calibration_dataset::DatasetSpec;
 use vision_calibration_pipeline::laserline_device::LaserlineDeviceConfig;
 use vision_calibration_pipeline::planar_intrinsics::PlanarIntrinsicsConfig;
@@ -42,8 +47,26 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         entry::<RigLaserlineDeviceConfig>("rig_laserline_device_config"),
     ];
 
+    let suite_dir = workspace_root.join("regression/schema");
+    std::fs::create_dir_all(&suite_dir)
+        .with_context(|| format!("creating {}", suite_dir.display()))?;
+    let suite_entries: Vec<(&str, Value)> = vec![
+        ("observation_set", schema_value::<ObservationSet>()),
+        ("truth", schema_value::<Truth>()),
+        ("external_result", schema_value::<ExternalResult>()),
+    ];
+
     let mut drift = Vec::new();
     let mut files = 0;
+    for (name, schema) in &suite_entries {
+        write_or_check(
+            &suite_dir.join(format!("{name}.json")),
+            schema,
+            check,
+            &mut drift,
+        )?;
+        files += 1;
+    }
     for (name, schema, default) in &entries {
         write_or_check(
             &out_dir.join(format!("{name}.json")),
@@ -82,7 +105,11 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
             )
         }
     } else {
-        println!("emitted {files} files to {}", out_dir.display());
+        println!(
+            "emitted {files} files to {} and {}",
+            out_dir.display(),
+            suite_dir.display()
+        );
         Ok(())
     }
 }

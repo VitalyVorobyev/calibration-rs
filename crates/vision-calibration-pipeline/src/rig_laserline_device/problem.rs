@@ -26,6 +26,7 @@ use super::state::RigLaserlineDeviceState;
 /// Scheimpflug sensors + cam→rig poses, plus the per-view rig→target poses the
 /// downstream laserline dataset spans.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigUpstreamCalibration {
     /// Per-camera intrinsics.
     pub intrinsics: Vec<FxFyCxCySkew<Real>>,
@@ -34,8 +35,16 @@ pub struct RigUpstreamCalibration {
     /// Per-camera Scheimpflug sensor parameters.
     pub sensors: Vec<ScheimpflugParams>,
     /// Per-camera extrinsics `cam_se3_rig` (T_C_R).
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub cam_se3_rig: Vec<Iso3>,
     /// Per-view rig poses `rig_se3_target` (T_R_T).
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "Vec<vision_calibration_core::Iso3Schema>")
+    )]
     pub rig_se3_target: Vec<Iso3>,
 }
 
@@ -102,6 +111,7 @@ impl RigHandeyeExport {
 
 /// Input for rig laserline calibration: dataset + frozen upstream calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigLaserlineDeviceInput {
     /// Per-view, per-camera observations.
     pub dataset: RigLaserlineDataset,

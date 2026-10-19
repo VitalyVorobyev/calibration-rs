@@ -32,21 +32,33 @@ use serde::{Deserialize, Serialize};
 /// assert_eq!(view.weight(0), 1.0); // default weight
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(try_from = "CorrespondenceViewRaw")]
 pub struct CorrespondenceView {
     /// 3D points in world/target frame.
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<[f64; 3]>"))]
     pub points_3d: Vec<Pt3>,
     /// Corresponding 2D pixel observations.
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<[f64; 2]>"))]
     pub points_2d: Vec<Pt2>,
     /// Per-point weights (empty = unweighted, all default to 1.0).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub weights: Vec<f64>,
 }
 
+/// The wire form of [`CorrespondenceView`], validated on conversion; it
+/// also describes the view's JSON Schema.
 #[derive(Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", schemars(rename = "CorrespondenceView"))]
 struct CorrespondenceViewRaw {
+    /// 3D points `[x, y, z]` in the target frame, metres.
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<[f64; 3]>"))]
     points_3d: Vec<Pt3>,
+    /// The matching image points `[u, v]`, pixels.
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<[f64; 2]>"))]
     points_2d: Vec<Pt2>,
+    /// Per-point weights; empty for unweighted.
     #[serde(default)]
     weights: Vec<f64>,
 }

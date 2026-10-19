@@ -69,11 +69,6 @@ stays local-only, as do the private sets.
   captures are CC-BY-4.0. Once `data/stereo` is fetchable, its app presets
   move from the local preset file back into `BUILTIN_PRESETS`, and a
   real-image dense-stereo example can return.
-- [ ] DATA-SCHEMA - A JSON Schema of the observation format for harness
-  authors: `JsonSchema` derives on the problem inputs (core views and
-  datasets, the hand-eye and laser metas, the rig laserline input) and on
-  `ObservationSet` and the truth/external-result files, emitted by `cargo
-  xtask emit-schemas`. The OpenCV harness reads the files without it today.
 - [ ] DATA-MRCAL - mrcal comparison (parameters and projection uncertainty)
   in an Ubuntu CI job (`apt install mrcal`), writing
   `results/<id>/mrcal.json` in the format `suite compare` reads.

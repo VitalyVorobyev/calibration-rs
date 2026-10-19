@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Single-camera observation view with attached metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct View<Meta> {
     /// 2D-3D correspondences observed in this view.
     pub obs: CorrespondenceView,
@@ -33,6 +34,7 @@ impl View<NoMeta> {
 
 /// Multi-camera observations for one rig view/frame.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigViewObs {
     /// Per-camera observation; None if camera didn't observe in this view.
     pub cameras: Vec<Option<CorrespondenceView>>,
@@ -40,6 +42,7 @@ pub struct RigViewObs {
 
 /// One time-synchronized rig frame containing per-camera observations and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigView<Meta> {
     /// Per-camera observations for this rig frame.
     pub obs: RigViewObs,
@@ -49,6 +52,7 @@ pub struct RigView<Meta> {
 
 /// Multi-view dataset for a camera rig.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigDataset<Meta> {
     /// Number of cameras in the rig.
     pub num_cameras: usize,
@@ -88,12 +92,14 @@ impl<Meta> RigDataset<Meta> {
 
 /// Empty metadata marker for views that do not need extra metadata.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct NoMeta;
 
 /// A planar dataset consisting of multiple views.
 ///
 /// Each view observes a planar calibration target in pixel coordinates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PlanarDataset {
     /// Sequence of planar calibration views.
     pub views: Vec<View<NoMeta>>,

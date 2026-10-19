@@ -25,6 +25,7 @@ use super::state::RigHandeyeLaserlineState;
 
 /// Input for joint rig hand-eye laserline calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigHandeyeLaserlineInput {
     /// Per-view target observations, laser pixels, and robot poses.
     pub views: Vec<RigHandeyeLaserlineView>,

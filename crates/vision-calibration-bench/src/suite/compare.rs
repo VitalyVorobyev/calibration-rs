@@ -23,6 +23,7 @@ use super::truth::{Truth, truth_errors};
 use super::{ReferenceResult, Suite, SuiteEntry, load_truth};
 
 /// A result another library produced for a suite entry.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExternalResult {
@@ -33,6 +34,10 @@ pub struct ExternalResult {
     /// Scalar parameters by calibration-rs label.
     pub parameters: BTreeMap<String, f64>,
     /// Poses by calibration-rs export name.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "BTreeMap<String, vision_calibration_core::Iso3Schema>")
+    )]
     pub poses: BTreeMap<String, Iso3>,
     /// The library's own standard deviations, by label.
     #[serde(default)]

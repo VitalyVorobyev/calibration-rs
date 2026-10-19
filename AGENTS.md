@@ -104,7 +104,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo xtask check-docs                    # user-facing docs (§7)
-cargo xtask emit-schemas --check          # when config/export types change
+cargo xtask emit-schemas --check          # when config, input, export or suite-file types change
 python3 -m compileall crates/vision-calibration-py/python/vision_calibration
 ```
 
