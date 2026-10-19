@@ -29,7 +29,7 @@ pub mod config;
 
 mod cameras;
 mod export_kind;
-pub use cameras::CalibratedCameras;
+pub use cameras::{CalibratedCameras, calibrated_cameras};
 pub use export_kind::ExportKind;
 
 /// Options for an intrinsics initialization step.

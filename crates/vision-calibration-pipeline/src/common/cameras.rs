@@ -1,15 +1,18 @@
 //! The cameras a calibration export reports, for consumers that treat every
 //! export alike.
 
+use serde::de::DeserializeOwned;
+
 use vision_calibration_core::{
     BrownConrady5, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, PinholeCamera,
     ProjectionParams, ScheimpflugParams, SensorParams, Uncertainty, pinhole_camera_params,
 };
 use vision_calibration_optim::{
-    Error as OptimError, ProjectionUncertainty, projection_uncertainty,
+    Error as OptimError, ProjectionUncertainty, camera_parameters, projection_uncertainty,
 };
 
 use crate::Error;
+use crate::common::ExportKind;
 use crate::laserline_device::LaserlineDeviceExport;
 use crate::planar_intrinsics::PlanarIntrinsicsExport;
 use crate::rig_extrinsics::RigExtrinsicsExport;
@@ -26,6 +29,22 @@ pub trait CalibratedCameras {
 
     /// The uncertainty of the estimated parameters.
     fn parameter_uncertainty(&self) -> &Uncertainty;
+
+    /// The value of the camera parameter a covariance label names (`fx`,
+    /// `cam1.k1`, `tilt_x`); `None` for any other label (a pose, a plane) or
+    /// a camera the export does not have.
+    fn camera_parameter(&self, label: &str) -> Option<f64> {
+        let (camera, name) = label
+            .strip_prefix("cam")
+            .and_then(|rest| rest.split_once('.'))
+            .and_then(|(index, name)| Some((index.parse().ok()?, name)))
+            .unwrap_or((0, label));
+        let params = self.camera_params().into_iter().nth(camera)?;
+        camera_parameters(&params)
+            .ok()?
+            .into_iter()
+            .find_map(|(l, v)| (l == name).then_some(v))
+    }
 
     /// The projection uncertainty of camera `camera` over an image of
     /// `image_size` pixels: the major-axis σ of where a camera-frame ray
@@ -62,6 +81,36 @@ pub trait CalibratedCameras {
             OptimError::InvalidInput { reason } => Error::InvalidInput { reason },
             err => err.into(),
         })
+    }
+}
+
+/// The export a JSON value holds, by its `kind` field, as its cameras.
+///
+/// # Errors
+///
+/// [`Error::Serde`] when the value has no known `kind` or does not
+/// deserialize as that export.
+pub fn calibrated_cameras(export: serde_json::Value) -> Result<Box<dyn CalibratedCameras>, Error> {
+    fn typed<T: CalibratedCameras + DeserializeOwned + 'static>(
+        export: serde_json::Value,
+    ) -> Result<Box<dyn CalibratedCameras>, Error> {
+        Ok(Box::new(serde_json::from_value::<T>(export)?))
+    }
+    let kind: ExportKind = serde_json::from_value(
+        export
+            .get("kind")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    )?;
+    match kind {
+        ExportKind::PlanarIntrinsics => typed::<PlanarIntrinsicsExport>(export),
+        ExportKind::ScheimpflugIntrinsics => typed::<ScheimpflugIntrinsicsExport>(export),
+        ExportKind::SingleCamHandeye => typed::<SingleCamHandeyeExport>(export),
+        ExportKind::LaserlineDevice => typed::<LaserlineDeviceExport>(export),
+        ExportKind::RigExtrinsics => typed::<RigExtrinsicsExport>(export),
+        ExportKind::RigHandeye => typed::<RigHandeyeExport>(export),
+        ExportKind::RigLaserlineDevice => typed::<RigLaserlineDeviceExport>(export),
+        ExportKind::RigHandeyeLaserline => typed::<RigHandeyeLaserlineExport>(export),
     }
 }
 

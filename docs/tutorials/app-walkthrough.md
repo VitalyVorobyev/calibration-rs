@@ -62,6 +62,15 @@ viewer to that pose) and, for multi-camera exports, a cameras × poses
 residual matrix coloured by mean error (click a cell to jump to that
 `(pose, camera)`). Works for any of the 8 export kinds (single-camera or
 rig, with or without a laser stage) — the header shows which one is loaded.
+Toggle **Uncertainty** for the result's parameter uncertainty: a table of
+each estimated parameter's value ± σ (angles in degrees, translations in
+millimetres; poses show σ only), the parameters held fixed, the residual
+noise, a correlation heatmap of |ρ| (hover a cell for the signed value) and
+the projection σ map of the camera on screen, computed at its frame's size.
+A result without a covariance says why, such as the parameters the data
+does not determine. Rig results hold each camera's intrinsics fixed in the
+final solve unless `rig.refine_intrinsics_in_rig_ba` is set, so their
+projection map is unavailable by default.
 
 ### 3D viewer (`⌘2`)
 

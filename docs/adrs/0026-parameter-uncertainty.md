@@ -193,8 +193,10 @@ a loss and 1.2–1.6× with one.
 - Every `*Export` gains `uncertainty` (`#[serde(default)]`, so older JSON
   loads). The Python package exposes it with `std_dev(label)` and
   `correlation(a, b)`, and the projection map with
-  `projection_uncertainty(result, image_size, camera)`. The app shows
-  `value ± σ`.
+  `projection_uncertainty(result, image_size, camera)`. The app's Diagnose
+  panel shows `value ± σ`, an |ρ| heatmap and the projection map, reading
+  values and the map through `calibrated_cameras` on the loaded export
+  rather than mirroring each export's camera layout in TypeScript.
 - Some staged problems hold intrinsics fixed in their final stage, such as the
   Scheimpflug rig BA, which keeps intrinsics fixed. Their extrinsic σ is
   conditional, and therefore optimistic. The fixed list says so; propagating

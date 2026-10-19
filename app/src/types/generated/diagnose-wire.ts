@@ -295,6 +295,7 @@ export interface DiagnoseWireTypes {
   epipolar_overlay?: EpipolarOverlay;
   laserline_device_export?: LaserlineDeviceExport;
   planar_intrinsics_export?: PlanarIntrinsicsExport;
+  projection_uncertainty?: ProjectionUncertainty;
   rig_extrinsics_export?: RigExtrinsicsExport;
   rig_handeye_export?: RigHandeyeExport;
   rig_handeye_laserline_export?: RigHandeyeLaserlineExport;
@@ -1019,6 +1020,49 @@ export interface CameraParams {
    * Sensor model parameters.
    */
   sensor: SensorParams;
+}
+/**
+ * The projection uncertainty of one camera over its image.
+ *
+ * Grid nodes are evenly spaced from pixel `(0, 0)` to
+ * `(width − 1, height − 1)`, corners included, and listed row by row from
+ * the top-left. Each value is the major-axis standard deviation, in pixels,
+ * of where the ray through the node projects.
+ */
+export interface ProjectionUncertainty {
+  /**
+   * σ at the image centre, pixels.
+   */
+  center: number;
+  /**
+   * Nodes per grid row.
+   */
+  columns: number;
+  /**
+   * The largest σ of the four corners, pixels; `None` when no ray reaches
+   * any of them.
+   */
+  corner?: number | null;
+  /**
+   * `[width, height]` of the image, pixels.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  image_size: [number, number];
+  /**
+   * The largest σ of the grid and the centre, pixels.
+   */
+  max: number;
+  /**
+   * Grid rows.
+   */
+  rows: number;
+  /**
+   * Major-axis σ at each node, pixels. `None` where no ray reaches the
+   * node, as where a strong distortion folds the image over.
+   */
+  sigma: (number | null)[];
 }
 /**
  * Export format for rig extrinsics calibration.

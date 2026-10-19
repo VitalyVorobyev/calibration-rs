@@ -20,6 +20,7 @@ mod epipolar;
 mod export_cache;
 mod laser;
 mod run;
+mod uncertainty;
 
 use export_cache::ExportCache;
 use run::RunRegistry;
@@ -36,6 +37,7 @@ pub mod schema_types {
     pub use crate::disparity::DisparityResult;
     pub use crate::epipolar::EpipolarOverlay;
     pub use crate::run::RunProgress;
+    pub use vision_calibration::optim::ProjectionUncertainty;
 }
 
 /// Entry point invoked from `main.rs`. Wires up the dialog plugin, the
@@ -56,6 +58,8 @@ pub fn run() {
             commands::compute_epipolar_overlay,
             commands::compute_epipolar_overlay_undistorted,
             commands::undistort_points,
+            commands::camera_parameter_values,
+            commands::projection_uncertainty,
             disparity::compute_disparity,
             run::run_calibration_cmd,
             run::cancel_run_cmd,

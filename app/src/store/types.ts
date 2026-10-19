@@ -4,6 +4,7 @@ import type {
   ExportKind as WireExportKind,
   Iso3Schema,
   LaserPlane,
+  Uncertainty,
 } from "../types/generated/diagnose-wire";
 
 // The export discriminator now lives next to `detectExportKind`, its single
@@ -62,6 +63,11 @@ export interface AnyExport {
   laser_planes_rig?: LaserPlaneWire[];
   /** Laser rig exports: the same planes in each camera's frame. */
   laser_planes_cam?: LaserPlaneWire[];
+  /** The covariance of the estimated parameters (every export but the
+   * laserline device, which keeps it in `estimate`). */
+  uncertainty?: Uncertainty;
+  /** Laserline device: the estimate, which carries its `uncertainty`. */
+  estimate?: { uncertainty?: Uncertainty };
 }
 
 /** Tauri command response shape from `load_export`. */

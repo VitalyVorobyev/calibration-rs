@@ -168,7 +168,7 @@ pub use crate::ir::{DistortionKind, HandEyeMode, RobustLoss};
 pub use crate::params::distortion::with_leading_radial;
 pub use crate::params::laser_plane::LaserPlane;
 /// Projection uncertainty of a calibrated camera.
-pub use crate::projection::{ProjectionUncertainty, projection_uncertainty};
+pub use crate::projection::{ProjectionUncertainty, camera_parameters, projection_uncertainty};
 
 pub use crate::problems::planar_intrinsics::{
     PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
