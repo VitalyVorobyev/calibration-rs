@@ -149,6 +149,7 @@ mod factors;
 mod ir;
 mod params;
 mod problems;
+mod uncertainty;
 
 pub use error::Error;
 

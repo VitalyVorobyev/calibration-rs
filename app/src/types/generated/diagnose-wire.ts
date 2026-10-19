@@ -217,6 +217,51 @@ export type SensorParams =
       type: "scheimpflug";
     };
 /**
+ * The uncertainty of a result's estimated parameters.
+ */
+export type Uncertainty =
+  | (ParameterCovariance & {
+      status: "available";
+    })
+  | {
+      /**
+       * Why the covariance is not available.
+       */
+      reason: UncertaintyUnavailable;
+      status: "unavailable";
+    };
+/**
+ * A kind of residual, which sets its unit.
+ */
+export type ResidualKind = "reprojection" | "laser_plane" | "laser_line";
+/**
+ * Why a result has no covariance.
+ */
+export type UncertaintyUnavailable =
+  | {
+      kind: "not_converged";
+    }
+  | {
+      kind: "rank_deficient";
+      /**
+       * Labels of the parameters involved.
+       */
+      unobservable: string[];
+    }
+  | {
+      kind: "at_bound";
+      /**
+       * Labels of the parameters on a bound.
+       */
+      labels: string[];
+    }
+  | {
+      kind: "no_redundancy";
+    }
+  | {
+      kind: "not_computed";
+    };
+/**
  * Classic pinhole projection model.
  */
 export type Pinhole = null;
@@ -852,6 +897,11 @@ export interface PlanarIntrinsicsExport {
    * Solver report.
    */
   report: SolveReport;
+  /**
+   * Covariance of the calibrated parameters: `fx ± σ`, correlations, and
+   * the noise level the residuals imply.
+   */
+  uncertainty?: Uncertainty;
 }
 /**
  * Optimization result for planar intrinsics.
@@ -886,6 +936,77 @@ export interface CameraParams {
    * Sensor model parameters.
    */
   sensor: SensorParams;
+}
+/**
+ * The covariance of a result's estimated parameters.
+ */
+export interface ParameterCovariance {
+  /**
+   * Covariance of the shared parameters: one row per label, symmetric.
+   */
+  covariance: number[][];
+  /**
+   * Residuals minus estimated parameters.
+   */
+  dof: number;
+  /**
+   * Labels of the parameters held fixed. The covariance is conditional on
+   * them.
+   */
+  fixed?: string[];
+  /**
+   * Labels of the shared parameters, in the order of `covariance`.
+   */
+  labels: string[];
+  /**
+   * The noise level of each kind of residual, estimated from the
+   * residuals at the solution.
+   */
+  noise: ResidualNoise[];
+  /**
+   * Number of scalar residuals, priors included.
+   */
+  num_residuals: number;
+  /**
+   * Per-view parameters, one block per view that has free ones.
+   */
+  views?: ViewCovariance[];
+}
+/**
+ * The estimated noise level of one kind of residual.
+ */
+export interface ResidualNoise {
+  /**
+   * Number of scalar residuals of this kind.
+   */
+  count: number;
+  /**
+   * The kind of residual.
+   */
+  kind: ResidualKind;
+  /**
+   * Gaussian-equivalent standard deviation of one scalar residual (one
+   * pixel axis for reprojection), from the median absolute residual so
+   * that outliers do not inflate it. In the residual's unit.
+   */
+  sigma: number;
+}
+/**
+ * The covariance of one view's own parameters.
+ */
+export interface ViewCovariance {
+  /**
+   * Their covariance: one row per label, symmetric.
+   */
+  covariance: number[][];
+  /**
+   * Labels of the view's parameters, e.g. `camera_se3_target.rx`.
+   */
+  labels: string[];
+  /**
+   * View index, as in the result's per-view lists.
+   */
+  view: number;
 }
 /**
  * Export format for rig extrinsics calibration.
@@ -1300,6 +1421,11 @@ export interface ScheimpflugIntrinsicsExport {
    * Backend solve report.
    */
   report: SolveReport;
+  /**
+   * Covariance of the calibrated parameters: `fx ± σ`, `tilt_x ± σ`,
+   * correlations, and the noise level the residuals imply.
+   */
+  uncertainty?: Uncertainty;
 }
 /**
  * Output parameter pack for Scheimpflug intrinsics calibration.

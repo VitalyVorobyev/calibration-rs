@@ -523,10 +523,11 @@ pub mod core {
         BrownConrady5, Camera, CameraFixMask, CameraModel, CameraParams, CorrespondenceView,
         DistortionFixMask, DistortionParams, Division, FrameKind, FrameRef, FxFyCxCySkew,
         IdentitySensor, ImageManifest, IntrinsicsFixMask, IntrinsicsParams, Iso3, Mat3, NoMeta,
-        Pinhole, PinholeCamera, PixelRect, PlanarDataset, ProjectionParams, Pt2, Pt3,
-        RationalPolynomial, Real, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorModel,
-        SensorParams, ThinPrism, Vec2, Vec3, View, distort_to_pixel, make_pinhole_camera,
-        pinhole_camera_params, pixel_to_normalized,
+        ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset, ProjectionParams,
+        Pt2, Pt3, RationalPolynomial, Real, ResidualKind, ResidualNoise, RigDataset, RigView,
+        RigViewObs, ScheimpflugParams, SensorModel, SensorParams, ThinPrism, Uncertainty,
+        UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
+        make_pinhole_camera, pinhole_camera_params, pixel_to_normalized,
     };
 
     /// The error type carried by [`crate::Error::Core`].

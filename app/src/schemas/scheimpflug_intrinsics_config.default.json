@@ -15,9 +15,7 @@
       "fy": false
     }
   },
-  "fix_poses": [
-    0
-  ],
+  "fix_poses": [],
   "fix_scheimpflug": {
     "tilt_x": false,
     "tilt_y": false

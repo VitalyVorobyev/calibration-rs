@@ -22,7 +22,7 @@ pub struct ScheimpflugIntrinsicsConfig {
     pub distortion_model: DistortionKind,     // default BrownConrady5
     pub fix_camera: CameraFixMask,
     pub fix_scheimpflug: ScheimpflugFixMask,  // { tilt_x, tilt_y }
-    pub fix_poses: Vec<usize>,                // default [0]
+    pub fix_poses: Vec<usize>,                // default []
 }
 ```
 

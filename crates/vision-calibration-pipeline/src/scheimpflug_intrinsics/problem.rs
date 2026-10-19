@@ -4,7 +4,7 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     CameraFixMask, CameraParams, ImageManifest, Iso3, PerFeatureResiduals, PlanarDataset,
-    build_feature_histogram, compute_planar_target_residuals,
+    Uncertainty, build_feature_histogram, compute_planar_target_residuals,
 };
 use vision_calibration_optim::{DistortionKind, SolveReport};
 
@@ -59,8 +59,9 @@ pub struct ScheimpflugIntrinsicsConfig {
     pub fix_camera: CameraFixMask,
     /// Scheimpflug tilt parameter fix mask for non-linear optimization.
     pub fix_scheimpflug: ScheimpflugFixMask,
-    /// Indices of poses to fix during optimization (default `[0]`, removes
-    /// the planar-intrinsics gauge ambiguity).
+    /// Indices of poses to fix during optimization (default: none). The
+    /// board fixes the target frame, so no pose needs fixing; a fixed pose
+    /// makes the reported uncertainty conditional on it.
     pub fix_poses: Vec<usize>,
 }
 
@@ -81,7 +82,7 @@ impl Default for ScheimpflugIntrinsicsConfig {
                 ..CameraFixMask::default()
             },
             fix_scheimpflug: ScheimpflugFixMask::default(),
-            fix_poses: vec![0],
+            fix_poses: Vec::new(),
         }
     }
 }
@@ -110,6 +111,9 @@ pub struct ScheimpflugIntrinsicsResult {
     pub report: SolveReport,
     /// Mean per-point reprojection error in pixels.
     pub mean_reproj_error: f64,
+    /// Covariance of the estimated parameters.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 /// Export format for Scheimpflug intrinsics calibration.
@@ -138,6 +142,10 @@ pub struct ScheimpflugIntrinsicsExport {
     /// the calibration pipeline never reads this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,
+    /// Covariance of the calibrated parameters: `fx ± σ`, `tilt_x ± σ`,
+    /// correlations, and the noise level the residuals imply.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 impl ProblemState for ScheimpflugIntrinsicsProblem {
@@ -220,6 +228,7 @@ impl ProblemType for ScheimpflugIntrinsicsProblem {
             // Populated by callers that know the source image paths
             // (e.g. the Tauri runner); the pipeline itself never does.
             image_manifest: None,
+            uncertainty: output.uncertainty.clone(),
         })
     }
 }
@@ -379,6 +388,7 @@ mod tests {
                 num_iters: 0,
             },
             mean_reproj_error: 0.25,
+            uncertainty: Uncertainty::default(),
         };
 
         let dummy_view = vision_calibration_core::View::without_meta(

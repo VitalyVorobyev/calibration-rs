@@ -51,6 +51,10 @@ a re-detection).
 so a Scheimpflug (tilted-sensor) camera is the pinhole model with a non-identity
 sensor homography rather than a separate code path.
 
+**Uncertainty** — intrinsics results carry the covariance of what they
+estimate: `fx ± σ`, the correlations between parameters, the corner noise the
+residuals imply, and the parameters the data cannot determine when it cannot.
+
 ## Install
 
 ```toml

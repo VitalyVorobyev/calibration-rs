@@ -9,12 +9,13 @@ use crate::params::pose_se3::se3_dvec_to_iso3;
 use crate::problems::planar_family_shared::{
     PlanarReprojectionIrOptions, PlanarSensorIrOptions, build_planar_reprojection_ir,
 };
+use crate::uncertainty;
 use nalgebra::DVectorView;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, CameraParams, CorrespondenceView, DistortionFixMask, DistortionParams,
     FxFyCxCySkew, IntrinsicsFixMask, IntrinsicsParams, Iso3, PlanarDataset, ProjectionParams, Real,
-    ScheimpflugParams, SensorParams, View,
+    ScheimpflugParams, SensorParams, Uncertainty, View,
 };
 
 /// Mask for Scheimpflug tilt parameters.
@@ -227,7 +228,7 @@ impl Default for ScheimpflugIntrinsicsSolveOptions {
             fix_intrinsics: IntrinsicsFixMask::default(),
             fix_distortion: DistortionFixMask::radial_only(),
             fix_scheimpflug: ScheimpflugFixMask::default(),
-            fix_poses: vec![0],
+            fix_poses: Vec::new(),
             bounds: None,
         }
     }
@@ -242,6 +243,9 @@ pub struct ScheimpflugIntrinsicsEstimate {
     pub report: SolveReport,
     /// Mean reprojection error in pixels.
     pub mean_reproj_error: f64,
+    /// Covariance of the estimated camera parameters and poses.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 /// Select the Scheimpflug-sensor [`CameraModelDesc`] for a distortion kind.
@@ -365,6 +369,11 @@ pub fn optimize_scheimpflug_intrinsics(
     let mean_reproj_error =
         compute_mean_reproj_error(dataset, intrinsics, &distortion, sensor, &optimized_poses);
 
+    let labels: Vec<_> = ir
+        .params
+        .iter()
+        .map(|block| uncertainty::planar_block_labels(block, kind.param_names()))
+        .collect();
     Ok(ScheimpflugIntrinsicsEstimate {
         params: ScheimpflugIntrinsicsParams {
             intrinsics,
@@ -374,6 +383,7 @@ pub fn optimize_scheimpflug_intrinsics(
         },
         report: solution.solve_report,
         mean_reproj_error,
+        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &labels),
     })
 }
 

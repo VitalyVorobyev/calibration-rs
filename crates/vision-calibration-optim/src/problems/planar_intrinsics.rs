@@ -12,12 +12,13 @@ use crate::ir::{
 use crate::params::distortion::{pack_distortion_params, unpack_distortion_params};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
+use crate::uncertainty;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, CameraModel, CameraParams, DistortionFixMask, DistortionParams, FxFyCxCySkew,
     IntrinsicsFixMask, IntrinsicsParams, Iso3, PinholeCamera, PlanarDataset, ProjectionParams,
-    Real, SensorParams, TargetPose, View, compute_mean_reproj_error, make_pinhole_camera,
-    pinhole_camera_params,
+    Real, SensorParams, TargetPose, Uncertainty, View, compute_mean_reproj_error,
+    make_pinhole_camera, pinhole_camera_params,
 };
 
 /// Optimization result for planar intrinsics.
@@ -159,6 +160,9 @@ pub struct PlanarIntrinsicsEstimate {
     pub report: SolveReport,
     /// Mean reprojection error in pixels.
     pub mean_reproj_error: f64,
+    /// Covariance of the estimated camera parameters and poses.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 /// Solve options specific to planar intrinsics.
@@ -419,10 +423,16 @@ pub fn optimize_planar_intrinsics(
         .collect();
     let mean_reproj_error = compute_mean_reproj_error(&camera_model, &views_with_poses)?;
 
+    let labels: Vec<_> = ir
+        .params
+        .iter()
+        .map(|block| uncertainty::planar_block_labels(block, kind.param_names()))
+        .collect();
     Ok(PlanarIntrinsicsEstimate {
         params: PlanarIntrinsicsParams::new(camera_params, poses)?,
         report: solution.solve_report,
         mean_reproj_error,
+        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &labels),
     })
 }
 

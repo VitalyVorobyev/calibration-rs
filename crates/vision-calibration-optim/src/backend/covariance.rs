@@ -39,6 +39,7 @@ use nalgebra::{DMatrix, DVector, SymmetricEigen, Vector3};
 use crate::backend::normal_equations::NormalEquations;
 use crate::backend::s2;
 use crate::ir::{FactorKind, ManifoldKind, ProblemIR};
+use vision_calibration_core::ResidualKind;
 
 /// `H` is rank-deficient when its unit-diagonal form has an eigenvalue below
 /// this fraction of the largest.
@@ -63,26 +64,14 @@ pub(crate) struct RawLinearization {
     pub columns: Vec<Vec<Option<usize>>>,
 }
 
-/// Residuals that share one noise level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ResidualFamily {
-    /// Reprojection errors, pixels.
-    Reprojection,
-    /// Laser point-to-plane distances, metres.
-    LaserPlane,
-    /// Laser line distances, pixels.
-    LaserLine,
-}
-
-impl ResidualFamily {
-    /// The family of a factor; `None` for a prior.
-    fn of(factor: &FactorKind) -> Option<Self> {
-        match factor {
-            FactorKind::ReprojPoint { .. } => Some(Self::Reprojection),
-            FactorKind::LaserPointToPlane { .. } => Some(Self::LaserPlane),
-            FactorKind::LaserLineDistance { .. } => Some(Self::LaserLine),
-            FactorKind::Se3TangentPrior { .. } => None,
-        }
+/// The residual kind (one noise level each) of a factor; `None` for a
+/// prior.
+fn residual_kind(factor: &FactorKind) -> Option<ResidualKind> {
+    match factor {
+        FactorKind::ReprojPoint { .. } => Some(ResidualKind::Reprojection),
+        FactorKind::LaserPointToPlane { .. } => Some(ResidualKind::LaserPlane),
+        FactorKind::LaserLineDistance { .. } => Some(ResidualKind::LaserLine),
+        FactorKind::Se3TangentPrior { .. } => None,
     }
 }
 
@@ -99,7 +88,7 @@ pub(crate) struct Coordinate {
 /// The noise level of one residual family, estimated from its residuals.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FamilyNoise {
-    pub family: ResidualFamily,
+    pub family: ResidualKind,
     /// Scalar residuals in the family.
     pub num_residuals: usize,
     /// `σ̂_f`, in the family's residual unit: the Gaussian-equivalent
@@ -110,10 +99,6 @@ pub(crate) struct FamilyNoise {
 
 /// The covariance of a solve's free coordinates.
 #[derive(Debug, Clone)]
-#[allow(
-    dead_code,
-    reason = "read by the problem estimates once they carry uncertainty"
-)]
 pub(crate) struct CovarianceEstimate {
     /// The coordinates, in matrix order: IR block order, then coordinate.
     pub coordinates: Vec<Coordinate>,
@@ -142,10 +127,6 @@ pub(crate) enum UnavailableReason {
 
 /// The uncertainty of a solve.
 #[derive(Debug, Clone)]
-#[allow(
-    dead_code,
-    reason = "read by the problem estimates once they carry uncertainty"
-)]
 pub(crate) enum ParamUncertainty {
     Available(Box<CovarianceEstimate>),
     Unavailable(UnavailableReason),
@@ -293,7 +274,7 @@ fn coordinates_at_bounds(
 struct BlockTerms {
     rows: std::ops::Range<usize>,
     /// `None` for a prior.
-    family: Option<ResidualFamily>,
+    family: Option<ResidualKind>,
     /// `s = ‖rᵢ‖²`, and `ρ′`, `ρ″` there.
     s: f64,
     rho1: f64,
@@ -310,7 +291,7 @@ fn residual_blocks(ir: &ProblemIR, residual: &Mat<f64>) -> Vec<BlockTerms> {
         let s: f64 = rows.clone().map(|r| residual[(r, 0)].powi(2)).sum();
         out.push(BlockTerms {
             rows,
-            family: ResidualFamily::of(&block.factor),
+            family: residual_kind(&block.factor),
             s,
             rho1: block.loss.rho_prime(s),
             rho2: block.loss.rho_second(s),
@@ -337,7 +318,7 @@ fn information(
     dof_scale: f64,
 ) -> Vec<f64> {
     // Row weights per group: 1/σ_f² on a family's rows, 1 on the priors'.
-    let mut groups: Vec<(Option<ResidualFamily>, f64, f64, usize)> = Vec::new();
+    let mut groups: Vec<(Option<ResidualKind>, f64, f64, usize)> = Vec::new();
     for block in blocks {
         let i = match groups.iter().position(|g| g.0 == block.family) {
             Some(i) => i,
@@ -351,7 +332,7 @@ fn information(
         g.2 += block.rows.len() as f64 * block.rho1 + 2.0 * block.rho2 * block.s;
         g.3 += block.rows.len();
     }
-    let weight = |family: Option<ResidualFamily>| -> f64 {
+    let weight = |family: Option<ResidualKind>| -> f64 {
         let g = groups
             .iter()
             .find(|g| g.0 == family)
@@ -390,7 +371,7 @@ fn information(
 /// `σ̂` per residual family present, from the median absolute scalar
 /// residual.
 fn family_noise(blocks: &[BlockTerms], residual: &Mat<f64>) -> Vec<FamilyNoise> {
-    let mut by_family: Vec<(ResidualFamily, Vec<f64>)> = Vec::new();
+    let mut by_family: Vec<(ResidualKind, Vec<f64>)> = Vec::new();
     for block in blocks {
         let Some(family) = block.family else {
             continue;

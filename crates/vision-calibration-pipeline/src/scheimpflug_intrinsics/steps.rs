@@ -577,6 +577,7 @@ pub fn step_optimize(
         },
         report: estimate.report,
         mean_reproj_error: estimate.mean_reproj_error,
+        uncertainty: estimate.uncertainty,
     };
 
     let final_cost = result.report.final_cost;

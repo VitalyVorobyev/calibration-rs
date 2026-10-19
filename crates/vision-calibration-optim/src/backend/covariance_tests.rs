@@ -12,7 +12,7 @@ use vision_calibration_core::{
 };
 
 use crate::backend::covariance::{
-    Coordinate, CovarianceEstimate, ParamUncertainty, ResidualFamily, UnavailableReason,
+    Coordinate, CovarianceEstimate, ParamUncertainty, UnavailableReason,
 };
 use crate::backend::{BackendSolveOptions, SolverBackend, solve};
 use crate::ir::{
@@ -22,6 +22,7 @@ use crate::ir::{
 use crate::problems::planar_intrinsics::{
     PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, build_planar_intrinsics_ir,
 };
+use vision_calibration_core::ResidualKind;
 
 /// Ground truth of the planar scene: a moderate Brown–Conrady lens, an 8×6
 /// board of 30 mm cells, eight tilted views at 0.6 m.
@@ -283,7 +284,7 @@ fn reprojection_sigma_estimates_the_pixel_noise() {
         let est = available(solution.uncertainty);
         assert_eq!(est.families.len(), 1);
         let family = &est.families[0];
-        assert_eq!(family.family, ResidualFamily::Reprojection);
+        assert_eq!(family.family, ResidualKind::Reprojection);
         assert_eq!(family.num_residuals, est.num_residuals);
         assert!(
             (family.sigma / sigma - 1.0).abs() < 0.10,

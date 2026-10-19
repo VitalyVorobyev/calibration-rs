@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraFixMask, CorrespondenceView, DistortionFixMask, DistortionModel,
     FxFyCxCySkew, IntrinsicsFixMask, IntrinsicsModel, Iso3, NoMeta, Pinhole, PinholeCamera,
-    PlanarDataset, Pt2, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorModel, View,
-    compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
+    PlanarDataset, Pt2, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorModel,
+    Uncertainty, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
 use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
@@ -1119,6 +1119,8 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
         params,
         report: result.report,
         mean_reproj_error: mean,
+        // Derived from the rig solve, not solved on its own.
+        uncertainty: Uncertainty::default(),
     }))
 }
 
@@ -1375,6 +1377,7 @@ fn scheimpflug_estimate_from_scored_seed(
             num_iters: 0,
         },
         mean_reproj_error: seed.score,
+        uncertainty: Uncertainty::default(),
     }
 }
 

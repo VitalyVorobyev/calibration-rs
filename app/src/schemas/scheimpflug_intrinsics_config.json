@@ -300,7 +300,7 @@
       "description": "Mask for fixing camera intrinsics/distortion parameters during\noptimization."
     },
     "fix_poses": {
-      "description": "Indices of poses to fix during optimization (default `[0]`, removes\nthe planar-intrinsics gauge ambiguity).",
+      "description": "Indices of poses to fix during optimization (default: none). The\nboard fixes the target frame, so no pose needs fixing; a fixed pose\nmakes the reported uncertainty conditional on it.",
       "items": {
         "format": "uint",
         "minimum": 0,
