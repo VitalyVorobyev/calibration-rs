@@ -4,8 +4,9 @@
 //!
 //! ```text
 //! suite.toml                          entries: provenance, licence, config
-//! SHA256SUMS                          `sha256sum` format, one line per observation file
+//! SHA256SUMS                          `sha256sum` format, one line per data file
 //! observations/<id>.json              the entry's ObservationSet
+//! truth/<id>.json                     a synthetic entry's true parameters
 //! results/<id>/calibration-rs.json    the entry's reference result
 //! ```
 //!
@@ -66,6 +67,11 @@ pub struct SuiteEntry {
     /// suite directory. `None` for entries that have no images.
     #[serde(default)]
     pub manifest: Option<PathBuf>,
+    /// For a synthetic entry, the benchmark scene its observations and
+    /// truth are frozen from (`calib-bench solver` scene id). Excludes
+    /// `manifest`.
+    #[serde(default)]
+    pub synthetic: Option<String>,
     /// Overrides merged into the problem's default config.
     #[serde(default)]
     pub config: Option<Value>,
@@ -121,6 +127,11 @@ impl Suite {
                 "duplicate suite entry id {:?}",
                 entry.id
             );
+            ensure!(
+                entry.manifest.is_none() || entry.synthetic.is_none(),
+                "suite entry {:?} names both a dataset manifest and a synthetic scene",
+                entry.id
+            );
         }
         let root = path
             .parent()
@@ -159,6 +170,16 @@ impl Suite {
         self.root.join(Self::observations_rel(id))
     }
 
+    /// Path of a synthetic entry's truth file, relative to [`Self::root`].
+    pub fn truth_rel(id: &str) -> String {
+        format!("truth/{id}.json")
+    }
+
+    /// Path of a synthetic entry's truth file.
+    pub fn truth_path(&self, id: &str) -> PathBuf {
+        self.root.join(Self::truth_rel(id))
+    }
+
     /// Path of an entry's reference result.
     pub fn reference_path(&self, id: &str) -> PathBuf {
         self.root
@@ -175,12 +196,24 @@ impl Suite {
     /// Fails when the file is missing, has no checksum line, or does not
     /// match it. A checksum is never skipped.
     pub fn read_verified_observations(&self, id: &str) -> Result<Vec<u8>> {
-        let rel = Self::observations_rel(id);
+        self.read_verified(&Self::observations_rel(id))
+    }
+
+    /// Read the truth file of `id` after checking it against `SHA256SUMS`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::read_verified_observations`].
+    pub fn read_verified_truth(&self, id: &str) -> Result<Vec<u8>> {
+        self.read_verified(&Self::truth_rel(id))
+    }
+
+    fn read_verified(&self, rel: &str) -> Result<Vec<u8>> {
         let sums = self.read_checksums()?;
         let expected = sums
-            .get(&rel)
+            .get(rel)
             .with_context(|| format!("{CHECKSUM_FILE} has no line for {rel}"))?;
-        let path = self.root.join(&rel);
+        let path = self.root.join(rel);
         let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
         let actual = sha256_hex(&bytes);
         if &actual != expected {
@@ -201,8 +234,8 @@ impl Suite {
         parse_checksums(&text).with_context(|| format!("parse {}", path.display()))
     }
 
-    /// Rewrite `SHA256SUMS` from the observation files on disk, one line
-    /// per suite entry that has one.
+    /// Rewrite `SHA256SUMS` from the observation and truth files on disk,
+    /// one line per file.
     ///
     /// # Errors
     ///
@@ -213,7 +246,7 @@ impl Suite {
             .manifest
             .entries
             .iter()
-            .map(|e| Self::observations_rel(&e.id))
+            .flat_map(|e| [Self::observations_rel(&e.id), Self::truth_rel(&e.id)])
             .filter(|rel| self.root.join(rel).is_file())
             .collect();
         rels.sort();

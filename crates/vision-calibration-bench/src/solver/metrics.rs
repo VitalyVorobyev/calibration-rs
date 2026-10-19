@@ -37,6 +37,9 @@ pub struct ModelParams {
     pub cam_se3_rig: Vec<Iso3>,
     /// Hand-eye transform (`gripper_se3_camera` / `gripper_se3_rig`).
     pub handeye: Option<Iso3>,
+    /// Target pose in the robot base (`base_se3_target`), for hand-eye
+    /// scenes.
+    pub base_se3_target: Option<Iso3>,
     /// Laser planes in the camera frame, one per laser-carrying camera.
     pub planes_cam: Vec<LaserPlane>,
 }
@@ -332,6 +335,7 @@ mod tests {
             ],
             handeye: Some(make_iso((0.1, 0.0, 0.0), (0.0, 0.0, 0.1))),
             planes_cam: vec![],
+            base_se3_target: None,
         };
         let mut est = gt.clone();
         est.cameras[1].k.fx = 1010.0;
