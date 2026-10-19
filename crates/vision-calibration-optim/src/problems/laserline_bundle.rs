@@ -29,8 +29,10 @@ use vision_calibration_core::{
 
 /// Metadata for a laserline view (laser pixels + optional weights).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct LaserlineMeta {
     /// Laser line pixel observations.
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<[f64; 2]>"))]
     pub laser_pixels: Vec<Pt2>,
     /// Per-pixel weights (empty = unweighted, all default to 1.0).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

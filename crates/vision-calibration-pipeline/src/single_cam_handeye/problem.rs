@@ -27,8 +27,13 @@ use super::state::SingleCamHandeyeState;
 ///
 /// `base_se3_gripper` is the gripper pose expressed in the base frame (T_B_G).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct HandeyeMeta {
     /// Gripper pose expressed in base frame (`T_B_G`) for this view.
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "vision_calibration_core::Iso3Schema")
+    )]
     pub base_se3_gripper: Iso3,
 }
 
@@ -37,6 +42,7 @@ pub type SingleCamHandeyeView = View<HandeyeMeta>;
 
 /// Input for single-camera hand-eye calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SingleCamHandeyeInput {
     /// Per-view observations with robot poses.
     pub views: Vec<SingleCamHandeyeView>,

@@ -20,6 +20,7 @@ use super::significance::{
 };
 
 /// A synthetic entry's true parameters.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Truth {
@@ -27,6 +28,10 @@ pub struct Truth {
     /// laser-plane components.
     pub parameters: BTreeMap<String, f64>,
     /// Poses by name, as the export stores them.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "BTreeMap<String, vision_calibration_core::Iso3Schema>")
+    )]
     pub poses: BTreeMap<String, Iso3>,
 }
 

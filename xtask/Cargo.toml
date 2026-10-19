@@ -16,3 +16,4 @@ serde_json = { workspace = true }
 schemars = { workspace = true }
 vision-calibration-pipeline = { workspace = true, features = ["schemars"] }
 vision-calibration-dataset = { workspace = true, features = ["schemars"] }
+vision-calibration-bench = { workspace = true, default-features = false, features = ["schema"] }

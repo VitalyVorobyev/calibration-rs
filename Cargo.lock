@@ -3180,6 +3180,7 @@ dependencies = [
  "image",
  "nalgebra 0.34.2",
  "rand 0.10.3",
+ "schemars",
  "serde",
  "serde_json",
  "sha2",
@@ -3624,6 +3625,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "vision-calibration-bench",
  "vision-calibration-dataset",
  "vision-calibration-pipeline",
 ]

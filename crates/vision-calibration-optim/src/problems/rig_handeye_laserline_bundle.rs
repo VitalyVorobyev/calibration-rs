@@ -62,6 +62,7 @@ pub struct RigHandeyeLaserlineDataset {
 
 /// Per-view observations for [`RigHandeyeLaserlineDataset`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigHandeyeLaserlineView {
     /// Target corners + laser pixels per camera (same shape as
     /// [`RigLaserlineView`]).

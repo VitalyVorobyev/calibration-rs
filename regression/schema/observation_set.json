@@ -1,0 +1,831 @@
+{
+  "$defs": {
+    "BrownConrady5": {
+      "description": "Brown-Conrady 5-parameter radial-tangential distortion model.",
+      "properties": {
+        "iters": {
+          "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "k1": {
+          "description": "Radial coefficient k1.",
+          "format": "double",
+          "type": "number"
+        },
+        "k2": {
+          "description": "Radial coefficient k2.",
+          "format": "double",
+          "type": "number"
+        },
+        "k3": {
+          "description": "Radial coefficient k3.",
+          "format": "double",
+          "type": "number"
+        },
+        "p1": {
+          "description": "Tangential coefficient p1.",
+          "format": "double",
+          "type": "number"
+        },
+        "p2": {
+          "description": "Tangential coefficient p2.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "k1",
+        "k2",
+        "k3",
+        "p1",
+        "p2",
+        "iters"
+      ],
+      "type": "object"
+    },
+    "CorrespondenceView": {
+      "description": "A single view containing 2D-3D point correspondences.\n\nThis is the canonical observation type used across planar intrinsics,\nrig extrinsics, hand-eye calibration, and other calibration problems.\n\n# Fields\n\n- `points_3d`: 3D points in world/target coordinates\n- `points_2d`: Corresponding 2D pixel observations\n- `weights`: Per-point weights for robust estimation.\n  An empty vec means \"unweighted\" (all weights default to 1.0).\n\n# Example\n\n```\nuse vision_calibration_core::{CorrespondenceView, Pt3, Pt2};\n\n// Create from vectors\nlet points_3d = vec![Pt3::new(0.0, 0.0, 0.0), Pt3::new(0.1, 0.0, 0.0)];\nlet points_2d = vec![Pt2::new(320.0, 240.0), Pt2::new(400.0, 240.0)];\nlet view = CorrespondenceView::new(points_3d, points_2d).unwrap();\n\nassert_eq!(view.len(), 2);\nassert_eq!(view.weight(0), 1.0); // default weight\n```",
+      "properties": {
+        "points_2d": {
+          "description": "The matching image points `[u, v]`, pixels.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "points_3d": {
+          "description": "3D points `[x, y, z]` in the target frame, metres.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "weights": {
+          "default": [],
+          "description": "Per-point weights; empty for unweighted.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "points_3d",
+        "points_2d"
+      ],
+      "type": "object"
+    },
+    "FxFyCxCySkew": {
+      "description": "Standard pinhole intrinsics with optional skew.",
+      "properties": {
+        "cx": {
+          "description": "Principal point X coordinate in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "cy": {
+          "description": "Principal point Y coordinate in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "fx": {
+          "description": "Focal length in pixels along X.",
+          "format": "double",
+          "type": "number"
+        },
+        "fy": {
+          "description": "Focal length in pixels along Y.",
+          "format": "double",
+          "type": "number"
+        },
+        "skew": {
+          "description": "Skew term (typically 0).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "fx",
+        "fy",
+        "cx",
+        "cy",
+        "skew"
+      ],
+      "type": "object"
+    },
+    "HandeyeMeta": {
+      "description": "Metadata for a single hand-eye view.\n\n`base_se3_gripper` is the gripper pose expressed in the base frame (T_B_G).",
+      "properties": {
+        "base_se3_gripper": {
+          "$ref": "#/$defs/Iso3Schema",
+          "description": "Gripper pose expressed in base frame (`T_B_G`) for this view."
+        }
+      },
+      "required": [
+        "base_se3_gripper"
+      ],
+      "type": "object"
+    },
+    "Iso3Schema": {
+      "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
+      "properties": {
+        "rotation": {
+          "description": "Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "translation": {
+          "description": "Translation `[tx, ty, tz]` in meters.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "rotation",
+        "translation"
+      ],
+      "type": "object"
+    },
+    "LaserPlane": {
+      "description": "Laser plane in camera frame: unit normal + signed distance.\n\nThe plane equation is: n̂ · p + d = 0\nwhere p is a point in camera coordinates.",
+      "properties": {
+        "distance": {
+          "description": "Signed distance from camera origin",
+          "format": "double",
+          "type": "number"
+        },
+        "normal": {
+          "description": "Unit normal vector in camera frame. Serializes as `[nx, ny, nz]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "normal",
+        "distance"
+      ],
+      "type": "object"
+    },
+    "LaserlineMeta": {
+      "description": "Metadata for a laserline view (laser pixels + optional weights).",
+      "properties": {
+        "laser_pixels": {
+          "description": "Laser line pixel observations.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "laser_weights": {
+          "description": "Per-pixel weights (empty = unweighted, all default to 1.0).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "laser_pixels"
+      ],
+      "type": "object"
+    },
+    "NoMeta": {
+      "description": "Empty metadata marker for views that do not need extra metadata.",
+      "type": "null"
+    },
+    "ObservedCamera": {
+      "additionalProperties": false,
+      "description": "One camera of an [`ObservationSet`].",
+      "properties": {
+        "id": {
+          "description": "Camera id from the dataset manifest.",
+          "type": "string"
+        },
+        "image_size": {
+          "description": "Image `[width, height]` in pixels.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "image_size"
+      ],
+      "type": "object"
+    },
+    "PlanarDataset": {
+      "description": "A planar dataset consisting of multiple views.\n\nEach view observes a planar calibration target in pixel coordinates.",
+      "properties": {
+        "views": {
+          "description": "Sequence of planar calibration views.",
+          "items": {
+            "$ref": "#/$defs/View"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "views"
+      ],
+      "type": "object"
+    },
+    "RigDataset": {
+      "description": "Multi-view dataset for a camera rig.",
+      "properties": {
+        "num_cameras": {
+          "description": "Number of cameras in the rig.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "Sequence of rig views.",
+          "items": {
+            "$ref": "#/$defs/RigView"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "num_cameras",
+        "views"
+      ],
+      "type": "object"
+    },
+    "RigDataset2": {
+      "description": "Multi-view dataset for a camera rig.",
+      "properties": {
+        "num_cameras": {
+          "description": "Number of cameras in the rig.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "Sequence of rig views.",
+          "items": {
+            "$ref": "#/$defs/RigView2"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "num_cameras",
+        "views"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeLaserlineInput": {
+      "description": "Input for joint rig hand-eye laserline calibration.",
+      "properties": {
+        "num_cameras": {
+          "description": "Number of cameras in the rig.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "Per-view target observations, laser pixels, and robot poses.",
+          "items": {
+            "$ref": "#/$defs/RigHandeyeLaserlineView"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "views",
+        "num_cameras"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeLaserlineView": {
+      "description": "Per-view observations for [`RigHandeyeLaserlineDataset`].",
+      "properties": {
+        "meta": {
+          "$ref": "#/$defs/RobotPoseMeta",
+          "description": "Robot pose for this view (`base_se3_gripper`)."
+        },
+        "obs": {
+          "$ref": "#/$defs/RigLaserlineView",
+          "description": "Target corners + laser pixels per camera (same shape as\n[`RigLaserlineView`])."
+        }
+      },
+      "required": [
+        "obs",
+        "meta"
+      ],
+      "type": "object"
+    },
+    "RigLaserlineDataset": {
+      "description": "Dataset for rig-level laserline calibration.\n\nEach view contains one row of the `(view, camera)` observation grid.\nUse [`RigLaserlineDataset::new`] to construct — it validates that every\nview has exactly `num_cameras` slots in both `cameras` and `laser_pixels`.\n\n# Missing-observation convention\n\n* `Some(obs)` — camera contributed data; `obs` may still be empty (no\n  correspondences / pixels), in which case it contributes zero residuals.\n* `None` — camera is absent for this view and is skipped entirely.\n\n# Example\n\n```no_run\n# use vision_calibration_optim::{RigLaserlineDataset, RigLaserlineView};\n// Two views, two cameras; camera 1 missed the target in view 0.\nlet views = vec![\n    RigLaserlineView {\n        cameras:      vec![Some(/* cam0 obs */ todo!()), None],\n        laser_pixels: vec![Some(vec![]),                None],\n    },\n    RigLaserlineView {\n        cameras:      vec![Some(/* cam0 obs */ todo!()), Some(/* cam1 obs */ todo!())],\n        laser_pixels: vec![Some(vec![]),                 Some(vec![])],\n    },\n];\nlet dataset = RigLaserlineDataset::new(views, 2).unwrap();\nassert_eq!(dataset.num_cameras, 2);\nassert_eq!(dataset.num_views(), 2);\n```",
+      "properties": {
+        "num_cameras": {
+          "description": "Number of cameras in the rig; governs the expected slot count per view.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "Per-view observation rows; length = number of views.\n\nEach `RigLaserlineView` contains two `Vec`s of length `num_cameras`,\none for target correspondences and one for laser pixels.",
+          "items": {
+            "$ref": "#/$defs/RigLaserlineView"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "views",
+        "num_cameras"
+      ],
+      "type": "object"
+    },
+    "RigLaserlineDeviceInput": {
+      "description": "Input for rig laserline calibration: dataset + frozen upstream calibration.",
+      "properties": {
+        "dataset": {
+          "$ref": "#/$defs/RigLaserlineDataset",
+          "description": "Per-view, per-camera observations."
+        },
+        "initial_planes_cam": {
+          "description": "Optional per-camera initial plane in camera frame. If `None`, defaults\nto a generic `z=-0.2m` plane.",
+          "items": {
+            "$ref": "#/$defs/LaserPlane"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "upstream": {
+          "$ref": "#/$defs/RigUpstreamCalibration",
+          "description": "Upstream rig calibration (frozen)."
+        }
+      },
+      "required": [
+        "dataset",
+        "upstream"
+      ],
+      "type": "object"
+    },
+    "RigLaserlineView": {
+      "description": "Per-view observations for a rig-level laserline calibration.\n\nBoth `cameras` and `laser_pixels` are indexed by `cam_idx ∈ [0, num_cameras)`.\nA slot is `None` when that camera had no usable data in this view (occlusion,\nout-of-FOV, etc.).  An empty inner `Vec` is accepted but treated the same as\n`None` by the solver.",
+      "properties": {
+        "cameras": {
+          "description": "Target correspondences per camera (`cam_idx` → `Option<CorrespondenceView>`).\n\n`None` means the camera did not see the calibration target in this view.\nThe slice length must equal `RigLaserlineDataset::num_cameras`.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CorrespondenceView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "laser_pixels": {
+          "description": "Laser pixel observations per camera (`cam_idx` → `Option<Vec<Pt2>>`).\n\n`None` means the camera has no usable laser data for this view.\nThe slice length must equal `RigLaserlineDataset::num_cameras`.",
+          "items": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cameras",
+        "laser_pixels"
+      ],
+      "type": "object"
+    },
+    "RigUpstreamCalibration": {
+      "description": "Upstream rig calibration (frozen starting point).\n\nMirrors a Scheimpflug hand-eye result's per-camera intrinsics + distortion +\nScheimpflug sensors + cam→rig poses, plus the per-view rig→target poses the\ndownstream laserline dataset spans.",
+      "properties": {
+        "cam_se3_rig": {
+          "description": "Per-camera extrinsics `cam_se3_rig` (T_C_R).",
+          "items": {
+            "$ref": "#/$defs/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "distortion": {
+          "description": "Per-camera distortion.",
+          "items": {
+            "$ref": "#/$defs/BrownConrady5"
+          },
+          "type": "array"
+        },
+        "intrinsics": {
+          "description": "Per-camera intrinsics.",
+          "items": {
+            "$ref": "#/$defs/FxFyCxCySkew"
+          },
+          "type": "array"
+        },
+        "rig_se3_target": {
+          "description": "Per-view rig poses `rig_se3_target` (T_R_T).",
+          "items": {
+            "$ref": "#/$defs/Iso3Schema"
+          },
+          "type": "array"
+        },
+        "sensors": {
+          "description": "Per-camera Scheimpflug sensor parameters.",
+          "items": {
+            "$ref": "#/$defs/ScheimpflugParams"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "intrinsics",
+        "distortion",
+        "sensors",
+        "cam_se3_rig",
+        "rig_se3_target"
+      ],
+      "type": "object"
+    },
+    "RigView": {
+      "description": "One time-synchronized rig frame containing per-camera observations and metadata.",
+      "properties": {
+        "meta": {
+          "$ref": "#/$defs/NoMeta",
+          "description": "Arbitrary metadata payload associated with the view."
+        },
+        "obs": {
+          "$ref": "#/$defs/RigViewObs",
+          "description": "Per-camera observations for this rig frame."
+        }
+      },
+      "required": [
+        "obs",
+        "meta"
+      ],
+      "type": "object"
+    },
+    "RigView2": {
+      "description": "One time-synchronized rig frame containing per-camera observations and metadata.",
+      "properties": {
+        "meta": {
+          "$ref": "#/$defs/RobotPoseMeta",
+          "description": "Arbitrary metadata payload associated with the view."
+        },
+        "obs": {
+          "$ref": "#/$defs/RigViewObs",
+          "description": "Per-camera observations for this rig frame."
+        }
+      },
+      "required": [
+        "obs",
+        "meta"
+      ],
+      "type": "object"
+    },
+    "RigViewObs": {
+      "description": "Multi-camera observations for one rig view/frame.",
+      "properties": {
+        "cameras": {
+          "description": "Per-camera observation; None if camera didn't observe in this view.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CorrespondenceView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cameras"
+      ],
+      "type": "object"
+    },
+    "RobotPoseMeta": {
+      "description": "Per-view robot metadata required by hand-eye calibration.",
+      "properties": {
+        "base_se3_gripper": {
+          "$ref": "#/$defs/Iso3Schema",
+          "description": "Gripper pose expressed in the robot base frame (T_B_G)."
+        }
+      },
+      "required": [
+        "base_se3_gripper"
+      ],
+      "type": "object"
+    },
+    "ScheimpflugParams": {
+      "description": "Scheimpflug tilt parameters (OpenCV-compatible).",
+      "properties": {
+        "tilt_x": {
+          "description": "Tilt around X axis in radians (alias: tau_x).",
+          "format": "double",
+          "type": "number"
+        },
+        "tilt_y": {
+          "description": "Tilt around Y axis in radians (alias: tau_y).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "tilt_x",
+        "tilt_y"
+      ],
+      "type": "object"
+    },
+    "SingleCamHandeyeInput": {
+      "description": "Input for single-camera hand-eye calibration.",
+      "properties": {
+        "views": {
+          "description": "Per-view observations with robot poses.",
+          "items": {
+            "$ref": "#/$defs/View2"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "views"
+      ],
+      "type": "object"
+    },
+    "View": {
+      "description": "Single-camera observation view with attached metadata.",
+      "properties": {
+        "meta": {
+          "$ref": "#/$defs/NoMeta",
+          "description": "Arbitrary metadata payload associated with the view."
+        },
+        "obs": {
+          "$ref": "#/$defs/CorrespondenceView",
+          "description": "2D-3D correspondences observed in this view."
+        }
+      },
+      "required": [
+        "obs",
+        "meta"
+      ],
+      "type": "object"
+    },
+    "View2": {
+      "description": "Single-camera observation view with attached metadata.",
+      "properties": {
+        "meta": {
+          "$ref": "#/$defs/HandeyeMeta",
+          "description": "Arbitrary metadata payload associated with the view."
+        },
+        "obs": {
+          "$ref": "#/$defs/CorrespondenceView",
+          "description": "2D-3D correspondences observed in this view."
+        }
+      },
+      "required": [
+        "obs",
+        "meta"
+      ],
+      "type": "object"
+    },
+    "View3": {
+      "description": "Single-camera observation view with attached metadata.",
+      "properties": {
+        "meta": {
+          "$ref": "#/$defs/LaserlineMeta",
+          "description": "Arbitrary metadata payload associated with the view."
+        },
+        "obs": {
+          "$ref": "#/$defs/CorrespondenceView",
+          "description": "2D-3D correspondences observed in this view."
+        }
+      },
+      "required": [
+        "obs",
+        "meta"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Image-free observations for one calibration problem.\n\nSerialized flat: `{\"version\", \"cameras\", \"problem\", \"input\"}`, where\n`problem` names the problem type and `input` is its input payload.",
+  "oneOf": [
+    {
+      "description": "Planar intrinsics of one camera.",
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/PlanarDataset"
+        },
+        "problem": {
+          "const": "planar_intrinsics",
+          "type": "string"
+        }
+      },
+      "required": [
+        "problem",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Scheimpflug intrinsics of one camera.",
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/PlanarDataset"
+        },
+        "problem": {
+          "const": "scheimpflug_intrinsics",
+          "type": "string"
+        }
+      },
+      "required": [
+        "problem",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Hand-eye calibration of one camera.",
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/SingleCamHandeyeInput"
+        },
+        "problem": {
+          "const": "single_cam_handeye",
+          "type": "string"
+        }
+      },
+      "required": [
+        "problem",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "One camera plus a laser plane.",
+      "properties": {
+        "input": {
+          "items": {
+            "$ref": "#/$defs/View3"
+          },
+          "type": "array"
+        },
+        "problem": {
+          "const": "laserline_device",
+          "type": "string"
+        }
+      },
+      "required": [
+        "problem",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Extrinsics of a camera rig.",
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/RigDataset"
+        },
+        "problem": {
+          "const": "rig_extrinsics",
+          "type": "string"
+        }
+      },
+      "required": [
+        "problem",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Hand-eye calibration of a camera rig.",
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/RigDataset2"
+        },
+        "problem": {
+          "const": "rig_handeye",
+          "type": "string"
+        }
+      },
+      "required": [
+        "problem",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Per-camera laser planes on a calibrated rig.",
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/RigLaserlineDeviceInput"
+        },
+        "problem": {
+          "const": "rig_laserline_device",
+          "type": "string"
+        }
+      },
+      "required": [
+        "problem",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Joint rig hand-eye and laser-plane calibration.",
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/RigHandeyeLaserlineInput"
+        },
+        "problem": {
+          "const": "rig_handeye_laserline",
+          "type": "string"
+        }
+      },
+      "required": [
+        "problem",
+        "input"
+      ],
+      "type": "object"
+    }
+  ],
+  "properties": {
+    "cameras": {
+      "description": "The cameras, in the order the input indexes them.",
+      "items": {
+        "$ref": "#/$defs/ObservedCamera"
+      },
+      "type": "array"
+    },
+    "version": {
+      "description": "Format version; [`OBSERVATION_SET_VERSION`] for files this build\nwrites.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "cameras"
+  ],
+  "title": "ObservationSet",
+  "type": "object"
+}

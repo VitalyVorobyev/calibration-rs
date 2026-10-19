@@ -23,6 +23,13 @@ tier-b = [
     "dep:vision-calibration-detect",
 ]
 laser = ["dep:vision-metrology"]
+# JSON Schemas of the suite's file formats (`cargo xtask emit-schemas`).
+schema = [
+    "dep:schemars",
+    "vision-calibration-core/schemars",
+    "vision-calibration-optim/schemars",
+    "vision-calibration-pipeline/schemars",
+]
 
 [[bin]]
 name = "calib-bench"
@@ -45,6 +52,7 @@ nalgebra = { workspace = true }
 # Regression suite: `suite.toml` and the observation-file checksums.
 toml = "1"
 sha2 = "0.10"
+schemars = { workspace = true, optional = true }
 
 # Tier-B (full pipeline: detector + image I/O) — gated behind `tier-b`.
 calib-targets = { workspace = true, optional = true }

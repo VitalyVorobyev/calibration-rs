@@ -48,6 +48,7 @@ use vision_calibration_core::{
 /// out-of-FOV, etc.).  An empty inner `Vec` is accepted but treated the same as
 /// `None` by the solver.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigLaserlineView {
     /// Target correspondences per camera (`cam_idx` → `Option<CorrespondenceView>`).
     ///
@@ -58,6 +59,7 @@ pub struct RigLaserlineView {
     ///
     /// `None` means the camera has no usable laser data for this view.
     /// The slice length must equal `RigLaserlineDataset::num_cameras`.
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<Option<Vec<[f64; 2]>>>"))]
     pub laser_pixels: Vec<Option<Vec<Pt2>>>,
 }
 
@@ -93,6 +95,7 @@ pub struct RigLaserlineView {
 /// assert_eq!(dataset.num_views(), 2);
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RigLaserlineDataset {
     /// Per-view observation rows; length = number of views.
     ///

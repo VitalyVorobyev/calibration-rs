@@ -1,0 +1,60 @@
+{
+  "$defs": {
+    "Iso3Schema": {
+      "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
+      "properties": {
+        "rotation": {
+          "description": "Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "translation": {
+          "description": "Translation `[tx, ty, tz]` in meters.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "rotation",
+        "translation"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A synthetic entry's true parameters.",
+  "properties": {
+    "parameters": {
+      "additionalProperties": {
+        "format": "double",
+        "type": "number"
+      },
+      "description": "Scalar parameters by label: intrinsics, distortion, sensor tilt and\nlaser-plane components.",
+      "type": "object"
+    },
+    "poses": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Iso3Schema"
+      },
+      "description": "Poses by name, as the export stores them.",
+      "type": "object"
+    }
+  },
+  "required": [
+    "parameters",
+    "poses"
+  ],
+  "title": "Truth",
+  "type": "object"
+}

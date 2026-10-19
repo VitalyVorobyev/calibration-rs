@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "Iso3Schema": {
+      "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
+      "properties": {
+        "rotation": {
+          "description": "Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "translation": {
+          "description": "Translation `[tx, ty, tz]` in meters.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "rotation",
+        "translation"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A result another library produced for a suite entry.",
+  "properties": {
+    "mean_reproj_error": {
+      "default": null,
+      "description": "Mean Euclidean reprojection error, pixels, when the library's\nprocedure yields one comparable with calibration-rs's.",
+      "format": "double",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "method": {
+      "description": "The functions and flags that produced it.",
+      "type": "string"
+    },
+    "parameters": {
+      "additionalProperties": {
+        "format": "double",
+        "type": "number"
+      },
+      "description": "Scalar parameters by calibration-rs label.",
+      "type": "object"
+    },
+    "poses": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Iso3Schema"
+      },
+      "description": "Poses by calibration-rs export name.",
+      "type": "object"
+    },
+    "producer": {
+      "description": "Library and version, e.g. `opencv 4.12.0`.",
+      "type": "string"
+    },
+    "sigma": {
+      "additionalProperties": {
+        "format": "double",
+        "type": "number"
+      },
+      "default": {},
+      "description": "The library's own standard deviations, by label.",
+      "type": "object"
+    }
+  },
+  "required": [
+    "producer",
+    "method",
+    "parameters",
+    "poses"
+  ],
+  "title": "ExternalResult",
+  "type": "object"
+}

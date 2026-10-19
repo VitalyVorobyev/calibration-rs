@@ -41,7 +41,9 @@ regression/
 ├── SHA256SUMS                          checksums of the observation and truth files
 ├── observations/<id>.json              the entry's observations
 ├── truth/<id>.json                     a synthetic entry's true parameters
-└── results/<id>/calibration-rs.json    the entry's reference result
+├── results/<id>/calibration-rs.json    the entry's reference result
+├── results/<id>/<tool>.json            another library's result, for comparison
+└── schema/                             JSON Schemas of the three file formats
 ```
 
 `SHA256SUMS` is in the format of `sha256sum`, so the data can be verified
@@ -127,6 +129,11 @@ Two more subcommands maintain the suite:
   `t_gripper2base`.
 - `version` is the format version; it changes only with an incompatible
   format change.
+
+`schema/observation_set.json` is the format's JSON Schema, generated from the
+types the library reads, with the input of every problem type; `truth.json`
+and `external_result.json` describe the truth files and the results of other
+libraries below.
 
 ## Ground truth
 
