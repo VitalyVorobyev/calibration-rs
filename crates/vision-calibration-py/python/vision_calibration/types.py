@@ -150,10 +150,14 @@ class SolveReport(TypedDict):
 ResidualKind: TypeAlias = Literal["reprojection", "laser_plane", "laser_line"]
 
 
-class ResidualNoise(TypedDict):
+class _ResidualNoiseRequired(TypedDict):
     kind: ResidualKind
     sigma: float
     count: int
+
+
+class ResidualNoise(_ResidualNoiseRequired, total=False):
+    camera: int
 
 
 class ViewCovariance(TypedDict):
@@ -242,6 +246,7 @@ class LaserlineParams(TypedDict):
 class LaserlineEstimate(TypedDict):
     params: LaserlineParams
     report: SolveReport
+    uncertainty: Uncertainty
 
 
 class LaserlineStats(TypedDict):

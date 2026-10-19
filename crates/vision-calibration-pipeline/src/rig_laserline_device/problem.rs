@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, Camera, FeatureResidualHistogram, FxFyCxCySkew, ImageManifest, Iso3, NoMeta,
     PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset, RigView, RigViewObs,
-    ScheimpflugParams, build_feature_histogram, compute_rig_target_residuals, make_pinhole_camera,
+    ScheimpflugParams, Uncertainty, build_feature_histogram, compute_rig_target_residuals,
+    make_pinhole_camera,
 };
 use vision_calibration_optim::{
     LaserPlane, LaserlineResidualType, LaserlineStats, RigLaserlineDataset, RigLaserlineEstimate,
@@ -202,6 +203,12 @@ pub struct RigLaserlineDeviceExport {
     /// calibration pipeline never reads this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,
+    /// Covariance of the laser planes in their camera frames
+    /// (`cam1.plane.nx`), conditional on the upstream calibration. Each
+    /// camera's plane is solved on its own, so each camera has its own
+    /// noise levels.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 /// Rig laserline calibration problem.
@@ -378,6 +385,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
             // Manifest is populated by callers that wrote images for the
             // dataset; the pipeline never has image paths to fill in.
             image_manifest: None,
+            uncertainty: output.uncertainty.clone(),
         })
     }
 }
@@ -403,6 +411,7 @@ mod tests {
             mean_reproj_error: 0.0,
             per_feature_residuals: PerFeatureResiduals::default(),
             image_manifest: None,
+            uncertainty: Uncertainty::default(),
         }
     }
 

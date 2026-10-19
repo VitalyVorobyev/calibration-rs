@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     Camera, CameraFixMask, DistortionFixMask, FeatureResidualHistogram, ImageManifest,
     IntrinsicsFixMask, Iso3, NoMeta, PerFeatureResiduals, Pinhole, PinholeCamera, Real, RigDataset,
-    RigView, RigViewObs, ScheimpflugParams, build_feature_histogram, compute_rig_target_residuals,
-    make_pinhole_camera,
+    RigView, RigViewObs, ScheimpflugParams, Uncertainty, build_feature_histogram,
+    compute_rig_target_residuals, make_pinhole_camera,
 };
 use vision_calibration_optim::{
     HandEyeMode, LaserPlane, LaserlineResidualType, RigHandeyeLaserlineDataset,
@@ -267,6 +267,11 @@ pub struct RigHandeyeLaserlineExport {
     /// Optional image manifest populated by app/dataset runners.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,
+    /// Covariance of the jointly refined parameters, labelled as the export
+    /// fields (`cam1.fx`, `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`), with
+    /// each camera's laser plane in its camera frame (`cam1.plane.nx`).
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 /// Joint rig hand-eye laserline problem.
@@ -444,6 +449,7 @@ pub(crate) fn export_joint(
             .collect(),
         per_feature_residuals,
         image_manifest: None,
+        uncertainty: estimate.uncertainty.clone(),
     })
 }
 

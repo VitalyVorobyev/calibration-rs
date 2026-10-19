@@ -11,19 +11,20 @@ use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
 use crate::factors::laserline::{laser_line_dist_core, laser_point_to_plane_core};
 use crate::ir::{
-    CameraModelDesc, FactorKind, FixedMask, LaserChain, ManifoldKind, ProblemIR, ReprojChain,
-    ResidualBlock, RobustLoss,
+    CameraModelDesc, DistortionKind, FactorKind, FixedMask, LaserChain, ManifoldKind, ProblemIR,
+    ReprojChain, ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
 use crate::params::laser_plane::LaserPlane;
 use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
+use crate::uncertainty;
 use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraFixMask, FxFyCxCySkew, Iso3, Pinhole, Pt2, Real,
-    ScheimpflugParams, View,
+    ScheimpflugParams, Uncertainty, View,
 };
 
 /// Metadata for a laserline view (laser pixels + optional weights).
@@ -132,6 +133,11 @@ pub struct LaserlineEstimate {
     pub params: LaserlineParams,
     /// Backend solve report.
     pub report: SolveReport,
+    /// Covariance of the refined parameters: intrinsics, distortion, sensor
+    /// tilt and the laser plane (`plane.nx … plane.d`, in the camera frame),
+    /// with each view's target pose as a per-view block.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 /// Summary statistics for a laserline calibration result.
@@ -189,7 +195,8 @@ pub struct LaserlineSolveOptions {
     pub fix_camera: CameraFixMask,
     /// Fix Scheimpflug sensor parameters during optimization
     pub fix_sensor: bool,
-    /// Indices of poses to fix (e.g., \[0\] to fix first pose for gauge freedom)
+    /// Indices of target poses to hold fixed. None by default: each view's
+    /// pose is measured by its own corners, so there is no gauge to fix.
     pub fix_poses: Vec<usize>,
     /// Indices of planes to fix
     pub fix_plane: bool,
@@ -206,7 +213,7 @@ impl Default for LaserlineSolveOptions {
             laser_weight: 1.0,
             fix_camera: CameraFixMask::default(), // intrinsics free, k3 fixed
             fix_sensor: true,
-            fix_poses: vec![0], // Fix first pose by default
+            fix_poses: Vec::new(),
             fix_plane: false,
             laser_residual_type: LaserlineResidualType::LineDistNormalized, // New default
         }
@@ -554,13 +561,14 @@ pub(crate) type LaserlineCamera = Camera<
 
 /// Extract solution from backend result.
 fn extract_solution(
+    ir: &ProblemIR,
     solution: crate::backend::BackendSolution,
     num_poses: usize,
 ) -> Result<LaserlineEstimate, Error> {
     let intrinsics = unpack_intrinsics(
         solution
             .params
-            .get("intrinsics")
+            .get("cam")
             .ok_or_else(|| Error::numerical("missing intrinsics in solution"))?
             .as_view(),
     )?;
@@ -568,14 +576,14 @@ fn extract_solution(
     let distortion = unpack_distortion(
         solution
             .params
-            .get("distortion")
+            .get("dist")
             .ok_or_else(|| Error::numerical("missing distortion in solution"))?
             .as_view(),
     )?;
 
     let mut poses = Vec::new();
     for i in 0..num_poses {
-        let name = format!("pose_{}", i);
+        let name = format!("pose/{i}");
         let pose_vec = solution
             .params
             .get(&name)
@@ -583,8 +591,8 @@ fn extract_solution(
         poses.push(se3_dvec_to_iso3(pose_vec.as_view())?);
     }
 
-    let normal_name = "plane_normal".to_owned();
-    let distance_name = "plane_distance".to_owned();
+    let normal_name = "plane_n".to_owned();
+    let distance_name = "plane_d".to_owned();
     let plane_normal = solution
         .params
         .get(&normal_name)
@@ -603,8 +611,16 @@ fn extract_solution(
             .as_view(),
     )?;
 
+    let labels: Vec<_> = ir
+        .params
+        .iter()
+        .map(|block| {
+            uncertainty::planar_block_labels(block, DistortionKind::BrownConrady5.param_names())
+        })
+        .collect();
     Ok(LaserlineEstimate {
         params: LaserlineParams::new(intrinsics, distortion, sensor, poses, plane)?,
+        uncertainty: uncertainty::labelled(ir, &solution.uncertainty, &labels),
         report: solution.solve_report,
     })
 }
@@ -646,7 +662,7 @@ pub fn optimize_laserline(
 ) -> Result<LaserlineEstimate, Error> {
     let (ir, initial_map) = build_laserline_ir(dataset, initial, opts)?;
     let solution = backend::solve(&ir, &initial_map, backend_opts)?;
-    extract_solution(solution, dataset.len())
+    extract_solution(&ir, solution, dataset.len())
 }
 
 /// Build IR for laserline bundle adjustment.
@@ -677,30 +693,24 @@ fn build_laserline_ir(
     // Add intrinsics parameter block
     let intrinsics_fixed = FixedMask::fix_indices(&opts.fix_camera.intrinsics.to_indices());
     let intrinsics_id = ir.add_param_block(
-        "intrinsics",
+        "cam",
         INTRINSICS_DIM,
         ManifoldKind::Euclidean,
         intrinsics_fixed,
         None,
     );
-    initial_map.insert(
-        "intrinsics".to_string(),
-        pack_intrinsics(&initial.intrinsics)?,
-    );
+    initial_map.insert("cam".to_string(), pack_intrinsics(&initial.intrinsics)?);
 
     // Add distortion parameter block
     let distortion_fixed = FixedMask::fix_indices(&opts.fix_camera.distortion.to_indices());
     let distortion_id = ir.add_param_block(
-        "distortion",
+        "dist",
         DISTORTION_DIM,
         ManifoldKind::Euclidean,
         distortion_fixed,
         None,
     );
-    initial_map.insert(
-        "distortion".to_string(),
-        pack_distortion(&initial.distortion),
-    );
+    initial_map.insert("dist".to_string(), pack_distortion(&initial.distortion));
 
     // Add sensor parameter block (Scheimpflug)
     let sensor_fixed = if opts.fix_sensor {
@@ -719,7 +729,7 @@ fn build_laserline_ir(
         } else {
             FixedMask::all_free()
         };
-        let name = format!("pose_{}", i);
+        let name = format!("pose/{i}");
         let id = ir.add_param_block(&name, 7, ManifoldKind::SE3, fixed, None);
         pose_ids.push(id);
         initial_map.insert(name, iso3_to_se3_dvec(pose));
@@ -737,8 +747,8 @@ fn build_laserline_ir(
         FixedMask::all_free()
     };
 
-    let normal_name = "plane_normal";
-    let distance_name = "plane_distance";
+    let normal_name = "plane_n";
+    let distance_name = "plane_d";
     let normal_id = ir.add_param_block(normal_name, 3, ManifoldKind::S2, normal_fixed, None);
     let distance_id = ir.add_param_block(
         distance_name,
@@ -867,7 +877,7 @@ mod tests {
         let (ir, mut initial_map) = build_laserline_ir(&dataset, &initial, &opts).unwrap();
 
         // Remove intrinsics from initial values
-        initial_map.remove("intrinsics");
+        initial_map.remove("cam");
 
         // Every backend must refuse to compile with a missing parameter.
         for backend in [SolverBackend::TinySolver, SolverBackend::Factrs] {
@@ -917,8 +927,8 @@ mod tests {
         let opts = LaserlineSolveOptions::default();
         let (ir, _) = build_laserline_ir(&dataset, &initial, &opts).unwrap();
 
-        let intrinsics_fixed = &ir.params[ir.param_by_name("intrinsics").unwrap().0].fixed;
-        let distortion_fixed = &ir.params[ir.param_by_name("distortion").unwrap().0].fixed;
+        let intrinsics_fixed = &ir.params[ir.param_by_name("cam").unwrap().0].fixed;
+        let distortion_fixed = &ir.params[ir.param_by_name("dist").unwrap().0].fixed;
 
         // Old `fix_intrinsics: false` -> FixedMask::all_free().
         assert_eq!(*intrinsics_fixed, FixedMask::all_free());
@@ -1104,8 +1114,8 @@ mod tests {
         let opts = LaserlineSolveOptions::default();
         let (ir, _) = build_laserline_ir(&dataset, &initial, &opts).unwrap();
 
-        let normal_id = ir.param_by_name("plane_normal").unwrap();
-        let distance_id = ir.param_by_name("plane_distance").unwrap();
+        let normal_id = ir.param_by_name("plane_n").unwrap();
+        let distance_id = ir.param_by_name("plane_d").unwrap();
 
         let normal_param = &ir.params[normal_id.0];
         let distance_param = &ir.params[distance_id.0];

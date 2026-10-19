@@ -1001,6 +1001,20 @@
             }
           ],
           "description": "Backend solve report."
+        },
+        "uncertainty": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uncertainty"
+            }
+          ],
+          "default": {
+            "reason": {
+              "kind": "not_computed"
+            },
+            "status": "unavailable"
+          },
+          "description": "Covariance of the refined parameters: intrinsics, distortion, sensor\ntilt and the laser plane (`plane.nx … plane.d`, in the camera frame),\nwith each view's target pose as a per-view block."
         }
       },
       "required": [
@@ -1426,6 +1440,15 @@
     "ResidualNoise": {
       "description": "The estimated noise level of one kind of residual.",
       "properties": {
+        "camera": {
+          "description": "The camera, for a result that estimates each camera's noise apart\n(the rig laserline, which solves each camera's plane on its own);\n`None` for one level shared by every camera.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "count": {
           "description": "Number of scalar residuals of this kind.",
           "format": "uint",
@@ -1884,6 +1907,20 @@
             "$ref": "#/definitions/ScheimpflugParams"
           },
           "type": "array"
+        },
+        "uncertainty": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uncertainty"
+            }
+          ],
+          "default": {
+            "reason": {
+              "kind": "not_computed"
+            },
+            "status": "unavailable"
+          },
+          "description": "Covariance of the jointly refined parameters, labelled as the export\nfields (`cam1.fx`, `cam1.cam_se3_rig.tx`, `gripper_se3_rig.rz`), with\neach camera's laser plane in its camera frame (`cam1.plane.nx`)."
         }
       },
       "required": [
@@ -2074,6 +2111,20 @@
             "array",
             "null"
           ]
+        },
+        "uncertainty": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uncertainty"
+            }
+          ],
+          "default": {
+            "reason": {
+              "kind": "not_computed"
+            },
+            "status": "unavailable"
+          },
+          "description": "Covariance of the laser planes in their camera frames\n(`cam1.plane.nx`), conditional on the upstream calibration. Each\ncamera's plane is solved on its own, so each camera has its own\nnoise levels."
         }
       },
       "required": [

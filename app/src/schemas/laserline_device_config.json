@@ -132,7 +132,7 @@
           "type": "boolean"
         },
         "fix_poses": {
-          "description": "Indices of poses to fix (e.g., \\[0\\] to fix first pose).",
+          "description": "Indices of target poses to hold fixed. None by default: each view's\npose is measured by its own corners, so there is no gauge to fix.",
           "items": {
             "format": "uint",
             "minimum": 0,

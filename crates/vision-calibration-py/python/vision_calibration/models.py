@@ -868,7 +868,7 @@ class LaserlineDeviceOptimizeConfig:
     laser_weight: float = 1.0
     fix_camera: CameraFixMask = field(default_factory=CameraFixMask)
     fix_sensor: bool = True
-    fix_poses: list[int] = field(default_factory=lambda: [0])
+    fix_poses: list[int] = field(default_factory=list)
     fix_plane: bool = False
     laser_residual_type: LaserlineResidualType = "LineDistNormalized"
 
@@ -1486,6 +1486,9 @@ class LaserlineEstimate:
 
     params: LaserlineEstimateParams
     final_cost: float
+    uncertainty: ParameterUncertainty = field(
+        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    )
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineEstimate":
@@ -1495,6 +1498,9 @@ class LaserlineEstimate:
                 cast(Mapping[str, Any], payload["params"])
             ),
             final_cost=float(report["final_cost"]),
+            uncertainty=ParameterUncertainty.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("uncertainty"))
+            ),
         )
 
 
@@ -1534,13 +1540,18 @@ class ResidualNoise:
     kind: str
     sigma: float
     count: int
+    camera: int | None = None
+    """The camera, when the result estimates each camera's noise apart (the
+    rig laserline); ``None`` for one level shared by every camera."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ResidualNoise":
+        camera = payload.get("camera")
         return cls(
             kind=str(payload["kind"]),
             sigma=float(payload["sigma"]),
             count=int(payload["count"]),
+            camera=None if camera is None else int(camera),
         )
 
 
@@ -1869,6 +1880,12 @@ class LaserlineDeviceResult:
         """Mean laser residual (units depend on residual type)."""
         return self.stats.mean_laser_error
 
+    @property
+    def uncertainty(self) -> ParameterUncertainty:
+        """Covariance of the intrinsics, distortion and laser plane
+        (``plane.nx`` … ``plane.d``), with each view's target pose."""
+        return self.estimate.uncertainty
+
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineDeviceResult":
         return cls(
@@ -2072,6 +2089,9 @@ class RigLaserlineDeviceResult:
     laser_planes_rig: list[LaserlinePlane]
     laser_planes_cam: list[LaserlinePlane]
     per_camera_stats: list[LaserlineStats]
+    uncertainty: ParameterUncertainty = field(
+        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    )
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigLaserlineDeviceResult":
@@ -2088,6 +2108,9 @@ class RigLaserlineDeviceResult:
                 LaserlineStats.from_payload(cast(Mapping[str, Any], s))
                 for s in cast(list[Any], payload["per_camera_stats"])
             ],
+            uncertainty=ParameterUncertainty.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("uncertainty"))
+            ),
         )
 
 
@@ -2334,6 +2357,9 @@ class RigHandeyeLaserlineResult:
     robot_deltas: list[list[float]] | None
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    uncertainty: ParameterUncertainty = field(
+        default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
+    )
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeLaserlineResult":
@@ -2382,6 +2408,9 @@ class RigHandeyeLaserlineResult:
             per_cam_reproj_errors=[
                 float(v) for v in cast(list[Any], payload["per_cam_reproj_errors"])
             ],
+            uncertainty=ParameterUncertainty.from_payload(
+                cast(Mapping[str, Any] | None, payload.get("uncertainty"))
+            ),
         )
 
 

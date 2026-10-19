@@ -34,10 +34,11 @@ use crate::problems::laserline_bundle::{
     LaserlineView, compute_laserline_stats, laser_line_endpoints_px,
     laser_point_to_plane_residual_m, optimize_laserline, point_line_distance,
 };
+use crate::uncertainty;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, Iso3,
-    LaserFeatureResidual, Pinhole, Pt2, Real, ScheimpflugParams, View,
+    LaserFeatureResidual, Pinhole, Pt2, Real, ScheimpflugParams, Uncertainty, View,
 };
 
 /// Per-view observations for a rig-level laserline calibration.
@@ -265,6 +266,13 @@ pub struct RigLaserlineEstimate {
     pub laser_planes_cam: Vec<LaserPlane>,
     /// Per-camera stats (mean reprojection + laser residual).
     pub per_camera_stats: Vec<LaserlineStats>,
+    /// Covariance of the laser planes in their camera frames
+    /// (`cam<i>.plane.nx … cam<i>.plane.d`), conditional on the upstream
+    /// calibration. Each camera's plane is solved on its own, so planes of
+    /// different cameras are uncorrelated and each camera has its own noise
+    /// levels.
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 /// Run per-camera laserline calibration and assemble rig-frame planes.
@@ -319,6 +327,7 @@ pub fn optimize_rig_laserline(
     let mut laser_planes_cam = Vec::with_capacity(n);
     let mut laser_planes_rig = Vec::with_capacity(n);
     let mut per_camera_stats = Vec::with_capacity(n);
+    let mut per_camera_uncertainty = Vec::with_capacity(n);
 
     // Force upstream-freezing flags; propagate residual type.
     let mut laser_opts = opts.laserline.clone();
@@ -384,12 +393,22 @@ pub fn optimize_rig_laserline(
         laser_planes_cam.push(plane_cam);
         laser_planes_rig.push(plane_rig);
         per_camera_stats.push(stats);
+        per_camera_uncertainty.push(est.uncertainty);
     }
+
+    let mut rig_fixed: Vec<String> = (0..n)
+        .map(|i| match n {
+            1 => "cam_se3_rig".to_string(),
+            _ => format!("cam{i}.cam_se3_rig"),
+        })
+        .collect();
+    rig_fixed.extend((0..dataset.num_views()).map(|v| format!("view{v}.rig_se3_target")));
 
     Ok(RigLaserlineEstimate {
         laser_planes_rig,
         laser_planes_cam,
         per_camera_stats,
+        uncertainty: uncertainty::per_camera(&per_camera_uncertainty, rig_fixed),
     })
 }
 
@@ -573,6 +592,23 @@ mod tests {
             &backend_opts,
         )
         .unwrap();
+        let Uncertainty::Available(cov) = &est.uncertainty else {
+            panic!("no covariance: {:?}", est.uncertainty);
+        };
+        let planes = ["plane.nx", "plane.ny", "plane.nz", "plane.d"];
+        let expected: Vec<String> = (0..2)
+            .flat_map(|c| planes.map(|p| format!("cam{c}.{p}")))
+            .collect();
+        assert_eq!(cov.labels, expected);
+        // The upstream calibration, named in rig terms.
+        for label in ["cam1.fx", "cam1.cam_se3_rig", "view3.rig_se3_target"] {
+            assert!(cov.fixed.iter().any(|l| l == label), "{:?}", cov.fixed);
+        }
+        assert!(!cov.fixed.iter().any(|l| l.contains("camera_se3_target")));
+        assert_eq!(
+            cov.noise.iter().map(|n| n.camera).collect::<Vec<_>>(),
+            [Some(0), Some(0), Some(1), Some(1)]
+        );
 
         // Compare recovered rig-frame planes with ground truth.
         for (cam_idx, (gt, got)) in planes_rig_gt.iter().zip(&est.laser_planes_rig).enumerate() {

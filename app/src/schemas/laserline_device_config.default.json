@@ -28,9 +28,7 @@
       }
     },
     "fix_plane": false,
-    "fix_poses": [
-      0
-    ],
+    "fix_poses": [],
     "fix_sensor": true,
     "laser_loss": {
       "Huber": {

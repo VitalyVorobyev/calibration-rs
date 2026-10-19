@@ -7,7 +7,7 @@
 
 #![allow(missing_docs)]
 
-use nalgebra::{DMatrix, DVector, Translation3, UnitQuaternion};
+use nalgebra::{DMatrix, DVector, Translation3, UnitQuaternion, Vector3};
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 use vision_calibration_core::{
     BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionFixMask,
@@ -17,9 +17,10 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
-    RigExtrinsicsParams, RigExtrinsicsSolveOptions, RobotPoseMeta, ScheimpflugIntrinsicsParams,
-    ScheimpflugIntrinsicsSolveOptions, apply_robot_delta, optimize_handeye,
-    optimize_rig_extrinsics, optimize_scheimpflug_intrinsics,
+    LaserPlane, LaserlineMeta, LaserlineParams, LaserlineSolveOptions, LaserlineView,
+    RigExtrinsicsParams, RigExtrinsicsSolveOptions, RobotPoseMeta, RobustLoss,
+    ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions, apply_robot_delta,
+    optimize_handeye, optimize_laserline, optimize_rig_extrinsics, optimize_scheimpflug_intrinsics,
 };
 
 const RUNS: u64 = 200;
@@ -35,6 +36,9 @@ struct MonteCarlo {
     errors: Vec<DVector<f64>>,
     predicted_var: Option<DVector<f64>>,
     nees: f64,
+    /// The covariance's rank, the χ² degrees of freedom of the NEES: below
+    /// the label count when a unit vector is reported by its components.
+    rank: usize,
 }
 
 impl MonteCarlo {
@@ -48,7 +52,15 @@ impl MonteCarlo {
         let n = self.labels.len();
         let error = DVector::from_iterator(n, self.labels.iter().map(|l| error(l)));
         let matrix = DMatrix::from_fn(n, n, |i, j| cov.covariance[i][j]);
-        self.nees += (error.transpose() * matrix.clone().try_inverse().unwrap() * &error)[(0, 0)];
+        // NEES on the correlation matrix, whose rank does not depend on the
+        // parameters' units.
+        let scale = matrix.diagonal().map(|v| 1.0 / v.sqrt());
+        let correlation = DMatrix::from_fn(n, n, |i, j| matrix[(i, j)] * scale[i] * scale[j]);
+        let svd = correlation.svd(true, true);
+        self.rank = svd.rank(1e-9);
+        let inverse = svd.pseudo_inverse(1e-9).unwrap();
+        let normalized = error.component_mul(&scale);
+        self.nees += (normalized.transpose() * inverse * &normalized)[(0, 0)];
         let var = matrix.diagonal();
         self.predicted_var = Some(match self.predicted_var.take() {
             Some(acc) => acc + var,
@@ -58,7 +70,7 @@ impl MonteCarlo {
     }
 
     /// Each predicted σ within `tolerance` of the empirical one, and the
-    /// mean NEES within three standard errors of χ²'s mean.
+    /// mean NEES near χ²'s mean (see the band below).
     fn assert_calibrated(&self, tolerance: f64) {
         let runs = self.errors.len() as f64;
         let n = self.labels.len();
@@ -79,9 +91,13 @@ impl MonteCarlo {
                 empirical[i]
             );
         }
-        let k = n as f64;
+        // The plug-in covariance, evaluated at each run's own estimate, puts
+        // the NEES a few percent above χ²'s mean; that offset does not
+        // shrink with the run count, so the band is the wider of three
+        // standard errors and the σ tolerance.
+        let k = self.rank as f64;
         let nees = self.nees / runs;
-        let band = 3.0 * (2.0 * k / runs).sqrt();
+        let band = (3.0 * (2.0 * k / runs).sqrt()).max(tolerance * k);
         let ratios = predicted.component_div(&empirical);
         eprintln!(
             "{n} parameters: σ ratio {:.2}–{:.2}, NEES {nees:.2}",
@@ -595,5 +611,121 @@ fn handeye_with_robot_pose_priors_matches_monte_carlo() {
         assert!(cov.fixed.contains(&"view0.robot_delta".to_string()));
         mc.push(cov, |label| scene.error(&est, label));
     }
+    mc.assert_calibrated(0.10);
+}
+
+/// A laser sheet beside the camera, crossing the optical axis at 0.5 m.
+fn laser_plane_truth() -> LaserPlane {
+    let normal = Vector3::new(0.5, 0.04, 0.1).normalize();
+    LaserPlane::new(normal, -normal.dot(&Vector3::new(0.1, 0.0, 0.0)))
+}
+
+/// The laser line on the board at `camera_se3_target`: points of the board's
+/// plane on the laser plane, within the board, projected with seeded noise.
+fn laser_pixels(
+    camera: &PinholeCamera,
+    camera_se3_target: &Iso3,
+    plane: &LaserPlane,
+    noise: &UniformPixelNoise,
+    stream: usize,
+) -> Vec<Pt2> {
+    // The laser plane in target coordinates, `n_t · p + d_t = 0`.
+    let n_t = camera_se3_target.rotation.inverse() * plane.normal.into_inner();
+    let d_t = plane.distance + plane.normal.dot(&camera_se3_target.translation.vector);
+    (0..60)
+        .filter_map(|i| {
+            let y = -0.08 + 0.16 * i as f64 / 59.0;
+            let x = -(n_t.y * y + d_t) / n_t.x;
+            if x.abs() > 0.08 {
+                return None;
+            }
+            let p = camera_se3_target.transform_point(&Pt3::new(x, y, 0.0));
+            let uv = camera.project_point(&p)?;
+            let uv = noise.apply(stream, i, Vec2::new(uv.x, uv.y));
+            Some(Pt2::new(uv.x, uv.y))
+        })
+        .collect()
+}
+
+/// The labelled value of a laserline parameter pack.
+fn laserline_value(params: &LaserlineParams, label: &str) -> f64 {
+    let camera = make_pinhole_camera(params.intrinsics, params.distortion);
+    let n = params.plane.normal;
+    match label {
+        "plane.nx" => n.x,
+        "plane.ny" => n.y,
+        "plane.nz" => n.z,
+        "plane.d" => params.plane.distance,
+        camera_label => camera_error(&pinhole_truth(0.0, 0.0), &camera, camera_label),
+    }
+}
+
+/// The laserline device's predicted σ (intrinsics, distortion and the laser
+/// plane, from corner and laser-line residuals together) match their
+/// scatter over seeded noise within 10 %, and the NEES matches χ².
+#[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
+fn laserline_covariance_matches_monte_carlo() {
+    let camera = pinhole_truth(1150.0, 372.0);
+    let plane = laser_plane_truth();
+    let poses = board_poses();
+    let gt = LaserlineParams::new(
+        camera.k,
+        camera.dist,
+        ScheimpflugParams::default(),
+        poses.clone(),
+        plane.clone(),
+    )
+    .unwrap();
+    let mut mc = MonteCarlo::default();
+    for seed in 0..LARGE_SCENE_RUNS {
+        let corners = UniformPixelNoise {
+            seed: 900 + seed,
+            max_abs_px: 0.5,
+        };
+        let laser = UniformPixelNoise {
+            seed: 7_000 + seed,
+            max_abs_px: 0.5,
+        };
+        let data: Vec<LaserlineView> = poses
+            .iter()
+            .enumerate()
+            .map(|(v, pose)| {
+                View::new(
+                    observe(&camera, pose, &corners, v),
+                    LaserlineMeta {
+                        laser_pixels: laser_pixels(&camera, pose, &plane, &laser, v),
+                        laser_weights: Vec::new(),
+                    },
+                )
+            })
+            .collect();
+        let est = optimize_laserline(
+            &data,
+            &gt,
+            &LaserlineSolveOptions {
+                // A Huber scale in the line distance's unit, pixels.
+                laser_loss: RobustLoss::Huber { scale: 1.0 },
+                ..LaserlineSolveOptions::default()
+            },
+            &BackendSolveOptions::default(),
+        )
+        .unwrap();
+        let Uncertainty::Available(cov) = &est.uncertainty else {
+            panic!("no covariance: {:?}", est.uncertainty);
+        };
+        assert_eq!(cov.noise.len(), 2, "corner and laser-line noise");
+        assert_eq!(cov.views.len(), poses.len(), "no pose is held fixed");
+        mc.push(cov, |l| {
+            laserline_value(&est.params, l) - laserline_value(&gt, l)
+        });
+    }
+    assert_eq!(
+        mc.labels,
+        [
+            "fx", "fy", "cx", "cy", "k1", "k2", "p1", "p2", "plane.nx", "plane.ny", "plane.nz",
+            "plane.d"
+        ]
+    );
     mc.assert_calibrated(0.10);
 }

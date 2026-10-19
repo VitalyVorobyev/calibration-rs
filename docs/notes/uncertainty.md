@@ -95,7 +95,13 @@ Each gate is a seeded Monte-Carlo test: `N ≥ 200` noise realizations of a
 synthetic scene, solved by the standard pipeline. It compares the predicted
 `σ` (the mean of the per-run predictions) with the empirical standard
 deviation of the estimates, per labelled coordinate, and checks the
-normalized estimation error squared against `χ²_n`.
+normalized estimation error squared against `χ²_k`, `k` the covariance's
+rank (a plane normal's three components have rank 2). The NEES is computed
+on the correlation matrix, so the rank does not depend on units. The plug-in
+covariance, evaluated at each run's estimate, puts the mean NEES a few
+percent above `k`, an offset that more runs do not shrink, so the
+`optim/tests/uncertainty.rs` gates accept the wider of three standard errors
+and the σ tolerance.
 
 | Family | Scene | Gate | Result |
 |--------|-------|------|--------|
@@ -105,10 +111,10 @@ normalized estimation error squared against `χ²_n`.
 | Rig extrinsics | 2 cameras (intrinsics free), 10 views of a 9×9 board, ±0.5 px, 200 runs; `cam1.cam_se3_rig` through the inverse-pose adjoint | σ within ±10 %; NEES as above | σ 0.95–1.08 (22 parameters), NEES 22.37 |
 | Hand-eye, exact robot poses | eye-in-hand, intrinsics free, 10 poses, ±0.5 px, 200 runs | σ within ±10 %; NEES as above | σ 0.93–1.07 (20 parameters), NEES 19.93 |
 | Hand-eye, robot-pose priors | as above, robot poses perturbed with the priors' σ (0.5°, 1 mm; view 0 exact) and refined, 400 runs | σ within ±10 %; NEES as above | sandwich σ 0.93–1.05, NEES 20.91; inverse-information form 0.64–1.07 (rejected) |
-| Laser | `laserline_device/*`, `rig_laserline_device/*` | σ within ±10 %, two families | *pending* |
+| Laserline device | 10 views of a 9×9 board, laser sheet crossing the axis at 0.5 m, ±0.5 px uniform noise on corners and laser pixels, laser loss Huber 1 px, 400 runs | σ within ±10 %, two families; NEES as above | σ 0.99–1.07 (12 parameters, rank 11), NEES 11.84; with the default Huber 0.01 px, `plane.d` 1.11 |
 | Backend parity | planar, with and without Huber | tiny-solver vs factrs `Σ` within 1e-6 relative | pass |
 | Rank deficiency | one camera through two free SE(3) blocks (a 6-DOF gauge) | `RankDeficient` naming the gauge blocks | pass |
-| Rank deficiency | hand-eye, single rotation axis | `RankDeficient` naming the axis translation and spin | *pending* |
+| Rank deficiency | joint rig hand-eye laserline, eye-to-hand, robot rotating about z only | `RankDeficient` naming the hand-eye and target translations along z | pass (`rig_se3_base.tz`, `gripper_se3_target.tz`) |
 
 ## Limitations
 

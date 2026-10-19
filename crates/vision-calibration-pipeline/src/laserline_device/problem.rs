@@ -70,7 +70,8 @@ pub struct LaserlineDeviceOptimizeConfig {
     pub fix_camera: CameraFixMask,
     /// Fix Scheimpflug sensor parameters during optimization.
     pub fix_sensor: bool,
-    /// Indices of poses to fix (e.g., \[0\] to fix first pose).
+    /// Indices of target poses to hold fixed. None by default: each view's
+    /// pose is measured by its own corners, so there is no gauge to fix.
     pub fix_poses: Vec<usize>,
     /// Fix laser plane parameters during optimization.
     pub fix_plane: bool,
@@ -87,7 +88,7 @@ impl Default for LaserlineDeviceOptimizeConfig {
             laser_weight: 1.0,
             fix_camera: CameraFixMask::default(),
             fix_sensor: true,
-            fix_poses: vec![0],
+            fix_poses: Vec::new(),
             fix_plane: false,
             laser_residual_type: LaserlineResidualType::LineDistNormalized,
         }
@@ -334,6 +335,7 @@ mod tests {
                 final_cost: 0.0,
                 num_iters: 0,
             },
+            uncertainty: Default::default(),
         };
         let stats = LaserlineStats {
             mean_reproj_error: 0.0,
@@ -438,6 +440,7 @@ mod tests {
                     final_cost: 0.0,
                     num_iters: 0,
                 },
+                uncertainty: Default::default(),
             },
             stats: LaserlineStats {
                 mean_reproj_error: 0.0,

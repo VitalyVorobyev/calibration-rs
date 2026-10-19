@@ -20,8 +20,8 @@
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
-    CameraModelDesc, FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind, ProblemIR,
-    ReprojChain, ResidualBlock, RobustLoss,
+    CameraModelDesc, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind,
+    ProblemIR, ReprojChain, ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
@@ -31,12 +31,15 @@ use crate::problems::handeye::RobotPoseMeta;
 use crate::problems::laserline_bundle::LaserlineResidualType;
 use crate::problems::laserline_rig_bundle::{RigLaserlineDataset, RigLaserlineView};
 use crate::problems::scheimpflug_intrinsics::ScheimpflugFixMask;
+use crate::uncertainty::{self, RigLabelling};
 use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+#[cfg(test)]
+use vision_calibration_core::UncertaintyUnavailable;
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraFixMask, FxFyCxCySkew, Iso3, Pinhole, PinholeCamera, Real,
-    ScheimpflugParams, make_pinhole_camera,
+    ScheimpflugParams, Uncertainty, make_pinhole_camera,
 };
 
 /// Combined rig + hand-eye + laser dataset.
@@ -273,6 +276,11 @@ pub struct RigHandeyeLaserlineEstimate {
     /// Optional optimized per-view robot pose deltas
     /// `[rx, ry, rz, tx, ty, tz]`.
     pub robot_deltas: Option<Vec<[Real; 6]>>,
+    /// Covariance of the refined parameters, labelled as the rig hand-eye
+    /// result's, plus each camera's laser plane in its camera frame
+    /// (`cam<i>.plane.nx … cam<i>.plane.d`).
+    #[serde(default)]
+    pub uncertainty: Uncertainty,
 }
 
 fn pack_scheimpflug(sensor: &ScheimpflugParams) -> DVector<f64> {
@@ -324,6 +332,12 @@ pub fn optimize_rig_handeye_laserline(
 ) -> Result<RigHandeyeLaserlineEstimate, Error> {
     let (ir, initial_map) = build_ir(&dataset, &initial, &opts)?;
     let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
+    let labels = RigLabelling {
+        distortion: DistortionKind::BrownConrady5.param_names(),
+        multi_camera: dataset.num_cameras > 1,
+        handeye_mode: Some(dataset.mode),
+    }
+    .labels(&ir, &solution);
 
     // Extract refined parameters.
     let cameras = (0..dataset.num_cameras)
@@ -429,6 +443,7 @@ pub fn optimize_rig_handeye_laserline(
         mean_reproj_error_px,
         per_cam_stats,
         robot_deltas,
+        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &labels),
     })
 }
 
@@ -1041,7 +1056,26 @@ mod tests {
         pts
     }
 
+    /// Eight gripper poses, all rotated about the base z axis.
+    fn planar_robot_motion() -> Vec<Iso3> {
+        (0..8)
+            .map(|i| {
+                let angle = 0.15 * i as f64;
+                Isometry3::from_parts(
+                    Translation3::new(0.10 * angle.cos(), 0.05 * (2.0 * angle).sin(), 0.20),
+                    UnitQuaternion::from_axis_angle(&Vector3::z_axis(), angle),
+                )
+            })
+            .collect()
+    }
+
     fn setup_synthetic_rig() -> (RigHandeyeLaserlineDataset, RigHandeyeLaserlineParams) {
+        setup_synthetic_rig_with(planar_robot_motion())
+    }
+
+    fn setup_synthetic_rig_with(
+        views_gt: Vec<Iso3>,
+    ) -> (RigHandeyeLaserlineDataset, RigHandeyeLaserlineParams) {
         // Two cameras, side-by-side, Scheimpflug-tilted, fixed in base.
         // Target rides the gripper (EyeToHand), laser plane per camera.
         let intr_gt = FxFyCxCySkew {
@@ -1089,17 +1123,6 @@ mod tests {
                 -0.35,
             ),
         ];
-
-        // Generate 8 views with different gripper poses.
-        let views_gt: Vec<Isometry3<f64>> = (0..8)
-            .map(|i| {
-                let angle = 0.15 * i as f64;
-                Isometry3::from_parts(
-                    Translation3::new(0.10 * angle.cos(), 0.05 * (2.0 * angle).sin(), 0.20),
-                    UnitQuaternion::from_axis_angle(&Vector3::z_axis(), angle),
-                )
-            })
-            .collect();
 
         let params_gt = RigHandeyeLaserlineParams {
             cameras: vec![cam_gt; 2],
@@ -1266,6 +1289,18 @@ mod tests {
         };
 
         let est = optimize_rig_handeye_laserline(dataset, initial, opts, backend_opts).unwrap();
+
+        // Rotations about one axis leave the hand-eye and target
+        // translations along it undetermined.
+        let Uncertainty::Unavailable {
+            reason: UncertaintyUnavailable::RankDeficient { unobservable },
+        } = &est.uncertainty
+        else {
+            panic!("expected a rank deficiency: {:?}", est.uncertainty);
+        };
+        for label in ["rig_se3_base.tz", "gripper_se3_target.tz"] {
+            assert!(unobservable.iter().any(|l| l == label), "{unobservable:?}");
+        }
 
         // Target reprojection should nail sub-pixel.
         assert!(

@@ -120,7 +120,7 @@ pub struct LaserlineDeviceOptimizeConfig {
     pub laser_weight: f64,             // Weight for laser residuals (default: 1.0)
     pub fix_camera: CameraFixMask,     // { intrinsics, distortion } — full per-field granularity
     pub fix_sensor: bool,              // Default: true
-    pub fix_poses: Vec<usize>,         // Default: vec![0]
+    pub fix_poses: Vec<usize>,         // Default: empty (each pose is set by its own corners)
     pub fix_plane: bool,
     pub laser_residual_type: LaserlineResidualType, // Default: LineDistNormalized
 }
@@ -146,7 +146,19 @@ println!("Plane normal: {:?}", export.estimate.params.plane.normal);
 println!("Plane distance: {:.4}", export.estimate.params.plane.distance);
 println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 println!("Laser error: {:.4}", export.stats.mean_laser_error);
+
+// The plane's uncertainty, from corner and laser residuals together.
+if let Some(cov) = export.estimate.uncertainty.covariance() {
+    println!("Plane distance σ: {:.2e} m", cov.std_dev("plane.d").unwrap());
+}
 ```
+
+The estimate's `uncertainty` covers the intrinsics, distortion and the
+laser plane (`plane.nx`, `plane.ny`, `plane.nz`, `plane.d`, in the camera
+frame), with each view's target pose as a per-view block; see
+[Parameter Uncertainty](uncertainty.md). The rig laserline result labels
+each camera's plane `cam<i>.plane.nx` …, and the joint rig hand-eye
+laserline result adds the planes to the rig hand-eye labels.
 
 ## Scheimpflug Support
 

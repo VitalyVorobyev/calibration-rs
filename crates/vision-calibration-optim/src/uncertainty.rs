@@ -157,6 +157,7 @@ pub(crate) fn labelled(
                 kind: f.family,
                 sigma: f.sigma,
                 count: f.num_residuals,
+                camera: None,
             })
             .collect(),
         num_residuals: estimate.num_residuals,
@@ -266,13 +267,15 @@ fn fixed_labels(ir: &ProblemIR, labels: &[BlockLabels]) -> Vec<String> {
 }
 
 /// Labels for the blocks of a single-camera planar IR (`cam`, `dist`,
-/// `sensor`, `pose/<view>`), with distortion coefficients named by
-/// `distortion`.
+/// `sensor`, `pose/<view>`, and a laserline's `plane_n`, `plane_d`), with
+/// distortion coefficients named by `distortion`.
 pub(crate) fn planar_block_labels(block: &ParamBlock, distortion: &[&str]) -> BlockLabels {
     match block.name.as_str() {
         "cam" => BlockLabels::shared("intrinsics", &["fx", "fy", "cx", "cy"]),
         "dist" => BlockLabels::shared("distortion", distortion),
         "sensor" => BlockLabels::shared("sensor", &["tilt_x", "tilt_y"]),
+        "plane_n" => BlockLabels::shared(PLANE_NORMAL, &PLANE_NORMAL_LABELS),
+        "plane_d" => BlockLabels::shared(PLANE_DISTANCE, &[PLANE_DISTANCE]),
         name => {
             let view = name
                 .strip_prefix("pose/")
@@ -282,6 +285,89 @@ pub(crate) fn planar_block_labels(block: &ParamBlock, distortion: &[&str]) -> Bl
         }
     }
 }
+
+/// One uncertainty for cameras solved apart, from each camera's own
+/// (`parts[i]` for camera `i`): the covariance is block-diagonal, labels gain
+/// a `cam<i>.` prefix and each noise level names its camera when there is
+/// more than one camera. The parts' fixed per-view parameters are dropped,
+/// since their view indices are local to each camera's solve; `rig_fixed`
+/// names what they stand for in the rig.
+pub(crate) fn per_camera(parts: &[Uncertainty], rig_fixed: Vec<String>) -> Uncertainty {
+    let multi_camera = parts.len() > 1;
+    let prefix = |i: usize, label: &str| {
+        if multi_camera {
+            format!("cam{i}.{label}")
+        } else {
+            label.to_string()
+        }
+    };
+    let prefixed = |i: usize, labels: &[String]| -> Vec<String> {
+        labels.iter().map(|l| prefix(i, l)).collect()
+    };
+    let mut available = Vec::with_capacity(parts.len());
+    for (i, part) in parts.iter().enumerate() {
+        match part {
+            Uncertainty::Available(cov) => available.push(cov),
+            Uncertainty::Unavailable { reason } => {
+                let reason = match reason {
+                    UncertaintyUnavailable::RankDeficient { unobservable } => {
+                        UncertaintyUnavailable::RankDeficient {
+                            unobservable: prefixed(i, unobservable),
+                        }
+                    }
+                    UncertaintyUnavailable::AtBound { labels } => UncertaintyUnavailable::AtBound {
+                        labels: prefixed(i, labels),
+                    },
+                    other => other.clone(),
+                };
+                return Uncertainty::Unavailable { reason };
+            }
+        }
+    }
+
+    let n: usize = available.iter().map(|c| c.labels.len()).sum();
+    let mut covariance = vec![vec![0.0; n]; n];
+    let mut labels = Vec::with_capacity(n);
+    let mut noise = Vec::new();
+    let mut fixed = Vec::new();
+    for (i, cov) in available.iter().enumerate() {
+        debug_assert!(
+            cov.views.is_empty(),
+            "per-camera solves hold the views fixed"
+        );
+        let offset = labels.len();
+        for (a, row) in cov.covariance.iter().enumerate() {
+            covariance[offset + a][offset..offset + row.len()].copy_from_slice(row);
+        }
+        labels.extend(prefixed(i, &cov.labels));
+        fixed.extend(
+            cov.fixed
+                .iter()
+                .filter(|label| !label.starts_with("view"))
+                .map(|label| prefix(i, label)),
+        );
+        noise.extend(cov.noise.iter().map(|level| ResidualNoise {
+            camera: multi_camera.then_some(i),
+            ..level.clone()
+        }));
+    }
+    fixed.extend(rig_fixed);
+    Uncertainty::Available(ParameterCovariance {
+        labels,
+        covariance,
+        views: Vec::new(),
+        fixed,
+        noise,
+        num_residuals: available.iter().map(|c| c.num_residuals).sum(),
+        dof: available.iter().map(|c| c.dof).sum(),
+    })
+}
+
+/// A laser plane's unit normal, reported by its three components (the
+/// covariance of a unit vector has rank 2), and its signed distance.
+const PLANE_NORMAL: &str = "plane.normal";
+const PLANE_NORMAL_LABELS: [&str; 3] = ["plane.nx", "plane.ny", "plane.nz"];
+const PLANE_DISTANCE: &str = "plane.d";
 
 /// The shape of a rig or hand-eye IR, for naming its blocks.
 pub(crate) struct RigLabelling<'a> {
@@ -306,8 +392,10 @@ impl RigLabelling<'_> {
 
     /// Labels for the blocks of the rig and hand-eye IRs: `cam/<i>`,
     /// `dist/<i>`, `sensor/<i>`, `extr/<i>` (stored as `rig_se3_cam`,
-    /// reported as `cam_se3_rig`), `handeye`, `target`, `target/<view>`,
-    /// `rig_pose/<view>` and `robot_delta/<view>`.
+    /// reported as `cam_se3_rig`), `handeye`, `target` (`target_ref` in the
+    /// laserline IR), `target/<view>`, `rig_pose/<view>`,
+    /// `robot_delta/<view>`, and each camera's laser plane `plane_n/<i>`,
+    /// `plane_d/<i>` (in that camera's frame).
     fn block(&self, block: &ParamBlock, solution: &BackendSolution) -> BlockLabels {
         let (kind, index) = match block.name.split_once('/') {
             Some((kind, index)) => (
@@ -362,7 +450,9 @@ impl RigLabelling<'_> {
                 Some(HandEyeMode::EyeToHand) => format!("{rig}_se3_base"),
                 _ => format!("gripper_se3_{rig}"),
             }),
-            ("target", None) => BlockLabels::shared_pose(target),
+            ("target" | "target_ref", None) => BlockLabels::shared_pose(target),
+            ("plane_n", Some(_)) => camera(PLANE_NORMAL, &PLANE_NORMAL_LABELS),
+            ("plane_d", Some(_)) => camera(PLANE_DISTANCE, &[PLANE_DISTANCE]),
             ("target" | "rig_pose", Some(view)) => BlockLabels::view_pose(view, target),
             ("robot_delta", Some(view)) => BlockLabels {
                 view: Some(view),
@@ -376,9 +466,10 @@ impl RigLabelling<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::SolveReport;
     use crate::backend::covariance::{CovarianceEstimate, FamilyNoise};
     use crate::ir::FixedMask;
-    use nalgebra::{Translation3, UnitQuaternion, Vector3};
+    use nalgebra::{DVector, Translation3, UnitQuaternion, Vector3};
     use vision_calibration_core::ResidualKind;
 
     fn ir() -> ProblemIR {
@@ -547,5 +638,94 @@ mod tests {
             panic!("available");
         };
         assert_eq!(c.fixed, ["gripper_se3_camera"]);
+    }
+
+    #[test]
+    fn laserline_rig_blocks_are_named_per_camera() {
+        let mut ir = ProblemIR::new();
+        let free = FixedMask::all_free;
+        ir.add_param_block("extr/1", 7, ManifoldKind::SE3, free(), None);
+        ir.add_param_block("handeye", 7, ManifoldKind::SE3, free(), None);
+        ir.add_param_block("target_ref", 7, ManifoldKind::SE3, free(), None);
+        ir.add_param_block("plane_n/1", 3, ManifoldKind::S2, free(), None);
+        ir.add_param_block("plane_d/1", 1, ManifoldKind::Euclidean, free(), None);
+        let solution = BackendSolution {
+            params: [(
+                "extr/1".to_string(),
+                DVector::from_row_slice(&[0.0, 0.0, 0.0, 1.0, 0.1, 0.0, 0.0]),
+            )]
+            .into(),
+            solve_report: SolveReport {
+                final_cost: 0.0,
+                num_iters: 0,
+            },
+            uncertainty: ParamUncertainty::Unavailable(UnavailableReason::NotConverged),
+        };
+        let labels = RigLabelling {
+            distortion: &[],
+            multi_camera: true,
+            handeye_mode: Some(HandEyeMode::EyeToHand),
+        }
+        .labels(&ir, &solution);
+        let names: Vec<_> = labels.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "cam1.cam_se3_rig",
+                "rig_se3_base",
+                "gripper_se3_target",
+                "cam1.plane.normal",
+                "cam1.plane.d"
+            ]
+        );
+        assert_eq!(
+            labels[3].coordinates,
+            ["cam1.plane.nx", "cam1.plane.ny", "cam1.plane.nz"]
+        );
+        assert_eq!(labels[4].coordinates, ["cam1.plane.d"]);
+    }
+
+    #[test]
+    fn cameras_solved_apart_merge_block_diagonally() {
+        let part = |sigma: f64| {
+            Uncertainty::Available(ParameterCovariance {
+                labels: vec!["plane.d".into()],
+                covariance: vec![vec![sigma * sigma]],
+                views: Vec::new(),
+                fixed: vec!["fx".into(), "view0.camera_se3_target".into()],
+                noise: vec![ResidualNoise {
+                    kind: ResidualKind::LaserLine,
+                    sigma,
+                    count: 50,
+                    camera: None,
+                }],
+                num_residuals: 50,
+                dof: 49,
+            })
+        };
+        let Uncertainty::Available(c) =
+            per_camera(&[part(1.0), part(2.0)], vec!["view0.rig_se3_target".into()])
+        else {
+            panic!("available");
+        };
+        assert_eq!(c.labels, ["cam0.plane.d", "cam1.plane.d"]);
+        assert_eq!(c.covariance, [[1.0, 0.0], [0.0, 4.0]]);
+        assert_eq!(c.fixed, ["cam0.fx", "cam1.fx", "view0.rig_se3_target"]);
+        assert_eq!(c.noise[1].camera, Some(1));
+        assert_eq!((c.num_residuals, c.dof), (100, 98));
+
+        let rank_deficient = Uncertainty::Unavailable {
+            reason: UncertaintyUnavailable::RankDeficient {
+                unobservable: vec!["plane.nx".into()],
+            },
+        };
+        assert_eq!(
+            per_camera(&[part(1.0), rank_deficient], Vec::new()),
+            Uncertainty::Unavailable {
+                reason: UncertaintyUnavailable::RankDeficient {
+                    unobservable: vec!["cam1.plane.nx".into()]
+                }
+            }
+        );
     }
 }
