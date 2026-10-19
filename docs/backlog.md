@@ -32,7 +32,8 @@ changes results, so each needs its measurement first.
   scenes; results change, so it needs a migration note. With exact
   synthetic stations (`synth_rig_handeye_laserline`), every hand-eye and
   target coordinate lands within 0.7σ of the truth: σ reflects the priors,
-  not the data.
+  not the data. On `kuka_1` our σ of the intrinsics is 1.4–2.8× OpenCV's
+  (which takes the robot poses as exact).
 - [ ] UQ-RIG-INTRINSICS - Rig and rig hand-eye results hold the per-camera
   intrinsics fixed in their final solve by default, so their covariance has
   no intrinsics block and the extrinsics' σ is conditional on them. Decide:
@@ -68,16 +69,14 @@ stays local-only, as do the private sets.
   captures are CC-BY-4.0. Once `data/stereo` is fetchable, its app presets
   move from the local preset file back into `BUILTIN_PRESETS`, and a
   real-image dense-stereo example can return.
-- [ ] DATA-OPENCV - OpenCV harness (`tools/compare/opencv/`, `uv`, pinned
-  `opencv-python`) reading `ObservationSet`: `calibrateCameraExtended` (with
-  its standard deviations), `stereoCalibrate`, `calibrateHandEye`,
-  `calibrateRobotWorldHandEye`. Emit a JSON Schema of the observation format
-  for harness authors (the problem inputs need `JsonSchema` derives).
-  `calib-bench suite compare` evaluates every result with one reprojection
-  evaluator on the same observations and reports
-  parameter differences in units of our σ and our σ against OpenCV's.
-- [~] DATA-MRCAL - mrcal comparison (parameters and projection uncertainty)
-  in an Ubuntu CI job (`apt install mrcal`). Parked until DATA-OPENCV lands.
+- [ ] DATA-SCHEMA - A JSON Schema of the observation format for harness
+  authors: `JsonSchema` derives on the problem inputs (core views and
+  datasets, the hand-eye and laser metas, the rig laserline input) and on
+  `ObservationSet` and the truth/external-result files, emitted by `cargo
+  xtask emit-schemas`. The OpenCV harness reads the files without it today.
+- [ ] DATA-MRCAL - mrcal comparison (parameters and projection uncertainty)
+  in an Ubuntu CI job (`apt install mrcal`), writing
+  `results/<id>/mrcal.json` in the format `suite compare` reads.
 - [~] DATA-MORE - More public entries, each after a licence check: OpenCV's
   sample stereo chessboards; reference-only third-party sets (URL + checksum,
   never redistributed) such as RWHE-Calib; purpose-designed captures of our

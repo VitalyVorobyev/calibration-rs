@@ -211,6 +211,11 @@ enum SuiteCommand {
     },
     /// Calibrate each entry and store the result as its new reference.
     Bless,
+    /// Compare other libraries' stored results (`results/<id>/<tool>.json`)
+    /// with the references, as a Markdown table: differences in units of
+    /// the reference's σ, the two libraries' σ, reprojection error and, for
+    /// synthetic entries, the error against the truth.
+    Compare,
     /// Write each entry's observations, and refresh `SHA256SUMS`: detection
     /// on the images its dataset manifest names (needs `--features
     /// tier-b`), or a synthetic entry's benchmark scene and its truth.
@@ -1417,6 +1422,16 @@ fn cmd_suite(args: &SuiteArgs) -> Result<()> {
                 if failed.len() == 1 { "y" } else { "ies" },
                 failed.join(", ")
             );
+        }
+        SuiteCommand::Compare => {
+            let mut comparisons = Vec::new();
+            for entry in entries {
+                comparisons.extend(
+                    suite::compare::compare_entry(&suite, entry)
+                        .with_context(|| format!("compare {}", entry.id))?,
+                );
+            }
+            print!("{}", suite::compare::render_markdown(&comparisons));
         }
         SuiteCommand::Bless => {
             for entry in entries {

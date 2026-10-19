@@ -111,7 +111,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   within 1σ. Six synthetic entries (planar, Scheimpflug, hand-eye, rig,
   laserline device, joint rig hand-eye laserline) carry their ground truth
   in `truth/<id>.json`, and `suite check` fails one whose parameters lie
-  5σ or more from the truth. See the book chapter "Regression Suite".
+  5σ or more from the truth. An OpenCV harness (`tools/compare/opencv`,
+  pinned with `uv`) calibrates every entry OpenCV has a method for, and
+  `calib-bench suite compare` sets its results against the references:
+  differences in units of our σ, the two libraries' standard deviations,
+  reprojection error and, on synthetic entries, each library's error
+  against the truth. See the book chapter "Regression Suite".
 - **`counted4x4` robot-pose format** for dataset manifests: the matrix
   count, then that many row-major 4×4 transforms on any line layout — the
   layout of the robot-world hand-eye datasets. The folder sniffer
