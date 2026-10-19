@@ -11,18 +11,15 @@ and the projection uncertainty it implies, validated against Monte-Carlo
 scatter. Design: ADR 0026; evidence: `notes/uncertainty.md`. Order: UQ-CORE →
 UQ-EXPORT → UQ-PROJECTION → UQ-APP.
 
-- [ ] UQ-CORE - Covariance in the shared LM (`backend/covariance.rs`). Reuse
-  `NormalEquations`: assemble at λ = 0, factor with the existing symbolic
-  LLT, solve identity columns, unscale by the Jacobi scaling; on LLT failure
-  name the null directions from a dense eigendecomposition.
-  `LinearizationEngine` gains a raw linearization and a column layout (IR
-  block → columns); `SolveReport` gains `converged`, residual count and
-  degrees of freedom; `BackendSolution` gains the block-labelled covariance,
-  the per-family `σ̂` and redundancy shares, and the availability reason.
-  Gates: backend parity (with and without robust loss); Monte-Carlo on the
-  planar-intrinsics scene (≥ 200 seeded realizations, predicted σ within
-  ±10 % of empirical, NEES consistent with χ²); a free-gauge problem reports
-  the right unobservable labels.
+- [ ] UQ-CORE - Covariance in the shared backend layer
+  (`backend/covariance.rs`, ADR 0026): Huber's M-estimator covariance from a
+  raw linearization at the solution, assembled and factored with
+  `NormalEquations`; per-family robust `σ̂`; availability reasons (not
+  converged, rank-deficient with the unobservable coordinates, at a bound,
+  no redundancy). Gates: backend parity with and without a robust loss;
+  Monte-Carlo on a planar scene, clean (σ ±10 %, NEES ~ χ²) and with 5 %
+  outliers under Huber and Cauchy (±20 %); a free gauge reported
+  rank-deficient.
 - [ ] UQ-EXPORT - `Uncertainty` on every `*Export`. Core type with labelled
   covariance over the global parameters (intrinsics, distortion, sensor,
   extrinsics, hand-eye, planes), per-family `σ̂`, degrees of freedom and

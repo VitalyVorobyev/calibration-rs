@@ -12,40 +12,45 @@ lands. Sections marked *open* are what the evidence has to settle.
 
 The LM minimizes `½ Σᵢ ρᵢ(‖rᵢ(θ)‖²)` over the free tangent coordinates `θ`.
 Each residual block `rᵢ` belongs to one family `f` (reprojection, laser
-point-to-plane, laser line distance) or is a prior. Observation residuals are
-modelled as `rᵢ ~ N(0, σ_f² / ρ′ᵢ · I)`: an unknown per-family noise,
-inflated where the robust loss down-weights. Priors are `N(0, I)` after their
-`sqrt_info`.
+point-to-plane, laser line distance) or is a prior. Within a family the
+scalar residuals are modelled as i.i.d. with an unknown distribution, which
+may be heavy-tailed: outliers are part of the noise. Priors are `N(0, I)`
+after their `sqrt_info`.
 
 ## Estimator
 
-First order at `θ̂`, with `Jᵢ = ∂rᵢ/∂θ` (raw, loss-free) and `ρ′ᵢ = ρ′(‖rᵢ‖²)`:
+At `θ̂`, with `Jᵢ = ∂rᵢ/∂θ` and `rᵢ` raw (loss-free) and `sᵢ = ‖rᵢ‖²`:
 
 ```
-H = Σ_f (1/σ̂_f²) Σ_{i∈f} ρ′ᵢ Jᵢᵀ Jᵢ  +  Σ_{priors} Jᵢᵀ Jᵢ,      Σ = H⁻¹
+Σ = (Σ_f A_f / σ_f² + A_p)⁻¹,   A_f = Σ_{i∈f} JᵢᵀJᵢ
+σ_f² = (Σ_{i∈f} ρ′ᵢ² sᵢ / m_f) / (Σ_{i∈f} (dᵢ ρ′ᵢ + 2ρ″ᵢ sᵢ) / m_f)² · m / (m − n)
 ```
 
-`H` is the Gauss–Newton Hessian of the IRLS objective at its fixed point.
-The second-order term `Σ ρ′ rᵢ · ∇²rᵢ` and the `ρ″` term are dropped. Both
-vanish for exact data, and the first is small against `JᵀJ` at sub-pixel
-residuals. *Open*: the size of the dropped terms on the real-data suite
+`dᵢ` is the block's residual dimension. This is Huber's asymptotic
+covariance of an M-estimator, `E[ψ²]/E[ψ′]² · (JᵀJ)⁻¹`, for i.i.d. residuals
+within a family. `ψ = ρ′ r` is the influence of a residual and `ψ′` its
+derivative, `ρ′ I + 2ρ″ r rᵀ` (trace per scalar). The factor `m/(m − n)`
+accounts for the degrees of freedom the fit absorbs. Without a loss it
+reduces to the classical `σ̂² (JᵀJ)⁻¹`.
+
+Two alternatives were measured and rejected:
+- **IRLS covariance** `σ̂² (JᵀWJ)⁻¹`, with `σ̂² = Σρ′s/(m − n)` and Förstner
+  variance components. Under Huber with outliers it overstated σ about
+  twofold: the outlier terms `ρ′s = k|r|` inflate `σ̂`, while an outlier only
+  pushes the estimate with a bounded force `k`.
+- **Per-residual sandwich** `Ĥ⁻¹ (Σ ρ′² Jᵀ r rᵀ J) Ĥ⁻¹`, with the exact robust
+  Hessian as bread. It was calibrated in σ but noisy per run (NEES 9.0
+  against 8).
+
+The second-order term `Σ ρ′ r · ∇²r` is dropped; it vanishes for exact data
+and is small at sub-pixel residuals. *Open*: its size on the real-data suite
 entries (compare `H` with a finite-difference Hessian of the objective).
 
-**Sandwich alternative.** `Σ_s = H⁻¹ B H⁻¹` with `B = Σᵢ ρ′ᵢ² Jᵢᵀ rᵢ rᵢᵀ Jᵢ`
-is consistent when the weights are misspecified. *Open*: whether the Huber /
-Cauchy Monte-Carlo cells need it (gate below).
+## Noise level
 
-## Variance components
-
-`σ̂_f² = Ω_f / r_f` with `Ω_f = Σ_{i∈f} ρ′ᵢ ‖rᵢ‖²` and the redundancy share
-`r_f = m_f − tr(H_f Σ)`, where `H_f` is family `f`'s term of `H`. The shares
-of all families and priors sum to `m − n`. Iterate from `σ̂_f = 1` to a 1 %
-change (at most five iterations). With one family and no priors this is the
-classical `σ̂² = Ω / (m − n)` in one step.
-
-`tr(H_f Σ)` needs only the diagonal blocks of `Σ` on the columns `H_f`
-touches, and the solve that produces the reported covariance already
-computes those.
+The result also reports `σ̂_f = 1.4826 · median |rᵢⱼ|`, the
+Gaussian-equivalent noise of one scalar residual, robust to outliers. It is
+a diagnostic only; the covariance uses `σ_f` above.
 
 ## Coordinates
 
@@ -88,13 +93,14 @@ normalized estimation error squared against `χ²_n`.
 
 | Family | Scene | Gate | Result |
 |--------|-------|------|--------|
-| Planar intrinsics | `planar_intrinsics/pinhole`, 0.1 / 0.5 px | σ within ±10 %; NEES mean within the χ² 95 % band | *pending* |
-| Planar intrinsics, outliers | 5 % displaced 10–30 px, Huber / Cauchy | σ within ±20 % on inliers | *pending* |
+| Planar intrinsics | 8 views of an 8×6 board, ±0.5 px uniform noise, 300 runs | σ within ±10 %; NEES mean within 3 standard errors of χ²(8) | σ 0.94–1.04, NEES 8.07 |
+| Planar intrinsics, outliers | 5 % displaced 10–30 px, Huber / Cauchy (1 px), 200 runs | σ within ±20 %; NEES as above | Huber σ 0.91–1.00, NEES 8.55; Cauchy σ 0.95–1.05, NEES 7.98 |
 | Scheimpflug intrinsics | `scheimpflug_intrinsics/*` | σ within ±10 % | *pending* |
 | Hand-eye | `single_cam_handeye/*`, with robot-pose refinement | σ within ±10 % | *pending* |
 | Rig extrinsics / hand-eye | `rig_*` scenes | σ within ±10 % | *pending* |
 | Laser | `laserline_device/*`, `rig_laserline_device/*` | σ within ±10 %, two families | *pending* |
-| Backend parity | every scene above | tiny-solver vs factrs `Σ` within 1e-6 relative | *pending* |
+| Backend parity | planar, with and without Huber | tiny-solver vs factrs `Σ` within 1e-6 relative | pass |
+| Rank deficiency | one camera through two free SE(3) blocks (a 6-DOF gauge) | `RankDeficient` naming the gauge blocks | pass |
 | Rank deficiency | hand-eye, single rotation axis | `RankDeficient` naming the axis translation and spin | *pending* |
 
 ## Limitations

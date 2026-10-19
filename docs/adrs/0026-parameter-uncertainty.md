@@ -24,47 +24,54 @@ reweighting. A covariance taken from it would depend on the backend.
 ### Estimator
 
 At the converged optimum `θ̂`, over the **free tangent coordinates** (`n` of
-them), the information matrix is
+them), the covariance is Huber's asymptotic covariance of an M-estimator,
+with one noise level per residual family `f`:
 
 ```
-H = Σ_f  J_fᵀ W_f J_f / σ̂_f²  +  J_pᵀ J_p
-Σ = H⁻¹
+Σ = (Σ_f A_f / σ_f²  +  A_p)⁻¹,    A_f = Σ_{i∈f} JᵢᵀJᵢ,   A_p = Σ_priors JᵢᵀJᵢ
+σ_f² = E_f[ψ²] / E_f[ψ′]² · m / (m − n),    ψ = ρ′ r,   ψ′ = tr(ρ′ I + 2ρ″ r rᵀ)
 ```
 
-- `J_f` is the **raw** Jacobian of the residual family `f`, from one
-  loss-free linearization at `θ̂`. Residuals include their observation weight
-  `w`.
-- `W_f = diag(ρ′(‖rᵢ‖²))` holds the IRLS weights of the family's blocks, from
-  `RobustLoss::rho_prime`. Without a loss, `W = I`.
-- `J_p` stacks the prior residuals (`Se3TangentPrior`). Their `sqrt_info` is
-  known information, and they are not rescaled.
-- `H` is assembled into the existing `NormalEquations` at `λ = 0` and
-  factored with its symbolic LLT, in one routine shared by both backends.
+- `Jᵢ` and `rᵢ` are the **raw** Jacobian and residual, from a loss-free
+  linearization at `θ̂`. Residuals include their observation weight `w`.
+  Without a robust loss the solve's own linearization is reused; with one,
+  the IR is recompiled without its losses for this single linearization.
+- `E_f` averages over the family's scalar residuals, and `ρ′`, `ρ″` are the
+  loss derivatives at `‖rᵢ‖²` (`RobustLoss::rho_prime` / `rho_second`).
+  Without a loss, `σ_f² = Σ‖r‖² / (m − n)`, and `Σ` is the classical
+  `σ̂² (JᵀJ)⁻¹`.
+- Families are grouped by factor kind: reprojection in pixels, laser
+  point-to-plane in metres, laser line distance in pixels. Each family's
+  `σ_f` comes from its own residuals, so mixed problems need no iteration.
+  Observation weights are relative: `σ_f` absorbs their scale.
+- `A_p` stacks the prior residuals (`Se3TangentPrior`), whose `sqrt_info` is
+  known information.
+- `H` is assembled with the existing `NormalEquations` (unit-diagonal
+  normalization, sparse Cholesky) in one routine shared by both backends.
+
+**Why this form.** A seeded Monte-Carlo study ran 200–300 noise realizations of
+a planar scene, with and without 5 % outliers displaced by 10–30 px:
+
+- The IRLS form `σ̂² (JᵀWJ)⁻¹`, with `σ̂² = Σρ′‖r‖²/(m − n)`, overstated σ
+  2.1–2.2× under Huber. An outlier's `ρ′‖r‖² = k|r|` inflates `σ̂`, while its
+  effect on the estimate is a bounded push `k`.
+- The per-residual sandwich `Ĥ⁻¹ (Σ ρ′² Jᵀr rᵀJ) Ĥ⁻¹` was calibrated in σ.
+  It was too noisy run to run, though: its mean NEES was 9.0 against 8.
+- The pooled form above held σ within 0.91–1.05 of the scatter in all three
+  cases (clean, Huber, Cauchy), with NEES 8.0–8.6.
+
+The proof pack records the gates.
 
 The first-order (Gauss–Newton) approximation ignores second-order residual
-terms, which is valid at small residuals. The robust "sandwich"
-(Huber–White) form `H⁻¹ (Σᵢ Jᵢᵀ ρ′ᵢ² rᵢ rᵢᵀ Jᵢ) H⁻¹` is not shipped. The proof
-pack evaluates it, and it replaces the simple form only if Monte-Carlo shows
-the simple form miscalibrated under outliers.
+terms, which is valid at small residuals.
 
 ### Noise level
 
-Residual families are grouped by factor kind: reprojection in pixels, laser
-point-to-plane in metres, laser line distance in pixels. Each family gets an
-a posteriori variance
-
-```
-σ̂_f² = Ω_f / r_f,   Ω_f = Σ_{i∈f} ρ′ᵢ ‖rᵢ‖²,   r_f = m_f − tr(H_f H⁻¹)
-```
-
-- `m_f` counts the family's scalar residuals, and `H_f` is its term of `H`.
-- The `r_f` are Förstner's redundancy shares; with one family and no priors,
-  `r = m − n`.
-- The estimate iterates from `σ̂_f = 1` until every `σ̂_f` changes by less than
-  1 %, for at most five iterations.
-- Observation weights `w` are relative: their scale is absorbed by `σ̂_f`.
-- The result reports `σ̂_f` and `r_f` per family. `σ̂` of the reprojection
-  family estimates the corner noise in pixels, which is useful on its own.
+The result also reports, per family, `σ̂_f = 1.4826 · median |rᵢⱼ|`. That is
+the Gaussian-equivalent noise of one scalar residual, which outliers do not
+inflate. For the reprojection family it estimates the corner noise in pixels,
+which is useful on its own. It is a diagnostic; the covariance uses `σ_f`
+above.
 
 ### Coordinates and labels
 
@@ -98,7 +105,7 @@ a posteriori variance
 - **Per-view blocks** (target poses, robot-pose corrections) as 6×6 marginals.
   Their cross-covariance with the global parameters is left out to keep the
   size linear in the number of views.
-- `σ̂_f`, `r_f`, the residual count and the degrees of freedom.
+- `σ̂_f` per family, the residual count and the degrees of freedom.
 - Only the final solve of a staged pipeline feeds the result. Earlier stages
   are initializations.
 
@@ -121,16 +128,18 @@ reason      = NotConverged
 - **AtBound**: a free coordinate sits on its bound (Scheimpflug bounds), where
   the Gaussian approximation does not hold. Treating it as fixed would
   silently condition on it.
-- **NoRedundancy**: some `r_f ≤ 0`.
+- **NoRedundancy**: there are observation residuals but no more of them
+  than free coordinates (`m ≤ n`).
 
 Each reason is logged at `warn`, and the calibration itself succeeds.
 
 ### Always on
 
-No config knob: uncertainty is part of every result. The cost is one extra
-linearization, one numeric factorization and one triangular solve pair per
-reported column. That is `n_global + 6` per view, small next to the LM's
-dozens of factorizations; the bench measures it.
+No config knob: uncertainty is part of every result. The cost is one
+linearization at the solution (plus a recompile when a robust loss is set),
+one assembly and factorization, and `n` triangular solve pairs. On the
+solver benchmark's planar scenes that is 1.14–1.24× the solve time without
+a loss and 1.2–1.6× with one.
 
 ## Consequences
 
@@ -146,14 +155,18 @@ dozens of factorizations; the bench measures it.
   The laserline and Scheimpflug defaults hold pose 0 fixed this way. These
   defaults become free, which changes those results slightly.
 - Regression-suite drift gates can be stated in units of `σ`.
-- `SolveReport` gains `converged`, the residual count and the degrees of
-  freedom; `LinearizationEngine` gains a raw linearization and a column
-  layout (IR block → columns).
+- The LM loop reports whether a stopping rule ended it; the covariance is
+  unavailable when the iteration budget did.
 
 ## Alternatives considered
 
 - **Covariance from the LM's loss-corrected Jacobian.** Rejected: it differs
   between backends.
+- **IRLS covariance `σ̂²(JᵀWJ)⁻¹` with Förstner variance components.**
+  Rejected on the Monte-Carlo evidence above: it overstates σ about twofold
+  under Huber with outliers.
+- **Per-residual sandwich.** Rejected: calibrated on average but noisy per
+  run.
 - **Runtime bootstrap or Monte-Carlo.** Rejected: tens of solves per result.
   It is the validation method instead.
 - **An opt-in flag.** Rejected: a standard result is always present, and the
