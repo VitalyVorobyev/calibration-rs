@@ -92,6 +92,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `vision_calibration.projection_uncertainty(result, (width, height),
   camera=0)` returns a `ProjectionUncertainty`; every result keeps the
   export it was read from as `result.export`.
+- **Uncertainty in the desktop app.** Diagnose has an **Uncertainty** panel:
+  each estimated parameter's value ± σ, the fixed parameters and residual
+  noise, a correlation heatmap, and the shown camera's projection σ map.
+  `common::calibrated_cameras` reads any export JSON by its `kind`, and
+  `CalibratedCameras::camera_parameter` and `optim::camera_parameters` give
+  a camera parameter's value by its covariance label.
 - **Public regression suite** in `regression/`: image-free observations of
   `kuka_1`, the stereo pair (each camera and the rig) and dataset 8 of Tabb
   and Ahmad Yousef's robot-world hand-eye data, checksummed in a standard

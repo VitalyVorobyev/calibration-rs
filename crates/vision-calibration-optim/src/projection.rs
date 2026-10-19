@@ -125,6 +125,23 @@ pub fn projection_uncertainty(
     })
 }
 
+/// A camera's parameters by their covariance label (`fx` … `cy`, the
+/// distortion coefficients by name, `tilt_x` and `tilt_y` for a Scheimpflug
+/// sensor), in the solver's order.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] for a camera model the solver does not estimate:
+/// a general sensor homography or a skew.
+pub fn camera_parameters(camera: &CameraParams) -> Result<Vec<(&'static str, f64)>, Error> {
+    let model = CameraVector::new(camera)?;
+    Ok(model
+        .labels
+        .into_iter()
+        .zip(model.theta.iter().copied())
+        .collect())
+}
+
 /// `sqrt` of the larger eigenvalue of a symmetric 2×2 covariance.
 fn major_axis_sigma(c: &Matrix2<f64>) -> f64 {
     let mean = 0.5 * (c[(0, 0)] + c[(1, 1)]);
@@ -435,6 +452,26 @@ mod tests {
                 "exact {exact} numeric {numeric}"
             );
         }
+    }
+
+    #[test]
+    fn camera_parameters_are_labelled_like_the_covariance() {
+        let params = camera(SensorParams::Scheimpflug {
+            params: ScheimpflugParams {
+                tilt_x: 0.03,
+                tilt_y: -0.02,
+            },
+        });
+        let values = camera_parameters(&params).unwrap();
+        let labels: Vec<_> = values.iter().map(|(l, _)| *l).collect();
+        assert_eq!(
+            labels,
+            [
+                "fx", "fy", "cx", "cy", "k1", "k2", "k3", "p1", "p2", "tilt_x", "tilt_y"
+            ]
+        );
+        assert_eq!(values[0].1, 800.0);
+        assert_eq!(values[10].1, -0.02);
     }
 
     #[test]

@@ -19,7 +19,9 @@ and the selected pose and camera.
   reprojection residuals (and laser-feature residuals) on the source frames,
   with pose and camera steppers and error histograms. A **Stats** panel adds a
   sortable per-pose residual table and, for multi-camera exports, a cameras ×
-  poses residual matrix.
+  poses residual matrix. An **Uncertainty** panel lists each estimated
+  parameter's value ± σ, their correlations, and the shown camera's
+  projection σ across its image.
 - **3D** — camera frustums, target board poses and laser planes for rig,
   hand-eye and laserline exports, with a panel of intrinsics and relative
   camera poses. A single-camera laserline export is shown as a one-camera rig.

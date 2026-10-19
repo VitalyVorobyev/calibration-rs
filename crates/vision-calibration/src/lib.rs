@@ -154,7 +154,7 @@ pub mod session {
 pub mod common {
     pub use vision_calibration_pipeline::common::{
         CalibratedCameras, ExportKind, HandeyeInitOptions, HandeyeOptimizeOptions,
-        IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
+        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, calibrated_cameras,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
@@ -673,7 +673,9 @@ pub mod optim {
     /// function that computes it from a camera and its parameter covariance
     /// (every export offers it through
     /// [`common::CalibratedCameras`](crate::common::CalibratedCameras)).
-    pub use vision_calibration_optim::{ProjectionUncertainty, projection_uncertainty};
+    pub use vision_calibration_optim::{
+        ProjectionUncertainty, camera_parameters, projection_uncertainty,
+    };
 }
 
 /// Deterministic synthetic data generation for testing.

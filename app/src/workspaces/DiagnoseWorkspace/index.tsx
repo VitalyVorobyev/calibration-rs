@@ -11,6 +11,8 @@ import { useStore } from "../../store";
 import { CameraResidualMatrix } from "./CameraResidualMatrix";
 import { PoseStatsTable } from "./PoseStatsTable";
 import { RoiHistogram } from "./RoiHistogram";
+import { UncertaintyPanels } from "./UncertaintyPanels";
+import { exportUncertainty } from "../../lib/uncertainty";
 import type {
   CursorReadout,
   FeatureResidualHistogram,
@@ -51,6 +53,8 @@ export function DiagnoseWorkspace() {
   const [laserView, setLaserView] = useState<boolean>(false);
   // Residual stats side panel: per-pose table + cross-camera matrix.
   const [showStats, setShowStats] = useState<boolean>(false);
+  // Parameter uncertainty side panel: value ± σ, correlations, projection σ.
+  const [showUncertainty, setShowUncertainty] = useState<boolean>(false);
   const [activePane, setActivePane] = useState<"left" | "right">("left");
   const [cursor, setCursor] = useState<CursorReadout | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +104,14 @@ export function DiagnoseWorkspace() {
   const activeFrame = showLaser ? laserFrame : frame;
 
   const imageData = useImageData(activeFrame, setError);
+
+  const uncertainty = useMemo(() => (data ? exportUncertainty(data) : null), [data]);
+  // The camera's own image: its ROI in a tiled frame, else the whole image.
+  const imageSize = useMemo<[number, number] | null>(() => {
+    if (!imageData || !activeFrame) return null;
+    const roi = activeFrame.roi;
+    return roi ? [roi.w, roi.h] : [imageData.naturalWidth, imageData.naturalHeight];
+  }, [imageData, activeFrame]);
 
   // Static ROI histogram — recomputed only when the frame's image data
   // changes, which is the cheap path. (A viewport-tracking variant
@@ -296,6 +308,15 @@ export function DiagnoseWorkspace() {
             Stats
           </ToggleChip>
         )}
+        {data && (
+          <ToggleChip
+            checked={showUncertainty}
+            onCheckedChange={setShowUncertainty}
+            title="Parameter values ± σ, correlations and projection σ"
+          >
+            Uncertainty
+          </ToggleChip>
+        )}
         {data && typeof data.mean_reproj_error === "number" && (
           <span className="ml-auto font-mono text-xs text-fg-muted">
             mean reproj: {data.mean_reproj_error.toFixed(3)} px
@@ -344,33 +365,44 @@ export function DiagnoseWorkspace() {
           )}
         </div>
 
-        {data && showStats && hasStats && (
+        {data && ((showStats && hasStats) || showUncertainty) && (
           <DensityProvider value="compact">
             <aside className="flex min-h-0 w-[19rem] shrink-0 flex-col gap-2.5 overflow-y-auto">
-              <Panel
-                title="Per-pose residuals"
-                actions={
-                  <span className="font-mono text-[10px] text-fg-muted">
-                    click a row to jump
-                  </span>
-                }
-              >
-                <PoseStatsTable
-                  residuals={targetResiduals}
-                  selectedPose={selectedPose}
-                  onSelectPose={(pose) => setSelectedPose(pose, "A")}
+              {showUncertainty && (
+                <UncertaintyPanels
+                  uncertainty={uncertainty}
+                  camera={cameraA}
+                  imageSize={imageSize}
                 />
-              </Panel>
-              {/* Renders nothing (not even its panel) for a single-camera export. */}
-              <CameraResidualMatrix
-                residuals={targetResiduals}
-                selectedPose={selectedPose}
-                selectedCamera={cameraA}
-                onSelect={(pose, camera) => {
-                  setSelectedPose(pose, "A");
-                  setCamera(camera, "A");
-                }}
-              />
+              )}
+              {showStats && hasStats && (
+                <>
+                  <Panel
+                    title="Per-pose residuals"
+                    actions={
+                      <span className="font-mono text-[10px] text-fg-muted">
+                        click a row to jump
+                      </span>
+                    }
+                  >
+                    <PoseStatsTable
+                      residuals={targetResiduals}
+                      selectedPose={selectedPose}
+                      onSelectPose={(pose) => setSelectedPose(pose, "A")}
+                    />
+                  </Panel>
+                  {/* Renders nothing (not even its panel) for a single-camera export. */}
+                  <CameraResidualMatrix
+                    residuals={targetResiduals}
+                    selectedPose={selectedPose}
+                    selectedCamera={cameraA}
+                    onSelect={(pose, camera) => {
+                      setSelectedPose(pose, "A");
+                      setCamera(camera, "A");
+                    }}
+                  />
+                </>
+              )}
             </aside>
           </DensityProvider>
         )}

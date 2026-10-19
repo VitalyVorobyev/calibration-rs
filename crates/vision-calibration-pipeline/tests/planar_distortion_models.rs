@@ -21,7 +21,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::DistortionKind;
 use vision_calibration_pipeline::{
-    common::CalibratedCameras,
+    common::{CalibratedCameras, calibrated_cameras},
     planar_intrinsics::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init, step_optimize,
     },
@@ -77,6 +77,15 @@ fn assert_projection_uncertainty(export: &impl CalibratedCameras) {
     assert_eq!(map.sigma.len(), map.columns * map.rows);
     assert!(map.sigma.iter().flatten().all(|s| s.is_finite()));
     assert!(map.center.is_finite() && map.center <= map.max);
+}
+
+/// The export, read back from its JSON as its cameras, names the same
+/// parameter values its camera has.
+fn assert_camera_parameters_from_json(export: &impl serde::Serialize, fx: f64) {
+    let cameras = calibrated_cameras(serde_json::to_value(export).unwrap()).unwrap();
+    assert_eq!(cameras.camera_parameter("fx"), Some(fx));
+    assert_eq!(cameras.camera_parameter("camera_se3_target.rx"), None);
+    assert_eq!(cameras.camera_parameter("cam1.fx"), None);
 }
 
 /// Synthesize a noiseless `PlanarDataset` from a generic camera model.
@@ -275,6 +284,7 @@ fn thinprism9_pipeline_noiseless_round_trip() {
 
     let (export, rms) = run_pipeline(dataset.clone(), DistortionKind::ThinPrism9);
     assert_projection_uncertainty(&export);
+    assert_camera_parameters_from_json(&export, export.params.intrinsics().fx);
 
     println!("[ThinPrism9 pipeline] rms={rms:.4e} px");
     assert!(

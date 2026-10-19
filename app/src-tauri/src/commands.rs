@@ -14,6 +14,8 @@ use vision_calibration::core::PixelRect;
 
 use crate::epipolar::{self, EpipolarOverlay};
 use crate::export_cache::ExportCache;
+use crate::uncertainty;
+use vision_calibration::optim::ProjectionUncertainty;
 
 /// Successful response for [`load_export`].
 #[derive(Serialize)]
@@ -209,6 +211,34 @@ pub async fn compute_epipolar_overlay_undistorted(
                 image_width_b,
                 image_height_b,
             )
+        })
+        .ok_or_else(|| "no export loaded yet".to_string())?
+}
+
+/// The value of each labelled parameter of the cached export that is a
+/// camera parameter, aligned with `labels`; `null` for poses and planes.
+#[tauri::command]
+pub async fn camera_parameter_values(
+    labels: Vec<String>,
+    cache: State<'_, ExportCache>,
+) -> Result<Vec<Option<f64>>, String> {
+    cache
+        .read(|cached| uncertainty::camera_parameter_values(&cached.value, &labels))
+        .ok_or_else(|| "no export loaded yet".to_string())?
+}
+
+/// The projection uncertainty of one camera of the cached export over an
+/// image of `image_width` × `image_height` pixels.
+#[tauri::command]
+pub async fn projection_uncertainty(
+    camera: usize,
+    image_width: u32,
+    image_height: u32,
+    cache: State<'_, ExportCache>,
+) -> Result<ProjectionUncertainty, String> {
+    cache
+        .read(|cached| {
+            uncertainty::projection_uncertainty(&cached.value, camera, [image_width, image_height])
         })
         .ok_or_else(|| "no export loaded yet".to_string())?
 }

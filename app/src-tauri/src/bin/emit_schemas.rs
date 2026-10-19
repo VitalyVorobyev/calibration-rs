@@ -47,7 +47,9 @@ mod schema_export {
     use schemars::generate::SchemaSettings;
     use serde_json::{Value, json};
 
-    use calibration_diagnose_lib::schema_types::{DisparityResult, EpipolarOverlay, RunProgress};
+    use calibration_diagnose_lib::schema_types::{
+        DisparityResult, EpipolarOverlay, ProjectionUncertainty, RunProgress,
+    };
 
     use vision_calibration::laserline_device::LaserlineDeviceExport;
     use vision_calibration::planar_intrinsics::PlanarIntrinsicsExport;
@@ -163,6 +165,12 @@ mod schema_export {
         props.insert(
             "run_progress".into(),
             generator.subschema_for::<RunProgress>().to_value(),
+        );
+        props.insert(
+            "projection_uncertainty".into(),
+            generator
+                .subschema_for::<ProjectionUncertainty>()
+                .to_value(),
         );
 
         let defs = generator.take_definitions(true);

@@ -5939,6 +5939,7 @@ dependencies = [
  "faer",
  "faer-ext",
  "nalgebra 0.34.2",
+ "num-dual 0.12.1",
  "schemars 1.2.2",
  "serde",
  "thiserror 2.0.21",

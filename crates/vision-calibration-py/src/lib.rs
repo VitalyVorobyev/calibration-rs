@@ -408,48 +408,10 @@ fn projection_uncertainty(
     camera: usize,
     image_size: &Bound<'_, PyAny>,
 ) -> PyResult<Py<PyAny>> {
-    use vision_calibration::common::{CalibratedCameras, ExportKind};
-
-    fn typed<T>(export: &Bound<'_, PyAny>) -> PyResult<Box<dyn CalibratedCameras>>
-    where
-        T: CalibratedCameras + DeserializeOwned + 'static,
-    {
-        Ok(Box::new(parse_payload::<T>(export, "export")?))
-    }
-
     let image_size: [u32; 2] = parse_payload(image_size, "image_size")?;
-    let kind: ExportKind = parse_payload(
-        &export
-            .get_item("kind")
-            .map_err(|_| PyTypeError::new_err("invalid export payload: no `kind` field"))?,
-        "export kind",
-    )?;
-    let export = match kind {
-        ExportKind::PlanarIntrinsics => {
-            typed::<vision_calibration::planar_intrinsics::PlanarIntrinsicsExport>(export)?
-        }
-        ExportKind::ScheimpflugIntrinsics => typed::<
-            vision_calibration::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport,
-        >(export)?,
-        ExportKind::SingleCamHandeye => {
-            typed::<vision_calibration::single_cam_handeye::SingleCamHandeyeExport>(export)?
-        }
-        ExportKind::LaserlineDevice => {
-            typed::<vision_calibration::laserline_device::LaserlineDeviceExport>(export)?
-        }
-        ExportKind::RigExtrinsics => {
-            typed::<vision_calibration::rig_extrinsics::RigExtrinsicsExport>(export)?
-        }
-        ExportKind::RigHandeye => {
-            typed::<vision_calibration::rig_handeye::RigHandeyeExport>(export)?
-        }
-        ExportKind::RigLaserlineDevice => {
-            typed::<vision_calibration::rig_laserline_device::RigLaserlineDeviceExport>(export)?
-        }
-        ExportKind::RigHandeyeLaserline => {
-            typed::<vision_calibration::rig_handeye_laserline::RigHandeyeLaserlineExport>(export)?
-        }
-    };
+    let export: serde_json::Value = parse_payload(export, "export")?;
+    let export = vision_calibration::common::calibrated_cameras(export)
+        .map_err(|err| PyTypeError::new_err(format!("invalid export payload: {err}")))?;
     let map = export
         .projection_uncertainty(camera, image_size)
         .map_err(|err| match &err {
