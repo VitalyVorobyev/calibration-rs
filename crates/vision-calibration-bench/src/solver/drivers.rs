@@ -325,6 +325,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
                     cam_se3_rig: e.cam_se3_rig,
                     handeye: e.gripper_se3_rig,
                     planes_cam: e.laser_planes_cam,
+                    ..ModelParams::default()
                 },
                 e.per_feature_residuals,
                 report,

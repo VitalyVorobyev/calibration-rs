@@ -394,6 +394,8 @@ pub struct Scene {
     pub spec: SceneSpec,
     /// Ground-truth parameters.
     pub truth: ModelParams,
+    /// Each camera's image `[width, height]`, pixels.
+    pub image_sizes: Vec<[u32; 2]>,
     /// Injected outliers (sorted by `(pose, camera, feature)`).
     pub outliers: Vec<OutlierRef>,
     /// Problem input + configuration.
@@ -817,6 +819,7 @@ fn planar_scene(b: &Builder) -> Result<Scene> {
     config.solver.robust_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
+        image_sizes: vec![[1280, 960]],
         truth: ModelParams {
             cameras: vec![truth_cam],
             ..ModelParams::default()
@@ -863,6 +866,7 @@ fn scheimpflug_scene(b: &Builder) -> Result<Scene> {
     });
     Ok(Scene {
         spec: b.spec.clone(),
+        image_sizes: vec![[1280, 960]],
         truth: ModelParams {
             cameras: vec![truth_cam],
             ..ModelParams::default()
@@ -917,9 +921,11 @@ fn single_handeye_scene(b: &Builder) -> Result<Scene> {
     config.solver.robust_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
+        image_sizes: vec![[1024, 768]],
         truth: ModelParams {
             cameras: vec![truth_cam],
             handeye: Some(x),
+            base_se3_target: Some(y),
             ..ModelParams::default()
         },
         outliers,
@@ -965,6 +971,7 @@ fn laserline_scene(b: &Builder) -> Result<Scene> {
     config.optimize.calib_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
+        image_sizes: vec![[1280, 720]],
         truth: ModelParams {
             cameras: vec![truth_cam],
             planes_cam: vec![plane],
@@ -1049,6 +1056,7 @@ fn rig_scene(b: &Builder) -> Result<Scene> {
     }
     Ok(Scene {
         spec: b.spec.clone(),
+        image_sizes: vec![[1280, 960]; 2],
         truth: ModelParams {
             cameras,
             cam_se3_rig: layout,
@@ -1088,10 +1096,12 @@ fn rig_handeye_scene(b: &Builder) -> Result<Scene> {
     config.solver.robust_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
+        image_sizes: vec![[1280, 960]; 2],
         truth: ModelParams {
             cameras,
             cam_se3_rig: layout,
             handeye: Some(x),
+            base_se3_target: Some(y),
             ..ModelParams::default()
         },
         outliers,
@@ -1167,6 +1177,7 @@ fn rig_laserline_scene(b: &Builder) -> Result<Scene> {
     };
     Ok(Scene {
         spec: b.spec.clone(),
+        image_sizes: vec![[1280, 960]; 2],
         // Camera and rig geometry are frozen upstream inputs, not estimates.
         truth: ModelParams {
             planes_cam: planes,
@@ -1238,10 +1249,12 @@ fn rig_handeye_laserline_scene(b: &Builder) -> Result<Scene> {
     config.handeye.solver.robust_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
+        image_sizes: vec![[1280, 960]; 2],
         truth: ModelParams {
             cameras,
             cam_se3_rig: layout,
             handeye: Some(x),
+            base_se3_target: Some(y),
             planes_cam: planes,
         },
         outliers,

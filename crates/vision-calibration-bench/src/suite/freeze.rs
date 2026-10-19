@@ -120,13 +120,7 @@ pub fn freeze_entry(suite: &Suite, id: &str, cache_dir: &Path) -> Result<Observa
         .as_ref()
         .with_context(|| format!("entry {id:?} has no dataset manifest to freeze from"))?;
     let set = freeze_manifest(&suite.root.join(manifest), cache_dir)?;
-    let path = suite.observations_path(id);
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let mut text = serde_json::to_string(&set)?;
-    text.push('\n');
-    std::fs::write(&path, text).with_context(|| format!("write {}", path.display()))?;
+    super::write_compact(&suite.observations_path(id), &set)?;
     suite.write_checksums()?;
     Ok(set)
 }

@@ -19,14 +19,20 @@ changes results, so each needs its measurement first.
   1.58e-4 against 1.45e-4 at 1 px) and calibration (predicted σ 11 % high,
   from the noisy density estimate an L1 covariance needs). Make the default
   scale follow the residual's unit (1 px for the line distance), measure on
-  the rtv3d laser data, migration note.
+  the rtv3d laser data, migration note. The frozen synthetic laser entries,
+  solved with the default, sit further from their truth than their σ
+  allows: `synth_laserline` Σz² = 29.6 over 12 parameters (rank 11),
+  `synth_rig_handeye_laserline` `cam1.cam_se3_rig.rx` at +4.5σ.
 - [ ] UQ-PRIOR-WEIGHTS - Robot-pose refinement weighs pixel residuals at
   unit σ against the priors' `sqrt_info`, so with sub-pixel corners the
   priors are far too weak: on `kuka_1` (σ̂ 0.11 px) the robot-pose deltas
   absorb signal and σ(fx) is 0.95 px against 0.30 px with exact poses.
   Rescale the reprojection family by its σ̂ (one re-solve) or the priors by
   σ̂², and measure hand-eye accuracy against ground truth on synthetic
-  scenes; results change, so it needs a migration note.
+  scenes; results change, so it needs a migration note. With exact
+  synthetic stations (`synth_rig_handeye_laserline`), every hand-eye and
+  target coordinate lands within 0.7σ of the truth: σ reflects the priors,
+  not the data.
 - [ ] UQ-RIG-INTRINSICS - Rig and rig hand-eye results hold the per-camera
   intrinsics fixed in their final solve by default, so their covariance has
   no intrinsics block and the extrinsics' σ is conditional on them. Decide:
@@ -38,6 +44,8 @@ changes results, so each needs its measurement first.
   0.4 of its conditional σ (3.6e-5 m); `suite check --backend factrs
   --sigma 1` passes only by that margin, and should tighten to ~0.05σ once
   the covariance includes the intrinsics.
+  `synth_rig`, with `refine_intrinsics_in_rig_ba`, agrees across the
+  backends within 3e-5σ.
   The per-camera Scheimpflug stage of both workflows still holds view 0
   fixed (`fix_poses: vec![0]` in `rig_extrinsics/steps.rs` and
   `rig_handeye/steps.rs`), which the single-camera Scheimpflug default no
@@ -51,13 +59,6 @@ images live in a versioned Zenodo record. Publishable: `kuka_1`, `stereo`
 (ours), DS8 (Tabb & Ahmad Yousef, USDA Ag Data Commons). `stereo_charuco`
 stays local-only, as do the private sets.
 
-- [ ] DATA-SYNTH - Frozen synthetic entries with ground truth (planar,
-  Scheimpflug, rig, hand-eye, laser): generate once with fixed seeds, write
-  the observations plus a `truth.json` of the true parameters, and gate the
-  reference results against the truth as well as against drift. Frozen
-  files, so generator changes cannot silently change the data. The laser
-  entries are the suite's only laser coverage until a public laser capture
-  exists.
 - [ ] DATA-IMAGES - Zenodo record per suite version with a SHA-256 manifest;
   `calib-bench suite fetch` downloads into a cache and verifies; a scheduled
   CI job runs `suite freeze` from the images and checks the observations

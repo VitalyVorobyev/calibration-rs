@@ -205,7 +205,10 @@ a loss and 1.2–1.6× with one.
   makes the default result's covariance conditional on an arbitrary view, so
   the laserline and Scheimpflug defaults hold no pose fixed.
 - The regression suite reports parameter changes in units of the reference's
-  `σ`, and `suite check --sigma k` gates on them.
+  `σ`, and `suite check --sigma k` gates on them. Its synthetic entries are
+  checked against their ground truth in units of the result's own `σ`
+  (fail at 5σ), so a bias or a badly understated `σ` on a frozen scene
+  fails CI.
 - The LM loop reports whether a stopping rule ended it; the covariance is
   unavailable when the iteration budget did.
 

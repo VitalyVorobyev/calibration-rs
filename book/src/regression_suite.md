@@ -16,19 +16,31 @@ plain JSON, other calibration tools can run on exactly the same data.
 | `stereo_right` | `planar_intrinsics` | The same 20 views, right camera | CC BY 4.0 |
 | `stereo_rig` | `rig_extrinsics` | Both cameras of the stereo pair together | CC BY 4.0 |
 | `ds8` | `rig_handeye` | Three cameras on a Denso arm, 33 of 42 poses with a complete 10×14 chessboard (52 mm) | U.S. public domain |
+| `synth_planar` | `planar_intrinsics` | Synthetic: 20 views of a 13×9 board, 0.5 px noise | CC0 |
+| `synth_scheimpflug` | `scheimpflug_intrinsics` | Synthetic: a tilted sensor, 20 views, 0.5 px noise | CC0 |
+| `synth_handeye` | `single_cam_handeye` | Synthetic: eye-in-hand, 20 robot stations, 0.5 px noise | CC0 |
+| `synth_rig` | `rig_extrinsics` | Synthetic: two cameras, intrinsics refined with the rig, 20 views | CC0 |
+| `synth_laserline` | `laserline_device` | Synthetic: one camera and a laser plane, 20 views | CC0 |
+| `synth_rig_handeye_laserline` | `rig_handeye_laserline` | Synthetic: two cameras on a robot, each with a laser plane, solved jointly | CC0 |
 
 `ds8` is dataset 8 of Tabb and Ahmad Yousef, *Solving the robot-world
 hand-eye(s) calibration problem with iterative methods*, Machine Vision and
 Applications 28 (2017); the images are published at
 <https://doi.org/10.15482/USDA.ADC/1340592>.
 
+The synthetic entries come with their ground truth, so they check accuracy
+as well as stability, and the laser entries are the suite's laser coverage.
+Their data was generated once with fixed seeds and is frozen like the rest:
+a change to the generator cannot change it.
+
 ## Layout
 
 ```text
 regression/
 ├── suite.toml                          entries: description, licence, config
-├── SHA256SUMS                          checksums of the observation files
+├── SHA256SUMS                          checksums of the observation and truth files
 ├── observations/<id>.json              the entry's observations
+├── truth/<id>.json                     a synthetic entry's true parameters
 └── results/<id>/calibration-rs.json    the entry's reference result
 ```
 
@@ -67,8 +79,9 @@ Two more subcommands maintain the suite:
 - `suite bless` recalibrates the selected entries and overwrites their
   reference results. Run it when a change is meant to move the results, and
   review the diff of `results/` like any other code change.
-- `suite freeze` (built with `--features tier-b`) re-extracts an entry's
-  observations from the images its dataset manifest names and rewrites
+- `suite freeze` re-extracts an entry's observations from the images its
+  dataset manifest names (built with `--features tier-b`), or regenerates a
+  synthetic entry's observations and truth from its scene, and rewrites
   `SHA256SUMS`. Observations change only when the detector does.
 
 ## The observation format
@@ -115,6 +128,28 @@ Two more subcommands maintain the suite:
 - `version` is the format version; it changes only with an incompatible
   format change.
 
+## Ground truth
+
+`truth/<id>.json` names each true value by the label the result's
+covariance uses (see [Parameter Uncertainty](uncertainty.md)):
+
+```json
+{
+  "parameters": { "fx": 1000.0, "fy": 990.0, "k1": -0.12, "plane.nx": 0.287 },
+  "poses": {
+    "gripper_se3_camera": { "rotation": [0.05, -0.02, 0.01, 0.998], "translation": [0.05, -0.03, 0.08] }
+  }
+}
+```
+
+Scalars sit under `parameters`: intrinsics, distortion coefficients, the
+sensor tilt and laser-plane components, prefixed `cam<i>.` in a rig with more
+than one camera. Poses sit under `poses` by their export names. `suite check`
+compares every estimated parameter the truth names with its true value, in
+units of the result's own standard deviation (a pose by the right
+perturbation `T_true⁻¹ · T`), and fails the entry when one is 5σ or more
+off. Each entry reports its largest error against the truth.
+
 ## Comparing with other libraries
 
 The reference results are the problem's export, minus the per-feature residual
@@ -150,6 +185,13 @@ conditional on the per-camera intrinsics the rig solve holds fixed, and the
 backends' intrinsics differ by 0.006σ of their own.
 
 ## Adding an entry
+
+A synthetic entry names a scene of the solver benchmark's full matrix under
+`synthetic`, by its id `<problem>/<sensor>/<scale>/n<σ>/<clean|huber|cauchy>`
+(as `calib-bench solver run --preset full` reports them), with the config the
+scene needs, and carries the CC0 licence. Run `suite freeze --only <id>` and
+`suite bless --only <id>` and commit the observation, truth and result files
+with `SHA256SUMS`. For an entry with images:
 
 1. Check that the data's licence allows publishing observations derived from
    it, and record the licence (and citation, if the authors ask for one) in

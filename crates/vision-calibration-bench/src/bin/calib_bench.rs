@@ -211,8 +211,9 @@ enum SuiteCommand {
     },
     /// Calibrate each entry and store the result as its new reference.
     Bless,
-    /// Detect each entry's observations from the images its dataset
-    /// manifest names, and refresh `SHA256SUMS`. Needs `--features tier-b`.
+    /// Write each entry's observations, and refresh `SHA256SUMS`: detection
+    /// on the images its dataset manifest names (needs `--features
+    /// tier-b`), or a synthetic entry's benchmark scene and its truth.
     Freeze {
         /// Detection cache directory.
         #[arg(long, default_value = "target/suite-detections")]
@@ -1393,8 +1394,13 @@ fn cmd_suite(args: &SuiteArgs) -> Result<()> {
                     .as_ref()
                     .map(|c| format!("  largest change {:+.2e}σ ({})", c.z(), c.label))
                     .unwrap_or_default();
+                let truth = report
+                    .largest_truth_error
+                    .as_ref()
+                    .map(|c| format!("  truth {:+.2}σ ({})", c.z(), c.label))
+                    .unwrap_or_default();
                 println!(
-                    "{verdict} {:<24} {:>7.2} s{largest}",
+                    "{verdict} {:<24} {:>7.2} s{largest}{truth}",
                     report.id, report.seconds
                 );
                 for failure in &report.failures {
@@ -1419,10 +1425,13 @@ fn cmd_suite(args: &SuiteArgs) -> Result<()> {
             }
         }
         SuiteCommand::Freeze { cache } => {
-            #[cfg(feature = "tier-b")]
             for entry in entries {
-                let set = suite::freeze::freeze_entry(&suite, &entry.id, cache)
-                    .with_context(|| format!("freeze {}", entry.id))?;
+                let set = if entry.synthetic.is_some() {
+                    suite::freeze_synthetic_entry(&suite, entry)
+                } else {
+                    freeze_from_images(&suite, &entry.id, cache)
+                }
+                .with_context(|| format!("freeze {}", entry.id))?;
                 println!(
                     "froze {} ({}, {} camera(s))",
                     entry.id,
@@ -1430,14 +1439,28 @@ fn cmd_suite(args: &SuiteArgs) -> Result<()> {
                     set.cameras.len()
                 );
             }
-            #[cfg(not(feature = "tier-b"))]
-            {
-                let _ = (cache, entries);
-                anyhow::bail!("`suite freeze` needs `--features tier-b`");
-            }
         }
     }
     Ok(())
+}
+
+/// Freeze an image entry: detection on the images its dataset manifest names.
+#[cfg(feature = "tier-b")]
+fn freeze_from_images(
+    suite: &vision_calibration_bench::suite::Suite,
+    id: &str,
+    cache: &std::path::Path,
+) -> Result<vision_calibration_bench::suite::ObservationSet> {
+    vision_calibration_bench::suite::freeze::freeze_entry(suite, id, cache)
+}
+
+#[cfg(not(feature = "tier-b"))]
+fn freeze_from_images(
+    _suite: &vision_calibration_bench::suite::Suite,
+    id: &str,
+    _cache: &std::path::Path,
+) -> Result<vision_calibration_bench::suite::ObservationSet> {
+    anyhow::bail!("freezing {id:?} from its images needs `--features tier-b`")
 }
 
 fn main() -> Result<()> {

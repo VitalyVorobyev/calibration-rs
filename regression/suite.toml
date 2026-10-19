@@ -9,7 +9,9 @@
 #
 # Paths are relative to this file. `config` tables are merged into the
 # problem's default config; `tolerance` (default rel = 1e-6, abs = 1e-9)
-# bounds the drift of every number in the result.
+# bounds the drift of every number in the result. A `synthetic` entry names
+# the benchmark scene its observations and truth (`truth/<id>.json`) were
+# frozen from.
 
 suite_version = "2026.1"
 
@@ -44,3 +46,45 @@ licence = "LicenseRef-US-Government-Public-Domain"
 citation = "Tabb, A. and Ahmad Yousef, K. M. (2017). Solving the robot-world hand-eye(s) calibration problem with iterative methods. Machine Vision and Applications 28, 569-590. Data: https://doi.org/10.15482/USDA.ADC/1340592"
 source_url = "https://doi.org/10.15482/USDA.ADC/1340592"
 manifest = "../data/DS8/dataset.toml"
+
+# Synthetic entries: scenes of the solver benchmark (`calib-bench solver`),
+# frozen with their ground truth in `truth/<id>.json`. Each is also checked
+# against that truth, parameter by parameter in units of the result's σ.
+
+[[entry]]
+id = "synth_planar"
+description = "Synthetic planar intrinsics: 20 views of a 13x9 board, 0.5 px noise"
+licence = "CC0-1.0"
+synthetic = "planar_intrinsics/pinhole/medium/n0.5/clean"
+
+[[entry]]
+id = "synth_scheimpflug"
+description = "Synthetic Scheimpflug intrinsics: tilted sensor, 20 views, 0.5 px noise"
+licence = "CC0-1.0"
+synthetic = "scheimpflug_intrinsics/scheimpflug/medium/n0.5/clean"
+config = { fix_scheimpflug = { tilt_x = false, tilt_y = false } }
+
+[[entry]]
+id = "synth_handeye"
+description = "Synthetic single-camera hand-eye, eye-in-hand: 20 robot stations, 0.5 px noise"
+licence = "CC0-1.0"
+synthetic = "single_cam_handeye/pinhole/medium/n0.5/clean"
+
+[[entry]]
+id = "synth_rig"
+description = "Synthetic two-camera rig extrinsics, intrinsics refined with the rig: 20 views, 0.5 px noise"
+licence = "CC0-1.0"
+synthetic = "rig_extrinsics/pinhole/medium/n0.5/clean"
+config = { rig = { refine_intrinsics_in_rig_ba = true } }
+
+[[entry]]
+id = "synth_laserline"
+description = "Synthetic laserline device: one camera and a laser plane, 20 views, 0.5 px noise"
+licence = "CC0-1.0"
+synthetic = "laserline_device/pinhole/medium/n0.5/clean"
+
+[[entry]]
+id = "synth_rig_handeye_laserline"
+description = "Synthetic two-camera rig with hand-eye and per-camera laser planes, joint solve: 20 stations, 0.5 px noise"
+licence = "CC0-1.0"
+synthetic = "rig_handeye_laserline/pinhole/medium/n0.5/clean"
