@@ -1,7 +1,7 @@
 //! The metric record a benchmark run produces.
 //!
 //! [`BenchRecord`] is pure, serde-serializable data: it captures *what a run
-//! produced*, never *how to judge it* (that lives in [`crate::compare`]). It
+//! produced*, never *how to judge it* (that lives in [`crate::baseline`]). It
 //! reuses existing workspace types verbatim -- [`ReprojectionStats`],
 //! [`FeatureResidualHistogram`], and [`SolveReport`] -- rather than redefining
 //! them.

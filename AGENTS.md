@@ -19,7 +19,7 @@ own `[workspace]`) and path-pins the published crates:
 * **`vision-calibration-pipeline`** — session framework, the eight problem types, `dataset_runner`.
 * **`vision-calibration`** — facade re-exporting the above; the compatibility boundary.
 * **`vision-calibration-py`** — PyO3/maturin Python package (PyPI).
-* **`vision-calibration-bench`** (`publish = false`) — registry-driven dataset benchmarks + regression records (`calib-bench`).
+* **`vision-calibration-bench`** (`publish = false`) — registry-driven dataset benchmarks + regression records, and the public regression suite in `regression/` (`calib-bench suite`).
 * **`xtask`** — `cargo xtask emit-schemas`, `cargo xtask check-docs`.
 * **`vision-calibration-examples-private`** (*outside* the workspace) — private-dataset acceptance runners.
 

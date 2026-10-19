@@ -271,10 +271,14 @@ pub struct DetectorSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chess_corners: Option<ChessCornersDetectorSpec>,
 
-    /// Minimum detected features for a view to be kept. `None` keeps the
-    /// runner default (4, the homography minimum). Raise it for detectors
-    /// whose sparse detections are unreliable — e.g. ring-grid decodes
-    /// with < 8 markers are noisy enough to poison a solve.
+    /// Minimum detected features for a view (or a camera's slot in a rig
+    /// view) to be kept, in every topology. `None` keeps the runner default
+    /// (4, the homography minimum). Raise it for detectors whose sparse
+    /// detections are unreliable — e.g. ring-grid decodes with < 8 markers
+    /// are noisy enough to poison a solve. Set it to a plain chessboard's
+    /// corner count (`rows × cols`) to keep only complete boards: rig and
+    /// hand-eye views share one target frame, and a partial chessboard is
+    /// labelled from its own top-left corner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_features_per_view: Option<usize>,
 }
@@ -343,7 +347,7 @@ pub struct RobotPoseSource {
     /// Column / field mapping from the user's file to the canonical
     /// fields the converter consumes. Required for the tabular formats
     /// (`csv` / `json` / `jsonl`) unless `matrix_field` is set; must be
-    /// absent for `rowmajor4x4`, whose 16-values-per-line layout is
+    /// absent for `rowmajor4x4` and `counted4x4`, whose matrix layout is
     /// fixed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub columns: Option<PoseColumnMap>,
@@ -373,6 +377,11 @@ pub enum RobotPoseFormat {
     /// exports). Requires `pose_convention.rotation_format =
     /// "matrix4x4_row_major"` and no `columns` mapping.
     Rowmajor4x4,
+    /// Headerless text: the matrix count, then that many row-major 4×4
+    /// homogeneous transforms as whitespace-separated floats on any number
+    /// of lines (the layout of the robot-world hand-eye datasets of Tabb
+    /// and Ahmad Yousef). Same requirements as `rowmajor4x4`.
+    Counted4x4,
 }
 
 /// Mapping from user-defined column / field names to the canonical

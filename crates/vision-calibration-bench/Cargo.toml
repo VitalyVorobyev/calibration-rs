@@ -42,6 +42,9 @@ rand = { workspace = true, features = ["thread_rng"] }
 # Robot-pose parsing for the Tier-B hand-eye runner (row-major 4x4 -> Iso3).
 # Math-only; already a transitive dep, pulled in directly here.
 nalgebra = { workspace = true }
+# Regression suite: `suite.toml` and the observation-file checksums.
+toml = "1"
+sha2 = "0.10"
 
 # Tier-B (full pipeline: detector + image I/O) — gated behind `tier-b`.
 calib-targets = { workspace = true, optional = true }

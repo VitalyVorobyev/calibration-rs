@@ -78,6 +78,12 @@
 
 ---
 
+# Validation
+
+- [Regression Suite](regression_suite.md)
+
+---
+
 # Extending the Library
 
 - [Adding a New Optimization Problem](new_problem.md)

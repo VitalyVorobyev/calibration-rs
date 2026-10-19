@@ -201,11 +201,12 @@ pub enum RunError {
     /// Insufficient features after detection — calibration would fail
     /// downstream anyway. Surfaced here so the user gets an
     /// actionable error rather than a deep optim panic.
-    #[error("camera {camera_id:?}: only {usable}/{total} views had >= 4 features")]
+    #[error("camera {camera_id:?}: only {usable}/{total} views had enough features")]
     InsufficientUsableViews {
         /// Camera id.
         camera_id: String,
-        /// Number of views with at least 4 detected features.
+        /// Number of views with at least the per-view feature floor
+        /// (4, or the manifest's `detector.min_features_per_view`).
         usable: usize,
         /// Total number of images attempted.
         total: usize,
@@ -280,6 +281,17 @@ fn lower_chess_corners(spec: ChessCornersDetectorSpec) -> ChessCornersConfig {
         threshold_value,
         min_corner_strength,
     }
+}
+
+/// Per-view feature floor: the homography minimum (4), raised by the
+/// manifest's `detector.min_features_per_view` — for detectors whose sparse
+/// detections are unreliable, or to keep only complete boards.
+fn min_features_per_view(spec: &DatasetSpec) -> usize {
+    spec.detector
+        .as_ref()
+        .and_then(|d| d.min_features_per_view)
+        .unwrap_or(4)
+        .max(4)
 }
 
 fn target_to_detector_config(spec: &DatasetSpec) -> Result<(&'static str, Value), RunError> {

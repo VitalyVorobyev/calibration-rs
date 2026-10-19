@@ -47,15 +47,19 @@ pub(crate) fn load_robot_poses(
     };
     let text = std::fs::read_to_string(&path)?;
 
-    // The headerless matrix format has no column mapping — parse it
+    // The headerless matrix formats have no column mapping — parse them
     // directly instead of funnelling through `RawRow`.
-    if source.format == RobotPoseFormat::Rowmajor4x4 {
-        return text
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .enumerate()
-            .map(|(i, line)| parse_matrix_row(line, i, convention, &path))
-            .collect();
+    match source.format {
+        RobotPoseFormat::Rowmajor4x4 => {
+            return text
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .enumerate()
+                .map(|(i, line)| parse_matrix_row(line, i, convention, &path))
+                .collect();
+        }
+        RobotPoseFormat::Counted4x4 => return parse_counted_matrices(&text, convention, &path),
+        RobotPoseFormat::Csv | RobotPoseFormat::Json | RobotPoseFormat::Jsonl => {}
     }
 
     // The matrix-field shape (one nested 4×4 array per row) doesn't
@@ -89,7 +93,7 @@ pub(crate) fn load_robot_poses(
             .enumerate()
             .map(|(i, v)| object_to_row(v, i, &path))
             .collect::<Result<_, _>>()?,
-        RobotPoseFormat::Rowmajor4x4 => {
+        RobotPoseFormat::Rowmajor4x4 | RobotPoseFormat::Counted4x4 => {
             unreachable!("handled by the early return above")
         }
     };
@@ -123,7 +127,7 @@ fn json_values(format: RobotPoseFormat, text: &str, path: &Path) -> Result<Vec<V
                 })
             })
             .collect(),
-        RobotPoseFormat::Csv | RobotPoseFormat::Rowmajor4x4 => {
+        RobotPoseFormat::Csv | RobotPoseFormat::Rowmajor4x4 | RobotPoseFormat::Counted4x4 => {
             unreachable!("json_values is only called for json/jsonl formats")
         }
     }
@@ -253,7 +257,7 @@ fn parse_pose_row(
 ) -> Result<ParsedPose, RunError> {
     let columns = source.columns.as_ref().expect(
         "validate guarantees a columns mapping for the tabular pose formats, \
-         and Rowmajor4x4 never reaches this row parser",
+         and the matrix formats never reach this row parser",
     );
     let get = |name: &str| -> Result<&str, RunError> {
         row.fields
@@ -445,6 +449,50 @@ fn parse_matrix_row(
         });
     }
     pose_from_matrix_values(&values, index, convention, path)
+}
+
+/// Parse a `counted4x4` file: the matrix count, then that many row-major
+/// 4×4 matrices as whitespace-separated values on any line layout. Errors
+/// name the matrix (zero-based) as the row.
+fn parse_counted_matrices(
+    text: &str,
+    convention: &PoseConvention,
+    path: &Path,
+) -> Result<Vec<ParsedPose>, RunError> {
+    let parse_err = |row: usize, message: String| RunError::PoseParse {
+        path: path.to_path_buf(),
+        row,
+        message,
+    };
+    let mut tokens = text.split_whitespace();
+    let count: usize = tokens
+        .next()
+        .and_then(|tok| tok.parse().ok())
+        .ok_or_else(|| parse_err(0, "counted4x4 must start with the matrix count".into()))?;
+    let values: Vec<f64> = tokens
+        .enumerate()
+        .map(|(i, tok)| {
+            tok.parse::<f64>()
+                .map_err(|_| parse_err(i / 16, format!("{tok:?} is not a number")))
+        })
+        .collect::<Result<_, _>>()?;
+    if values.len() != 16 * count {
+        return Err(parse_err(
+            0,
+            format!(
+                "counted4x4 declares {count} matrices ({} values) but holds {} values",
+                16 * count,
+                values.len()
+            ),
+        ));
+    }
+    values
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .enumerate()
+        .map(|(i, matrix)| pose_from_matrix_values(matrix, i, convention, path))
+        .collect()
 }
 
 /// Normalize 16 row-major matrix values into a `ParsedPose`. Shared by
@@ -858,6 +906,71 @@ mod tests {
         match err {
             RunError::PoseParse { message, .. } => {
                 assert!(message.contains("oops"), "got: {message}");
+            }
+            other => panic!("expected PoseParse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn counted4x4_parses_blocks_with_units_and_inversion() {
+        // The robot-world hand-eye dataset layout: a count, then one 4×4
+        // matrix per four lines, blank-line separated, in millimetres,
+        // storing the base pose in the gripper frame.
+        let q = UnitQuaternion::from_axis_angle(&Vector3::x_axis(), -0.4);
+        let t_b_g = Iso3::from_parts(Vector3::new(0.2, 0.3, -0.5).into(), q);
+        let m = t_b_g.inverse().to_homogeneous();
+        let mut block = String::new();
+        for r in 0..4 {
+            for c in 0..4 {
+                let v = if c == 3 && r < 3 {
+                    m[(r, c)] * 1000.0
+                } else {
+                    m[(r, c)]
+                };
+                block.push_str(&format!("{v:.9} "));
+            }
+            block.push('\n');
+        }
+        let text = format!("2\n{block}\n{block}");
+        let (_dir, path) = write_temp(&text, "txt");
+        let source = RobotPoseSource {
+            format: RobotPoseFormat::Counted4x4,
+            ..matrix_source(&path)
+        };
+        let conv = convention(
+            TransformConvention::TTcpBase,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::Mm,
+        );
+        let poses = load_robot_poses(&source, &conv, path.parent().unwrap()).unwrap();
+        assert_eq!(poses.len(), 2);
+        for pose in &poses {
+            let got = &pose.base_se3_gripper;
+            assert!((got.translation.vector - t_b_g.translation.vector).norm() < 1e-6);
+            assert!(got.rotation.angle_to(&t_b_g.rotation) < 1e-6);
+        }
+    }
+
+    #[test]
+    fn counted4x4_count_mismatch_is_actionable() {
+        let text = format!("3\n{}", "1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1\n".repeat(2));
+        let (_dir, path) = write_temp(&text, "txt");
+        let source = RobotPoseSource {
+            format: RobotPoseFormat::Counted4x4,
+            ..matrix_source(&path)
+        };
+        let conv = convention(
+            TransformConvention::TBaseTcp,
+            RotationFormat::Matrix4x4RowMajor,
+            TranslationUnits::M,
+        );
+        let err = load_robot_poses(&source, &conv, path.parent().unwrap()).unwrap_err();
+        match err {
+            RunError::PoseParse { message, .. } => {
+                assert!(
+                    message.contains("3 matrices") && message.contains("32 values"),
+                    "got: {message}"
+                );
             }
             other => panic!("expected PoseParse, got {other:?}"),
         }

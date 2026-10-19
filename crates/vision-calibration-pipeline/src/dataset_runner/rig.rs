@@ -21,7 +21,7 @@ use super::pairing::pair_views;
 use super::poses::{ParsedPose, load_robot_poses, match_poses_to_tokens};
 use super::{
     RunError, augment_config_with_roi, detect_features, expand_camera_images, features_to_obs,
-    pattern_repr, pick_detector, target_to_detector_config,
+    min_features_per_view, pattern_repr, pick_detector, target_to_detector_config,
 };
 
 /// Result of a rig dataset conversion.
@@ -150,6 +150,7 @@ pub(super) fn build_rig_core(
         .map(|c| augment_config_with_roi(&detector_config, c.roi_xywh))
         .collect();
 
+    let min_features = min_features_per_view(spec);
     let mut views: Vec<(RigViewObs, String)> = Vec::new();
     let mut view_paths: Vec<Vec<Option<PathBuf>>> = Vec::new();
     let mut per_camera_usable = vec![0usize; spec.cameras.len()];
@@ -172,7 +173,7 @@ pub(super) fn build_rig_core(
                 cache,
                 force_redetect,
             )?;
-            if features.len() < 4 {
+            if features.len() < min_features {
                 cameras.push(None);
                 kept_paths.push(None);
                 continue;
@@ -255,8 +256,9 @@ mod tests {
     use serde_json::json;
     use std::io::Write;
     use vision_calibration_dataset::{
-        CameraSource, ImagePattern, PoseColumnMap, PoseConvention, PosePairing, RobotPoseFormat,
-        RobotPoseSource, RotationFormat, TargetSpec, TransformConvention, TranslationUnits,
+        CameraSource, DetectorSpec, ImagePattern, PoseColumnMap, PoseConvention, PosePairing,
+        RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec, TransformConvention,
+        TranslationUnits,
     };
     use vision_calibration_detect::{
         CacheKey, CachedFeatures, ChessboardDetector, Feature, FsDetectionCache,
@@ -377,6 +379,27 @@ mod tests {
         assert!(result.dataset.views[1].obs.cameras[0].is_some());
         assert!(result.dataset.views[1].obs.cameras[1].is_none());
         assert!(result.view_paths[1][1].is_none());
+    }
+
+    #[test]
+    fn manifest_feature_floor_drops_partial_boards() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        seed_image(tmp.path(), &cache, "cam0/a.png", grid_features(6));
+        seed_image(tmp.path(), &cache, "cam0/b.png", grid_features(6));
+        seed_image(tmp.path(), &cache, "cam1/a.png", grid_features(6));
+        seed_image(tmp.path(), &cache, "cam1/b.png", grid_features(5));
+        let mut spec = rig_spec(&[
+            vec!["cam0/a.png", "cam0/b.png"],
+            vec!["cam1/a.png", "cam1/b.png"],
+        ]);
+        spec.detector = Some(DetectorSpec {
+            min_features_per_view: Some(6),
+            ..DetectorSpec::default()
+        });
+        let result = build_rig_extrinsics_input(&spec, tmp.path(), &cache, false).unwrap();
+        assert!(result.dataset.views[0].obs.cameras[1].is_some());
+        assert!(result.dataset.views[1].obs.cameras[1].is_none());
     }
 
     #[test]
