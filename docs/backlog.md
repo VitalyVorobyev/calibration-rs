@@ -8,47 +8,27 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 
 Every calibration result carries the covariance of its estimated parameters
 and the projection uncertainty it implies, validated against Monte-Carlo
-scatter. Order: UQ-ADR → UQ-CORE → UQ-EXPORT → UQ-PROJECTION → UQ-APP.
+scatter. Design: ADR 0026; evidence: `notes/uncertainty.md`. Order: UQ-CORE →
+UQ-EXPORT → UQ-PROJECTION → UQ-APP.
 
-- [ ] UQ-ADR - ADR 0026 *Parameter uncertainty* and the proof-pack skeleton
-  `notes/uncertainty.md`. Decide and record:
-  - **Estimator**: first-order `Σ = σ̂²·(JᵀWJ)⁻¹` at the converged optimum over
-    the free tangent coordinates. `J` is the raw Jacobian from one loss-free
-    linearization at the final state; `W` holds the IRLS weights `ρ′(‖rᵢ‖²)`
-    from `RobustLoss`. One routine for both backends (today their robust
-    corrections differ: Triggs for tiny-solver, √ρ′ for factrs). The sandwich
-    estimator is evaluated in the proof pack and shipped only if Monte-Carlo
-    shows the simple form is miscalibrated under outliers.
-  - **Noise**: a posteriori `σ̂²` per residual family (reprojection, laser);
-    mixed problems take one Förstner variance-component iteration. Priors
-    (`Se3TangentPrior`) are known information; observation weights are
-    relative.
-  - **Conventions** (into ADR 0009): SE(3) covariance in the right
-    perturbation `T·exp([δθ, δt])`, rotation first; S² planes as a joint
-    `[n(2), d(1)]` block; covariance is conditional on fixed blocks, and the
-    result lists them.
-  - **Availability as a type**: available, or unavailable with a reason
-    (rank-deficient with the unobservable labels, not converged, parameter at
-    a bound). A singular final Hessian is reported, not an error.
-  - Always computed; no config knob.
-- [ ] UQ-CORE - Covariance in the shared LM (`backend/covariance.rs`). Reuse
-  `NormalEquations`: assemble at λ = 0, factor with the existing symbolic
-  LLT, solve identity columns, unscale by the Jacobi scaling; on LLT failure
-  name the null directions from a dense eigendecomposition.
-  `LinearizationEngine` gains a raw linearization and a column layout (IR
-  block → columns); `SolveReport` gains `converged`, residual count and
-  degrees of freedom; `BackendSolution` gains the block-labelled covariance.
-  Gates: backend parity (with and without robust loss); Monte-Carlo on the
-  planar-intrinsics scene (≥ 200 seeded realizations, predicted σ within
-  ±10 % of empirical, NEES consistent with χ²); a free-gauge problem reports
-  the right unobservable labels.
+- [ ] UQ-CORE - Covariance in the shared backend layer
+  (`backend/covariance.rs`, ADR 0026): Huber's M-estimator covariance from a
+  raw linearization at the solution, assembled and factored with
+  `NormalEquations`; per-family robust `σ̂`; availability reasons (not
+  converged, rank-deficient with the unobservable coordinates, at a bound,
+  no redundancy). Gates: backend parity with and without a robust loss;
+  Monte-Carlo on a planar scene, clean (σ ±10 %, NEES ~ χ²) and with 5 %
+  outliers under Huber and Cauchy (±20 %); a free gauge reported
+  rank-deficient.
 - [ ] UQ-EXPORT - `Uncertainty` on every `*Export`. Core type with labelled
   covariance over the global parameters (intrinsics, distortion, sensor,
   extrinsics, hand-eye, planes), per-family `σ̂`, degrees of freedom and
   per-view 6×6 pose marginals. Labels from one source
   (`DistortionKind::param_names()` next to `dim()`). Intrinsics family first,
   then hand-eye, rig and laser problems; only the final solve feeds the
-  export. Python dataclass with `std_dev(label)` / `correlation(a, b)`,
+  export. The laserline and Scheimpflug defaults stop fixing pose 0 (a
+  speed convention, not a gauge), so default results are not conditional
+  on one view. Python dataclass with `std_dev(label)` / `correlation(a, b)`,
   `types.py`, `__init__.pyi`, contract tests; a book chapter, README line and
   the five-minute tutorial show `fx ± σ`. Gate: Monte-Carlo per problem
   family.
