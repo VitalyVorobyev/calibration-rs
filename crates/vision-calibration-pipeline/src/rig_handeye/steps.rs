@@ -1617,10 +1617,9 @@ pub fn step_rig_optimize(
         .map(|i| i == config.rig.reference_camera_idx)
         .collect();
 
-    // The reference-camera fix above removes the full 6-DOF rig
-    // gauge on its own; no rig-from-target pose is additionally pinned (the
-    // old `fix_first_rig_pose` knob was evidence-backed redundant and mildly
-    // pessimizing; see `docs/notes/rig-extrinsics.md` §Gauge).
+    // The reference-camera fix above removes the full 6-DOF rig gauge on
+    // its own; pinning a rig-from-target pose as well is redundant and
+    // slightly worsens the fit (`docs/notes/rig-extrinsics.md` §Gauge).
     let fix_rig_poses: Vec<usize> = Vec::new();
 
     let backend_opts = BackendSolveOptions {

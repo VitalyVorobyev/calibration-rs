@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- Python: `ScheimpflugSensor.from_payload` reads only `tilt_x` / `tilt_y`;
+  the `tau_x` / `tau_y` spellings, which no export emits, are not accepted.
 - `SolveReport.final_cost` is the robust objective `½ Σ ρ(‖rᵢ‖²)` at the
   solution (`½‖r‖²` without a loss). For robust solves the reported value
   changes and is not comparable with earlier releases.
@@ -72,9 +74,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dark theme toggle (stored under `calib-theme`, as before).
 - **Self-contained documentation.** The READMEs, the book, the tutorials and
   the API docs state their rationale inline rather than pointing at internal
-  design records. The app README is a user guide. The tutorial built on a
-  private dataset is removed, and the book's link and install version are
-  corrected.
+  design records. The app README is a user guide; the tutorials use only
+  the datasets shipped with the repository; the book's link and install
+  version are corrected, and its solver overview describes the sparse
+  Cholesky solve the loop uses.
 - **Faster Levenberg–Marquardt iterations.** The loop builds the sparsity
   pattern of `JᵀJ` and the symbolic Cholesky analysis once per solve. Each
   iteration then fills only the lower triangle, accumulating runs of

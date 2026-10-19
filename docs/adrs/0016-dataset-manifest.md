@@ -89,7 +89,7 @@ axis).
 The runtime contract is that an external generator (CLI binary or
 in-app command) inspects a foreign folder and emits a
 `dataset.toml` populating fields it can determine and listing the rest
-in `_unresolved`. v0 of the generator is heuristic-only (regex / file
+in `_unresolved`. The generator is heuristic-only (regex / file
 extension / vendor signature / README scraping). LLM-backed inference
 for hard cases is deferred to its own ADR.
 

@@ -2,22 +2,21 @@
 
 - Status: Accepted
 - Date: 2026-03-07
-- Last Updated: 2026-03-07
 
 ## Context
 
 Planar calibration exists as two sensor-specific workflows:
 
 - Standard planar intrinsics session pipeline:
-  [planar_intrinsics](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/planar_intrinsics/mod.rs)
+  [planar_intrinsics](../../crates/vision-calibration-pipeline/src/planar_intrinsics/mod.rs)
 - Scheimpflug planar intrinsics session pipeline:
-  [scheimpflug_intrinsics](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/scheimpflug_intrinsics/mod.rs)
+  [scheimpflug_intrinsics](../../crates/vision-calibration-pipeline/src/scheimpflug_intrinsics/mod.rs)
 
 Both workflows share the same high-level phases (initialization, pose recovery, non-linear
 refinement), but they differ in camera model and optimized parameter blocks
 (identity sensor vs Scheimpflug sensor tilt).
 
-By design policy (ADR 0001 + layered crate rules), these workflows must remain `ProblemType`
+By design policy (the layered crate rules and the session framework, ADR 0007), these workflows must remain `ProblemType`
 modules with session semantics, while shared math/optimizer plumbing should be deduplicated.
 
 ## Decision
@@ -32,12 +31,12 @@ Keep separate public workflow modules/contracts:
 Unify shared implementation internals:
 
 - Shared initialization bootstrap in pipeline:
-  [planar_family.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-pipeline/src/planar_family.rs)
+  [planar_family.rs](../../crates/vision-calibration-pipeline/src/planar_family.rs)
   - computes view homographies
   - runs iterative intrinsics/distortion initialization
   - recovers per-view planar poses
 - Shared optimization IR setup in optim:
-  [planar_family_shared.rs](/Users/vitalyvorobyev/vision/calibration-rs/crates/vision-calibration-optim/src/problems/planar_family_shared.rs)
+  [planar_family_shared.rs](../../crates/vision-calibration-optim/src/problems/planar_family_shared.rs)
   - shared parameter-block construction (intrinsics/distortion/poses + optional sensor)
   - shared residual construction for planar reprojection factors
 

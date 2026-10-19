@@ -467,9 +467,9 @@ mod tests {
             .collect()
     }
 
-    /// calibration-rs#124: a camera mounted square to the flange (identity
-    /// rotation, pure offset) makes every pair's A and B axes parallel; the
-    /// former per-pair filter rejected them all.
+    /// A camera mounted square to the flange (identity rotation, pure offset)
+    /// makes every pair's A and B axes parallel, which is not degenerate: a
+    /// per-pair parallel-axis filter would reject them all.
     #[test]
     fn handeye_dlt_recovers_an_identity_rotation_mount() {
         let x_gt = make_iso((0.0, 0.0, 0.0), (0.04, 0.0, 0.03));

@@ -5,15 +5,7 @@
 
 ## Context
 
-The optimization IR (ADR 0008) described every residual with a `FactorKind`
-variant whose *name* encoded the full camera model and pose chain:
-`ReprojPointPinhole4`, `ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta`,
-`LaserPlanePixelRigHandEye`, … — 18 variants total. Each variant carried its
-own residual kernel, its own ~40-line parameter-layout validation arm
-(`validate_inner` had grown to ~550 lines), and its own boxed factor struct in
-the tiny-solver backend.
-
-The variant set is the product of three independent axes:
+A residual in the optimization IR (ADR 0008) depends on three independent axes:
 
 1. **Camera model** — projection × distortion × sensor
    (pinhole · {none, Brown-Conrady-5} · {identity, Scheimpflug-2} today).
@@ -24,11 +16,12 @@ The variant set is the product of three independent axes:
    line-distance.
 
 Further camera models (rational k4–k6 distortion, thin-prism s1–s4, division
-model, Kannala-Brandt fisheye projection) are the growth case. Added naively, each
-would multiply variants across every chain and family — dozens of new enum
-arms, kernels, validation blocks, and backend structs per model. That growth
-pattern made new camera models effectively unaffordable, which is the gate
-this ADR removes.
+model, Kannala-Brandt fisheye projection) are the growth case. If the camera
+model and pose chain were encoded in the *name* of an enumerated factor variant
+(e.g. `ReprojPointPinhole4Dist5Scheimpflug2HandEyeRobotDelta`), each new model
+would multiply variants across every chain and family: dozens of enum arms,
+kernels, validation blocks and backend structs per model. That would make new
+camera models effectively unaffordable.
 
 ## Decision
 
@@ -104,42 +97,26 @@ No new factor variants, no validation arms, no per-chain duplication.
 
 ### Numerics policy
 
-Pinhole normalization is unified on the `max(z, 1e-12)` clamp that 14 of the
-15 enumerated reprojection/laser kernels already used. The single divergent
-path (the no-distortion `ReprojPointPinhole4`, which normalized via
-`z + 1e-9`) was used only by a validation unit test, never by a production
-problem builder; the drift is ~1e-9 relative in normalized coordinates
-(≈4e-7 px at f≈800), far below every test tolerance. The now-unused
-`math::projection` module was removed.
-
-Equivalence was pinned before deletion: every enumerated factor was asserted
-**bit-identical** to its descriptor replacement at the kernel level and
-through the backend (the no-distortion case bounded < 1e-5 px). The pins
-survive as golden-value tests captured from the enumerated kernels, plus
-invariant tests (zero Scheimpflug tilt ≡ identity sensor; zero robot delta ≡
-plain hand-eye chain; rig chain ≡ explicit isometry composition).
+Pinhole normalization uses a single `max(z, 1e-12)` clamp in every kernel.
+Kernel behavior is pinned by golden-value tests plus invariant tests (zero
+Scheimpflug tilt ≡ identity sensor; zero robot delta ≡ plain hand-eye chain;
+rig chain ≡ explicit isometry composition).
 
 ## Consequences
 
-- `ir/types.rs` validation collapsed from ~550 lines of per-variant arms to a
-  ~30-line layout zip; the backend lost 15 concrete factor structs (net
-  ≈ −1,900 LoC across the crate).
-- Pinhole rig laserline is unblocked: laser factors always carry a sensor
-  block and the rig laser bundle freezes it, so a pinhole upstream is exactly
-  zero tilt. `RigHandeyeExport::to_upstream_calibration` and
-  `pixel_to_gripper_point` now accept pinhole exports.
-- A future second backend (an autodiff-native stack like `factrs` would be
-  the target) consumes the same descriptors and builds its own dispatch — nothing
-  tiny-solver-specific leaks into the IR.
-- Public (pre-1.0) breaking change: the enumerated `FactorKind` variants are
-  gone; emitters construct descriptor factors. The laser factor names changed
-  to the more accurate `LaserPointToPlane` (1D, meters) and
-  `LaserLineDistance` (1D, pixels); the config-level
-  `LaserlineResidualType` enum is unchanged.
-- The autodiff-first kernel design does not make a hand-Jacobian backend
-  impossible (dual numbers over the generic kernels give exact Jacobians), but
-  the accepted trade is generic `residual<T: RealField>` kernels over
-  hand-derived Jacobians; tiny-solver is the sole backend (ADR 0008).
+- Validation is a ~30-line layout zip rather than per-variant arms, and the
+  backend needs one generic factor struct per family rather than one concrete
+  struct per variant.
+- Pinhole rig laserline works: laser factors always carry a sensor block and
+  the rig laser bundle freezes it, so a pinhole upstream is exactly zero tilt.
+- Both backends (tiny-solver and factrs, ADR 0025) consume the same
+  descriptors and build their own dispatch from the shared camera dispatch
+  table; nothing backend-specific leaks into the IR.
+- Laser factors are named `LaserPointToPlane` (1D, meters) and
+  `LaserLineDistance` (1D, pixels); the config-level `LaserlineResidualType`
+  enum selects between them.
+- The accepted trade is generic `residual<T: RealField>` kernels (exact
+  Jacobians from dual numbers) over hand-derived Jacobians.
 - `ScheimpflugIntrinsicsConfig::distortion_model` selects any `DistortionKind`
   (None, BrownConrady5, Rational8, ThinPrism9, Division1) for the single-camera
   seeded route, exercising the descriptor-as-data dispatch. Rig

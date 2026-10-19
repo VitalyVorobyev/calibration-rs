@@ -20,8 +20,8 @@
 //! # Tiled multi-camera frames
 //!
 //! Industrial rigs sometimes emit a single physical image that horizontally
-//! tiles N cameras (the puzzle 130×130 dataset uses 6× 720×540 tiles in a
-//! 4320×540 strip). [`FrameRef::roi`] expresses this without inventing a
+//! tiles N cameras (for example six 720×540 tiles in one 4320×540 strip).
+//! [`FrameRef::roi`] expresses this without inventing a
 //! tiled-image format: multiple `FrameRef`s point at the same `path` with
 //! disjoint ROIs.
 //!
@@ -37,8 +37,7 @@
 //! transform: a viewer that renders the per-camera tile by blitting the
 //! ROI rectangle onto a fresh canvas at `(0, 0)` can plot residual
 //! coordinates directly, without subtracting `roi.x` / `roi.y`. Doing so
-//! would double-correct and push residuals off-canvas — see the bug fix
-//! that introduced this convention.
+//! would double-correct and push residuals off-canvas.
 //!
 //! [`PerFeatureResiduals`]: crate::PerFeatureResiduals
 //! [`TargetFeatureResidual`]: crate::TargetFeatureResidual

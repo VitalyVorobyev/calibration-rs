@@ -306,7 +306,7 @@ pub struct RigHandeyeExport {
     /// Optional image manifest (viewer-side contract). When
     /// populated, downstream viewers (the diagnose UI) can locate the source
     /// image for each `(pose, camera)` slot. Tiled multi-camera frames
-    /// (e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point
+    /// (e.g. six 720×540 tiles in one horizontal strip) point
     /// multiple `FrameRef`s at the same `path` with disjoint ROIs. `None`
     /// means "no images shipped"; the calibration pipeline never reads
     /// this field.
@@ -554,7 +554,7 @@ impl ProblemType for RigHandeyeProblem {
             per_cam_reproj_errors: output.per_cam_reproj_errors().to_vec(),
             per_feature_residuals,
             // Manifest is populated by callers that also wrote images for
-            // the dataset (e.g. the puzzle 130×130 example); the pipeline
+            // the dataset (e.g. a tiled-rig runner); the pipeline
             // itself never has image paths to fill in.
             image_manifest: None,
         })
@@ -840,7 +840,7 @@ mod tests {
 
     #[test]
     fn export_image_manifest_roundtrip_with_tiled_roi() {
-        // The puzzle 130×130 rig writes a single 4320×540 PNG per pose
+        // A tiled six-camera rig writes a single 4320×540 PNG per pose
         // and references each of its six 720×540 camera tiles via ROI;
         // mirror that shape in the test to lock the wire format.
         //

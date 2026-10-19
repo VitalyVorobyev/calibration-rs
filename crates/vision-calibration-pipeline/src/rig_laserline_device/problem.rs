@@ -196,8 +196,8 @@ pub struct RigLaserlineDeviceExport {
     /// Optional image manifest (viewer-side contract). When
     /// populated, downstream viewers (the diagnose / 3D / epipolar UIs)
     /// can locate the source image for each `(pose, camera)` slot.
-    /// Tiled multi-camera frames (e.g. 6× 720×540 horizontal strips on
-    /// the puzzle 130×130 rig) point multiple `FrameRef`s at the same
+    /// Tiled multi-camera frames (e.g. six 720×540 tiles in one
+    /// horizontal strip) point multiple `FrameRef`s at the same
     /// `path` with disjoint ROIs. `None` means "no images shipped"; the
     /// calibration pipeline never reads this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn export_image_manifest_roundtrip_with_tiled_roi() {
-        // The puzzle 130×130 rig writes a single 4320×540 PNG per pose
+        // A tiled six-camera rig writes a single 4320×540 PNG per pose
         // and references each of its six 720×540 camera tiles via ROI;
         // mirror that shape here so any future change to PixelRect or
         // FrameRef serialization is caught at PR time.

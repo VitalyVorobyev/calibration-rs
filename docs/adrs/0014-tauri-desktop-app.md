@@ -1,4 +1,4 @@
-# ADR 0014: Tauri 2 Desktop App for Calibration Diagnose
+# ADR 0014: Tauri 2 Desktop App
 
 - Status: Accepted
 - Date: 2026-05-01
@@ -11,17 +11,17 @@ engineer cannot get from `cargo run -p vision-calibration --example …` is a
 visual read of those residuals, which is how *root causes of suboptimal
 calibration* (wrong pattern parameters, wrong distortion model, wrong camera
 model, wrong initial state) are identified. A desktop app whose core is the
-**diagnose mode** fills that gap. File pickers, runners, and 3D views are
-enrichments on top of it, not prerequisites.
+**diagnose mode** fills that gap.
 
 ## Decision
 
-### 1. Diagnose-first
+### 1. Diagnose-first, several workspaces
 
 The app's core is a viewer of a calibration export: per-image residual vector
-fields overlaid on the source frames. Detection wrapping, the calibration
-runner, and 3D views are layered on afterwards, prioritised by what the
-diagnose workflow actually misses.
+fields overlaid on the source frames. It is organised as five workspaces
+(Run, Diagnose, 3D, Epipolar, Depth); Run drives calibrations, Diagnose is the
+residual viewer described below, and the others build on the same export and
+backend.
 
 ### 2. Framework: Tauri 2 + React + TypeScript
 
@@ -30,8 +30,8 @@ while keeping the Rust backend authoritative: the webview is the rendering
 surface; all calibration-domain logic lives in Rust through the
 `vision-calibration` facade. Rejected:
 
-- **rerun.io** — developer-tool aesthetic; gRPC IPC clashes with this
-  project's zenoh-Rust stack.
+- **rerun.io** — developer-tool aesthetic; its gRPC-based IPC would add a
+  second transport and a non-Rust-native UI layer to the project.
 - **egui** — less ecosystem leverage for production polish.
 
 ### 3. Diagnose scope
@@ -117,14 +117,15 @@ Vite on first build.
 
 The webview receives the export as untyped JSON (`load_export`) and images as
 `data:` URLs (`load_image`); the frontend narrows the JSON to TypeScript types
-generated from the Rust schemas (ADR 0018). The current command set, workspace
-layout, and dev workflow are documented in `app/README.md`.
+generated from the Rust schemas (ADR 0018). The command set, workspace layout
+and dev workflow are documented in `app/DEVELOPING.md`; `app/README.md` is the
+user guide.
 
 ## Considered alternatives
 
-- **Build file loader, detection wrap, runner, and 3D viewer first.**
-  Rejected: months of plumbing precede the user-facing value, and a
-  residuals-shape mistake found late forces re-work across the whole stack.
+- **Build file loader, detection wrap, runner, and 3D viewer before the
+  residual viewer.** Rejected: plumbing would precede the user-facing value,
+  and a residuals-shape mistake found late forces re-work across the stack.
 - **Arrows on a bare coordinate grid (no image backdrop).** Rejected:
   diagnostic patterns (radial distortion, asymmetric Scheimpflug residuals)
   read meaningfully against the scene, not against an empty axis.

@@ -29,8 +29,8 @@ impl<S: RealField + Copy> DistortionModel<S> for NoDistortion {
 /// `eval(x, y)` returns the distorted point and its 2×2 Jacobian
 /// `[[∂x_d/∂x, ∂x_d/∂y], [∂y_d/∂x, ∂y_d/∂y]]`. Convergence is quadratic:
 /// wide-angle Brown-Conrady corners (k1 ≈ −0.35 at a normalized radius of
-/// ~0.8) reach machine precision in four steps, where the former
-/// fixed-point iteration needed 25 (calibration-rs#120).
+/// ~0.8) reach machine precision in four steps, where a fixed-point
+/// iteration needs about 25.
 ///
 /// Each step is halved (up to 30 times) until it reduces the residual, so a
 /// Newton step never makes the estimate worse. The iteration stops when the
@@ -577,11 +577,11 @@ mod tests {
             );
         }
     }
-    // ── Newton undistortion (calibration-rs#120) ────────────────────────────
+    // ── Newton undistortion ─────────────────────────────────────────────────
 
-    /// The lenses of calibration-rs#120 (found by etendue gate G3.1), each of
-    /// which the former fixed-point iteration failed at the image corners.
-    fn issue_120_models() -> Vec<(&'static str, Box<dyn DistortionModel<f64>>)> {
+    /// Wide-angle lenses at whose image corners a plain fixed-point
+    /// undistortion fails to converge.
+    fn wide_angle_corner_models() -> Vec<(&'static str, Box<dyn DistortionModel<f64>>)> {
         vec![
             (
                 "brown mild",
@@ -647,7 +647,7 @@ mod tests {
     #[test]
     fn newton_undistort_converges_at_the_corners() {
         let n = 41;
-        for (name, m) in issue_120_models() {
+        for (name, m) in wide_angle_corner_models() {
             let mut worst = 0.0f64;
             for i in 0..n {
                 for j in 0..n {

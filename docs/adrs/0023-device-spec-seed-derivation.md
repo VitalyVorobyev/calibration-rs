@@ -5,21 +5,18 @@
 
 ## Context
 
-ADR 0022 made spec-seeded initialization the official acceptance route for
-Scheimpflug intrinsics: the values needed to seed the solve — lens focal
-length, sensor pixel pitch, and the mechanically-set Scheimpflug mount tilt —
-are datasheet/drawing values the device owner already has. But as shipped,
-those seeds are hand-coded constants and env knobs scattered across the
-private examples (`RTV3D_REF_FOCAL`, `RTV3D_RINGGRID_FOCAL`,
-`RTV3D_RINGGRID_TILT_X`, `NOMINAL_TILT_X`, `RTV3D_SEED=generic|oracle`).
-Every new dataset would re-invent its own seeding, and the
-acceptance harness has no structured way to ask "what does the device
-spec say?".
+ADR 0022 makes spec-seeded initialization the official acceptance route for
+Scheimpflug intrinsics: the values needed to seed the solve (lens focal
+length, sensor pixel pitch, and the mechanically-set Scheimpflug mount tilt)
+are datasheet/drawing values the device owner already has. Hand-coded
+constants and env knobs per dataset would make every dataset re-invent its own
+seeding and leave the acceptance harness no structured way to ask "what does
+the device spec say?".
 
-This ADR introduces a structured **device-spec → seed** layer: a sidecar
+A structured **device-spec → seed** layer provides it: a sidecar
 `spec.json` next to each dataset manifest describing the *hardware* (not the
 data), plus derivation functions producing the existing ADR 0011 manual-init
-structs. The rig targets (ADR 0013 collapsed the `RigScheimpflug*` problem types) are `RigExtrinsics`/`RigHandeye` with
+structs. The rig targets (ADR 0013) are `RigExtrinsics`/`RigHandeye` with
 `SensorMode::Scheimpflug`, seeded through `RigHandeyeIntrinsicsManualInit`
 (`per_cam_intrinsics`/`per_cam_sensors`), `RigHandeyeRigManualInit`, and
 `RigHandeyeHandeyeManualInit`.
