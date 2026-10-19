@@ -7,7 +7,7 @@
 
 #![allow(missing_docs)]
 
-use nalgebra::{DMatrix, DVector, Translation3, UnitQuaternion, Vector3};
+use nalgebra::{DMatrix, DVector, Matrix2, Translation3, UnitQuaternion, Vector2, Vector3};
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 use vision_calibration_core::{
     BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionFixMask,
@@ -21,6 +21,7 @@ use vision_calibration_optim::{
     RigExtrinsicsParams, RigExtrinsicsSolveOptions, RobotPoseMeta, RobustLoss,
     ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions, apply_robot_delta,
     optimize_handeye, optimize_laserline, optimize_rig_extrinsics, optimize_scheimpflug_intrinsics,
+    projection_uncertainty,
 };
 
 const RUNS: u64 = 200;
@@ -268,9 +269,9 @@ fn truth() -> ScheimpflugIntrinsicsParams {
     .unwrap()
 }
 
-/// Views of a 9×9 board of 20 mm cells, with seeded pixel noise.
-fn dataset(params: &ScheimpflugIntrinsicsParams, noise: UniformPixelNoise) -> PlanarDataset {
-    let camera = CameraParams {
+/// The camera model of a Scheimpflug parameter pack.
+fn scheimpflug_camera(params: &ScheimpflugIntrinsicsParams) -> CameraParams {
+    CameraParams {
         projection: ProjectionParams::Pinhole,
         distortion: params.distortion.clone(),
         sensor: SensorParams::Scheimpflug {
@@ -280,8 +281,11 @@ fn dataset(params: &ScheimpflugIntrinsicsParams, noise: UniformPixelNoise) -> Pl
             params: params.intrinsics,
         },
     }
-    .build()
-    .unwrap();
+}
+
+/// Views of a 9×9 board of 20 mm cells, with seeded pixel noise.
+fn dataset(params: &ScheimpflugIntrinsicsParams, noise: UniformPixelNoise) -> PlanarDataset {
+    let camera = scheimpflug_camera(params).build().unwrap();
     let board: Vec<Pt3> = (0..81)
         .map(|i| {
             Pt3::new(
@@ -365,6 +369,95 @@ fn scheimpflug_covariance_matches_monte_carlo() {
         ["fx", "fy", "cx", "cy", "k1", "k2", "tilt_x", "tilt_y"]
     );
     mc.assert_calibrated(0.10);
+}
+
+/// The projection σ of the Scheimpflug camera matches the scatter of where
+/// fixed camera-frame rays land, at the image centre, two opposite corners
+/// (outside the board's coverage, so extrapolated through the distortion)
+/// and an interior node.
+#[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
+fn projection_uncertainty_matches_monte_carlo() {
+    const IMAGE: [u32; 2] = [744, 516];
+    let gt = truth();
+    let truth_camera = scheimpflug_camera(&gt).build().unwrap();
+    let map = |est: &ScheimpflugIntrinsicsParams, cov: &ParameterCovariance| {
+        projection_uncertainty(&scheimpflug_camera(est), cov, 0, IMAGE).unwrap()
+    };
+    // Probe pixels and the σ each map reports there.
+    let first = map(&gt, &solve_scheimpflug(&gt, 0).1);
+    let node = |c: usize, r: usize| {
+        let x = c as f64 * f64::from(IMAGE[0] - 1) / (first.columns - 1) as f64;
+        let y = r as f64 * f64::from(IMAGE[1] - 1) / (first.rows - 1) as f64;
+        (Pt2::new(x, y), r * first.columns + c)
+    };
+    let (last_c, last_r) = (first.columns - 1, first.rows - 1);
+    let probes = [node(0, 0), node(last_c, last_r), node(3, 2)];
+    let center = Pt2::new(f64::from(IMAGE[0] - 1) / 2.0, f64::from(IMAGE[1] - 1) / 2.0);
+    let rays: Vec<Vector3<f64>> = std::iter::once(center)
+        .chain(probes.iter().map(|(p, _)| *p))
+        .map(|p| truth_camera.backproject_pixel(&p).point)
+        .collect();
+
+    let mut pixels: Vec<Vec<Vector2<f64>>> = vec![Vec::new(); rays.len()];
+    let mut predicted = vec![0.0; rays.len()];
+    for seed in 0..RUNS {
+        let (est, cov) = solve_scheimpflug(&gt, seed);
+        let map = map(&est, &cov);
+        let sigma =
+            std::iter::once(map.center).chain(probes.iter().map(|(_, i)| map.sigma[*i].unwrap()));
+        for (acc, s) in predicted.iter_mut().zip(sigma) {
+            *acc += s * s;
+        }
+        let camera = scheimpflug_camera(&est).build().unwrap();
+        for (ray, out) in rays.iter().zip(&mut pixels) {
+            let q = camera.project_point_c(ray).unwrap();
+            out.push(Vector2::new(q.x, q.y));
+        }
+    }
+    let runs = RUNS as f64;
+    for (k, samples) in pixels.iter().enumerate() {
+        let mean = samples.iter().fold(Vector2::zeros(), |a, q| a + q) / runs;
+        let scatter = samples.iter().fold(Matrix2::zeros(), |a, q| {
+            a + (q - mean) * (q - mean).transpose()
+        }) / (runs - 1.0);
+        let empirical = scatter.symmetric_eigenvalues().max().sqrt();
+        let predicted = (predicted[k] / runs).sqrt();
+        let ratio = predicted / empirical;
+        eprintln!("probe {k}: predicted σ {predicted:.4} px, empirical {empirical:.4} px");
+        assert!(
+            (ratio - 1.0).abs() < 0.10,
+            "probe {k}: predicted σ {predicted:.4e}, empirical {empirical:.4e} (ratio {ratio:.3})"
+        );
+    }
+    assert!(
+        first.corner.unwrap() > first.center,
+        "extrapolation is less certain"
+    );
+}
+
+/// One noise realization of the Scheimpflug scene, solved.
+fn solve_scheimpflug(
+    gt: &ScheimpflugIntrinsicsParams,
+    seed: u64,
+) -> (ScheimpflugIntrinsicsParams, ParameterCovariance) {
+    let data = dataset(
+        gt,
+        UniformPixelNoise {
+            seed: 500 + seed,
+            max_abs_px: 0.5,
+        },
+    );
+    let opts = ScheimpflugIntrinsicsSolveOptions {
+        fix_distortion: DistortionFixMask::radial_only(),
+        ..Default::default()
+    };
+    let est =
+        optimize_scheimpflug_intrinsics(&data, gt, opts, BackendSolveOptions::default()).unwrap();
+    let Uncertainty::Available(cov) = est.uncertainty else {
+        panic!("no covariance: {:?}", est.uncertainty);
+    };
+    (est.params, cov)
 }
 
 /// A stereo rig whose cameras are refined with their extrinsics: the σ of

@@ -1,3 +1,5 @@
+from typing import Any, Mapping
+
 from .models import (
     BrownConradyDistortion,
     CameraFixMask,
@@ -25,6 +27,7 @@ from .models import (
     ThinPrism9Distortion,
     PlanarCalibrationConfig,
     ParameterUncertainty,
+    ProjectionUncertainty,
     PlanarCalibrationResult,
     PlanarDataset,
     PlanarView,
@@ -133,6 +136,22 @@ def pixel_to_gripper_point(
     laser_planes_rig: list[LaserlinePlane],
     base_se3_gripper: Pose | None = None,
 ) -> tuple[float, float, float]: ...
+
+
+
+def projection_uncertainty(
+    result: PlanarCalibrationResult
+    | ScheimpflugIntrinsicsResult
+    | SingleCamHandeyeResult
+    | LaserlineDeviceResult
+    | RigExtrinsicsResult
+    | RigHandeyeResult
+    | RigLaserlineDeviceResult
+    | RigHandeyeLaserlineResult
+    | Mapping[str, Any],
+    image_size: tuple[int, int],
+    camera: int = 0,
+) -> ProjectionUncertainty: ...
 
 
 __all__: list[str]

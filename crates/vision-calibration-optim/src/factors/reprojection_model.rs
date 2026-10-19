@@ -383,6 +383,46 @@ fn handeye_chain_transform<T: RealField>(
     }
 }
 
+/// Number of camera blocks at the head of a factor's block list:
+/// intrinsics, then distortion and sensor when their kernels have a block.
+pub(crate) const fn camera_block_count<D: DistortionKernel, S: SensorKernel>() -> usize {
+    1 + (D::DIM > 0) as usize + (S::DIM > 0) as usize
+}
+
+/// Pixel of a camera-frame point, generic over the camera-model kernels.
+///
+/// `camera` is `[intrinsics, distortion?, sensor?]`, the optional blocks
+/// present exactly when the corresponding kernel dimension is non-zero.
+pub(crate) fn project_camera_point_generic<P, D, S, T>(
+    camera: &[DVector<T>],
+    p_camera: &Vector3<T>,
+) -> (T, T)
+where
+    P: ProjectionKernel,
+    D: DistortionKernel,
+    S: SensorKernel,
+    T: RealField,
+{
+    let mut idx = 1;
+    let dist = (D::DIM > 0).then(|| {
+        let v = camera[idx].as_view();
+        idx += 1;
+        v
+    });
+    let sensor = (S::DIM > 0).then(|| camera[idx].as_view());
+
+    let (x_norm, y_norm) = P::normalize(p_camera);
+    let (x_dist, y_dist) = D::distort(dist, x_norm, y_norm);
+    let (x_sensor, y_sensor) = S::to_sensor(sensor, x_dist, y_dist);
+
+    let intr = &camera[0];
+    debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
+    (
+        intr[0].clone() * x_sensor + intr[2].clone(),
+        intr[1].clone() * y_sensor + intr[3].clone(),
+    )
+}
+
 /// Reprojection residual generic over the camera-model kernels and pose chain.
 ///
 /// `params` is the full IR-ordered block list: `[intrinsics, distortion?,
@@ -401,31 +441,9 @@ where
     S: SensorKernel,
     T: RealField,
 {
-    let mut idx = 1;
-    let dist = (D::DIM > 0).then(|| {
-        let v = params[idx].as_view();
-        idx += 1;
-        v
-    });
-    let sensor = (S::DIM > 0).then(|| {
-        let v = params[idx].as_view();
-        idx += 1;
-        v
-    });
-
-    let p_camera = reproj_chain_transform(chain, &params[idx..], pw);
-    let (x_norm, y_norm) = P::normalize(&p_camera);
-    let (x_dist, y_dist) = D::distort(dist, x_norm, y_norm);
-    let (x_sensor, y_sensor) = S::to_sensor(sensor, x_dist, y_dist);
-
-    let intr = &params[0];
-    debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
-    let fx = intr[0].clone();
-    let fy = intr[1].clone();
-    let cx = intr[2].clone();
-    let cy = intr[3].clone();
-    let u_proj = fx * x_sensor + cx;
-    let v_proj = fy * y_sensor + cy;
+    let (camera, chain_blocks) = params.split_at(camera_block_count::<D, S>());
+    let p_camera = reproj_chain_transform(chain, chain_blocks, pw);
+    let (u_proj, v_proj) = project_camera_point_generic::<P, D, S, T>(camera, &p_camera);
 
     let sqrt_w = T::from_f64(w.sqrt()).unwrap();
     let u_meas = T::from_f64(uv[0]).unwrap();

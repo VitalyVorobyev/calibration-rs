@@ -129,6 +129,33 @@ above.
 - Only the final solve of a staged pipeline feeds the result. Earlier stages
   are initializations.
 
+### Projection uncertainty
+
+- **What.** Per camera, the major-axis σ (pixels) of where the ray through a
+  pixel lands, `J_q Σ_θθ J_qᵀ` over the camera's own parameters (intrinsics,
+  distortion, sensor tilt), on a 16 × 12 grid spanning `(0, 0)` to
+  `(w − 1, h − 1)`, with centre, largest-corner and grid-maximum summaries.
+- **Camera frame.** The ray is fixed in the camera frame, so the figure is
+  range-independent (a central model maps a ray to one pixel) and leaves out
+  the camera pose. It counts the principal-point/rotation trade-off that a
+  downstream pose re-estimate absorbs, so it is conservative for such uses.
+  The cross-frame variant (mrcal) needs the intrinsics–pose cross-covariance
+  the result does not carry; it is future work.
+- **On demand, not in the export.** Exports do not record the image size, and
+  the map is derived data. `optim::projection_uncertainty(camera,
+  covariance, camera_index, image_size)` computes it; every export
+  implements `CalibratedCameras` (camera params + uncertainty), whose
+  provided `projection_uncertainty` the Python binding and the app call.
+- **Exact derivatives.** `J_q` is forward-mode (num-dual, the version
+  tiny-solver uses) through `project_camera_point_generic`, the projection
+  the reprojection factor evaluates. Each node's ray is found by Newton steps
+  on that same projection from the core back-projection, so the Jacobian is
+  taken exactly at the node; a node no ray reaches is reported as `None`.
+- **Labels.** The camera's coordinates are looked up as `cam<i>.<name>` or,
+  in a single-camera covariance, `<name>`; labels the covariance lacks were
+  fixed and count as exact. A covariance with none of them (a rig whose final
+  solve held the intrinsics) is an error, not a zero map.
+
 ### Availability is a type
 
 ```text
@@ -165,7 +192,9 @@ a loss and 1.2–1.6× with one.
 
 - Every `*Export` gains `uncertainty` (`#[serde(default)]`, so older JSON
   loads). The Python package exposes it with `std_dev(label)` and
-  `correlation(a, b)`. The app shows `value ± σ`.
+  `correlation(a, b)`, and the projection map with
+  `projection_uncertainty(result, image_size, camera)`. The app shows
+  `value ± σ`.
 - Some staged problems hold intrinsics fixed in their final stage, such as the
   Scheimpflug rig BA, which keeps intrinsics fixed. Their extrinsic σ is
   conditional, and therefore optimistic. The fixed list says so; propagating
