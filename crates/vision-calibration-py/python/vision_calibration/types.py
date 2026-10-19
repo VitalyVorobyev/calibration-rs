@@ -187,6 +187,16 @@ class Uncertainty(TypedDict, total=False):
     reason: UncertaintyUnavailableReason
 
 
+class ProjectionUncertainty(TypedDict):
+    image_size: list[int]
+    columns: int
+    rows: int
+    sigma: list[float | None]
+    center: float
+    corner: float | None
+    max: float
+
+
 class PlanarIntrinsicsParams(TypedDict):
     camera: CameraModel
     camera_se3_target: list[Transform]

@@ -153,8 +153,8 @@ pub mod session {
 /// SolverConfig`, ...).
 pub mod common {
     pub use vision_calibration_pipeline::common::{
-        ExportKind, HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions,
-        IntrinsicsOptimizeOptions,
+        CalibratedCameras, ExportKind, HandeyeInitOptions, HandeyeOptimizeOptions,
+        IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
@@ -669,6 +669,11 @@ pub mod optim {
     /// Solver backend selector — the `backend` field of
     /// [`common::config::SolverConfig`](crate::common::config::SolverConfig).
     pub use vision_calibration_optim::SolverBackend;
+    /// Projection uncertainty of a calibrated camera: the type and the
+    /// function that computes it from a camera and its parameter covariance
+    /// (every export offers it through
+    /// [`common::CalibratedCameras`](crate::common::CalibratedCameras)).
+    pub use vision_calibration_optim::{ProjectionUncertainty, projection_uncertainty};
 }
 
 /// Deterministic synthetic data generation for testing.

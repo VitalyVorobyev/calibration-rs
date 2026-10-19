@@ -9,6 +9,7 @@ use vision_calibration_core::{
     BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, NoMeta, Pinhole, Pt3, Real,
     RigDataset, RigView, RigViewObs, ScheimpflugParams, make_pinhole_camera,
 };
+use vision_calibration_pipeline::common::CalibratedCameras;
 use vision_calibration_pipeline::rig_extrinsics::{
     RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsProblem, SensorMode, run_calibration,
 };
@@ -139,6 +140,11 @@ fn pipeline_converges_scheimpflug_rig_extrinsics() {
     run_calibration(&mut session).unwrap();
 
     let export = session.export().unwrap();
+
+    // The rig solve holds each camera's intrinsics fixed, so the result has
+    // no covariance to project.
+    let err = export.projection_uncertainty(1, [640, 480]).unwrap_err();
+    assert!(err.to_string().contains("held them fixed"), "{err}");
 
     // JSON round-trip.
     let json = serde_json::to_string(&export).unwrap();

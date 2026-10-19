@@ -137,13 +137,42 @@ class ResultUncertaintyTest(unittest.TestCase):
                 for view in payload["views"]
             ],
         )
-        u = vc.run_rig_extrinsics(dataset).uncertainty
+        result = vc.run_rig_extrinsics(dataset)
+        u = result.uncertainty
         self.assertTrue(u.available, u.reason)
+        # The final rig solve holds the intrinsics fixed by default.
+        with self.assertRaisesRegex(ValueError, "held them fixed"):
+            vc.projection_uncertainty(result, (1024, 576), camera=1)
         self.assertIn("cam1.cam_se3_rig.tx", u.labels)
         self.assertIn("cam0.cam_se3_rig", u.fixed)
         self.assertLess(u.std_dev("cam1.cam_se3_rig.tx"), 1e-3)
         self.assertEqual(len(u.views), 20)
         self.assertEqual(u.views[0].labels[0], "rig_se3_target.rx")
+
+
+class ProjectionUncertaintyTest(unittest.TestCase):
+    def test_planar_result_maps_the_image(self) -> None:
+        result = vc.run_planar_intrinsics(
+            planar_calibration_dataset(8), vc.PlanarCalibrationConfig()
+        )
+        p = vc.projection_uncertainty(result, (1280, 720))
+        self.assertEqual(p.image_size, (1280, 720))
+        self.assertEqual(len(p.sigma), p.columns * p.rows)
+        self.assertEqual(len(p.grid()), p.rows)
+        self.assertTrue(all(s is not None and math.isfinite(s) for s in p.sigma))
+        self.assertLessEqual(p.center, p.max)
+        # The export dict gives the same map.
+        self.assertEqual(vc.projection_uncertainty(result.export, (1280, 720)), p)
+
+    def test_a_camera_without_covariance_is_a_value_error(self) -> None:
+        result = vc.run_planar_intrinsics(
+            planar_calibration_dataset(8), vc.PlanarCalibrationConfig()
+        )
+        with self.assertRaises(ValueError):
+            vc.projection_uncertainty(result, (1280, 720), camera=1)
+        unavailable = dict(result.export, uncertainty={"status": "unavailable", "reason": {"kind": "not_computed"}})
+        with self.assertRaises(ValueError):
+            vc.projection_uncertainty(unavailable, (1280, 720))
 
 
 if __name__ == "__main__":

@@ -1661,6 +1661,47 @@ class ParameterUncertainty:
 
 
 @dataclass(slots=True)
+class ProjectionUncertainty:
+    """How precisely a camera's estimated parameters place a camera-frame ray
+    in the image.
+
+    Each value is the major-axis standard deviation, in pixels, of where the
+    ray through a grid node lands. Nodes run evenly from pixel ``(0, 0)`` to
+    ``(width - 1, height - 1)``, corners included, row by row from the
+    top-left; ``None`` marks a node no ray reaches. Only the camera's own
+    parameters vary (intrinsics, distortion, sensor tilt), so the figure does
+    not depend on range, and it is conservative for uses that re-estimate the
+    camera pose, which absorb part of a principal-point error.
+    """
+
+    image_size: tuple[int, int]
+    columns: int
+    rows: int
+    sigma: list[float | None]
+    center: float
+    corner: float | None
+    max: float
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ProjectionUncertainty":
+        size = cast(list[Any], payload["image_size"])
+        corner = payload.get("corner")
+        return cls(
+            image_size=(int(size[0]), int(size[1])),
+            columns=int(payload["columns"]),
+            rows=int(payload["rows"]),
+            sigma=[None if v is None else float(v) for v in cast(list[Any], payload["sigma"])],
+            center=float(payload["center"]),
+            corner=None if corner is None else float(corner),
+            max=float(payload["max"]),
+        )
+
+    def grid(self) -> list[list[float | None]]:
+        """The node values as ``rows`` lists of ``columns`` each, top row first."""
+        return [self.sigma[r * self.columns : (r + 1) * self.columns] for r in range(self.rows)]
+
+
+@dataclass(slots=True)
 class PlanarCalibrationResult:
     """Result from :func:`vision_calibration.run_planar_intrinsics`.
 
@@ -1676,6 +1717,9 @@ class PlanarCalibrationResult:
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
+    export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    """The result as the library's export JSON, as
+    :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "PlanarCalibrationResult":
@@ -1686,6 +1730,7 @@ class PlanarCalibrationResult:
             for p in cast(list[Any], params["camera_se3_target"])
         ]
         return cls(
+            export=dict(payload),
             camera=PinholeCamera.from_payload(cast(Mapping[str, Any], params["camera"])),
             camera_se3_target=poses,
             final_cost=float(report["final_cost"]),
@@ -1715,6 +1760,9 @@ class SingleCamHandeyeResult:
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
+    export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    """The result as the library's export JSON, as
+    :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "SingleCamHandeyeResult":
@@ -1725,6 +1773,7 @@ class SingleCamHandeyeResult:
             return Pose.from_payload(cast(Mapping[str, Any], value))
 
         return cls(
+            export=dict(payload),
             camera=PinholeBrownConradyCamera.from_payload(
                 cast(Mapping[str, Any], payload["camera"])
             ),
@@ -1753,10 +1802,14 @@ class RigExtrinsicsResult:
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
+    export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    """The result as the library's export JSON, as
+    :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigExtrinsicsResult":
         return cls(
+            export=dict(payload),
             cameras=[
                 PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
                 for c in cast(list[Any], payload["cameras"])
@@ -1793,6 +1846,9 @@ class RigHandeyeResult:
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
+    export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    """The result as the library's export JSON, as
+    :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     def to_payload(self) -> dict[str, Any]:
         """Convert to Rust/serde shape (``RigHandeyeExport``).
@@ -1841,6 +1897,7 @@ class RigHandeyeResult:
         )
 
         return cls(
+            export=dict(payload),
             cameras=[
                 PinholeBrownConradyCamera.from_payload(cast(Mapping[str, Any], c))
                 for c in cast(list[Any], payload["cameras"])
@@ -1874,6 +1931,9 @@ class LaserlineDeviceResult:
     stats: LaserlineStats
     mean_reproj_error: float
     per_cam_reproj_errors: list[float]
+    export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    """The result as the library's export JSON, as
+    :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @property
     def mean_laser_error(self) -> float:
@@ -1889,6 +1949,7 @@ class LaserlineDeviceResult:
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineDeviceResult":
         return cls(
+            export=dict(payload),
             estimate=LaserlineEstimate.from_payload(
                 cast(Mapping[str, Any], payload["estimate"])
             ),
@@ -1914,12 +1975,16 @@ class ScheimpflugIntrinsicsResult:
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
+    export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    """The result as the library's export JSON, as
+    :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ScheimpflugIntrinsicsResult":
         params = cast(Mapping[str, Any], payload["params"])
         report = cast(Mapping[str, Any], payload["report"])
         return cls(
+            export=dict(payload),
             camera=PinholeScheimpflugCamera.from_payload(
                 cast(Mapping[str, Any], params["camera"])
             ),
@@ -2092,10 +2157,14 @@ class RigLaserlineDeviceResult:
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
+    export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    """The result as the library's export JSON, as
+    :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigLaserlineDeviceResult":
         return cls(
+            export=dict(payload),
             laser_planes_rig=[
                 LaserlinePlane.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["laser_planes_rig"])
@@ -2360,6 +2429,9 @@ class RigHandeyeLaserlineResult:
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
     )
+    export: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    """The result as the library's export JSON, as
+    :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeLaserlineResult":
@@ -2370,6 +2442,7 @@ class RigHandeyeLaserlineResult:
             return Pose.from_payload(cast(Mapping[str, Any], value))
 
         return cls(
+            export=dict(payload),
             laser_planes_rig=[
                 LaserlinePlane.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["laser_planes_rig"])

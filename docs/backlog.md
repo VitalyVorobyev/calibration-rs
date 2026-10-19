@@ -8,8 +8,7 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 
 Every calibration result carries the covariance of its estimated parameters
 and the projection uncertainty it implies, validated against Monte-Carlo
-scatter. Design: ADR 0026; evidence: `notes/uncertainty.md`. Order:
-UQ-PROJECTION → UQ-APP.
+scatter. Design: ADR 0026; evidence: `notes/uncertainty.md`. Next: UQ-APP.
 
 - [ ] UQ-LASER-LOSS - The laser loss defaults (`LaserlineSolveOptions`,
   `LaserlineDeviceOptimizeConfig`, Python) are `Huber { scale: 0.01 }`, a
@@ -42,13 +41,9 @@ UQ-PROJECTION → UQ-APP.
   fixed (`fix_poses: vec![0]` in `rig_extrinsics/steps.rs` and
   `rig_handeye/steps.rs`), which the single-camera Scheimpflug default no
   longer does; drop it with this change.
-- [ ] UQ-PROJECTION - Projection uncertainty per camera: major-axis σ (px)
-  on an image grid at a stated range (default: median target distance),
-  `J_q Σ_θθ J_qᵀ` with exact derivatives from the generic camera kernels,
-  plus a centre/corner/max summary. Camera-frame (intrinsics-only) variant,
-  documented as such. Gate: Monte-Carlo.
 - [ ] UQ-APP - Diagnose shows value ± σ per parameter (fixed ones marked), a
-  correlation heatmap and the projection-σ map.
+  correlation heatmap and the projection-σ map (`CalibratedCameras::
+  projection_uncertainty` on the loaded export, at the frames' image size).
 
 ## Regression suite
 
@@ -195,8 +190,9 @@ scenes are the gate) and the regression suite.
   when picked up: projection uncertainty across the reference-frame shift
   (the mrcal method); robot-pose noise in hand-eye; target manufacturing and
   flatness error; capture advice (which views would shrink σ most) in the
-  app; propagation to triangulated and laser-triangulated 3D points. Parked
-  until UQ-PROJECTION.
+  app; propagation to triangulated and laser-triangulated 3D points. The
+  cross-frame projection needs the intrinsics–pose cross-covariance, which
+  results do not carry. Parked until UQ-APP lands.
 - [~] P3-BACKEND-COST - Close the remaining gap to Ceres. Planar
   intrinsics against Ceres 2.2 at matched tolerances: 7–9× slower on 12
   threads and about 21× on one; with the O-TINYSOLVER-PERF changes, 2.6× and

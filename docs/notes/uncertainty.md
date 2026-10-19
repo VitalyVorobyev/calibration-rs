@@ -112,6 +112,7 @@ and the σ tolerance.
 | Hand-eye, exact robot poses | eye-in-hand, intrinsics free, 10 poses, ±0.5 px, 200 runs | σ within ±10 %; NEES as above | σ 0.93–1.07 (20 parameters), NEES 19.93 |
 | Hand-eye, robot-pose priors | as above, robot poses perturbed with the priors' σ (0.5°, 1 mm; view 0 exact) and refined, 400 runs | σ within ±10 %; NEES as above | sandwich σ 0.93–1.05, NEES 20.91; inverse-information form 0.64–1.07 (rejected) |
 | Laserline device | 10 views of a 9×9 board, laser sheet crossing the axis at 0.5 m, ±0.5 px uniform noise on corners and laser pixels, laser loss Huber 1 px, 400 runs | σ within ±10 %, two families; NEES as above | σ 0.99–1.07 (12 parameters, rank 11), NEES 11.84; with the default Huber 0.01 px, `plane.d` 1.11 |
+| Projection σ | the Scheimpflug scene above, 744 × 516 image; rays fixed by the true camera at the centre, two opposite corners (outside the boards' coverage) and an interior node, 200 runs | major-axis σ within ±10 % of the scatter of the projected pixel | ratio 0.94–0.97; σ ≈ 10.5–11.3 px everywhere, set by σ(cx) 9.3, σ(cy) 10.0 (ρ(cx, tilt_y) = −0.99) |
 | Backend parity | planar, with and without Huber | tiny-solver vs factrs `Σ` within 1e-6 relative | pass |
 | Rank deficiency | one camera through two free SE(3) blocks (a 6-DOF gauge) | `RankDeficient` naming the gauge blocks | pass |
 | Rank deficiency | joint rig hand-eye laserline, eye-to-hand, robot rotating about z only | `RankDeficient` naming the hand-eye and target translations along z | pass (`rig_se3_base.tz`, `gripper_se3_target.tz`) |
@@ -124,3 +125,7 @@ and the σ tolerance.
   not modelled, and neither is robot-pose noise beyond the correction priors.
 - **First order only**: strongly non-linear directions (wide-angle
   distortion at the image edge) are approximated by their linearization.
+- **Projection σ is camera-frame**: it includes the principal-point error a
+  re-estimated camera pose would absorb. On `stereo_rig` with the intrinsics
+  refined in the rig solve it is 0.74 px at the centre (σ(cx) 0.75) and
+  2.4 px at the corners the boards did not reach.

@@ -11,6 +11,7 @@ from __future__ import annotations
 from . import _vision_calibration as _native
 from ._api import (
     pixel_to_gripper_point,
+    projection_uncertainty,
     robust_arctan,
     robust_cauchy,
     robust_huber,
@@ -51,6 +52,7 @@ from .models import (
     ThinPrism9Distortion,
     PlanarCalibrationConfig,
     ParameterUncertainty,
+    ProjectionUncertainty,
     PlanarCalibrationResult,
     PlanarDataset,
     PlanarView,
@@ -150,6 +152,7 @@ __all__ = [
     "PlanarCalibrationResult",
     "ScheimpflugIntrinsicsResult",
     "ParameterUncertainty",
+    "ProjectionUncertainty",
     "ResidualNoise",
     "ViewCovariance",
     "SingleCamHandeyeResult",
@@ -171,4 +174,5 @@ __all__ = [
     "run_laserline_device",
     "run_rig_laserline_device",
     "pixel_to_gripper_point",
+    "projection_uncertainty",
 ]

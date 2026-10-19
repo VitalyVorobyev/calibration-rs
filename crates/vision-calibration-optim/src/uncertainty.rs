@@ -271,9 +271,9 @@ fn fixed_labels(ir: &ProblemIR, labels: &[BlockLabels]) -> Vec<String> {
 /// distortion coefficients named by `distortion`.
 pub(crate) fn planar_block_labels(block: &ParamBlock, distortion: &[&str]) -> BlockLabels {
     match block.name.as_str() {
-        "cam" => BlockLabels::shared("intrinsics", &["fx", "fy", "cx", "cy"]),
+        "cam" => BlockLabels::shared("intrinsics", &INTRINSICS_LABELS),
         "dist" => BlockLabels::shared("distortion", distortion),
-        "sensor" => BlockLabels::shared("sensor", &["tilt_x", "tilt_y"]),
+        "sensor" => BlockLabels::shared("sensor", &SENSOR_LABELS),
         "plane_n" => BlockLabels::shared(PLANE_NORMAL, &PLANE_NORMAL_LABELS),
         "plane_d" => BlockLabels::shared(PLANE_DISTANCE, &[PLANE_DISTANCE]),
         name => {
@@ -363,6 +363,11 @@ pub(crate) fn per_camera(parts: &[Uncertainty], rig_fixed: Vec<String>) -> Uncer
     })
 }
 
+/// Labels of the intrinsics block, in IR order.
+pub(crate) const INTRINSICS_LABELS: [&str; 4] = ["fx", "fy", "cx", "cy"];
+/// Labels of the Scheimpflug sensor block, in IR order.
+pub(crate) const SENSOR_LABELS: [&str; 2] = ["tilt_x", "tilt_y"];
+
 /// A laser plane's unit normal, reported by its three components (the
 /// covariance of a unit vector has rank 2), and its signed distance.
 const PLANE_NORMAL: &str = "plane.normal";
@@ -432,9 +437,9 @@ impl RigLabelling<'_> {
             None => "rig_se3_target",
         };
         match (kind, index) {
-            ("cam", Some(_)) => camera("intrinsics", &["fx", "fy", "cx", "cy"]),
+            ("cam", Some(_)) => camera("intrinsics", &INTRINSICS_LABELS),
             ("dist", Some(_)) => camera("distortion", self.distortion),
-            ("sensor", Some(_)) => camera("sensor", &["tilt_x", "tilt_y"]),
+            ("sensor", Some(_)) => camera("sensor", &SENSOR_LABELS),
             ("extr", Some(_)) => {
                 let stored = se3_dvec_to_iso3(solution.params[&block.name].as_view())
                     .expect("an SE3 block holds a pose");

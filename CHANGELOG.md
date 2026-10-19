@@ -84,6 +84,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accounted for. Python:
   `result.uncertainty` (`ParameterUncertainty`). See the book chapter
   "Parameter Uncertainty".
+- **Projection uncertainty.** `CalibratedCameras::projection_uncertainty`
+  (implemented by every `*Export`) and `optim::projection_uncertainty` map
+  how precisely a calibrated camera places a camera-frame ray in its image:
+  the major-axis σ in pixels on a 16 × 12 grid across the image, with the
+  centre, the largest corner and the largest value. Python:
+  `vision_calibration.projection_uncertainty(result, (width, height),
+  camera=0)` returns a `ProjectionUncertainty`; every result keeps the
+  export it was read from as `result.export`.
 - **Public regression suite** in `regression/`: image-free observations of
   `kuka_1`, the stereo pair (each camera and the rig) and dataset 8 of Tabb
   and Ahmad Yousef's robot-world hand-eye data, checksummed in a standard

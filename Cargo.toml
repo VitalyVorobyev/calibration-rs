@@ -73,6 +73,10 @@ tracing = { version = "0.1" }
 # machine precision at small angles and keeps its sign beyond 2π — the
 # rotation update of our SE(3) and quaternion retractions.
 tiny-solver = "0.18.7"
+# The dual numbers tiny-solver differentiates with, for the projection
+# Jacobian `vision-calibration-optim` takes outside a solve; keep in step
+# with tiny-solver so the tree holds one copy.
+num-dual = "0.12.1"
 # No optional features: `serde` (typetag), `rerun` and `left` (the left
 # retraction convention) stay off, and `f32` would break the f64 kernels.
 factrs = { version = "0.3", default-features = false }

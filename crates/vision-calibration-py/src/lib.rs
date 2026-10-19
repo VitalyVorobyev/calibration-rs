@@ -377,6 +377,90 @@ fn pixel_to_gripper_point(
     Ok(output.unbind())
 }
 
+/// Projection uncertainty of one camera of a calibration export.
+///
+/// Parameters
+/// ----------
+/// export:
+///     A calibration export (any problem type; its `kind` field selects it).
+/// camera:
+///     Camera index, 0 for single-camera results.
+/// image_size:
+///     ``[width, height]`` of the camera's images, pixels.
+///
+/// Returns
+/// -------
+/// dict
+///     Serde payload of `ProjectionUncertainty`.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If the export has no covariance of the camera's parameters (none, or
+///     the final solve held them fixed), `camera` is out of range, or the
+///     image is smaller than 2×2 pixels.
+/// TypeError
+///     If `export` is not a calibration export.
+#[pyfunction]
+fn projection_uncertainty(
+    py: Python<'_>,
+    export: &Bound<'_, PyAny>,
+    camera: usize,
+    image_size: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    use vision_calibration::common::{CalibratedCameras, ExportKind};
+
+    fn typed<T>(export: &Bound<'_, PyAny>) -> PyResult<Box<dyn CalibratedCameras>>
+    where
+        T: CalibratedCameras + DeserializeOwned + 'static,
+    {
+        Ok(Box::new(parse_payload::<T>(export, "export")?))
+    }
+
+    let image_size: [u32; 2] = parse_payload(image_size, "image_size")?;
+    let kind: ExportKind = parse_payload(
+        &export
+            .get_item("kind")
+            .map_err(|_| PyTypeError::new_err("invalid export payload: no `kind` field"))?,
+        "export kind",
+    )?;
+    let export = match kind {
+        ExportKind::PlanarIntrinsics => {
+            typed::<vision_calibration::planar_intrinsics::PlanarIntrinsicsExport>(export)?
+        }
+        ExportKind::ScheimpflugIntrinsics => typed::<
+            vision_calibration::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport,
+        >(export)?,
+        ExportKind::SingleCamHandeye => {
+            typed::<vision_calibration::single_cam_handeye::SingleCamHandeyeExport>(export)?
+        }
+        ExportKind::LaserlineDevice => {
+            typed::<vision_calibration::laserline_device::LaserlineDeviceExport>(export)?
+        }
+        ExportKind::RigExtrinsics => {
+            typed::<vision_calibration::rig_extrinsics::RigExtrinsicsExport>(export)?
+        }
+        ExportKind::RigHandeye => {
+            typed::<vision_calibration::rig_handeye::RigHandeyeExport>(export)?
+        }
+        ExportKind::RigLaserlineDevice => {
+            typed::<vision_calibration::rig_laserline_device::RigLaserlineDeviceExport>(export)?
+        }
+        ExportKind::RigHandeyeLaserline => {
+            typed::<vision_calibration::rig_handeye_laserline::RigHandeyeLaserlineExport>(export)?
+        }
+    };
+    let map = export
+        .projection_uncertainty(camera, image_size)
+        .map_err(|err| match &err {
+            vision_calibration::Error::InvalidInput { .. } => value_err(err.to_string()),
+            _ => runtime_err(err.to_string()),
+        })?;
+    let output = pythonize(py, &map)
+        .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
 /// Return the Rust library version embedded in the extension module.
 #[pyfunction]
 fn library_version() -> &'static str {
@@ -394,6 +478,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_rig_laserline_device, m)?)?;
     m.add_function(wrap_pyfunction!(run_rig_handeye_laserline, m)?)?;
     m.add_function(wrap_pyfunction!(pixel_to_gripper_point, m)?)?;
+    m.add_function(wrap_pyfunction!(projection_uncertainty, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     Ok(())
 }

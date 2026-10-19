@@ -21,12 +21,15 @@
 //! separate modules avoids confusing the two.
 //!
 //! [`ExportKind`] is the shared export vocabulary: the serde
-//! discriminator every `*Export` carries.
+//! discriminator every `*Export` carries. [`CalibratedCameras`] reads any
+//! export's cameras and their projection uncertainty.
 
 /// Shared config sub-structs embedded by grouped top-level `*Config` types.
 pub mod config;
 
+mod cameras;
 mod export_kind;
+pub use cameras::CalibratedCameras;
 pub use export_kind::ExportKind;
 
 /// Options for an intrinsics initialization step.

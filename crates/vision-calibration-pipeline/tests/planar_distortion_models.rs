@@ -21,6 +21,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::DistortionKind;
 use vision_calibration_pipeline::{
+    common::CalibratedCameras,
     planar_intrinsics::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init, step_optimize,
     },
@@ -65,6 +66,17 @@ fn gt_intrinsics() -> FxFyCxCySkew<f64> {
         cy: 360.0,
         skew: 0.0,
     }
+}
+
+/// The export's projection uncertainty evaluates over the whole image through
+/// the model's kernels.
+fn assert_projection_uncertainty(export: &impl CalibratedCameras) {
+    let map = export
+        .projection_uncertainty(0, [1280, 720])
+        .expect("projection uncertainty");
+    assert_eq!(map.sigma.len(), map.columns * map.rows);
+    assert!(map.sigma.iter().flatten().all(|s| s.is_finite()));
+    assert!(map.center.is_finite() && map.center <= map.max);
 }
 
 /// Synthesize a noiseless `PlanarDataset` from a generic camera model.
@@ -262,6 +274,7 @@ fn thinprism9_pipeline_noiseless_round_trip() {
     let dataset = make_dataset(&cam_gt, &poses);
 
     let (export, rms) = run_pipeline(dataset.clone(), DistortionKind::ThinPrism9);
+    assert_projection_uncertainty(&export);
 
     println!("[ThinPrism9 pipeline] rms={rms:.4e} px");
     assert!(
@@ -303,6 +316,7 @@ fn division1_pipeline_noiseless_round_trip() {
     let dataset = make_dataset(&cam_gt, &poses);
 
     let (export, rms) = run_pipeline(dataset.clone(), DistortionKind::Division1);
+    assert_projection_uncertainty(&export);
 
     println!("[Division1 pipeline] rms={rms:.4e} px");
     assert!(

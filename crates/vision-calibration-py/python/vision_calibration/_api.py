@@ -21,6 +21,7 @@ from .models import (
     PlanarCalibrationResult,
     PlanarDataset,
     Pose,
+    ProjectionUncertainty,
     RigExtrinsicsCalibrationConfig,
     RigExtrinsicsDataset,
     RigExtrinsicsResult,
@@ -368,3 +369,57 @@ def pixel_to_gripper_point(
     return _pixel_to_gripper_point_raw(
         cam_idx, list(pixel), rig_cal_payload, planes_payload, pose_payload
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# projection_uncertainty
+# ─────────────────────────────────────────────────────────────────────────────
+
+CalibrationResult = (
+    PlanarCalibrationResult
+    | ScheimpflugIntrinsicsResult
+    | SingleCamHandeyeResult
+    | LaserlineDeviceResult
+    | RigExtrinsicsResult
+    | RigHandeyeResult
+    | RigLaserlineDeviceResult
+    | RigHandeyeLaserlineResult
+)
+
+
+def projection_uncertainty(
+    result: CalibrationResult | Mapping[str, Any],
+    image_size: tuple[int, int],
+    camera: int = 0,
+) -> ProjectionUncertainty:
+    """How precisely a calibrated camera places a camera-frame ray in its image.
+
+    The major-axis standard deviation, in pixels, of where the ray through each
+    node of a grid across the image lands, from the covariance of the camera's
+    estimated parameters (see :class:`~vision_calibration.models.ProjectionUncertainty`).
+
+    Parameters
+    ----------
+    result:
+        A calibration result, or an export JSON loaded as a dict.
+    image_size:
+        ``(width, height)`` of the camera's images, pixels.
+    camera:
+        Camera index; 0 for single-camera results.
+
+    Raises
+    ------
+    ValueError
+        If the result has no covariance of the camera's parameters (none was
+        computed, or the final solve held them fixed), or ``camera`` is out of
+        range.
+    """
+    export = result if isinstance(result, Mapping) else result.export
+    if not export:
+        raise ValueError("the result carries no export; it was not produced by this library")
+    payload = cast(
+        Mapping[str, Any],
+        _native.projection_uncertainty(dict(export), camera, list(image_size)),
+    )
+    return ProjectionUncertainty.from_payload(payload)
+
