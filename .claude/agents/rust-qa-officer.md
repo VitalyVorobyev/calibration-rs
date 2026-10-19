@@ -36,16 +36,16 @@ For a full codebase audit, use the workspace root.
 - **Problem types**: `<ProblemName>Problem` (e.g., `PlanarIntrinsicsProblem`).
 - **Config types**: `<ProblemName>Config` at top level.
 - **Export types**: `<ProblemName>Export` at top level.
-- **Step options**: `<Stage><Action>Options` local to module (e.g., `IntrinsicsInitOptions`). Check existing modules for the canonical casing (`Init` vs `Initialize`).
+- **Step options**: `<Stage><Action>Options` local to module (e.g., `IntrinsicsInitOptions`); the action is `Init`, never `Initialize` (ADR 0010).
 - **Step functions**: `step_<action>` (e.g., `step_init`, `step_optimize`, `step_rig_init`).
 - **Pose variables**: `<frame>_se3_<frame>` convention. Raw names like `pose`, `transform`, `t_cw` are violations.
 
 ### 2. Module Structure
 
 - **Problem module shape**: Every problem type module must have `mod.rs`, `problem.rs`, `state.rs`, `steps.rs`.
-- **No flat problem files**: Single-file problem implementations at crate top level are banned by ADR 0001.
+- **No flat problem files**: single-file problem implementations at crate top level are banned (ADR 0007).
 - **Re-export pattern**: `mod.rs` re-exports the public surface of its submodules.
-- **ProblemType fields**: Every impl must define `NAME`, `SCHEMA_VERSION`, and all five associated types (`Config`, `Input`, `State`, `Output`, `Export`).
+- **ProblemType impl**: `fn name()`, `fn schema_version()` when the wire format changed, and all five associated types (`Config`, `Input`, `State`, `Output`, `Export`).
 
 ### 3. Error Handling
 
@@ -89,7 +89,6 @@ For a full codebase audit, use the workspace root.
 ### 9. Distortion Defaults
 
 - `fix_k3: true` must be the default.
-- Brown-Conrady inverse iteration default should be 8.
 
 ## Output Format
 

@@ -908,7 +908,7 @@ export interface RigExtrinsicsExport {
    * Optional image manifest (viewer-side contract). When
    * populated, downstream viewers (the diagnose UI) can locate the source
    * image for each `(pose, camera)` slot. Tiled multi-camera frames
-   * (e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point
+   * (e.g. six 720×540 tiles in one horizontal strip) point
    * multiple `FrameRef`s at the same `path` with disjoint ROIs. `None`
    * means "no images shipped"; the calibration pipeline never reads
    * this field.
@@ -1007,7 +1007,7 @@ export interface RigHandeyeExport {
    * Optional image manifest (viewer-side contract). When
    * populated, downstream viewers (the diagnose UI) can locate the source
    * image for each `(pose, camera)` slot. Tiled multi-camera frames
-   * (e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point
+   * (e.g. six 720×540 tiles in one horizontal strip) point
    * multiple `FrameRef`s at the same `path` with disjoint ROIs. `None`
    * means "no images shipped"; the calibration pipeline never reads
    * this field.
@@ -1206,8 +1206,8 @@ export interface RigLaserlineDeviceExport {
    * Optional image manifest (viewer-side contract). When
    * populated, downstream viewers (the diagnose / 3D / epipolar UIs)
    * can locate the source image for each `(pose, camera)` slot.
-   * Tiled multi-camera frames (e.g. 6× 720×540 horizontal strips on
-   * the puzzle 130×130 rig) point multiple `FrameRef`s at the same
+   * Tiled multi-camera frames (e.g. six 720×540 tiles in one
+   * horizontal strip) point multiple `FrameRef`s at the same
    * `path` with disjoint ROIs. `None` means "no images shipped"; the
    * calibration pipeline never reads this field.
    */

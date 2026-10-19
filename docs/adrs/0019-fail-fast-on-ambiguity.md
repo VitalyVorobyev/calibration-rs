@@ -16,8 +16,8 @@ sources of runtime ambiguity:
    semantically-ambiguous content — e.g. two cameras whose filenames
    produce the same SharedFilenameToken but differ in count.
 
-The user explicitly requested ("In any not clear situation stop and ask
-user") that the runtime never silently guess. Wrong frame conventions
+The runtime therefore never silently guesses: in any unclear situation it
+stops and asks the user. Wrong frame conventions
 silently produce plausible-but-wrong calibrations 6 weeks downstream;
 ambiguous pose pairings silently drop frames; "we picked a default for
 you" is the worst possible UX in this domain.

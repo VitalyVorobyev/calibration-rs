@@ -5,12 +5,11 @@
 
 ## Context
 
-tiny-solver was the only backend (ADR 0008). Its autodiff uses heap-backed
-dynamic-size dual numbers, and P3-BACKEND-COST suspected the Jacobian build
-dominates solve time. factrs 0.3 uses the same nalgebra 0.34 / faer 0.23
+tiny-solver's autodiff uses heap-backed dynamic-size dual numbers, so the
+Jacobian build may dominate solve time. factrs 0.3 uses the same nalgebra 0.34 / faer 0.23
 stack, so our generic kernels (`T: RealField`) run on it unchanged; its
 forward-mode duals are static-size. A measured comparison needs a second
-backend that is first-class: selectable from Rust, JSON, Python and the app.
+backend that is first-class (ADR 0008): selectable from Rust, JSON, Python and the app.
 
 factrs' own optimizers are unsuitable: its LM `expect()`s on rank-deficient
 systems, discards values on a failed step, has no bounds, no iteration count
@@ -71,7 +70,8 @@ iteration budgets on top of it.
   tests run on both.
 - About 70 residual monomorphizations with dual width up to 42: the optim
   crate's debug artifact grows from ~18 MB to ~140 MB and its build time
-  rises accordingly (measured in the PR).
-- `D4-NALGEBRA-035` is now blocked on tiny-solver **and** factrs.
+  rises accordingly.
+- The nalgebra / faer versions are pinned jointly by both backends, so an upgrade needs both to
+  move.
 - A new factor kind needs a tiny-solver factor, a factrs residual and a
   parity case.

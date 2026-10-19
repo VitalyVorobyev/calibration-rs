@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** Every schema the Run workspace renders round-trips (lab-ui PLAN L4-1): its
+/** Every schema the Run workspace renders round-trips: its
  * default value goes into `SchemaValueForm`, nothing is touched and nothing is
  * reported; each control can then be edited away from its value and back, and
  * the value the form hands out is the default again, key for key.

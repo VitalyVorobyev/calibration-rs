@@ -6,6 +6,10 @@
 //! its Python sources. Dev-facing material (ADRs, proof notes, the roadmap,
 //! the backlog, agent files) may be cited only from dev-facing docs.
 //!
+//! User-facing docs also state the current design rather than narrate how
+//! it came about (the CHANGELOG, whose job that is, is exempt from that one
+//! rule), and carry no machine-local paths.
+//!
 //! The check also keeps install snippets (`name = "X.Y"`) on the workspace's
 //! current minor version.
 
@@ -18,12 +22,15 @@ use std::path::{Path, PathBuf};
 struct Rule {
     name: &'static str,
     pattern: Regex,
+    /// Whether the rule applies to the CHANGELOG too.
+    in_changelog: bool,
 }
 
 fn rules() -> Vec<Rule> {
     let rule = |name, pattern: &str| Rule {
         name,
         pattern: Regex::new(pattern).expect("static regex"),
+        in_changelog: true,
     };
     vec![
         rule("ADR reference", r"\bADRs?\b"),
@@ -31,17 +38,31 @@ fn rules() -> Vec<Rule> {
             "dev-docs path",
             r"(docs/|\.\./)(adrs|notes|internal)\b|\bbacklog\.md|\bROADMAP\.md",
         ),
-        rule("private dataset", r"privatedata|rtv3d|examples-private"),
+        rule(
+            "private dataset",
+            r"privatedata|rtv3d|examples-private|(?i:puzzle 130|130×130 rig)",
+        ),
         rule(
             "backlog id",
             r"\b[A-Z][A-Z0-9]*-[A-Z][A-Z0-9]+(-[A-Z0-9]+)*\b",
         ),
         rule(
             "agent workflow",
-            r"AGENTS\.md|CLAUDE\.md|\.claude/|\bcodex\b",
+            r"AGENTS\.md|CLAUDE\.md|\.claude/|\bcodex\b|(?i:\bclaude\b)",
         ),
         rule("PR number", r"\(#\d+\)|\bPR ?#\d+|/pull/\d+"),
-        rule("track id", r"\bTrack [A-Z]\b"),
+        // `repo#123`; a CHANGELOG's `[#123](…/issues/123)` link to the
+        // public tracker is fine.
+        rule("issue shorthand", r"\b[A-Za-z0-9_-]+#\d+\b"),
+        rule(
+            "track id",
+            r"\bTrack [A-Z]\b|\b[A-Z]\d+[a-z]?-\d+\b|\bB\d[a-z]\b",
+        ),
+        rule("local path", r"/Users/|/home/[a-z]"),
+        Rule {
+            in_changelog: false,
+            ..rule("history narration", r"(?i)\b(formerly|the former|legacy)\b")
+        },
     ]
 }
 
@@ -64,8 +85,9 @@ pub fn run(root: &Path) -> Result<()> {
             if file.rustdoc_only && !is_rustdoc(line) {
                 continue;
             }
+            let changelog = file.path.ends_with("CHANGELOG.md");
             for rule in &rules {
-                if rule.pattern.is_match(line) {
+                if (rule.in_changelog || !changelog) && rule.pattern.is_match(line) {
                     findings.push(format!(
                         "{}:{}: [{}] {}",
                         rel(root, &file.path),
@@ -258,6 +280,15 @@ mod tests {
             ("see AGENTS.md for the workflow", "agent workflow"),
             ("landed in (#123)", "PR number"),
             ("part of Track B", "track id"),
+            ("landed with lab-ui L5-1", "track id"),
+            ("the B3c slice", "track id"),
+            ("recorded on the puzzle 130×130 rig", "private dataset"),
+            ("drafted with Claude", "agent workflow"),
+            ("see calibration-rs#120", "issue shorthand"),
+            ("proposed as rpl-cmu/fact-rs#55", "issue shorthand"),
+            ("open /Users/me/data/run.json", "local path"),
+            ("the former fixed-point iteration", "history narration"),
+            ("accepts legacy aliases", "history narration"),
         ];
         for (line, rule) in cases {
             assert!(flagged_by(line).contains(&rule), "{rule} missed: {line}");
@@ -271,9 +302,22 @@ mod tests {
             "The `puzzle_130x130` layout and N-view triangulation.",
             "UTF-8 paths, an RGB-D sensor, and the Gauss-Newton step.",
             "Release notes live in the CHANGELOG.",
+            "Fixed ([#124](https://github.com/o/r/issues/124)).",
+            "Points on S2, a P3P solver, k1-k4 and L2 norms.",
+            "A step can no longer change the parameters.",
         ] {
             assert!(flagged_by(line).is_empty(), "false positive: {line}");
         }
+    }
+
+    #[test]
+    fn only_history_narration_skips_the_changelog() {
+        let skipped: Vec<_> = rules()
+            .into_iter()
+            .filter(|r| !r.in_changelog)
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(skipped, ["history narration"]);
     }
 
     #[test]

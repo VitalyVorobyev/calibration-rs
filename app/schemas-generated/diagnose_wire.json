@@ -1351,7 +1351,7 @@
               "type": "null"
             }
           ],
-          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
+          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. six 720×540 tiles in one horizontal strip) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
         },
         "kind": {
           "allOf": [
@@ -1479,7 +1479,7 @@
               "type": "null"
             }
           ],
-          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. 6× 720×540 horizontal strips on the puzzle 130×130 rig) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
+          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose UI) can locate the source\nimage for each `(pose, camera)` slot. Tiled multi-camera frames\n(e.g. six 720×540 tiles in one horizontal strip) point\nmultiple `FrameRef`s at the same `path` with disjoint ROIs. `None`\nmeans \"no images shipped\"; the calibration pipeline never reads\nthis field."
         },
         "kind": {
           "allOf": [
@@ -1855,7 +1855,7 @@
               "type": "null"
             }
           ],
-          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose / 3D / epipolar UIs)\ncan locate the source image for each `(pose, camera)` slot.\nTiled multi-camera frames (e.g. 6× 720×540 horizontal strips on\nthe puzzle 130×130 rig) point multiple `FrameRef`s at the same\n`path` with disjoint ROIs. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
+          "description": "Optional image manifest (viewer-side contract). When\npopulated, downstream viewers (the diagnose / 3D / epipolar UIs)\ncan locate the source image for each `(pose, camera)` slot.\nTiled multi-camera frames (e.g. six 720×540 tiles in one\nhorizontal strip) point multiple `FrameRef`s at the same\n`path` with disjoint ROIs. `None` means \"no images shipped\"; the\ncalibration pipeline never reads this field."
         },
         "kind": {
           "allOf": [

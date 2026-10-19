@@ -500,10 +500,8 @@ pub(crate) fn joint_fix_scheimpflug(
     vec![config.fix_scheimpflug; n]
 }
 
-/// The joint stage always pins the upstream rig's reference
-/// camera extrinsic — the old `fix_first_camera_extrinsic: bool` knob
-/// hard-coded index 0 regardless of `reference_camera_idx` (a bug); this
-/// always honors the configured reference camera instead.
+/// The joint stage pins the extrinsic of the configured reference camera
+/// (`reference_camera_idx`), not camera 0.
 pub(crate) fn joint_fix_extrinsics(reference_camera_idx: usize, n: usize) -> Vec<bool> {
     (0..n).map(|idx| idx == reference_camera_idx).collect()
 }

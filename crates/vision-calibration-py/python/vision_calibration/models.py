@@ -1271,13 +1271,13 @@ class ScheimpflugSensor:
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ScheimpflugSensor":
-        """Parse Scheimpflug tilt, accepting legacy `tau_x`/`tau_y` aliases."""
-        tilt_x = payload.get("tilt_x", payload.get("tau_x"))
-        tilt_y = payload.get("tilt_y", payload.get("tau_y"))
+        """Parse Scheimpflug tilt from serde payload shape."""
+        tilt_x = payload.get("tilt_x")
+        tilt_y = payload.get("tilt_y")
         if tilt_x is None:
-            raise ValueError("Scheimpflug sensor payload missing tilt_x/tau_x")
+            raise ValueError("Scheimpflug sensor payload missing tilt_x")
         if tilt_y is None:
-            raise ValueError("Scheimpflug sensor payload missing tilt_y/tau_y")
+            raise ValueError("Scheimpflug sensor payload missing tilt_y")
         return cls(tilt_x=float(tilt_x), tilt_y=float(tilt_y))
 
 

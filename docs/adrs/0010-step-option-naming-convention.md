@@ -47,7 +47,7 @@ Negative:
 - Breaking API change for downstream users relying on old option type names.
 - Minor migration work in docs/examples and external code.
 
-## Required Follow-up
+## Rules going forward
 
-- Keep future option types compliant with this convention.
-- Reject new abbreviated action names in review (`Optim*`, etc.).
+- Option types follow this convention.
+- Abbreviated action names (`Optim*`, etc.) are rejected in review.

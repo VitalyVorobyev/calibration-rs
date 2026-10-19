@@ -66,12 +66,7 @@ LM terminates when any of:
 
 ## Sparsity
 
-In bundle adjustment problems, the Jacobian $J$ is **sparse**: each residual depends on only a few parameter blocks (one camera intrinsics, one distortion, one pose). The $J^T J$ matrix has a block-arrow structure that can be exploited by sparse linear solvers:
-
-- **Sparse Cholesky**: Efficient for well-structured problems
-- **Sparse QR**: More robust when the normal equations are ill-conditioned
-
-calibration-rs solves the damped normal equations with sparse Cholesky or sparse QR; see [Solver Backends](solver_backends.md).
+In bundle adjustment problems, the Jacobian $J$ is **sparse**: each residual depends on only a few parameter blocks (one camera intrinsics, one distortion, one pose). $J^T J$ has a block-arrow structure, so calibration-rs solves the damped normal equations with a sparse Cholesky factorization: the sparsity pattern and its symbolic analysis are computed once per solve, and only the numeric factorization repeats per step. The Marquardt damping keeps the system positive definite, which is what makes Cholesky (rather than QR) sufficient. See [Solver Backends](solver_backends.md).
 
 ## Cost Function vs. Reprojection Error
 

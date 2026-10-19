@@ -15,6 +15,14 @@ Use a **mutable state container** (`CalibrationSession<P>`) with **external step
 - `CalibrationSession<P>` holds config, input, state, output, and metadata.
 - Step functions are free functions: `fn step_X(session: &mut CalibrationSession<P>, opts: Option<StepOpts>) -> Result<()>`.
 - Each problem module also provides a `run_calibration()` convenience wrapper.
+- Every end-to-end workflow is a `ProblemType` module in
+  `vision-calibration-pipeline/src/<name>/` with `problem.rs` (the
+  `ProblemType`, config and export contract), `state.rs` (intermediate state)
+  and `steps.rs` (step functions plus `run_calibration`). There are no
+  direct-function pipelines.
+- The facade re-exports these modules, and the Python package drives every
+  `ProblemType` through the one generic `run_problem` binding; no workflow gets
+  a bespoke wrapper.
 
 Session features:
 - JSON serialization for checkpointing (`to_json` / `from_json`).

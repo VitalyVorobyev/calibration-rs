@@ -50,27 +50,24 @@ this file) carries a `version = "…"` constraint:
 
 ## 2. Crates.io publish DAG (`release.yml`)
 
-Publish order follows the dependency graph, leaf crates first, facade
-last — `vision-calibration-py` is **not** in this job, it ships to PyPI
-via `release-pypi.yml`:
+Publish order is a topological order of the dependency graph, leaf
+crates first, facade last — `vision-calibration-py` is **not** in this
+job, it ships to PyPI via `release-pypi.yml`. The job publishes in this
+list order:
 
-```
-vision-calibration-core
-  → vision-geometry
-    → vision-calibration-dataset
-    → vision-calibration-detect
-      → vision-calibration-linear
-      → vision-calibration-optim
-        → vision-mvg
-          → vision-calibration-pipeline
-            → vision-calibration
-```
+1. `vision-calibration-core`
+2. `vision-geometry` (core)
+3. `vision-calibration-dataset`, `vision-calibration-detect` (no workspace
+   deps)
+4. `vision-calibration-linear` (core, geometry)
+5. `vision-calibration-optim` (core)
+6. `vision-mvg` (core, geometry)
+7. `vision-calibration-pipeline` (core, linear, optim, geometry, dataset,
+   detect)
+8. `vision-calibration` (the facade, everything above)
 
-`dataset` and `detect` have no internal deps but are non-optional deps
-of `pipeline`, so they must land before it. `vision-geometry` and
-`vision-mvg` are a standalone MVG island (no calibration-chain crate
-depends on them) but ship in DAG order anyway: geometry after core, mvg
-after geometry.
+Dev-dependencies (for example optim's tests on linear) do not constrain the
+order: `cargo publish` strips them.
 
 The job is idempotent (skips a crate/version already on the index) and
 `sleep 20`s between publishes for index propagation, so a mid-release
@@ -142,14 +139,12 @@ grep -RHn 'version = "' Cargo.toml \
     crates/vision-calibration-examples-private/Cargo.toml \
   | grep -v 'edition\|rust-version'
 
-# 2. Full workspace gates.
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-targets --all-features
+# 2. The full gate list of AGENTS.md §3, every line of it. The doc build
+#    there matches publish-docs.yml, which runs only on push-to-main — so
+#    broken intra-doc links surface here, not on the PR.
 
-# 3. Doc build with the same strictness publish-docs.yml uses (that workflow
-#    only runs on push-to-main, not on PRs — catch broken intra-doc-links here).
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+# 3. CHANGELOG: rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, open a fresh
+#    empty `[Unreleased]` above it, and update the compare links at the bottom.
 
 # 4. PyO3 build + runtime tests (release-pypi.yml's verify job repeats this).
 maturin develop -m crates/vision-calibration-py/Cargo.toml

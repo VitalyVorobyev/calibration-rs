@@ -90,8 +90,7 @@ free (just a re-run with the new code). Pre-1.0 we exploit this; post-
   detector-config change.
 - Re-running with the same params is essentially free; A/B comparisons
   become cheap.
-- The cache is shared between the in-app runner and the existing
-  `cargo run --example` paths once the examples migrate (a bonus).
+- The cache is shared between the in-app runner and `cargo run --example` paths.
 - The 64-bit hash is not collision-proof — but we're not defending
   against adversarial collisions, only accidental ones, and FNV-1a is
   more than enough for a dataset's worth of entries.

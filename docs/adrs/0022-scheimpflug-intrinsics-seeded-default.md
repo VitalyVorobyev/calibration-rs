@@ -5,31 +5,22 @@
 
 ## Context
 
-From-scratch Scheimpflug **intrinsics** calibration is unstable. The camera model
-couples sensor tilt, focal length, and radial distortion (`pixel =
+From-scratch Scheimpflug **intrinsics** calibration is ill-conditioned. The camera
+model couples sensor tilt, focal length, and radial distortion (`pixel =
 K(sensor_tilt(distortion(project(dir))))`), and these three trade off against one
-another — the classic tilt↔focal↔distortion degeneracy. Zhang's pinhole
-initialization ignores tilt, so on a tilted sensor it underestimates the focal
-(observed `fx≈944` vs an oracle `~1153`), and the non-linear solve then settles
-into a wrong tilt/focal basin.
+another: the classic tilt-focal-distortion degeneracy, giving a long, flat valley
+in the cost. Zhang's pinhole initialization ignores tilt, so on a tilted sensor it
+underestimates the focal length, and the non-linear solve then settles into a wrong
+tilt/focal basin. Tilt-aware linear initializers and rig-level auto-recovery are
+basin-fragile on hard cameras, so a from-scratch warm-up is research-grade.
 
-Two prior efforts confirm the fragility:
+In practice the data needed to *seed* the solve is already on hand: the lens focal
+length (a datasheet value) and the Scheimpflug **mount tilt** (a deliberately set
+mechanical angle, the whole point of a Scheimpflug setup). Seeding both removes the
+fragility.
 
-- A tilt-aware linear initializer plus a rig-level auto-recovery pass
-  reaches `~0.41 px` mean on the private `rtv3d_ref` rig from scratch, but is
-  basin-fragile: a public synthetic regression failed at the branch base, and the
-  final joint hand-eye leaves camera 0 at `~0.528 px`.
-- Two further from-scratch sessions on `rtv3d_ref` had only partial success — the
-  hard cameras (3 and 4) diverge.
-
-A from-scratch warm-up is genuinely research-grade. But in practice the data
-needed to *seed* the solve is already on hand: the lens focal length (a datasheet
-value) and the Scheimpflug **mount tilt** (a deliberately-set mechanical angle —
-the whole point of a Scheimpflug setup). Seeding both removes the fragility.
-
-While validating this we also root-caused why even a seeded solve diverged on the
-two hard cameras: starting from `k1 = 0`, the fixed-tilt sub-problem has a
-**spurious local minimum at `k1 ≈ 0`** — the per-view poses adapt to absorb the
+Even a seeded solve has a trap: starting from `k1 = 0`, the fixed-tilt sub-problem
+has a **spurious local minimum at `k1 ≈ 0`**. The per-view poses adapt to absorb the
 radial distortion, and the gradient then pushes `k1` back toward zero. More
 iterations do not escape it; a multi-start over `k1` does.
 
@@ -48,8 +39,7 @@ step_init_with_seed(&mut session, seed, None)?; // distortion/poses auto
 step_optimize(&mut session, None)?;
 ```
 
-Both the focal **and** the tilt seed are load-bearing (this supersedes the
-initial assumption that the tilt seed was merely advisory):
+Both the focal **and** the tilt seed are load-bearing:
 
 - A user-seeded sensor tilt sets `state.initial_sensor_manual`, which makes
   `step_optimize` **trust that tilt basin** instead of running the cold-start
@@ -95,42 +85,24 @@ up front for non-BC5 values in `validate_config` (ADR 0019).
 (`crates/vision-calibration-bench/src/basin.rs`) perturbs the ADR 0023
 device-spec seed over independent focal / tilt / principal-point sweeps and
 re-runs the seeded route per cell against each entry's acceptance threshold.
-On both private families (`rtv3d_ref`, gate <= 0.5 px; `rtv3d_ringgrid`, gate
-<= 1.0 px; 6 cameras each) the all-camera-pass basin is x[0.85, 1.30] on focal
+On the benchmark datasets the all-camera-pass basin is x[0.85, 1.30] on focal
 and +-4 deg on tilt (the full tested sweep), containing the realistic
-spec-error envelope (focal +-5 %, tilt +-2 deg) with 2-3x margin. Full tables:
-`docs/notes/scheimpflug-intrinsics.md`.
+spec-error envelope (focal +-5 %, tilt +-2 deg) with 2-3x margin. Measured
+tables: `docs/notes/scheimpflug-intrinsics.md`.
 
 ## Consequences
 
-- **Deterministic, robust production path.** A coarse shared seed (nominal focal +
-  `−5°` mount tilt) calibrates the full `rtv3d_ref` rig to oracle parity. The
-  unseeded path is unchanged in behavior except for the added log warning.
-- **Validation.** Private harness `rtv3d_ref_intrinsics` (in
-  `vision-calibration-examples-private`) calibrates each of the 6 cameras from a
-  coarse seed `fx=fy=1150, pp=(360,270), tilt_x=−0.087, distortion=0` and exits
-  non-zero on any camera > 0.5 px. Result, all six **PASS**:
-
-  | cam | ours (px) | oracle (px) |
-  |-----|-----------|-------------|
-  | 0   | 0.373     | 0.303       |
-  | 1   | 0.267     | 0.292       |
-  | 2   | 0.282     | 0.246       |
-  | 3   | 0.473     | 0.272       |
-  | 4   | 0.342     | 0.277       |
-  | 5   | 0.321     | 0.273       |
-
-  Camera 3 (`0.473 px`) is the tightest margin; it still clears the gate. The
-  public CI guard is the synthetic regression test
+- **Deterministic, robust production path.** A coarse shared seed (nominal focal and
+  mount tilt, zero distortion) calibrates every camera of a strongly tilted rig to
+  oracle parity (see the measured results in `docs/notes/scheimpflug-intrinsics.md`).
+- **Public CI guard.** The synthetic regression test
   `seeded_coarse_prior_converges_on_strong_tilt_distortion`
-  (`crates/vision-calibration/tests/scheimpflug_intrinsics.rs`), which seeds a
-  coarse focal (≈9 % low) on rtv3d-like strong-tilt + strong-distortion data and
-  converges to ground truth.
-- **The cold-start staged solver is shared** with the experimental from-scratch
-  and rig paths. Its Stage 2 now respects the caller's robust loss and Stage 3
-  anchors its focal bounds to the seed; these are robustness improvements that
-  keep all existing tests green but may shift the experimental from-scratch *rig*
-  numbers (which are not gated).
+  (`crates/vision-calibration/tests/scheimpflug_intrinsics.rs`) seeds a coarse focal
+  (about 9 % low) on strong-tilt, strong-distortion data and converges to ground
+  truth.
+- **The cold-start staged solver is shared** with the experimental from-scratch and
+  rig paths. Its Stage 2 honors the caller's robust loss and Stage 3 anchors its
+  focal bounds to the seed. The from-scratch *rig* numbers are not gated.
 
 ## References
 

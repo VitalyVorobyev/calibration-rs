@@ -38,10 +38,14 @@ class TypedModelParsingTest(unittest.TestCase):
         self.assertAlmostEqual(cam.distortion.k1, 0.1)
         self.assertEqual(cam.distortion.iters, 8)
 
-    def test_scheimpflug_sensor_parses_legacy_aliases(self) -> None:
-        sensor = vc.ScheimpflugSensor.from_payload({"tau_x": 0.01, "tau_y": -0.02})
+    def test_scheimpflug_sensor_parses_tilt(self) -> None:
+        sensor = vc.ScheimpflugSensor.from_payload({"tilt_x": 0.01, "tilt_y": -0.02})
         self.assertAlmostEqual(sensor.tilt_x, 0.01)
         self.assertAlmostEqual(sensor.tilt_y, -0.02)
+
+    def test_scheimpflug_sensor_rejects_missing_tilt(self) -> None:
+        with self.assertRaises(ValueError):
+            vc.ScheimpflugSensor.from_payload({"tau_x": 0.01, "tau_y": -0.02})
 
     def test_scheimpflug_camera_from_camera_params_payload(self) -> None:
         payload = {

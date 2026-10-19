@@ -5,14 +5,13 @@
 
 ## Context
 
-The Run workspace covers five of the seven topologies; `LaserlineDevice`
-and `RigLaserlineDevice` still hit an `unsupported_topology` arm because
-the `DatasetSpec` manifest (ADR 0016) cannot describe laser data. Three
-gaps block them:
+The laser topologies (`LaserlineDevice`, `RigLaserlineDevice`) need data the
+base `DatasetSpec` manifest (ADR 0016) cannot describe. Three things must be
+expressible:
 
 1. **Laser images.** Laserline calibration consumes per-view laser-line
    pixels extracted from a *second* image per `(view, camera)` slot —
-   the laser frame, captured with the line projector on (rtv3d:
+   the laser frame, captured with the line projector on (for example
    `target_N.png` + `laser_N.png` pairs).
 2. **Laser extraction.** The validated subpixel extractor lives in
    [`vision-metrology`](https://github.com/VitalyVorobyev/vision-metrology),
@@ -25,9 +24,9 @@ gaps block them:
    `rig_se3_target` poses, which the frozen export alone does not carry
    for the laser dataset's views.
 
-Additionally, the rtv3d robot-pose file (`poses.json`) stores each pose
-as a nested 4×4 matrix field (`tcp2base`), which the tabular
-`PoseColumnMap` (scalar columns only) cannot express.
+Additionally, some robot-pose files store each pose as a nested 4×4 matrix
+field, which the tabular `PoseColumnMap` (scalar columns only) cannot
+express.
 
 ## Decision
 
@@ -35,7 +34,7 @@ as a nested 4×4 matrix field (`tcp2base`), which the tabular
 
 - `CameraSource.laser_images: Option<ImagePattern>` — per-camera laser
   image source. The camera's `roi_xywh` applies to laser frames too
-  (same physical sensor; rtv3d's 6-tile strips reuse one file per view
+  (same physical sensor; tiled multi-camera strips reuse one file per view
   with per-camera ROIs, exactly like the target frames).
 - `DatasetSpec.laser: Option<LaserExtractionSpec>` — extraction
   parameters: `scan_axis` (`cols` | `rows`, default `cols`), `sigma`
@@ -118,18 +117,18 @@ Pinhole rigs work (zero Scheimpflug tilt = identity sensor).
 without one). Both laser exports get the manifest spliced by the Tauri
 runner from the **target** frames.
 
-**Laser-frame entries (implemented in B-laser).** `FrameRef` carries a
+**Laser-frame entries.** `FrameRef` carries a
 `kind: FrameKind` discriminator (`target` | `laser`), serialized in
 snake_case and omitted for `target`, so pre-existing exports stay
-byte-stable and deserialize unchanged. The Tauri runner splices laser
+byte-stable. The Tauri runner splices laser
 frames (aligned with the kept-view target frames) into both laser
 exports; the Diagnose workspace plots
 `per_feature_residuals.laser` onto frames of kind `laser`.
 
 ## Consequences
 
-- The laser topologies run end-to-end in the Run workspace; B-laser
-  (overlay + plane residual visualization) is unblocked.
+- The laser topologies run end-to-end in the Run workspace, and Diagnose
+  can overlay laser residuals on laser frames.
 - Published crates stay free of non-crates.io dependencies; if
   vision-metrology is ever published, a default `LaserPixelExtractor`
   impl can move into `vision-calibration-detect` behind a feature.
