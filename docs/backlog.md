@@ -9,14 +9,8 @@ Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
 Every calibration result carries the covariance of its estimated parameters
 and the projection uncertainty it implies, validated against Monte-Carlo
 scatter. Design: ADR 0026; evidence: `notes/uncertainty.md`. Order:
-UQ-SUITE-GATE → UQ-PROJECTION → UQ-APP.
+UQ-PROJECTION → UQ-APP.
 
-- [ ] UQ-SUITE-GATE - The regression suite's parameter drift gate in units
-  of the reference result's σ: `|Δ| ≤ k·σ` for every label the reference
-  covariance reports (pose labels through the same tangent as the export),
-  replacing the relative tolerance; parameters without a σ (fixed, or an
-  unavailable covariance) keep the relative one. Pick `k` from the drift the
-  two backends show on the current entries.
 - [ ] UQ-LASER-LOSS - The laser loss defaults (`LaserlineSolveOptions`,
   `LaserlineDeviceOptimizeConfig`, Python) are `Huber { scale: 0.01 }`, a
   scale chosen for the point-to-plane residual in metres, while the default
@@ -39,6 +33,11 @@ UQ-SUITE-GATE → UQ-PROJECTION → UQ-APP.
   refine intrinsics in the final solve by default (results change), or
   report the per-camera intrinsics stage covariance alongside (loses the
   intrinsics–extrinsics correlation). Measure both on `stereo_rig` and `ds8`.
+  How optimistic the conditional σ is: on `stereo_rig` the two backends'
+  intrinsics differ by 0.006σ(fx), and that moves `cam1.cam_se3_rig.tz` by
+  0.4 of its conditional σ (3.6e-5 m); `suite check --backend factrs
+  --sigma 1` passes only by that margin, and should tighten to ~0.05σ once
+  the covariance includes the intrinsics.
   The per-camera Scheimpflug stage of both workflows still holds view 0
   fixed (`fix_poses: vec![0]` in `rig_extrinsics/steps.rs` and
   `rig_handeye/steps.rs`), which the single-camera Scheimpflug default no

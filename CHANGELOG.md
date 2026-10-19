@@ -90,8 +90,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SHA256SUMS` file, with the full reference result of each.
   `calib-bench suite check` recalibrates every entry and fails on any drift;
   CI runs it on every change. The observations are plain JSON (the problem
-  inputs plus image sizes), so other tools can run on the same data. See the
-  book chapter "Regression Suite".
+  inputs plus image sizes), so other tools can run on the same data.
+  `suite check --sigma k` compares the estimated parameters in units of the
+  reference's standard deviations, and `--backend` reruns the suite on the
+  other solver backend; CI checks that factrs agrees with the references
+  within 1σ. See the book chapter "Regression Suite".
 - **`counted4x4` robot-pose format** for dataset manifests: the matrix
   count, then that many row-major 4×4 transforms on any line layout — the
   layout of the robot-world hand-eye datasets. The folder sniffer
