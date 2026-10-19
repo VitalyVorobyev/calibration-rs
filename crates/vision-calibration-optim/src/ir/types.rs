@@ -97,6 +97,11 @@ impl FixedMask {
     pub fn is_empty(&self) -> bool {
         self.fixed_indices.is_empty()
     }
+
+    /// Returns `true` if index `idx` is fixed.
+    pub fn contains(&self, idx: usize) -> bool {
+        self.fixed_indices.contains(&idx)
+    }
 }
 
 /// Robust loss applied to a residual block.
@@ -167,6 +172,31 @@ impl RobustLoss {
             RobustLoss::Cauchy { scale: k } => (1.0 / (1.0 + s * (1.0 / (k * k)))).max(f64::MIN),
             RobustLoss::Arctan { scale: k } => {
                 (1.0 / (1.0 + s * s * (1.0 / (k * k)))).max(f64::MIN)
+            }
+        }
+    }
+
+    /// `ρ″(s)`: with [`rho_prime`](Self::rho_prime), the exact second-order
+    /// term of a block's contribution to the objective's Hessian,
+    /// `Jᵀ(ρ′ I + 2ρ″ r rᵀ)J`.
+    pub(crate) fn rho_second(self, s: f64) -> f64 {
+        match self {
+            RobustLoss::None => 0.0,
+            RobustLoss::Huber { scale: k } => {
+                if s > k * k {
+                    -0.5 * k / (s * s.sqrt())
+                } else {
+                    0.0
+                }
+            }
+            RobustLoss::Cauchy { scale: k } => {
+                let k2 = k * k;
+                let a = 1.0 + s / k2;
+                -1.0 / (k2 * a * a)
+            }
+            RobustLoss::Arctan { scale: k } => {
+                let a = 1.0 + s * s / (k * k);
+                -2.0 * s / (k * k * a * a)
             }
         }
     }
@@ -702,6 +732,20 @@ impl ProblemIR {
         Self::default()
     }
 
+    /// Whether any residual block has a robust loss.
+    pub(crate) fn has_robust_loss(&self) -> bool {
+        self.residuals.iter().any(|r| r.loss != RobustLoss::None)
+    }
+
+    /// The same problem with every robust loss removed.
+    pub(crate) fn without_losses(&self) -> Self {
+        let mut ir = self.clone();
+        for residual in &mut ir.residuals {
+            residual.loss = RobustLoss::None;
+        }
+        ir
+    }
+
     /// Adds a parameter block and returns its `ParamId`.
     pub fn add_param_block(
         &mut self,
@@ -861,9 +905,16 @@ mod tests {
         ];
         for (loss, tiny) in cases {
             for s in [0.0, 1e-6, 0.3, 2.0, k * k, 7.5, 400.0] {
-                let [rho, rho1, _] = tiny.as_ref().map_or([s, 1.0, 0.0], |l| l.evaluate(s));
+                let [rho, rho1, rho2] = tiny.as_ref().map_or([s, 1.0, 0.0], |l| l.evaluate(s));
                 assert_eq!(loss.rho(s), rho, "{loss:?} rho({s})");
                 assert_eq!(loss.rho_prime(s), rho1, "{loss:?} rho'({s})");
+                if s > 0.0 && s != k * k {
+                    assert!(
+                        (loss.rho_second(s) - rho2).abs() <= 1e-12 * rho2.abs().max(1e-12),
+                        "{loss:?} rho''({s}) = {} vs {rho2}",
+                        loss.rho_second(s)
+                    );
+                }
                 if s > 0.0 && s != k * k {
                     let h = 1e-6 * s.max(1e-3);
                     let fd = (loss.rho(s + h) - loss.rho(s - h)) / (2.0 * h);

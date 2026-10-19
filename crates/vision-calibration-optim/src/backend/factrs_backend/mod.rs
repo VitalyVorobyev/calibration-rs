@@ -24,6 +24,7 @@ use faer::sparse::SparseColMat;
 use nalgebra::DVector;
 
 use crate::Error;
+use crate::backend::covariance::{self, RawLinearization};
 use crate::backend::lm::{self, LinearizationEngine, LmSolution};
 use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveReport};
 use crate::ir::ProblemIR;
@@ -46,17 +47,57 @@ impl OptimBackend for FactrsBackend {
             state,
             cost,
             num_iters,
+            converged,
         } = lm::levenberg_marquardt(&engine, compiled.values.clone(), opts)
             .ok_or_else(|| Error::numerical("factrs failed to converge"))?;
 
+        let params = compiled.read_back(ir, &state);
+        // Without a robust loss the solve's own linearization is the raw one.
+        let raw = if ir.has_robust_loss() {
+            raw_linearization(ir, &params)?
+        } else {
+            raw_from_engine(ir, &engine, &compiled, &state)
+        };
         Ok(BackendSolution {
-            params: compiled.read_back(ir, &state),
+            uncertainty: covariance::estimate(ir, &params, raw, converged),
+            params,
             solve_report: SolveReport {
                 final_cost: 0.5 * cost,
                 num_iters,
             },
         })
     }
+}
+
+/// The loss-free residual and Jacobian of `ir` at `params`, with each IR
+/// block's columns; `None` when every coordinate is fixed.
+fn raw_linearization(
+    ir: &ProblemIR,
+    params: &HashMap<String, DVector<f64>>,
+) -> Result<Option<RawLinearization>, Error> {
+    let compiled = compile::compile(&ir.without_losses(), params)?;
+    let engine = FactrsEngine::new(&compiled);
+    Ok(raw_from_engine(ir, &engine, &compiled, &compiled.values))
+}
+
+/// `engine`'s linearization at `state` with each IR block's columns, for an
+/// engine whose graph has no robust loss; `None` when every coordinate is
+/// fixed.
+fn raw_from_engine(
+    ir: &ProblemIR,
+    engine: &FactrsEngine<'_>,
+    compiled: &Compiled,
+    state: &Values,
+) -> Option<RawLinearization> {
+    if engine.dim() == engine.fixed_columns.len() {
+        return None;
+    }
+    let (residual, jacobian) = engine.linearize(state);
+    Some(RawLinearization {
+        residual,
+        jacobian,
+        columns: compiled.columns(ir, &engine.order),
+    })
 }
 
 /// Residual, dense Jacobian and robust cost `Σρ` of `ir` at `initial`, as

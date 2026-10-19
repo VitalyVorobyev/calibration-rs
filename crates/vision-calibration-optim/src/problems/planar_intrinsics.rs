@@ -213,7 +213,7 @@ fn camera_model_desc_for_kind(kind: DistortionKind) -> CameraModelDesc {
 /// Build the backend-agnostic IR and initial values for planar intrinsics.
 ///
 /// This is the canonical problem builder reused by all backends.
-fn build_planar_intrinsics_ir(
+pub(crate) fn build_planar_intrinsics_ir(
     dataset: &PlanarDataset,
     initial: &PlanarIntrinsicsParams,
     opts: &PlanarIntrinsicsSolveOptions,
