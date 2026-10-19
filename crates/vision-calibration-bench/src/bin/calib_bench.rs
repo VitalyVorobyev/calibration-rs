@@ -197,7 +197,18 @@ struct SuiteArgs {
 enum SuiteCommand {
     /// Verify each entry's checksum, calibrate it and compare the result
     /// with its reference. Exits non-zero when any entry fails.
-    Check,
+    Check {
+        /// Compare only the estimated parameters, each within this many of
+        /// the reference's standard deviations, instead of every value
+        /// within the entry's tolerance.
+        #[arg(long)]
+        sigma: Option<f64>,
+        /// Solver backend for every stage: `tiny_solver` or `factrs`
+        /// (default: the entry's config). Another backend's results differ
+        /// in their last digits, so pair it with `--sigma`.
+        #[arg(long, value_parser = parse_backend)]
+        backend: Option<SolverBackend>,
+    },
     /// Calibrate each entry and store the result as its new reference.
     Bless,
     /// Detect each entry's observations from the images its dataset
@@ -1365,12 +1376,27 @@ fn cmd_suite(args: &SuiteArgs) -> Result<()> {
         if entries.len() == 1 { "y" } else { "ies" }
     );
     match &args.command {
-        SuiteCommand::Check => {
+        SuiteCommand::Check { sigma, backend } => {
+            let options = suite::CheckOptions {
+                gate: match sigma {
+                    Some(k) => suite::Gate::Sigma(*k),
+                    None => suite::Gate::Exact,
+                },
+                backend: *backend,
+            };
             let mut failed = Vec::new();
             for entry in entries {
-                let report = suite::check_entry(&suite, entry);
+                let report = suite::check_entry(&suite, entry, options);
                 let verdict = if report.passed() { "PASS" } else { "FAIL" };
-                println!("{verdict} {:<24} {:>7.2} s", report.id, report.seconds);
+                let largest = report
+                    .largest_change
+                    .as_ref()
+                    .map(|c| format!("  largest change {:+.2e}σ ({})", c.z(), c.label))
+                    .unwrap_or_default();
+                println!(
+                    "{verdict} {:<24} {:>7.2} s{largest}",
+                    report.id, report.seconds
+                );
                 for failure in &report.failures {
                     println!("     {failure}");
                 }

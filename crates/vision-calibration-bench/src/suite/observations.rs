@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use vision_calibration_optim::SolverBackend;
 use vision_calibration_pipeline::Error as PipelineError;
 use vision_calibration_pipeline::laserline_device::{self, LaserlineDeviceProblem};
 use vision_calibration_pipeline::planar_intrinsics::{self, PlanarIntrinsicsProblem};
@@ -91,34 +92,43 @@ impl ProblemInput {
     /// Run the problem's full calibration and return its export as JSON.
     ///
     /// `overrides` is merged into the problem's default config, key by key
-    /// and recursively; `None` runs the default config.
+    /// and recursively; `None` runs the default config. `backend`, when
+    /// given, then replaces the backend of every solver stage.
     ///
     /// # Errors
     ///
     /// Fails when the overrides do not form a valid config, or when the
     /// input is rejected or the calibration fails.
-    pub fn calibrate(&self, overrides: Option<&Value>) -> Result<Value> {
+    pub fn calibrate(
+        &self,
+        overrides: Option<&Value>,
+        backend: Option<SolverBackend>,
+    ) -> Result<Value> {
         let name = self.problem_name();
         match self {
             Self::PlanarIntrinsics(input) => calibrate::<PlanarIntrinsicsProblem>(
                 name,
                 input,
                 overrides,
+                backend,
                 planar_intrinsics::run_calibration,
             ),
-            Self::ScheimpflugIntrinsics(input) => {
-                calibrate::<ScheimpflugIntrinsicsProblem>(name, input, overrides, |session| {
-                    scheimpflug_intrinsics::run_calibration(session, None)
-                })
-            }
+            Self::ScheimpflugIntrinsics(input) => calibrate::<ScheimpflugIntrinsicsProblem>(
+                name,
+                input,
+                overrides,
+                backend,
+                |session| scheimpflug_intrinsics::run_calibration(session, None),
+            ),
             Self::SingleCamHandeye(input) => calibrate::<SingleCamHandeyeProblem>(
                 name,
                 input,
                 overrides,
+                backend,
                 single_cam_handeye::run_calibration,
             ),
             Self::LaserlineDevice(input) => {
-                calibrate::<LaserlineDeviceProblem>(name, input, overrides, |session| {
+                calibrate::<LaserlineDeviceProblem>(name, input, overrides, backend, |session| {
                     laserline_device::run_calibration(session, None)
                 })
             }
@@ -126,21 +136,28 @@ impl ProblemInput {
                 name,
                 input,
                 overrides,
+                backend,
                 rig_extrinsics::run_calibration,
             ),
-            Self::RigHandeye(input) => {
-                calibrate::<RigHandeyeProblem>(name, input, overrides, rig_handeye::run_calibration)
-            }
+            Self::RigHandeye(input) => calibrate::<RigHandeyeProblem>(
+                name,
+                input,
+                overrides,
+                backend,
+                rig_handeye::run_calibration,
+            ),
             Self::RigLaserlineDevice(input) => calibrate::<RigLaserlineDeviceProblem>(
                 name,
                 input,
                 overrides,
+                backend,
                 rig_laserline_device::run_calibration,
             ),
             Self::RigHandeyeLaserline(input) => calibrate::<RigHandeyeLaserlineProblem>(
                 name,
                 input,
                 overrides,
+                backend,
                 rig_handeye_laserline::run_calibration,
             ),
         }
@@ -151,25 +168,40 @@ fn calibrate<P>(
     name: &str,
     input: &P::Input,
     overrides: Option<&Value>,
+    backend: Option<SolverBackend>,
     run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), PipelineError>,
 ) -> Result<Value>
 where
     P: ProblemType,
 {
-    let config: P::Config = match overrides {
-        None => P::Config::default(),
-        Some(overrides) => {
-            let mut config = serde_json::to_value(P::Config::default())?;
-            merge(&mut config, overrides);
-            serde_json::from_value(config)
-                .with_context(|| format!("invalid {name} config overrides"))?
-        }
-    };
+    let mut config = serde_json::to_value(P::Config::default())?;
+    if let Some(overrides) = overrides {
+        merge(&mut config, overrides);
+    }
+    if let Some(backend) = backend {
+        set_backend(&mut config, &serde_json::to_value(backend)?);
+    }
+    let config: P::Config = serde_json::from_value(config)
+        .with_context(|| format!("invalid {name} config overrides"))?;
     let mut session = CalibrationSession::<P>::new();
     session.set_config(config)?;
     session.set_input(input.clone())?;
     run(&mut session).with_context(|| format!("{name} calibration failed"))?;
     Ok(serde_json::to_value(session.export()?)?)
+}
+
+/// Set the `backend` of every `solver` table in `config`, however deep.
+fn set_backend(config: &mut Value, backend: &Value) {
+    if let Value::Object(object) = config {
+        for (key, value) in object.iter_mut() {
+            match value {
+                Value::Object(solver) if key == "solver" => {
+                    solver.insert("backend".into(), backend.clone());
+                }
+                other => set_backend(other, backend),
+            }
+        }
+    }
 }
 
 /// Merge `overrides` into `base`: objects merge key by key, recursively;
@@ -257,7 +289,7 @@ mod tests {
         let set = planar_set();
         let err = set
             .input
-            .calibrate(Some(&json!({"no_such_field": 1})))
+            .calibrate(Some(&json!({"no_such_field": 1})), None)
             .unwrap_err();
         assert!(format!("{err:#}").contains("invalid planar_intrinsics config"));
     }

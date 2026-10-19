@@ -4,27 +4,33 @@
 //! - [`manifest`] — `suite.toml` and the `SHA256SUMS` checksum file.
 //! - [`observations`] — the [`ObservationSet`] file format.
 //! - [`reference`](mod@reference) — stored results and the drift check.
+//! - [`significance`] — parameter changes in units of the reference's σ.
 //! - `freeze` (feature `tier-b`) — dataset manifest + images →
 //!   [`ObservationSet`].
 //!
 //! [`check_entry`] verifies an entry's checksum, calibrates from its
-//! observations and compares the export with the reference result;
-//! [`bless_entry`] writes that reference.
+//! observations and compares the export with the reference result, either
+//! value for value or, with [`Gate::Sigma`], parameter by parameter in
+//! units of the reference's standard deviations; [`bless_entry`] writes that
+//! reference.
 
 #[cfg(feature = "tier-b")]
 pub mod freeze;
 pub mod manifest;
 pub mod observations;
 pub mod reference;
+pub mod significance;
 
 use std::time::Instant;
 
 use anyhow::{Context, Result, ensure};
 use serde_json::Value;
+use vision_calibration_optim::SolverBackend;
 
 pub use manifest::{Suite, SuiteEntry, Tolerance};
 pub use observations::{OBSERVATION_SET_VERSION, ObservationSet, ObservedCamera, ProblemInput};
 pub use reference::{Drift, ReferenceResult, drifts};
+pub use significance::{ParameterChange, parameter_changes};
 
 /// How many drifts a failed check lists before summarizing the rest.
 const MAX_LISTED_DRIFTS: usize = 12;
@@ -38,6 +44,39 @@ pub struct EntryReport {
     pub seconds: f64,
     /// Why the check failed; empty when it passed.
     pub failures: Vec<String>,
+    /// The largest parameter change in units of the reference's σ, when
+    /// the reference has a covariance.
+    pub largest_change: Option<ParameterChange>,
+}
+
+/// What a check compares against the reference.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Gate {
+    /// Every value of the export within the entry's tolerance.
+    Exact,
+    /// Every parameter the reference's covariance reports within this many
+    /// of its standard deviations; nothing else is compared. For results
+    /// that may legitimately differ in their last digits, such as those of
+    /// another solver backend.
+    Sigma(f64),
+}
+
+/// How an entry is checked.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CheckOptions {
+    /// What is compared.
+    pub gate: Gate,
+    /// The solver backend for every stage; `None` keeps the entry's config.
+    pub backend: Option<SolverBackend>,
+}
+
+impl Default for CheckOptions {
+    fn default() -> Self {
+        Self {
+            gate: Gate::Exact,
+            backend: None,
+        }
+    }
 }
 
 impl EntryReport {
@@ -77,9 +116,13 @@ pub fn load_observations(suite: &Suite, id: &str) -> Result<ObservationSet> {
 /// # Errors
 ///
 /// See [`load_observations`] and [`ProblemInput::calibrate`].
-pub fn calibrate_entry(suite: &Suite, entry: &SuiteEntry) -> Result<Value> {
+pub fn calibrate_entry(
+    suite: &Suite,
+    entry: &SuiteEntry,
+    backend: Option<SolverBackend>,
+) -> Result<Value> {
     let set = load_observations(suite, &entry.id)?;
-    let mut export = set.input.calibrate(entry.config.as_ref())?;
+    let mut export = set.input.calibrate(entry.config.as_ref(), backend)?;
     if let Some(Value::Object(residuals)) = export.get_mut("per_feature_residuals") {
         residuals.remove("target");
         residuals.remove("laser");
@@ -89,21 +132,26 @@ pub fn calibrate_entry(suite: &Suite, entry: &SuiteEntry) -> Result<Value> {
 
 /// Check one entry against its reference result. Every failure — checksum,
 /// calibration, missing reference, drift — is reported, never raised.
-pub fn check_entry(suite: &Suite, entry: &SuiteEntry) -> EntryReport {
+pub fn check_entry(suite: &Suite, entry: &SuiteEntry, options: CheckOptions) -> EntryReport {
     let start = Instant::now();
-    let failures = match check_failures(suite, entry) {
-        Ok(failures) => failures,
-        Err(err) => vec![format!("{err:#}")],
+    let (failures, largest_change) = match check_failures(suite, entry, options) {
+        Ok(outcome) => outcome,
+        Err(err) => (vec![format!("{err:#}")], None),
     };
     EntryReport {
         id: entry.id.clone(),
         seconds: start.elapsed().as_secs_f64(),
         failures,
+        largest_change,
     }
 }
 
-fn check_failures(suite: &Suite, entry: &SuiteEntry) -> Result<Vec<String>> {
-    let export = calibrate_entry(suite, entry)?;
+fn check_failures(
+    suite: &Suite,
+    entry: &SuiteEntry,
+    options: CheckOptions,
+) -> Result<(Vec<String>, Option<ParameterChange>)> {
+    let export = calibrate_entry(suite, entry, options.backend)?;
     let path = suite.reference_path(&entry.id);
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("read reference {}", path.display()))?;
@@ -117,20 +165,38 @@ fn check_failures(suite: &Suite, entry: &SuiteEntry) -> Result<Vec<String>> {
             reference.suite_version, suite.manifest.suite_version
         ));
     }
-    let found = drifts(&reference.export, &export, entry.tolerance);
-    for drift in found.iter().take(MAX_LISTED_DRIFTS) {
-        failures.push(format!(
-            "{}: {} → {}",
-            drift.path, drift.expected, drift.actual
-        ));
-    }
-    if found.len() > MAX_LISTED_DRIFTS {
+    let changes = parameter_changes(&reference.export, &export)?;
+    let largest_change = changes
+        .iter()
+        .max_by(|a, b| a.z().abs().total_cmp(&b.z().abs()))
+        .cloned();
+    let listed: Vec<String> = match options.gate {
+        Gate::Exact => drifts(&reference.export, &export, entry.tolerance)
+            .into_iter()
+            .map(|d| format!("{}: {} → {}", d.path, d.expected, d.actual))
+            .collect(),
+        Gate::Sigma(k) => changes
+            .iter()
+            // A NaN change fails too.
+            .filter(|c| c.z().abs().partial_cmp(&k) != Some(std::cmp::Ordering::Less))
+            .map(|c| {
+                format!(
+                    "{}: changed by {:+.3}σ (σ = {:.3e})",
+                    c.label,
+                    c.z(),
+                    c.sigma
+                )
+            })
+            .collect(),
+    };
+    failures.extend(listed.iter().take(MAX_LISTED_DRIFTS).cloned());
+    if listed.len() > MAX_LISTED_DRIFTS {
         failures.push(format!(
             "… and {} more drifted values",
-            found.len() - MAX_LISTED_DRIFTS
+            listed.len() - MAX_LISTED_DRIFTS
         ));
     }
-    Ok(failures)
+    Ok((failures, largest_change))
 }
 
 /// Calibrate an entry and store the export as its reference result.
@@ -142,7 +208,7 @@ pub fn bless_entry(suite: &Suite, entry: &SuiteEntry) -> Result<()> {
     let reference = ReferenceResult {
         suite_version: suite.manifest.suite_version.clone(),
         producer: format!("calibration-rs {}", env!("CARGO_PKG_VERSION")),
-        export: calibrate_entry(suite, entry)?,
+        export: calibrate_entry(suite, entry, None)?,
     };
     let path = suite.reference_path(&entry.id);
     if let Some(dir) = path.parent() {

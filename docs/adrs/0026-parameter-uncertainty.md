@@ -173,7 +173,8 @@ a loss and 1.2–1.6× with one.
 - A default that fixes an observable block for speed rather than for a gauge
   makes the default result's covariance conditional on an arbitrary view, so
   the laserline and Scheimpflug defaults hold no pose fixed.
-- Regression-suite drift gates can be stated in units of `σ`.
+- The regression suite reports parameter changes in units of the reference's
+  `σ`, and `suite check --sigma k` gates on them.
 - The LM loop reports whether a stopping rule ended it; the covariance is
   unavailable when the iteration budget did.
 

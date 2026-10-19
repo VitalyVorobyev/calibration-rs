@@ -133,6 +133,13 @@ jobs:
           cargo run --release --locked -p vision-calibration-bench
           --bin calib-bench -- suite check
 
+      # The other solver backend reaches the same parameters, within the
+      # reference's standard deviations (its last digits differ).
+      - name: Suite check (factrs)
+        run: >-
+          cargo run --release --locked -p vision-calibration-bench
+          --bin calib-bench -- suite check --backend factrs --sigma 1
+
   # The parameter-uncertainty Monte-Carlo gates: a few hundred solves each,
   # so they are `#[ignore]`d in the debug test run and run here in release.
   uncertainty-gates:

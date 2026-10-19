@@ -48,8 +48,19 @@ cargo run --release -p vision-calibration-bench --bin calib-bench -- suite check
 `suite check` verifies each observation file against `SHA256SUMS` (a missing
 or mismatched checksum fails the entry; it is never skipped), calibrates the
 entry with its config and compares every number in the result with the
-reference. Each entry reports `PASS` or `FAIL` with the values that moved; the
-command exits non-zero when any entry fails. `--only <id>` selects entries.
+reference. Each entry reports `PASS` or `FAIL` with the values that moved, and
+the largest change of an estimated parameter in units of the reference's
+standard deviation (see [Parameter Uncertainty](uncertainty.md)); the command
+exits non-zero when any entry fails. `--only <id>` selects entries.
+
+`--sigma <k>` compares only the estimated parameters, each within `k`
+standard deviations of the reference, for results that may legitimately
+differ in their last digits. `--backend factrs` (or `tiny_solver`) runs every
+solver stage on that backend:
+
+```bash
+calib-bench suite check --backend factrs --sigma 1
+```
 
 Two more subcommands maintain the suite:
 
@@ -129,6 +140,14 @@ its reference, with `rel = 1e-6` and `abs = 1e-9` unless the entry sets its own
 `tolerance`. That flags any change in the solution while allowing the last-bit
 differences between platforms and compilers. Strings, flags and the shape of
 the result must match exactly.
+
+With `--sigma k`, a parameter passes when its change is within `k` of the
+reference's standard deviations. A pose's change is measured as the right
+perturbation `T_ref⁻¹ · T` in the coordinates of its covariance. The two
+solver backends agree within 0.02σ on the other entries; on
+`stereo_rig` the rig extrinsics differ by up to 0.5σ, because that σ is
+conditional on the per-camera intrinsics the rig solve holds fixed, and the
+backends' intrinsics differ by 0.006σ of their own.
 
 ## Adding an entry
 
