@@ -37,12 +37,9 @@ enum Command {
     Accept(AcceptArgs),
     /// Print a summary report from a stored BenchRecord JSON file.
     Report(ReportArgs),
-    /// Compare a BenchRecord against a frozen golden fixture.
-    Compare(CompareArgs),
-    /// Freeze the current BenchRecord as the new golden fixture.
-    FreezeFixtures(FreezeFixturesArgs),
-    /// List all datasets registered in the bench registry.
-    List(ListArgs),
+    /// The public regression suite: calibrate every entry from its frozen
+    /// observations and check the result against the stored reference.
+    Suite(SuiteArgs),
     /// Run deterministic diagnostic sweeps.
     Diagnose(DiagnoseArgs),
     /// Convergence-basin study for the seeded Scheimpflug init:
@@ -182,25 +179,34 @@ struct ReportArgs {
     record: Option<String>,
 }
 
-/// Arguments for the `compare` subcommand.
+/// Arguments for the `suite` subcommand.
 #[derive(Parser)]
-struct CompareArgs {
-    /// Path to the BenchRecord JSON to compare against its golden fixture.
-    record: Option<String>,
+struct SuiteArgs {
+    #[command(subcommand)]
+    command: SuiteCommand,
+    /// The suite manifest.
+    #[arg(long, global = true, default_value = "regression/suite.toml")]
+    suite: PathBuf,
+    /// Only these entry ids (repeat or comma-separate).
+    #[arg(long, global = true, value_delimiter = ',')]
+    only: Vec<String>,
 }
 
-/// Arguments for the `freeze-fixtures` subcommand.
-#[derive(Parser)]
-struct FreezeFixturesArgs {
-    /// Path to a BenchRecord JSON to promote to the golden fixture store.
-    record: Option<String>,
-}
-
-/// Arguments for the `list` subcommand.
-#[derive(Parser)]
-struct ListArgs {
-    /// Show only datasets matching this tier (e.g. "a", "b").
-    tier: Option<String>,
+/// `suite` subcommands.
+#[derive(Subcommand)]
+enum SuiteCommand {
+    /// Verify each entry's checksum, calibrate it and compare the result
+    /// with its reference. Exits non-zero when any entry fails.
+    Check,
+    /// Calibrate each entry and store the result as its new reference.
+    Bless,
+    /// Detect each entry's observations from the images its dataset
+    /// manifest names, and refresh `SHA256SUMS`. Needs `--features tier-b`.
+    Freeze {
+        /// Detection cache directory.
+        #[arg(long, default_value = "target/suite-detections")]
+        cache: PathBuf,
+    },
 }
 
 /// Arguments for diagnostic commands.
@@ -1346,21 +1352,75 @@ fn cmd_solver(args: &SolverArgs) -> Result<()> {
     Ok(())
 }
 
+fn cmd_suite(args: &SuiteArgs) -> Result<()> {
+    use vision_calibration_bench::suite::{self, Suite};
+
+    let suite = Suite::load(&args.suite)?;
+    let entries = suite.select(&args.only)?;
+    println!(
+        "suite {} ({}): {} entr{}",
+        suite.manifest.suite_version,
+        args.suite.display(),
+        entries.len(),
+        if entries.len() == 1 { "y" } else { "ies" }
+    );
+    match &args.command {
+        SuiteCommand::Check => {
+            let mut failed = Vec::new();
+            for entry in entries {
+                let report = suite::check_entry(&suite, entry);
+                let verdict = if report.passed() { "PASS" } else { "FAIL" };
+                println!("{verdict} {:<24} {:>7.2} s", report.id, report.seconds);
+                for failure in &report.failures {
+                    println!("     {failure}");
+                }
+                if !report.passed() {
+                    failed.push(report.id);
+                }
+            }
+            anyhow::ensure!(
+                failed.is_empty(),
+                "{} suite entr{} failed: {}",
+                failed.len(),
+                if failed.len() == 1 { "y" } else { "ies" },
+                failed.join(", ")
+            );
+        }
+        SuiteCommand::Bless => {
+            for entry in entries {
+                suite::bless_entry(&suite, entry).with_context(|| format!("bless {}", entry.id))?;
+                println!("blessed {}", entry.id);
+            }
+        }
+        SuiteCommand::Freeze { cache } => {
+            #[cfg(feature = "tier-b")]
+            for entry in entries {
+                let set = suite::freeze::freeze_entry(&suite, &entry.id, cache)
+                    .with_context(|| format!("freeze {}", entry.id))?;
+                println!(
+                    "froze {} ({}, {} camera(s))",
+                    entry.id,
+                    set.input.problem_name(),
+                    set.cameras.len()
+                );
+            }
+            #[cfg(not(feature = "tier-b"))]
+            {
+                let _ = (cache, entries);
+                anyhow::bail!("`suite freeze` needs `--features tier-b`");
+            }
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Run(args) => cmd_run(&args)?,
         Command::Accept(args) => cmd_accept(&args)?,
         Command::Report(args) => cmd_report(&args)?,
-        Command::Compare(_args) => {
-            println!("compare: not implemented yet");
-        }
-        Command::FreezeFixtures(_args) => {
-            println!("freeze-fixtures: not implemented yet");
-        }
-        Command::List(_args) => {
-            println!("list: not implemented yet");
-        }
+        Command::Suite(args) => cmd_suite(&args)?,
         Command::Diagnose(args) => cmd_diagnose(&args)?,
         Command::Basin(args) => cmd_basin(&args)?,
         Command::Solver(args) => cmd_solver(&args)?,

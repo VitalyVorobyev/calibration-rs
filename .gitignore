@@ -9,7 +9,8 @@ __pycache__/
 # does not untrack an existing file.
 /data/stereo/
 /data/stereo_charuco/
-/data/DS8/
+/data/DS8/*
+!/data/DS8/dataset.toml
 
 # Private dataset registry: paths and gates for datasets that are not ours
 # to publish. The *baselines* derived from them are committed, deliberately

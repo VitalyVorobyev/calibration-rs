@@ -68,34 +68,27 @@ images live in a versioned Zenodo record. Publishable: `kuka_1`, `stereo`
 (ours), DS8 (Tabb & Ahmad Yousef, USDA Ag Data Commons). `stereo_charuco`
 stays local-only, as do the private sets.
 
-- [ ] DATA-OBS - Observation tier and suite manifest.
-  - Promote `FrozenFixture` (`bench/src/fixtures.rs`) to a public, versioned,
-    schema-emitted `ObservationSet` in `vision-calibration-dataset`:
-    per-view, per-camera 2D–3D target correspondences with ids, robot poses
-    with explicit convention, laser pixels, image sizes, units.
-  - `regression/suite.toml` with `suite_version`; per entry: id, problem,
-    licence, citation, source URL, observations path + SHA-256, optional
-    image archive (DOI, file, SHA-256), config and gates. Replaces
-    `bench/registry/public.json`; the private registry keeps the machinery.
-  - Observations for `kuka_1`, `stereo_left`/`stereo_right`/`stereo_rig`,
-    DS8 (confirm its licence) and frozen synthetic sets with ground truth
-    (planar, Scheimpflug, rig, hand-eye, laser), so generator changes cannot
-    silently change the data. No LFS; a few MB in total.
-  - Reference results with full parameters, not only reprojection
-    statistics.
-  - `calib-bench suite run|check|freeze`: verify checksums first (fail, never
-    skip), run from observations, gate parameter and reprojection drift. CI
-    runs `suite check` on every PR.
-  - A book chapter: the format, its conventions against OpenCV (distortion
-    order, pose direction, units, the reprojection metric), how to run it.
+- [ ] DATA-SYNTH - Frozen synthetic entries with ground truth (planar,
+  Scheimpflug, rig, hand-eye, laser): generate once with fixed seeds, write
+  the observations plus a `truth.json` of the true parameters, and gate the
+  reference results against the truth as well as against drift. Frozen
+  files, so generator changes cannot silently change the data. The laser
+  entries are the suite's only laser coverage until a public laser capture
+  exists.
 - [ ] DATA-IMAGES - Zenodo record per suite version with a SHA-256 manifest;
   `calib-bench suite fetch` downloads into a cache and verifies; a scheduled
-  CI job runs detection + pipeline from images. Move `kuka_1` out of LFS.
+  CI job runs `suite freeze` from the images and checks the observations
+  still match `SHA256SUMS`. Then retire `bench/registry/public.json` and the
+  acceptance job's image run, and move `kuka_1` out of LFS. Decide the
+  licence of our own captures (`kuka_1`, `stereo`; MIT today, as the
+  repository) before the record is minted.
 - [ ] DATA-OPENCV - OpenCV harness (`tools/compare/opencv/`, `uv`, pinned
   `opencv-python`) reading `ObservationSet`: `calibrateCameraExtended` (with
   its standard deviations), `stereoCalibrate`, `calibrateHandEye`,
-  `calibrateRobotWorldHandEye`. `calib-bench suite compare` evaluates every
-  result with one reprojection evaluator on the same observations and reports
+  `calibrateRobotWorldHandEye`. Emit a JSON Schema of the observation format
+  for harness authors (the problem inputs need `JsonSchema` derives).
+  `calib-bench suite compare` evaluates every result with one reprojection
+  evaluator on the same observations and reports
   parameter differences in units of our σ and our σ against OpenCV's. After
   UQ-EXPORT, parameter drift gates switch to k·σ.
 - [~] DATA-MRCAL - mrcal comparison (parameters and projection uncertainty)
@@ -152,7 +145,7 @@ stays local-only, as do the private sets.
 ## Calibration quality
 
 Found by `calib-bench solver` (well-conditioned synthetic scenes; the named
-scenes are the gate).
+scenes are the gate) and the regression suite.
 
 - [ ] Q-LASERLINE-OUTLIERS - With 5 % of target corners displaced 10–30 px,
   `laserline_device` under Huber or Cauchy (scale 1 px) settles off the
@@ -168,6 +161,15 @@ scenes are the gate).
   keeps intrinsics fixed, so it cannot recover; the single-camera Scheimpflug
   problem reaches the floor on comparable data (principal point 1.4 px).
   Gate: `rig_extrinsics/scheimpflug/*/clean` at the noise floor.
+- [ ] Q-CHESS-SHARED-FRAME - A plain chessboard detection labels corners
+  from the detection's own top-left corner, and accepts a board seen turned
+  by 90° with its labels rotated. Where views share one target frame (rig
+  and hand-eye topologies) a partial or turned board therefore moves the
+  target frame between views or cameras: DS8 with partial boards kept
+  reprojects at 4.5 px instead of 0.26 px. Manifests can keep complete boards
+  only (`detector.min_features_per_view` = corner count); make the shared-
+  frame topologies reject inconsistent plain-chessboard labelings by default
+  (complete and in the declared orientation) and say so in the manifest docs.
 
 ## v1.0
 

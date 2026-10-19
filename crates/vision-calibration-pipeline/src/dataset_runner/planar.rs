@@ -10,7 +10,7 @@ use vision_calibration_detect::DetectionCache;
 
 use super::{
     RunError, augment_config_with_roi, detect_features, expand_camera_images, features_to_view,
-    pattern_repr, pick_detector, target_to_detector_config,
+    min_features_per_view, pattern_repr, pick_detector, target_to_detector_config,
 };
 
 /// Convert a single-camera planar manifest + cache into the existing
@@ -61,15 +61,7 @@ pub fn build_planar_input(
     let mut usable = 0usize;
     let total = images.len();
 
-    // Per-view feature floor: at least the homography minimum (4); the
-    // manifest may raise it for detectors whose sparse detections are
-    // unreliable (`DetectorSpec::min_features_per_view`).
-    let min_features = spec
-        .detector
-        .as_ref()
-        .and_then(|d| d.min_features_per_view)
-        .unwrap_or(4)
-        .max(4);
+    let min_features = min_features_per_view(spec);
 
     // ROI is part of what determines detection output, so it has to be
     // part of the cache key. We splice it into the key-side config and

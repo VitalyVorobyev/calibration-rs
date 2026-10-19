@@ -41,7 +41,8 @@ use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
 use super::{
     RunError, augment_config_with_roi, detect_features, expand_camera_images, expand_image_pattern,
-    features_to_obs, pattern_repr, pick_detector, rig::build_rig_core, target_to_detector_config,
+    features_to_obs, min_features_per_view, pattern_repr, pick_detector, rig::build_rig_core,
+    target_to_detector_config,
 };
 
 /// Injected laser-line extractor.
@@ -186,6 +187,7 @@ pub fn build_laserline_device_input(
     let roi = camera.roi_xywh;
     let key_config = augment_config_with_roi(&detector_config, roi);
     let laser_key_config = laser_key_config(&laser_spec, roi);
+    let min_features = min_features_per_view(spec);
 
     let mut views: Vec<View<LaserlineMeta>> = Vec::new();
     let mut view_paths: Vec<PathBuf> = Vec::new();
@@ -203,8 +205,8 @@ pub fn build_laserline_device_input(
             cache,
             force_redetect,
         )?;
-        if features.len() < 4 {
-            continue; // too few corners for a homography — drop the view
+        if features.len() < min_features {
+            continue; // below the per-view feature floor — drop the view
         }
         // The single-camera problem needs laser pixels in *every* view
         // (LaserlineMeta validates non-empty), so a view without a

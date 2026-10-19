@@ -56,6 +56,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Markdown tables and a `compare` subcommand. `--backend` picks the solver
   backend for every scene, so `compare` doubles as a backend comparison;
   `calib-bench run` and `accept` take `--backend` too.
+- **Public regression suite** in `regression/`: image-free observations of
+  `kuka_1`, the stereo pair (each camera and the rig) and dataset 8 of Tabb
+  and Ahmad Yousef's robot-world hand-eye data, checksummed in a standard
+  `SHA256SUMS` file, with the full reference result of each.
+  `calib-bench suite check` recalibrates every entry and fails on any drift;
+  CI runs it on every change. The observations are plain JSON (the problem
+  inputs plus image sizes), so other tools can run on the same data. See the
+  book chapter "Regression Suite".
+- **`counted4x4` robot-pose format** for dataset manifests: the matrix
+  count, then that many row-major 4×4 transforms on any line layout — the
+  layout of the robot-world hand-eye datasets. The folder sniffer
+  recognizes it.
 
 ### Changed
 
@@ -95,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`detector.min_features_per_view` applies to every topology.** Rig,
+  hand-eye and laser manifests drop views below the floor, as planar ones
+  do. Set it to a chessboard's corner count to keep only complete boards,
+  which rig and hand-eye problems need: a partial plain chessboard is
+  labelled from its own top-left corner and moves the target frame.
 - **Rotation updates exact at every step size.** The solver retracts SE(3)
   and quaternion parameters through tiny-solver's rotation exponential,
   which is now accurate to machine precision for small steps and keeps its

@@ -19,7 +19,7 @@ use super::pairing::pair_views;
 use super::poses::{load_robot_poses, match_poses_to_tokens};
 use super::{
     RunError, augment_config_with_roi, detect_features, expand_camera_images, features_to_obs,
-    pattern_repr, pick_detector, target_to_detector_config,
+    min_features_per_view, pattern_repr, pick_detector, target_to_detector_config,
 };
 
 /// Result of a single-camera hand-eye dataset conversion.
@@ -109,6 +109,7 @@ pub fn build_single_cam_handeye_input(
 
     let roi = camera.roi_xywh;
     let key_config = augment_config_with_roi(&detector_config, roi);
+    let min_features = min_features_per_view(spec);
 
     let mut kept_obs = Vec::new();
     let mut kept_tokens: Vec<String> = Vec::new();
@@ -126,8 +127,9 @@ pub fn build_single_cam_handeye_input(
             cache,
             force_redetect,
         )?;
-        if features.len() < 4 {
-            // Too few features for a homography — drop the view (still
+        if features.len() < min_features {
+            // Too few features (the homography minimum or the manifest's
+            // floor) — drop the view (still
             // counted in total_views, keeping by_index pose alignment).
             continue;
         }

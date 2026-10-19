@@ -1,0 +1,46 @@
+# The calibration-rs regression suite.
+#
+# Each entry is a set of image-free observations (`observations/<id>.json`,
+# checksummed in `SHA256SUMS`) and the reference result calibration-rs
+# produces from them (`results/<id>/calibration-rs.json`). The format and
+# the commands are described in the book chapter "Regression suite".
+#
+#   cargo run -p vision-calibration-bench --bin calib-bench -- suite check
+#
+# Paths are relative to this file. `config` tables are merged into the
+# problem's default config; `tolerance` (default rel = 1e-6, abs = 1e-9)
+# bounds the drift of every number in the result.
+
+suite_version = "2026.1"
+
+[[entry]]
+id = "kuka_1"
+description = "Single-camera hand-eye, eye-in-hand: 30 views of a 17x28 chessboard (20 mm) from a KUKA arm"
+licence = "MIT"
+manifest = "../data/kuka_1/dataset.toml"
+
+[[entry]]
+id = "stereo_left"
+description = "Planar intrinsics, left camera of a stereo pair: 20 views of a 7x11 chessboard (30 mm)"
+licence = "MIT"
+manifest = "../data/stereo/dataset_left.toml"
+
+[[entry]]
+id = "stereo_right"
+description = "Planar intrinsics, right camera of the same stereo pair"
+licence = "MIT"
+manifest = "../data/stereo/dataset_right.toml"
+
+[[entry]]
+id = "stereo_rig"
+description = "Rig extrinsics of the stereo pair, from the same 20 synchronised views"
+licence = "MIT"
+manifest = "../data/stereo/dataset_rig.toml"
+
+[[entry]]
+id = "ds8"
+description = "Rig hand-eye: three cameras (two 1228x1029, one 640x480) on a Denso arm, 42 poses of a 10x14 chessboard (52 mm)"
+licence = "LicenseRef-US-Government-Public-Domain"
+citation = "Tabb, A. and Ahmad Yousef, K. M. (2017). Solving the robot-world hand-eye(s) calibration problem with iterative methods. Machine Vision and Applications 28, 569-590. Data: https://doi.org/10.15482/USDA.ADC/1340592"
+source_url = "https://doi.org/10.15482/USDA.ADC/1340592"
+manifest = "../data/DS8/dataset.toml"

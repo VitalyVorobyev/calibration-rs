@@ -109,7 +109,7 @@
           "description": "ChESS corner extractor options shared by chessboard-like\ndetectors (plain chessboard and ChArUco)."
         },
         "min_features_per_view": {
-          "description": "Minimum detected features for a view to be kept. `None` keeps the\nrunner default (4, the homography minimum). Raise it for detectors\nwhose sparse detections are unreliable — e.g. ring-grid decodes\nwith < 8 markers are noisy enough to poison a solve.",
+          "description": "Minimum detected features for a view (or a camera's slot in a rig\nview) to be kept, in every topology. `None` keeps the runner default\n(4, the homography minimum). Raise it for detectors whose sparse\ndetections are unreliable — e.g. ring-grid decodes with < 8 markers\nare noisy enough to poison a solve. Set it to a plain chessboard's\ncorner count (`rows × cols`) to keep only complete boards: rig and\nhand-eye views share one target frame, and a partial chessboard is\nlabelled from its own top-left corner.",
           "format": "uint",
           "minimum": 0,
           "type": [
@@ -342,6 +342,11 @@
           "const": "rowmajor4x4",
           "description": "Headerless text: each non-empty line is 16 whitespace-separated\nfloats forming a row-major 4×4 homogeneous transform (KUKA-style\nexports). Requires `pose_convention.rotation_format =\n\"matrix4x4_row_major\"` and no `columns` mapping.",
           "type": "string"
+        },
+        {
+          "const": "counted4x4",
+          "description": "Headerless text: the matrix count, then that many row-major 4×4\nhomogeneous transforms as whitespace-separated floats on any number\nof lines (the layout of the robot-world hand-eye datasets of Tabb\nand Ahmad Yousef). Same requirements as `rowmajor4x4`.",
+          "type": "string"
         }
       ]
     },
@@ -358,7 +363,7 @@
               "type": "null"
             }
           ],
-          "description": "Column / field mapping from the user's file to the canonical\nfields the converter consumes. Required for the tabular formats\n(`csv` / `json` / `jsonl`) unless `matrix_field` is set; must be\nabsent for `rowmajor4x4`, whose 16-values-per-line layout is\nfixed."
+          "description": "Column / field mapping from the user's file to the canonical\nfields the converter consumes. Required for the tabular formats\n(`csv` / `json` / `jsonl`) unless `matrix_field` is set; must be\nabsent for `rowmajor4x4` and `counted4x4`, whose matrix layout is\nfixed."
         },
         "format": {
           "$ref": "#/$defs/RobotPoseFormat",

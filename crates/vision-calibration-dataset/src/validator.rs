@@ -69,10 +69,10 @@ pub enum ValidationError {
         format: RobotPoseFormat,
     },
 
-    /// The headerless `rowmajor4x4` format has a fixed 16-values-per-line
-    /// layout; a `columns` mapping or a non-matrix rotation format would
-    /// be silently ignored, so both are rejected up front.
-    #[error("pose format rowmajor4x4 {problem}")]
+    /// The headerless matrix formats (`rowmajor4x4`, `counted4x4`) have a
+    /// fixed layout; a `columns` mapping or a non-matrix rotation format
+    /// would be silently ignored, so both are rejected up front.
+    #[error("matrix pose file {problem}")]
     BadMatrixPoseConfig {
         /// What is inconsistent (human-readable).
         problem: String,
@@ -346,21 +346,27 @@ fn validate_pose_columns(
         return Ok(());
     };
 
-    if robot.format == RobotPoseFormat::Rowmajor4x4 {
+    let matrix_layout = match robot.format {
+        RobotPoseFormat::Rowmajor4x4 => Some("rowmajor4x4 (16 values per line)"),
+        RobotPoseFormat::Counted4x4 => Some("counted4x4 (a count, then 4x4 matrices)"),
+        RobotPoseFormat::Csv | RobotPoseFormat::Json | RobotPoseFormat::Jsonl => None,
+    };
+    if let Some(layout) = matrix_layout {
         if robot.columns.is_some() {
             return Err(ValidationError::BadMatrixPoseConfig {
-                problem: "is headerless (16 values per line); remove the columns mapping".into(),
+                problem: format!("{layout} is headerless; remove the columns mapping"),
             });
         }
         if robot.matrix_field.is_some() {
             return Err(ValidationError::BadMatrixPoseConfig {
-                problem: "is headerless (16 values per line); remove matrix_field".into(),
+                problem: format!("{layout} is headerless; remove matrix_field"),
             });
         }
         if format != RotationFormat::Matrix4x4RowMajor {
             return Err(ValidationError::BadMatrixPoseConfig {
                 problem: format!(
-                    "requires pose_convention.rotation_format = matrix4x4_row_major, got {format:?}"
+                    "{layout} requires pose_convention.rotation_format = matrix4x4_row_major, \
+                     got {format:?}"
                 ),
             });
         }
@@ -607,6 +613,28 @@ mod tests {
             matrix_field: None,
         };
         validate(&handeye_spec_with(robot, RotationFormat::Matrix4x4RowMajor)).unwrap();
+    }
+
+    #[test]
+    fn counted4x4_validates_and_requires_matrix_rotation() {
+        let robot = RobotPoseSource {
+            path: "robot_cali.txt".into(),
+            format: RobotPoseFormat::Counted4x4,
+            columns: None,
+            matrix_field: None,
+        };
+        validate(&handeye_spec_with(
+            robot.clone(),
+            RotationFormat::Matrix4x4RowMajor,
+        ))
+        .unwrap();
+        let err = validate(&handeye_spec_with(robot, RotationFormat::QuatXyzw)).unwrap_err();
+        match err {
+            ValidationError::BadMatrixPoseConfig { problem } => {
+                assert!(problem.contains("counted4x4"), "got: {problem}");
+            }
+            other => panic!("expected BadMatrixPoseConfig, got {other:?}"),
+        }
     }
 
     #[test]

@@ -112,6 +112,27 @@ jobs:
           --registry crates/vision-calibration-bench/registry/public.json
           --only kuka_1
 
+  # The public regression suite: every entry of `regression/suite.toml`
+  # calibrated from its checksummed observations and compared with its
+  # reference result. Image-free, so no LFS.
+  regression-suite:
+    name: Regression suite
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Suite check
+        run: >-
+          cargo run --release --locked -p vision-calibration-bench
+          --bin calib-bench -- suite check
+
   python-runtime:
     name: Python Runtime Tests
     needs: build

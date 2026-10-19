@@ -128,8 +128,8 @@ pub fn sniff_folder(root: &Path) -> Result<DatasetSpec, SniffError> {
                 matrix_field: None,
             };
             match p.format {
-                RobotPoseFormat::Rowmajor4x4 => {
-                    // `rowmajor4x4` fixes the rotation format; the transform
+                RobotPoseFormat::Rowmajor4x4 | RobotPoseFormat::Counted4x4 => {
+                    // The matrix formats fix the rotation format; the transform
                     // direction and translation units are not inferable from
                     // the numbers, so pre-fill the KUKA/UR defaults but flag
                     // them for confirmation.
@@ -368,6 +368,7 @@ fn detect_pose_file(root: &Path, others: &[PathBuf]) -> Option<PoseFile> {
             _ if is_rowmajor4x4_line(nonempty.first().copied().unwrap_or("")) => {
                 RobotPoseFormat::Rowmajor4x4
             }
+            _ if counted4x4_count(&contents).is_some() => RobotPoseFormat::Counted4x4,
             _ => RobotPoseFormat::Csv,
         };
 
@@ -375,6 +376,7 @@ fn detect_pose_file(root: &Path, others: &[PathBuf]) -> Option<PoseFile> {
         // non-empty line is one pose; for CSV the header row is not a pose.
         let count = match format {
             RobotPoseFormat::Rowmajor4x4 => nonempty.len(),
+            RobotPoseFormat::Counted4x4 => counted4x4_count(&contents).unwrap_or(0),
             RobotPoseFormat::Csv => nonempty.len().saturating_sub(1),
             RobotPoseFormat::Json | RobotPoseFormat::Jsonl => nonempty.len(),
         };
@@ -387,6 +389,19 @@ fn detect_pose_file(root: &Path, others: &[PathBuf]) -> Option<PoseFile> {
     }
 
     None
+}
+
+/// The matrix count of a `counted4x4` file: a leading integer `n` followed
+/// by exactly `16 n` floats. `None` for any other content.
+fn counted4x4_count(contents: &str) -> Option<usize> {
+    let mut tokens = contents.split_whitespace();
+    let count: usize = tokens.next()?.parse().ok()?;
+    let mut values = 0usize;
+    for token in tokens {
+        token.parse::<f64>().ok()?;
+        values += 1;
+    }
+    (count > 0 && values == 16 * count).then_some(count)
 }
 
 /// Is this line 16 whitespace-separated floats (a flattened row-major 4x4)?
@@ -446,6 +461,32 @@ mod tests {
             ImagePattern::Glob { pattern } => pattern.as_str(),
             ImagePattern::List { .. } => panic!("expected glob"),
         }
+    }
+
+    #[test]
+    fn single_camera_with_counted_poses() {
+        let dir = TempDir::new("counted");
+        for i in 0..2 {
+            dir.touch(&format!("image{i}.png"));
+        }
+        let matrix = "1 0 0 1.2\n0 1 0 -0.8\n0 0 1 0.5\n0 0 0 1\n\n";
+        dir.write("robot_poses.txt", &format!("2\n{}", matrix.repeat(2)));
+
+        let spec = sniff_folder(&dir.path).unwrap();
+
+        let poses = spec.robot_poses.as_ref().expect("poses detected");
+        assert_eq!(poses.format, RobotPoseFormat::Counted4x4);
+        assert!(matches!(spec.pose_pairing, Some(PosePairing::ByIndex)));
+        let conv = spec.pose_convention.as_ref().unwrap();
+        assert_eq!(conv.rotation_format, RotationFormat::Matrix4x4RowMajor);
+    }
+
+    #[test]
+    fn counted4x4_count_requires_exact_matrix_values() {
+        assert_eq!(counted4x4_count(&format!("1 {}", "0 ".repeat(16))), Some(1));
+        assert_eq!(counted4x4_count(&format!("2 {}", "0 ".repeat(16))), None);
+        assert_eq!(counted4x4_count("0"), None);
+        assert_eq!(counted4x4_count("x 1 2"), None);
     }
 
     #[test]
