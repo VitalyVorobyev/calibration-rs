@@ -68,9 +68,11 @@ regex = "1"
 # uses.
 rand = { version = "0.10", default-features = false }
 tracing = { version = "0.1" }
-# 0.18.3 is the floor: `Problem::compute_cost` (the robust objective the
-# LM measures) and the Cauchy loss fix.
-tiny-solver = "0.18.3"
+# 0.18.7 is the floor: `Problem::compute_cost` (the robust objective the
+# LM measures), the Cauchy loss fix, and an `SO3::exp` that is accurate to
+# machine precision at small angles and keeps its sign beyond 2π — the
+# rotation update of our SE(3) and quaternion retractions.
+tiny-solver = "0.18.7"
 # No optional features: `serde` (typetag), `rerun` and `left` (the left
 # retraction convention) stay off, and `f32` would break the f64 kernels.
 factrs = { version = "0.3", default-features = false }

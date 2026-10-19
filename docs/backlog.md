@@ -118,13 +118,13 @@ stays local-only, as do the private sets.
 
 ## Solver backends
 
-- [ ] TS-0187 - Raise the tiny-solver floor to 0.18.7: exact `SO3::exp` at
-  small angles (our SE(3) and quaternion retractions) and manifold blocks held
-  constant when fully fixed. Rerun `calib-bench solver` for both backends.
 - [ ] TS-UPSTREAM - Propose the remaining tiny-solver fork branches upstream:
   variables no residual uses left out of the solve; a sphere manifold; the
   nalgebra 0.35 / faer 0.24 bump; the internal perf changes (Mutex-free
-  assembly, sort-free symbolic structure). On release: replace
+  assembly, sort-free symbolic structure). Keep the backend's layout for a
+  fully fixed manifold block (no manifold, so no columns): upstream keeps its
+  tangent columns with a zero Jacobian, which would make `JᵀJ` singular for
+  the covariance. On release: replace
   `backend/s2.rs` with the upstream sphere manifold, and see
   O-TINYSOLVER-PERF and D4-NALGEBRA-035.
 - [ ] O-TINYSOLVER-PERF - Adopt the tiny-solver speed-ups once released.
