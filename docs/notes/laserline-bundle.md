@@ -70,8 +70,8 @@ E = Σ_i Σ_j ρ_c‖ π(K,d,sensor,T_i·X_j) − u_ij ‖²   (target corners, 
   + Σ_i Σ_k ρ_l · r(K,d,sensor,T_i, n̂,d ; q_ik)²    (laser stripe, 1D)
 ```
 
-`ρ_c` / `ρ_l` are the configured robust losses (defaults Huber 1.0 px and
-Huber 0.01, per-family weights). The laser residual `r` has two forms
+`ρ_c` / `ρ_l` are the configured robust losses (default Huber 1 px for
+both, as both default residuals are in pixels; per-family weights). The laser residual `r` has two forms
 (`LaserlineResidualType`, `factors::laserline`):
 
 - **`LineDistNormalized`** (default): intersect the laser and target planes

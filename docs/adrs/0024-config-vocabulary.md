@@ -81,8 +81,9 @@ are genuinely different residual families. The per-stage defaults are
 tuned values and stay per-stage:
 
 - `LaserlineDeviceConfig.optimize`: `calib_loss = Huber{1.0}`,
-  `laser_loss = Huber{0.01}`, weights 1.0/1.0 — a from-scratch solve that
-  must robustify detector tails.
+  `laser_loss = Huber{1.0}` (both residuals in pixels by default; a loss
+  scale is in its residual's unit), weights 1.0/1.0 — a from-scratch solve
+  that must robustify detector tails.
 - Joint rig BA: `calib_loss = None`, `laser_loss = None`,
   `laser_weight = 1e4` — a warm-started polish on already-cleaned inputs
   where the laser term pins metric scale (see `docs/notes/laserline-bundle.md`, metric scale).

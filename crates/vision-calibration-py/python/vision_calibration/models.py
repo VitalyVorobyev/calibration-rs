@@ -863,7 +863,7 @@ class LaserlineDeviceOptimizeConfig:
     """
 
     calib_loss: RobustLoss = field(default_factory=lambda: {"Huber": {"scale": 1.0}})
-    laser_loss: RobustLoss = field(default_factory=lambda: {"Huber": {"scale": 0.01}})
+    laser_loss: RobustLoss = field(default_factory=lambda: {"Huber": {"scale": 1.0}})
     calib_weight: float = 1.0
     laser_weight: float = 1.0
     fix_camera: CameraFixMask = field(default_factory=CameraFixMask)

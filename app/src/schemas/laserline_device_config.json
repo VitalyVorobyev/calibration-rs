@@ -146,7 +146,7 @@
         },
         "laser_loss": {
           "$ref": "#/$defs/RobustLoss",
-          "description": "Robust loss for laser residuals."
+          "description": "Robust loss for laser residuals. Its scale is in the residual's unit:\npixels for the line distance (the default residual), meters for\npoint-to-plane."
         },
         "laser_residual_type": {
           "$ref": "#/$defs/LaserlineResidualType",

@@ -115,7 +115,7 @@ pub struct LaserlineDeviceConfig {
 
 pub struct LaserlineDeviceOptimizeConfig {
     pub calib_loss: RobustLoss,        // Default: Huber { scale: 1.0 }
-    pub laser_loss: RobustLoss,        // Default: Huber { scale: 0.01 }
+    pub laser_loss: RobustLoss,        // Default: Huber { scale: 1.0 }, in the residual's unit
     pub calib_weight: f64,             // Weight for calibration residuals (default: 1.0)
     pub laser_weight: f64,             // Weight for laser residuals (default: 1.0)
     pub fix_camera: CameraFixMask,     // { intrinsics, distortion } — full per-field granularity

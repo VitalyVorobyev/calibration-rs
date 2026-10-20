@@ -40,6 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the Levenberg–Marquardt loop always solves with sparse Cholesky. Drop the
   field from struct literals; JSON that still carries `"linear_solver"`
   loads unchanged, and the field is ignored.
+- **The laser robust loss defaults to `Huber { scale: 1.0 }`** in
+  `LaserlineDeviceOptimizeConfig`, `LaserlineSolveOptions` and Python's
+  `LaserlineDeviceOptimizeConfig`, instead of `0.01`. A loss scale is in its
+  residual's unit, and the default laser residual is the line distance in
+  pixels, where 0.01 px made the fit nearly L1: less precise, with a
+  covariance that understated the scatter. Laser device and rig laser-plane
+  results change slightly; set `laser_loss: {"Huber": {"scale": 0.01}}` to
+  keep the previous fit, or a scale in meters with the point-to-plane
+  residual.
 - `LaserFeatureResidual::projected_line_px` is removed. Each view's projected
   laser line is now `PerFeatureResiduals::laser_lines` (one `LaserLineTrace`
   per view and camera, a polyline in `points_px`), and
