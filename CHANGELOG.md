@@ -112,7 +112,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   laserline device, joint rig hand-eye laserline) carry their ground truth
   in `truth/<id>.json`, and `suite check` fails one whose parameters lie
   5σ or more from the truth. An OpenCV harness (`tools/compare/opencv`,
-  pinned with `uv`) calibrates every entry OpenCV has a method for, and
+  pinned with `uv`) calibrates every entry OpenCV has a method for, with
+  the parameter set calibration-rs estimates (on the Scheimpflug entry the
+  tangential terms are held at zero, as they alias with the tilt), and
   `calib-bench suite compare` sets its results against the references:
   differences in units of our σ, the two libraries' standard deviations,
   reprojection error and, on synthetic entries, each library's error

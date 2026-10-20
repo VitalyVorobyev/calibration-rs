@@ -210,7 +210,7 @@ cargo run --release -p vision-calibration-bench --bin calib-bench -- suite compa
 | Problem | OpenCV |
 |---|---|
 | `planar_intrinsics` | `calibrateCameraExtended` with `CALIB_FIX_K3` |
-| `scheimpflug_intrinsics` | the same with `CALIB_TILTED_MODEL` (higher terms fixed) |
+| `scheimpflug_intrinsics` | the same with `CALIB_TILTED_MODEL` and `CALIB_ZERO_TANGENT_DIST`, the parameters our Scheimpflug model estimates (higher terms fixed) |
 | `single_cam_handeye` | `calibrateCameraExtended`, then `calibrateRobotWorldHandEye` (Shah) |
 | `rig_extrinsics` | `calibrateCameraExtended` per camera, then `stereoCalibrate` with `CALIB_FIX_INTRINSIC`, or refining the intrinsics when the entry does |
 | `rig_handeye` | per camera as for `single_cam_handeye`; the rig frame is camera 0's |
@@ -222,7 +222,6 @@ against ours, the mean reprojection error by the same definition, and for a
 synthetic entry each library's largest error against the truth, in units of
 our σ:
 
-suite 2026.1 (regression/suite.toml): 11 entries
 | Entry | Library | Parameters | Largest difference | Median | σ ratio (ours / theirs) | Mean reprojection (ours / theirs) | Truth (ours / theirs) |
 |---|---|---|---|---|---|---|---|
 | `kuka_1` | opencv 4.12.0 | 20 | 4.44σ (`base_se3_target.rz`) | 1.77σ | 1.356–2.845 | 0.1359 / 2.2545 px | — |
@@ -231,18 +230,18 @@ suite 2026.1 (regression/suite.toml): 11 entries
 | `stereo_rig` | opencv 4.12.0 | 6 | 0.42σ (`cam1.cam_se3_rig.tz`) | 0.02σ | — | — | — |
 | `ds8` | opencv 4.12.0 | 12 | 6.80σ (`gripper_se3_rig.ry`) | 3.98σ | — | — | — |
 | `synth_planar` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.00σ | 1.000–1.000 | 0.6570 / 0.6570 px | 1.87σ / 1.86σ |
-| `synth_scheimpflug` | opencv 4.12.0 | 8 | 39.93σ (`tilt_x`) | 0.88σ | 0.049–1.137 | 0.6568 / 0.6564 px | 1.52σ / 38.60σ |
+| `synth_scheimpflug` | opencv 4.12.0 | 8 | 0.01σ (`cx`) | 0.01σ | 1.000–1.000 | 0.6568 / 0.6568 px | 1.52σ / 1.53σ |
 | `synth_handeye` | opencv 4.12.0 | 20 | 0.92σ (`k2`) | 0.17σ | 0.791–1.012 | 0.6593 / 0.7521 px | 0.87σ / 1.12σ |
 | `synth_rig` | opencv 4.12.0 | 22 | 0.09σ (`cam0.cy`) | 0.02σ | — | — | 2.07σ / 2.06σ |
 
 Reading it:
 
-- On plain intrinsics the two libraries agree within 0.02σ, and OpenCV's
-  standard deviations match ours to 0.1 %: both report the classical
-  covariance for these fits.
-- The Scheimpflug entry separates them. OpenCV, started from zero tilt,
-  settles where a principal-point shift stands in for the tilt: the same
-  reprojection error, the tilt 40σ off, the truth 39σ off.
+- On plain and Scheimpflug intrinsics the two libraries agree within
+  0.02σ, and OpenCV's standard deviations match ours to 0.1 %: both report
+  the classical covariance for these fits. The Scheimpflug fit needs the same
+  parameter set on both sides: with the tangential terms `p1`, `p2` free, a
+  tilt and a decentring distortion explain the same images, and OpenCV's fit
+  wanders along that valley (its own σ of `cy` is 40 px).
 - Hand-eye results differ by design. Our hand-eye workflows refine the robot
   poses within their priors, so on `kuka_1` the reprojection error is the
   corner noise (0.14 px) rather than the robot's pose error (2.3 px with the
