@@ -192,6 +192,11 @@ The project is pre-1.0: breaking changes still happen, and the CHANGELOG lists
 each with migration notes. MSRV is 1.93 ([policy](docs/MSRV.md)).
 
 Licensed under the [MIT License](LICENSE). The calibration data in `data/`
-and `regression/` is licensed per dataset, as listed in
-[`regression/suite.toml`](regression/suite.toml): CC BY 4.0 for the `kuka_1`
-and stereo captures, U.S. public domain for DS8.
+and `regression/` comes from its publishers, credited per entry in
+[`regression/suite.toml`](regression/suite.toml): `kuka_1` is from
+[RWHE-Calib](https://github.com/ihtishamaliktk/RWHE-Calib) (Ali et al.,
+*Sensors* 2019), the stereo pair from the Kaggle dataset
+[Chessboard Pictures for Stereocamera Calibration](https://www.kaggle.com/datasets/danielwe14/stereocamera-chessboard-pictures)
+— neither states a licence — and DS8 from the
+[USDA Ag Data Commons](https://doi.org/10.15482/USDA.ADC/1340592) (U.S.
+public domain). The synthetic entries are CC0.

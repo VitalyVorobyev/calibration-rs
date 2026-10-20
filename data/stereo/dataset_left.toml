@@ -4,6 +4,11 @@
 # directly.
 #
 # Board parameters: 7×11 interior corners, 30 mm squares.
+#
+# Images: "Chessboard Pictures for Stereocamera Calibration" by Daniel
+# (danielwe14) on Kaggle, which states no licence:
+# https://www.kaggle.com/datasets/danielwe14/stereocamera-chessboard-pictures
+# Download it and place `leftcamera/` and `rightcamera/` under `imgs/`.
 
 version = 1
 topology = "planar_intrinsics"

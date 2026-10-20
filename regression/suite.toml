@@ -12,31 +12,42 @@
 # bounds the drift of every number in the result. A `synthetic` entry names
 # the benchmark scene its observations and truth (`truth/<id>.json`) were
 # frozen from.
+#
+# `licence` is an SPDX identifier; `NOASSERTION` marks data whose publisher
+# states no licence, used here with the attribution its authors ask for.
 
 suite_version = "2026.1"
 
 [[entry]]
 id = "kuka_1"
 description = "Single-camera hand-eye, eye-in-hand: 30 views of a 17x28 chessboard (20 mm) from a KUKA arm"
-licence = "CC-BY-4.0"
+licence = "NOASSERTION"
+citation = "Ali, I., Suominen, O., Gotchev, A. and Ruiz Morales, E. (2019). Methods for Simultaneous Robot-World-Hand-Eye Calibration: A Comparative Study. Sensors 19(12), 2837. https://doi.org/10.3390/s19122837"
+source_url = "https://github.com/ihtishamaliktk/RWHE-Calib/tree/610a412fdfe32850cc619359f121a2b063563a3e/Datasets/kuka_1"
 manifest = "../data/kuka_1/dataset.toml"
 
 [[entry]]
 id = "stereo_left"
 description = "Planar intrinsics, left camera of a stereo pair: 20 views of a 7x11 chessboard (30 mm)"
-licence = "CC-BY-4.0"
+licence = "NOASSERTION"
+citation = "Daniel (danielwe14). Chessboard Pictures for Stereocamera Calibration, version 3 (2022). Kaggle."
+source_url = "https://www.kaggle.com/datasets/danielwe14/stereocamera-chessboard-pictures"
 manifest = "../data/stereo/dataset_left.toml"
 
 [[entry]]
 id = "stereo_right"
 description = "Planar intrinsics, right camera of the same stereo pair"
-licence = "CC-BY-4.0"
+licence = "NOASSERTION"
+citation = "Daniel (danielwe14). Chessboard Pictures for Stereocamera Calibration, version 3 (2022). Kaggle."
+source_url = "https://www.kaggle.com/datasets/danielwe14/stereocamera-chessboard-pictures"
 manifest = "../data/stereo/dataset_right.toml"
 
 [[entry]]
 id = "stereo_rig"
 description = "Rig extrinsics of the stereo pair, from the same 20 synchronised views"
-licence = "CC-BY-4.0"
+licence = "NOASSERTION"
+citation = "Daniel (danielwe14). Chessboard Pictures for Stereocamera Calibration, version 3 (2022). Kaggle."
+source_url = "https://www.kaggle.com/datasets/danielwe14/stereocamera-chessboard-pictures"
 manifest = "../data/stereo/dataset_rig.toml"
 
 [[entry]]

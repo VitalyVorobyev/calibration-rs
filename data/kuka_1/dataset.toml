@@ -1,5 +1,12 @@
 # KUKA single-camera hand-eye dataset (eye-in-hand).
 #
+# Dataset `kuka_1` of RWHE-Calib, copied unmodified from
+# https://github.com/ihtishamaliktk/RWHE-Calib (`Datasets/kuka_1`). Its
+# authors publish it as open-access data, without a stated licence, and ask
+# users to cite: I. Ali, O. Suominen, A. Gotchev and E. Ruiz Morales,
+# "Methods for Simultaneous Robot-World-Hand-Eye Calibration: A Comparative
+# Study", Sensors 19(12), 2837 (2019), https://doi.org/10.3390/s19122837.
+#
 # 30 chessboard views (`01.png`–`30.png`); `RobotPosesVec.txt` carries
 # one row-major 4×4 `T_base_tcp` homogeneous matrix per line, in
 # metres. Image `NN.png` pairs with pose row `NN` (by_index after
