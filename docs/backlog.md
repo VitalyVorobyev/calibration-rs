@@ -19,7 +19,7 @@ changes results, so each needs its measurement first.
   1.58e-4 against 1.45e-4 at 1 px) and calibration (predicted σ 11 % high,
   from the noisy density estimate an L1 covariance needs). Make the default
   scale follow the residual's unit (1 px for the line distance), measure on
-  the rtv3d laser data, migration note. The frozen synthetic laser entries,
+  real laser data, migration note. The frozen synthetic laser entries,
   solved with the default, sit further from their truth than their σ
   allows: `synth_laserline` Σz² = 29.6 over 12 parameters (rank 11),
   `synth_rig_handeye_laserline` `cam1.cam_se3_rig.rx` at +4.5σ.
@@ -55,27 +55,27 @@ changes results, so each needs its measurement first.
 ## Regression suite
 
 A versioned public suite for regression and for comparison with other
-libraries. Image-free observations live in the repository and gate every PR;
-images live in a versioned Zenodo record. Publishable: `kuka_1`, `stereo`
-(ours), DS8 (Tabb & Ahmad Yousef, USDA Ag Data Commons). `stereo_charuco`
-stays local-only, as do the private sets.
+libraries. Image-free observations live in the repository and gate every PR.
+None of the real-image entries is ours to republish: `kuka_1` (RWHE-Calib)
+and `stereo` (Kaggle) state no licence, DS8 is U.S. public domain, so images
+are fetched from their publishers rather than archived by us. Synthetic
+entries need no images. Comparison tools must run on Linux, macOS and
+Windows. `stereo_charuco` stays local-only, as do the private sets.
 
-- [ ] DATA-IMAGES - Zenodo record per suite version with a SHA-256 manifest;
-  `calib-bench suite fetch` downloads into a cache and verifies; a scheduled
-  CI job runs `suite freeze` from the images and checks the observations
-  still match `SHA256SUMS`. Then retire `bench/registry/public.json` and the
-  acceptance job's image run, and move `kuka_1` out of LFS (the
-  `planar_real`/`handeye_session` examples then name the fetch command). Our
-  captures are CC-BY-4.0. Once `data/stereo` is fetchable, its app presets
-  move from the local preset file back into `BUILTIN_PRESETS`, and a
-  real-image dense-stereo example can return.
-- [ ] DATA-MRCAL - mrcal comparison (parameters and projection uncertainty)
-  in an Ubuntu CI job (`apt install mrcal`), writing
-  `results/<id>/mrcal.json` in the format `suite compare` reads.
-- [~] DATA-MORE - More public entries, each after a licence check: OpenCV's
-  sample stereo chessboards; reference-only third-party sets (URL + checksum,
-  never redistributed) such as RWHE-Calib; purpose-designed captures of our
-  own under CC-BY-4.0. Parked until DATA-IMAGES.
+- [ ] DATA-FETCH - `calib-bench suite fetch` downloads an entry's images
+  from its publisher into a cache and verifies a per-file SHA-256 list:
+  `kuka_1` from RWHE-Calib at commit `610a412` (raw files; the copy in
+  `data/kuka_1` is byte-identical), DS8 from the Ag Data Commons
+  (`DS8.zip`). Kaggle needs an account, so `stereo` stays a manual
+  download. A scheduled CI job runs `suite freeze` from the fetched images
+  and checks the observations still match `SHA256SUMS`; then retire
+  `bench/registry/public.json` and the acceptance job's image run. Ask the
+  RWHE-Calib authors for a licence; without one that allows
+  redistribution, drop the `kuka_1` images from the repository and LFS (the
+  `planar_real`/`handeye_session` examples then name the fetch command).
+- [ ] DATA-MORE - More public entries, each after a licence check: the other
+  RWHE-Calib sets (`kuka_2`, `kuka_3`), Tabb's DS1–DS7 (U.S. public domain,
+  same record as DS8), OpenCV's sample stereo chessboards (Apache-2.0).
 
 ## App
 

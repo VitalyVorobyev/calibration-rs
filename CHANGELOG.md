@@ -140,7 +140,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - App: the quick-start presets are the `kuka_1` and DS8 datasets. Presets for
   other local data go in an untracked
   `app/src/workspaces/RunWorkspace/presets.local.ts`.
-- The `kuka_1` and stereo data of the regression suite is licensed CC BY 4.0.
+- The regression suite credits the publisher of each real-image entry:
+  `kuka_1` comes from RWHE-Calib (Ali et al., *Sensors* 2019) and the
+  stereo pair from the Kaggle dataset *Chessboard Pictures for Stereocamera
+  Calibration*, neither of which states a licence; DS8 is U.S. public
+  domain.
 - **App: the Run workspace's config forms are `SchemaValueForm`.** The
   hand-written `configForm.tsx` is replaced by the shared `@vitavision/forms`
   (0.7; `@vitavision/ui` moves to 0.11). Same schemas and the same whole-value

@@ -11,10 +11,10 @@ plain JSON, other calibration tools can run on exactly the same data.
 
 | Id | Problem | Data | Licence |
 |----|---------|------|---------|
-| `kuka_1` | `single_cam_handeye` | 30 eye-in-hand views of a 17×28 chessboard (20 mm) from a KUKA arm | CC BY 4.0 |
-| `stereo_left` | `planar_intrinsics` | 20 views of a 7×11 chessboard (30 mm), left camera | CC BY 4.0 |
-| `stereo_right` | `planar_intrinsics` | The same 20 views, right camera | CC BY 4.0 |
-| `stereo_rig` | `rig_extrinsics` | Both cameras of the stereo pair together | CC BY 4.0 |
+| `kuka_1` | `single_cam_handeye` | 30 eye-in-hand views of a 17×28 chessboard (20 mm) from a KUKA arm | None stated |
+| `stereo_left` | `planar_intrinsics` | 20 views of a 7×11 chessboard (30 mm), left camera | None stated |
+| `stereo_right` | `planar_intrinsics` | The same 20 views, right camera | None stated |
+| `stereo_rig` | `rig_extrinsics` | Both cameras of the stereo pair together | None stated |
 | `ds8` | `rig_handeye` | Three cameras on a Denso arm, 33 of 42 poses with a complete 10×14 chessboard (52 mm) | U.S. public domain |
 | `synth_planar` | `planar_intrinsics` | Synthetic: 20 views of a 13×9 board, 0.5 px noise | CC0 |
 | `synth_scheimpflug` | `scheimpflug_intrinsics` | Synthetic: a tilted sensor, 20 views, 0.5 px noise | CC0 |
@@ -23,10 +23,26 @@ plain JSON, other calibration tools can run on exactly the same data.
 | `synth_laserline` | `laserline_device` | Synthetic: one camera and a laser plane, 20 views | CC0 |
 | `synth_rig_handeye_laserline` | `rig_handeye_laserline` | Synthetic: two cameras on a robot, each with a laser plane, solved jointly | CC0 |
 
-`ds8` is dataset 8 of Tabb and Ahmad Yousef, *Solving the robot-world
-hand-eye(s) calibration problem with iterative methods*, Machine Vision and
-Applications 28 (2017); the images are published at
-<https://doi.org/10.15482/USDA.ADC/1340592>.
+The real-image entries come from their publishers:
+
+- `kuka_1` is dataset `kuka_1` of RWHE-Calib, from I. Ali, O. Suominen,
+  A. Gotchev and E. Ruiz Morales, *Methods for Simultaneous
+  Robot-World-Hand–Eye Calibration: A Comparative Study*, Sensors 19(12),
+  2837 (2019), <https://doi.org/10.3390/s19122837>. The images and robot
+  poses are published at <https://github.com/ihtishamaliktk/RWHE-Calib> as
+  open-access data; the authors state no licence and ask users to cite the
+  paper.
+- The stereo entries use *Chessboard Pictures for Stereocamera Calibration*
+  by Daniel (Kaggle user `danielwe14`), version 3,
+  <https://www.kaggle.com/datasets/danielwe14/stereocamera-chessboard-pictures>,
+  which states no licence.
+- `ds8` is dataset 8 of A. Tabb and K. M. Ahmad Yousef, *Solving the
+  robot-world hand-eye(s) calibration problem with iterative methods*,
+  Machine Vision and Applications 28 (2017); the images are published at
+  <https://doi.org/10.15482/USDA.ADC/1340592> in the U.S. public domain.
+
+`regression/suite.toml` records each entry's licence (an SPDX identifier,
+`NOASSERTION` where the publisher states none), citation and source.
 
 The synthetic entries come with their ground truth, so they check accuracy
 as well as stability, and the laser entries are the suite's laser coverage.

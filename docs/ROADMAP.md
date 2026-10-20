@@ -14,8 +14,8 @@ with migration notes. The published packages are listed in AGENTS.md.
 1. **Acceptance** — `calib-bench accept` passes every on-disk registered
    dataset through the seeded official route (hard gates per entry).
 2. **Public regression suite** — a versioned public suite (observations in
-   the repository, images in an archived record) gates every PR, with
-   reference results compared against OpenCV.
+   the repository, images fetched from their publishers and verified by
+   checksum) gates every PR, with reference results compared against OpenCV.
 3. **Uncertainty** — every calibration result carries its parameter
    covariance and projection uncertainty, validated against Monte-Carlo
    scatter in the proof pack.
@@ -47,6 +47,9 @@ trigger.
 - Two solver backends under one LM loop; the default changes only on a
   measured comparison and the maintainer's decision —
   [ADR 0025](adrs/0025-factrs-backend-shared-lm.md).
+- Cross-platform only: the library, its comparison harnesses and its CI
+  jobs run on Linux, macOS and Windows. Tools that do not (mrcal installs
+  through Linux distributions only) stay out of the suite.
 
 ## Out of scope
 
