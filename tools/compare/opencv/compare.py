@@ -150,10 +150,12 @@ class Camera:
 def camera_flags(problem: str) -> int:
     flags = cv2.CALIB_FIX_K3
     if problem == "scheimpflug_intrinsics":
-        # The tilted-sensor model, with its extra rational and thin-prism
-        # terms held at zero.
+        # The tilted-sensor model with calibration-rs's Scheimpflug parameter
+        # set: the tangential terms held at zero, as they alias with the tilt,
+        # and the extra rational and thin-prism terms too.
         flags |= (
             cv2.CALIB_TILTED_MODEL
+            | cv2.CALIB_ZERO_TANGENT_DIST
             | cv2.CALIB_FIX_K4
             | cv2.CALIB_FIX_K5
             | cv2.CALIB_FIX_K6
@@ -178,7 +180,7 @@ def planar(entry: dict[str, Any], obs: dict[str, Any]) -> dict[str, Any]:
     cam = Camera(*observations([v["obs"] for v in views]), size, camera_flags(obs["problem"]))
     method = "calibrateCameraExtended (CALIB_FIX_K3)"
     if cam.flags & cv2.CALIB_TILTED_MODEL:
-        method = "calibrateCameraExtended (CALIB_TILTED_MODEL, CALIB_FIX_K3)"
+        method = "calibrateCameraExtended (CALIB_TILTED_MODEL, CALIB_ZERO_TANGENT_DIST, CALIB_FIX_K3)"
     return {
         "method": method,
         "parameters": cam.parameters(),
