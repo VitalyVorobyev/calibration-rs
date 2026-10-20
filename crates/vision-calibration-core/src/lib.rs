@@ -102,10 +102,10 @@ pub use models::{
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 pub use types::{
     CameraFixMask, CorrespondenceView, DistortionFixMask, FeatureResidualHistogram, FrameKind,
-    FrameRef, ImageManifest, IntrinsicsFixMask, LaserFeatureResidual, ParameterCovariance,
-    PerFeatureResiduals, PixelRect, REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats,
-    ResidualKind, ResidualNoise, TargetFeatureResidual, Uncertainty, UncertaintyUnavailable,
-    ViewCovariance,
+    FrameRef, ImageManifest, IntrinsicsFixMask, LaserFeatureResidual, LaserLineTrace,
+    ParameterCovariance, PerFeatureResiduals, PixelRect, REPROJECTION_HISTOGRAM_EDGES_PX,
+    ReprojectionStats, ResidualKind, ResidualNoise, TargetFeatureResidual, Uncertainty,
+    UncertaintyUnavailable, ViewCovariance,
 };
 pub use view::{NoMeta, PlanarDataset, RigDataset, RigView, RigViewObs, View};
 

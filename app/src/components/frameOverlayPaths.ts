@@ -5,7 +5,12 @@
  * (`useScreenPx()(1)`), so strokes, heads and dots stay a constant on-screen
  * size at any zoom. Output is batched by appearance (one path per colour
  * bucket), never one element per residual (lab-ui ADR-0004). */
-import type { FrameKey, LaserFeatureResidual, TargetFeatureResidual } from "../types";
+import type {
+  FrameKey,
+  LaserFeatureResidual,
+  LaserLineTrace,
+  TargetFeatureResidual,
+} from "../types";
 import { colorForError, colorForLaserError } from "../lib/errorColors";
 
 /** Residual arrows are magnified by this factor... */
@@ -44,7 +49,7 @@ export interface ResidualArrowPaths {
 }
 
 export interface LaserOverlayPaths {
-  /** The projected laser line, or `null` when no record carries it. */
+  /** The projected laser line, or `null` when the frame has none. */
   line: string | null;
   /** Observed dots with a residual, one filled path per error colour. */
   dots: ColoredPath[];
@@ -107,15 +112,18 @@ export function buildResidualArrows(
 
 export function buildLaserOverlay(
   all: readonly LaserFeatureResidual[],
+  lines: readonly LaserLineTrace[],
   frame: Pick<FrameKey, "pose" | "camera">,
   unit: number,
 ): LaserOverlayPaths {
   const records = ofFrame(all, frame);
-  // Identical endpoints on every record of the view, so the first carrier suffices.
-  const seg = records.find((r) => r.projected_line_px)?.projected_line_px;
-  const line = seg
-    ? `M${n(seg[0][0])} ${n(seg[0][1])}L${n(seg[1][0])} ${n(seg[1][1])}`
-    : null;
+  const trace = lines.find((l) => l.pose === frame.pose && l.camera === frame.camera);
+  const line =
+    trace && trace.points_px.length >= 2
+      ? trace.points_px
+          .map(([x, y], i) => `${i === 0 ? "M" : "L"}${n(x)} ${n(y)}`)
+          .join("")
+      : null;
   const r = LASER_DOT_PX * unit;
   const dots: [string, string][] = [];
   let unresolved = "";

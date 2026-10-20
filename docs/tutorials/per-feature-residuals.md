@@ -146,14 +146,19 @@ assert!((mean_from_records - hist.mean).abs() < 1e-9);
 ### Laser residuals
 
 `LaserlineDeviceExport` and `RigLaserlineDeviceExport` populate `pf.laser`
-in addition to `pf.target`. Each `LaserFeatureResidual` carries:
+and `pf.laser_lines` in addition to `pf.target`. Each `LaserFeatureResidual`
+carries:
 
 - `residual_m` — point-to-plane distance in meters from the back-projected
   ray's intersection with the target plane to the calibrated laser plane.
-- `residual_px` — distance in image space from the observed pixel to the
-  projected laser line.
-- `projected_line_px` — two endpoints of the projected laser line, useful
-  for 2D overlays.
+- `residual_px` — distance in pixels from the observed pixel to the
+  projected laser line: the line-distance residual the laser solve
+  minimizes, measured on the undistorted image plane.
+
+Each `LaserLineTrace` in `pf.laser_lines` is one view's projected laser line
+(`pose`, `camera`, `points_px`): a polyline over the extent of that view's
+laser pixels, for 2D overlays. Lens distortion bends the line, so draw all
+of its points rather than a segment between the first and last.
 
 ### Hand-eye chain
 

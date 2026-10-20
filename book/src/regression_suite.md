@@ -176,8 +176,8 @@ off. Each entry reports its largest error against the truth.
 ## Comparing with other libraries
 
 The reference results are the problem's export, minus the per-feature residual
-lists (they follow from the parameters and the observations; the residual
-histograms and the reprojection statistics stay). When comparing them with
+lists and the projected laser lines (they follow from the parameters and the
+observations; the residual histograms and the reprojection statistics stay). When comparing them with
 another tool's output:
 
 - **Intrinsics** `k` holds `fx`, `fy`, `cx`, `cy` and `skew` in pixels, in the

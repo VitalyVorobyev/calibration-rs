@@ -845,24 +845,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "projected_line_px": {
-          "description": "Two endpoints `[[x0, y0], [x1, y1]]` of the projected laser line in\nimage space. Useful for 2D overlays. `None` if the line cannot be\nsynthesized in this view.",
-          "items": {
-            "items": {
-              "format": "double",
-              "type": "number"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
-          },
-          "maxItems": 2,
-          "minItems": 2,
-          "type": [
-            "array",
-            "null"
-          ]
-        },
         "residual_m": {
           "description": "Point-to-plane distance in meters between the back-projected ray and\nthe calibrated laser plane. `None` if the ray does not intersect.",
           "format": "double",
@@ -872,7 +854,7 @@
           ]
         },
         "residual_px": {
-          "description": "Pixel-domain residual: distance from `observed_px` to the projected\nlaser line in undistorted pixel space. `None` if unavailable.",
+          "description": "Distance from `observed_px` to the projected laser line, in pixels:\nthe line-distance residual the laser solve minimizes, measured on the\nundistorted image plane and scaled by `sqrt(fx·fy)`. `None` if the\nlaser and target planes have no line in common.",
           "format": "double",
           "type": [
             "number",
@@ -885,6 +867,42 @@
         "camera",
         "feature",
         "observed_px"
+      ],
+      "type": "object"
+    },
+    "LaserLineTrace": {
+      "description": "The calibrated laser line in one view's image.",
+      "properties": {
+        "camera": {
+          "description": "Camera index. `0` for single-camera problem types.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "points_px": {
+          "description": "Points of the line in pixels, in order along it, spanning the view's\nlaser pixels.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "pose": {
+          "description": "Pose / view index in the input dataset.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pose",
+        "camera",
+        "points_px"
       ],
       "type": "object"
     },
@@ -1196,6 +1214,13 @@
             "array",
             "null"
           ]
+        },
+        "laser_lines": {
+          "description": "The projected laser line of each (view, camera) with laser pixels,\npose-major.",
+          "items": {
+            "$ref": "#/definitions/LaserLineTrace"
+          },
+          "type": "array"
         },
         "target": {
           "description": "Per-target-corner reprojection records, pose-major.",

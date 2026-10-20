@@ -736,10 +736,12 @@ pub mod prelude {
 ///   [`PerFeatureResiduals`](analysis::PerFeatureResiduals),
 ///   [`TargetFeatureResidual`](analysis::TargetFeatureResidual),
 ///   [`LaserFeatureResidual`](analysis::LaserFeatureResidual),
+///   [`LaserLineTrace`](analysis::LaserLineTrace),
 ///   [`FeatureResidualHistogram`](analysis::FeatureResidualHistogram),
 ///   `compute_planar_target_residuals{,_views}`, `compute_rig_target_residuals`,
-///   `build_feature_histogram`, `compute_laserline_feature_residuals`,
-///   `compute_rig_laserline_feature_residuals`, and
+///   `build_feature_histogram`, `compute_laserline_feature_residuals` and
+///   `compute_rig_laserline_feature_residuals` (both returning
+///   [`LaserResidualRecords`](analysis::LaserResidualRecords)), and
 ///   `handeye_observer_se3_target` — used across the per-problem `*Export`
 ///   types' `per_feature_residuals` field.
 pub mod analysis {
@@ -747,7 +749,7 @@ pub mod analysis {
 
     // Per-feature residual/histogram types and their computation helpers.
     pub use vision_calibration_core::{
-        FeatureResidualHistogram, LaserFeatureResidual, PerFeatureResiduals,
+        FeatureResidualHistogram, LaserFeatureResidual, LaserLineTrace, PerFeatureResiduals,
         REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, TargetFeatureResidual,
         build_feature_histogram, compute_planar_target_residuals,
         compute_planar_target_residuals_views, compute_rig_target_residuals,
@@ -757,8 +759,8 @@ pub mod analysis {
     // backend: `handeye_observer_se3_target` (used by hand-eye exports) and
     // `compute_*_feature_residuals` (used by laser exports).
     pub use vision_calibration_optim::{
-        compute_laserline_feature_residuals, compute_rig_laserline_feature_residuals,
-        handeye_observer_se3_target,
+        LaserResidualRecords, compute_laserline_feature_residuals,
+        compute_rig_laserline_feature_residuals, handeye_observer_se3_target,
     };
 }
 

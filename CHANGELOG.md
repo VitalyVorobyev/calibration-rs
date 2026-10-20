@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the Levenberg–Marquardt loop always solves with sparse Cholesky. Drop the
   field from struct literals; JSON that still carries `"linear_solver"`
   loads unchanged, and the field is ignored.
+- `LaserFeatureResidual::projected_line_px` is removed. Each view's projected
+  laser line is now `PerFeatureResiduals::laser_lines` (one `LaserLineTrace`
+  per view and camera, a polyline in `points_px`), and
+  `compute_laserline_feature_residuals` /
+  `compute_rig_laserline_feature_residuals` return `LaserResidualRecords`
+  (`features`, `lines`) instead of the record list.
 
 ### Added
 
@@ -183,6 +189,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Laser residuals in pixels are the ones the solve minimizes.**
+  `LaserFeatureResidual::residual_px`, the per-camera laser histograms and
+  the Diagnose laser overlay measured the distance to a straight segment
+  through two points of the laser line taken 12 cm either side of the image
+  centre, far outside the image. Under strong distortion that misplaced the
+  line by tens of pixels. `residual_px` is now the line-distance residual
+  of the laser solve, and the overlay line is a polyline over the extent of
+  the view's laser pixels, which distortion bends.
 - **`detector.min_features_per_view` applies to every topology.** Rig,
   hand-eye and laser manifests drop views below the floor, as planar ones
   do. Set it to a chessboard's corner count to keep only complete boards,

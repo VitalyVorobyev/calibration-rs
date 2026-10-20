@@ -246,7 +246,7 @@ fn project_line_to_normalized_plane<T: RealField>(
     (p0_norm, v_norm)
 }
 
-/// Generic residual for laser plane constraint (line-distance in normalized plane).
+/// Model-generic core of the line-distance laser residual.
 ///
 /// # Parameters
 ///
@@ -258,18 +258,10 @@ fn project_line_to_normalized_plane<T: RealField>(
 /// - `laser_pixel`: [u, v] - Observed laser line pixel
 /// - `w`: Weight
 ///
-/// # Algorithm
-///
-/// 1. Compute 3D intersection line of laser plane and target plane (in camera frame)
-/// 2. Project this line onto normalized camera plane (z=1)
-/// 3. Undistort laser pixel to normalized coordinates
-/// 4. Compute perpendicular distance from normalized pixel to projected line
-/// 5. Scale by sqrt(fx*fy) to get pixel-comparable residual
-///
 /// # Returns
 ///
-/// 1D residual scaled by sqrt(w): [distance_pixels * sqrt(w)]
-/// Model-generic core of the line-distance laser residual.
+/// 1D residual scaled by sqrt(w): [distance_pixels * sqrt(w)], from
+/// [`laser_line_distance`]; a large constant where that is undefined.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn laser_line_dist_core<D: DistortionKernel, S: SensorKernel, T: RealField>(
     intr: DVectorView<'_, T>,
@@ -281,6 +273,41 @@ pub(crate) fn laser_line_dist_core<D: DistortionKernel, S: SensorKernel, T: Real
     laser_pixel: [f64; 2],
     w: f64,
 ) -> SVector<T, 1> {
+    let residual = laser_line_distance::<D, S, T>(
+        intr,
+        dist,
+        sensor,
+        pose,
+        plane_normal,
+        plane_distance,
+        laser_pixel,
+    )
+    .map_or_else(
+        || T::from_f64(1e6).unwrap(),
+        |d| d * T::from_f64(w.sqrt()).unwrap(),
+    );
+    SVector::<T, 1>::new(residual)
+}
+
+/// Distance from a laser pixel to the laser line, in pixels.
+///
+/// 1. Intersect the laser plane with the target plane (camera frame).
+/// 2. Project that 3D line onto the normalized camera plane (z = 1), where it
+///    stays straight.
+/// 3. Undistort the pixel to the same plane.
+/// 4. Take the perpendicular distance, scaled by `sqrt(fx·fy)` to pixels.
+///
+/// `None` when the planes are parallel or the line passes through the
+/// camera centre. Parameters as in [`laser_line_dist_core`].
+pub(crate) fn laser_line_distance<D: DistortionKernel, S: SensorKernel, T: RealField>(
+    intr: DVectorView<'_, T>,
+    dist: Option<DVectorView<'_, T>>,
+    sensor: Option<DVectorView<'_, T>>,
+    pose: DVectorView<'_, T>,
+    plane_normal: DVectorView<'_, T>,
+    plane_distance: DVectorView<'_, T>,
+    laser_pixel: [f64; 2],
+) -> Option<T> {
     debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
     debug_assert!(pose.len() == 7, "pose must have 7 params (SE3)");
     debug_assert!(plane_normal.len() == 3, "plane normal must have 3 params");
@@ -289,24 +316,20 @@ pub(crate) fn laser_line_dist_core<D: DistortionKernel, S: SensorKernel, T: Real
         "plane distance must have 1 param"
     );
 
-    // Extract intrinsics
     let fx = intr[0].clone();
     let fy = intr[1].clone();
 
-    // Extract pose (T_C_T: camera-to-target)
-    let pose_qx = pose[0].clone();
-    let pose_qy = pose[1].clone();
-    let pose_qz = pose[2].clone();
-    let pose_qw = pose[3].clone();
-    let pose_tx = pose[4].clone();
-    let pose_ty = pose[5].clone();
-    let pose_tz = pose[6].clone();
-
-    let pose_quat = Quaternion::new(pose_qw, pose_qx, pose_qy, pose_qz);
+    // Pose (T_C_T: camera-to-target)
+    let pose_quat = Quaternion::new(
+        pose[3].clone(),
+        pose[0].clone(),
+        pose[1].clone(),
+        pose[2].clone(),
+    );
     let pose_rot = UnitQuaternion::from_quaternion(pose_quat);
-    let pose_t = Vector3::new(pose_tx, pose_ty, pose_tz);
+    let pose_t = Vector3::new(pose[4].clone(), pose[5].clone(), pose[6].clone());
 
-    // Extract laser plane in camera frame
+    // Laser plane in camera frame
     let n_c = Vector3::new(
         plane_normal[0].clone(),
         plane_normal[1].clone(),
@@ -314,67 +337,35 @@ pub(crate) fn laser_line_dist_core<D: DistortionKernel, S: SensorKernel, T: Real
     );
     let d_c = plane_distance[0].clone();
 
-    // 1. Compute target plane normal in camera frame
-    // Target plane is Z=0 in target frame, so normal in target frame is [0, 0, 1]
-    // Transform to camera frame: n_target_c = R_C_T * [0, 0, 1] = third column of R
+    // Target plane (z = 0 in the target frame) in the camera frame: its
+    // normal is the third column of R_C_T, its distance -n · t.
     let rot_matrix = pose_rot.to_rotation_matrix();
     let n_target_c = rot_matrix.matrix().column(2).into_owned();
-
-    // Target plane distance in camera frame: d = -n · t
     let d_target_c = -n_target_c.dot(&pose_t);
 
-    // 2. Compute intersection line direction (cross product of normals)
+    // Intersection line direction; parallel planes have none.
     let v_3d = n_c.cross(&n_target_c);
     let v_norm_3d = v_3d.norm();
-
-    // Check for parallel planes (degenerate case)
     let epsilon = T::from_f64(1e-9).unwrap();
     if v_norm_3d < epsilon {
-        // Planes are parallel - return large residual
-        let large_residual = T::from_f64(1e6).unwrap();
-        return SVector::<T, 1>::new(large_residual);
+        return None;
     }
-
     let v_3d_unit = v_3d / v_norm_3d;
 
-    // 3. Find point on intersection line
+    // A point on the line, which must not lie in the camera's z = 0 plane.
     let p0_3d = compute_line_origin(&n_c, &d_c, &n_target_c, &d_target_c, &v_3d_unit);
-
-    // Check if point has valid z coordinate for projection
-    let p0_z_abs = p0_3d.z.clone().abs();
-    if p0_z_abs < epsilon {
-        // Point at or behind camera - return large residual
-        let large_residual = T::from_f64(1e6).unwrap();
-        return SVector::<T, 1>::new(large_residual);
+    if p0_3d.z.clone().abs() < epsilon {
+        return None;
     }
 
-    // 4. Project 3D line onto normalized plane (z=1)
     let (p0_norm, v_norm) = project_line_to_normalized_plane(&p0_3d, &v_3d_unit);
-
-    // 5. Undistort laser pixel to normalized coordinates
     let (x_u, y_u) =
         undistort_pixel_to_normalized_model::<D, S, T>(intr, dist, sensor, laser_pixel);
 
-    // 6. Compute perpendicular distance from pixel to line (2D geometry)
-    // Line: p0_norm + t * v_norm
-    // Point: [x_u, y_u]
-    // Distance = |v_norm × (pixel - p0_norm)| (2D cross product)
-    let to_pixel_x = x_u - p0_norm.x.clone();
-    let to_pixel_y = y_u - p0_norm.y.clone();
-
-    // 2D cross product: det([v_norm, to_pixel]) = v_norm.x * to_pixel.y - v_norm.y * to_pixel.x
-    let cross = v_norm.x.clone() * to_pixel_y - v_norm.y.clone() * to_pixel_x;
-    let dist_normalized = cross.abs();
-
-    // 7. Scale by geometric mean focal length to get pixel-comparable residual
-    let f_geom = (fx * fy).sqrt();
-    let dist_pixels = dist_normalized * f_geom;
-
-    // 8. Apply weight
-    let sqrt_w = T::from_f64(w.sqrt()).unwrap();
-    let residual = dist_pixels * sqrt_w;
-
-    SVector::<T, 1>::new(residual)
+    // |v_norm × (pixel - p0_norm)|, the 2D cross product.
+    let cross =
+        v_norm.x.clone() * (y_u - p0_norm.y.clone()) - v_norm.y.clone() * (x_u - p0_norm.x.clone());
+    Some(cross.abs() * (fx * fy).sqrt())
 }
 
 /// Build `cam_se3_target` from the hand-eye chain for a rig-level laser factor.

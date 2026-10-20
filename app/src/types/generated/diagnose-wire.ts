@@ -793,6 +793,11 @@ export interface PerFeatureResiduals {
    */
   laser_hist_per_camera?: FeatureResidualHistogram[] | null;
   /**
+   * The projected laser line of each (view, camera) with laser pixels,
+   * pose-major.
+   */
+  laser_lines?: LaserLineTrace[];
+  /**
    * Per-target-corner reprojection records, pose-major.
    */
   target?: TargetFeatureResidual[];
@@ -825,22 +830,15 @@ export interface LaserFeatureResidual {
    */
   pose: number;
   /**
-   * Two endpoints `[[x0, y0], [x1, y1]]` of the projected laser line in
-   * image space. Useful for 2D overlays. `None` if the line cannot be
-   * synthesized in this view.
-   *
-   * @minItems 2
-   * @maxItems 2
-   */
-  projected_line_px?: [[number, number], [number, number]] | null;
-  /**
    * Point-to-plane distance in meters between the back-projected ray and
    * the calibrated laser plane. `None` if the ray does not intersect.
    */
   residual_m?: number | null;
   /**
-   * Pixel-domain residual: distance from `observed_px` to the projected
-   * laser line in undistorted pixel space. `None` if unavailable.
+   * Distance from `observed_px` to the projected laser line, in pixels:
+   * the line-distance residual the laser solve minimizes, measured on the
+   * undistorted image plane and scaled by `sqrt(fx·fy)`. `None` if the
+   * laser and target planes have no line in common.
    */
   residual_px?: number | null;
 }
@@ -878,6 +876,24 @@ export interface FeatureResidualHistogram {
    * Mean error (pixels). `0.0` when `count == 0`.
    */
   mean: number;
+}
+/**
+ * The calibrated laser line in one view's image.
+ */
+export interface LaserLineTrace {
+  /**
+   * Camera index. `0` for single-camera problem types.
+   */
+  camera: number;
+  /**
+   * Points of the line in pixels, in order along it, spanning the view's
+   * laser pixels.
+   */
+  points_px: [number, number][];
+  /**
+   * Pose / view index in the input dataset.
+   */
+  pose: number;
 }
 /**
  * Reprojection record for a single target feature in a single view.

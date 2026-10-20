@@ -30,15 +30,15 @@ use crate::Error;
 use crate::backend::BackendSolveOptions;
 use crate::params::laser_plane::LaserPlane;
 use crate::problems::laserline_bundle::{
-    LaserlineMeta, LaserlineParams, LaserlineResidualType, LaserlineSolveOptions, LaserlineStats,
-    LaserlineView, compute_laserline_stats, laser_line_endpoints_px,
-    laser_point_to_plane_residual_m, optimize_laserline, point_line_distance,
+    LaserCameraModel, LaserResidualRecords, LaserlineMeta, LaserlineParams, LaserlineResidualType,
+    LaserlineSolveOptions, LaserlineStats, LaserlineView, compute_laserline_stats,
+    optimize_laserline,
 };
 use crate::uncertainty;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraFixMask, CorrespondenceView, FxFyCxCySkew, Iso3,
-    LaserFeatureResidual, Pinhole, Pt2, Real, ScheimpflugParams, Uncertainty, View,
+    BrownConrady5, CameraFixMask, CorrespondenceView, FxFyCxCySkew, Iso3, Pt2, Real,
+    ScheimpflugParams, Uncertainty, View,
 };
 
 /// Per-view observations for a rig-level laserline calibration.
@@ -186,8 +186,9 @@ impl Default for RigLaserlineSolveOptions {
 ///
 /// Like [`super::laserline_bundle::compute_laserline_feature_residuals`] but
 /// fans out across all cameras of a rig: each (view, cam_idx, pixel_idx)
-/// triple becomes one [`LaserFeatureResidual`] tagged with its triple. None
-/// slots in `dataset.views[v].laser_pixels[c]` produce no records.
+/// triple becomes one record tagged with its triple, and each (view, cam_idx)
+/// with laser pixels one projected line. None slots in
+/// `dataset.views[v].laser_pixels[c]` produce neither.
 ///
 /// `cam_se3_target_per_view_cam[v][c]` is the camera-frame target pose for
 /// view `v`, camera `c`, derived by composing `cam_se3_rig[c] *
@@ -197,7 +198,8 @@ impl Default for RigLaserlineSolveOptions {
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if the per-camera or per-view slice
-/// lengths are inconsistent with the dataset shape.
+/// lengths are inconsistent with the dataset shape, or an intrinsics has
+/// skew.
 pub fn compute_rig_laserline_feature_residuals(
     dataset: &RigLaserlineDataset,
     intrinsics: &[FxFyCxCySkew<Real>],
@@ -206,7 +208,7 @@ pub fn compute_rig_laserline_feature_residuals(
     cam_se3_rig: &[Iso3],
     rig_se3_target: &[Iso3],
     laser_planes_cam: &[LaserPlane],
-) -> Result<Vec<LaserFeatureResidual>, Error> {
+) -> Result<LaserResidualRecords, Error> {
     let n = dataset.num_cameras;
     if intrinsics.len() != n
         || distortion.len() != n
@@ -226,35 +228,23 @@ pub fn compute_rig_laserline_feature_residuals(
         )));
     }
 
-    let cameras: Vec<_> = (0..n)
-        .map(|c| Camera::new(Pinhole, distortion[c], sensors[c].compile(), intrinsics[c]))
-        .collect();
+    let cameras = (0..n)
+        .map(|c| LaserCameraModel::new(&intrinsics[c], &distortion[c], &sensors[c]))
+        .collect::<Result<Vec<_>, Error>>()?;
 
-    let mut out = Vec::new();
+    let mut out = LaserResidualRecords::default();
     for (view_idx, view) in dataset.views.iter().enumerate() {
-        for cam_idx in 0..n {
+        for (cam_idx, camera) in cameras.iter().enumerate() {
             let Some(pixels) = view.laser_pixels.get(cam_idx).and_then(|p| p.as_ref()) else {
                 continue;
             };
-            let cam_se3_target = cam_se3_rig[cam_idx] * rig_se3_target[view_idx];
-            let camera = &cameras[cam_idx];
-            let plane = &laser_planes_cam[cam_idx];
-            let line_endpoints = laser_line_endpoints_px(camera, &cam_se3_target, plane);
-            for (feature_idx, px) in pixels.iter().enumerate() {
-                let residual_m =
-                    laser_point_to_plane_residual_m(camera, &cam_se3_target, plane, px);
-                let residual_px =
-                    line_endpoints.map(|line| point_line_distance([px.x, px.y], line));
-                let mut residual = LaserFeatureResidual::default();
-                residual.pose = view_idx;
-                residual.camera = cam_idx;
-                residual.feature = feature_idx;
-                residual.observed_px = [px.x, px.y];
-                residual.residual_m = residual_m;
-                residual.residual_px = residual_px;
-                residual.projected_line_px = line_endpoints;
-                out.push(residual);
-            }
+            camera.view_residuals(
+                &(cam_se3_rig[cam_idx] * rig_se3_target[view_idx]),
+                &laser_planes_cam[cam_idx],
+                pixels,
+                (view_idx, cam_idx),
+                &mut out,
+            );
         }
     }
     Ok(out)

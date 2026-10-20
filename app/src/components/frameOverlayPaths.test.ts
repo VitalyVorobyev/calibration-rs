@@ -106,26 +106,31 @@ describe("buildResidualArrows", () => {
 });
 
 describe("buildLaserOverlay", () => {
-  it("returns the projected line from the first record that carries it", () => {
-    const out = buildLaserOverlay(
-      [
-        las({ observed_px: [1, 1] }),
-        las({
-          observed_px: [2, 2],
-          projected_line_px: [
-            [0, 10],
-            [100, 12],
-          ],
-        }),
-      ],
-      FRAME,
-      1,
-    );
-    expect(out.line).toBe("M0 10L100 12");
+  it("draws the frame's projected line as a polyline", () => {
+    const lines = [
+      {
+        pose: 1,
+        camera: 1,
+        points_px: [[0, 0] as [number, number], [9, 9] as [number, number]],
+      },
+      {
+        pose: 1,
+        camera: 0,
+        points_px: [
+          [0, 10],
+          [50, 11.5],
+          [100, 12],
+        ] as [number, number][],
+      },
+    ];
+    const out = buildLaserOverlay([las({ observed_px: [2, 2] })], lines, FRAME, 1);
+    expect(out.line).toBe("M0 10L50 11.5L100 12");
   });
 
-  it("has no line when no record carries one", () => {
-    expect(buildLaserOverlay([las({ observed_px: [1, 1] })], FRAME, 1).line).toBeNull();
+  it("has no line when the frame has none", () => {
+    expect(
+      buildLaserOverlay([las({ observed_px: [1, 1] })], [], FRAME, 1).line,
+    ).toBeNull();
   });
 
   it("buckets dots by point-to-plane error in mm; null residuals go to one translucent path", () => {
@@ -138,6 +143,7 @@ describe("buildLaserOverlay", () => {
         las({ observed_px: [5, 5] }),
         las({ observed_px: [6, 6], residual_m: 0, pose: 9 }),
       ],
+      [],
       FRAME,
       1,
     );
