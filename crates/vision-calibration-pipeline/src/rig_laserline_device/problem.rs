@@ -355,6 +355,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
             .map(|cam_idx| {
                 build_feature_histogram(
                     laser
+                        .features
                         .iter()
                         .filter(|r| r.camera == cam_idx)
                         .filter_map(|r| r.residual_px),
@@ -376,7 +377,8 @@ impl ProblemType for RigLaserlineDeviceProblem {
 
         let mut per_feature_residuals = PerFeatureResiduals::default();
         per_feature_residuals.target = target;
-        per_feature_residuals.laser = laser;
+        per_feature_residuals.laser = laser.features;
+        per_feature_residuals.laser_lines = laser.lines;
         per_feature_residuals.target_hist_per_camera = Some(target_hist_per_camera);
         per_feature_residuals.laser_hist_per_camera = Some(laser_hist_per_camera);
         Ok(RigLaserlineDeviceExport {

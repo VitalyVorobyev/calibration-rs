@@ -9,7 +9,9 @@ use crate::Error;
 use crate::backend::SolverBackend;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
-use crate::factors::laserline::{laser_line_dist_core, laser_point_to_plane_core};
+use crate::factors::laserline::{
+    laser_line_dist_core, laser_line_distance, laser_point_to_plane_core,
+};
 use crate::ir::{
     CameraModelDesc, DistortionKind, FactorKind, FixedMask, LaserChain, ManifoldKind, ProblemIR,
     ReprojChain, ResidualBlock, RobustLoss,
@@ -368,30 +370,36 @@ pub fn compute_laserline_stats(
     })
 }
 
+/// Per-pixel laser residual records and per-view projected laser lines.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LaserResidualRecords {
+    /// One record per laser pixel, pose-major.
+    pub features: Vec<vision_calibration_core::LaserFeatureResidual>,
+    /// The projected laser line of each view with laser pixels.
+    pub lines: Vec<vision_calibration_core::LaserLineTrace>,
+}
+
 /// Compute per-pixel laser residual records for every laser observation in the
-/// dataset, indexed pose-major.
+/// dataset, indexed pose-major, and each view's projected laser line.
 ///
-/// For each `(view, laser_pixel)` in the dataset this returns a populated
-/// [`vision_calibration_core::LaserFeatureResidual`] with:
+/// For each `(view, laser_pixel)` in the dataset the record carries:
 /// - `residual_m`: signed point-to-plane distance in meters between the
-///   back-projected ray and the laser plane (`None` when the ray does not
-///   intersect the target plane).
-/// - `residual_px`: distance in image space from the observed pixel to the
-///   projected laser line (`None` when the line cannot be synthesized in
-///   this view).
-/// - `projected_line_px`: two endpoints of the projected laser line in pixel
-///   space (`None` for the same reason).
+///   back-projected ray's target-plane point and the laser plane (`None`
+///   when the ray does not meet the target plane).
+/// - `residual_px`: the line-distance residual the laser solve minimizes
+///   (`None` when the laser and target planes have no line in common).
 ///
 /// Records carry `camera = 0` (single-camera problem). Iteration order: outer
 /// = view, inner = pixel index in `view.meta.laser_pixels`.
 ///
 /// # Errors
 ///
-/// Returns [`Error::InvalidInput`] if `dataset.len() != params.poses.len()`.
+/// Returns [`Error::InvalidInput`] if `dataset.len() != params.poses.len()`
+/// or the intrinsics have skew.
 pub fn compute_laserline_feature_residuals(
     dataset: &LaserlineDataset,
     params: &LaserlineParams,
-) -> Result<Vec<vision_calibration_core::LaserFeatureResidual>, Error> {
+) -> Result<LaserResidualRecords, Error> {
     if dataset.len() != params.poses.len() {
         return Err(Error::invalid_input(format!(
             "dataset has {} views but {} poses",
@@ -400,47 +408,143 @@ pub fn compute_laserline_feature_residuals(
         )));
     }
 
-    let camera = Camera::new(
-        Pinhole,
-        params.distortion,
-        params.sensor.compile(),
-        params.intrinsics,
-    );
-
-    let mut out = Vec::new();
+    let camera = LaserCameraModel::new(&params.intrinsics, &params.distortion, &params.sensor)?;
+    let mut out = LaserResidualRecords::default();
     for (view_idx, view) in dataset.iter().enumerate() {
-        let cam_se3_target = params.poses[view_idx];
-        let line_endpoints = laser_line_endpoints_px(&camera, &cam_se3_target, &params.plane);
-        for (feature_idx, px) in view.meta.laser_pixels.iter().enumerate() {
-            let residual_m =
-                laser_point_to_plane_residual_m(&camera, &cam_se3_target, &params.plane, px);
-            let residual_px = line_endpoints.map(|line| point_line_distance([px.x, px.y], line));
-            let mut residual = vision_calibration_core::LaserFeatureResidual::default();
-            residual.pose = view_idx;
-            residual.camera = 0;
-            residual.feature = feature_idx;
-            residual.observed_px = [px.x, px.y];
-            residual.residual_m = residual_m;
-            residual.residual_px = residual_px;
-            residual.projected_line_px = line_endpoints;
-            out.push(residual);
-        }
+        camera.view_residuals(
+            &params.poses[view_idx],
+            &params.plane,
+            &view.meta.laser_pixels,
+            (view_idx, 0),
+            &mut out,
+        );
     }
     Ok(out)
 }
 
-/// Back-project a laser pixel through the camera, intersect with the target
-/// plane (z=0 in target frame), and return the signed point-to-plane distance
-/// from that intersection to the laser plane (in camera frame, meters).
-///
-/// Returns `None` if the ray is parallel to the target plane or intersects it
-/// behind the camera (negative ray parameter).
-pub(crate) fn laser_point_to_plane_residual_m(
+/// One camera of a laser problem, both as a projection model and as the
+/// packed parameter blocks the laser residual kernels take.
+pub(crate) struct LaserCameraModel {
+    camera: LaserlineCamera,
+    intrinsics: DVector<f64>,
+    distortion: DVector<f64>,
+    sensor: DVector<f64>,
+}
+
+/// Points sampled along a view's projected laser line.
+const LASER_LINE_SAMPLES: usize = 33;
+
+impl LaserCameraModel {
+    pub(crate) fn new(
+        intrinsics: &FxFyCxCySkew<Real>,
+        distortion: &BrownConrady5<Real>,
+        sensor: &ScheimpflugParams,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            camera: Camera::new(Pinhole, *distortion, sensor.compile(), *intrinsics),
+            intrinsics: pack_intrinsics(intrinsics)?,
+            distortion: pack_distortion(distortion),
+            sensor: pack_scheimpflug(sensor),
+        })
+    }
+
+    /// Append the records of one view's laser pixels and its projected laser
+    /// line; `slot` is `(pose, camera)`.
+    pub(crate) fn view_residuals(
+        &self,
+        cam_se3_target: &Iso3,
+        plane: &LaserPlane,
+        pixels: &[Pt2],
+        slot: (usize, usize),
+        out: &mut LaserResidualRecords,
+    ) {
+        let (pose, camera) = slot;
+        let pose_vec = iso3_to_se3_dvec(cam_se3_target);
+        let normal = plane.normal_to_dvec();
+        let distance = plane.distance_to_dvec();
+        let mut points = Vec::with_capacity(pixels.len());
+        for (feature, px) in pixels.iter().enumerate() {
+            let point = target_plane_point(&self.camera, cam_se3_target, px);
+            let mut residual = vision_calibration_core::LaserFeatureResidual::default();
+            residual.pose = pose;
+            residual.camera = camera;
+            residual.feature = feature;
+            residual.observed_px = [px.x, px.y];
+            residual.residual_m = point.map(|p| plane.point_distance(&p));
+            residual.residual_px =
+                laser_line_distance::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
+                    self.intrinsics.as_view(),
+                    Some(self.distortion.as_view()),
+                    Some(self.sensor.as_view()),
+                    pose_vec.as_view(),
+                    normal.as_view(),
+                    distance.as_view(),
+                    [px.x, px.y],
+                );
+            out.features.push(residual);
+            points.extend(point);
+        }
+        if let Some(points_px) = self.laser_line_px(cam_se3_target, plane, &points) {
+            let mut line = vision_calibration_core::LaserLineTrace::default();
+            line.pose = pose;
+            line.camera = camera;
+            line.points_px = points_px;
+            out.lines.push(line);
+        }
+    }
+
+    /// The laser plane's line on the target plane, projected into the image
+    /// and sampled over the extent of `points` (the laser pixels' points on
+    /// the target plane, camera frame). `None` if the planes are parallel or
+    /// fewer than two samples project.
+    fn laser_line_px(
+        &self,
+        cam_se3_target: &Iso3,
+        plane: &LaserPlane,
+        points: &[nalgebra::Point3<f64>],
+    ) -> Option<Vec<[f64; 2]>> {
+        use nalgebra::Vector3;
+
+        let target_normal = cam_se3_target.rotation * Vector3::z_axis().into_inner();
+        let target_d = -target_normal.dot(&cam_se3_target.translation.vector);
+        let laser_normal = plane.normal.into_inner();
+        let direction = laser_normal.cross(&target_normal);
+        if direction.norm() < 1.0e-12 {
+            return None;
+        }
+        let direction = direction.normalize();
+        let origin = line_origin(
+            &laser_normal,
+            plane.distance,
+            &target_normal,
+            target_d,
+            &direction,
+        )?;
+        let (lo, hi) = points
+            .iter()
+            .map(|p| (p.coords - origin).dot(&direction))
+            .fold(None, |range: Option<(f64, f64)>, s| {
+                Some(range.map_or((s, s), |(lo, hi)| (lo.min(s), hi.max(s))))
+            })?;
+        let step = (hi - lo) / (LASER_LINE_SAMPLES - 1) as f64;
+        let points_px: Vec<[f64; 2]> = (0..LASER_LINE_SAMPLES)
+            .filter_map(|i| {
+                let p = nalgebra::Point3::from(origin + direction * (lo + step * i as f64));
+                self.camera.project_point(&p).map(|px| [px.x, px.y])
+            })
+            .collect();
+        (points_px.len() >= 2).then_some(points_px)
+    }
+}
+
+/// Back-project a laser pixel and intersect its ray with the target plane
+/// (z = 0 in the target frame); the point in the camera frame. `None` if the
+/// ray is parallel to the plane or meets it behind the camera.
+fn target_plane_point(
     camera: &LaserlineCamera,
     cam_se3_target: &Iso3,
-    plane: &LaserPlane,
     px: &Pt2,
-) -> Option<f64> {
+) -> Option<nalgebra::Point3<f64>> {
     use nalgebra::Point3;
 
     let ray = camera.backproject_pixel(px);
@@ -455,70 +559,7 @@ pub(crate) fn laser_point_to_plane_residual_m(
     if t < 0.0 {
         return None;
     }
-    let point_target = ray_origin_target + ray_dir_target * t;
-    let point_camera = cam_se3_target.transform_point(&point_target);
-    Some(plane.point_distance(&point_camera))
-}
-
-/// Compute two endpoints of the projected laser line in pixel space, by
-/// intersecting the laser plane with the target plane (in camera frame),
-/// sampling along the resulting 3D line, and projecting through the camera.
-///
-/// Returns `None` if the planes are parallel, no point on the line can be
-/// recovered, or fewer than two of the sampled points project successfully.
-pub(crate) fn laser_line_endpoints_px(
-    camera: &LaserlineCamera,
-    cam_se3_target: &Iso3,
-    plane: &LaserPlane,
-) -> Option<[[f64; 2]; 2]> {
-    use nalgebra::{Point3, Vector3};
-
-    // Target plane in camera frame: normal = R * z_axis, d = -normal · t.
-    let target_normal_c = cam_se3_target.rotation * Vector3::z_axis().into_inner();
-    let target_d_c = -target_normal_c.dot(&cam_se3_target.translation.vector);
-
-    let laser_normal = plane.normal.into_inner();
-    let direction = laser_normal.cross(&target_normal_c);
-    if direction.norm() < 1.0e-12 {
-        return None;
-    }
-    let direction = direction.normalize();
-    let p0 = line_origin(
-        &laser_normal,
-        plane.distance,
-        &target_normal_c,
-        target_d_c,
-        &direction,
-    )?;
-
-    let mut projected = Vec::new();
-    for s in [-0.12, -0.08, -0.04, 0.0, 0.04, 0.08, 0.12] {
-        let p = Point3::from(p0 + direction * s);
-        if let Some(px) = camera.project_point(&p) {
-            projected.push([px.x, px.y]);
-        }
-    }
-    if projected.len() < 2 {
-        return None;
-    }
-    Some([projected[0], *projected.last().expect("len >= 2 checked")])
-}
-
-/// Pixel distance from a 2D point to a 2D line segment (extended to a line).
-pub(crate) fn point_line_distance(point: [f64; 2], line: [[f64; 2]; 2]) -> f64 {
-    let ax = line[0][0];
-    let ay = line[0][1];
-    let bx = line[1][0];
-    let by = line[1][1];
-    let vx = bx - ax;
-    let vy = by - ay;
-    let wx = point[0] - ax;
-    let wy = point[1] - ay;
-    let denom = (vx * vx + vy * vy).sqrt();
-    if denom <= 1.0e-12 {
-        return 0.0;
-    }
-    (vx * wy - vy * wx).abs() / denom
+    Some(cam_se3_target.transform_point(&(ray_origin_target + ray_dir_target * t)))
 }
 
 /// Find a particular point on the line of intersection of two planes
@@ -1005,8 +1046,10 @@ mod tests {
             LaserlineParams::new(intrinsics, distortion, sensor, vec![cam_se3_target], plane)
                 .unwrap();
 
-        let residuals = compute_laserline_feature_residuals(&dataset, &params).unwrap();
+        let records = compute_laserline_feature_residuals(&dataset, &params).unwrap();
+        let residuals = &records.features;
         assert_eq!(residuals.len(), laser_pixels.len());
+        assert_eq!(records.lines.len(), 1);
         for (i, r) in residuals.iter().enumerate() {
             assert_eq!(r.pose, 0);
             assert_eq!(r.camera, 0);
@@ -1016,12 +1059,113 @@ mod tests {
                 res_m.abs() < 1.0e-6,
                 "feature {i} residual_m {res_m} not within 1e-6"
             );
-            let res_px = r.residual_px.expect("line endpoints recoverable");
+            let res_px = r.residual_px.expect("the planes meet in a line");
             assert!(
                 res_px < 1.0e-6,
                 "feature {i} residual_px {res_px} not within 1e-6"
             );
-            assert!(r.projected_line_px.is_some());
+        }
+    }
+
+    /// Distance from `p` to the polyline `line`, pixels.
+    fn polyline_distance(p: [f64; 2], line: &[[f64; 2]]) -> f64 {
+        line.windows(2)
+            .map(|seg| {
+                let (a, b) = (seg[0], seg[1]);
+                let (vx, vy) = (b[0] - a[0], b[1] - a[1]);
+                let t = (((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / (vx * vx + vy * vy))
+                    .clamp(0.0, 1.0);
+                ((p[0] - a[0] - t * vx).powi(2) + (p[1] - a[1] - t * vy).powi(2)).sqrt()
+            })
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    #[test]
+    fn laser_residuals_and_line_follow_a_strongly_distorted_camera() {
+        // A long-focal camera with strong radial distortion and a tilted
+        // sensor, and a horizontal laser line far from the image centre, where
+        // distortion bends it. The pixels are exact projections, so the solver
+        // residual is zero and the projected line passes through every pixel.
+        let intrinsics = FxFyCxCySkew {
+            fx: 2100.0,
+            fy: 2120.0,
+            cx: 360.0,
+            cy: 270.0,
+            skew: 0.0,
+        };
+        let distortion = BrownConrady5 {
+            k1: -0.4,
+            k2: 6.0,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+        let sensor = ScheimpflugParams {
+            tilt_x: -0.06,
+            tilt_y: 0.005,
+        };
+        let cam_se3_target = Iso3::from_parts(
+            nalgebra::Translation3::new(0.0, 0.0, 0.18),
+            nalgebra::UnitQuaternion::from_euler_angles(0.4, 0.05, 0.0),
+        );
+        // A laser plane cutting the target along a line near the image's top.
+        let plane = LaserPlane::new(nalgebra::Vector3::new(0.0, 0.94, -0.34), 0.05);
+        let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
+        let target_normal = cam_se3_target.rotation * nalgebra::Vector3::z();
+        let target_d = -target_normal.dot(&cam_se3_target.translation.vector);
+        let direction = plane.normal.cross(&target_normal).normalize();
+        let origin = line_origin(
+            &plane.normal,
+            plane.distance,
+            &target_normal,
+            target_d,
+            &direction,
+        )
+        .unwrap();
+        let laser_pixels: Vec<Pt2> = (-20..=20)
+            .filter_map(|i| {
+                let p = nalgebra::Point3::from(origin + direction * (i as f64 * 1.5e-3));
+                camera.project_point(&p)
+            })
+            .filter(|px| (0.0..720.0).contains(&px.x) && (0.0..540.0).contains(&px.y))
+            .collect();
+        assert!(
+            laser_pixels.len() > 20,
+            "{} pixels in view",
+            laser_pixels.len()
+        );
+        let rows: Vec<f64> = laser_pixels.iter().map(|p| p.y).collect();
+        let bend = rows.iter().cloned().fold(f64::MIN, f64::max)
+            - rows.iter().cloned().fold(f64::MAX, f64::min);
+        assert!(bend > 1.0, "the line bends {bend} px across the image");
+
+        let target_view = CorrespondenceView::new(
+            vec![Pt3::new(0.0, 0.0, 0.0); 4],
+            vec![Pt2::new(100.0, 100.0); 4],
+        )
+        .unwrap();
+        let dataset = vec![View::new(
+            target_view,
+            LaserlineMeta {
+                laser_pixels: laser_pixels.clone(),
+                laser_weights: Vec::new(),
+            },
+        )];
+        let params =
+            LaserlineParams::new(intrinsics, distortion, sensor, vec![cam_se3_target], plane)
+                .unwrap();
+        let records = compute_laserline_feature_residuals(&dataset, &params).unwrap();
+
+        let line = &records.lines[0].points_px;
+        assert_eq!(line.len(), LASER_LINE_SAMPLES);
+        for r in &records.features {
+            let px = r.residual_px.unwrap();
+            assert!(px < 1e-6, "feature {}: residual {px} px", r.feature);
+            let m = r.residual_m.unwrap();
+            assert!(m.abs() < 1e-9, "feature {}: residual {m} m", r.feature);
+            let off = polyline_distance(r.observed_px, line);
+            assert!(off < 0.01, "feature {}: {off} px off the line", r.feature);
         }
     }
 

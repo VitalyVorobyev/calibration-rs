@@ -239,11 +239,13 @@ impl ProblemType for LaserlineDeviceProblem {
         let target_hist = build_feature_histogram(target.iter().filter_map(|r| r.error_px));
 
         let laser = compute_laserline_feature_residuals(input, params)?;
-        let laser_hist = build_feature_histogram(laser.iter().filter_map(|r| r.residual_px));
+        let laser_hist =
+            build_feature_histogram(laser.features.iter().filter_map(|r| r.residual_px));
 
         let mut per_feature_residuals = PerFeatureResiduals::default();
         per_feature_residuals.target = target;
-        per_feature_residuals.laser = laser;
+        per_feature_residuals.laser = laser.features;
+        per_feature_residuals.laser_lines = laser.lines;
         per_feature_residuals.target_hist_per_camera = Some(vec![target_hist]);
         per_feature_residuals.laser_hist_per_camera = Some(vec![laser_hist]);
         Ok(LaserlineDeviceExport {

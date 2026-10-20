@@ -49,10 +49,17 @@ export interface LaserFeatureResidual {
   /** Point-to-plane distance in meters; null when the back-projected
    * ray does not intersect the target plane. */
   residual_m?: number | null;
-  /** Distance to the projected laser line in undistorted pixel space. */
+  /** Distance to the projected laser line in pixels, as the laser solve
+   * measures it (on the undistorted image plane). */
   residual_px?: number | null;
-  /** Two endpoints of the projected laser line in image space. */
-  projected_line_px?: [[number, number], [number, number]] | null;
+}
+
+/** The calibrated laser line in one view's image: a polyline (distortion
+ * bends it) spanning the view's laser pixels. */
+export interface LaserLineTrace {
+  pose: number;
+  camera: number;
+  points_px: [number, number][];
 }
 
 /** Aggregate residual histogram (fixed [<=1, <=2, <=5, <=10, >10] px buckets). */
@@ -68,6 +75,8 @@ export interface PerFeatureResiduals {
   target: TargetFeatureResidual[];
   /** Per-laser-pixel records; absent/empty on non-laser problem types. */
   laser?: LaserFeatureResidual[];
+  /** One projected laser line per (view, camera) with laser pixels. */
+  laser_lines?: LaserLineTrace[];
   target_hist_per_camera?: FeatureResidualHistogram[] | null;
   laser_hist_per_camera?: FeatureResidualHistogram[] | null;
 }

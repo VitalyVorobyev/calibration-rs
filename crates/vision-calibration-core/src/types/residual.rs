@@ -22,10 +22,17 @@
 //!
 //! - `projected_px = None` and `error_px = None`: projection diverged for this
 //!   feature (point behind camera or distortion fixed-point failed).
-//! - `residual_m = None` / `residual_px = None`: laser ray did not intersect
-//!   the target plane.
-//! - `projected_line_px = None`: the camera could not synthesize endpoints in
-//!   image space.
+//! - `residual_m = None`: the laser pixel's ray does not meet the target
+//!   plane in front of the camera.
+//! - `residual_px = None`: the laser and target planes are parallel in that
+//!   view, so they have no line in common.
+//!
+//! # Laser lines
+//!
+//! `laser_lines` holds, per (view, camera) with laser pixels, the calibrated
+//! laser line projected into the image: the intersection of the laser plane
+//! with the target plane, sampled over the extent of the observed pixels.
+//! Lens distortion bends it, so it is a polyline.
 //!
 //! # Histogram bucket edges
 //!
@@ -78,13 +85,25 @@ pub struct LaserFeatureResidual {
     /// Point-to-plane distance in meters between the back-projected ray and
     /// the calibrated laser plane. `None` if the ray does not intersect.
     pub residual_m: Option<f64>,
-    /// Pixel-domain residual: distance from `observed_px` to the projected
-    /// laser line in undistorted pixel space. `None` if unavailable.
+    /// Distance from `observed_px` to the projected laser line, in pixels:
+    /// the line-distance residual the laser solve minimizes, measured on the
+    /// undistorted image plane and scaled by `sqrt(fx·fy)`. `None` if the
+    /// laser and target planes have no line in common.
     pub residual_px: Option<f64>,
-    /// Two endpoints `[[x0, y0], [x1, y1]]` of the projected laser line in
-    /// image space. Useful for 2D overlays. `None` if the line cannot be
-    /// synthesized in this view.
-    pub projected_line_px: Option<[[f64; 2]; 2]>,
+}
+
+/// The calibrated laser line in one view's image.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct LaserLineTrace {
+    /// Pose / view index in the input dataset.
+    pub pose: usize,
+    /// Camera index. `0` for single-camera problem types.
+    pub camera: usize,
+    /// Points of the line in pixels, in order along it, spanning the view's
+    /// laser pixels.
+    pub points_px: Vec<[f64; 2]>,
 }
 
 /// Aggregate residual histogram for a (set of) reprojection error samples.
@@ -138,6 +157,10 @@ pub struct PerFeatureResiduals {
     /// Per-laser-pixel residual records, pose-major.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub laser: Vec<LaserFeatureResidual>,
+    /// The projected laser line of each (view, camera) with laser pixels,
+    /// pose-major.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub laser_lines: Vec<LaserLineTrace>,
     /// Per-camera target reprojection histogram (length = `num_cameras`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_hist_per_camera: Option<Vec<FeatureResidualHistogram>>,
@@ -169,7 +192,6 @@ mod tests {
         assert_eq!(r.camera, 0);
         assert!(r.residual_m.is_none());
         assert!(r.residual_px.is_none());
-        assert!(r.projected_line_px.is_none());
     }
 
     #[test]
@@ -223,7 +245,11 @@ mod tests {
                 observed_px: [400.0, 200.0],
                 residual_m: Some(0.0001),
                 residual_px: Some(0.5),
-                projected_line_px: Some([[100.0, 200.0], [700.0, 200.5]]),
+            }],
+            laser_lines: vec![LaserLineTrace {
+                pose: 5,
+                camera: 0,
+                points_px: vec![[100.0, 200.0], [400.0, 200.4], [700.0, 200.5]],
             }],
             target_hist_per_camera: Some(vec![FeatureResidualHistogram {
                 bucket_edges_px: REPROJECTION_HISTOGRAM_EDGES_PX,

@@ -207,9 +207,9 @@ pub use crate::problems::laserline_rig_bundle::{
 };
 
 pub use crate::problems::laserline_bundle::{
-    LaserlineDataset, LaserlineEstimate, LaserlineMeta, LaserlineParams, LaserlineResidualType,
-    LaserlineSolveOptions, LaserlineStats, LaserlineView, compute_laserline_feature_residuals,
-    compute_laserline_stats, optimize_laserline,
+    LaserResidualRecords, LaserlineDataset, LaserlineEstimate, LaserlineMeta, LaserlineParams,
+    LaserlineResidualType, LaserlineSolveOptions, LaserlineStats, LaserlineView,
+    compute_laserline_feature_residuals, compute_laserline_stats, optimize_laserline,
 };
 
 pub use crate::problems::rig_handeye_laserline_bundle::{

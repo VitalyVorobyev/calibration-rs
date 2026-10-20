@@ -21,6 +21,7 @@ import {
 import type {
   FrameKey,
   LaserFeatureResidual,
+  LaserLineTrace,
   TargetFeatureResidual,
   ViewportTransform,
 } from "../types";
@@ -33,16 +34,23 @@ import {
   STROKE_PX,
 } from "./frameOverlayPaths";
 
+/** The laser layer of a laser-kind frame: the export's per-pixel laser
+ * residuals and its projected laser lines. */
+export interface LaserOverlayData {
+  residuals: LaserFeatureResidual[];
+  lines: LaserLineTrace[];
+}
+
 interface FrameCanvasProps {
   frame: FrameKey;
   /** Target residuals for the loaded export; filtered down to
    * `frame.{pose, camera}` before drawing. */
   residuals: TargetFeatureResidual[];
-  /** Laser residuals to plot instead of target arrows — pass them when
-   * `frame` is a laser-kind frame (with `residuals={[]}`). Observed
-   * pixels are colored by point-to-plane distance; the projected laser
-   * line is drawn from the first record that carries endpoints. */
-  laserResiduals?: LaserFeatureResidual[] | undefined;
+  /** Laser residuals and projected laser lines to plot instead of target
+   * arrows — pass them when `frame` is a laser-kind frame (with
+   * `residuals={[]}`). Observed pixels are colored by point-to-plane
+   * distance; the frame's projected laser line is drawn through them. */
+  laser?: LaserOverlayData | undefined;
   /** Decoded image element. `null` while loading. */
   image: HTMLImageElement | null;
   /** Controlled transform. When provided (`null` included: "open at fit,
@@ -102,11 +110,11 @@ function StageBridge({ ctxRef }: { ctxRef: RefObject<StageContext | null> }) {
 function ResidualLayer({
   frame,
   residuals,
-  laserResiduals,
+  laser,
 }: {
   frame: FrameKey;
   residuals: TargetFeatureResidual[];
-  laserResiduals: LaserFeatureResidual[] | undefined;
+  laser: LaserOverlayData | undefined;
 }) {
   const { image } = useStage();
   const unit = useScreenPx()(1);
@@ -115,10 +123,12 @@ function ResidualLayer({
     () => buildResidualArrows(residuals, { pose, camera }, unit),
     [residuals, pose, camera, unit],
   );
-  const laser = useMemo(
+  const laserPaths = useMemo(
     () =>
-      laserResiduals ? buildLaserOverlay(laserResiduals, { pose, camera }, unit) : null,
-    [laserResiduals, pose, camera, unit],
+      laser
+        ? buildLaserOverlay(laser.residuals, laser.lines, { pose, camera }, unit)
+        : null,
+    [laser, pose, camera, unit],
   );
   const stroke = STROKE_PX * unit;
   return (
@@ -131,18 +141,20 @@ function ResidualLayer({
         <path key={a.color} d={a.d} fill="none" stroke={a.color} strokeWidth={stroke} />
       ))}
       {arrows.dots && <path d={arrows.dots} fill={OBSERVED_DOT_FILL} />}
-      {laser?.line && (
+      {laserPaths?.line && (
         <path
-          d={laser.line}
+          d={laserPaths.line}
           fill="none"
           stroke={LASER_LINE_STROKE}
           strokeWidth={stroke}
         />
       )}
-      {laser?.dots.map((d) => (
+      {laserPaths?.dots.map((d) => (
         <path key={d.color} d={d.d} fill={d.color} />
       ))}
-      {laser?.unresolved && <path d={laser.unresolved} fill={LASER_UNRESOLVED_FILL} />}
+      {laserPaths?.unresolved && (
+        <path d={laserPaths.unresolved} fill={LASER_UNRESOLVED_FILL} />
+      )}
     </svg>
   );
 }
@@ -150,7 +162,7 @@ function ResidualLayer({
 export function FrameCanvas({
   frame,
   residuals,
-  laserResiduals,
+  laser,
   image,
   transform: controlled,
   onTransformChange,
@@ -265,11 +277,7 @@ export function FrameCanvas({
           />
         </div>
       </div>
-      <ResidualLayer
-        frame={frame}
-        residuals={residuals}
-        laserResiduals={laserResiduals}
-      />
+      <ResidualLayer frame={frame} residuals={residuals} laser={laser} />
       {children}
     </ImageStage>
   );

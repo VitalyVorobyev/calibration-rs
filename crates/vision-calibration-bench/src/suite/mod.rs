@@ -147,6 +147,7 @@ pub fn calibrate_entry(
     if let Some(Value::Object(residuals)) = export.get_mut("per_feature_residuals") {
         residuals.remove("target");
         residuals.remove("laser");
+        residuals.remove("laser_lines");
     }
     Ok(export)
 }

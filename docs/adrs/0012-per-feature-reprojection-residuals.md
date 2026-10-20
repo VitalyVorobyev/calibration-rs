@@ -31,8 +31,12 @@ pub struct LaserFeatureResidual {
     pub pose: usize, pub camera: usize, pub feature: usize,
     pub observed_px: [f64; 2],
     pub residual_m: Option<f64>,
-    pub residual_px: Option<f64>,
-    pub projected_line_px: Option<[[f64; 2]; 2]>,
+    pub residual_px: Option<f64>,  // the solver's line distance, px
+}
+
+pub struct LaserLineTrace {
+    pub pose: usize, pub camera: usize,
+    pub points_px: Vec<[f64; 2]>,  // polyline over the view's laser pixels
 }
 
 pub struct FeatureResidualHistogram {
@@ -44,6 +48,7 @@ pub struct FeatureResidualHistogram {
 pub struct PerFeatureResiduals {
     pub target: Vec<TargetFeatureResidual>,
     pub laser: Vec<LaserFeatureResidual>,
+    pub laser_lines: Vec<LaserLineTrace>,
     pub target_hist_per_camera: Option<Vec<FeatureResidualHistogram>>,
     pub laser_hist_per_camera: Option<Vec<FeatureResidualHistogram>>,
 }
@@ -61,8 +66,13 @@ pub struct PerFeatureResiduals {
 
 - `projected_px` and `error_px` are `None` when projection diverges (point behind camera,
   distortion inversion fails).
-- `residual_m` and `residual_px` are `None` when the laser ray does not intersect the target plane;
-  `projected_line_px` is `None` when the line endpoints cannot be synthesized in image space.
+- `residual_m` is `None` when the laser ray does not meet the target plane; `residual_px` is
+  `None` when the laser and target planes have no line in common.
+- `residual_px` is the line-distance residual the laser solve minimizes (undistorted image plane,
+  scaled by `sqrt(fx·fy)`), computed by the same kernel, so the diagnostic and the cost agree.
+- The projected laser line is stored once per (view, camera) in `laser_lines`, as a polyline over
+  the extent of the view's laser pixels: distortion bends it, and a two-point segment through far
+  samples misplaces it by pixels under strong distortion.
 - `PerFeatureResiduals` is always `Default`-constructible; an empty `Vec` means "no observations
   of this flavor for this problem type" (e.g. `PlanarIntrinsicsExport` has no laser records).
 - The per-camera histograms are `Option`; when `Some`, length equals `num_cameras`.

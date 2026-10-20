@@ -1,7 +1,11 @@
 import { DensityProvider, ErrorBox, Panel, ToggleChip } from "@vitavision/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CompareViewer, type CompareViewerHandle } from "../../components/CompareViewer";
-import { FrameCanvas, type FrameCanvasHandle } from "../../components/FrameCanvas";
+import {
+  FrameCanvas,
+  type FrameCanvasHandle,
+  type LaserOverlayData,
+} from "../../components/FrameCanvas";
 import { colorForError, colorForLaserError } from "../../lib/errorColors";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
 import { ZoomControls } from "../../components/ZoomControls";
@@ -74,6 +78,13 @@ export function DiagnoseWorkspace() {
   const laserResiduals = useMemo<LaserFeatureResidual[]>(
     () => data?.per_feature_residuals.laser ?? [],
     [data],
+  );
+  const laserOverlay = useMemo<LaserOverlayData>(
+    () => ({
+      residuals: laserResiduals,
+      lines: data?.per_feature_residuals.laser_lines ?? [],
+    }),
+    [data, laserResiduals],
   );
   const hasLaser = laserFrames.length > 0 || laserResiduals.length > 0;
 
@@ -347,7 +358,7 @@ export function DiagnoseWorkspace() {
               residuals={
                 showLaser ? NO_TARGET_RESIDUALS : data.per_feature_residuals.target
               }
-              laserResiduals={showLaser ? laserResiduals : undefined}
+              laser={showLaser ? laserOverlay : undefined}
               image={imageData?.image ?? null}
               onCursor={handleCursor}
               onError={setError}
