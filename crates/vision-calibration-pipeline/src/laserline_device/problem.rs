@@ -58,7 +58,9 @@ pub struct LaserlineDeviceConfig {
 pub struct LaserlineDeviceOptimizeConfig {
     /// Robust loss for calibration reprojection residuals.
     pub calib_loss: vision_calibration_optim::RobustLoss,
-    /// Robust loss for laser residuals.
+    /// Robust loss for laser residuals. Its scale is in the residual's unit:
+    /// pixels for the line distance (the default residual), meters for
+    /// point-to-plane.
     pub laser_loss: vision_calibration_optim::RobustLoss,
     /// Global weight for calibration residuals.
     pub calib_weight: f64,
@@ -83,7 +85,7 @@ impl Default for LaserlineDeviceOptimizeConfig {
     fn default() -> Self {
         Self {
             calib_loss: vision_calibration_optim::RobustLoss::Huber { scale: 1.0 },
-            laser_loss: vision_calibration_optim::RobustLoss::Huber { scale: 0.01 },
+            laser_loss: vision_calibration_optim::RobustLoss::Huber { scale: 1.0 },
             calib_weight: 1.0,
             laser_weight: 1.0,
             fix_camera: CameraFixMask::default(),

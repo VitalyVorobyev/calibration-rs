@@ -11,18 +11,12 @@ and the projection uncertainty it implies, validated against Monte-Carlo
 scatter. Design: ADR 0026; evidence: `notes/uncertainty.md`. What is left
 changes results, so each needs its measurement first.
 
-- [ ] UQ-LASER-LOSS - The laser loss defaults (`LaserlineSolveOptions`,
-  `LaserlineDeviceOptimizeConfig`, Python) are `Huber { scale: 0.01 }`, a
-  scale chosen for the point-to-plane residual in metres, while the default
-  residual is the line distance in pixels: at 0.01 px the fit is almost L1.
-  On the laserline Monte-Carlo scene that costs efficiency (σ of `plane.d`
-  1.58e-4 against 1.45e-4 at 1 px) and calibration (predicted σ 11 % high,
-  from the noisy density estimate an L1 covariance needs). Make the default
-  scale follow the residual's unit (1 px for the line distance), measure on
-  real laser data, migration note. The frozen synthetic laser entries,
-  solved with the default, sit further from their truth than their σ
-  allows: `synth_laserline` Σz² = 29.6 over 12 parameters (rank 11),
-  `synth_rig_handeye_laserline` `cam1.cam_se3_rig.rx` at +4.5σ.
+- [ ] UQ-JOINT-LASER-TRUTH - `synth_rig_handeye_laserline`, the joint rig
+  hand-eye laserline solve (no robust loss), lands `cam1.cam_se3_rig.rx`
+  4.5σ from its truth, where the other synthetic entries stay within 2.2σ.
+  Find the cause (model mismatch between the line-distance residual and the
+  generator's pixel noise, family weighting, or a σ that misses a
+  correlation) before trusting the joint covariance.
 - [ ] UQ-PRIOR-WEIGHTS - Robot-pose refinement weighs pixel residuals at
   unit σ against the priors' `sqrt_info`, so with sub-pixel corners the
   priors are far too weak: on `kuka_1` (σ̂ 0.11 px) the robot-pose deltas

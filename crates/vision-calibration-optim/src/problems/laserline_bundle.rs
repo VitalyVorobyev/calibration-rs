@@ -186,7 +186,8 @@ pub struct LaserlineSolveOptions {
     pub calib_loss: RobustLoss,
     /// Global weight multiplier for calibration reprojection residuals.
     pub calib_weight: f64,
-    /// Robust loss applied to laser plane residuals
+    /// Robust loss applied to laser residuals. Its scale is in the residual's
+    /// unit: pixels for the line distance, meters for point-to-plane.
     pub laser_loss: RobustLoss,
     /// Global weight multiplier for laser plane residuals.
     pub laser_weight: f64,
@@ -213,7 +214,9 @@ impl Default for LaserlineSolveOptions {
         Self {
             calib_loss: RobustLoss::Huber { scale: 1.0 },
             calib_weight: 1.0,
-            laser_loss: RobustLoss::Huber { scale: 0.01 }, // Smaller scale for plane residuals
+            // 1 px, as for the corners: the default residual is the line
+            // distance in pixels.
+            laser_loss: RobustLoss::Huber { scale: 1.0 },
             laser_weight: 1.0,
             fix_camera: CameraFixMask::default(), // intrinsics free, k3 fixed
             fix_sensor: true,

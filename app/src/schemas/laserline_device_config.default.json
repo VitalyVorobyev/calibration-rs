@@ -32,7 +32,7 @@
     "fix_sensor": true,
     "laser_loss": {
       "Huber": {
-        "scale": 0.01
+        "scale": 1.0
       }
     },
     "laser_residual_type": "LineDistNormalized",
