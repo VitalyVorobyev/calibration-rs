@@ -5,8 +5,9 @@
 
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
+use crate::ir::SensorKind;
 use crate::ir::{
-    CameraModelDesc, DistortionKind, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
+    CameraModelSpec, DistortionKind, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
@@ -198,7 +199,10 @@ fn build_rig_extrinsics_ir(
                         ],
                         loss: opts.robust_loss,
                         factor: FactorKind::ReprojPoint {
-                            model: CameraModelDesc::PINHOLE4_DIST5,
+                            model: CameraModelSpec::pinhole(
+                                DistortionKind::BrownConrady5,
+                                SensorKind::Identity,
+                            ),
                             chain: ReprojChain::TwoSe3,
                             pw: [pw.x, pw.y, pw.z],
                             uv: [uv.x, uv.y],

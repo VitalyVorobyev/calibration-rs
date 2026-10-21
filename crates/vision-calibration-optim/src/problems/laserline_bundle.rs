@@ -8,13 +8,13 @@ use crate::Error;
 #[cfg(test)]
 use crate::backend::SolverBackend;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
-use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
+use crate::factors::camera_blocks::CameraBlocks;
 use crate::factors::laserline::{
     laser_line_dist_core, laser_line_distance, laser_point_to_plane_core,
 };
 use crate::ir::{
-    CameraModelDesc, DistortionKind, FactorKind, FixedMask, LaserChain, ManifoldKind, ProblemIR,
-    ReprojChain, ResidualBlock, RobustLoss,
+    CameraModelSpec, DistortionKind, FactorKind, FixedMask, LaserChain, ManifoldKind, ProblemIR,
+    ReprojChain, ResidualBlock, RobustLoss, SensorKind,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
@@ -28,6 +28,11 @@ use vision_calibration_core::{
     BrownConrady5, Camera, CameraFixMask, FxFyCxCy, Iso3, Pinhole, Pt2, Real, ScheimpflugParams,
     Uncertainty, View,
 };
+
+/// The laserline device camera: Brown-Conrady distortion and a
+/// Scheimpflug sensor (a straight sensor is zero tilt).
+const LASER_CAMERA: CameraModelSpec =
+    CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
 
 /// Metadata for a laserline view (laser pixels + optional weights).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -317,30 +322,34 @@ pub fn compute_laserline_stats(
         let mut view_laser_count = 0usize;
         for laser_pixel in &view.meta.laser_pixels {
             let residual = match residual_type {
-                LaserlineResidualType::PointToPlane => {
-                    laser_point_to_plane_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-                        intr_vec.as_view(),
-                        Some(dist_vec.as_view()),
-                        Some(sensor_vec.as_view()),
-                        pose_vec.as_view(),
-                        plane_normal.as_view(),
-                        plane_distance.as_view(),
-                        [laser_pixel.x, laser_pixel.y],
-                        1.0,
-                    )[0]
-                }
-                LaserlineResidualType::LineDistNormalized => {
-                    laser_line_dist_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-                        intr_vec.as_view(),
-                        Some(dist_vec.as_view()),
-                        Some(sensor_vec.as_view()),
-                        pose_vec.as_view(),
-                        plane_normal.as_view(),
-                        plane_distance.as_view(),
-                        [laser_pixel.x, laser_pixel.y],
-                        1.0,
-                    )[0]
-                }
+                LaserlineResidualType::PointToPlane => laser_point_to_plane_core(
+                    &CameraBlocks::new(
+                        LASER_CAMERA,
+                        intr_vec.as_slice(),
+                        &[],
+                        dist_vec.as_slice(),
+                        sensor_vec.as_slice(),
+                    ),
+                    pose_vec.as_view(),
+                    plane_normal.as_view(),
+                    plane_distance.as_view(),
+                    [laser_pixel.x, laser_pixel.y],
+                    1.0,
+                )[0],
+                LaserlineResidualType::LineDistNormalized => laser_line_dist_core(
+                    &CameraBlocks::new(
+                        LASER_CAMERA,
+                        intr_vec.as_slice(),
+                        &[],
+                        dist_vec.as_slice(),
+                        sensor_vec.as_slice(),
+                    ),
+                    pose_vec.as_view(),
+                    plane_normal.as_view(),
+                    plane_distance.as_view(),
+                    [laser_pixel.x, laser_pixel.y],
+                    1.0,
+                )[0],
             };
             view_laser_sum += residual.abs();
             view_laser_count += 1;
@@ -473,16 +482,19 @@ impl LaserCameraModel {
             residual.feature = feature;
             residual.observed_px = [px.x, px.y];
             residual.residual_m = point.map(|p| plane.point_distance(&p));
-            residual.residual_px =
-                laser_line_distance::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-                    self.intrinsics.as_view(),
-                    Some(self.distortion.as_view()),
-                    Some(self.sensor.as_view()),
-                    pose_vec.as_view(),
-                    normal.as_view(),
-                    distance.as_view(),
-                    [px.x, px.y],
-                );
+            residual.residual_px = laser_line_distance(
+                &CameraBlocks::new(
+                    LASER_CAMERA,
+                    self.intrinsics.as_slice(),
+                    &[],
+                    self.distortion.as_slice(),
+                    self.sensor.as_slice(),
+                ),
+                pose_vec.as_view(),
+                normal.as_view(),
+                distance.as_view(),
+                [px.x, px.y],
+            );
             out.features.push(residual);
             points.extend(point);
         }
@@ -822,7 +834,10 @@ fn build_laserline_ir(
                 params: vec![intrinsics_id, distortion_id, sensor_id, pose_id],
                 loss: opts.calib_loss,
                 factor: FactorKind::ReprojPoint {
-                    model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                    model: CameraModelSpec::pinhole(
+                        DistortionKind::BrownConrady5,
+                        SensorKind::Scheimpflug,
+                    ),
                     chain: ReprojChain::SinglePose,
                     pw: [pt_3d.x, pt_3d.y, pt_3d.z],
                     uv: [pt_2d.x, pt_2d.y],
@@ -839,13 +854,19 @@ fn build_laserline_ir(
             // Select factor type based on options
             let factor = match opts.laser_residual_type {
                 LaserlineResidualType::PointToPlane => FactorKind::LaserPointToPlane {
-                    model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                    model: CameraModelSpec::pinhole(
+                        DistortionKind::BrownConrady5,
+                        SensorKind::Scheimpflug,
+                    ),
                     chain: LaserChain::SinglePose,
                     laser_pixel: [laser_pixel.x, laser_pixel.y],
                     w,
                 },
                 LaserlineResidualType::LineDistNormalized => FactorKind::LaserLineDistance {
-                    model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                    model: CameraModelSpec::pinhole(
+                        DistortionKind::BrownConrady5,
+                        SensorKind::Scheimpflug,
+                    ),
                     chain: LaserChain::SinglePose,
                     laser_pixel: [laser_pixel.x, laser_pixel.y],
                     w,

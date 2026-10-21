@@ -1,7 +1,7 @@
 //! Backend-independent reprojection residual models.
 
-use crate::factors::camera_kernels::{DistortionKernel, ProjectionKernel, SensorKernel};
-use crate::ir::ReprojChain;
+use crate::factors::camera_blocks::CameraBlocks;
+use crate::ir::{CameraModelSpec, ReprojChain};
 use nalgebra::{
     DVector, DVectorView, Matrix3, Quaternion, RealField, SVector, UnitQuaternion, Vector3,
 };
@@ -170,67 +170,22 @@ fn handeye_chain_transform<T: RealField>(
     }
 }
 
-/// Number of camera blocks at the head of a factor's block list:
-/// intrinsics, then distortion and sensor when their kernels have a block.
-pub(crate) const fn camera_block_count<D: DistortionKernel, S: SensorKernel>() -> usize {
-    1 + (D::DIM > 0) as usize + (S::DIM > 0) as usize
-}
-
-/// Pixel of a camera-frame point, generic over the camera-model kernels.
+/// Reprojection residual of a camera model and pose chain.
 ///
-/// `camera` is `[intrinsics, distortion?, sensor?]`, the optional blocks
-/// present exactly when the corresponding kernel dimension is non-zero.
-pub(crate) fn project_camera_point_generic<P, D, S, T>(
-    camera: &[DVector<T>],
-    p_camera: &Vector3<T>,
-) -> (T, T)
-where
-    P: ProjectionKernel,
-    D: DistortionKernel,
-    S: SensorKernel,
-    T: RealField,
-{
-    let mut idx = 1;
-    let dist = (D::DIM > 0).then(|| {
-        let v = camera[idx].as_view();
-        idx += 1;
-        v
-    });
-    let sensor = (S::DIM > 0).then(|| camera[idx].as_view());
-
-    let (x_norm, y_norm) = P::normalize(p_camera);
-    let (x_dist, y_dist) = D::distort(dist, x_norm, y_norm);
-    let (x_sensor, y_sensor) = S::to_sensor(sensor, x_dist, y_dist);
-
-    let intr = &camera[0];
-    debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
-    (
-        intr[0].clone() * x_sensor + intr[2].clone(),
-        intr[1].clone() * y_sensor + intr[3].clone(),
-    )
-}
-
-/// Reprojection residual generic over the camera-model kernels and pose chain.
-///
-/// `params` is the full IR-ordered block list: `[intrinsics, distortion?,
-/// sensor?, <chain blocks>]`, with the optional blocks present exactly when
-/// the corresponding kernel dimension is non-zero.
-pub(crate) fn reproj_residual_model_generic<P, D, S, T>(
+/// `params` is the full IR-ordered block list: the camera blocks of `model`
+/// (`[intrinsics, projection?, distortion?, sensor?]`) followed by the
+/// chain blocks.
+pub(crate) fn reproj_residual<T: RealField>(
+    model: CameraModelSpec,
     chain: &ReprojChain,
     params: &[DVector<T>],
     pw: [f64; 3],
     uv: [f64; 2],
     w: f64,
-) -> SVector<T, 2>
-where
-    P: ProjectionKernel,
-    D: DistortionKernel,
-    S: SensorKernel,
-    T: RealField,
-{
-    let (camera, chain_blocks) = params.split_at(camera_block_count::<D, S>());
+) -> SVector<T, 2> {
+    let (camera, chain_blocks) = CameraBlocks::split(model, params);
     let p_camera = reproj_chain_transform(chain, chain_blocks, pw);
-    let (u_proj, v_proj) = project_camera_point_generic::<P, D, S, T>(camera, &p_camera);
+    let (u_proj, v_proj) = camera.project(&p_camera);
 
     let sqrt_w = T::from_f64(w.sqrt()).unwrap();
     let u_meas = T::from_f64(uv[0]).unwrap();
@@ -244,11 +199,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::factors::camera_kernels::{
-        BrownConrady5Kernel, DivisionKernel, IdentitySensorKernel, NoDistortionKernel,
-        PinholeKernel, RationalKernel, Scheimpflug2Kernel, ThinPrismKernel,
-    };
     use crate::ir::HandEyeMode;
+    use crate::ir::{DistortionKind, SensorKind};
     use nalgebra::DVector;
 
     fn fixture_blocks() -> (DVector<f64>, DVector<f64>, Vec<DVector<f64>>) {
@@ -268,31 +220,23 @@ mod tests {
 
     #[test]
     fn distortion_changes_projection() {
-        let intr = DVector::from_row_slice(&[800.0, 800.0, 640.0, 360.0]);
+        let intr = DVector::from_row_slice(&[800.0_f64, 800.0, 640.0, 360.0]);
         let dist_zero = DVector::from_row_slice(&[0.0, 0.0, 0.0, 0.0, 0.0]);
         let dist_barrel = DVector::from_row_slice(&[-0.3, 0.1, 0.0, 0.0, 0.0]);
         let pose = DVector::from_row_slice(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0]);
         let pw = [0.5, 0.5, 1.0];
         let uv = [1000.0, 700.0];
 
-        let r1 = reproj_residual_model_generic::<
-            PinholeKernel,
-            BrownConrady5Kernel,
-            IdentitySensorKernel,
-            f64,
-        >(
+        let r1 = reproj_residual(
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
             &ReprojChain::SinglePose,
             &[intr.clone(), dist_zero, pose.clone()],
             pw,
             uv,
             1.0,
         );
-        let r2 = reproj_residual_model_generic::<
-            PinholeKernel,
-            BrownConrady5Kernel,
-            IdentitySensorKernel,
-            f64,
-        >(
+        let r2 = reproj_residual(
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
             &ReprojChain::SinglePose,
             &[intr, dist_barrel, pose],
             pw,
@@ -313,24 +257,16 @@ mod tests {
         let dist_zero = DVector::from_row_slice(&[0.0; 5]);
         let pose = &poses[0];
 
-        let r_nodist = reproj_residual_model_generic::<
-            PinholeKernel,
-            NoDistortionKernel,
-            IdentitySensorKernel,
-            f64,
-        >(
+        let r_nodist = reproj_residual(
+            CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity),
             &ReprojChain::SinglePose,
             &[intr.clone(), pose.clone()],
             PW,
             UV,
             W,
         );
-        let r_zerodist = reproj_residual_model_generic::<
-            PinholeKernel,
-            BrownConrady5Kernel,
-            IdentitySensorKernel,
-            f64,
-        >(
+        let r_zerodist = reproj_residual(
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
             &ReprojChain::SinglePose,
             &[intr, dist_zero, pose.clone()],
             PW,
@@ -350,24 +286,16 @@ mod tests {
         let dist_zero = DVector::from_row_slice(&[0.0; 8]);
         let pose = &poses[0];
 
-        let r_nodist = reproj_residual_model_generic::<
-            PinholeKernel,
-            NoDistortionKernel,
-            IdentitySensorKernel,
-            f64,
-        >(
+        let r_nodist = reproj_residual(
+            CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity),
             &ReprojChain::SinglePose,
             &[intr.clone(), pose.clone()],
             PW,
             UV,
             W,
         );
-        let r_zerodist = reproj_residual_model_generic::<
-            PinholeKernel,
-            RationalKernel,
-            IdentitySensorKernel,
-            f64,
-        >(
+        let r_zerodist = reproj_residual(
+            CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Identity),
             &ReprojChain::SinglePose,
             &[intr, dist_zero, pose.clone()],
             PW,
@@ -387,24 +315,16 @@ mod tests {
         let dist_zero = DVector::from_row_slice(&[0.0; 9]);
         let pose = &poses[0];
 
-        let r_nodist = reproj_residual_model_generic::<
-            PinholeKernel,
-            NoDistortionKernel,
-            IdentitySensorKernel,
-            f64,
-        >(
+        let r_nodist = reproj_residual(
+            CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity),
             &ReprojChain::SinglePose,
             &[intr.clone(), pose.clone()],
             PW,
             UV,
             W,
         );
-        let r_zerodist = reproj_residual_model_generic::<
-            PinholeKernel,
-            ThinPrismKernel,
-            IdentitySensorKernel,
-            f64,
-        >(
+        let r_zerodist = reproj_residual(
+            CameraModelSpec::pinhole(DistortionKind::ThinPrism9, SensorKind::Identity),
             &ReprojChain::SinglePose,
             &[intr, dist_zero, pose.clone()],
             PW,
@@ -424,24 +344,16 @@ mod tests {
         let dist_zero = DVector::from_row_slice(&[0.0_f64]);
         let pose = &poses[0];
 
-        let r_nodist = reproj_residual_model_generic::<
-            PinholeKernel,
-            NoDistortionKernel,
-            IdentitySensorKernel,
-            f64,
-        >(
+        let r_nodist = reproj_residual(
+            CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity),
             &ReprojChain::SinglePose,
             &[intr.clone(), pose.clone()],
             PW,
             UV,
             W,
         );
-        let r_zerodist = reproj_residual_model_generic::<
-            PinholeKernel,
-            DivisionKernel,
-            IdentitySensorKernel,
-            f64,
-        >(
+        let r_zerodist = reproj_residual(
+            CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Identity),
             &ReprojChain::SinglePose,
             &[intr, dist_zero, pose.clone()],
             PW,
@@ -497,18 +409,22 @@ mod tests {
             let mut params_sch = vec![intr.clone(), dist.clone(), sensor_zero.clone()];
             params_sch.extend(chain_blocks.iter().cloned());
 
-            let r_pin = reproj_residual_model_generic::<
-                PinholeKernel,
-                BrownConrady5Kernel,
-                IdentitySensorKernel,
-                f64,
-            >(&chain, &params_pin, PW, UV, W);
-            let r_sch = reproj_residual_model_generic::<
-                PinholeKernel,
-                BrownConrady5Kernel,
-                Scheimpflug2Kernel,
-                f64,
-            >(&chain, &params_sch, PW, UV, W);
+            let r_pin = reproj_residual(
+                CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
+                &chain,
+                &params_pin,
+                PW,
+                UV,
+                W,
+            );
+            let r_sch = reproj_residual(
+                CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug),
+                &chain,
+                &params_sch,
+                PW,
+                UV,
+                W,
+            );
             assert!(
                 (r_pin[0] - r_sch[0]).abs() < 1e-10 && (r_pin[1] - r_sch[1]).abs() < 1e-10,
                 "zero-tilt mismatch for {chain:?}: pin={r_pin:?} sch={r_sch:?}"
@@ -525,12 +441,8 @@ mod tests {
         let zero_delta = DVector::from_element(6, 0.0);
 
         for mode in [HandEyeMode::EyeInHand, HandEyeMode::EyeToHand] {
-            let r_he = reproj_residual_model_generic::<
-                PinholeKernel,
-                BrownConrady5Kernel,
-                IdentitySensorKernel,
-                f64,
-            >(
+            let r_he = reproj_residual(
+                CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
                 &ReprojChain::HandEye {
                     base_se3_gripper: robot_se3,
                     mode,
@@ -546,12 +458,8 @@ mod tests {
                 UV,
                 W,
             );
-            let r_delta = reproj_residual_model_generic::<
-                PinholeKernel,
-                BrownConrady5Kernel,
-                IdentitySensorKernel,
-                f64,
-            >(
+            let r_delta = reproj_residual(
+                CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
                 &ReprojChain::HandEyeRobotDelta {
                     base_se3_gripper: robot_se3,
                     mode,

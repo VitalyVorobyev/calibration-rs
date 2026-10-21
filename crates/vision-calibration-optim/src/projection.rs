@@ -24,9 +24,8 @@ use vision_calibration_core::{
 };
 
 use crate::Error;
-use crate::factors::camera_kernels::{DistortionKernel, ProjectionKernel, SensorKernel};
-use crate::factors::reprojection_model::project_camera_point_generic;
-use crate::ir::{CameraModelDesc, ProjectionKind, SensorKind};
+use crate::factors::camera_blocks::CameraBlocks;
+use crate::ir::{CameraModelSpec, ProjectionKind, SensorKind};
 use crate::params::distortion::{distortion_kind, pack_distortion_params};
 use crate::params::intrinsics::pack_intrinsics;
 use crate::uncertainty::{INTRINSICS_LABELS, SENSOR_LABELS};
@@ -155,7 +154,7 @@ fn major_axis_sigma(c: &Matrix2<f64>) -> f64 {
 /// A camera's parameters as one vector `θ`, in the solver's block order:
 /// intrinsics, distortion, sensor.
 struct CameraVector {
-    model: CameraModelDesc,
+    model: CameraModelSpec,
     theta: DVector<f64>,
     labels: Vec<&'static str>,
 }
@@ -166,9 +165,9 @@ impl CameraVector {
         let k = camera.intrinsics;
         let distortion = distortion_kind(&camera.distortion);
         let (sensor, tilt) = match &camera.sensor {
-            SensorParams::Identity => (SensorKind::None, Vec::new()),
+            SensorParams::Identity => (SensorKind::Identity, Vec::new()),
             SensorParams::Scheimpflug { params } => {
-                (SensorKind::Scheimpflug2, vec![params.tilt_x, params.tilt_y])
+                (SensorKind::Scheimpflug, vec![params.tilt_x, params.tilt_y])
             }
             SensorParams::Homography { .. } => {
                 return Err(Error::invalid_input(
@@ -195,7 +194,7 @@ impl CameraVector {
             .copied()
             .collect();
         Ok(Self {
-            model: CameraModelDesc {
+            model: CameraModelSpec {
                 projection: ProjectionKind::Pinhole,
                 distortion,
                 sensor,
@@ -245,32 +244,23 @@ impl CameraVector {
     /// `∂q/∂θ` at the ray through `pixel`, found by Newton steps from
     /// `guess` on the `z = 1` plane; `None` when the steps do not reach it.
     fn jacobian(&self, pixel: Vector2<f64>, guess: Vector2<f64>) -> Option<OMatrix<f64, U2, Dyn>> {
-        macro_rules! mk {
-            ($P:ty, $D:ty, $S:ty) => {
-                node_jacobian::<$P, $D, $S>(&self.theta, pixel, guess)
-            };
-        }
-        crate::backend::dispatch_camera_model!(self.model, mk)
+        node_jacobian(self.model, &self.theta, pixel, guess)
     }
 }
 
-fn node_jacobian<P, D, S>(
+fn node_jacobian(
+    model: CameraModelSpec,
     theta: &DVector<f64>,
     pixel: Vector2<f64>,
     guess: Vector2<f64>,
-) -> Option<OMatrix<f64, U2, Dyn>>
-where
-    P: ProjectionKernel,
-    D: DistortionKernel,
-    S: SensorKernel,
-{
+) -> Option<OMatrix<f64, U2, Dyn>> {
     let n = theta.len();
     // Variables: θ, then the ray's point (x, y) on the z = 1 plane.
     let mut x = theta.clone().resize_vertically(n + 2, 0.0);
     x[n] = guess.x;
     x[n + 1] = guess.y;
     for _ in 0..MAX_NEWTON_STEPS {
-        let (q, j) = jacobian(|v: DVector<DualDVec64>| project::<P, D, S>(&v, n), &x);
+        let (q, j) = jacobian(|v: DVector<DualDVec64>| project(model, &v, n), &x);
         let miss = pixel - q;
         if !miss.iter().all(|v| v.is_finite()) {
             return None;
@@ -285,23 +275,18 @@ where
     None
 }
 
-/// The pixel of the ray `(v[n], v[n + 1], 1)` for camera parameters `v[..n]`.
-fn project<P, D, S>(v: &DVector<DualDVec64>, n: usize) -> SVector<DualDVec64, 2>
-where
-    P: ProjectionKernel,
-    D: DistortionKernel,
-    S: SensorKernel,
-{
-    let mut camera = vec![v.rows(0, 4).into_owned()];
-    if D::DIM > 0 {
-        camera.push(v.rows(4, D::DIM).into_owned());
-    }
-    if S::DIM > 0 {
-        camera.push(v.rows(4 + D::DIM, S::DIM).into_owned());
-    }
+/// The pixel of the ray `(v[n], v[n + 1], 1)` for camera parameters `v[..n]`
+/// (`[intrinsics, projection, distortion, sensor]`, concatenated).
+fn project(model: CameraModelSpec, v: &DVector<DualDVec64>, n: usize) -> SVector<DualDVec64, 2> {
+    let all = v.as_slice();
+    let (intrinsics, rest) = all.split_at(4);
+    let (projection, rest) = rest.split_at(model.projection.dim());
+    let (distortion, rest) = rest.split_at(model.distortion.dim());
+    let sensor = &rest[..model.sensor.dim()];
+    let camera = CameraBlocks::new(model, intrinsics, projection, distortion, sensor);
     let one = DualDVec64::from_re(1.0);
     let ray = Vector3::new(v[n].clone(), v[n + 1].clone(), one);
-    let (u, w) = project_camera_point_generic::<P, D, S, DualDVec64>(&camera, &ray);
+    let (u, w) = camera.project(&ray);
     SVector::<DualDVec64, 2>::new(u, w)
 }
 

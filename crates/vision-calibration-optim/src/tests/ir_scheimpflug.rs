@@ -7,9 +7,10 @@
 
 use crate::backend::{self, BackendSolveOptions, SolverBackend};
 use crate::ir::{
-    CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
+    CameraModelSpec, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
     RobustLoss,
 };
+use crate::ir::{DistortionKind, SensorKind};
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
@@ -163,7 +164,10 @@ fn scheimpflug_case(engine: SolverBackend) {
 
         for (pw, uv) in points_3d.iter().zip(points_2d.iter()) {
             let factor = FactorKind::ReprojPoint {
-                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                model: CameraModelSpec::pinhole(
+                    DistortionKind::BrownConrady5,
+                    SensorKind::Scheimpflug,
+                ),
                 chain: ReprojChain::SinglePose,
                 pw: [pw.x, pw.y, pw.z],
                 uv: [uv.x, uv.y],
