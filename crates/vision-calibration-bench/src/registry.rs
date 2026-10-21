@@ -7,7 +7,10 @@
 //! surrounding entry, never inside the spec.
 //!
 //! Enums are `#[serde(rename_all = "snake_case")]` and most optional fields
-//! carry `#[serde(default)]` so a registry written in TOML stays terse.
+//! carry `#[serde(default)]` so a registry written in TOML stays terse. Every
+//! struct rejects unknown fields, so a renamed config key fails to load
+//! instead of being silently ignored; only [`DetectorOverride`] keeps
+//! free-form detector keys.
 //!
 //! # No `PartialEq`
 //!
@@ -33,6 +36,7 @@ use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
 
 /// Top-level benchmark registry: the full set of datasets the harness knows.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BenchRegistry {
     /// All registered datasets.
     #[serde(default)]
@@ -66,6 +70,7 @@ pub fn load_registry(path: &Path) -> anyhow::Result<BenchRegistry> {
 
 /// A single dataset registered with the benchmark harness.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BenchEntry {
     /// Stable identifier for this dataset.
     pub id: String,
@@ -242,6 +247,7 @@ pub enum SpecRef {
 
 /// Layout of a single camera within a dataset.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CameraLayout {
     /// Camera identifier.
     pub id: String,
@@ -279,6 +285,7 @@ pub struct DetectorOverride {
 
 /// Laser configuration for laserline problems.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LaserConfig {
     /// Laser extraction method.
     pub method: String,
@@ -291,6 +298,7 @@ pub struct LaserConfig {
 
 /// Calibration board geometry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BoardGeometry {
     /// Number of rows of features.
     pub rows: usize,
@@ -322,6 +330,7 @@ fn is_false(value: &bool) -> bool {
 
 /// Source of robot poses for hand-eye problems.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PoseSource {
     /// Path to the pose file.
     pub path: PathBuf,
@@ -348,6 +357,7 @@ pub struct ManualInitSeed(pub serde_json::Value);
 
 /// Shared hand-eye bundle-adjustment overrides.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct HandeyeBaOverride {
     /// Enable/disable per-view robot pose refinement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -369,6 +379,7 @@ pub struct HandeyeBaOverride {
 
 /// Single-camera hand-eye config overrides.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SingleCamHandeyeOverride {
     /// Camera model and fix lists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -389,6 +400,7 @@ pub struct SingleCamHandeyeOverride {
 
 /// Rig hand-eye config overrides.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct RigHandeyeOverride {
     /// Camera model and fix lists of every camera.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -560,6 +572,7 @@ fn apply_rig_ba(ba: &HandeyeBaOverride, config: &mut RigHandeyeConfig) {
 
 /// Stability-sampling configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StabilityCfg {
     /// Number of resampled runs.
     pub n_runs: usize,
@@ -581,6 +594,7 @@ impl Default for StabilityCfg {
 
 /// Cross-validation configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CrossvalCfg {
     /// Number of folds.
     pub folds: usize,
