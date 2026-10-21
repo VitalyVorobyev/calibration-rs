@@ -152,11 +152,11 @@ variant + kernel + one dispatch row; no new factor kinds.
 |-------|-------------|-----------|
 | `SinglePose` | [pose] | $P_c = T \cdot P_w$ |
 | `TwoSe3` | [extrinsics, pose] | $P_c = T_{extr}^{-1} T_{pose} P_w$ |
-| `HandEye { base_se3_gripper, mode }` | [extrinsics, handeye, target] | mode-dependent hand-eye chain |
-| `HandEyeRobotDelta { … }` | [extrinsics, handeye, target, robot_delta] | hand-eye + per-view se(3) correction |
+| `Handeye { base_se3_gripper, mode }` | [extrinsics, handeye, target] | mode-dependent hand-eye chain |
+| `HandeyeRobotDelta { … }` | [extrinsics, handeye, target, robot_delta] | hand-eye + per-view se(3) correction |
 
 `LaserChain` mirrors this for the laser families (`SinglePose`,
-`RigHandEye`, `RigHandEyeRobotDelta`); every laser chain ends with the
+`RigHandeye`, `RigHandeyeRobotDelta`); every laser chain ends with the
 `plane_normal` (S², dim 3) and `plane_distance` (dim 1) blocks, with
 `robot_delta` last when present.
 

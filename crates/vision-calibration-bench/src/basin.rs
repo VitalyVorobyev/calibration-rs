@@ -31,7 +31,7 @@ mod tier_b {
     use std::path::PathBuf;
 
     use anyhow::{Context, Result};
-    use vision_calibration::planar_intrinsics::PlanarManualInit;
+    use vision_calibration::planar_intrinsics::IntrinsicsManualInit;
     use vision_calibration_core::{PlanarDataset, ReprojectionStats};
 
     use crate::registry::{AcceptGate, BenchEntry};
@@ -73,7 +73,7 @@ mod tier_b {
         /// always populates `intrinsics` and `sensor` (ADR 0011: both are
         /// load-bearing), so the `if let Some` guards are defensive, not
         /// load-bearing themselves.
-        fn apply(&self, seed: &PlanarManualInit) -> PlanarManualInit {
+        fn apply(&self, seed: &IntrinsicsManualInit) -> IntrinsicsManualInit {
             let mut out = seed.clone();
             match *self {
                 Cell::Baseline => {}
@@ -125,7 +125,7 @@ mod tier_b {
     fn cell_passes(
         dataset: &PlanarDataset,
         cell: Cell,
-        seed: &PlanarManualInit,
+        seed: &IntrinsicsManualInit,
         gate: AcceptGate,
         label: &str,
     ) -> bool {

@@ -11,10 +11,10 @@ use vision_calibration_core::{
     compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
-    HandEyeEstimate, HandEyeMode, RobotPoseMeta, handeye_observer_se3_target,
+    HandeyeEstimate, HandeyeMode, RobotPoseMeta, handeye_observer_se3_target,
 };
 #[cfg(test)]
-use vision_calibration_optim::{HandEyeParams, RobustLoss, SolveReport};
+use vision_calibration_optim::{HandeyeParams, RobustLoss, SolveReport};
 
 use crate::common::ExportKind;
 use crate::common::config::{
@@ -60,7 +60,7 @@ pub struct RigHandeyeConfig {
     pub intrinsics: IntrinsicsInitConfig,
     /// Optional manual seeds for the per-camera intrinsics stage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub manual_init: Option<RigHandeyeIntrinsicsManualInit>,
+    pub manual_init: Option<IntrinsicsManualInit>,
     /// The camera model of every rig camera and the parameters its solves
     /// hold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a
     /// multi-start tilt sweep; seed its tilt through `manual_init`.
@@ -77,7 +77,7 @@ pub struct RigHandeyeConfig {
     /// Non-linear solve stage settings.
     pub solver: SolverConfig,
     /// Final hand-eye bundle-adjustment options.
-    pub handeye_ba: HandeyeBaConfig,
+    pub handeye_optimize: HandeyeOptimizeConfig,
 }
 
 impl RigHandeyeConfig {
@@ -88,7 +88,7 @@ impl RigHandeyeConfig {
 }
 
 /// Manual seeds for the **per-camera intrinsics stage** of rig hand-eye
-/// calibration. See `rig_extrinsics::RigIntrinsicsManualInit` for semantics.
+/// calibration. See `rig_extrinsics::IntrinsicsManualInit` for semantics.
 ///
 /// `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor
 /// (a seeded tilt skips the tilt sweep); a camera with an untilted sensor
@@ -96,7 +96,7 @@ impl RigHandeyeConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
-pub struct RigHandeyeIntrinsicsManualInit {
+pub struct IntrinsicsManualInit {
     /// Per-camera intrinsics seeds. `None` runs Zhang's method per camera.
     pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
     /// Per-camera distortion seeds.
@@ -113,7 +113,7 @@ pub struct RigHandeyeIntrinsicsManualInit {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
-pub struct HandeyeBaConfig {
+pub struct HandeyeOptimizeConfig {
     /// Robot-pose refinement settings for the final hand-eye BA.
     pub robot_poses: RobotPoseConfig,
     /// Refine cam_se3_rig in hand-eye BA (default: false).
@@ -163,7 +163,7 @@ pub struct RigHandeyeExport {
     pub rig_se3_target: Vec<Iso3>,
 
     /// Hand-eye mode used to interpret mode-dependent transforms.
-    pub handeye_mode: HandEyeMode,
+    pub handeye_mode: HandeyeMode,
 
     /// Eye-in-hand: gripper-to-rig transform `gripper_se3_rig` (T_G_R).
     ///
@@ -268,7 +268,7 @@ pub struct RigHandeyeExport {
 ///
 /// step_intrinsics_init_all(&mut session, None)?;
 /// step_intrinsics_optimize_all(&mut session, None)?;
-/// step_rig_init(&mut session)?;
+/// step_rig_init(&mut session, None)?;
 /// step_rig_optimize(&mut session, None)?;
 /// step_handeye_init(&mut session, None)?;
 /// step_handeye_optimize(&mut session, None)?;
@@ -287,7 +287,7 @@ impl ProblemState for RigHandeyeProblem {
 impl ProblemType for RigHandeyeProblem {
     type Config = RigHandeyeConfig;
     type Input = RigHandeyeInput;
-    type Output = HandEyeEstimate;
+    type Output = HandeyeEstimate;
     type Export = RigHandeyeExport;
 
     fn name() -> &'static str {
@@ -341,9 +341,9 @@ impl ProblemType for RigHandeyeProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.intrinsics.init_iterations == 0 {
+        if config.intrinsics.iterations == 0 {
             return Err(Error::invalid_input(
-                "intrinsics_init_iterations must be positive",
+                "intrinsics.iterations must be positive",
             ));
         }
         if config.handeye_init.min_motion_angle_deg <= 0.0 {
@@ -351,7 +351,7 @@ impl ProblemType for RigHandeyeProblem {
                 "min_motion_angle_deg must be positive",
             ));
         }
-        config.handeye_ba.robot_poses.validate()?;
+        config.handeye_optimize.robot_poses.validate()?;
         validate_rig_cameras(&config.camera, &config.camera_overrides)
     }
 
@@ -390,8 +390,8 @@ impl ProblemType for RigHandeyeProblem {
         let mode = config.handeye_init.handeye_mode;
         let handeye = params.handeye;
         let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) = match mode {
-            HandEyeMode::EyeInHand => (Some(handeye), None, Some(target_pose), None),
-            HandEyeMode::EyeToHand => (None, Some(handeye), None, Some(target_pose)),
+            HandeyeMode::EyeInHand => (Some(handeye), None, Some(target_pose), None),
+            HandeyeMode::EyeToHand => (None, Some(handeye), None, Some(target_pose)),
         };
 
         // Per-feature residuals: derive rig_se3_target per view from the
@@ -554,19 +554,19 @@ mod tests {
             },
             rig: RigConfig {
                 reference_camera_idx: 1,
-                refine_intrinsics_in_rig_ba: true,
+                refine_intrinsics: true,
                 refine_sensor: false,
             },
             handeye_init: HandeyeInitConfig {
-                handeye_mode: HandEyeMode::EyeToHand,
+                handeye_mode: HandeyeMode::EyeToHand,
                 ..HandeyeInitConfig::default()
             },
-            handeye_ba: HandeyeBaConfig {
+            handeye_optimize: HandeyeOptimizeConfig {
                 robot_poses: RobotPoseConfig {
                     refine: false,
                     ..RobotPoseConfig::default()
                 },
-                ..HandeyeBaConfig::default()
+                ..HandeyeOptimizeConfig::default()
             },
             ..Default::default()
         };
@@ -576,16 +576,16 @@ mod tests {
 
         assert_eq!(restored.solver.max_iters, 100);
         assert_eq!(restored.rig.reference_camera_idx, 1);
-        assert!(restored.rig.refine_intrinsics_in_rig_ba);
-        assert!(!restored.handeye_ba.robot_poses.refine);
+        assert!(restored.rig.refine_intrinsics);
+        assert!(!restored.handeye_optimize.robot_poses.refine);
     }
 
     #[test]
-    fn final_handeye_ba_defaults_keep_intrinsics_and_rig_fixed() {
+    fn final_handeye_optimize_defaults_keep_intrinsics_and_rig_fixed() {
         let config = RigHandeyeConfig::default();
-        assert!(!config.rig.refine_intrinsics_in_rig_ba);
-        assert!(!config.handeye_ba.refine_cam_se3_rig);
-        assert!(!config.handeye_ba.refine_sensor);
+        assert!(!config.rig.refine_intrinsics);
+        assert!(!config.handeye_optimize.refine_cam_se3_rig);
+        assert!(!config.handeye_optimize.refine_sensor);
         assert!(!config.rig.refine_sensor);
     }
 
@@ -595,7 +595,7 @@ mod tests {
         assert_eq!(RigHandeyeProblem::schema_version(), 1);
     }
 
-    fn make_dummy_output() -> HandEyeEstimate {
+    fn make_dummy_output() -> HandeyeEstimate {
         let camera = vision_calibration_core::make_pinhole_camera(
             vision_calibration_core::FxFyCxCy {
                 fx: 800.0,
@@ -606,8 +606,8 @@ mod tests {
             vision_calibration_core::BrownConrady5::default(),
         );
 
-        HandEyeEstimate {
-            params: HandEyeParams {
+        HandeyeEstimate {
+            params: HandeyeParams {
                 cameras: vec![vision_calibration_core::pinhole_camera_params(&camera)],
                 cam_to_rig: vec![Iso3::identity()],
                 handeye: Iso3::identity(),
@@ -629,7 +629,7 @@ mod tests {
         let output = make_dummy_output();
         let config = RigHandeyeConfig {
             handeye_init: HandeyeInitConfig {
-                handeye_mode: HandEyeMode::EyeInHand,
+                handeye_mode: HandeyeMode::EyeInHand,
                 ..HandeyeInitConfig::default()
             },
             ..Default::default()
@@ -651,7 +651,7 @@ mod tests {
         let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
         let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
 
-        assert!(matches!(export.handeye_mode, HandEyeMode::EyeInHand));
+        assert!(matches!(export.handeye_mode, HandeyeMode::EyeInHand));
         assert!(export.gripper_se3_rig.is_some());
         assert!(export.base_se3_target.is_some());
         assert!(export.rig_se3_base.is_none());
@@ -668,7 +668,7 @@ mod tests {
         let output = make_dummy_output();
         let config = RigHandeyeConfig {
             handeye_init: HandeyeInitConfig {
-                handeye_mode: HandEyeMode::EyeToHand,
+                handeye_mode: HandeyeMode::EyeToHand,
                 ..HandeyeInitConfig::default()
             },
             ..Default::default()
@@ -690,7 +690,7 @@ mod tests {
         let dummy_input = RigDataset::new(vec![dummy_view], 1).unwrap();
         let export = RigHandeyeProblem::export(&dummy_input, &output, &config).unwrap();
 
-        assert!(matches!(export.handeye_mode, HandEyeMode::EyeToHand));
+        assert!(matches!(export.handeye_mode, HandeyeMode::EyeToHand));
         assert!(export.rig_se3_base.is_some());
         assert!(export.gripper_se3_target.is_some());
         assert!(export.gripper_se3_rig.is_none());

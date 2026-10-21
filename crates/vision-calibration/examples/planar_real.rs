@@ -21,7 +21,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use vision_calibration::core::Uncertainty;
 use vision_calibration::planar_intrinsics::{
-    FilterOptions, run_calibration_with_filtering, step_init, step_optimize,
+    IntrinsicsFilterOptions, run_calibration_with_filtering, step_init, step_optimize,
 };
 use vision_calibration::prelude::*;
 
@@ -129,11 +129,11 @@ fn main() -> Result<()> {
     let mut session2 = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session2.set_input(dataset2)?;
 
-    let mut filter_opts = FilterOptions::default();
+    let mut filter_opts = IntrinsicsFilterOptions::default();
     filter_opts.max_reproj_error = 1.0; // Stricter threshold
     filter_opts.min_points_per_view = 10;
     filter_opts.remove_sparse_views = true;
-    run_calibration_with_filtering(&mut session2, filter_opts)?;
+    run_calibration_with_filtering(&mut session2, Some(filter_opts))?;
 
     let export2 = session2.export()?;
     println!(

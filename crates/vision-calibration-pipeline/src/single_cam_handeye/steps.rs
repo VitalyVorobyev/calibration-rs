@@ -35,7 +35,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use vision_calibration_optim::{
-    BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
+    BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
     PlanarIntrinsicsParams, RobotPoseMeta, optimize_handeye,
 };
 
@@ -60,7 +60,7 @@ pub use crate::common::{
 /// as plain `step_intrinsics_init`); `Some` means use the provided value. The
 /// seeds are values in the configured camera model.
 ///
-/// Partial-seed semantics mirror `PlanarManualInit`: when `intrinsics` is seeded
+/// Partial-seed semantics mirror `IntrinsicsManualInit`: when `intrinsics` is seeded
 /// but `target_poses` is `None`, poses are recovered from per-view homographies
 /// using the manual intrinsics. When intrinsics are seeded and distortion is not,
 /// distortion starts at zero. A distortion seed holds Brown-Conrady
@@ -69,7 +69,7 @@ pub use crate::common::{
 /// an untilted camera takes only a zero tilt.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct SingleCamIntrinsicsManualInit {
+pub struct IntrinsicsManualInit {
     /// Manual intrinsics seed.
     pub intrinsics: Option<FxFyCxCy<Real>>,
     /// Manual Brown-Conrady distortion seed.
@@ -84,13 +84,13 @@ pub struct SingleCamIntrinsicsManualInit {
 /// hand-eye calibration.
 ///
 /// Fields are mode-dependent — see `session.config.handeye_mode`:
-/// - `HandEyeMode::EyeInHand` consumes `gripper_se3_camera` and `base_se3_target`.
-/// - `HandEyeMode::EyeToHand` consumes `camera_se3_base` and `gripper_se3_target`.
+/// - `HandeyeMode::EyeInHand` consumes `gripper_se3_camera` and `base_se3_target`.
+/// - `HandeyeMode::EyeToHand` consumes `camera_se3_base` and `gripper_se3_target`.
 ///
 /// Fields irrelevant to the active mode are ignored.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct SingleCamHandeyeManualInit {
+pub struct HandeyeManualInit {
     /// (EyeInHand) Camera mounted on gripper: `T_G_C`.
     pub gripper_se3_camera: Option<Iso3>,
     /// (EyeInHand) Target attached in base frame: `T_B_T`.
@@ -125,7 +125,7 @@ fn input_to_planar_dataset(input: &SingleCamHandeyeInput) -> Result<PlanarDatase
 /// directly without unwrapping `Option` fields.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct SingleCamIntrinsicsInitResult {
+pub struct IntrinsicsInitResult {
     /// Initial camera estimate, in the configured model.
     pub camera: CameraParams,
     /// Per-view initial target poses (`camera_se3_target`).
@@ -135,7 +135,7 @@ pub struct SingleCamIntrinsicsInitResult {
 /// Typed return value of [`step_intrinsics_optimize`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct SingleCamIntrinsicsOptimizeResult {
+pub struct IntrinsicsOptimizeResult {
     /// Refined camera, in the configured model.
     pub camera: CameraParams,
     /// Refined per-view target poses (`camera_se3_target`).
@@ -153,7 +153,7 @@ pub struct SingleCamIntrinsicsOptimizeResult {
 ///   `EyeInHand` fields are `None`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct SingleCamHandeyeInitResult {
+pub struct HandeyeInitResult {
     /// (EyeInHand) Hand-eye transform `T_G_C` — gripper-from-camera.
     pub gripper_se3_camera: Option<Iso3>,
     /// (EyeInHand) Fixed target pose `T_B_T` — base-from-target.
@@ -167,7 +167,7 @@ pub struct SingleCamHandeyeInitResult {
 /// Typed return value of [`step_handeye_optimize`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct SingleCamHandeyeOptimizeResult {
+pub struct HandeyeOptimizeResult {
     /// Mean reprojection error in pixels after hand-eye BA.
     pub mean_reproj_error: f64,
     /// Final solver cost from the hand-eye BA.
@@ -182,11 +182,11 @@ pub struct SingleCamHandeyeOptimizeResult {
 /// manual seeds and auto-estimation.
 ///
 /// This is the load-bearing intrinsics-stage init. [`step_intrinsics_init`] is a
-/// thin delegate with `SingleCamIntrinsicsManualInit::default()`.
+/// thin delegate with `IntrinsicsManualInit::default()`.
 ///
 /// The camera's model is `session.config.camera.model`: Zhang's method, or for a
 /// Scheimpflug sensor its tilted variant with a linear tilt sweep. See
-/// [`SingleCamIntrinsicsManualInit`] for partial-seed semantics.
+/// [`IntrinsicsManualInit`] for partial-seed semantics.
 ///
 /// # Errors
 ///
@@ -195,9 +195,9 @@ pub struct SingleCamHandeyeOptimizeResult {
 /// - The linear initialization fails.
 pub fn step_intrinsics_init_with_seed(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
-    manual: SingleCamIntrinsicsManualInit,
+    manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<SingleCamIntrinsicsInitResult, Error> {
+) -> Result<IntrinsicsInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
     let view_count = input.views.len();
@@ -273,7 +273,7 @@ pub fn step_intrinsics_init_with_seed(
         ),
     );
 
-    Ok(SingleCamIntrinsicsInitResult {
+    Ok(IntrinsicsInitResult {
         camera,
         target_poses: initial_poses,
     })
@@ -285,8 +285,8 @@ pub fn step_intrinsics_init_with_seed(
 pub fn step_intrinsics_init(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<SingleCamIntrinsicsInitResult, Error> {
-    step_intrinsics_init_with_seed(session, SingleCamIntrinsicsManualInit::default(), opts)
+) -> Result<IntrinsicsInitResult, Error> {
+    step_intrinsics_init_with_seed(session, IntrinsicsManualInit::default(), opts)
 }
 
 /// Optimize intrinsics using non-linear least squares.
@@ -303,7 +303,7 @@ pub fn step_intrinsics_init(
 pub fn step_intrinsics_optimize(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<SingleCamIntrinsicsOptimizeResult, Error> {
+) -> Result<IntrinsicsOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -376,7 +376,7 @@ pub fn step_intrinsics_optimize(
         ),
     );
 
-    Ok(SingleCamIntrinsicsOptimizeResult {
+    Ok(IntrinsicsOptimizeResult {
         camera,
         target_poses,
         mean_reproj_error,
@@ -387,7 +387,7 @@ pub fn step_intrinsics_optimize(
 /// auto-estimation (Tsai-Lenz DLT).
 ///
 /// This is the load-bearing handeye-stage init. [`step_handeye_init`] is a thin
-/// delegate with `SingleCamHandeyeManualInit::default()`.
+/// delegate with `HandeyeManualInit::default()`.
 ///
 /// Mode-aware behavior — `session.config.handeye_mode` selects which seed fields
 /// are consumed:
@@ -404,9 +404,9 @@ pub fn step_intrinsics_optimize(
 /// - DLT auto-init fails (when not seeded).
 pub fn step_handeye_init_with_seed(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
-    manual: SingleCamHandeyeManualInit,
+    manual: HandeyeManualInit,
     opts: Option<HandeyeInitOptions>,
-) -> Result<SingleCamHandeyeInitResult, Error> {
+) -> Result<HandeyeInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -443,7 +443,7 @@ pub fn step_handeye_init_with_seed(
     let mut auto_fields: Vec<&'static str> = Vec::new();
 
     let (log_pose, log_label, result) = match config.handeye_init.handeye_mode {
-        HandEyeMode::EyeInHand => {
+        HandeyeMode::EyeInHand => {
             let gripper_se3_camera = match manual.gripper_se3_camera {
                 Some(t) => {
                     manual_fields.push("gripper_se3_camera");
@@ -478,7 +478,7 @@ pub fn step_handeye_init_with_seed(
             (
                 gripper_se3_camera,
                 "gripper_se3_camera",
-                SingleCamHandeyeInitResult {
+                HandeyeInitResult {
                     gripper_se3_camera: Some(gripper_se3_camera),
                     base_se3_target: Some(base_se3_target),
                     camera_se3_base: None,
@@ -486,7 +486,7 @@ pub fn step_handeye_init_with_seed(
                 },
             )
         }
-        HandEyeMode::EyeToHand => {
+        HandeyeMode::EyeToHand => {
             let gripper_se3_target = match manual.gripper_se3_target {
                 Some(t) => {
                     manual_fields.push("gripper_se3_target");
@@ -522,7 +522,7 @@ pub fn step_handeye_init_with_seed(
             (
                 camera_se3_base,
                 "camera_se3_base",
-                SingleCamHandeyeInitResult {
+                HandeyeInitResult {
                     gripper_se3_camera: None,
                     base_se3_target: None,
                     camera_se3_base: Some(camera_se3_base),
@@ -552,8 +552,8 @@ pub fn step_handeye_init_with_seed(
 pub fn step_handeye_init(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<HandeyeInitOptions>,
-) -> Result<SingleCamHandeyeInitResult, Error> {
-    step_handeye_init_with_seed(session, SingleCamHandeyeManualInit::default(), opts)
+) -> Result<HandeyeInitResult, Error> {
+    step_handeye_init_with_seed(session, HandeyeManualInit::default(), opts)
 }
 
 /// Optimize hand-eye calibration using bundle adjustment.
@@ -574,7 +574,7 @@ pub fn step_handeye_init(
 pub fn step_handeye_optimize(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
     opts: Option<HandeyeOptimizeOptions>,
-) -> Result<SingleCamHandeyeOptimizeResult, Error> {
+) -> Result<HandeyeOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -595,7 +595,7 @@ pub fn step_handeye_optimize(
         .ok_or_else(|| Error::not_available("optimized camera"))?;
     check_camera_model(&camera, config.camera.model)?;
     let (handeye, target_pose) = match config.handeye_init.handeye_mode {
-        vision_calibration_optim::HandEyeMode::EyeInHand => {
+        vision_calibration_optim::HandeyeMode::EyeInHand => {
             let handeye = session
                 .state
                 .initial_gripper_se3_camera
@@ -606,7 +606,7 @@ pub fn step_handeye_optimize(
                 .ok_or_else(|| Error::not_available("initial base_se3_target"))?;
             (handeye, target_pose)
         }
-        vision_calibration_optim::HandEyeMode::EyeToHand => {
+        vision_calibration_optim::HandeyeMode::EyeToHand => {
             let handeye = session
                 .state
                 .initial_camera_se3_base
@@ -619,7 +619,7 @@ pub fn step_handeye_optimize(
         }
     };
 
-    // Build HandEyeDataset
+    // Build HandeyeDataset
     // For single camera: cam_to_rig is identity (camera IS the rig)
     let views: Vec<RigView<RobotPoseMeta>> = input
         .views
@@ -634,10 +634,10 @@ pub fn step_handeye_optimize(
         })
         .collect();
 
-    let dataset = HandEyeDataset::new(views, 1, config.handeye_init.handeye_mode)?;
+    let dataset = HandeyeDataset::new(views, 1, config.handeye_init.handeye_mode)?;
 
     // Build initial params
-    let initial = HandEyeParams {
+    let initial = HandeyeParams {
         cameras: vec![camera],
         cam_to_rig: vec![Iso3::identity()], // Single cam = rig frame
         handeye,
@@ -645,7 +645,7 @@ pub fn step_handeye_optimize(
     };
 
     // Configure solve options
-    let solve_opts = HandEyeSolveOptions {
+    let solve_opts = HandeyeSolveOptions {
         robust_loss: config.solver.robust_loss,
         fix: vec![config.camera.fix.clone()],
         fix_extrinsics: vec![true], // Fix cam_to_rig for single camera
@@ -683,7 +683,7 @@ pub fn step_handeye_optimize(
 
     session.log_success_with_notes("handeye_optimize", format!("final_cost={final_cost:.2e}"));
 
-    Ok(SingleCamHandeyeOptimizeResult {
+    Ok(HandeyeOptimizeResult {
         mean_reproj_error,
         final_cost,
     })
@@ -731,7 +731,7 @@ mod tests {
     use vision_calibration_core::{
         BrownConrady5, CorrespondenceView, FxFyCxCy, Pt2, Pt3, make_pinhole_camera,
     };
-    use vision_calibration_optim::HandEyeMode;
+    use vision_calibration_optim::HandeyeMode;
 
     fn make_test_camera() -> vision_calibration_core::PinholeCamera {
         make_pinhole_camera(
@@ -877,7 +877,7 @@ mod tests {
                     ..Default::default()
                 },
                 handeye_init: crate::common::config::HandeyeInitConfig {
-                    handeye_mode: HandEyeMode::EyeToHand,
+                    handeye_mode: HandeyeMode::EyeToHand,
                     ..Default::default()
                 },
                 ..Default::default()

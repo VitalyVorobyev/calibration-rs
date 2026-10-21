@@ -9,7 +9,7 @@ import vision_calibration.types as vc_types
 class TypedModelParsingTest(unittest.TestCase):
     def test_types_module_is_low_level_and_not_reexported_top_level(self) -> None:
         self.assertFalse(hasattr(vc, "RobustLoss"))
-        self.assertFalse(hasattr(vc, "HandEyeMode"))
+        self.assertFalse(hasattr(vc, "HandeyeMode"))
         self.assertTrue(hasattr(vc_types, "RobustLoss"))
 
     def test_pinhole_camera_from_camera_params_payload(self) -> None:

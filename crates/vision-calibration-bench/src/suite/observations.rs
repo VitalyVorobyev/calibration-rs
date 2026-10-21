@@ -120,11 +120,13 @@ impl ProblemInput {
                 backend,
                 single_cam_handeye::run_calibration,
             ),
-            Self::LaserlineDevice(input) => {
-                calibrate::<LaserlineDeviceProblem>(name, input, overrides, backend, |session| {
-                    laserline_device::run_calibration(session, None)
-                })
-            }
+            Self::LaserlineDevice(input) => calibrate::<LaserlineDeviceProblem>(
+                name,
+                input,
+                overrides,
+                backend,
+                laserline_device::run_calibration,
+            ),
             Self::RigExtrinsics(input) => calibrate::<RigExtrinsicsProblem>(
                 name,
                 input,

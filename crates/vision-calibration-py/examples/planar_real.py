@@ -16,7 +16,7 @@ from _common import repo_root
 from handeye_session import detect_observation, parse_square_size_m
 
 
-def load_dataset() -> vc.PlanarDataset:
+def load_dataset() -> vc.PlanarIntrinsicsInput:
     data_dir = repo_root() / "data" / "kuka_1"
     square_size_m = parse_square_size_m(data_dir / "squaresize.txt")
 
@@ -32,7 +32,7 @@ def load_dataset() -> vc.PlanarDataset:
     if len(views) < 3:
         raise RuntimeError(f"need at least 3 usable views, got {len(views)}")
     print(f"Loaded {len(views)} views ({skipped} skipped)")
-    return vc.PlanarDataset(views=views)
+    return vc.PlanarIntrinsicsInput(views=views)
 
 
 def main() -> None:

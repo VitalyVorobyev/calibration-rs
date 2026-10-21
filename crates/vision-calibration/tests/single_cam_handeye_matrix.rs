@@ -14,7 +14,7 @@
 use vision_calibration::core::{
     BrownConrady5, FxFyCxCy, Iso3, PinholeCamera, Pt3, make_pinhole_camera,
 };
-use vision_calibration::optim::{HandEyeMode, SolverBackend};
+use vision_calibration::optim::{HandeyeMode, SolverBackend};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
     HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
@@ -97,7 +97,7 @@ fn eye_in_hand_views(
 }
 
 /// Run the standard four-step single-cam hand-eye pipeline and export.
-fn solve(input: SingleCamHandeyeInput, mode: HandEyeMode) -> SingleCamHandeyeExport {
+fn solve(input: SingleCamHandeyeInput, mode: HandeyeMode) -> SingleCamHandeyeExport {
     solve_with(input, mode, true)
 }
 
@@ -105,7 +105,7 @@ fn solve(input: SingleCamHandeyeInput, mode: HandEyeMode) -> SingleCamHandeyeExp
 /// both solver backends, checked to agree; the default backend's export.
 fn solve_with(
     input: SingleCamHandeyeInput,
-    mode: HandEyeMode,
+    mode: HandeyeMode,
     refine_robot_poses: bool,
 ) -> SingleCamHandeyeExport {
     let tiny = solve_on(
@@ -137,7 +137,7 @@ fn solve_with(
 
 fn solve_on(
     input: SingleCamHandeyeInput,
-    mode: HandEyeMode,
+    mode: HandeyeMode,
     refine_robot_poses: bool,
     backend: SolverBackend,
 ) -> SingleCamHandeyeExport {
@@ -206,7 +206,7 @@ fn single_cam_handeye_recovers_gt_across_grid_and_noise() {
                 &noise,
             );
             let input = SingleCamHandeyeInput::new(views).expect("input");
-            let export = solve(input, HandEyeMode::EyeInHand);
+            let export = solve(input, HandeyeMode::EyeInHand);
 
             let x_est = export
                 .gripper_se3_camera
@@ -294,7 +294,7 @@ fn single_cam_handeye_eye_to_hand_recovers_gt() {
             })
             .collect();
         let input = SingleCamHandeyeInput::new(views).expect("input");
-        let export = solve(input, HandEyeMode::EyeToHand);
+        let export = solve(input, HandeyeMode::EyeToHand);
 
         let x_est = export
             .camera_se3_base
@@ -356,7 +356,7 @@ fn single_cam_handeye_base_frame_gauge_invariance() {
     let solve_for = |poses: &[Iso3], target: &Iso3| -> SingleCamHandeyeExport {
         let views = eye_in_hand_views(&cam_gt, &board, poses, &handeye, target, &noise);
         let input = SingleCamHandeyeInput::new(views).expect("input");
-        solve_with(input, HandEyeMode::EyeInHand, false)
+        solve_with(input, HandeyeMode::EyeInHand, false)
     };
 
     let base = solve_for(&robot_poses, &target_in_base);

@@ -13,7 +13,7 @@ use vision_calibration_core::{
     build_feature_histogram, compute_rig_target_residuals,
 };
 use vision_calibration_optim::{
-    HandEyeMode, LaserPlane, LaserlineResidualType, RigHandeyeLaserlineDataset,
+    HandeyeMode, LaserPlane, LaserlineResidualType, RigHandeyeLaserlineDataset,
     RigHandeyeLaserlineEstimate, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineView,
     RigLaserlineDataset, RobustLoss, compute_rig_laserline_feature_residuals,
 };
@@ -49,7 +49,7 @@ impl RigHandeyeLaserlineInput {
 
     pub(crate) fn joint_dataset(
         &self,
-        mode: HandEyeMode,
+        mode: HandeyeMode,
     ) -> Result<RigHandeyeLaserlineDataset, Error> {
         RigHandeyeLaserlineDataset::new(self.views.clone(), self.num_cameras, mode)
             .map_err(Error::from)
@@ -88,15 +88,6 @@ impl RigHandeyeLaserlineInput {
     }
 }
 
-/// Pipeline output for joint rig hand-eye laserline calibration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RigHandeyeLaserlineOutput {
-    /// Joint optimizer estimate.
-    pub estimate: RigHandeyeLaserlineEstimate,
-    /// Hand-eye mode used to build the optimizer dataset.
-    pub handeye_mode: HandEyeMode,
-}
-
 /// Configuration for joint rig hand-eye laserline calibration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -108,7 +99,7 @@ pub struct RigHandeyeLaserlineConfig {
     /// Frozen-geometry laser plane initialization stage.
     pub laserline_init: RigLaserlineDeviceConfig,
     /// Final joint bundle adjustment stage.
-    pub joint_ba: RigHandeyeLaserlineBaConfig,
+    pub joint_optimize: JointOptimizeConfig,
 }
 
 impl Default for RigHandeyeLaserlineConfig {
@@ -123,7 +114,7 @@ impl Default for RigHandeyeLaserlineConfig {
                 },
                 laser_residual_type: LaserlineResidualType::PointToPlane,
             },
-            joint_ba: RigHandeyeLaserlineBaConfig::default(),
+            joint_optimize: JointOptimizeConfig::default(),
         }
     }
 }
@@ -138,7 +129,7 @@ impl Default for RigHandeyeLaserlineConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
-pub struct RigHandeyeLaserlineBaConfig {
+pub struct JointOptimizeConfig {
     /// Non-linear solve stage settings for the joint stage.
     ///
     /// `robust_loss` is **not consulted** by this problem: laser-carrying
@@ -176,7 +167,7 @@ pub struct RigHandeyeLaserlineBaConfig {
     pub robot_poses: RobotPoseConfig,
 }
 
-impl Default for RigHandeyeLaserlineBaConfig {
+impl Default for JointOptimizeConfig {
     fn default() -> Self {
         Self {
             solver: SolverConfig {
@@ -225,7 +216,7 @@ pub struct RigHandeyeLaserlineExport {
     )]
     pub rig_se3_target: Vec<Iso3>,
     /// Hand-eye mode used to interpret mode-dependent transforms.
-    pub handeye_mode: HandEyeMode,
+    pub handeye_mode: HandeyeMode,
     /// Eye-in-hand hand-eye transform `gripper_se3_rig`.
     #[cfg_attr(
         feature = "schemars",
@@ -280,7 +271,7 @@ impl ProblemState for RigHandeyeLaserlineProblem {
 impl ProblemType for RigHandeyeLaserlineProblem {
     type Config = RigHandeyeLaserlineConfig;
     type Input = RigHandeyeLaserlineInput;
-    type Output = RigHandeyeLaserlineOutput;
+    type Output = RigHandeyeLaserlineEstimate;
     type Export = RigHandeyeLaserlineExport;
 
     fn name() -> &'static str {
@@ -315,12 +306,12 @@ impl ProblemType for RigHandeyeLaserlineProblem {
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
         RigHandeyeProblem::validate_config(&config.handeye)?;
         RigLaserlineDeviceProblem::validate_config(&config.laserline_init)?;
-        if config.joint_ba.solver.max_iters == 0 {
+        if config.joint_optimize.solver.max_iters == 0 {
             return Err(Error::invalid_input(
-                "joint_ba.solver.max_iters must be positive",
+                "joint_optimize.solver.max_iters must be positive",
             ));
         }
-        config.joint_ba.robot_poses.validate()?;
+        config.joint_optimize.robot_poses.validate()?;
         Ok(())
     }
 
@@ -332,7 +323,7 @@ impl ProblemType for RigHandeyeLaserlineProblem {
         let models: Vec<CameraModelSpec> = (0..input.num_cameras)
             .map(|i| config.handeye.camera_for(i).model)
             .collect();
-        joint_fix(&config.joint_ba, &models).map(|_| ())
+        joint_fix(&config.joint_optimize, &models).map(|_| ())
     }
 
     fn on_input_change() -> InvalidationPolicy {
@@ -346,19 +337,20 @@ impl ProblemType for RigHandeyeLaserlineProblem {
     fn export(
         input: &Self::Input,
         output: &Self::Output,
-        _config: &Self::Config,
+        config: &Self::Config,
     ) -> Result<Self::Export, Error> {
-        export_joint(input, output)
+        // A config change clears the estimate, so the configured mode is the
+        // one the joint solve ran in.
+        export_joint(input, output, config.handeye.handeye_init.handeye_mode)
     }
 }
 
 pub(crate) fn export_joint(
     input: &RigHandeyeLaserlineInput,
-    output: &RigHandeyeLaserlineOutput,
+    estimate: &RigHandeyeLaserlineEstimate,
+    mode: HandeyeMode,
 ) -> Result<RigHandeyeLaserlineExport, Error> {
-    let estimate = &output.estimate;
     let params = &estimate.params;
-    let mode = output.handeye_mode;
     let cam_se3_rig: Vec<Iso3> = params.cam_to_rig.iter().map(|t| t.inverse()).collect();
     let rig_se3_target =
         materialize_rig_se3_target(input, params, mode, estimate.robot_deltas.as_deref());
@@ -408,8 +400,8 @@ pub(crate) fn export_joint(
     per_feature_residuals.laser_hist_per_camera = Some(laser_hist_per_camera);
 
     let (gripper_se3_rig, rig_se3_base, base_se3_target, gripper_se3_target) = match mode {
-        HandEyeMode::EyeInHand => (Some(params.handeye), None, Some(params.target_ref), None),
-        HandEyeMode::EyeToHand => (None, Some(params.handeye), None, Some(params.target_ref)),
+        HandeyeMode::EyeInHand => (Some(params.handeye), None, Some(params.target_ref), None),
+        HandeyeMode::EyeToHand => (None, Some(params.handeye), None, Some(params.target_ref)),
     };
 
     Ok(RigHandeyeLaserlineExport {
@@ -427,8 +419,7 @@ pub(crate) fn export_joint(
         gripper_se3_target,
         robot_deltas: estimate.robot_deltas.clone(),
         mean_reproj_error: estimate.mean_reproj_error_px,
-        per_cam_reproj_errors: output
-            .estimate
+        per_cam_reproj_errors: estimate
             .per_cam_stats
             .iter()
             .map(|s| s.mean_reproj_error_px)
@@ -442,7 +433,7 @@ pub(crate) fn export_joint(
 pub(crate) fn materialize_rig_se3_target(
     input: &RigHandeyeLaserlineInput,
     params: &vision_calibration_optim::RigHandeyeLaserlineParams,
-    mode: HandEyeMode,
+    mode: HandeyeMode,
     robot_deltas: Option<&[[Real; 6]]>,
 ) -> Vec<Iso3> {
     input
@@ -456,10 +447,10 @@ pub(crate) fn materialize_rig_se3_target(
                 view.meta.base_se3_gripper
             };
             match mode {
-                HandEyeMode::EyeInHand => {
+                HandeyeMode::EyeInHand => {
                     params.handeye.inverse() * robot_pose.inverse() * params.target_ref
                 }
-                HandEyeMode::EyeToHand => params.handeye * robot_pose * params.target_ref,
+                HandeyeMode::EyeToHand => params.handeye * robot_pose * params.target_ref,
             }
         })
         .collect()
@@ -487,7 +478,7 @@ fn corrected_robot_pose(robot_pose: Iso3, delta: [Real; 6]) -> Iso3 {
 /// per camera, or an entry names a parameter its camera's model does not
 /// have.
 pub(crate) fn joint_fix(
-    config: &RigHandeyeLaserlineBaConfig,
+    config: &JointOptimizeConfig,
     models: &[CameraModelSpec],
 ) -> Result<Vec<CameraFix>, Error> {
     if config.fix.is_empty() {
@@ -495,14 +486,14 @@ pub(crate) fn joint_fix(
     }
     if config.fix.len() != models.len() {
         return Err(Error::invalid_input(format!(
-            "joint_ba.fix has {} entries; expected none or one per camera ({})",
+            "joint_optimize.fix has {} entries; expected none or one per camera ({})",
             config.fix.len(),
             models.len()
         )));
     }
     for (i, (fix, model)) in config.fix.iter().zip(models).enumerate() {
         fix.resolve(*model)
-            .map_err(|e| Error::invalid_input(format!("joint_ba.fix[{i}]: {e}")))?;
+            .map_err(|e| Error::invalid_input(format!("joint_optimize.fix[{i}]: {e}")))?;
     }
     Ok(config.fix.clone())
 }
@@ -538,12 +529,12 @@ mod tests {
         let json = serde_json::to_string(&cfg).unwrap();
         let restored: RigHandeyeLaserlineConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(
-            restored.joint_ba.laser_residual_type,
+            restored.joint_optimize.laser_residual_type,
             LaserlineResidualType::PointToPlane
         );
-        assert_eq!(restored.joint_ba.laser_weight, 1.0e4);
-        assert!(restored.joint_ba.robot_poses.refine);
-        assert!(restored.joint_ba.fix.is_empty());
+        assert_eq!(restored.joint_optimize.laser_weight, 1.0e4);
+        assert!(restored.joint_optimize.robot_poses.refine);
+        assert!(restored.joint_optimize.fix.is_empty());
     }
 
     #[test]
@@ -553,7 +544,7 @@ mod tests {
         let tilted =
             CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
         let division = CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Identity);
-        let config = RigHandeyeLaserlineBaConfig::default();
+        let config = JointOptimizeConfig::default();
         let fix = joint_fix(&config, &[untilted, tilted, division]).unwrap();
         let resolved: Vec<_> = fix
             .iter()
@@ -572,9 +563,9 @@ mod tests {
     fn joint_fix_entries_are_checked_per_camera() {
         let untilted =
             CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
-        let mut config = RigHandeyeLaserlineBaConfig {
+        let mut config = JointOptimizeConfig {
             fix: vec![CameraFix::default()],
-            ..RigHandeyeLaserlineBaConfig::default()
+            ..JointOptimizeConfig::default()
         };
         let err = joint_fix(&config, &[untilted, untilted])
             .unwrap_err()
@@ -591,7 +582,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(
-            err.contains("joint_ba.fix[1]") && err.contains("tilt_x"),
+            err.contains("joint_optimize.fix[1]") && err.contains("tilt_x"),
             "{err}"
         );
     }

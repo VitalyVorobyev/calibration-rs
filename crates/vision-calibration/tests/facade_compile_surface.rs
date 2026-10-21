@@ -44,57 +44,227 @@ fn facade_modules_compile_with_glob_import() {
         }],
         num_cameras: 1,
     };
+}
 
-    // Planar intrinsics API.
-    let _planar_step_init: fn(
-        &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
-        Option<planar_intrinsics::IntrinsicsInitOptions>,
-    ) -> Result<planar_intrinsics::PlanarInitResult, Error> = planar_intrinsics::step_init;
-    let _planar_step_optimize: fn(
-        &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
-        Option<planar_intrinsics::IntrinsicsOptimizeOptions>,
-    ) -> Result<planar_intrinsics::PlanarOptimizeResult, Error> = planar_intrinsics::step_optimize;
-    let _planar_step_filter: fn(
-        &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
-        planar_intrinsics::FilterOptions,
-    ) -> Result<(), Error> = planar_intrinsics::step_filter;
-    let _planar_run: fn(
-        &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
-    ) -> Result<(), Error> = planar_intrinsics::run_calibration;
+/// Each problem names its `<Name>Input`, `<Name>Config`, output estimate and
+/// `<Name>Export` in its own module.
+fn assert_problem_types<P, I, C, O, E>()
+where
+    P: session::ProblemType<Input = I, Config = C, Output = O, Export = E>,
+{
+}
+
+/// Every problem's `run_calibration` has the same shape.
+fn assert_run_calibration<P: session::ProblemType>(
+    _run: fn(&mut session::CalibrationSession<P>) -> Result<(), Error>,
+) {
+}
+
+#[test]
+fn every_problem_follows_the_vocabulary() {
+    use laserline_device as ld;
+    use planar_intrinsics as pi;
+    use rig_extrinsics as re;
+    use rig_handeye as rh;
+    use rig_handeye_laserline as rhl;
+    use rig_laserline_device as rld;
+    use single_cam_handeye as sch;
+
+    assert_problem_types::<
+        pi::PlanarIntrinsicsProblem,
+        pi::PlanarIntrinsicsInput,
+        pi::PlanarIntrinsicsConfig,
+        pi::PlanarIntrinsicsEstimate,
+        pi::PlanarIntrinsicsExport,
+    >();
+    assert_problem_types::<
+        sch::SingleCamHandeyeProblem,
+        sch::SingleCamHandeyeInput,
+        sch::SingleCamHandeyeConfig,
+        sch::HandeyeEstimate,
+        sch::SingleCamHandeyeExport,
+    >();
+    assert_problem_types::<
+        ld::LaserlineDeviceProblem,
+        ld::LaserlineDeviceInput,
+        ld::LaserlineDeviceConfig,
+        ld::LaserlineDeviceEstimate,
+        ld::LaserlineDeviceExport,
+    >();
+    assert_problem_types::<
+        re::RigExtrinsicsProblem,
+        re::RigExtrinsicsInput,
+        re::RigExtrinsicsConfig,
+        re::RigExtrinsicsEstimate,
+        re::RigExtrinsicsExport,
+    >();
+    assert_problem_types::<
+        rh::RigHandeyeProblem,
+        rh::RigHandeyeInput,
+        rh::RigHandeyeConfig,
+        rh::HandeyeEstimate,
+        rh::RigHandeyeExport,
+    >();
+    assert_problem_types::<
+        rld::RigLaserlineDeviceProblem,
+        rld::RigLaserlineDeviceInput,
+        rld::RigLaserlineDeviceConfig,
+        rld::RigLaserlineEstimate,
+        rld::RigLaserlineDeviceExport,
+    >();
+    assert_problem_types::<
+        rhl::RigHandeyeLaserlineProblem,
+        rhl::RigHandeyeLaserlineInput,
+        rhl::RigHandeyeLaserlineConfig,
+        rhl::RigHandeyeLaserlineEstimate,
+        rhl::RigHandeyeLaserlineExport,
+    >();
+
+    assert_run_calibration(pi::run_calibration);
+    assert_run_calibration(sch::run_calibration);
+    assert_run_calibration(ld::run_calibration);
+    assert_run_calibration(re::run_calibration);
+    assert_run_calibration(rh::run_calibration);
+    assert_run_calibration(rld::run_calibration);
+    assert_run_calibration(rhl::run_calibration);
+
+    // Steps take `Option<<Stage><Action>Options>` and return
+    // `<Stage><Action>Result`; `*_with_seed` takes `<Stage>ManualInit` first.
+    type Pi = session::CalibrationSession<pi::PlanarIntrinsicsProblem>;
+    let _: fn(
+        &mut Pi,
+        Option<pi::IntrinsicsInitOptions>,
+    ) -> Result<pi::IntrinsicsInitResult, Error> = pi::step_init;
+    let _: fn(
+        &mut Pi,
+        pi::IntrinsicsManualInit,
+        Option<pi::IntrinsicsInitOptions>,
+    ) -> Result<pi::IntrinsicsInitResult, Error> = pi::step_init_with_seed;
+    let _: fn(
+        &mut Pi,
+        Option<pi::IntrinsicsOptimizeOptions>,
+    ) -> Result<pi::IntrinsicsOptimizeResult, Error> = pi::step_optimize;
+    let _: fn(&mut Pi, Option<pi::IntrinsicsFilterOptions>) -> Result<(), Error> = pi::step_filter;
+    let _: fn(&mut Pi, Option<pi::IntrinsicsFilterOptions>) -> Result<(), Error> =
+        pi::run_calibration_with_filtering;
+
+    type Sch = session::CalibrationSession<sch::SingleCamHandeyeProblem>;
+    let _: fn(
+        &mut Sch,
+        Option<sch::IntrinsicsInitOptions>,
+    ) -> Result<sch::IntrinsicsInitResult, Error> = sch::step_intrinsics_init;
+    let _: fn(
+        &mut Sch,
+        sch::IntrinsicsManualInit,
+        Option<sch::IntrinsicsInitOptions>,
+    ) -> Result<sch::IntrinsicsInitResult, Error> = sch::step_intrinsics_init_with_seed;
+    let _: fn(
+        &mut Sch,
+        Option<sch::IntrinsicsOptimizeOptions>,
+    ) -> Result<sch::IntrinsicsOptimizeResult, Error> = sch::step_intrinsics_optimize;
+    let _: fn(&mut Sch, Option<sch::HandeyeInitOptions>) -> Result<sch::HandeyeInitResult, Error> =
+        sch::step_handeye_init;
+    let _: fn(
+        &mut Sch,
+        sch::HandeyeManualInit,
+        Option<sch::HandeyeInitOptions>,
+    ) -> Result<sch::HandeyeInitResult, Error> = sch::step_handeye_init_with_seed;
+    let _: fn(
+        &mut Sch,
+        Option<sch::HandeyeOptimizeOptions>,
+    ) -> Result<sch::HandeyeOptimizeResult, Error> = sch::step_handeye_optimize;
+
+    type Ld = session::CalibrationSession<ld::LaserlineDeviceProblem>;
+    let _: fn(&mut Ld, Option<ld::DeviceInitOptions>) -> Result<ld::DeviceInitResult, Error> =
+        ld::step_init;
+    let _: fn(
+        &mut Ld,
+        ld::DeviceManualInit,
+        Option<ld::DeviceInitOptions>,
+    ) -> Result<ld::DeviceInitResult, Error> = ld::step_init_with_seed;
+    let _: fn(
+        &mut Ld,
+        Option<ld::DeviceOptimizeOptions>,
+    ) -> Result<ld::DeviceOptimizeResult, Error> = ld::step_optimize;
+
+    type Re = session::CalibrationSession<re::RigExtrinsicsProblem>;
+    let _: fn(
+        &mut Re,
+        Option<re::IntrinsicsInitOptions>,
+    ) -> Result<re::IntrinsicsInitResult, Error> = re::step_intrinsics_init_all;
+    let _: fn(
+        &mut Re,
+        re::IntrinsicsManualInit,
+        Option<re::IntrinsicsInitOptions>,
+    ) -> Result<re::IntrinsicsInitResult, Error> = re::step_intrinsics_init_all_with_seed;
+    let _: fn(
+        &mut Re,
+        Option<re::IntrinsicsOptimizeOptions>,
+    ) -> Result<re::IntrinsicsOptimizeResult, Error> = re::step_intrinsics_optimize_all;
+    let _: fn(&mut Re, Option<re::RigInitOptions>) -> Result<re::RigInitResult, Error> =
+        re::step_rig_init;
+    let _: fn(
+        &mut Re,
+        re::RigManualInit,
+        Option<re::RigInitOptions>,
+    ) -> Result<re::RigInitResult, Error> = re::step_rig_init_with_seed;
+    let _: fn(&mut Re, Option<re::RigOptimizeOptions>) -> Result<re::RigOptimizeResult, Error> =
+        re::step_rig_optimize;
+
+    type Rh = session::CalibrationSession<rh::RigHandeyeProblem>;
+    let _: fn(
+        &mut Rh,
+        Option<rh::IntrinsicsInitOptions>,
+    ) -> Result<rh::IntrinsicsInitResult, Error> = rh::step_intrinsics_init_all;
+    let _: fn(
+        &mut Rh,
+        rh::IntrinsicsManualInit,
+        Option<rh::IntrinsicsInitOptions>,
+    ) -> Result<rh::IntrinsicsInitResult, Error> = rh::step_intrinsics_init_all_with_seed;
+    let _: fn(
+        &mut Rh,
+        Option<rh::IntrinsicsOptimizeOptions>,
+    ) -> Result<rh::IntrinsicsOptimizeResult, Error> = rh::step_intrinsics_optimize_all;
+    let _: fn(&mut Rh, Option<rh::RigInitOptions>) -> Result<rh::RigInitResult, Error> =
+        rh::step_rig_init;
+    let _: fn(
+        &mut Rh,
+        rh::RigManualInit,
+        Option<rh::RigInitOptions>,
+    ) -> Result<rh::RigInitResult, Error> = rh::step_rig_init_with_seed;
+    let _: fn(&mut Rh, Option<rh::RigOptimizeOptions>) -> Result<rh::RigOptimizeResult, Error> =
+        rh::step_rig_optimize;
+    let _: fn(&mut Rh, Option<rh::HandeyeInitOptions>) -> Result<rh::HandeyeInitResult, Error> =
+        rh::step_handeye_init;
+    let _: fn(
+        &mut Rh,
+        rh::HandeyeManualInit,
+        Option<rh::HandeyeInitOptions>,
+    ) -> Result<rh::HandeyeInitResult, Error> = rh::step_handeye_init_with_seed;
+    let _: fn(
+        &mut Rh,
+        Option<rh::HandeyeOptimizeOptions>,
+    ) -> Result<rh::HandeyeOptimizeResult, Error> = rh::step_handeye_optimize;
+
+    type Rld = session::CalibrationSession<rld::RigLaserlineDeviceProblem>;
+    let _: fn(&mut Rld, Option<rld::PlaneInitOptions>) -> Result<(), Error> = rld::step_init;
+    let _: fn(&mut Rld, rld::PlaneManualInit, Option<rld::PlaneInitOptions>) -> Result<(), Error> =
+        rld::step_init_with_seed;
+    let _: fn(&mut Rld, Option<rld::PlaneOptimizeOptions>) -> Result<(), Error> =
+        rld::step_optimize;
+
+    // Shared step options are one type, reachable from `common` and from
+    // every module that uses them.
+    let _: common::IntrinsicsInitOptions = pi::IntrinsicsInitOptions::default();
+    let _: common::RigInitOptions = rh::RigInitOptions::default();
+    let _: common::RigOptimizeOptions = re::RigOptimizeOptions::default();
+    let _: common::HandeyeOptimizeOptions = sch::HandeyeOptimizeOptions::default();
 
     // The planar camera model: a tilted sensor is a config value.
     let _tilted_camera = common::config::CameraConfig::new(core::CameraModelSpec::pinhole(
         core::DistortionKind::BrownConrady5,
         core::SensorKind::Scheimpflug,
     ));
-    type PlanarSession = session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>;
-    let _planar_seed: fn(
-        &mut PlanarSession,
-        planar_intrinsics::PlanarManualInit,
-        Option<planar_intrinsics::IntrinsicsInitOptions>,
-    ) -> Result<planar_intrinsics::PlanarInitResult, Error> =
-        planar_intrinsics::step_init_with_seed;
-
-    // Single-camera hand-eye API.
-    let _single_handeye_run: fn(
-        &mut session::CalibrationSession<single_cam_handeye::SingleCamHandeyeProblem>,
-    ) -> Result<(), Error> = single_cam_handeye::run_calibration;
-
-    // Rig extrinsics API.
-    let _rig_extrinsics_run: fn(
-        &mut session::CalibrationSession<rig_extrinsics::RigExtrinsicsProblem>,
-    ) -> Result<(), Error> = rig_extrinsics::run_calibration;
-
-    // Rig hand-eye API.
-    let _rig_handeye_run: fn(
-        &mut session::CalibrationSession<rig_handeye::RigHandeyeProblem>,
-    ) -> Result<(), Error> = rig_handeye::run_calibration;
-
-    // Laserline device API.
-    let _laserline_run: fn(
-        &mut session::CalibrationSession<laserline_device::LaserlineDeviceProblem>,
-        Option<laserline_device::LaserlineDeviceConfig>,
-    ) -> Result<(), Error> = laserline_device::run_calibration;
 }
 
 #[test]

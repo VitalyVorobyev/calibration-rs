@@ -484,7 +484,7 @@ where
     };
     let cache_used = planar_run.usable_views > 0; // hit/miss counts are not surfaced yet
 
-    let mut export = match run_session::<P>(planar_run.dataset.clone(), config_json, run, ctx) {
+    let mut export = match run_session::<P>(planar_run.input.clone(), config_json, run, ctx) {
         Ok(v) => v,
         Err(boxed) => return *boxed,
     };
@@ -572,7 +572,7 @@ fn run_laserline_topology(
     let mut export = match run_session::<LaserlineDeviceProblem>(
         laser_run.input,
         config_json,
-        |session| run_laserline_device_calibration(session, None),
+        run_laserline_device_calibration,
         ctx,
     ) {
         Ok(v) => v,
@@ -735,7 +735,7 @@ where
     let usable_views = rig_run.usable_views;
     let total_views = rig_run.total_views;
 
-    let mut export = match run_session::<P>(rig_run.dataset, config_json, run, ctx) {
+    let mut export = match run_session::<P>(rig_run.input, config_json, run, ctx) {
         Ok(v) => v,
         Err(boxed) => return *boxed,
     };
@@ -1440,9 +1440,9 @@ mod tests {
             },
         });
         handeye_config["rig"]["refine_sensor"] = json!(false);
-        handeye_config["rig"]["refine_intrinsics_in_rig_ba"] = json!(false);
+        handeye_config["rig"]["refine_intrinsics"] = json!(false);
         handeye_config["handeye_init"]["handeye_mode"] = json!("EyeToHand");
-        handeye_config["handeye_ba"]["robot_poses"]["refine"] = json!(true);
+        handeye_config["handeye_optimize"]["robot_poses"]["refine"] = json!(true);
         handeye_config["solver"]["max_iters"] = json!(200);
         handeye_config["solver"]["robust_loss"] = json!({"Huber": {"scale": 1.0}});
         let handeye = match run_blocking_test(
@@ -1551,11 +1551,11 @@ mod tests {
         joint_config["handeye"] = handeye_config;
         joint_config["laserline_init"]["solver"]["max_iters"] = json!(200);
         joint_config["laserline_init"]["laser_residual_type"] = json!("PointToPlane");
-        joint_config["joint_ba"]["solver"]["max_iters"] = json!(30);
-        joint_config["joint_ba"]["laser_residual_type"] = json!("PointToPlane");
-        joint_config["joint_ba"]["calib_weight"] = json!(1.0);
-        joint_config["joint_ba"]["laser_weight"] = json!(10000.0);
-        joint_config["joint_ba"]["robot_poses"]["refine"] = json!(true);
+        joint_config["joint_optimize"]["solver"]["max_iters"] = json!(30);
+        joint_config["joint_optimize"]["laser_residual_type"] = json!("PointToPlane");
+        joint_config["joint_optimize"]["calib_weight"] = json!(1.0);
+        joint_config["joint_optimize"]["laser_weight"] = json!(10000.0);
+        joint_config["joint_optimize"]["robot_poses"]["refine"] = json!(true);
         // The joint solve always gauge-fixes camera 0 (ADR 0024): it pins
         // `handeye.rig.reference_camera_idx`.
         // Every camera is tilted: the principal point, the higher-order
@@ -1565,7 +1565,7 @@ mod tests {
             "distortion": ["k3", "p1", "p2"],
             "sensor": ["tilt_x", "tilt_y"],
         });
-        joint_config["joint_ba"]["fix"] = json!(vec![joint_fix; 6]);
+        joint_config["joint_optimize"]["fix"] = json!(vec![joint_fix; 6]);
         let joint = match run_blocking_test(joint_manifest, joint_config, &dir) {
             RunResponse::Ok(s) => s,
             other => panic!("joint rig handeye laserline stage: expected Ok, got {other:?}"),

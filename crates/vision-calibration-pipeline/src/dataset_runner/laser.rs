@@ -28,7 +28,7 @@ use vision_calibration_dataset::{
 };
 use vision_calibration_detect::{CacheKey, CachedFeatures, DetectionCache, Feature};
 use vision_calibration_optim::{
-    HandEyeMode, LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView,
+    HandeyeMode, LaserlineMeta, RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView,
     RobotPoseMeta,
 };
 
@@ -850,7 +850,7 @@ fn rig_se3_target_from_chain(
         message: format!("{:?} export is missing {field}", export.handeye_mode),
     };
     match export.handeye_mode {
-        HandEyeMode::EyeInHand => {
+        HandeyeMode::EyeInHand => {
             let gripper_se3_rig = export
                 .gripper_se3_rig
                 .ok_or_else(|| missing("gripper_se3_rig"))?;
@@ -859,7 +859,7 @@ fn rig_se3_target_from_chain(
                 .ok_or_else(|| missing("base_se3_target"))?;
             Ok(gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target)
         }
-        HandEyeMode::EyeToHand => {
+        HandeyeMode::EyeToHand => {
             let rig_se3_base = export.rig_se3_base.ok_or_else(|| missing("rig_se3_base"))?;
             let gripper_se3_target = export
                 .gripper_se3_target
@@ -1236,7 +1236,7 @@ mod tests {
                 .collect(),
             cam_se3_rig: vec![Iso3::identity(); num_cameras],
             rig_se3_target: vec![],
-            handeye_mode: HandEyeMode::EyeInHand,
+            handeye_mode: HandeyeMode::EyeInHand,
             gripper_se3_rig: Some(Iso3::identity()),
             rig_se3_base: None,
             base_se3_target: Some(Iso3::translation(0.0, 0.0, 1.0)),

@@ -32,7 +32,7 @@ step_init(&mut session, None)?;
 step_optimize(&mut session, None)?;
 
 // Manual path:
-step_init_with_seed(&mut session, PlanarManualInit {
+step_init_with_seed(&mut session, IntrinsicsManualInit {
     intrinsics: Some(nominal_camera_k),
     distortion: None,  // auto-initialized (or zeros when intrinsics seeded)
     sensor: None,      // tilt seed — Scheimpflug camera only (a typed error otherwise)
@@ -61,20 +61,20 @@ We'll seed the rig stage of a stereo calibration from a previous run.
 ```rust
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
-    RigExtrinsicsProblem, RigIntrinsicsManualInit, RigExtrinsicsManualInit,
+    RigExtrinsicsProblem, IntrinsicsManualInit, RigManualInit,
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all,
     step_rig_init_with_seed, step_rig_optimize,
 };
 
 let mut session_a = CalibrationSession::<RigExtrinsicsProblem>::new();
 session_a.set_input(load_dataset()?)?;
-step_intrinsics_init_all_with_seed(&mut session_a, RigIntrinsicsManualInit::default(), None)?;
+step_intrinsics_init_all_with_seed(&mut session_a, IntrinsicsManualInit::default(), None)?;
 step_intrinsics_optimize_all(&mut session_a, None)?;
-step_rig_init_with_seed(&mut session_a, RigExtrinsicsManualInit::default())?;
+step_rig_init_with_seed(&mut session_a, RigManualInit::default(), None)?;
 step_rig_optimize(&mut session_a, None)?;
 ```
 
-`RigIntrinsicsManualInit::default()` and `RigExtrinsicsManualInit::default()`
+`IntrinsicsManualInit::default()` and `RigManualInit::default()`
 both have all-`None` fields, so this is exactly the auto path — the same as
 `run_calibration`.
 
@@ -103,7 +103,7 @@ session_b.set_input(load_dataset()?)?;
 
 step_intrinsics_init_all_with_seed(
     &mut session_b,
-    RigIntrinsicsManualInit {
+    IntrinsicsManualInit {
         per_cam_intrinsics: Some(per_cam_k),
         per_cam_distortion: Some(per_cam_dist),
         ..Default::default()
@@ -115,7 +115,7 @@ step_intrinsics_init_all_with_seed(
 
 step_rig_init_with_seed(
     &mut session_b,
-    RigExtrinsicsManualInit {
+    RigManualInit {
         cam_se3_rig: Some(cam_se3_rig_a),
         rig_se3_target: Some(rig_se3_target_a),
     },
@@ -154,7 +154,7 @@ let nominal_distortion = BrownConrady5 { k1: -0.1, ..Default::default() };
 
 step_intrinsics_init_all_with_seed(
     &mut session,
-    RigIntrinsicsManualInit {
+    IntrinsicsManualInit {
         per_cam_intrinsics: Some(vec![datasheet_k; num_cameras]),
         per_cam_distortion: Some(vec![nominal_distortion; num_cameras]),
         ..Default::default()
@@ -169,8 +169,10 @@ e.g., strongly tilted Scheimpflug rigs. For those, also set
 and skips the linear stage's tilt sweep. A non-zero tilt for a camera with an
 identity sensor is an error; a zero tilt is accepted. (`RigHandeyeConfig::manual_init`
 takes the same `per_cam_sensors`; the single-camera seeds —
-`PlanarManualInit`, `SingleCamIntrinsicsManualInit` and
-`LaserlineDeviceManualInit` — take one tilt in `sensor`, with the same rule.)
+`planar_intrinsics::IntrinsicsManualInit`,
+`single_cam_handeye::IntrinsicsManualInit` and
+`laserline_device::DeviceManualInit` — take one tilt in `sensor`, with the
+same rule.)
 
 ### Coupling rule (rig stage)
 

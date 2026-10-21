@@ -99,7 +99,7 @@ describe("config form (SchemaValueForm)", () => {
     expect(onValueChange).toHaveBeenCalledTimes(1);
     const next = onValueChange.mock.calls[0]![0] as typeof DEFAULT_PLANAR_CONFIG;
     expect(next.init.fix_k3).toBe(false);
-    expect(next.init.init_iterations).toBe(DEFAULT_PLANAR_CONFIG.init.init_iterations);
+    expect(next.init.iterations).toBe(DEFAULT_PLANAR_CONFIG.init.iterations);
   });
 
   it("propagates a plain-string enum change", () => {

@@ -9,12 +9,12 @@ use calib_targets::detect::{self, default_chess_config};
 use image::ImageReader;
 use std::path::Path;
 use vision_calibration::core::{CorrespondenceView, Iso3, Pt3, Real, Vec2};
-use vision_calibration::rig_handeye::{RigHandEyeInput, RigHandEyeViewData};
+use vision_calibration::rig_handeye::{RigHandeyeInput, RigHandeyeViewData};
 
 const NUM_CAMERAS: usize = 3;
 
 #[derive(Debug, Clone)]
-pub struct RigHandEyeDatasetSummary {
+pub struct RigHandeyeDatasetSummary {
     pub total_views: usize,
     pub used_views: usize,
     pub skipped_views: usize,
@@ -35,7 +35,7 @@ pub fn load_rig_handeye_input_with_progress<F>(
     square_size_m: Real,
     max_views: Option<usize>,
     mut progress: F,
-) -> Result<(RigHandEyeInput, RigHandEyeDatasetSummary)>
+) -> Result<(RigHandeyeInput, RigHandeyeDatasetSummary)>
 where
     F: FnMut(usize, usize, usize),
 {
@@ -119,7 +119,7 @@ where
         // In real usage, these would come from robot controller or a poses file
         let base_from_gripper = Iso3::identity();
 
-        views.push(RigHandEyeViewData {
+        views.push(RigHandeyeViewData {
             cameras: vec![view0, view1, view2],
             base_from_gripper,
         });
@@ -131,17 +131,17 @@ where
         usable_per_camera
     );
 
-    let summary = RigHandEyeDatasetSummary {
+    let summary = RigHandeyeDatasetSummary {
         total_views: total_images,
         used_views: views.len(),
         skipped_views,
         usable_per_camera,
     };
 
-    let input = RigHandEyeInput {
+    let input = RigHandeyeInput {
         views,
         num_cameras: NUM_CAMERAS,
-        mode: vision-calibration::optim::ir::HandEyeMode::EyeToHand,
+        mode: vision-calibration::optim::ir::HandeyeMode::EyeToHand,
     };
 
     Ok((input, summary))

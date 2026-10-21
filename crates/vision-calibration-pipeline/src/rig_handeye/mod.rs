@@ -35,7 +35,7 @@
 //! // Option 1: Step-by-step
 //! step_intrinsics_init_all(&mut session, None)?;
 //! step_intrinsics_optimize_all(&mut session, None)?;
-//! step_rig_init(&mut session)?;
+//! step_rig_init(&mut session, None)?;
 //! step_rig_optimize(&mut session, None)?;
 //! step_handeye_init(&mut session, None)?;
 //! step_handeye_optimize(&mut session, None)?;
@@ -60,8 +60,8 @@
 //!
 //! - Reference camera: index 0
 //! - Hand-eye mode: `EyeInHand`
-//! - Intrinsics: NOT re-refined in rig BA (set `refine_intrinsics_in_rig_ba: true` to enable)
-//! - Rig extrinsics: NOT re-refined in hand-eye BA (set `handeye_ba.refine_cam_se3_rig: true` to enable)
+//! - Intrinsics: NOT re-refined in rig BA (set `refine_intrinsics: true` to enable)
+//! - Rig extrinsics: NOT re-refined in hand-eye BA (set `handeye_optimize.refine_cam_se3_rig: true` to enable)
 //! - Robot pose refinement: enabled with 0.5° rotation prior and 1mm translation prior
 //! - Single fixed target pose (not per-view)
 //! - Every camera has the model of `camera` (pinhole, Brown-Conrady, untilted
@@ -75,17 +75,16 @@ mod steps;
 
 // Re-export types
 pub use problem::{
-    HandeyeBaConfig, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput,
-    RigHandeyeIntrinsicsManualInit, RigHandeyeProblem,
+    HandeyeOptimizeConfig, IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeExport,
+    RigHandeyeInput, RigHandeyeProblem,
 };
 pub use steps::{
-    HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
-    RigHandeyeHandeyeInitResult, RigHandeyeHandeyeManualInit, RigHandeyeHandeyeOptimizeResult,
-    RigHandeyeIntrinsicsInitAllResult, RigHandeyeIntrinsicsOptimizeAllResult,
-    RigHandeyeRigInitResult, RigHandeyeRigManualInit, RigHandeyeRigOptimizeResult,
-    RigOptimizeOptions, run_calibration, step_handeye_init, step_handeye_init_with_seed,
+    HandeyeInitOptions, HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeOptions,
+    HandeyeOptimizeResult, IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsOptimizeOptions,
+    IntrinsicsOptimizeResult, RigInitOptions, RigInitResult, RigManualInit, RigOptimizeOptions,
+    RigOptimizeResult, run_calibration, step_handeye_init, step_handeye_init_with_seed,
     step_handeye_optimize, step_intrinsics_init_all, step_intrinsics_init_all_with_seed,
     step_intrinsics_optimize_all, step_rig_init, step_rig_init_with_seed, step_rig_optimize,
 };
 /// The hand-eye bundle adjustment's estimate, the problem's output.
-pub use vision_calibration_optim::{HandEyeEstimate, HandEyeParams};
+pub use vision_calibration_optim::{HandeyeEstimate, HandeyeParams};

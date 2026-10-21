@@ -9,8 +9,8 @@ use vision_calibration::core::{
 };
 use vision_calibration::optim::RobustLoss;
 use vision_calibration::planar_intrinsics::{
-    PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate, PlanarIntrinsicsProblem, PlanarManualInit,
-    run_calibration, step_init_with_seed, step_optimize,
+    IntrinsicsManualInit, PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate,
+    PlanarIntrinsicsProblem, run_calibration, step_init_with_seed, step_optimize,
 };
 
 /// The default planar config with a Scheimpflug sensor.
@@ -261,11 +261,11 @@ fn seeded_coarse_prior_converges_on_strong_tilt_distortion() {
     session.set_input(dataset).expect("input");
     session.set_config(tilted_config()).expect("config");
 
-    // `PlanarManualInit` is `#[non_exhaustive]`; build via Default + field
+    // `IntrinsicsManualInit` is `#[non_exhaustive]`; build via Default + field
     // assignment. The realistic Scheimpflug prior: a coarse focal (≈9% low, pp at
     // image center) and the nominal mount tilt (≈−5°, a known mechanical spec).
     // distortion/poses stay None (auto). The seeded tilt is trusted directly.
-    let mut seed = PlanarManualInit::default();
+    let mut seed = IntrinsicsManualInit::default();
     seed.intrinsics = Some(FxFyCxCy {
         fx: 1050.0,
         fy: 1050.0,
@@ -381,15 +381,15 @@ fn public_api_rejects_view_with_too_few_points() {
 fn public_api_rejects_invalid_config() {
     let dataset = make_dataset(ScheimpflugParams::default());
     let mut config = tilted_config();
-    config.init.init_iterations = 0;
+    config.init.iterations = 0;
     let err = run_pipeline(&dataset, config).expect_err("expected invalid config");
-    assert!(err.to_string().contains("init_iterations must be positive"));
+    assert!(err.to_string().contains("iterations must be positive"));
 }
 
 #[test]
 fn scheimpflug_config_json_roundtrip() {
     let mut config = tilted_config();
-    config.init.init_iterations = 3;
+    config.init.iterations = 3;
     config.solver.max_iters = 75;
     config.solver.robust_loss = RobustLoss::Cauchy { scale: 0.9 };
     config.camera.fix = CameraFix {
@@ -398,7 +398,7 @@ fn scheimpflug_config_json_roundtrip() {
     };
     let json = serde_json::to_string(&config).expect("serialize config");
     let restored: PlanarIntrinsicsConfig = serde_json::from_str(&json).expect("deserialize config");
-    assert_eq!(restored.init.init_iterations, 3);
+    assert_eq!(restored.init.iterations, 3);
     assert_eq!(restored.solver.max_iters, 75);
     assert!(matches!(
         restored.solver.robust_loss,

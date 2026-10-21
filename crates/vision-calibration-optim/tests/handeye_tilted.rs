@@ -7,7 +7,7 @@ use vision_calibration_core::{
     Pinhole, ProjectionParams, Pt3, Real, RigView, RigViewObs, ScheimpflugParams, SensorParams,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
+    BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
     RobotPoseMeta, optimize_handeye,
 };
 
@@ -92,7 +92,7 @@ fn eye_in_hand_scheimpflug_converges() {
         });
     }
 
-    let dataset = HandEyeDataset::new(views, 1, HandEyeMode::EyeInHand).unwrap();
+    let dataset = HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap();
 
     // The sensor tilt starts at zero.
     let cameras_init = vec![CameraParams {
@@ -122,7 +122,7 @@ fn eye_in_hand_scheimpflug_converges() {
         Rotation3::from_euler_angles(0.098, -0.048, 0.148).into(),
     );
 
-    let initial = HandEyeParams {
+    let initial = HandeyeParams {
         cameras: cameras_init,
         cam_to_rig: vec![cam_to_rig_gt],
         handeye: handeye_init,
@@ -130,7 +130,7 @@ fn eye_in_hand_scheimpflug_converges() {
     };
 
     // The tangential terms are solved (a tilted sensor's default fixes them).
-    let opts = HandEyeSolveOptions {
+    let opts = HandeyeSolveOptions {
         fix: vec![CameraFix {
             distortion: Some(vec!["k3".into()]),
             ..CameraFix::default()

@@ -40,7 +40,7 @@ JSON config:
 Python:
 
 ```python
-config = vc.PlanarCalibrationConfig(solver=vc.SolverConfig(backend="factrs"))
+config = vc.PlanarIntrinsicsConfig(solver=vc.SolverConfig(backend="factrs"))
 ```
 
 In the desktop app, the backend is a field of the solver group of each

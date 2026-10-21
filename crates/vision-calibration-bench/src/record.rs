@@ -933,7 +933,7 @@ mod tests {
             residuals: intrinsic_residuals,
         };
         let handeye = vision_calibration_pipeline::analysis::LevelReport {
-            level: ReprojLevel::HandEye,
+            level: ReprojLevel::Handeye,
             overall: LevelStats::from_residuals(&handeye_residuals),
             per_camera: vec![LevelStats::from_residuals(&handeye_residuals)],
             per_view: vec![LevelStats::from_residuals(&handeye_residuals)],

@@ -104,7 +104,7 @@ config.camera.fix.distortion = Some(vec!["k4".into(), "k5".into(), "k6".into()])
 ```rust
 use vision_calibration::core::{DistortionKind, SensorKind};
 use vision_calibration::planar_intrinsics::{
-    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, PlanarManualInit, step_init_with_seed,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, IntrinsicsManualInit, step_init_with_seed,
     step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
@@ -117,7 +117,7 @@ let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 session.set_input(dataset)?;
 session.set_config(config)?;
 
-let mut seed = PlanarManualInit::default();
+let mut seed = IntrinsicsManualInit::default();
 seed.intrinsics = Some(nominal_k);   // datasheet focal / pixel pitch
 seed.sensor = Some(mount_tilt);      // mechanical mount angle
 step_init_with_seed(&mut session, seed, None)?;
@@ -187,7 +187,7 @@ why it is not the default.
 
 ## What to read next
 
-- [Manual initialization](./manual-init.md) — the `PlanarManualInit`
+- [Manual initialization](./manual-init.md) — the `IntrinsicsManualInit`
   seeding mechanism used in the walkthrough above.
 - [Per-feature residuals](./per-feature-residuals.md) — drill into
   per-corner errors after a calibration finishes, model by model.

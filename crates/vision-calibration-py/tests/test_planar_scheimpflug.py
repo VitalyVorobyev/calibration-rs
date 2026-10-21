@@ -6,12 +6,12 @@ import vision_calibration as vc
 from _fixtures import planar_calibration_dataset
 
 
-def _make_dataset() -> vc.PlanarDataset:
+def _make_dataset() -> vc.PlanarIntrinsicsInput:
     return planar_calibration_dataset(8)
 
 
-def _tilted_config(**kwargs: object) -> vc.PlanarCalibrationConfig:
-    return vc.PlanarCalibrationConfig(
+def _tilted_config(**kwargs: object) -> vc.PlanarIntrinsicsConfig:
+    return vc.PlanarIntrinsicsConfig(
         camera=vc.CameraConfig(model=vc.CameraModelSpec(sensor="scheimpflug")),
         **kwargs,  # type: ignore[arg-type]
     )
@@ -49,7 +49,7 @@ class PlanarScheimpflugTest(unittest.TestCase):
         payload = cfg.to_payload()
         self.assertEqual(payload["camera"]["model"]["sensor"], "scheimpflug")
         self.assertEqual(payload["camera"]["fix"], {"intrinsics": ["cx", "cy"], "sensor": []})
-        restored = vc.PlanarCalibrationConfig.from_mapping(payload)
+        restored = vc.PlanarIntrinsicsConfig.from_mapping(payload)
         self.assertEqual(restored.to_payload(), payload)
 
     def test_invalid_config_maps_to_value_error(self) -> None:
@@ -78,11 +78,11 @@ class PlanarScheimpflugTest(unittest.TestCase):
     def test_high_level_api_rejects_mapping_inputs(self) -> None:
         with self.assertRaises(TypeError) as cfg_ctx:
             vc.run_planar_intrinsics(_make_dataset(), {"max_iters": 50})
-        self.assertIn("config must be PlanarCalibrationConfig", str(cfg_ctx.exception))
+        self.assertIn("config must be PlanarIntrinsicsConfig", str(cfg_ctx.exception))
 
         with self.assertRaises(TypeError) as input_ctx:
             vc.run_planar_intrinsics({"views": []}, _tilted_config())
-        self.assertIn("input must be PlanarDataset", str(input_ctx.exception))
+        self.assertIn("input must be PlanarIntrinsicsInput", str(input_ctx.exception))
 
 
 if __name__ == "__main__":

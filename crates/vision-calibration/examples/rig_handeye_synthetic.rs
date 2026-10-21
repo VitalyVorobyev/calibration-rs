@@ -18,7 +18,7 @@ use vision_calibration::core::{
     BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, PinholeCamera, Pt3, RigDataset, RigView,
     RigViewObs, make_pinhole_camera,
 };
-use vision_calibration::optim::{HandEyeMode, RobotPoseMeta};
+use vision_calibration::optim::{HandeyeMode, RobotPoseMeta};
 use vision_calibration::prelude::*;
 use vision_calibration::rig_handeye::{
     RigHandeyeInput, RigHandeyeProblem, step_handeye_init, step_handeye_optimize,
@@ -171,7 +171,7 @@ fn main() -> Result<()> {
 
     // Step 3: Rig initialization
     println!("--- Step 3: Rig Extrinsics Initialization ---");
-    let rig_init = step_rig_init(&mut session)?;
+    let rig_init = step_rig_init(&mut session, None)?;
     let init_extr = &rig_init.initial_cam_se3_rig;
     let baseline_init = (init_extr[1].translation.vector - init_extr[0].translation.vector).norm();
     println!(
@@ -265,7 +265,7 @@ fn main() -> Result<()> {
 
     println!("Hand-eye transform:");
     match export.handeye_mode {
-        HandEyeMode::EyeInHand => {
+        HandeyeMode::EyeInHand => {
             let handeye = export
                 .gripper_se3_rig
                 .expect("missing gripper_se3_rig for EyeInHand");
@@ -291,7 +291,7 @@ fn main() -> Result<()> {
                 100.0 * (target_t - target_gt_t).abs() / target_gt_t
             );
         }
-        HandEyeMode::EyeToHand => {
+        HandeyeMode::EyeToHand => {
             let handeye = export
                 .rig_se3_base
                 .expect("missing rig_se3_base for EyeToHand");

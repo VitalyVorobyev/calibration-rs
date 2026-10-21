@@ -11,7 +11,7 @@ use vision_calibration_core::{
     Pt3, Real, RigView, RigViewObs, make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
+    BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
     RobotPoseMeta, optimize_handeye,
 };
 
@@ -124,7 +124,7 @@ fn eye_in_hand_calibration_converges() {
         });
     }
 
-    let dataset = HandEyeDataset::new(views, 1, HandEyeMode::EyeInHand).unwrap();
+    let dataset = HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap();
 
     // Initial values (perturbed from ground truth)
     // Single camera initialization
@@ -161,7 +161,7 @@ fn eye_in_hand_calibration_converges() {
         .map(|(k, d)| pinhole_camera_params(&make_pinhole_camera(*k, *d)))
         .collect();
 
-    let initial = HandEyeParams {
+    let initial = HandeyeParams {
         cameras: cameras_init,
         cam_to_rig: vec![cam0_to_rig_init],
         handeye: handeye_init,
@@ -169,7 +169,7 @@ fn eye_in_hand_calibration_converges() {
     };
 
     // Solve options - fix camera 0 extrinsics for gauge freedom
-    let opts = HandEyeSolveOptions {
+    let opts = HandeyeSolveOptions {
         fix_extrinsics: vec![true], // Fix cam0 (gauge freedom)
         ..Default::default()
     };
@@ -481,9 +481,9 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         });
     }
 
-    let dataset = HandEyeDataset::new(views.clone(), 1, HandEyeMode::EyeInHand).unwrap();
+    let dataset = HandeyeDataset::new(views.clone(), 1, HandeyeMode::EyeInHand).unwrap();
     let num_views = dataset.num_views();
-    let init = HandEyeParams {
+    let init = HandeyeParams {
         cameras: vec![pinhole_camera_params(&make_pinhole_camera(
             intrinsics_gt,
             distortion_gt,
@@ -496,7 +496,7 @@ fn eye_in_hand_robot_pose_refinement_improves_handeye() {
         target_poses: vec![target_pose_gt],
     };
 
-    let base_opts = HandEyeSolveOptions {
+    let base_opts = HandeyeSolveOptions {
         fix: vec![CameraFix::all(init.cameras[0].spec().unwrap())],
         fix_extrinsics: vec![true],
         ..Default::default()

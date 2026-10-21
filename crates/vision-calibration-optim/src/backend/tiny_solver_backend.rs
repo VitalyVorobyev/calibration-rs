@@ -500,7 +500,7 @@ impl<T: nalgebra::RealField> Factor<T> for TinySe3TangentPriorFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::HandEyeMode;
+    use crate::ir::HandeyeMode;
     use crate::ir::{DistortionKind, SensorKind};
     use faer_ext::IntoNalgebra;
     use nalgebra::RealField;
@@ -719,7 +719,7 @@ mod tests {
         let w = 1.7;
         let laser_pixel = [702.0, 391.0];
         let robot_se3 = [0.024, 0.011, 0.032, 0.999_15, 0.51, -0.22, 0.78];
-        let mode = HandEyeMode::EyeToHand;
+        let mode = HandeyeMode::EyeToHand;
 
         let p4 = CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity);
         let d5 = CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
@@ -732,19 +732,19 @@ mod tests {
             uv,
             w,
         };
-        let he = ReprojChain::HandEye {
+        let he = ReprojChain::Handeye {
             base_se3_gripper: robot_se3,
             mode,
         };
-        let hed = ReprojChain::HandEyeRobotDelta {
+        let hed = ReprojChain::HandeyeRobotDelta {
             base_se3_gripper: robot_se3,
             mode,
         };
-        let laser_he = LaserChain::RigHandEye {
+        let laser_he = LaserChain::RigHandeye {
             base_se3_gripper: robot_se3,
             mode,
         };
-        let laser_hed = LaserChain::RigHandEyeRobotDelta {
+        let laser_hed = LaserChain::RigHandeyeRobotDelta {
             base_se3_gripper: robot_se3,
             mode,
         };

@@ -9,7 +9,7 @@ use vision_calibration_core::{
     CameraParams, ImageManifest, Iso3, PerFeatureResiduals, Uncertainty, View,
     build_feature_histogram, compute_planar_target_residuals_views,
 };
-use vision_calibration_optim::{HandEyeEstimate, HandEyeMode, handeye_observer_se3_target};
+use vision_calibration_optim::{HandeyeEstimate, HandeyeMode, handeye_observer_se3_target};
 
 use crate::common::ExportKind;
 use crate::common::config::{
@@ -131,7 +131,7 @@ pub struct SingleCamHandeyeExport {
     pub camera: CameraParams,
 
     /// Hand-eye mode used to interpret the transforms.
-    pub handeye_mode: HandEyeMode,
+    pub handeye_mode: HandeyeMode,
 
     /// Eye-in-hand: gripper_se3_camera (T_G_C).
     ///
@@ -241,7 +241,7 @@ impl ProblemState for SingleCamHandeyeProblem {
 impl ProblemType for SingleCamHandeyeProblem {
     type Config = SingleCamHandeyeConfig;
     type Input = SingleCamHandeyeInput;
-    type Output = HandEyeEstimate;
+    type Output = HandeyeEstimate;
     type Export = SingleCamHandeyeExport;
 
     fn name() -> &'static str {
@@ -277,8 +277,10 @@ impl ProblemType for SingleCamHandeyeProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.intrinsics.init_iterations == 0 {
-            return Err(Error::invalid_input("init_iterations must be positive"));
+        if config.intrinsics.iterations == 0 {
+            return Err(Error::invalid_input(
+                "intrinsics.iterations must be positive",
+            ));
         }
         if config.handeye_init.min_motion_angle_deg <= 0.0 {
             return Err(Error::invalid_input(
@@ -325,10 +327,10 @@ impl ProblemType for SingleCamHandeyeProblem {
 
         let (gripper_se3_camera, camera_se3_base, base_se3_target, gripper_se3_target) =
             match config.handeye_init.handeye_mode {
-                HandEyeMode::EyeInHand => {
+                HandeyeMode::EyeInHand => {
                     (Some(output.params.handeye), None, Some(target_pose), None)
                 }
-                HandEyeMode::EyeToHand => {
+                HandeyeMode::EyeToHand => {
                     (None, Some(output.params.handeye), None, Some(target_pose))
                 }
             };
@@ -484,7 +486,7 @@ mod tests {
                 ..Default::default()
             },
             handeye_init: HandeyeInitConfig {
-                handeye_mode: HandEyeMode::EyeToHand,
+                handeye_mode: HandeyeMode::EyeToHand,
                 ..Default::default()
             },
             ..Default::default()
@@ -497,7 +499,7 @@ mod tests {
         assert!(!restored.intrinsics.fix_k3);
         assert!(matches!(
             restored.handeye_init.handeye_mode,
-            HandEyeMode::EyeToHand
+            HandeyeMode::EyeToHand
         ));
     }
 

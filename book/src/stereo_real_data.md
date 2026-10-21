@@ -34,7 +34,7 @@ session.set_input(input)?;
 
 step_intrinsics_init_all(&mut session, None)?;
 let intr_opt = step_intrinsics_optimize_all(&mut session, None)?;
-let rig_init = step_rig_init(&mut session)?;
+let rig_init = step_rig_init(&mut session, None)?;
 let rig_opt = step_rig_optimize(&mut session, None)?;
 
 println!("Rig BA mean reprojection error: {:.4} px", rig_opt.mean_reproj_error);

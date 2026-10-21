@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use vision_calibration_core::{CameraFix, CameraModelSpec, SensorKind};
 use vision_calibration_linear::prelude::{DistortionFitOptions, IterativeIntrinsicsOptions};
 use vision_calibration_optim::{
-    BackendSolveOptions, DistortionKind, HandEyeMode, RobustLoss, SolverBackend,
+    BackendSolveOptions, DistortionKind, HandeyeMode, RobustLoss, SolverBackend,
 };
 
 /// Fixed iteration count for the inner Brown-Conrady distortion fit loop.
@@ -207,7 +207,7 @@ pub(crate) fn validate_rig_camera_indices(
 #[serde(deny_unknown_fields)]
 pub struct IntrinsicsInitConfig {
     /// Number of iterations for iterative intrinsics estimation.
-    pub init_iterations: usize,
+    pub iterations: usize,
     /// Fix k3 during initialization (recommended for typical lenses).
     pub fix_k3: bool,
     /// Fix tangential distortion (p1, p2) during initialization.
@@ -225,7 +225,7 @@ pub struct IntrinsicsInitConfig {
 impl Default for IntrinsicsInitConfig {
     fn default() -> Self {
         Self {
-            init_iterations: 2,
+            iterations: 2,
             fix_k3: true,
             fix_tangential: None,
         }
@@ -237,10 +237,10 @@ impl IntrinsicsInitConfig {
     /// [`IterativeIntrinsicsOptions`], the shape every per-camera Zhang's
     /// method bootstrap consumes.
     ///
-    /// `iterations_override` — when `Some`, overrides `self.init_iterations`
+    /// `iterations_override` — when `Some`, overrides `self.iterations`
     /// (used by step functions that accept a per-call `IntrinsicsInitOptions`
     /// override, e.g. `RigExtrinsicsProblem::step_intrinsics_init_all`).
-    /// `None` uses the config's own `init_iterations` verbatim (the shape
+    /// `None` uses the config's own `iterations` verbatim (the shape
     /// problems without a step-level override need).
     ///
     /// `default_fix_tangential` is the camera's default for an unset
@@ -251,7 +251,7 @@ impl IntrinsicsInitConfig {
         default_fix_tangential: bool,
     ) -> IterativeIntrinsicsOptions {
         IterativeIntrinsicsOptions {
-            iterations: iterations_override.unwrap_or(self.init_iterations),
+            iterations: iterations_override.unwrap_or(self.iterations),
             distortion_opts: self.distortion_fit_opts(default_fix_tangential),
         }
     }
@@ -389,7 +389,7 @@ impl RobotPoseConfig {
 #[serde(deny_unknown_fields)]
 pub struct HandeyeInitConfig {
     /// Hand-eye mode: `EyeInHand` or `EyeToHand`.
-    pub handeye_mode: HandEyeMode,
+    pub handeye_mode: HandeyeMode,
     /// Minimum motion angle (degrees) for linear hand-eye initialization.
     pub min_motion_angle_deg: f64,
 }
@@ -397,7 +397,7 @@ pub struct HandeyeInitConfig {
 impl Default for HandeyeInitConfig {
     fn default() -> Self {
         Self {
-            handeye_mode: HandEyeMode::EyeInHand,
+            handeye_mode: HandeyeMode::EyeInHand,
             min_motion_angle_deg: 5.0,
         }
     }
@@ -416,7 +416,7 @@ pub struct RigConfig {
     /// Re-refine per-camera intrinsics and distortion jointly during rig
     /// bundle adjustment, holding the camera's `fix` lists. Default:
     /// `false` — the per-camera solves have already fitted them.
-    pub refine_intrinsics_in_rig_ba: bool,
+    pub refine_intrinsics: bool,
     /// Re-refine the sensor tilt of each Scheimpflug camera during rig
     /// bundle adjustment, holding its `fix.sensor` list. Default: `false` —
     /// the tilt is fitted per camera and trades off against the extrinsics
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn intrinsics_init_config_default() {
         let cfg = IntrinsicsInitConfig::default();
-        assert_eq!(cfg.init_iterations, 2);
+        assert_eq!(cfg.iterations, 2);
         assert!(cfg.fix_k3);
         assert_eq!(cfg.fix_tangential, None);
         assert!(!cfg.distortion_fit_opts(false).fix_tangential);
@@ -458,7 +458,7 @@ mod tests {
     #[test]
     fn handeye_init_config_default() {
         let cfg = HandeyeInitConfig::default();
-        assert_eq!(cfg.handeye_mode, HandEyeMode::EyeInHand);
+        assert_eq!(cfg.handeye_mode, HandeyeMode::EyeInHand);
         assert!((cfg.min_motion_angle_deg - 5.0).abs() < 1e-15);
     }
 
@@ -466,7 +466,7 @@ mod tests {
     fn rig_config_default() {
         let cfg = RigConfig::default();
         assert_eq!(cfg.reference_camera_idx, 0);
-        assert!(!cfg.refine_intrinsics_in_rig_ba);
+        assert!(!cfg.refine_intrinsics);
         assert!(!cfg.refine_sensor);
     }
 
@@ -508,7 +508,7 @@ mod tests {
     #[test]
     fn iterative_opts_uses_config_iterations_when_no_override() {
         let cfg = IntrinsicsInitConfig {
-            init_iterations: 3,
+            iterations: 3,
             fix_k3: false,
             fix_tangential: Some(true),
         };
@@ -530,7 +530,7 @@ mod tests {
     #[test]
     fn distortion_fit_opts_mirrors_init_fields() {
         let cfg = IntrinsicsInitConfig {
-            init_iterations: 2,
+            iterations: 2,
             fix_k3: true,
             fix_tangential: Some(false),
         };
@@ -570,13 +570,13 @@ mod tests {
     #[test]
     fn json_roundtrip() {
         let cfg = IntrinsicsInitConfig {
-            init_iterations: 3,
+            iterations: 3,
             fix_k3: false,
             fix_tangential: Some(true),
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let restored: IntrinsicsInitConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.init_iterations, 3);
+        assert_eq!(restored.iterations, 3);
         assert!(!restored.fix_k3);
         assert_eq!(restored.fix_tangential, Some(true));
         // An unset value is omitted and reads back as `None`.

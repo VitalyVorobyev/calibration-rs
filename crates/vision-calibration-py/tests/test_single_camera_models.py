@@ -27,14 +27,14 @@ def _camera(distortion: str, sensor: str = "identity") -> vc.CameraConfig:
 
 class SingleCamHandeyeCameraTest(unittest.TestCase):
     def test_distortion_model_reaches_the_result(self) -> None:
-        cfg = vc.SingleCamHandeyeCalibrationConfig(camera=_camera("division1"))
+        cfg = vc.SingleCamHandeyeConfig(camera=_camera("division1"))
         result = vc.run_single_cam_handeye(handeye_synthetic.make_input(), cfg)
         self.assertIsInstance(result.camera, vc.PinholeCamera)
         self.assertIsInstance(result.camera.distortion, vc.Division1Distortion)
         self.assertLess(result.mean_reproj_error, 1e-3)
 
     def test_bad_fix_name_is_rejected(self) -> None:
-        cfg = vc.SingleCamHandeyeCalibrationConfig(camera=_camera("brown_conrady5"))
+        cfg = vc.SingleCamHandeyeConfig(camera=_camera("brown_conrady5"))
         cfg.camera.fix = vc.CameraFix(sensor=["tilt_x"])
         with self.assertRaises(Exception) as ctx:
             vc.run_single_cam_handeye(handeye_synthetic.make_input(), cfg)
@@ -43,7 +43,7 @@ class SingleCamHandeyeCameraTest(unittest.TestCase):
 
 class LaserlineDeviceCameraTest(unittest.TestCase):
     def test_distortion_model_reaches_the_result(self) -> None:
-        cfg = vc.LaserlineDeviceCalibrationConfig(camera=_camera("rational8"))
+        cfg = vc.LaserlineDeviceConfig(camera=_camera("rational8"))
         result = vc.run_laserline_device(laserline_device_session.make_input(), cfg)
         camera = result.estimate.params.camera
         self.assertIsInstance(camera, vc.PinholeCamera)
@@ -51,7 +51,7 @@ class LaserlineDeviceCameraTest(unittest.TestCase):
         self.assertLess(result.mean_reproj_error, 1e-3)
 
     def test_tilted_sensor_reports_a_scheimpflug_camera(self) -> None:
-        cfg = vc.LaserlineDeviceCalibrationConfig(
+        cfg = vc.LaserlineDeviceConfig(
             camera=_camera("brown_conrady5", sensor="scheimpflug")
         )
         result = vc.run_laserline_device(laserline_device_session.make_input(), cfg)

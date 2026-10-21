@@ -23,10 +23,10 @@ poses.
   (`T_B_G`). The unknowns the calibration solves for are named the same
   way: `gripper_se3_camera` (EyeInHand) or `camera_se3_base` (EyeToHand).
 - **Two mounting modes**, chosen by `HandeyeInitConfig::handeye_mode`:
-  - `HandEyeMode::EyeInHand` (the config default) — the camera rides on
+  - `HandeyeMode::EyeInHand` (the config default) — the camera rides on
     the gripper, observing a **fixed** target. Solves for
     `gripper_se3_camera` (`T_G_C`) and `base_se3_target` (`T_B_T`).
-  - `HandEyeMode::EyeToHand` — the camera is fixed in the scene,
+  - `HandeyeMode::EyeToHand` — the camera is fixed in the scene,
     observing a target **mounted on the gripper**. Solves for
     `camera_se3_base` (`T_C_B`) and `gripper_se3_target` (`T_G_T`).
 
@@ -43,8 +43,8 @@ poses.
   ```
 
   Each has a `*_with_seed` sibling and its own typed
-  step-result struct (`SingleCamIntrinsicsInitResult`,
-  `SingleCamHandeyeOptimizeResult`, …) mirroring the fields written into
+  step-result struct (`IntrinsicsInitResult`,
+  `HandeyeOptimizeResult`, …) mirroring the fields written into
   `session.state`.
 
 ## Walkthrough
@@ -120,14 +120,14 @@ pose (which was free during intrinsics optimization).
 ### 3. Read the export
 
 ```rust
-use vision_calibration::optim::HandEyeMode;
+use vision_calibration::optim::HandeyeMode;
 
 match export.handeye_mode {
-    HandEyeMode::EyeInHand => {
+    HandeyeMode::EyeInHand => {
         let gripper_se3_camera = export.gripper_se3_camera.unwrap(); // T_G_C
         let base_se3_target = export.base_se3_target.unwrap();       // T_B_T
     }
-    HandEyeMode::EyeToHand => {
+    HandeyeMode::EyeToHand => {
         let camera_se3_base = export.camera_se3_base.unwrap();       // T_C_B
         let gripper_se3_target = export.gripper_se3_target.unwrap(); // T_G_T
     }
@@ -146,7 +146,7 @@ per-corner reprojection records (see
 
 ```rust
 pub struct SingleCamHandeyeConfig {
-    pub intrinsics: IntrinsicsInitConfig,  // init_iterations, fix_k3, fix_tangential
+    pub intrinsics: IntrinsicsInitConfig,  // iterations, fix_k3, fix_tangential
     pub camera: CameraConfig,              // model (distortion kind, sensor), fix lists
     pub handeye_init: HandeyeInitConfig,   // handeye_mode, min_motion_angle_deg
     pub solver: SolverConfig,              // max_iters, verbosity, robust_loss
@@ -162,7 +162,7 @@ raises `solver.max_iters` to 120). As in planar intrinsics,
 Scheimpflug sensor). `camera.model` picks any distortion kind and an
 untilted or a tilted (Scheimpflug) sensor; a tilted sensor's intrinsics stage
 runs the tilt sweep, or takes the `sensor` seed of
-`SingleCamIntrinsicsManualInit`. `camera.fix` names the parameters both the
+`IntrinsicsManualInit`. `camera.fix` names the parameters both the
 intrinsics stage and the hand-eye bundle adjustment hold. See
 [distortion model selection](./distortion-model-selection.md) for the
 `IntrinsicsInitConfig` fields in more depth.
@@ -175,10 +175,10 @@ To switch to EyeToHand:
 
 ```rust
 use vision_calibration::single_cam_handeye::SingleCamHandeyeConfig;
-use vision_calibration::optim::HandEyeMode;
+use vision_calibration::optim::HandeyeMode;
 
 let mut config = SingleCamHandeyeConfig::default();
-config.handeye_init.handeye_mode = HandEyeMode::EyeToHand;
+config.handeye_init.handeye_mode = HandeyeMode::EyeToHand;
 session.set_config(config)?;
 ```
 
@@ -188,8 +188,8 @@ session.set_config(config)?;
 
 See [Manual initialization](./manual-init.md). The load-bearing entry
 points are `step_intrinsics_init_with_seed(&mut session,
-SingleCamIntrinsicsManualInit { intrinsics: Some(k), .. }, None)` and
-`step_handeye_init_with_seed(&mut session, SingleCamHandeyeManualInit {
+IntrinsicsManualInit { intrinsics: Some(k), .. }, None)` and
+`step_handeye_init_with_seed(&mut session, HandeyeManualInit {
 .. }, None)`; both accept partial or full seeds and the session log
 records which fields came from where.
 
@@ -227,7 +227,7 @@ today:
   the existing `device_seed` helpers don't apply here. If you have a
   `spec.json` for a single-camera hand-eye rig, read its
   `focal_mm` / `pixel_pitch_um` / `resolution_px` fields yourself and
-  build an `FxFyCxCy` for `SingleCamIntrinsicsManualInit` — the same
+  build an `FxFyCxCy` for `IntrinsicsManualInit` — the same
   formula `device_seed::scheimpflug_seed` uses internally
   (`f_px = focal_mm * 1000 / pixel_pitch_um`, principal point defaulting
   to the resolution center).

@@ -7,8 +7,8 @@
 //! 1. **Run A — full auto-init**: per-camera intrinsics, cam-to-rig
 //!    extrinsics and the mean reprojection error.
 //! 2. **Run B — replay manual seed**: seeds Run A's per-cam intrinsics +
-//!    distortion via [`RigIntrinsicsManualInit`] AND seeds Run A's rig
-//!    initialization via [`RigExtrinsicsManualInit`], then skips per-camera
+//!    distortion via [`IntrinsicsManualInit`] AND seeds Run A's rig
+//!    initialization via [`RigManualInit`], then skips per-camera
 //!    intrinsics re-optimization (since the seeds are already optimized) and
 //!    runs only `step_rig_optimize`. Expectation: identical final
 //!    reprojection error (Zhang + DLT bypassed entirely).
@@ -28,7 +28,7 @@ use anyhow::{Result, ensure};
 use vision_calibration::core::{BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, Iso3};
 use vision_calibration::prelude::*;
 use vision_calibration::rig_extrinsics::{
-    RigExtrinsicsInput, RigExtrinsicsManualInit, RigExtrinsicsProblem, RigIntrinsicsManualInit,
+    IntrinsicsManualInit, RigExtrinsicsInput, RigExtrinsicsProblem, RigManualInit,
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init_with_seed,
     step_rig_optimize,
 };
@@ -55,13 +55,10 @@ fn main() -> Result<()> {
     println!("--- Run A: full auto-init pipeline ---");
     let mut session_a = CalibrationSession::<RigExtrinsicsProblem>::new();
     session_a.set_input(load()?)?;
-    let _intr_init_a = step_intrinsics_init_all_with_seed(
-        &mut session_a,
-        RigIntrinsicsManualInit::default(),
-        None,
-    )?;
+    let _intr_init_a =
+        step_intrinsics_init_all_with_seed(&mut session_a, IntrinsicsManualInit::default(), None)?;
     let intr_opt_a = step_intrinsics_optimize_all(&mut session_a, None)?;
-    let rig_init_a = step_rig_init_with_seed(&mut session_a, RigExtrinsicsManualInit::default())?;
+    let rig_init_a = step_rig_init_with_seed(&mut session_a, RigManualInit::default(), None)?;
     let rig_opt_a = step_rig_optimize(&mut session_a, None)?;
     let cameras_a = intr_opt_a.cameras.clone();
     let cam_se3_rig_a = rig_init_a.initial_cam_se3_rig.clone();
@@ -85,7 +82,7 @@ fn main() -> Result<()> {
     println!("--- Run B: replay Run A's seeds via ManualInit ---");
     let mut session_b = CalibrationSession::<RigExtrinsicsProblem>::new();
     session_b.set_input(load()?)?;
-    let mut manual_b = RigIntrinsicsManualInit::default();
+    let mut manual_b = IntrinsicsManualInit::default();
     manual_b.per_cam_intrinsics = Some(per_cam_k.clone());
     manual_b.per_cam_distortion = Some(per_cam_dist.clone());
     let intr_init_b = step_intrinsics_init_all_with_seed(&mut session_b, manual_b, None)?;
@@ -97,10 +94,10 @@ fn main() -> Result<()> {
     // needs per_cam_intrinsics + per_cam_target_poses, both already set by
     // step_intrinsics_init_all_with_seed.
     let cameras_b = intr_init_b.cameras.clone();
-    let mut rig_manual_b = RigExtrinsicsManualInit::default();
+    let mut rig_manual_b = RigManualInit::default();
     rig_manual_b.cam_se3_rig = Some(cam_se3_rig_a.clone());
     rig_manual_b.rig_se3_target = Some(rig_se3_target_a.clone());
-    let _rig_init_b = step_rig_init_with_seed(&mut session_b, rig_manual_b)?;
+    let _rig_init_b = step_rig_init_with_seed(&mut session_b, rig_manual_b, None)?;
     let rig_opt_b = step_rig_optimize(&mut session_b, None)?;
     let b_summary = summarize(&session_b, "Run B", &rig_opt_b, &cameras_b)?;
     print_init_logs(session_b.log(), "Run B");
@@ -123,12 +120,12 @@ fn main() -> Result<()> {
         .collect();
     let mut session_c = CalibrationSession::<RigExtrinsicsProblem>::new();
     session_c.set_input(load()?)?;
-    let mut manual_c = RigIntrinsicsManualInit::default();
+    let mut manual_c = IntrinsicsManualInit::default();
     manual_c.per_cam_intrinsics = Some(perturbed_k);
     // `per_cam_distortion` left as None — let auto-fit it.
     let _intr_init_c = step_intrinsics_init_all_with_seed(&mut session_c, manual_c, None)?;
     let intr_opt_c = step_intrinsics_optimize_all(&mut session_c, None)?;
-    let _rig_init_c = step_rig_init_with_seed(&mut session_c, RigExtrinsicsManualInit::default())?;
+    let _rig_init_c = step_rig_init_with_seed(&mut session_c, RigManualInit::default(), None)?;
     let rig_opt_c = step_rig_optimize(&mut session_c, None)?;
     let cameras_c = intr_opt_c.cameras.clone();
     let c_summary = summarize(&session_c, "Run C", &rig_opt_c, &cameras_c)?;

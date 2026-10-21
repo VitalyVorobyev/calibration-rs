@@ -2,29 +2,117 @@
 
 ## Context
 
-Seven problem types expose the same concepts: step options, init
-iterations, parameter fixing, the pose gauge, the solver budget, robust
-losses, robot-pose priors. Spelled differently per problem, every consumer
-(JSON, the schema-driven forms, Python, the docs) needs per-problem special
-cases, and readers cannot scan the API.
+Seven problem types expose the same concepts: inputs, configs, outputs,
+exports, step options and results, manual seeds, init iterations, parameter
+fixing, the pose gauge, the solver budget, robust losses, robot-pose priors.
+Spelled differently per problem, every consumer (JSON, the schema-driven
+forms, Python, the docs) needs per-problem special cases, and readers cannot
+scan the API.
 
 ## Decision
 
-Each concept has one name and one shape across the workspace.
+Each concept has one name and one shape across the workspace, identical in
+Rust, Python, the JSON schemas and the app.
 
-### Names
+### Problem types
 
-- Step options are `<Stage><Action>Options` with the stage mandatory and
-  the action a full word: `IntrinsicsInitOptions`, `RigOptimizeOptions` —
-  never a bare `InitOptions`, never `Optim`. They match the module's step
-  family (`step_intrinsics_*` takes `Intrinsics*Options`).
-- Step functions are `step_<action>`; problem types `<Name>Problem` with
-  `<Name>Config` and `<Name>Export`; poses follow ADR 0009.
+Every problem module exports `<Name>Problem` and its four associated types
+under fixed names:
+
+- **Input** is `<Name>Input`. When the data is a shared type the name is a
+  type alias (`PlanarIntrinsicsInput = PlanarDataset`,
+  `RigHandeyeInput = RigDataset<RobotPoseMeta>`); otherwise it is a struct.
+  Aliases cost nothing and let every problem be used from its own module
+  without knowing which shared type backs it.
+- **Config** is `<Name>Config`; **Export** is `<Name>Export`.
+- **Output** (`ProblemType::Output`) is an *estimate*: the final solve's
+  `<Solve>Estimate` from `vision-calibration-optim`, re-exported by the
+  module (`PlanarIntrinsicsEstimate`, `HandeyeEstimate` for both hand-eye
+  problems, `RigLaserlineEstimate`). Only when the export needs more than
+  the solve returns does the problem wrap it in its own `<Name>Estimate`
+  (`LaserlineDeviceEstimate` adds the residual statistics). Anything the
+  config determines is read from the config at export time, not copied into
+  the output (the joint rig laser export takes the hand-eye mode from
+  `handeye.handeye_init`; a config change clears the output).
+
+### Suffixes
+
+One suffix per role, never shared:
+
+| Suffix | Role | Example |
+|---|---|---|
+| `Estimate` | result of a solve; a problem's output | `RigExtrinsicsEstimate` |
+| `Export` | the stable result a caller keeps | `RigHandeyeExport` |
+| `Result` | what a step returns | `IntrinsicsInitResult` |
+| `Options` | per-call step overrides; solver options | `RigOptimizeOptions` |
+| `Config` | persisted configuration | `HandeyeInitConfig` |
+| `ManualInit` | the seed of a `step_*_with_seed` | `RigManualInit` |
+
+`Output` names only the trait's associated type. `dataset_runner` builders
+return `<Family>RunResult` (the input plus image paths), with the input in
+an `input` field.
+
+### Steps
+
+- A step is `step_<stage>_<action>` (or `step_<action>` in a single-stage
+  problem). It takes `opts: Option<<Stage><Action>Options>`, where `None`
+  keeps the session config, and returns `Result<<Stage><Action>Result,
+  Error>` when it reports values. Its seeded variant
+  `step_<stage>_<action>_with_seed(session, manual: <Stage>ManualInit,
+  opts)` takes the seed before the options.
+- The stage is mandatory in every type name and the action is a full word:
+  `IntrinsicsInitOptions`, `RigOptimizeResult`, never a bare `InitOptions`,
+  never `Optim` or `Ba`. Single-stage problems name theirs: `Intrinsics`
+  (planar), `Device` (camera and laser plane, `laserline_device`), `Plane`
+  (the laser planes, `rig_laserline_device`).
+- Every step takes options, even when none exist yet: the type is an empty
+  `#[non_exhaustive]` struct (`RigInitOptions`, `PlaneInitOptions`), so a
+  later override is not a breaking signature change.
+- Option types that several problems share are defined once in
+  `vision_calibration_pipeline::common` and re-exported by each module
+  (`IntrinsicsInitOptions`, `RigOptimizeOptions`, `HandeyeInitOptions`, …).
+  Results and seeds are per problem: same name, distinct type in each module
+  (`rig_handeye::IntrinsicsInitResult` is not
+  `planar_intrinsics::IntrinsicsInitResult`); the facade is module-first, so
+  the names never meet.
+- `run_calibration(session: &mut CalibrationSession<P>) -> Result<(), Error>`
+  has this signature in every problem and runs with the session's config.
+  Other convenience runners take `session` first and options as
+  `Option<…Options>` (`run_calibration_with_filtering`).
+
+### Casing
+
+`handeye` is one word: modules (`single_cam_handeye`), JSON kinds
+(`rig_handeye`), config groups (`handeye_init`) and fields (`handeye_mode`)
+all spell it so, and it was already the majority CamelCase spelling, so
+CamelCase is `Handeye` everywhere (`HandeyeMode`, `HandeyeEstimate`,
+`ReprojLevel::Handeye`). This keeps every serde tag and export kind
+unchanged; only `ReprojLevel`'s snake_case value follows (`handeye`).
+
+### Python
+
+Python names are the Rust names: the workflow types are `<Name>Input`,
+`<Name>Config` and `<Name>Export`, and every `*Config`, `*Input`, `*Export`,
+`*Estimate`, `*Params` or `*Result` class names a Rust type.
+`scripts/check_binding_parity.py` enforces both. Python-only classes exist
+only for what Rust spells generically (`PlanarView` for `View<NoMeta>`) or
+models natively (the camera classes).
 
 ### Config shape
 
 - Configs are grouped by stage (`init`, `intrinsics`, `rig`,
-  `handeye_init`, `solver`, `optimize`, …), never flat boolean bags.
+  `handeye_init`, `handeye_optimize`, `solver`, `optimize`, …), never flat
+  boolean bags. A group that pairs a stage with an action spells it
+  `<stage>_<action>`, matching the step and its options
+  (`handeye_optimize` ↔ `step_handeye_optimize` ↔ `HandeyeOptimizeOptions`).
+- A group's type is `<Stage><Action>Config` (`HandeyeOptimizeConfig`,
+  `DeviceOptimizeConfig`, `JointOptimizeConfig`; the joint rig laser solve
+  is the `Joint` stage).
+- A field does not repeat its group's stage: `rig.refine_intrinsics`,
+  `rig.refine_sensor`, `intrinsics.iterations` (the same name as
+  `IntrinsicsInitOptions::iterations`, which overrides it). One name per
+  concept wins over this rule: `handeye_init.handeye_mode` keeps the name
+  the mode has in every input and export.
 - Shared stages are defined once in
   `vision_calibration_pipeline::common::config` and reused:
   `IntrinsicsInitConfig`, `SolverConfig` (`max_iters`, `verbosity`,
@@ -51,8 +139,12 @@ recorded in the CHANGELOG with migration notes.
 
 ## Consequences
 
-- Adding a config field means choosing its stage and reusing the shared
-  structs, not inventing a spelling.
+- Adding a problem means choosing its stages; every type name follows from
+  them. Adding a config field means choosing its stage and reusing the
+  shared structs, not inventing a spelling.
+- `crates/vision-calibration/tests/facade_compile_surface.rs` locks the
+  shape: each problem's associated types, the `run_calibration` signature,
+  and every step's options, seed and result types.
 - The wire shape of every config is visible in its emitted schema
   (ADR 0014), which is the reference for field-level detail.
 - Each rename breaks downstream code once.

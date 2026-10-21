@@ -3,7 +3,7 @@
 //! Drives the unified `rig_handeye::RigHandeyeProblem` with
 //! a Scheimpflug camera model. Per-camera intrinsics + distortion + tilt seeds
 //! are supplied via `step_intrinsics_init_all_with_seed` and the
-//! `RigHandeyeIntrinsicsManualInit` struct. The narrow-FOV `(k1, p1, p2 free; k2, k3 fixed)` distortion mask is
+//! `IntrinsicsManualInit` struct. The narrow-FOV `(k1, p1, p2 free; k2, k3 fixed)` distortion mask is
 //! expressed via `camera.fix.distortion`.
 //!
 //! Pipeline:
@@ -30,7 +30,7 @@ mod puzzle_viewer;
 
 use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
-    rig_handeye::{RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem},
+    rig_handeye::{IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeProblem},
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
         pixel_to_gripper_point,
@@ -46,7 +46,7 @@ use vision_calibration_examples_private::{
     PoseEntry, detect_laser, detect_target, load_gray, load_poses, split_horizontal,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, HandEyeMode, LaserlineResidualType, RigHandeyeLaserlineDataset,
+    BackendSolveOptions, HandeyeMode, LaserlineResidualType, RigHandeyeLaserlineDataset,
     RigHandeyeLaserlineParams, RigHandeyeLaserlinePerCamStats, RigHandeyeLaserlineSolveOptions,
     RigHandeyeLaserlineView, RigLaserlineDataset, RigLaserlineView, RobotPoseMeta, RobustLoss,
     evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
@@ -129,11 +129,11 @@ fn main() -> Result<()> {
     cfg.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
     // Sensor rig is rigidly mounted in the robot base frame; the puzzleboard
     // target is held by the robot end-effector → hand-to-eye / EyeToHand.
-    cfg.handeye_init.handeye_mode = HandEyeMode::EyeToHand;
+    cfg.handeye_init.handeye_mode = HandeyeMode::EyeToHand;
     // Refine per-view robot pose se(3) deltas — encoder noise otherwise
     // biases hand-eye. Stage 4 uses these as initial robot-delta parameters
     // rather than mutating the canonical detected dataset.
-    cfg.handeye_ba.robot_poses.refine = true;
+    cfg.handeye_optimize.robot_poses.refine = true;
     // Configure Scheimpflug sensor mode:
     // - tilt_x is free, tilt_y is held fixed (per-camera BA on this dataset
     //   converges tilt_x in a narrow band; tilt_y has degenerate signal at
@@ -153,9 +153,9 @@ fn main() -> Result<()> {
         ..CameraFix::default()
     };
     cfg.rig.refine_sensor = false;
-    cfg.rig.refine_intrinsics_in_rig_ba = false;
-    let robot_rot_sigma = cfg.handeye_ba.robot_poses.rot_sigma;
-    let robot_trans_sigma = cfg.handeye_ba.robot_poses.trans_sigma;
+    cfg.rig.refine_intrinsics = false;
+    let robot_rot_sigma = cfg.handeye_optimize.robot_poses.rot_sigma;
+    let robot_trans_sigma = cfg.handeye_optimize.robot_poses.trans_sigma;
     rig_session.set_config(cfg)?;
 
     let t0 = Instant::now();
@@ -164,7 +164,7 @@ fn main() -> Result<()> {
         let step_t = Instant::now();
         // Seed intrinsics + distortion + sensors per camera (homogeneous rig)
         // via the unified manual-init API.
-        let mut manual_init = RigHandeyeIntrinsicsManualInit::default();
+        let mut manual_init = IntrinsicsManualInit::default();
         manual_init.per_cam_intrinsics = Some(per_cam_intrinsics_seed);
         manual_init.per_cam_distortion = Some(per_cam_distortion_seed);
         manual_init.per_cam_sensors = Some(per_cam_sensors_seed);
@@ -191,7 +191,7 @@ fn main() -> Result<()> {
             vision_calibration_examples_private::print_rig_camera("  ", &format!("cam {i}"), c);
         }
         let step_t = Instant::now();
-        let _rig_init = rh::step_rig_init(&mut rig_session)?;
+        let _rig_init = rh::step_rig_init(&mut rig_session, None)?;
         println!("  step_rig_init: {:.2?}", step_t.elapsed());
         let step_t = Instant::now();
         let rig_opt = rh::step_rig_optimize(&mut rig_session, None)?;
@@ -204,7 +204,7 @@ fn main() -> Result<()> {
             println!("    cam {i} rig reproj = {e:.3} px");
         }
         // The rig BA may refine per-camera intrinsics in-place (depending on
-        // `rig.refine_intrinsics_in_rig_ba`); pull the current values from the
+        // `rig.refine_intrinsics`); pull the current values from the
         // intrinsics-optimize result so the "after rig" line reflects the seed
         // that fed the rig stage.
         for (i, c) in intr_opt.cameras.iter().enumerate() {
@@ -247,7 +247,7 @@ fn main() -> Result<()> {
         println!("    camera {i}: {err:.4} px");
     }
     match rig_export.handeye_mode {
-        HandEyeMode::EyeInHand => {
+        HandeyeMode::EyeInHand => {
             let he = rig_export
                 .gripper_se3_rig
                 .expect("EyeInHand missing gripper_se3_rig");
@@ -256,7 +256,7 @@ fn main() -> Result<()> {
                 he.translation.vector.norm()
             );
         }
-        HandEyeMode::EyeToHand => {
+        HandeyeMode::EyeToHand => {
             let he = rig_export
                 .rig_se3_base
                 .expect("EyeToHand missing rig_se3_base");
@@ -291,7 +291,7 @@ fn main() -> Result<()> {
         }
         let base_se3_gripper = pose.base_se3_gripper();
         let rt = match rig_export.handeye_mode {
-            HandEyeMode::EyeInHand => {
+            HandeyeMode::EyeInHand => {
                 let gripper_se3_rig = rig_export
                     .gripper_se3_rig
                     .expect("EyeInHand missing gripper_se3_rig");
@@ -300,7 +300,7 @@ fn main() -> Result<()> {
                     .expect("EyeInHand missing base_se3_target");
                 gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target
             }
-            HandEyeMode::EyeToHand => {
+            HandeyeMode::EyeToHand => {
                 let rig_se3_base = rig_export
                     .rig_se3_base
                     .expect("EyeToHand missing rig_se3_base");
@@ -369,18 +369,18 @@ fn main() -> Result<()> {
         RigHandeyeLaserlineDataset::new(joint_views, NUM_CAMERAS, rig_export.handeye_mode)?;
 
     let handeye = match rig_export.handeye_mode {
-        HandEyeMode::EyeInHand => rig_export
+        HandeyeMode::EyeInHand => rig_export
             .gripper_se3_rig
             .expect("EyeInHand missing gripper_se3_rig"),
-        HandEyeMode::EyeToHand => rig_export
+        HandeyeMode::EyeToHand => rig_export
             .rig_se3_base
             .expect("EyeToHand missing rig_se3_base"),
     };
     let target_ref = match rig_export.handeye_mode {
-        HandEyeMode::EyeInHand => rig_export
+        HandeyeMode::EyeInHand => rig_export
             .base_se3_target
             .expect("EyeInHand missing base_se3_target"),
-        HandEyeMode::EyeToHand => rig_export
+        HandeyeMode::EyeToHand => rig_export
             .gripper_se3_target
             .expect("EyeToHand missing gripper_se3_target"),
     };

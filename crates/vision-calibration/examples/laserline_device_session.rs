@@ -152,7 +152,8 @@ fn main() -> anyhow::Result<()> {
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
     session.set_input(views)?;
 
-    run_calibration(&mut session, Some(LaserlineDeviceConfig::default()))?;
+    session.set_config(LaserlineDeviceConfig::default())?;
+    run_calibration(&mut session)?;
     let export = session.export()?;
 
     println!(

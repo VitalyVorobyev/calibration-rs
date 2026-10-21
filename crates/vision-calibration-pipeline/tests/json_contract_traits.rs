@@ -4,12 +4,12 @@ use serde::{Serialize, de::DeserializeOwned};
 use vision_calibration_pipeline::{
     common::config::CameraConfig,
     laserline_device::{
-        LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput,
-        LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput, LaserlineDeviceProblem,
+        DeviceOptimizeConfig, LaserlineDeviceConfig, LaserlineDeviceEstimate,
+        LaserlineDeviceExport, LaserlineDeviceInput, LaserlineDeviceProblem,
     },
     planar_intrinsics::{
-        PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate, PlanarIntrinsicsExport,
-        PlanarIntrinsicsProblem, PlanarManualInit,
+        IntrinsicsManualInit, PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate,
+        PlanarIntrinsicsExport, PlanarIntrinsicsProblem,
     },
     rig_extrinsics::{RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput},
     rig_handeye::{RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput},
@@ -38,7 +38,7 @@ fn session_contract_types_are_serde() {
 fn planar_intrinsics_contract_types_are_serde() {
     assert_json_contract::<PlanarIntrinsicsConfig>();
     assert_json_contract::<CameraConfig>();
-    assert_json_contract::<PlanarManualInit>();
+    assert_json_contract::<IntrinsicsManualInit>();
     assert_json_contract::<PlanarIntrinsicsEstimate>();
     assert_json_contract::<PlanarIntrinsicsExport>();
 }
@@ -69,7 +69,7 @@ fn rig_handeye_contract_types_are_serde() {
 fn laserline_contract_types_are_serde() {
     assert_json_contract::<LaserlineDeviceInput>();
     assert_json_contract::<LaserlineDeviceConfig>();
-    assert_json_contract::<LaserlineDeviceOptimizeConfig>();
-    assert_json_contract::<LaserlineDeviceOutput>();
+    assert_json_contract::<DeviceOptimizeConfig>();
+    assert_json_contract::<LaserlineDeviceEstimate>();
     assert_json_contract::<LaserlineDeviceExport>();
 }

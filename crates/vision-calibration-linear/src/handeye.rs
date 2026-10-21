@@ -27,7 +27,7 @@ pub struct MotionPair {
 
 /// Linear hand–eye initialisation using the Tsai–Lenz formulation.
 #[derive(Debug, Clone, Copy)]
-pub struct HandEyeInit;
+pub struct HandeyeInit;
 
 fn build_all_pairs_impl(
     base_se3_gripper: &[Iso3],
@@ -314,7 +314,7 @@ pub fn estimate_handeye_dlt(
     target_se3_camera: &[Iso3],
     min_angle_deg: Real,
 ) -> Result<Iso3, Error> {
-    HandEyeInit::tsai_lenz(base_se3_gripper, target_se3_camera, min_angle_deg)
+    HandeyeInit::tsai_lenz(base_se3_gripper, target_se3_camera, min_angle_deg)
 }
 
 /// Linear EyeToHand initialization of a fixed target in the gripper frame.
@@ -337,7 +337,7 @@ pub fn estimate_gripper_se3_target_dlt(
     tsai_lenz_allpairs(base_se3_gripper, camera_se3_target, min_angle_deg)
 }
 
-impl HandEyeInit {
+impl HandeyeInit {
     /// Tsai–Lenz hand–eye initialisation over all motion pairs.
     ///
     /// `min_angle_deg` controls the minimum motion magnitude used to build

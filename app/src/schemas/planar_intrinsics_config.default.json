@@ -10,7 +10,7 @@
   "fix_poses": [],
   "init": {
     "fix_k3": true,
-    "init_iterations": 2
+    "iterations": 2
   },
   "solver": {
     "backend": "tiny_solver",

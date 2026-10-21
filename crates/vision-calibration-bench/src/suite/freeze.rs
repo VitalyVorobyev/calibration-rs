@@ -39,7 +39,7 @@ pub fn freeze_manifest(manifest_path: &Path, cache_dir: &Path) -> Result<Observa
         Topology::PlanarIntrinsics => {
             let run = build_planar_input(&spec, base, &cache, false)?;
             let first = vec![run.view_paths.first().cloned()];
-            (ProblemInput::PlanarIntrinsics(run.dataset), first)
+            (ProblemInput::PlanarIntrinsics(run.input), first)
         }
         Topology::SingleCamHandeye => {
             let run = build_single_cam_handeye_input(&spec, base, &cache, false)?;
@@ -49,12 +49,12 @@ pub fn freeze_manifest(manifest_path: &Path, cache_dir: &Path) -> Result<Observa
         Topology::RigExtrinsics => {
             let run = build_rig_extrinsics_input(&spec, base, &cache, false)?;
             let first = first_per_camera(&run.view_paths, spec.cameras.len());
-            (ProblemInput::RigExtrinsics(run.dataset), first)
+            (ProblemInput::RigExtrinsics(run.input), first)
         }
         Topology::RigHandeye => {
             let run = build_rig_handeye_input(&spec, base, &cache, false)?;
             let first = first_per_camera(&run.view_paths, spec.cameras.len());
-            (ProblemInput::RigHandeye(run.dataset), first)
+            (ProblemInput::RigHandeye(run.input), first)
         }
         Topology::LaserlineDevice
         | Topology::RigLaserlineDevice

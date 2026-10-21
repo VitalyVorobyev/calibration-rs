@@ -239,7 +239,7 @@ export type ExportKind =
  *
  * Specifies the transform chain used for hand-eye calibration.
  */
-export type HandEyeMode = "EyeInHand" | "EyeToHand";
+export type HandeyeMode = "EyeInHand" | "EyeToHand";
 /**
  * Coarse pipeline stage a run is currently executing. The runner
  * exposes exactly these three boundaries without reaching into the
@@ -1081,7 +1081,7 @@ export interface RigHandeyeExport {
   /**
    * Hand-eye mode used to interpret mode-dependent transforms.
    */
-  handeye_mode: HandEyeMode;
+  handeye_mode: HandeyeMode;
   /**
    * Optional image manifest (viewer-side contract). When
    * populated, downstream viewers (the diagnose UI) can locate the source
@@ -1164,7 +1164,7 @@ export interface RigHandeyeLaserlineExport {
   /**
    * Hand-eye mode used to interpret mode-dependent transforms.
    */
-  handeye_mode: HandEyeMode;
+  handeye_mode: HandeyeMode;
   /**
    * Optional image manifest populated by app/dataset runners.
    */
@@ -1380,7 +1380,7 @@ export interface SingleCamHandeyeExport {
   /**
    * Hand-eye mode used to interpret the transforms.
    */
-  handeye_mode: HandEyeMode;
+  handeye_mode: HandeyeMode;
   /**
    * Optional pointer to the source images behind this export. When
    * populated, downstream viewers (the diagnose UI) can locate the

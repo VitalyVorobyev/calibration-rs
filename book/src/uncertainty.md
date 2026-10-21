@@ -33,7 +33,7 @@ match &export.uncertainty {
 ```
 
 ```python
-result = vc.run_planar_intrinsics(dataset, vc.PlanarCalibrationConfig())
+result = vc.run_planar_intrinsics(dataset, vc.PlanarIntrinsicsConfig())
 u = result.uncertainty
 if u.available:
     print(f"fx = {result.camera.intrinsics.fx:.1} ± {u.std_dev('fx'):.2} px")
@@ -190,7 +190,7 @@ Reading the map:
 - **Conditional.** Parameters the final solve held fixed count as exact. The
   rig and rig hand-eye workflows hold each camera's intrinsics fixed in their
   final solve by default, so their results have no covariance to project and
-  the call returns an error saying so; with `rig.refine_intrinsics_in_rig_ba`
+  the call returns an error saying so; with `rig.refine_intrinsics`
   set, the final solve estimates them and each camera has its map.
 - **The image size matters.** Pass the size of the images the camera was
   calibrated on. Nodes beyond the area the views covered are extrapolated

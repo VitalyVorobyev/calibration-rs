@@ -11,10 +11,10 @@ mod steps;
 
 // Public API
 pub use problem::{
-    LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput,
-    LaserlineDeviceOptimizeConfig, LaserlineDeviceOutput, LaserlineDeviceProblem,
+    DeviceOptimizeConfig, LaserlineDeviceConfig, LaserlineDeviceEstimate, LaserlineDeviceExport,
+    LaserlineDeviceInput, LaserlineDeviceProblem,
 };
 pub use steps::{
-    DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceInitResult, LaserlineDeviceManualInit,
-    LaserlineDeviceOptimizeResult, run_calibration, step_init, step_init_with_seed, step_optimize,
+    DeviceInitOptions, DeviceInitResult, DeviceManualInit, DeviceOptimizeOptions,
+    DeviceOptimizeResult, run_calibration, step_init, step_init_with_seed, step_optimize,
 };

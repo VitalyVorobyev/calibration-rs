@@ -13,7 +13,7 @@
   },
   "intrinsics": {
     "fix_k3": true,
-    "init_iterations": 2
+    "iterations": 2
   },
   "robot_poses": {
     "refine": true,

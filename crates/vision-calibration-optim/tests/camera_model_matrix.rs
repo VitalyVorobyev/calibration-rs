@@ -12,7 +12,7 @@ use vision_calibration_core::{
     SensorParams, ThinPrism, View,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
+    BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
     LaserPlane, LaserlineMeta, LaserlineParams, LaserlineResidualType, LaserlineSolveOptions,
     RigHandeyeLaserlineDataset, RigHandeyeLaserlineParams, RigHandeyeLaserlineSolveOptions,
     RigLaserlineDataset, RigLaserlineSolveOptions, RigLaserlineUpstream, RigLaserlineView,
@@ -231,8 +231,8 @@ fn handeye_solves_every_camera_model() {
                     },
                 })
                 .collect();
-            let dataset = HandEyeDataset::new(views, 1, HandEyeMode::EyeInHand).unwrap();
-            let initial = HandEyeParams {
+            let dataset = HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap();
+            let initial = HandeyeParams {
                 cameras: vec![camera(kind, &sensor, perturbed_k())],
                 cam_to_rig: vec![Iso3::identity()],
                 handeye: Isometry3::from_parts(
@@ -241,7 +241,7 @@ fn handeye_solves_every_camera_model() {
                 ),
                 target_poses: vec![base_se3_target],
             };
-            let opts = HandEyeSolveOptions {
+            let opts = HandeyeSolveOptions {
                 fix_extrinsics: vec![true],
                 ..Default::default()
             };
@@ -447,7 +447,7 @@ fn joint_rig_laserline_solves_every_camera_model() {
             let dataset = RigHandeyeLaserlineDataset::from_rig_dataset(
                 RigLaserlineDataset::new(scene.views.clone(), 2).unwrap(),
                 robot_poses,
-                HandEyeMode::EyeInHand,
+                HandeyeMode::EyeInHand,
             )
             .unwrap();
             let initial = RigHandeyeLaserlineParams {

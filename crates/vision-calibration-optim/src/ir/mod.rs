@@ -3,7 +3,7 @@
 mod types;
 
 pub use types::{
-    Bound, CameraModelSpec, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain,
+    Bound, CameraModelSpec, DistortionKind, FactorKind, FixedMask, HandeyeMode, LaserChain,
     ManifoldKind, ProblemIR, ProjectionKind, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
 };
 

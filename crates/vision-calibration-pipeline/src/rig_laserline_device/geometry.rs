@@ -4,7 +4,7 @@
 //! calibration together with per-camera laser planes.
 
 use vision_calibration_core::{Iso3, Pt2, Pt3, Vec3};
-use vision_calibration_optim::{HandEyeMode, LaserPlane};
+use vision_calibration_optim::{HandeyeMode, LaserPlane};
 
 use crate::Error;
 use crate::rig_handeye::RigHandeyeExport;
@@ -92,13 +92,13 @@ pub fn pixel_to_gripper_point(
     //   T_G_B = base_se3_gripper.inverse().
     let p_rig_pt = Pt3::from(p_rig);
     let p_gripper = match rig_cal.handeye_mode {
-        HandEyeMode::EyeInHand => rig_cal
+        HandeyeMode::EyeInHand => rig_cal
             .gripper_se3_rig
             .ok_or_else(|| Error::InvalidInput {
                 reason: "EyeInHand export missing gripper_se3_rig".to_string(),
             })?
             .transform_point(&p_rig_pt),
-        HandEyeMode::EyeToHand => {
+        HandeyeMode::EyeToHand => {
             let rig_se3_base = rig_cal.rig_se3_base.ok_or_else(|| Error::InvalidInput {
                 reason: "EyeToHand export missing rig_se3_base".to_string(),
             })?;

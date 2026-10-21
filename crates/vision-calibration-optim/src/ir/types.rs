@@ -226,7 +226,7 @@ impl RobustLoss {
 /// Specifies the transform chain used for hand-eye calibration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub enum HandEyeMode {
+pub enum HandeyeMode {
     /// Camera mounted on robot end-effector (gripper).
     ///
     /// Transform chain: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world
@@ -291,23 +291,23 @@ pub enum ReprojChain {
     /// Blocks: `[extrinsics, handeye, target]` (hand-eye).
     ///
     /// The measured robot pose enters as data; the transform chain depends on
-    /// [`HandEyeMode`].
-    HandEye {
+    /// [`HandeyeMode`].
+    Handeye {
         /// Measured robot pose `T_B_G` packed as `[qx,qy,qz,qw,tx,ty,tz]`.
         base_se3_gripper: [f64; 7],
         /// Hand-eye mode defining the transform chain.
-        mode: HandEyeMode,
+        mode: HandeyeMode,
     },
     /// Blocks: `[extrinsics, handeye, target, robot_delta]` (hand-eye with a
     /// per-view robot pose correction).
     ///
     /// `robot_delta` is a 6D se(3) tangent correction applied as
     /// `exp(delta) * T_B_G`.
-    HandEyeRobotDelta {
+    HandeyeRobotDelta {
         /// Measured robot pose `T_B_G` packed as `[qx,qy,qz,qw,tx,ty,tz]`.
         base_se3_gripper: [f64; 7],
         /// Hand-eye mode defining the transform chain.
-        mode: HandEyeMode,
+        mode: HandeyeMode,
     },
 }
 
@@ -322,10 +322,10 @@ impl ReprojChain {
         match self {
             ReprojChain::SinglePose => vec![se3("camera_se3_target")],
             ReprojChain::TwoSe3 => vec![se3("extrinsics"), se3("pose")],
-            ReprojChain::HandEye { .. } => {
+            ReprojChain::Handeye { .. } => {
                 vec![se3("extrinsics"), se3("handeye"), se3("target")]
             }
-            ReprojChain::HandEyeRobotDelta { .. } => vec![
+            ReprojChain::HandeyeRobotDelta { .. } => vec![
                 se3("extrinsics"),
                 se3("handeye"),
                 se3("target"),
@@ -354,23 +354,23 @@ pub enum LaserChain {
     ///
     /// The target pose in the camera frame is composed from `cam_se3_rig`,
     /// `handeye`, `target_ref`, and the measured robot pose according to
-    /// [`HandEyeMode`].
-    RigHandEye {
+    /// [`HandeyeMode`].
+    RigHandeye {
         /// Measured robot pose `T_B_G` packed as `[qx,qy,qz,qw,tx,ty,tz]`.
         base_se3_gripper: [f64; 7],
         /// Hand-eye mode defining the transform chain.
-        mode: HandEyeMode,
+        mode: HandeyeMode,
     },
     /// Blocks: `[cam_se3_rig, handeye, target_ref, plane_normal,
     /// plane_distance, robot_delta]`.
     ///
     /// `robot_delta` is a 6D se(3) tangent correction applied as
     /// `exp(delta) * T_B_G`.
-    RigHandEyeRobotDelta {
+    RigHandeyeRobotDelta {
         /// Measured robot pose `T_B_G` packed as `[qx,qy,qz,qw,tx,ty,tz]`.
         base_se3_gripper: [f64; 7],
         /// Hand-eye mode defining the transform chain.
-        mode: HandEyeMode,
+        mode: HandeyeMode,
     },
 }
 
@@ -405,12 +405,12 @@ impl LaserChain {
                 v.extend(plane);
                 v
             }
-            LaserChain::RigHandEye { .. } => {
+            LaserChain::RigHandeye { .. } => {
                 let mut v = vec![se3("cam_se3_rig"), se3("handeye"), se3("target_ref")];
                 v.extend(plane);
                 v
             }
-            LaserChain::RigHandEyeRobotDelta { .. } => {
+            LaserChain::RigHandeyeRobotDelta { .. } => {
                 let mut v = vec![se3("cam_se3_rig"), se3("handeye"), se3("target_ref")];
                 v.extend(plane);
                 v.push(robot_delta);
@@ -829,13 +829,13 @@ mod tests {
         vec![
             ReprojChain::SinglePose,
             ReprojChain::TwoSe3,
-            ReprojChain::HandEye {
+            ReprojChain::Handeye {
                 base_se3_gripper: robot,
-                mode: HandEyeMode::EyeInHand,
+                mode: HandeyeMode::EyeInHand,
             },
-            ReprojChain::HandEyeRobotDelta {
+            ReprojChain::HandeyeRobotDelta {
                 base_se3_gripper: robot,
-                mode: HandEyeMode::EyeToHand,
+                mode: HandeyeMode::EyeToHand,
             },
         ]
     }
@@ -844,13 +844,13 @@ mod tests {
         let robot = [0.0, 0.0, 0.0, 1.0, 0.1, 0.2, 0.3];
         vec![
             LaserChain::SinglePose,
-            LaserChain::RigHandEye {
+            LaserChain::RigHandeye {
                 base_se3_gripper: robot,
-                mode: HandEyeMode::EyeToHand,
+                mode: HandeyeMode::EyeToHand,
             },
-            LaserChain::RigHandEyeRobotDelta {
+            LaserChain::RigHandeyeRobotDelta {
                 base_se3_gripper: robot,
-                mode: HandEyeMode::EyeToHand,
+                mode: HandeyeMode::EyeToHand,
             },
         ]
     }
@@ -905,8 +905,8 @@ mod tests {
                 let chain_blocks = match chain {
                     ReprojChain::SinglePose => 1,
                     ReprojChain::TwoSe3 => 2,
-                    ReprojChain::HandEye { .. } => 3,
-                    ReprojChain::HandEyeRobotDelta { .. } => 4,
+                    ReprojChain::Handeye { .. } => 3,
+                    ReprojChain::HandeyeRobotDelta { .. } => 4,
                 };
                 assert_eq!(layout.len(), model.num_cam_blocks() + chain_blocks);
                 // Camera slots lead with the intrinsics block.
@@ -930,7 +930,7 @@ mod tests {
                 let layout = factor.param_layout();
                 let roles: Vec<_> = layout.iter().map(|s| s.role).collect();
                 match chain {
-                    LaserChain::RigHandEyeRobotDelta { .. } => {
+                    LaserChain::RigHandeyeRobotDelta { .. } => {
                         assert_eq!(roles[roles.len() - 1], "robot_delta");
                         assert_eq!(roles[roles.len() - 2], "plane_distance");
                         assert_eq!(roles[roles.len() - 3], "plane_normal");

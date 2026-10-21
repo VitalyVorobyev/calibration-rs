@@ -166,7 +166,7 @@ pub struct RigExtrinsicsExport {
 ///
 /// step_intrinsics_init_all(&mut session, None)?;
 /// step_intrinsics_optimize_all(&mut session, None)?;
-/// step_rig_init(&mut session)?;
+/// step_rig_init(&mut session, None)?;
 /// step_rig_optimize(&mut session, None)?;
 ///
 /// let export = session.export()?;
@@ -237,9 +237,9 @@ impl ProblemType for RigExtrinsicsProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.intrinsics.init_iterations == 0 {
+        if config.intrinsics.iterations == 0 {
             return Err(Error::invalid_input(
-                "intrinsics_init_iterations must be positive",
+                "intrinsics.iterations must be positive",
             ));
         }
         validate_rig_cameras(&config.camera, &config.camera_overrides)
@@ -409,7 +409,7 @@ mod tests {
             },
             rig: RigConfig {
                 reference_camera_idx: 1,
-                refine_intrinsics_in_rig_ba: true,
+                refine_intrinsics: true,
                 refine_sensor: true,
             },
             ..Default::default()
@@ -420,7 +420,7 @@ mod tests {
 
         assert_eq!(restored.solver.max_iters, 100);
         assert_eq!(restored.rig.reference_camera_idx, 1);
-        assert!(restored.rig.refine_intrinsics_in_rig_ba);
+        assert!(restored.rig.refine_intrinsics);
         assert!(restored.rig.refine_sensor);
     }
 

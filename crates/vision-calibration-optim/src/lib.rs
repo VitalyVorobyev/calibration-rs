@@ -167,7 +167,7 @@ pub use error::Error;
 // below, which is what every consumer in this workspace does.
 pub use crate::backend::{BackendSolveOptions, SolveReport, SolverBackend};
 
-pub use crate::ir::{DistortionKind, HandEyeMode, RobustLoss};
+pub use crate::ir::{DistortionKind, HandeyeMode, RobustLoss};
 
 pub use crate::params::distortion::with_leading_radial;
 pub use crate::params::laser_plane::LaserPlane;
@@ -184,7 +184,7 @@ pub use crate::problems::scheimpflug_intrinsics::{
 };
 
 pub use crate::problems::handeye::{
-    HandEyeDataset, HandEyeEstimate, HandEyeParams, HandEyeSolveOptions, RobotPoseMeta,
+    HandeyeDataset, HandeyeEstimate, HandeyeParams, HandeyeSolveOptions, RobotPoseMeta,
     apply_robot_delta, handeye_observer_se3_target, optimize_handeye,
 };
 

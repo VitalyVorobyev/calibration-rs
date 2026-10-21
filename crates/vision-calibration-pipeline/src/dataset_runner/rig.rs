@@ -29,7 +29,7 @@ use super::{
 #[non_exhaustive]
 pub struct RigRunResult<Meta> {
     /// The IR ready to feed into `CalibrationSession::set_input`.
-    pub dataset: RigDataset<Meta>,
+    pub input: RigDataset<Meta>,
     /// `view_paths[view][camera]` — source image path per kept view
     /// and camera, aligned with `dataset.views`; `None` where the
     /// camera contributed no usable observation.
@@ -243,7 +243,7 @@ fn finish<Meta>(
          and per-view camera counts; this indicates a core-crate regression",
     );
     Ok(RigRunResult {
-        dataset,
+        input: dataset,
         view_paths,
         usable_views,
         total_views,
@@ -348,8 +348,8 @@ mod tests {
             vec!["cam1/img_0.png", "cam1/img_1.png", "cam1/img_2.png"],
         ]);
         let result = build_rig_extrinsics_input(&spec, tmp.path(), &cache, false).unwrap();
-        assert_eq!(result.dataset.num_cameras, 2);
-        assert_eq!(result.dataset.num_views(), 3);
+        assert_eq!(result.input.num_cameras, 2);
+        assert_eq!(result.input.num_views(), 3);
         assert_eq!(result.usable_views, 3);
         assert_eq!(result.total_views, 3);
         assert!(
@@ -358,7 +358,7 @@ mod tests {
                 .unwrap()
                 .ends_with("cam0/img_0.png")
         );
-        assert!(result.dataset.views[2].obs.cameras[1].is_some());
+        assert!(result.input.views[2].obs.cameras[1].is_some());
     }
 
     #[test]
@@ -375,9 +375,9 @@ mod tests {
             vec!["cam1/a.png", "cam1/b.png"],
         ]);
         let result = build_rig_extrinsics_input(&spec, tmp.path(), &cache, false).unwrap();
-        assert_eq!(result.dataset.num_views(), 2);
-        assert!(result.dataset.views[1].obs.cameras[0].is_some());
-        assert!(result.dataset.views[1].obs.cameras[1].is_none());
+        assert_eq!(result.input.num_views(), 2);
+        assert!(result.input.views[1].obs.cameras[0].is_some());
+        assert!(result.input.views[1].obs.cameras[1].is_none());
         assert!(result.view_paths[1][1].is_none());
     }
 
@@ -398,8 +398,8 @@ mod tests {
             ..DetectorSpec::default()
         });
         let result = build_rig_extrinsics_input(&spec, tmp.path(), &cache, false).unwrap();
-        assert!(result.dataset.views[0].obs.cameras[1].is_some());
-        assert!(result.dataset.views[1].obs.cameras[1].is_none());
+        assert!(result.input.views[0].obs.cameras[1].is_some());
+        assert!(result.input.views[1].obs.cameras[1].is_none());
     }
 
     #[test]
@@ -491,9 +491,9 @@ mod tests {
                    0.3,0,0,0,0,0,1";
         let spec = handeye_spec_with_poses(tmp.path(), csv);
         let result = build_rig_handeye_input(&spec, tmp.path(), &cache, false).unwrap();
-        assert_eq!(result.dataset.num_views(), 3);
+        assert_eq!(result.input.num_views(), 3);
         let xs: Vec<f64> = result
-            .dataset
+            .input
             .views
             .iter()
             .map(|v| v.meta.base_se3_gripper.translation.x)
@@ -587,10 +587,10 @@ mod tests {
             rp.columns.as_mut().unwrap().pose_id = Some("view".into());
         }
         let result = build_rig_handeye_input(&spec, tmp.path(), &cache, false).unwrap();
-        assert_eq!(result.dataset.num_views(), 2);
+        assert_eq!(result.input.num_views(), 2);
         // Views are sorted by token; pose rows were reversed in the file.
         let xs: Vec<f64> = result
-            .dataset
+            .input
             .views
             .iter()
             .map(|v| v.meta.base_se3_gripper.translation.x)

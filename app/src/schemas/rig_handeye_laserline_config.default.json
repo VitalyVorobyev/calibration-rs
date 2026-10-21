@@ -9,7 +9,11 @@
       }
     },
     "camera_overrides": [],
-    "handeye_ba": {
+    "handeye_init": {
+      "handeye_mode": "EyeInHand",
+      "min_motion_angle_deg": 5.0
+    },
+    "handeye_optimize": {
       "refine_cam_se3_rig": false,
       "refine_sensor": false,
       "robot_poses": {
@@ -18,17 +22,13 @@
         "trans_sigma": 0.001
       }
     },
-    "handeye_init": {
-      "handeye_mode": "EyeInHand",
-      "min_motion_angle_deg": 5.0
-    },
     "intrinsics": {
       "fix_k3": true,
-      "init_iterations": 2
+      "iterations": 2
     },
     "rig": {
       "reference_camera_idx": 0,
-      "refine_intrinsics_in_rig_ba": false,
+      "refine_intrinsics": false,
       "refine_sensor": false
     },
     "solver": {
@@ -38,7 +38,7 @@
       "verbosity": 0
     }
   },
-  "joint_ba": {
+  "joint_optimize": {
     "calib_loss": "None",
     "calib_weight": 1.0,
     "fix": [],

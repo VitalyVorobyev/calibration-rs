@@ -60,21 +60,21 @@ Joint optimization of all parameters:
 ```rust
 pub struct RigHandeyeConfig {
     pub intrinsics: IntrinsicsInitConfig,   // per-camera linear init
-    pub manual_init: Option<RigHandeyeIntrinsicsManualInit>, // optional per-camera seeds
+    pub manual_init: Option<IntrinsicsManualInit>, // optional per-camera seeds
     pub camera: CameraConfig,               // camera model + fix lists shared by every camera
     pub camera_overrides: Vec<CameraOverride>, // per-camera replacement of `camera`
-    pub rig: RigConfig,                     // reference_camera_idx, refine_intrinsics_in_rig_ba, refine_sensor
+    pub rig: RigConfig,                     // reference_camera_idx, refine_intrinsics, refine_sensor
     pub handeye_init: HandeyeInitConfig,    // handeye_mode, min_motion_angle_deg
     pub solver: SolverConfig,               // max_iters, verbosity, robust_loss
-    pub handeye_ba: HandeyeBaConfig,        // robot_poses, refine_cam_se3_rig, refine_sensor
+    pub handeye_optimize: HandeyeOptimizeConfig, // robot_poses, refine_cam_se3_rig, refine_sensor
 }
 ```
 
 ```rust
 session.update_config(|c| {
-    c.handeye_init.handeye_mode = HandEyeMode::EyeInHand;
+    c.handeye_init.handeye_mode = HandeyeMode::EyeInHand;
     c.solver.robust_loss = RobustLoss::Huber { scale: 2.0 };
-    c.handeye_ba.robot_poses.refine = true;
+    c.handeye_optimize.robot_poses.refine = true;
 })?;
 ```
 
@@ -85,7 +85,7 @@ Set `camera.model.sensor` to `SensorKind::Scheimpflug` for a rig of tilted-senso
 ```rust
 use vision_calibration::prelude::*;
 use vision_calibration::rig_handeye::*;
-use vision_calibration::optim::{HandEyeMode, RobustLoss};
+use vision_calibration::optim::{HandeyeMode, RobustLoss};
 
 let mut session = CalibrationSession::<RigHandeyeProblem>::new();
 session.set_input(rig_dataset_with_robot_poses)?;
@@ -95,7 +95,7 @@ step_intrinsics_init_all(&mut session, None)?;
 step_intrinsics_optimize_all(&mut session, None)?;
 
 // Rig geometry
-step_rig_init(&mut session)?;
+step_rig_init(&mut session, None)?;
 step_rig_optimize(&mut session, None)?;
 
 // Hand-eye

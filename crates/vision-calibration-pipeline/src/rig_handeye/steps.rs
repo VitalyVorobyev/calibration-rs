@@ -16,8 +16,8 @@ use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_p
 use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    BackendSolveOptions, CameraBounds, HandEyeDataset, HandEyeMode, HandEyeParams,
-    HandEyeSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
+    BackendSolveOptions, CameraBounds, HandeyeDataset, HandeyeMode, HandeyeParams,
+    HandeyeSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
     PlanarIntrinsicsSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
     ScheimpflugStagedInitOptions, SolveReport, optimize_handeye, optimize_planar_intrinsics,
     optimize_rig_extrinsics, optimize_scheimpflug_intrinsics_staged,
@@ -31,7 +31,7 @@ use crate::rig_family::{
 };
 use crate::session::CalibrationSession;
 
-use super::problem::{RigHandeyeInput, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem};
+use super::problem::{IntrinsicsManualInit, RigHandeyeInput, RigHandeyeProblem};
 
 /// The model of the cameras the nominal recovery serves: Brown-Conrady
 /// distortion and a Scheimpflug sensor.
@@ -44,17 +44,8 @@ const TILTED_BROWN_CONRADY: CameraModelSpec =
 
 pub use crate::common::{
     HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
+    RigInitOptions, RigOptimizeOptions,
 };
-
-/// Options for rig BA optimization.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct RigOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
-}
 
 /// Manual seeds for the **rig extrinsics stage** of rig hand-eye calibration.
 ///
@@ -62,7 +53,7 @@ pub struct RigOptimizeOptions {
 /// `Some` or both `None`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct RigHandeyeRigManualInit {
+pub struct RigManualInit {
     /// Per-camera `T_C_R` — camera-from-rig. `None` runs the linear extrinsics fit.
     pub cam_se3_rig: Option<Vec<Iso3>>,
     /// Per-view `T_R_T` — rig-from-target. Must be paired with `cam_se3_rig`.
@@ -82,7 +73,7 @@ pub struct RigHandeyeRigManualInit {
 /// `initial_mode_target_pose`, so this struct mirrors that shape directly.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct RigHandeyeHandeyeManualInit {
+pub struct HandeyeManualInit {
     /// Mode-dependent hand-eye transform.
     pub handeye: Option<Iso3>,
     /// Mode-dependent target pose.
@@ -146,11 +137,11 @@ struct GoodRigContext {
 /// Typed return value of [`step_intrinsics_init_all`] /
 /// [`step_intrinsics_init_all_with_seed`] for rig hand-eye calibration.
 ///
-/// Structurally similar to [`crate::rig_extrinsics::RigIntrinsicsInitAllResult`]
+/// Structurally similar to [`crate::rig_extrinsics::IntrinsicsInitResult`]
 /// but lives in this module so the two problem types can evolve independently.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct RigHandeyeIntrinsicsInitAllResult {
+pub struct IntrinsicsInitResult {
     /// Per-camera initial parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
     /// Per-camera target poses: `[view][cam] -> Option<Iso3>` (`camera_se3_target`).
@@ -162,7 +153,7 @@ pub struct RigHandeyeIntrinsicsInitAllResult {
 /// calibration.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct RigHandeyeIntrinsicsOptimizeAllResult {
+pub struct IntrinsicsOptimizeResult {
     /// Per-camera refined parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
     /// Per-camera mean reprojection error in pixels.
@@ -179,7 +170,7 @@ pub struct RigHandeyeIntrinsicsOptimizeAllResult {
 /// hand-eye calibration.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct RigHandeyeRigInitResult {
+pub struct RigInitResult {
     /// Initial per-camera `T_C_R` — camera-from-rig (reference camera is identity).
     pub initial_cam_se3_rig: Vec<Iso3>,
     /// Initial per-view `T_R_T` — rig-from-target.
@@ -189,7 +180,7 @@ pub struct RigHandeyeRigInitResult {
 /// Typed return value of [`step_rig_optimize`] for rig hand-eye calibration.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct RigHandeyeRigOptimizeResult {
+pub struct RigOptimizeResult {
     /// Mean reprojection error in pixels across the whole rig after rig BA.
     pub mean_reproj_error: f64,
     /// Per-camera mean reprojection error in pixels after rig BA.
@@ -203,10 +194,10 @@ pub struct RigHandeyeRigOptimizeResult {
 /// Typed return value of [`step_handeye_init`] / [`step_handeye_init_with_seed`].
 ///
 /// The interpretation of both fields is mode-dependent — see
-/// [`RigHandeyeHandeyeManualInit`].
+/// [`HandeyeManualInit`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct RigHandeyeHandeyeInitResult {
+pub struct HandeyeInitResult {
     /// Mode-dependent initial hand-eye transform.
     ///
     /// - `EyeInHand`: `gripper_se3_rig` (`T_G_R`).
@@ -224,7 +215,7 @@ pub struct RigHandeyeHandeyeInitResult {
 /// Typed return value of [`step_handeye_optimize`] for rig hand-eye calibration.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct RigHandeyeHandeyeOptimizeResult {
+pub struct HandeyeOptimizeResult {
     /// Mean reprojection error in pixels after the final hand-eye BA.
     pub mean_reproj_error: f64,
     /// Final solver cost from the hand-eye BA.
@@ -252,9 +243,9 @@ pub struct RigHandeyeHandeyeOptimizeResult {
 ///   given for an untilted camera
 pub fn step_intrinsics_init_all_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
-    manual: RigHandeyeIntrinsicsManualInit,
+    manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<RigHandeyeIntrinsicsInitAllResult, Error> {
+) -> Result<IntrinsicsInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
     let opts = opts.unwrap_or_default();
@@ -303,7 +294,7 @@ pub fn step_intrinsics_init_all_with_seed(
         format!("initialized {num_cameras} cameras {source}"),
     );
 
-    Ok(RigHandeyeIntrinsicsInitAllResult {
+    Ok(IntrinsicsInitResult {
         cameras,
         per_cam_target_poses,
     })
@@ -315,8 +306,8 @@ pub fn step_intrinsics_init_all_with_seed(
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<RigHandeyeIntrinsicsInitAllResult, Error> {
-    step_intrinsics_init_all_with_seed(session, RigHandeyeIntrinsicsManualInit::default(), opts)
+) -> Result<IntrinsicsInitResult, Error> {
+    step_intrinsics_init_all_with_seed(session, IntrinsicsManualInit::default(), opts)
 }
 
 /// Optimize intrinsics for all cameras.
@@ -339,7 +330,7 @@ pub fn step_intrinsics_init_all(
 pub fn step_intrinsics_optimize_all(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<RigHandeyeIntrinsicsOptimizeAllResult, Error> {
+) -> Result<IntrinsicsOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -412,7 +403,7 @@ pub fn step_intrinsics_optimize_all(
                 &initial_params,
                 solve_opts,
                 backend_opts.clone(),
-                config.intrinsics.init_iterations,
+                config.intrinsics.iterations,
                 config.intrinsics.fix_k3,
             )?
         } else {
@@ -460,7 +451,7 @@ pub fn step_intrinsics_optimize_all(
         format!("avg_reproj_err={avg_error:.3}px"),
     );
 
-    Ok(RigHandeyeIntrinsicsOptimizeAllResult {
+    Ok(IntrinsicsOptimizeResult {
         cameras: optimized_cameras,
         per_cam_reproj_errors,
         per_cam_target_poses,
@@ -1333,8 +1324,10 @@ fn recover_scheimpflug_poses_for_seed(
 /// - Insufficient overlapping views between cameras
 pub fn step_rig_init_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
-    manual: RigHandeyeRigManualInit,
-) -> Result<RigHandeyeRigInitResult, Error> {
+    manual: RigManualInit,
+    opts: Option<RigInitOptions>,
+) -> Result<RigInitResult, Error> {
+    let RigInitOptions {} = opts.unwrap_or_default();
     session.validate()?;
     let input = session.require_input()?;
 
@@ -1350,7 +1343,7 @@ pub fn step_rig_init_with_seed(
 
     match (&manual.cam_se3_rig, &manual.rig_se3_target) {
         (Some(_), None) | (None, Some(_)) => {
-            let msg = "RigHandeyeRigManualInit: cam_se3_rig and rig_se3_target must both be Some \
+            let msg = "RigManualInit: cam_se3_rig and rig_se3_target must both be Some \
                        or both None (geometrically coupled per ADR 0011)";
             session.log_failure("rig_init", msg);
             return Err(Error::invalid_input(msg));
@@ -1415,7 +1408,7 @@ pub fn step_rig_init_with_seed(
         ),
     );
 
-    Ok(RigHandeyeRigInitResult {
+    Ok(RigInitResult {
         initial_cam_se3_rig: cam_se3_rig,
         initial_rig_se3_target: rig_se3_target,
     })
@@ -1426,8 +1419,9 @@ pub fn step_rig_init_with_seed(
 /// Convenience wrapper around [`step_rig_init_with_seed`] with default seeds.
 pub fn step_rig_init(
     session: &mut CalibrationSession<RigHandeyeProblem>,
-) -> Result<RigHandeyeRigInitResult, Error> {
-    step_rig_init_with_seed(session, RigHandeyeRigManualInit::default())
+    opts: Option<RigInitOptions>,
+) -> Result<RigInitResult, Error> {
+    step_rig_init_with_seed(session, RigManualInit::default(), opts)
 }
 
 /// Optimize rig extrinsics using bundle adjustment.
@@ -1435,7 +1429,7 @@ pub fn step_rig_init(
 /// Jointly optimizes:
 /// - Per-camera extrinsics (camera-to-rig)
 /// - Per-view rig poses (rig-to-target)
-/// - Optionally: per-camera intrinsics (if `refine_intrinsics_in_rig_ba` is true)
+/// - Optionally: per-camera intrinsics (if `refine_intrinsics` is true)
 ///
 /// The reference camera (`rig.reference_camera_idx`) alone removes the rig's
 /// full 6-DOF gauge freedom; no rig-from-target pose is fixed; an extra
@@ -1451,7 +1445,7 @@ pub fn step_rig_init(
 pub fn step_rig_optimize(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<RigOptimizeOptions>,
-) -> Result<RigHandeyeRigOptimizeResult, Error> {
+) -> Result<RigOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -1486,7 +1480,7 @@ pub fn step_rig_optimize(
         .map(|i| {
             rig_ba_fix(
                 &config.camera_for(i),
-                config.rig.refine_intrinsics_in_rig_ba,
+                config.rig.refine_intrinsics,
                 config.rig.refine_sensor,
             )
         })
@@ -1554,7 +1548,7 @@ pub fn step_rig_optimize(
         format!("final_cost={final_cost:.2e}, mean_reproj_err={mean_reproj_error:.3}px"),
     );
 
-    Ok(RigHandeyeRigOptimizeResult {
+    Ok(RigOptimizeResult {
         mean_reproj_error,
         per_cam_reproj_errors,
         cam_se3_rig: session
@@ -1583,9 +1577,9 @@ pub fn step_rig_optimize(
 /// - Linear hand-eye estimation fails
 pub fn step_handeye_init_with_seed(
     session: &mut CalibrationSession<RigHandeyeProblem>,
-    manual: RigHandeyeHandeyeManualInit,
+    manual: HandeyeManualInit,
     opts: Option<HandeyeInitOptions>,
-) -> Result<RigHandeyeHandeyeInitResult, Error> {
+) -> Result<HandeyeInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -1623,7 +1617,7 @@ pub fn step_handeye_init_with_seed(
         None => {
             auto_fields.push("handeye");
             match handeye_mode {
-                HandEyeMode::EyeInHand => {
+                HandeyeMode::EyeInHand => {
                     let target_se3_rig: Vec<Iso3> =
                         rig_se3_target.iter().map(|t| t.inverse()).collect();
                     estimate_handeye_dlt(&robot_poses, &target_se3_rig, min_angle)
@@ -1632,7 +1626,7 @@ pub fn step_handeye_init_with_seed(
                             Error::numerical(format!("linear hand-eye estimation failed: {e}"))
                         })?
                 }
-                HandEyeMode::EyeToHand => {
+                HandeyeMode::EyeToHand => {
                     let gripper_se3_target =
                         estimate_gripper_se3_target_dlt(&robot_poses, &rig_se3_target, min_angle)
                             .inspect_err(|e| session.log_failure("handeye_init", e.to_string()))
@@ -1655,8 +1649,8 @@ pub fn step_handeye_init_with_seed(
         None => {
             auto_fields.push("mode_target_pose");
             match handeye_mode {
-                HandEyeMode::EyeInHand => robot_poses[0] * handeye * rig_se3_target[0],
-                HandEyeMode::EyeToHand => {
+                HandeyeMode::EyeInHand => robot_poses[0] * handeye * rig_se3_target[0],
+                HandeyeMode::EyeToHand => {
                     // handeye = T_R_B. Chain: T_R_T = T_R_B * T_B_G * T_G_T.
                     // T_G_T = (T_B_G)^-1 * (T_R_B)^-1 * T_R_T = robot_poses[0]^-1 * handeye^-1 * T_R_T.
                     robot_poses[0].inverse() * handeye.inverse() * rig_se3_target[0]
@@ -1678,7 +1672,7 @@ pub fn step_handeye_init_with_seed(
         ),
     );
 
-    Ok(RigHandeyeHandeyeInitResult {
+    Ok(HandeyeInitResult {
         initial_handeye: handeye,
         initial_mode_target_pose: Some(mode_target_pose),
     })
@@ -1690,8 +1684,8 @@ pub fn step_handeye_init_with_seed(
 pub fn step_handeye_init(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<HandeyeInitOptions>,
-) -> Result<RigHandeyeHandeyeInitResult, Error> {
-    step_handeye_init_with_seed(session, RigHandeyeHandeyeManualInit::default(), opts)
+) -> Result<HandeyeInitResult, Error> {
+    step_handeye_init_with_seed(session, HandeyeManualInit::default(), opts)
 }
 
 /// Optimize hand-eye calibration using bundle adjustment.
@@ -1713,7 +1707,7 @@ pub fn step_handeye_init(
 pub fn step_handeye_optimize(
     session: &mut CalibrationSession<RigHandeyeProblem>,
     opts: Option<HandeyeOptimizeOptions>,
-) -> Result<RigHandeyeHandeyeOptimizeResult, Error> {
+) -> Result<HandeyeOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?.clone();
 
@@ -1753,12 +1747,12 @@ pub fn step_handeye_optimize(
             rig_ba_fix(
                 &config.camera_for(i),
                 false,
-                config.handeye_ba.refine_sensor,
+                config.handeye_optimize.refine_sensor,
             )
         })
         .collect();
 
-    let fix_extrinsics: Vec<bool> = if config.handeye_ba.refine_cam_se3_rig {
+    let fix_extrinsics: Vec<bool> = if config.handeye_optimize.refine_cam_se3_rig {
         (0..input.num_cameras)
             .map(|i| i == config.rig.reference_camera_idx)
             .collect()
@@ -1772,24 +1766,24 @@ pub fn step_handeye_optimize(
         ..config.solver.backend_options()
     };
 
-    let initial = HandEyeParams {
+    let initial = HandeyeParams {
         cameras,
         cam_to_rig,
         handeye,
         target_poses: vec![mode_target_pose],
     };
-    let solve_opts = HandEyeSolveOptions {
+    let solve_opts = HandeyeSolveOptions {
         robust_loss: config.solver.robust_loss,
         fix,
         fix_extrinsics,
         fix_handeye: false,
         fix_target_poses: Vec::new(),
         relax_target_poses: false,
-        refine_robot_poses: config.handeye_ba.robot_poses.refine,
-        robot_rot_sigma: config.handeye_ba.robot_poses.rot_sigma,
-        robot_trans_sigma: config.handeye_ba.robot_poses.trans_sigma,
+        refine_robot_poses: config.handeye_optimize.robot_poses.refine,
+        robot_rot_sigma: config.handeye_optimize.robot_poses.rot_sigma,
+        robot_trans_sigma: config.handeye_optimize.robot_poses.trans_sigma,
     };
-    let handeye_dataset = HandEyeDataset::new(
+    let handeye_dataset = HandeyeDataset::new(
         input.views.clone(),
         input.num_cameras,
         config.handeye_init.handeye_mode,
@@ -1811,7 +1805,7 @@ pub fn step_handeye_optimize(
 
     session.log_success_with_notes("handeye_optimize", format!("final_cost={final_cost:.2e}"));
 
-    Ok(RigHandeyeHandeyeOptimizeResult {
+    Ok(HandeyeOptimizeResult {
         mean_reproj_error,
         final_cost,
     })
@@ -1833,7 +1827,7 @@ pub fn run_calibration(session: &mut CalibrationSession<RigHandeyeProblem>) -> R
     let manual = session.config.manual_init.clone().unwrap_or_default();
     let _ = step_intrinsics_init_all_with_seed(session, manual, None)?;
     let _ = step_intrinsics_optimize_all(session, None)?;
-    let _ = step_rig_init(session)?;
+    let _ = step_rig_init(session, None)?;
     let _ = step_rig_optimize(session, None)?;
     let _ = step_handeye_init(session, None)?;
     let _ = step_handeye_optimize(session, None)?;
@@ -1949,7 +1943,7 @@ mod tests {
         let mut session = CalibrationSession::<RigHandeyeProblem>::new();
         session.set_input(make_test_input()).unwrap();
 
-        let result = step_rig_init(&mut session);
+        let result = step_rig_init(&mut session, None);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("intrinsics"));
     }
@@ -1972,7 +1966,7 @@ mod tests {
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init_all(&mut session, None).unwrap();
         step_intrinsics_optimize_all(&mut session, None).unwrap();
-        step_rig_init(&mut session).unwrap();
+        step_rig_init(&mut session, None).unwrap();
 
         let result = step_handeye_init(&mut session, None);
         assert!(result.is_err());
@@ -1985,7 +1979,7 @@ mod tests {
         session.set_input(make_test_input()).unwrap();
         step_intrinsics_init_all(&mut session, None).unwrap();
         step_intrinsics_optimize_all(&mut session, None).unwrap();
-        step_rig_init(&mut session).unwrap();
+        step_rig_init(&mut session, None).unwrap();
         step_rig_optimize(&mut session, None).unwrap();
 
         let result = step_handeye_optimize(&mut session, None);
@@ -2032,7 +2026,7 @@ mod tests {
         session.set_input(make_test_input()).unwrap();
         session
             .set_config(super::super::problem::RigHandeyeConfig {
-                manual_init: Some(RigHandeyeIntrinsicsManualInit {
+                manual_init: Some(IntrinsicsManualInit {
                     per_cam_intrinsics: Some(vec![
                         FxFyCxCy {
                             fx: 800.0,
@@ -2091,7 +2085,7 @@ mod tests {
         session
             .set_config(super::super::problem::RigHandeyeConfig {
                 handeye_init: crate::common::config::HandeyeInitConfig {
-                    handeye_mode: HandEyeMode::EyeToHand,
+                    handeye_mode: HandeyeMode::EyeToHand,
                     min_motion_angle_deg: 5.0,
                 },
                 ..Default::default()
@@ -2107,7 +2101,7 @@ mod tests {
 
         // Pin handeye to ground truth so the test isolates the
         // mode_target_pose auto-derive arithmetic from DLT precision.
-        let manual = RigHandeyeHandeyeManualInit {
+        let manual = HandeyeManualInit {
             handeye: Some(t_r_b),
             mode_target_pose: None,
         };

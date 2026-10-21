@@ -19,7 +19,7 @@
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
-    FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind, ProblemIR, ReprojChain,
+    FactorKind, FixedMask, HandeyeMode, LaserChain, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
 };
 use crate::params::camera::{
@@ -56,7 +56,7 @@ pub struct RigHandeyeLaserlineDataset {
     /// Number of cameras in the rig.
     pub num_cameras: usize,
     /// Hand-eye configuration (must match the warm-start).
-    pub mode: HandEyeMode,
+    pub mode: HandeyeMode,
 }
 
 /// Per-view observations for [`RigHandeyeLaserlineDataset`].
@@ -81,7 +81,7 @@ impl RigHandeyeLaserlineDataset {
     pub fn new(
         views: Vec<RigHandeyeLaserlineView>,
         num_cameras: usize,
-        mode: HandEyeMode,
+        mode: HandeyeMode,
     ) -> Result<Self, Error> {
         if views.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });
@@ -118,7 +118,7 @@ impl RigHandeyeLaserlineDataset {
     pub fn from_rig_dataset(
         dataset: RigLaserlineDataset,
         robot_poses: Vec<Iso3>,
-        mode: HandEyeMode,
+        mode: HandeyeMode,
     ) -> Result<Self, Error> {
         if robot_poses.len() != dataset.num_views() {
             return Err(Error::invalid_input(format!(
@@ -465,19 +465,19 @@ fn compute_stats(
 
         // Target-corner reprojection: compute cam_se3_target per view from
         // the chain and forward-project each 3D corner. Matches the
-        // ReprojPointPinhole4Dist5Scheimpflug2HandEye factor semantics.
+        // ReprojPointPinhole4Dist5Scheimpflug2Handeye factor semantics.
         for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
             let Some(obs) = cam_obs else { continue };
             let camera = &cam_models[cam_idx];
             for (pt3, pt2) in obs.points_3d.iter().zip(obs.points_2d.iter()) {
                 let p_camera = match dataset.mode {
-                    HandEyeMode::EyeInHand => {
+                    HandeyeMode::EyeInHand => {
                         let p_base = params.target_ref.transform_point(pt3);
                         let p_gripper = robot_pose.inverse_transform_point(&p_base);
                         let p_rig = handeye_inv.transform_point(&p_gripper);
                         cam_se3_rig[cam_idx].transform_point(&p_rig)
                     }
-                    HandEyeMode::EyeToHand => {
+                    HandeyeMode::EyeToHand => {
                         let p_gripper = params.target_ref.transform_point(pt3);
                         let p_base = robot_pose.transform_point(&p_gripper);
                         let p_rig = handeye_fwd.transform_point(&p_base);
@@ -501,7 +501,7 @@ fn compute_stats(
         // this is independent of which one was used as the cost.
         for (cam_idx, laser_slot) in view.obs.laser_pixels.iter().enumerate() {
             let Some(pixels) = laser_slot else { continue };
-            let chain = LaserChain::RigHandEye {
+            let chain = LaserChain::RigHandeye {
                 base_se3_gripper: robot_arr,
                 mode: dataset.mode,
             };
@@ -813,14 +813,14 @@ fn build_ir(
                         target_ref_id,
                         robot_delta_id,
                     ]),
-                    ReprojChain::HandEyeRobotDelta {
+                    ReprojChain::HandeyeRobotDelta {
                         base_se3_gripper: robot_arr,
                         mode: dataset.mode,
                     },
                 ),
                 None => (
                     camera_blocks[cam_idx].with(&[extr_ids[cam_idx], handeye_id, target_ref_id]),
-                    ReprojChain::HandEye {
+                    ReprojChain::Handeye {
                         base_se3_gripper: robot_arr,
                         mode: dataset.mode,
                     },
@@ -846,12 +846,12 @@ fn build_ir(
                 for px in pixels {
                     let laser_px = [px.x, px.y];
                     let chain = if robot_delta_id.is_some() {
-                        LaserChain::RigHandEyeRobotDelta {
+                        LaserChain::RigHandeyeRobotDelta {
                             base_se3_gripper: robot_arr,
                             mode: dataset.mode,
                         }
                     } else {
-                        LaserChain::RigHandEye {
+                        LaserChain::RigHandeye {
                             base_se3_gripper: robot_arr,
                             mode: dataset.mode,
                         }
@@ -1111,7 +1111,7 @@ mod tests {
         }
 
         let dataset =
-            RigHandeyeLaserlineDataset::new(dataset_views, 2, HandEyeMode::EyeToHand).unwrap();
+            RigHandeyeLaserlineDataset::new(dataset_views, 2, HandeyeMode::EyeToHand).unwrap();
         (dataset, params_gt)
     }
 

@@ -11,13 +11,11 @@ use crate::rig_laserline_device::{
 use crate::session::CalibrationSession;
 use vision_calibration_core::{CameraModelSpec, CameraParams};
 use vision_calibration_optim::{
-    BackendSolveOptions, HandEyeMode, RigHandeyeLaserlineParams, RigHandeyeLaserlineSolveOptions,
+    BackendSolveOptions, HandeyeMode, RigHandeyeLaserlineParams, RigHandeyeLaserlineSolveOptions,
     optimize_rig_handeye_laserline,
 };
 
-use super::problem::{
-    RigHandeyeLaserlineOutput, RigHandeyeLaserlineProblem, joint_fix, joint_fix_extrinsics,
-};
+use super::problem::{RigHandeyeLaserlineProblem, joint_fix, joint_fix_extrinsics};
 
 /// Run the full joint rig hand-eye laserline pipeline.
 ///
@@ -60,33 +58,33 @@ pub fn run_calibration(
         .filter(|deltas| deltas.len() == input.num_views());
     let n = input.num_cameras;
     let joint_opts = RigHandeyeLaserlineSolveOptions {
-        laser_residual_type: config.joint_ba.laser_residual_type,
-        calib_loss: config.joint_ba.calib_loss,
-        laser_loss: config.joint_ba.laser_loss,
-        calib_weight: config.joint_ba.calib_weight,
-        laser_weight: config.joint_ba.laser_weight,
-        fix: joint_fix(&config.joint_ba, &joint_models(&joint_initial.cameras)?)?,
+        laser_residual_type: config.joint_optimize.laser_residual_type,
+        calib_loss: config.joint_optimize.calib_loss,
+        laser_loss: config.joint_optimize.laser_loss,
+        calib_weight: config.joint_optimize.calib_weight,
+        laser_weight: config.joint_optimize.laser_weight,
+        fix: joint_fix(
+            &config.joint_optimize,
+            &joint_models(&joint_initial.cameras)?,
+        )?,
         fix_extrinsics: joint_fix_extrinsics(config.handeye.rig.reference_camera_idx, n),
-        fix_handeye: config.joint_ba.fix_handeye,
-        fix_target_ref: config.joint_ba.fix_target_ref,
+        fix_handeye: config.joint_optimize.fix_handeye,
+        fix_target_ref: config.joint_optimize.fix_target_ref,
         fix_planes: vec![false; n],
-        refine_robot_poses: config.joint_ba.robot_poses.refine,
-        robot_rot_sigma: config.joint_ba.robot_poses.rot_sigma,
-        robot_trans_sigma: config.joint_ba.robot_poses.trans_sigma,
+        refine_robot_poses: config.joint_optimize.robot_poses.refine,
+        robot_rot_sigma: config.joint_optimize.robot_poses.rot_sigma,
+        robot_trans_sigma: config.joint_optimize.robot_poses.trans_sigma,
         initial_robot_deltas,
     };
     let backend_opts = BackendSolveOptions {
-        max_iters: config.joint_ba.solver.max_iters,
-        verbosity: config.joint_ba.solver.verbosity,
-        ..config.joint_ba.solver.backend_options()
+        max_iters: config.joint_optimize.solver.max_iters,
+        verbosity: config.joint_optimize.solver.verbosity,
+        ..config.joint_optimize.solver.backend_options()
     };
 
     let estimate =
         optimize_rig_handeye_laserline(joint_dataset, joint_initial, joint_opts, backend_opts)?;
-    session.set_output(RigHandeyeLaserlineOutput {
-        estimate: estimate.clone(),
-        handeye_mode: mode,
-    });
+    session.set_output(estimate.clone());
     session.log_success_with_notes(
         "joint_optimize",
         format!(
@@ -113,21 +111,21 @@ fn joint_models(cameras: &[CameraParams]) -> Result<Vec<CameraModelSpec>, Error>
 fn joint_initial_from_exports(
     rig_export: &RigHandeyeExport,
     laser_export: &crate::rig_laserline_device::RigLaserlineDeviceExport,
-    mode: HandEyeMode,
+    mode: HandeyeMode,
 ) -> Result<RigHandeyeLaserlineParams, Error> {
     let handeye = match mode {
-        HandEyeMode::EyeInHand => rig_export
+        HandeyeMode::EyeInHand => rig_export
             .gripper_se3_rig
             .ok_or_else(|| Error::invalid_input("EyeInHand export missing gripper_se3_rig"))?,
-        HandEyeMode::EyeToHand => rig_export
+        HandeyeMode::EyeToHand => rig_export
             .rig_se3_base
             .ok_or_else(|| Error::invalid_input("EyeToHand export missing rig_se3_base"))?,
     };
     let target_ref = match mode {
-        HandEyeMode::EyeInHand => rig_export
+        HandeyeMode::EyeInHand => rig_export
             .base_se3_target
             .ok_or_else(|| Error::invalid_input("EyeInHand export missing base_se3_target"))?,
-        HandEyeMode::EyeToHand => rig_export
+        HandeyeMode::EyeToHand => rig_export
             .gripper_se3_target
             .ok_or_else(|| Error::invalid_input("EyeToHand export missing gripper_se3_target"))?,
     };

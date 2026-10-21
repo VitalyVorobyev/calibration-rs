@@ -229,7 +229,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             s.set_input(input.clone())?;
             ph.init(|| step_intrinsics_init_all_with_seed(&mut s, seed.clone(), None))?;
             ph.optimize(|| step_intrinsics_optimize_all(&mut s, None))?;
-            ph.init(|| step_rig_init(&mut s))?;
+            ph.init(|| step_rig_init(&mut s, None))?;
             ph.optimize(|| step_rig_optimize(&mut s, None))?;
             let report = s.output().map(|o| o.report.clone());
             let e = s.export()?;
@@ -250,7 +250,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             s.set_input(input.clone())?;
             ph.init(|| rh_intrinsics_init(&mut s, manual, None))?;
             ph.optimize(|| rh_intrinsics_optimize(&mut s, None))?;
-            ph.init(|| rh_rig_init(&mut s))?;
+            ph.init(|| rh_rig_init(&mut s, None))?;
             ph.optimize(|| rh_rig_optimize(&mut s, None))?;
             ph.init(|| rh_handeye_init(&mut s, None))?;
             ph.optimize(|| rh_handeye_optimize(&mut s, None))?;
@@ -271,7 +271,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             let mut s = CalibrationSession::<RigLaserlineDeviceProblem>::new();
             s.set_config(config.clone())?;
             s.set_input(input.clone())?;
-            ph.init(|| rl_init(&mut s))?;
+            ph.init(|| rl_init(&mut s, None))?;
             ph.optimize(|| rl_optimize(&mut s, None))?;
             let e = s.export()?;
             (
@@ -289,7 +289,7 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             s.set_input(input.clone())?;
             // Only a whole-pipeline entry point exists: time it as one phase.
             ph.optimize(|| rhl_run(&mut s))?;
-            let report = s.output().map(|o| o.estimate.report.clone());
+            let report = s.output().map(|o| o.report.clone());
             let e = s.export()?;
             (
                 ModelParams {

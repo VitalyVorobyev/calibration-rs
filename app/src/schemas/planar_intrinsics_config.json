@@ -135,7 +135,7 @@
             "null"
           ]
         },
-        "init_iterations": {
+        "iterations": {
           "description": "Number of iterations for iterative intrinsics estimation.",
           "format": "uint",
           "minimum": 0,
@@ -143,7 +143,7 @@
         }
       },
       "required": [
-        "init_iterations",
+        "iterations",
         "fix_k3"
       ],
       "type": "object"

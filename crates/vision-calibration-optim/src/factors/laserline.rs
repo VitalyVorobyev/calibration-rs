@@ -9,15 +9,15 @@
 //! [`LaserChain`]:
 //! - [`LaserChain::SinglePose`]: the residual takes a direct `cam_se3_target`
 //!   SE3 parameter block.
-//! - [`LaserChain::RigHandEye`] / [`LaserChain::RigHandEyeRobotDelta`]: the
+//! - [`LaserChain::RigHandeye`] / [`LaserChain::RigHandeyeRobotDelta`]: the
 //!   residual composes `cam_se3_target` from (`cam_se3_rig`, `handeye`,
-//!   `target_ref`, robot pose) according to [`HandEyeMode`], so that rig
+//!   `target_ref`, robot pose) according to [`HandeyeMode`], so that rig
 //!   extrinsics, hand-eye transform, and target reference pose all move under
 //!   a single cost with the laser geometry constraint.
 
 use crate::factors::camera_blocks::CameraBlocks;
 use crate::factors::reprojection_model::se3_exp;
-use crate::ir::{CameraModelSpec, HandEyeMode, LaserChain};
+use crate::ir::{CameraModelSpec, HandeyeMode, LaserChain};
 use nalgebra::{
     DVector, DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector2, Vector3,
 };
@@ -349,7 +349,7 @@ fn compose_cam_se3_target_with_delta_generic<T: RealField>(
     target_ref: DVectorView<'_, T>,
     robot_se3: [f64; 7],
     robot_delta: Option<DVectorView<'_, T>>,
-    mode: HandEyeMode,
+    mode: HandeyeMode,
 ) -> (UnitQuaternion<T>, Vector3<T>) {
     debug_assert!(cam_to_rig.len() == 7, "cam_to_rig must be 7 SE3");
     debug_assert!(handeye.len() == 7, "handeye must be 7 SE3");
@@ -408,7 +408,7 @@ fn compose_cam_se3_target_with_delta_generic<T: RealField>(
     // Compute (R_net, t_net) such that p_cam = R_net * p_target + t_net, by
     // pushing the origin of the target frame through each stage of the chain.
     match mode {
-        HandEyeMode::EyeInHand => {
+        HandeyeMode::EyeInHand => {
             // p_cam = extr^-1 ( handeye^-1 ( robot^-1 ( target * p_t ) ) )
             //
             // Composing R: R_net = extr^-1 * handeye^-1 * robot^-1 * target
@@ -425,7 +425,7 @@ fn compose_cam_se3_target_with_delta_generic<T: RealField>(
             let t_net = extr_q.inverse_transform_vector(&(p_rig - extr_t));
             (r_net, t_net)
         }
-        HandEyeMode::EyeToHand => {
+        HandeyeMode::EyeToHand => {
             // p_cam = extr^-1 ( handeye * ( robot * ( target * p_t ) ) )
             //
             // Composing R: R_net = extr^-1 * handeye * robot * target
@@ -478,11 +478,11 @@ fn resolve_laser_chain_pose<T: RealField>(
             debug_assert!(blocks.len() == 3, "SinglePose laser chain expects 3 blocks");
             (blocks[0].clone(), 1, 2)
         }
-        LaserChain::RigHandEye {
+        LaserChain::RigHandeye {
             base_se3_gripper,
             mode,
         } => {
-            debug_assert!(blocks.len() == 5, "RigHandEye laser chain expects 5 blocks");
+            debug_assert!(blocks.len() == 5, "RigHandeye laser chain expects 5 blocks");
             let (rot, t) = compose_cam_se3_target_with_delta_generic(
                 blocks[0].as_view(),
                 blocks[1].as_view(),
@@ -493,13 +493,13 @@ fn resolve_laser_chain_pose<T: RealField>(
             );
             (se3_from_rot_trans(&rot, &t), 3, 4)
         }
-        LaserChain::RigHandEyeRobotDelta {
+        LaserChain::RigHandeyeRobotDelta {
             base_se3_gripper,
             mode,
         } => {
             debug_assert!(
                 blocks.len() == 6,
-                "RigHandEyeRobotDelta laser chain expects 6 blocks"
+                "RigHandeyeRobotDelta laser chain expects 6 blocks"
             );
             let (rot, t) = compose_cam_se3_target_with_delta_generic(
                 blocks[0].as_view(),
@@ -802,7 +802,7 @@ mod tests {
             target_ref.as_view(),
             robot_arr,
             None,
-            HandEyeMode::EyeInHand,
+            HandeyeMode::EyeInHand,
         );
         for pw in [[0.01, 0.02, 0.0], [-0.03, 0.04, 0.1], [0.0, 0.0, 0.0]] {
             let p = V3::new(pw[0], pw[1], pw[2]);
@@ -825,7 +825,7 @@ mod tests {
             target_ref.as_view(),
             robot_arr,
             None,
-            HandEyeMode::EyeToHand,
+            HandeyeMode::EyeToHand,
         );
         for pw in [[0.01, 0.02, 0.0], [-0.03, 0.04, 0.1], [0.0, 0.0, 0.0]] {
             let p = V3::new(pw[0], pw[1], pw[2]);
@@ -875,20 +875,20 @@ mod tests {
 
         let robot_arr = pack_arr(&t_base_from_gripper);
 
-        for mode in [HandEyeMode::EyeInHand, HandEyeMode::EyeToHand] {
+        for mode in [HandeyeMode::EyeInHand, HandeyeMode::EyeToHand] {
             let cam_se3_target: Isometry3<f64> = match mode {
-                HandEyeMode::EyeInHand => {
+                HandeyeMode::EyeInHand => {
                     t_rig_from_cam.inverse()
                         * handeye_iso.inverse()
                         * t_base_from_gripper.inverse()
                         * target_ref_iso
                 }
-                HandEyeMode::EyeToHand => {
+                HandeyeMode::EyeToHand => {
                     t_rig_from_cam.inverse() * handeye_iso * t_base_from_gripper * target_ref_iso
                 }
             };
             let pose_dv = pack(&cam_se3_target);
-            let chain = LaserChain::RigHandEye {
+            let chain = LaserChain::RigHandeye {
                 base_se3_gripper: robot_arr,
                 mode,
             };
@@ -995,12 +995,12 @@ mod tests {
             delta_q * base_se3_gripper.rotation,
         );
 
-        let mode = HandEyeMode::EyeToHand;
-        let chain_delta = LaserChain::RigHandEyeRobotDelta {
+        let mode = HandeyeMode::EyeToHand;
+        let chain_delta = LaserChain::RigHandeyeRobotDelta {
             base_se3_gripper: pack_arr(&base_se3_gripper),
             mode,
         };
-        let chain_corrected = LaserChain::RigHandEye {
+        let chain_corrected = LaserChain::RigHandeye {
             base_se3_gripper: pack_arr(&corrected_robot),
             mode,
         };

@@ -26,7 +26,7 @@ import vision_calibration as vc
 from _fixtures import euler_rot_xyz, planar_calibration_dataset, transform_point
 
 
-def _rig_extrinsics_dataset() -> vc.RigExtrinsicsDataset:
+def _rig_extrinsics_dataset() -> vc.RigExtrinsicsInput:
     # Two cameras viewing the same board — enough for validate_config to run
     # before any solve. Geometry need not be well-conditioned here.
     board = [(i * 0.04, j * 0.04, 0.0) for i in range(6) for j in range(5)]
@@ -43,15 +43,15 @@ def _rig_extrinsics_dataset() -> vc.RigExtrinsicsDataset:
                 p2.append((640.0 + 800.0 * pc[0] / pc[2], 360.0 + 780.0 * pc[1] / pc[2]))
             cams.append(vc.Observation(points_3d=p3, points_2d=p2))
         views.append(vc.RigExtrinsicsView(cameras=cams))
-    return vc.RigExtrinsicsDataset(num_cameras=2, views=views)
+    return vc.RigExtrinsicsInput(num_cameras=2, views=views)
 
 
 class PlanarDistortionModelConsumptionTest(unittest.TestCase):
     def setUp(self) -> None:
         self.dataset = planar_calibration_dataset()
 
-    def _run(self, model: str) -> vc.PlanarCalibrationResult:
-        cfg = vc.PlanarCalibrationConfig(
+    def _run(self, model: str) -> vc.PlanarIntrinsicsExport:
+        cfg = vc.PlanarIntrinsicsConfig(
             camera=vc.CameraConfig(model=vc.CameraModelSpec(distortion=model))  # type: ignore[arg-type]
         )
         return vc.run_planar_intrinsics(self.dataset, cfg)
@@ -94,7 +94,7 @@ class PlanarDistortionModelConsumptionTest(unittest.TestCase):
 
 class ScheimpflugDistortionModelConsumptionTest(unittest.TestCase):
     def test_scheimpflug_division_model_yields_division_dataclass(self) -> None:
-        cfg = vc.PlanarCalibrationConfig(
+        cfg = vc.PlanarIntrinsicsConfig(
             camera=vc.CameraConfig(
                 model=vc.CameraModelSpec(distortion="division1", sensor="scheimpflug")
             )
@@ -109,14 +109,14 @@ class ScheimpflugDistortionModelConsumptionTest(unittest.TestCase):
 
 class RigCameraOverrideConsumptionTest(unittest.TestCase):
     def test_rig_extrinsics_rejects_out_of_range_override(self) -> None:
-        cfg = vc.RigExtrinsicsCalibrationConfig(
+        cfg = vc.RigExtrinsicsConfig(
             camera_overrides=[vc.CameraOverride(camera=9)]
         )
         with self.assertRaisesRegex(RuntimeError, "out of range"):
             vc.run_rig_extrinsics(_rig_extrinsics_dataset(), cfg)
 
     def test_rig_extrinsics_rejects_duplicate_override(self) -> None:
-        cfg = vc.RigExtrinsicsCalibrationConfig(
+        cfg = vc.RigExtrinsicsConfig(
             camera_overrides=[vc.CameraOverride(0), vc.CameraOverride(0)]
         )
         with self.assertRaises(ValueError):
@@ -124,7 +124,7 @@ class RigCameraOverrideConsumptionTest(unittest.TestCase):
 
     def test_rig_extrinsics_result_cameras_are_typed(self) -> None:
         result = vc.run_rig_extrinsics(
-            _rig_extrinsics_dataset(), vc.RigExtrinsicsCalibrationConfig()
+            _rig_extrinsics_dataset(), vc.RigExtrinsicsConfig()
         )
         for cam in result.cameras:
             self.assertIsInstance(cam, vc.PinholeCamera)

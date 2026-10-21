@@ -31,7 +31,7 @@
 //! // Option 1: Step-by-step
 //! step_intrinsics_init_all(&mut session, None)?;
 //! step_intrinsics_optimize_all(&mut session, None)?;
-//! step_rig_init(&mut session)?;
+//! step_rig_init(&mut session, None)?;
 //! step_rig_optimize(&mut session, None)?;
 //!
 //! // Option 2: Full pipeline
@@ -53,7 +53,7 @@
 //! - Reference camera: index 0 (`rig.reference_camera_idx`); its extrinsic
 //!   fix alone removes the rig's full 6-DOF gauge freedom (no rig-from-target
 //!   pose is additionally pinned)
-//! - Intrinsics: NOT re-refined in rig BA (set `rig.refine_intrinsics_in_rig_ba: true` to enable)
+//! - Intrinsics: NOT re-refined in rig BA (set `rig.refine_intrinsics: true` to enable)
 //! - Every camera has the model of `camera` (pinhole, Brown-Conrady, untilted
 //!   sensor by default) unless `camera_overrides` names it; each keeps its
 //!   model's default fix lists (`k3` for Brown-Conrady) unless `fix` says
@@ -68,9 +68,9 @@ pub use problem::{
     RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblem,
 };
 pub use steps::{
-    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigExtrinsicsManualInit, RigInitResult,
-    RigIntrinsicsInitAllResult, RigIntrinsicsManualInit, RigIntrinsicsOptimizeAllResult,
-    RigOptimizeOptions, RigOptimizeResult, run_calibration, step_intrinsics_init_all,
+    IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit, IntrinsicsOptimizeOptions,
+    IntrinsicsOptimizeResult, RigInitOptions, RigInitResult, RigManualInit, RigOptimizeOptions,
+    RigOptimizeResult, run_calibration, step_intrinsics_init_all,
     step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init,
     step_rig_init_with_seed, step_rig_optimize,
 };

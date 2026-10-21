@@ -8,26 +8,26 @@ import vision_calibration as vc
 class HighLevelApiContractTest(unittest.TestCase):
     def test_dict_inputs_are_rejected_for_all_high_level_runners(self) -> None:
         cases = [
-            (vc.run_planar_intrinsics, {"views": []}, vc.PlanarCalibrationConfig()),
+            (vc.run_planar_intrinsics, {"views": []}, vc.PlanarIntrinsicsConfig()),
             (
                 vc.run_single_cam_handeye,
                 {"views": []},
-                vc.SingleCamHandeyeCalibrationConfig(),
+                vc.SingleCamHandeyeConfig(),
             ),
             (
                 vc.run_rig_extrinsics,
                 {"num_cameras": 2, "views": []},
-                vc.RigExtrinsicsCalibrationConfig(),
+                vc.RigExtrinsicsConfig(),
             ),
             (
                 vc.run_rig_handeye,
                 {"num_cameras": 2, "views": []},
-                vc.RigHandeyeCalibrationConfig(),
+                vc.RigHandeyeConfig(),
             ),
             (
                 vc.run_laserline_device,
                 [],
-                vc.LaserlineDeviceCalibrationConfig(),
+                vc.LaserlineDeviceConfig(),
             ),
         ]
 
@@ -38,11 +38,11 @@ class HighLevelApiContractTest(unittest.TestCase):
 
     def test_dict_configs_are_rejected_for_all_high_level_runners(self) -> None:
         cases = [
-            (vc.run_planar_intrinsics, vc.PlanarDataset(views=[])),
-            (vc.run_single_cam_handeye, vc.SingleCamHandeyeDataset(views=[])),
-            (vc.run_rig_extrinsics, vc.RigExtrinsicsDataset(num_cameras=2, views=[])),
-            (vc.run_rig_handeye, vc.RigHandeyeDataset(num_cameras=2, views=[])),
-            (vc.run_laserline_device, vc.LaserlineDataset(views=[])),
+            (vc.run_planar_intrinsics, vc.PlanarIntrinsicsInput(views=[])),
+            (vc.run_single_cam_handeye, vc.SingleCamHandeyeInput(views=[])),
+            (vc.run_rig_extrinsics, vc.RigExtrinsicsInput(num_cameras=2, views=[])),
+            (vc.run_rig_handeye, vc.RigHandeyeInput(num_cameras=2, views=[])),
+            (vc.run_laserline_device, vc.LaserlineDeviceInput(views=[])),
         ]
 
         for fn, dataset in cases:
@@ -56,26 +56,26 @@ class HighLevelApiContractTest(unittest.TestCase):
         # Per R-07, invalid input/config from Python surfaces as ValueError;
         # TypeError is reserved for wrong Python types (dicts, lists, ...).
         cases = [
-            (vc.run_planar_intrinsics, vc.PlanarDataset(views=[]), vc.PlanarCalibrationConfig()),
+            (vc.run_planar_intrinsics, vc.PlanarIntrinsicsInput(views=[]), vc.PlanarIntrinsicsConfig()),
             (
                 vc.run_single_cam_handeye,
-                vc.SingleCamHandeyeDataset(views=[]),
-                vc.SingleCamHandeyeCalibrationConfig(),
+                vc.SingleCamHandeyeInput(views=[]),
+                vc.SingleCamHandeyeConfig(),
             ),
             (
                 vc.run_rig_extrinsics,
-                vc.RigExtrinsicsDataset(num_cameras=2, views=[]),
-                vc.RigExtrinsicsCalibrationConfig(),
+                vc.RigExtrinsicsInput(num_cameras=2, views=[]),
+                vc.RigExtrinsicsConfig(),
             ),
             (
                 vc.run_rig_handeye,
-                vc.RigHandeyeDataset(num_cameras=2, views=[]),
-                vc.RigHandeyeCalibrationConfig(),
+                vc.RigHandeyeInput(num_cameras=2, views=[]),
+                vc.RigHandeyeConfig(),
             ),
             (
                 vc.run_laserline_device,
-                vc.LaserlineDataset(views=[]),
-                vc.LaserlineDeviceCalibrationConfig(),
+                vc.LaserlineDeviceInput(views=[]),
+                vc.LaserlineDeviceConfig(),
             ),
         ]
 

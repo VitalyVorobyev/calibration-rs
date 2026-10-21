@@ -73,7 +73,7 @@ workflow. Seeding the nominal mount tilt makes the solve trust that tilt basin:
 use vision_calibration::core::{FxFyCxCy, PlanarDataset, ScheimpflugParams, SensorKind};
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::planar_intrinsics::{
-    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, PlanarManualInit, step_init_with_seed,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, IntrinsicsManualInit, step_init_with_seed,
     step_optimize,
 };
 
@@ -86,7 +86,7 @@ let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 session.set_config(config)?;
 session.set_input(dataset)?;
 
-let mut seed = PlanarManualInit::default();
+let mut seed = IntrinsicsManualInit::default();
 seed.intrinsics = Some(FxFyCxCy { fx: 1050.0, fy: 1050.0, cx: 640.0, cy: 480.0 });
 seed.sensor = Some(ScheimpflugParams { tilt_x: -0.087, tilt_y: 0.0 });
 step_init_with_seed(&mut session, seed, None)?;

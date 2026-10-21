@@ -15,10 +15,20 @@ use crate::session::CalibrationSession;
 
 use super::problem::RigLaserlineDeviceProblem;
 
-/// Options controlling both step functions.
+/// Options for the laser-plane initialization step.
+///
+/// The plane fit has no per-call overrides yet; the struct keeps `step_init`
+/// in the same shape as every other step.
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
-pub struct StepOptions {
+pub struct PlaneInitOptions {}
+
+/// Options for the laser-plane optimization step.
+///
+/// These options override session config for a single step invocation.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct PlaneOptimizeOptions {
     /// Override the maximum number of iterations.
     pub max_iters: Option<usize>,
     /// Override verbosity level.
@@ -36,7 +46,7 @@ pub struct StepOptions {
 /// `input.dataset.num_cameras`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct RigLaserlineDeviceManualInit {
+pub struct PlaneManualInit {
     /// Per-camera laser planes (camera frame). Overrides input-supplied seeds.
     pub planes_cam: Option<Vec<LaserPlane>>,
 }
@@ -45,7 +55,7 @@ pub struct RigLaserlineDeviceManualInit {
 /// auto-estimation.
 ///
 /// This is the load-bearing init function. [`step_init`] is a thin delegate with
-/// `RigLaserlineDeviceManualInit::default()`.
+/// `PlaneManualInit::default()`.
 ///
 /// Resolution order for the laser planes:
 /// 1. `manual.planes_cam` if `Some` (highest priority).
@@ -59,8 +69,10 @@ pub struct RigLaserlineDeviceManualInit {
 /// - `manual.planes_cam.len() != input.dataset.num_cameras`.
 pub fn step_init_with_seed(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
-    manual: RigLaserlineDeviceManualInit,
+    manual: PlaneManualInit,
+    opts: Option<PlaneInitOptions>,
 ) -> Result<(), Error> {
+    let PlaneInitOptions {} = opts.unwrap_or_default();
     session.validate()?;
     let input = session.require_input()?;
 
@@ -99,8 +111,11 @@ pub fn step_init_with_seed(
 /// Initialize per-camera laser planes using the input-or-auto path.
 ///
 /// Convenience wrapper around [`step_init_with_seed`] with default seeds.
-pub fn step_init(session: &mut CalibrationSession<RigLaserlineDeviceProblem>) -> Result<(), Error> {
-    step_init_with_seed(session, RigLaserlineDeviceManualInit::default())
+pub fn step_init(
+    session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
+    opts: Option<PlaneInitOptions>,
+) -> Result<(), Error> {
+    step_init_with_seed(session, PlaneManualInit::default(), opts)
 }
 
 fn linear_plane_init(
@@ -139,7 +154,7 @@ fn linear_plane_init(
 /// Returns [`Error`] if init has not been run or the optim solver fails.
 pub fn step_optimize(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
-    opts: Option<StepOptions>,
+    opts: Option<PlaneOptimizeOptions>,
 ) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?.clone();
@@ -215,7 +230,7 @@ pub fn step_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
 ) -> Result<(), Error> {
-    step_init(session)?;
+    step_init(session, None)?;
     step_optimize(session, None)?;
     Ok(())
 }

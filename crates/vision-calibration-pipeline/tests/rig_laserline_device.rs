@@ -252,7 +252,7 @@ fn json_roundtrip_for_config() {
 #[test]
 fn pinhole_upstream_converges_rig_laserline() {
     use vision_calibration_core::PerFeatureResiduals;
-    use vision_calibration_optim::HandEyeMode;
+    use vision_calibration_optim::HandeyeMode;
     use vision_calibration_pipeline::rig_handeye::RigHandeyeExport;
 
     let (dataset, upstream, planes_rig_gt) = make_dataset();
@@ -273,7 +273,7 @@ fn pinhole_upstream_converges_rig_laserline() {
         "cameras": cameras,
         "cam_se3_rig": upstream.cam_se3_rig,
         "rig_se3_target": upstream.rig_se3_target,
-        "handeye_mode": HandEyeMode::EyeInHand,
+        "handeye_mode": HandeyeMode::EyeInHand,
         "gripper_se3_rig": Isometry3::<f64>::identity(),
         "rig_se3_base": null,
         "base_se3_target": Isometry3::<f64>::identity(),
