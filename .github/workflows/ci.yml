@@ -22,7 +22,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # Pull requests restore main's cache but do not save their own: saving
+      # costs minutes on Windows and a PR's cache is rarely reused.
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cargo fmt
         run: cargo fmt --all --check
