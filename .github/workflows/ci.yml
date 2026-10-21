@@ -26,6 +26,8 @@ jobs:
       # costs minutes on Windows and a PR's cache is rarely reused.
       - uses: Swatinem/rust-cache@v2
         with:
+          # The cache key does not see Cargo profile changes; bump on one.
+          prefix-key: v1-rust
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Formatting, lints, generated files and docs are platform-independent,
@@ -110,6 +112,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # The cache key does not see Cargo profile changes; bump on one.
+          prefix-key: v1-rust
 
       # Unit tests that read LFS images are `#[ignore]`d in the build jobs,
       # which check out LFS pointers only.
@@ -138,6 +143,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # The cache key does not see Cargo profile changes; bump on one.
+          prefix-key: v1-rust
 
       - name: Suite check
         run: >-
@@ -172,6 +180,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # The cache key does not see Cargo profile changes; bump on one.
+          prefix-key: v1-rust
 
       - name: Monte-Carlo gates
         run: >-

@@ -25,6 +25,9 @@ jobs:
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # The cache key does not see Cargo profile changes; bump on one.
+          prefix-key: v1-rust
 
       - name: Format check
         run: cargo fmt --all --check
