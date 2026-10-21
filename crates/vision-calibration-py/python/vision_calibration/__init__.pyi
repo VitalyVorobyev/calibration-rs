@@ -2,7 +2,10 @@ from typing import Any, Mapping
 
 from .models import (
     BrownConradyDistortion,
+    CameraConfig,
+    CameraFix,
     CameraFixMask,
+    CameraModelSpec,
     Distortion,
     Division1Distortion,
     HandeyeInitConfig,
@@ -34,10 +37,8 @@ from .models import (
     Pose,
     RigConfig,
     RobotPoseConfig,
-    ScheimpflugIntrinsicsCalibrationConfig,
     ScheimpflugSensor,
     ScheimpflugSensorMode,
-    ScheimpflugIntrinsicsResult,
     SolverConfig,
     RigExtrinsicsCalibrationConfig,
     RigExtrinsicsDataset,
@@ -85,12 +86,6 @@ def run_planar_intrinsics(
     input: PlanarDataset,
     config: PlanarCalibrationConfig | None = None,
 ) -> PlanarCalibrationResult: ...
-
-
-def run_scheimpflug_intrinsics(
-    input: PlanarDataset,
-    config: ScheimpflugIntrinsicsCalibrationConfig | None = None,
-) -> ScheimpflugIntrinsicsResult: ...
 
 
 def run_single_cam_handeye(
@@ -141,7 +136,6 @@ def pixel_to_gripper_point(
 
 def projection_uncertainty(
     result: PlanarCalibrationResult
-    | ScheimpflugIntrinsicsResult
     | SingleCamHandeyeResult
     | LaserlineDeviceResult
     | RigExtrinsicsResult

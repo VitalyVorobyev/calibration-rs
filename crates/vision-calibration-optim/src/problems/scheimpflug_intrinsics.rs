@@ -1,22 +1,22 @@
-//! Scheimpflug planar intrinsics optimization using the backend-agnostic IR.
+//! Staged, multi-start planar solve for a tilted (Scheimpflug) sensor.
+//!
+//! A tilted sensor's tilt trades off against the principal point and radial
+//! distortion, so a plain solve from `tilt = 0` settles biased or runs
+//! `fx → 0`. [`optimize_scheimpflug_intrinsics_staged`] breaks that
+//! degeneracy with a cheap multi-start tilt sweep followed by staged
+//! refinement, every stage a [`optimize_planar_intrinsics`] solve.
 
 use crate::Error;
-use crate::backend::{self, BackendSolveOptions, SolveReport};
-use crate::ir::SensorKind;
-use crate::ir::{Bound, CameraModelSpec, DistortionKind, RobustLoss};
-use crate::params::distortion::{distortion_kind, fix_mask_indices, unpack_distortion_params};
-use crate::params::intrinsics::unpack_intrinsics;
-use crate::params::pose_se3::se3_dvec_to_iso3;
-use crate::problems::planar_family_shared::{
-    PlanarReprojectionIrOptions, PlanarSensorIrOptions, build_planar_reprojection_ir,
+use crate::backend::BackendSolveOptions;
+use crate::ir::{RobustLoss, SensorKind};
+use crate::problems::planar_intrinsics::{
+    CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+    optimize_planar_intrinsics,
 };
-use crate::uncertainty;
-use nalgebra::DVectorView;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, CorrespondenceView, DistortionFixMask, DistortionParams, FxFyCxCy,
-    IntrinsicsFixMask, Iso3, PlanarDataset, ProjectionParams, Real, ScheimpflugParams,
-    SensorParams, Uncertainty, View,
+    CameraFix, CameraParams, CorrespondenceView, FxFyCxCy, PlanarDataset, Real, ScheimpflugParams,
+    SensorParams, View,
 };
 
 /// Mask for Scheimpflug tilt parameters.
@@ -29,371 +29,33 @@ pub struct ScheimpflugFixMask {
     pub tilt_y: bool,
 }
 
-impl ScheimpflugFixMask {
-    fn as_flags(self) -> [bool; 2] {
-        [self.tilt_x, self.tilt_y]
+/// Generous bounds centered on an intrinsics estimate: focals within
+/// `[lo, hi]×` the estimate, principal point within a focal-scaled window,
+/// and tilt within `tilt_center ± tilt_bound`. Wide enough not to bias a
+/// healthy solve, tight enough to forbid the degenerate runaway.
+fn bounds_around(k: &FxFyCxCy<Real>, opts: &ScheimpflugStagedInitOptions) -> CameraBounds {
+    let pp_x = opts.principal_point_bound_focal_fraction * k.fx;
+    let pp_y = opts.principal_point_bound_focal_fraction * k.fy;
+    CameraBounds {
+        fx: Some((
+            opts.focal_bound_factor.0 * k.fx,
+            opts.focal_bound_factor.1 * k.fx,
+        )),
+        fy: Some((
+            opts.focal_bound_factor.0 * k.fy,
+            opts.focal_bound_factor.1 * k.fy,
+        )),
+        cx: Some((k.cx - pp_x, k.cx + pp_x)),
+        cy: Some((k.cy - pp_y, k.cy + pp_y)),
+        tilt_x: Some((
+            opts.tilt_center_x - opts.tilt_bound,
+            opts.tilt_center_x + opts.tilt_bound,
+        )),
+        tilt_y: Some((
+            opts.tilt_center_y - opts.tilt_bound,
+            opts.tilt_center_y + opts.tilt_bound,
+        )),
     }
-}
-
-/// Optional per-parameter box bounds for a Scheimpflug intrinsics solve.
-///
-/// Each `Some((lower, upper))` constrains that parameter; `None` leaves it
-/// unbounded. Bounds are the safety net that converts the cold-start runaway
-/// (`fx → 0`, `cx → -1e19`, reproj → 1e21 px) into a finite, recoverable solve.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ScheimpflugBounds {
-    /// Bounds on `fx`.
-    pub fx: Option<(f64, f64)>,
-    /// Bounds on `fy`.
-    pub fy: Option<(f64, f64)>,
-    /// Bounds on `cx`.
-    pub cx: Option<(f64, f64)>,
-    /// Bounds on `cy`.
-    pub cy: Option<(f64, f64)>,
-    /// Bounds on `tilt_x` (radians).
-    pub tilt_x: Option<(f64, f64)>,
-    /// Bounds on `tilt_y` (radians).
-    pub tilt_y: Option<(f64, f64)>,
-}
-
-impl ScheimpflugBounds {
-    /// Per-index bounds for the `cam` block (`[fx, fy, cx, cy]`).
-    fn intrinsics_bounds(&self) -> Option<Vec<Bound>> {
-        let mut v = Vec::new();
-        for (idx, b) in [self.fx, self.fy, self.cx, self.cy].into_iter().enumerate() {
-            if let Some((lower, upper)) = b {
-                v.push(Bound { idx, lower, upper });
-            }
-        }
-        (!v.is_empty()).then_some(v)
-    }
-
-    /// Per-index bounds for the `sensor` block (`[tilt_x, tilt_y]`).
-    fn sensor_bounds(&self) -> Option<Vec<Bound>> {
-        let mut v = Vec::new();
-        for (idx, b) in [self.tilt_x, self.tilt_y].into_iter().enumerate() {
-            if let Some((lower, upper)) = b {
-                v.push(Bound { idx, lower, upper });
-            }
-        }
-        (!v.is_empty()).then_some(v)
-    }
-
-    /// Generous bounds centered on a converged intrinsics estimate: focals
-    /// within `[lo, hi]×` the estimate, principal point within a focal-scaled
-    /// window, and tilt within `tilt_center ± tilt_bound`. Wide enough not to
-    /// bias a healthy solve, tight enough to forbid the degenerate runaway.
-    fn around(k: &FxFyCxCy<Real>, opts: &ScheimpflugStagedInitOptions) -> Self {
-        let pp_x = opts.principal_point_bound_focal_fraction * k.fx;
-        let pp_y = opts.principal_point_bound_focal_fraction * k.fy;
-        Self {
-            fx: Some((
-                opts.focal_bound_factor.0 * k.fx,
-                opts.focal_bound_factor.1 * k.fx,
-            )),
-            fy: Some((
-                opts.focal_bound_factor.0 * k.fy,
-                opts.focal_bound_factor.1 * k.fy,
-            )),
-            cx: Some((k.cx - pp_x, k.cx + pp_x)),
-            cy: Some((k.cy - pp_y, k.cy + pp_y)),
-            tilt_x: Some((
-                opts.tilt_center_x - opts.tilt_bound,
-                opts.tilt_center_x + opts.tilt_bound,
-            )),
-            tilt_y: Some((
-                opts.tilt_center_y - opts.tilt_bound,
-                opts.tilt_center_y + opts.tilt_bound,
-            )),
-        }
-    }
-}
-
-/// Initial/refined parameters for Scheimpflug intrinsics optimization.
-///
-/// The distortion is model-agnostic ([`DistortionParams`]) so the Scheimpflug
-/// path supports Brown-Conrady5 (the default) as well as the extended
-/// Rational8 / ThinPrism9 / Division1 models. Brown-Conrady5 remains
-/// byte-identical to the single-model path it replaced (packed vector `[k1, k2, k3, p1, p2]`,
-/// descriptor `PINHOLE4_DIST5_SCHEIMPFLUG2`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScheimpflugIntrinsicsParams {
-    /// Camera intrinsics.
-    pub intrinsics: FxFyCxCy<Real>,
-    /// Distortion parameters (model-agnostic).
-    pub distortion: DistortionParams,
-    /// Scheimpflug sensor tilt parameters.
-    pub sensor: ScheimpflugParams,
-    /// Target poses per view (`camera_se3_target`).
-    pub camera_se3_target: Vec<Iso3>,
-}
-
-impl ScheimpflugIntrinsicsParams {
-    /// Construct a parameter pack from concrete Brown-Conrady distortion.
-    ///
-    /// Convenience entry point for rig calibration and Brown-Conrady callers;
-    /// wraps `distortion` into [`DistortionParams::BrownConrady5`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
-    pub fn new(
-        intrinsics: FxFyCxCy<Real>,
-        distortion: BrownConrady5<Real>,
-        sensor: ScheimpflugParams,
-        camera_se3_target: Vec<Iso3>,
-    ) -> Result<Self, Error> {
-        Self::new_with_distortion(
-            intrinsics,
-            DistortionParams::BrownConrady5 { params: distortion },
-            sensor,
-            camera_se3_target,
-        )
-    }
-
-    /// Construct a parameter pack from a model-agnostic [`DistortionParams`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
-    pub fn new_with_distortion(
-        intrinsics: FxFyCxCy<Real>,
-        distortion: DistortionParams,
-        sensor: ScheimpflugParams,
-        camera_se3_target: Vec<Iso3>,
-    ) -> Result<Self, Error> {
-        if camera_se3_target.is_empty() {
-            return Err(Error::InsufficientData { need: 1, got: 0 });
-        }
-        Ok(Self {
-            intrinsics,
-            distortion,
-            sensor,
-            camera_se3_target,
-        })
-    }
-
-    /// Return the distortion as concrete Brown-Conrady coefficients.
-    ///
-    /// Returns the stored coefficients for [`DistortionParams::BrownConrady5`]
-    /// and [`BrownConrady5::default`] otherwise. Rig calibration is
-    /// Brown-Conrady throughout, so this is always the exact stored value on
-    /// that path.
-    pub fn distortion_bc5(&self) -> BrownConrady5<Real> {
-        match &self.distortion {
-            DistortionParams::BrownConrady5 { params } => *params,
-            _ => BrownConrady5::default(),
-        }
-    }
-
-    /// Return a copy of this parameter pack with the poses replaced.
-    ///
-    /// Intrinsics, distortion, and sensor are cloned unchanged.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
-    pub fn with_poses(&self, camera_se3_target: Vec<Iso3>) -> Result<Self, Error> {
-        Self::new_with_distortion(
-            self.intrinsics,
-            self.distortion.clone(),
-            self.sensor,
-            camera_se3_target,
-        )
-    }
-}
-
-/// Solve options for Scheimpflug intrinsics optimization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScheimpflugIntrinsicsSolveOptions {
-    /// Robust loss applied per observation.
-    pub robust_loss: RobustLoss,
-    /// Mask for fixing intrinsics parameters.
-    pub fix_intrinsics: IntrinsicsFixMask,
-    /// Mask for fixing distortion parameters.
-    pub fix_distortion: DistortionFixMask,
-    /// Mask for fixing Scheimpflug tilt parameters.
-    pub fix_scheimpflug: ScheimpflugFixMask,
-    /// Indices of poses to keep fixed.
-    pub fix_poses: Vec<usize>,
-    /// Optional box bounds on intrinsics/tilt parameters. `None` ⇒ unbounded.
-    #[serde(default)]
-    pub bounds: Option<ScheimpflugBounds>,
-}
-
-impl Default for ScheimpflugIntrinsicsSolveOptions {
-    fn default() -> Self {
-        Self {
-            robust_loss: RobustLoss::None,
-            fix_intrinsics: IntrinsicsFixMask::default(),
-            fix_distortion: DistortionFixMask::radial_only(),
-            fix_scheimpflug: ScheimpflugFixMask::default(),
-            fix_poses: Vec::new(),
-            bounds: None,
-        }
-    }
-}
-
-/// Optimization result for Scheimpflug intrinsics.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScheimpflugIntrinsicsEstimate {
-    /// Refined parameters.
-    pub params: ScheimpflugIntrinsicsParams,
-    /// Backend solve report.
-    pub report: SolveReport,
-    /// Mean reprojection error in pixels.
-    pub mean_reproj_error: f64,
-    /// Covariance of the estimated camera parameters and poses.
-    #[serde(default)]
-    pub uncertainty: Uncertainty,
-}
-
-/// Select the Scheimpflug-sensor [`CameraModelSpec`] for a distortion kind.
-///
-/// Brown-Conrady5 maps to `PINHOLE4_DIST5_SCHEIMPFLUG2` (byte-identical to the
-/// single-model path it replaced); the extended models map to their Scheimpflug siblings.
-/// The identity-distortion `None` kind has no Scheimpflug descriptor and is
-/// rejected — a Scheimpflug intrinsics solve always carries a distortion model.
-fn scheimpflug_model_desc(kind: DistortionKind) -> Result<CameraModelSpec, Error> {
-    Ok(match kind {
-        DistortionKind::BrownConrady5 => {
-            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug)
-        }
-        DistortionKind::Rational8 => {
-            CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Scheimpflug)
-        }
-        DistortionKind::ThinPrism9 => {
-            CameraModelSpec::pinhole(DistortionKind::ThinPrism9, SensorKind::Scheimpflug)
-        }
-        DistortionKind::Division1 => {
-            CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Scheimpflug)
-        }
-        DistortionKind::None => {
-            return Err(Error::invalid_input(
-                "Scheimpflug intrinsics requires a distortion model (identity distortion \
-                 is not supported)",
-            ));
-        }
-    })
-}
-
-fn build_scheimpflug_intrinsics_ir(
-    dataset: &PlanarDataset,
-    initial: &ScheimpflugIntrinsicsParams,
-    opts: &ScheimpflugIntrinsicsSolveOptions,
-) -> Result<
-    (
-        crate::ir::ProblemIR,
-        std::collections::HashMap<String, nalgebra::DVector<f64>>,
-    ),
-    Error,
-> {
-    let kind = distortion_kind(&initial.distortion);
-    let model = scheimpflug_model_desc(kind)?;
-
-    // Translate the Brown-Conrady-shaped `fix_distortion` mask onto the packed
-    // layout of the active model. `fix_mask_indices` is the single name-based
-    // mechanism shared with the pipeline's staging masks; for Brown-Conrady5 it
-    // is exactly `mask.to_indices()` (byte-identical to the single-model path it replaced),
-    // and it carries the same "which coefficients are free" invariants onto the
-    // extended models (see `fix_mask_indices`).
-    let fix_distortion_indices = fix_mask_indices(&opts.fix_distortion, kind);
-
-    build_planar_reprojection_ir(
-        dataset,
-        &initial.intrinsics,
-        &initial.distortion,
-        &initial.camera_se3_target,
-        &PlanarReprojectionIrOptions {
-            robust_loss: opts.robust_loss,
-            fix_intrinsics_indices: opts.fix_intrinsics.to_indices(),
-            fix_distortion_indices,
-            fix_pose_indices: opts.fix_poses.clone(),
-            sensor: Some(PlanarSensorIrOptions {
-                params: initial.sensor,
-                fix_indices: opts.fix_scheimpflug.as_flags(),
-            }),
-            model,
-            intrinsics_bounds: opts
-                .bounds
-                .as_ref()
-                .and_then(ScheimpflugBounds::intrinsics_bounds),
-            sensor_bounds: opts
-                .bounds
-                .as_ref()
-                .and_then(ScheimpflugBounds::sensor_bounds),
-        },
-    )
-}
-
-/// Optimize Scheimpflug intrinsics with the backend `backend_opts` selects.
-///
-/// # Errors
-///
-/// Returns [`Error`] if IR construction or solver backend fails.
-pub fn optimize_scheimpflug_intrinsics(
-    dataset: &PlanarDataset,
-    initial: &ScheimpflugIntrinsicsParams,
-    opts: ScheimpflugIntrinsicsSolveOptions,
-    backend_opts: BackendSolveOptions,
-) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
-    let kind = distortion_kind(&initial.distortion);
-    let (ir, initial_map) = build_scheimpflug_intrinsics_ir(dataset, initial, &opts)?;
-    let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
-
-    let intrinsics = unpack_intrinsics(
-        solution
-            .params
-            .get("cam")
-            .ok_or_else(|| Error::numerical("missing intrinsics solution block"))?
-            .as_view(),
-    )?;
-    let distortion = unpack_distortion_params(
-        kind,
-        solution
-            .params
-            .get("dist")
-            .ok_or_else(|| Error::numerical("missing distortion solution block"))?
-            .as_view(),
-    )?;
-    let sensor = unpack_scheimpflug(
-        solution
-            .params
-            .get("sensor")
-            .ok_or_else(|| Error::numerical("missing sensor solution block"))?
-            .as_view(),
-    )?;
-
-    let mut optimized_poses = Vec::with_capacity(dataset.num_views());
-    for view_idx in 0..dataset.num_views() {
-        let key = format!("pose/{view_idx}");
-        let pose = solution
-            .params
-            .get(&key)
-            .ok_or_else(|| Error::numerical(format!("missing {key} solution block")))?;
-        optimized_poses.push(se3_dvec_to_iso3(pose.as_view())?);
-    }
-
-    let mean_reproj_error =
-        compute_mean_reproj_error(dataset, intrinsics, &distortion, sensor, &optimized_poses);
-
-    let labels: Vec<_> = ir
-        .params
-        .iter()
-        .map(|block| uncertainty::planar_block_labels(block, kind.param_names()))
-        .collect();
-    Ok(ScheimpflugIntrinsicsEstimate {
-        params: ScheimpflugIntrinsicsParams {
-            intrinsics,
-            distortion,
-            sensor,
-            camera_se3_target: optimized_poses,
-        },
-        report: solution.solve_report,
-        mean_reproj_error,
-        uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &labels),
-    })
 }
 
 /// Options controlling the staged, multi-start Scheimpflug intrinsics init.
@@ -473,12 +135,12 @@ impl Default for ScheimpflugStagedInitOptions {
 /// Run one staged sub-solve at a chosen iteration budget.
 fn solve_stage(
     dataset: &PlanarDataset,
-    params: &ScheimpflugIntrinsicsParams,
-    opts: ScheimpflugIntrinsicsSolveOptions,
+    params: &PlanarIntrinsicsParams,
+    opts: PlanarIntrinsicsSolveOptions,
     backend_opts: &BackendSolveOptions,
     iters: usize,
-) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
-    optimize_scheimpflug_intrinsics(
+) -> Result<PlanarIntrinsicsEstimate, Error> {
+    optimize_planar_intrinsics(
         dataset,
         params,
         opts,
@@ -513,78 +175,86 @@ fn subsample_dataset(dataset: &PlanarDataset, max_corners: usize) -> PlanarDatas
 }
 
 /// `[fx, fy]` free, principal point frozen, tilt free, distortion per the final
-/// mask — the stage shape used by both the sweep and the frozen-pp refine.
+/// fix list — the stage shape used by both the sweep and the frozen-pp refine.
 fn frozen_pp_opts(
-    loss: RobustLoss,
-    fix_distortion: DistortionFixMask,
-    fix_poses: Vec<usize>,
-    bounds: Option<ScheimpflugBounds>,
-) -> ScheimpflugIntrinsicsSolveOptions {
-    ScheimpflugIntrinsicsSolveOptions {
-        robust_loss: loss,
-        fix_intrinsics: IntrinsicsFixMask {
-            fx: false,
-            fy: false,
-            cx: true,
-            cy: true,
+    final_opts: &PlanarIntrinsicsSolveOptions,
+    bounds: CameraBounds,
+) -> PlanarIntrinsicsSolveOptions {
+    PlanarIntrinsicsSolveOptions {
+        robust_loss: final_opts.robust_loss,
+        fix: CameraFix {
+            intrinsics: Some(vec!["cx".to_string(), "cy".to_string()]),
+            sensor: Some(Vec::new()),
+            ..final_opts.fix.clone()
         },
-        fix_distortion,
-        fix_scheimpflug: ScheimpflugFixMask::default(),
-        fix_poses,
-        bounds,
+        fix_poses: final_opts.fix_poses.clone(),
+        bounds: Some(bounds),
     }
 }
 
-/// Robustly estimate Scheimpflug intrinsics from a cold start via a staged,
+/// `initial` with its sensor tilt replaced.
+fn with_tilt(initial: &PlanarIntrinsicsParams, tilt: ScheimpflugParams) -> PlanarIntrinsicsParams {
+    PlanarIntrinsicsParams {
+        camera: CameraParams {
+            sensor: SensorParams::Scheimpflug { params: tilt },
+            ..initial.camera.clone()
+        },
+        camera_se3_target: initial.camera_se3_target.clone(),
+    }
+}
+
+/// Robustly estimate a tilted camera from a cold start via a staged,
 /// multi-start procedure that breaks the tilt/principal-point/distortion
-/// degeneracy. `final_opts` describes the final joint refine (its masks,
-/// distortion fix set, robust loss and fixed poses); the earlier stages are
-/// derived from it. See [`ScheimpflugStagedInitOptions`] for the algorithm.
+/// degeneracy. `final_opts` describes the final joint refine (its fix lists,
+/// robust loss and fixed poses); the earlier stages are derived from it. See
+/// [`ScheimpflugStagedInitOptions`] for the algorithm. When `final_opts`
+/// fixes both tilts there is no degeneracy to break, and this is a single
+/// direct solve.
 ///
 /// # Errors
 ///
-/// Returns [`Error`] if every tilt seed fails to solve.
+/// - [`Error::InvalidInput`] when `initial.camera` does not have a
+///   Scheimpflug sensor, or a fix list names a parameter its model does not
+///   have.
+/// - The last solver error when every tilt seed fails to solve.
 pub fn optimize_scheimpflug_intrinsics_staged(
     dataset: &PlanarDataset,
-    initial: &ScheimpflugIntrinsicsParams,
-    final_opts: ScheimpflugIntrinsicsSolveOptions,
+    initial: &PlanarIntrinsicsParams,
+    final_opts: PlanarIntrinsicsSolveOptions,
     staged_opts: &ScheimpflugStagedInitOptions,
     backend_opts: BackendSolveOptions,
-) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
+) -> Result<PlanarIntrinsicsEstimate, Error> {
+    let spec = initial
+        .camera
+        .spec()
+        .filter(|spec| spec.sensor == SensorKind::Scheimpflug)
+        .ok_or_else(|| {
+            Error::invalid_input("the staged Scheimpflug solve needs a Scheimpflug sensor")
+        })?;
+
     // No tilt to estimate ⇒ no degeneracy ⇒ a single direct solve suffices.
-    if final_opts.fix_scheimpflug.tilt_x && final_opts.fix_scheimpflug.tilt_y {
-        return optimize_scheimpflug_intrinsics(dataset, initial, final_opts, backend_opts);
+    if final_opts.fix.resolve(spec)?.sensor.len() == spec.sensor.dim() {
+        return optimize_planar_intrinsics(dataset, initial, final_opts, backend_opts);
     }
 
     let max_iters = backend_opts.max_iters.max(1);
     let sweep_iters = staged_opts.sweep_max_iters.clamp(1, max_iters);
-    let fix_poses = final_opts.fix_poses.clone();
-    let fix_distortion = final_opts.fix_distortion;
-    let robust_loss = final_opts.robust_loss;
-    let init_bounds = ScheimpflugBounds::around(&initial.intrinsics, staged_opts);
+    let init_bounds = bounds_around(&initial.camera.intrinsics, staged_opts);
 
     // ── Stage 1: cheap basin sweep on corner-subsampled data ────────────────
     // One short, principal-point-frozen solve per tilt seed — enough to rank the
     // tilt basins without paying full-convergence cost on the dense target.
     let sweep_dataset = subsample_dataset(dataset, staged_opts.sweep_max_corners_per_view);
-    let mut best: Option<ScheimpflugIntrinsicsEstimate> = None;
+    let mut best: Option<PlanarIntrinsicsEstimate> = None;
     let mut last_err: Option<Error> = None;
 
     for &tilt_x in &staged_opts.tilt_x_seeds {
         for &tilt_y in &staged_opts.tilt_y_seeds {
-            let seed = ScheimpflugIntrinsicsParams {
-                sensor: ScheimpflugParams { tilt_x, tilt_y },
-                ..initial.clone()
-            };
+            let seed = with_tilt(initial, ScheimpflugParams { tilt_x, tilt_y });
             match solve_stage(
                 &sweep_dataset,
                 &seed,
-                frozen_pp_opts(
-                    robust_loss,
-                    fix_distortion,
-                    fix_poses.clone(),
-                    Some(init_bounds),
-                ),
+                frozen_pp_opts(&final_opts, init_bounds),
                 &backend_opts,
                 sweep_iters,
             ) {
@@ -619,12 +289,7 @@ pub fn optimize_scheimpflug_intrinsics_staged(
     let r1 = solve_stage(
         dataset,
         &best.params,
-        frozen_pp_opts(
-            robust_loss,
-            fix_distortion,
-            fix_poses.clone(),
-            Some(init_bounds),
-        ),
+        frozen_pp_opts(&final_opts, init_bounds),
         &backend_opts,
         max_iters,
     )?;
@@ -636,17 +301,14 @@ pub fn optimize_scheimpflug_intrinsics_staged(
     // ── Stage 3: bounded joint refine that frees the principal point ─────────
     // Box bounds forbid the `fx → 0 / cx → -1e19` runaway near the solution.
     //
-    // Crucially, we anchor the focal bounds to the *initial* seed (init_bounds),
-    // NOT to the Stage 2 result. If Stage 2 drifted toward its lower focal
-    // bound (due to a frozen pp bias or a poorly conditioned frozen-pp
-    // landscape), re-centering on Stage 2 would cascade the erosion further —
-    // Stage 3 would start from the wrong focal and its bounds would exclude the
-    // true focal. Anchoring to init_bounds keeps the correct focal range
-    // accessible regardless of Stage 2's behavior, letting Stage 3 (with the pp
-    // free) find the true optimum. For cameras where Stage 2 correctly converges
-    // near the seed focal, init_bounds and the old r1-centered bounds are nearly
-    // identical, so this change is a no-op for well-behaved cameras.
-    let refine_opts = ScheimpflugIntrinsicsSolveOptions {
+    // The focal bounds are anchored to the *initial* seed (init_bounds), not
+    // to the Stage 2 result. If Stage 2 drifted toward its lower focal bound
+    // (a frozen-pp bias or a poorly conditioned frozen-pp landscape),
+    // re-centering on Stage 2 would cascade the erosion: Stage 3 would start
+    // from the wrong focal and its bounds would exclude the true focal.
+    // Anchoring to init_bounds keeps the correct focal range reachable whatever
+    // Stage 2 did, letting Stage 3 (with the pp free) find the true optimum.
+    let refine_opts = PlanarIntrinsicsSolveOptions {
         robust_loss: RobustLoss::None,
         bounds: Some(init_bounds),
         ..final_opts
@@ -663,66 +325,14 @@ pub fn optimize_scheimpflug_intrinsics_staged(
     }
 }
 
-fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> Result<ScheimpflugParams, Error> {
-    if values.len() != 2 {
-        return Err(Error::invalid_input(
-            "scheimpflug block must have 2 entries",
-        ));
-    }
-    Ok(ScheimpflugParams {
-        tilt_x: values[0],
-        tilt_y: values[1],
-    })
-}
-
-fn compute_mean_reproj_error(
-    dataset: &PlanarDataset,
-    intrinsics: FxFyCxCy<f64>,
-    distortion: &DistortionParams,
-    sensor: ScheimpflugParams,
-    poses: &[Iso3],
-) -> f64 {
-    // Build the runtime camera model from parameters so every distortion model
-    // (Brown-Conrady5 and the extended ones) reprojects through the same path.
-    let camera = CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: distortion.clone(),
-        sensor: SensorParams::Scheimpflug { params: sensor },
-        intrinsics,
-    }
-    .build()
-    // A Scheimpflug sensor compiles its own homography from tilt angles and
-    // is invertible by construction; only `SensorParams::Homography` can fail.
-    .expect("Scheimpflug sensor homography is always invertible");
-    let mut sum = 0.0;
-    let mut count = 0usize;
-
-    for (view, pose) in dataset.views.iter().zip(poses.iter()) {
-        for (p3d, p2d) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
-            let p_cam = pose.transform_point(p3d);
-            let Some(projected) = camera.project_point(&p_cam) else {
-                continue;
-            };
-            let err = (projected - *p2d).norm();
-            if err.is_finite() {
-                sum += err;
-                count += 1;
-            }
-        }
-    }
-
-    if count == 0 {
-        f64::INFINITY
-    } else {
-        sum / count as f64
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use nalgebra::{Translation3, UnitQuaternion};
-    use vision_calibration_core::{Camera, CorrespondenceView, Pinhole, Pt2, Pt3, View};
+    use vision_calibration_core::{
+        BrownConrady5, Camera, CorrespondenceView, DistortionParams, Iso3, Pinhole,
+        ProjectionParams, Pt2, Pt3, View,
+    };
 
     fn gt_camera() -> (FxFyCxCy<f64>, BrownConrady5<f64>, ScheimpflugParams) {
         // Principal point intentionally off image center, a large ~-5.7° tilt
@@ -816,30 +426,37 @@ mod tests {
 
         // Cold start: focal 5% off, principal point at a nominal center (not the
         // true off-center pp), zero distortion, and crucially tilt = 0.
-        let initial = ScheimpflugIntrinsicsParams::new(
-            FxFyCxCy {
-                fx: 1150.0 * 1.05,
-                fy: 1155.0 * 1.05,
-                cx: 360.0,
-                cy: 270.0,
-            },
-            BrownConrady5 {
-                k1: 0.0,
-                k2: 0.0,
-                k3: 0.0,
-                p1: 0.0,
-                p2: 0.0,
-                iters: 8,
-            },
-            ScheimpflugParams {
-                tilt_x: 0.0,
-                tilt_y: 0.0,
+        let initial = PlanarIntrinsicsParams::new(
+            CameraParams {
+                projection: ProjectionParams::Pinhole,
+                distortion: DistortionParams::BrownConrady5 {
+                    params: BrownConrady5 {
+                        k1: 0.0,
+                        k2: 0.0,
+                        k3: 0.0,
+                        p1: 0.0,
+                        p2: 0.0,
+                        iters: 8,
+                    },
+                },
+                sensor: SensorParams::Scheimpflug {
+                    params: ScheimpflugParams {
+                        tilt_x: 0.0,
+                        tilt_y: 0.0,
+                    },
+                },
+                intrinsics: FxFyCxCy {
+                    fx: 1150.0 * 1.05,
+                    fy: 1155.0 * 1.05,
+                    cx: 360.0,
+                    cy: 270.0,
+                },
             },
             poses.clone(),
         )
         .unwrap();
 
-        let final_opts = ScheimpflugIntrinsicsSolveOptions::default();
+        let final_opts = PlanarIntrinsicsSolveOptions::default();
         let est = optimize_scheimpflug_intrinsics_staged(
             &dataset,
             &initial,
@@ -853,8 +470,11 @@ mod tests {
         )
         .unwrap();
 
-        let r = &est.params;
-        let r_dist = r.distortion_bc5();
+        let r = &est.params.camera;
+        let r_dist = est.params.distortion().expect("Brown-Conrady result");
+        let SensorParams::Scheimpflug { params: tilt } = r.sensor else {
+            panic!("Scheimpflug sensor expected, got {:?}", r.sensor);
+        };
         eprintln!(
             "recovered: fx={:.1} fy={:.1} cx={:.1} cy={:.1} k1={:.3} k2={:.3} tau=({:.4},{:.4}) reproj={:.4}px",
             r.intrinsics.fx,
@@ -863,20 +483,20 @@ mod tests {
             r.intrinsics.cy,
             r_dist.k1,
             r_dist.k2,
-            r.sensor.tilt_x,
-            r.sensor.tilt_y,
+            tilt.tilt_x,
+            tilt.tilt_y,
             est.mean_reproj_error,
         );
 
         assert!(
-            (r.sensor.tilt_x - (-0.10)).abs() < 0.01,
+            (tilt.tilt_x - (-0.10)).abs() < 0.01,
             "tilt_x not recovered: {} (want -0.10)",
-            r.sensor.tilt_x
+            tilt.tilt_x
         );
         assert!(
-            (r.sensor.tilt_y - 0.008).abs() < 0.01,
+            (tilt.tilt_y - 0.008).abs() < 0.01,
             "tilt_y not recovered: {} (want 0.008)",
-            r.sensor.tilt_y
+            tilt.tilt_y
         );
         assert!(
             (r.intrinsics.fx - 1150.0).abs() / 1150.0 < 0.02,
@@ -903,5 +523,22 @@ mod tests {
             "reprojection error too high: {}",
             est.mean_reproj_error
         );
+    }
+
+    #[test]
+    fn staged_solve_rejects_an_untilted_camera() {
+        let (gt_k, gt_dist, gt_sensor) = gt_camera();
+        let poses = gt_poses();
+        let dataset = build_dataset(gt_k, gt_dist, gt_sensor, &poses);
+        let initial = PlanarIntrinsicsParams::new_from_components(gt_k, gt_dist, poses).unwrap();
+        let err = optimize_scheimpflug_intrinsics_staged(
+            &dataset,
+            &initial,
+            PlanarIntrinsicsSolveOptions::default(),
+            &ScheimpflugStagedInitOptions::default(),
+            BackendSolveOptions::default(),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("Scheimpflug sensor"), "{err}");
     }
 }

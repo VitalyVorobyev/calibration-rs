@@ -54,7 +54,7 @@ export interface AnyExport {
   cameras?: PinholeCameraWire[];
   cam_se3_rig?: Iso3Wire[];
   rig_se3_target?: Iso3Wire[];
-  /** Present on planar_intrinsics, scheimpflug_intrinsics, single_cam_handeye, laserline_device. */
+  /** Present on planar_intrinsics, single_cam_handeye, laserline_device. */
   camera?: PinholeCameraWire;
   camera_se3_target?: Iso3Wire[];
   /** rig_handeye / rig_handeye_laserline / single_cam_handeye carry mode-tagged hand-eye fields. */

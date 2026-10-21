@@ -7,29 +7,29 @@ use crate::Error;
 use nalgebra::{Quaternion, Translation3, UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraFixMask, CorrespondenceView, DistortionFixMask, DistortionModel,
-    FxFyCxCy, IntrinsicsFixMask, IntrinsicsModel, Iso3, NoMeta, Pinhole, PinholeCamera,
-    PlanarDataset, Pt2, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorModel,
-    Uncertainty, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
+    BrownConrady5, Camera, CameraFix, CameraFixMask, CorrespondenceView, DistortionModel, FxFyCxCy,
+    IntrinsicsFixMask, IntrinsicsModel, Iso3, NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2,
+    RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorModel, Uncertainty, View,
+    compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
 use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_linear::handeye::{estimate_gripper_se3_target_dlt, estimate_handeye_dlt};
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeScheimpflugDataset,
-    HandEyeScheimpflugParams, HandEyeScheimpflugSolveOptions, HandEyeSolveOptions,
-    PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigExtrinsicsParams,
-    RigExtrinsicsScheimpflugParams, RigExtrinsicsScheimpflugSolveOptions,
-    RigExtrinsicsSolveOptions, ScheimpflugBounds, ScheimpflugFixMask,
-    ScheimpflugIntrinsicsEstimate, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions,
+    BackendSolveOptions, CameraBounds, HandEyeDataset, HandEyeMode, HandEyeParams,
+    HandEyeScheimpflugDataset, HandEyeScheimpflugParams, HandEyeScheimpflugSolveOptions,
+    HandEyeSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
+    PlanarIntrinsicsSolveOptions, RigExtrinsicsParams, RigExtrinsicsScheimpflugParams,
+    RigExtrinsicsScheimpflugSolveOptions, RigExtrinsicsSolveOptions, ScheimpflugFixMask,
     ScheimpflugStagedInitOptions, SolveReport, optimize_handeye, optimize_handeye_scheimpflug,
     optimize_planar_intrinsics, optimize_rig_extrinsics, optimize_rig_extrinsics_scheimpflug,
-    optimize_scheimpflug_intrinsics, optimize_scheimpflug_intrinsics_staged,
+    optimize_scheimpflug_intrinsics_staged,
 };
 
 use crate::rig_family::{
     RigIntrinsicsSeeds, SensorFlavour, bootstrap_rig_intrinsics, format_init_source,
-    guard_percam_reproj_errors, views_to_planar_dataset,
+    guard_percam_reproj_errors, rig_camera_fix, rig_camera_model, rig_distortion, rig_tilt,
+    tilted_planar_params, views_to_planar_dataset,
 };
 use crate::session::CalibrationSession;
 
@@ -116,7 +116,7 @@ struct ScheimpflugCameraWork {
     cam_idx: usize,
     dataset: PlanarDataset,
     valid_indices: Vec<usize>,
-    initial: ScheimpflugIntrinsicsParams,
+    initial: PlanarIntrinsicsParams,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -129,7 +129,7 @@ struct NominalScheimpflugSeed {
 #[derive(Debug, Clone)]
 struct ScoredScheimpflugSeed {
     score: f64,
-    params: ScheimpflugIntrinsicsParams,
+    params: PlanarIntrinsicsParams,
 }
 
 #[derive(Debug, Clone)]
@@ -259,7 +259,9 @@ pub fn step_intrinsics_init_all_with_seed(
     let num_cameras = input.num_cameras;
     let num_views = input.num_views();
 
-    let init_opts = config.intrinsics.iterative_opts(opts.iterations);
+    // Rigs keep the tangential terms free in the linear stage for either
+    // sensor mode.
+    let init_opts = config.intrinsics.iterative_opts(opts.iterations, false);
 
     let flavour = match &config.sensor {
         SensorMode::Pinhole => SensorFlavour::Pinhole,
@@ -406,9 +408,7 @@ pub fn step_intrinsics_optimize_all(
 
                 let solve_opts = PlanarIntrinsicsSolveOptions {
                     robust_loss: config.solver.robust_loss,
-                    fix_intrinsics: Default::default(),
-                    fix_distortion: Default::default(),
-                    fix_poses: Vec::new(),
+                    ..Default::default()
                 };
 
                 let backend_opts = BackendSolveOptions {
@@ -446,8 +446,7 @@ pub fn step_intrinsics_optimize_all(
             } => {
                 let cam = &per_cam_intrinsics[cam_idx];
                 let sensor = per_cam_sensors_in.as_ref().unwrap()[cam_idx];
-                let initial_params =
-                    ScheimpflugIntrinsicsParams::new(cam.k, cam.dist, sensor, initial_poses)?;
+                let initial_params = tilted_planar_params(cam.k, cam.dist, sensor, initial_poses)?;
                 if session.state.per_cam_intrinsics_auto {
                     scheimpflug_work_items.push(ScheimpflugCameraWork {
                         cam_idx,
@@ -457,11 +456,13 @@ pub fn step_intrinsics_optimize_all(
                     });
                 }
 
-                let solve_opts = ScheimpflugIntrinsicsSolveOptions {
+                let solve_opts = PlanarIntrinsicsSolveOptions {
                     robust_loss: config.solver.robust_loss,
-                    fix_intrinsics: IntrinsicsFixMask::default(),
-                    fix_distortion: *distortion_mask_in_percam_ba,
-                    fix_scheimpflug: *fix_scheimpflug,
+                    fix: rig_camera_fix(
+                        IntrinsicsFixMask::default(),
+                        *distortion_mask_in_percam_ba,
+                        *fix_scheimpflug,
+                    ),
                     fix_poses: vec![0],
                     bounds: None,
                 };
@@ -503,13 +504,13 @@ pub fn step_intrinsics_optimize_all(
                 }
 
                 optimized_cameras.push(make_pinhole_camera(
-                    result.params.intrinsics,
-                    result.params.distortion_bc5(),
+                    result.params.camera.intrinsics,
+                    rig_distortion(&result.params),
                 ));
                 optimized_sensors
                     .as_mut()
                     .unwrap()
-                    .push(result.params.sensor);
+                    .push(rig_tilt(&result.params));
                 per_cam_reproj_errors.push(result.mean_reproj_error);
             }
         }
@@ -522,11 +523,13 @@ pub fn step_intrinsics_optimize_all(
             ..
         } = &config.sensor
     {
-        let solve_opts = ScheimpflugIntrinsicsSolveOptions {
+        let solve_opts = PlanarIntrinsicsSolveOptions {
             robust_loss: config.solver.robust_loss,
-            fix_intrinsics: IntrinsicsFixMask::default(),
-            fix_distortion: *distortion_mask_in_percam_ba,
-            fix_scheimpflug: *fix_scheimpflug,
+            fix: rig_camera_fix(
+                IntrinsicsFixMask::default(),
+                *distortion_mask_in_percam_ba,
+                *fix_scheimpflug,
+            ),
             fix_poses: vec![0],
             bounds: None,
         };
@@ -577,14 +580,14 @@ pub fn step_intrinsics_optimize_all(
 fn optimize_scheimpflug_intrinsics_auto_multistart(
     cam_idx: usize,
     dataset: &PlanarDataset,
-    initial: &ScheimpflugIntrinsicsParams,
-    mut solve_opts: ScheimpflugIntrinsicsSolveOptions,
+    initial: &PlanarIntrinsicsParams,
+    mut solve_opts: PlanarIntrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
     init_iterations: usize,
     fix_k3_in_init: bool,
-) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
+) -> Result<PlanarIntrinsicsEstimate, Error> {
     solve_opts.fix_poses.clear();
-    let mut best: Option<ScheimpflugIntrinsicsEstimate> = None;
+    let mut best: Option<PlanarIntrinsicsEstimate> = None;
     let mut last_err: Option<Error> = None;
 
     let mut seeds = Vec::with_capacity(12);
@@ -613,7 +616,7 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
                 continue;
             }
         };
-        let params = ScheimpflugIntrinsicsParams::new(
+        let params = tilted_planar_params(
             init.camera.k,
             BrownConrady5 {
                 iters: 8,
@@ -623,10 +626,10 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
             init.poses,
         )?;
         if !seeds.iter().any(|(s, _)| {
-            (s.sensor.tilt_x - params.sensor.tilt_x).abs() < 1e-4
-                && (s.sensor.tilt_y - params.sensor.tilt_y).abs() < 1e-4
-                && (s.intrinsics.fx - params.intrinsics.fx).abs() < 1.0
-                && (s.intrinsics.fy - params.intrinsics.fy).abs() < 1.0
+            (rig_tilt(s).tilt_x - rig_tilt(&params).tilt_x).abs() < 1e-4
+                && (rig_tilt(s).tilt_y - rig_tilt(&params).tilt_y).abs() < 1e-4
+                && (s.camera.intrinsics.fx - params.camera.intrinsics.fx).abs() < 1.0
+                && (s.camera.intrinsics.fy - params.camera.intrinsics.fy).abs() < 1.0
         }) {
             seeds.push((params, false));
         }
@@ -634,8 +637,8 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
 
     for (params, _) in seeds {
         let staged = ScheimpflugStagedInitOptions {
-            tilt_x_seeds: vec![params.sensor.tilt_x],
-            tilt_y_seeds: vec![params.sensor.tilt_y],
+            tilt_x_seeds: vec![rig_tilt(&params).tilt_x],
+            tilt_y_seeds: vec![rig_tilt(&params).tilt_y],
             sweep_max_iters: backend_opts.max_iters.clamp(1, 20),
             ..Default::default()
         };
@@ -691,7 +694,7 @@ fn recover_bad_scheimpflug_cameras_from_nominal(
     sensors: &mut [ScheimpflugParams],
     per_cam_reproj_errors: &mut [f64],
     per_cam_target_poses: &mut [Vec<Option<Iso3>>],
-    solve_opts: ScheimpflugIntrinsicsSolveOptions,
+    solve_opts: PlanarIntrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
     reference_camera_idx: usize,
 ) -> Result<(), Error> {
@@ -740,10 +743,10 @@ fn recover_bad_scheimpflug_cameras_from_nominal(
             && (!current.is_finite() || candidate.mean_reproj_error < current)
         {
             cameras[cam_idx] = make_pinhole_camera(
-                candidate.params.intrinsics,
-                candidate.params.distortion_bc5(),
+                candidate.params.camera.intrinsics,
+                rig_distortion(&candidate.params),
             );
-            sensors[cam_idx] = candidate.params.sensor;
+            sensors[cam_idx] = rig_tilt(&candidate.params);
             per_cam_reproj_errors[cam_idx] = candidate.mean_reproj_error;
             for (local_idx, &global_idx) in item.valid_indices.iter().enumerate() {
                 per_cam_target_poses[global_idx][cam_idx] =
@@ -892,9 +895,9 @@ fn recover_one_scheimpflug_camera_from_nominal(
     cameras: &[PinholeCamera],
     sensors: &[ScheimpflugParams],
     num_views: usize,
-    solve_opts: &ScheimpflugIntrinsicsSolveOptions,
+    solve_opts: &PlanarIntrinsicsSolveOptions,
     backend_opts: &BackendSolveOptions,
-) -> Result<Option<ScheimpflugIntrinsicsEstimate>, Error> {
+) -> Result<Option<PlanarIntrinsicsEstimate>, Error> {
     let mut scored = score_nominal_scheimpflug_seeds(&item.dataset, nominal);
     score_scheimpflug_seed(&item.dataset, &item.initial, &mut scored);
     scored.sort_by(|a, b| a.score.total_cmp(&b.score));
@@ -909,7 +912,7 @@ fn recover_one_scheimpflug_camera_from_nominal(
         .take(SCHEIMPFLUG_NOMINAL_TOP_LOCAL_CANDIDATES)
         .cloned()
     {
-        let candidate = optimize_scheimpflug_intrinsics(
+        let candidate = optimize_planar_intrinsics(
             &item.dataset,
             &scored_seed.params,
             nominal_pose_only_solve_opts(solve_opts.clone()),
@@ -920,7 +923,7 @@ fn recover_one_scheimpflug_camera_from_nominal(
         )
         .unwrap_or_else(|_| scheimpflug_estimate_from_scored_seed(scored_seed));
 
-        let candidate = optimize_scheimpflug_intrinsics(
+        let candidate = optimize_planar_intrinsics(
             &item.dataset,
             &candidate.params,
             nominal_tight_refine_solve_opts(solve_opts.clone(), nominal),
@@ -990,7 +993,7 @@ fn recover_one_scheimpflug_camera_from_nominal(
 
 fn score_bad_scheimpflug_seed_against_good_rig(
     item: &ScheimpflugCameraWork,
-    params: &ScheimpflugIntrinsicsParams,
+    params: &PlanarIntrinsicsParams,
     context: &GoodRigContext,
 ) -> Option<f64> {
     let cam_to_rig =
@@ -998,9 +1001,9 @@ fn score_bad_scheimpflug_seed_against_good_rig(
     let cam_from_rig = cam_to_rig.inverse();
     let camera = Camera::new(
         Pinhole,
-        params.distortion_bc5(),
-        params.sensor.compile(),
-        params.intrinsics,
+        rig_distortion(params),
+        rig_tilt(params).compile(),
+        params.camera.intrinsics,
     );
     let mut sum = 0.0;
     let mut count = 0usize;
@@ -1030,14 +1033,14 @@ fn score_bad_scheimpflug_seed_against_good_rig(
 #[allow(clippy::too_many_arguments)]
 fn optimize_bad_scheimpflug_camera_against_good_rig(
     item: &ScheimpflugCameraWork,
-    candidate_params: &ScheimpflugIntrinsicsParams,
+    candidate_params: &PlanarIntrinsicsParams,
     context: &GoodRigContext,
     cameras: &[PinholeCamera],
     sensors: &[ScheimpflugParams],
     num_views: usize,
-    intrinsics_solve_opts: &ScheimpflugIntrinsicsSolveOptions,
+    intrinsics_solve_opts: &PlanarIntrinsicsSolveOptions,
     backend_opts: &BackendSolveOptions,
-) -> Result<Option<ScheimpflugIntrinsicsEstimate>, Error> {
+) -> Result<Option<PlanarIntrinsicsEstimate>, Error> {
     let Some(initial_cam_to_rig) = estimate_candidate_cam_to_rig(
         candidate_params,
         &item.valid_indices,
@@ -1049,11 +1052,11 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
 
     let mut rig_cameras = cameras.to_vec();
     rig_cameras[item.cam_idx] = make_pinhole_camera(
-        candidate_params.intrinsics,
-        candidate_params.distortion_bc5(),
+        candidate_params.camera.intrinsics,
+        rig_distortion(candidate_params),
     );
     let mut rig_sensors = sensors.to_vec();
-    rig_sensors[item.cam_idx] = candidate_params.sensor;
+    rig_sensors[item.cam_idx] = rig_tilt(candidate_params);
     let mut cam_to_rig = context.cam_to_rig.clone();
     if cam_to_rig.len() != cameras.len() {
         return Ok(None);
@@ -1110,8 +1113,8 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
         }
         poses.push(cam_from_rig * result.params.rig_from_target[global_idx]);
     }
-    let params = ScheimpflugIntrinsicsParams::new(camera.k, camera.dist, sensor, poses)?;
-    Ok(Some(ScheimpflugIntrinsicsEstimate {
+    let params = tilted_planar_params(camera.k, camera.dist, sensor, poses)?;
+    Ok(Some(PlanarIntrinsicsEstimate {
         params,
         report: result.report,
         mean_reproj_error: mean,
@@ -1147,7 +1150,7 @@ fn bad_camera_only_scheimpflug_rig_dataset(
 }
 
 fn estimate_candidate_cam_to_rig(
-    params: &ScheimpflugIntrinsicsParams,
+    params: &PlanarIntrinsicsParams,
     valid_indices: &[usize],
     rig_from_target: &[Iso3],
 ) -> Option<Iso3> {
@@ -1235,14 +1238,14 @@ fn score_nominal_scheimpflug_seeds(
                 if dk1 == 0.0 && dk2 == 0.0 {
                     continue;
                 }
-                let mut dist = base.params.distortion_bc5();
+                let mut dist = rig_distortion(&base.params);
                 dist.k1 += dk1;
                 dist.k2 += dk2;
                 score_scheimpflug_seed_parts(
                     dataset,
-                    base.params.intrinsics,
+                    base.params.camera.intrinsics,
                     dist,
-                    base.params.sensor,
+                    rig_tilt(&base.params),
                     &mut expanded,
                 );
             }
@@ -1285,13 +1288,16 @@ fn nominal_rig_anchor_seeds(
 
 fn score_scheimpflug_seed(
     dataset: &PlanarDataset,
-    params: &ScheimpflugIntrinsicsParams,
+    params: &PlanarIntrinsicsParams,
     scored: &mut Vec<ScoredScheimpflugSeed>,
 ) {
-    let dist = params.distortion_bc5();
-    if let Ok(poses) =
-        recover_scheimpflug_poses_for_seed(dataset, &params.intrinsics, &dist, params.sensor)
-        && let Ok(params) = params.with_poses(poses)
+    let dist = rig_distortion(params);
+    if let Ok(poses) = recover_scheimpflug_poses_for_seed(
+        dataset,
+        &params.camera.intrinsics,
+        &dist,
+        rig_tilt(params),
+    ) && let Ok(params) = PlanarIntrinsicsParams::new(params.camera.clone(), poses)
     {
         let score = mean_scheimpflug_reproj(dataset, &params);
         if score.is_finite() {
@@ -1322,7 +1328,7 @@ fn score_scheimpflug_seed_parts(
     else {
         return;
     };
-    let Ok(params) = ScheimpflugIntrinsicsParams::new(intrinsics, distortion, sensor, poses) else {
+    let Ok(params) = tilted_planar_params(intrinsics, distortion, sensor, poses) else {
         return;
     };
     let score = mean_scheimpflug_reproj(dataset, &params);
@@ -1332,27 +1338,22 @@ fn score_scheimpflug_seed_parts(
 }
 
 fn nominal_pose_only_solve_opts(
-    mut opts: ScheimpflugIntrinsicsSolveOptions,
-) -> ScheimpflugIntrinsicsSolveOptions {
-    opts.fix_intrinsics = IntrinsicsFixMask::all_fixed();
-    opts.fix_distortion = DistortionFixMask::all_fixed();
-    opts.fix_scheimpflug = ScheimpflugFixMask {
-        tilt_x: true,
-        tilt_y: true,
-    };
+    mut opts: PlanarIntrinsicsSolveOptions,
+) -> PlanarIntrinsicsSolveOptions {
+    opts.fix = CameraFix::all(rig_camera_model(true));
     opts.fix_poses.clear();
     opts.bounds = None;
     opts
 }
 
 fn nominal_tight_refine_solve_opts(
-    mut opts: ScheimpflugIntrinsicsSolveOptions,
+    mut opts: PlanarIntrinsicsSolveOptions,
     nominal: NominalScheimpflugSeed,
-) -> ScheimpflugIntrinsicsSolveOptions {
+) -> PlanarIntrinsicsSolveOptions {
     let k = nominal.intrinsics;
-    opts.fix_intrinsics = IntrinsicsFixMask::default();
+    opts.fix.intrinsics = Some(Vec::new());
     opts.fix_poses.clear();
-    opts.bounds = Some(ScheimpflugBounds {
+    opts.bounds = Some(CameraBounds {
         fx: Some((0.94 * k.fx, 1.06 * k.fx)),
         fy: Some((0.94 * k.fy, 1.06 * k.fy)),
         cx: Some((k.cx - 60.0, k.cx + 60.0)),
@@ -1363,10 +1364,8 @@ fn nominal_tight_refine_solve_opts(
     opts
 }
 
-fn scheimpflug_estimate_from_scored_seed(
-    seed: ScoredScheimpflugSeed,
-) -> ScheimpflugIntrinsicsEstimate {
-    ScheimpflugIntrinsicsEstimate {
+fn scheimpflug_estimate_from_scored_seed(seed: ScoredScheimpflugSeed) -> PlanarIntrinsicsEstimate {
+    PlanarIntrinsicsEstimate {
         params: seed.params,
         report: SolveReport {
             final_cost: seed.score * seed.score,
@@ -1377,12 +1376,12 @@ fn scheimpflug_estimate_from_scored_seed(
     }
 }
 
-fn mean_scheimpflug_reproj(dataset: &PlanarDataset, params: &ScheimpflugIntrinsicsParams) -> f64 {
+fn mean_scheimpflug_reproj(dataset: &PlanarDataset, params: &PlanarIntrinsicsParams) -> f64 {
     let camera = Camera::new(
         Pinhole,
-        params.distortion_bc5(),
-        params.sensor.compile(),
-        params.intrinsics,
+        rig_distortion(params),
+        rig_tilt(params).compile(),
+        params.camera.intrinsics,
     );
     let mut sum = 0.0;
     let mut count = 0usize;

@@ -8,9 +8,6 @@ fn facade_modules_compile_with_glob_import() {
     let _planar_session: Option<
         session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
     > = None;
-    let _scheimpflug_session: Option<
-        session::CalibrationSession<scheimpflug_intrinsics::ScheimpflugIntrinsicsProblem>,
-    > = None;
     let _single_handeye_session: Option<
         session::CalibrationSession<single_cam_handeye::SingleCamHandeyeProblem>,
     > = None;
@@ -65,11 +62,18 @@ fn facade_modules_compile_with_glob_import() {
         &mut session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>,
     ) -> Result<(), Error> = planar_intrinsics::run_calibration;
 
-    // Scheimpflug intrinsics API.
-    let _scheimpflug_run: fn(
-        &mut session::CalibrationSession<scheimpflug_intrinsics::ScheimpflugIntrinsicsProblem>,
-        Option<scheimpflug_intrinsics::ScheimpflugIntrinsicsConfig>,
-    ) -> Result<(), Error> = scheimpflug_intrinsics::run_calibration;
+    // The planar camera model: a tilted sensor is a config value.
+    let _tilted_camera = common::config::CameraConfig::new(core::CameraModelSpec::pinhole(
+        core::DistortionKind::BrownConrady5,
+        core::SensorKind::Scheimpflug,
+    ));
+    type PlanarSession = session::CalibrationSession<planar_intrinsics::PlanarIntrinsicsProblem>;
+    let _planar_seed: fn(
+        &mut PlanarSession,
+        planar_intrinsics::PlanarManualInit,
+        Option<planar_intrinsics::IntrinsicsInitOptions>,
+    ) -> Result<planar_intrinsics::PlanarInitResult, Error> =
+        planar_intrinsics::step_init_with_seed;
 
     // Single-camera hand-eye API.
     let _single_handeye_run: fn(

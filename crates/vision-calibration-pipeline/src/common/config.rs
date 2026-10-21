@@ -8,13 +8,14 @@
 //! re-declaring the same fields flat.
 //!
 //! Per-problem defaults still differ (e.g. `SolverConfig::max_iters` is 50
-//! for a plain intrinsics solve but 120 for the Scheimpflug tilt valley) —
-//! that variation lives in each problem's own `Default` impl, which
-//! overrides the field after `..Default::default()`, or via a
-//! `field(default_factory = ...)`-style helper. The struct's own [`Default`]
-//! documents the plain value used when a problem has no reason to deviate.
+//! for most solves but 120 for planar intrinsics, sized for a tilted
+//! sensor's tilt valley) — that variation lives in each problem's own
+//! `Default` impl, which overrides the field after `..Default::default()`.
+//! The struct's own [`Default`] documents the plain value used when a
+//! problem has no reason to deviate.
 
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::{CameraFix, CameraModelSpec, SensorKind};
 use vision_calibration_linear::prelude::{DistortionFitOptions, IterativeIntrinsicsOptions};
 use vision_calibration_optim::{
     BackendSolveOptions, DistortionKind, HandEyeMode, RobustLoss, SolverBackend,
@@ -28,14 +29,71 @@ use vision_calibration_optim::{
 /// copy-pasted literal `8`.
 const DISTORTION_FIT_ITERS: u32 = 8;
 
-/// Shared `#[serde(default = ...)]` for every `distortion_model:
-/// DistortionKind` field in the workspace: `PlanarIntrinsicsConfig`,
-/// `ScheimpflugIntrinsicsConfig`, and `rig_family::SensorMode::Scheimpflug`.
+/// Shared `#[serde(default = ...)]` for the `distortion_model:
+/// DistortionKind` field of `rig_family::SensorMode::Scheimpflug`.
 /// Brown-Conrady5 is the only distortion model every downstream consumer
-/// (rig bundle adjustment, hand-eye, laserline) accepts; extended models are
-/// opt-in and PlanarIntrinsics-only.
+/// (rig bundle adjustment, hand-eye, laserline) accepts.
 pub(crate) fn default_distortion_kind() -> DistortionKind {
     DistortionKind::BrownConrady5
+}
+
+/// The camera model a workflow calibrates, and which of its parameters stay
+/// fixed.
+///
+/// The model names one kind per slot — projection, distortion and sensor —
+/// so a tilted (Scheimpflug) sensor is a value of `model.sensor`, not a
+/// separate workflow. Behaviour that depends on the sensor (default fix
+/// lists, the linear stage's tangential terms, the tilt multi-start) follows
+/// from the model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+#[serde(deny_unknown_fields)]
+pub struct CameraConfig {
+    /// The camera model, one kind per slot. Default: pinhole projection,
+    /// Brown-Conrady (`k1, k2, k3, p1, p2`) distortion and an identity
+    /// (untilted) sensor — the model every downstream workflow accepts.
+    pub model: CameraModelSpec,
+    /// Parameters held fixed during the non-linear solve, named per slot
+    /// (`{"intrinsics": ["cx", "cy"], "distortion": ["k3"], "sensor":
+    /// ["tilt_y"]}`). A slot left out keeps the model's default: `k3` for
+    /// Brown-Conrady, and everything but the low-order radial terms (`k1`,
+    /// `k2`; the division model's `lambda`) under a Scheimpflug sensor,
+    /// because tangential and higher-order terms trade off against the tilt.
+    /// An unknown name is a configuration error.
+    #[serde(default)]
+    pub fix: CameraFix,
+}
+
+impl Default for CameraConfig {
+    fn default() -> Self {
+        Self {
+            model: CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
+            fix: CameraFix::default(),
+        }
+    }
+}
+
+impl CameraConfig {
+    /// A camera of `model` with the model's default fix lists.
+    pub fn new(model: CameraModelSpec) -> Self {
+        Self {
+            model,
+            fix: CameraFix::default(),
+        }
+    }
+
+    /// Check the fix lists name parameters of the model.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::Error::InvalidInput`] naming the unknown parameter.
+    pub fn validate(&self) -> Result<(), crate::Error> {
+        self.fix
+            .resolve(self.model)
+            .map(|_| ())
+            .map_err(|e| crate::Error::invalid_input(format!("camera.fix: {e}")))
+    }
 }
 
 /// Per-camera linear-initialization stage (Zhang's method + iterative
@@ -53,11 +111,14 @@ pub struct IntrinsicsInitConfig {
     pub fix_k3: bool,
     /// Fix tangential distortion (p1, p2) during initialization.
     ///
-    /// Defaults to `false` here; the Scheimpflug intrinsics problem
-    /// overrides its own `init` default to `true` (the tilt/tangential-distortion
+    /// `None` (the default) takes the camera's default: `true` for a
+    /// Scheimpflug sensor in planar intrinsics — the tilt/tangential
     /// coupling makes a free tangential term ill-posed during the linear
-    /// stage).
-    pub fix_tangential: bool,
+    /// stage — and `false` otherwise. The multi-camera workflows, which pick
+    /// their sensor through `sensor`, resolve `None` to `false` for either
+    /// sensor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix_tangential: Option<bool>,
 }
 
 impl Default for IntrinsicsInitConfig {
@@ -65,7 +126,7 @@ impl Default for IntrinsicsInitConfig {
         Self {
             init_iterations: 2,
             fix_k3: true,
-            fix_tangential: false,
+            fix_tangential: None,
         }
     }
 }
@@ -80,10 +141,17 @@ impl IntrinsicsInitConfig {
     /// override, e.g. `RigExtrinsicsProblem::step_intrinsics_init_all`).
     /// `None` uses the config's own `init_iterations` verbatim (the shape
     /// problems without a step-level override need).
-    pub fn iterative_opts(&self, iterations_override: Option<usize>) -> IterativeIntrinsicsOptions {
+    ///
+    /// `default_fix_tangential` is the camera's default for an unset
+    /// [`Self::fix_tangential`].
+    pub fn iterative_opts(
+        &self,
+        iterations_override: Option<usize>,
+        default_fix_tangential: bool,
+    ) -> IterativeIntrinsicsOptions {
         IterativeIntrinsicsOptions {
             iterations: iterations_override.unwrap_or(self.init_iterations),
-            distortion_opts: self.distortion_fit_opts(),
+            distortion_opts: self.distortion_fit_opts(default_fix_tangential),
         }
     }
 
@@ -91,10 +159,13 @@ impl IntrinsicsInitConfig {
     /// intrinsics-bootstrap options struct, including the Scheimpflug
     /// linear-init path (which builds a different top-level options struct
     /// and so cannot use [`Self::iterative_opts`] directly).
-    pub fn distortion_fit_opts(&self) -> DistortionFitOptions {
+    ///
+    /// `default_fix_tangential` is the camera's default for an unset
+    /// [`Self::fix_tangential`].
+    pub fn distortion_fit_opts(&self, default_fix_tangential: bool) -> DistortionFitOptions {
         DistortionFitOptions {
             fix_k3: self.fix_k3,
-            fix_tangential: self.fix_tangential,
+            fix_tangential: self.fix_tangential.unwrap_or(default_fix_tangential),
             iters: DISTORTION_FIT_ITERS,
         }
     }
@@ -104,7 +175,9 @@ impl IntrinsicsInitConfig {
 ///
 /// `max_iters` has no single workspace-wide default — problems override it
 /// per solve-stage cost. Documented per-problem defaults: 50 standard; 120
-/// for the Scheimpflug single-cam tilt valley; 30 for a warm-started joint
+/// for planar intrinsics (sized for a tilted sensor's tilt valley; the
+/// solver stops at convergence, so the cap only bounds runs that do not
+/// converge); 30 for a warm-started joint
 /// rig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry
 /// stage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is
 /// 50 — the plain value used by problems with no reason to deviate.
@@ -252,7 +325,9 @@ mod tests {
         let cfg = IntrinsicsInitConfig::default();
         assert_eq!(cfg.init_iterations, 2);
         assert!(cfg.fix_k3);
-        assert!(!cfg.fix_tangential);
+        assert_eq!(cfg.fix_tangential, None);
+        assert!(!cfg.distortion_fit_opts(false).fix_tangential);
+        assert!(cfg.distortion_fit_opts(true).fix_tangential);
     }
 
     #[test]
@@ -295,9 +370,10 @@ mod tests {
         let cfg = IntrinsicsInitConfig {
             init_iterations: 3,
             fix_k3: false,
-            fix_tangential: true,
+            fix_tangential: Some(true),
         };
-        let opts = cfg.iterative_opts(None);
+        // An explicit value wins over the camera's default.
+        let opts = cfg.iterative_opts(None, false);
         assert_eq!(opts.iterations, 3);
         assert!(!opts.distortion_opts.fix_k3);
         assert!(opts.distortion_opts.fix_tangential);
@@ -307,7 +383,7 @@ mod tests {
     #[test]
     fn iterative_opts_override_wins_over_config_iterations() {
         let cfg = IntrinsicsInitConfig::default();
-        let opts = cfg.iterative_opts(Some(9));
+        let opts = cfg.iterative_opts(Some(9), false);
         assert_eq!(opts.iterations, 9);
     }
 
@@ -316,9 +392,9 @@ mod tests {
         let cfg = IntrinsicsInitConfig {
             init_iterations: 2,
             fix_k3: true,
-            fix_tangential: false,
+            fix_tangential: Some(false),
         };
-        let dist_opts = cfg.distortion_fit_opts();
+        let dist_opts = cfg.distortion_fit_opts(true);
         assert!(dist_opts.fix_k3);
         assert!(!dist_opts.fix_tangential);
         assert_eq!(dist_opts.iters, 8);
@@ -356,12 +432,47 @@ mod tests {
         let cfg = IntrinsicsInitConfig {
             init_iterations: 3,
             fix_k3: false,
-            fix_tangential: true,
+            fix_tangential: Some(true),
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let restored: IntrinsicsInitConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.init_iterations, 3);
         assert!(!restored.fix_k3);
-        assert!(restored.fix_tangential);
+        assert_eq!(restored.fix_tangential, Some(true));
+        // An unset value is omitted and reads back as `None`.
+        let json = serde_json::to_string(&IntrinsicsInitConfig::default()).unwrap();
+        assert!(!json.contains("fix_tangential"), "{json}");
+    }
+
+    #[test]
+    fn camera_config_defaults_to_pinhole_brown_conrady() {
+        let cfg = CameraConfig::default();
+        assert_eq!(cfg.model.distortion, DistortionKind::BrownConrady5);
+        assert_eq!(cfg.model.sensor, SensorKind::Identity);
+        assert_eq!(cfg.fix, CameraFix::default());
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn camera_config_json_roundtrip_and_validation() {
+        let json = r#"{
+            "model": {"projection": "pinhole", "distortion": "brown_conrady5", "sensor": "scheimpflug"},
+            "fix": {"intrinsics": ["cx", "cy"], "sensor": ["tilt_y"]}
+        }"#;
+        let cfg: CameraConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.model.sensor, SensorKind::Scheimpflug);
+        assert!(cfg.validate().is_ok());
+        let back: CameraConfig =
+            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(back, cfg);
+
+        let bad: CameraConfig = serde_json::from_str(
+            r#"{"model": {"projection": "pinhole", "distortion": "brown_conrady5", "sensor": "identity"},
+                "fix": {"sensor": ["tilt_x"]}}"#,
+        )
+        .unwrap();
+        let err = bad.validate().unwrap_err().to_string();
+        assert!(err.contains("tilt_x"), "{err}");
+        assert!(serde_json::from_str::<CameraConfig>(r#"{"model": {}, "extra": 1}"#).is_err());
     }
 }

@@ -57,7 +57,6 @@ mod schema_export {
     use vision_calibration::rig_handeye::RigHandeyeExport;
     use vision_calibration::rig_handeye_laserline::RigHandeyeLaserlineExport;
     use vision_calibration::rig_laserline_device::RigLaserlineDeviceExport;
-    use vision_calibration::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport;
     use vision_calibration::single_cam_handeye::SingleCamHandeyeExport;
 
     pub(super) fn main() -> ExitCode {
@@ -113,12 +112,6 @@ mod schema_export {
             "planar_intrinsics_export".into(),
             generator
                 .subschema_for::<PlanarIntrinsicsExport>()
-                .to_value(),
-        );
-        props.insert(
-            "scheimpflug_intrinsics_export".into(),
-            generator
-                .subschema_for::<ScheimpflugIntrinsicsExport>()
                 .to_value(),
         );
         props.insert(

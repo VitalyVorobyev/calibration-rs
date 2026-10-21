@@ -20,10 +20,10 @@
 use vision_calibration_core::{FxFyCxCy, Iso3, Real, ScheimpflugParams};
 use vision_calibration_optim::HandEyeMode;
 
+use crate::planar_intrinsics::PlanarManualInit;
 use crate::rig_handeye::{
     RigHandeyeHandeyeManualInit, RigHandeyeIntrinsicsManualInit, RigHandeyeRigManualInit,
 };
-use crate::scheimpflug_intrinsics::ScheimpflugManualInit;
 
 // The schema types every consumer of this module needs, re-exported so the
 // facade can expose the full device-spec surface from one place.
@@ -77,19 +77,21 @@ pub enum DeviceSeedError {
     },
 }
 
-/// Seed for a single-camera Scheimpflug intrinsics session.
+/// Seed for a planar intrinsics session whose camera model has a
+/// Scheimpflug sensor.
 ///
 /// Intrinsics and sensor tilt are always seeded (both are
-/// load-bearing). A camera without a `scheimpflug` entry is frontal *by
-/// design*, so it seeds an identity tilt — the spec asserts knowledge of
-/// the mount, absence is not ignorance. Distortion and poses stay `None`
-/// (auto).
+/// load-bearing), so the solve trusts the tilt. A camera without a
+/// `scheimpflug` entry is frontal *by design*, so it seeds an identity tilt
+/// — the spec asserts knowledge of the mount, absence is not ignorance.
+/// Distortion and poses stay `None` (auto). The session's config must name
+/// a Scheimpflug sensor; a tilt seed for an untilted camera is rejected.
 pub fn scheimpflug_seed(
     spec: &DeviceSpec,
     camera_id: &str,
-) -> Result<ScheimpflugManualInit, DeviceSeedError> {
+) -> Result<PlanarManualInit, DeviceSeedError> {
     let cam = lookup(spec, camera_id)?;
-    Ok(ScheimpflugManualInit {
+    Ok(PlanarManualInit {
         intrinsics: Some(intrinsics_from_camera(cam)),
         sensor: Some(sensor_from_camera(cam)),
         ..Default::default()

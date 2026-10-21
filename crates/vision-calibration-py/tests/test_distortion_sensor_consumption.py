@@ -4,8 +4,8 @@ The config-schema tests pin the payload *shape*; these prove the two new knobs
 are actually *consumed* on the Rust side and surface correctly on the typed
 result (not silently defaulted):
 
-* ``distortion_model`` — the typed ``run_planar_intrinsics`` /
-  ``run_scheimpflug_intrinsics`` result now carries a polymorphic
+* ``camera.model.distortion`` — the typed ``run_planar_intrinsics``
+  result (identity or Scheimpflug sensor) carries a polymorphic
   ``camera.distortion`` whose dataclass matches the requested model
   (``brown_conrady5`` → :class:`BrownConradyDistortion`, ``division1`` →
   :class:`Division1Distortion`, ``rational8`` → :class:`Rational8Distortion`,
@@ -53,7 +53,9 @@ class PlanarDistortionModelConsumptionTest(unittest.TestCase):
         self.dataset = planar_calibration_dataset()
 
     def _run(self, model: str) -> vc.PlanarCalibrationResult:
-        cfg = vc.PlanarCalibrationConfig(distortion_model=model)  # type: ignore[arg-type]
+        cfg = vc.PlanarCalibrationConfig(
+            camera=vc.CameraConfig(model=vc.CameraModelSpec(distortion=model))  # type: ignore[arg-type]
+        )
         return vc.run_planar_intrinsics(self.dataset, cfg)
 
     def test_none_model_yields_no_distortion_dataclass(self) -> None:
@@ -94,8 +96,12 @@ class PlanarDistortionModelConsumptionTest(unittest.TestCase):
 
 class ScheimpflugDistortionModelConsumptionTest(unittest.TestCase):
     def test_scheimpflug_division_model_yields_division_dataclass(self) -> None:
-        cfg = vc.ScheimpflugIntrinsicsCalibrationConfig(distortion_model="division1")
-        result = vc.run_scheimpflug_intrinsics(planar_calibration_dataset(), cfg)
+        cfg = vc.PlanarCalibrationConfig(
+            camera=vc.CameraConfig(
+                model=vc.CameraModelSpec(distortion="division1", sensor="scheimpflug")
+            )
+        )
+        result = vc.run_planar_intrinsics(planar_calibration_dataset(), cfg)
         # The Scheimpflug result camera is polymorphic on distortion too, while
         # still carrying the Scheimpflug sensor tilt.
         self.assertIsInstance(result.camera, vc.PinholeScheimpflugCamera)

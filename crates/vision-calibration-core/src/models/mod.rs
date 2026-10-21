@@ -15,6 +15,7 @@
 
 mod camera;
 mod distortion;
+mod fix;
 mod intrinsics;
 mod kinds;
 mod params;
@@ -23,6 +24,7 @@ mod sensor;
 
 pub use camera::*;
 pub use distortion::*;
+pub use fix::*;
 pub use intrinsics::*;
 pub use kinds::*;
 pub use params::*;

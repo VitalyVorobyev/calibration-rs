@@ -102,7 +102,6 @@ Paths are relative to the facade module named after the problem (`vision_calibra
 | Problem | Module | Steps | Pipeline function |
 |---------|--------|-------|-------------------|
 | `PlanarIntrinsicsProblem` | `planar_intrinsics` | `step_init`, `step_optimize`, `step_filter` | `run_calibration(session)`, `run_calibration_with_filtering(session, filter_opts)` |
-| `ScheimpflugIntrinsicsProblem` | `scheimpflug_intrinsics` | `step_init`, `step_optimize` | `run_calibration(session, config)` |
 | `SingleCamHandeyeProblem` | `single_cam_handeye` | `step_intrinsics_init`, `step_intrinsics_optimize`, `step_handeye_init`, `step_handeye_optimize` | `run_calibration(session)` |
 | `LaserlineDeviceProblem` | `laserline_device` | `step_init`, `step_optimize` | `run_calibration(session, config)` |
 | `RigExtrinsicsProblem` | `rig_extrinsics` | `step_intrinsics_init_all`, `step_intrinsics_optimize_all`, `step_rig_init`, `step_rig_optimize` | `run_calibration(session)` |

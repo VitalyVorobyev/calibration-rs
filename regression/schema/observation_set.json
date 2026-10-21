@@ -662,30 +662,13 @@
   "description": "Image-free observations for one calibration problem.\n\nSerialized flat: `{\"version\", \"cameras\", \"problem\", \"input\"}`, where\n`problem` names the problem type and `input` is its input payload.",
   "oneOf": [
     {
-      "description": "Planar intrinsics of one camera.",
+      "description": "Planar intrinsics of one camera (any camera model; the entry's config\nnames the sensor).",
       "properties": {
         "input": {
           "$ref": "#/$defs/PlanarDataset"
         },
         "problem": {
           "const": "planar_intrinsics",
-          "type": "string"
-        }
-      },
-      "required": [
-        "problem",
-        "input"
-      ],
-      "type": "object"
-    },
-    {
-      "description": "Scheimpflug intrinsics of one camera.",
-      "properties": {
-        "input": {
-          "$ref": "#/$defs/PlanarDataset"
-        },
-        "problem": {
-          "const": "scheimpflug_intrinsics",
           "type": "string"
         }
       },

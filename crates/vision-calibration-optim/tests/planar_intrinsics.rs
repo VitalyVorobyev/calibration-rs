@@ -2,13 +2,13 @@
 
 use nalgebra::{UnitQuaternion, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, CorrespondenceView, DistortionFixMask, DistortionParams, FxFyCxCy,
-    IntrinsicsFixMask, Iso3, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3, Real,
-    SensorParams, View, make_pinhole_camera,
+    BrownConrady5, CameraFix, CameraParams, CorrespondenceView, DistortionParams, FxFyCxCy, Iso3,
+    PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3, Real, SensorParams, View,
+    make_pinhole_camera,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RobustLoss,
-    optimize_planar_intrinsics,
+    BackendSolveOptions, CameraBounds, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+    RobustLoss, optimize_planar_intrinsics,
 };
 
 struct SyntheticScenario {
@@ -254,10 +254,9 @@ fn intrinsics_masking_keeps_fixed_params() {
 
     let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt).unwrap();
     let opts = PlanarIntrinsicsSolveOptions {
-        fix_intrinsics: IntrinsicsFixMask {
-            fx: true,
-            fy: true,
-            ..Default::default()
+        fix: CameraFix {
+            intrinsics: Some(vec!["fx".into(), "fy".into()]),
+            ..CameraFix::default()
         },
         ..PlanarIntrinsicsSolveOptions::default()
     };
@@ -491,11 +490,9 @@ fn distortion_parameter_masking_works() {
 
     // Fix k3, p1, p2 (they are zero in ground truth)
     let opts = PlanarIntrinsicsSolveOptions {
-        fix_distortion: DistortionFixMask {
-            k3: true,
-            p1: true,
-            p2: true,
-            ..Default::default()
+        fix: CameraFix {
+            distortion: Some(vec!["k3".into(), "p1".into(), "p2".into()]),
+            ..CameraFix::default()
         },
         ..Default::default()
     };
@@ -551,10 +548,9 @@ fn rejects_pose_count_mismatch_instead_of_panicking() {
 }
 
 #[test]
-fn rejects_non_identity_sensor() {
-    // Planar intrinsics selects the camera model from the distortion kind only;
-    // a non-identity sensor would be silently dropped. It must be rejected
-    // up front.
+fn rejects_general_homography_sensor() {
+    // A general homography sensor has no model spec (no named parameters to
+    // refine or fix), so it must be rejected up front rather than dropped.
     let SyntheticScenario {
         dataset, poses_gt, ..
     } = build_synthetic_scenario(0.0);
@@ -582,7 +578,52 @@ fn rejects_non_identity_sensor() {
     )
     .unwrap_err();
     assert!(
-        err.to_string().contains("identity sensor"),
-        "expected non-identity-sensor rejection, got: {err}"
+        err.to_string().contains("homography sensor"),
+        "expected homography-sensor rejection, got: {err}"
     );
+}
+
+#[test]
+fn rejects_tilt_bounds_without_a_tilted_sensor() {
+    let SyntheticScenario {
+        dataset,
+        poses_gt,
+        cam_init,
+        ..
+    } = build_synthetic_scenario(0.0);
+    let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt).unwrap();
+    let opts = PlanarIntrinsicsSolveOptions {
+        bounds: Some(CameraBounds {
+            tilt_x: Some((-0.1, 0.1)),
+            ..CameraBounds::default()
+        }),
+        ..Default::default()
+    };
+    let err = optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default())
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("Scheimpflug sensor"),
+        "expected a tilt-bounds rejection, got: {err}"
+    );
+}
+
+#[test]
+fn rejects_unknown_fix_names() {
+    let SyntheticScenario {
+        dataset,
+        poses_gt,
+        cam_init,
+        ..
+    } = build_synthetic_scenario(0.0);
+    let init = PlanarIntrinsicsParams::from_pinhole(cam_init, poses_gt).unwrap();
+    let opts = PlanarIntrinsicsSolveOptions {
+        fix: CameraFix {
+            sensor: Some(vec!["tilt_x".into()]),
+            ..CameraFix::default()
+        },
+        ..Default::default()
+    };
+    let err = optimize_planar_intrinsics(&dataset, &init, opts, BackendSolveOptions::default())
+        .unwrap_err();
+    assert!(err.to_string().contains("tilt_x"), "{err}");
 }

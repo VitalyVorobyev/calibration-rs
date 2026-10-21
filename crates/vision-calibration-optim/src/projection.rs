@@ -26,7 +26,7 @@ use vision_calibration_core::{
 use crate::Error;
 use crate::factors::camera_blocks::CameraBlocks;
 use crate::ir::{CameraModelSpec, ProjectionKind, SensorKind};
-use crate::params::distortion::{distortion_kind, pack_distortion_params};
+use crate::params::distortion::pack_distortion_params;
 use crate::params::intrinsics::pack_intrinsics;
 use crate::uncertainty::{INTRINSICS_LABELS, SENSOR_LABELS};
 
@@ -163,7 +163,6 @@ impl CameraVector {
     fn new(camera: &CameraParams) -> Result<Self, Error> {
         let ProjectionParams::Pinhole = camera.projection;
         let k = camera.intrinsics;
-        let distortion = distortion_kind(&camera.distortion);
         let (sensor, tilt) = match &camera.sensor {
             SensorParams::Identity => (SensorKind::Identity, Vec::new()),
             SensorParams::Scheimpflug { params } => {
@@ -176,6 +175,11 @@ impl CameraVector {
                 ));
             }
         };
+        // The sensor is identity or Scheimpflug here, so the camera has a spec.
+        let distortion = camera
+            .spec()
+            .expect("a non-homography camera has a spec")
+            .distortion;
         let intrinsics = pack_intrinsics(&k);
         let dist = pack_distortion_params(&camera.distortion);
         let theta = DVector::from_iterator(

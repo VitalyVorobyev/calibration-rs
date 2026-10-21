@@ -2,7 +2,7 @@
   "suite_version": "2026.1",
   "producer": "calibration-rs 0.9.0",
   "export": {
-    "kind": "scheimpflug_intrinsics",
+    "kind": "planar_intrinsics",
     "mean_reproj_error": 0.6568057760594304,
     "params": {
       "camera": {

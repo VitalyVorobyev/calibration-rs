@@ -10,17 +10,17 @@
 use nalgebra::{DMatrix, DVector, Matrix2, Translation3, UnitQuaternion, Vector2, Vector3};
 use vision_calibration_core::synthetic::noise::UniformPixelNoise;
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionFixMask,
-    DistortionParams, FxFyCxCy, Iso3, NoMeta, ParameterCovariance, PinholeCamera, PlanarDataset,
-    ProjectionParams, Pt2, Pt3, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorParams,
-    Uncertainty, Vec2, View, make_pinhole_camera,
+    BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionParams, FxFyCxCy,
+    Iso3, NoMeta, ParameterCovariance, PinholeCamera, PlanarDataset, ProjectionParams, Pt2, Pt3,
+    RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorParams, Uncertainty, Vec2, View,
+    make_pinhole_camera,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
     LaserPlane, LaserlineMeta, LaserlineParams, LaserlineSolveOptions, LaserlineView,
-    RigExtrinsicsParams, RigExtrinsicsSolveOptions, RobotPoseMeta, RobustLoss,
-    ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions, apply_robot_delta,
-    optimize_handeye, optimize_laserline, optimize_rig_extrinsics, optimize_scheimpflug_intrinsics,
+    PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigExtrinsicsParams,
+    RigExtrinsicsSolveOptions, RobotPoseMeta, RobustLoss, apply_robot_delta, optimize_handeye,
+    optimize_laserline, optimize_planar_intrinsics, optimize_rig_extrinsics,
     projection_uncertainty,
 };
 
@@ -222,7 +222,7 @@ fn observe(
     CorrespondenceView::new(p3, p2).unwrap()
 }
 
-fn truth() -> ScheimpflugIntrinsicsParams {
+fn truth() -> PlanarIntrinsicsParams {
     let poses = [
         (0.0, 0.0, 0.0, -0.01, -0.01, 0.45),
         (0.20, 0.0, 0.0, -0.02, 0.0, 0.50),
@@ -241,26 +241,31 @@ fn truth() -> ScheimpflugIntrinsicsParams {
             UnitQuaternion::from_euler_angles(rx, ry, rz),
         )
     });
-    ScheimpflugIntrinsicsParams::new_with_distortion(
-        FxFyCxCy {
-            fx: 1150.0,
-            fy: 1155.0,
-            cx: 372.0,
-            cy: 258.0,
-        },
-        DistortionParams::BrownConrady5 {
-            params: BrownConrady5 {
-                k1: -0.08,
-                k2: 0.04,
-                k3: 0.0,
-                p1: 0.0,
-                p2: 0.0,
-                iters: 8,
+    PlanarIntrinsicsParams::new(
+        CameraParams {
+            projection: ProjectionParams::Pinhole,
+            distortion: DistortionParams::BrownConrady5 {
+                params: BrownConrady5 {
+                    k1: -0.08,
+                    k2: 0.04,
+                    k3: 0.0,
+                    p1: 0.0,
+                    p2: 0.0,
+                    iters: 8,
+                },
             },
-        },
-        ScheimpflugParams {
-            tilt_x: 0.05,
-            tilt_y: -0.02,
+            sensor: SensorParams::Scheimpflug {
+                params: ScheimpflugParams {
+                    tilt_x: 0.05,
+                    tilt_y: -0.02,
+                },
+            },
+            intrinsics: FxFyCxCy {
+                fx: 1150.0,
+                fy: 1155.0,
+                cx: 372.0,
+                cy: 258.0,
+            },
         },
         poses.to_vec(),
     )
@@ -268,19 +273,12 @@ fn truth() -> ScheimpflugIntrinsicsParams {
 }
 
 /// The camera model of a Scheimpflug parameter pack.
-fn scheimpflug_camera(params: &ScheimpflugIntrinsicsParams) -> CameraParams {
-    CameraParams {
-        projection: ProjectionParams::Pinhole,
-        distortion: params.distortion.clone(),
-        sensor: SensorParams::Scheimpflug {
-            params: params.sensor,
-        },
-        intrinsics: params.intrinsics,
-    }
+fn scheimpflug_camera(params: &PlanarIntrinsicsParams) -> CameraParams {
+    params.camera.clone()
 }
 
 /// Views of a 9×9 board of 20 mm cells, with seeded pixel noise.
-fn dataset(params: &ScheimpflugIntrinsicsParams, noise: UniformPixelNoise) -> PlanarDataset {
+fn dataset(params: &PlanarIntrinsicsParams, noise: UniformPixelNoise) -> PlanarDataset {
     let camera = scheimpflug_camera(params).build().unwrap();
     let board: Vec<Pt3> = (0..81)
         .map(|i| {
@@ -312,10 +310,13 @@ fn dataset(params: &ScheimpflugIntrinsicsParams, noise: UniformPixelNoise) -> Pl
 }
 
 /// The labelled value of a Scheimpflug parameter pack.
-fn value(params: &ScheimpflugIntrinsicsParams, label: &str) -> f64 {
-    let k = params.intrinsics;
-    let DistortionParams::BrownConrady5 { params: d } = &params.distortion else {
+fn value(params: &PlanarIntrinsicsParams, label: &str) -> f64 {
+    let k = params.camera.intrinsics;
+    let DistortionParams::BrownConrady5 { params: d } = &params.camera.distortion else {
         unreachable!("the scene uses Brown-Conrady");
+    };
+    let SensorParams::Scheimpflug { params: tilt } = &params.camera.sensor else {
+        unreachable!("the scene has a Scheimpflug sensor");
     };
     match label {
         "fx" => k.fx,
@@ -324,8 +325,8 @@ fn value(params: &ScheimpflugIntrinsicsParams, label: &str) -> f64 {
         "cy" => k.cy,
         "k1" => d.k1,
         "k2" => d.k2,
-        "tilt_x" => params.sensor.tilt_x,
-        "tilt_y" => params.sensor.tilt_y,
+        "tilt_x" => tilt.tilt_x,
+        "tilt_y" => tilt.tilt_y,
         other => panic!("unexpected label {other}"),
     }
 }
@@ -346,12 +347,10 @@ fn scheimpflug_covariance_matches_monte_carlo() {
                 max_abs_px: 0.5,
             },
         );
-        let opts = ScheimpflugIntrinsicsSolveOptions {
-            fix_distortion: DistortionFixMask::radial_only(),
-            ..Default::default()
-        };
-        let est = optimize_scheimpflug_intrinsics(&data, &gt, opts, BackendSolveOptions::default())
-            .unwrap();
+        // The Scheimpflug model's default fix list holds k3, p1, p2.
+        let opts = PlanarIntrinsicsSolveOptions::default();
+        let est =
+            optimize_planar_intrinsics(&data, &gt, opts, BackendSolveOptions::default()).unwrap();
         let Uncertainty::Available(cov) = &est.uncertainty else {
             panic!("no covariance: {:?}", est.uncertainty);
         };
@@ -377,7 +376,7 @@ fn projection_uncertainty_matches_monte_carlo() {
     const IMAGE: [u32; 2] = [744, 516];
     let gt = truth();
     let truth_camera = scheimpflug_camera(&gt).build().unwrap();
-    let map = |est: &ScheimpflugIntrinsicsParams, cov: &ParameterCovariance| {
+    let map = |est: &PlanarIntrinsicsParams, cov: &ParameterCovariance| {
         projection_uncertainty(&scheimpflug_camera(est), cov, 0, IMAGE).unwrap()
     };
     // Probe pixels and the σ each map reports there.
@@ -439,9 +438,9 @@ fn projection_uncertainty_matches_monte_carlo() {
 
 /// One noise realization of the Scheimpflug scene, solved.
 fn solve_scheimpflug(
-    gt: &ScheimpflugIntrinsicsParams,
+    gt: &PlanarIntrinsicsParams,
     seed: u64,
-) -> (ScheimpflugIntrinsicsParams, ParameterCovariance) {
+) -> (PlanarIntrinsicsParams, ParameterCovariance) {
     let data = dataset(
         gt,
         UniformPixelNoise {
@@ -449,12 +448,8 @@ fn solve_scheimpflug(
             max_abs_px: 0.5,
         },
     );
-    let opts = ScheimpflugIntrinsicsSolveOptions {
-        fix_distortion: DistortionFixMask::radial_only(),
-        ..Default::default()
-    };
-    let est =
-        optimize_scheimpflug_intrinsics(&data, gt, opts, BackendSolveOptions::default()).unwrap();
+    let opts = PlanarIntrinsicsSolveOptions::default();
+    let est = optimize_planar_intrinsics(&data, gt, opts, BackendSolveOptions::default()).unwrap();
     let Uncertainty::Available(cov) = est.uncertainty else {
         panic!("no covariance: {:?}", est.uncertainty);
     };

@@ -1,8 +1,8 @@
 //! High-level entry crate for the `calibration-rs` camera calibration library.
 //!
 //! This crate provides a unified API for camera calibration workflows:
-//! - Single-camera intrinsics calibration (Zhang's method with distortion)
-//! - Single-camera intrinsics calibration with Scheimpflug tilt
+//! - Single-camera intrinsics calibration (Zhang's method with distortion), for
+//!   a straight or tilted (Scheimpflug) sensor
 //! - Single-camera hand-eye calibration (camera on robot arm)
 //! - Laserline device calibration (camera + laser plane)
 //! - Multi-camera rig extrinsics calibration
@@ -44,12 +44,11 @@
 //! ## High-Level Calibration Workflows
 //!
 //! - [`session`] - Session framework (`CalibrationSession`, `ProblemType`)
-//! - [`planar_intrinsics`] - Single-camera intrinsics (Zhang's method)
+//! - [`planar_intrinsics`] - Single-camera intrinsics (Zhang's method), any camera model
 //! - [`single_cam_handeye`] - Single camera + hand-eye calibration
 //! - [`rig_extrinsics`] - Multi-camera rig extrinsics
 //! - [`rig_handeye`] - Multi-camera rig + hand-eye
 //! - [`laserline_device`] - Single camera + laser plane device
-//! - [`scheimpflug_intrinsics`] - Single-camera planar intrinsics with Scheimpflug tilt
 //! - [`rig_laserline_device`] - Multi-camera rig + laser plane device
 //! - [`rig_handeye_laserline`] - Joint rig + hand-eye + laser plane calibration
 //!
@@ -89,7 +88,6 @@
 //! | [`RigExtrinsicsProblem`](rig_extrinsics) | `RigExtrinsicsInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
 //! | [`RigHandeyeProblem`](rig_handeye) | `RigHandeyeInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` → `step_handeye_init` → `step_handeye_optimize` |
 //! | [`LaserlineDeviceProblem`](laserline_device) | `LaserlineDeviceInput` | `step_init` → `step_optimize` |
-//! | [`ScheimpflugIntrinsicsProblem`](scheimpflug_intrinsics) | `PlanarDataset` | `step_init` → `step_optimize` |
 //! | [`RigLaserlineDeviceProblem`](rig_laserline_device) | `RigLaserlineDeviceInput` | `step_init` → `step_optimize` |
 //! | [`RigHandeyeLaserlineProblem`](rig_handeye_laserline) | `RigHandeyeLaserlineInput` | `run_calibration` (joint solve) |
 
@@ -97,32 +95,6 @@
 
 /// Typed error returned by all public calibration step functions.
 pub use vision_calibration_pipeline::Error;
-
-/// Single-camera planar intrinsics with Scheimpflug/tilted sensor refinement.
-///
-/// This high-level helper mirrors planar intrinsics calibration, but optimizes a
-/// Brown-Conrady camera together with two Scheimpflug tilt parameters.
-pub mod scheimpflug_intrinsics {
-    pub use vision_calibration_pipeline::scheimpflug_intrinsics::{
-        IntrinsicsInitOptions,
-        IntrinsicsOptimizeOptions,
-        ScheimpflugFixMask,
-        ScheimpflugIntrinsicsConfig,
-        ScheimpflugIntrinsicsExport,
-        // Typed step results
-        ScheimpflugIntrinsicsInitResult,
-        ScheimpflugIntrinsicsInput,
-        ScheimpflugIntrinsicsOptimizeResult,
-        ScheimpflugIntrinsicsParams,
-        ScheimpflugIntrinsicsProblem,
-        ScheimpflugIntrinsicsResult,
-        ScheimpflugManualInit,
-        run_calibration,
-        step_init,
-        step_init_with_seed,
-        step_optimize,
-    };
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Session Framework
@@ -158,11 +130,12 @@ pub mod common {
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
-    /// types: per-camera linear init, non-linear solve, robot-pose
-    /// refinement, hand-eye linear init, and rig frame options.
+    /// types: the camera model, per-camera linear init, non-linear solve,
+    /// robot-pose refinement, hand-eye linear init, and rig frame options.
     pub mod config {
         pub use vision_calibration_pipeline::common::config::{
-            HandeyeInitConfig, IntrinsicsInitConfig, RigConfig, RobotPoseConfig, SolverConfig,
+            CameraConfig, HandeyeInitConfig, IntrinsicsInitConfig, RigConfig, RobotPoseConfig,
+            SolverConfig,
         };
     }
 }
@@ -202,11 +175,15 @@ pub mod device_seed {
 // Problem-Specific Modules
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Planar intrinsics calibration (Zhang's method with Brown-Conrady distortion).
+/// Planar intrinsics calibration (Zhang's method with distortion) for any
+/// camera model in the config's `camera` group, including a tilted
+/// (Scheimpflug) sensor.
 ///
 /// # Steps
-/// 1. `step_init` - Zhang's method with iterative distortion estimation
-/// 2. `step_optimize` - Non-linear refinement
+/// 1. `step_init` - Zhang's method with iterative distortion estimation (and,
+///    for a Scheimpflug sensor, the tilt); `step_init_with_seed` takes seeds
+/// 2. `step_optimize` - Non-linear refinement (a staged solve for a tilted
+///    sensor)
 /// 3. `step_filter` (optional) - Remove outliers by reprojection error
 ///
 /// # Example
@@ -520,14 +497,15 @@ pub mod rig_handeye_laserline {
 /// [`analysis`], not here — see that module's doc comment.
 pub mod core {
     pub use vision_calibration_core::{
-        BrownConrady5, Camera, CameraFixMask, CameraModel, CameraParams, CorrespondenceView,
-        DistortionFixMask, DistortionParams, Division, FrameKind, FrameRef, FxFyCxCy,
-        IdentitySensor, ImageManifest, IntrinsicsFixMask, Iso3, Mat3, NoMeta, ParameterCovariance,
-        Pinhole, PinholeCamera, PixelRect, PlanarDataset, ProjectionParams, Pt2, Pt3,
-        RationalPolynomial, Real, ResidualKind, ResidualNoise, RigDataset, RigView, RigViewObs,
-        ScheimpflugParams, SensorModel, SensorParams, ThinPrism, Uncertainty,
-        UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
-        make_pinhole_camera, pinhole_camera_params, pixel_to_normalized,
+        BrownConrady5, Camera, CameraFix, CameraFixMask, CameraModel, CameraModelSpec,
+        CameraParams, CorrespondenceView, DistortionFixMask, DistortionKind, DistortionParams,
+        Division, FrameKind, FrameRef, FxFyCxCy, IdentitySensor, ImageManifest, IntrinsicsFixMask,
+        Iso3, Mat3, NoMeta, ParameterCovariance, Pinhole, PinholeCamera, PixelRect, PlanarDataset,
+        ProjectionKind, ProjectionParams, Pt2, Pt3, RationalPolynomial, Real, ResidualKind,
+        ResidualNoise, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorKind, SensorModel,
+        SensorParams, ThinPrism, Uncertainty, UncertaintyUnavailable, Vec2, Vec3, View,
+        ViewCovariance, distort_to_pixel, make_pinhole_camera, pinhole_camera_params,
+        pixel_to_normalized,
     };
 
     /// The error type carried by [`crate::Error::Core`].
@@ -647,11 +625,6 @@ pub mod mvg {
 /// The `compute_*_feature_residuals` / `handeye_observer_se3_target` helpers
 /// live in [`analysis`], not here.
 pub mod optim {
-    /// Distortion model selector — the `distortion_model` field type on
-    /// [`planar_intrinsics::PlanarIntrinsicsConfig`](crate::planar_intrinsics::PlanarIntrinsicsConfig),
-    /// [`scheimpflug_intrinsics::ScheimpflugIntrinsicsConfig`](crate::scheimpflug_intrinsics::ScheimpflugIntrinsicsConfig),
-    /// and the rig `SensorMode::Scheimpflug` variant.
-    pub use vision_calibration_optim::DistortionKind;
     /// The error type carried by [`crate::Error::Optim`].
     pub use vision_calibration_optim::Error;
     /// Hand-eye configuration mode (eye-in-hand vs eye-to-hand).

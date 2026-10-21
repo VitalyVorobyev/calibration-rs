@@ -121,7 +121,9 @@ combined differently in two factors.
 
 ## Performance and Quality
 
-Measured on a synthetic benchmark of the eight workflows: 150 scenes across
+Measured on a synthetic benchmark of the seven workflows, with planar
+intrinsics and rig extrinsics each run with a straight and a tilted
+(Scheimpflug) sensor: 150 scenes across
 three sizes (8 to 36 views), two pixel-noise levels and 5 % outliers under
 Huber or Cauchy losses, timed as the median of three runs on an Apple M4 Pro
 (8 performance + 4 efficiency cores). Times are the median non-linear solve
@@ -129,8 +131,8 @@ per scene, all stages included.
 
 | Problem | tiny-solver | factrs | factrs / tiny-solver | final-cost agreement |
 |---|---:|---:|---:|---:|
-| Planar intrinsics | 27 ms | 33 ms | 1.24× | ≤ 4e-07 |
-| Scheimpflug intrinsics | 195 ms | 423 ms | 2.19× | ≤ 3e-07 |
+| Planar intrinsics (pinhole) | 27 ms | 33 ms | 1.24× | ≤ 4e-07 |
+| Planar intrinsics (Scheimpflug) | 195 ms | 423 ms | 2.19× | ≤ 3e-07 |
 | Single-camera hand-eye | 186 ms | 254 ms | 1.39× | ≤ 1e-08 |
 | Laserline device | 73 ms | 158 ms | 2.14× | ≤ 2e-05 |
 | Rig extrinsics | 92 ms | 135 ms | 1.49× | ≤ 9e-06 |

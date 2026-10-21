@@ -2,7 +2,7 @@
 
 ## Context
 
-Eight problem types expose the same concepts: step options, init
+Seven problem types expose the same concepts: step options, init
 iterations, parameter fixing, the pose gauge, the solver budget, robust
 losses, robot-pose priors. Spelled differently per problem, every consumer
 (JSON, the schema-driven forms, Python, the docs) needs per-problem special

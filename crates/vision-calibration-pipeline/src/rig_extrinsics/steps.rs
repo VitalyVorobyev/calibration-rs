@@ -13,14 +13,15 @@ use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_p
 use vision_calibration_optim::{
     BackendSolveOptions, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigExtrinsicsParams,
     RigExtrinsicsScheimpflugParams, RigExtrinsicsScheimpflugSolveOptions,
-    RigExtrinsicsSolveOptions, ScheimpflugIntrinsicsParams, ScheimpflugIntrinsicsSolveOptions,
-    ScheimpflugStagedInitOptions, optimize_planar_intrinsics, optimize_rig_extrinsics,
-    optimize_rig_extrinsics_scheimpflug, optimize_scheimpflug_intrinsics_staged,
+    RigExtrinsicsSolveOptions, ScheimpflugStagedInitOptions, optimize_planar_intrinsics,
+    optimize_rig_extrinsics, optimize_rig_extrinsics_scheimpflug,
+    optimize_scheimpflug_intrinsics_staged,
 };
 
 use crate::rig_family::{
     RigIntrinsicsSeeds, SensorFlavour, bootstrap_rig_intrinsics, format_init_source,
-    guard_percam_reproj_errors, views_to_planar_dataset,
+    guard_percam_reproj_errors, rig_camera_fix, rig_distortion, rig_tilt, tilted_planar_params,
+    views_to_planar_dataset,
 };
 use crate::session::CalibrationSession;
 
@@ -200,7 +201,9 @@ pub fn step_intrinsics_init_all_with_seed(
     let num_cameras = input.num_cameras;
     let num_views = input.num_views();
 
-    let init_opts = config.intrinsics.iterative_opts(opts.iterations);
+    // Rigs keep the tangential terms free in the linear stage for either
+    // sensor mode.
+    let init_opts = config.intrinsics.iterative_opts(opts.iterations, false);
 
     let flavour = match &config.sensor {
         SensorMode::Pinhole => SensorFlavour::Pinhole,
@@ -346,9 +349,7 @@ pub fn step_intrinsics_optimize_all(
 
                 let solve_opts = PlanarIntrinsicsSolveOptions {
                     robust_loss: config.solver.robust_loss,
-                    fix_intrinsics: Default::default(),
-                    fix_distortion: Default::default(),
-                    fix_poses: Vec::new(),
+                    ..Default::default()
                 };
 
                 let backend_opts = BackendSolveOptions {
@@ -386,19 +387,20 @@ pub fn step_intrinsics_optimize_all(
             } => {
                 let cam = &per_cam_intrinsics[cam_idx];
                 let sensor = per_cam_sensors_in.as_ref().unwrap()[cam_idx];
-                let initial_params =
-                    ScheimpflugIntrinsicsParams::new(cam.k, cam.dist, sensor, initial_poses)?;
+                let initial_params = tilted_planar_params(cam.k, cam.dist, sensor, initial_poses)?;
 
                 // Distortion mask is configurable per `SensorMode::Scheimpflug`.
                 // Default is `radial_only()` (k1, k2 free; k3, p1, p2 fixed) —
                 // tangential distortion can absorb tilt-like geometric signal
                 // and interfere with Scheimpflug tilt optimization. Narrow-FOV
                 // rigs that overfit k2 can override to e.g. (k1, p1, p2) free.
-                let solve_opts = ScheimpflugIntrinsicsSolveOptions {
+                let solve_opts = PlanarIntrinsicsSolveOptions {
                     robust_loss: config.solver.robust_loss,
-                    fix_intrinsics: IntrinsicsFixMask::default(),
-                    fix_distortion: *distortion_mask_in_percam_ba,
-                    fix_scheimpflug: *fix_scheimpflug,
+                    fix: rig_camera_fix(
+                        IntrinsicsFixMask::default(),
+                        *distortion_mask_in_percam_ba,
+                        *fix_scheimpflug,
+                    ),
                     fix_poses: vec![0],
                     bounds: None,
                 };
@@ -431,13 +433,13 @@ pub fn step_intrinsics_optimize_all(
                 }
 
                 optimized_cameras.push(make_pinhole_camera(
-                    result.params.intrinsics,
-                    result.params.distortion_bc5(),
+                    result.params.camera.intrinsics,
+                    rig_distortion(&result.params),
                 ));
                 optimized_sensors
                     .as_mut()
                     .unwrap()
-                    .push(result.params.sensor);
+                    .push(rig_tilt(&result.params));
                 per_cam_reproj_errors.push(result.mean_reproj_error);
             }
         }

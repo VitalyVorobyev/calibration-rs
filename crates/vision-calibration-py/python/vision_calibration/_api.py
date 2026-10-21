@@ -37,8 +37,6 @@ from .models import (
     RigLaserlineDeviceResult,
     RigLaserlineUpstreamCalibration,
     RigHandeyeResult,
-    ScheimpflugIntrinsicsCalibrationConfig,
-    ScheimpflugIntrinsicsResult,
     SingleCamHandeyeCalibrationConfig,
     SingleCamHandeyeDataset,
     SingleCamHandeyeResult,
@@ -131,17 +129,6 @@ def _run_laserline_device_raw(
     return LaserlineDeviceResult.from_payload(raw)
 
 
-def _run_scheimpflug_intrinsics_raw(
-    input_payload: Mapping[str, Any],
-    config_payload: Mapping[str, Any] | None = None,
-) -> ScheimpflugIntrinsicsResult:
-    raw = cast(
-        dict[str, Any],
-        _native.run_scheimpflug_intrinsics(input_payload, config_payload),
-    )
-    return ScheimpflugIntrinsicsResult.from_payload(raw)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # High-level typed API
 # ─────────────────────────────────────────────────────────────────────────────
@@ -207,19 +194,6 @@ def run_laserline_device(
     dataset = _ensure_type(input, LaserlineDataset, "input")
     cfg = _ensure_optional_type(config, LaserlineDeviceCalibrationConfig, "config")
     return _run_laserline_device_raw(
-        dataset.to_payload(),
-        None if cfg is None else cfg.to_payload(),
-    )
-
-
-def run_scheimpflug_intrinsics(
-    input: PlanarDataset,
-    config: ScheimpflugIntrinsicsCalibrationConfig | None = None,
-) -> ScheimpflugIntrinsicsResult:
-    """Run Scheimpflug intrinsics calibration with typed input/config objects."""
-    dataset = _ensure_type(input, PlanarDataset, "input")
-    cfg = _ensure_optional_type(config, ScheimpflugIntrinsicsCalibrationConfig, "config")
-    return _run_scheimpflug_intrinsics_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
     )
@@ -377,7 +351,6 @@ def pixel_to_gripper_point(
 
 CalibrationResult = (
     PlanarCalibrationResult
-    | ScheimpflugIntrinsicsResult
     | SingleCamHandeyeResult
     | LaserlineDeviceResult
     | RigExtrinsicsResult

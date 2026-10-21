@@ -59,10 +59,10 @@ CHANGELOG with migration notes.
 - **Sessions** ([ADR 0007](../docs/adrs/0007-session-framework.md)): every
   workflow is `CalibrationSession<P: ProblemType>` driven by free step
   functions (`set_input` → `step_init` → `step_optimize` → `export`).
-  Eight problem types: `PlanarIntrinsics`, `ScheimpflugIntrinsics`,
-  `SingleCamHandeye`, `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`,
-  `RigLaserlineDevice`, `RigHandeyeLaserline`; the rig types cover pinhole
-  and Scheimpflug rigs through `SensorMode`.
+  Seven problem types: `PlanarIntrinsics`, `SingleCamHandeye`,
+  `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`, `RigLaserlineDevice`,
+  `RigHandeyeLaserline`. Planar intrinsics takes its sensor from
+  `camera.model`; the rig types still choose it through `SensorMode`.
 - **Optimization IR** ([ADR 0008](../docs/adrs/0008-optimization-ir-and-backends.md)):
   problems are `ProblemIR` (parameter + residual blocks) compiled to a
   solver backend; factors are generic over `T: RealField` for autodiff

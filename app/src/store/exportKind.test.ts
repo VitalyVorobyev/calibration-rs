@@ -4,7 +4,6 @@ import { PLANAR_EXPORT_FIXTURE } from "../test/exportFixtures";
 
 const WIRE_KINDS: Exclude<ExportKind, "unknown">[] = [
   "planar_intrinsics",
-  "scheimpflug_intrinsics",
   "single_cam_handeye",
   "laserline_device",
   "rig_extrinsics",

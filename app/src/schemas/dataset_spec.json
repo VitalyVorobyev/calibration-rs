@@ -590,16 +590,11 @@
       ]
     },
     "Topology": {
-      "description": "Calibration topology — selects the problem-type dispatch.",
+      "description": "Calibration topology — selects the problem-type dispatch.\n\nA topology describes the data (how many cameras, robot poses, laser\nimages), not the camera model: a tilted (Scheimpflug) single camera is a\n`planar_intrinsics` dataset whose calibration config names the sensor.",
       "oneOf": [
         {
           "const": "planar_intrinsics",
-          "description": "Single camera, planar target — `PlanarIntrinsicsProblem`.",
-          "type": "string"
-        },
-        {
-          "const": "scheimpflug_intrinsics",
-          "description": "Single camera with Scheimpflug tilt — `ScheimpflugIntrinsicsProblem`.",
+          "description": "Single camera, planar target — `PlanarIntrinsicsProblem` (any camera\nmodel, including a tilted sensor).",
           "type": "string"
         },
         {

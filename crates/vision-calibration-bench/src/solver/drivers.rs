@@ -11,7 +11,8 @@ use vision_calibration::laserline_device::{
     LaserlineDeviceProblem, step_init as laser_init, step_optimize as laser_optimize,
 };
 use vision_calibration::planar_intrinsics::{
-    PlanarIntrinsicsProblem, step_init as planar_init, step_optimize as planar_optimize,
+    PlanarIntrinsicsProblem, step_init as planar_init,
+    step_init_with_seed as planar_init_with_seed, step_optimize as planar_optimize,
 };
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsOutput, RigExtrinsicsProblem, step_intrinsics_init_all_with_seed,
@@ -29,9 +30,6 @@ use vision_calibration::rig_handeye_laserline::{
 };
 use vision_calibration::rig_laserline_device::{
     RigLaserlineDeviceProblem, step_init as rl_init, step_optimize as rl_optimize,
-};
-use vision_calibration::scheimpflug_intrinsics::{
-    ScheimpflugIntrinsicsProblem, step_init_with_seed as sch_init, step_optimize as sch_optimize,
 };
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::single_cam_handeye::{
@@ -181,11 +179,11 @@ fn solve_once(scene: &Scene) -> Result<Solved> {
             config,
             seed,
         } => {
-            let mut s = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+            let mut s = CalibrationSession::<PlanarIntrinsicsProblem>::new();
             s.set_config(config.clone())?;
             s.set_input(input.clone())?;
-            ph.init(|| sch_init(&mut s, seed.clone(), None))?;
-            ph.optimize(|| sch_optimize(&mut s, None))?;
+            ph.init(|| planar_init_with_seed(&mut s, seed.clone(), None))?;
+            ph.optimize(|| planar_optimize(&mut s, None))?;
             let e = s.export()?;
             (
                 ModelParams {

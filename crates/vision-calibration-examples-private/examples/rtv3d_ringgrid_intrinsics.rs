@@ -47,9 +47,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use vision_calibration::device_seed::{DEVICE_SPEC_FILENAME, DeviceSpec, scheimpflug_seed};
-use vision_calibration::scheimpflug_intrinsics::{
-    ScheimpflugFixMask, ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsProblem,
-    step_init_with_seed, step_optimize,
+use vision_calibration::core::SensorKind;
+use vision_calibration::planar_intrinsics::{
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, step_init_with_seed, step_optimize,
 };
 use vision_calibration::session::CalibrationSession;
 use vision_calibration_core::{
@@ -181,17 +181,14 @@ fn main() -> Result<()> {
             .with_context(|| format!("camera {c}: build planar dataset"))?;
         let markers = dataset.views.iter().map(|v| v.obs.points_2d.len()).sum();
 
-        let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(dataset)?;
 
-        let mut config = ScheimpflugIntrinsicsConfig::default();
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.camera.model.sensor = SensorKind::Scheimpflug;
         config.solver.max_iters = max_iters;
         // k1,k2 free; k3 + tangential fixed (default radial_only); both
         // Scheimpflug tilts free; robust loss for the detector outlier tail.
-        config.fix_scheimpflug = ScheimpflugFixMask {
-            tilt_x: false,
-            tilt_y: false,
-        };
         config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config)?;
 
@@ -297,7 +294,7 @@ fn sweep_enabled() -> bool {
 /// distortion model and return its mean reprojection error (px).
 ///
 /// Mirrors the gated run's config exactly — same seed, same fix masks, same
-/// robust loss — changing only `distortion_model`. Non-BC5 models produce a
+/// robust loss — changing only `camera.model.distortion`. Non-BC5 models produce a
 /// different `DistortionParams` variant on output, but the sweep only reads
 /// the scalar reprojection metric, so no variant matching is needed.
 fn sweep_solve_camera(
@@ -308,17 +305,14 @@ fn sweep_solve_camera(
     max_iters: usize,
 ) -> Result<f64> {
     let dataset = PlanarDataset::new(views)?;
-    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session.set_input(dataset)?;
 
-    let mut config = ScheimpflugIntrinsicsConfig::default();
+    let mut config = PlanarIntrinsicsConfig::default();
+    config.camera.model.sensor = SensorKind::Scheimpflug;
     config.solver.max_iters = max_iters;
-    config.fix_scheimpflug = ScheimpflugFixMask {
-        tilt_x: false,
-        tilt_y: false,
-    };
     config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
-    config.distortion_model = model;
+    config.camera.model.distortion = model;
     session.set_config(config)?;
 
     let seed = scheimpflug_seed(spec, &format!("cam{cam}"))?;

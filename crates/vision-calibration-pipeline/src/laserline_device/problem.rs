@@ -100,7 +100,8 @@ impl Default for LaserlineDeviceOptimizeConfig {
 impl LaserlineDeviceConfig {
     /// Convert to vision-calibration-linear initialization options.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        self.init.iterative_opts(None)
+        // The camera is untilted: tangential terms stay free unless configured.
+        self.init.iterative_opts(None, false)
     }
 
     /// Convert to vision-calibration-optim solve options.

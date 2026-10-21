@@ -100,7 +100,6 @@ it("covers every schema in app/src/schemas", () => {
     "rig_handeye_config",
     "rig_handeye_laserline_config",
     "rig_laserline_device_config",
-    "scheimpflug_intrinsics_config",
     "single_cam_handeye_config",
   ]);
   for (const c of CASES) expect(c.value, `${c.name} has a default value`).toBeDefined();

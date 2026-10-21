@@ -89,11 +89,12 @@ pub use math::{
     from_homogeneous, normalized_to_pixel, pixel_to_normalized, to_homogeneous, undistort_pixel,
 };
 pub use models::{
-    AnyDistortion, AnyProjection, AnySensor, BrownConrady5, Camera, CameraModel, CameraModelSpec,
-    CameraParams, CameraProject, DistortionKind, DistortionModel, DistortionParams, Division,
-    FxFyCxCy, HomographySensor, INTRINSICS_PARAM_NAMES, IdentitySensor, IntrinsicsModel,
-    NoDistortion, Pinhole, ProjectionKind, ProjectionModel, ProjectionParams, RationalPolynomial,
-    Ray, ScheimpflugParams, SensorKind, SensorModel, SensorParams, ThinPrism,
+    AnyDistortion, AnyProjection, AnySensor, BrownConrady5, Camera, CameraFix, CameraModel,
+    CameraModelSpec, CameraParams, CameraProject, DistortionKind, DistortionModel,
+    DistortionParams, Division, FixedParams, FxFyCxCy, HomographySensor, INTRINSICS_PARAM_NAMES,
+    IdentitySensor, IntrinsicsModel, NoDistortion, Pinhole, ProjectionKind, ProjectionModel,
+    ProjectionParams, RationalPolynomial, Ray, ScheimpflugParams, SensorKind, SensorModel,
+    SensorParams, ThinPrism,
 };
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 pub use types::{

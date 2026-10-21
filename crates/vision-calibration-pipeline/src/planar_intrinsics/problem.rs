@@ -6,25 +6,26 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraFixMask, ImageManifest, PerFeatureResiduals, PlanarDataset, Uncertainty,
+    DistortionKind, ImageManifest, PerFeatureResiduals, PlanarDataset, SensorKind, Uncertainty,
     build_feature_histogram, compute_planar_target_residuals,
 };
 use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
-    DistortionKind, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
-    SolveReport,
+    PlanarIntrinsicsEstimate, PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, SolveReport,
 };
 
 use crate::common::ExportKind;
-use crate::common::config::{IntrinsicsInitConfig, SolverConfig};
+use crate::common::config::{CameraConfig, IntrinsicsInitConfig, SolverConfig};
 use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::PlanarState;
 
 /// Planar intrinsics calibration problem (Zhang's method with distortion).
 ///
-/// This problem type implements calibration of camera intrinsics and distortion
-/// from multiple views of a planar calibration pattern.
+/// This problem type calibrates one camera — intrinsics, distortion and, for a
+/// tilted (Scheimpflug) sensor, the sensor tilt — from multiple views of a
+/// planar calibration pattern. The camera model comes from
+/// [`PlanarIntrinsicsConfig::camera`].
 ///
 /// # Associated Types
 ///
@@ -57,39 +58,41 @@ use super::state::PlanarState;
 #[derive(Debug)]
 pub struct PlanarIntrinsicsProblem;
 
+/// Default non-linear iteration cap of a planar solve, sized for a tilted
+/// sensor's tilt valley. The solver stops at convergence, so the cap only
+/// bounds runs that do not converge.
+const DEFAULT_MAX_ITERS: usize = 120;
+
 /// Configuration for planar intrinsics calibration.
 ///
-/// Grouped by stage: linear-init and non-linear-solve settings live in
-/// the shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs;
-/// `distortion_model`, `fix_camera`, and `fix_poses` stay top-level (they
-/// are not shared with any other problem type today).
+/// Grouped by stage: linear-init and non-linear-solve settings live in the
+/// shared [`IntrinsicsInitConfig`] / [`SolverConfig`] sub-structs, and the
+/// camera model with its fix lists in [`CameraConfig`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct PlanarIntrinsicsConfig {
-    /// Per-camera linear-initialization stage settings.
+    /// Linear-initialization stage settings. `init.fix_tangential` defaults
+    /// to `true` for a Scheimpflug sensor and `false` otherwise.
     pub init: IntrinsicsInitConfig,
 
-    /// Non-linear solve stage settings.
+    /// Non-linear solve stage settings. `solver.max_iters` defaults to 120,
+    /// sized for a tilted sensor's tilt valley; the solver stops at
+    /// convergence, so the cap only bounds runs that do not converge.
     pub solver: SolverConfig,
 
-    /// Distortion model to use for optimization.
+    /// The camera model and its fixed parameters.
     ///
-    /// Selects which distortion model is built during initialization and
-    /// handed to the optimizer. Brown-Conrady5 is the default and is
-    /// compatible with all existing downstream rig consumers. Extended
-    /// models (Rational8, ThinPrism9, Division1) are PlanarIntrinsics-only;
-    /// they cannot be passed into `RigExtrinsics` / `RigHandeye` pipelines
-    /// which still expect a `PinholeCamera`.
-    #[serde(default = "crate::common::config::default_distortion_kind")]
-    pub distortion_model: DistortionKind,
+    /// Any distortion kind with an identity sensor; a Scheimpflug sensor
+    /// needs a distortion model. A tilted sensor's solve without a tilt seed
+    /// runs a multi-start tilt sweep (see `step_optimize`).
+    #[serde(default)]
+    pub camera: CameraConfig,
 
-    /// Mask for fixing camera intrinsics/distortion parameters during
-    /// optimization.
-    pub fix_camera: CameraFixMask,
-
-    /// Indices of poses to fix during optimization (e.g., \[0\] to fix first pose).
+    /// Indices of poses to fix during optimization (e.g., \[0\] to fix first
+    /// pose). Default: none — the board fixes the target frame, and a fixed
+    /// pose makes the reported uncertainty conditional on it.
     pub fix_poses: Vec<usize>,
 }
 
@@ -97,27 +100,34 @@ impl Default for PlanarIntrinsicsConfig {
     fn default() -> Self {
         Self {
             init: IntrinsicsInitConfig::default(),
-            solver: SolverConfig::default(),
-            distortion_model: DistortionKind::BrownConrady5,
-            fix_camera: CameraFixMask::default(),
+            solver: SolverConfig {
+                max_iters: DEFAULT_MAX_ITERS,
+                ..SolverConfig::default()
+            },
+            camera: CameraConfig::default(),
             fix_poses: Vec::new(),
         }
     }
 }
 
 impl PlanarIntrinsicsConfig {
+    /// Whether the camera has a tilted (Scheimpflug) sensor.
+    pub fn is_scheimpflug(&self) -> bool {
+        self.camera.model.sensor == SensorKind::Scheimpflug
+    }
+
     /// Convert to vision-calibration-linear initialization options.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        self.init.iterative_opts(None)
+        self.init.iterative_opts(None, self.is_scheimpflug())
     }
 
     /// Convert to vision-calibration-optim solve options.
     pub fn solve_opts(&self) -> PlanarIntrinsicsSolveOptions {
         PlanarIntrinsicsSolveOptions {
             robust_loss: self.solver.robust_loss,
-            fix_intrinsics: self.fix_camera.intrinsics,
-            fix_distortion: self.fix_camera.distortion,
+            fix: self.camera.fix.clone(),
             fix_poses: self.fix_poses.clone(),
+            bounds: None,
         }
     }
 }
@@ -129,7 +139,8 @@ impl PlanarIntrinsicsConfig {
 pub struct PlanarIntrinsicsExport {
     /// Export-type discriminator — always [`ExportKind::PlanarIntrinsics`].
     pub kind: ExportKind,
-    /// Calibrated parameters.
+    /// Calibrated parameters; `params.camera.sensor` states whether a tilted
+    /// sensor was calibrated.
     pub params: PlanarIntrinsicsParams,
     /// Solver report.
     pub report: SolveReport,
@@ -148,8 +159,9 @@ pub struct PlanarIntrinsicsExport {
     /// shipped"; the calibration pipeline never reads this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,
-    /// Covariance of the calibrated parameters: `fx ± σ`, correlations, and
-    /// the noise level the residuals imply.
+    /// Covariance of the calibrated parameters: `fx ± σ` (and `tilt_x ± σ`
+    /// for a tilted sensor), correlations, and the noise level the residuals
+    /// imply.
     #[serde(default)]
     pub uncertainty: Uncertainty,
 }
@@ -199,6 +211,13 @@ impl ProblemType for PlanarIntrinsicsProblem {
         }
         if config.init.init_iterations == 0 {
             return Err(Error::invalid_input("init_iterations must be positive"));
+        }
+        config.camera.validate()?;
+        if config.is_scheimpflug() && config.camera.model.distortion == DistortionKind::None {
+            return Err(Error::invalid_input(
+                "a Scheimpflug sensor needs a distortion model: the tilt is estimated \
+                 jointly with the radial terms",
+            ));
         }
         Ok(())
     }
@@ -335,6 +354,10 @@ mod tests {
                 fix_k3: false,
                 ..Default::default()
             },
+            camera: CameraConfig::new(vision_calibration_core::CameraModelSpec::pinhole(
+                DistortionKind::Rational8,
+                SensorKind::Scheimpflug,
+            )),
             ..Default::default()
         };
 
@@ -343,6 +366,7 @@ mod tests {
 
         assert_eq!(restored.solver.max_iters, 100);
         assert!(!restored.init.fix_k3);
+        assert_eq!(restored.camera, config.camera);
         match restored.solver.robust_loss {
             vision_calibration_optim::RobustLoss::Huber { scale } => {
                 assert!((scale - 2.5).abs() < 1e-12);
@@ -370,7 +394,7 @@ mod tests {
             init: IntrinsicsInitConfig {
                 init_iterations: 5,
                 fix_k3: true,
-                fix_tangential: true,
+                fix_tangential: Some(true),
             },
             ..Default::default()
         };
@@ -693,5 +717,40 @@ mod tests {
             manifest.frames[0].path,
             std::path::PathBuf::from("pose_0_cam_0.png")
         );
+    }
+
+    #[test]
+    fn default_config_is_pinhole_brown_conrady_with_120_iterations() {
+        let config = PlanarIntrinsicsConfig::default();
+        assert_eq!(config.solver.max_iters, 120);
+        assert_eq!(config.camera, CameraConfig::default());
+        assert!(!config.is_scheimpflug());
+        assert!(!config.init_opts().distortion_opts.fix_tangential);
+    }
+
+    #[test]
+    fn scheimpflug_sensor_defaults_fix_tangential_in_the_linear_stage() {
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.camera.model.sensor = SensorKind::Scheimpflug;
+        assert!(config.init_opts().distortion_opts.fix_tangential);
+        config.init.fix_tangential = Some(false);
+        assert!(!config.init_opts().distortion_opts.fix_tangential);
+    }
+
+    #[test]
+    fn validate_config_rejects_scheimpflug_without_distortion() {
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.camera.model.sensor = SensorKind::Scheimpflug;
+        config.camera.model.distortion = DistortionKind::None;
+        let err = PlanarIntrinsicsProblem::validate_config(&config).unwrap_err();
+        assert!(err.to_string().contains("distortion model"), "{err}");
+    }
+
+    #[test]
+    fn validate_config_rejects_unknown_fix_names() {
+        let mut config = PlanarIntrinsicsConfig::default();
+        config.camera.fix.sensor = Some(vec!["tilt_x".into()]);
+        let err = PlanarIntrinsicsProblem::validate_config(&config).unwrap_err();
+        assert!(err.to_string().contains("tilt_x"), "{err}");
     }
 }

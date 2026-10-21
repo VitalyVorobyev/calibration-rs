@@ -36,7 +36,7 @@
 use nalgebra::{Matrix2, Matrix3, Vector2, Vector3};
 
 use vision_calibration::core::{FxFyCxCy, SensorParams};
-use vision_calibration::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport;
+use vision_calibration::planar_intrinsics::PlanarIntrinsicsExport;
 
 /// Symmetric conic matrix of a circle of radius `r` centered at `(cx, cy)` on
 /// a plane. A homogeneous plane point `p = (x, y, 1)` lies on the circle iff
@@ -180,7 +180,7 @@ pub struct RinggridBiasReport {
 /// (board spec). Per (view, marker) the bias uses the no-distortion
 /// homography `K · H_tilt · [r1 r2 t]` from the exported model and pose.
 pub fn diagnose(
-    export: &ScheimpflugIntrinsicsExport,
+    export: &PlanarIntrinsicsExport,
     r_outer_m: f64,
     r_inner_m: f64,
 ) -> RinggridBiasReport {

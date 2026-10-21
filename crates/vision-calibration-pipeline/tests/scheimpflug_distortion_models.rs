@@ -1,25 +1,24 @@
-//! End-to-end synthetic GT round-trip tests for the Scheimpflug intrinsics
-//! pipeline across every distortion model:
+//! End-to-end synthetic GT round-trip tests for planar intrinsics with a
+//! Scheimpflug sensor across every distortion model:
 //!
-//!   config.distortion_model = X  →  seeded step_init  →  step_optimize  →  export
+//!   config.camera.model.distortion = X  →  seeded step_init  →  step_optimize  →  export
 //!
 //! All scenarios use noiseless synthetic data (modest Scheimpflug tilt) so the
 //! reprojection RMS through the exported camera must be below 1e-2 px.
-//! Brown-Conrady5 is the default-path regression. Config JSON roundtrip (incl.
-//! `None`) and a config missing the field guard the serde contract.
+//! Brown-Conrady5 is the default-path regression. A config JSON roundtrip
+//! guards the serde contract.
 
 #![allow(missing_docs)]
 
 use nalgebra::{Translation3, UnitQuaternion};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraProject, CorrespondenceView, DistortionFixMask, DistortionParams,
-    Division, FxFyCxCy, Iso3, Pinhole, PlanarDataset, Pt2, Pt3, RationalPolynomial,
-    ScheimpflugParams, ThinPrism, View,
+    BrownConrady5, Camera, CameraModelSpec, CameraProject, CorrespondenceView, DistortionKind,
+    DistortionParams, Division, FxFyCxCy, Iso3, Pinhole, PlanarDataset, Pt2, Pt3,
+    RationalPolynomial, ScheimpflugParams, SensorKind, ThinPrism, View,
 };
-use vision_calibration_optim::DistortionKind;
-use vision_calibration_pipeline::scheimpflug_intrinsics::{
-    ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsExport, ScheimpflugIntrinsicsProblem,
-    ScheimpflugManualInit, step_init_with_seed, step_optimize,
+use vision_calibration_pipeline::planar_intrinsics::{
+    PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem, PlanarManualInit,
+    step_init_with_seed, step_optimize,
 };
 use vision_calibration_pipeline::session::CalibrationSession;
 
@@ -99,7 +98,7 @@ fn make_dataset<C: CameraProject>(camera: &C, poses: &[Iso3]) -> PlanarDataset {
     PlanarDataset::new(views).expect("valid dataset")
 }
 
-fn reproj_rms(export: &ScheimpflugIntrinsicsExport, dataset: &PlanarDataset) -> f64 {
+fn reproj_rms(export: &PlanarIntrinsicsExport, dataset: &PlanarDataset) -> f64 {
     let camera = export.params.camera.build().unwrap();
     let poses = &export.params.camera_se3_target;
     let mut sum_sq = 0.0;
@@ -124,26 +123,34 @@ fn reproj_rms(export: &ScheimpflugIntrinsicsExport, dataset: &PlanarDataset) -> 
 /// takes the trusted warm-start path (exercising the leading-radial multi-start),
 /// then optimize and export.
 ///
-/// `fix_distortion` selects the solve mask: BC5 uses the production default
-/// (`radial_only`); the extended-model round trips free every coefficient
-/// (`all_free`) because their GT carries nonzero higher-order / prism terms.
+/// A planar config for a Scheimpflug camera with distortion `model`.
+fn tilted_config(model: DistortionKind) -> PlanarIntrinsicsConfig {
+    let mut config = PlanarIntrinsicsConfig::default();
+    config.camera.model = CameraModelSpec::pinhole(model, SensorKind::Scheimpflug);
+    config.solver.max_iters = 200;
+    // Free k3 so the linear stage does not clamp a coefficient the extended
+    // models want.
+    config.init.fix_k3 = false;
+    config
+}
+
+/// `fix_distortion` selects the fixed coefficients: BC5 uses the model default
+/// (`None`: `k3, p1, p2`); the extended-model round trips free every
+/// coefficient (`Some(vec![])`) because their GT carries nonzero higher-order /
+/// prism terms.
 fn run_pipeline(
     dataset: &PlanarDataset,
     model: DistortionKind,
-    fix_distortion: DistortionFixMask,
-    manual: ScheimpflugManualInit,
+    fix_distortion: Option<Vec<String>>,
+    manual: PlanarManualInit,
 ) -> (
-    ScheimpflugIntrinsicsExport,
-    CalibrationSession<ScheimpflugIntrinsicsProblem>,
+    PlanarIntrinsicsExport,
+    CalibrationSession<PlanarIntrinsicsProblem>,
 ) {
-    let mut config = ScheimpflugIntrinsicsConfig::default();
-    config.distortion_model = model;
-    config.fix_camera.distortion = fix_distortion;
-    config.solver.max_iters = 200;
-    // Free k3 so the mask does not clamp a coefficient the extended models want.
-    config.init.fix_k3 = false;
+    let mut config = tilted_config(model);
+    config.camera.fix.distortion = fix_distortion;
 
-    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session.set_config(config).unwrap();
     session.set_input(dataset.clone()).unwrap();
 
@@ -153,8 +160,8 @@ fn run_pipeline(
     (export, session)
 }
 
-fn near_gt_manual() -> ScheimpflugManualInit {
-    let mut manual = ScheimpflugManualInit::default();
+fn near_gt_manual() -> PlanarManualInit {
+    let mut manual = PlanarManualInit::default();
     manual.intrinsics = Some(FxFyCxCy {
         fx: gt_intrinsics().fx * 1.01,
         fy: gt_intrinsics().fy * 1.01,
@@ -188,7 +195,7 @@ fn bc5_pipeline_round_trip() {
     let (export, _s) = run_pipeline(
         &dataset,
         DistortionKind::BrownConrady5,
-        DistortionFixMask::radial_only(),
+        None,
         near_gt_manual(),
     );
     let rms = reproj_rms(&export, &dataset);
@@ -215,7 +222,7 @@ fn rational8_pipeline_round_trip() {
     let (export, _s) = run_pipeline(
         &dataset,
         DistortionKind::Rational8,
-        DistortionFixMask::all_free(),
+        Some(Vec::new()),
         near_gt_manual(),
     );
     let rms = reproj_rms(&export, &dataset);
@@ -246,7 +253,7 @@ fn thinprism9_pipeline_round_trip() {
     let (export, _s) = run_pipeline(
         &dataset,
         DistortionKind::ThinPrism9,
-        DistortionFixMask::all_free(),
+        Some(Vec::new()),
         near_gt_manual(),
     );
     let rms = reproj_rms(&export, &dataset);
@@ -270,7 +277,7 @@ fn division1_pipeline_round_trip() {
     let (export, _s) = run_pipeline(
         &dataset,
         DistortionKind::Division1,
-        DistortionFixMask::all_free(),
+        Some(Vec::new()),
         near_gt_manual(),
     );
     let rms = reproj_rms(&export, &dataset);
@@ -312,7 +319,7 @@ fn manual_bc5_seed_with_extended_model_warns_and_converges() {
     let (export, session) = run_pipeline(
         &dataset,
         DistortionKind::Rational8,
-        DistortionFixMask::all_free(),
+        Some(Vec::new()),
         manual,
     );
     let rms = reproj_rms(&export, &dataset);
@@ -356,23 +363,17 @@ fn set_config_model_after_init_is_honoured() {
     let dataset = make_dataset(&cam_gt, &gt_poses());
 
     // Init with BrownConrady5 …
-    let mut cfg_bc5 = ScheimpflugIntrinsicsConfig::default();
-    cfg_bc5.distortion_model = DistortionKind::BrownConrady5;
-    cfg_bc5.solver.max_iters = 200;
-    cfg_bc5.init.fix_k3 = false;
+    let cfg_bc5 = tilted_config(DistortionKind::BrownConrady5);
 
-    let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     session.set_config(cfg_bc5).unwrap();
     session.set_input(dataset.clone()).unwrap();
     step_init_with_seed(&mut session, near_gt_manual(), None).expect("seeded init (BC5)");
 
     // … then swap to Rational8 AFTER init (state is kept by on_config_change).
-    let mut cfg_rational = ScheimpflugIntrinsicsConfig::default();
-    cfg_rational.distortion_model = DistortionKind::Rational8;
+    let mut cfg_rational = tilted_config(DistortionKind::Rational8);
     // Free every coefficient so the nonzero GT k4 is recoverable.
-    cfg_rational.fix_camera.distortion = DistortionFixMask::all_free();
-    cfg_rational.solver.max_iters = 200;
-    cfg_rational.init.fix_k3 = false;
+    cfg_rational.camera.fix.distortion = Some(Vec::new());
     session.set_config(cfg_rational).unwrap();
 
     step_optimize(&mut session, None).expect("optimize (Rational8)");
@@ -399,38 +400,19 @@ fn set_config_model_after_init_is_honoured() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn config_distortion_model_json_roundtrip() {
+fn config_camera_model_json_roundtrip() {
     for model in [
         DistortionKind::BrownConrady5,
         DistortionKind::Rational8,
         DistortionKind::ThinPrism9,
         DistortionKind::Division1,
-        DistortionKind::None,
     ] {
-        let mut config = ScheimpflugIntrinsicsConfig::default();
-        config.distortion_model = model;
+        let config = tilted_config(model);
         let json = serde_json::to_string(&config).unwrap();
-        let restored: ScheimpflugIntrinsicsConfig = serde_json::from_str(&json).unwrap();
+        let restored: PlanarIntrinsicsConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(
-            restored.distortion_model, model,
-            "distortion_model roundtrip failed for {model:?}"
+            restored.camera, config.camera,
+            "camera roundtrip failed for {model:?}"
         );
     }
-}
-
-#[test]
-fn config_missing_distortion_model_defaults_to_bc5() {
-    // A config JSON written before `distortion_model` existed has no `distortion_model` field: it must
-    // deserialize to BrownConrady5 via #[serde(default = ...)].
-    let default_config = ScheimpflugIntrinsicsConfig::default();
-    let mut json_val: serde_json::Value = serde_json::to_value(&default_config).unwrap();
-    json_val.as_object_mut().unwrap().remove("distortion_model");
-    let json_without_field = serde_json::to_string(&json_val).unwrap();
-
-    let config: ScheimpflugIntrinsicsConfig = serde_json::from_str(&json_without_field).unwrap();
-    assert_eq!(
-        config.distortion_model,
-        DistortionKind::BrownConrady5,
-        "missing field must default to BrownConrady5"
-    );
 }

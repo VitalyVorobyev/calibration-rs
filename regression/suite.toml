@@ -70,10 +70,10 @@ synthetic = "planar_intrinsics/pinhole/medium/n0.5/clean"
 
 [[entry]]
 id = "synth_scheimpflug"
-description = "Synthetic Scheimpflug intrinsics: tilted sensor, 20 views, 0.5 px noise"
+description = "Synthetic planar intrinsics with a tilted (Scheimpflug) sensor: 20 views, 0.5 px noise"
 licence = "CC0-1.0"
-synthetic = "scheimpflug_intrinsics/scheimpflug/medium/n0.5/clean"
-config = { fix_scheimpflug = { tilt_x = false, tilt_y = false } }
+synthetic = "planar_intrinsics/scheimpflug/medium/n0.5/clean"
+config = { camera = { model = { sensor = "scheimpflug" } } }
 
 [[entry]]
 id = "synth_handeye"

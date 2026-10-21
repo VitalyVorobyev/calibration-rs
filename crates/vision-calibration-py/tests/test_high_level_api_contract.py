@@ -10,11 +10,6 @@ class HighLevelApiContractTest(unittest.TestCase):
         cases = [
             (vc.run_planar_intrinsics, {"views": []}, vc.PlanarCalibrationConfig()),
             (
-                vc.run_scheimpflug_intrinsics,
-                {"views": []},
-                vc.ScheimpflugIntrinsicsCalibrationConfig(),
-            ),
-            (
                 vc.run_single_cam_handeye,
                 {"views": []},
                 vc.SingleCamHandeyeCalibrationConfig(),
@@ -44,7 +39,6 @@ class HighLevelApiContractTest(unittest.TestCase):
     def test_dict_configs_are_rejected_for_all_high_level_runners(self) -> None:
         cases = [
             (vc.run_planar_intrinsics, vc.PlanarDataset(views=[])),
-            (vc.run_scheimpflug_intrinsics, vc.PlanarDataset(views=[])),
             (vc.run_single_cam_handeye, vc.SingleCamHandeyeDataset(views=[])),
             (vc.run_rig_extrinsics, vc.RigExtrinsicsDataset(num_cameras=2, views=[])),
             (vc.run_rig_handeye, vc.RigHandeyeDataset(num_cameras=2, views=[])),
@@ -63,11 +57,6 @@ class HighLevelApiContractTest(unittest.TestCase):
         # TypeError is reserved for wrong Python types (dicts, lists, ...).
         cases = [
             (vc.run_planar_intrinsics, vc.PlanarDataset(views=[]), vc.PlanarCalibrationConfig()),
-            (
-                vc.run_scheimpflug_intrinsics,
-                vc.PlanarDataset(views=[]),
-                vc.ScheimpflugIntrinsicsCalibrationConfig(),
-            ),
             (
                 vc.run_single_cam_handeye,
                 vc.SingleCamHandeyeDataset(views=[]),

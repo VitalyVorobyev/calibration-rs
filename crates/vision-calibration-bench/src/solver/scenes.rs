@@ -19,7 +19,7 @@ use vision_calibration::laserline_device::{LaserlineDeviceConfig, LaserlineDevic
 use vision_calibration::optim::{
     HandEyeMode, LaserPlane, LaserlineMeta, RobotPoseMeta, RobustLoss, SolverBackend,
 };
-use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
+use vision_calibration::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarManualInit};
 use vision_calibration::rig_extrinsics::{
     RigExtrinsicsConfig, RigExtrinsicsInput, RigIntrinsicsManualInit, SensorMode,
 };
@@ -29,9 +29,6 @@ use vision_calibration::rig_handeye_laserline::{
 };
 use vision_calibration::rig_laserline_device::{
     RigLaserlineDataset, RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigUpstreamCalibration,
-};
-use vision_calibration::scheimpflug_intrinsics::{
-    ScheimpflugIntrinsicsConfig, ScheimpflugIntrinsicsInput, ScheimpflugManualInit,
 };
 use vision_calibration::single_cam_handeye::{
     HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeInput, SingleCamHandeyeView,
@@ -53,17 +50,16 @@ pub const OUTLIER_SHIFT_PX: (f64, f64) = (10.0, 30.0);
 /// Scale of the Huber / Cauchy loss used on contaminated scenes.
 pub const OUTLIER_LOSS_SCALE: f64 = 1.0;
 
-/// The eight problem types.
+/// The seven problem types; a tilted sensor is a [`SensorKind`] of a scene,
+/// not a problem.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, clap::ValueEnum,
 )]
 #[serde(rename_all = "snake_case")]
 #[value(rename_all = "snake_case")]
 pub enum Problem {
-    /// Zhang planar intrinsics.
+    /// Zhang planar intrinsics (straight or tilted sensor).
     PlanarIntrinsics,
-    /// Planar intrinsics with a tilted sensor.
-    ScheimpflugIntrinsics,
     /// Single camera hand-eye.
     SingleCamHandeye,
     /// Laser plane + camera on a planar target.
@@ -80,9 +76,8 @@ pub enum Problem {
 
 impl Problem {
     /// Every problem type, in table order.
-    pub const ALL: [Problem; 8] = [
+    pub const ALL: [Problem; 7] = [
         Problem::PlanarIntrinsics,
-        Problem::ScheimpflugIntrinsics,
         Problem::SingleCamHandeye,
         Problem::LaserlineDevice,
         Problem::RigExtrinsics,
@@ -95,7 +90,6 @@ impl Problem {
     pub fn name(self) -> &'static str {
         match self {
             Self::PlanarIntrinsics => "planar_intrinsics",
-            Self::ScheimpflugIntrinsics => "scheimpflug_intrinsics",
             Self::SingleCamHandeye => "single_cam_handeye",
             Self::LaserlineDevice => "laserline_device",
             Self::RigExtrinsics => "rig_extrinsics",
@@ -267,8 +261,22 @@ impl SceneSpec {
     }
 
     /// Deterministic seed: FNV-1a of the scene id.
+    ///
+    /// A tilted planar scene hashes its id with the problem spelled
+    /// `scheimpflug_intrinsics`, the key its data was first generated under,
+    /// so the scene — and the regression-suite entry frozen from it — keeps
+    /// its data.
     pub fn seed(&self) -> u64 {
-        self.id().bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        let id = self.id();
+        let key = match (self.problem, self.sensor) {
+            (Problem::PlanarIntrinsics, SensorKind::Scheimpflug) => id.replacen(
+                Problem::PlanarIntrinsics.name(),
+                "scheimpflug_intrinsics",
+                1,
+            ),
+            _ => id,
+        };
+        key.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
             (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
         })
     }
@@ -311,14 +319,15 @@ pub enum SceneData {
         /// Solver configuration.
         config: PlanarIntrinsicsConfig,
     },
-    /// Scheimpflug intrinsics with a coarse device-spec seed.
+    /// Planar intrinsics of a tilted (Scheimpflug) camera with a coarse
+    /// device-spec seed.
     Scheimpflug {
         /// Input dataset.
-        input: ScheimpflugIntrinsicsInput,
-        /// Solver configuration.
-        config: ScheimpflugIntrinsicsConfig,
+        input: PlanarDataset,
+        /// Solver configuration (a Scheimpflug camera model).
+        config: PlanarIntrinsicsConfig,
         /// Coarse focal + nominal tilt seed.
-        seed: ScheimpflugManualInit,
+        seed: PlanarManualInit,
     },
     /// Single-camera hand-eye.
     SingleCamHandeye {
@@ -425,7 +434,7 @@ impl fmt::Display for Preset {
 /// Problem × sensor combinations of the matrix.
 const VARIANTS: [(Problem, SensorKind); 9] = [
     (Problem::PlanarIntrinsics, SensorKind::Pinhole),
-    (Problem::ScheimpflugIntrinsics, SensorKind::Scheimpflug),
+    (Problem::PlanarIntrinsics, SensorKind::Scheimpflug),
     (Problem::SingleCamHandeye, SensorKind::Pinhole),
     (Problem::LaserlineDevice, SensorKind::Pinhole),
     (Problem::RigExtrinsics, SensorKind::Pinhole),
@@ -779,16 +788,17 @@ impl Scene {
     pub fn build(spec: &SceneSpec) -> Result<Self> {
         let b = Builder::new(spec);
         let supported = match spec.problem {
-            Problem::ScheimpflugIntrinsics => spec.sensor == SensorKind::Scheimpflug,
-            Problem::RigExtrinsics => true,
+            Problem::PlanarIntrinsics | Problem::RigExtrinsics => true,
             _ => spec.sensor == SensorKind::Pinhole,
         };
         if !supported {
             bail!("unsupported combination {}", spec.id());
         }
         match spec.problem {
-            Problem::PlanarIntrinsics => planar_scene(&b),
-            Problem::ScheimpflugIntrinsics => scheimpflug_scene(&b),
+            Problem::PlanarIntrinsics => match spec.sensor {
+                SensorKind::Pinhole => planar_scene(&b),
+                SensorKind::Scheimpflug => scheimpflug_scene(&b),
+            },
             Problem::SingleCamHandeye => single_handeye_scene(&b),
             Problem::LaserlineDevice => laserline_scene(&b),
             Problem::RigExtrinsics => rig_scene(&b),
@@ -833,20 +843,17 @@ fn scheimpflug_scene(b: &Builder) -> Result<Scene> {
     let poses = b.board_poses(0.5, 0.6, 0.4);
     let mut obs = transpose(vec![b.observe(&truth_cam, &poses, 0)?]);
     let outliers = b.outliers(&mut obs);
-    let input: ScheimpflugIntrinsicsInput = PlanarDataset::new(
+    let input = PlanarDataset::new(
         obs.into_iter()
             .map(|mut v| View::without_meta(v.remove(0)))
             .collect(),
     )?;
-    let mut config = ScheimpflugIntrinsicsConfig::default();
+    let mut config = PlanarIntrinsicsConfig::default();
+    config.camera.model.sensor = vision_calibration::core::SensorKind::Scheimpflug;
     config.solver.robust_loss = b.spec.loss;
-    config.fix_scheimpflug = vision_calibration::scheimpflug_intrinsics::ScheimpflugFixMask {
-        tilt_x: false,
-        tilt_y: false,
-    };
     // Coarse device-spec seed: focal ~8 % low, principal point at the image
     // centre, the nominal mount tilt, no distortion.
-    let mut seed = ScheimpflugManualInit::default();
+    let mut seed = PlanarManualInit::default();
     seed.intrinsics = Some(FxFyCxCy {
         fx: 920.0,
         fy: 920.0,
@@ -1029,7 +1036,7 @@ fn rig_scene(b: &Builder) -> Result<Scene> {
             distortion_mask_in_percam_ba: vision_calibration::core::DistortionFixMask::radial_only(
             ),
             refine_scheimpflug_in_rig_ba: false,
-            distortion_model: vision_calibration::optim::DistortionKind::BrownConrady5,
+            distortion_model: vision_calibration::core::DistortionKind::BrownConrady5,
         };
         config.solver.max_iters = 80;
     }
@@ -1292,6 +1299,11 @@ mod tests {
         assert_eq!(ids.len(), n, "scene ids must be unique");
         assert_eq!(full[0].id(), "planar_intrinsics/pinhole/small/n0.1/clean");
         assert_eq!(full[0].seed(), full[0].seed());
+        assert_eq!(
+            full[18].id(),
+            "planar_intrinsics/scheimpflug/small/n0.1/clean",
+            "a tilted sensor is a planar scene's sensor, not a problem"
+        );
         let seeds: std::collections::BTreeSet<_> = full.iter().map(SceneSpec::seed).collect();
         assert_eq!(seeds.len(), n);
         assert_eq!(scene_specs(Preset::Quick).len(), 9);

@@ -7,8 +7,7 @@ as typed Python runners:
 
 | Runner | Workflow |
 |---|---|
-| `run_planar_intrinsics` | Planar intrinsics |
-| `run_scheimpflug_intrinsics` | Planar intrinsics with Scheimpflug tilt |
+| `run_planar_intrinsics` | Planar intrinsics (pinhole or tilted Scheimpflug sensor) |
 | `run_single_cam_handeye` | Single-camera hand-eye |
 | `run_laserline_device` | Camera + laser plane |
 | `run_rig_extrinsics` | Multi-camera rig extrinsics |
@@ -44,15 +43,16 @@ obs = vc.Observation(
 )
 dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
 config = vc.PlanarCalibrationConfig(
-    max_iters=80,
-    robust_loss=vc.robust_huber(1.0),
+    solver=vc.SolverConfig(max_iters=80, robust_loss=vc.robust_huber(1.0)),
 )
 
 result = vc.run_planar_intrinsics(dataset, config)
 print(result.mean_reproj_error)
 ```
 
-Scheimpflug workflow:
+Tilted (Scheimpflug) sensor: select it in the camera model. By default the
+tilt is refined and only the leading distortion terms are free; list parameter
+names in `CameraFix` (for example `CameraFix(sensor=["tilt_x"])`) to fix others.
 
 ```python
 import vision_calibration as vc
@@ -62,10 +62,10 @@ obs = vc.Observation(
     points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
 )
 dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
-config = vc.ScheimpflugIntrinsicsCalibrationConfig(
-    fix_scheimpflug={"tilt_x": False, "tilt_y": False}
+config = vc.PlanarCalibrationConfig(
+    camera=vc.CameraConfig(model=vc.CameraModelSpec(sensor="scheimpflug")),
 )
-result = vc.run_scheimpflug_intrinsics(dataset, config)
+result = vc.run_planar_intrinsics(dataset, config)
 print(result.camera.sensor)
 ```
 

@@ -234,7 +234,8 @@ pub fn step_intrinsics_init_with_seed(
         make_pinhole_camera(k, dist)
     } else {
         auto_fields.push("intrinsics");
-        let init_opts = config.intrinsics.iterative_opts(opts.iterations);
+        // The camera is untilted: tangential terms stay free unless configured.
+        let init_opts = config.intrinsics.iterative_opts(opts.iterations, false);
         let planar_dataset = input_to_planar_dataset(input)?;
         let bootstrap_camera = match estimate_intrinsics_iterative(&planar_dataset, init_opts) {
             Ok(c) => c,
@@ -373,9 +374,7 @@ pub fn step_intrinsics_optimize(
     // Configure optimization
     let solve_opts = PlanarIntrinsicsSolveOptions {
         robust_loss: config.solver.robust_loss,
-        fix_intrinsics: Default::default(),
-        fix_distortion: Default::default(),
-        fix_poses: Vec::new(),
+        ..Default::default()
     };
 
     let backend_opts = BackendSolveOptions {

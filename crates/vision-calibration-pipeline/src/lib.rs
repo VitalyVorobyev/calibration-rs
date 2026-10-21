@@ -53,7 +53,6 @@ pub mod rig_extrinsics;
 pub mod rig_handeye;
 pub mod rig_handeye_laserline;
 pub mod rig_laserline_device;
-pub mod scheimpflug_intrinsics;
 pub mod single_cam_handeye;
 
 // Manifest-driven dataset runner (ADR 0016 + ADR 0016)
