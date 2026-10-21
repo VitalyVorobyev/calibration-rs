@@ -3,57 +3,48 @@
 Family: single-camera + laser-plane device from planar-target views plus
 laser-stripe pixels (`LaserlineDeviceProblem`; init in
 `vision-calibration-linear::laserline` + the shared Zhang path, refinement in
-`vision-calibration-optim::problems::laserline_bundle`). The same laser cost
-is reused, with a composed pose, by the rig laser axes
-(`RigLaserlineDeviceProblem`, `RigHandeyeLaserlineProblem`) — cited in
-§Rig axes, not re-derived here (their rig/hand-eye parts have their own packs).
+`vision-calibration-optim::problems::laserline_bundle`). The rig laser axes
+(`RigLaserlineDeviceProblem`, `RigHandeyeLaserlineProblem`) reuse the same
+laser cost with a composed pose (§Rig axes).
 
 ## Model
 
-Same composable camera as the planar/Scheimpflug families (ADR 0005),
-`pixel = K( sensor( distort( project(X_c) ) ) )`, `X_c = T_C_T · X_t`
-(pinhole projection, Brown–Conrady 5 distortion, an optional Scheimpflug
-`HomographySensor`, `FxFyCxCySkew`) — see `docs/notes/planar-intrinsics.md`
-for the projection/distortion equations and
-`docs/notes/scheimpflug-intrinsics.md` for the sensor stage. The sensor is a
-hardware property, fixed by default (`fix_sensor: true`); it is taken from
-`config.init.sensor_init`, never from a manual-init seed (ADR 0011).
+The camera is the planar/Scheimpflug families' composable camera (ADR 0005),
+`pixel = K( sensor( distort( project(X_c) ) ) )`, `X_c = T_C_T · X_t` — see
+[planar-intrinsics.md](planar-intrinsics.md) and
+[scheimpflug-intrinsics.md](scheimpflug-intrinsics.md). The sensor is a
+hardware property, fixed by default (`fix_sensor: true`) and taken from
+`config.sensor_init`, never from a manual-init seed (ADR 0011).
 
-The new object is the **laser plane**, stored in the camera frame as
-`LaserPlane { normal: Unit<Vector3>, distance }` with plane equation
+The **laser plane** is stored in the camera frame as
+`LaserPlane { normal: Unit<Vector3>, distance }`
+(`vision-calibration-optim::params::laser_plane`):
 
 ```
 n̂ · p + d = 0      (p in camera coordinates)
 ```
 
-(`vision-calibration-optim::params::laser_plane`). In optimization it is two
-param blocks: `plane_normal` on the **S²** manifold (dim 3) and
-`plane_distance` a Euclidean scalar (dim 1) — so the unit-norm constraint is
-carried by the manifold rather than penalized.
+In optimization it is two param blocks: `plane_normal` on the **S²**
+manifold and `plane_distance` a Euclidean scalar, so the unit-norm
+constraint is carried by the manifold rather than penalized.
 
 Laser observations enter as per-view **stripe pixels**: `LaserlineMeta`
 carries `laser_pixels` (optionally per-pixel `laser_weights`) alongside the
-target correspondences. On real data those pixels come from a subpixel line
-extractor injected through the open `LaserPixelExtractor` trait (ADR 0021) —
-the published crates ship no extractor, only the geometry that consumes its
-output.
+target correspondences. On real data they come from a subpixel line
+extractor injected through the `LaserPixelExtractor` trait (ADR 0016); the
+published crates ship no extractor, only the geometry that consumes it.
 
 ## Initialization
 
-Two stages, both closed-form:
-
-1. **Intrinsics / distortion / poses** — the shared Zhang path
-   (`estimate_intrinsics_iterative`: Hartley-normalized DLT homographies →
-   image of the absolute conic → `K`, per-view PnP poses, iterative
-   `(k1, k2[, p1, p2])` fit), identical to the planar family.
-2. **Laser plane** — `linear::laserline::LaserlinePlaneSolver::from_views`:
-   each laser pixel is undistorted and back-projected to a camera-frame ray,
-   intersected with the target plane (`z = 0` in the *known* per-view pose) to
-   a 3D point, then a plane is fit to the pooled points by covariance
-   eigendecomposition (smallest eigenvector = `n̂`, `d = −n̂ · centroid`). The
-   fit rejects rank-1 (collinear) point clouds and records an RMSE
-   (`initial_plane_rmse`). It requires **≥ 2** views because one stripe alone
-   is collinear (see §Identifiability).
+1. **Intrinsics / distortion / poses** — the planar family's iterative Zhang
+   path (`estimate_intrinsics_iterative`).
+2. **Laser plane** — `LaserlinePlaneSolver::from_views`: each laser pixel is
+   back-projected through the camera model (undistorted) to a camera-frame
+   ray, intersected with the target plane (`z = 0` in the known per-view
+   pose), and a plane is fit to the pooled points by covariance
+   eigendecomposition (smallest eigenvector = `n̂`, `d = −n̂ · centroid`).
+   The fit rejects rank-1 (collinear) clouds, requires ≥ 2 views (one
+   stripe alone is collinear), and records `initial_plane_rmse`.
 
 `step_init_with_seed` (ADR 0011) lets any of intrinsics / distortion / poses /
 plane be supplied instead of estimated.
@@ -62,7 +53,7 @@ plane be supplied instead of estimated.
 
 Joint bundle adjustment (`optimize_laserline`, IR per ADR 0008) over
 intrinsics, distortion (`k3` fixed by default), the sensor (if freed), all
-per-view poses (SE(3), `fix_poses: [0]` by default), and the laser plane
+per-view poses (SE(3); `fix_poses` empty by default), and the laser plane
 (S² normal + scalar distance). Two residual families sum into one problem:
 
 ```
@@ -70,112 +61,97 @@ E = Σ_i Σ_j ρ_c‖ π(K,d,sensor,T_i·X_j) − u_ij ‖²   (target corners, 
   + Σ_i Σ_k ρ_l · r(K,d,sensor,T_i, n̂,d ; q_ik)²    (laser stripe, 1D)
 ```
 
-`ρ_c` / `ρ_l` are the configured robust losses (default Huber 1 px for
-both, as both default residuals are in pixels; per-family weights). The laser residual `r` has two forms
+`ρ_c` / `ρ_l` are `calib_loss` / `laser_loss` (default Huber 1 px each); a
+loss scale is in its residual's unit. Per-family weights `calib_weight` /
+`laser_weight` default to 1. The laser residual `r` has two forms
 (`LaserlineResidualType`, `factors::laserline`):
 
 - **`LineDistNormalized`** (default): intersect the laser and target planes
-  into a 3D line, project it to the `z = 1` normalized plane, undistort the
-  pixel, take the perpendicular 2D point-to-line distance, and scale by
-  `√(fx·fy)`. Units: **pixels** — directly comparable to the reprojection
-  floor, which is why it is the default.
+  into a 3D line, project it to the `z = 1` normalized plane (where it stays
+  straight), undistort the pixel to that plane, take the perpendicular
+  distance and scale by `√(fx·fy)`. Units: **pixels**, comparable to the
+  reprojection floor.
 - **`PointToPlane`**: undistort → ray → intersect target plane → 3D point →
   signed distance `n̂·p + d` to the laser plane. Units: **metres**.
 
-The plane appears **only** in the laser residuals; corners never touch it. So
-the plane is fit from the stripes *conditioned on the poses*, and the poses
-are pinned overwhelmingly by the corners — the two halves are nearly
-block-separable. Factors are autodiff-generic (ADR 0008); the S² retraction
-supplies the normal Jacobian.
+The plane appears **only** in the laser residuals, and the poses are pinned
+overwhelmingly by the corners, so the two halves are nearly block-separable:
+the plane is fit from the stripes conditioned on the poses.
 
 ### Rig axes
 
-`RigLaserlineDeviceProblem` and `RigHandeyeLaserlineProblem` reuse the *same*
-laser cores through `LaserChain::RigHandEye{,RobotDelta}`
-(`optim::ir::types::LaserChain`), which composes `cam_se3_target` from
-`(cam_se3_rig, hand-eye, target_ref, robot pose[, robot Δ])` instead of taking
-a single free pose. A unit test pins the rig residual equal to the single-pose
-residual evaluated at the explicitly composed pose, in both hand-eye modes and
-both residual types (`factors::laserline` tests). Refinement/residual entry
-points: `optim::problems::{laserline_rig_bundle, rig_handeye_laserline_bundle}`,
-pipeline `rig_laserline_device` / `rig_handeye_laserline`. The rig extrinsics
-and hand-eye gauges are covered by their own packs; the laser plane adds none
-beyond the S² sign gauge below.
+`RigLaserlineDeviceProblem` and `RigHandeyeLaserlineProblem` reuse the same
+laser cores through `LaserChain::RigHandEye` / `RigHandEyeRobotDelta`
+(`optim::ir::types`), which compose `cam_se3_target` from
+`(cam_se3_rig, hand-eye, target_ref, robot pose[, robot Δ])` instead of a
+free pose. Unit tests in `factors::laserline`
+(`rig_handeye_residuals_match_single_camera_via_composition`,
+`rig_handeye_robot_delta_laser_residual_matches_corrected_robot_pose`) pin
+the rig residual to the single-pose residual at the composed pose. Entry
+points: `optim::problems::{laserline_rig_bundle,
+rig_handeye_laserline_bundle}`, pipeline `rig_laserline_device` /
+`rig_handeye_laserline`. The laser plane adds no gauge beyond the S² sign
+below; the rig and hand-eye gauges are in their own packs.
 
 ## Identifiability and degeneracies
 
-The plane is seen only through its stripes, each of which is the plane ∩ board
-line — **collinear** points. One board pose therefore constrains only one
-in-plane direction; the plane is rank-deficient along the stripe. Recovery
-needs the per-view stripes to **span the plane's 2D**:
+Each stripe is the plane ∩ board line — **collinear** points — so one board
+pose constrains only one in-plane direction. Recovery needs the per-view
+stripes to **span the plane**:
 
 - **Stripe non-collinearity (the core requirement).** ≥ 2 board poses whose
-  stripes differ in direction and/or offset. Board **orientation** diversity
-  (roll about the optical axis rotates the stripe *within* the board; pitch/yaw
-  reposition it) is the cheap, robust source — it perturbs the stripe without
-  driving it off the board. The linear solver rejects a rank-1 pooled cloud
-  outright.
-- **Distance is the soft DOF.** `n̂` is well pinned by stripe geometry, but the
-  stand-off `d` is constrained by how much the metric stripe positions move
-  across **depth-diverse** poses. Shallow plane tilt or board depths clustered
-  at one distance leaves `d` weakly observable (high variance, not a wrong
-  minimum) — the matrix test mixes tilt with a small depth ramp for this
-  reason.
+  stripes differ in direction and/or offset. Board roll about the optical
+  axis rotates the stripe *within* the board, pitch/yaw reposition it; roll
+  is the cheap, robust source because it does not drive the stripe off the
+  board. The linear solver rejects a rank-1 pooled cloud outright.
+- **Distance is the soft DOF.** `n̂` is pinned by stripe geometry; `d` is
+  constrained by how much the metric stripe positions move across
+  **depth-diverse** poses. Shallow tilt or one board depth leaves `d` weakly
+  observable (high variance, not a wrong minimum).
 - **Degenerate geometries.**
-  - *Stripes all parallel* (e.g. board rotated only about an axis parallel to
-    the intersection line, or pure depth translation with no tilt diversity):
-    stripes stay collinear/parallel → the in-plane direction orthogonal to
-    them is unobservable.
-  - *Laser plane through the camera centre* (`d → 0`): the plane projects to a
-    single fixed image line for every pose, so the stripe carries **no** depth
-    information of its own; calibration can still succeed off the known poses,
-    but the *deployed* triangulation is ill-posed and `d` is maximally
-    ill-conditioned. Small `|d|` is the same pathology, softened.
-  - *Laser plane parallel to a board pose*: the intersection line goes to
-    infinity — no stripe in that view (guarded: the line-direction cross
-    product vanishes → large residual / empty stripe).
-  - *Ray parallel to / behind the target plane*: guarded with a large residual
-    so a stray pixel cannot pull the solve.
-- **View count.** The pipeline requires ≥ 3 views, each with ≥ 4 corner points
-  (homography) and ≥ 1 laser pixel; the plane needs ≥ 2 non-collinear stripes.
+  - *Stripes all parallel* (rotation only about an axis parallel to the
+    intersection line, or pure depth translation): the in-plane direction
+    orthogonal to them is unobservable.
+  - *Laser plane through the camera centre* (`d → 0`): the plane images to
+    one fixed line for every pose, so stripes carry no depth information;
+    calibration can still succeed off the known poses, but the deployed
+    triangulation is ill-posed. Small `|d|` is the same pathology, softened.
+  - *Laser plane parallel to a board pose*: the intersection line is at
+    infinity — no stripe in that view (guarded: large residual).
+  - *Ray parallel to / behind the target plane*: guarded with a large
+    residual so a stray pixel cannot pull the solve.
+- **View count.** The pipeline requires ≥ 3 views, each with ≥ 4 corners
+  and ≥ 1 laser pixel; the plane needs ≥ 2 non-collinear stripes.
 
-The intrinsics inherit the planar family's degeneracies (fronto-parallel
-focal↔distance trade-off, weak principal point under weak distortion, `k3`
-collinearity → `fix_k3: true`) — see `docs/notes/planar-intrinsics.md`.
+The intrinsics inherit the planar family's degeneracies.
 
 **Metric scale in the joint rig + hand-eye + laser BA.** On the six-camera
-rtv3d Scheimpflug rig, the camera-and-rig-only stage leaves a shallow
+`rtv3d` Scheimpflug rig, the camera-and-rig-only stage leaves a shallow
 direction trading overall rig scale against tilt, principal point and pose:
-its extrinsics came out ~10 % small (hexagon edges 88.9 ± 0.4 mm), with the
+its extrinsics come out ~10 % small (hexagon edges 88.9 ± 0.4 mm) with the
 shape intact. The joint BA, with the converged tilts frozen and the laser
 point-to-plane term added, pins that direction: 98.21 ± 0.41 mm against the
-reference calibration's 98.13 ± 1.10 mm (0.08 %). Scale comparisons must
-therefore use the joint-BA extrinsics. The board's 5.2 mm cell is confirmed;
-a cell-size error would give a fixed ratio, not a stage-dependent one.
+reference calibration's 98.13 ± 1.10 mm (0.08 %). Scale comparisons must use
+the joint-BA extrinsics. The board's 5.2 mm cell is confirmed: a cell-size
+error would give a fixed ratio, not a stage-dependent one.
 
 ## Gauge
 
-- **No global gauge.** The plane lives in the physical camera frame, which is
-  the fixed reference; the board fixes each view's target frame; `K`, `d`,
-  sensor are shared; every `T_i` is an independent free block. `fix_poses: [0]`
-  in the default config is a stability/speed convention, **not** a gauge
-  necessity — noise-free data recovers exactly with pose 0 held (matrix test),
-  because the noise-free init is already exact. (Contrast rig extrinsics, where
-  a reference camera genuinely pins the rig frame.)
-- **S² sign gauge.** `(n̂, d)` and `(−n̂, −d)` name the same plane (the S²
-  double cover). The signed distance only flips sign; its magnitude — what the
-  residual squares — is invariant, so the solve is free to land on either
-  sheet. Downstream comparisons sign-align to a reference (the matrix test
-  aligns the recovered normal to GT before measuring the angle/distance).
+- **No global gauge.** The plane lives in the camera frame, the board fixes
+  each view's target frame, and every pose is measured by its own corners,
+  so no pose is held fixed (`fix_poses` empty).
+- **S² sign gauge.** `(n̂, d)` and `(−n̂, −d)` name the same plane. The signed
+  distance only flips sign, so its square is invariant and the solve may land
+  on either sheet. Comparisons sign-align to a reference first (the matrix
+  test aligns the normal to GT).
 
 ## Noise sensitivity
 
-For iid pixel noise with per-axis amplitude `a` (uniform `[−a, a]`) and
-`N ≫ #params`, the target reprojection approaches the planar floor
-(`≈ 0.765·a` mean error-norm) and the laser line-distance residual settles at
-`≈ 0.5·a` px. `n̂` is recovered to a small fraction of a degree; the stand-off
-`d` — the soft DOF — degrades fastest as tilt / depth-spread shrink. Measured
-(matrix test, 6 views, `fx = fy = 900`, working distance 0.50–0.62 m):
+For iid uniform pixel noise `[−a, a]` per axis and `N ≫ #params`, the target
+reprojection approaches the planar floor (`≈ 0.765·a`) and the line-distance
+laser residual settles near `0.5·a`. `n̂` is recovered to a small fraction of
+a degree; the stand-off `d` degrades fastest as tilt / depth spread shrink.
+Matrix test (6 views, `fx = fy = 900`, working distance 0.50–0.62 m):
 
 | noise `a` | normal | distance | laser resid | reproj |
 |---:|---:|---:|---:|---:|
@@ -183,39 +159,34 @@ For iid pixel noise with per-axis amplitude `a` (uniform `[−a, a]`) and
 | 0.15 px | ≤ 0.045° | ≤ 0.51 mm | ≈ 0.073 px | ≈ 0.113 px |
 | 0.30 px | ≤ 0.084° | ≤ 1.10 mm | ≈ 0.159 px | ≈ 0.226 px |
 
-Exact data reproduces GT to solver tolerance. The reprojection column tracks
-`0.765·a` (0.115 / 0.230), confirming the corners hit their noise floor and
-the plane is the only extra unknown.
+The reprojection column tracks `0.765·a` (0.115 / 0.230): the corners hit
+their noise floor and the plane is the only extra unknown.
 
-**Real-data anchor.** On the private `rtv3d`/`rtv3d_ref` Scheimpflug laser
-datasets, the point-to-plane laser residual measures **0.018–0.035 mm** at the
-working distance — the plane-consistency achieved on real hardware (a
-fit-quality metric, not GT recovery), consistent with the sub-millimetre
-synthetic distance bounds above.
+**Real-data anchor.** On the private `rtv3d` / `rtv3d_ref` Scheimpflug laser
+datasets the point-to-plane laser residual is **0.018–0.035 mm** at the
+working distance — plane consistency on real hardware (a fit-quality metric,
+not GT recovery).
 
 ## Evidence
 
 - **Matrix test**: `crates/vision-calibration/tests/laserline_device_matrix.rs`
-  — GT grid (2 plane orientations × 2 working distances) × noise
-  `{0, 0.15, 0.30}` px, standard `run_calibration` (`step_init →
-  step_optimize`) pipeline; asserts normal (deg), distance (mm), and the
-  laser/reprojection floors per cell. Deterministic noise
-  (`UniformPixelNoise`, seed 7); runtime ~2.3 s.
+  — `laserline_device_recovers_plane_across_grid_and_noise` (2 plane
+  orientations × 2 working distances × noise `{0, 0.15, 0.30}` px, default
+  config through `run_calibration` on both backends, `UniformPixelNoise`
+  seed 7); asserts normal, distance, laser and reprojection floors per cell.
 - **Property tests** (same file): `point_to_plane_residual_is_se3_invariant`
-  (`n̂·p + d` is unchanged by any SE(3) re-framing of point + plane — the
-  invariance the point-to-plane residual rests on) and
-  `plane_sign_flip_is_a_gauge` (the S² double-cover). 5000 deterministic cases
-  each.
-- **Pipeline / optim tests**:
-  `vision-calibration-pipeline/tests/laserline_device.rs` (pinhole +
-  Scheimpflug convergence, JSON roundtrip);
-  `optim::problems::laserline_bundle` unit tests (S² manifold for the normal,
-  per-feature residuals zero on perfect data, pose-count guards);
-  `optim::factors::laserline` (rig-chain residual = single-pose composition).
-- **Acceptance gates**: `calib-bench accept` on the `rtv3d` laser entries
-  (laser residual gated at the mm scale above); committed Fit records add
-  drift gates.
-- **Related**: ADR 0021 (laser-frame manifest, injected `LaserPixelExtractor`,
-  per-view laser images), ADR 0012 (per-feature laser residuals on export),
-  `docs/notes/planar-intrinsics.md` (shared projection/distortion + Zhang
-  init), `docs/notes/scheimpflug-intrinsics.md` (shared sensor stage).
+  (`n̂·p + d` is unchanged by any SE(3) re-framing of point + plane) and
+  `plane_sign_flip_is_a_gauge`; 5000 deterministic cases each.
+- **Pipeline / optim tests**: `vision-calibration-pipeline/tests/laserline_device.rs`
+  (pinhole + Scheimpflug convergence, JSON round-trip);
+  `optim::problems::laserline_bundle` unit tests (S² normal block,
+  per-feature residuals zero on perfect data, residuals and the projected
+  line under strong distortion, pose-count guard); the `factors::laserline`
+  rig-chain tests above.
+- **Acceptance gate**: `calib-bench accept` on `rtv3d` (rig hand-eye, then
+  the joint rig + hand-eye + laser solve when built with the `laser`
+  feature); the gate is per-camera reprojection (≤ 2.5 px) — the laser
+  residual is recorded, not gated.
+- **Regression suite**: `synth_laserline`, `synth_rig_handeye_laserline`.
+- **Related**: ADR 0016 (laser-frame manifest, injected
+  `LaserPixelExtractor`), ADR 0012 (per-feature laser residuals on export).

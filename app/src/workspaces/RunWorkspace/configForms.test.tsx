@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** Component tests for the Run workspace's config forms (`SchemaValueForm`
- * from `@vitavision/forms`, ADR 0018).
+ * from `@vitavision/forms`, ADR 0014).
  *
  * Renders against the real generated `PlanarIntrinsicsConfig` schema (not a
  * hand-rolled toy schema) so the tests exercise the same `$ref` resolution,

@@ -13,7 +13,7 @@ export interface PixelRect {
   h: number;
 }
 
-/** What a frame depicts (ADR 0021 §5). Absent on the wire means
+/** What a frame depicts (ADR 0016 §5). Absent on the wire means
  * "target" — exports written before the discriminator omit it. */
 export type FrameKind = "target" | "laser";
 

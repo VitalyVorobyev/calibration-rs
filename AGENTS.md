@@ -118,14 +118,29 @@ own gates (§10). No new warnings; `#[allow(...)]` only with a stated reason.
 
 * **Determinism** — explicit RNG seeds (never `thread_rng` in algorithms);
   deterministic ordering in outputs (no `HashMap` iteration order in public
-  results).
+  results); no wall-clock or `Instant` values in results or exports (they
+  break golden comparisons).
+* **Naming** — problem types `<Name>Problem` with `<Name>Config` /
+  `<Name>Export`; step functions `step_<action>`; step options
+  `<Stage><Action>Options`, with `Init`, never `Initialize` (ADR 0024);
+  poses `<frame>_se3_<frame>`.
+* **Public types** — `Config` and `Export` types are `#[non_exhaustive]`;
+  config-field rustdoc gives units, valid range and why the default is what
+  it is.
 * **Numerics** — `vision_calibration_core::Real` (`f64`) throughout;
   normalize where the algorithm requires it (DLT, 8-point); detect degenerate
   configurations and return an error.
 * **Errors** — `Result` for user-facing APIs; `assert!` only for internal
-  invariants; no panics in pipeline/CLI paths on invalid input.
-* **Config shape** — grouped by stage (`init`, `solver`, `optimize`, `ba`),
-  not flat boolean bags; field semantics explicit and mode-safe.
+  invariants; no panics in pipeline/CLI paths on invalid input. Outside tests,
+  an `unwrap()` / `expect()` says why it cannot fail (comment or message);
+  `T::from_f64(c).unwrap()` for factor constants is the exception.
+* **No silent defaults** — nothing that changes a result's meaning (frame
+  and pose conventions, image pairings, model choices) is guessed or
+  auto-corrected: ambiguity and unsupported combinations are typed errors,
+  raised before any expensive work. Tuning parameters with safe defaults are
+  not ambiguity.
+* **Config shape** — grouped by stage, shared stage structs reused, one
+  name per concept (ADR 0024); field semantics explicit and mode-safe.
 * **Hot paths** — no per-point heap allocations in tight loops; reuse
   buffers; fixed-size matrices for tiny systems; no repeated `svd`/`sqrt` in
   inner loops. If performance could change meaningfully, add a benchmark or
@@ -143,7 +158,8 @@ Every algorithmic change ships with tests:
 * synthetic ground-truth tests for new solvers and refiners;
 * edge cases: noise, partial observations, degenerate configurations;
 * JSON round-trips for new config/input/output structs;
-* regression tests for pipeline outputs (within tolerance).
+* regression tests for pipeline outputs (within tolerance);
+* for a numerical bug fix, a test that fails before the fix and passes after.
 
 ---
 
@@ -153,6 +169,11 @@ Every algorithmic change ships with tests:
 * New dependencies need a reason and a compatible license.
 * `nalgebra` / `faer` / `faer-ext` are pinned by the solver backends, which
   exchange those types with optim (see the root `Cargo.toml` comment).
+* **MSRV** — `rust-version` in the root `Cargo.toml` is the single source;
+  the `MSRV (…)` CI job builds and tests it with `--locked`. Raise it when a
+  dependency we track needs a newer toolchain or a stable feature
+  simplifies the code, rather than pinning dependencies under the floor in
+  `Cargo.lock`. Bump `rust-version` and the CI job in the same PR.
 
 ---
 
@@ -183,6 +204,11 @@ Dev-facing docs (`AGENTS.md`, `.claude/`, `docs/adrs`, `docs/notes`,
   `chore:`.
 * When trade-offs conflict, preserve correctness; make new behavior opt-in and
   justify it with tests or a benchmark.
+* `privatedata/` (git-ignored) never reaches a commit, PR or report beyond
+  aggregate numbers (counts, error magnitudes).
+* The sibling crates `../calib-targets-rs` and `../vision-metrology` are
+  separate git repositories: an edit there is its own commit in that repo,
+  called out as a cross-repo change.
 
 ---
 
@@ -234,4 +260,4 @@ paper trail. History lives in `CHANGELOG.md`, PR descriptions and git.
   (`exclude = ["app"]`) and pins its own `Cargo.lock`; root
   `cargo build|test --workspace` does **not** cover it.
 * Developer guide: `app/DEVELOPING.md`; design rationale:
-  `docs/adrs/0014-tauri-desktop-app.md`.
+  `docs/adrs/0014-desktop-app.md`.

@@ -63,7 +63,7 @@ CHANGELOG with migration notes.
   `SingleCamHandeye`, `LaserlineDevice`, `RigExtrinsics`, `RigHandeye`,
   `RigLaserlineDevice`, `RigHandeyeLaserline`; the rig types cover pinhole
   and Scheimpflug rigs through `SensorMode`.
-- **Optimization IR** ([ADR 0008](../docs/adrs/0008-backend-agnostic-optimization-ir.md)):
+- **Optimization IR** ([ADR 0008](../docs/adrs/0008-optimization-ir-and-backends.md)):
   problems are `ProblemIR` (parameter + residual blocks) compiled to a
   solver backend; factors are generic over `T: RealField` for autodiff
   (`.clone()` freely, `T::from_f64().unwrap()` for constants).
@@ -78,13 +78,22 @@ CHANGELOG with migration notes.
 
 ## Where things are
 
-- [`docs/backlog.md`](../docs/backlog.md) — what is left;
-  [`docs/ROADMAP.md`](../docs/ROADMAP.md) — v1.0 exit criteria and standing
-  decisions.
-- [`docs/adrs/`](../docs/adrs/README.md) — design decisions;
-  [`docs/notes/`](../docs/notes/README.md) — proof packs.
-- [`docs/RELEASE-RUNBOOK.md`](../docs/RELEASE-RUNBOOK.md) — read before
-  touching any version string; [`docs/MSRV.md`](../docs/MSRV.md) — MSRV
-  policy.
-- `.claude/commands/` — `/orchestrate`, `/architect`, `/implement`,
-  `/review`, `/gate-check`.
+[`docs/README.md`](../docs/README.md) maps the developer docs: roadmap,
+backlog, ADRs, proof-pack notes and the release runbook. Read
+[`docs/RELEASE-RUNBOOK.md`](../docs/RELEASE-RUNBOOK.md) before touching any
+version string.
+
+## Delegating to subagents
+
+Use the built-in agents and pick the model by how much judgment the work
+needs:
+
+- **haiku** — searches, file sweeps, mechanical edits with an exact spec.
+- **sonnet** — well-specified implementation: plumbing, serde types, tests,
+  docs, applying a change that is already designed.
+- **opus** — numerical and algorithmic work, root-causing, design and
+  cross-crate refactors, and reviewing such changes.
+
+A subagent does not see this conversation: give it the full task, the
+files involved and what to report (files changed, gate results, and
+before/after numbers for numerical changes).

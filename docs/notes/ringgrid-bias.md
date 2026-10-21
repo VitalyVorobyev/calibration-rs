@@ -1,60 +1,57 @@
 # Ring-grid ellipse-center bias — proof pack
 
 Family: coded ring-grid targets on the seeded Scheimpflug intrinsics route
-(`ScheimpflugIntrinsicsProblem`; detector `vision_calibration_detect::ringgrid`
+(`ScheimpflugIntrinsicsProblem`; detector `vision_calibration_detect::RinggridDetector`
 wrapping the external `ringgrid` crate; bench accept path
 `vision_calibration_bench::run::run_scheimpflug_intrinsics`).
 
-**Finding:** the ring-grid cameras floor at ~0.47 px mean reprojection, ~0.17 px
-above the puzzleboard sibling (`rtv3d_ref`, ~0.30 px) on the same rig. That
-floor is not the projected ellipse-center bias of the ring markers: the bias is
-~0.09 px here and is already removed at the detector level. The residual floor
-is small-marker localization noise, and the pipeline applies no correction.
+**Finding:** the six ring-grid cameras floor at ~0.46 px mean reprojection
+(committed baselines `rtv3d_ringgrid_cam*`: 0.42–0.51 px per camera), ~0.19 px
+above the puzzleboard sibling on the same rig (`rtv3d_ref_cam*`, ~0.27 px).
+That floor is not the projected ellipse-center bias of the ring markers: the
+bias is ~0.09 px here and is removed inside the detector. The floor is
+small-marker localization noise, and the pipeline applies no correction.
 
 ## Mechanism
 
-A coded ring marker is two concentric circles (inner/outer radii `r_in`,
-`r_out`) on the board plane. Set lens distortion aside for a moment: the board
-plane → pixel map is then a single homography
+A coded ring marker is two concentric circles (radii `r_in`, `r_out`) on the
+board plane. Setting lens distortion aside, the board plane → pixel map is a
+single homography
 
 ```
 H = K · H_tilt · [r1 r2 t]
 ```
 
-with intrinsics `K`, the Scheimpflug tilt homography `H_tilt` (tilt is a
-homography acting on normalized coordinates — ADR 0022), and the planar-pose
-homography `[r1 r2 t]` from `camera_se3_target`. A circle with symmetric conic
-matrix `C` on the plane images to the conic
+with intrinsics `K`, the Scheimpflug tilt homography `H_tilt` (tilt acts on
+normalized coordinates — ADR 0011), and the planar pose `[r1 r2 t]` from
+`camera_se3_target`. A circle with conic matrix `C` images to
 
 ```
 C' = H⁻ᵀ C H⁻¹.
 ```
 
-The **ellipse center** of `C'` — the stationary point of its quadratic form,
-`center = −[[C'₀₀, C'₀₁],[C'₀₁, C'₁₁]]⁻¹ · [C'₀₂, C'₁₂]ᵀ` — is *not* the image
-`H·center` of the circle's plane center under a genuinely projective (non-affine)
-`H`. That offset is the ellipse-center bias. It vanishes exactly for an affine
-`H` (bottom row `[0 0 1]`) and grows with the perspective foreshortening across
-the marker's pixel extent, i.e. roughly as `(marker radius in px)² × |bottom row
-of H|`.
+The **ellipse center** of `C'` —
+`center = −[[C'₀₀, C'₀₁],[C'₀₁, C'₁₁]]⁻¹ · [C'₀₂, C'₁₂]ᵀ` — is *not*
+`H·center` of the circle under a genuinely projective (non-affine) `H`; the
+offset is the ellipse-center bias. It vanishes for an affine `H` (bottom row
+`[0 0 1]`) and grows roughly as `(marker radius in px)² × |bottom row of H|`.
 
-Because a real lens applies (non-homographic) distortion, the observed edge is
-displaced by the distortion field; to first order that displacement is common to
-the marker's inner and outer edges *and* to the model's reprojection of the
-center, so it cancels out of the residual — the leftover is second order in the
-distortion gradient across the ~4 px marker.
+Lens distortion displaces the observed edge, but to first order that
+displacement is common to the inner and outer edges *and* to the model's
+reprojection of the center, so it cancels from the residual; the remainder is
+second order in the distortion gradient across the ~4 px marker.
 
 ## Closed-form magnitude
 
-`crates/vision-calibration-bench/src/ringgrid_bias.rs` is the single source of
-truth for the conic-center math: `circle_conic`, `project_conic`
-(`C' = H⁻ᵀ C H⁻¹`), `conic_center`, and `predicted_center_bias(H, cx, cy, r) =
-center(H⁻ᵀ C H⁻¹) − H·(cx, cy)`. `diagnose` evaluates it per (view, marker) from
-an exported model + pose, using the no-distortion homography above.
+`crates/vision-calibration-bench/src/ringgrid_bias.rs` holds the conic-center
+math: `circle_conic`, `project_conic` (`C' = H⁻ᵀ C H⁻¹`), `conic_center`, and
+`predicted_center_bias(H, cx, cy, r) = center(H⁻ᵀ C H⁻¹) − H·(cx, cy)`.
+`diagnose` evaluates it per (view, marker) from an exported model + pose,
+using the no-distortion homography above.
 
-Evaluated on the six private ring-grid cameras with the *calibrated* model and
-poses (outer radius 4.8 mm, inner 3.2 mm), the predicted single-conic
-(outer-edge) bias is:
+On the six private ring-grid cameras, with the calibrated model and poses
+(outer radius 4.8 mm, inner 3.2 mm; measured with `ringgrid` 0.7), the
+predicted single-conic (outer-edge) bias is:
 
 | camera | n_obs | bias mean | median | p95 | max (px) |
 |--------|------:|----------:|-------:|----:|---------:|
@@ -65,38 +62,33 @@ poses (outer radius 4.8 mm, inner 3.2 mm), the predicted single-conic
 | cam4 |  746 | 0.091 | 0.089 | 0.159 | 0.232 |
 | cam5 |  572 | 0.084 | 0.087 | 0.135 | 0.155 |
 
-The bias is ~0.09 px mean (max ≤ 0.45 px). It is small because the markers span
-only a few pixels (outer radius ≈ 3–4 px at this working distance and focal),
-and the bias scales with the square of the marker's pixel radius. This is an
-order of magnitude below the ~0.47 px residual floor and below the ~0.17 px gap
-to the puzzleboard sibling — so even entirely uncorrected it could not explain
-the gap.
+~0.09 px mean (max ≤ 0.45 px): small because the markers span only a few
+pixels (outer radius ≈ 3–4 px) and the bias scales with the square of the
+pixel radius. That is well below both the floor and the gap to the
+puzzleboard sibling, so even uncorrected it could not explain the gap.
 
 ## Why the pipeline applies no correction
 
-The `ringgrid` detector (≥ 0.7, `CircleRefinementMethod::ProjectiveCenter`, on by
-default) already removes the *projective* part of this bias at the observation
-level, before calibration sees a center. It fits both the inner and outer edge
-conics and recovers their common projected center with an intrinsics-free
-two-conic pencil (Wang et al. 2019) that is exact under a homography — i.e. it
-cancels exactly the `C'`-center-vs-`H·center` offset derived above, for both
-perspective and Scheimpflug tilt. The detector's own path applies it in
-`finalize_premerge` / `run`; `vision_calibration_detect::RinggridDetector` uses
-that default.
+The `ringgrid` detector's default `CircleRefinementMethod::ProjectiveCenter`
+removes the *projective* part of this bias at the observation level: it fits
+the inner and outer edge conics and recovers their common projected center
+with an intrinsics-free two-conic pencil (Wang et al. 2019) that is exact
+under a homography — it cancels exactly the `C'`-center-vs-`H·center` offset
+above, for perspective and Scheimpflug tilt alike. `RinggridDetector` runs
+the detector with that default.
 
-A model-based re-correction in the pipeline would therefore either (a)
-double-correct the already-removed bias (strictly harmful), or (b) merely
-reproduce the detector's projective correction, whose only unmodeled remainder
-is the second-order distortion term (negligible here). So **no correction is applied**. The conic-center math
-ships as a tested diagnostic module, not a pipeline stage; `FactorKind`, the
-optimization IR, the detector wrapper, and the pipeline are untouched.
+A model-based re-correction in the pipeline would therefore either
+double-correct the removed bias (strictly harmful) or reproduce the
+detector's correction, whose only unmodeled remainder is the second-order
+distortion term (negligible here). The conic-center math ships as a tested
+diagnostic module, not a pipeline stage.
 
 ## Evidence
 
-`diagnose` also regresses the calibration residual vector `r = observed −
-projected` on the predicted bias vector `b` (outer conic). If the detector
-reported *naive* ellipse centers, the residual would *contain* `b` and the
-regression coefficient `Σ(r·b)/Σ|b|²` would be ≈ +1. Measured:
+`diagnose` regresses the calibration residual `r = observed − projected` on
+the predicted bias `b` (outer conic). If the detector reported *naive*
+ellipse centers, `r` would contain `b` and the coefficient `Σ(r·b)/Σ|b|²`
+would be ≈ +1. Measured (`ringgrid` 0.7):
 
 | camera | residual mean | median | p95 | max (px) | resid/bias coeff | mean cos | corr(bias, radius) |
 |--------|-------------:|-------:|----:|---------:|-----------------:|---------:|-------------------:|
@@ -107,28 +99,25 @@ regression coefficient `Σ(r·b)/Σ|b|²` would be ≈ +1. Measured:
 | cam4 | 0.425 | 0.350 | 0.993 | 3.563 | +0.023 | 0.086 | −0.017 |
 | cam5 | 0.487 | 0.410 | 1.092 | 2.985 | −0.104 | 0.065 | +0.053 |
 
-The residual means reproduce the `calib-bench accept` per-camera means (0.4601,
-0.5008, 0.4852, 0.4625, 0.4248, 0.4867 px) to three decimals, validating the
-diagnostic. The regression coefficient is ≈ 0 (|·| ≤ 0.104) and the mean cosine
-between `r` and `b` is ≈ 0 (|·| ≤ 0.086): **the predicted projective bias is
-absent from the residual field** — the detector's two-conic pencil removed it —
-and what remains is orthogonal noise. `corr(bias, radius) ≈ 0` shows no
-peripheral-growth pattern in the (already tiny) bias.
+The residual means matched the `calib-bench accept` per-camera means of the
+same run to three decimals, validating the diagnostic. The coefficient is
+≈ 0 (|·| ≤ 0.104) and the mean cosine between `r` and `b` is ≈ 0
+(|·| ≤ 0.086): **the predicted projective bias is absent from the residual
+field**, and what remains is orthogonal noise. `corr(bias, radius) ≈ 0`
+shows no peripheral-growth pattern.
 
-Conclusion: the ~0.47 px ring-grid floor is small-marker ellipse-fit /
-localization noise (ring markers a few pixels across, with the pencil amplifying
-edge-fit noise), not correctable projective ellipse-center bias.
+Conclusion: the ring-grid floor is small-marker ellipse-fit / localization
+noise (markers a few pixels across, with the pencil amplifying edge-fit
+noise), not correctable projective ellipse-center bias.
 
-- **Gate:** the six per-camera accept means are 0.4601 / 0.5008 / 0.4852 /
-  0.4625 / 0.4248 / 0.4867 px; the acceptance gate is 0.7 px (~1.4× the worst
-  mean).
-- **Diagnostic module + tests:**
-  `crates/vision-calibration-bench/src/ringgrid_bias.rs`
+- **Gate:** `calib-bench accept` gates each `rtv3d_ringgrid_cam*` entry at
+  0.7 px (~1.4× the worst committed per-camera mean, 0.508 px).
+- **Diagnostic module + tests:** `ringgrid_bias.rs`
   (`conic_center_matches_sampled_ellipse_fit`,
   `bias_is_nonzero_and_equals_center_minus_projection`,
-  `affine_homography_has_no_bias`; the `#[ignore]`d `diagnose_private_ringgrid`
-  reproduces the tables above from the private dataset under `--features
-  tier-b`).
-- **Related:** ADR 0022/0023 (seeded Scheimpflug route),
-  `docs/notes/scheimpflug-intrinsics.md`, `docs/notes/planar-intrinsics.md`
-  (the puzzleboard sibling's noise floor).
+  `affine_homography_has_no_bias`); the `#[ignore]`d
+  `diagnose_private_ringgrid` reproduces the tables above from the private
+  dataset under `--features tier-b`.
+- **Related:** ADR 0011 (seeded Scheimpflug route),
+  [scheimpflug-intrinsics.md](scheimpflug-intrinsics.md),
+  [planar-intrinsics.md](planar-intrinsics.md).

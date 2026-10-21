@@ -602,13 +602,13 @@ pub mod tier_b {
     }
 
     /// Detected views + device-spec-derived seed for a single-camera
-    /// Scheimpflug intrinsics entry (ADR 0022/0023) — the seed-independent
+    /// Scheimpflug intrinsics entry (ADR 0011) — the seed-independent
     /// half of [`run_scheimpflug_intrinsics`].
     ///
     /// Manifest-driven: the entry's `spec` must be a single-camera
     /// `ScheimpflugIntrinsics` dataset manifest (inline or by path —
     /// relative paths resolve against `data_root`) describing the image
-    /// glob, ROI tile, and target; the entry's `device_spec` (the ADR 0023
+    /// glob, ROI tile, and target; the entry's `device_spec` (the ADR 0011
     /// `spec.json` sidecar) provides the seed via
     /// `device_seed::scheimpflug_seed`.
     ///
@@ -632,7 +632,7 @@ pub mod tier_b {
         pub detection_ms: u64,
     }
 
-    /// Detect `entry`'s single camera and derive its ADR 0023 seed. See
+    /// Detect `entry`'s single camera and derive its ADR 0011 seed. See
     /// [`DetectedScheimpflugCamera`].
     pub fn detect_scheimpflug_seeded_input(
         entry: &BenchEntry,
@@ -657,7 +657,7 @@ pub mod tier_b {
         let device_spec_rel = entry.device_spec.as_ref().with_context(|| {
             format!(
                 "entry `{}`: scheimpflug_intrinsics acceptance needs `device_spec` \
-                 (the ADR 0023 spec.json sidecar)",
+                 (the ADR 0011 spec.json sidecar)",
                 entry.id
             )
         })?;
@@ -768,7 +768,7 @@ pub mod tier_b {
     }
 
     /// Run the seeded single-camera Scheimpflug intrinsics **acceptance
-    /// route** (ADR 0022/0023) for `entry` and build a [`BenchRecord`].
+    /// route** (ADR 0011) for `entry` and build a [`BenchRecord`].
     ///
     /// Detects via [`detect_scheimpflug_seeded_input`] and solves via
     /// [`solve_scheimpflug_seeded`] — see both for the manifest/seed and

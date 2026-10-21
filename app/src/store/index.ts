@@ -21,7 +21,7 @@ function nextInWrap(arr: number[], current: number, delta: number): number {
 
 interface MaterializedExport {
   frames: FrameKey[];
-  /** Laser-kind frames (ADR 0021 §5), kept out of `frames` so pose /
+  /** Laser-kind frames (ADR 0016 §5), kept out of `frames` so pose /
    * camera navigation stays driven by the target observations. */
   laserFrames: FrameKey[];
   poseValues: number[];

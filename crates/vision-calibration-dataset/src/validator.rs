@@ -765,7 +765,7 @@ mod tests {
         assert!(back.unresolved.is_empty());
     }
 
-    // ── Laser fields (ADR 0021) ─────────────────────────────────────────
+    // ── Laser fields (ADR 0016) ─────────────────────────────────────────
 
     /// Minimal valid single-camera laserline manifest.
     fn laserline_minimal() -> DatasetSpec {
@@ -956,7 +956,7 @@ mod tests {
         ));
     }
 
-    // ── matrix_field (ADR 0021) ─────────────────────────────────────────
+    // ── matrix_field (ADR 0016) ─────────────────────────────────────────
 
     fn matrix_field_robot() -> RobotPoseSource {
         RobotPoseSource {

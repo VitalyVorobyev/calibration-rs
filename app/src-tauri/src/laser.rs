@@ -1,4 +1,4 @@
-//! `vision-metrology`-backed laser-line extraction (ADR 0021).
+//! `vision-metrology`-backed laser-line extraction (ADR 0016).
 //!
 //! The pipeline's laser converters take an injected
 //! [`LaserPixelExtractor`] because `vision-metrology` is not on

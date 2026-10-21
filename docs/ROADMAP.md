@@ -24,7 +24,7 @@ with migration notes. The published packages are listed in AGENTS.md.
    property tests where an invariant exists, and a committed regression
    baseline with a drift gate.
 5. **Frozen API** — facade-only consumers, normalized configs
-   ([ADR 0024](adrs/0024-config-vocabulary.md)), typed errors, no duplicate
+   ([ADR 0024](adrs/0024-api-vocabulary.md)), typed errors, no duplicate
    public type names, no deprecated shims; and the API unchanged across two
    consecutive minor releases.
 6. **App CI green** — lint (zero warnings), format, typecheck, unit,
@@ -40,16 +40,14 @@ trigger.
 
 ## Standing decisions
 
-- Seeded initialization is the official route for Scheimpflug and rig
-  calibration — [ADR 0022](adrs/0022-scheimpflug-intrinsics-seeded-default.md),
-  [ADR 0023](adrs/0023-device-spec-seed-derivation.md).
-- MVG stops short of SfM — [ADR 0015](adrs/0015-mvg-ceiling.md).
-- Two solver backends under one LM loop; the default changes only on a
-  measured comparison and the maintainer's decision —
-  [ADR 0025](adrs/0025-factrs-backend-shared-lm.md).
+The binding design decisions are the [ADRs](adrs/README.md). Two policies
+that are not design:
+
+- The default solver backend changes only on a measured comparison and the
+  maintainer's decision.
 - Cross-platform only: the library, its comparison harnesses and its CI
-  jobs run on Linux, macOS and Windows. Tools that do not (mrcal installs
-  through Linux distributions only) stay out of the suite.
+  jobs run on Linux, macOS and Windows; tools that do not stay out of the
+  suite.
 
 ## Out of scope
 
@@ -57,6 +55,7 @@ trigger.
   thin-prism and division distortion; Scheimpflug sensor): no
   omnidirectional/MEI, double-sphere, telecentric or spline models until a
   project needs one.
-- Full structure-from-motion: incremental SfM, pose graphs, loop closure.
+- Full structure-from-motion: incremental SfM, pose graphs, loop closure
+  (ADR 0006).
 - `rerun.io` / `egui` as the UI.
 - A community-grade contribution surface and multi-platform install docs.

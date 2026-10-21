@@ -3,7 +3,7 @@
 Tauri 2 + React 19 + TypeScript. The Rust backend (`app/src-tauri`) depends on
 the workspace facade (`vision-calibration`) by path, so its Tauri commands
 call the same solvers as `cargo run --example`. Design rationale:
-`docs/adrs/0014-tauri-desktop-app.md`.
+`docs/adrs/0014-desktop-app.md`.
 
 ## Commands
 

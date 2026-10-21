@@ -1,29 +1,35 @@
-# ADR 0005: Composable Camera Model Pipeline
-
-- Status: Accepted
-- Date: 2026-03-07 (retroactive)
+# ADR 0005: Composable Camera Model
 
 ## Context
 
-Camera calibration libraries typically hard-code a single camera model (e.g., OpenCV's pinhole + Brown-Conrady). We need to support multiple projection types, optional distortion, and optional sensor-plane transforms (Scheimpflug tilt) without combinatorial explosion.
+Calibration libraries usually hard-code one camera model. We need several
+projections, distortion models and sensor-plane transforms (Scheimpflug
+tilt) without a combinatorial explosion of camera types.
 
 ## Decision
 
-Model cameras as a composable pipeline of four stages, each a separate generic type:
+A camera is a pipeline of four independent stages:
 
 ```
-pixel = K(sensor(distortion(projection(direction))))
+pixel = K(sensor(distortion(projection(dir))))
 ```
 
-- **Projection**: camera-frame 3D direction to normalized 2D coordinates (e.g., `Pinhole`)
-- **Distortion**: warp normalized coordinates (e.g., `BrownConrady5`)
-- **Sensor**: apply a homography to model sensor-plane effects (`IdentitySensor` or `ScheimpflugParams`)
-- **K (Intrinsics)**: map to pixel coordinates (`FxFyCxCySkew`)
+- **Projection** — camera-frame direction to the normalized plane
+  (`Pinhole`).
+- **Distortion** — warps normalized coordinates (`BrownConrady5` and the
+  extended models).
+- **Sensor** — a homography for sensor-plane effects (`IdentitySensor`,
+  `ScheimpflugParams`).
+- **K** — normalized plane to pixels (`FxFyCxCySkew`).
 
-The `Camera<P, D, S, K>` type is generic over all four stages. Concrete type aliases (e.g., `PinholeCamera`) fix common combinations.
+`Camera<S, P, D, Sm, K>` is generic over the scalar `S: RealField` and the
+four stage traits; aliases such as `PinholeCamera` fix common combinations.
+Code that needs a runtime-polymorphic camera uses the `f64`-only,
+dyn-safe `CameraProject` trait.
 
 ## Consequences
 
-- New projection/distortion/sensor models are added by implementing a trait, not modifying existing code.
-- Optimization factors must be parameterized per camera variant (trade-off: more factor types, but type-safe).
-- Autodiff compatibility requires all stages to be generic over `RealField`.
+- A new model is a new stage implementation, not an edit of existing ones.
+- Every stage is generic over `RealField`, so the same code runs under
+  dual-number autodiff in the optimizer. How the optimizer selects a camera
+  model at runtime without multiplying factor types is ADR 0008.

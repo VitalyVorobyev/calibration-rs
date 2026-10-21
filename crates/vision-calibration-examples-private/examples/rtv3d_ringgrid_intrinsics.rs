@@ -1,7 +1,7 @@
 //! Per-camera Scheimpflug **intrinsics** calibration on the private
 //! `rtv3d_ringgrid` dataset (a 6-camera Scheimpflug rig captured against a
 //! coded **ring-grid** target) from a coarse, user-provided seed — the
-//! supported Scheimpflug workflow (ADR 0022).
+//! supported Scheimpflug workflow (ADR 0011).
 //!
 //! This is the fast per-camera debug loop for the ring-grid target: it detects
 //! the ring-grid in every camera tile, then runs a seeded per-camera intrinsics
@@ -14,9 +14,9 @@
 //!
 //! Why seeded, not from scratch? On Scheimpflug data (strong radial distortion
 //! plus a several-degree mount tilt) Zhang-from-scratch underestimates the focal
-//! and settles in a wrong tilt/focal basin (ADR 0022). A coarse focal + tilt
+//! and settles in a wrong tilt/focal basin (ADR 0011). A coarse focal + tilt
 //! seed removes that fragility. The seed comes from the dataset's device spec
-//! (`spec.json`, ADR 0023) — lens focal + pixel pitch → `fx = fy`, mount angle
+//! (`spec.json`, ADR 0011) — lens focal + pixel pitch → `fx = fy`, mount angle
 //! → tilt. (Historically the focal was found by an env-var sweep; the spec
 //! layer replaced it.)
 //!
@@ -140,7 +140,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Device spec (ADR 0023): lens focal + pixel pitch + mount tilt → seed.
+    // Device spec (ADR 0011): lens focal + pixel pitch + mount tilt → seed.
     // Loaded only past the detect-only probe, which needs no spec.
     let spec_path = data_dir.join(DEVICE_SPEC_FILENAME);
     let spec = DeviceSpec::from_path(&spec_path)
@@ -195,9 +195,9 @@ fn main() -> Result<()> {
         config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config)?;
 
-        // Spec-derived coarse prior (ADR 0023): fx = fy from lens focal /
+        // Spec-derived coarse prior (ADR 0011): fx = fy from lens focal /
         // pixel pitch, principal point at the tile center, nominal mount
-        // tilt. Distortion + poses auto (ADR 0022).
+        // tilt. Distortion + poses auto (ADR 0011).
         let seed = scheimpflug_seed(&spec, &format!("cam{c}"))
             .with_context(|| format!("camera {c}: derive seed from device spec"))?;
         step_init_with_seed(&mut session, seed, None)

@@ -357,7 +357,7 @@ fn detector_config_for_target(target: &TargetSpec) -> Result<(&'static str, Valu
         } => {
             // The manifest names a layout (`"puzzle_130x130"`); the
             // detector needs explicit dimensions. Resolve here so a typo
-            // fails before any image I/O (ADR 0019).
+            // fails before any image I/O (ADR 0016).
             let (rows, cols) = parse_puzzleboard_layout(layout)
                 .map_err(|message| RunError::InvalidTargetConfig { message })?;
             Ok((

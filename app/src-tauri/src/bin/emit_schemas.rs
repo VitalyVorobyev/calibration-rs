@@ -1,7 +1,7 @@
 //! Emit a JSON Schema for the diagnose app's wire types.
 //!
 //! Single source of truth: the Rust `#[derive(schemars::JsonSchema)]` on the
-//! pipeline `*Export` types (ADR 0018) and on this crate's Tauri command
+//! pipeline `*Export` types (ADR 0014) and on this crate's Tauri command
 //! payload/response types. `bun run generate:types` runs this emitter and
 //! then converts the schema to TypeScript under `app/src/types/generated/`.
 //!

@@ -106,7 +106,7 @@ pub struct BenchEntry {
     /// Manual initialization seed, if the problem needs one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<ManualInitSeed>,
-    /// Sidecar device-spec (`spec.json`, ADR 0023) used to derive the
+    /// Sidecar device-spec (`spec.json`, ADR 0011) used to derive the
     /// seeded official initialization for acceptance runs. Relative paths
     /// resolve against `data_root`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -146,7 +146,7 @@ impl BenchEntry {
 
 /// Hard per-dataset acceptance gate (`calib-bench accept`).
 ///
-/// The seeded official route (ADR 0022/0023) must bring **every** camera's
+/// The seeded official route (ADR 0011) must bring **every** camera's
 /// mean reprojection error at or under the threshold; a non-finite mean is
 /// always a failure. Thresholds are per-entry because they encode
 /// dataset-specific acceptance criteria (e.g. `0.5 px` for the Scheimpflug
