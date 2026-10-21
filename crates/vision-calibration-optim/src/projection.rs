@@ -95,7 +95,9 @@ pub fn projection_uncertainty(
     let theta_covariance = model.covariance(covariance, camera_index)?;
     let start = camera.build()?;
     let sigma_at = |pixel: [f64; 2]| -> Option<f64> {
-        let guess = start.backproject_pixel(&Pt2::new(pixel[0], pixel[1])).point;
+        let guess = start
+            .backproject_pixel(&Pt2::new(pixel[0], pixel[1]))
+            .point_at_unit_depth()?;
         let j = model.jacobian(
             Vector2::new(pixel[0], pixel[1]),
             Vector2::new(guess.x, guess.y),
@@ -432,12 +434,18 @@ mod tests {
             let model = CameraVector::new(&params).unwrap();
             let built = params.build().unwrap();
             let pixel = Vector2::new(600.0, 40.0);
-            let guess = built.backproject_pixel(&Pt2::new(pixel.x, pixel.y)).point;
+            let guess = built
+                .backproject_pixel(&Pt2::new(pixel.x, pixel.y))
+                .point_at_unit_depth()
+                .unwrap();
             let exact = model
                 .jacobian(pixel, Vector2::new(guess.x, guess.y))
                 .unwrap();
             // Recover the ray Newton converged to, then difference there.
-            let ray = built.backproject_pixel(&Pt2::new(pixel.x, pixel.y)).point;
+            let ray = built
+                .backproject_pixel(&Pt2::new(pixel.x, pixel.y))
+                .point_at_unit_depth()
+                .unwrap();
             let numeric = numeric_jacobian(&params, ray);
             let scale = exact.abs().max();
             assert!(

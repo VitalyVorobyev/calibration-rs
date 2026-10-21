@@ -83,14 +83,14 @@ fn laser_pixels_for_view<Sm: SensorModel<f64>>(
         let pt_camera = pose.transform_point(&pt_target);
         if let Some(proj) = camera.project_point(&pt_camera) {
             let pixel = Pt2::new(proj.x, proj.y);
-            let ray = camera.backproject_pixel(&pixel);
-            if !ray.point.x.is_finite() || !ray.point.y.is_finite() || !ray.point.z.is_finite() {
+            let ray = camera.backproject_pixel(&pixel).direction;
+            if !ray.x.is_finite() || !ray.y.is_finite() || !ray.z.is_finite() {
                 continue;
             }
-            if ray.point.z.abs() < 1e-6 {
+            if ray.z.abs() < 1e-6 {
                 continue;
             }
-            let ray_dir_camera = ray.point.normalize();
+            let ray_dir_camera = ray.normalize();
             let ray_dir_target = pose.inverse_transform_vector(&ray_dir_camera);
             if ray_dir_target.z.abs() > 1e-3 {
                 pixels.push(pixel);

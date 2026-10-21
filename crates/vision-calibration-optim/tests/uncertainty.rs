@@ -392,7 +392,12 @@ fn projection_uncertainty_matches_monte_carlo() {
     let center = Pt2::new(f64::from(IMAGE[0] - 1) / 2.0, f64::from(IMAGE[1] - 1) / 2.0);
     let rays: Vec<Vector3<f64>> = std::iter::once(center)
         .chain(probes.iter().map(|(p, _)| *p))
-        .map(|p| truth_camera.backproject_pixel(&p).point)
+        .map(|p| {
+            truth_camera
+                .backproject_pixel(&p)
+                .point_at_unit_depth()
+                .unwrap()
+        })
         .collect();
 
     let mut pixels: Vec<Vec<Vector2<f64>>> = vec![Vec::new(); rays.len()];

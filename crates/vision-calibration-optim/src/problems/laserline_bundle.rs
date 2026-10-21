@@ -550,9 +550,9 @@ fn target_plane_point(
     use nalgebra::Point3;
 
     let ray = camera.backproject_pixel(px);
-    let ray_dir_camera = ray.point.normalize();
+    let ray_dir_camera = ray.direction.normalize();
     let target_se3_cam = cam_se3_target.inverse();
-    let ray_origin_target = target_se3_cam.transform_point(&Point3::origin());
+    let ray_origin_target = target_se3_cam.transform_point(&Point3::from(ray.origin));
     let ray_dir_target = target_se3_cam.rotation.transform_vector(&ray_dir_camera);
     if ray_dir_target.z.abs() < 1.0e-12 {
         return None;
