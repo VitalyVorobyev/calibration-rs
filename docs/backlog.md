@@ -57,10 +57,7 @@ breaking changes of the program happen here, before v1.0.
   - route `vision-calibration-bench`'s Tier-B detect adapters
     (`src/detect.rs`) through `vision-calibration-detect`;
   - run the bench's per-problem runners (`src/run.rs`) through
-    `pipeline::dataset_runner`;
-  - merge the linear-algebra helpers in `core/src/linalg.rs`,
-    `vision-geometry/src/math.rs` and `linear/src/math.rs` so each
-    helper exists once, in the lowest crate that needs it.
+    `pipeline::dataset_runner`.
 
   Gate: bench baselines unchanged.
 

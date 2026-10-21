@@ -16,12 +16,12 @@ use crate::{
     Error,
     distortion_fit::DistortionFitOptions,
     iterative_intrinsics::{IterativeIntrinsicsOptions, estimate_intrinsics_iterative},
-    math::null_space,
     planar_pose::estimate_planar_pose_from_h,
     zhang_intrinsics::PlanarIntrinsicsLinearInit,
 };
 use nalgebra::{DMatrix, SMatrix, SVector, Vector3};
 use serde::{Deserialize, Serialize};
+use vision_calibration_core::linalg::null_space;
 use vision_calibration_core::{
     BrownConrady5, Camera, CorrespondenceView, DistortionModel, FxFyCxCy, IntrinsicsModel, Iso3,
     Mat3, NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2, Real, ScheimpflugParams, SensorModel,

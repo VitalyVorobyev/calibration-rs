@@ -258,7 +258,7 @@ fn estimate_rotation_allpairs_weighted(pairs: &[MotionPair]) -> Result<Matrix3<R
 
     // Smallest right-singular vector of the `4N×4` system via `AᵀA` symmetric
     // eigen (see `math::null_space`) — avoids nalgebra's hang-prone dense SVD.
-    let q_vec = crate::math::null_space(&m)?.vector;
+    let q_vec = vision_calibration_core::linalg::null_space(&m)?.vector;
 
     let q = Quaternion::new(q_vec[0], q_vec[1], q_vec[2], q_vec[3]).normalize();
     Ok(UnitQuaternion::from_quaternion(q)

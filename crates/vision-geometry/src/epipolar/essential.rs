@@ -5,9 +5,10 @@
 //! overdetermined solver for use in RANSAC refit on large inlier sets.
 
 use super::polynomial::build_polynomial_system;
-use crate::math::{dlt_rank_ok, mat3_from_svd_row, mat3_from_vec, null_space};
+use crate::math::dlt_rank_ok;
 use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, SMatrix, linalg::Schur};
+use vision_calibration_core::linalg::{mat3_from_svd_row, mat3_from_vec, null_space};
 use vision_calibration_core::{Mat3, Pt2, Real};
 
 /// 5-point algorithm for the essential matrix in normalized coordinates.

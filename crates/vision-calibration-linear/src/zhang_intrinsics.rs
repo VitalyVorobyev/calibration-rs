@@ -83,7 +83,7 @@ impl PlanarIntrinsicsLinearInit {
         // Solve `V b = 0` for the smallest right-singular vector via `AᵀA`
         // symmetric eigen (see `math::null_space`) — avoids nalgebra's
         // hang-prone dense SVD on the `2M×6` design matrix.
-        let b = crate::math::null_space(&vmtx)?.vector;
+        let b = vision_calibration_core::linalg::null_space(&vmtx)?.vector;
 
         let b11 = b[0];
         let b12 = b[1];

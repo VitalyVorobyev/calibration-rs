@@ -3,12 +3,13 @@
 //! Implements the normalized 8-point algorithm, the minimal 7-point solver,
 //! and RANSAC-based robust estimation for fundamental matrices.
 
-use crate::math::{
-    dlt_rank_ok, mat3_from_svd_row, mat3_from_vec, normalize_points_2d, null_space,
-    solve_cubic_real,
-};
+use crate::math::dlt_rank_ok;
+
 use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, SMatrix};
+use vision_calibration_core::linalg::{
+    mat3_from_svd_row, mat3_from_vec, normalize_points_2d, null_space, solve_cubic_real,
+};
 use vision_calibration_core::{Estimator, Mat3, Pt2, RansacOptions, Real, ransac_fit};
 
 /// Normalized 8-point algorithm for the fundamental matrix.
