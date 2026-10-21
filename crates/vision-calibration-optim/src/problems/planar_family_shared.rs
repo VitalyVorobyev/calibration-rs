@@ -6,7 +6,7 @@ use vision_calibration_core::{
 };
 
 use crate::ir::{
-    Bound, CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
+    Bound, CameraModelSpec, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::pack_distortion_params;
@@ -20,7 +20,7 @@ pub(crate) struct PlanarReprojectionIrOptions {
     pub fix_distortion_indices: Vec<usize>,
     pub fix_pose_indices: Vec<usize>,
     pub sensor: Option<PlanarSensorIrOptions>,
-    pub model: CameraModelDesc,
+    pub model: CameraModelSpec,
     /// Optional per-index box bounds on the `cam` (`[fx, fy, cx, cy]`) block.
     pub intrinsics_bounds: Option<Vec<Bound>>,
     /// Optional per-index box bounds on the `sensor` (`[tilt_x, tilt_y]`) block.

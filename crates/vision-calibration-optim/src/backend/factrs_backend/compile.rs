@@ -26,7 +26,7 @@ use nalgebra::DVector;
 use super::residuals::build_factor;
 use super::variables::{PlaneVar, VECTOR_DIMS, se3_from_ir, se3_to_ir, with_vector_dim};
 use crate::Error;
-use crate::ir::{FactorKind, ManifoldKind, ParamBlock, ProblemIR};
+use crate::ir::{CameraSpecLayout, FactorKind, ManifoldKind, ParamBlock, ProblemIR};
 
 /// A factrs variable and the IR blocks fused into it.
 #[derive(Debug, Clone)]
@@ -378,7 +378,7 @@ pub(super) fn compile(
     let mut graph = Graph::with_capacity(ir.residuals.len());
     for (residual, vars) in ir.residuals.iter().zip(&factor_vars) {
         let keys: Vec<Key> = vars.iter().map(|&v| Key(v as u64)).collect();
-        graph.add_factor(build_factor(&residual.factor, &keys, residual.loss));
+        graph.add_factor(build_factor(&residual.factor, &keys, residual.loss)?);
     }
 
     Ok(Compiled {

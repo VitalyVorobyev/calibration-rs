@@ -15,45 +15,18 @@
 //!   extrinsics, hand-eye transform, and target reference pose all move under
 //!   a single cost with the laser geometry constraint.
 
-use crate::factors::camera_kernels::{DistortionKernel, SensorKernel};
+use crate::factors::camera_blocks::CameraBlocks;
 use crate::factors::reprojection_model::se3_exp;
-use crate::ir::{HandEyeMode, LaserChain};
+use crate::ir::{CameraModelSpec, HandEyeMode, LaserChain};
 use nalgebra::{
     DVector, DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector2, Vector3,
 };
-
-/// Model-generic pixel back-projection: pixel -> sensor-plane normalized ->
-/// distorted normalized (sensor inverse) -> undistorted normalized.
-fn undistort_pixel_to_normalized_model<D: DistortionKernel, S: SensorKernel, T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: Option<DVectorView<'_, T>>,
-    sensor: Option<DVectorView<'_, T>>,
-    laser_pixel: [f64; 2],
-) -> (T, T) {
-    debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
-    let fx = intr[0].clone();
-    let fy = intr[1].clone();
-    let cx = intr[2].clone();
-    let cy = intr[3].clone();
-
-    let u_px = T::from_f64(laser_pixel[0]).unwrap();
-    let v_px = T::from_f64(laser_pixel[1]).unwrap();
-
-    // Sensor-plane normalized coordinates
-    let x_s = (u_px - cx) / fx;
-    let y_s = (v_px - cy) / fy;
-
-    // Map back to the distorted normalized plane, then invert distortion.
-    let (x_d, y_d) = S::to_normalized(sensor, x_s, y_s);
-    D::undistort(dist, x_d, y_d)
-}
 
 /// Generic residual for laser plane constraint (point-to-plane distance).
 ///
 /// # Parameters
 ///
-/// - `intr`: [fx, fy, cx, cy] (4D) - Pinhole intrinsics
-/// - `dist`: [k1, k2, k3, p1, p2] (5D) - Brown-Conrady distortion
+/// - `camera`: the camera model and its parameter blocks
 /// - `pose`: [qx, qy, qz, qw, tx, ty, tz] (7D) - SE(3) camera-to-target transform
 /// - `plane_normal`: [nx, ny, nz] (3D) - Laser plane unit normal (S2)
 /// - `plane_distance`: [d] (1D) - Laser plane signed distance
@@ -73,17 +46,14 @@ fn undistort_pixel_to_normalized_model<D: DistortionKernel, S: SensorKernel, T: 
 /// 1D residual scaled by sqrt(w): [distance * sqrt(w)]
 /// Model-generic core of the point-to-plane laser residual.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn laser_point_to_plane_core<D: DistortionKernel, S: SensorKernel, T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: Option<DVectorView<'_, T>>,
-    sensor: Option<DVectorView<'_, T>>,
+pub(crate) fn laser_point_to_plane_core<T: RealField>(
+    camera: &CameraBlocks<'_, T>,
     pose: DVectorView<'_, T>,
     plane_normal: DVectorView<'_, T>,
     plane_distance: DVectorView<'_, T>,
     laser_pixel: [f64; 2],
     w: f64,
 ) -> SVector<T, 1> {
-    debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
     debug_assert!(pose.len() == 7, "pose must have 7 params (SE3)");
     debug_assert!(plane_normal.len() == 3, "plane normal must have 3 params");
     debug_assert!(
@@ -104,20 +74,17 @@ pub(crate) fn laser_point_to_plane_core<D: DistortionKernel, S: SensorKernel, T:
     let pose_rot = UnitQuaternion::from_quaternion(pose_quat);
     let pose_t = Vector3::new(pose_tx, pose_ty, pose_tz);
 
-    // 1. Undistort pixel to normalized coordinates
-    let (x_u, y_u) =
-        undistort_pixel_to_normalized_model::<D, S, T>(intr, dist, sensor, laser_pixel);
-
-    // 2. Back-project to ray in camera frame (ray on z=1 plane)
-    let ray_dir_camera = Vector3::new(x_u, y_u, T::one()).normalize();
+    // 1-2. Back-project the pixel to its camera ray.
+    let ray = camera.pixel_ray(laser_pixel);
+    let ray_dir_camera = ray.direction.normalize();
 
     // 3. Transform ray to target frame
     // T_T_C = (T_C_T)^-1
     // ray_dir_target = R_T_C * ray_dir_camera = R_C_T^T * ray_dir_camera
     let ray_dir_target = pose_rot.inverse_transform_vector(&ray_dir_camera);
 
-    // Ray origin in target frame: -R_C_T^T * t_C_T
-    let ray_origin_target = pose_rot.inverse_transform_vector(&(-pose_t.clone()));
+    // Ray origin in target frame: R_C_T^T * (o_C - t_C_T)
+    let ray_origin_target = pose_rot.inverse_transform_vector(&(ray.origin - pose_t.clone()));
 
     // 4. Intersect ray with target plane (Z=0)
     // Ray: p(t) = ray_origin_target + t * ray_dir_target
@@ -250,8 +217,7 @@ fn project_line_to_normalized_plane<T: RealField>(
 ///
 /// # Parameters
 ///
-/// - `intr`: [fx, fy, cx, cy] (4D) - Pinhole intrinsics
-/// - `dist`: [k1, k2, k3, p1, p2] (5D) - Brown-Conrady distortion
+/// - `camera`: the camera model and its parameter blocks
 /// - `pose`: [qx, qy, qz, qw, tx, ty, tz] (7D) - SE(3) camera-to-target transform
 /// - `plane_normal`: [nx, ny, nz] (3D) - Laser plane unit normal (S2)
 /// - `plane_distance`: [d] (1D) - Laser plane signed distance
@@ -263,29 +229,19 @@ fn project_line_to_normalized_plane<T: RealField>(
 /// 1D residual scaled by sqrt(w): [distance_pixels * sqrt(w)], from
 /// [`laser_line_distance`]; a large constant where that is undefined.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn laser_line_dist_core<D: DistortionKernel, S: SensorKernel, T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: Option<DVectorView<'_, T>>,
-    sensor: Option<DVectorView<'_, T>>,
+pub(crate) fn laser_line_dist_core<T: RealField>(
+    camera: &CameraBlocks<'_, T>,
     pose: DVectorView<'_, T>,
     plane_normal: DVectorView<'_, T>,
     plane_distance: DVectorView<'_, T>,
     laser_pixel: [f64; 2],
     w: f64,
 ) -> SVector<T, 1> {
-    let residual = laser_line_distance::<D, S, T>(
-        intr,
-        dist,
-        sensor,
-        pose,
-        plane_normal,
-        plane_distance,
-        laser_pixel,
-    )
-    .map_or_else(
-        || T::from_f64(1e6).unwrap(),
-        |d| d * T::from_f64(w.sqrt()).unwrap(),
-    );
+    let residual = laser_line_distance(camera, pose, plane_normal, plane_distance, laser_pixel)
+        .map_or_else(
+            || T::from_f64(1e6).unwrap(),
+            |d| d * T::from_f64(w.sqrt()).unwrap(),
+        );
     SVector::<T, 1>::new(residual)
 }
 
@@ -299,16 +255,17 @@ pub(crate) fn laser_line_dist_core<D: DistortionKernel, S: SensorKernel, T: Real
 ///
 /// `None` when the planes are parallel or the line passes through the
 /// camera centre. Parameters as in [`laser_line_dist_core`].
-pub(crate) fn laser_line_distance<D: DistortionKernel, S: SensorKernel, T: RealField>(
-    intr: DVectorView<'_, T>,
-    dist: Option<DVectorView<'_, T>>,
-    sensor: Option<DVectorView<'_, T>>,
+///
+/// The camera's projection must image 3D lines as straight lines
+/// ([`ProjectionKind::preserves_lines`](vision_calibration_core::ProjectionKind::preserves_lines));
+/// `ProblemIR::validate` rejects a line-distance factor on any other.
+pub(crate) fn laser_line_distance<T: RealField>(
+    camera: &CameraBlocks<'_, T>,
     pose: DVectorView<'_, T>,
     plane_normal: DVectorView<'_, T>,
     plane_distance: DVectorView<'_, T>,
     laser_pixel: [f64; 2],
 ) -> Option<T> {
-    debug_assert!(intr.len() >= 4, "intrinsics must have 4 params");
     debug_assert!(pose.len() == 7, "pose must have 7 params (SE3)");
     debug_assert!(plane_normal.len() == 3, "plane normal must have 3 params");
     debug_assert!(
@@ -316,8 +273,8 @@ pub(crate) fn laser_line_distance<D: DistortionKernel, S: SensorKernel, T: RealF
         "plane distance must have 1 param"
     );
 
-    let fx = intr[0].clone();
-    let fy = intr[1].clone();
+    let fx = camera.intrinsics()[0].clone();
+    let fy = camera.intrinsics()[1].clone();
 
     // Pose (T_C_T: camera-to-target)
     let pose_quat = Quaternion::new(
@@ -359,8 +316,7 @@ pub(crate) fn laser_line_distance<D: DistortionKernel, S: SensorKernel, T: RealF
     }
 
     let (p0_norm, v_norm) = project_line_to_normalized_plane(&p0_3d, &v_3d_unit);
-    let (x_u, y_u) =
-        undistort_pixel_to_normalized_model::<D, S, T>(intr, dist, sensor, laser_pixel);
+    let [x_u, y_u]: [T; 2] = camera.pixel_to_normalized(laser_pixel).coords.into();
 
     // |v_norm × (pixel - p0_norm)|, the 2D cross product.
     let cross =
@@ -558,38 +514,21 @@ fn resolve_laser_chain_pose<T: RealField>(
     }
 }
 
-/// Point-to-plane laser residual generic over camera-model kernels and chain.
+/// Point-to-plane laser residual of a camera model and chain.
 ///
-/// `params` is the full IR-ordered block list: `[intrinsics, distortion?,
-/// sensor?, <chain blocks>]`.
-pub(crate) fn laser_point_to_plane_model_generic<D, S, T>(
+/// `params` is the full IR-ordered block list: the camera blocks of `model`
+/// followed by the chain blocks.
+pub(crate) fn laser_point_to_plane_residual<T: RealField>(
+    model: CameraModelSpec,
     chain: &LaserChain,
     params: &[DVector<T>],
     laser_pixel: [f64; 2],
     w: f64,
-) -> SVector<T, 1>
-where
-    D: DistortionKernel,
-    S: SensorKernel,
-    T: RealField,
-{
-    let mut idx = 1;
-    let dist = (D::DIM > 0).then(|| {
-        let v = params[idx].as_view();
-        idx += 1;
-        v
-    });
-    let sensor = (S::DIM > 0).then(|| {
-        let v = params[idx].as_view();
-        idx += 1;
-        v
-    });
-    let blocks = &params[idx..];
+) -> SVector<T, 1> {
+    let (camera, blocks) = CameraBlocks::split(model, params);
     let (pose, n_idx, d_idx) = resolve_laser_chain_pose(chain, blocks);
-    laser_point_to_plane_core::<D, S, T>(
-        params[0].as_view(),
-        dist,
-        sensor,
+    laser_point_to_plane_core(
+        &camera,
         pose.as_view(),
         blocks[n_idx].as_view(),
         blocks[d_idx].as_view(),
@@ -598,38 +537,21 @@ where
     )
 }
 
-/// Line-distance laser residual generic over camera-model kernels and chain.
+/// Line-distance laser residual of a camera model and chain.
 ///
-/// `params` is the full IR-ordered block list: `[intrinsics, distortion?,
-/// sensor?, <chain blocks>]`.
-pub(crate) fn laser_line_distance_model_generic<D, S, T>(
+/// `params` is the full IR-ordered block list: the camera blocks of `model`
+/// followed by the chain blocks.
+pub(crate) fn laser_line_distance_residual<T: RealField>(
+    model: CameraModelSpec,
     chain: &LaserChain,
     params: &[DVector<T>],
     laser_pixel: [f64; 2],
     w: f64,
-) -> SVector<T, 1>
-where
-    D: DistortionKernel,
-    S: SensorKernel,
-    T: RealField,
-{
-    let mut idx = 1;
-    let dist = (D::DIM > 0).then(|| {
-        let v = params[idx].as_view();
-        idx += 1;
-        v
-    });
-    let sensor = (S::DIM > 0).then(|| {
-        let v = params[idx].as_view();
-        idx += 1;
-        v
-    });
-    let blocks = &params[idx..];
+) -> SVector<T, 1> {
+    let (camera, blocks) = CameraBlocks::split(model, params);
     let (pose, n_idx, d_idx) = resolve_laser_chain_pose(chain, blocks);
-    laser_line_dist_core::<D, S, T>(
-        params[0].as_view(),
-        dist,
-        sensor,
+    laser_line_dist_core(
+        &camera,
         pose.as_view(),
         blocks[n_idx].as_view(),
         blocks[d_idx].as_view(),
@@ -641,7 +563,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
+    use crate::ir::{DistortionKind, SensorKind};
+    use nalgebra::Point2;
+
+    const SPEC: CameraModelSpec =
+        CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
     use nalgebra::{DVector, Isometry3, Translation3, UnitQuaternion as UQ};
 
     fn pack(iso: &Isometry3<f64>) -> DVector<f64> {
@@ -685,10 +611,14 @@ mod tests {
         let plane_distance = DVector::from_vec(vec![-0.5]);
 
         // Pixel at center (will project to z=0 in target frame since pose is identity)
-        let residual = laser_point_to_plane_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-            intr.as_view(),
-            Some(dist.as_view()),
-            Some(sensor.as_view()),
+        let residual = laser_point_to_plane_core(
+            &CameraBlocks::new(
+                SPEC,
+                intr.as_slice(),
+                &[],
+                dist.as_slice(),
+                sensor.as_slice(),
+            ),
             pose.as_view(),
             plane_normal.as_view(),
             plane_distance.as_view(),
@@ -715,10 +645,14 @@ mod tests {
         let plane_normal = DVector::from_vec(vec![normal.x, normal.y, normal.z]);
         let plane_distance = DVector::from_vec(vec![-0.4]);
 
-        let residual = laser_line_dist_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-            intr.as_view(),
-            Some(dist.as_view()),
-            Some(sensor.as_view()),
+        let residual = laser_line_dist_core(
+            &CameraBlocks::new(
+                SPEC,
+                intr.as_slice(),
+                &[],
+                dist.as_slice(),
+                sensor.as_slice(),
+            ),
             pose.as_view(),
             plane_normal.as_view(),
             plane_distance.as_view(),
@@ -740,13 +674,15 @@ mod tests {
         let dist = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 0.0]);
         let sensor = DVector::from_vec(vec![0.0, 0.0]);
 
-        let (x_u, y_u): (f64, f64) =
-            undistort_pixel_to_normalized_model::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-                intr.as_view(),
-                Some(dist.as_view()),
-                Some(sensor.as_view()),
-                [640.0, 360.0],
-            );
+        let n = CameraBlocks::new(
+            SPEC,
+            intr.as_slice(),
+            &[],
+            dist.as_slice(),
+            sensor.as_slice(),
+        )
+        .pixel_to_normalized([640.0, 360.0]);
+        let (x_u, y_u): (f64, f64) = (n.x, n.y);
 
         assert!(x_u.abs() < 1e-12_f64, "x_u should be 0 for principal point");
         assert!(y_u.abs() < 1e-12_f64, "y_u should be 0 for principal point");
@@ -760,19 +696,22 @@ mod tests {
 
         let x_norm = 0.1_f64;
         let y_norm = -0.05_f64;
-        let (x_sensor, y_sensor) =
-            Scheimpflug2Kernel::to_sensor(Some(sensor.as_view()), x_norm, y_norm);
+        let p_sensor =
+            SensorKind::Scheimpflug.to_sensor(sensor.as_slice(), &Point2::new(x_norm, y_norm));
+        let (x_sensor, y_sensor) = (p_sensor.x, p_sensor.y);
 
         let u = intr[0] * x_sensor + intr[2];
         let v = intr[1] * y_sensor + intr[3];
 
-        let (x_u, y_u): (f64, f64) =
-            undistort_pixel_to_normalized_model::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-                intr.as_view(),
-                Some(dist.as_view()),
-                Some(sensor.as_view()),
-                [u, v],
-            );
+        let n = CameraBlocks::new(
+            SPEC,
+            intr.as_slice(),
+            &[],
+            dist.as_slice(),
+            sensor.as_slice(),
+        )
+        .pixel_to_normalized([u, v]);
+        let (x_u, y_u): (f64, f64) = (n.x, n.y);
 
         assert!((x_u - x_norm).abs() < 1e-8, "x_u mismatch: {}", x_u);
         assert!((y_u - y_norm).abs() < 1e-8, "y_u mismatch: {}", y_u);
@@ -965,21 +904,21 @@ mod tests {
             ];
 
             // Point-to-plane variant.
-            let r_single = laser_point_to_plane_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-                intr.as_view(),
-                Some(dist.as_view()),
-                Some(sensor.as_view()),
+            let r_single = laser_point_to_plane_core(
+                &CameraBlocks::new(
+                    SPEC,
+                    intr.as_slice(),
+                    &[],
+                    dist.as_slice(),
+                    sensor.as_slice(),
+                ),
                 pose_dv.as_view(),
                 plane_normal.as_view(),
                 plane_distance.as_view(),
                 laser_pixel,
                 w,
             );
-            let r_rig = laser_point_to_plane_model_generic::<
-                BrownConrady5Kernel,
-                Scheimpflug2Kernel,
-                f64,
-            >(&chain, &chain_params, laser_pixel, w);
+            let r_rig = laser_point_to_plane_residual(SPEC, &chain, &chain_params, laser_pixel, w);
             assert!(
                 (r_single[0] - r_rig[0]).abs() < 1e-10,
                 "PointToPlane mismatch mode={:?}: single={} rig={}",
@@ -989,21 +928,22 @@ mod tests {
             );
 
             // Line-distance variant.
-            let r_single_ln = laser_line_dist_core::<BrownConrady5Kernel, Scheimpflug2Kernel, f64>(
-                intr.as_view(),
-                Some(dist.as_view()),
-                Some(sensor.as_view()),
+            let r_single_ln = laser_line_dist_core(
+                &CameraBlocks::new(
+                    SPEC,
+                    intr.as_slice(),
+                    &[],
+                    dist.as_slice(),
+                    sensor.as_slice(),
+                ),
                 pose_dv.as_view(),
                 plane_normal.as_view(),
                 plane_distance.as_view(),
                 laser_pixel,
                 w,
             );
-            let r_rig_ln = laser_line_distance_model_generic::<
-                BrownConrady5Kernel,
-                Scheimpflug2Kernel,
-                f64,
-            >(&chain, &chain_params, laser_pixel, w);
+            let r_rig_ln =
+                laser_line_distance_residual(SPEC, &chain, &chain_params, laser_pixel, w);
             assert!(
                 (r_single_ln[0] - r_rig_ln[0]).abs() < 1e-10,
                 "LineDistNormalized mismatch mode={:?}: single={} rig={}",
@@ -1077,28 +1017,16 @@ mod tests {
         let mut delta_params = base_params.to_vec();
         delta_params.push(delta.clone());
 
-        let p2p_delta = laser_point_to_plane_model_generic::<
-            BrownConrady5Kernel,
-            Scheimpflug2Kernel,
-            f64,
-        >(&chain_delta, &delta_params, laser_pixel, w);
-        let p2p_corrected = laser_point_to_plane_model_generic::<
-            BrownConrady5Kernel,
-            Scheimpflug2Kernel,
-            f64,
-        >(&chain_corrected, &base_params, laser_pixel, w);
+        let p2p_delta =
+            laser_point_to_plane_residual(SPEC, &chain_delta, &delta_params, laser_pixel, w);
+        let p2p_corrected =
+            laser_point_to_plane_residual(SPEC, &chain_corrected, &base_params, laser_pixel, w);
         assert!((p2p_delta[0] - p2p_corrected[0]).abs() < 1e-10);
 
-        let line_delta = laser_line_distance_model_generic::<
-            BrownConrady5Kernel,
-            Scheimpflug2Kernel,
-            f64,
-        >(&chain_delta, &delta_params, laser_pixel, w);
-        let line_corrected = laser_line_distance_model_generic::<
-            BrownConrady5Kernel,
-            Scheimpflug2Kernel,
-            f64,
-        >(&chain_corrected, &base_params, laser_pixel, w);
+        let line_delta =
+            laser_line_distance_residual(SPEC, &chain_delta, &delta_params, laser_pixel, w);
+        let line_corrected =
+            laser_line_distance_residual(SPEC, &chain_corrected, &base_params, laser_pixel, w);
         assert!((line_delta[0] - line_corrected[0]).abs() < 1e-10);
     }
 }

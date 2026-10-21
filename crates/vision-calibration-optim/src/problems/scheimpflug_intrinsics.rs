@@ -2,7 +2,8 @@
 
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
-use crate::ir::{Bound, CameraModelDesc, DistortionKind, RobustLoss};
+use crate::ir::SensorKind;
+use crate::ir::{Bound, CameraModelSpec, DistortionKind, RobustLoss};
 use crate::params::distortion::{distortion_kind, fix_mask_indices, unpack_distortion_params};
 use crate::params::intrinsics::unpack_intrinsics;
 use crate::params::pose_se3::se3_dvec_to_iso3;
@@ -248,18 +249,26 @@ pub struct ScheimpflugIntrinsicsEstimate {
     pub uncertainty: Uncertainty,
 }
 
-/// Select the Scheimpflug-sensor [`CameraModelDesc`] for a distortion kind.
+/// Select the Scheimpflug-sensor [`CameraModelSpec`] for a distortion kind.
 ///
 /// Brown-Conrady5 maps to `PINHOLE4_DIST5_SCHEIMPFLUG2` (byte-identical to the
 /// single-model path it replaced); the extended models map to their Scheimpflug siblings.
 /// The identity-distortion `None` kind has no Scheimpflug descriptor and is
 /// rejected — a Scheimpflug intrinsics solve always carries a distortion model.
-fn scheimpflug_model_desc(kind: DistortionKind) -> Result<CameraModelDesc, Error> {
+fn scheimpflug_model_desc(kind: DistortionKind) -> Result<CameraModelSpec, Error> {
     Ok(match kind {
-        DistortionKind::BrownConrady5 => CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
-        DistortionKind::Rational8 => CameraModelDesc::PINHOLE4_RATIONAL8_SCHEIMPFLUG2,
-        DistortionKind::ThinPrism9 => CameraModelDesc::PINHOLE4_THINPRISM9_SCHEIMPFLUG2,
-        DistortionKind::Division1 => CameraModelDesc::PINHOLE4_DIVISION1_SCHEIMPFLUG2,
+        DistortionKind::BrownConrady5 => {
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug)
+        }
+        DistortionKind::Rational8 => {
+            CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Scheimpflug)
+        }
+        DistortionKind::ThinPrism9 => {
+            CameraModelSpec::pinhole(DistortionKind::ThinPrism9, SensorKind::Scheimpflug)
+        }
+        DistortionKind::Division1 => {
+            CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Scheimpflug)
+        }
         DistortionKind::None => {
             return Err(Error::invalid_input(
                 "Scheimpflug intrinsics requires a distortion model (identity distortion \

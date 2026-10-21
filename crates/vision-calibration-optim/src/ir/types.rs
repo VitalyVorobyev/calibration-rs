@@ -1,6 +1,9 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+pub use vision_calibration_core::{
+    CameraModelSpec, DistortionKind, INTRINSICS_PARAM_NAMES, ProjectionKind, SensorKind,
+};
 
 /// Identifier for a parameter block in the IR.
 ///
@@ -234,179 +237,40 @@ pub enum HandEyeMode {
     EyeToHand,
 }
 
-/// Projection slot of a [`CameraModelDesc`].
-///
-/// Determines the dimension of the intrinsics parameter block.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProjectionKind {
-    /// Pinhole projection; intrinsics `[fx, fy, cx, cy]`.
-    Pinhole,
-}
-
-impl ProjectionKind {
-    /// Dimension of the intrinsics parameter block for this projection.
-    pub fn intrinsics_dim(self) -> usize {
-        match self {
-            ProjectionKind::Pinhole => 4,
-        }
-    }
-}
-
-/// Which distortion model a camera carries.
-///
-/// `dim() == 0` means the factor takes no distortion parameter block.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum DistortionKind {
-    /// No distortion; no parameter block.
-    None,
-    /// Brown-Conrady `[k1, k2, k3, p1, p2]`.
-    BrownConrady5,
-    /// Rational polynomial `[k1, k2, k3, k4, k5, k6, p1, p2]`.
-    Rational8,
-    /// Brown-Conrady + thin-prism `[k1, k2, k3, p1, p2, s1, s2, s3, s4]`.
-    ThinPrism9,
-    /// Fitzgibbon division model `[lambda]`.
-    Division1,
-}
-
-impl DistortionKind {
-    /// Dimension of the distortion parameter block (0 = no block).
-    pub fn dim(self) -> usize {
-        self.param_names().len()
-    }
-
-    /// Names of the distortion coefficients, in block order.
-    pub fn param_names(self) -> &'static [&'static str] {
-        match self {
-            DistortionKind::None => &[],
-            DistortionKind::BrownConrady5 => &["k1", "k2", "k3", "p1", "p2"],
-            DistortionKind::Rational8 => &["k1", "k2", "k3", "k4", "k5", "k6", "p1", "p2"],
-            DistortionKind::ThinPrism9 => &["k1", "k2", "k3", "p1", "p2", "s1", "s2", "s3", "s4"],
-            DistortionKind::Division1 => &["lambda"],
-        }
-    }
-}
-
-/// Sensor slot of a [`CameraModelDesc`].
-///
-/// `dim() == 0` means the factor takes no sensor parameter block.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SensorKind {
-    /// Identity sensor; no parameter block.
-    None,
-    /// Scheimpflug tilt `[tilt_x, tilt_y]`.
-    Scheimpflug2,
-}
-
-impl SensorKind {
-    /// Dimension of the sensor parameter block (0 = no block).
-    pub fn dim(self) -> usize {
-        match self {
-            SensorKind::None => 0,
-            SensorKind::Scheimpflug2 => 2,
-        }
-    }
-}
-
-/// Camera model carried as data by reprojection and laser factors.
-///
-/// The descriptor selects which residual kernel a backend compiles and which
-/// leading parameter blocks the factor expects: intrinsics always, then a
-/// distortion block if `distortion.dim() > 0`, then a sensor block if
-/// `sensor.dim() > 0`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CameraModelDesc {
-    /// Projection slot (determines intrinsics dimension).
-    pub projection: ProjectionKind,
-    /// Distortion slot.
-    pub distortion: DistortionKind,
-    /// Sensor slot.
-    pub sensor: SensorKind,
-}
-
-impl CameraModelDesc {
-    /// Pinhole, no distortion, identity sensor.
-    pub const PINHOLE4: Self = Self {
-        projection: ProjectionKind::Pinhole,
-        distortion: DistortionKind::None,
-        sensor: SensorKind::None,
-    };
-    /// Pinhole with Brown-Conrady distortion.
-    pub const PINHOLE4_DIST5: Self = Self {
-        projection: ProjectionKind::Pinhole,
-        distortion: DistortionKind::BrownConrady5,
-        sensor: SensorKind::None,
-    };
-    /// Pinhole with Brown-Conrady distortion and a Scheimpflug sensor.
-    pub const PINHOLE4_DIST5_SCHEIMPFLUG2: Self = Self {
-        projection: ProjectionKind::Pinhole,
-        distortion: DistortionKind::BrownConrady5,
-        sensor: SensorKind::Scheimpflug2,
-    };
-    /// Pinhole with rational polynomial 8-parameter distortion.
-    pub const PINHOLE4_RATIONAL8: Self = Self {
-        projection: ProjectionKind::Pinhole,
-        distortion: DistortionKind::Rational8,
-        sensor: SensorKind::None,
-    };
-    /// Pinhole with rational polynomial 8-parameter distortion and a Scheimpflug sensor.
-    pub const PINHOLE4_RATIONAL8_SCHEIMPFLUG2: Self = Self {
-        projection: ProjectionKind::Pinhole,
-        distortion: DistortionKind::Rational8,
-        sensor: SensorKind::Scheimpflug2,
-    };
-    /// Pinhole with thin-prism 9-parameter distortion.
-    pub const PINHOLE4_THINPRISM9: Self = Self {
-        projection: ProjectionKind::Pinhole,
-        distortion: DistortionKind::ThinPrism9,
-        sensor: SensorKind::None,
-    };
-    /// Pinhole with thin-prism 9-parameter distortion and a Scheimpflug sensor.
-    pub const PINHOLE4_THINPRISM9_SCHEIMPFLUG2: Self = Self {
-        projection: ProjectionKind::Pinhole,
-        distortion: DistortionKind::ThinPrism9,
-        sensor: SensorKind::Scheimpflug2,
-    };
-    /// Pinhole with Fitzgibbon division 1-parameter distortion.
-    pub const PINHOLE4_DIVISION1: Self = Self {
-        projection: ProjectionKind::Pinhole,
-        distortion: DistortionKind::Division1,
-        sensor: SensorKind::None,
-    };
-    /// Pinhole with Fitzgibbon division 1-parameter distortion and a Scheimpflug sensor.
-    pub const PINHOLE4_DIVISION1_SCHEIMPFLUG2: Self = Self {
-        projection: ProjectionKind::Pinhole,
-        distortion: DistortionKind::Division1,
-        sensor: SensorKind::Scheimpflug2,
-    };
-
-    /// Number of leading camera parameter blocks implied by the descriptor.
-    pub(crate) fn num_cam_blocks(self) -> usize {
-        1 + usize::from(self.distortion.dim() > 0) + usize::from(self.sensor.dim() > 0)
-    }
-
+/// Camera-block layout of a [`CameraModelSpec`] in the IR: intrinsics, then
+/// the projection, distortion and sensor blocks whose dimension is non-zero.
+pub(crate) trait CameraSpecLayout {
+    /// Number of leading camera parameter blocks implied by the spec.
+    fn num_cam_blocks(self) -> usize;
     /// Expected camera parameter slots, in IR order.
+    fn param_slots(self) -> Vec<ParamSlotSpec>;
+}
+
+impl CameraSpecLayout for CameraModelSpec {
+    fn num_cam_blocks(self) -> usize {
+        1 + usize::from(self.projection.dim() > 0)
+            + usize::from(self.distortion.dim() > 0)
+            + usize::from(self.sensor.dim() > 0)
+    }
+
     fn param_slots(self) -> Vec<ParamSlotSpec> {
         let mut slots = vec![ParamSlotSpec {
-            dim: self.projection.intrinsics_dim(),
+            dim: INTRINSICS_PARAM_NAMES.len(),
             manifold: ManifoldKind::Euclidean,
             role: "intrinsics",
         }];
-        if self.distortion.dim() > 0 {
-            slots.push(ParamSlotSpec {
-                dim: self.distortion.dim(),
-                manifold: ManifoldKind::Euclidean,
-                role: "distortion",
-            });
-        }
-        if self.sensor.dim() > 0 {
-            slots.push(ParamSlotSpec {
-                dim: self.sensor.dim(),
-                manifold: ManifoldKind::Euclidean,
-                role: "sensor",
-            });
+        for (dim, role) in [
+            (self.projection.dim(), "projection"),
+            (self.distortion.dim(), "distortion"),
+            (self.sensor.dim(), "sensor"),
+        ] {
+            if dim > 0 {
+                slots.push(ParamSlotSpec {
+                    dim,
+                    manifold: ManifoldKind::Euclidean,
+                    role,
+                });
+            }
         }
         slots
     }
@@ -583,7 +447,7 @@ pub enum FactorKind {
     ReprojPoint {
         /// Camera model descriptor (selects the projection kernel and the
         /// leading parameter blocks).
-        model: CameraModelDesc,
+        model: CameraModelSpec,
         /// Pose chain (selects the trailing parameter blocks and how the
         /// point reaches the camera frame).
         chain: ReprojChain,
@@ -606,7 +470,7 @@ pub enum FactorKind {
     /// Residual: 1D signed distance in meters, scaled by `w`.
     LaserPointToPlane {
         /// Camera model descriptor.
-        model: CameraModelDesc,
+        model: CameraModelSpec,
         /// Pose chain including the laser-plane blocks.
         chain: LaserChain,
         /// Observed laser pixel coordinates.
@@ -625,7 +489,7 @@ pub enum FactorKind {
     /// Residual: 1D distance in pixels, scaled by `w`.
     LaserLineDistance {
         /// Camera model descriptor.
-        model: CameraModelDesc,
+        model: CameraModelSpec,
         /// Pose chain including the laser-plane blocks.
         chain: LaserChain,
         /// Observed laser pixel coordinates.
@@ -844,6 +708,15 @@ impl ProblemIR {
                     residual.factor.residual_dim()
                 )));
             }
+            if let FactorKind::LaserLineDistance { model, .. } = &residual.factor
+                && !model.projection.preserves_lines()
+            {
+                return Err(Error::invalid_input(format!(
+                    "residual {r_idx}: the laser line-distance residual needs a projection \
+                     that images lines as lines; {:?} does not (use point-to-plane)",
+                    model.projection
+                )));
+            }
             for param in &residual.params {
                 if param.0 >= self.params.len() {
                     return Err(Error::invalid_input(format!(
@@ -945,10 +818,10 @@ mod tests {
         assert!(RobustLoss::Huber { scale: 1.0 }.validate().is_ok());
     }
 
-    const MODELS: [CameraModelDesc; 3] = [
-        CameraModelDesc::PINHOLE4,
-        CameraModelDesc::PINHOLE4_DIST5,
-        CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+    const MODELS: [CameraModelSpec; 3] = [
+        CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity),
+        CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
+        CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug),
     ];
 
     fn reproj_chains() -> Vec<ReprojChain> {
@@ -1001,10 +874,18 @@ mod tests {
 
     #[test]
     fn camera_model_desc_block_counts() {
-        assert_eq!(CameraModelDesc::PINHOLE4.num_cam_blocks(), 1);
-        assert_eq!(CameraModelDesc::PINHOLE4_DIST5.num_cam_blocks(), 2);
         assert_eq!(
-            CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2.num_cam_blocks(),
+            CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity).num_cam_blocks(),
+            1
+        );
+        assert_eq!(
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity)
+                .num_cam_blocks(),
+            2
+        );
+        assert_eq!(
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug)
+                .num_cam_blocks(),
             3
         );
     }
@@ -1117,7 +998,7 @@ mod tests {
     #[test]
     fn validate_rejects_wrong_block_count() {
         let factor = FactorKind::ReprojPoint {
-            model: CameraModelDesc::PINHOLE4_DIST5,
+            model: CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
             chain: ReprojChain::SinglePose,
             pw: [0.0; 3],
             uv: [0.0; 2],
@@ -1144,7 +1025,7 @@ mod tests {
     fn validate_rejects_wrong_dim_and_manifold() {
         // Wrong distortion dim (4 instead of 5).
         let factor = FactorKind::ReprojPoint {
-            model: CameraModelDesc::PINHOLE4_DIST5,
+            model: CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
             chain: ReprojChain::SinglePose,
             pw: [0.0; 3],
             uv: [0.0; 2],
@@ -1165,7 +1046,7 @@ mod tests {
 
         // Wrong plane-normal manifold (Euclidean instead of S2).
         let factor = FactorKind::LaserPointToPlane {
-            model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+            model: CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug),
             chain: LaserChain::SinglePose,
             laser_pixel: [0.0; 2],
             w: 1.0,

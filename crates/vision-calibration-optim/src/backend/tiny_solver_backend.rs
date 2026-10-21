@@ -3,18 +3,15 @@ use crate::backend::covariance::{self, RawLinearization};
 use crate::backend::lm::{self, LinearizationEngine, LmSolution};
 use crate::backend::tiny_solver_manifolds::UnitVector3Manifold;
 use crate::backend::{BackendSolution, BackendSolveOptions, OptimBackend, SolveReport};
-use crate::factors::camera_kernels::{DistortionKernel, ProjectionKernel, SensorKernel};
-use crate::factors::laserline::{
-    laser_line_distance_model_generic, laser_point_to_plane_model_generic,
-};
-use crate::factors::reprojection_model::reproj_residual_model_generic;
+use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
+use crate::factors::reprojection_model::reproj_residual;
 use crate::ir::{
-    FactorKind, LaserChain, ManifoldKind, ParamBlock, ProblemIR, ReprojChain, RobustLoss,
+    CameraModelSpec, FactorKind, LaserChain, ManifoldKind, ParamBlock, ProblemIR, ReprojChain,
+    RobustLoss,
 };
 use faer::sparse::SparseColMat;
 use nalgebra::DVector;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use tiny_solver::factors::Factor;
 use tiny_solver::loss_functions::{ArctanLoss, CauchyLoss, HuberLoss, Loss};
@@ -400,19 +397,14 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
             uv,
             w,
         } => {
-            macro_rules! mk {
-                ($P:ty, $D:ty, $S:ty) => {
-                    Box::new(TinyReprojFactor::<$P, $D, $S> {
-                        chain: *chain,
-                        pw: *pw,
-                        uv: *uv,
-                        w: *w,
-                        _kernels: PhantomData,
-                    }) as Box<dyn tiny_solver::factors::FactorImpl + Send>
-                };
-            }
-            let factor = crate::backend::dispatch_camera_model!(model, mk);
-            Ok((factor, loss))
+            let factor = TinyReprojFactor {
+                model: *model,
+                chain: *chain,
+                pw: *pw,
+                uv: *uv,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
         }
         FactorKind::LaserPointToPlane {
             model,
@@ -420,18 +412,14 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
             laser_pixel,
             w,
         } => {
-            macro_rules! mk {
-                ($P:ty, $D:ty, $S:ty) => {
-                    Box::new(TinyLaserPlaneFactor::<$D, $S> {
-                        chain: *chain,
-                        laser_pixel: *laser_pixel,
-                        w: *w,
-                        _kernels: PhantomData,
-                    }) as Box<dyn tiny_solver::factors::FactorImpl + Send>
-                };
-            }
-            let factor = crate::backend::dispatch_camera_model!(model, mk);
-            Ok((factor, loss))
+            let factor = TinyLaserFactor {
+                metric: LaserMetric::PointToPlane,
+                model: *model,
+                chain: *chain,
+                laser_pixel: *laser_pixel,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
         }
         FactorKind::LaserLineDistance {
             model,
@@ -439,100 +427,57 @@ fn compile_factor(residual: &crate::ir::ResidualBlock) -> Result<CompiledFactor,
             laser_pixel,
             w,
         } => {
-            macro_rules! mk {
-                ($P:ty, $D:ty, $S:ty) => {
-                    Box::new(TinyLaserLineFactor::<$D, $S> {
-                        chain: *chain,
-                        laser_pixel: *laser_pixel,
-                        w: *w,
-                        _kernels: PhantomData,
-                    }) as Box<dyn tiny_solver::factors::FactorImpl + Send>
-                };
-            }
-            let factor = crate::backend::dispatch_camera_model!(model, mk);
-            Ok((factor, loss))
+            let factor = TinyLaserFactor {
+                metric: LaserMetric::LineDistance,
+                model: *model,
+                chain: *chain,
+                laser_pixel: *laser_pixel,
+                w: *w,
+            };
+            Ok((Box::new(factor), loss))
         }
     }
 }
 
-/// Marker tying a factor struct to its camera-model kernel types without
-/// storing them (the `fn() -> K` form keeps the struct `Send + Sync`).
-type KernelMarker<K> = PhantomData<fn() -> K>;
-
 #[derive(Debug, Clone)]
-struct TinyReprojFactor<P, D, S> {
+struct TinyReprojFactor {
+    model: CameraModelSpec,
     chain: ReprojChain,
     pw: [f64; 3],
     uv: [f64; 2],
     w: f64,
-    _kernels: KernelMarker<(P, D, S)>,
 }
 
-impl<P, D, S, T> Factor<T> for TinyReprojFactor<P, D, S>
-where
-    P: ProjectionKernel,
-    D: DistortionKernel,
-    S: SensorKernel,
-    T: nalgebra::RealField,
-{
+impl<T: nalgebra::RealField> Factor<T> for TinyReprojFactor {
     fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        let r = reproj_residual_model_generic::<P, D, S, T>(
-            &self.chain,
-            params,
-            self.pw,
-            self.uv,
-            self.w,
-        );
+        let r = reproj_residual(self.model, &self.chain, params, self.pw, self.uv, self.w);
         DVector::from_row_slice(r.as_slice())
     }
 }
 
-#[derive(Debug, Clone)]
-struct TinyLaserPlaneFactor<D, S> {
-    chain: LaserChain,
-    laser_pixel: [f64; 2],
-    w: f64,
-    _kernels: KernelMarker<(D, S)>,
-}
-
-impl<D, S, T> Factor<T> for TinyLaserPlaneFactor<D, S>
-where
-    D: DistortionKernel,
-    S: SensorKernel,
-    T: nalgebra::RealField,
-{
-    fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        let r = laser_point_to_plane_model_generic::<D, S, T>(
-            &self.chain,
-            params,
-            self.laser_pixel,
-            self.w,
-        );
-        DVector::from_row_slice(r.as_slice())
-    }
+/// Which laser residual a [`TinyLaserFactor`] evaluates.
+#[derive(Debug, Clone, Copy)]
+enum LaserMetric {
+    PointToPlane,
+    LineDistance,
 }
 
 #[derive(Debug, Clone)]
-struct TinyLaserLineFactor<D, S> {
+struct TinyLaserFactor {
+    metric: LaserMetric,
+    model: CameraModelSpec,
     chain: LaserChain,
     laser_pixel: [f64; 2],
     w: f64,
-    _kernels: KernelMarker<(D, S)>,
 }
 
-impl<D, S, T> Factor<T> for TinyLaserLineFactor<D, S>
-where
-    D: DistortionKernel,
-    S: SensorKernel,
-    T: nalgebra::RealField,
-{
+impl<T: nalgebra::RealField> Factor<T> for TinyLaserFactor {
     fn residual_func(&self, params: &[DVector<T>]) -> DVector<T> {
-        let r = laser_line_distance_model_generic::<D, S, T>(
-            &self.chain,
-            params,
-            self.laser_pixel,
-            self.w,
-        );
+        let residual = match self.metric {
+            LaserMetric::PointToPlane => laser_point_to_plane_residual,
+            LaserMetric::LineDistance => laser_line_distance_residual,
+        };
+        let r = residual(self.model, &self.chain, params, self.laser_pixel, self.w);
         DVector::from_row_slice(r.as_slice())
     }
 }
@@ -556,6 +501,7 @@ impl<T: nalgebra::RealField> Factor<T> for TinySe3TangentPriorFactor {
 mod tests {
     use super::*;
     use crate::ir::HandEyeMode;
+    use crate::ir::{DistortionKind, SensorKind};
     use faer_ext::IntoNalgebra;
     use nalgebra::RealField;
 
@@ -694,7 +640,7 @@ mod tests {
         }
     }
 
-    use crate::ir::{CameraModelDesc, FixedMask, ParamSlotSpec, ResidualBlock};
+    use crate::ir::{CameraModelSpec, FixedMask, ParamSlotSpec, ResidualBlock};
 
     /// Compile an IR and evaluate its stacked residual vector at the initial
     /// parameter values.
@@ -775,9 +721,9 @@ mod tests {
         let robot_se3 = [0.024, 0.011, 0.032, 0.999_15, 0.51, -0.22, 0.78];
         let mode = HandEyeMode::EyeToHand;
 
-        let p4 = CameraModelDesc::PINHOLE4;
-        let d5 = CameraModelDesc::PINHOLE4_DIST5;
-        let d5s2 = CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2;
+        let p4 = CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity);
+        let d5 = CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
+        let d5s2 = CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
 
         let reproj = |model, chain| FactorKind::ReprojPoint {
             model,

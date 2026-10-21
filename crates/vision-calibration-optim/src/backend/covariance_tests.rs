@@ -1,6 +1,7 @@
 //! The covariance against Monte-Carlo scatter, across backends, and on the
 //! problems it must refuse.
 
+use crate::ir::{DistortionKind, SensorKind};
 use std::collections::HashMap;
 
 use nalgebra::{DMatrix, DVector, UnitQuaternion, Vector3};
@@ -16,7 +17,7 @@ use crate::backend::covariance::{
 };
 use crate::backend::{BackendSolveOptions, SolverBackend, solve};
 use crate::ir::{
-    Bound, CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
+    Bound, CameraModelSpec, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
 };
 use crate::problems::planar_intrinsics::{
@@ -344,7 +345,10 @@ fn free_gauge_is_reported_rank_deficient() {
                 params: vec![cam, dist, extrinsics, pose],
                 loss: RobustLoss::None,
                 factor: FactorKind::ReprojPoint {
-                    model: CameraModelDesc::PINHOLE4_DIST5,
+                    model: CameraModelSpec::pinhole(
+                        DistortionKind::BrownConrady5,
+                        SensorKind::Identity,
+                    ),
                     chain: ReprojChain::TwoSe3,
                     pw: [pw.x, pw.y, pw.z],
                     uv: [uv.x, uv.y],

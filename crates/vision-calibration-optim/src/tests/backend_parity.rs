@@ -3,9 +3,10 @@
 
 use crate::backend::{self, BackendSolveOptions, SolverBackend};
 use crate::ir::{
-    Bound, CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
+    Bound, CameraModelSpec, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
 };
+use crate::ir::{DistortionKind, SensorKind};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
@@ -142,7 +143,10 @@ fn planar_problem(
                     params: vec![cam, dist, id],
                     loss,
                     factor: FactorKind::ReprojPoint {
-                        model: CameraModelDesc::PINHOLE4_DIST5,
+                        model: CameraModelSpec::pinhole(
+                            DistortionKind::BrownConrady5,
+                            SensorKind::Identity,
+                        ),
                         chain: ReprojChain::SinglePose,
                         pw: [pw.x, pw.y, pw.z],
                         uv: [px.x, px.y],

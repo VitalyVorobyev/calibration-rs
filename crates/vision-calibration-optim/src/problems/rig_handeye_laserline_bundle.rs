@@ -20,8 +20,8 @@
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
 use crate::ir::{
-    CameraModelDesc, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind,
-    ProblemIR, ReprojChain, ResidualBlock, RobustLoss,
+    CameraModelSpec, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain, ManifoldKind,
+    ProblemIR, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics, unpack_intrinsics};
@@ -467,10 +467,7 @@ fn compute_stats(
     params: &RigHandeyeLaserlineParams,
     robot_deltas: Option<&[[Real; 6]]>,
 ) -> (f64, Vec<RigHandeyeLaserlinePerCamStats>) {
-    use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
-    use crate::factors::laserline::{
-        laser_line_distance_model_generic, laser_point_to_plane_model_generic,
-    };
+    use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
 
     let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> = params
         .cameras
@@ -586,16 +583,26 @@ fn compute_stats(
             ];
             for px in pixels {
                 let laser_px = [px.x, px.y];
-                let r_m = laser_point_to_plane_model_generic::<
-                    BrownConrady5Kernel,
-                    Scheimpflug2Kernel,
-                    f64,
-                >(&chain, &chain_params, laser_px, 1.0);
-                let r_px = laser_line_distance_model_generic::<
-                    BrownConrady5Kernel,
-                    Scheimpflug2Kernel,
-                    f64,
-                >(&chain, &chain_params, laser_px, 1.0);
+                let r_m = laser_point_to_plane_residual(
+                    CameraModelSpec::pinhole(
+                        DistortionKind::BrownConrady5,
+                        SensorKind::Scheimpflug,
+                    ),
+                    &chain,
+                    &chain_params,
+                    laser_px,
+                    1.0,
+                );
+                let r_px = laser_line_distance_residual(
+                    CameraModelSpec::pinhole(
+                        DistortionKind::BrownConrady5,
+                        SensorKind::Scheimpflug,
+                    ),
+                    &chain,
+                    &chain_params,
+                    laser_px,
+                    1.0,
+                );
                 let m = r_m[0];
                 let p = r_px[0];
                 if m.is_finite() && p.is_finite() && m.abs() < 1e5 && p.abs() < 1e5 {
@@ -930,7 +937,10 @@ fn build_ir(
                             ],
                             loss: opts.calib_loss,
                             factor: FactorKind::ReprojPoint {
-                                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                                model: CameraModelSpec::pinhole(
+                                    DistortionKind::BrownConrady5,
+                                    SensorKind::Scheimpflug,
+                                ),
                                 chain: ReprojChain::HandEyeRobotDelta {
                                     base_se3_gripper: robot_arr,
                                     mode: dataset.mode,
@@ -953,7 +963,10 @@ fn build_ir(
                             ],
                             loss: opts.calib_loss,
                             factor: FactorKind::ReprojPoint {
-                                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                                model: CameraModelSpec::pinhole(
+                                    DistortionKind::BrownConrady5,
+                                    SensorKind::Scheimpflug,
+                                ),
                                 chain: ReprojChain::HandEye {
                                     base_se3_gripper: robot_arr,
                                     mode: dataset.mode,
@@ -986,14 +999,20 @@ fn build_ir(
                     };
                     let factor = match opts.laser_residual_type {
                         LaserlineResidualType::PointToPlane => FactorKind::LaserPointToPlane {
-                            model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                            model: CameraModelSpec::pinhole(
+                                DistortionKind::BrownConrady5,
+                                SensorKind::Scheimpflug,
+                            ),
                             chain,
                             laser_pixel: laser_px,
                             w: opts.laser_weight,
                         },
                         LaserlineResidualType::LineDistNormalized => {
                             FactorKind::LaserLineDistance {
-                                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                                model: CameraModelSpec::pinhole(
+                                    DistortionKind::BrownConrady5,
+                                    SensorKind::Scheimpflug,
+                                ),
                                 chain,
                                 laser_pixel: laser_px,
                                 w: opts.laser_weight,

@@ -5,8 +5,9 @@
 
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
+use crate::ir::SensorKind;
 use crate::ir::{
-    CameraModelDesc, DistortionKind, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
+    CameraModelSpec, DistortionKind, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{pack_distortion_params, unpack_distortion_params};
@@ -201,14 +202,24 @@ fn distortion_params_to_kind(d: &DistortionParams) -> DistortionKind {
     }
 }
 
-/// Select the [`CameraModelDesc`] matching the distortion kind.
-fn camera_model_desc_for_kind(kind: DistortionKind) -> CameraModelDesc {
+/// Select the [`CameraModelSpec`] matching the distortion kind.
+fn camera_model_desc_for_kind(kind: DistortionKind) -> CameraModelSpec {
     match kind {
-        DistortionKind::None => CameraModelDesc::PINHOLE4,
-        DistortionKind::BrownConrady5 => CameraModelDesc::PINHOLE4_DIST5,
-        DistortionKind::Rational8 => CameraModelDesc::PINHOLE4_RATIONAL8,
-        DistortionKind::ThinPrism9 => CameraModelDesc::PINHOLE4_THINPRISM9,
-        DistortionKind::Division1 => CameraModelDesc::PINHOLE4_DIVISION1,
+        DistortionKind::None => {
+            CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity)
+        }
+        DistortionKind::BrownConrady5 => {
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity)
+        }
+        DistortionKind::Rational8 => {
+            CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Identity)
+        }
+        DistortionKind::ThinPrism9 => {
+            CameraModelSpec::pinhole(DistortionKind::ThinPrism9, SensorKind::Identity)
+        }
+        DistortionKind::Division1 => {
+            CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Identity)
+        }
     }
 }
 
@@ -437,6 +448,7 @@ pub fn optimize_planar_intrinsics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::SensorKind;
     use crate::ir::{FactorKind, FixedMask, ManifoldKind, ProblemIR, ResidualBlock};
     use crate::params::intrinsics::INTRINSICS_DIM;
 
@@ -454,7 +466,10 @@ mod tests {
             params: vec![cam_id, crate::ir::ParamId(42)],
             loss: RobustLoss::None,
             factor: FactorKind::ReprojPoint {
-                model: crate::ir::CameraModelDesc::PINHOLE4,
+                model: crate::ir::CameraModelSpec::pinhole(
+                    DistortionKind::None,
+                    SensorKind::Identity,
+                ),
                 chain: crate::ir::ReprojChain::SinglePose,
                 pw: [0.0, 0.0, 0.0],
                 uv: [0.0, 0.0],

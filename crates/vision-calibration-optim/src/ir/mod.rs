@@ -3,10 +3,10 @@
 mod types;
 
 pub use types::{
-    Bound, CameraModelDesc, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain,
+    Bound, CameraModelSpec, DistortionKind, FactorKind, FixedMask, HandEyeMode, LaserChain,
     ManifoldKind, ProblemIR, ProjectionKind, ReprojChain, ResidualBlock, RobustLoss, SensorKind,
 };
 
-pub(crate) use types::ParamBlock;
+pub(crate) use types::{CameraSpecLayout, ParamBlock};
 #[cfg(test)]
 pub use types::{ParamId, ParamSlotSpec};
