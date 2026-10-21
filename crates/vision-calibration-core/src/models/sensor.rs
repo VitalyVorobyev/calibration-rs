@@ -1,12 +1,15 @@
-use nalgebra::{Matrix3, Point2, Point3, RealField};
+use nalgebra::{Matrix3, Point2, RealField, Vector3};
 use serde::{Deserialize, Serialize};
 
 /// Sensor model mapping between normalized and sensor-plane coordinates.
-pub trait SensorModel<S: RealField + Copy> {
+///
+/// Generic over `T: RealField` with no `Copy` bound, so the optimizer's
+/// dual-number autodiff evaluates the same code.
+pub trait SensorModel<T: RealField> {
     /// Map normalized coordinates to the sensor plane.
-    fn normalized_to_sensor(&self, n: &Point2<S>) -> Point2<S>;
+    fn normalized_to_sensor(&self, n: &Point2<T>) -> Point2<T>;
     /// Map sensor-plane coordinates back to normalized coordinates.
-    fn sensor_to_normalized(&self, s: &Point2<S>) -> Point2<S>;
+    fn sensor_to_normalized(&self, s: &Point2<T>) -> Point2<T>;
 }
 
 /// Identity sensor model.
@@ -14,53 +17,56 @@ pub trait SensorModel<S: RealField + Copy> {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct IdentitySensor;
 
-impl<S: RealField + Copy> SensorModel<S> for IdentitySensor {
-    fn normalized_to_sensor(&self, n: &Point2<S>) -> Point2<S> {
-        *n
+impl<T: RealField> SensorModel<T> for IdentitySensor {
+    fn normalized_to_sensor(&self, n: &Point2<T>) -> Point2<T> {
+        n.clone()
     }
 
-    fn sensor_to_normalized(&self, s: &Point2<S>) -> Point2<S> {
-        *s
+    fn sensor_to_normalized(&self, s: &Point2<T>) -> Point2<T> {
+        s.clone()
     }
 }
 
 /// Sensor model represented by a 3x3 homography.
 #[derive(Clone, Debug)]
-pub struct HomographySensor<S: RealField + Copy> {
+pub struct HomographySensor<T: RealField> {
     /// Homography matrix (normalized -> sensor).
-    pub h: Matrix3<S>,
+    pub h: Matrix3<T>,
     /// Inverse homography matrix (sensor -> normalized).
-    pub h_inv: Matrix3<S>,
+    pub h_inv: Matrix3<T>,
 }
 
-impl<S: RealField + Copy> HomographySensor<S> {
+impl<T: RealField> HomographySensor<T> {
     /// Build a homography sensor if the matrix is invertible.
-    pub fn new(h: Matrix3<S>) -> Option<Self> {
-        let h_inv = h.try_inverse()?;
+    pub fn new(h: Matrix3<T>) -> Option<Self> {
+        let h_inv = h.clone().try_inverse()?;
         Some(Self { h, h_inv })
     }
 }
 
-impl<S: RealField + Copy> SensorModel<S> for HomographySensor<S> {
-    fn normalized_to_sensor(&self, n: &Point2<S>) -> Point2<S> {
-        dehomogenize(&(self.h * homogenize(n)))
+impl<T: RealField> SensorModel<T> for HomographySensor<T> {
+    fn normalized_to_sensor(&self, n: &Point2<T>) -> Point2<T> {
+        apply_homography(&self.h, n)
     }
 
-    fn sensor_to_normalized(&self, s: &Point2<S>) -> Point2<S> {
-        dehomogenize(&(self.h_inv * homogenize(s)))
+    fn sensor_to_normalized(&self, s: &Point2<T>) -> Point2<T> {
+        apply_homography_inverse(&self.h_inv, s)
     }
 }
 
 /// Scheimpflug tilt parameters (OpenCV-compatible).
+///
+/// Generic over the scalar so the optimizer evaluates the tilted sensor
+/// through this type under autodiff; `f64` is the default.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ScheimpflugParams {
+pub struct ScheimpflugParams<T: RealField = f64> {
     /// Tilt around X axis in radians (alias: tau_x).
     #[serde(alias = "tau_x")]
-    pub tilt_x: f64,
+    pub tilt_x: T,
     /// Tilt around Y axis in radians (alias: tau_y).
     #[serde(alias = "tau_y")]
-    pub tilt_y: f64,
+    pub tilt_y: T,
 }
 
 impl Default for ScheimpflugParams {
@@ -85,32 +91,92 @@ impl ScheimpflugParams {
     }
 }
 
-fn homogenize<S: RealField + Copy>(p: &Point2<S>) -> Point3<S> {
-    Point3::new(p.x, p.y, S::one())
+impl<T: RealField> SensorModel<T> for ScheimpflugParams<T> {
+    fn normalized_to_sensor(&self, n: &Point2<T>) -> Point2<T> {
+        let h = tilt_projection_matrix(self.tilt_x.clone(), self.tilt_y.clone());
+        apply_homography(&h, n)
+    }
+
+    /// Inverts the tilt homography; a singular homography (not reachable for
+    /// physical tilts) returns the input unchanged.
+    fn sensor_to_normalized(&self, s: &Point2<T>) -> Point2<T> {
+        let h = tilt_projection_matrix(self.tilt_x.clone(), self.tilt_y.clone());
+        match h.try_inverse() {
+            Some(h_inv) => apply_homography_inverse(&h_inv, s),
+            None => s.clone(),
+        }
+    }
 }
 
-fn dehomogenize<S: RealField + Copy>(p: &Point3<S>) -> Point2<S> {
-    Point2::new(p.x / p.z, p.y / p.z)
+/// `H·[p, 1]` dehomogenized, with the depth clamped to at least `1e-12` so a
+/// point at or behind the sensor plane stays finite (and differentiable).
+fn apply_homography<T: RealField>(h: &Matrix3<T>, p: &Point2<T>) -> Point2<T> {
+    let q = h * Vector3::new(p.x.clone(), p.y.clone(), T::one());
+    let eps = T::from_f64(1e-12).unwrap();
+    let z = if q.z.clone() > eps.clone() {
+        q.z.clone()
+    } else {
+        eps
+    };
+    Point2::new(q.x.clone() / z.clone(), q.y.clone() / z)
 }
 
-fn tilt_projection_matrix(tau_x: f64, tau_y: f64) -> Matrix3<f64> {
-    let (s_tx, c_tx) = tau_x.sin_cos();
-    let (s_ty, c_ty) = tau_y.sin_cos();
+/// `H⁻¹·[p, 1]` dehomogenized, with `|z|` clamped to at least `1e-12`.
+fn apply_homography_inverse<T: RealField>(h_inv: &Matrix3<T>, p: &Point2<T>) -> Point2<T> {
+    let q = h_inv * Vector3::new(p.x.clone(), p.y.clone(), T::one());
+    let eps = T::from_f64(1e-12).unwrap();
+    let z = if q.z.clone().abs() > eps.clone() {
+        q.z.clone()
+    } else {
+        eps
+    };
+    Point2::new(q.x.clone() / z.clone(), q.y.clone() / z)
+}
 
-    let rot_x = Matrix3::new(1.0, 0.0, 0.0, 0.0, c_tx, s_tx, 0.0, -s_tx, c_tx);
-    let rot_y = Matrix3::new(c_ty, 0.0, -s_ty, 0.0, 1.0, 0.0, s_ty, 0.0, c_ty);
+/// OpenCV's tilted-sensor homography `proj_z · Ry(τy) · Rx(τx)`.
+pub(crate) fn tilt_projection_matrix<T: RealField>(tau_x: T, tau_y: T) -> Matrix3<T> {
+    let s_tx = tau_x.clone().sin();
+    let c_tx = tau_x.cos();
+    let s_ty = tau_y.clone().sin();
+    let c_ty = tau_y.cos();
+    let zero = T::zero();
+    let one = T::one();
+
+    let rot_x = Matrix3::new(
+        one.clone(),
+        zero.clone(),
+        zero.clone(),
+        zero.clone(),
+        c_tx.clone(),
+        s_tx.clone(),
+        zero.clone(),
+        -s_tx,
+        c_tx,
+    );
+    let rot_y = Matrix3::new(
+        c_ty.clone(),
+        zero.clone(),
+        -s_ty.clone(),
+        zero.clone(),
+        one.clone(),
+        zero.clone(),
+        s_ty,
+        zero.clone(),
+        c_ty,
+    );
     let rot_xy = rot_y * rot_x;
 
+    let r22 = rot_xy[(2, 2)].clone();
     let proj_z = Matrix3::new(
-        rot_xy[(2, 2)],
-        0.0,
-        -rot_xy[(0, 2)],
-        0.0,
-        rot_xy[(2, 2)],
-        -rot_xy[(1, 2)],
-        0.0,
-        0.0,
-        1.0,
+        r22.clone(),
+        zero.clone(),
+        -rot_xy[(0, 2)].clone(),
+        zero.clone(),
+        r22,
+        -rot_xy[(1, 2)].clone(),
+        zero.clone(),
+        zero,
+        one,
     );
 
     proj_z * rot_xy

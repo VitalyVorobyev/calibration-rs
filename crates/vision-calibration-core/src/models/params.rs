@@ -132,15 +132,27 @@ pub enum AnyProjection {
 }
 
 impl ProjectionModel<Real> for AnyProjection {
-    fn project_dir(&self, dir_c: &nalgebra::Vector3<Real>) -> Option<nalgebra::Point2<Real>> {
+    fn in_domain(&self, p_c: &nalgebra::Vector3<Real>) -> bool {
         match self {
-            AnyProjection::Pinhole(m) => m.project_dir(dir_c),
+            AnyProjection::Pinhole(m) => m.in_domain(p_c),
         }
     }
 
-    fn unproject_dir(&self, n: &nalgebra::Point2<Real>) -> nalgebra::Vector3<Real> {
+    fn project(&self, p_c: &nalgebra::Vector3<Real>) -> nalgebra::Point2<Real> {
         match self {
-            AnyProjection::Pinhole(m) => m.unproject_dir(n),
+            AnyProjection::Pinhole(m) => m.project(p_c),
+        }
+    }
+
+    fn unproject(&self, n: &nalgebra::Point2<Real>) -> super::Ray<Real> {
+        match self {
+            AnyProjection::Pinhole(m) => m.unproject(n),
+        }
+    }
+
+    fn is_central(&self) -> bool {
+        match self {
+            AnyProjection::Pinhole(m) => ProjectionModel::<Real>::is_central(m),
         }
     }
 }

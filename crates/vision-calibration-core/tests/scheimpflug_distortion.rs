@@ -50,7 +50,10 @@ fn scheimpflug_with_brown_conrady_roundtrip() {
             .expect("point should project successfully");
 
         // Backward projection (backproject to ray, then scale to original depth)
-        let ray = camera.backproject_pixel(&pixel).point;
+        let ray = camera
+            .backproject_pixel(&pixel)
+            .point_at_unit_depth()
+            .unwrap();
 
         // Scale ray to match original depth
         let reconstructed = ray * (point.z / ray.z);
@@ -228,7 +231,10 @@ fn combined_scheimpflug_distortion_unproject() {
     ];
 
     for pixel in test_pixels {
-        let ray = camera.backproject_pixel(&pixel).point;
+        let ray = camera
+            .backproject_pixel(&pixel)
+            .point_at_unit_depth()
+            .unwrap();
 
         // Ray point is on z=1 plane, normalize to unit direction
         let ray_norm = (ray.x * ray.x + ray.y * ray.y + ray.z * ray.z).sqrt();

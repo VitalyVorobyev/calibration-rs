@@ -49,7 +49,7 @@ mod tests {
 
         let px = Point2::new(1000.0, 200.0);
         let ray = cam.backproject_pixel(&px);
-        let p = ray.point * 2.5;
+        let p = ray.point_at_unit_depth().unwrap() * 2.5;
         let px2 = cam.project_point_c(&p).unwrap();
 
         let err = (px2 - px).norm();
@@ -78,7 +78,7 @@ mod tests {
 
         let px = Point2::new(900.0, 500.0);
         let ray = cam.backproject_pixel(&px);
-        let p = ray.point * 3.0;
+        let p = ray.point_at_unit_depth().unwrap() * 3.0;
         let px2 = cam.project_point_c(&p).unwrap();
 
         let err = (px2 - px).norm();

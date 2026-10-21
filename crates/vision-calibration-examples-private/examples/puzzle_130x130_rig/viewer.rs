@@ -459,7 +459,9 @@ impl CameraProject for ViewerCameraModel {
     }
 
     fn backproject(&self, px: &Pt2) -> Vector3<f64> {
-        self.backproject_pixel(px).point
+        self.backproject_pixel(px)
+            .point_at_unit_depth()
+            .expect("pixel ray meets z = 1 for a pinhole camera")
     }
 }
 

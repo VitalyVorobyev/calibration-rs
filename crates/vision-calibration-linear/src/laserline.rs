@@ -233,14 +233,14 @@ impl LaserlinePlaneSolver {
         let mut points_camera = Vec::with_capacity(laser_pixels.len());
 
         for pixel in laser_pixels {
-            // 1. Backproject pixel to ray on z=1 plane in camera frame
-            // This handles undistortion and normalization internally
+            // 1. Backproject the pixel to its camera ray (undistortion and
+            // normalization happen inside).
             let ray = camera.backproject_pixel(&Pt2::new(pixel.x, pixel.y));
-            let ray_dir_camera = ray.point.normalize();
+            let ray_dir_camera = ray.direction.normalize();
 
             // 2. Transform ray to target frame
             // T_T_C = T_C_T^-1
-            let ray_origin_camera = Point3::origin();
+            let ray_origin_camera = Point3::from(ray.origin);
             let ray_origin_target = camera_se3_target.inverse_transform_point(&ray_origin_camera);
             let ray_dir_target = camera_se3_target.inverse_transform_vector(&ray_dir_camera);
 

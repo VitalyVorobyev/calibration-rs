@@ -7,35 +7,35 @@
 //! autodiff path stays generic over `T: RealField` with zero per-evaluation
 //! dispatch on the camera-model axis.
 //!
-//! Adding a camera model = one kernel type here + one descriptor enum variant
-//! + one row in the backend dispatch table.
+//! A kernel holds no math: it reads its parameter block into the core model
+//! of its kind (`vision_calibration_core`) and calls that model, so the
+//! optimizer and every other consumer evaluate one implementation.
 
-use nalgebra::{DVectorView, RealField, Vector3};
-
-use super::reprojection_model::{
-    apply_scheimpflug_generic, apply_scheimpflug_inverse_generic, distort_brown_conrady_generic,
-    distort_rational_generic, distort_thin_prism_generic,
+use nalgebra::{DVectorView, Point2, RealField, Vector3};
+use vision_calibration_core::{
+    BrownConrady5, DistortionModel, Division, Pinhole, ProjectionModel, RationalPolynomial,
+    ScheimpflugParams, SensorModel, ThinPrism,
 };
 
-/// Projection slot: normalizes a camera-frame point onto the z=1 plane.
+/// Split a point into its coordinates without cloning them.
+fn coords<T: RealField>(p: Point2<T>) -> (T, T) {
+    let [x, y]: [T; 2] = p.coords.into();
+    (x, y)
+}
+
+/// Projection slot: normalizes a camera-frame point.
 pub(crate) trait ProjectionKernel: 'static {
-    /// Normalize a camera-frame point to `(x, y)` on the z=1 plane.
+    /// Normalized coordinates of a camera-frame point.
     fn normalize<T: RealField>(p_c: &Vector3<T>) -> (T, T);
 }
 
-/// Pinhole projection with a `max(z, 1e-12)` depth guard.
+/// Pinhole projection (core [`Pinhole`], depth clamped at `1e-12`).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PinholeKernel;
 
 impl ProjectionKernel for PinholeKernel {
     fn normalize<T: RealField>(p_c: &Vector3<T>) -> (T, T) {
-        let eps = T::from_f64(1e-12).unwrap();
-        let z_safe = if p_c.z.clone() > eps.clone() {
-            p_c.z.clone()
-        } else {
-            eps
-        };
-        (p_c.x.clone() / z_safe.clone(), p_c.y.clone() / z_safe)
+        coords(Pinhole.project(p_c))
     }
 }
 
@@ -54,6 +54,31 @@ pub(crate) trait DistortionKernel: 'static {
     fn undistort<T: RealField>(params: Option<DVectorView<'_, T>>, x: T, y: T) -> (T, T);
 }
 
+/// Distortion kernel backed by a core model built from the parameter block.
+macro_rules! distortion_kernel {
+    ($(#[$doc:meta])* $kernel:ident, $dim:expr, |$d:ident| $model:expr) => {
+        $(#[$doc])*
+        #[derive(Debug, Clone, Copy)]
+        pub(crate) struct $kernel;
+
+        impl DistortionKernel for $kernel {
+            const DIM: usize = $dim;
+
+            fn distort<T: RealField>(params: Option<DVectorView<'_, T>>, x: T, y: T) -> (T, T) {
+                let $d = params.expect(concat!(stringify!($kernel), " requires a distortion block"));
+                debug_assert!($d.len() >= $dim, "distortion block too short");
+                coords($model.distort(&Point2::new(x, y)))
+            }
+
+            fn undistort<T: RealField>(params: Option<DVectorView<'_, T>>, x: T, y: T) -> (T, T) {
+                let $d = params.expect(concat!(stringify!($kernel), " requires a distortion block"));
+                debug_assert!($d.len() >= $dim, "distortion block too short");
+                coords($model.undistort(&Point2::new(x, y)))
+            }
+        }
+    };
+}
+
 /// Identity distortion (no parameter block).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NoDistortionKernel;
@@ -70,239 +95,63 @@ impl DistortionKernel for NoDistortionKernel {
     }
 }
 
-/// Brown-Conrady distortion `[k1, k2, k3, p1, p2]`.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct BrownConrady5Kernel;
-
-impl DistortionKernel for BrownConrady5Kernel {
-    const DIM: usize = 5;
-
-    fn distort<T: RealField>(params: Option<DVectorView<'_, T>>, x: T, y: T) -> (T, T) {
-        let d = params.expect("BrownConrady5 requires a distortion block");
-        debug_assert!(d.len() >= 5, "distortion must have 5 params");
-        distort_brown_conrady_generic(
-            x,
-            y,
-            d[0].clone(),
-            d[1].clone(),
-            d[2].clone(),
-            d[3].clone(),
-            d[4].clone(),
-        )
+distortion_kernel!(
+    /// Brown-Conrady distortion `[k1, k2, k3, p1, p2]`.
+    BrownConrady5Kernel,
+    5,
+    |d| BrownConrady5 {
+        k1: d[0].clone(),
+        k2: d[1].clone(),
+        k3: d[2].clone(),
+        p1: d[3].clone(),
+        p2: d[4].clone(),
+        iters: 0,
     }
+);
 
-    /// Fixed-point inversion (5 iterations), matching the forward model well
-    /// inside the calibrated field of view.
-    fn undistort<T: RealField>(params: Option<DVectorView<'_, T>>, x_d: T, y_d: T) -> (T, T) {
-        let d = params.expect("BrownConrady5 requires a distortion block");
-        debug_assert!(d.len() >= 5, "distortion must have 5 params");
-        let k1 = d[0].clone();
-        let k2 = d[1].clone();
-        let k3 = d[2].clone();
-        let p1 = d[3].clone();
-        let p2 = d[4].clone();
-
-        let mut x_u = x_d.clone();
-        let mut y_u = y_d.clone();
-        for _ in 0..5 {
-            let r2 = x_u.clone() * x_u.clone() + y_u.clone() * y_u.clone();
-            let r4 = r2.clone() * r2.clone();
-            let r6 = r4.clone() * r2.clone();
-
-            let radial =
-                T::one() + k1.clone() * r2.clone() + k2.clone() * r4.clone() + k3.clone() * r6;
-            let xy = x_u.clone() * y_u.clone();
-            let two = T::from_f64(2.0).unwrap();
-            let dx_t = two.clone() * p1.clone() * xy.clone()
-                + p2.clone() * (r2.clone() + two.clone() * x_u.clone() * x_u.clone());
-            let dy_t = p1.clone() * (r2.clone() + two.clone() * y_u.clone() * y_u.clone())
-                + two.clone() * p2.clone() * xy;
-
-            x_u = (x_d.clone() - dx_t) / radial.clone();
-            y_u = (y_d.clone() - dy_t) / radial;
-        }
-        (x_u, y_u)
+distortion_kernel!(
+    /// Rational polynomial distortion `[k1, k2, k3, k4, k5, k6, p1, p2]`.
+    RationalKernel,
+    8,
+    |d| RationalPolynomial {
+        k1: d[0].clone(),
+        k2: d[1].clone(),
+        k3: d[2].clone(),
+        k4: d[3].clone(),
+        k5: d[4].clone(),
+        k6: d[5].clone(),
+        p1: d[6].clone(),
+        p2: d[7].clone(),
+        iters: 0,
     }
-}
+);
 
-/// Rational polynomial distortion `[k1, k2, k3, k4, k5, k6, p1, p2]`.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct RationalKernel;
-
-impl DistortionKernel for RationalKernel {
-    const DIM: usize = 8;
-
-    fn distort<T: RealField>(params: Option<DVectorView<'_, T>>, x: T, y: T) -> (T, T) {
-        let d = params.expect("Rational8 requires a distortion block");
-        debug_assert!(d.len() >= 8, "distortion must have 8 params");
-        distort_rational_generic(
-            x,
-            y,
-            d[0].clone(),
-            d[1].clone(),
-            d[2].clone(),
-            d[3].clone(),
-            d[4].clone(),
-            d[5].clone(),
-            d[6].clone(),
-            d[7].clone(),
-        )
+distortion_kernel!(
+    /// Thin-prism distortion `[k1, k2, k3, p1, p2, s1, s2, s3, s4]`.
+    ThinPrismKernel,
+    9,
+    |d| ThinPrism {
+        k1: d[0].clone(),
+        k2: d[1].clone(),
+        k3: d[2].clone(),
+        p1: d[3].clone(),
+        p2: d[4].clone(),
+        s1: d[5].clone(),
+        s2: d[6].clone(),
+        s3: d[7].clone(),
+        s4: d[8].clone(),
+        iters: 0,
     }
+);
 
-    /// Fixed-point inversion (10 iterations) matching the forward rational model.
-    fn undistort<T: RealField>(params: Option<DVectorView<'_, T>>, x_d: T, y_d: T) -> (T, T) {
-        let d = params.expect("Rational8 requires a distortion block");
-        debug_assert!(d.len() >= 8, "distortion must have 8 params");
-        let k1 = d[0].clone();
-        let k2 = d[1].clone();
-        let k3 = d[2].clone();
-        let k4 = d[3].clone();
-        let k5 = d[4].clone();
-        let k6 = d[5].clone();
-        let p1 = d[6].clone();
-        let p2 = d[7].clone();
-
-        let mut x_u = x_d.clone();
-        let mut y_u = y_d.clone();
-        for _ in 0..10 {
-            let r2 = x_u.clone() * x_u.clone() + y_u.clone() * y_u.clone();
-            let r4 = r2.clone() * r2.clone();
-            let r6 = r4.clone() * r2.clone();
-
-            let num = T::one()
-                + k1.clone() * r2.clone()
-                + k2.clone() * r4.clone()
-                + k3.clone() * r6.clone();
-            let den = T::one()
-                + k4.clone() * r2.clone()
-                + k5.clone() * r4.clone()
-                + k6.clone() * r6.clone();
-            let radial = num / den;
-
-            let xy = x_u.clone() * y_u.clone();
-            let two = T::from_f64(2.0).unwrap();
-            let dx_t = two.clone() * p1.clone() * xy.clone()
-                + p2.clone() * (r2.clone() + two.clone() * x_u.clone() * x_u.clone());
-            let dy_t = p1.clone() * (r2.clone() + two.clone() * y_u.clone() * y_u.clone())
-                + two.clone() * p2.clone() * xy;
-
-            x_u = (x_d.clone() - dx_t) / radial.clone();
-            y_u = (y_d.clone() - dy_t) / radial;
-        }
-        (x_u, y_u)
+distortion_kernel!(
+    /// Division (Fitzgibbon) distortion `[lambda]`, closed form both ways.
+    DivisionKernel,
+    1,
+    |d| Division {
+        lambda: d[0].clone(),
     }
-}
-
-/// Thin-prism distortion `[k1, k2, k3, p1, p2, s1, s2, s3, s4]`.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ThinPrismKernel;
-
-impl DistortionKernel for ThinPrismKernel {
-    const DIM: usize = 9;
-
-    fn distort<T: RealField>(params: Option<DVectorView<'_, T>>, x: T, y: T) -> (T, T) {
-        let d = params.expect("ThinPrism9 requires a distortion block");
-        debug_assert!(d.len() >= 9, "distortion must have 9 params");
-        distort_thin_prism_generic(
-            x,
-            y,
-            d[0].clone(),
-            d[1].clone(),
-            d[2].clone(),
-            d[3].clone(),
-            d[4].clone(),
-            d[5].clone(),
-            d[6].clone(),
-            d[7].clone(),
-            d[8].clone(),
-        )
-    }
-
-    /// Fixed-point inversion (10 iterations) matching the forward thin-prism model.
-    fn undistort<T: RealField>(params: Option<DVectorView<'_, T>>, x_d: T, y_d: T) -> (T, T) {
-        let d = params.expect("ThinPrism9 requires a distortion block");
-        debug_assert!(d.len() >= 9, "distortion must have 9 params");
-        let k1 = d[0].clone();
-        let k2 = d[1].clone();
-        let k3 = d[2].clone();
-        let p1 = d[3].clone();
-        let p2 = d[4].clone();
-        let s1 = d[5].clone();
-        let s2 = d[6].clone();
-        let s3 = d[7].clone();
-        let s4 = d[8].clone();
-
-        let mut x_u = x_d.clone();
-        let mut y_u = y_d.clone();
-        for _ in 0..10 {
-            let r2 = x_u.clone() * x_u.clone() + y_u.clone() * y_u.clone();
-            let r4 = r2.clone() * r2.clone();
-            let r6 = r4.clone() * r2.clone();
-
-            let radial = T::one()
-                + k1.clone() * r2.clone()
-                + k2.clone() * r4.clone()
-                + k3.clone() * r6.clone();
-
-            let xy = x_u.clone() * y_u.clone();
-            let two = T::from_f64(2.0).unwrap();
-            let dx_t = two.clone() * p1.clone() * xy.clone()
-                + p2.clone() * (r2.clone() + two.clone() * x_u.clone() * x_u.clone());
-            let dy_t = p1.clone() * (r2.clone() + two.clone() * y_u.clone() * y_u.clone())
-                + two.clone() * p2.clone() * xy;
-
-            let prism_x = s1.clone() * r2.clone() + s2.clone() * r4.clone();
-            let prism_y = s3.clone() * r2.clone() + s4.clone() * r4.clone();
-
-            x_u = (x_d.clone() - dx_t - prism_x) / radial.clone();
-            y_u = (y_d.clone() - dy_t - prism_y) / radial;
-        }
-        (x_u, y_u)
-    }
-}
-
-/// Division (Fitzgibbon) distortion `[lambda]`.
-///
-/// Closed-form both directions: no iteration needed.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct DivisionKernel;
-
-impl DistortionKernel for DivisionKernel {
-    const DIM: usize = 1;
-
-    fn distort<T: RealField>(params: Option<DVectorView<'_, T>>, x: T, y: T) -> (T, T) {
-        let d = params.expect("Division1 requires a distortion block");
-        debug_assert!(!d.is_empty(), "distortion must have 1 param");
-        let lambda = d[0].clone();
-
-        let r_u2 = x.clone() * x.clone() + y.clone() * y.clone();
-        let four = T::from_f64(4.0).unwrap();
-        // disc = 1 - 4·λ·r_u²; clamp ≥ 0 for inputs beyond the model's
-        // invertible range (large positive λ).
-        let disc = T::one() - four * lambda * r_u2;
-        let disc = if disc.clone() < T::zero() {
-            T::zero()
-        } else {
-            disc
-        };
-
-        // scale = (1 - √disc)/(2·λ·r_u²), rationalized to 2/(1 + √disc): no λ in
-        // the denominator and analytic at λ = 0 (scale → 1, ∂scale/∂λ → r_u²), so
-        // autodiff keeps a non-zero Jacobian column for a zero-initialized lambda.
-        let scale = T::from_f64(2.0).unwrap() / (T::one() + disc.sqrt());
-        (x * scale.clone(), y * scale)
-    }
-
-    /// Closed-form undistortion: `(x_u, y_u) = (x_d, y_d) / (1 + lambda * r_d²)`.
-    fn undistort<T: RealField>(params: Option<DVectorView<'_, T>>, x: T, y: T) -> (T, T) {
-        let d = params.expect("Division1 requires a distortion block");
-        debug_assert!(!d.is_empty(), "distortion must have 1 param");
-        let lambda = d[0].clone();
-        let r_d2 = x.clone() * x.clone() + y.clone() * y.clone();
-        let factor = T::one() / (T::one() + lambda * r_d2);
-        (x * factor.clone(), y * factor)
-    }
-}
+);
 
 /// Sensor slot: maps distorted normalized coordinates to the sensor plane
 /// (and back, for the laser back-projection path).
@@ -339,18 +188,49 @@ impl SensorKernel for IdentitySensorKernel {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Scheimpflug2Kernel;
 
+impl Scheimpflug2Kernel {
+    fn model<T: RealField>(params: Option<DVectorView<'_, T>>) -> ScheimpflugParams<T> {
+        let s = params.expect("Scheimpflug2 requires a sensor block");
+        debug_assert!(s.len() >= 2, "sensor must have 2 params");
+        ScheimpflugParams {
+            tilt_x: s[0].clone(),
+            tilt_y: s[1].clone(),
+        }
+    }
+}
+
 impl SensorKernel for Scheimpflug2Kernel {
     const DIM: usize = 2;
 
     fn to_sensor<T: RealField>(params: Option<DVectorView<'_, T>>, x: T, y: T) -> (T, T) {
-        let s = params.expect("Scheimpflug2 requires a sensor block");
-        debug_assert!(s.len() >= 2, "sensor must have 2 params");
-        apply_scheimpflug_generic(x, y, s[0].clone(), s[1].clone())
+        coords(Self::model(params).normalized_to_sensor(&Point2::new(x, y)))
     }
 
     fn to_normalized<T: RealField>(params: Option<DVectorView<'_, T>>, x: T, y: T) -> (T, T) {
-        let s = params.expect("Scheimpflug2 requires a sensor block");
-        debug_assert!(s.len() >= 2, "sensor must have 2 params");
-        apply_scheimpflug_inverse_generic(x, y, s[0].clone(), s[1].clone())
+        coords(Self::model(params).sensor_to_normalized(&Point2::new(x, y)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::DVector;
+    use num_dual::Dual64;
+
+    /// At zero distortion the undistortion's real part converges before the
+    /// first step, but its derivative with respect to the coefficients must
+    /// still be the exact one: `∂x_u/∂k1 = −x·r²` (first order in `k`).
+    #[test]
+    fn undistort_derivative_at_zero_distortion() {
+        let (x, y) = (0.3_f64, -0.2_f64);
+        let r2 = x * x + y * y;
+        let mut d = DVector::from_element(5, Dual64::from(0.0));
+        d[0] = Dual64::new(0.0, 1.0);
+        let (xu, yu) =
+            BrownConrady5Kernel::undistort(Some(d.as_view()), Dual64::from(x), Dual64::from(y));
+        assert!((xu.re - x).abs() < 1e-15 && (yu.re - y).abs() < 1e-15);
+        let (dx, dy) = (xu.eps, yu.eps);
+        assert!((dx + x * r2).abs() < 1e-12, "∂x_u/∂k1 = {dx}");
+        assert!((dy + y * r2).abs() < 1e-12, "∂y_u/∂k1 = {dy}");
     }
 }

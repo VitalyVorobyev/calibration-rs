@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the config schemas, the Python `PinholeIntrinsics` (no `skew`) and the
   regression and benchmark records follow.
 
+- Camera projection takes the camera-frame point and back-projects to a
+  ray. `ProjectionModel` is now `in_domain` / `project` / `unproject` /
+  `is_central` (was `project_dir` / `unproject_dir`), and
+  `Camera::backproject_pixel` returns `Ray { origin, direction }` (was
+  `Ray { point }` on the `z = 1` plane). Replace `ray.point` with
+  `ray.point_at_unit_depth()` (an `Option`; always `Some` for a pinhole
+  camera) or use `ray.direction`, which for a pinhole camera is the same
+  point. The distortion, sensor and projection traits drop their `Copy`
+  bound (`T: RealField`), `HomographySensor` is generic over the scalar, and
+  `ScheimpflugParams<T = f64>` is a sensor model in its own right.
+
 - The Scheimpflug intrinsics defaults (`ScheimpflugIntrinsicsConfig::fix_poses`,
   `ScheimpflugIntrinsicsSolveOptions::fix_poses`, Python
   `ScheimpflugIntrinsicsCalibrationConfig.fix_poses`) no longer hold view 0
@@ -162,6 +173,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recognizes it.
 
 ### Changed
+
+- Each camera model is implemented once, in `vision-calibration-core`: the
+  optimizer evaluates the same distortion, Scheimpflug and pinhole code
+  under autodiff instead of its own copy. Laser residuals now undistort with
+  the core's Newton solver (previously a fixed 5- or 10-step fixed-point
+  iteration), so laser results can move in their last digits; the
+  regression suite moves by at most 2·10⁻⁶ σ.
 
 - **Examples and tutorials run on data the repository ships.** `planar_real`
   (Rust and Python) calibrates the `data/kuka_1` images and prints each

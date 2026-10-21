@@ -113,7 +113,9 @@ pub fn compute_overlay(
     let mut line_b = Vec::with_capacity(DEPTH_SAMPLES);
     let mut samples_clipped = 0usize;
     for d in log_depths() {
-        let p_a = Point3::from(ray_a.point * d);
+        let Some(p_a) = ray_a.point_at_depth(d).map(Point3::from) else {
+            continue;
+        };
         let p_b = t_b_a * p_a;
         // Pre-filter near-singular samples: in-front of cam B but so
         // close to its image plane that the projection effectively
@@ -394,8 +396,15 @@ fn parse_sensors(
 }
 
 fn raw_pixel_to_undistorted_pixel(geometry: &CameraGeometry, px: [f64; 2]) -> [f64; 2] {
-    let ray = geometry.model.backproject_pixel(&Point2::new(px[0], px[1]));
-    normalized_to_pixel(&geometry.k, ray.point.x, ray.point.y)
+    // A pinhole ray always meets z = 1; NaN marks a pixel with no such point.
+    match geometry
+        .model
+        .backproject_pixel(&Point2::new(px[0], px[1]))
+        .point_at_unit_depth()
+    {
+        Some(p) => normalized_to_pixel(&geometry.k, p.x, p.y),
+        None => [f64::NAN, f64::NAN],
+    }
 }
 
 fn undistorted_pixel_to_raw_pixel(geometry: &CameraGeometry, px: [f64; 2]) -> Option<[f64; 2]> {

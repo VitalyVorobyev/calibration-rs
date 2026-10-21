@@ -1,7 +1,7 @@
 use nalgebra::{Point2, Point3, RealField, Vector3};
 use serde::{Deserialize, Serialize};
 
-use super::{DistortionModel, IntrinsicsModel, ProjectionModel, SensorModel};
+use super::{DistortionModel, IntrinsicsModel, ProjectionModel, Ray, SensorModel};
 
 /// Tiny abstraction over "anything that can project a 3D point in camera
 /// frame to a 2D pixel".
@@ -27,13 +27,6 @@ where
     fn project_camera_point(&self, p_c: &Vector3<f64>) -> Option<Point2<f64>> {
         self.project_point_c(p_c)
     }
-}
-
-/// A camera ray represented by its intersection with the z = 1 plane.
-#[derive(Clone, Copy, Debug)]
-pub struct Ray<S: RealField + Copy> {
-    /// Point on the z = 1 plane in camera coordinates.
-    pub point: Vector3<S>,
 }
 
 /// A composable camera model: projection -> distortion -> sensor -> intrinsics.
@@ -79,13 +72,13 @@ where
 
     /// Project a 3D point in camera coordinates into pixel coordinates.
     ///
-    /// Returns `None` if the point is behind the camera or not projectable.
+    /// Returns `None` if the point is outside the projection's domain (for a
+    /// pinhole camera: not in front of it).
     pub fn project_point_c(&self, p_c: &Vector3<S>) -> Option<Point2<S>> {
-        if p_c.z <= S::zero() {
+        if !self.proj.in_domain(p_c) {
             return None;
         }
-        let dir = *p_c;
-        let n_u = self.proj.project_dir(&dir)?;
+        let n_u = self.proj.project(p_c);
         let n_d = self.dist.distort(&n_u);
         let s = self.sensor.normalized_to_sensor(&n_d);
         Some(self.k.sensor_to_pixel(&s))
@@ -98,14 +91,11 @@ where
         self.project_point_c(&p_c.coords)
     }
 
-    /// Backproject a pixel to a point on the z = 1 plane in camera coordinates.
+    /// The camera ray through a pixel.
     pub fn backproject_pixel(&self, px: &Point2<S>) -> Ray<S> {
         let s = self.k.pixel_to_sensor(px);
         let n_d = self.sensor.sensor_to_normalized(&s);
         let n_u = self.dist.undistort(&n_d);
-        let dir = self.proj.unproject_dir(&n_u);
-        debug_assert!(dir.z != S::zero());
-        let point = dir / dir.z;
-        Ray { point }
+        self.proj.unproject(&n_u)
     }
 }

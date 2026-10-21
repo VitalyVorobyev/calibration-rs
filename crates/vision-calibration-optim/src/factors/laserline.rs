@@ -642,7 +642,6 @@ where
 mod tests {
     use super::*;
     use crate::factors::camera_kernels::{BrownConrady5Kernel, Scheimpflug2Kernel};
-    use crate::factors::reprojection_model::apply_scheimpflug_generic;
     use nalgebra::{DVector, Isometry3, Translation3, UnitQuaternion as UQ};
 
     fn pack(iso: &Isometry3<f64>) -> DVector<f64> {
@@ -761,7 +760,8 @@ mod tests {
 
         let x_norm = 0.1_f64;
         let y_norm = -0.05_f64;
-        let (x_sensor, y_sensor) = apply_scheimpflug_generic(x_norm, y_norm, sensor[0], sensor[1]);
+        let (x_sensor, y_sensor) =
+            Scheimpflug2Kernel::to_sensor(Some(sensor.as_view()), x_norm, y_norm);
 
         let u = intr[0] * x_sensor + intr[2];
         let v = intr[1] * y_sensor + intr[3];
