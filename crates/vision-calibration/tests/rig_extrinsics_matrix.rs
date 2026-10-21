@@ -23,8 +23,8 @@ use vision_calibration::core::{
 };
 use vision_calibration::optim::SolverBackend;
 use vision_calibration::rig_extrinsics::{
-    RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblem,
-    RigIntrinsicsManualInit, run_calibration, step_intrinsics_init_all_with_seed, step_rig_init,
+    IntrinsicsManualInit, RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput,
+    RigExtrinsicsProblem, run_calibration, step_intrinsics_init_all_with_seed, step_rig_init,
 };
 use vision_calibration::session::CalibrationSession;
 use vision_calibration::synthetic::poses::make_iso;
@@ -434,11 +434,11 @@ fn rig_extrinsics_rejects_disconnected_covisibility_graph() {
 
     // Seed both cameras with their GT intrinsics so the per-camera stage is
     // trivially well posed and the test isolates the connectivity failure.
-    let mut seed = RigIntrinsicsManualInit::default();
+    let mut seed = IntrinsicsManualInit::default();
     seed.per_cam_intrinsics = Some(cameras.iter().map(|c| c.k).collect());
     step_intrinsics_init_all_with_seed(&mut session, seed, None).expect("intrinsics init");
 
-    let err = step_rig_init(&mut session).expect_err("disconnected graph must fail rig init");
+    let err = step_rig_init(&mut session, None).expect_err("disconnected graph must fail rig init");
     let msg = err.to_string();
     assert!(
         msg.contains("overlap"),

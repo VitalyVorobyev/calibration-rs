@@ -120,27 +120,12 @@
         }
       ]
     },
-    "HandEyeMode": {
-      "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",
-      "oneOf": [
-        {
-          "const": "EyeInHand",
-          "description": "Camera mounted on robot end-effector (gripper).\n\nTransform chain: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world",
-          "type": "string"
-        },
-        {
-          "const": "EyeToHand",
-          "description": "Camera fixed in workspace, observes robot end-effector.\n\nTransform chain: P_camera = extr^-1 * handeye * robot * target * P_world",
-          "type": "string"
-        }
-      ]
-    },
     "HandeyeInitConfig": {
       "additionalProperties": false,
       "description": "Hand-eye linear-initialization stage options (Tsai-Lenz DLT).\n\nShared by every hand-eye problem's `handeye_init` config group.",
       "properties": {
         "handeye_mode": {
-          "$ref": "#/$defs/HandEyeMode",
+          "$ref": "#/$defs/HandeyeMode",
           "description": "Hand-eye mode: `EyeInHand` or `EyeToHand`."
         },
         "min_motion_angle_deg": {
@@ -154,6 +139,21 @@
         "min_motion_angle_deg"
       ],
       "type": "object"
+    },
+    "HandeyeMode": {
+      "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",
+      "oneOf": [
+        {
+          "const": "EyeInHand",
+          "description": "Camera mounted on robot end-effector (gripper).\n\nTransform chain: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world",
+          "type": "string"
+        },
+        {
+          "const": "EyeToHand",
+          "description": "Camera fixed in workspace, observes robot end-effector.\n\nTransform chain: P_camera = extr^-1 * handeye * robot * target * P_world",
+          "type": "string"
+        }
+      ]
     },
     "IntrinsicsInitConfig": {
       "additionalProperties": false,
@@ -170,7 +170,7 @@
             "null"
           ]
         },
-        "init_iterations": {
+        "iterations": {
           "description": "Number of iterations for iterative intrinsics estimation.",
           "format": "uint",
           "minimum": 0,
@@ -178,7 +178,7 @@
         }
       },
       "required": [
-        "init_iterations",
+        "iterations",
         "fix_k3"
       ],
       "type": "object"

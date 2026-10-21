@@ -79,7 +79,7 @@ session.set_input(input)?;
 
 step_intrinsics_init_all(&mut session, None)?;
 step_intrinsics_optimize_all(&mut session, None)?;
-step_rig_init(&mut session)?;
+step_rig_init(&mut session, None)?;
 step_rig_optimize(&mut session, None)?;
 
 let export = session.export()?;

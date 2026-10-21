@@ -83,7 +83,7 @@
 //!
 //! | Problem Type | Input | Steps |
 //! |--------------|-------|-------|
-//! | [`PlanarIntrinsicsProblem`](planar_intrinsics) | `PlanarDataset` | `step_init` → `step_optimize` |
+//! | [`PlanarIntrinsicsProblem`](planar_intrinsics) | `PlanarIntrinsicsInput` | `step_init` → `step_optimize` |
 //! | [`SingleCamHandeyeProblem`](single_cam_handeye) | `SingleCamHandeyeInput` | `step_intrinsics_init` → `step_intrinsics_optimize` → `step_handeye_init` → `step_handeye_optimize` |
 //! | [`RigExtrinsicsProblem`](rig_extrinsics) | `RigExtrinsicsInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` |
 //! | [`RigHandeyeProblem`](rig_handeye) | `RigHandeyeInput` | `step_intrinsics_init_all` → `step_intrinsics_optimize_all` → `step_rig_init` → `step_rig_optimize` → `step_handeye_init` → `step_handeye_optimize` |
@@ -126,7 +126,8 @@ pub mod session {
 pub mod common {
     pub use vision_calibration_pipeline::common::{
         CalibratedCameras, ExportKind, HandeyeInitOptions, HandeyeOptimizeOptions,
-        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, calibrated_cameras,
+        IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
+        calibrated_cameras,
     };
 
     /// Shared config sub-structs embedded by grouped top-level `*Config`
@@ -201,31 +202,27 @@ pub mod device_seed {
 /// # }
 /// ```
 pub mod planar_intrinsics {
+    // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::planar_intrinsics::{
-        // Step options
-        FilterOptions,
-        IntrinsicsInitOptions,
-        IntrinsicsOptimizeOptions,
-        // Typed step results
-        PlanarInitResult,
-        // Problem type and config
-        PlanarIntrinsicsConfig,
-        // Re-exports from vision-calibration-optim
-        PlanarIntrinsicsEstimate,
-        PlanarIntrinsicsExport,
-        PlanarIntrinsicsParams,
-        PlanarIntrinsicsProblem,
-        PlanarIntrinsicsSolveOptions,
-        // Manual init seed (ADR 0011)
-        PlanarManualInit,
-        PlanarOptimizeResult,
-        // Step functions
-        run_calibration,
-        run_calibration_with_filtering,
-        step_filter,
-        step_init,
-        step_init_with_seed,
-        step_optimize,
+        PlanarIntrinsicsConfig, PlanarIntrinsicsEstimate, PlanarIntrinsicsExport,
+        PlanarIntrinsicsInput, PlanarIntrinsicsProblem,
+    };
+
+    // Step options, manual seeds and step results
+    pub use vision_calibration_pipeline::planar_intrinsics::{
+        IntrinsicsFilterOptions, IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit,
+        IntrinsicsOptimizeOptions, IntrinsicsOptimizeResult,
+    };
+
+    // Solve parameters and options of the estimate
+    pub use vision_calibration_pipeline::planar_intrinsics::{
+        PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions,
+    };
+
+    // Step functions
+    pub use vision_calibration_pipeline::planar_intrinsics::{
+        run_calibration, run_calibration_with_filtering, step_filter, step_init,
+        step_init_with_seed, step_optimize,
     };
 }
 
@@ -256,35 +253,29 @@ pub mod planar_intrinsics {
 /// # }
 /// ```
 pub mod single_cam_handeye {
+    // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::single_cam_handeye::{
-        // Step options
-        HandeyeInitOptions,
-        // Problem type and config
-        HandeyeMeta,
-        HandeyeOptimizeOptions,
-        IntrinsicsInitOptions,
-        IntrinsicsOptimizeOptions,
-        SingleCamHandeyeConfig,
-        SingleCamHandeyeExport,
-        // Typed step results
-        SingleCamHandeyeInitResult,
-        SingleCamHandeyeInput,
-        // Manual init seeds (ADR 0011)
-        SingleCamHandeyeManualInit,
-        SingleCamHandeyeOptimizeResult,
+        HandeyeEstimate, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
         SingleCamHandeyeProblem,
-        SingleCamHandeyeView,
-        SingleCamIntrinsicsInitResult,
-        SingleCamIntrinsicsManualInit,
-        SingleCamIntrinsicsOptimizeResult,
-        // Step functions
-        run_calibration,
-        step_handeye_init,
-        step_handeye_init_with_seed,
-        step_handeye_optimize,
-        step_intrinsics_init,
-        step_intrinsics_init_with_seed,
-        step_intrinsics_optimize,
+    };
+
+    // Input views
+    pub use vision_calibration_pipeline::single_cam_handeye::{HandeyeMeta, SingleCamHandeyeView};
+
+    // Step options, manual seeds and step results
+    pub use vision_calibration_pipeline::single_cam_handeye::{
+        HandeyeInitOptions, HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeOptions,
+        HandeyeOptimizeResult, IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit,
+        IntrinsicsOptimizeOptions, IntrinsicsOptimizeResult,
+    };
+
+    // Parameters of the estimate
+    pub use vision_calibration_pipeline::single_cam_handeye::HandeyeParams;
+
+    // Step functions
+    pub use vision_calibration_pipeline::single_cam_handeye::{
+        run_calibration, step_handeye_init, step_handeye_init_with_seed, step_handeye_optimize,
+        step_intrinsics_init, step_intrinsics_init_with_seed, step_intrinsics_optimize,
     };
 }
 
@@ -305,29 +296,30 @@ pub mod single_cam_handeye {
 ///
 /// let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
 /// session.set_input(input)?;
-/// run_calibration(&mut session, None)?;
+/// run_calibration(&mut session)?;
 /// let result = session.export()?;
 /// # Ok(())
 /// # }
 /// ```
 pub mod laserline_device {
+    // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::laserline_device::{
-        DeviceInitOptions,
-        DeviceOptimizeOptions,
-        LaserlineDeviceConfig,
-        LaserlineDeviceExport,
-        // Typed step results
-        LaserlineDeviceInitResult,
-        LaserlineDeviceInput,
-        LaserlineDeviceManualInit,
-        LaserlineDeviceOptimizeConfig,
-        LaserlineDeviceOptimizeResult,
-        LaserlineDeviceOutput,
-        LaserlineDeviceProblem,
-        run_calibration,
-        step_init,
-        step_init_with_seed,
-        step_optimize,
+        LaserlineDeviceConfig, LaserlineDeviceEstimate, LaserlineDeviceExport,
+        LaserlineDeviceInput, LaserlineDeviceProblem,
+    };
+
+    // Config groups
+    pub use vision_calibration_pipeline::laserline_device::DeviceOptimizeConfig;
+
+    // Step options, manual seeds and step results
+    pub use vision_calibration_pipeline::laserline_device::{
+        DeviceInitOptions, DeviceInitResult, DeviceManualInit, DeviceOptimizeOptions,
+        DeviceOptimizeResult,
+    };
+
+    // Step functions
+    pub use vision_calibration_pipeline::laserline_device::{
+        run_calibration, step_init, step_init_with_seed, step_optimize,
     };
 }
 
@@ -359,35 +351,26 @@ pub mod laserline_device {
 /// # }
 /// ```
 pub mod rig_extrinsics {
+    // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::rig_extrinsics::{
-        // Step options
-        IntrinsicsInitOptions,
-        IntrinsicsOptimizeOptions,
-        // Problem type and config
-        RigExtrinsicsConfig,
-        // Output: the rig bundle adjustment's estimate
-        RigExtrinsicsEstimate,
-        RigExtrinsicsExport,
-        RigExtrinsicsInput,
-        // Manual init seeds (ADR 0011)
-        RigExtrinsicsManualInit,
-        RigExtrinsicsParams,
+        RigExtrinsicsConfig, RigExtrinsicsEstimate, RigExtrinsicsExport, RigExtrinsicsInput,
         RigExtrinsicsProblem,
-        // Typed step results
-        RigInitResult,
-        RigIntrinsicsInitAllResult,
-        RigIntrinsicsManualInit,
-        RigIntrinsicsOptimizeAllResult,
-        RigOptimizeOptions,
-        RigOptimizeResult,
-        // Step functions
-        run_calibration,
-        step_intrinsics_init_all,
-        step_intrinsics_init_all_with_seed,
-        step_intrinsics_optimize_all,
-        step_rig_init,
-        step_rig_init_with_seed,
-        step_rig_optimize,
+    };
+
+    // Step options, manual seeds and step results
+    pub use vision_calibration_pipeline::rig_extrinsics::{
+        IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit,
+        IntrinsicsOptimizeOptions, IntrinsicsOptimizeResult, RigInitOptions, RigInitResult,
+        RigManualInit, RigOptimizeOptions, RigOptimizeResult,
+    };
+
+    // Parameters of the estimate
+    pub use vision_calibration_pipeline::rig_extrinsics::RigExtrinsicsParams;
+
+    // Step functions
+    pub use vision_calibration_pipeline::rig_extrinsics::{
+        run_calibration, step_intrinsics_init_all, step_intrinsics_init_all_with_seed,
+        step_intrinsics_optimize_all, step_rig_init, step_rig_init_with_seed, step_rig_optimize,
     };
 }
 
@@ -419,44 +402,30 @@ pub mod rig_extrinsics {
 /// # }
 /// ```
 pub mod rig_handeye {
+    // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::rig_handeye::{
-        // Output: the hand-eye bundle adjustment's estimate
-        HandEyeEstimate,
-        HandEyeParams,
-        // Problem type and config
-        HandeyeBaConfig,
-        // Step options
-        HandeyeInitOptions,
-        HandeyeOptimizeOptions,
-        IntrinsicsInitOptions,
-        IntrinsicsOptimizeOptions,
-        RigHandeyeConfig,
-        RigHandeyeExport,
-        // Typed step results
-        RigHandeyeHandeyeInitResult,
-        // Manual init seeds (ADR 0011)
-        RigHandeyeHandeyeManualInit,
-        RigHandeyeHandeyeOptimizeResult,
-        RigHandeyeInput,
-        RigHandeyeIntrinsicsInitAllResult,
-        RigHandeyeIntrinsicsManualInit,
-        RigHandeyeIntrinsicsOptimizeAllResult,
-        RigHandeyeProblem,
-        RigHandeyeRigInitResult,
-        RigHandeyeRigManualInit,
-        RigHandeyeRigOptimizeResult,
-        RigOptimizeOptions,
-        // Step functions
-        run_calibration,
-        step_handeye_init,
-        step_handeye_init_with_seed,
-        step_handeye_optimize,
-        step_intrinsics_init_all,
-        step_intrinsics_init_all_with_seed,
-        step_intrinsics_optimize_all,
-        step_rig_init,
-        step_rig_init_with_seed,
-        step_rig_optimize,
+        HandeyeEstimate, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput, RigHandeyeProblem,
+    };
+
+    // Config groups
+    pub use vision_calibration_pipeline::rig_handeye::HandeyeOptimizeConfig;
+
+    // Step options, manual seeds and step results
+    pub use vision_calibration_pipeline::rig_handeye::{
+        HandeyeInitOptions, HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeOptions,
+        HandeyeOptimizeResult, IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit,
+        IntrinsicsOptimizeOptions, IntrinsicsOptimizeResult, RigInitOptions, RigInitResult,
+        RigManualInit, RigOptimizeOptions, RigOptimizeResult,
+    };
+
+    // Parameters of the estimate
+    pub use vision_calibration_pipeline::rig_handeye::HandeyeParams;
+
+    // Step functions
+    pub use vision_calibration_pipeline::rig_handeye::{
+        run_calibration, step_handeye_init, step_handeye_init_with_seed, step_handeye_optimize,
+        step_intrinsics_init_all, step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all,
+        step_rig_init, step_rig_init_with_seed, step_rig_optimize,
     };
 }
 
@@ -466,21 +435,49 @@ pub mod rig_handeye {
 /// cameras with untilted or Scheimpflug sensors), fits one laser plane per
 /// camera and reports each plane in the rig frame.
 pub mod rig_laserline_device {
+    // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::rig_laserline_device::{
-        RigLaserlineDataset, RigLaserlineDeviceConfig, RigLaserlineDeviceExport,
-        RigLaserlineDeviceInput, RigLaserlineDeviceManualInit, RigLaserlineDeviceProblem,
-        RigLaserlineView, RigUpstreamCalibration, StepOptions, pixel_to_gripper_point,
+        RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceInput,
+        RigLaserlineDeviceProblem, RigLaserlineEstimate,
+    };
+
+    // Input parts
+    pub use vision_calibration_pipeline::rig_laserline_device::{
+        RigLaserlineDataset, RigLaserlineView, RigUpstreamCalibration,
+    };
+
+    // Step options and manual seeds
+    pub use vision_calibration_pipeline::rig_laserline_device::{
+        PlaneInitOptions, PlaneManualInit, PlaneOptimizeOptions,
+    };
+
+    // Step functions
+    pub use vision_calibration_pipeline::rig_laserline_device::{
         run_calibration, step_init, step_init_with_seed, step_optimize,
     };
+
+    // Geometry helper
+    pub use vision_calibration_pipeline::rig_laserline_device::pixel_to_gripper_point;
 }
 
 /// Joint rig hand-eye + laserline calibration.
 pub mod rig_handeye_laserline {
+    // Problem, input, config, output (the solve's estimate) and export
     pub use vision_calibration_pipeline::rig_handeye_laserline::{
-        RigHandeyeLaserlineBaConfig, RigHandeyeLaserlineConfig, RigHandeyeLaserlineExport,
-        RigHandeyeLaserlineInput, RigHandeyeLaserlineOutput, RigHandeyeLaserlineProblem,
-        RigHandeyeLaserlineView, RigLaserlineView, RobotPoseMeta, run_calibration,
+        RigHandeyeLaserlineConfig, RigHandeyeLaserlineEstimate, RigHandeyeLaserlineExport,
+        RigHandeyeLaserlineInput, RigHandeyeLaserlineProblem,
     };
+
+    // Config groups
+    pub use vision_calibration_pipeline::rig_handeye_laserline::JointOptimizeConfig;
+
+    // Input views
+    pub use vision_calibration_pipeline::rig_handeye_laserline::{
+        RigHandeyeLaserlineView, RigLaserlineView, RobotPoseMeta,
+    };
+
+    // Step functions
+    pub use vision_calibration_pipeline::rig_handeye_laserline::run_calibration;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -625,7 +622,7 @@ pub mod optim {
     /// The error type carried by [`crate::Error::Optim`].
     pub use vision_calibration_optim::Error;
     /// Hand-eye configuration mode (eye-in-hand vs eye-to-hand).
-    pub use vision_calibration_optim::HandEyeMode;
+    pub use vision_calibration_optim::HandeyeMode;
     /// Laser-plane parameter type.
     pub use vision_calibration_optim::LaserPlane;
     /// Per-view metadata for laserline device input.

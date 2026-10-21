@@ -223,7 +223,27 @@
       ],
       "type": "object"
     },
-    "HandEyeMode": {
+    "HandeyeInitConfig": {
+      "additionalProperties": false,
+      "description": "Hand-eye linear-initialization stage options (Tsai-Lenz DLT).\n\nShared by every hand-eye problem's `handeye_init` config group.",
+      "properties": {
+        "handeye_mode": {
+          "$ref": "#/$defs/HandeyeMode",
+          "description": "Hand-eye mode: `EyeInHand` or `EyeToHand`."
+        },
+        "min_motion_angle_deg": {
+          "description": "Minimum motion angle (degrees) for linear hand-eye initialization.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "handeye_mode",
+        "min_motion_angle_deg"
+      ],
+      "type": "object"
+    },
+    "HandeyeMode": {
       "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",
       "oneOf": [
         {
@@ -238,7 +258,7 @@
         }
       ]
     },
-    "HandeyeBaConfig": {
+    "HandeyeOptimizeConfig": {
       "additionalProperties": false,
       "description": "Final hand-eye bundle-adjustment options; robot-pose refinement lives in\nthe shared [`RobotPoseConfig`] group.",
       "properties": {
@@ -262,26 +282,6 @@
       ],
       "type": "object"
     },
-    "HandeyeInitConfig": {
-      "additionalProperties": false,
-      "description": "Hand-eye linear-initialization stage options (Tsai-Lenz DLT).\n\nShared by every hand-eye problem's `handeye_init` config group.",
-      "properties": {
-        "handeye_mode": {
-          "$ref": "#/$defs/HandEyeMode",
-          "description": "Hand-eye mode: `EyeInHand` or `EyeToHand`."
-        },
-        "min_motion_angle_deg": {
-          "description": "Minimum motion angle (degrees) for linear hand-eye initialization.",
-          "format": "double",
-          "type": "number"
-        }
-      },
-      "required": [
-        "handeye_mode",
-        "min_motion_angle_deg"
-      ],
-      "type": "object"
-    },
     "IntrinsicsInitConfig": {
       "additionalProperties": false,
       "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
@@ -297,7 +297,7 @@
             "null"
           ]
         },
-        "init_iterations": {
+        "iterations": {
           "description": "Number of iterations for iterative intrinsics estimation.",
           "format": "uint",
           "minimum": 0,
@@ -305,49 +305,13 @@
         }
       },
       "required": [
-        "init_iterations",
+        "iterations",
         "fix_k3"
       ],
       "type": "object"
     },
-    "ProjectionKind": {
-      "description": "Which projection model a camera uses.",
-      "oneOf": [
-        {
-          "const": "pinhole",
-          "description": "Pinhole (perspective) projection; no parameters of its own.",
-          "type": "string"
-        }
-      ]
-    },
-    "RigConfig": {
-      "additionalProperties": false,
-      "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nThe `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.",
-      "properties": {
-        "reference_camera_idx": {
-          "description": "Reference camera index for the rig frame (identity extrinsics).",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "refine_intrinsics_in_rig_ba": {
-          "description": "Re-refine per-camera intrinsics and distortion jointly during rig\nbundle adjustment, holding the camera's `fix` lists. Default:\n`false` — the per-camera solves have already fitted them.",
-          "type": "boolean"
-        },
-        "refine_sensor": {
-          "default": false,
-          "description": "Re-refine the sensor tilt of each Scheimpflug camera during rig\nbundle adjustment, holding its `fix.sensor` list. Default: `false` —\nthe tilt is fitted per camera and trades off against the extrinsics\nin the joint solve. Cameras with an untilted sensor have no tilt.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "reference_camera_idx",
-        "refine_intrinsics_in_rig_ba"
-      ],
-      "type": "object"
-    },
-    "RigHandeyeIntrinsicsManualInit": {
-      "description": "Manual seeds for the **per-camera intrinsics stage** of rig hand-eye\ncalibration. See `rig_extrinsics::RigIntrinsicsManualInit` for semantics.\n\n`per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor\n(a seeded tilt skips the tilt sweep); a camera with an untilted sensor\ntakes only a zero tilt.",
+    "IntrinsicsManualInit": {
+      "description": "Manual seeds for the **per-camera intrinsics stage** of rig hand-eye\ncalibration. See `rig_extrinsics::IntrinsicsManualInit` for semantics.\n\n`per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor\n(a seeded tilt skips the tilt sweep); a camera with an untilted sensor\ntakes only a zero tilt.",
       "properties": {
         "per_cam_distortion": {
           "description": "Per-camera distortion seeds.",
@@ -381,6 +345,42 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "ProjectionKind": {
+      "description": "Which projection model a camera uses.",
+      "oneOf": [
+        {
+          "const": "pinhole",
+          "description": "Pinhole (perspective) projection; no parameters of its own.",
+          "type": "string"
+        }
+      ]
+    },
+    "RigConfig": {
+      "additionalProperties": false,
+      "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nThe `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.",
+      "properties": {
+        "reference_camera_idx": {
+          "description": "Reference camera index for the rig frame (identity extrinsics).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "refine_intrinsics": {
+          "description": "Re-refine per-camera intrinsics and distortion jointly during rig\nbundle adjustment, holding the camera's `fix` lists. Default:\n`false` — the per-camera solves have already fitted them.",
+          "type": "boolean"
+        },
+        "refine_sensor": {
+          "default": false,
+          "description": "Re-refine the sensor tilt of each Scheimpflug camera during rig\nbundle adjustment, holding its `fix.sensor` list. Default: `false` —\nthe tilt is fitted per camera and trades off against the extrinsics\nin the joint solve. Cameras with an untilted sensor have no tilt.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "reference_camera_idx",
+        "refine_intrinsics"
+      ],
       "type": "object"
     },
     "RobotPoseConfig": {
@@ -596,13 +596,13 @@
       },
       "type": "array"
     },
-    "handeye_ba": {
-      "$ref": "#/$defs/HandeyeBaConfig",
-      "description": "Final hand-eye bundle-adjustment options."
-    },
     "handeye_init": {
       "$ref": "#/$defs/HandeyeInitConfig",
       "description": "Hand-eye linear initialization options."
+    },
+    "handeye_optimize": {
+      "$ref": "#/$defs/HandeyeOptimizeConfig",
+      "description": "Final hand-eye bundle-adjustment options."
     },
     "intrinsics": {
       "$ref": "#/$defs/IntrinsicsInitConfig",
@@ -611,7 +611,7 @@
     "manual_init": {
       "anyOf": [
         {
-          "$ref": "#/$defs/RigHandeyeIntrinsicsManualInit"
+          "$ref": "#/$defs/IntrinsicsManualInit"
         },
         {
           "type": "null"
@@ -633,7 +633,7 @@
     "rig",
     "handeye_init",
     "solver",
-    "handeye_ba"
+    "handeye_optimize"
   ],
   "title": "RigHandeyeConfig",
   "type": "object"

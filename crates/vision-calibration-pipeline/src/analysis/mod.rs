@@ -18,7 +18,7 @@
 //! - [`ReprojLevel::RigExtrinsic`] — the board pose is shared across cameras per
 //!   view through the calibrated rig extrinsics (`cam_se3_rig * rig_se3_target`).
 //!   Only meaningful for multi-camera rigs.
-//! - [`ReprojLevel::HandEye`] — the board pose comes from the robot pose composed
+//! - [`ReprojLevel::Handeye`] — the board pose comes from the robot pose composed
 //!   with the hand-eye chain (fully constrained). This is the headline number.
 //!
 //! Reading the deltas:
@@ -67,7 +67,7 @@ use crate::single_cam_handeye::{SingleCamHandeyeExport, SingleCamHandeyeView};
 /// Constraint level at which a board pose is determined before reprojection.
 ///
 /// Ordered from least to most constrained: an `Intrinsic`-level pose is free per
-/// `(camera, view)`; a `HandEye`-level pose is fully determined by the robot pose
+/// `(camera, view)`; a `Handeye`-level pose is fully determined by the robot pose
 /// and the calibrated hand-eye chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,7 +77,7 @@ pub enum ReprojLevel {
     /// Board pose shared across cameras per view via the rig extrinsics.
     RigExtrinsic,
     /// Board pose from the robot pose composed with the hand-eye chain.
-    HandEye,
+    Handeye,
 }
 
 /// Aggregate statistics over the finite `error_px` values of a residual slice.
@@ -226,7 +226,7 @@ impl LevelReport {
 /// level, plus a single headline number.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReprojReport {
-    /// The most-constrained level's `overall.mean` (pixels): `HandEye` if
+    /// The most-constrained level's `overall.mean` (pixels): `Handeye` if
     /// present, else `RigExtrinsic`, else `Intrinsic`. Equals the calibration's
     /// authoritative `mean_reproj_error`.
     pub headline_px: f64,
@@ -270,7 +270,7 @@ fn level_rank(level: ReprojLevel) -> u8 {
     match level {
         ReprojLevel::Intrinsic => 0,
         ReprojLevel::RigExtrinsic => 1,
-        ReprojLevel::HandEye => 2,
+        ReprojLevel::Handeye => 2,
     }
 }
 
@@ -303,7 +303,7 @@ pub fn planar_intrinsics_report<M>(
 /// Build a [`ReprojReport`] for a single-camera hand-eye calibration.
 ///
 /// Two levels: the `Intrinsic` floor (free per-view pose via PnP) and the
-/// `HandEye` level (the export's own residuals, board pose from the robot +
+/// `Handeye` level (the export's own residuals, board pose from the robot +
 /// hand-eye chain). The gap between them is the error the robot / hand-eye chain
 /// adds on top of the camera-only floor.
 pub fn single_cam_handeye_report(
@@ -320,7 +320,7 @@ pub fn single_cam_handeye_report(
     let handeye_residuals = export.per_feature_residuals.target.clone();
     let handeye_views = views.len().max(max_pose(&handeye_residuals) + 1);
     let handeye_level =
-        LevelReport::from_residuals(ReprojLevel::HandEye, handeye_residuals, 1, handeye_views);
+        LevelReport::from_residuals(ReprojLevel::Handeye, handeye_residuals, 1, handeye_views);
 
     Ok(ReprojReport::from_levels(vec![
         intrinsic_level,
@@ -361,14 +361,14 @@ pub fn rig_extrinsics_report<M>(
 /// Build a [`ReprojReport`] for a multi-camera rig hand-eye calibration.
 ///
 /// Two levels: the `Intrinsic` floor (free per-`(camera, view)` PnP pose) and the
-/// `HandEye` level (the export's own residuals, board pose from the robot pose
+/// `Handeye` level (the export's own residuals, board pose from the robot pose
 /// composed with the hand-eye chain). The gap localizes camera / detection error
 /// versus the rig + robot + hand-eye chain — the multi-camera analogue of the
 /// single-camera hand-eye diagnostic.
 ///
 /// This builder reports two levels, not three: the export's `rig_se3_target`
 /// is itself derived from the hand-eye chain, so reprojecting through
-/// `cam_se3_rig * rig_se3_target` would reproduce the `HandEye` level exactly.
+/// `cam_se3_rig * rig_se3_target` would reproduce the `Handeye` level exactly.
 /// Use [`rig_handeye_report_with_rig_stage`] instead when the caller still has
 /// the rig-BA poses, which gives a genuinely independent middle level.
 pub fn rig_handeye_report<M>(
@@ -384,7 +384,7 @@ pub fn rig_handeye_report<M>(
 
     let handeye_residuals = export.per_feature_residuals.target.clone();
     let handeye_level = LevelReport::from_residuals(
-        ReprojLevel::HandEye,
+        ReprojLevel::Handeye,
         handeye_residuals.clone(),
         ncam,
         num_views.max(max_pose(&handeye_residuals) + 1),
@@ -420,7 +420,7 @@ pub fn rig_handeye_report_with_rig_stage<M>(
 
     let handeye_residuals = export.per_feature_residuals.target.clone();
     let handeye_level = LevelReport::from_residuals(
-        ReprojLevel::HandEye,
+        ReprojLevel::Handeye,
         handeye_residuals.clone(),
         ncam,
         num_views.max(max_pose(&handeye_residuals) + 1),

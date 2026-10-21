@@ -23,7 +23,7 @@ instead of relying on the from-scratch initialization:
 ```rust
 use vision_calibration::core::{FxFyCxCy, ScheimpflugParams, SensorKind};
 use vision_calibration::planar_intrinsics::{
-    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, PlanarManualInit, step_init_with_seed,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, IntrinsicsManualInit, step_init_with_seed,
     step_optimize,
 };
 
@@ -33,7 +33,7 @@ let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 session.set_config(config)?;
 session.set_input(dataset)?; // PlanarDataset
 
-let mut seed = PlanarManualInit::default();
+let mut seed = IntrinsicsManualInit::default();
 seed.intrinsics = Some(FxFyCxCy { fx: 1050.0, fy: 1050.0, cx: 360.0, cy: 270.0 });
 seed.sensor = Some(ScheimpflugParams { tilt_x: -0.087, tilt_y: 0.0 });
 
@@ -67,9 +67,9 @@ session.update_config(|c| {
 })?;
 ```
 
-The default is a Brown-Conrady camera with an identity sensor. `camera.fix` and each override's `fix` name the parameters held fixed, per slot (`intrinsics`, `distortion`, `sensor`); a slot left out keeps the model's default, which for a Scheimpflug camera holds everything but `k1`, `k2`. `rig.refine_intrinsics_in_rig_ba` keeps these fix lists in the rig bundle adjustment, and `rig.refine_sensor` (hand-eye: `handeye_ba.refine_sensor`) lets the tilts move there.
+The default is a Brown-Conrady camera with an identity sensor. `camera.fix` and each override's `fix` name the parameters held fixed, per slot (`intrinsics`, `distortion`, `sensor`); a slot left out keeps the model's default, which for a Scheimpflug camera holds everything but `k1`, `k2`. `rig.refine_intrinsics` keeps these fix lists in the rig bundle adjustment, and `rig.refine_sensor` (hand-eye: `handeye_optimize.refine_sensor`) lets the tilts move there.
 
-Tilt seeds are device data, not config: pass `per_cam_sensors` in the manual-init struct (`RigHandeyeConfig::manual_init`, or `RigIntrinsicsManualInit` with `step_intrinsics_init_all_with_seed` for rig extrinsics). A seed is used verbatim and skips the tilt sweep; without one the linear stage sweeps the tilt grid, which includes zero. A non-zero tilt seed for an untilted camera is an error.
+Tilt seeds are device data, not config: pass `per_cam_sensors` in the manual-init struct (`RigHandeyeConfig::manual_init`, or `rig_extrinsics::IntrinsicsManualInit` with `step_intrinsics_init_all_with_seed` for rig extrinsics). A seed is used verbatim and skips the tilt sweep; without one the linear stage sweeps the tilt grid, which includes zero. A non-zero tilt seed for an untilted camera is an error.
 
 ## RigLaserlineDevice
 
@@ -112,13 +112,13 @@ The steps `step_init` and `step_optimize` are available for finer control. `data
 pub struct RigHandeyeLaserlineConfig {
     pub handeye: RigHandeyeConfig,                  // warm-start stage (incl. `camera`)
     pub laserline_init: RigLaserlineDeviceConfig,   // plane-initialization stage
-    pub joint_ba: RigHandeyeLaserlineBaConfig,      // solver, calib_loss, laser_loss,
+    pub joint_optimize: JointOptimizeConfig,        // solver, calib_loss, laser_loss,
                                                     // calib_weight, laser_weight, fix,
                                                     // fix_handeye, ...
 }
 ```
 
-`joint_ba.fix` holds one `CameraFix` per camera, named in that camera's model.
+`joint_optimize.fix` holds one `CameraFix` per camera, named in that camera's model.
 Left empty, every camera gets the joint stage's default: intrinsics and the
 low-order radial terms (`k1`, `k2`; the division model's `lambda`) refined,
 the higher-order distortion terms and the sensor tilt held at their
@@ -137,7 +137,7 @@ run_calibration(&mut session)?;
 let export = session.export()?; // cam_se3_rig, gripper_se3_rig, laser_planes_rig, per_camera_stats, ...
 ```
 
-As in the single-camera laser problem, calibration and laser residuals use separate robust losses (`joint_ba.calib_loss`, `joint_ba.laser_loss`); `joint_ba.solver.robust_loss` is not consulted.
+As in the single-camera laser problem, calibration and laser residuals use separate robust losses (`joint_optimize.calib_loss`, `joint_optimize.laser_loss`); `joint_optimize.solver.robust_loss` is not consulted.
 
 ## Examples
 

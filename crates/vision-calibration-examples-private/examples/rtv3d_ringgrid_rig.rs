@@ -43,9 +43,7 @@ use std::time::Instant;
 
 use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
-    rig_handeye::{
-        self as rh, RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem,
-    },
+    rig_handeye::{self as rh, IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeProblem},
     session::CalibrationSession,
 };
 use vision_calibration_core::{
@@ -56,7 +54,7 @@ use vision_calibration_examples_private::{
     BoardRinggridSpec, camera_parts, detect_ringgrid_all, load_poses, load_ref_artifacts,
     load_ringgrid_board,
 };
-use vision_calibration_optim::{HandEyeMode, RobotPoseMeta, RobustLoss};
+use vision_calibration_optim::{HandeyeMode, RobotPoseMeta, RobustLoss};
 
 const NUM_CAMERAS: usize = 6;
 const TILE_CX: f64 = 360.0;
@@ -76,8 +74,8 @@ fn main() -> Result<()> {
             .unwrap_or_else(|_| "privatedata/rtv3d_ringgrid".to_string()),
     );
     let handeye_mode = match std::env::var("RTV3D_RINGGRID_HANDEYE").as_deref() {
-        Ok("eye_to_hand") => HandEyeMode::EyeToHand,
-        _ => HandEyeMode::EyeInHand,
+        Ok("eye_to_hand") => HandeyeMode::EyeToHand,
+        _ => HandeyeMode::EyeInHand,
     };
     let focal_seed = env_f64("RTV3D_RINGGRID_FOCAL", 1150.0);
     let tilt_x_seed = env_f64("RTV3D_RINGGRID_TILT_X", DEFAULT_TILT_X);
@@ -173,17 +171,17 @@ fn main() -> Result<()> {
         ..CameraFix::default()
     };
     cfg.rig.refine_sensor = false;
-    cfg.rig.refine_intrinsics_in_rig_ba = false;
+    cfg.rig.refine_intrinsics = false;
     // Robot-pose refinement on by default; `RTV3D_RINGGRID_REFINE_ROBOT=0` holds
     // the measured poses fixed (a divergence-isolation knob).
     let refine_robot = std::env::var("RTV3D_RINGGRID_REFINE_ROBOT").as_deref() != Ok("0");
-    cfg.handeye_ba.robot_poses.refine = refine_robot;
+    cfg.handeye_optimize.robot_poses.refine = refine_robot;
     // Optionally let the final hand-eye BA also refine rig extrinsics / tilts.
     if std::env::var("RTV3D_RINGGRID_REFINE_EXTRINSICS").as_deref() == Ok("1") {
-        cfg.handeye_ba.refine_cam_se3_rig = true;
+        cfg.handeye_optimize.refine_cam_se3_rig = true;
     }
     if std::env::var("RTV3D_RINGGRID_REFINE_TILT").as_deref() == Ok("1") {
-        cfg.handeye_ba.refine_sensor = true;
+        cfg.handeye_optimize.refine_sensor = true;
     }
     println!("refine robot poses = {refine_robot}");
     session.set_config(cfg)?;
@@ -195,9 +193,9 @@ fn main() -> Result<()> {
         rh::step_intrinsics_init_all(&mut session, None)?;
         println!("  intrinsics init (Zhang): {:.2?}", s.elapsed());
     } else {
-        // `RigHandeyeIntrinsicsManualInit` is #[non_exhaustive] → build via
+        // `IntrinsicsManualInit` is #[non_exhaustive] → build via
         // Default and set the public fields.
-        let mut seed = RigHandeyeIntrinsicsManualInit::default();
+        let mut seed = IntrinsicsManualInit::default();
         seed.per_cam_intrinsics = Some(vec![
             FxFyCxCy {
                 fx: focal_seed,
@@ -228,7 +226,7 @@ fn main() -> Result<()> {
             .collect::<Vec<_>>()
     );
     let s = Instant::now();
-    rh::step_rig_init(&mut session)?;
+    rh::step_rig_init(&mut session, None)?;
     println!("  rig init: {:.2?}", s.elapsed());
     let s = Instant::now();
     let rig = rh::step_rig_optimize(&mut session, None)?;
@@ -263,7 +261,7 @@ fn main() -> Result<()> {
 
 fn report(
     export: &vision_calibration::rig_handeye::RigHandeyeExport,
-    handeye_mode: HandEyeMode,
+    handeye_mode: HandeyeMode,
     data_dir: &std::path::Path,
 ) {
     println!("\n── Recovered ring-grid intrinsics (this rig — no oracle) ──");
@@ -294,8 +292,8 @@ fn report(
 
     println!("\n── Recovered hand-eye ──");
     let he = match handeye_mode {
-        HandEyeMode::EyeInHand => export.gripper_se3_rig,
-        HandEyeMode::EyeToHand => export.rig_se3_base,
+        HandeyeMode::EyeInHand => export.gripper_se3_rig,
+        HandeyeMode::EyeToHand => export.rig_se3_base,
     };
     match he {
         Some(he) => println!(

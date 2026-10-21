@@ -75,7 +75,7 @@ class LaserResultUncertaintyTest(unittest.TestCase):
             "num_residuals": 120,
             "dof": 118,
         }
-        result = vc.RigLaserlineDeviceResult.from_payload(
+        result = vc.RigLaserlineDeviceExport.from_payload(
             {
                 "laser_planes_rig": [plane, plane],
                 "laser_planes_cam": [plane, plane],
@@ -92,7 +92,7 @@ class LaserResultUncertaintyTest(unittest.TestCase):
 class ResultUncertaintyTest(unittest.TestCase):
     def test_planar_result_carries_the_covariance(self) -> None:
         result = vc.run_planar_intrinsics(
-            planar_calibration_dataset(8), vc.PlanarCalibrationConfig()
+            planar_calibration_dataset(8), vc.PlanarIntrinsicsConfig()
         )
         u = result.uncertainty
         self.assertTrue(u.available, u.reason)
@@ -108,7 +108,7 @@ class ResultUncertaintyTest(unittest.TestCase):
         # instead of reporting a meaningless covariance.
         result = vc.run_planar_intrinsics(
             planar_calibration_dataset(8),
-            vc.PlanarCalibrationConfig(
+            vc.PlanarIntrinsicsConfig(
                 camera=vc.CameraConfig(model=vc.CameraModelSpec(sensor="scheimpflug"))
             ),
         )
@@ -123,7 +123,7 @@ class ResultUncertaintyTest(unittest.TestCase):
         # The committed stereo observations (two cameras, 20 views).
         path = Path(__file__).resolve().parents[3] / "regression/observations/stereo_rig.json"
         payload = json.loads(path.read_text(encoding="utf-8"))["input"]
-        dataset = vc.RigExtrinsicsDataset(
+        dataset = vc.RigExtrinsicsInput(
             num_cameras=payload["num_cameras"],
             views=[
                 vc.RigExtrinsicsView(
@@ -153,7 +153,7 @@ class ResultUncertaintyTest(unittest.TestCase):
 class ProjectionUncertaintyTest(unittest.TestCase):
     def test_planar_result_maps_the_image(self) -> None:
         result = vc.run_planar_intrinsics(
-            planar_calibration_dataset(8), vc.PlanarCalibrationConfig()
+            planar_calibration_dataset(8), vc.PlanarIntrinsicsConfig()
         )
         p = vc.projection_uncertainty(result, (1280, 720))
         self.assertEqual(p.image_size, (1280, 720))
@@ -166,7 +166,7 @@ class ProjectionUncertaintyTest(unittest.TestCase):
 
     def test_a_camera_without_covariance_is_a_value_error(self) -> None:
         result = vc.run_planar_intrinsics(
-            planar_calibration_dataset(8), vc.PlanarCalibrationConfig()
+            planar_calibration_dataset(8), vc.PlanarIntrinsicsConfig()
         )
         with self.assertRaises(ValueError):
             vc.projection_uncertainty(result, (1280, 720), camera=1)

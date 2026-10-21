@@ -85,7 +85,7 @@ fn main() -> Result<()> {
 
     // Step 3: Rig initialization
     println!("--- Step 3: Rig Extrinsics Initialization ---");
-    let rig_init = step_rig_init(&mut session)?;
+    let rig_init = step_rig_init(&mut session, None)?;
 
     print_baseline("Initial baseline", &rig_init.initial_cam_se3_rig);
     println!();

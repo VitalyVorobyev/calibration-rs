@@ -134,7 +134,7 @@ Rules for the lists:
 - A stage that holds more than the model's default names its own default
   per model the same way: the joint rig laser solve holds every
   higher-order coefficient and the tilt of each camera unless its
-  `joint_ba.fix` lists say otherwise.
+  `joint_optimize.fix` lists say otherwise.
 
 Rigs take one `camera` for all cameras, plus optional per-camera overrides
 keyed by camera index, so lenses can be mixed.

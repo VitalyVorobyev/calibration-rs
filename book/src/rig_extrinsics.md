@@ -69,7 +69,7 @@ Settings are grouped by stage; the shared sub-structs (`IntrinsicsInitConfig`, `
 ```rust
 pub struct RigExtrinsicsConfig {
     // Per-camera linear-initialization stage settings.
-    pub intrinsics: IntrinsicsInitConfig, // { init_iterations, fix_k3, fix_tangential }
+    pub intrinsics: IntrinsicsInitConfig, // { iterations, fix_k3, fix_tangential }
 
     // Camera model shared by every camera (projection, distortion, sensor)
     // and its named fix lists; default Brown-Conrady, identity sensor.
@@ -79,14 +79,14 @@ pub struct RigExtrinsicsConfig {
     pub camera_overrides: Vec<CameraOverride>, // { camera, model, fix }
 
     // Rig frame options.
-    pub rig: RigConfig, // { reference_camera_idx, refine_intrinsics_in_rig_ba, refine_sensor }
+    pub rig: RigConfig, // { reference_camera_idx, refine_intrinsics, refine_sensor }
 
     // Non-linear solve stage settings.
     pub solver: SolverConfig, // { max_iters, verbosity, robust_loss }
 }
 ```
 
-Every camera uses `camera` unless `camera_overrides` names it. An override replaces the model and the fix lists of one camera, so a rig can mix distortion kinds and sensors. A camera index out of range or listed twice is a validation error. A slot left out of `fix` keeps the model's default. With `rig.refine_intrinsics_in_rig_ba` set, each camera's fix lists are held during the rig bundle adjustment.
+Every camera uses `camera` unless `camera_overrides` names it. An override replaces the model and the fix lists of one camera, so a rig can mix distortion kinds and sensors. A camera index out of range or listed twice is a validation error. A slot left out of `fix` keeps the model's default. With `rig.refine_intrinsics` set, each camera's fix lists are held during the rig bundle adjustment.
 
 ```rust
 use vision_calibration::common::config::CameraOverride;
@@ -101,7 +101,7 @@ session.update_config(|c| {
 })?;
 ```
 
-A rig of tilted cameras sets `config.camera = CameraConfig::new(CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug))` instead. Tilt seeds go through `RigIntrinsicsManualInit::per_cam_sensors` and `step_intrinsics_init_all_with_seed`; zero tilts need no seed (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)). The export's `cameras` is one `CameraParams` per camera, stating the calibrated distortion and sensor.
+A rig of tilted cameras sets `config.camera = CameraConfig::new(CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug))` instead. Tilt seeds go through `IntrinsicsManualInit::per_cam_sensors` and `step_intrinsics_init_all_with_seed`; zero tilts need no seed (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)). The export's `cameras` is one `CameraParams` per camera, stating the calibrated distortion and sensor.
 
 The reference camera (`rig.reference_camera_idx`) is fixed at identity, which removes the rig's 6-DOF gauge freedom; no separate pose-gauge setting is needed.
 
@@ -152,7 +152,7 @@ session.set_input(rig_dataset)?;
 
 step_intrinsics_init_all(&mut session, None)?;
 step_intrinsics_optimize_all(&mut session, None)?;
-step_rig_init(&mut session)?;
+step_rig_init(&mut session, None)?;
 step_rig_optimize(&mut session, None)?;
 
 let export = session.export()?;

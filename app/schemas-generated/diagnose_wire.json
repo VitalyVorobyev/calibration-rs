@@ -592,7 +592,7 @@
       ],
       "type": "object"
     },
-    "HandEyeMode": {
+    "HandeyeMode": {
       "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",
       "oneOf": [
         {
@@ -1532,7 +1532,7 @@
         "handeye_mode": {
           "allOf": [
             {
-              "$ref": "#/definitions/HandEyeMode"
+              "$ref": "#/definitions/HandeyeMode"
             }
           ],
           "description": "Hand-eye mode used to interpret mode-dependent transforms."
@@ -1691,7 +1691,7 @@
         "handeye_mode": {
           "allOf": [
             {
-              "$ref": "#/definitions/HandEyeMode"
+              "$ref": "#/definitions/HandeyeMode"
             }
           ],
           "description": "Hand-eye mode used to interpret mode-dependent transforms."
@@ -2175,7 +2175,7 @@
         "handeye_mode": {
           "allOf": [
             {
-              "$ref": "#/definitions/HandEyeMode"
+              "$ref": "#/definitions/HandeyeMode"
             }
           ],
           "description": "Hand-eye mode used to interpret the transforms."

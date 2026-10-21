@@ -67,7 +67,7 @@ Joint non-linear optimization of all parameters:
 - `"handeye"` (7D, SE3): gripper-to-camera transform
 - `"target"` (7D, SE3): base-to-target transform
 
-**Residual blocks**: one `ReprojPoint { model, chain: HandEye { .. }, .. }` per observation, `model` being the camera's `CameraModelSpec`.
+**Residual blocks**: one `ReprojPoint { model, chain: Handeye { .. }, .. }` per observation, `model` being the camera's `CameraModelSpec`.
 
 The robot poses are **not optimized** — they are known constants from the robot kinematics (passed as per-residual data).
 
@@ -93,7 +93,7 @@ reused across every hand-eye problem type:
 pub struct SingleCamHandeyeConfig {
     // Per-camera linear-initialization stage settings.
     pub intrinsics: IntrinsicsInitConfig,
-    // { init_iterations: usize = 2, fix_k3: bool = true,
+    // { iterations: usize = 2, fix_k3: bool = true,
     //   fix_tangential: Option<bool> = None }  (None: true for a Scheimpflug
     //   sensor, false otherwise)
 
@@ -103,7 +103,7 @@ pub struct SingleCamHandeyeConfig {
 
     // Hand-eye linear-initialization stage settings (Tsai-Lenz DLT).
     pub handeye_init: HandeyeInitConfig,
-    // { handeye_mode: HandEyeMode, min_motion_angle_deg: f64 = 5.0 }
+    // { handeye_mode: HandeyeMode, min_motion_angle_deg: f64 = 5.0 }
 
     // Non-linear solve stage settings.
     pub solver: SolverConfig, // { max_iters, verbosity, robust_loss }

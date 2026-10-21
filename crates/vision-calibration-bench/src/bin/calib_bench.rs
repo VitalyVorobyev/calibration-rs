@@ -10,8 +10,9 @@ use vision_calibration::core::{CameraFix, CameraModelSpec, DistortionKind, Senso
 use vision_calibration::optim::SolverBackend;
 use vision_calibration_bench::record::BenchRecord;
 use vision_calibration_bench::registry::{
-    BenchEntry, BenchHandEyeMode, ChessCornersDetectorSpec, DetectorOverride, HandeyeBaOverride,
-    ManualInitSeed, ProblemKind, RigHandeyeOverride, SingleCamHandeyeOverride, load_registry,
+    BenchEntry, BenchHandeyeMode, ChessCornersDetectorSpec, DetectorOverride,
+    HandeyeOptimizeOverride, ManualInitSeed, ProblemKind, RigHandeyeOverride,
+    SingleCamHandeyeOverride, load_registry,
 };
 use vision_calibration_bench::solver::record::SolverBenchReport;
 use vision_calibration_bench::solver::scenes::{Preset, Problem};
@@ -1240,10 +1241,10 @@ fn set_final_rig_refine(entry: &mut BenchEntry) -> bool {
     let overrides = entry
         .rig_handeye
         .get_or_insert_with(RigHandeyeOverride::default);
-    let mut ba = overrides.handeye_ba.clone().unwrap_or_default();
-    ba.refine_cam_se3_rig_in_handeye_ba = Some(true);
-    ba.refine_sensor_in_handeye_ba = Some(true);
-    overrides.handeye_ba = Some(ba);
+    let mut ba = overrides.handeye_optimize.clone().unwrap_or_default();
+    ba.refine_cam_se3_rig = Some(true);
+    ba.refine_sensor = Some(true);
+    overrides.handeye_optimize = Some(ba);
     true
 }
 
@@ -1262,10 +1263,10 @@ fn set_alternate_handeye_mode(entry: &mut BenchEntry) -> bool {
             overrides.handeye_mode = Some(
                 match overrides
                     .handeye_mode
-                    .unwrap_or(BenchHandEyeMode::EyeInHand)
+                    .unwrap_or(BenchHandeyeMode::EyeInHand)
                 {
-                    BenchHandEyeMode::EyeInHand => BenchHandEyeMode::EyeToHand,
-                    BenchHandEyeMode::EyeToHand => BenchHandEyeMode::EyeInHand,
+                    BenchHandeyeMode::EyeInHand => BenchHandeyeMode::EyeToHand,
+                    BenchHandeyeMode::EyeToHand => BenchHandeyeMode::EyeInHand,
                 },
             );
             true
@@ -1277,10 +1278,10 @@ fn set_alternate_handeye_mode(entry: &mut BenchEntry) -> bool {
             overrides.handeye_mode = Some(
                 match overrides
                     .handeye_mode
-                    .unwrap_or(BenchHandEyeMode::EyeInHand)
+                    .unwrap_or(BenchHandeyeMode::EyeInHand)
                 {
-                    BenchHandEyeMode::EyeInHand => BenchHandEyeMode::EyeToHand,
-                    BenchHandEyeMode::EyeToHand => BenchHandEyeMode::EyeInHand,
+                    BenchHandeyeMode::EyeInHand => BenchHandeyeMode::EyeToHand,
+                    BenchHandeyeMode::EyeToHand => BenchHandeyeMode::EyeInHand,
                 },
             );
             true
@@ -1295,10 +1296,10 @@ fn set_robot_ba(
     robot_rot_sigma: Option<f64>,
     robot_trans_sigma: Option<f64>,
 ) {
-    let ba = HandeyeBaOverride {
+    let ba = HandeyeOptimizeOverride {
         refine_robot_poses,
-        refine_cam_se3_rig_in_handeye_ba: None,
-        refine_sensor_in_handeye_ba: None,
+        refine_cam_se3_rig: None,
+        refine_sensor: None,
         robot_rot_sigma,
         robot_trans_sigma,
     };
@@ -1307,13 +1308,13 @@ fn set_robot_ba(
             let overrides = entry
                 .single_cam_handeye
                 .get_or_insert_with(SingleCamHandeyeOverride::default);
-            overrides.handeye_ba = Some(ba);
+            overrides.handeye_optimize = Some(ba);
         }
         ProblemKind::RigHandeye => {
             let overrides = entry
                 .rig_handeye
                 .get_or_insert_with(RigHandeyeOverride::default);
-            overrides.handeye_ba = Some(ba);
+            overrides.handeye_optimize = Some(ba);
         }
         _ => {}
     }
@@ -1332,7 +1333,7 @@ fn handeye_level_means(record: &BenchRecord) -> (Option<f64>, Option<f64>) {
         .levels
         .iter()
         .rev()
-        .find(|l| l.level == ReprojLevel::HandEye)
+        .find(|l| l.level == ReprojLevel::Handeye)
         .map(|l| l.overall.mean);
     (floor, constrained)
 }
@@ -1611,7 +1612,7 @@ mod tests {
                         top_outliers: Vec::new(),
                     },
                     CompactLevelReport {
-                        level: ReprojLevel::HandEye,
+                        level: ReprojLevel::Handeye,
                         overall: LevelStats {
                             mean: 1.2,
                             ..level_stats
@@ -1624,7 +1625,7 @@ mod tests {
                 ],
                 gaps: vec![ReprojLevelGap {
                     from: ReprojLevel::Intrinsic,
-                    to: ReprojLevel::HandEye,
+                    to: ReprojLevel::Handeye,
                     mean_delta_px: 0.2,
                     ratio_to_previous: Some(1.2),
                     ratio_to_intrinsic: Some(1.2),

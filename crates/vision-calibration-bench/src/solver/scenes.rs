@@ -17,11 +17,11 @@ use vision_calibration::core::{
 };
 use vision_calibration::laserline_device::{LaserlineDeviceConfig, LaserlineDeviceInput};
 use vision_calibration::optim::{
-    HandEyeMode, LaserPlane, LaserlineMeta, RobotPoseMeta, RobustLoss, SolverBackend,
+    HandeyeMode, LaserPlane, LaserlineMeta, RobotPoseMeta, RobustLoss, SolverBackend,
 };
-use vision_calibration::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarManualInit};
+use vision_calibration::planar_intrinsics::{IntrinsicsManualInit, PlanarIntrinsicsConfig};
 use vision_calibration::rig_extrinsics::{
-    RigExtrinsicsConfig, RigExtrinsicsInput, RigIntrinsicsManualInit,
+    IntrinsicsManualInit as RigIntrinsicsManualInit, RigExtrinsicsConfig, RigExtrinsicsInput,
 };
 use vision_calibration::rig_handeye::{RigHandeyeConfig, RigHandeyeInput};
 use vision_calibration::rig_handeye_laserline::{
@@ -327,7 +327,7 @@ pub enum SceneData {
         /// Solver configuration (a Scheimpflug camera model).
         config: PlanarIntrinsicsConfig,
         /// Coarse focal + nominal tilt seed.
-        seed: PlanarManualInit,
+        seed: IntrinsicsManualInit,
     },
     /// Single-camera hand-eye.
     SingleCamHandeye {
@@ -390,7 +390,7 @@ impl SceneData {
             SceneData::RigHandeyeLaserline { config, .. } => {
                 config.handeye.solver.backend = backend;
                 config.laserline_init.solver.backend = backend;
-                config.joint_ba.solver.backend = backend;
+                config.joint_optimize.solver.backend = backend;
             }
         }
     }
@@ -853,7 +853,7 @@ fn scheimpflug_scene(b: &Builder) -> Result<Scene> {
     config.solver.robust_loss = b.spec.loss;
     // Coarse device-spec seed: focal ~8 % low, principal point at the image
     // centre, the nominal mount tilt, no distortion.
-    let mut seed = PlanarManualInit::default();
+    let mut seed = IntrinsicsManualInit::default();
     seed.intrinsics = Some(FxFyCxCy {
         fx: 920.0,
         fy: 920.0,
@@ -917,7 +917,7 @@ fn single_handeye_scene(b: &Builder) -> Result<Scene> {
         })
         .collect();
     let mut config = SingleCamHandeyeConfig::default();
-    config.handeye_init.handeye_mode = HandEyeMode::EyeInHand;
+    config.handeye_init.handeye_mode = HandeyeMode::EyeInHand;
     config.solver.robust_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),
@@ -1252,7 +1252,7 @@ fn rig_handeye_laserline_scene(b: &Builder) -> Result<Scene> {
         })
         .collect();
     let mut config = RigHandeyeLaserlineConfig::default();
-    config.joint_ba.calib_loss = b.spec.loss;
+    config.joint_optimize.calib_loss = b.spec.loss;
     config.handeye.solver.robust_loss = b.spec.loss;
     Ok(Scene {
         spec: b.spec.clone(),

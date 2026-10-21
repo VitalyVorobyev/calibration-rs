@@ -86,7 +86,7 @@ id = "synth_rig"
 description = "Synthetic two-camera rig extrinsics, intrinsics refined with the rig: 20 views, 0.5 px noise"
 licence = "CC0-1.0"
 synthetic = "rig_extrinsics/pinhole/medium/n0.5/clean"
-config = { rig = { refine_intrinsics_in_rig_ba = true } }
+config = { rig = { refine_intrinsics = true } }
 
 [[entry]]
 id = "synth_laserline"

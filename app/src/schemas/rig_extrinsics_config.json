@@ -161,7 +161,7 @@
             "null"
           ]
         },
-        "init_iterations": {
+        "iterations": {
           "description": "Number of iterations for iterative intrinsics estimation.",
           "format": "uint",
           "minimum": 0,
@@ -169,7 +169,7 @@
         }
       },
       "required": [
-        "init_iterations",
+        "iterations",
         "fix_k3"
       ],
       "type": "object"
@@ -194,7 +194,7 @@
           "minimum": 0,
           "type": "integer"
         },
-        "refine_intrinsics_in_rig_ba": {
+        "refine_intrinsics": {
           "description": "Re-refine per-camera intrinsics and distortion jointly during rig\nbundle adjustment, holding the camera's `fix` lists. Default:\n`false` — the per-camera solves have already fitted them.",
           "type": "boolean"
         },
@@ -206,7 +206,7 @@
       },
       "required": [
         "reference_camera_idx",
-        "refine_intrinsics_in_rig_ba"
+        "refine_intrinsics"
       ],
       "type": "object"
     },

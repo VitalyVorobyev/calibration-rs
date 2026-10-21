@@ -223,7 +223,27 @@
       ],
       "type": "object"
     },
-    "HandEyeMode": {
+    "HandeyeInitConfig": {
+      "additionalProperties": false,
+      "description": "Hand-eye linear-initialization stage options (Tsai-Lenz DLT).\n\nShared by every hand-eye problem's `handeye_init` config group.",
+      "properties": {
+        "handeye_mode": {
+          "$ref": "#/$defs/HandeyeMode",
+          "description": "Hand-eye mode: `EyeInHand` or `EyeToHand`."
+        },
+        "min_motion_angle_deg": {
+          "description": "Minimum motion angle (degrees) for linear hand-eye initialization.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "handeye_mode",
+        "min_motion_angle_deg"
+      ],
+      "type": "object"
+    },
+    "HandeyeMode": {
       "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",
       "oneOf": [
         {
@@ -238,7 +258,7 @@
         }
       ]
     },
-    "HandeyeBaConfig": {
+    "HandeyeOptimizeConfig": {
       "additionalProperties": false,
       "description": "Final hand-eye bundle-adjustment options; robot-pose refinement lives in\nthe shared [`RobotPoseConfig`] group.",
       "properties": {
@@ -262,26 +282,6 @@
       ],
       "type": "object"
     },
-    "HandeyeInitConfig": {
-      "additionalProperties": false,
-      "description": "Hand-eye linear-initialization stage options (Tsai-Lenz DLT).\n\nShared by every hand-eye problem's `handeye_init` config group.",
-      "properties": {
-        "handeye_mode": {
-          "$ref": "#/$defs/HandEyeMode",
-          "description": "Hand-eye mode: `EyeInHand` or `EyeToHand`."
-        },
-        "min_motion_angle_deg": {
-          "description": "Minimum motion angle (degrees) for linear hand-eye initialization.",
-          "format": "double",
-          "type": "number"
-        }
-      },
-      "required": [
-        "handeye_mode",
-        "min_motion_angle_deg"
-      ],
-      "type": "object"
-    },
     "IntrinsicsInitConfig": {
       "additionalProperties": false,
       "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `init` config group.",
@@ -297,7 +297,7 @@
             "null"
           ]
         },
-        "init_iterations": {
+        "iterations": {
           "description": "Number of iterations for iterative intrinsics estimation.",
           "format": "uint",
           "minimum": 0,
@@ -305,129 +305,13 @@
         }
       },
       "required": [
-        "init_iterations",
+        "iterations",
         "fix_k3"
       ],
       "type": "object"
     },
-    "LaserlineResidualType": {
-      "description": "Type of laser plane residual to use.",
-      "oneOf": [
-        {
-          "const": "PointToPlane",
-          "description": "Point-to-plane distance (original approach).\n\nUndistorts pixel, back-projects to 3D ray, intersects with target plane,\ncomputes 3D point in camera frame, measures signed distance to laser plane.\nResidual: 1D distance in meters.",
-          "type": "string"
-        },
-        {
-          "const": "LineDistNormalized",
-          "description": "Line-distance in normalized plane (alternative approach).\n\nComputes 3D intersection line of laser plane and target plane, projects\nline onto z=1 normalized camera plane, undistorts laser pixels to normalized\ncoordinates, measures perpendicular distance from pixel to projected line,\nscales by sqrt(fx*fy) for pixel-comparable residual.\nResidual: 1D distance in pixels.",
-          "type": "string"
-        }
-      ]
-    },
-    "ProjectionKind": {
-      "description": "Which projection model a camera uses.",
-      "oneOf": [
-        {
-          "const": "pinhole",
-          "description": "Pinhole (perspective) projection; no parameters of its own.",
-          "type": "string"
-        }
-      ]
-    },
-    "RigConfig": {
-      "additionalProperties": false,
-      "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nThe `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.",
-      "properties": {
-        "reference_camera_idx": {
-          "description": "Reference camera index for the rig frame (identity extrinsics).",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "refine_intrinsics_in_rig_ba": {
-          "description": "Re-refine per-camera intrinsics and distortion jointly during rig\nbundle adjustment, holding the camera's `fix` lists. Default:\n`false` — the per-camera solves have already fitted them.",
-          "type": "boolean"
-        },
-        "refine_sensor": {
-          "default": false,
-          "description": "Re-refine the sensor tilt of each Scheimpflug camera during rig\nbundle adjustment, holding its `fix.sensor` list. Default: `false` —\nthe tilt is fitted per camera and trades off against the extrinsics\nin the joint solve. Cameras with an untilted sensor have no tilt.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "reference_camera_idx",
-        "refine_intrinsics_in_rig_ba"
-      ],
-      "type": "object"
-    },
-    "RigHandeyeConfig": {
-      "additionalProperties": false,
-      "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped by stage. Every camera has the model of `camera` unless\n`camera_overrides` names it, so one rig can mix lenses and sensors.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (as for `RigExtrinsicsConfig`).\nView-0's rig-from-target pose is always free in the rig BA.",
-      "properties": {
-        "camera": {
-          "$ref": "#/$defs/CameraConfig",
-          "default": {
-            "fix": {},
-            "model": {
-              "distortion": "brown_conrady5",
-              "projection": "pinhole",
-              "sensor": "identity"
-            }
-          },
-          "description": "The camera model of every rig camera and the parameters its solves\nhold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a\nmulti-start tilt sweep; seed its tilt through `manual_init`."
-        },
-        "camera_overrides": {
-          "default": [],
-          "description": "Cameras whose model differs from `camera`, at most one entry per\ncamera index.",
-          "items": {
-            "$ref": "#/$defs/CameraOverride"
-          },
-          "type": "array"
-        },
-        "handeye_ba": {
-          "$ref": "#/$defs/HandeyeBaConfig",
-          "description": "Final hand-eye bundle-adjustment options."
-        },
-        "handeye_init": {
-          "$ref": "#/$defs/HandeyeInitConfig",
-          "description": "Hand-eye linear initialization options."
-        },
-        "intrinsics": {
-          "$ref": "#/$defs/IntrinsicsInitConfig",
-          "description": "Per-camera linear-initialization stage settings. An unset\n`fix_tangential` keeps the tangential terms free for every camera."
-        },
-        "manual_init": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RigHandeyeIntrinsicsManualInit"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional manual seeds for the per-camera intrinsics stage."
-        },
-        "rig": {
-          "$ref": "#/$defs/RigConfig",
-          "description": "Rig frame options (reference camera, rig-BA scope)."
-        },
-        "solver": {
-          "$ref": "#/$defs/SolverConfig",
-          "description": "Non-linear solve stage settings."
-        }
-      },
-      "required": [
-        "intrinsics",
-        "rig",
-        "handeye_init",
-        "solver",
-        "handeye_ba"
-      ],
-      "type": "object"
-    },
-    "RigHandeyeIntrinsicsManualInit": {
-      "description": "Manual seeds for the **per-camera intrinsics stage** of rig hand-eye\ncalibration. See `rig_extrinsics::RigIntrinsicsManualInit` for semantics.\n\n`per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor\n(a seeded tilt skips the tilt sweep); a camera with an untilted sensor\ntakes only a zero tilt.",
+    "IntrinsicsManualInit": {
+      "description": "Manual seeds for the **per-camera intrinsics stage** of rig hand-eye\ncalibration. See `rig_extrinsics::IntrinsicsManualInit` for semantics.\n\n`per_cam_sensors` seeds the tilt of each camera with a Scheimpflug sensor\n(a seeded tilt skips the tilt sweep); a camera with an untilted sensor\ntakes only a zero tilt.",
       "properties": {
         "per_cam_distortion": {
           "description": "Per-camera distortion seeds.",
@@ -463,7 +347,7 @@
       },
       "type": "object"
     },
-    "RigHandeyeLaserlineBaConfig": {
+    "JointOptimizeConfig": {
       "additionalProperties": false,
       "description": "Final joint BA options.\n\nThe joint stage always pins the upstream rig's reference camera\n(`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Each\ncamera's fixed parameters are named lists in that camera's model\n(`fix`).",
       "properties": {
@@ -524,6 +408,122 @@
         "fix_handeye",
         "fix_target_ref",
         "robot_poses"
+      ],
+      "type": "object"
+    },
+    "LaserlineResidualType": {
+      "description": "Type of laser plane residual to use.",
+      "oneOf": [
+        {
+          "const": "PointToPlane",
+          "description": "Point-to-plane distance (original approach).\n\nUndistorts pixel, back-projects to 3D ray, intersects with target plane,\ncomputes 3D point in camera frame, measures signed distance to laser plane.\nResidual: 1D distance in meters.",
+          "type": "string"
+        },
+        {
+          "const": "LineDistNormalized",
+          "description": "Line-distance in normalized plane (alternative approach).\n\nComputes 3D intersection line of laser plane and target plane, projects\nline onto z=1 normalized camera plane, undistorts laser pixels to normalized\ncoordinates, measures perpendicular distance from pixel to projected line,\nscales by sqrt(fx*fy) for pixel-comparable residual.\nResidual: 1D distance in pixels.",
+          "type": "string"
+        }
+      ]
+    },
+    "ProjectionKind": {
+      "description": "Which projection model a camera uses.",
+      "oneOf": [
+        {
+          "const": "pinhole",
+          "description": "Pinhole (perspective) projection; no parameters of its own.",
+          "type": "string"
+        }
+      ]
+    },
+    "RigConfig": {
+      "additionalProperties": false,
+      "description": "Multi-camera rig frame options: reference-camera gauge and rig-BA scope.\n\nThe `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.",
+      "properties": {
+        "reference_camera_idx": {
+          "description": "Reference camera index for the rig frame (identity extrinsics).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "refine_intrinsics": {
+          "description": "Re-refine per-camera intrinsics and distortion jointly during rig\nbundle adjustment, holding the camera's `fix` lists. Default:\n`false` — the per-camera solves have already fitted them.",
+          "type": "boolean"
+        },
+        "refine_sensor": {
+          "default": false,
+          "description": "Re-refine the sensor tilt of each Scheimpflug camera during rig\nbundle adjustment, holding its `fix.sensor` list. Default: `false` —\nthe tilt is fitted per camera and trades off against the extrinsics\nin the joint solve. Cameras with an untilted sensor have no tilt.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "reference_camera_idx",
+        "refine_intrinsics"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeConfig": {
+      "additionalProperties": false,
+      "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped by stage. Every camera has the model of `camera` unless\n`camera_overrides` names it, so one rig can mix lenses and sensors.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (as for `RigExtrinsicsConfig`).\nView-0's rig-from-target pose is always free in the rig BA.",
+      "properties": {
+        "camera": {
+          "$ref": "#/$defs/CameraConfig",
+          "default": {
+            "fix": {},
+            "model": {
+              "distortion": "brown_conrady5",
+              "projection": "pinhole",
+              "sensor": "identity"
+            }
+          },
+          "description": "The camera model of every rig camera and the parameters its solves\nhold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a\nmulti-start tilt sweep; seed its tilt through `manual_init`."
+        },
+        "camera_overrides": {
+          "default": [],
+          "description": "Cameras whose model differs from `camera`, at most one entry per\ncamera index.",
+          "items": {
+            "$ref": "#/$defs/CameraOverride"
+          },
+          "type": "array"
+        },
+        "handeye_init": {
+          "$ref": "#/$defs/HandeyeInitConfig",
+          "description": "Hand-eye linear initialization options."
+        },
+        "handeye_optimize": {
+          "$ref": "#/$defs/HandeyeOptimizeConfig",
+          "description": "Final hand-eye bundle-adjustment options."
+        },
+        "intrinsics": {
+          "$ref": "#/$defs/IntrinsicsInitConfig",
+          "description": "Per-camera linear-initialization stage settings. An unset\n`fix_tangential` keeps the tangential terms free for every camera."
+        },
+        "manual_init": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IntrinsicsManualInit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional manual seeds for the per-camera intrinsics stage."
+        },
+        "rig": {
+          "$ref": "#/$defs/RigConfig",
+          "description": "Rig frame options (reference camera, rig-BA scope)."
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverConfig",
+          "description": "Non-linear solve stage settings."
+        }
+      },
+      "required": [
+        "intrinsics",
+        "rig",
+        "handeye_init",
+        "solver",
+        "handeye_optimize"
       ],
       "type": "object"
     },
@@ -743,8 +743,8 @@
       "$ref": "#/$defs/RigHandeyeConfig",
       "description": "Warm-start rig hand-eye stage."
     },
-    "joint_ba": {
-      "$ref": "#/$defs/RigHandeyeLaserlineBaConfig",
+    "joint_optimize": {
+      "$ref": "#/$defs/JointOptimizeConfig",
       "description": "Final joint bundle adjustment stage."
     },
     "laserline_init": {
@@ -755,7 +755,7 @@
   "required": [
     "handeye",
     "laserline_init",
-    "joint_ba"
+    "joint_optimize"
   ],
   "title": "RigHandeyeLaserlineConfig",
   "type": "object"

@@ -18,12 +18,10 @@
 //! the camera order it needs and mismatches surface as typed errors.
 
 use vision_calibration_core::{FxFyCxCy, Iso3, Real, ScheimpflugParams};
-use vision_calibration_optim::HandEyeMode;
+use vision_calibration_optim::HandeyeMode;
 
-use crate::planar_intrinsics::PlanarManualInit;
-use crate::rig_handeye::{
-    RigHandeyeHandeyeManualInit, RigHandeyeIntrinsicsManualInit, RigHandeyeRigManualInit,
-};
+use crate::planar_intrinsics;
+use crate::rig_handeye::{self, HandeyeManualInit, RigManualInit};
 
 // The schema types every consumer of this module needs, re-exported so the
 // facade can expose the full device-spec surface from one place.
@@ -63,9 +61,9 @@ pub enum DeviceSeedError {
     #[error("device spec hand-eye mount is {spec:?} but the session expects {expected:?}")]
     HandeyeModeMismatch {
         /// Mode stated by the spec.
-        spec: HandEyeMode,
+        spec: HandeyeMode,
         /// Mode the caller's config expects.
-        expected: HandEyeMode,
+        expected: HandeyeMode,
     },
 
     /// A view has no observed target pose in any camera, so its
@@ -89,9 +87,9 @@ pub enum DeviceSeedError {
 pub fn scheimpflug_seed(
     spec: &DeviceSpec,
     camera_id: &str,
-) -> Result<PlanarManualInit, DeviceSeedError> {
+) -> Result<planar_intrinsics::IntrinsicsManualInit, DeviceSeedError> {
     let cam = lookup(spec, camera_id)?;
-    Ok(PlanarManualInit {
+    Ok(planar_intrinsics::IntrinsicsManualInit {
         intrinsics: Some(intrinsics_from_camera(cam)),
         sensor: Some(sensor_from_camera(cam)),
         ..Default::default()
@@ -108,12 +106,12 @@ pub fn scheimpflug_seed(
 pub fn rig_intrinsics_seed(
     spec: &DeviceSpec,
     camera_ids: &[&str],
-) -> Result<RigHandeyeIntrinsicsManualInit, DeviceSeedError> {
+) -> Result<rig_handeye::IntrinsicsManualInit, DeviceSeedError> {
     let cams = camera_ids
         .iter()
         .map(|id| lookup(spec, id))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(RigHandeyeIntrinsicsManualInit {
+    Ok(rig_handeye::IntrinsicsManualInit {
         per_cam_intrinsics: Some(cams.iter().map(|c| intrinsics_from_camera(c)).collect()),
         per_cam_sensors: Some(cams.iter().map(|c| sensor_from_camera(c)).collect()),
         ..Default::default()
@@ -124,7 +122,7 @@ pub fn rig_intrinsics_seed(
 /// caller's `camera_ids` order. Translations are converted to the
 /// pipeline's world unit (metres).
 ///
-/// This is deliberately *not* a `RigHandeyeRigManualInit`: the manual-init contract couples
+/// This is deliberately *not* a `RigManualInit`: the manual-init contract couples
 /// `cam_se3_rig` with the data-dependent per-view `rig_se3_target`
 /// (both-or-neither), so combining the nominals with per-view estimates is
 /// the caller's job.
@@ -163,7 +161,7 @@ pub fn rig_layout_seed(
     spec: &DeviceSpec,
     camera_ids: &[&str],
     per_cam_target_poses: &[Vec<Option<Iso3>>],
-) -> Result<RigHandeyeRigManualInit, DeviceSeedError> {
+) -> Result<RigManualInit, DeviceSeedError> {
     let cam_se3_rig = nominal_cam_se3_rig(spec, camera_ids)?;
     let rig_se3_target = per_cam_target_poses
         .iter()
@@ -177,7 +175,7 @@ pub fn rig_layout_seed(
                 .ok_or(DeviceSeedError::ViewWithoutTargetPose { view })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(RigHandeyeRigManualInit {
+    Ok(RigManualInit {
         cam_se3_rig: Some(cam_se3_rig),
         rig_se3_target: Some(rig_se3_target),
     })
@@ -186,12 +184,12 @@ pub fn rig_layout_seed(
 /// Hand-eye stage seed from the mechanical mount.
 ///
 /// The spec's mount mode must match the session's configured
-/// [`HandEyeMode`]; a mismatch is a typed error rather than a silently
+/// [`HandeyeMode`]; a mismatch is a typed error rather than a silently
 /// wrong transform. `mode_target_pose` stays `None` (data-dependent).
 pub fn handeye_seed(
     spec: &DeviceSpec,
-    expected_mode: HandEyeMode,
-) -> Result<RigHandeyeHandeyeManualInit, DeviceSeedError> {
+    expected_mode: HandeyeMode,
+) -> Result<HandeyeManualInit, DeviceSeedError> {
     let rig = spec.rig.as_ref().ok_or(DeviceSeedError::MissingRigLayout)?;
     let mount = rig
         .handeye
@@ -199,9 +197,9 @@ pub fn handeye_seed(
         .ok_or(DeviceSeedError::MissingHandeye)?;
     let (spec_mode, pose) = match mount {
         HandeyeMountSpec::EyeInHand { gripper_se3_rig } => {
-            (HandEyeMode::EyeInHand, gripper_se3_rig)
+            (HandeyeMode::EyeInHand, gripper_se3_rig)
         }
-        HandeyeMountSpec::EyeToHand { rig_se3_base } => (HandEyeMode::EyeToHand, rig_se3_base),
+        HandeyeMountSpec::EyeToHand { rig_se3_base } => (HandeyeMode::EyeToHand, rig_se3_base),
     };
     if spec_mode != expected_mode {
         return Err(DeviceSeedError::HandeyeModeMismatch {
@@ -209,7 +207,7 @@ pub fn handeye_seed(
             expected: expected_mode,
         });
     }
-    Ok(RigHandeyeHandeyeManualInit {
+    Ok(HandeyeManualInit {
         handeye: Some(iso3_from_nominal(pose)),
         ..Default::default()
     })
@@ -456,21 +454,21 @@ mod tests {
     #[test]
     fn handeye_seed_mode_checked() {
         let spec = rig_spec();
-        let seed = handeye_seed(&spec, HandEyeMode::EyeToHand).unwrap();
+        let seed = handeye_seed(&spec, HandeyeMode::EyeToHand).unwrap();
         let handeye = seed.handeye.unwrap();
         // 250 mm in the spec → 0.25 m in the pipeline's world unit.
         assert!((handeye.translation.vector.y - 0.25).abs() < 1e-12);
         assert!(seed.mode_target_pose.is_none());
 
         assert!(matches!(
-            handeye_seed(&spec, HandEyeMode::EyeInHand),
+            handeye_seed(&spec, HandeyeMode::EyeInHand),
             Err(DeviceSeedError::HandeyeModeMismatch { .. })
         ));
 
         let mut no_he = rig_spec();
         no_he.rig.as_mut().unwrap().handeye = None;
         assert!(matches!(
-            handeye_seed(&no_he, HandEyeMode::EyeToHand),
+            handeye_seed(&no_he, HandeyeMode::EyeToHand),
             Err(DeviceSeedError::MissingHandeye)
         ));
     }

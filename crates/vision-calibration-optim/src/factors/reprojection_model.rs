@@ -110,23 +110,23 @@ pub(crate) fn reproj_chain_transform<T: RealField>(
             let p_rig = pose_q.transform_vector(&pw_t) + pose_t;
             extr_q.inverse_transform_vector(&(p_rig - extr_t))
         }
-        ReprojChain::HandEye {
+        ReprojChain::Handeye {
             base_se3_gripper,
             mode,
         } => {
-            debug_assert!(blocks.len() == 3, "HandEye chain expects 3 blocks");
+            debug_assert!(blocks.len() == 3, "Handeye chain expects 3 blocks");
             let (robot_q, robot_t) = se3_from_f64_array::<T>(base_se3_gripper);
             handeye_chain_transform(
                 &blocks[0], &blocks[1], &blocks[2], robot_q, robot_t, *mode, &pw_t,
             )
         }
-        ReprojChain::HandEyeRobotDelta {
+        ReprojChain::HandeyeRobotDelta {
             base_se3_gripper,
             mode,
         } => {
             debug_assert!(
                 blocks.len() == 4,
-                "HandEyeRobotDelta chain expects 4 blocks"
+                "HandeyeRobotDelta chain expects 4 blocks"
             );
             let (robot_q, robot_t) = se3_from_f64_array::<T>(base_se3_gripper);
             let (delta_q, delta_t) = se3_exp(blocks[3].as_view());
@@ -146,21 +146,21 @@ fn handeye_chain_transform<T: RealField>(
     target: &DVector<T>,
     robot_q: UnitQuaternion<T>,
     robot_t: Vector3<T>,
-    mode: crate::ir::HandEyeMode,
+    mode: crate::ir::HandeyeMode,
     pw_t: &Vector3<T>,
 ) -> Vector3<T> {
     let (extr_q, extr_t) = se3_from_block(extr);
     let (handeye_q, handeye_t) = se3_from_block(handeye);
     let (target_q, target_t) = se3_from_block(target);
     match mode {
-        crate::ir::HandEyeMode::EyeInHand => {
+        crate::ir::HandeyeMode::EyeInHand => {
             // target -> robot_base -> gripper -> rig -> camera
             let p_base = target_q.transform_vector(pw_t) + target_t.clone();
             let p_gripper = robot_q.inverse_transform_vector(&(p_base - robot_t.clone()));
             let p_rig = handeye_q.inverse_transform_vector(&(p_gripper - handeye_t.clone()));
             extr_q.inverse_transform_vector(&(p_rig - extr_t.clone()))
         }
-        crate::ir::HandEyeMode::EyeToHand => {
+        crate::ir::HandeyeMode::EyeToHand => {
             // target -> gripper -> robot_base -> rig -> camera
             let p_gripper = target_q.transform_vector(pw_t) + target_t.clone();
             let p_base = robot_q.transform_vector(&p_gripper) + robot_t.clone();
@@ -199,7 +199,7 @@ pub(crate) fn reproj_residual<T: RealField>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::HandEyeMode;
+    use crate::ir::HandeyeMode;
     use crate::ir::{DistortionKind, SensorKind};
     use nalgebra::DVector;
 
@@ -383,16 +383,16 @@ mod tests {
                 vec![poses[0].clone(), poses[1].clone()],
             ),
             (
-                ReprojChain::HandEye {
+                ReprojChain::Handeye {
                     base_se3_gripper: robot_se3,
-                    mode: HandEyeMode::EyeInHand,
+                    mode: HandeyeMode::EyeInHand,
                 },
                 vec![poses[0].clone(), poses[1].clone(), poses[2].clone()],
             ),
             (
-                ReprojChain::HandEyeRobotDelta {
+                ReprojChain::HandeyeRobotDelta {
                     base_se3_gripper: robot_se3,
-                    mode: HandEyeMode::EyeToHand,
+                    mode: HandeyeMode::EyeToHand,
                 },
                 vec![
                     poses[0].clone(),
@@ -440,10 +440,10 @@ mod tests {
         let robot_se3 = [0.024, 0.011, 0.032, 0.999_15, 0.51, -0.22, 0.78];
         let zero_delta = DVector::from_element(6, 0.0);
 
-        for mode in [HandEyeMode::EyeInHand, HandEyeMode::EyeToHand] {
+        for mode in [HandeyeMode::EyeInHand, HandeyeMode::EyeToHand] {
             let r_he = reproj_residual(
                 CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
-                &ReprojChain::HandEye {
+                &ReprojChain::Handeye {
                     base_se3_gripper: robot_se3,
                     mode,
                 },
@@ -460,7 +460,7 @@ mod tests {
             );
             let r_delta = reproj_residual(
                 CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
-                &ReprojChain::HandEyeRobotDelta {
+                &ReprojChain::HandeyeRobotDelta {
                     base_se3_gripper: robot_se3,
                     mode,
                 },

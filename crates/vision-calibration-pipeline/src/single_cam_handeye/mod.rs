@@ -77,10 +77,11 @@ pub use problem::{
     SingleCamHandeyeProblem, SingleCamHandeyeView,
 };
 pub use steps::{
-    HandeyeInitOptions, HandeyeOptimizeOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions,
-    SingleCamHandeyeInitResult, SingleCamHandeyeManualInit, SingleCamHandeyeOptimizeResult,
-    SingleCamIntrinsicsInitResult, SingleCamIntrinsicsManualInit,
-    SingleCamIntrinsicsOptimizeResult, run_calibration, step_handeye_init,
+    HandeyeInitOptions, HandeyeInitResult, HandeyeManualInit, HandeyeOptimizeOptions,
+    HandeyeOptimizeResult, IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit,
+    IntrinsicsOptimizeOptions, IntrinsicsOptimizeResult, run_calibration, step_handeye_init,
     step_handeye_init_with_seed, step_handeye_optimize, step_intrinsics_init,
     step_intrinsics_init_with_seed, step_intrinsics_optimize,
 };
+// The hand-eye bundle adjustment's estimate, the problem's output.
+pub use vision_calibration_optim::{HandeyeEstimate, HandeyeParams};

@@ -13,8 +13,8 @@ use vision_calibration_core::{
 use vision_calibration_pipeline::common::config::CameraConfig;
 use vision_calibration_pipeline::session::CalibrationSession;
 use vision_calibration_pipeline::single_cam_handeye::{
-    HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeInput, SingleCamHandeyeProblem,
-    SingleCamHandeyeView, SingleCamIntrinsicsManualInit, run_calibration, step_handeye_init,
+    HandeyeMeta, IntrinsicsManualInit, SingleCamHandeyeConfig, SingleCamHandeyeInput,
+    SingleCamHandeyeProblem, SingleCamHandeyeView, run_calibration, step_handeye_init,
     step_handeye_optimize, step_intrinsics_init_with_seed, step_intrinsics_optimize,
 };
 
@@ -210,7 +210,7 @@ fn tilt_seed_follows_the_camera_model() {
             SensorKind::Scheimpflug,
         )))
         .unwrap();
-    let mut seed = SingleCamIntrinsicsManualInit::default();
+    let mut seed = IntrinsicsManualInit::default();
     seed.sensor = Some(sensor_gt);
     step_intrinsics_init_with_seed(&mut session, seed.clone(), None).unwrap();
     step_intrinsics_optimize(&mut session, None).unwrap();
@@ -227,7 +227,7 @@ fn tilt_seed_follows_the_camera_model() {
     assert!(err.contains("Scheimpflug"), "{err}");
 
     // A model changed after the intrinsics stage is caught before a solve.
-    let mut seed = SingleCamIntrinsicsManualInit::default();
+    let mut seed = IntrinsicsManualInit::default();
     seed.sensor = Some(ScheimpflugParams::default());
     step_intrinsics_init_with_seed(&mut session, seed, None).unwrap();
     session

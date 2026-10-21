@@ -11,7 +11,7 @@ use vision_calibration_core::{
 
 use crate::backend::BackendSolution;
 use crate::backend::covariance::{Coordinate, ParamUncertainty, UnavailableReason};
-use crate::ir::{CameraModelSpec, HandEyeMode, ManifoldKind, ParamBlock, ProblemIR};
+use crate::ir::{CameraModelSpec, HandeyeMode, ManifoldKind, ParamBlock, ProblemIR};
 use crate::params::camera::camera_block_labels;
 use crate::params::pose_se3::se3_dvec_to_iso3;
 
@@ -392,7 +392,7 @@ pub(crate) struct RigLabelling<'a> {
     /// identity.
     pub multi_camera: bool,
     /// The hand-eye mode, which names the hand-eye and target poses.
-    pub handeye_mode: Option<HandEyeMode>,
+    pub handeye_mode: Option<HandeyeMode>,
 }
 
 impl RigLabelling<'_> {
@@ -441,8 +441,8 @@ impl RigLabelling<'_> {
         };
         let rig = if self.multi_camera { "rig" } else { "camera" };
         let target = match self.handeye_mode {
-            Some(HandEyeMode::EyeInHand) => "base_se3_target",
-            Some(HandEyeMode::EyeToHand) => "gripper_se3_target",
+            Some(HandeyeMode::EyeInHand) => "base_se3_target",
+            Some(HandeyeMode::EyeToHand) => "gripper_se3_target",
             None => "rig_se3_target",
         };
         if let Some(i) = index
@@ -470,7 +470,7 @@ impl RigLabelling<'_> {
                 }
             }
             ("handeye", None) => BlockLabels::shared_pose(&match self.handeye_mode {
-                Some(HandEyeMode::EyeToHand) => format!("{rig}_se3_base"),
+                Some(HandeyeMode::EyeToHand) => format!("{rig}_se3_base"),
                 _ => format!("gripper_se3_{rig}"),
             }),
             ("target" | "target_ref", None) => BlockLabels::shared_pose(target),
@@ -695,7 +695,7 @@ mod tests {
         let labels = RigLabelling {
             cameras: &[],
             multi_camera: true,
-            handeye_mode: Some(HandEyeMode::EyeToHand),
+            handeye_mode: Some(HandeyeMode::EyeToHand),
         }
         .labels(&ir, &solution);
         let names: Vec<_> = labels.iter().map(|l| l.name.as_str()).collect();

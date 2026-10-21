@@ -8,8 +8,8 @@ use vision_calibration_core::{
 use vision_calibration_optim::{LaserPlane, LaserlineMeta, LaserlineView};
 use vision_calibration_pipeline::common::config::CameraConfig;
 use vision_calibration_pipeline::laserline_device::{
-    LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceManualInit,
-    LaserlineDeviceProblem, run_calibration, step_init_with_seed, step_optimize,
+    DeviceManualInit, LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceProblem,
+    run_calibration, step_init_with_seed, step_optimize,
 };
 use vision_calibration_pipeline::session::CalibrationSession;
 
@@ -187,7 +187,8 @@ fn pipeline_converges_pinhole() {
 
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
     session.set_input(dataset).unwrap();
-    run_calibration(&mut session, Some(config)).unwrap();
+    session.set_config(config).unwrap();
+    run_calibration(&mut session).unwrap();
 
     let export = session.export().unwrap();
     let params = &export.estimate.params;
@@ -241,7 +242,8 @@ fn pipeline_converges_scheimpflug() {
 
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
     session.set_input(dataset.clone()).unwrap();
-    run_calibration(&mut session, Some(config.clone())).unwrap();
+    session.set_config(config.clone()).unwrap();
+    run_calibration(&mut session).unwrap();
     let export = session.export().unwrap();
     assert!(
         export.mean_reproj_error < 1e-4,
@@ -258,7 +260,7 @@ fn pipeline_converges_scheimpflug() {
         let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
         session.set_input(dataset.clone()).unwrap();
         session.set_config(config).unwrap();
-        let mut seed = LaserlineDeviceManualInit::default();
+        let mut seed = DeviceManualInit::default();
         seed.sensor = Some(sensor_gt);
         step_init_with_seed(&mut session, seed, None).unwrap();
         step_optimize(&mut session, None).unwrap();
@@ -278,7 +280,7 @@ fn pipeline_converges_scheimpflug() {
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
     session.set_input(dataset).unwrap();
     session.set_config(config).unwrap();
-    let mut seed = LaserlineDeviceManualInit::default();
+    let mut seed = DeviceManualInit::default();
     seed.sensor = Some(sensor_gt);
     step_init_with_seed(&mut session, seed, None).unwrap();
     step_optimize(&mut session, None).unwrap();
@@ -316,7 +318,7 @@ fn tilt_seed_for_an_untilted_camera_must_be_zero() {
     let (dataset, _k, _plane) = make_dataset(ScheimpflugParams::default());
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
     session.set_input(dataset).unwrap();
-    let mut seed = LaserlineDeviceManualInit::default();
+    let mut seed = DeviceManualInit::default();
     seed.sensor = Some(ScheimpflugParams::default());
     assert!(step_init_with_seed(&mut session, seed.clone(), None).is_ok());
     seed.sensor = Some(ScheimpflugParams {
@@ -343,7 +345,8 @@ fn every_distortion_kind_calibrates() {
         config.camera = CameraConfig::new(CameraModelSpec::pinhole(kind, SensorKind::Identity));
         let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
         session.set_input(dataset.clone()).unwrap();
-        run_calibration(&mut session, Some(config)).unwrap_or_else(|e| panic!("{kind:?}: {e}"));
+        session.set_config(config).unwrap();
+        run_calibration(&mut session).unwrap_or_else(|e| panic!("{kind:?}: {e}"));
         let export = session.export().unwrap();
         let camera = &export.estimate.params.camera;
         assert_eq!(camera.spec().map(|s| s.distortion), Some(kind));

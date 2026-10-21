@@ -68,7 +68,7 @@ Parameter blocks (`build_rig_extrinsics_ir`): per-camera intrinsics `K_i`,
 distortion `d_i`, extrinsic `T_Ci_R` (SE(3)), per-view rig pose `T_R_Tv`
 (SE(3)), and — for Scheimpflug rigs — per-camera `ScheimpflugParams`.
 Intrinsics and distortion are **fixed by default**
-(`refine_intrinsics_in_rig_ba: false` → `CameraFix::all`, see
+(`refine_intrinsics: false` → `CameraFix::all`, see
 `rig_family::rig_ba_fix`), so the joint solve moves only the geometry;
 enabling refinement re-opens `K_i, d_i` under each camera's `fix` lists. `ρ` is the
 configured robust loss (default none). Factors are autodiff-generic

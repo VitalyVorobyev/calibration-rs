@@ -135,13 +135,13 @@ CalibrationSession::new()
 session.set_input(dataset)
     │
     ▼
-step_init(&mut session)      ← linear initialization
+step_init(&mut session, None)      ← linear initialization
     │
     ▼
-step_optimize(&mut session)  ← non-linear refinement
+step_optimize(&mut session, None)  ← non-linear refinement
     │
     ▼
-session.export()             ← calibrated parameters
+session.export()                   ← calibrated parameters
 ```
 
 ## Design Patterns

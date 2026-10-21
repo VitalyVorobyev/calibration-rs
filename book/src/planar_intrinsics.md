@@ -55,7 +55,7 @@ problem type; `camera` names the camera model and its fixed parameters:
 pub struct PlanarIntrinsicsConfig {
     // Linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
-    // { init_iterations: usize = 2, fix_k3: bool = true,
+    // { iterations: usize = 2, fix_k3: bool = true,
     //   fix_tangential: Option<bool> = None }  (None: true for a Scheimpflug sensor)
 
     // Non-linear solve stage settings.
@@ -137,7 +137,7 @@ defaults and both steps:
 - A Scheimpflug sensor needs a distortion model (`DistortionKind::None` is a
   configuration error).
 
-`step_init_with_seed` takes an optional `sensor` seed in `PlanarManualInit`
+`step_init_with_seed` takes an optional `sensor` seed in `IntrinsicsManualInit`
 (a typed error for an untilted camera). With a **seeded tilt** — the nominal
 mount angle, plus a coarse focal — `step_optimize` trusts that basin: it sweeps
 the leading radial coefficient over `{0, -0.20, -0.40}` with intrinsics and
@@ -151,7 +151,7 @@ seeded, because a from-scratch start can settle in a wrong tilt/focal basin.
 ```rust
 use vision_calibration::core::{FxFyCxCy, ScheimpflugParams, SensorKind};
 use vision_calibration::planar_intrinsics::{
-    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, PlanarManualInit, step_init_with_seed,
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, IntrinsicsManualInit, step_init_with_seed,
     step_optimize,
 };
 
@@ -161,7 +161,7 @@ let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
 session.set_config(config)?;
 session.set_input(dataset)?;
 
-let mut seed = PlanarManualInit::default();
+let mut seed = IntrinsicsManualInit::default();
 seed.intrinsics = Some(FxFyCxCy { fx: 1050.0, fy: 1050.0, cx: 360.0, cy: 270.0 });
 seed.sensor = Some(ScheimpflugParams { tilt_x: -0.087, tilt_y: 0.0 }); // nominal mount tilt
 step_init_with_seed(&mut session, seed, None)?;
@@ -206,19 +206,19 @@ println!("Reprojection error: {:.4} px", export.mean_reproj_error);
 After optimization, views or individual observations with high reprojection error can be filtered out:
 
 ```rust
-use vision_calibration::planar_intrinsics::{step_filter, FilterOptions};
+use vision_calibration::planar_intrinsics::{step_filter, IntrinsicsFilterOptions};
 
-let mut filter_opts = FilterOptions::default();
+let mut filter_opts = IntrinsicsFilterOptions::default();
 filter_opts.max_reproj_error = 2.0;      // Remove observations > 2 px
 filter_opts.min_points_per_view = 10;    // Minimum points to keep a view
 filter_opts.remove_sparse_views = true;  // Drop views below threshold
-step_filter(&mut session, filter_opts)?;
+step_filter(&mut session, Some(filter_opts))?;
 
 // Filtering edits the input, which clears the computed state: run both steps again
 step_init(&mut session, None)?;
 step_optimize(&mut session, None)?;
 
-// Or, in one call: run_calibration_with_filtering(&mut session, filter_opts)?
+// Or, in one call: run_calibration_with_filtering(&mut session, Some(filter_opts))?
 ```
 
 > **OpenCV equivalence**: `cv::calibrateCamera` performs both initialization and optimization internally. calibration-rs separates these steps for inspection and customization.

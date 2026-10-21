@@ -76,11 +76,11 @@ where `extrinsics` maps camera → rig and `pose` maps target → rig.
 
 **Use case**: multi-camera rig extrinsics.
 
-### `ReprojChain::HandEye { base_se3_gripper, mode }`
+### `ReprojChain::Handeye { base_se3_gripper, mode }`
 
 **Chain blocks**: `[extrinsics(7), handeye(7), target(7)]`
 
-**Chain data**: the measured robot pose $T_{B,G}$ and the [`HandEyeMode`].
+**Chain data**: the measured robot pose $T_{B,G}$ and the [`HandeyeMode`].
 
 Eye-in-hand:
 $$T_{C,T} = T_{\text{extr}}^{-1} \cdot T_{\text{handeye}}^{-1} \cdot T_{B,G}^{-1} \cdot T_{\text{target}}$$
@@ -93,11 +93,11 @@ For single-camera hand-eye, $T_{\text{extr}} = I$.
 **Use case**: hand-eye calibration (camera on robot arm, or rig observing a
 robot-mounted target).
 
-### `ReprojChain::HandEyeRobotDelta { base_se3_gripper, mode }`
+### `ReprojChain::HandeyeRobotDelta { base_se3_gripper, mode }`
 
 **Chain blocks**: `[extrinsics(7), handeye(7), target(7), robot_delta(6)]`
 
-Same as `HandEye`, but with a per-view se(3) tangent correction applied to
+Same as `Handeye`, but with a per-view se(3) tangent correction applied to
 the robot pose:
 
 $$T_{B,G}' = \exp(\boldsymbol{\xi}_{\text{delta}}) \cdot T_{B,G}$$
@@ -114,10 +114,10 @@ reprojection chains but end with the laser-plane blocks
 present, always comes last:
 
 - `LaserChain::SinglePose` — blocks `[camera_se3_target, plane_normal, plane_distance]`.
-- `LaserChain::RigHandEye { base_se3_gripper, mode }` — blocks
+- `LaserChain::RigHandeye { base_se3_gripper, mode }` — blocks
   `[cam_se3_rig, handeye, target_ref, plane_normal, plane_distance]`; the
   per-view pose is composed exactly like the hand-eye reprojection chain.
-- `LaserChain::RigHandEyeRobotDelta { … }` — adds `robot_delta(6)` last.
+- `LaserChain::RigHandeyeRobotDelta { … }` — adds `robot_delta(6)` last.
 
 ### LaserPointToPlane
 
@@ -173,5 +173,5 @@ $$\mathbf{r} = \operatorname{diag}(\mathbf{s}) \cdot \boldsymbol{\xi} \in \mathb
 
 Camera blocks = 1 (intrinsics) + 1 if the descriptor has distortion + 1 if it
 has a sensor. For example, `ReprojPoint` with `PINHOLE4_DIST5_SCHEIMPFLUG2`
-and `HandEyeRobotDelta` connects 7 blocks:
+and `HandeyeRobotDelta` connects 7 blocks:
 `[intrinsics, distortion, sensor, extrinsics, handeye, target, robot_delta]`.

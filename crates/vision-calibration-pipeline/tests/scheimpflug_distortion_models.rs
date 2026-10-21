@@ -17,7 +17,7 @@ use vision_calibration_core::{
     RationalPolynomial, ScheimpflugParams, SensorKind, ThinPrism, View,
 };
 use vision_calibration_pipeline::planar_intrinsics::{
-    PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem, PlanarManualInit,
+    IntrinsicsManualInit, PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem,
     step_init_with_seed, step_optimize,
 };
 use vision_calibration_pipeline::session::CalibrationSession;
@@ -142,7 +142,7 @@ fn run_pipeline(
     dataset: &PlanarDataset,
     model: DistortionKind,
     fix_distortion: Option<Vec<String>>,
-    manual: PlanarManualInit,
+    manual: IntrinsicsManualInit,
 ) -> (
     PlanarIntrinsicsExport,
     CalibrationSession<PlanarIntrinsicsProblem>,
@@ -160,8 +160,8 @@ fn run_pipeline(
     (export, session)
 }
 
-fn near_gt_manual() -> PlanarManualInit {
-    let mut manual = PlanarManualInit::default();
+fn near_gt_manual() -> IntrinsicsManualInit {
+    let mut manual = IntrinsicsManualInit::default();
     manual.intrinsics = Some(FxFyCxCy {
         fx: gt_intrinsics().fx * 1.01,
         fy: gt_intrinsics().fy * 1.01,

@@ -95,13 +95,13 @@ On this dataset the example reports a mean reprojection error of about 0.13 px a
 Real data usually contains a few poorly detected corners. `run_calibration_with_filtering` solves, removes observations above a reprojection-error threshold, and solves again:
 
 ```rust
-use vision_calibration::planar_intrinsics::{FilterOptions, run_calibration_with_filtering};
+use vision_calibration::planar_intrinsics::{IntrinsicsFilterOptions, run_calibration_with_filtering};
 
-let mut filter_opts = FilterOptions::default();
+let mut filter_opts = IntrinsicsFilterOptions::default();
 filter_opts.max_reproj_error = 1.0;
 filter_opts.min_points_per_view = 10;
 filter_opts.remove_sparse_views = true;
-run_calibration_with_filtering(&mut session, filter_opts)?;
+run_calibration_with_filtering(&mut session, Some(filter_opts))?;
 ```
 
 ## Interpreting Results

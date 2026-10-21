@@ -18,7 +18,7 @@ use crate::planar_family::{CameraSeed, bootstrap_camera, check_sensor_seed, opti
 use crate::rig_family::format_init_source;
 use crate::session::CalibrationSession;
 
-use super::problem::{LaserlineDeviceConfig, LaserlineDeviceOutput, LaserlineDeviceProblem};
+use super::problem::{LaserlineDeviceEstimate, LaserlineDeviceProblem};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Options
@@ -52,7 +52,7 @@ pub struct DeviceInitOptions {
 ///   recorded as `None` in this case (no fit RMSE is meaningful for a manual seed).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct LaserlineDeviceManualInit {
+pub struct DeviceManualInit {
     /// Manual intrinsics seed.
     pub intrinsics: Option<FxFyCxCy<Real>>,
     /// Manual Brown-Conrady distortion seed.
@@ -85,7 +85,7 @@ pub struct DeviceOptimizeOptions {
 /// written into `session.state`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct LaserlineDeviceInitResult {
+pub struct DeviceInitResult {
     /// Initial camera, in the configured model.
     pub camera: CameraParams,
     /// Initial per-view target poses (`camera_se3_target`).
@@ -103,7 +103,7 @@ pub struct LaserlineDeviceInitResult {
 /// values are also written into `session.state`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct LaserlineDeviceOptimizeResult {
+pub struct DeviceOptimizeResult {
     /// Final cost reported by the non-linear solver.
     pub final_cost: f64,
     /// Mean reprojection error in pixels.
@@ -170,7 +170,7 @@ fn update_state_with_stats(
 /// combination of manual seeds and auto-estimation.
 ///
 /// This is the load-bearing init function. [`step_init`] is a thin delegate that
-/// passes `LaserlineDeviceManualInit::default()` (all-`None`, full auto path).
+/// passes `DeviceManualInit::default()` (all-`None`, full auto path).
 ///
 /// The camera's model is `session.config.camera.model`. A held Scheimpflug
 /// tilt (the default, see `LaserlineDeviceConfig::holds_tilt`) is the
@@ -178,7 +178,7 @@ fn update_state_with_stats(
 /// estimated tilt without a seed comes from the linear tilt sweep, then a
 /// camera-only solve on the target views through the staged tilt multi-start
 /// (a cold `tilt = 0` start falls into the tilt / principal-point /
-/// distortion degeneracy). See [`LaserlineDeviceManualInit`] for
+/// distortion degeneracy). See [`DeviceManualInit`] for
 /// partial-seed semantics.
 ///
 /// # Errors
@@ -189,9 +189,9 @@ fn update_state_with_stats(
 /// - `manual.poses` is `Some` but its length does not match the view count.
 pub fn step_init_with_seed(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
-    manual: LaserlineDeviceManualInit,
+    manual: DeviceManualInit,
     opts: Option<DeviceInitOptions>,
-) -> Result<LaserlineDeviceInitResult, Error> {
+) -> Result<DeviceInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
     let view_count = input.len();
@@ -313,7 +313,7 @@ pub fn step_init_with_seed(
         ),
     );
 
-    Ok(LaserlineDeviceInitResult {
+    Ok(DeviceInitResult {
         camera,
         poses,
         plane,
@@ -325,19 +325,19 @@ pub fn step_init_with_seed(
 /// auto-init.
 ///
 /// Convenience wrapper around [`step_init_with_seed`] with
-/// `LaserlineDeviceManualInit::default()`.
+/// `DeviceManualInit::default()`.
 pub fn step_init(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     opts: Option<DeviceInitOptions>,
-) -> Result<LaserlineDeviceInitResult, Error> {
-    step_init_with_seed(session, LaserlineDeviceManualInit::default(), opts)
+) -> Result<DeviceInitResult, Error> {
+    step_init_with_seed(session, DeviceManualInit::default(), opts)
 }
 
 /// Optimize laserline calibration using non-linear bundle adjustment.
 pub fn step_optimize(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
     opts: Option<DeviceOptimizeOptions>,
-) -> Result<LaserlineDeviceOptimizeResult, Error> {
+) -> Result<DeviceOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -370,7 +370,7 @@ pub fn step_optimize(
     let final_cost = result.report.final_cost;
     update_state_with_stats(session, &stats, final_cost);
 
-    let output = LaserlineDeviceOutput {
+    let output = LaserlineDeviceEstimate {
         estimate: result.clone(),
         stats: stats.clone(),
     };
@@ -384,7 +384,7 @@ pub fn step_optimize(
         ),
     );
 
-    Ok(LaserlineDeviceOptimizeResult {
+    Ok(DeviceOptimizeResult {
         final_cost,
         mean_reproj_error: stats.mean_reproj_error,
         mean_laser_error: stats.mean_laser_error,
@@ -393,14 +393,15 @@ pub fn step_optimize(
     })
 }
 
-/// Run full calibration pipeline: init → optimize.
+/// Run the full calibration pipeline: init → optimize, with the session's
+/// config (set it with `session.set_config` first).
+///
+/// # Errors
+///
+/// Any error from [`step_init`] or [`step_optimize`].
 pub fn run_calibration(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
-    config: Option<LaserlineDeviceConfig>,
 ) -> Result<(), Error> {
-    if let Some(cfg) = config {
-        session.set_config(cfg)?;
-    }
     let _ = step_init(session, None)?;
     let _ = step_optimize(session, None)?;
     Ok(())

@@ -16,7 +16,7 @@ use vision_calibration_core::{
     make_pinhole_camera, pinhole_camera_params,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, HandEyeDataset, HandEyeMode, HandEyeParams, HandEyeSolveOptions,
+    BackendSolveOptions, HandeyeDataset, HandeyeMode, HandeyeParams, HandeyeSolveOptions,
     LaserPlane, LaserlineMeta, LaserlineParams, LaserlineSolveOptions, LaserlineView,
     PlanarIntrinsicsParams, PlanarIntrinsicsSolveOptions, RigExtrinsicsParams,
     RigExtrinsicsSolveOptions, RobotPoseMeta, RobustLoss, apply_robot_delta, optimize_handeye,
@@ -567,8 +567,8 @@ impl EyeInHand {
         }
     }
 
-    fn initial(&self) -> HandEyeParams {
-        HandEyeParams {
+    fn initial(&self) -> HandeyeParams {
+        HandeyeParams {
             cameras: vec![pinhole_camera_params(&self.camera)],
             cam_to_rig: vec![Iso3::identity()],
             handeye: self.gripper_se3_camera,
@@ -577,7 +577,7 @@ impl EyeInHand {
     }
 
     /// The dataset with pixel noise and the given (observed) robot poses.
-    fn dataset(&self, noise: &UniformPixelNoise, robot: &[Iso3]) -> HandEyeDataset {
+    fn dataset(&self, noise: &UniformPixelNoise, robot: &[Iso3]) -> HandeyeDataset {
         let views = self
             .camera_se3_target
             .iter()
@@ -592,11 +592,11 @@ impl EyeInHand {
                 },
             })
             .collect();
-        HandEyeDataset::new(views, 1, HandEyeMode::EyeInHand).unwrap()
+        HandeyeDataset::new(views, 1, HandeyeMode::EyeInHand).unwrap()
     }
 
     /// The error of a shared label of a hand-eye estimate.
-    fn error(&self, est: &vision_calibration_optim::HandEyeEstimate, label: &str) -> f64 {
+    fn error(&self, est: &vision_calibration_optim::HandeyeEstimate, label: &str) -> f64 {
         match label.split_once('.') {
             Some(("gripper_se3_camera", c)) => {
                 pose_coordinate(&self.gripper_se3_camera, &est.params.handeye, c)
@@ -622,7 +622,7 @@ fn handeye_covariance_matches_monte_carlo() {
             max_abs_px: 0.5,
         };
         let data = scene.dataset(&noise, &scene.base_se3_gripper);
-        let opts = HandEyeSolveOptions {
+        let opts = HandeyeSolveOptions {
             fix_extrinsics: vec![true],
             ..Default::default()
         };
@@ -649,7 +649,7 @@ fn handeye_covariance_matches_monte_carlo() {
 #[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn handeye_with_robot_pose_priors_matches_monte_carlo() {
     let scene = EyeInHand::new();
-    let opts = HandEyeSolveOptions {
+    let opts = HandeyeSolveOptions {
         fix_extrinsics: vec![true],
         refine_robot_poses: true,
         ..Default::default()

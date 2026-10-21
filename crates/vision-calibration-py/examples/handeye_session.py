@@ -77,7 +77,7 @@ def detect_observation(path: Path, square_size_m: float) -> vc.Observation | Non
     return vc.Observation(points_3d=points_3d, points_2d=points_2d)
 
 
-def load_dataset() -> vc.SingleCamHandeyeDataset:
+def load_dataset() -> vc.SingleCamHandeyeInput:
     data_dir = repo_root() / "data/kuka_1"
     if not data_dir.exists():
         raise FileNotFoundError(f"dataset not found: {data_dir}")
@@ -101,7 +101,7 @@ def load_dataset() -> vc.SingleCamHandeyeDataset:
     if len(views) < 3:
         raise RuntimeError(f"need at least 3 usable views, got {len(views)}")
     print(f"Loaded {len(views)} views ({skipped} skipped)")
-    return vc.SingleCamHandeyeDataset(views=views)
+    return vc.SingleCamHandeyeInput(views=views)
 
 
 def main() -> None:

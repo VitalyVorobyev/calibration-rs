@@ -103,7 +103,7 @@ pub fn build_planar_input(
     );
 
     Ok(PlanarRunResult {
-        dataset,
+        input: dataset,
         view_paths,
         usable_views: usable,
         total_views: total,
@@ -115,7 +115,7 @@ pub fn build_planar_input(
 #[non_exhaustive]
 pub struct PlanarRunResult {
     /// The IR ready to feed into `CalibrationSession::set_input`.
-    pub dataset: PlanarDataset,
+    pub input: PlanarDataset,
     /// One source image path per accepted view, in the same order.
     /// Used to populate the export's `image_manifest` after the solve.
     pub view_paths: Vec<PathBuf>,

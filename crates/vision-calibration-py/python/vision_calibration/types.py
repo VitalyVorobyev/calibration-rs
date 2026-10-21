@@ -26,7 +26,7 @@ LaserPlanePayload: TypeAlias = JsonObject
 
 Se3Delta: TypeAlias = tuple[float, float, float, float, float, float] | list[float]
 
-HandEyeMode: TypeAlias = Literal["EyeInHand", "EyeToHand"]
+HandeyeMode: TypeAlias = Literal["EyeInHand", "EyeToHand"]
 # Engine that linearizes the problem; both reach the same minimizer.
 SolverBackend: TypeAlias = Literal["tiny_solver", "factrs"]
 LaserlineResidualType: TypeAlias = Literal["PointToPlane", "LineDistNormalized"]
@@ -130,7 +130,7 @@ RobustLoss: TypeAlias = (
 )
 
 # Input payload aliases (workflow datasets).
-PlanarInput: TypeAlias = JsonObject
+PlanarIntrinsicsInput: TypeAlias = JsonObject
 SingleCamHandeyeInput: TypeAlias = JsonObject
 RigExtrinsicsInput: TypeAlias = JsonObject
 RigHandeyeInput: TypeAlias = JsonObject
@@ -207,7 +207,7 @@ class PlanarIntrinsicsExport(TypedDict):
 
 class SingleCamHandeyeExport(TypedDict):
     camera: CameraModel
-    handeye_mode: HandEyeMode
+    handeye_mode: HandeyeMode
     gripper_se3_camera: Transform | None
     camera_se3_base: Transform | None
     base_se3_target: Transform | None
@@ -229,7 +229,7 @@ class RigExtrinsicsExport(TypedDict):
 class RigHandeyeExport(TypedDict):
     cameras: list[CameraModel]
     cam_se3_rig: list[Transform]
-    handeye_mode: HandEyeMode
+    handeye_mode: HandeyeMode
     gripper_se3_rig: Transform | None
     rig_se3_base: Transform | None
     base_se3_target: Transform | None
@@ -271,7 +271,7 @@ class LaserlineDeviceExport(TypedDict):
 class IntrinsicsInitConfig(TypedDict, total=False):
     """Shared per-camera linear-initialization stage."""
 
-    init_iterations: int
+    iterations: int
     fix_k3: bool
     fix_tangential: bool  # optional; absent = the camera's default
 
@@ -296,7 +296,7 @@ class RobotPoseConfig(TypedDict, total=False):
 class HandeyeInitConfig(TypedDict, total=False):
     """Shared hand-eye linear-initialization settings."""
 
-    handeye_mode: HandEyeMode
+    handeye_mode: HandeyeMode
     min_motion_angle_deg: float
 
 
@@ -356,7 +356,7 @@ class RigConfig(TypedDict, total=False):
     """Shared multi-camera rig frame options."""
 
     reference_camera_idx: int
-    refine_intrinsics_in_rig_ba: bool
+    refine_intrinsics: bool
     refine_sensor: bool
 
 
@@ -368,7 +368,7 @@ class RigExtrinsicsConfig(TypedDict, total=False):
     solver: SolverConfig
 
 
-class HandeyeBaConfig(TypedDict, total=False):
+class HandeyeOptimizeConfig(TypedDict, total=False):
     """Final hand-eye bundle-adjustment options."""
 
     robot_poses: RobotPoseConfig
@@ -383,10 +383,10 @@ class RigHandeyeConfig(TypedDict, total=False):
     rig: RigConfig
     handeye_init: HandeyeInitConfig
     solver: SolverConfig
-    handeye_ba: HandeyeBaConfig
+    handeye_optimize: HandeyeOptimizeConfig
 
 
-class LaserlineDeviceOptimizeConfig(TypedDict, total=False):
+class DeviceOptimizeConfig(TypedDict, total=False):
     calib_loss: RobustLoss
     laser_loss: RobustLoss
     calib_weight: float
@@ -400,7 +400,7 @@ class LaserlineDeviceConfig(TypedDict, total=False):
     init: IntrinsicsInitConfig
     camera: CameraConfig
     solver: SolverConfig
-    optimize: LaserlineDeviceOptimizeConfig
+    optimize: DeviceOptimizeConfig
 
 
 class RigLaserlineDeviceConfig(TypedDict, total=False):
@@ -408,7 +408,7 @@ class RigLaserlineDeviceConfig(TypedDict, total=False):
     laser_residual_type: LaserlineResidualType
 
 
-class RigHandeyeLaserlineBaConfig(TypedDict, total=False):
+class JointOptimizeConfig(TypedDict, total=False):
     """Final joint bundle-adjustment stage settings."""
 
     solver: SolverConfig
@@ -428,7 +428,7 @@ class RigHandeyeLaserlineConfig(TypedDict, total=False):
 
     handeye: RigHandeyeConfig
     laserline_init: RigLaserlineDeviceConfig
-    joint_ba: RigHandeyeLaserlineBaConfig
+    joint_optimize: JointOptimizeConfig
 
 
 # Input payload alias for the joint rig hand-eye laserline workflow.

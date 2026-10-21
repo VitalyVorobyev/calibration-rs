@@ -15,7 +15,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_examples_private::PoseEntry;
 use vision_calibration_optim::{
-    HandEyeMode, LaserPlane, RigHandeyeLaserlineEstimate, RigHandeyeLaserlineParams,
+    HandeyeMode, LaserPlane, RigHandeyeLaserlineEstimate, RigHandeyeLaserlineParams,
     RigHandeyeLaserlinePerCamStats,
 };
 
@@ -62,7 +62,7 @@ struct StageBuildInput<'a> {
     final_cost: Option<f64>,
     detected: &'a DetectedDatasets,
     params: &'a RigHandeyeLaserlineParams,
-    mode: HandEyeMode,
+    mode: HandeyeMode,
     robot_deltas: Option<&'a [[Real; 6]]>,
     per_cam_stats: &'a [RigHandeyeLaserlinePerCamStats],
 }
@@ -316,14 +316,14 @@ fn camera_models(params: &RigHandeyeLaserlineParams) -> Result<Vec<ViewerCameraM
 
 fn cam_se3_target_from_robot(
     params: &RigHandeyeLaserlineParams,
-    mode: HandEyeMode,
+    mode: HandeyeMode,
     robot_pose: Iso3,
     cam_idx: usize,
 ) -> Iso3 {
     let cam_se3_rig = params.cam_to_rig[cam_idx].inverse();
     match mode {
-        HandEyeMode::EyeToHand => cam_se3_rig * params.handeye * robot_pose * params.target_ref,
-        HandEyeMode::EyeInHand => {
+        HandeyeMode::EyeToHand => cam_se3_rig * params.handeye * robot_pose * params.target_ref,
+        HandeyeMode::EyeInHand => {
             cam_se3_rig * params.handeye.inverse() * robot_pose.inverse() * params.target_ref
         }
     }

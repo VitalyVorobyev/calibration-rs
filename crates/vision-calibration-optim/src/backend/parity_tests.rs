@@ -14,7 +14,7 @@ use nalgebra::{DVector, UnitQuaternion, Vector3};
 
 use crate::backend::{factrs_backend, tiny_solver_backend};
 use crate::ir::{
-    CameraModelSpec, FactorKind, FixedMask, HandEyeMode, LaserChain, ProblemIR, ReprojChain,
+    CameraModelSpec, FactorKind, FixedMask, HandeyeMode, LaserChain, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
 };
 
@@ -117,13 +117,13 @@ fn all_factors() -> Vec<FactorKind> {
         for chain in [
             ReprojChain::SinglePose,
             ReprojChain::TwoSe3,
-            ReprojChain::HandEye {
+            ReprojChain::Handeye {
                 base_se3_gripper: robot,
-                mode: HandEyeMode::EyeToHand,
+                mode: HandeyeMode::EyeToHand,
             },
-            ReprojChain::HandEyeRobotDelta {
+            ReprojChain::HandeyeRobotDelta {
                 base_se3_gripper: robot,
-                mode: HandEyeMode::EyeInHand,
+                mode: HandeyeMode::EyeInHand,
             },
         ] {
             out.push(FactorKind::ReprojPoint {
@@ -136,13 +136,13 @@ fn all_factors() -> Vec<FactorKind> {
         }
         for chain in [
             LaserChain::SinglePose,
-            LaserChain::RigHandEye {
+            LaserChain::RigHandeye {
                 base_se3_gripper: robot,
-                mode: HandEyeMode::EyeInHand,
+                mode: HandeyeMode::EyeInHand,
             },
-            LaserChain::RigHandEyeRobotDelta {
+            LaserChain::RigHandeyeRobotDelta {
                 base_se3_gripper: robot,
-                mode: HandEyeMode::EyeToHand,
+                mode: HandeyeMode::EyeToHand,
             },
         ] {
             let (laser_pixel, w) = ([702.0, 391.0], 1.3);

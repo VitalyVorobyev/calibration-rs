@@ -83,7 +83,7 @@ where
 /// Parameters
 /// ----------
 /// input:
-///     Planar dataset payload (serde-compatible with `PlanarDataset`).
+///     Planar intrinsics input payload (serde-compatible with `PlanarIntrinsicsInput`).
 /// config:
 ///     Optional planar configuration payload (serde-compatible with `PlanarIntrinsicsConfig`).
 ///
@@ -209,7 +209,7 @@ fn run_laserline_device(
         py,
         input,
         config,
-        |session| vision_calibration::laserline_device::run_calibration(session, None),
+        vision_calibration::laserline_device::run_calibration,
     )
 }
 

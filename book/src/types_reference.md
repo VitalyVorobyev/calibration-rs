@@ -34,10 +34,10 @@ All based on `nalgebra` with `f64` precision:
 | `DistortionKind` | `None`, `BrownConrady5`, `Rational8`, `ThinPrism9`, `Division1` | `camera.model.distortion` in every config that calibrates a camera (per camera through `camera_overrides` in a rig) |
 | `SensorKind` | `Identity`, `Scheimpflug` | `camera.model.sensor` in the same configs |
 | `CameraModelSpec` | `{ projection, distortion, sensor }` | `camera.model` in the planar, single-camera hand-eye, laserline-device, rig extrinsics and rig hand-eye configs |
-| `CameraFix` | `{ intrinsics, projection, distortion, sensor }`, each `Option<Vec<String>>` of parameter names | `camera.fix` in the same configs, and `joint_ba.fix` (one per camera) of the joint rig laser solve; `None` keeps the model's default |
+| `CameraFix` | `{ intrinsics, projection, distortion, sensor }`, each `Option<Vec<String>>` of parameter names | `camera.fix` in the same configs, and `joint_optimize.fix` (one per camera) of the joint rig laser solve; `None` keeps the model's default |
 | `CameraOverride` | `{ camera, model, fix }` | `camera_overrides` in `RigExtrinsicsConfig` and `RigHandeyeConfig`: replaces one camera's model and fix lists (see [Scheimpflug and Laser Rigs](scheimpflug_laser_rigs.md)) |
 | `RobustLoss` | `None`, `Huber { scale }`, `Cauchy { scale }`, `Arctan { scale }` | `solver.robust_loss` and the laser `calib_loss` / `laser_loss` |
-| `HandEyeMode` | `EyeInHand`, `EyeToHand` | `handeye_init.handeye_mode` |
+| `HandeyeMode` | `EyeInHand`, `EyeToHand` | `handeye_init.handeye_mode` |
 
 ## Observation Types
 
@@ -57,11 +57,11 @@ Every problem's `*Config` embeds the same small structs by stage:
 
 | Type | Fields | Purpose |
 |------|--------|---------|
-| `IntrinsicsInitConfig` | `init_iterations, fix_k3, fix_tangential` | Per-camera linear initialization |
+| `IntrinsicsInitConfig` | `iterations, fix_k3, fix_tangential` | Per-camera linear initialization |
 | `SolverConfig` | `max_iters, verbosity, robust_loss` | Non-linear solve |
 | `RobotPoseConfig` | `refine, rot_sigma, trans_sigma` | Robot-pose refinement in hand-eye bundle adjustment |
 | `HandeyeInitConfig` | `handeye_mode, min_motion_angle_deg` | Hand-eye linear initialization |
-| `RigConfig` | `reference_camera_idx, refine_intrinsics_in_rig_ba, refine_sensor` | Rig frame options |
+| `RigConfig` | `reference_camera_idx, refine_intrinsics, refine_sensor` | Rig frame options |
 
 ## Session Types
 
@@ -88,6 +88,6 @@ Inside the crate, `BackendSolution` carries the optimized `params` and a `solve_
 
 | Type | Description |
 |------|-------------|
-| `HandEyeMode` | EyeInHand or EyeToHand |
+| `HandeyeMode` | EyeInHand or EyeToHand |
 | `HandeyeMeta` | `base_se3_gripper: Iso3` |
 | `RobotPoseMeta` | `base_se3_gripper: Iso3` |

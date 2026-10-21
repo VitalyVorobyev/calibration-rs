@@ -41,10 +41,10 @@ pub trait ProblemType: ProblemState + Sized + 'static {
 
 | Type | Purpose | Requirements |
 |------|---------|-------------|
-| `Config` | Algorithm parameters | `Default` (sensible defaults) |
-| `Input` | Observation data | Validated on set |
-| `Output` | Final calibration result | Set by last step |
-| `Export` | User-facing result | Created from Output + Config |
+| `Config` | Algorithm parameters, `<Name>Config` | `Default` (sensible defaults) |
+| `Input` | Observation data, `<Name>Input` | Validated on set |
+| `Output` | The final solve's estimate, an `*Estimate` | Set by last step |
+| `Export` | User-facing result, `<Name>Export` | Created from Input + Output + Config |
 
 The `Serialize + DeserializeOwned` bounds enable JSON checkpointing (the internal state is serialized as well). `Clone` enables snapshot operations.
 

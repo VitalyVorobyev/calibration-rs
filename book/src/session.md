@@ -15,7 +15,7 @@ A session has two public fields and otherwise exposes its data through methods:
 | `metadata()` | method | `SessionMetadata`: problem type name, schema version, timestamps, description |
 | `log()` | method | Audit trail of operations, `&[LogEntry]` |
 
-Intermediate state is internal to the pipeline. Read intermediate results from the typed values returned by each step function (for example `PlanarInitResult`), from `log()`, or from `export()`.
+Intermediate state is internal to the pipeline. Read intermediate results from the typed values returned by each step function (for example `IntrinsicsInitResult`), from `log()`, or from `export()`.
 
 The public methods of `CalibrationSession<P>`:
 

@@ -86,7 +86,7 @@ def laser_pixels_for_view(
     return pixels
 
 
-def make_input() -> vc.LaserlineDataset:
+def make_input() -> vc.LaserlineDeviceInput:
     intrinsics = {"fx": 800.0, "fy": 780.0, "cx": 640.0, "cy": 360.0}
     distortion = {"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}
     points_3d = grid_points(cols=6, rows=5, spacing_m=0.03)
@@ -115,7 +115,7 @@ def make_input() -> vc.LaserlineDataset:
                 )
             )
 
-    return vc.LaserlineDataset(views=views)
+    return vc.LaserlineDeviceInput(views=views)
 
 
 def main() -> None:

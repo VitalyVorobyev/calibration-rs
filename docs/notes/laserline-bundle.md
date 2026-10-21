@@ -89,7 +89,7 @@ the plane is fit from the stripes conditioned on the poses.
 ### Rig axes
 
 `RigLaserlineDeviceProblem` and `RigHandeyeLaserlineProblem` reuse the same
-laser cores through `LaserChain::RigHandEye` / `RigHandEyeRobotDelta`
+laser cores through `LaserChain::RigHandeye` / `RigHandeyeRobotDelta`
 (`optim::ir::types`), which compose `cam_se3_target` from
 `(cam_se3_rig, hand-eye, target_ref, robot pose[, robot Δ])` instead of a
 free pose. Unit tests in `factors::laserline`

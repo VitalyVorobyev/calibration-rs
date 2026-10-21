@@ -5,7 +5,7 @@ The synthetic rig mirrors the Rust ``setup_synthetic_rig`` fixture in
 riding the gripper — EyeToHand — and one laser plane per camera). Building it in
 Python exercises the full input-marshaling path (typed dataset →
 ``to_payload()`` → Rust ``serde`` → three-stage joint solve → export →
-``RigHandeyeLaserlineResult``). Because the observations are noise-free, the
+``RigHandeyeLaserlineExport``). Because the observations are noise-free, the
 joint solve recovers the geometry to numerical precision, so the assertions can
 be tight.
 """
@@ -107,7 +107,7 @@ def _normalize(v):
     return [x / n for x in v]
 
 
-def _synthetic_dataset() -> vc.RigHandeyeLaserlineDataset:
+def _synthetic_dataset() -> vc.RigHandeyeLaserlineInput:
     ident = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
     cam_to_rig = [
         _pose(ident, [-0.10, 0.0, 0.0]),
@@ -194,11 +194,11 @@ def _synthetic_dataset() -> vc.RigHandeyeLaserlineDataset:
                 ),
             )
         )
-    return vc.RigHandeyeLaserlineDataset(num_cameras=2, views=views)
+    return vc.RigHandeyeLaserlineInput(num_cameras=2, views=views)
 
 
-def _eye_to_hand_config() -> vc.RigHandeyeLaserlineCalibrationConfig:
-    cfg = vc.RigHandeyeLaserlineCalibrationConfig()
+def _eye_to_hand_config() -> vc.RigHandeyeLaserlineConfig:
+    cfg = vc.RigHandeyeLaserlineConfig()
     cfg.handeye.handeye_init.handeye_mode = "EyeToHand"
     return cfg
 
@@ -207,7 +207,7 @@ class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
     def test_joint_solve_recovers_synthetic_geometry(self) -> None:
         result = vc.run_rig_handeye_laserline(_synthetic_dataset(), _eye_to_hand_config())
 
-        self.assertIsInstance(result, vc.RigHandeyeLaserlineResult)
+        self.assertIsInstance(result, vc.RigHandeyeLaserlineExport)
         # Two cameras, one laser plane each, one per-camera stats block each.
         self.assertEqual(len(result.cameras), 2)
         self.assertEqual(len(result.laser_planes_cam), 2)
@@ -242,13 +242,13 @@ class RigHandeyeLaserlineRuntimeTest(unittest.TestCase):
 
     def test_dict_config_is_rejected_with_type_error(self) -> None:
         with self.assertRaises(TypeError):
-            vc.run_rig_handeye_laserline(_synthetic_dataset(), {"joint_ba": {}})
+            vc.run_rig_handeye_laserline(_synthetic_dataset(), {"joint_optimize": {}})
 
     def test_invalid_input_surfaces_value_error(self) -> None:
         # A typed-but-empty dataset still takes the runtime path; Rust
         # `validate_input` rejects it and the binding surfaces a ValueError
         # (not TypeError, which is reserved for wrong Python types).
-        empty = vc.RigHandeyeLaserlineDataset(num_cameras=2, views=[])
+        empty = vc.RigHandeyeLaserlineInput(num_cameras=2, views=[])
         with self.assertRaises(ValueError):
             vc.run_rig_handeye_laserline(empty, _eye_to_hand_config())
 

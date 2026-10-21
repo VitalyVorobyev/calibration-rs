@@ -47,8 +47,10 @@ pub struct MyConfig {
     pub init: IntrinsicsInitConfig,
 }
 
-// `MyInput`, `MyOutput` and `MyExport` are ordinary
-// `Clone + Serialize + DeserializeOwned + Debug` types.
+// `MyInput`, `MyEstimate` and `MyExport` are ordinary
+// `Clone + Serialize + DeserializeOwned + Debug` types. The output is the
+// final solve's estimate; an input that is a shared data type is an alias
+// (`pub type MyInput = PlanarDataset;`).
 
 impl ProblemState for MyProblem {
     type State = MyState; // defined in state.rs
@@ -57,7 +59,7 @@ impl ProblemState for MyProblem {
 impl ProblemType for MyProblem {
     type Config = MyConfig;
     type Input = MyInput;
-    type Output = MyOutput;
+    type Output = MyEstimate;
     type Export = MyExport;
 
     fn name() -> &'static str { "my_problem_v1" }
@@ -74,7 +76,7 @@ impl ProblemType for MyProblem {
     fn on_config_change() -> InvalidationPolicy { InvalidationPolicy::KEEP_ALL }
 
     fn export(
-        input: &MyInput, output: &MyOutput, _config: &MyConfig,
+        input: &MyInput, output: &MyEstimate, _config: &MyConfig,
     ) -> Result<MyExport, Error> {
         // Build the user-facing export (attach per-feature residuals, etc.).
         todo!()
@@ -86,23 +88,26 @@ Shared config groups (`SolverConfig`, `IntrinsicsInitConfig`, `RobotPoseConfig`,
 
 ## Step 3: Implement Step Functions (`steps.rs`)
 
-Each step returns a typed result struct so callers never need to read the state:
+Each step takes `Option<<Stage><Action>Options>` (reuse the shared ones in `common/mod.rs`; `None` keeps the session config) and returns a typed `<Stage><Action>Result`, so callers never need to read the state:
 
 ```rust
 use crate::Error;
+use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 use crate::session::CalibrationSession;
 use super::problem::MyProblem;
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct MyInitResult {
+pub struct IntrinsicsInitResult {
     pub intrinsics: FxFyCxCy<Real>,
     pub poses: Vec<Iso3>,
 }
 
 pub fn step_init(
     session: &mut CalibrationSession<MyProblem>,
-) -> Result<MyInitResult, Error> {
+    opts: Option<IntrinsicsInitOptions>,
+) -> Result<IntrinsicsInitResult, Error> {
+    let opts = opts.unwrap_or_default();
     let input = session.require_input()?;
     let config = &session.config;
 
@@ -116,12 +121,13 @@ pub fn step_init(
     //   initial_poses = Some(poses.clone());
 
     session.log_success("init");
-    Ok(MyInitResult { intrinsics, poses })
+    Ok(IntrinsicsInitResult { intrinsics, poses })
 }
 
 pub fn step_optimize(
     session: &mut CalibrationSession<MyProblem>,
-) -> Result<MyOptimizeResult, Error> {
+    opts: Option<IntrinsicsOptimizeOptions>,
+) -> Result<IntrinsicsOptimizeResult, Error> {
     let input = session.require_input()?;
 
     // Require initialization
@@ -131,22 +137,22 @@ pub fn step_optimize(
     let init_k = /* state.initial_intrinsics */;
 
     // Build and solve the optimization problem, then store the output
-    let output: MyOutput = /* ... */;
+    let output: MyEstimate = /* ... */;
     session.set_output(output);
 
     session.log_success_with_notes("optimize", "cost=..., reproj_err=...");
-    Ok(/* MyOptimizeResult { .. } */)
+    Ok(/* IntrinsicsOptimizeResult { .. } */)
 }
 
-/// Convenience pipeline function
+/// Convenience pipeline function: the same signature in every problem.
 pub fn run_calibration(session: &mut CalibrationSession<MyProblem>) -> Result<(), Error> {
-    step_init(session)?;
-    step_optimize(session)?;
+    step_init(session, None)?;
+    step_optimize(session, None)?;
     Ok(())
 }
 ```
 
-Add `step_*_with_seed` variants when the problem supports manual seeds, following `planar_intrinsics/steps.rs`.
+Add `step_*_with_seed` variants when the problem supports manual seeds, following `planar_intrinsics/steps.rs`: the seed is a `<Stage>ManualInit` and comes before the options.
 
 ## Step 4: Module Re-exports (`mod.rs`)
 
@@ -155,8 +161,11 @@ mod problem;
 mod state;
 mod steps;
 
-pub use problem::{MyConfig, MyExport, MyInput, MyOutput, MyProblem};
-pub use steps::{MyInitResult, run_calibration, step_init, step_optimize};
+pub use problem::{MyConfig, MyEstimate, MyExport, MyInput, MyProblem};
+pub use steps::{
+    IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsOptimizeOptions,
+    IntrinsicsOptimizeResult, run_calibration, step_init, step_optimize,
+};
 ```
 
 ## Step 5: Register in the Pipeline Crate
@@ -174,8 +183,9 @@ In `crates/vision-calibration/src/lib.rs`, list the public items explicitly (the
 ```rust
 pub mod my_problem {
     pub use vision_calibration_pipeline::my_problem::{
-        MyConfig, MyExport, MyInput, MyOutput, MyProblem, run_calibration, step_init,
-        step_optimize,
+        IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsOptimizeOptions,
+        IntrinsicsOptimizeResult, MyConfig, MyEstimate, MyExport, MyInput, MyProblem,
+        run_calibration, step_init, step_optimize,
     };
 }
 ```
@@ -194,10 +204,10 @@ fn my_problem_session_workflow() -> Result<(), Error> {
     let mut session = CalibrationSession::<MyProblem>::new();
     session.set_input(input)?;
 
-    let init = step_init(&mut session)?;
+    let init = step_init(&mut session, None)?;
     assert!(!init.poses.is_empty());
 
-    step_optimize(&mut session)?;
+    step_optimize(&mut session, None)?;
     assert!(session.output().is_some());
 
     // Test JSON round-trip

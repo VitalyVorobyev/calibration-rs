@@ -234,14 +234,14 @@ camera_residual! {
 
 camera_residual! {
     /// Reprojection, `[camera, extrinsics, handeye, target]`.
-    ReprojHandEye: Residual4 { residual4, residual4_values, residual4_jacobian },
+    ReprojHandeye: Residual4 { residual4, residual4_values, residual4_jacobian },
     Reproj, out = 2,
     chain = [V2 extrinsics: SE3, V3 handeye: SE3, V4 target: SE3]
 }
 
 camera_residual! {
     /// Reprojection, `[camera, extrinsics, handeye, target, robot_delta]`.
-    ReprojHandEyeRobotDelta: Residual5 { residual5, residual5_values, residual5_jacobian },
+    ReprojHandeyeRobotDelta: Residual5 { residual5, residual5_values, residual5_jacobian },
     Reproj, out = 2,
     chain = [V2 extrinsics: SE3, V3 handeye: SE3, V4 target: SE3, V5 delta: VectorVar<6>]
 }
@@ -255,14 +255,14 @@ camera_residual! {
 
 camera_residual! {
     /// Laser, `[camera, cam_se3_rig, handeye, target_ref, plane]`.
-    LaserRigHandEye: Residual5 { residual5, residual5_values, residual5_jacobian },
+    LaserRigHandeye: Residual5 { residual5, residual5_values, residual5_jacobian },
     Laser, out = 1,
     chain = [V2 rig: SE3, V3 handeye: SE3, V4 target: SE3, V5 plane: PlaneVar]
 }
 
 camera_residual! {
     /// Laser, `[camera, cam_se3_rig, handeye, target_ref, plane, robot_delta]`.
-    LaserRigHandEyeRobotDelta: Residual6 { residual6, residual6_values, residual6_jacobian },
+    LaserRigHandeyeRobotDelta: Residual6 { residual6, residual6_values, residual6_jacobian },
     Laser, out = 1,
     chain = [
         V2 rig: SE3,
@@ -389,8 +389,8 @@ pub(super) fn build_factor(
                         )
                         .robust(robust)
                         .build(),
-                        ReprojChain::HandEye { .. } => FactorBuilder::new4_unchecked(
-                            ReprojHandEye::<N, { N + 18 }>::new(payload),
+                        ReprojChain::Handeye { .. } => FactorBuilder::new4_unchecked(
+                            ReprojHandeye::<N, { N + 18 }>::new(payload),
                             keys[0],
                             keys[1],
                             keys[2],
@@ -398,8 +398,8 @@ pub(super) fn build_factor(
                         )
                         .robust(robust)
                         .build(),
-                        ReprojChain::HandEyeRobotDelta { .. } => FactorBuilder::new5_unchecked(
-                            ReprojHandEyeRobotDelta::<N, { N + 24 }>::new(payload),
+                        ReprojChain::HandeyeRobotDelta { .. } => FactorBuilder::new5_unchecked(
+                            ReprojHandeyeRobotDelta::<N, { N + 24 }>::new(payload),
                             keys[0],
                             keys[1],
                             keys[2],
@@ -449,8 +449,8 @@ pub(super) fn build_factor(
                         )
                         .robust(robust)
                         .build(),
-                        LaserChain::RigHandEye { .. } => FactorBuilder::new5_unchecked(
-                            LaserRigHandEye::<N, { N + 21 }>::new(payload),
+                        LaserChain::RigHandeye { .. } => FactorBuilder::new5_unchecked(
+                            LaserRigHandeye::<N, { N + 21 }>::new(payload),
                             keys[0],
                             keys[1],
                             keys[2],
@@ -459,8 +459,8 @@ pub(super) fn build_factor(
                         )
                         .robust(robust)
                         .build(),
-                        LaserChain::RigHandEyeRobotDelta { .. } => FactorBuilder::new6_unchecked(
-                            LaserRigHandEyeRobotDelta::<N, { N + 27 }>::new(payload),
+                        LaserChain::RigHandeyeRobotDelta { .. } => FactorBuilder::new6_unchecked(
+                            LaserRigHandeyeRobotDelta::<N, { N + 27 }>::new(payload),
                             keys[0],
                             keys[1],
                             keys[2],

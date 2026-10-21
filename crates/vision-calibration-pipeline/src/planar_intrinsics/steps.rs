@@ -12,7 +12,7 @@
 //! use vision_calibration_pipeline::session::CalibrationSession;
 //! use vision_calibration_pipeline::planar_intrinsics::{
 //!     PlanarIntrinsicsProblem, step_init, step_optimize, step_filter,
-//!     FilterOptions,
+//!     IntrinsicsFilterOptions,
 //! };
 //! # fn main() -> anyhow::Result<()> {
 //! # let dataset = unimplemented!();
@@ -27,7 +27,7 @@
 //! step_optimize(&mut session, None)?;
 //!
 //! // Optionally filter outliers and re-run
-//! step_filter(&mut session, FilterOptions::default())?;
+//! step_filter(&mut session, None)?;
 //! step_init(&mut session, None)?;
 //! step_optimize(&mut session, None)?;
 //!
@@ -91,7 +91,7 @@ pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 /// applies only to the auto-fit.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct PlanarManualInit {
+pub struct IntrinsicsManualInit {
     /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
     pub intrinsics: Option<FxFyCxCy<Real>>,
     /// Manual distortion seed. `None` means auto-init (or zeros when intrinsics are
@@ -110,7 +110,7 @@ pub struct PlanarManualInit {
 /// Options for filtering observations based on reprojection error.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct FilterOptions {
+pub struct IntrinsicsFilterOptions {
     /// Maximum reprojection error threshold (pixels).
     /// Points with error above this are removed.
     pub max_reproj_error: f64,
@@ -122,7 +122,7 @@ pub struct FilterOptions {
     pub remove_sparse_views: bool,
 }
 
-impl Default for FilterOptions {
+impl Default for IntrinsicsFilterOptions {
     fn default() -> Self {
         Self {
             max_reproj_error: 2.0,
@@ -142,7 +142,7 @@ impl Default for FilterOptions {
 /// written into `session.state`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct PlanarInitResult {
+pub struct IntrinsicsInitResult {
     /// Initial pinhole intrinsics (fx, fy, cx, cy).
     pub intrinsics: FxFyCxCy<Real>,
     /// Initial Brown–Conrady distortion coefficients.
@@ -160,7 +160,7 @@ pub struct PlanarInitResult {
 /// values are also written into `session.state`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct PlanarOptimizeResult {
+pub struct IntrinsicsOptimizeResult {
     /// Final cost reported by the non-linear solver.
     pub final_cost: f64,
     /// Mean reprojection error in pixels.
@@ -177,7 +177,7 @@ pub struct PlanarOptimizeResult {
 /// combination of manual seeds and auto-estimation.
 ///
 /// This is the load-bearing init function. [`step_init`] is a thin delegate that
-/// passes `PlanarManualInit::default()` (all-`None`, full auto path).
+/// passes `IntrinsicsManualInit::default()` (all-`None`, full auto path).
 ///
 /// # Field-by-field behavior
 ///
@@ -187,7 +187,7 @@ pub struct PlanarOptimizeResult {
 /// - `distortion`: `Some` overrides the bootstrap's fitted distortion; `None` keeps
 ///   the bootstrap value (or `BrownConrady5::default()` when intrinsics are seeded
 ///   and the bootstrap doesn't run).
-/// - `sensor`: Scheimpflug sensor only — see [`PlanarManualInit::sensor`].
+/// - `sensor`: Scheimpflug sensor only — see [`IntrinsicsManualInit::sensor`].
 /// - `poses`: `Some` uses the seed verbatim (count must match view count); `None`
 ///   recovers poses from homographies using the in-effect intrinsics — manual when
 ///   seeded, auto otherwise.
@@ -204,14 +204,14 @@ pub struct PlanarOptimizeResult {
 ///
 /// - Input not set, or fewer than 3 views.
 /// - `manual.sensor` is `Some` but the camera's sensor is not Scheimpflug.
-/// - `init_iterations == 0` when running the bootstrap auto-fit.
+/// - `init.iterations == 0` when running the bootstrap auto-fit.
 /// - Homography or auto-init computation fails.
 /// - `manual.poses` is `Some` but its length does not match the view count.
 pub fn step_init_with_seed(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    manual: PlanarManualInit,
+    manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<PlanarInitResult, Error> {
+) -> Result<IntrinsicsInitResult, Error> {
     session.validate()?;
     let model = session.config.camera.model;
     if manual.sensor.is_some() && model.sensor != SensorKind::Scheimpflug {
@@ -240,10 +240,10 @@ pub fn step_init_with_seed(
 /// Untilted camera: Zhang's method with iterative distortion.
 fn init_untilted(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    manual: PlanarManualInit,
+    manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
     distortion_note: &str,
-) -> Result<PlanarInitResult, Error> {
+) -> Result<IntrinsicsInitResult, Error> {
     let input = session.require_input()?;
 
     let opts = opts.unwrap_or_default();
@@ -366,7 +366,7 @@ fn init_untilted(
         ),
     );
 
-    Ok(PlanarInitResult {
+    Ok(IntrinsicsInitResult {
         intrinsics,
         distortion,
         sensor: None,
@@ -377,14 +377,14 @@ fn init_untilted(
 /// Tilted (Scheimpflug) camera: the tilted linear bootstrap, or the seeds.
 fn init_tilted(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    manual: PlanarManualInit,
+    manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
     distortion_note: &str,
-) -> Result<PlanarInitResult, Error> {
+) -> Result<IntrinsicsInitResult, Error> {
     let dataset = session.require_input()?.clone();
 
     let opts = opts.unwrap_or_default();
-    let mut init_iterations = session.config.init.init_iterations;
+    let mut init_iterations = session.config.init.iterations;
     if let Some(iterations) = opts.iterations {
         init_iterations = iterations;
     }
@@ -470,7 +470,7 @@ fn init_tilted(
         (k, dist, sensor, poses)
     } else {
         if init_iterations == 0 {
-            return Err(Error::invalid_input("init_iterations must be positive"));
+            return Err(Error::invalid_input("init.iterations must be positive"));
         }
         auto_fields.push("intrinsics");
 
@@ -560,7 +560,7 @@ fn init_tilted(
         ),
     );
 
-    Ok(PlanarInitResult {
+    Ok(IntrinsicsInitResult {
         intrinsics,
         distortion,
         sensor: Some(sensor),
@@ -570,7 +570,7 @@ fn init_tilted(
 
 /// Initialize intrinsics and poses from observations using full auto-init.
 ///
-/// Convenience wrapper around [`step_init_with_seed`] with `PlanarManualInit::default()`
+/// Convenience wrapper around [`step_init_with_seed`] with `IntrinsicsManualInit::default()`
 /// (all-`None`). Auto-fits intrinsics + distortion via Zhang's method with iterative
 /// distortion (and, for a Scheimpflug sensor, the tilt), then recovers poses from
 /// homographies.
@@ -591,8 +591,8 @@ fn init_tilted(
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<PlanarInitResult, Error> {
-    step_init_with_seed(session, PlanarManualInit::default(), opts)
+) -> Result<IntrinsicsInitResult, Error> {
+    step_init_with_seed(session, IntrinsicsManualInit::default(), opts)
 }
 
 /// Optimize camera parameters using non-linear least squares.
@@ -630,7 +630,7 @@ pub fn step_init(
 pub fn step_optimize(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<PlanarOptimizeResult, Error> {
+) -> Result<IntrinsicsOptimizeResult, Error> {
     // Validate preconditions
     session.validate()?;
     let input = session.require_input()?.clone();
@@ -698,7 +698,7 @@ pub fn step_optimize(
         format!("cost={final_cost:.2e}, reproj_err={mean_reproj_error:.3}px"),
     );
 
-    Ok(PlanarOptimizeResult {
+    Ok(IntrinsicsOptimizeResult {
         final_cost,
         mean_reproj_error,
         iterations,
@@ -891,7 +891,7 @@ fn optimize_tilted(
 /// # Arguments
 ///
 /// * `session` - The calibration session
-/// * `opts` - Filtering parameters
+/// * `opts` - Filtering parameters; `None` uses [`IntrinsicsFilterOptions::default`]
 ///
 /// # Errors
 ///
@@ -900,8 +900,9 @@ fn optimize_tilted(
 /// - Not enough points remaining per view
 pub fn step_filter(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    opts: FilterOptions,
+    opts: Option<IntrinsicsFilterOptions>,
 ) -> Result<(), Error> {
+    let opts = opts.unwrap_or_default();
     if opts.min_points_per_view < 4 {
         return Err(Error::invalid_input(
             "min_points_per_view must be >= 4 for homography",
@@ -1019,21 +1020,21 @@ pub fn run_calibration(
 /// # Arguments
 ///
 /// * `session` - The calibration session
-/// * `filter_opts` - Filtering parameters
+/// * `opts` - Filtering parameters; `None` uses [`IntrinsicsFilterOptions::default`]
 ///
 /// # Errors
 ///
 /// Any error from the constituent steps.
 pub fn run_calibration_with_filtering(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
-    filter_opts: FilterOptions,
+    opts: Option<IntrinsicsFilterOptions>,
 ) -> Result<(), Error> {
     // First pass
     let _ = step_init(session, None)?;
     let _ = step_optimize(session, None)?;
 
     // Filter outliers
-    step_filter(session, filter_opts)?;
+    step_filter(session, opts)?;
 
     // Second pass on cleaned data
     let _ = step_init(session, None)?;
@@ -1148,7 +1149,7 @@ mod tests {
         step_init(&mut session, None).unwrap();
         step_optimize(&mut session, None).unwrap();
 
-        step_filter(&mut session, FilterOptions::default()).unwrap();
+        step_filter(&mut session, None).unwrap();
 
         // Should have removed at least the outlier
         let filtered_points: usize = session
@@ -1234,7 +1235,7 @@ mod tests {
 
         let mut session_b = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session_b.set_input(make_test_dataset()).unwrap();
-        step_init_with_seed(&mut session_b, PlanarManualInit::default(), None).unwrap();
+        step_init_with_seed(&mut session_b, IntrinsicsManualInit::default(), None).unwrap();
 
         // Both paths should produce identical state — step_init delegates to
         // step_init_with_seed with default fields.
@@ -1251,7 +1252,7 @@ mod tests {
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(make_test_dataset()).unwrap();
 
-        let manual = PlanarManualInit {
+        let manual = IntrinsicsManualInit {
             intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
@@ -1283,7 +1284,7 @@ mod tests {
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(make_test_dataset()).unwrap();
 
-        let manual = PlanarManualInit {
+        let manual = IntrinsicsManualInit {
             intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
@@ -1313,7 +1314,7 @@ mod tests {
         session.set_input(make_test_dataset()).unwrap();
 
         // Test dataset has 4 views; supply only 1 pose.
-        let manual = PlanarManualInit {
+        let manual = IntrinsicsManualInit {
             poses: Some(vec![Iso3::identity()]),
             ..Default::default()
         };
@@ -1330,7 +1331,7 @@ mod tests {
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(make_test_dataset()).unwrap();
 
-        let manual = PlanarManualInit {
+        let manual = IntrinsicsManualInit {
             intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
@@ -1410,7 +1411,7 @@ mod tests {
     #[test]
     fn scheimpflug_seeded_init_does_not_log_experimental_warning() {
         let mut session = tilted_session(ScheimpflugParams::default());
-        let manual = PlanarManualInit {
+        let manual = IntrinsicsManualInit {
             intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
@@ -1470,7 +1471,7 @@ mod tests {
             tilt_y: -0.008,
         };
         let mut session = tilted_session(sensor_gt);
-        let manual = PlanarManualInit {
+        let manual = IntrinsicsManualInit {
             intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
@@ -1498,8 +1499,7 @@ mod tests {
             tilt_x: 0.01,
             tilt_y: -0.008,
         });
-        run_calibration_with_filtering(&mut session, FilterOptions::default())
-            .expect("filtered run");
+        run_calibration_with_filtering(&mut session, None).expect("filtered run");
         let output = session.output().expect("output");
         assert!(output.mean_reproj_error < 1.0);
         assert!(matches!(
@@ -1512,7 +1512,7 @@ mod tests {
     fn sensor_seed_needs_a_scheimpflug_camera() {
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_input(make_test_dataset()).unwrap();
-        let manual = PlanarManualInit {
+        let manual = IntrinsicsManualInit {
             sensor: Some(ScheimpflugParams::default()),
             ..Default::default()
         };
@@ -1537,7 +1537,7 @@ mod tests {
         let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
         session.set_config(config).unwrap();
         session.set_input(make_test_dataset()).unwrap();
-        let manual = PlanarManualInit {
+        let manual = IntrinsicsManualInit {
             distortion: Some(BrownConrady5::default()),
             ..Default::default()
         };

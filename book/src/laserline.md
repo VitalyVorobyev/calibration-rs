@@ -102,7 +102,7 @@ and `optimize` groups the laser-specific bundle-adjustment settings:
 pub struct LaserlineDeviceConfig {
     // Per-camera linear-initialization stage settings.
     pub init: IntrinsicsInitConfig,
-    // { init_iterations: usize = 2, fix_k3: bool = true,
+    // { iterations: usize = 2, fix_k3: bool = true,
     //   fix_tangential: Option<bool> = None }  (None: true for a Scheimpflug
     //   sensor, false otherwise)
 
@@ -117,10 +117,10 @@ pub struct LaserlineDeviceConfig {
     pub solver: SolverConfig, // { max_iters: usize = 50, verbosity: usize = 0, .. }
 
     // Bundle-adjustment options.
-    pub optimize: LaserlineDeviceOptimizeConfig,
+    pub optimize: DeviceOptimizeConfig,
 }
 
-pub struct LaserlineDeviceOptimizeConfig {
+pub struct DeviceOptimizeConfig {
     pub calib_loss: RobustLoss,        // Default: Huber { scale: 1.0 }
     pub laser_loss: RobustLoss,        // Default: Huber { scale: 1.0 }, in the residual's unit
     pub calib_weight: f64,             // Weight for calibration residuals (default: 1.0)
@@ -147,7 +147,7 @@ use vision_calibration::laserline_device::*;
 let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
 session.set_input(laserline_input)?;
 
-run_calibration(&mut session, None)?;
+run_calibration(&mut session)?;
 
 let export = session.export()?;
 println!("Plane normal: {:?}", export.estimate.params.plane.normal);

@@ -18,7 +18,7 @@ from _common import (
 )
 
 
-def make_input() -> vc.SingleCamHandeyeDataset:
+def make_input() -> vc.SingleCamHandeyeInput:
     intrinsics_gt = {"fx": 800.0, "fy": 780.0, "cx": 640.0, "cy": 360.0}
     distortion_gt = {"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}
     handeye_gt = make_pose(0.05, -0.03, 0.10, 0.10, -0.05, 0.02)  # T_G_C
@@ -58,7 +58,7 @@ def make_input() -> vc.SingleCamHandeyeDataset:
                     ),
                 )
             )
-    return vc.SingleCamHandeyeDataset(views=views)
+    return vc.SingleCamHandeyeInput(views=views)
 
 
 def main() -> None:

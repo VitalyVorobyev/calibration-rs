@@ -30,7 +30,7 @@ class SolverBackendTest(unittest.TestCase):
         dataset = planar_calibration_dataset()
         results = {}
         for backend in ("tiny_solver", "factrs"):
-            cfg = vc.PlanarCalibrationConfig(solver=vc.SolverConfig(backend=backend))
+            cfg = vc.PlanarIntrinsicsConfig(solver=vc.SolverConfig(backend=backend))
             results[backend] = vc.run_planar_intrinsics(dataset, cfg)
         for backend, result in results.items():
             k = result.camera.intrinsics

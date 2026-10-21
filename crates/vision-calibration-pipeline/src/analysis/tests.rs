@@ -17,7 +17,7 @@ use vision_calibration_core::{
     PinholeCamera, RigView, RigViewObs, ScheimpflugParams, compute_rig_target_residuals,
     make_pinhole_camera, pinhole_camera_params,
 };
-use vision_calibration_optim::HandEyeMode;
+use vision_calibration_optim::HandeyeMode;
 
 /// Tiny deterministic xorshift64* RNG — keeps the synthetic noise reproducible
 /// without a `rand` dependency.
@@ -217,7 +217,7 @@ fn constraint_adds_known_error() {
     );
     let mut constrained = Vec::new();
     push_view_residuals(&mut constrained, &camera, &perturbed, &pts3, &clean, 0, 0);
-    let report = LevelReport::from_residuals(ReprojLevel::HandEye, constrained, 1, 1);
+    let report = LevelReport::from_residuals(ReprojLevel::Handeye, constrained, 1, 1);
     assert!(
         report.overall.mean > floor_stats.mean + 0.5,
         "perturbed pose should add clear error: constrained {} vs floor {}",
@@ -286,7 +286,7 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
         cameras: cameras.iter().map(pinhole_camera_params).collect(),
         cam_se3_rig: cam_se3_rig.clone(),
         rig_se3_target: rig_se3_target.clone(),
-        handeye_mode: HandEyeMode::EyeToHand,
+        handeye_mode: HandeyeMode::EyeToHand,
         gripper_se3_rig: None,
         rig_se3_base: Some(Iso3::identity()),
         base_se3_target: None,
@@ -310,7 +310,7 @@ fn rig_handeye_report_with_rig_stage_has_three_levels() {
         vec![
             ReprojLevel::Intrinsic,
             ReprojLevel::RigExtrinsic,
-            ReprojLevel::HandEye
+            ReprojLevel::Handeye
         ]
     );
     assert_eq!(report.headline_px, report.levels[2].overall.mean);

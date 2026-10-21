@@ -21,7 +21,7 @@ mod handeye_io;
 use anyhow::Result;
 use std::io::{self, Write};
 use std::path::PathBuf;
-use vision_calibration::optim::HandEyeMode;
+use vision_calibration::optim::HandeyeMode;
 use vision_calibration::prelude::*;
 use vision_calibration::single_cam_handeye::{
     HandeyeMeta, SingleCamHandeyeExport, SingleCamHandeyeInput, SingleCamHandeyeProblem,
@@ -160,7 +160,7 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
     println!("Distortion: {:?}", export.camera.distortion);
 
     match export.handeye_mode {
-        HandEyeMode::EyeInHand => {
+        HandeyeMode::EyeInHand => {
             let he = export
                 .gripper_se3_camera
                 .expect("missing gripper_se3_camera");
@@ -184,7 +184,7 @@ fn print_final_result(export: &SingleCamHandeyeExport) {
                 target_t.x, target_t.y, target_t.z
             );
         }
-        HandEyeMode::EyeToHand => {
+        HandeyeMode::EyeToHand => {
             let he = export.camera_se3_base.expect("missing camera_se3_base");
             println!("Hand-eye transform (camera → base):");
             let he_t = he.translation.vector;

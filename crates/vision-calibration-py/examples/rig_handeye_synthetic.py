@@ -42,7 +42,7 @@ def project_view(
     return vc.Observation(points_3d=points_3d, points_2d=points_2d)
 
 
-def make_input() -> vc.RigHandeyeDataset:
+def make_input() -> vc.RigHandeyeInput:
     k0 = {"fx": 800.0, "fy": 780.0, "cx": 640.0, "cy": 360.0}
     k1 = {"fx": 810.0, "fy": 790.0, "cx": 635.0, "cy": 355.0}
     dist = {"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}
@@ -83,7 +83,7 @@ def make_input() -> vc.RigHandeyeDataset:
             )
         )
 
-    return vc.RigHandeyeDataset(num_cameras=2, views=views)
+    return vc.RigHandeyeInput(num_cameras=2, views=views)
 
 
 def main() -> None:

@@ -45,7 +45,7 @@ use vision_calibration_examples_private::{
     RefArtifacts, RefIntrinsic, camera_parts, load_gray, load_poses, load_ref_artifacts,
     split_horizontal, split_opencv_distortion,
 };
-use vision_calibration_optim::{HandEyeMode, RobotPoseMeta, RobustLoss};
+use vision_calibration_optim::{HandeyeMode, RobotPoseMeta, RobustLoss};
 
 const NUM_CAMERAS: usize = 6;
 const BOARD_ROWS: u32 = 130;
@@ -57,8 +57,8 @@ fn main() -> Result<()> {
         std::env::var("RTV3D_REF_DATA_DIR").unwrap_or_else(|_| "privatedata/rtv3d_ref".to_string()),
     );
     let handeye_mode = match std::env::var("RTV3D_REF_HANDEYE").as_deref() {
-        Ok("eye_to_hand") => HandEyeMode::EyeToHand,
-        _ => HandEyeMode::EyeInHand,
+        Ok("eye_to_hand") => HandeyeMode::EyeToHand,
+        _ => HandeyeMode::EyeInHand,
     };
     println!("data dir = {}", data_dir.display());
     println!("hand-eye mode = {handeye_mode:?} (config says eye_in_hand_static_target)");
@@ -137,7 +137,7 @@ fn main() -> Result<()> {
         ..CameraFix::default()
     };
     cfg.rig.refine_sensor = false;
-    cfg.rig.refine_intrinsics_in_rig_ba = false;
+    cfg.rig.refine_intrinsics = false;
     session.set_config(cfg)?;
 
     let t0 = Instant::now();
@@ -156,7 +156,7 @@ fn main() -> Result<()> {
             .collect::<Vec<_>>()
     );
     let s = Instant::now();
-    rh::step_rig_init(&mut session)?;
+    rh::step_rig_init(&mut session, None)?;
     println!("  rig init: {:.2?}", s.elapsed());
     let s = Instant::now();
     let rig = rh::step_rig_optimize(&mut session, None)?;
@@ -203,7 +203,7 @@ fn ref_params(intr: &RefIntrinsic) -> (f64, f64, f64, f64, BrownConrady5<f64>, S
 fn compare(
     art: &RefArtifacts,
     export: &vision_calibration::rig_handeye::RigHandeyeExport,
-    handeye_mode: HandEyeMode,
+    handeye_mode: HandeyeMode,
 ) {
     println!("\n── Recovered intrinsics vs oracle (from scratch) ──");
     println!(
@@ -249,8 +249,8 @@ fn compare(
 
     println!("\n── Recovered hand-eye vs oracle tcp_se3_sensor ──");
     let our_he = match handeye_mode {
-        HandEyeMode::EyeInHand => export.gripper_se3_rig,
-        HandEyeMode::EyeToHand => export.rig_se3_base,
+        HandeyeMode::EyeInHand => export.gripper_se3_rig,
+        HandeyeMode::EyeToHand => export.rig_se3_base,
     };
     let ref_he = iso_from_4x4_mm(&art.handeye.tcp_se3_sensor);
     match our_he {

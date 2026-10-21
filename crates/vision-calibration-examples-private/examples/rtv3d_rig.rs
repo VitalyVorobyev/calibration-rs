@@ -45,9 +45,7 @@ use std::time::Instant;
 use vision_calibration::common::config::CameraConfig;
 use vision_calibration::{
     device_seed::{self, DEVICE_SPEC_FILENAME, DeviceSpec},
-    rig_handeye::{
-        self as rh, RigHandeyeConfig, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem,
-    },
+    rig_handeye::{self as rh, IntrinsicsManualInit, RigHandeyeConfig, RigHandeyeProblem},
     rig_laserline_device::{
         RigLaserlineDeviceConfig, RigLaserlineDeviceInput, RigLaserlineDeviceProblem,
     },
@@ -62,7 +60,7 @@ use vision_calibration_examples_private::{
     PoseEntry, camera_parts, detect_charuco, detect_laser, load_gray, load_poses, split_horizontal,
 };
 use vision_calibration_optim::{
-    BackendSolveOptions, HandEyeMode, LaserPlane, LaserlineResidualType,
+    BackendSolveOptions, HandeyeMode, LaserPlane, LaserlineResidualType,
     RigHandeyeLaserlineDataset, RigHandeyeLaserlineParams, RigHandeyeLaserlineView,
     RigLaserlineDataset, RigLaserlineView, RobotPoseMeta, RobustLoss,
     evaluate_rig_handeye_laserline, optimize_rig_handeye_laserline,
@@ -154,14 +152,14 @@ fn main() -> Result<()> {
     // claim in `dataset.json`). `RTV3D_HANDEYE=eye_in_hand` re-runs that
     // comparison.
     cfg.handeye_init.handeye_mode = match std::env::var("RTV3D_HANDEYE").as_deref() {
-        Ok("eye_in_hand") => HandEyeMode::EyeInHand,
-        _ => HandEyeMode::EyeToHand,
+        Ok("eye_in_hand") => HandeyeMode::EyeInHand,
+        _ => HandeyeMode::EyeToHand,
     };
     // `RTV3D_REFINE_ROBOT=0` disables robot-pose deltas. With rigid robot
     // poses the hand-eye residual is directly sensitive to the board scale,
     // which makes the cell-size A/B check sharp (robot translations anchor
     // absolute scale).
-    cfg.handeye_ba.robot_poses.refine =
+    cfg.handeye_optimize.robot_poses.refine =
         std::env::var("RTV3D_REFINE_ROBOT").map_or(true, |v| v != "0");
     // Scheimpflug: both tilts free (the reference system also frees tau_x/tau_y;
     // oracle tilts reach 0.27 rad). Distortion: k1, k2 free; k3 + tangential
@@ -176,9 +174,9 @@ fn main() -> Result<()> {
         ..CameraFix::default()
     };
     cfg.rig.refine_sensor = false;
-    cfg.rig.refine_intrinsics_in_rig_ba = false;
-    let robot_rot_sigma = cfg.handeye_ba.robot_poses.rot_sigma;
-    let robot_trans_sigma = cfg.handeye_ba.robot_poses.trans_sigma;
+    cfg.rig.refine_intrinsics = false;
+    let robot_rot_sigma = cfg.handeye_optimize.robot_poses.rot_sigma;
+    let robot_trans_sigma = cfg.handeye_optimize.robot_poses.trans_sigma;
     rig_session.set_config(cfg)?;
 
     let t0 = Instant::now();
@@ -209,14 +207,14 @@ fn main() -> Result<()> {
                 let rig_seed =
                     device_seed::rig_layout_seed(spec, &camera_ids, &intr_opt.per_cam_target_poses)
                         .context("derive rig layout seed from device spec")?;
-                let _rig_init = rh::step_rig_init_with_seed(&mut rig_session, rig_seed)?;
+                let _rig_init = rh::step_rig_init_with_seed(&mut rig_session, rig_seed, None)?;
                 println!(
                     "  step_rig_init_with_seed (spec layout): {:.2?}",
                     step_t.elapsed()
                 );
             }
             None => {
-                let _rig_init = rh::step_rig_init(&mut rig_session)?;
+                let _rig_init = rh::step_rig_init(&mut rig_session, None)?;
                 println!("  step_rig_init: {:.2?}", step_t.elapsed());
             }
         }
@@ -318,7 +316,7 @@ fn main() -> Result<()> {
         for &pose_idx in &detected.laser_pose_indices {
             let base_se3_gripper = poses[pose_idx].base_se3_gripper();
             let rt = match rig_export.handeye_mode {
-                HandEyeMode::EyeInHand => {
+                HandeyeMode::EyeInHand => {
                     let gripper_se3_rig = rig_export
                         .gripper_se3_rig
                         .expect("EyeInHand missing gripper_se3_rig");
@@ -327,7 +325,7 @@ fn main() -> Result<()> {
                         .expect("EyeInHand missing base_se3_target");
                     gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target
                 }
-                HandEyeMode::EyeToHand => {
+                HandeyeMode::EyeToHand => {
                     let rig_se3_base = rig_export
                         .rig_se3_base
                         .expect("EyeToHand missing rig_se3_base");
@@ -383,18 +381,18 @@ fn main() -> Result<()> {
             rig_export.handeye_mode,
         )?;
         let handeye = match rig_export.handeye_mode {
-            HandEyeMode::EyeInHand => rig_export
+            HandeyeMode::EyeInHand => rig_export
                 .gripper_se3_rig
                 .expect("EyeInHand missing gripper_se3_rig"),
-            HandEyeMode::EyeToHand => rig_export
+            HandeyeMode::EyeToHand => rig_export
                 .rig_se3_base
                 .expect("EyeToHand missing rig_se3_base"),
         };
         let target_ref = match rig_export.handeye_mode {
-            HandEyeMode::EyeInHand => rig_export
+            HandeyeMode::EyeInHand => rig_export
                 .base_se3_target
                 .expect("EyeInHand missing base_se3_target"),
-            HandEyeMode::EyeToHand => rig_export
+            HandeyeMode::EyeToHand => rig_export
                 .gripper_se3_target
                 .expect("EyeToHand missing gripper_se3_target"),
         };
@@ -637,7 +635,7 @@ fn build_intrinsics_seed(
     oracle: Option<&Oracle>,
     tile_w: u32,
     tile_h: u32,
-) -> Result<RigHandeyeIntrinsicsManualInit> {
+) -> Result<IntrinsicsManualInit> {
     let zero_dist = BrownConrady5 {
         k1: 0.0,
         k2: 0.0,
@@ -688,7 +686,7 @@ fn build_intrinsics_seed(
         other => return Err(anyhow!("unknown RTV3D_SEED '{other}'")),
     }
 
-    let mut manual_init = RigHandeyeIntrinsicsManualInit::default();
+    let mut manual_init = IntrinsicsManualInit::default();
     manual_init.per_cam_intrinsics = Some(intrinsics);
     manual_init.per_cam_distortion = Some(distortion);
     manual_init.per_cam_sensors = Some(sensors);

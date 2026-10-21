@@ -14,7 +14,7 @@ from .types import (
     DistortionModel,
     ProjectionModel,
     SensorModel,
-    HandEyeMode,
+    HandeyeMode,
     LaserlineResidualType,
     RobustLoss,
     SolverBackend,
@@ -32,7 +32,7 @@ class IntrinsicsInitConfig:
     every intrinsics-bearing problem's ``init``/``intrinsics`` config group.
     """
 
-    init_iterations: int = 2
+    iterations: int = 2
     fix_k3: bool = True
     #: ``None`` (default) defers to the camera's default: in the single-camera
     #: workflows the tangential terms are fixed under a Scheimpflug sensor and
@@ -42,7 +42,7 @@ class IntrinsicsInitConfig:
 
     def to_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "init_iterations": int(self.init_iterations),
+            "iterations": int(self.iterations),
             "fix_k3": bool(self.fix_k3),
         }
         if self.fix_tangential is not None:
@@ -117,7 +117,7 @@ class RobotPoseConfig:
 class HandeyeInitConfig:
     """Shared hand-eye linear-initialization settings (Tsai-Lenz DLT)."""
 
-    handeye_mode: HandEyeMode = "EyeInHand"
+    handeye_mode: HandeyeMode = "EyeInHand"
     min_motion_angle_deg: float = 5.0
 
     def to_payload(self) -> dict[str, Any]:
@@ -143,7 +143,7 @@ class RigConfig:
     """
 
     reference_camera_idx: int = 0
-    refine_intrinsics_in_rig_ba: bool = False
+    refine_intrinsics: bool = False
     #: Also refine each tilted camera's sensor tilt in the rig bundle
     #: adjustment (no effect for untilted cameras).
     refine_sensor: bool = False
@@ -151,7 +151,7 @@ class RigConfig:
     def to_payload(self) -> dict[str, Any]:
         return {
             "reference_camera_idx": int(self.reference_camera_idx),
-            "refine_intrinsics_in_rig_ba": bool(self.refine_intrinsics_in_rig_ba),
+            "refine_intrinsics": bool(self.refine_intrinsics),
             "refine_sensor": bool(self.refine_sensor),
         }
 
@@ -449,7 +449,7 @@ class PlanarView:
 
 
 @dataclass(slots=True)
-class PlanarDataset:
+class PlanarIntrinsicsInput:
     """Planar calibration dataset."""
 
     views: list[PlanarView]
@@ -473,7 +473,7 @@ class SingleCamHandeyeView:
 
 
 @dataclass(slots=True)
-class SingleCamHandeyeDataset:
+class SingleCamHandeyeInput:
     """Single-camera hand-eye dataset."""
 
     views: list[SingleCamHandeyeView]
@@ -507,7 +507,7 @@ class RigExtrinsicsView:
 
 
 @dataclass(slots=True)
-class RigExtrinsicsDataset:
+class RigExtrinsicsInput:
     """Multi-camera rig dataset for extrinsics calibration."""
 
     num_cameras: int
@@ -540,7 +540,7 @@ class RigHandeyeView:
 
 
 @dataclass(slots=True)
-class RigHandeyeDataset:
+class RigHandeyeInput:
     """Multi-camera rig hand-eye dataset."""
 
     num_cameras: int
@@ -579,7 +579,7 @@ class LaserlineView:
 
 
 @dataclass(slots=True)
-class LaserlineDataset:
+class LaserlineDeviceInput:
     """Dataset for laserline-device calibration."""
 
     views: list[LaserlineView]
@@ -589,7 +589,7 @@ class LaserlineDataset:
 
 
 @dataclass(slots=True)
-class PlanarCalibrationConfig:
+class PlanarIntrinsicsConfig:
     """Configuration for planar intrinsics calibration.
 
     Grouped configuration: linear-init and non-linear-solve settings live in
@@ -615,7 +615,7 @@ class PlanarCalibrationConfig:
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "PlanarCalibrationConfig":
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "PlanarIntrinsicsConfig":
         cfg = cls()
         for key, value in mapping.items():
             if key == "init":
@@ -639,12 +639,12 @@ class PlanarCalibrationConfig:
             elif key == "fix_poses":
                 cfg.fix_poses = [int(i) for i in cast(list[Any], value)]
             else:
-                raise ValueError(f"unknown PlanarCalibrationConfig field: {key}")
+                raise ValueError(f"unknown PlanarIntrinsicsConfig field: {key}")
         return cfg
 
 
 @dataclass(slots=True)
-class SingleCamHandeyeCalibrationConfig:
+class SingleCamHandeyeConfig:
     """Configuration for single-camera hand-eye calibration.
 
     Grouped configuration: per-camera linear init, the camera model
@@ -669,7 +669,7 @@ class SingleCamHandeyeCalibrationConfig:
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "SingleCamHandeyeCalibrationConfig":
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "SingleCamHandeyeConfig":
         cfg = cls()
         for key, value in mapping.items():
             if key == "intrinsics":
@@ -699,12 +699,12 @@ class SingleCamHandeyeCalibrationConfig:
                     else RobotPoseConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             else:
-                raise ValueError(f"unknown SingleCamHandeyeCalibrationConfig field: {key}")
+                raise ValueError(f"unknown SingleCamHandeyeConfig field: {key}")
         return cfg
 
 
 @dataclass(slots=True)
-class RigExtrinsicsCalibrationConfig:
+class RigExtrinsicsConfig:
     """Configuration for rig extrinsics calibration.
 
     Grouped configuration. ``camera`` is the camera model shared by every rig
@@ -729,7 +729,7 @@ class RigExtrinsicsCalibrationConfig:
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigExtrinsicsCalibrationConfig":
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigExtrinsicsConfig":
         cfg = cls()
         for key, value in mapping.items():
             if key == "intrinsics":
@@ -755,18 +755,18 @@ class RigExtrinsicsCalibrationConfig:
                     else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             else:
-                raise ValueError(f"unknown RigExtrinsicsCalibrationConfig field: {key}")
+                raise ValueError(f"unknown RigExtrinsicsConfig field: {key}")
         return cfg
 
 
 @dataclass(slots=True)
-class HandeyeBaConfig:
-    """Final hand-eye bundle-adjustment options.
+class HandeyeOptimizeConfig:
+    """Final hand-eye optimization options (the ``handeye_optimize`` group of
+    :class:`RigHandeyeConfig`).
 
-    Renamed and reshaped from ``RigHandeyeBaConfig``: robot-pose refinement
-    now lives in the shared ``RobotPoseConfig`` group, and
-    ``refine_cam_se3_rig_in_handeye_ba`` shortens to ``refine_cam_se3_rig``;
-    ``refine_sensor`` also refines each tilted camera's sensor tilt.
+    ``robot_poses`` sets robot-pose refinement; ``refine_cam_se3_rig`` also
+    refines the rig extrinsics, and ``refine_sensor`` each tilted camera's
+    sensor tilt.
     """
 
     robot_poses: RobotPoseConfig = field(default_factory=RobotPoseConfig)
@@ -781,7 +781,7 @@ class HandeyeBaConfig:
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "HandeyeBaConfig":
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "HandeyeOptimizeConfig":
         cfg = cls()
         for key, value in mapping.items():
             if key == "robot_poses":
@@ -793,18 +793,18 @@ class HandeyeBaConfig:
             elif key in ("refine_cam_se3_rig", "refine_sensor"):
                 setattr(cfg, key, bool(value))
             else:
-                raise ValueError(f"unknown HandeyeBaConfig field: {key}")
+                raise ValueError(f"unknown HandeyeOptimizeConfig field: {key}")
         return cfg
 
 
 @dataclass(slots=True)
-class RigHandeyeCalibrationConfig:
+class RigHandeyeConfig:
     """Configuration for rig hand-eye calibration.
 
     Grouped configuration, sharing sub-objects with the other rig/hand-eye
     configs. ``camera`` / ``camera_overrides`` select the camera model of
     every rig camera and of individual cameras, as in
-    :class:`RigExtrinsicsCalibrationConfig`. (``manual_init`` is still
+    :class:`RigExtrinsicsConfig`. (``manual_init`` is still
     Rust-only.)
     """
 
@@ -814,7 +814,7 @@ class RigHandeyeCalibrationConfig:
     rig: RigConfig = field(default_factory=RigConfig)
     handeye_init: HandeyeInitConfig = field(default_factory=HandeyeInitConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
-    handeye_ba: HandeyeBaConfig = field(default_factory=HandeyeBaConfig)
+    handeye_optimize: HandeyeOptimizeConfig = field(default_factory=HandeyeOptimizeConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -824,11 +824,11 @@ class RigHandeyeCalibrationConfig:
             "rig": self.rig.to_payload(),
             "handeye_init": self.handeye_init.to_payload(),
             "solver": self.solver.to_payload(),
-            "handeye_ba": self.handeye_ba.to_payload(),
+            "handeye_optimize": self.handeye_optimize.to_payload(),
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigHandeyeCalibrationConfig":
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigHandeyeConfig":
         cfg = cls()
         for key, value in mapping.items():
             if key == "intrinsics":
@@ -859,23 +859,23 @@ class RigHandeyeCalibrationConfig:
                     if isinstance(value, SolverConfig)
                     else SolverConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
-            elif key == "handeye_ba":
-                cfg.handeye_ba = (
+            elif key == "handeye_optimize":
+                cfg.handeye_optimize = (
                     value
-                    if isinstance(value, HandeyeBaConfig)
-                    else HandeyeBaConfig.from_mapping(cast(Mapping[str, Any], value))
+                    if isinstance(value, HandeyeOptimizeConfig)
+                    else HandeyeOptimizeConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             else:
-                raise ValueError(f"unknown RigHandeyeCalibrationConfig field: {key}")
+                raise ValueError(f"unknown RigHandeyeConfig field: {key}")
         return cfg
 
 
 @dataclass(slots=True)
-class LaserlineDeviceOptimizeConfig:
+class DeviceOptimizeConfig:
     """Bundle-adjustment options for laserline-device calibration.
 
     The camera's fixed parameters are ``camera.fix`` of
-    :class:`LaserlineDeviceCalibrationConfig`.
+    :class:`LaserlineDeviceConfig`.
     """
 
     calib_loss: RobustLoss = field(default_factory=lambda: {"Huber": {"scale": 1.0}})
@@ -898,18 +898,18 @@ class LaserlineDeviceOptimizeConfig:
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "LaserlineDeviceOptimizeConfig":
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "DeviceOptimizeConfig":
         cfg = cls()
         for key, value in mapping.items():
             if not hasattr(cfg, key):
-                raise ValueError(f"unknown LaserlineDeviceOptimizeConfig field: {key}")
+                raise ValueError(f"unknown DeviceOptimizeConfig field: {key}")
             else:
                 setattr(cfg, key, value)
         return cfg
 
 
 @dataclass(slots=True)
-class LaserlineDeviceCalibrationConfig:
+class LaserlineDeviceConfig:
     """Configuration for laserline-device calibration.
 
     ``camera`` (a :class:`CameraConfig`) selects the camera model — any
@@ -924,7 +924,7 @@ class LaserlineDeviceCalibrationConfig:
     init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
-    optimize: LaserlineDeviceOptimizeConfig = field(default_factory=LaserlineDeviceOptimizeConfig)
+    optimize: DeviceOptimizeConfig = field(default_factory=DeviceOptimizeConfig)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -935,7 +935,7 @@ class LaserlineDeviceCalibrationConfig:
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "LaserlineDeviceCalibrationConfig":
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "LaserlineDeviceConfig":
         cfg = cls()
         for key, value in mapping.items():
             if key == "init":
@@ -955,11 +955,11 @@ class LaserlineDeviceCalibrationConfig:
             elif key == "optimize":
                 cfg.optimize = (
                     value
-                    if isinstance(value, LaserlineDeviceOptimizeConfig)
-                    else LaserlineDeviceOptimizeConfig.from_mapping(cast(Mapping[str, Any], value))
+                    if isinstance(value, DeviceOptimizeConfig)
+                    else DeviceOptimizeConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             else:
-                raise ValueError(f"unknown LaserlineDeviceCalibrationConfig field: {key}")
+                raise ValueError(f"unknown LaserlineDeviceConfig field: {key}")
         return cfg
 
 
@@ -1287,7 +1287,7 @@ class PinholeScheimpflugCamera:
 
 
 @dataclass(slots=True)
-class LaserlinePlane:
+class LaserPlane:
     """Typed laser plane representation."""
 
     normal_xyz: Vec3
@@ -1309,7 +1309,7 @@ class LaserlinePlane:
         }
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlinePlane":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserPlane":
         """Parse laser plane from serde payload."""
         normal_value = payload["normal"]
         if isinstance(normal_value, Mapping):
@@ -1326,7 +1326,7 @@ class LaserlinePlane:
 
 
 @dataclass(slots=True)
-class LaserlineEstimateParams:
+class LaserlineParams:
     """Typed parameter payload for laserline optimization results.
 
     ``camera`` is a :class:`PinholeCamera` or, for a tilted sensor, a
@@ -1335,17 +1335,17 @@ class LaserlineEstimateParams:
 
     camera: "Camera"
     poses: list[Pose]
-    plane: LaserlinePlane
+    plane: LaserPlane
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineEstimateParams":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineParams":
         return cls(
             camera=_camera_from_payload(cast(Mapping[str, Any], payload["camera"])),
             poses=[
                 Pose.from_payload(cast(Mapping[str, Any], pose))
                 for pose in cast(list[Any], payload["poses"])
             ],
-            plane=LaserlinePlane.from_payload(cast(Mapping[str, Any], payload["plane"])),
+            plane=LaserPlane.from_payload(cast(Mapping[str, Any], payload["plane"])),
         )
 
 
@@ -1353,7 +1353,7 @@ class LaserlineEstimateParams:
 class LaserlineEstimate:
     """Typed laserline optimizer estimate payload."""
 
-    params: LaserlineEstimateParams
+    params: LaserlineParams
     final_cost: float
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
@@ -1363,7 +1363,7 @@ class LaserlineEstimate:
     def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineEstimate":
         report = cast(Mapping[str, Any], payload["report"])
         return cls(
-            params=LaserlineEstimateParams.from_payload(
+            params=LaserlineParams.from_payload(
                 cast(Mapping[str, Any], payload["params"])
             ),
             final_cost=float(report["final_cost"]),
@@ -1589,7 +1589,7 @@ def _cameras_from_payload(payload: Mapping[str, Any]) -> list[Camera]:
 
 
 @dataclass(slots=True)
-class PlanarCalibrationResult:
+class PlanarIntrinsicsExport:
     """Result from :func:`vision_calibration.run_planar_intrinsics`.
 
     ``camera.distortion`` is one of the :data:`Distortion` variants, matching
@@ -1611,7 +1611,7 @@ class PlanarCalibrationResult:
     :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "PlanarCalibrationResult":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PlanarIntrinsicsExport":
         params = cast(Mapping[str, Any], payload["params"])
         report = cast(Mapping[str, Any], payload["report"])
         poses = [
@@ -1634,7 +1634,7 @@ class PlanarCalibrationResult:
 
 
 @dataclass(slots=True)
-class SingleCamHandeyeResult:
+class SingleCamHandeyeExport:
     """Result from :func:`vision_calibration.run_single_cam_handeye`.
 
     ``camera`` is a :class:`PinholeCamera` or, for a tilted sensor, a
@@ -1642,7 +1642,7 @@ class SingleCamHandeyeResult:
     """
 
     camera: Camera
-    handeye_mode: HandEyeMode
+    handeye_mode: HandeyeMode
     gripper_se3_camera: Pose | None
     camera_se3_base: Pose | None
     base_se3_target: Pose | None
@@ -1658,7 +1658,7 @@ class SingleCamHandeyeResult:
     :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "SingleCamHandeyeResult":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "SingleCamHandeyeExport":
         def _pose(name: str) -> Pose | None:
             value = payload.get(name)
             if value is None:
@@ -1668,7 +1668,7 @@ class SingleCamHandeyeResult:
         return cls(
             export=dict(payload),
             camera=_camera_from_payload(cast(Mapping[str, Any], payload["camera"])),
-            handeye_mode=cast(HandEyeMode, payload["handeye_mode"]),
+            handeye_mode=cast(HandeyeMode, payload["handeye_mode"]),
             gripper_se3_camera=_pose("gripper_se3_camera"),
             camera_se3_base=_pose("camera_se3_base"),
             base_se3_target=_pose("base_se3_target"),
@@ -1683,7 +1683,7 @@ class SingleCamHandeyeResult:
 
 
 @dataclass(slots=True)
-class RigExtrinsicsResult:
+class RigExtrinsicsExport:
     """Result from :func:`vision_calibration.run_rig_extrinsics`."""
 
     cameras: list[Camera]
@@ -1698,7 +1698,7 @@ class RigExtrinsicsResult:
     :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "RigExtrinsicsResult":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigExtrinsicsExport":
         return cls(
             export=dict(payload),
             cameras=_cameras_from_payload(payload),
@@ -1712,7 +1712,7 @@ class RigExtrinsicsResult:
 
 
 @dataclass(slots=True)
-class RigHandeyeResult:
+class RigHandeyeExport:
     """Result from :func:`vision_calibration.run_rig_handeye`.
 
     Each entry of ``cameras`` is a :class:`PinholeCamera` or, for a tilted
@@ -1721,7 +1721,7 @@ class RigHandeyeResult:
 
     cameras: list[Camera]
     cam_se3_rig: list[Pose]
-    handeye_mode: HandEyeMode
+    handeye_mode: HandeyeMode
     gripper_se3_rig: Pose | None
     rig_se3_base: Pose | None
     base_se3_target: Pose | None
@@ -1760,7 +1760,7 @@ class RigHandeyeResult:
         }
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeResult":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeExport":
         def _pose(name: str) -> Pose | None:
             value = payload.get(name)
             if value is None:
@@ -1774,7 +1774,7 @@ class RigHandeyeResult:
                 Pose.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["cam_se3_rig"])
             ],
-            handeye_mode=cast(HandEyeMode, payload["handeye_mode"]),
+            handeye_mode=cast(HandeyeMode, payload["handeye_mode"]),
             gripper_se3_rig=_pose("gripper_se3_rig"),
             rig_se3_base=_pose("rig_se3_base"),
             base_se3_target=_pose("base_se3_target"),
@@ -1791,7 +1791,7 @@ class RigHandeyeResult:
 
 
 @dataclass(slots=True)
-class LaserlineDeviceResult:
+class LaserlineDeviceExport:
     """Result from :func:`vision_calibration.run_laserline_device`."""
 
     estimate: LaserlineEstimate
@@ -1814,7 +1814,7 @@ class LaserlineDeviceResult:
         return self.estimate.uncertainty
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineDeviceResult":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "LaserlineDeviceExport":
         return cls(
             export=dict(payload),
             estimate=LaserlineEstimate.from_payload(
@@ -1830,10 +1830,10 @@ class LaserlineDeviceResult:
 
 
 @dataclass(slots=True)
-class RigLaserlineUpstreamCalibration:
+class RigUpstreamCalibration:
     """Frozen upstream calibration for rig laserline device.
 
-    Typically derived from a :class:`RigHandeyeResult` export; ``cameras``
+    Typically derived from a :class:`RigHandeyeExport`; ``cameras``
     are ``CameraParams`` payloads (projection, distortion, sensor,
     intrinsics) as found in the export.
     """
@@ -1850,7 +1850,7 @@ class RigLaserlineUpstreamCalibration:
         }
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "RigLaserlineUpstreamCalibration":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigUpstreamCalibration":
         return cls(
             cameras=cast(list[dict[str, Any]], payload["cameras"]),
             cam_se3_rig=[
@@ -1908,15 +1908,15 @@ class RigLaserlineDeviceInput:
     """Input for rig laserline device calibration.
 
     The ``initial_planes_cam`` warm-start field accepts the same
-    [`LaserlinePlane`] dataclass returned by
-    [`RigLaserlineDeviceResult.laser_planes_cam`], so the canonical
+    [`LaserPlane`] dataclass returned by
+    [`RigLaserlineDeviceExport.laser_planes_cam`], so the canonical
     restart pattern ``initial_planes_cam=previous.laser_planes_cam``
     works directly without manual conversion.
     """
 
     dataset: RigLaserlineDataset
-    upstream: RigLaserlineUpstreamCalibration
-    initial_planes_cam: list[LaserlinePlane] | None = None
+    upstream: RigUpstreamCalibration
+    initial_planes_cam: list[LaserPlane] | None = None
 
     def to_payload(self) -> dict[str, Any]:
         initial: list[dict[str, Any]] | None = None
@@ -1930,7 +1930,7 @@ class RigLaserlineDeviceInput:
 
 
 @dataclass(slots=True)
-class RigLaserlineDeviceCalibrationConfig:
+class RigLaserlineDeviceConfig:
     """Configuration for rig laserline device calibration.
 
     Grouped configuration. ``solver.max_iters`` defaults to 200: this stage
@@ -1951,7 +1951,7 @@ class RigLaserlineDeviceCalibrationConfig:
     @classmethod
     def from_mapping(
         cls, mapping: Mapping[str, Any]
-    ) -> "RigLaserlineDeviceCalibrationConfig":
+    ) -> "RigLaserlineDeviceConfig":
         cfg = cls()
         for key, value in mapping.items():
             if key == "solver":
@@ -1963,16 +1963,16 @@ class RigLaserlineDeviceCalibrationConfig:
             elif key == "laser_residual_type":
                 cfg.laser_residual_type = cast(LaserlineResidualType, value)
             else:
-                raise ValueError(f"unknown RigLaserlineDeviceCalibrationConfig field: {key}")
+                raise ValueError(f"unknown RigLaserlineDeviceConfig field: {key}")
         return cfg
 
 
 @dataclass(slots=True)
-class RigLaserlineDeviceResult:
+class RigLaserlineDeviceExport:
     """Result from :func:`vision_calibration.run_rig_laserline_device`."""
 
-    laser_planes_rig: list[LaserlinePlane]
-    laser_planes_cam: list[LaserlinePlane]
+    laser_planes_rig: list[LaserPlane]
+    laser_planes_cam: list[LaserPlane]
     per_camera_stats: list[LaserlineStats]
     uncertainty: ParameterUncertainty = field(
         default_factory=lambda: ParameterUncertainty(available=False, reason="not_computed")
@@ -1982,15 +1982,15 @@ class RigLaserlineDeviceResult:
     :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "RigLaserlineDeviceResult":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigLaserlineDeviceExport":
         return cls(
             export=dict(payload),
             laser_planes_rig=[
-                LaserlinePlane.from_payload(cast(Mapping[str, Any], p))
+                LaserPlane.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["laser_planes_rig"])
             ],
             laser_planes_cam=[
-                LaserlinePlane.from_payload(cast(Mapping[str, Any], p))
+                LaserPlane.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["laser_planes_cam"])
             ],
             per_camera_stats=[
@@ -2040,7 +2040,7 @@ class RigHandeyeLaserlineView:
 
 
 @dataclass(slots=True)
-class RigHandeyeLaserlineDataset:
+class RigHandeyeLaserlineInput:
     """Joint rig hand-eye laserline dataset (``RigHandeyeLaserlineInput``)."""
 
     num_cameras: int
@@ -2054,7 +2054,7 @@ class RigHandeyeLaserlineDataset:
 
 
 @dataclass(slots=True)
-class RigHandeyeLaserlineBaConfig:
+class JointOptimizeConfig:
     """Final joint bundle-adjustment stage settings.
 
     ``fix`` holds one :class:`CameraFix` per camera, each named in that
@@ -2092,7 +2092,7 @@ class RigHandeyeLaserlineBaConfig:
         }
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, Any]) -> "RigHandeyeLaserlineBaConfig":
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "JointOptimizeConfig":
         cfg = cls()
         for key, value in mapping.items():
             if key == "solver":
@@ -2113,74 +2113,74 @@ class RigHandeyeLaserlineBaConfig:
                     else RobotPoseConfig.from_mapping(cast(Mapping[str, Any], value))
                 )
             elif not hasattr(cfg, key):
-                raise ValueError(f"unknown RigHandeyeLaserlineBaConfig field: {key}")
+                raise ValueError(f"unknown JointOptimizeConfig field: {key}")
             else:
                 setattr(cfg, key, value)
         return cfg
 
 
 @dataclass(slots=True)
-class RigHandeyeLaserlineCalibrationConfig:
+class RigHandeyeLaserlineConfig:
     """Configuration for joint rig hand-eye laserline calibration.
 
     Three warm-started stages: the rig hand-eye stage (``handeye``), the
     frozen-geometry laser plane init (``laserline_init``, defaults to a
     point-to-plane residual), and the final joint bundle adjustment
-    (``joint_ba``).
+    (``joint_optimize``).
     """
 
-    handeye: RigHandeyeCalibrationConfig = field(
-        default_factory=RigHandeyeCalibrationConfig
+    handeye: RigHandeyeConfig = field(
+        default_factory=RigHandeyeConfig
     )
-    laserline_init: RigLaserlineDeviceCalibrationConfig = field(
-        default_factory=lambda: RigLaserlineDeviceCalibrationConfig(
+    laserline_init: RigLaserlineDeviceConfig = field(
+        default_factory=lambda: RigLaserlineDeviceConfig(
             laser_residual_type="PointToPlane"
         )
     )
-    joint_ba: RigHandeyeLaserlineBaConfig = field(
-        default_factory=RigHandeyeLaserlineBaConfig
+    joint_optimize: JointOptimizeConfig = field(
+        default_factory=JointOptimizeConfig
     )
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "handeye": self.handeye.to_payload(),
             "laserline_init": self.laserline_init.to_payload(),
-            "joint_ba": self.joint_ba.to_payload(),
+            "joint_optimize": self.joint_optimize.to_payload(),
         }
 
     @classmethod
     def from_mapping(
         cls, mapping: Mapping[str, Any]
-    ) -> "RigHandeyeLaserlineCalibrationConfig":
+    ) -> "RigHandeyeLaserlineConfig":
         cfg = cls()
         for key, value in mapping.items():
             if key == "handeye":
                 cfg.handeye = (
                     value
-                    if isinstance(value, RigHandeyeCalibrationConfig)
-                    else RigHandeyeCalibrationConfig.from_mapping(
+                    if isinstance(value, RigHandeyeConfig)
+                    else RigHandeyeConfig.from_mapping(
                         cast(Mapping[str, Any], value)
                     )
                 )
             elif key == "laserline_init":
                 cfg.laserline_init = (
                     value
-                    if isinstance(value, RigLaserlineDeviceCalibrationConfig)
-                    else RigLaserlineDeviceCalibrationConfig.from_mapping(
+                    if isinstance(value, RigLaserlineDeviceConfig)
+                    else RigLaserlineDeviceConfig.from_mapping(
                         cast(Mapping[str, Any], value)
                     )
                 )
-            elif key == "joint_ba":
-                cfg.joint_ba = (
+            elif key == "joint_optimize":
+                cfg.joint_optimize = (
                     value
-                    if isinstance(value, RigHandeyeLaserlineBaConfig)
-                    else RigHandeyeLaserlineBaConfig.from_mapping(
+                    if isinstance(value, JointOptimizeConfig)
+                    else JointOptimizeConfig.from_mapping(
                         cast(Mapping[str, Any], value)
                     )
                 )
             else:
                 raise ValueError(
-                    f"unknown RigHandeyeLaserlineCalibrationConfig field: {key}"
+                    f"unknown RigHandeyeLaserlineConfig field: {key}"
                 )
         return cfg
 
@@ -2217,16 +2217,16 @@ class RigHandeyeLaserlinePerCamStats:
 
 
 @dataclass(slots=True)
-class RigHandeyeLaserlineResult:
+class RigHandeyeLaserlineExport:
     """Result from :func:`vision_calibration.run_rig_handeye_laserline`."""
 
-    laser_planes_rig: list[LaserlinePlane]
-    laser_planes_cam: list[LaserlinePlane]
+    laser_planes_rig: list[LaserPlane]
+    laser_planes_cam: list[LaserPlane]
     per_camera_stats: list[RigHandeyeLaserlinePerCamStats]
     cameras: list[Camera]
     cam_se3_rig: list[Pose]
     rig_se3_target: list[Pose]
-    handeye_mode: HandEyeMode
+    handeye_mode: HandeyeMode
     gripper_se3_rig: Pose | None
     rig_se3_base: Pose | None
     base_se3_target: Pose | None
@@ -2242,7 +2242,7 @@ class RigHandeyeLaserlineResult:
     :func:`~vision_calibration.projection_uncertainty` reads it."""
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeLaserlineResult":
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RigHandeyeLaserlineExport":
         def _pose(name: str) -> Pose | None:
             value = payload.get(name)
             if value is None:
@@ -2252,11 +2252,11 @@ class RigHandeyeLaserlineResult:
         return cls(
             export=dict(payload),
             laser_planes_rig=[
-                LaserlinePlane.from_payload(cast(Mapping[str, Any], p))
+                LaserPlane.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["laser_planes_rig"])
             ],
             laser_planes_cam=[
-                LaserlinePlane.from_payload(cast(Mapping[str, Any], p))
+                LaserPlane.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["laser_planes_cam"])
             ],
             per_camera_stats=[
@@ -2272,7 +2272,7 @@ class RigHandeyeLaserlineResult:
                 Pose.from_payload(cast(Mapping[str, Any], p))
                 for p in cast(list[Any], payload["rig_se3_target"])
             ],
-            handeye_mode=cast(HandEyeMode, payload["handeye_mode"]),
+            handeye_mode=cast(HandeyeMode, payload["handeye_mode"]),
             gripper_se3_rig=_pose("gripper_se3_rig"),
             rig_se3_base=_pose("rig_se3_base"),
             base_se3_target=_pose("base_se3_target"),

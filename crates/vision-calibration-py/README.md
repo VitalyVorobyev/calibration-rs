@@ -41,8 +41,8 @@ obs = vc.Observation(
     points_3d=[(0.0, 0.0, 0.0), (0.1, 0.0, 0.0), (0.1, 0.1, 0.0), (0.0, 0.1, 0.0)],
     points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
 )
-dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
-config = vc.PlanarCalibrationConfig(
+dataset = vc.PlanarIntrinsicsInput(views=[vc.PlanarView(observation=obs)] * 3)
+config = vc.PlanarIntrinsicsConfig(
     solver=vc.SolverConfig(max_iters=80, robust_loss=vc.robust_huber(1.0)),
 )
 
@@ -61,8 +61,8 @@ obs = vc.Observation(
     points_3d=[(0.0, 0.0, 0.0), (0.1, 0.0, 0.0), (0.1, 0.1, 0.0), (0.0, 0.1, 0.0)],
     points_2d=[(100.0, 100.0), (200.0, 100.0), (200.0, 200.0), (100.0, 200.0)],
 )
-dataset = vc.PlanarDataset(views=[vc.PlanarView(observation=obs)] * 3)
-config = vc.PlanarCalibrationConfig(
+dataset = vc.PlanarIntrinsicsInput(views=[vc.PlanarView(observation=obs)] * 3)
+config = vc.PlanarIntrinsicsConfig(
     camera=vc.CameraConfig(model=vc.CameraModelSpec(sensor="scheimpflug")),
 )
 result = vc.run_planar_intrinsics(dataset, config)

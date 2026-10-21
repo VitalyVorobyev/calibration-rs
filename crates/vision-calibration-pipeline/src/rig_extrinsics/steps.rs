@@ -28,7 +28,9 @@ use super::problem::{RigExtrinsicsInput, RigExtrinsicsProblem};
 // Step Options
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
+pub use crate::common::{
+    IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigOptimizeOptions,
+};
 
 /// Manual seeds for the **per-camera intrinsics stage** of rig extrinsics
 /// calibration.
@@ -38,7 +40,7 @@ pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 /// then recovered from per-camera homographies using the seeded intrinsics. When
 /// `None`, the existing per-camera auto-init runs.
 ///
-/// `per_cam_distortion` follows the same convention as `PlanarManualInit`: when
+/// `per_cam_distortion` follows the same convention as `IntrinsicsManualInit`: when
 /// intrinsics are seeded but distortion is not, distortion defaults to zeros. When
 /// intrinsics are auto-init'd, the bootstrap fitted distortion is used unless
 /// distortion is seeded explicitly. The seed is Brown-Conrady, the model the
@@ -52,7 +54,7 @@ pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 /// Per-camera vectors must have length equal to `input.num_cameras`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct RigIntrinsicsManualInit {
+pub struct IntrinsicsManualInit {
     /// Per-camera intrinsics seeds. `None` runs Zhang's per camera.
     pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
     /// Per-camera distortion seeds.
@@ -70,21 +72,11 @@ pub struct RigIntrinsicsManualInit {
 /// be `None`. A mismatched configuration returns `Error::InvalidInput`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct RigExtrinsicsManualInit {
+pub struct RigManualInit {
     /// Per-camera `T_C_R` (camera-from-rig). `None` runs the linear extrinsics fit.
     pub cam_se3_rig: Option<Vec<Iso3>>,
     /// Per-view `T_R_T` (rig-from-target). Must be paired with `cam_se3_rig`.
     pub rig_se3_target: Option<Vec<Iso3>>,
-}
-
-/// Options for rig BA optimization.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct RigOptimizeOptions {
-    /// Override the maximum number of iterations.
-    pub max_iters: Option<usize>,
-    /// Override verbosity level.
-    pub verbosity: Option<usize>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,7 +114,7 @@ fn extract_camera_views(input: &RigExtrinsicsInput, cam_idx: usize) -> Vec<Optio
 /// target in a given view.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct RigIntrinsicsInitAllResult {
+pub struct IntrinsicsInitResult {
     /// Per-camera initial parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
     /// Per-camera target poses: `[view][cam] -> Option<Iso3>` (`camera_se3_target`).
@@ -133,7 +125,7 @@ pub struct RigIntrinsicsInitAllResult {
 /// Typed return value of [`step_intrinsics_optimize_all`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct RigIntrinsicsOptimizeAllResult {
+pub struct IntrinsicsOptimizeResult {
     /// Per-camera refined parameters, each in its camera's model.
     pub cameras: Vec<CameraParams>,
     /// Per-camera mean reprojection error in pixels.
@@ -170,9 +162,9 @@ pub struct RigOptimizeResult {
 /// and auto-estimation (Zhang's method per camera).
 ///
 /// This is the load-bearing intrinsics-stage init. [`step_intrinsics_init_all`]
-/// is a thin delegate with `RigIntrinsicsManualInit::default()`.
+/// is a thin delegate with `IntrinsicsManualInit::default()`.
 ///
-/// See [`RigIntrinsicsManualInit`] for partial-seed semantics. Per-camera target
+/// See [`IntrinsicsManualInit`] for partial-seed semantics. Per-camera target
 /// poses are *always* recovered from per-camera homographies — using the seeded
 /// intrinsics if provided, otherwise the auto-fit intrinsics. Each camera is
 /// initialized in its own model (`config.camera_for(i)`); an unset
@@ -187,9 +179,9 @@ pub struct RigOptimizeResult {
 ///   for an untilted camera.
 pub fn step_intrinsics_init_all_with_seed(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
-    manual: RigIntrinsicsManualInit,
+    manual: IntrinsicsManualInit,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<RigIntrinsicsInitAllResult, Error> {
+) -> Result<IntrinsicsInitResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -239,7 +231,7 @@ pub fn step_intrinsics_init_all_with_seed(
         format!("initialized {num_cameras} cameras {source}"),
     );
 
-    Ok(RigIntrinsicsInitAllResult {
+    Ok(IntrinsicsInitResult {
         cameras,
         per_cam_target_poses,
     })
@@ -251,8 +243,8 @@ pub fn step_intrinsics_init_all_with_seed(
 pub fn step_intrinsics_init_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<RigIntrinsicsInitAllResult, Error> {
-    step_intrinsics_init_all_with_seed(session, RigIntrinsicsManualInit::default(), opts)
+) -> Result<IntrinsicsInitResult, Error> {
+    step_intrinsics_init_all_with_seed(session, IntrinsicsManualInit::default(), opts)
 }
 
 /// Optimize intrinsics for all cameras.
@@ -272,7 +264,7 @@ pub fn step_intrinsics_init_all(
 pub fn step_intrinsics_optimize_all(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
     opts: Option<IntrinsicsOptimizeOptions>,
-) -> Result<RigIntrinsicsOptimizeAllResult, Error> {
+) -> Result<IntrinsicsOptimizeResult, Error> {
     session.validate()?;
     let input = session.require_input()?;
 
@@ -356,7 +348,7 @@ pub fn step_intrinsics_optimize_all(
         format!("avg_reproj_err={avg_error:.3}px"),
     );
 
-    Ok(RigIntrinsicsOptimizeAllResult {
+    Ok(IntrinsicsOptimizeResult {
         cameras: optimized_cameras,
         per_cam_reproj_errors,
     })
@@ -366,7 +358,7 @@ pub fn step_intrinsics_optimize_all(
 /// estimation (linear extrinsics fit).
 ///
 /// This is the load-bearing rig-stage init. [`step_rig_init`] is a thin delegate
-/// with `RigExtrinsicsManualInit::default()`.
+/// with `RigManualInit::default()`.
 ///
 /// **Coupling rule**: `cam_se3_rig` and `rig_se3_target` are
 /// geometrically coupled. Both must be `Some` or both `None`. Mismatched
@@ -382,8 +374,10 @@ pub fn step_intrinsics_optimize_all(
 /// - Auto-init linear estimation fails.
 pub fn step_rig_init_with_seed(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
-    manual: RigExtrinsicsManualInit,
+    manual: RigManualInit,
+    opts: Option<RigInitOptions>,
 ) -> Result<RigInitResult, Error> {
+    let RigInitOptions {} = opts.unwrap_or_default();
     session.validate()?;
     let input = session.require_input()?;
 
@@ -400,7 +394,7 @@ pub fn step_rig_init_with_seed(
     // Coupling rule: both-or-neither.
     match (&manual.cam_se3_rig, &manual.rig_se3_target) {
         (Some(_), None) | (None, Some(_)) => {
-            let msg = "RigExtrinsicsManualInit: cam_se3_rig and rig_se3_target must both be Some or \
+            let msg = "RigManualInit: cam_se3_rig and rig_se3_target must both be Some or \
                  both be None (geometrically coupled per ADR 0011)";
             session.log_failure("rig_init", msg);
             return Err(Error::invalid_input(msg));
@@ -481,8 +475,9 @@ pub fn step_rig_init_with_seed(
 /// Convenience wrapper around [`step_rig_init_with_seed`] with default seeds.
 pub fn step_rig_init(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
+    opts: Option<RigInitOptions>,
 ) -> Result<RigInitResult, Error> {
-    step_rig_init_with_seed(session, RigExtrinsicsManualInit::default())
+    step_rig_init_with_seed(session, RigManualInit::default(), opts)
 }
 
 /// Optimize rig extrinsics using bundle adjustment.
@@ -491,7 +486,7 @@ pub fn step_rig_init(
 /// - Per-camera extrinsics (camera-to-rig)
 /// - Per-view rig poses (rig-to-target)
 /// - Optionally: per-camera intrinsics and distortion (if
-///   `rig.refine_intrinsics_in_rig_ba` is true), holding each camera's `fix`
+///   `rig.refine_intrinsics` is true), holding each camera's `fix`
 ///   lists
 /// - Optionally: the tilt of each Scheimpflug camera (if `rig.refine_sensor`
 ///   is true), holding its `fix.sensor` list
@@ -543,7 +538,7 @@ pub fn step_rig_optimize(
         .map(|i| {
             rig_ba_fix(
                 &config.camera_for(i),
-                config.rig.refine_intrinsics_in_rig_ba,
+                config.rig.refine_intrinsics,
                 config.rig.refine_sensor,
             )
         })
@@ -620,7 +615,7 @@ pub fn run_calibration(
 ) -> Result<(), Error> {
     let _ = step_intrinsics_init_all(session, None)?;
     let _ = step_intrinsics_optimize_all(session, None)?;
-    let _ = step_rig_init(session)?;
+    let _ = step_rig_init(session, None)?;
     let _ = step_rig_optimize(session, None)?;
     Ok(())
 }
@@ -724,7 +719,7 @@ mod tests {
         let mut session = CalibrationSession::<RigExtrinsicsProblem>::new();
         session.set_input(make_test_input()).unwrap();
 
-        let result = step_rig_init(&mut session);
+        let result = step_rig_init(&mut session, None);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("intrinsics"));
     }

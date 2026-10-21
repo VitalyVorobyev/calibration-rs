@@ -13,33 +13,33 @@ from typing import Any, Mapping, TypeVar, cast
 
 from . import _vision_calibration as _native
 from .models import (
-    LaserlineDataset,
-    LaserlineDeviceCalibrationConfig,
-    LaserlineDeviceResult,
-    LaserlinePlane,
-    PlanarCalibrationConfig,
-    PlanarCalibrationResult,
-    PlanarDataset,
+    LaserlineDeviceInput,
+    LaserlineDeviceConfig,
+    LaserlineDeviceExport,
+    LaserPlane,
+    PlanarIntrinsicsConfig,
+    PlanarIntrinsicsExport,
+    PlanarIntrinsicsInput,
     Pose,
     ProjectionUncertainty,
-    RigExtrinsicsCalibrationConfig,
-    RigExtrinsicsDataset,
-    RigExtrinsicsResult,
-    RigHandeyeCalibrationConfig,
-    RigHandeyeDataset,
-    RigHandeyeLaserlineCalibrationConfig,
-    RigHandeyeLaserlineDataset,
-    RigHandeyeLaserlineResult,
-    RigHandeyeResult,
+    RigExtrinsicsConfig,
+    RigExtrinsicsInput,
+    RigExtrinsicsExport,
+    RigHandeyeConfig,
+    RigHandeyeInput,
+    RigHandeyeLaserlineConfig,
+    RigHandeyeLaserlineInput,
+    RigHandeyeLaserlineExport,
+    RigHandeyeExport,
     RigLaserlineDataset,
-    RigLaserlineDeviceCalibrationConfig,
+    RigLaserlineDeviceConfig,
     RigLaserlineDeviceInput,
-    RigLaserlineDeviceResult,
-    RigLaserlineUpstreamCalibration,
-    RigHandeyeResult,
-    SingleCamHandeyeCalibrationConfig,
-    SingleCamHandeyeDataset,
-    SingleCamHandeyeResult,
+    RigLaserlineDeviceExport,
+    RigUpstreamCalibration,
+    RigHandeyeExport,
+    SingleCamHandeyeConfig,
+    SingleCamHandeyeInput,
+    SingleCamHandeyeExport,
 )
 from .types import RobustLoss
 
@@ -92,41 +92,41 @@ def _ensure_optional_type(
 def _run_planar_intrinsics_raw(
     input_payload: Mapping[str, Any],
     config_payload: Mapping[str, Any] | None = None,
-) -> PlanarCalibrationResult:
+) -> PlanarIntrinsicsExport:
     raw = cast(dict[str, Any], _native.run_planar_intrinsics(input_payload, config_payload))
-    return PlanarCalibrationResult.from_payload(raw)
+    return PlanarIntrinsicsExport.from_payload(raw)
 
 
 def _run_single_cam_handeye_raw(
     input_payload: Mapping[str, Any],
     config_payload: Mapping[str, Any] | None = None,
-) -> SingleCamHandeyeResult:
+) -> SingleCamHandeyeExport:
     raw = cast(dict[str, Any], _native.run_single_cam_handeye(input_payload, config_payload))
-    return SingleCamHandeyeResult.from_payload(raw)
+    return SingleCamHandeyeExport.from_payload(raw)
 
 
 def _run_rig_extrinsics_raw(
     input_payload: Mapping[str, Any],
     config_payload: Mapping[str, Any] | None = None,
-) -> RigExtrinsicsResult:
+) -> RigExtrinsicsExport:
     raw = cast(dict[str, Any], _native.run_rig_extrinsics(input_payload, config_payload))
-    return RigExtrinsicsResult.from_payload(raw)
+    return RigExtrinsicsExport.from_payload(raw)
 
 
 def _run_rig_handeye_raw(
     input_payload: Mapping[str, Any],
     config_payload: Mapping[str, Any] | None = None,
-) -> RigHandeyeResult:
+) -> RigHandeyeExport:
     raw = cast(dict[str, Any], _native.run_rig_handeye(input_payload, config_payload))
-    return RigHandeyeResult.from_payload(raw)
+    return RigHandeyeExport.from_payload(raw)
 
 
 def _run_laserline_device_raw(
     input_payload: list[dict[str, Any]],
     config_payload: Mapping[str, Any] | None = None,
-) -> LaserlineDeviceResult:
+) -> LaserlineDeviceExport:
     raw = cast(dict[str, Any], _native.run_laserline_device(input_payload, config_payload))
-    return LaserlineDeviceResult.from_payload(raw)
+    return LaserlineDeviceExport.from_payload(raw)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -135,12 +135,12 @@ def _run_laserline_device_raw(
 
 
 def run_planar_intrinsics(
-    input: PlanarDataset,
-    config: PlanarCalibrationConfig | None = None,
-) -> PlanarCalibrationResult:
+    input: PlanarIntrinsicsInput,
+    config: PlanarIntrinsicsConfig | None = None,
+) -> PlanarIntrinsicsExport:
     """Run planar intrinsics calibration with typed input/config objects."""
-    dataset = _ensure_type(input, PlanarDataset, "input")
-    cfg = _ensure_optional_type(config, PlanarCalibrationConfig, "config")
+    dataset = _ensure_type(input, PlanarIntrinsicsInput, "input")
+    cfg = _ensure_optional_type(config, PlanarIntrinsicsConfig, "config")
     return _run_planar_intrinsics_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
@@ -148,12 +148,12 @@ def run_planar_intrinsics(
 
 
 def run_single_cam_handeye(
-    input: SingleCamHandeyeDataset,
-    config: SingleCamHandeyeCalibrationConfig | None = None,
-) -> SingleCamHandeyeResult:
+    input: SingleCamHandeyeInput,
+    config: SingleCamHandeyeConfig | None = None,
+) -> SingleCamHandeyeExport:
     """Run single-camera hand-eye calibration with typed input/config objects."""
-    dataset = _ensure_type(input, SingleCamHandeyeDataset, "input")
-    cfg = _ensure_optional_type(config, SingleCamHandeyeCalibrationConfig, "config")
+    dataset = _ensure_type(input, SingleCamHandeyeInput, "input")
+    cfg = _ensure_optional_type(config, SingleCamHandeyeConfig, "config")
     return _run_single_cam_handeye_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
@@ -161,12 +161,12 @@ def run_single_cam_handeye(
 
 
 def run_rig_extrinsics(
-    input: RigExtrinsicsDataset,
-    config: RigExtrinsicsCalibrationConfig | None = None,
-) -> RigExtrinsicsResult:
+    input: RigExtrinsicsInput,
+    config: RigExtrinsicsConfig | None = None,
+) -> RigExtrinsicsExport:
     """Run rig extrinsics calibration with typed input/config objects."""
-    dataset = _ensure_type(input, RigExtrinsicsDataset, "input")
-    cfg = _ensure_optional_type(config, RigExtrinsicsCalibrationConfig, "config")
+    dataset = _ensure_type(input, RigExtrinsicsInput, "input")
+    cfg = _ensure_optional_type(config, RigExtrinsicsConfig, "config")
     return _run_rig_extrinsics_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
@@ -174,12 +174,12 @@ def run_rig_extrinsics(
 
 
 def run_rig_handeye(
-    input: RigHandeyeDataset,
-    config: RigHandeyeCalibrationConfig | None = None,
-) -> RigHandeyeResult:
+    input: RigHandeyeInput,
+    config: RigHandeyeConfig | None = None,
+) -> RigHandeyeExport:
     """Run rig hand-eye calibration with typed input/config objects."""
-    dataset = _ensure_type(input, RigHandeyeDataset, "input")
-    cfg = _ensure_optional_type(config, RigHandeyeCalibrationConfig, "config")
+    dataset = _ensure_type(input, RigHandeyeInput, "input")
+    cfg = _ensure_optional_type(config, RigHandeyeConfig, "config")
     return _run_rig_handeye_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
@@ -187,12 +187,12 @@ def run_rig_handeye(
 
 
 def run_laserline_device(
-    input: LaserlineDataset,
-    config: LaserlineDeviceCalibrationConfig | None = None,
-) -> LaserlineDeviceResult:
+    input: LaserlineDeviceInput,
+    config: LaserlineDeviceConfig | None = None,
+) -> LaserlineDeviceExport:
     """Run laserline-device calibration with typed input/config objects."""
-    dataset = _ensure_type(input, LaserlineDataset, "input")
-    cfg = _ensure_optional_type(config, LaserlineDeviceCalibrationConfig, "config")
+    dataset = _ensure_type(input, LaserlineDeviceInput, "input")
+    cfg = _ensure_optional_type(config, LaserlineDeviceConfig, "config")
     return _run_laserline_device_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
@@ -207,21 +207,21 @@ def run_laserline_device(
 def _run_rig_laserline_device_raw(
     input_payload: Mapping[str, Any],
     config_payload: Mapping[str, Any] | None = None,
-) -> RigLaserlineDeviceResult:
+) -> RigLaserlineDeviceExport:
     raw = cast(
         dict[str, Any],
         _native.run_rig_laserline_device(input_payload, config_payload),
     )
-    return RigLaserlineDeviceResult.from_payload(raw)
+    return RigLaserlineDeviceExport.from_payload(raw)
 
 
 def run_rig_laserline_device(
     input: RigLaserlineDeviceInput,
-    config: RigLaserlineDeviceCalibrationConfig | None = None,
-) -> RigLaserlineDeviceResult:
+    config: RigLaserlineDeviceConfig | None = None,
+) -> RigLaserlineDeviceExport:
     """Run rig laserline device calibration with typed input/config objects."""
     inp = _ensure_type(input, RigLaserlineDeviceInput, "input")
-    cfg = _ensure_optional_type(config, RigLaserlineDeviceCalibrationConfig, "config")
+    cfg = _ensure_optional_type(config, RigLaserlineDeviceConfig, "config")
     return _run_rig_laserline_device_raw(
         inp.to_payload(),
         None if cfg is None else cfg.to_payload(),
@@ -236,21 +236,21 @@ def run_rig_laserline_device(
 def _run_rig_handeye_laserline_raw(
     input_payload: Mapping[str, Any],
     config_payload: Mapping[str, Any] | None = None,
-) -> RigHandeyeLaserlineResult:
+) -> RigHandeyeLaserlineExport:
     raw = cast(
         dict[str, Any],
         _native.run_rig_handeye_laserline(input_payload, config_payload),
     )
-    return RigHandeyeLaserlineResult.from_payload(raw)
+    return RigHandeyeLaserlineExport.from_payload(raw)
 
 
 def run_rig_handeye_laserline(
-    input: RigHandeyeLaserlineDataset,
-    config: RigHandeyeLaserlineCalibrationConfig | None = None,
-) -> RigHandeyeLaserlineResult:
+    input: RigHandeyeLaserlineInput,
+    config: RigHandeyeLaserlineConfig | None = None,
+) -> RigHandeyeLaserlineExport:
     """Run joint rig hand-eye laserline calibration with typed input/config objects."""
-    dataset = _ensure_type(input, RigHandeyeLaserlineDataset, "input")
-    cfg = _ensure_optional_type(config, RigHandeyeLaserlineCalibrationConfig, "config")
+    dataset = _ensure_type(input, RigHandeyeLaserlineInput, "input")
+    cfg = _ensure_optional_type(config, RigHandeyeLaserlineConfig, "config")
     return _run_rig_handeye_laserline_raw(
         dataset.to_payload(),
         None if cfg is None else cfg.to_payload(),
@@ -286,8 +286,8 @@ def _pixel_to_gripper_point_raw(
 def pixel_to_gripper_point(
     cam_idx: int,
     pixel: tuple[float, float] | list[float],
-    rig_cal: RigHandeyeResult | Mapping[str, Any],
-    laser_planes_rig: list[LaserlinePlane] | list[Mapping[str, Any]],
+    rig_cal: RigHandeyeExport | Mapping[str, Any],
+    laser_planes_rig: list[LaserPlane] | list[Mapping[str, Any]],
     base_se3_gripper: Pose | Mapping[str, Any] | None = None,
 ) -> tuple[float, float, float]:
     """Map a laser pixel in a rig camera to a 3D point in the gripper frame.
@@ -300,11 +300,11 @@ def pixel_to_gripper_point(
         Observed pixel as ``(u, v)``.
     rig_cal:
         Rig hand-eye calibration result — either a typed
-        :class:`~vision_calibration.models.RigHandeyeResult` or
+        :class:`~vision_calibration.models.RigHandeyeExport` or
         a raw serde payload dict.
     laser_planes_rig:
         Per-camera laser planes in rig frame — either typed
-        :class:`~vision_calibration.models.LaserlinePlane` instances or
+        :class:`~vision_calibration.models.LaserPlane` instances or
         raw serde payload dicts.
     base_se3_gripper:
         Robot gripper pose (required for EyeToHand; ignored for EyeInHand).
@@ -317,16 +317,16 @@ def pixel_to_gripper_point(
         3D point ``(x, y, z)`` in gripper frame.
     """
     # Normalise rig_cal — accept the typed dataclass or a raw dict
-    if isinstance(rig_cal, RigHandeyeResult):
+    if isinstance(rig_cal, RigHandeyeExport):
         rig_cal_payload: Mapping[str, Any] = rig_cal.to_payload()
     else:
         rig_cal_payload = dict(rig_cal)
 
-    # Normalise planes — use LaserlinePlane.to_payload() which emits the
+    # Normalise planes — use LaserPlane.to_payload() which emits the
     # correct {"normal": [x, y, z], "distance": d} shape expected by Rust
     planes_payload: list[Any] = []
     for p in laser_planes_rig:
-        if isinstance(p, LaserlinePlane):
+        if isinstance(p, LaserPlane):
             planes_payload.append(p.to_payload())
         else:
             planes_payload.append(dict(p))
@@ -349,13 +349,13 @@ def pixel_to_gripper_point(
 # ─────────────────────────────────────────────────────────────────────────────
 
 CalibrationResult = (
-    PlanarCalibrationResult
-    | SingleCamHandeyeResult
-    | LaserlineDeviceResult
-    | RigExtrinsicsResult
-    | RigHandeyeResult
-    | RigLaserlineDeviceResult
-    | RigHandeyeLaserlineResult
+    PlanarIntrinsicsExport
+    | SingleCamHandeyeExport
+    | LaserlineDeviceExport
+    | RigExtrinsicsExport
+    | RigHandeyeExport
+    | RigLaserlineDeviceExport
+    | RigHandeyeLaserlineExport
 )
 
 

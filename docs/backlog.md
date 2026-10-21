@@ -11,23 +11,6 @@ match the ROADMAP; each says its phase. Dependencies are named as
 One camera-model spec and one vocabulary across every problem type. The
 breaking changes of the program happen here, before v1.0.
 
-- [ ] API-VOCAB - One naming scheme, recorded in ADR 0024:
-  - one output suffix; today `Estimate`, `Result` and `Output` are all
-    used;
-  - `HandEye` casing everywhere; `Handeye*` is also used;
-  - a rule for input types; today it is a mix of aliases and structs;
-  - `run_calibration(input, config)` with the same signature in every
-    problem (two take `Option<Config>`);
-  - step options for every step (`rig_laserline_device::step_init` takes
-    none);
-  - Python names identical to Rust (`PlanarCalibrationConfig` becomes
-    `PlanarIntrinsicsConfig`);
-  - `rig.refine_intrinsics_in_rig_ba` becomes `rig.refine_intrinsics`, to
-    match `rig.refine_sensor` (the stage group carries the stage).
-
-  Gate: the CHANGELOG migration table, and the facade compile-surface
-  test updated. Lands in the same release as the camera-spec configs
-  (`camera` in every workflow), so users migrate configs once.
 - [ ] API-DEDUP - One implementation per concept:
   - route `vision-calibration-bench`'s Tier-B detect adapters
     (`src/detect.rs`) through `vision-calibration-detect`;
@@ -128,7 +111,7 @@ need their measurement first and stay opt-in until it is in.
 - [ ] PY-TYPES - Generate the Python `TypedDict`s and `__init__.pyi` stubs
   from the JSON schemas `cargo xtask emit-schemas` already writes for the
   app, and delete the hand-written duplicates in `types.py`. Gate: a schema
-  drift check in CI covers the generated Python. Needs: API-VOCAB.
+  drift check in CI covers the generated Python.
 - [ ] PY-PARITY - Bring the Python package to the facade:
   - the session and step API, including manual init (Rust-only today);
   - manifest-driven runs (`dataset_runner`) and the detectors on numpy

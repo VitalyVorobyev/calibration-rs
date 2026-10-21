@@ -29,7 +29,7 @@ use vision_calibration_dataset::DatasetSpec;
 /// Re-exported so callers naming [`DetectorOverride::chess_corners`] do not
 /// need a direct `vision-calibration-dataset` dependency.
 pub use vision_calibration_dataset::{ChessCornersDetectorSpec, CornerStrategySpec};
-use vision_calibration_optim::{HandEyeMode, RobustLoss, SolverBackend};
+use vision_calibration_optim::{HandeyeMode, RobustLoss, SolverBackend};
 use vision_calibration_pipeline::common::config::{CameraConfig, CameraOverride, RobotPoseConfig};
 use vision_calibration_pipeline::rig_handeye::RigHandeyeConfig;
 use vision_calibration_pipeline::single_cam_handeye::SingleCamHandeyeConfig;
@@ -358,17 +358,17 @@ pub struct ManualInitSeed(pub serde_json::Value);
 /// Shared hand-eye bundle-adjustment overrides.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
-pub struct HandeyeBaOverride {
+pub struct HandeyeOptimizeOverride {
     /// Enable/disable per-view robot pose refinement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refine_robot_poses: Option<bool>,
     /// Enable/disable rig-extrinsic refinement in final rig hand-eye BA.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refine_cam_se3_rig_in_handeye_ba: Option<bool>,
+    pub refine_cam_se3_rig: Option<bool>,
     /// Enable/disable sensor-tilt refinement of Scheimpflug cameras in the
     /// final rig hand-eye BA.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refine_sensor_in_handeye_ba: Option<bool>,
+    pub refine_sensor: Option<bool>,
     /// Robot rotation prior sigma in radians.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub robot_rot_sigma: Option<f64>,
@@ -386,7 +386,7 @@ pub struct SingleCamHandeyeOverride {
     pub camera: Option<CameraConfig>,
     /// Hand-eye mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub handeye_mode: Option<BenchHandEyeMode>,
+    pub handeye_mode: Option<BenchHandeyeMode>,
     /// Solver max iterations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_iters: Option<usize>,
@@ -395,7 +395,7 @@ pub struct SingleCamHandeyeOverride {
     pub robust_loss: Option<BenchRobustLoss>,
     /// Bundle-adjustment robot-pose settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub handeye_ba: Option<HandeyeBaOverride>,
+    pub handeye_optimize: Option<HandeyeOptimizeOverride>,
 }
 
 /// Rig hand-eye config overrides.
@@ -413,7 +413,7 @@ pub struct RigHandeyeOverride {
     pub refine_sensor: Option<bool>,
     /// Hand-eye mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub handeye_mode: Option<BenchHandEyeMode>,
+    pub handeye_mode: Option<BenchHandeyeMode>,
     /// Solver max iterations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_iters: Option<usize>,
@@ -422,30 +422,30 @@ pub struct RigHandeyeOverride {
     pub robust_loss: Option<BenchRobustLoss>,
     /// Re-refine intrinsics in rig BA.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refine_intrinsics_in_rig_ba: Option<bool>,
+    pub refine_intrinsics: Option<bool>,
     /// Fix tangential distortion (`p1`, `p2`) during per-camera intrinsics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix_tangential: Option<bool>,
     /// Bundle-adjustment robot-pose settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub handeye_ba: Option<HandeyeBaOverride>,
+    pub handeye_optimize: Option<HandeyeOptimizeOverride>,
 }
 
 /// Registry hand-eye mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum BenchHandEyeMode {
+pub enum BenchHandeyeMode {
     /// Camera mounted on the gripper.
     EyeInHand,
     /// Camera fixed in workspace / rig sees robot-held target.
     EyeToHand,
 }
 
-impl From<BenchHandEyeMode> for HandEyeMode {
-    fn from(value: BenchHandEyeMode) -> Self {
+impl From<BenchHandeyeMode> for HandeyeMode {
+    fn from(value: BenchHandeyeMode) -> Self {
         match value {
-            BenchHandEyeMode::EyeInHand => HandEyeMode::EyeInHand,
-            BenchHandEyeMode::EyeToHand => HandEyeMode::EyeToHand,
+            BenchHandeyeMode::EyeInHand => HandeyeMode::EyeInHand,
+            BenchHandeyeMode::EyeToHand => HandeyeMode::EyeToHand,
         }
     }
 }
@@ -499,8 +499,8 @@ impl SingleCamHandeyeOverride {
         if let Some(loss) = self.robust_loss {
             config.solver.robust_loss = loss.into();
         }
-        if let Some(ba) = &self.handeye_ba {
-            apply_single_ba(ba, config);
+        if let Some(ba) = &self.handeye_optimize {
+            apply_single_handeye_optimize(ba, config);
         }
     }
 }
@@ -526,25 +526,25 @@ impl RigHandeyeOverride {
         if let Some(loss) = self.robust_loss {
             config.solver.robust_loss = loss.into();
         }
-        if let Some(refine) = self.refine_intrinsics_in_rig_ba {
-            config.rig.refine_intrinsics_in_rig_ba = refine;
+        if let Some(refine) = self.refine_intrinsics {
+            config.rig.refine_intrinsics = refine;
         }
         if let Some(fix_tangential) = self.fix_tangential {
             config.intrinsics.fix_tangential = Some(fix_tangential);
         }
-        if let Some(ba) = &self.handeye_ba {
-            apply_rig_ba(ba, config);
+        if let Some(ba) = &self.handeye_optimize {
+            apply_rig_handeye_optimize(ba, config);
         }
     }
 }
 
-/// Apply the robot-pose-refinement fields of a [`HandeyeBaOverride`] to a
-/// [`RobotPoseConfig`]. Shared by [`apply_single_ba`] and [`apply_rig_ba`],
+/// Apply the robot-pose-refinement fields of a [`HandeyeOptimizeOverride`] to a
+/// [`RobotPoseConfig`]. Shared by [`apply_single_handeye_optimize`] and [`apply_rig_handeye_optimize`],
 /// which differ only in *where* their `RobotPoseConfig` lives
 /// (`SingleCamHandeyeConfig::robot_poses` vs
-/// `RigHandeyeConfig::handeye_ba::robot_poses`) and in the rig-only fields
-/// `apply_rig_ba` applies afterward.
-fn apply_robot_pose_override(ba: &HandeyeBaOverride, robot_poses: &mut RobotPoseConfig) {
+/// `RigHandeyeConfig::handeye_optimize::robot_poses`) and in the rig-only fields
+/// `apply_rig_handeye_optimize` applies afterward.
+fn apply_robot_pose_override(ba: &HandeyeOptimizeOverride, robot_poses: &mut RobotPoseConfig) {
     if let Some(refine) = ba.refine_robot_poses {
         robot_poses.refine = refine;
     }
@@ -556,17 +556,20 @@ fn apply_robot_pose_override(ba: &HandeyeBaOverride, robot_poses: &mut RobotPose
     }
 }
 
-fn apply_single_ba(ba: &HandeyeBaOverride, config: &mut SingleCamHandeyeConfig) {
+fn apply_single_handeye_optimize(
+    ba: &HandeyeOptimizeOverride,
+    config: &mut SingleCamHandeyeConfig,
+) {
     apply_robot_pose_override(ba, &mut config.robot_poses);
 }
 
-fn apply_rig_ba(ba: &HandeyeBaOverride, config: &mut RigHandeyeConfig) {
-    apply_robot_pose_override(ba, &mut config.handeye_ba.robot_poses);
-    if let Some(refine) = ba.refine_cam_se3_rig_in_handeye_ba {
-        config.handeye_ba.refine_cam_se3_rig = refine;
+fn apply_rig_handeye_optimize(ba: &HandeyeOptimizeOverride, config: &mut RigHandeyeConfig) {
+    apply_robot_pose_override(ba, &mut config.handeye_optimize.robot_poses);
+    if let Some(refine) = ba.refine_cam_se3_rig {
+        config.handeye_optimize.refine_cam_se3_rig = refine;
     }
-    if let Some(refine) = ba.refine_sensor_in_handeye_ba {
-        config.handeye_ba.refine_sensor = refine;
+    if let Some(refine) = ba.refine_sensor {
+        config.handeye_optimize.refine_sensor = refine;
     }
 }
 
@@ -727,15 +730,15 @@ mod tests {
                 camera: Some(tilted_camera(&["k2", "k3"], &["tilt_y"])),
                 camera_overrides: None,
                 refine_sensor: Some(false),
-                handeye_mode: Some(BenchHandEyeMode::EyeToHand),
+                handeye_mode: Some(BenchHandeyeMode::EyeToHand),
                 max_iters: Some(200),
                 robust_loss: Some(BenchRobustLoss::Huber { scale: 1.0 }),
-                refine_intrinsics_in_rig_ba: Some(false),
+                refine_intrinsics: Some(false),
                 fix_tangential: Some(true),
-                handeye_ba: Some(HandeyeBaOverride {
+                handeye_optimize: Some(HandeyeOptimizeOverride {
                     refine_robot_poses: Some(true),
-                    refine_cam_se3_rig_in_handeye_ba: Some(false),
-                    refine_sensor_in_handeye_ba: Some(false),
+                    refine_cam_se3_rig: Some(false),
+                    refine_sensor: Some(false),
                     robot_rot_sigma: None,
                     robot_trans_sigma: None,
                 }),
@@ -799,12 +802,12 @@ mod tests {
         override_cfg.apply_to(&mut cfg);
 
         assert_eq!(cfg.camera.model.sensor, SensorKind::Scheimpflug);
-        assert_eq!(cfg.handeye_init.handeye_mode, HandEyeMode::EyeToHand);
+        assert_eq!(cfg.handeye_init.handeye_mode, HandeyeMode::EyeToHand);
         assert_eq!(cfg.solver.max_iters, 200);
         assert_eq!(cfg.solver.robust_loss, RobustLoss::Huber { scale: 1.0 });
-        assert!(cfg.handeye_ba.robot_poses.refine);
-        assert!(!cfg.handeye_ba.refine_cam_se3_rig);
-        assert!(!cfg.handeye_ba.refine_sensor);
+        assert!(cfg.handeye_optimize.robot_poses.refine);
+        assert!(!cfg.handeye_optimize.refine_cam_se3_rig);
+        assert!(!cfg.handeye_optimize.refine_sensor);
     }
 
     #[test]
@@ -819,11 +822,11 @@ mod tests {
           },
           "refine_sensor": true,
           "handeye_mode": "eye_to_hand",
-          "refine_intrinsics_in_rig_ba": true,
-          "handeye_ba": {
+          "refine_intrinsics": true,
+          "handeye_optimize": {
             "refine_robot_poses": true,
-            "refine_cam_se3_rig_in_handeye_ba": false,
-            "refine_sensor_in_handeye_ba": false
+            "refine_cam_se3_rig": false,
+            "refine_sensor": false
           }
         }
         "#;
@@ -831,10 +834,10 @@ mod tests {
         let mut cfg = RigHandeyeConfig::default();
         override_cfg.apply_to(&mut cfg);
 
-        assert_eq!(cfg.handeye_init.handeye_mode, HandEyeMode::EyeToHand);
-        assert!(cfg.rig.refine_intrinsics_in_rig_ba);
-        assert!(!cfg.handeye_ba.refine_cam_se3_rig);
-        assert!(!cfg.handeye_ba.refine_sensor);
+        assert_eq!(cfg.handeye_init.handeye_mode, HandeyeMode::EyeToHand);
+        assert!(cfg.rig.refine_intrinsics);
+        assert!(!cfg.handeye_optimize.refine_cam_se3_rig);
+        assert!(!cfg.handeye_optimize.refine_sensor);
         assert_eq!(cfg.camera.model.sensor, SensorKind::Scheimpflug);
         assert_eq!(
             cfg.camera.fix.distortion,

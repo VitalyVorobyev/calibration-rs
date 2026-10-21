@@ -140,7 +140,8 @@ fn solve(dataset: LaserlineDeviceInput) -> LaserlineDeviceExport {
         session.set_input(dataset.clone()).expect("input");
         let mut config = LaserlineDeviceConfig::default();
         config.solver.backend = backend;
-        run_calibration(&mut session, Some(config)).expect("calibration");
+        session.set_config(config).expect("config");
+        run_calibration(&mut session).expect("calibration");
         session.export().expect("export")
     };
     let tiny = run(SolverBackend::TinySolver);

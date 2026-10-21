@@ -38,11 +38,13 @@ mod steps;
 // ─────────────────────────────────────────────────────────────────────────────
 // API
 // ─────────────────────────────────────────────────────────────────────────────
-pub use problem::{PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem};
+pub use problem::{
+    PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsInput, PlanarIntrinsicsProblem,
+};
 pub use steps::{
-    FilterOptions, IntrinsicsInitOptions, IntrinsicsOptimizeOptions, PlanarInitResult,
-    PlanarManualInit, PlanarOptimizeResult, run_calibration, run_calibration_with_filtering,
-    step_filter, step_init, step_init_with_seed, step_optimize,
+    IntrinsicsFilterOptions, IntrinsicsInitOptions, IntrinsicsInitResult, IntrinsicsManualInit,
+    IntrinsicsOptimizeOptions, IntrinsicsOptimizeResult, run_calibration,
+    run_calibration_with_filtering, step_filter, step_init, step_init_with_seed, step_optimize,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

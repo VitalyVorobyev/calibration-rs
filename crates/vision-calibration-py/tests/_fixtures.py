@@ -29,7 +29,7 @@ def transform_point(R: list[list[float]], t: list[float], p: list[float]) -> lis
     return [sum(R[i][k] * p[k] for k in range(3)) + t[i] for i in range(3)]
 
 
-def planar_calibration_dataset(n_views: int = 10) -> vc.PlanarDataset:
+def planar_calibration_dataset(n_views: int = 10) -> vc.PlanarIntrinsicsInput:
     """Deterministic planar-board dataset (fx=800, fy=780, cx=640, cy=360).
 
     An 8x6 grid at 0.04 m spacing viewed from ``n_views`` poses along a fixed
@@ -49,4 +49,4 @@ def planar_calibration_dataset(n_views: int = 10) -> vc.PlanarDataset:
             p3.append(pt)
             p2.append((640.0 + 800.0 * pc[0] / pc[2], 360.0 + 780.0 * pc[1] / pc[2]))
         views.append(vc.PlanarView(observation=vc.Observation(points_3d=p3, points_2d=p2)))
-    return vc.PlanarDataset(views=views)
+    return vc.PlanarIntrinsicsInput(views=views)

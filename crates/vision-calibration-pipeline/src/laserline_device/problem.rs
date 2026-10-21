@@ -56,7 +56,7 @@ pub struct LaserlineDeviceConfig {
     /// `optimize.laser_loss`). `max_iters`, `verbosity` and `backend` apply.
     pub solver: SolverConfig,
     /// Bundle-adjustment options.
-    pub optimize: LaserlineDeviceOptimizeConfig,
+    pub optimize: DeviceOptimizeConfig,
 }
 
 /// Bundle-adjustment options for laserline device calibration.
@@ -64,7 +64,7 @@ pub struct LaserlineDeviceConfig {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
-pub struct LaserlineDeviceOptimizeConfig {
+pub struct DeviceOptimizeConfig {
     /// Robust loss for calibration reprojection residuals.
     pub calib_loss: vision_calibration_optim::RobustLoss,
     /// Robust loss for laser residuals. Its scale is in the residual's unit:
@@ -84,7 +84,7 @@ pub struct LaserlineDeviceOptimizeConfig {
     pub laser_residual_type: LaserlineResidualType,
 }
 
-impl Default for LaserlineDeviceOptimizeConfig {
+impl Default for DeviceOptimizeConfig {
     fn default() -> Self {
         Self {
             calib_loss: vision_calibration_optim::RobustLoss::Huber { scale: 1.0 },
@@ -154,10 +154,11 @@ impl LaserlineDeviceConfig {
     }
 }
 
-/// Pipeline output including optimized parameters and summary statistics.
+/// The laserline device's estimate: the bundle solve's estimate plus the
+/// residual statistics the export reports.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct LaserlineDeviceOutput {
+pub struct LaserlineDeviceEstimate {
     /// Optimized camera/laser parameters and backend report.
     pub estimate: LaserlineEstimate,
     /// Aggregated reprojection and laser residual statistics.
@@ -201,7 +202,7 @@ impl ProblemState for LaserlineDeviceProblem {
 impl ProblemType for LaserlineDeviceProblem {
     type Config = LaserlineDeviceConfig;
     type Input = LaserlineDeviceInput;
-    type Output = LaserlineDeviceOutput;
+    type Output = LaserlineDeviceEstimate;
     type Export = LaserlineDeviceExport;
 
     fn name() -> &'static str {
@@ -236,8 +237,8 @@ impl ProblemType for LaserlineDeviceProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.init.init_iterations == 0 {
-            return Err(Error::invalid_input("init_iterations must be positive"));
+        if config.init.iterations == 0 {
+            return Err(Error::invalid_input("init.iterations must be positive"));
         }
         if config.optimize.calib_weight <= 0.0 {
             return Err(Error::invalid_input("calib_weight must be positive"));
@@ -313,7 +314,7 @@ mod tests {
         }
     }
 
-    fn make_synthetic_scenario() -> (LaserlineDataset, LaserlineDeviceOutput) {
+    fn make_synthetic_scenario() -> (LaserlineDataset, LaserlineDeviceEstimate) {
         // Camera + target plane setup matching the laser feature residual
         // synthetic test: target plane at z=1 in camera frame, laser plane at
         // y=0.1 in camera frame. Pixels lie exactly on the projected line +
@@ -391,7 +392,7 @@ mod tests {
             per_view_reproj_errors: vec![0.0, 0.0, 0.0],
             per_view_laser_errors: vec![0.0, 0.0, 0.0],
         };
-        (views, LaserlineDeviceOutput { estimate, stats })
+        (views, LaserlineDeviceEstimate { estimate, stats })
     }
 
     #[test]
@@ -488,7 +489,7 @@ mod tests {
             plane,
         )
         .unwrap();
-        let output = LaserlineDeviceOutput {
+        let output = LaserlineDeviceEstimate {
             estimate: LaserlineEstimate {
                 params,
                 report: SolveReport {

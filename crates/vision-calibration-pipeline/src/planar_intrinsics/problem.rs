@@ -20,6 +20,10 @@ use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
 
 use super::state::PlanarState;
 
+/// Input for planar intrinsics calibration: views of a planar target, each
+/// with its 2D-3D correspondences.
+pub type PlanarIntrinsicsInput = PlanarDataset;
+
 /// Planar intrinsics calibration problem (Zhang's method with distortion).
 ///
 /// This problem type calibrates one camera — intrinsics, distortion and, for a
@@ -30,7 +34,7 @@ use super::state::PlanarState;
 /// # Associated Types
 ///
 /// - **Config**: [`PlanarIntrinsicsConfig`] - solver settings, fix masks, etc.
-/// - **Input**: [`PlanarDataset`] - views with 2D-3D point correspondences
+/// - **Input**: [`PlanarIntrinsicsInput`] - views with 2D-3D point correspondences
 /// - **Output**: [`PlanarIntrinsicsEstimate`] - final calibrated camera + poses
 /// - **Export**: [`PlanarIntrinsicsExport`] - stable export contract
 ///
@@ -172,7 +176,7 @@ impl ProblemState for PlanarIntrinsicsProblem {
 
 impl ProblemType for PlanarIntrinsicsProblem {
     type Config = PlanarIntrinsicsConfig;
-    type Input = PlanarDataset;
+    type Input = PlanarIntrinsicsInput;
     type Output = PlanarIntrinsicsEstimate;
     type Export = PlanarIntrinsicsExport;
 
@@ -209,8 +213,8 @@ impl ProblemType for PlanarIntrinsicsProblem {
         if config.solver.max_iters == 0 {
             return Err(Error::invalid_input("max_iters must be positive"));
         }
-        if config.init.init_iterations == 0 {
-            return Err(Error::invalid_input("init_iterations must be positive"));
+        if config.init.iterations == 0 {
+            return Err(Error::invalid_input("init.iterations must be positive"));
         }
         config.camera.validate_single_camera()
     }
@@ -386,7 +390,7 @@ mod tests {
     fn init_opts_conversion() {
         let config = PlanarIntrinsicsConfig {
             init: IntrinsicsInitConfig {
-                init_iterations: 5,
+                iterations: 5,
                 fix_k3: true,
                 fix_tangential: Some(true),
             },

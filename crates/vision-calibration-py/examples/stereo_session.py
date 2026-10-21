@@ -15,7 +15,7 @@ import vision_calibration as vc
 from _common import baseline_m, load_observation_input
 
 
-def load_dataset() -> vc.RigExtrinsicsDataset:
+def load_dataset() -> vc.RigExtrinsicsInput:
     payload = load_observation_input("stereo_rig")
     views = [
         vc.RigExtrinsicsView(
@@ -29,7 +29,7 @@ def load_dataset() -> vc.RigExtrinsicsDataset:
         for view in payload["views"]
     ]
     print(f"Loaded {len(views)} views")
-    return vc.RigExtrinsicsDataset(num_cameras=payload["num_cameras"], views=views)
+    return vc.RigExtrinsicsInput(num_cameras=payload["num_cameras"], views=views)
 
 
 def main() -> None:

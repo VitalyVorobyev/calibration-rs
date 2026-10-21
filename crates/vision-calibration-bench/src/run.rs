@@ -31,7 +31,7 @@ pub mod tier_b {
     use vision_calibration::core::{
         CorrespondenceView, Iso3, NoMeta, RigDataset, RigView, RigViewObs,
     };
-    use vision_calibration::optim::{HandEyeMode, RobotPoseMeta};
+    use vision_calibration::optim::{HandeyeMode, RobotPoseMeta};
     use vision_calibration::planar_intrinsics::{
         PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem, step_init,
         step_init_with_seed, step_optimize,
@@ -42,8 +42,9 @@ pub mod tier_b {
     };
     // Rig hand-eye step fns share names with the rig-extrinsics ones, so alias.
     use vision_calibration::rig_handeye::{
-        RigHandeyeConfig, RigHandeyeExport, RigHandeyeIntrinsicsManualInit, RigHandeyeProblem,
-        step_handeye_init as rh_handeye_init, step_handeye_optimize as rh_handeye_optimize,
+        IntrinsicsManualInit as RigIntrinsicsManualInit, RigHandeyeConfig, RigHandeyeExport,
+        RigHandeyeProblem, step_handeye_init as rh_handeye_init,
+        step_handeye_optimize as rh_handeye_optimize,
         step_intrinsics_init_all_with_seed as rh_intrinsics_init_all_with_seed,
         step_intrinsics_optimize_all as rh_intrinsics_optimize_all, step_rig_init as rh_rig_init,
         step_rig_optimize as rh_rig_optimize,
@@ -54,7 +55,7 @@ pub mod tier_b {
     };
     // Named at module scope so `DetectedScheimpflugCamera` can carry the seed;
     // the seeded route's step functions are the planar ones imported above.
-    use vision_calibration::planar_intrinsics::PlanarManualInit;
+    use vision_calibration::planar_intrinsics::IntrinsicsManualInit;
     use vision_calibration::session::CalibrationSession;
     use vision_calibration::single_cam_handeye::{
         HandeyeMeta, SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,
@@ -617,7 +618,7 @@ pub mod tier_b {
         pub dataset: PlanarDataset,
         /// Device-spec-derived seed. `intrinsics` and `sensor` are always
         /// `Some` — see `device_seed::scheimpflug_seed`.
-        pub seed: PlanarManualInit,
+        pub seed: IntrinsicsManualInit,
         /// Detection stats for the `BenchRecord`.
         pub detection: Detection,
         /// Wall-clock detection time in milliseconds.
@@ -667,7 +668,7 @@ pub mod tier_b {
             .with_context(|| format!("entry `{}`: manifest detection failed", entry.id))?;
         let detection_ms = ms_since(detect_start);
         let features_detected: usize = planar
-            .dataset
+            .input
             .views
             .iter()
             .map(|v| v.obs.points_2d.len())
@@ -688,7 +689,7 @@ pub mod tier_b {
 
         Ok(DetectedScheimpflugCamera {
             camera_id,
-            dataset: planar.dataset,
+            dataset: planar.input,
             seed,
             detection,
             detection_ms,
@@ -717,7 +718,7 @@ pub mod tier_b {
     /// basin study).
     pub fn solve_scheimpflug_seeded(
         dataset: PlanarDataset,
-        seed: PlanarManualInit,
+        seed: IntrinsicsManualInit,
         label: &str,
         backend: SolverBackend,
     ) -> Result<ScheimpflugSeededSolve> {
@@ -1038,7 +1039,7 @@ pub mod tier_b {
             .context("step_intrinsics_optimize_all failed")?;
         let intrinsics_optimize_ms = ms_since(s);
         let s = Instant::now();
-        let _ = step_rig_init(&mut session).context("step_rig_init failed")?;
+        let _ = step_rig_init(&mut session, None).context("step_rig_init failed")?;
         let rig_init_ms = ms_since(s);
         let s = Instant::now();
         let _ = step_rig_optimize(&mut session, None).context("step_rig_optimize failed")?;
@@ -1367,11 +1368,11 @@ pub mod tier_b {
         let optimize_ms = opt_start.elapsed().as_millis() as u64;
 
         let export = session.export().context("session.export failed")?;
-        // Reference `HandEyeMode` so the import is load-bearing (the export
+        // Reference `HandeyeMode` so the import is load-bearing (the export
         // carries the mode; the bench does not branch on it).
         debug_assert!(matches!(
             export.handeye_mode,
-            HandEyeMode::EyeInHand | HandEyeMode::EyeToHand
+            HandeyeMode::EyeInHand | HandeyeMode::EyeToHand
         ));
 
         // Single camera: `overall == per_camera[0]`, pooled from the export's
@@ -1415,7 +1416,7 @@ pub mod tier_b {
         };
 
         // Hierarchical reprojection report: Intrinsic floor (free per-view PnP
-        // pose) + HandEye level (board pose through robot + hand-eye chain). The
+        // pose) + Handeye level (board pose through robot + hand-eye chain). The
         // gap between the two localizes the kuka-style "why is it 1.2 px" error.
         let (reproj_report, residual_sidecar) = split_reproj_report(
             entry,
@@ -1610,7 +1611,7 @@ pub mod tier_b {
         }
         config.solver.backend = entry.solver_backend();
         if let Some(seed) = &entry.seed {
-            let manual: RigHandeyeIntrinsicsManualInit = serde_json::from_value(seed.0.clone())
+            let manual: RigIntrinsicsManualInit = serde_json::from_value(seed.0.clone())
                 .with_context(|| {
                     format!("failed to parse rig hand-eye manual seed for {}", entry.id)
                 })?;
@@ -1620,8 +1621,8 @@ pub mod tier_b {
             config.manual_init = Some(rtv3d_manual_intrinsics_seed(entry));
             config.intrinsics.fix_tangential = Some(true);
         }
-        let robot_rot_sigma = config.handeye_ba.robot_poses.rot_sigma;
-        let robot_trans_sigma = config.handeye_ba.robot_poses.trans_sigma;
+        let robot_rot_sigma = config.handeye_optimize.robot_poses.rot_sigma;
+        let robot_trans_sigma = config.handeye_optimize.robot_poses.trans_sigma;
         let manual_intrinsics = config.manual_init.clone().unwrap_or_default();
         let input = RigDataset::new(rig_views, n_cam)
             .map_err(|e| anyhow::anyhow!("failed to build RigDataset: {e}"))?;
@@ -1645,7 +1646,7 @@ pub mod tier_b {
             .context("step_intrinsics_optimize_all failed")?;
         let intrinsics_optimize_ms = ms_since(s);
         let s = Instant::now();
-        let _ = rh_rig_init(&mut session).context("step_rig_init failed")?;
+        let _ = rh_rig_init(&mut session, None).context("step_rig_init failed")?;
         let rig_init_ms = ms_since(s);
         let s = Instant::now();
         let rig_stage_output =
@@ -1771,7 +1772,7 @@ pub mod tier_b {
         };
 
         // Hierarchical report: Intrinsic floor (free per-(cam,view) PnP) +
-        // HandEye level (board pose through the robot + hand-eye chain).
+        // Handeye level (board pose through the robot + hand-eye chain).
         let rig_stage = RigStageReprojection {
             cam_se3_rig: rig_stage_output.cam_se3_rig,
             rig_se3_target: rig_stage_output.rig_se3_target,
@@ -2761,7 +2762,7 @@ pub mod tier_b {
         }
     }
 
-    fn rtv3d_manual_intrinsics_seed(entry: &BenchEntry) -> RigHandeyeIntrinsicsManualInit {
+    fn rtv3d_manual_intrinsics_seed(entry: &BenchEntry) -> RigIntrinsicsManualInit {
         let (cx, cy) = entry
             .cameras
             .first()
@@ -2769,7 +2770,7 @@ pub mod tier_b {
             .map(|[_x, _y, w, h]| (w as f64 * 0.5, h as f64 * 0.5))
             .unwrap_or((360.0, 270.0));
         let n = entry.cameras.len();
-        let mut seed = RigHandeyeIntrinsicsManualInit::default();
+        let mut seed = RigIntrinsicsManualInit::default();
         seed.per_cam_intrinsics = Some(vec![
             FxFyCxCy {
                 fx: 2000.0,
@@ -3110,18 +3111,18 @@ pub mod tier_b {
         .map_err(|e| anyhow::anyhow!("build RigHandeyeLaserlineDataset: {e}"))?;
 
         let handeye = match rig_export.handeye_mode {
-            HandEyeMode::EyeInHand => rig_export
+            HandeyeMode::EyeInHand => rig_export
                 .gripper_se3_rig
                 .context("EyeInHand rig export missing gripper_se3_rig")?,
-            HandEyeMode::EyeToHand => rig_export
+            HandeyeMode::EyeToHand => rig_export
                 .rig_se3_base
                 .context("EyeToHand rig export missing rig_se3_base")?,
         };
         let target_ref = match rig_export.handeye_mode {
-            HandEyeMode::EyeInHand => rig_export
+            HandeyeMode::EyeInHand => rig_export
                 .base_se3_target
                 .context("EyeInHand rig export missing base_se3_target")?,
-            HandEyeMode::EyeToHand => rig_export
+            HandeyeMode::EyeToHand => rig_export
                 .gripper_se3_target
                 .context("EyeToHand rig export missing gripper_se3_target")?,
         };
@@ -3194,7 +3195,7 @@ pub mod tier_b {
         base_se3_gripper: Iso3,
     ) -> Result<Iso3> {
         match export.handeye_mode {
-            HandEyeMode::EyeInHand => {
+            HandeyeMode::EyeInHand => {
                 let gripper_se3_rig = export
                     .gripper_se3_rig
                     .context("EyeInHand rig export missing gripper_se3_rig")?;
@@ -3203,7 +3204,7 @@ pub mod tier_b {
                     .context("EyeInHand rig export missing base_se3_target")?;
                 Ok(gripper_se3_rig.inverse() * base_se3_gripper.inverse() * base_se3_target)
             }
-            HandEyeMode::EyeToHand => {
+            HandeyeMode::EyeToHand => {
                 let rig_se3_base = export
                     .rig_se3_base
                     .context("EyeToHand rig export missing rig_se3_base")?;

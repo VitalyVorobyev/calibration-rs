@@ -9,6 +9,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- Breaking: one naming scheme across the seven problem types, identical in
+  Rust, Python, the JSON config schemas and the app. Each problem module
+  exports `<Name>Problem`, `<Name>Input` (a type alias where the data is a
+  shared type), `<Name>Config`, its output estimate and `<Name>Export`. A
+  problem's output is the final solve's `*Estimate`; step returns are
+  `<Stage><Action>Result`; every step takes `Option<<Stage><Action>Options>`
+  and its `*_with_seed` variant a `<Stage>ManualInit`; `run_calibration`
+  takes only the session in every problem. `handeye` is one word, so the
+  CamelCase spelling is `Handeye` everywhere. Config groups pair a stage
+  with a full-word action (`handeye_optimize`), and fields no longer repeat
+  their group's stage. Python names are the Rust names. Export JSON (`kind`,
+  field names) and every numeric result are unchanged; a saved config needs
+  the four field renames below. The table also applies to names introduced
+  by the other entries of this release.
+
+  | Before | After |
+  |---|---|
+  | **Configs (JSON and Rust)** | |
+  | `rig.refine_intrinsics_in_rig_ba` | `rig.refine_intrinsics` |
+  | `init.init_iterations` / `intrinsics.init_iterations` (`IntrinsicsInitConfig::init_iterations`) | `init.iterations` / `intrinsics.iterations` |
+  | `RigHandeyeConfig.handeye_ba: HandeyeBaConfig` | `handeye_optimize: HandeyeOptimizeConfig` |
+  | `RigHandeyeLaserlineConfig.joint_ba: RigHandeyeLaserlineBaConfig` | `joint_optimize: JointOptimizeConfig` |
+  | `LaserlineDeviceOptimizeConfig` (`LaserlineDeviceConfig.optimize`) | `DeviceOptimizeConfig` |
+  | **Hand-eye casing** | |
+  | `HandEyeMode`, `HandEyeParams`, `HandEyeEstimate`, `HandEyeDataset`, `HandEyeSolveOptions` | `HandeyeMode`, `HandeyeParams`, `HandeyeEstimate`, `HandeyeDataset`, `HandeyeSolveOptions` |
+  | `linear::handeye::HandEyeInit` | `HandeyeInit` |
+  | `analysis::ReprojLevel::HandEye` (JSON `"hand_eye"`) | `ReprojLevel::Handeye` (JSON `"handeye"`) |
+  | **Outputs and inputs** | |
+  | `laserline_device::LaserlineDeviceOutput` | `LaserlineDeviceEstimate` |
+  | `rig_handeye_laserline::RigHandeyeLaserlineOutput { estimate, handeye_mode }` | the output is `RigHandeyeLaserlineEstimate` itself (`output.estimate.x` → `output.x`); the mode is `config.handeye.handeye_init.handeye_mode` |
+  | `planar_intrinsics` input `PlanarDataset` | `PlanarIntrinsicsInput` (an alias of `PlanarDataset`) |
+  | (not re-exported) | `single_cam_handeye::{HandeyeEstimate, HandeyeParams}`, `rig_laserline_device::RigLaserlineEstimate`, `rig_handeye_laserline::RigHandeyeLaserlineEstimate` |
+  | `dataset_runner::PlanarRunResult.dataset`, `RigRunResult.dataset` | `.input`, as in the other `*RunResult`s |
+  | **Step results** | |
+  | `planar_intrinsics::PlanarInitResult`, `PlanarOptimizeResult` | `IntrinsicsInitResult`, `IntrinsicsOptimizeResult` |
+  | `single_cam_handeye::SingleCamIntrinsicsInitResult`, `SingleCamIntrinsicsOptimizeResult`, `SingleCamHandeyeInitResult`, `SingleCamHandeyeOptimizeResult` | `IntrinsicsInitResult`, `IntrinsicsOptimizeResult`, `HandeyeInitResult`, `HandeyeOptimizeResult` |
+  | `laserline_device::LaserlineDeviceInitResult`, `LaserlineDeviceOptimizeResult` | `DeviceInitResult`, `DeviceOptimizeResult` |
+  | `rig_extrinsics::RigIntrinsicsInitAllResult`, `RigIntrinsicsOptimizeAllResult` | `IntrinsicsInitResult`, `IntrinsicsOptimizeResult` |
+  | `rig_handeye::RigHandeyeIntrinsicsInitAllResult`, `RigHandeyeIntrinsicsOptimizeAllResult`, `RigHandeyeRigInitResult`, `RigHandeyeRigOptimizeResult`, `RigHandeyeHandeyeInitResult`, `RigHandeyeHandeyeOptimizeResult` | `IntrinsicsInitResult`, `IntrinsicsOptimizeResult`, `RigInitResult`, `RigOptimizeResult`, `HandeyeInitResult`, `HandeyeOptimizeResult` |
+  | **Manual seeds** | |
+  | `planar_intrinsics::PlanarManualInit` | `IntrinsicsManualInit` |
+  | `single_cam_handeye::SingleCamIntrinsicsManualInit`, `SingleCamHandeyeManualInit` | `IntrinsicsManualInit`, `HandeyeManualInit` |
+  | `laserline_device::LaserlineDeviceManualInit` | `DeviceManualInit` |
+  | `rig_extrinsics::RigIntrinsicsManualInit`, `RigExtrinsicsManualInit` | `IntrinsicsManualInit`, `RigManualInit` |
+  | `rig_handeye::RigHandeyeIntrinsicsManualInit`, `RigHandeyeRigManualInit`, `RigHandeyeHandeyeManualInit` | `IntrinsicsManualInit`, `RigManualInit`, `HandeyeManualInit` |
+  | `rig_laserline_device::RigLaserlineDeviceManualInit` | `PlaneManualInit` |
+  | **Step options and signatures** | |
+  | `planar_intrinsics::FilterOptions`; `step_filter(s, opts)`, `run_calibration_with_filtering(s, opts)` | `IntrinsicsFilterOptions`; `step_filter(s, Some(opts))`, `run_calibration_with_filtering(s, Some(opts))` (`None` uses the defaults) |
+  | `rig_extrinsics` / `rig_handeye` `step_rig_init(s)`, `step_rig_init_with_seed(s, seed)` | `step_rig_init(s, None)`, `step_rig_init_with_seed(s, seed, None)`; options type `RigInitOptions` |
+  | `RigOptimizeOptions` (defined in each rig module) | one type, also at `common::RigOptimizeOptions` |
+  | `rig_laserline_device::StepOptions` | `PlaneOptimizeOptions` |
+  | `rig_laserline_device::step_init(s)`, `step_init_with_seed(s, seed)` | `step_init(s, None)`, `step_init_with_seed(s, seed, None)`; options type `PlaneInitOptions` |
+  | `laserline_device::run_calibration(s, Some(config))` | `s.set_config(config)?; run_calibration(s)` |
+  | **Python** | |
+  | `PlanarCalibrationConfig`, `SingleCamHandeyeCalibrationConfig`, `RigExtrinsicsCalibrationConfig`, `RigHandeyeCalibrationConfig`, `LaserlineDeviceCalibrationConfig`, `RigLaserlineDeviceCalibrationConfig`, `RigHandeyeLaserlineCalibrationConfig` | `PlanarIntrinsicsConfig`, `SingleCamHandeyeConfig`, `RigExtrinsicsConfig`, `RigHandeyeConfig`, `LaserlineDeviceConfig`, `RigLaserlineDeviceConfig`, `RigHandeyeLaserlineConfig` |
+  | `PlanarCalibrationResult`, `SingleCamHandeyeResult`, `RigExtrinsicsResult`, `RigHandeyeResult`, `LaserlineDeviceResult`, `RigLaserlineDeviceResult`, `RigHandeyeLaserlineResult` | `PlanarIntrinsicsExport`, `SingleCamHandeyeExport`, `RigExtrinsicsExport`, `RigHandeyeExport`, `LaserlineDeviceExport`, `RigLaserlineDeviceExport`, `RigHandeyeLaserlineExport` |
+  | `PlanarDataset`, `SingleCamHandeyeDataset`, `RigExtrinsicsDataset`, `RigHandeyeDataset`, `LaserlineDataset`, `RigHandeyeLaserlineDataset` | `PlanarIntrinsicsInput`, `SingleCamHandeyeInput`, `RigExtrinsicsInput`, `RigHandeyeInput`, `LaserlineDeviceInput`, `RigHandeyeLaserlineInput` |
+  | `HandeyeBaConfig`, `RigHandeyeLaserlineBaConfig`, `LaserlineDeviceOptimizeConfig` | `HandeyeOptimizeConfig`, `JointOptimizeConfig`, `DeviceOptimizeConfig` |
+  | `RigLaserlineUpstreamCalibration`, `LaserlineEstimateParams`, `LaserlinePlane` | `RigUpstreamCalibration`, `LaserlineParams`, `LaserPlane` |
+  | `types.HandEyeMode`, `types.PlanarInput` | `types.HandeyeMode`, `types.PlanarIntrinsicsInput` |
+  | fields `handeye_ba`, `joint_ba`, `refine_intrinsics_in_rig_ba`, `init_iterations` | `handeye_optimize`, `joint_optimize`, `refine_intrinsics`, `iterations` |
+
 - Breaking: single-camera hand-eye and the laserline device take the camera
   model from the config, like every other workflow, and the laser workflows
   evaluate each camera in its own model. `SingleCamHandeyeConfig` and

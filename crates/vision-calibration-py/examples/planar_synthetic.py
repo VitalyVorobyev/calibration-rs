@@ -16,7 +16,7 @@ from _common import (
 )
 
 
-def make_input() -> vc.PlanarDataset:
+def make_input() -> vc.PlanarIntrinsicsInput:
     intrinsics_gt = {"fx": 800.0, "fy": 780.0, "cx": 640.0, "cy": 360.0}
     distortion_gt = {"k1": 0.05, "k2": -0.02, "k3": 0.0, "p1": 0.001, "p2": -0.001, "iters": 8}
     board = grid_points(cols=8, rows=6, spacing_m=0.04)
@@ -40,7 +40,7 @@ def make_input() -> vc.PlanarDataset:
         if len(points_2d) >= 4:
             views.append(vc.PlanarView(observation=vc.Observation(points_3d=points_3d, points_2d=points_2d)))
 
-    return vc.PlanarDataset(views=views)
+    return vc.PlanarIntrinsicsInput(views=views)
 
 
 def main() -> None:

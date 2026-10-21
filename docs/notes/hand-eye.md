@@ -12,7 +12,7 @@ Each view carries a measured robot pose `T_B_G` (`base_se3_gripper`, ADR 0009)
 and a planar-target observation. The camera stage (pinhole + Brown–Conrady) is
 the planar family's — see [planar-intrinsics.md](planar-intrinsics.md).
 Hand-eye adds the rigid unknown `X` and a single fixed target pose `Y`, wired
-two ways (`HandEyeMode`, `handeye_observer_se3_target`):
+two ways (`HandeyeMode`, `handeye_observer_se3_target`):
 
 - **EyeInHand** — camera on the gripper. `X = gripper_se3_camera` (`T_G_C`),
   `Y = base_se3_target` (`T_B_T`); per view

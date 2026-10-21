@@ -82,10 +82,12 @@ pub(crate) trait ProblemState {
 ///
 /// # Associated Types
 ///
-/// - **Config**: Calibration parameters (solver options, fix masks, thresholds)
-/// - **Input**: Observation data (image points, correspondences)
-/// - **Output**: Final calibration result (camera parameters, errors)
-/// - **Export**: User-facing export format (may be same as Output)
+/// - **Config**: Calibration parameters (solver options, fix masks, thresholds),
+///   named `<Name>Config`
+/// - **Input**: Observation data (image points, correspondences), named
+///   `<Name>Input` (a type alias when the data is a shared type)
+/// - **Output**: The final solve's estimate, an `*Estimate`
+/// - **Export**: User-facing export format, named `<Name>Export`
 ///
 /// The internal `State` associated type (problem-specific intermediate results)
 /// is carried by the crate-private `ProblemState` supertrait.
@@ -102,18 +104,19 @@ pub trait ProblemType: ProblemState + Sized + 'static {
 
     /// Input observations (embedded in session).
     ///
-    /// Examples: `PlanarDataset`, `HandEyeDataset`, `LaserlineDataset`.
+    /// Examples: `PlanarIntrinsicsInput`, `SingleCamHandeyeInput`,
+    /// `LaserlineDeviceInput`.
     type Input: Clone + Serialize + DeserializeOwned + Debug;
 
-    /// Final calibration output (single result).
+    /// Final calibration output: the final solve's estimate.
     ///
-    /// Examples: `PlanarIntrinsicsEstimate`, `HandEyeEstimate`.
+    /// Examples: `PlanarIntrinsicsEstimate`, `HandeyeEstimate`.
     type Output: Clone + Serialize + DeserializeOwned + Debug;
 
     /// Export format for external consumption.
     ///
-    /// May be the same as `Output`, or a simplified/transformed version
-    /// suitable for downstream use.
+    /// Built from the input, the output and the config; the stable,
+    /// self-contained result a caller keeps.
     type Export: Clone + Serialize + DeserializeOwned + Debug;
 
     // ─────────────────────────────────────────────────────────────────────────

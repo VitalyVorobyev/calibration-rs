@@ -10,7 +10,7 @@ Step functions are free functions that operate on a mutable session reference:
 pub fn step_init(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
     opts: Option<IntrinsicsInitOptions>,
-) -> Result<PlanarInitResult, Error>
+) -> Result<IntrinsicsInitResult, Error>
 ```
 
 Each step:
@@ -66,7 +66,17 @@ step_optimize(&mut session, None)?;
 
 ## Manual Seeds
 
-Every problem with an initialization step also has a `*_with_seed` variant (for example `step_init_with_seed` taking a `PlanarManualInit`) that accepts a coarse prior for some parameters and auto-estimates the rest. The plain `step_init` is the same call with an empty seed.
+Every problem with an initialization step also has a `*_with_seed` variant (for example `step_init_with_seed` taking an `IntrinsicsManualInit`) that accepts a coarse prior for some parameters and auto-estimates the rest. The plain `step_init` is the same call with an empty seed.
+
+## Names
+
+Every problem module uses the same names, so code written against one problem reads the same against another:
+
+- The problem is `<Name>Problem`, with `<Name>Input`, `<Name>Config` and `<Name>Export` (`PlanarIntrinsicsInput`, `RigHandeyeConfig`, …). An input that is a shared data type is a type alias (`PlanarIntrinsicsInput = PlanarDataset`).
+- The problem's output is the final solve's estimate, `*Estimate` (`PlanarIntrinsicsEstimate`, `HandeyeEstimate`, …).
+- A step of stage `<Stage>` and action `<Action>` takes `Option<<Stage><Action>Options>` (`None` keeps the session config) and returns `<Stage><Action>Result`; its `_with_seed` variant takes a `<Stage>ManualInit` before the options. The stages are `Intrinsics`, `Rig` and `Handeye`; the single-stage laser problems use `Device` (camera and laser plane, `laserline_device`) and `Plane` (the laser planes, `rig_laserline_device`).
+- Option types shared by several problems (`IntrinsicsInitOptions`, `RigOptimizeOptions`, `HandeyeInitOptions`, …) are one type, also reachable from `vision_calibration::common`. Step results and manual seeds are per problem: `rig_handeye::IntrinsicsInitResult` and `planar_intrinsics::IntrinsicsInitResult` are different types.
+- `run_calibration(session)` has the same signature in every problem and runs with the session's config.
 
 ## Pipeline Functions
 
@@ -101,9 +111,9 @@ Paths are relative to the facade module named after the problem (`vision_calibra
 
 | Problem | Module | Steps | Pipeline function |
 |---------|--------|-------|-------------------|
-| `PlanarIntrinsicsProblem` | `planar_intrinsics` | `step_init`, `step_optimize`, `step_filter` | `run_calibration(session)`, `run_calibration_with_filtering(session, filter_opts)` |
+| `PlanarIntrinsicsProblem` | `planar_intrinsics` | `step_init`, `step_optimize`, `step_filter` | `run_calibration(session)`, `run_calibration_with_filtering(session, opts)` |
 | `SingleCamHandeyeProblem` | `single_cam_handeye` | `step_intrinsics_init`, `step_intrinsics_optimize`, `step_handeye_init`, `step_handeye_optimize` | `run_calibration(session)` |
-| `LaserlineDeviceProblem` | `laserline_device` | `step_init`, `step_optimize` | `run_calibration(session, config)` |
+| `LaserlineDeviceProblem` | `laserline_device` | `step_init`, `step_optimize` | `run_calibration(session)` |
 | `RigExtrinsicsProblem` | `rig_extrinsics` | `step_intrinsics_init_all`, `step_intrinsics_optimize_all`, `step_rig_init`, `step_rig_optimize` | `run_calibration(session)` |
 | `RigHandeyeProblem` | `rig_handeye` | the four rig steps above plus `step_handeye_init`, `step_handeye_optimize` | `run_calibration(session)` |
 | `RigLaserlineDeviceProblem` | `rig_laserline_device` | `step_init`, `step_optimize` | `run_calibration(session)` |
