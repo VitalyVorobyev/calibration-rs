@@ -21,7 +21,7 @@ identifiers and are not reused, so the sequence has gaps.
 - [0005 — Composable camera model](0005-composable-camera-model.md)
 - [0009 — Coordinate and pose conventions](0009-coordinate-and-pose-conventions.md)
 - [0008 — Optimization IR and solver backends](0008-optimization-ir-and-backends.md)
-- [0013 — Sensor variants of workflows](0013-sensor-variants.md)
+- [0013 — Lens and sensor variants are camera slots](0013-sensor-variants.md)
 - [0011 — Seeded initialization](0011-seeded-initialization.md)
 - [0026 — Parameter uncertainty as a standard result](0026-parameter-uncertainty.md)
 

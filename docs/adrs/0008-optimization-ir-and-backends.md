@@ -44,15 +44,16 @@ stay on parameter blocks.
 
 Residual kernels are generic over `T: RealField` so dual-number autodiff
 gives exact Jacobians; the camera model therefore cannot be a `dyn` object.
-Each descriptor kind maps to a zero-sized kernel type
-(`factors/camera_kernels.rs`), and one shared residual per family composes
-them. A backend matches the descriptor **once per factor** through the
-shared `dispatch_camera_model!` table and monomorphizes; the chain is a
-small data match inside the residual.
+Each descriptor kind maps to a kernel that adapts the core model of that
+kind (ADR 0005) to parameter blocks, and one shared residual per family
+composes them. Dispatch is **per slot**: projection, distortion and sensor
+are each selected by their own match, so the source grows with the number
+of kinds, never with their product. The chain is a small data match inside
+the residual.
 
-Adding a camera model is: a descriptor variant with its `dim()`, a kernel
-type, one dispatch row, and the parameter plumbing in core and the configs.
-No new factor variants, validation arms or per-chain code.
+Adding a camera model is: a core model with its metadata, a descriptor
+variant, and one arm in its slot's dispatch. No new factor variants,
+validation arms, per-chain code or config types.
 
 ### One Levenberg–Marquardt loop, pluggable linearization engines
 
@@ -72,7 +73,8 @@ linearizes like the existing backend (`backend/parity_tests.rs`) and it
 reproduces the optim problem tests from the same initial values.
 
 The factrs backend adapts the IR to factrs' limits: a camera's
-intrinsics, distortion and sensor blocks fuse into one vector variable, and
+intrinsics, projection, distortion and sensor blocks fuse into one vector
+variable, and
 a plane's normal and distance into one S²×ℝ variable, so the widest factor
 fits factrs' six-variable limit; fixed components are held by zeroed
 Jacobian columns; bounds are clamped after each step. Losses come from the

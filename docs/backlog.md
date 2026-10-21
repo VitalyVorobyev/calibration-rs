@@ -11,33 +11,45 @@ match the ROADMAP; each says its phase. Dependencies are named as
 One camera-model spec and one vocabulary across every problem type. The
 breaking changes of the program happen here, before v1.0.
 
-- [ ] API-CAMSPEC - Design (ADR, revising 0005, 0013 and 0024) for one
-  `CameraModelSpec { projection, distortion, sensor }` that every problem
-  config takes.
-  - **Facts:** today only `planar_intrinsics` and `scheimpflug_intrinsics`
-    choose a distortion model. Rigs choose a sensor through `SensorMode`
-    (`pipeline/src/rig_family.rs`) and reject anything but BC5. Hand-eye
-    and laser problems are BC5 only.
-  - **Proposed direction:** Scheimpflug becomes a sensor choice inside
-    the spec, so `scheimpflug_intrinsics` folds into
-    `planar_intrinsics`. The ADR must answer 0013's reasons for keeping
-    them apart: the seeded route, fix masks, and the output contract.
-  - **Projection contract:** the spec must admit a point-based
-    (telecentric) projection, which breaks 0005's `projection(dir)`
-    contract.
-  - **Skew:** decide skew. `FxFyCxCySkew` stores it, but no fix mask or
-    covariance label covers it, so estimate it or drop the field.
-  - Gate: the ADR is accepted, and a migration table lists every config
-    field that moves.
-- [ ] API-GENERIC-FACTORS - Make the IR factors and the problem bundles
-  generic over the spec's kinds (`optim/src/ir/types.rs`
-  `ProjectionKind`/`DistortionKind`/`SensorKind`).
-  - Remove the BC5 hard-typing in `optim/problems/laserline_bundle.rs`
-    and the rig and hand-eye bundles, and the rig `validate_config`
-    rejection.
-  - Gate: a synthetic matrix test runs every problem type with every
-    distortion model and both sensors at the noise floor. Needs:
-    API-CAMSPEC.
+- [ ] API-CAM-CORE - Core side of ADR 0005; no change in results:
+  - each model implemented once, generic over `T: RealField` with no
+    `Copy` bound, with its metadata (names, dimension, bounds, default
+    fix);
+  - the projection takes the camera-frame point and back-projects to
+    `Ray { origin, direction }`;
+  - skew removed;
+  - the kind enums and `CameraModelSpec` moved into core.
+
+  The optimizer's camera kernels delegate to the core models, and the
+  duplicated math in `optim/src/factors/reprojection_model.rs` goes. Gate:
+  `suite check` and the bench baselines are unchanged.
+- [ ] API-CAM-DISPATCH - Per-slot camera-model dispatch (ADR 0008) in
+  place of the combination table in `optim/src/backend/mod.rs`:
+  - a projection parameter block slot;
+  - the projection threaded through the laser factors' back-projection
+    (pinhole is assumed today).
+
+  Gate: `calib-bench solver` timings within noise of the table dispatch,
+  and the backend parity tests pass. Needs: API-CAM-CORE.
+- [ ] API-CAM-BUILDERS - One optimizer builder per task, written against
+  `CameraModelSpec`, with a shared camera-block helper for packing, named
+  fix lists and covariance labels. It replaces the per-sensor builders
+  (`planar_intrinsics`/`scheimpflug_intrinsics`,
+  `rig_extrinsics`/`rig_extrinsics_scheimpflug`, `handeye`/
+  `handeye_scheimpflug`) and the Brown-Conrady hard-typing in the laser
+  bundles. Gate: a synthetic matrix runs every builder with every
+  distortion kind and both sensors at the noise floor. Needs:
+  API-CAM-DISPATCH.
+- [ ] API-CAM-PIPELINE - The pipeline side of ADRs 0005 and 0013:
+  - every config takes `camera: CameraConfig { model, fix }`, and rigs add
+    per-camera overrides;
+  - `scheimpflug_intrinsics` merges into `planar_intrinsics`;
+  - `SensorMode` goes away;
+  - every export carries `CameraParams` per camera.
+
+  Python, the app's schemas and forms, the bench and the book follow in
+  the same change. Gate: the CHANGELOG migration table, acceptance and
+  suite unchanged. Needs: API-CAM-BUILDERS.
 - [ ] API-VOCAB - One naming scheme, recorded in ADR 0024:
   - one output suffix; today `Estimate`, `Result` and `Output` are all
     used;
@@ -51,7 +63,7 @@ breaking changes of the program happen here, before v1.0.
     `PlanarIntrinsicsConfig`).
 
   Gate: the CHANGELOG migration table, and the facade compile-surface
-  test updated. Needs: API-CAMSPEC (lands in the same release).
+  test updated. Lands in the same release as API-CAM-PIPELINE.
 - [ ] API-DEDUP - One implementation per concept:
   - route `vision-calibration-bench`'s Tier-B detect adapters
     (`src/detect.rs`) through `vision-calibration-detect`;
@@ -232,7 +244,7 @@ Each model ships with:
 - the Python class;
 - a book chapter with a demo.
 
-All of them need: API-GENERIC-FACTORS.
+All of them need: API-CAM-PIPELINE.
 
 - [ ] CAM-KB - Kannala-Brandt equidistant fisheye (k1–k4) as a projection
   model. Gate: OpenCV `fisheye` comparison on a public fisheye set
@@ -240,8 +252,8 @@ All of them need: API-GENERIC-FACTORS.
 - [ ] CAM-EUCM-DS - Enhanced unified (EUCM) and double-sphere projections,
   with their closed-form unprojection and validity regions.
 - [ ] CAM-TELECENTRIC - Telecentric (affine/orthographic) projection for
-  metrology lenses. Pose depth is unobservable; the gauge and the fixed
-  parameters are stated in the ADR from API-CAMSPEC.
+  metrology lenses: affine-factorization init, and the gauge of ADR 0005
+  (held axial depth, the per-view reflection ambiguity).
 - [ ] CAM-SELECT - Model selection: compare candidate models by residual
   structure, an information criterion and held-out views. It extends the
   distortion-model-selection tutorial.

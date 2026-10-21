@@ -1,53 +1,74 @@
-# ADR 0013: Sensor Variants of Workflows
+# ADR 0013: Lens and Sensor Variants Are Camera Slots, Not Workflows
+
+**Implementation in progress** (backlog API-CAM-BUILDERS and API-CAM-PIPELINE). Until those tasks
+land, the code still follows the previous design; this note goes with the
+last of them.
 
 ## Context
 
-Planar and rig workflows each come in a pinhole and a Scheimpflug flavour.
-The flavours share their step skeleton but differ in the sensor parameter
-block, a few config fields and the optim entry point. Workflows themselves
-(intrinsics, rig extrinsics, hand-eye, laser) differ fundamentally in
-state, steps, residuals and exports.
+A planar intrinsics calibration, a rig, a hand-eye or a laser calibration
+can each run with any lens and any sensor:
+- a perspective, fisheye or telecentric lens;
+- a straight or tilted (Scheimpflug) sensor.
+
+Two ways of offering these variants had grown side by side:
+- a separate workflow per sensor (`planar_intrinsics` next to
+  `scheimpflug_intrinsics`);
+- a sensor enum on rigs (`SensorMode`).
+
+The optimizer had also grown a builder per sensor (`rig_extrinsics` next
+to `rig_extrinsics_scheimpflug`, `handeye` next to `handeye_scheimpflug`).
+Every new lens model would have multiplied that pattern.
 
 ## Decision
 
-The sensor model is a variant axis; the workflow is a module.
+The workflow is a module, and the camera model is a config value
+(ADR 0005).
 
-- **Rigs: sensor is a config axis.** `rig_extrinsics` and `rig_handeye`
-  each serve both flavours through `SensorMode { Pinhole, Scheimpflug {…} }`
-  (`#[non_exhaustive]`, defined once in `rig_family`). Step functions match
-  on it and call the pinhole or Scheimpflug optim entry point. Outputs are
-  enums with accessors (`cameras()`, `cam_to_rig()`, …) so callers rarely
-  match; exports carry `sensors: Option<Vec<ScheimpflugParams>>`. The shared
-  per-camera bootstrap and helpers live in `rig_family` as free functions.
-  The per-camera Scheimpflug distortion mask defaults to radial-only,
-  because tangential distortion absorbs tilt-like signal.
-- **Single-camera planar: two modules, shared internals.**
-  `planar_intrinsics` and `scheimpflug_intrinsics` stay separate public
-  workflows, because they differ in more than a block: the Scheimpflug
-  workflow has its own seeded route (ADR 0011), its own distortion-model
-  choice and fix masks, and its own output contract. Their initialization
-  bootstrap (`planar_family.rs`) and IR construction
-  (`optim::problems::planar_family_shared`) are shared, and both workflows
-  call them instead of keeping private copies.
-- Laser rigs (`rig_laserline_device`) accept either flavour from their
-  upstream calibration; a pinhole upstream is exactly zero tilt.
+- **One workflow per calibration task.** Planar intrinsics, hand-eye, rig
+  extrinsics, rig hand-eye and the laser workflows each take
+  `camera: CameraConfig`; rigs add per-camera overrides. There is no
+  per-sensor workflow and no `SensorMode`.
+- **One optimizer builder per task.** Builders are written against
+  `CameraModelSpec`. They build the camera blocks through one shared helper
+  that handles packing, fix lists and covariance labels.
+- **Sensor-specific behaviour hangs off the spec's kinds, not the
+  workflow:**
+  - the default fix list (a Scheimpflug sensor holds `k3, p1, p2`);
+  - zeroing tangential terms in the linear stage;
+  - the cold-start tilt sweep, which runs when the sensor is Scheimpflug
+    and no tilt seed is given;
+  - the seeded route (ADR 0011).
+
+  Each is defined once and runs in every workflow that meets the
+  condition.
+- **Each step's output is unambiguous**, because the result holds
+  `CameraParams`, whose sensor slot states what was calibrated.
+
+The single-camera Scheimpflug workflow therefore merges into planar
+intrinsics. Its distinct behaviour (the radial-only default, the
+tangential-free linear stage, the seeded tilt route) becomes
+kind-dependent defaults of the merged workflow.
 
 ## Consequences
 
-- A new sensor variant for rigs is a `SensorMode` variant and an inner
-  branch, not a new module; a cross-cutting change touches one file per
-  workflow.
-- `sensors: Option<…>` on rig exports carries an invariant the types do not
-  enforce ("`Some` iff Scheimpflug"); helpers that need sensors return an
-  error for a pinhole export.
+- **Fewer types and modules:** the planar-intrinsics module serves both
+  sensors; one workflow, its config, export and Python binding go away;
+  the per-sensor optimizer builders collapse into one per task.
+- **Defaults depend on the sensor:** a config field whose default depends
+  on the sensor, such as `init.fix_tangential`, is an `Option`; `None`
+  means the spec's default, documented on the field. The solve budget
+  has one default for both sensors, sized for the Scheimpflug tilt valley:
+  the solver stops at convergence, so the cap only bounds runs that do not
+  converge.
+- **Wider testing:** every workflow is tested with both sensors and with
+  each lens model, through the synthetic matrix.
 
 ## Alternatives rejected
 
+- **Workflow per sensor** — every cross-cutting change edits sibling
+  configs, states and exports, and each new lens multiplies modules.
 - **A trait matrix (sensor × workflow)** — workflows differ in state shape
-  and step sequence; a generic `RigWorkflow` hides the control flow a
-  calibration engineer needs to read, and the shared code is small free
-  functions.
-- **One module per (sensor × workflow)** — every cross-cutting change then
-  edits sibling configs, states and exports.
-- **Scheimpflug as an ad-hoc branch inside `planar_intrinsics`** — makes the
-  single-camera output contract ambiguous.
+  and step sequence; a generic workflow hides the control flow a
+  calibration engineer needs to read. The variation is in the camera
+  model, and that is data.
