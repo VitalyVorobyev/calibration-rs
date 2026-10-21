@@ -3,8 +3,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraModel, CameraParams, FxFyCxCy, Iso3, NoMeta, PlanarDataset, Real,
-    ScheimpflugParams, SensorKind, View,
+    BrownConrady5, CameraModel, CameraModelSpec, CameraParams, FxFyCxCy, Iso3, NoMeta,
+    PlanarDataset, Real, ScheimpflugParams, SensorKind, SensorParams, View,
 };
 use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
@@ -172,8 +172,10 @@ fn update_state_with_stats(
 /// This is the load-bearing init function. [`step_init`] is a thin delegate that
 /// passes `LaserlineDeviceManualInit::default()` (all-`None`, full auto path).
 ///
-/// The camera's model is `session.config.camera.model`. A Scheimpflug sensor
-/// without a tilt seed gets its tilt from the linear tilt sweep, then a
+/// The camera's model is `session.config.camera.model`. A held Scheimpflug
+/// tilt (the default, see `LaserlineDeviceConfig::holds_tilt`) is the
+/// `sensor` seed, or zero, and the camera initializes as untilted. An
+/// estimated tilt without a seed comes from the linear tilt sweep, then a
 /// camera-only solve on the target views through the staged tilt multi-start
 /// (a cold `tilt = 0` start falls into the tilt / principal-point /
 /// distortion degeneracy). See [`LaserlineDeviceManualInit`] for
@@ -242,9 +244,28 @@ pub fn step_init_with_seed(
         distortion: manual.distortion,
         sensor: manual.sensor,
     };
-    let bootstrap = bootstrap_camera(0, model, &planar_dataset, &seed, init_opts)?;
+    let holds_tilt = session.config.holds_tilt();
+    let bootstrap = if holds_tilt {
+        // A held tilt is known: initialize as an untilted camera, then
+        // attach the tilt (the seed, or zero).
+        let untilted = CameraModelSpec {
+            sensor: SensorKind::Identity,
+            ..model
+        };
+        let seed = CameraSeed {
+            sensor: None,
+            ..seed
+        };
+        let mut boot = bootstrap_camera(0, untilted, &planar_dataset, &seed, init_opts)?;
+        boot.camera.sensor = SensorParams::Scheimpflug {
+            params: manual.sensor.unwrap_or_default(),
+        };
+        boot
+    } else {
+        bootstrap_camera(0, model, &planar_dataset, &seed, init_opts)?
+    };
     let (camera, bootstrap_poses) =
-        if model.sensor == SensorKind::Scheimpflug && manual.sensor.is_none() {
+        if model.sensor == SensorKind::Scheimpflug && !holds_tilt && manual.sensor.is_none() {
             // Cold-start tilt: the camera alone, through the staged tilt
             // multi-start, before the plane fit needs its rays.
             let initial = PlanarIntrinsicsParams::new(bootstrap.camera, bootstrap.poses)?;

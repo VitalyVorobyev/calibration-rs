@@ -2,7 +2,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::SensorKind;
+use vision_calibration_core::{CameraFix, CameraModelSpec, SensorKind};
 use vision_calibration_core::{
     ImageManifest, PerFeatureResiduals, build_feature_histogram,
     compute_planar_target_residuals_views,
@@ -41,10 +41,11 @@ pub struct LaserlineDeviceConfig {
     /// The camera model and the parameters the bundle adjustment holds
     /// fixed. Any distortion kind, and an identity or Scheimpflug sensor;
     /// the line-distance laser residual needs a projection that keeps lines
-    /// straight. A Scheimpflug sensor's tilt comes from the linear tilt
-    /// sweep, or from the manual-init `sensor` seed; the default fix lists
-    /// refine it (name `tilt_x`, `tilt_y` in `fix.sensor` to hold a known
-    /// mount tilt).
+    /// straight. A Scheimpflug sensor's tilt is held by default at the
+    /// manual-init `sensor` seed (zero when unseeded): a device's mount tilt
+    /// is measured separately. An explicit `fix.sensor` list estimates it
+    /// instead (`[]` refines both angles; unseeded, the tilt then comes from
+    /// the linear tilt sweep and a staged multi-start).
     #[serde(default)]
     pub camera: CameraConfig,
     /// Non-linear solve stage settings.
@@ -98,23 +99,54 @@ impl Default for LaserlineDeviceOptimizeConfig {
 }
 
 impl LaserlineDeviceConfig {
+    /// Whether the device's Scheimpflug tilt is held, not estimated: the
+    /// default for a laserline device, whose mount tilt is a hardware
+    /// property measured separately and given through the manual-init
+    /// `sensor` seed (zero when unseeded). An explicit `camera.fix.sensor`
+    /// list opts into estimating the tilt (`[]` refines both angles).
+    pub fn holds_tilt(&self) -> bool {
+        self.camera.model.sensor == SensorKind::Scheimpflug && self.camera.fix.sensor.is_none()
+    }
+
     /// Convert to vision-calibration-linear initialization options. An unset
-    /// `init.fix_tangential` holds the tangential terms for a Scheimpflug
-    /// sensor, whose tilt they trade off against.
+    /// `init.fix_tangential` holds the tangential terms when the tilt is
+    /// estimated, since they trade off against it.
     pub fn init_opts(&self) -> IterativeIntrinsicsOptions {
-        self.init
-            .iterative_opts(None, self.camera.model.sensor == SensorKind::Scheimpflug)
+        let estimates_tilt =
+            self.camera.model.sensor == SensorKind::Scheimpflug && !self.holds_tilt();
+        self.init.iterative_opts(None, estimates_tilt)
+    }
+
+    /// The fix lists the bundle adjustment applies. A held tilt (see
+    /// [`Self::holds_tilt`]) fixes `tilt_x` and `tilt_y`, and an unset
+    /// distortion list takes the untilted default: with the tilt known, the
+    /// tangential terms do not trade off against it.
+    pub fn effective_fix(&self) -> CameraFix {
+        let mut fix = self.camera.fix.clone();
+        if self.holds_tilt() {
+            let names = self.camera.model.sensor.param_names();
+            fix.sensor = Some(names.iter().map(|n| n.to_string()).collect());
+            if fix.distortion.is_none() {
+                fix.distortion = CameraModelSpec {
+                    sensor: SensorKind::Identity,
+                    ..self.camera.model
+                }
+                .default_fix()
+                .distortion;
+            }
+        }
+        fix
     }
 
     /// Convert to vision-calibration-optim solve options; the camera's fix
-    /// lists come from `camera.fix`.
+    /// lists are [`Self::effective_fix`].
     pub fn solve_opts(&self) -> LaserlineSolveOptions {
         LaserlineSolveOptions {
             calib_loss: self.optimize.calib_loss,
             calib_weight: self.optimize.calib_weight,
             laser_loss: self.optimize.laser_loss,
             laser_weight: self.optimize.laser_weight,
-            fix: self.camera.fix.clone(),
+            fix: self.effective_fix(),
             fix_poses: self.optimize.fix_poses.clone(),
             fix_plane: self.optimize.fix_plane,
             laser_residual_type: self.optimize.laser_residual_type,

@@ -232,9 +232,12 @@ fn pipeline_converges_scheimpflug() {
     let (dataset, _intrinsics_gt, _plane_gt) =
         make_dataset_with(sensor_gt, distortion, make_oblique_poses());
 
-    // Cold start: the linear tilt sweep seeds the tilt, the bundle refines it.
+    // Estimated tilt, cold start: an explicit (empty) sensor fix list opts
+    // into estimating the tilt; the linear tilt sweep seeds it and the
+    // bundle refines it.
     let mut config = LaserlineDeviceConfig::default();
     config.camera = CameraConfig::new(tilted());
+    config.camera.fix.sensor = Some(Vec::new());
 
     let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
     session.set_input(dataset.clone()).unwrap();
@@ -246,6 +249,29 @@ fn pipeline_converges_scheimpflug() {
         export.mean_reproj_error
     );
     assert_tilt(&export, sensor_gt);
+
+    // Default: a laserline device's mount tilt is held at its seed, as is
+    // an explicit hold.
+    for hold in [None, Some(vec!["tilt_x".into(), "tilt_y".into()])] {
+        let mut config = config.clone();
+        config.camera.fix.sensor = hold;
+        let mut session = CalibrationSession::<LaserlineDeviceProblem>::new();
+        session.set_input(dataset.clone()).unwrap();
+        session.set_config(config).unwrap();
+        let mut seed = LaserlineDeviceManualInit::default();
+        seed.sensor = Some(sensor_gt);
+        step_init_with_seed(&mut session, seed, None).unwrap();
+        step_optimize(&mut session, None).unwrap();
+        let export = session.export().unwrap();
+        let SensorParams::Scheimpflug { params } = export.estimate.params.camera.sensor else {
+            panic!("tilted camera expected");
+        };
+        assert_eq!(
+            (params.tilt_x, params.tilt_y),
+            (sensor_gt.tilt_x, sensor_gt.tilt_y),
+            "a held tilt keeps its seed"
+        );
+    }
 
     // Seeded: a known mount tilt, held fixed.
     config.camera.fix.sensor = Some(vec!["tilt_x".into(), "tilt_y".into()]);

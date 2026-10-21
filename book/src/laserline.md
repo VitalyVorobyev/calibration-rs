@@ -182,11 +182,13 @@ config.camera = CameraConfig::new(CameraModelSpec::pinhole(
 ));
 ```
 
-Without a seed, `step_init` estimates the tilt with the linear tilt sweep and
-refines the camera alone through the staged tilt multi-start before it fits
-the laser plane, because a cold `tilt = 0` start falls into the
-tilt / principal-point / distortion degeneracy. A known mount tilt goes in the
-manual-init `sensor` seed (`step_init_with_seed`), which replaces the sweep;
-name `tilt_x` and `tilt_y` in `camera.fix.sensor` to hold it. By default the
-bundle adjustment refines the tilt. A tilt seed for an untilted camera must be
-zero.
+A laser profiler's mount tilt is a hardware property, measured separately,
+so the device holds it by default: give it in the manual-init `sensor` seed
+(`step_init_with_seed`; zero when unseeded), and the camera initializes as an
+untilted one with the tilt attached. To estimate the tilt instead, list the
+sensor parameters to hold explicitly: `camera.fix.sensor = Some(vec![])`
+refines both angles. Without a seed, `step_init` then estimates the tilt with
+the linear tilt sweep and refines the camera alone through the staged tilt
+multi-start before it fits the laser plane, because a cold `tilt = 0` start
+falls into the tilt / principal-point / distortion degeneracy. A tilt seed for
+an untilted camera must be zero.

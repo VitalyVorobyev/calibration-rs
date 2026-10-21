@@ -915,8 +915,10 @@ class LaserlineDeviceCalibrationConfig:
     ``camera`` (a :class:`CameraConfig`) selects the camera model — any
     distortion model, an untilted or a Scheimpflug sensor — and the
     parameters the bundle adjustment holds fixed. A Scheimpflug sensor's
-    tilt comes from the linear tilt sweep and is refined unless
-    ``camera.fix.sensor`` holds it.
+    tilt is held by default at the manual-init seed (zero when unseeded):
+    a device's mount tilt is measured separately. An explicit
+    ``camera.fix.sensor`` list estimates it instead (an empty list refines
+    both angles).
     """
 
     init: IntrinsicsInitConfig = field(default_factory=IntrinsicsInitConfig)

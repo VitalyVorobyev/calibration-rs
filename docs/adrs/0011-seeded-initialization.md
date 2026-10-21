@@ -37,7 +37,10 @@ multi-stage problems name the stage (`step_rig_init_with_seed`,
   sensor tilt included, are seedable like any other: `sensor` in the
   single-camera seeds, `per_cam_sensors` in the rig seeds. A non-zero tilt
   for an untilted camera is a typed error. A known mount tilt that should
-  not move is a seed plus a `camera.fix.sensor` list.
+  not move is a seed plus a `camera.fix.sensor` list. The laserline device
+  holds its tilt by default: its mount tilt is a hardware property measured
+  separately, so an unset `camera.fix.sensor` holds it at the seed (zero
+  when unseeded), and an explicit list opts into estimating it.
 - The init log records which fields were seeded and which automatic.
 
 ### Seeding is the official route for Scheimpflug and rig calibration

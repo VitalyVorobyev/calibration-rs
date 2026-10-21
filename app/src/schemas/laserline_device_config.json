@@ -381,7 +381,7 @@
           "sensor": "identity"
         }
       },
-      "description": "The camera model and the parameters the bundle adjustment holds\nfixed. Any distortion kind, and an identity or Scheimpflug sensor;\nthe line-distance laser residual needs a projection that keeps lines\nstraight. A Scheimpflug sensor's tilt comes from the linear tilt\nsweep, or from the manual-init `sensor` seed; the default fix lists\nrefine it (name `tilt_x`, `tilt_y` in `fix.sensor` to hold a known\nmount tilt)."
+      "description": "The camera model and the parameters the bundle adjustment holds\nfixed. Any distortion kind, and an identity or Scheimpflug sensor;\nthe line-distance laser residual needs a projection that keeps lines\nstraight. A Scheimpflug sensor's tilt is held by default at the\nmanual-init `sensor` seed (zero when unseeded): a device's mount tilt\nis measured separately. An explicit `fix.sensor` list estimates it\ninstead (`[]` refines both angles; unseeded, the tilt then comes from\nthe linear tilt sweep and a staged multi-start)."
     },
     "init": {
       "$ref": "#/$defs/IntrinsicsInitConfig",
