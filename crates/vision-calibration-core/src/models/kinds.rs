@@ -106,6 +106,18 @@ impl DistortionKind {
         }
     }
 
+    /// Name of the leading radial (barrel) coefficient: `k1`, or `lambda` for
+    /// the division model; `None` without distortion.
+    pub fn leading_radial(self) -> Option<&'static str> {
+        match self {
+            DistortionKind::None => None,
+            DistortionKind::BrownConrady5
+            | DistortionKind::Rational8
+            | DistortionKind::ThinPrism9 => Some("k1"),
+            DistortionKind::Division1 => Some("lambda"),
+        }
+    }
+
     /// Distort normalized coordinates with coefficients `c` (in
     /// [`param_names`](Self::param_names) order).
     pub fn distort<T: RealField>(self, c: &[T], n: &Point2<T>) -> Point2<T> {
