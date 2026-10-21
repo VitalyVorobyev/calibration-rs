@@ -6,7 +6,7 @@ crate READMEs, and the walkthroughs in [`tutorials/`](tutorials/README.md).
 
 | Path | Holds |
 |---|---|
-| [`ROADMAP.md`](ROADMAP.md) | v1.0 exit criteria, standing policies, what is out of scope |
+| [`ROADMAP.md`](ROADMAP.md) | the goal, the phases and their gates, v1.0 exit criteria, what is out of scope |
 | [`backlog.md`](backlog.md) | every open and parked task, and nothing else |
 | [`adrs/`](adrs/README.md) | the binding design decisions and their reasons |
 | [`notes/`](notes/README.md) | proof packs: the math, identifiability and evidence for each algorithm family |

@@ -183,6 +183,11 @@ When public types, config parameters or algorithm behavior change, update the
 rustdoc, the README and/or the book, a minimal usage example, and for Python
 `python/vision_calibration/types.py` and `__init__.pyi`.
 
+**Rust, Python and the book move together.** A new public capability lands
+with its Python binding and its book coverage in the same PR. A capability
+that is deliberately Rust-only is recorded as such in the binding parity
+check, with the reason.
+
 **User-facing docs never cite internal material.** User-facing means the
 READMEs (root, crates, `app/README.md`), `book/src`, `docs/tutorials`, the
 CHANGELOG, published crates' rustdoc, and the Python package. They must not
@@ -261,3 +266,6 @@ paper trail. History lives in `CHANGELOG.md`, PR descriptions and git.
   `cargo build|test --workspace` does **not** cover it.
 * Developer guide: `app/DEVELOPING.md`; design rationale:
   `docs/adrs/0014-desktop-app.md`.
+* The frontend is being rebuilt on the `@vitavision/workbench` shell
+  (backlog, App track). New views go into that structure rather than into
+  the current workspaces.
