@@ -5,8 +5,9 @@
 //! via SVD decomposition.
 
 use crate::Error;
-use crate::math::{mat34_from_vec, null_space, project_to_so3};
+use crate::math::project_to_so3;
 use nalgebra::{DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion};
+use vision_calibration_core::linalg::{mat34_from_vec, null_space};
 use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
 
 /// Direct linear PnP on all input points.
@@ -113,7 +114,7 @@ pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Err
     }
 
     // Solve `A p = 0` for the smallest right-singular vector via `AᵀA` symmetric
-    // eigen (see [`null_space`](crate::math::null_space)) — avoids nalgebra's
+    // eigen (see [`null_space`](vision_calibration_core::linalg::null_space)) — avoids nalgebra's
     // hang-prone dense SVD on the tall `2N×12` design matrix. Reshape into the
     // 3×4 matrix `P = [R|t]` (up to scale).
     let p_mtx = mat34_from_vec(&null_space(&a)?.vector);

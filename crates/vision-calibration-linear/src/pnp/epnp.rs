@@ -92,7 +92,7 @@ pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Er
     // Solve `M x = 0` for the smallest right-singular vector via `AᵀA` symmetric
     // eigen (see `math::null_space`) — avoids nalgebra's hang-prone dense SVD on
     // the tall `2N×12` design matrix.
-    let sol = crate::math::null_space(&m)?.vector;
+    let sol = vision_calibration_core::linalg::null_space(&m)?.vector;
 
     let mut control_c = [Vec3::zeros(); 4];
     for (j, cc) in control_c.iter_mut().enumerate() {

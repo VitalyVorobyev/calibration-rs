@@ -1,46 +1,19 @@
-//! Mathematical utilities for linear calibration algorithms.
-//!
-//! The low-level numeric primitives shared with the multiple-view-geometry
-//! solvers — Hartley normalization, polynomial root-finding, homogeneous
-//! null-space extraction, and SVD/vector reshaping — now live in
-//! [`vision_calibration_core::linalg`] and are **re-exported here** so existing
-//! `crate::math::…` call sites keep working. This crate is the canonical home
-//! only for the helpers below that are calibration-specific:
+//! Least-squares and rotation helpers specific to the linear calibration
+//! solvers. The shared numeric primitives (Hartley normalization, polynomial
+//! roots, null spaces, SVD reshaping) are in
+//! [`vision_calibration_core::linalg`].
 //!
 //! - [`ridge_lstsq`] — ridge-regularized normal-equation least squares.
 //! - [`project_to_so3`] — polar projection of a 3×3 matrix onto SO(3).
-//!
-//! # Example
-//!
-//! ```
-//! use vision_calibration_linear::math::normalize_points_2d;
-//! use vision_calibration_core::Pt2;
-//!
-//! let points = vec![
-//!     Pt2::new(100.0, 200.0),
-//!     Pt2::new(150.0, 250.0),
-//!     Pt2::new(120.0, 220.0),
-//! ];
-//!
-//! let (normalized, _transform) = normalize_points_2d(&points).unwrap();
-//! // normalized points have mean at origin, mean distance = sqrt(2)
-//! assert_eq!(normalized.len(), 3);
-//! ```
 
 use crate::Error;
 use nalgebra::{DMatrix, DVector};
 use vision_calibration_core::{Mat3, Real};
 
-pub use vision_calibration_core::linalg::{
-    NullSpaceSolution, mat3_from_svd_row, mat3_from_vec, mat34_from_svd_row, mat34_from_vec,
-    normalize_points_2d, normalize_points_3d, null_space, solve_cubic_real, solve_quadratic_real,
-    solve_quartic_real,
-};
-
 /// Solve the overdetermined least-squares system `A x ≈ b` via the
 /// ridge-regularized normal equations `x = (AᵀA + λI)⁻¹ Aᵀ b`.
 ///
-/// Like [`null_space`], this avoids `A.svd(...)` so it cannot hang on nalgebra's
+/// Like [`null_space`](vision_calibration_core::linalg::null_space), this avoids `A.svd(...)` so it cannot hang on nalgebra's
 /// unbounded QR iteration: `AᵀA` is `k×k` (`k = A.ncols()`, small) and is solved
 /// by LU. `λ ≥ 0` is a Tikhonov ridge that regularizes a near-singular design
 /// the way small-singular-value truncation would in an SVD solve; pass `0.0` for
@@ -75,7 +48,7 @@ pub fn ridge_lstsq(
 /// Returns the nearest (Frobenius) rotation `R = U Vᵀ` from the SVD `M = U Σ Vᵀ`,
 /// with the sign of `Vᵀ`'s last row flipped if needed to force `det(R) = +1`
 /// (avoiding a reflection). The SVD here is a fixed 3×3 — it cannot trigger the
-/// dense-matrix hang that [`null_space`] guards against — so a direct SVD is
+/// dense-matrix hang that [`null_space`](vision_calibration_core::linalg::null_space) guards against — so a direct SVD is
 /// used. Centralizes the polar-projection idiom shared by the PnP, hand-eye, and
 /// pose solvers.
 ///

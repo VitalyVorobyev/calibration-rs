@@ -6,8 +6,8 @@
 
 use super::pose_utils::pose_from_points;
 use crate::Error;
-use crate::math::solve_quartic_real;
 use nalgebra::Vector3;
+use vision_calibration_core::linalg::solve_quartic_real;
 use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Real};
 
 /// Multiply two degree-4 polynomials (truncate to degree 4).

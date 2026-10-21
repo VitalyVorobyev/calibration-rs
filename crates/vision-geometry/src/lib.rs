@@ -7,9 +7,6 @@
 //!
 //! # Modules
 //!
-//! - [`math`] — DLT rank guard, plus a re-export of the shared linear-algebra
-//!   primitives (Hartley normalization, polynomial/null-space solvers) from
-//!   [`vision_calibration_core::linalg`]
 //! - [`epipolar`] — Fundamental and essential matrix estimation, decomposition
 //! - [`homography`] — Normalized DLT homography estimation with optional RANSAC
 //! - [`triangulation`] — N-view triangulation: linear DLT + Gauss-Newton
@@ -27,7 +24,7 @@ pub mod camera_matrix;
 pub mod epipolar;
 pub mod error;
 pub mod homography;
-pub mod math;
+mod math;
 pub mod triangulation;
 
 // Items are reached through their owning module — `epipolar::fundamental_8point`,

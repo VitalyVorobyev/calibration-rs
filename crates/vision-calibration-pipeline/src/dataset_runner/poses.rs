@@ -20,6 +20,7 @@ use vision_calibration_dataset::{
     DatasetSpec, PoseConvention, PosePairing, RobotPoseFormat, RobotPoseSource, RotationFormat,
     TransformConvention, TranslationUnits,
 };
+use vision_calibration_linear::math::project_to_so3;
 
 use super::RunError;
 
@@ -534,30 +535,6 @@ fn pose_from_matrix_values(
     })
 }
 
-/// Nearest proper rotation to a (possibly mildly noisy) 3×3 matrix via SVD
-/// polar decomposition: `R = U·Vᵀ`, flipping the sign of `U`'s last column when
-/// `det(U·Vᵀ) < 0` to enforce `det(R) = +1`.
-///
-/// This replaces nalgebra's identity-seeded iterative `Rotation3::from_matrix`,
-/// which silently mis-converges on exact 180° rotations (returning the wrong
-/// axis). For a clean rotation matrix the SVD recovers it exactly; for a mildly
-/// non-orthonormal export it returns the closest rotation. The input is a 3×3,
-/// so the SVD is trivially small and well-conditioned.
-fn nearest_rotation(m: nalgebra::Matrix3<f64>) -> Rotation3<f64> {
-    let svd = m.svd(true, true);
-    let u = svd.u.expect("3×3 SVD always yields U");
-    let v_t = svd.v_t.expect("3×3 SVD always yields Vᵀ");
-    let r = u * v_t;
-    if r.determinant() < 0.0 {
-        let mut u_fixed = u;
-        let last = -u_fixed.column(2).into_owned();
-        u_fixed.set_column(2, &last);
-        Rotation3::from_matrix_unchecked(u_fixed * v_t)
-    } else {
-        Rotation3::from_matrix_unchecked(r)
-    }
-}
-
 /// Build a rotation from the file's parameterisation.
 ///
 /// Euler conventions are *intrinsic*, composed left-to-right in the
@@ -628,7 +605,15 @@ fn rotation_from_values(
                 values[0], values[1], values[2], values[4], values[5], values[6], values[8],
                 values[9], values[10],
             );
-            Ok(UnitQuaternion::from_rotation_matrix(&nearest_rotation(m)))
+            // The SVD polar projection, not nalgebra's iterative
+            // `Rotation3::from_matrix`, which mis-converges on exact 180°
+            // rotations (the wrong axis); it also absorbs mild
+            // non-orthonormality in an exported matrix.
+            let r = project_to_so3(&m)
+                .map_err(|_| "rotation matrix has non-finite entries".to_string())?;
+            Ok(UnitQuaternion::from_rotation_matrix(
+                &Rotation3::from_matrix_unchecked(r),
+            ))
         }
     }
 }

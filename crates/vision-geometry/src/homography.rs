@@ -7,9 +7,9 @@
 //! Input points should be in consistent units; normalization is applied
 //! internally for numerical stability and the output is de-normalized.
 
-use crate::math::{mat3_from_vec, normalize_points_2d, null_space};
 use crate::{GeometryError, Result};
 use nalgebra::DMatrix;
+use vision_calibration_core::linalg::{mat3_from_vec, normalize_points_2d, null_space};
 use vision_calibration_core::{
     Estimator, Mat3, Pt2, RansacOptions, from_homogeneous, ransac_fit, to_homogeneous,
 };

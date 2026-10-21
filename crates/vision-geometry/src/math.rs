@@ -1,23 +1,12 @@
-//! Mathematical utilities for geometric solvers.
-//!
-//! The low-level numeric primitives — Hartley normalization, polynomial
-//! root-finding, homogeneous null-space extraction, and SVD/vector reshaping —
-//! live in [`vision_calibration_core::linalg`] (shared with the calibration
-//! solvers) and are **re-exported here** so the in-crate `crate::math::…` call
-//! sites are unchanged. This module is the canonical home only for the
-//! DLT-specific rank guard `dlt_rank_ok`.
+//! The DLT rank guard. The shared numeric primitives (Hartley normalization,
+//! polynomial roots, null spaces, SVD reshaping) are in
+//! [`vision_calibration_core::linalg`].
 //!
 //! # References
 //!
 //! Hartley & Zisserman, *Multiple View Geometry in Computer Vision*, 2nd ed.
 
 use vision_calibration_core::Real;
-
-pub use vision_calibration_core::linalg::{
-    MathError, NullSpaceSolution, mat3_from_svd_row, mat3_from_vec, mat34_from_svd_row,
-    mat34_from_vec, normalize_points_2d, normalize_points_3d, null_space, solve_cubic_real,
-    solve_quadratic_real, solve_quartic_real,
-};
 
 /// Check that a homogeneous DLT system has a well-defined null space.
 ///

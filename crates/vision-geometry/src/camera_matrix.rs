@@ -3,11 +3,13 @@
 //! Provides a normalized DLT solver for the 3×4 projection matrix `P` and an
 //! RQ decomposition to recover intrinsics and rotation.
 
-use crate::math::{
-    dlt_rank_ok, mat34_from_vec, normalize_points_2d, normalize_points_3d, null_space,
-};
+use crate::math::dlt_rank_ok;
+
 use crate::{GeometryError, Result};
 use nalgebra::{DMatrix, Matrix3, Matrix3x4};
+use vision_calibration_core::linalg::{
+    mat34_from_vec, normalize_points_2d, normalize_points_3d, null_space,
+};
 use vision_calibration_core::{Mat3, Pt2, Pt3, Real, Vec3};
 
 /// 3×4 camera projection matrix `P = K [R | t]`.

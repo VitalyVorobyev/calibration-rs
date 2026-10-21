@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- The shared linear-algebra primitives have one public path,
+  `vision_calibration_core::linalg` (`normalize_points_2d/3d`, `null_space`,
+  the polynomial root solvers, the SVD reshaping helpers).
+  `vision_calibration_linear::math` no longer re-exports them (it keeps
+  `ridge_lstsq` and `project_to_so3`), and `vision_geometry::math` is private.
+  Import from `vision_calibration_core::linalg` instead.
+
 - Breaking: the `scheimpflug_intrinsics` workflow is merged into
   `planar_intrinsics`. A tilted sensor is a value of the camera model, not a
   separate problem type: planar intrinsics calibrates any distortion model

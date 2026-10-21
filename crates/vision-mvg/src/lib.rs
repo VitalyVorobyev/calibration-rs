@@ -63,6 +63,7 @@ pub use types::{
 };
 
 // Re-export low-level solvers from vision-geometry.
+pub use vision_calibration_core::linalg::{normalize_points_2d, normalize_points_3d};
 pub use vision_geometry::camera_matrix::{
     CameraMatrixDecomposition, Mat34, decompose_camera_matrix, dlt_camera_matrix, rq_decompose,
 };
@@ -71,7 +72,6 @@ pub use vision_geometry::epipolar::{
     fundamental_8point_ransac,
 };
 pub use vision_geometry::homography::{dlt_homography, dlt_homography_ransac};
-pub use vision_geometry::math::{normalize_points_2d, normalize_points_3d};
 pub use vision_geometry::triangulation::triangulate_point_linear;
 
 #[cfg(doctest)]

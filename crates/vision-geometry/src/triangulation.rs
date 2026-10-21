@@ -11,7 +11,8 @@ use nalgebra::{DMatrix, Matrix3, Vector3, Vector4};
 use vision_calibration_core::{Pt2, Pt3, Real};
 
 use crate::camera_matrix::Mat34;
-use crate::math::{dlt_rank_ok, null_space};
+use crate::math::dlt_rank_ok;
+use vision_calibration_core::linalg::null_space;
 
 /// Linear (DLT) triangulation from N ≥ 2 views.
 ///
