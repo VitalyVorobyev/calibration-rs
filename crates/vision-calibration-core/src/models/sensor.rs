@@ -55,9 +55,8 @@ impl<T: RealField> SensorModel<T> for HomographySensor<T> {
 }
 
 /// Scheimpflug tilt parameters (OpenCV-compatible).
-///
-/// Generic over the scalar so the optimizer evaluates the tilted sensor
-/// through this type under autodiff; `f64` is the default.
+// Generic over the scalar so the optimizer evaluates the tilted sensor
+// through this type under autodiff; `f64` is the default.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ScheimpflugParams<T: RealField = f64> {

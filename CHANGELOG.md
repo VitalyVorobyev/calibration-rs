@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- The camera-model kinds live in `vision-calibration-core` with their
+  parameter metadata: `ProjectionKind`, `DistortionKind`, `SensorKind` and
+  `CameraModelSpec` (re-exported from `vision_calibration_optim::ir`).
+  `CameraModelDesc` is renamed `CameraModelSpec`; its combination constants
+  (`PINHOLE4_DIST5`, …) are replaced by
+  `CameraModelSpec::pinhole(distortion, sensor)`. `SensorKind::None` /
+  `Scheimpflug2` are renamed `Identity` / `Scheimpflug`. `CameraParams::spec()`
+  returns a parameter set's spec.
+
 - Breaking: camera intrinsics are exactly `fx, fy, cx, cy`; skew is gone.
   `FxFyCxCySkew` is renamed `FxFyCxCy` and loses its `skew` field (its
   `k_matrix()` has a zero in the skew slot). `IntrinsicsParams` and

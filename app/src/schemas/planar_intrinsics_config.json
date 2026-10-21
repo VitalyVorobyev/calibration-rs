@@ -52,7 +52,7 @@
       "type": "object"
     },
     "DistortionKind": {
-      "description": "Which distortion model a camera carries.\n\n`dim() == 0` means the factor takes no distortion parameter block.",
+      "description": "Which distortion model a camera carries.\n\n`dim() == 0` means the camera has no distortion parameter block.",
       "oneOf": [
         {
           "const": "none",

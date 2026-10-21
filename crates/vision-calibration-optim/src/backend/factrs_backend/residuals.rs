@@ -7,7 +7,6 @@
 //! dimension.
 
 use std::fmt;
-use std::marker::PhantomData;
 
 use factrs::containers::{Factor, FactorBuilder, Key, Values};
 use factrs::linalg::{
@@ -22,16 +21,14 @@ use nalgebra::{DVector, RealField};
 
 use super::robust::IrRobustCost;
 use super::variables::{PlaneVar, se3_to_ir};
-use crate::factors::camera_kernels::{DistortionKernel, ProjectionKernel, SensorKernel};
-use crate::factors::laserline::{
-    laser_line_distance_model_generic, laser_point_to_plane_model_generic,
-};
-use crate::factors::reprojection_model::reproj_residual_model_generic;
-use crate::ir::{FactorKind, LaserChain, ReprojChain, RobustLoss};
+use crate::Error;
+use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
+use crate::factors::reprojection_model::reproj_residual;
+use crate::ir::{CameraModelSpec, FactorKind, LaserChain, ReprojChain, RobustLoss};
 
-/// Size of the fused camera variable for distortion `D` and sensor `S`.
-const fn camera_dim<D: DistortionKernel, S: SensorKernel>() -> usize {
-    4 + D::DIM + S::DIM
+/// Size of the fused camera variable of a camera model.
+fn camera_dim(model: CameraModelSpec) -> usize {
+    4 + model.projection.dim() + model.distortion.dim() + model.sensor.dim()
 }
 
 /// Appends a variable's IR parameter blocks to a kernel's argument list.
@@ -58,28 +55,32 @@ impl<T: Numeric> IrBlocks<T> for VectorVar<6, T> {
     }
 }
 
-/// Splits a fused camera variable into its intrinsics, distortion (if any)
-/// and sensor (if any) blocks.
-fn push_camera<D: DistortionKernel, S: SensorKernel, const N: usize, T: Numeric>(
+/// Splits a fused camera variable into its intrinsics, projection,
+/// distortion and sensor blocks (each present only when non-empty).
+fn push_camera<const N: usize, T: Numeric>(
+    model: CameraModelSpec,
     camera: &VectorVar<N, T>,
     out: &mut Vec<DVector<T>>,
 ) {
-    let v = camera.0.as_slice();
-    let intrinsics = N - D::DIM - S::DIM;
-    out.push(DVector::from_column_slice(&v[..intrinsics]));
-    if D::DIM > 0 {
-        out.push(DVector::from_column_slice(
-            &v[intrinsics..intrinsics + D::DIM],
-        ));
-    }
-    if S::DIM > 0 {
-        out.push(DVector::from_column_slice(&v[N - S::DIM..]));
+    let mut v = camera.0.as_slice();
+    for dim in [
+        4,
+        model.projection.dim(),
+        model.distortion.dim(),
+        model.sensor.dim(),
+    ] {
+        if dim > 0 {
+            let (head, tail) = v.split_at(dim);
+            out.push(DVector::from_column_slice(head));
+            v = tail;
+        }
     }
 }
 
 /// A reprojection factor's data.
 #[derive(Clone, Debug)]
 struct Reproj {
+    model: CameraModelSpec,
     chain: ReprojChain,
     pw: [f64; 3],
     uv: [f64; 2],
@@ -87,20 +88,12 @@ struct Reproj {
 }
 
 impl Reproj {
-    fn eval<P, D, S, T>(&self, params: &[DVector<T>]) -> VectorX<T>
-    where
-        P: ProjectionKernel,
-        D: DistortionKernel,
-        S: SensorKernel,
-        T: RealField,
-    {
-        let r = reproj_residual_model_generic::<P, D, S, T>(
-            &self.chain,
-            params,
-            self.pw,
-            self.uv,
-            self.w,
-        );
+    fn model(&self) -> CameraModelSpec {
+        self.model
+    }
+
+    fn eval<T: RealField>(&self, params: &[DVector<T>]) -> VectorX<T> {
+        let r = reproj_residual(self.model, &self.chain, params, self.pw, self.uv, self.w);
         DVector::from_column_slice(r.as_slice())
     }
 }
@@ -116,33 +109,23 @@ enum LaserMetric {
 #[derive(Clone, Debug)]
 struct Laser {
     metric: LaserMetric,
+    model: CameraModelSpec,
     chain: LaserChain,
     laser_pixel: [f64; 2],
     w: f64,
 }
 
 impl Laser {
-    fn eval<P, D, S, T>(&self, params: &[DVector<T>]) -> VectorX<T>
-    where
-        P: ProjectionKernel,
-        D: DistortionKernel,
-        S: SensorKernel,
-        T: RealField,
-    {
-        let r = match self.metric {
-            LaserMetric::PointToPlane => laser_point_to_plane_model_generic::<D, S, T>(
-                &self.chain,
-                params,
-                self.laser_pixel,
-                self.w,
-            ),
-            LaserMetric::LineDistance => laser_line_distance_model_generic::<D, S, T>(
-                &self.chain,
-                params,
-                self.laser_pixel,
-                self.w,
-            ),
+    fn model(&self) -> CameraModelSpec {
+        self.model
+    }
+
+    fn eval<T: RealField>(&self, params: &[DVector<T>]) -> VectorX<T> {
+        let residual = match self.metric {
+            LaserMetric::PointToPlane => laser_point_to_plane_residual,
+            LaserMetric::LineDistance => laser_line_distance_residual,
         };
+        let r = residual(self.model, &self.chain, params, self.laser_pixel, self.w);
         DVector::from_column_slice(r.as_slice())
     }
 }
@@ -157,29 +140,24 @@ macro_rules! camera_residual {
         chain = [$($V:ident $v:ident: $VT:ty),*]
     ) => {
         $(#[$doc])*
-        struct $name<P, D, S, const N: usize, const DIN: usize> {
+        struct $name<const N: usize, const DIN: usize> {
             payload: $payload,
-            _kernels: PhantomData<fn() -> (P, D, S)>,
         }
 
-        impl<P, D, S, const N: usize, const DIN: usize> $name<P, D, S, N, DIN> {
+        impl<const N: usize, const DIN: usize> $name<N, DIN> {
             fn new(payload: $payload) -> Self {
-                Self {
-                    payload,
-                    _kernels: PhantomData,
-                }
+                Self { payload }
             }
         }
 
-        // By hand: a derive would require the kernel markers to be
-        // `Clone + Debug`.
-        impl<P, D, S, const N: usize, const DIN: usize> Clone for $name<P, D, S, N, DIN> {
+        // By hand: a derive would bound the const parameters needlessly.
+        impl<const N: usize, const DIN: usize> Clone for $name<N, DIN> {
             fn clone(&self) -> Self {
                 Self::new(self.payload.clone())
             }
         }
 
-        impl<P, D, S, const N: usize, const DIN: usize> fmt::Debug for $name<P, D, S, N, DIN> {
+        impl<const N: usize, const DIN: usize> fmt::Debug for $name<N, DIN> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.debug_struct(stringify!($name))
                     .field("payload", &self.payload)
@@ -187,11 +165,8 @@ macro_rules! camera_residual {
             }
         }
 
-        impl<P, D, S, const N: usize, const DIN: usize> Residual for $name<P, D, S, N, DIN>
+        impl<const N: usize, const DIN: usize> Residual for $name<N, DIN>
         where
-            P: ProjectionKernel + 'static,
-            D: DistortionKernel + 'static,
-            S: SensorKernel + 'static,
             AllocatorBuffer<Const<DIN>>: Sync + Send,
             DefaultAllocator: DualAllocator<Const<DIN>>,
             DualVector<Const<DIN>>: Copy,
@@ -217,11 +192,8 @@ macro_rules! camera_residual {
             }
         }
 
-        impl<P, D, S, const N: usize, const DIN: usize> $trait for $name<P, D, S, N, DIN>
+        impl<const N: usize, const DIN: usize> $trait for $name<N, DIN>
         where
-            P: ProjectionKernel + 'static,
-            D: DistortionKernel + 'static,
-            S: SensorKernel + 'static,
             AllocatorBuffer<Const<DIN>>: Sync + Send,
             DefaultAllocator: DualAllocator<Const<DIN>>,
             DualVector<Const<DIN>>: Copy,
@@ -238,9 +210,9 @@ macro_rules! camera_residual {
                 $($v: <$VT as factrs::variables::Variable>::Alias<T>,)*
             ) -> VectorX<T> {
                 let mut params = Vec::with_capacity(9);
-                push_camera::<D, S, N, T>(&camera, &mut params);
+                push_camera(self.payload.model(), &camera, &mut params);
                 $($v.push_blocks(&mut params);)*
-                self.payload.eval::<P, D, S, T>(&params)
+                self.payload.eval(&params)
             }
         }
     };
@@ -337,20 +309,53 @@ impl Residual1 for TangentPrior {
     }
 }
 
+/// Expands `$mk!(N)` for the fused camera size `$n`: the sizes that the
+/// camera models produce (intrinsics plus projection, distortion and sensor
+/// parameters). factrs needs the variable size at compile time, so this is
+/// a table over sizes, not over models.
+macro_rules! dispatch_camera_dim {
+    ($n:expr, $mk:ident) => {
+        match $n {
+            4 => Ok($mk!(4)),
+            5 => Ok($mk!(5)),
+            6 => Ok($mk!(6)),
+            7 => Ok($mk!(7)),
+            8 => Ok($mk!(8)),
+            9 => Ok($mk!(9)),
+            10 => Ok($mk!(10)),
+            11 => Ok($mk!(11)),
+            12 => Ok($mk!(12)),
+            13 => Ok($mk!(13)),
+            14 => Ok($mk!(14)),
+            15 => Ok($mk!(15)),
+            16 => Ok($mk!(16)),
+            17 => Ok($mk!(17)),
+            n => Err(Error::invalid_input(format!(
+                "the factrs backend fuses a camera into one variable of at most 17 \
+                 parameters; this camera model has {n}"
+            ))),
+        }
+    };
+}
+
 /// The factrs factor for an IR factor whose variables are `keys`: the fused
 /// camera variable first (absent for the tangent prior), then one key per
 /// chain variable in slot order.
-pub(super) fn build_factor(factor: &FactorKind, keys: &[Key], loss: RobustLoss) -> Factor {
+pub(super) fn build_factor(
+    factor: &FactorKind,
+    keys: &[Key],
+    loss: RobustLoss,
+) -> Result<Factor, Error> {
     let robust = IrRobustCost(loss);
     match factor {
-        FactorKind::Se3TangentPrior { sqrt_info } => FactorBuilder::new1_unchecked(
+        FactorKind::Se3TangentPrior { sqrt_info } => Ok(FactorBuilder::new1_unchecked(
             TangentPrior {
                 sqrt_info: *sqrt_info,
             },
             keys[0],
         )
         .robust(robust)
-        .build(),
+        .build()),
         FactorKind::ReprojPoint {
             model,
             chain,
@@ -359,24 +364,25 @@ pub(super) fn build_factor(factor: &FactorKind, keys: &[Key], loss: RobustLoss) 
             w,
         } => {
             let payload = Reproj {
+                model: *model,
                 chain: *chain,
                 pw: *pw,
                 uv: *uv,
                 w: *w,
             };
             macro_rules! mk {
-                ($P:ty, $D:ty, $S:ty) => {{
-                    const N: usize = camera_dim::<$D, $S>();
+                ($n:literal) => {{
+                    const N: usize = $n;
                     match chain {
                         ReprojChain::SinglePose => FactorBuilder::new2_unchecked(
-                            ReprojSinglePose::<$P, $D, $S, N, { N + 6 }>::new(payload),
+                            ReprojSinglePose::<N, { N + 6 }>::new(payload),
                             keys[0],
                             keys[1],
                         )
                         .robust(robust)
                         .build(),
                         ReprojChain::TwoSe3 => FactorBuilder::new3_unchecked(
-                            ReprojTwoSe3::<$P, $D, $S, N, { N + 12 }>::new(payload),
+                            ReprojTwoSe3::<N, { N + 12 }>::new(payload),
                             keys[0],
                             keys[1],
                             keys[2],
@@ -384,7 +390,7 @@ pub(super) fn build_factor(factor: &FactorKind, keys: &[Key], loss: RobustLoss) 
                         .robust(robust)
                         .build(),
                         ReprojChain::HandEye { .. } => FactorBuilder::new4_unchecked(
-                            ReprojHandEye::<$P, $D, $S, N, { N + 18 }>::new(payload),
+                            ReprojHandEye::<N, { N + 18 }>::new(payload),
                             keys[0],
                             keys[1],
                             keys[2],
@@ -393,7 +399,7 @@ pub(super) fn build_factor(factor: &FactorKind, keys: &[Key], loss: RobustLoss) 
                         .robust(robust)
                         .build(),
                         ReprojChain::HandEyeRobotDelta { .. } => FactorBuilder::new5_unchecked(
-                            ReprojHandEyeRobotDelta::<$P, $D, $S, N, { N + 24 }>::new(payload),
+                            ReprojHandEyeRobotDelta::<N, { N + 24 }>::new(payload),
                             keys[0],
                             keys[1],
                             keys[2],
@@ -405,7 +411,7 @@ pub(super) fn build_factor(factor: &FactorKind, keys: &[Key], loss: RobustLoss) 
                     }
                 }};
             }
-            crate::backend::dispatch_camera_model!(model, mk)
+            dispatch_camera_dim!(camera_dim(*model), mk)
         }
         FactorKind::LaserPointToPlane {
             model,
@@ -426,16 +432,17 @@ pub(super) fn build_factor(factor: &FactorKind, keys: &[Key], loss: RobustLoss) 
             };
             let payload = Laser {
                 metric,
+                model: *model,
                 chain: *chain,
                 laser_pixel: *laser_pixel,
                 w: *w,
             };
             macro_rules! mk {
-                ($P:ty, $D:ty, $S:ty) => {{
-                    const N: usize = camera_dim::<$D, $S>();
+                ($n:literal) => {{
+                    const N: usize = $n;
                     match chain {
                         LaserChain::SinglePose => FactorBuilder::new3_unchecked(
-                            LaserSinglePose::<$P, $D, $S, N, { N + 9 }>::new(payload),
+                            LaserSinglePose::<N, { N + 9 }>::new(payload),
                             keys[0],
                             keys[1],
                             keys[2],
@@ -443,7 +450,7 @@ pub(super) fn build_factor(factor: &FactorKind, keys: &[Key], loss: RobustLoss) 
                         .robust(robust)
                         .build(),
                         LaserChain::RigHandEye { .. } => FactorBuilder::new5_unchecked(
-                            LaserRigHandEye::<$P, $D, $S, N, { N + 21 }>::new(payload),
+                            LaserRigHandEye::<N, { N + 21 }>::new(payload),
                             keys[0],
                             keys[1],
                             keys[2],
@@ -453,7 +460,7 @@ pub(super) fn build_factor(factor: &FactorKind, keys: &[Key], loss: RobustLoss) 
                         .robust(robust)
                         .build(),
                         LaserChain::RigHandEyeRobotDelta { .. } => FactorBuilder::new6_unchecked(
-                            LaserRigHandEyeRobotDelta::<$P, $D, $S, N, { N + 27 }>::new(payload),
+                            LaserRigHandEyeRobotDelta::<N, { N + 27 }>::new(payload),
                             keys[0],
                             keys[1],
                             keys[2],
@@ -466,7 +473,7 @@ pub(super) fn build_factor(factor: &FactorKind, keys: &[Key], loss: RobustLoss) 
                     }
                 }};
             }
-            crate::backend::dispatch_camera_model!(model, mk)
+            dispatch_camera_dim!(camera_dim(*model), mk)
         }
     }
 }

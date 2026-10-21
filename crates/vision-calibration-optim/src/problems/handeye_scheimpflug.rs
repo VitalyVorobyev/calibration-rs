@@ -10,8 +10,9 @@
 
 use crate::Error;
 use crate::backend::{self, BackendSolveOptions, SolveReport};
+use crate::ir::SensorKind;
 use crate::ir::{
-    CameraModelDesc, DistortionKind, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR,
+    CameraModelSpec, DistortionKind, FactorKind, FixedMask, HandEyeMode, ManifoldKind, ProblemIR,
     ReprojChain, ResidualBlock, RobustLoss,
 };
 use crate::params::distortion::{DISTORTION_DIM, pack_distortion, unpack_distortion};
@@ -624,7 +625,10 @@ fn build_handeye_scheimpflug_ir(
                             ],
                             loss: opts.robust_loss,
                             factor: FactorKind::ReprojPoint {
-                                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                                model: CameraModelSpec::pinhole(
+                                    DistortionKind::BrownConrady5,
+                                    SensorKind::Scheimpflug,
+                                ),
                                 chain: ReprojChain::HandEyeRobotDelta {
                                     base_se3_gripper: robot_se3_array,
                                     mode: dataset.mode,
@@ -647,7 +651,10 @@ fn build_handeye_scheimpflug_ir(
                             ],
                             loss: opts.robust_loss,
                             factor: FactorKind::ReprojPoint {
-                                model: CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
+                                model: CameraModelSpec::pinhole(
+                                    DistortionKind::BrownConrady5,
+                                    SensorKind::Scheimpflug,
+                                ),
                                 chain: ReprojChain::HandEye {
                                     base_se3_gripper: robot_se3_array,
                                     mode: dataset.mode,

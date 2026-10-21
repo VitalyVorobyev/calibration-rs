@@ -7,30 +7,31 @@
 //! linearization point; a one-residual IR lays out the columns in slot order
 //! in both.
 
+use crate::ir::{DistortionKind, SensorKind};
 use std::collections::HashMap;
 
 use nalgebra::{DVector, UnitQuaternion, Vector3};
 
 use crate::backend::{factrs_backend, tiny_solver_backend};
 use crate::ir::{
-    CameraModelDesc, FactorKind, FixedMask, HandEyeMode, LaserChain, ProblemIR, ReprojChain,
+    CameraModelSpec, FactorKind, FixedMask, HandEyeMode, LaserChain, ProblemIR, ReprojChain,
     ResidualBlock, RobustLoss,
 };
 
-const MODELS: [CameraModelDesc; 10] = [
-    CameraModelDesc::PINHOLE4,
-    CameraModelDesc::PINHOLE4_DIST5,
-    CameraModelDesc::PINHOLE4_RATIONAL8,
-    CameraModelDesc::PINHOLE4_THINPRISM9,
-    CameraModelDesc::PINHOLE4_DIVISION1,
-    CameraModelDesc {
-        sensor: crate::ir::SensorKind::Scheimpflug2,
-        ..CameraModelDesc::PINHOLE4
+const MODELS: [CameraModelSpec; 10] = [
+    CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity),
+    CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity),
+    CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Identity),
+    CameraModelSpec::pinhole(DistortionKind::ThinPrism9, SensorKind::Identity),
+    CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Identity),
+    CameraModelSpec {
+        sensor: crate::ir::SensorKind::Scheimpflug,
+        ..CameraModelSpec::pinhole(DistortionKind::None, SensorKind::Identity)
     },
-    CameraModelDesc::PINHOLE4_DIST5_SCHEIMPFLUG2,
-    CameraModelDesc::PINHOLE4_RATIONAL8_SCHEIMPFLUG2,
-    CameraModelDesc::PINHOLE4_THINPRISM9_SCHEIMPFLUG2,
-    CameraModelDesc::PINHOLE4_DIVISION1_SCHEIMPFLUG2,
+    CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug),
+    CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Scheimpflug),
+    CameraModelSpec::pinhole(DistortionKind::ThinPrism9, SensorKind::Scheimpflug),
+    CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Scheimpflug),
 ];
 
 /// An SE3 block `[qx, qy, qz, qw, tx, ty, tz]` from a rotation vector and a

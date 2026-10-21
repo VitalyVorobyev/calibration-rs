@@ -1,15 +1,16 @@
 //! Tests for the Rational-8 and Division-1 distortion models.
 //!
 //! Each test builds a synthetic ground-truth camera, generates planar observations,
-//! constructs a `ProblemIR` by hand using the new `CameraModelDesc` constants,
+//! constructs a `ProblemIR` by hand using the new `CameraModelSpec` constants,
 //! perturbs the initial values, solves with each backend, and asserts
 //! convergence to ground truth within tight tolerances.
 
 use crate::backend::{self, BackendSolveOptions, SolverBackend};
 use crate::ir::{
-    CameraModelDesc, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
+    CameraModelSpec, FactorKind, FixedMask, ManifoldKind, ProblemIR, ReprojChain, ResidualBlock,
     RobustLoss,
 };
+use crate::ir::{DistortionKind, SensorKind};
 use crate::params::intrinsics::{INTRINSICS_DIM, pack_intrinsics};
 use crate::params::pose_se3::iso3_to_se3_dvec;
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
@@ -168,7 +169,7 @@ fn rational_case(engine: SolverBackend) {
 
         for (pw, uv) in pts3.iter().zip(pts2.iter()) {
             let factor = FactorKind::ReprojPoint {
-                model: CameraModelDesc::PINHOLE4_RATIONAL8,
+                model: CameraModelSpec::pinhole(DistortionKind::Rational8, SensorKind::Identity),
                 chain: ReprojChain::SinglePose,
                 pw: [pw.x, pw.y, pw.z],
                 uv: [uv.x, uv.y],
@@ -301,7 +302,7 @@ fn division_case(engine: SolverBackend) {
 
         for (pw, uv) in pts3.iter().zip(pts2.iter()) {
             let factor = FactorKind::ReprojPoint {
-                model: CameraModelDesc::PINHOLE4_DIVISION1,
+                model: CameraModelSpec::pinhole(DistortionKind::Division1, SensorKind::Identity),
                 chain: ReprojChain::SinglePose,
                 pw: [pw.x, pw.y, pw.z],
                 uv: [uv.x, uv.y],

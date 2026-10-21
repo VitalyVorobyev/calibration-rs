@@ -86,6 +86,28 @@ pub struct CameraParams {
 pub type CameraModel = Camera<Real, AnyProjection, AnyDistortion, AnySensor, FxFyCxCy<Real>>;
 
 impl CameraParams {
+    /// The model spec of these parameters, or `None` for a general
+    /// [`SensorParams::Homography`] sensor, which no spec describes.
+    pub fn spec(&self) -> Option<super::CameraModelSpec> {
+        use super::{DistortionKind, ProjectionKind, SensorKind};
+        let projection = match self.projection {
+            ProjectionParams::Pinhole => ProjectionKind::Pinhole,
+        };
+        let distortion = match self.distortion {
+            DistortionParams::None => DistortionKind::None,
+            DistortionParams::BrownConrady5 { .. } => DistortionKind::BrownConrady5,
+            DistortionParams::Rational { .. } => DistortionKind::Rational8,
+            DistortionParams::ThinPrism { .. } => DistortionKind::ThinPrism9,
+            DistortionParams::Division { .. } => DistortionKind::Division1,
+        };
+        let sensor = match self.sensor {
+            SensorParams::Identity => SensorKind::Identity,
+            SensorParams::Scheimpflug { .. } => SensorKind::Scheimpflug,
+            SensorParams::Homography { .. } => return None,
+        };
+        Some(super::CameraModelSpec::new(projection, distortion, sensor))
+    }
+
     /// Build a concrete camera model from this parameter set.
     ///
     /// # Errors
