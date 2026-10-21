@@ -8,7 +8,7 @@
  *   3. Compact paths strip — folder + manifest paths (font-mono, muted).
  *      Visible once a manifest dir is known.
  *   3b. Unresolved-fields notice — shown when the manifest carries
- *      `_unresolved` (e.g. from a sniffed folder); blocks Run (ADR 0019).
+ *      `_unresolved` (e.g. from a sniffed folder); blocks Run (ADR 0016).
  *   4. Manifest section — collapsible, schema-driven SchemaValueForm.
  *   5. Calibration config section — collapsible, schema-driven SchemaValueForm.
  *   6. Advanced JSON editor — third collapsible, lowest priority.
@@ -177,7 +177,7 @@ export function RunWorkspace() {
   const info = topologyInfo(topology);
 
   // Fields the sniffer/runner could not determine. A non-empty list blocks
-  // Run until the user fills them in and clears them (ADR 0019).
+  // Run until the user fills them in and clears them (ADR 0016).
   const unresolved = useMemo<string[]>(() => unresolvedPaths(manifest), [manifest]);
   const hasUnresolved = unresolved.length > 0;
   const runBlocked = isRunning || !manifestDir || !info.supported || hasUnresolved;
@@ -625,7 +625,7 @@ export function RunWorkspace() {
       )}
 
       {/* 3b. Unresolved-fields notice — sniffed manifests block Run until
-          every domain-knowledge field is filled and cleared (ADR 0019). */}
+          every domain-knowledge field is filled and cleared (ADR 0016). */}
       {hasUnresolved && (
         <UnresolvedNotice paths={unresolved} onResolve={handleResolveField} />
       )}
@@ -701,7 +701,7 @@ export function RunWorkspace() {
         </p>
       </Disclosure>
 
-      {/* AskUser dialog — runner ambiguity that needs a choice (ADR 0019). */}
+      {/* AskUser dialog — runner ambiguity that needs a choice (ADR 0016). */}
       {status.kind === "ask_user" && (
         <AskUserDialog
           field={status.field}
@@ -1182,7 +1182,7 @@ interface AskUserDialogProps {
   onDismiss: () => void;
 }
 
-/** Dialog for a runner `ask_user` event (ADR 0019 fail-fast).
+/** Dialog for a runner `ask_user` event (ADR 0016 fail-fast).
  *
  * The dataset runner raises an `ask_user` event when it hits an ambiguity it
  * refuses to guess (e.g. how images pair into views). This surfaces the

@@ -11,7 +11,7 @@
 //!   hand-eye init → hand-eye BA.
 //!
 //! Intrinsics init is **seeded** by default (coarse focal + nominal mount tilt,
-//! the ADR 0022 supported path): Zhang-from-scratch is fragile on Scheimpflug
+//! the ADR 0011 supported path): Zhang-from-scratch is fragile on Scheimpflug
 //! optics. Set `RTV3D_RINGGRID_FROM_SCRATCH=1` to use Zhang's method instead.
 //!
 //! The `rtv3d_ringgrid` dataset ships **no laser images and no oracle** — it is a

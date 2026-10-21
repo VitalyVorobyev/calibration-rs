@@ -86,7 +86,7 @@ fn main() -> Result<()> {
     println!("data dir = {}", data_dir.display());
     println!("cell size = {cell_size_mm} mm, seed = {seed_mode}");
 
-    // Device spec (ADR 0023) — required for the default `spec` seed mode;
+    // Device spec (ADR 0011) — required for the default `spec` seed mode;
     // `RTV3D_SEED=generic|oracle` keeps the bootstrap comparison paths.
     let spec: Option<DeviceSpec> = if seed_mode == "spec" {
         let spec_path = data_dir.join(DEVICE_SPEC_FILENAME);
@@ -137,7 +137,7 @@ fn main() -> Result<()> {
 
     let manual_init = match &spec {
         // Spec mode: fx=fy from lens focal / pixel pitch, pp at resolution
-        // center, nominal mount tilt; distortion auto (ADR 0023).
+        // center, nominal mount tilt; distortion auto (ADR 0011).
         Some(spec) => device_seed::rig_intrinsics_seed(spec, &camera_ids)
             .context("derive rig intrinsics seed from device spec")?,
         None => build_intrinsics_seed(&seed_mode, oracle.as_ref(), tile_w, tile_h)?,

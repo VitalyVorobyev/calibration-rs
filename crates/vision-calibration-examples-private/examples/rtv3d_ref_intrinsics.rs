@@ -1,18 +1,18 @@
 //! Per-camera Scheimpflug **intrinsics** calibration on the `rtv3d_ref`
 //! reference dataset from a *coarse, user-provided* seed — the supported
-//! workflow (ADR 0022).
+//! workflow (ADR 0011).
 //!
 //! Companion to `rtv3d_ref_rig` (full from-scratch rig) and `rtv3d_ref_reproj`
 //! (frozen-intrinsics parity). This harness exercises the recommended path for
 //! Scheimpflug intrinsics: the coarse prior comes from the dataset's device
-//! spec (`spec.json`, ADR 0023) — lens focal + pixel pitch → `fx = fy`, and
+//! spec (`spec.json`, ADR 0011) — lens focal + pixel pitch → `fx = fy`, and
 //! the Scheimpflug mount angle (≈−5°) → the tilt seed — and bundle adjustment
 //! refines it. Nothing from `artifacts.json` is seeded; the oracle is read
 //! only for the final comparison.
 //!
 //! Why not from scratch? On this data (strong radial distortion, k1≈−0.43, plus
 //! a ≈−5° tilt) Zhang-from-scratch underestimates the focal and the solve settles
-//! into a wrong tilt/focal basin — see ADR 0022. A coarse
+//! into a wrong tilt/focal basin — see ADR 0011. A coarse
 //! seed removes that fragility.
 //!
 //! **Acceptance gate:** every camera must reach mean reprojection ≤ 0.5 px. The
@@ -80,7 +80,7 @@ fn main() -> Result<()> {
         .unwrap_or(120);
     println!("data dir = {}", data_dir.display());
 
-    // Device spec (ADR 0023): lens focal + pixel pitch + mount tilt → seed.
+    // Device spec (ADR 0011): lens focal + pixel pitch + mount tilt → seed.
     let spec_path = data_dir.join(DEVICE_SPEC_FILENAME);
     let spec = DeviceSpec::from_path(&spec_path)
         .with_context(|| format!("load device spec {}", spec_path.display()))?;
@@ -161,10 +161,10 @@ fn main() -> Result<()> {
         config.solver.robust_loss = RobustLoss::Huber { scale: 1.0 };
         session.set_config(config)?;
 
-        // Coarse "datasheet" prior derived from the device spec (ADR 0023):
+        // Coarse "datasheet" prior derived from the device spec (ADR 0011):
         // fx = fy from lens focal / pixel pitch, principal point at the tile
         // center, nominal mount tilt. Distortion + poses auto. The seeded
-        // tilt is trusted directly (ADR 0022).
+        // tilt is trusted directly (ADR 0011).
         let seed = scheimpflug_seed(&spec, &format!("cam{c}"))
             .with_context(|| format!("camera {c}: derive seed from device spec"))?;
         step_init_with_seed(&mut session, seed, None)

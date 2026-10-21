@@ -1064,7 +1064,7 @@ mod tests {
         assert!(format!("{err}").contains("quoted CSV"));
     }
 
-    // ── matrix_field (ADR 0021) ─────────────────────────────────────────
+    // ── matrix_field (ADR 0016) ─────────────────────────────────────────
 
     fn matrix_field_source(path: &Path, format: RobotPoseFormat) -> RobotPoseSource {
         RobotPoseSource {

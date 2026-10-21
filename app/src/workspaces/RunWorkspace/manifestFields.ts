@@ -4,7 +4,7 @@
 
 /** Human- and vendor-aware guidance keyed by manifest field path. Shown
  * beside `_unresolved` entries and in the AskUser modal so the user knows
- * what to fill in and why the app refused to guess (ADR 0019). */
+ * what to fill in and why the app refused to guess (ADR 0016). */
 export const FIELD_HINTS: Record<string, string> = {
   target:
     "Set the calibration target — kind (chessboard / charuco / puzzleboard / ringgrid) and geometry (rows/cols + square size in metres). Read these off the printed target or its spec sheet.",

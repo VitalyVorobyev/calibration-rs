@@ -189,7 +189,8 @@ PyPI. The book's
 shows how they layer.
 
 The project is pre-1.0: breaking changes still happen, and the CHANGELOG lists
-each with migration notes. MSRV is 1.93 ([policy](docs/MSRV.md)).
+each with migration notes. MSRV is 1.93; a release may raise it, and the
+CHANGELOG says so.
 
 Licensed under the [MIT License](LICENSE). The calibration data in `data/`
 and `regression/` comes from its publishers, credited per entry in

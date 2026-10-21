@@ -23,50 +23,44 @@ changes results, so each needs its measurement first.
   absorb signal and σ(fx) is 0.95 px against 0.30 px with exact poses.
   Rescale the reprojection family by its σ̂ (one re-solve) or the priors by
   σ̂², and measure hand-eye accuracy against ground truth on synthetic
-  scenes; results change, so it needs a migration note. With exact
-  synthetic stations (`synth_rig_handeye_laserline`), every hand-eye and
-  target coordinate lands within 0.7σ of the truth: σ reflects the priors,
-  not the data. On `kuka_1` our σ of the intrinsics is 1.4–2.8× OpenCV's
-  (which takes the robot poses as exact).
+  scenes; results change, so it needs a migration note. Today σ reflects
+  the priors, not the data: on `kuka_1` our intrinsics σ is 1.4–2.8×
+  OpenCV's, which takes the robot poses as exact.
 - [ ] UQ-RIG-INTRINSICS - Rig and rig hand-eye results hold the per-camera
   intrinsics fixed in their final solve by default, so their covariance has
   no intrinsics block and the extrinsics' σ is conditional on them. Decide:
   refine intrinsics in the final solve by default (results change), or
   report the per-camera intrinsics stage covariance alongside (loses the
   intrinsics–extrinsics correlation). Measure both on `stereo_rig` and `ds8`.
-  How optimistic the conditional σ is: on `stereo_rig` the two backends'
-  intrinsics differ by 0.006σ(fx), and that moves `cam1.cam_se3_rig.tz` by
-  0.4 of its conditional σ (3.6e-5 m); `suite check --backend factrs
-  --sigma 1` passes only by that margin, and should tighten to ~0.05σ once
-  the covariance includes the intrinsics.
-  `synth_rig`, with `refine_intrinsics_in_rig_ba`, agrees across the
-  backends within 3e-5σ.
-  The per-camera Scheimpflug stage of both workflows still holds view 0
-  fixed (`fix_poses: vec![0]` in `rig_extrinsics/steps.rs` and
-  `rig_handeye/steps.rs`), which the single-camera Scheimpflug default no
-  longer does; drop it with this change.
+  How optimistic the conditional σ is: on `stereo_rig` the backends'
+  intrinsics differ by 0.006σ(fx), which moves `cam1.cam_se3_rig.tz` by 0.4
+  of its conditional σ, so `suite check --backend factrs --sigma 1` passes
+  only by that margin; with the intrinsics in the covariance it should
+  tighten to about 0.05σ. Also drop `fix_poses: vec![0]` from the per-camera
+  Scheimpflug stage of `rig_extrinsics/steps.rs` and `rig_handeye/steps.rs`
+  (the single-camera Scheimpflug default does not fix a view).
 
 ## Regression suite
 
 A versioned public suite for regression and for comparison with other
 libraries. Image-free observations live in the repository and gate every PR.
-None of the real-image entries is ours to republish: `kuka_1` (RWHE-Calib)
-and `stereo` (Kaggle) state no licence, DS8 is U.S. public domain, so images
-are fetched from their publishers rather than archived by us. Synthetic
-entries need no images. Comparison tools must run on Linux, macOS and
-Windows. `stereo_charuco` stays local-only, as do the private sets.
+Real-image entries are fetched from their publishers, not archived by us:
+`kuka_1` (RWHE-Calib) and `stereo` (Kaggle) state no licence; DS8 is U.S.
+public domain. Synthetic entries need no images. Comparison tools must run
+on Linux, macOS and Windows. `stereo_charuco` stays local-only, as do the
+private sets.
 
 - [ ] DATA-FETCH - `calib-bench suite fetch` downloads an entry's images
   from its publisher into a cache and verifies a per-file SHA-256 list:
-  `kuka_1` from RWHE-Calib at commit `610a412` (raw files; the copy in
-  `data/kuka_1` is byte-identical), DS8 from the Ag Data Commons
-  (`DS8.zip`). Kaggle needs an account, so `stereo` stays a manual
-  download. A scheduled CI job runs `suite freeze` from the fetched images
-  and checks the observations still match `SHA256SUMS`; then retire
-  `bench/registry/public.json` and the acceptance job's image run. Ask the
-  RWHE-Calib authors for a licence; without one that allows
-  redistribution, drop the `kuka_1` images from the repository and LFS (the
-  `planar_real`/`handeye_session` examples then name the fetch command).
+  `kuka_1` from RWHE-Calib at commit `610a412` (raw files), DS8 from the Ag
+  Data Commons (`DS8.zip`). Kaggle needs an account, so `stereo` stays a
+  manual download. A scheduled CI job runs `suite freeze` from the fetched
+  images and checks the observations still match `SHA256SUMS`; then retire
+  `crates/vision-calibration-bench/registry/public.json` and the acceptance
+  job's image run. Ask the RWHE-Calib authors for a licence; without one
+  that allows redistribution, drop the `kuka_1` images from the repository
+  and LFS (the `planar_real`/`handeye_session` examples then name the fetch
+  command).
 - [ ] DATA-MORE - More public entries, each after a licence check: the other
   RWHE-Calib sets (`kuka_2`, `kuka_3`), Tabb's DS1–DS7 (U.S. public domain,
   same record as DS8), OpenCV's sample stereo chessboards (Apache-2.0).
@@ -74,7 +68,7 @@ Windows. `stereo_charuco` stays local-only, as do the private sets.
 ## App
 
 - [ ] B-UX2-ELEVATION - Workspace-by-workspace polish: empty states, error
-  surfaces (fail-fast errors from ADR 0019 shown well), manifest-sniff UX,
+  surfaces (fail-fast errors from ADR 0016 shown well), manifest-sniff UX,
   and three exploration views — a pre-calibration per-camera/pose image
   grid, a detection-cache overlay, and a board coverage map. Gate: a
   frontend review with no high-severity findings.
@@ -94,12 +88,11 @@ Windows. `stereo_charuco` stays local-only, as do the private sets.
   `backend/s2.rs` with the upstream sphere manifold, and see
   O-TINYSOLVER-PERF and D4-NALGEBRA-035.
 - [ ] O-TINYSOLVER-PERF - Adopt the tiny-solver speed-ups once released.
-  Measured with all three on 12 threads: solves 3.9× faster than with
-  0.18.x (1.8–5.8× per scene), 1.5× faster than parallel factrs,
-  bit-identical results, no code change here.
-  - Mutex-free residual and Jacobian assembly (1.18×; fits 0.18.x).
-  - Jacobian pattern by counting sort, values scattered in place (1.20× on
-    top; fits 0.18.x).
+  Results stay bit-identical and no code changes here; expected 3.9× faster
+  solves on 12 threads, which `calib-bench solver` should confirm.
+  - Mutex-free residual and Jacobian assembly (fits 0.18.x).
+  - Jacobian pattern by counting sort, values scattered in place (fits
+    0.18.x).
   - Stack duals in passes of 4 directions, as Ceres'
     `DynamicAutoDiffCostFunction` (adds supertraits to `FactorImpl` and
     `Manifold`, so a 0.19 change).
@@ -107,9 +100,8 @@ Windows. `stereo_charuco` stays local-only, as do the private sets.
   **Trigger**: the release that carries them. Bump the floor, rerun
   `calib-bench solver`.
 - [~] O-FACTRS-PARALLEL - Parallel linearization for factrs: rpl-cmu/fact-rs
-  #56 is merged, unreleased (the pending release is breaking, so 0.4.0 rather
-  than 0.3.1). Measured 3.9× over serial factrs on 12 threads (2.6–5.1× per
-  workflow), bit-identical, about +5 % on the smallest scenes.
+  #56 is merged but unreleased (the release is breaking, so 0.4.0). Expected
+  ~3.9× over serial factrs on 12 threads, bit-identical.
   **Trigger**: that release. Then, in one commit: require it with
   `features = ["rayon"]` (off, nothing runs in parallel); take its Jacobian
   as a faer-0.23 view (D4-NALGEBRA-035); rerun `calib-bench solver` for both
@@ -125,7 +117,7 @@ scenes are the gate) and the regression suite.
   minimum: inlier RMS 0.16–0.30 px at σ 0.1 px (floor 0.14), focal error
   0.4–1.8 %, laser plane up to 0.29° / 7.6 mm. The other problems (the
   Scheimpflug rig aside, below) reach the floor on the same contamination,
-  and the robust-cost LM did not change it, so the init is the suspect. Gate:
+  and the robust-cost LM does not change it, so the init is the suspect. Gate:
   `laserline_device/pinhole/*/n0.1/{huber,cauchy}` at the noise floor.
 - [ ] Q-SCHEIMPFLUG-RIG-PERCAM - The Scheimpflug rig's per-camera stage
   (staged init, radial-only BA) lands off the minimum on clean data, even
@@ -182,8 +174,8 @@ scenes are the gate) and the regression suite.
   results do not carry. Parked until the result-changing items above land.
 - [~] P3-BACKEND-COST - Close the remaining gap to Ceres. Planar
   intrinsics against Ceres 2.2 at matched tolerances: 7–9× slower on 12
-  threads and about 21× on one; with the O-TINYSOLVER-PERF changes, 2.6× and
-  4.5×. What remains is linearization: per-block library overhead, num-dual
+  threads and about 21× on one (2.6× and 4.5× with the O-TINYSOLVER-PERF
+  changes). What remains is linearization: per-block library overhead, num-dual
   against Ceres' `Jet`, and differentiation through the SE(3) retraction. An
   analytic `ReprojPoint` Jacobian is the next lever. Parked until after 1.0.
 - [~] M4-FISHEYE - Kannala-Brandt equidistant k1–k4 as a new

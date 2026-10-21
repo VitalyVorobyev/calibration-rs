@@ -118,7 +118,7 @@ pub fn repo_root_cmd() -> Result<String, String> {
 /// placeholder and recording the dotted path in the manifest's `_unresolved`
 /// array. The frontend loads the returned JSON straight into the Run
 /// workspace's manifest form; the non-empty `_unresolved` list drives the red
-/// badges and blocks Run until the user fills and clears them (ADR 0019).
+/// badges and blocks Run until the user fills and clears them (ADR 0016).
 /// This is the same inference the `generate-manifest` CLI uses.
 #[tauri::command]
 pub async fn sniff_folder(folder: String) -> Result<serde_json::Value, String> {

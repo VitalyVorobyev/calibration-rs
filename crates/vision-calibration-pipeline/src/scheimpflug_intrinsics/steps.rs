@@ -126,7 +126,7 @@ pub fn step_init_with_seed(
     let mut auto_fields: Vec<&'static str> = Vec::new();
 
     // Capture before `manual` is destructured below: a user-provided tilt seed is
-    // trusted directly by `step_optimize` (ADR 0022).
+    // trusted directly by `step_optimize` (ADR 0011).
     let sensor_manual = manual.sensor.is_some();
     // A manual Brown-Conrady distortion seed combined with a non-BC5 model is
     // embedded (k1,k2,k3,p1,p2) with the extra coefficients starting at zero;
@@ -296,7 +296,7 @@ pub fn step_init_with_seed(
     } else {
         " — WARNING: from-scratch Scheimpflug auto-init is experimental and may \
          converge to a wrong tilt/focal basin; seed a coarse focal + nominal mount \
-         tilt via step_init_with_seed for stable results (ADR 0022)"
+         tilt via step_init_with_seed for stable results (ADR 0011)"
     };
     let distortion_note = if distortion_manual && model != DistortionKind::BrownConrady5 {
         " — WARNING: a manual Brown-Conrady distortion seed was combined with a \
@@ -390,7 +390,7 @@ pub fn step_optimize(
     // only safe when its seed pose is exact. On a trusted warm start the seed pose
     // comes from a homography fit to *distorted* points, so it is biased under
     // strong distortion; pinning it there would hold the solve off the true
-    // optimum (see ADR 0022). Free all poses in that case; the cold path keeps the
+    // optimum (see ADR 0011). Free all poses in that case; the cold path keeps the
     // configured behaviour.
     let fix_poses = if trust_seed_tilt {
         Vec::new()
@@ -412,7 +412,7 @@ pub fn step_optimize(
         ..session.config.solver.backend_options()
     };
     let estimate = if trust_seed_tilt {
-        // Trusted warm start (ADR 0022): k1 multi-start sweep (Phase A) followed by
+        // Trusted warm start (ADR 0011): k1 multi-start sweep (Phase A) followed by
         // a bounded joint refine (Phase B).
         //
         // Problem: starting from k1=0 (the default when only a mechanical-spec tilt
@@ -556,7 +556,7 @@ pub fn step_optimize(
     } else {
         // Cold start: the staged multi-start init breaks the
         // tilt/principal-point/distortion degeneracy that a `tilt = 0` solve falls
-        // into. This path is experimental — see ADR 0022.
+        // into. This path is experimental — see ADR 0011.
         optimize_scheimpflug_intrinsics_staged(
             &dataset,
             &initial,
@@ -715,7 +715,7 @@ mod tests {
         step_init(&mut session, None).expect("step_init");
         assert!(
             log_has_experimental_warning(&session),
-            "from-scratch auto-init should log the experimental warning (ADR 0022)"
+            "from-scratch auto-init should log the experimental warning (ADR 0011)"
         );
     }
 

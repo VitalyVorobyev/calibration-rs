@@ -1,37 +1,32 @@
 # ADR 0009: Coordinate and Pose Conventions
 
-- Status: Accepted
-- Date: 2026-03-07 (retroactive)
-
 ## Context
 
-Camera calibration involves many coordinate frames (world, camera, gripper, base, rig). Inconsistent naming of transforms is a common source of bugs.
+Calibration involves many frames (world, camera, gripper, base, rig,
+target). Ambiguous transform naming is a common source of silent bugs.
 
 ## Decision
 
-Adopt the `frame_se3_frame` naming convention for all rigid transforms:
+Rigid transforms are named `<to>_se3_<from>`: `a_se3_b` maps coordinates
+from frame `b` to frame `a`. `T_C_W` and `cam_se3_world` are the same
+world-to-camera transform. Common names: `base_se3_gripper`,
+`gripper_se3_camera` (the eye-in-hand result), `cam_se3_rig`.
 
-- `T_C_W` or `cam_se3_world`: transform **from** world **to** camera frame.
-- `base_se3_gripper`: transform **from** gripper **to** base frame.
-- `gripper_se3_camera`: transform **from** camera **to** gripper frame (hand-eye result).
-- `cam_se3_rig`: transform **from** rig **to** camera frame.
-
-SE3 storage order: `[qx, qy, qz, qw, tx, ty, tz]` (Hamilton quaternion, scalar-last, then translation).
-
-Covariance and tangent coordinates (ADR 0026):
-- An SE3 pose `a_se3_b` is perturbed on the right, `T · Exp([δθ, δt])`:
-  rotation first (radians), then translation (metres), both in frame `b`.
-  Pose covariances are 6×6 in this order.
-- A laser plane `n·p + d = 0` reports its covariance over `[nx, ny, nz, d]`.
-- A covariance is conditional on every fixed parameter.
-
-Coordinate expectations:
-- **Pixel coordinates**: used directly by homography, fundamental matrix, PnP solvers.
-- **Normalized coordinates**: `K^-1 * pixel`; used by essential matrix.
-- Solvers that need normalized coordinates perform the conversion internally.
+- **Storage:** SE(3) is stored as `[qx, qy, qz, qw, tx, ty, tz]` (Hamilton
+  quaternion, scalar last, then translation), which is also the convention
+  of both solver backends.
+- **Units:** metres and radians inside the library. Wire formats written by
+  hand may use other units only when the field name says so (ADR 0011).
+- **Perturbation:** an SE(3) pose is perturbed on the right,
+  `T · Exp([δθ, δt])`, rotation first, both in frame `b`. Pose covariances
+  are 6×6 in this order (ADR 0026).
+- **Planes:** `n·p + d = 0`; a plane's covariance is over `[nx, ny, nz, d]`.
+- **Pixels vs normalized coordinates:** homography, fundamental-matrix and
+  PnP solvers take pixels; essential-matrix solvers take normalized
+  coordinates (`K⁻¹·pixel`). A solver that needs normalized coordinates
+  converts internally.
 
 ## Consequences
 
-- Variable names in code encode the transform direction unambiguously.
-- SE3 storage matches tiny-solver's Lie group conventions.
-- New problem types must follow these naming conventions in their API types.
+- A variable's name states its direction; public API types follow it.
+- Covariances are reported in the same tangent convention the solvers use.

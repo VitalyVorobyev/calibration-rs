@@ -1,5 +1,5 @@
 //! Convergence-basin study for the seeded Scheimpflug initialization
-//! (the quantitative evidence behind ADR 0022/0023).
+//! (the quantitative evidence behind ADR 0011).
 //!
 //! `calib-bench basin` answers: *how much spec error can the ADR
 //! 0022/0023 seeded route absorb before it stops converging?* For every
@@ -70,7 +70,7 @@ mod tier_b {
         }
 
         /// Apply this perturbation to a clone of `seed`. `scheimpflug_seed`
-        /// always populates `intrinsics` and `sensor` (ADR 0022: both are
+        /// always populates `intrinsics` and `sensor` (ADR 0011: both are
         /// load-bearing), so the `if let Some` guards are defensive, not
         /// load-bearing themselves.
         fn apply(&self, seed: &ScheimpflugManualInit) -> ScheimpflugManualInit {
@@ -223,8 +223,8 @@ mod tier_b {
         let mut out = String::new();
         out.push_str("# Convergence-Basin Study — Seeded Scheimpflug Intrinsics\n\n");
         out.push_str(
-            "Perturbs the ADR 0023 device-spec seed over a structured per-axis \
-             grid and re-runs the ADR 0022 seeded route, gating each cell on \
+            "Perturbs the ADR 0011 device-spec seed over a structured per-axis \
+             grid and re-runs the ADR 0011 seeded route, gating each cell on \
              the entry's `accept.max_per_cam_mean_px`. See \
              `docs/notes/scheimpflug-intrinsics.md`.\n\n",
         );
@@ -371,7 +371,7 @@ mod tier_b {
             pp_bounds.0, pp_bounds.1
         );
 
-        // Decision rule (ADR 0022/0023): the basin must comfortably
+        // Decision rule (ADR 0011): the basin must comfortably
         // contain realistic spec error — focal ±5 %, tilt ±2°.
         if focal_bounds.0 > 0.95 || focal_bounds.1 < 1.05 {
             envelope_violations.push(format!(
@@ -391,7 +391,7 @@ mod tier_b {
         out.push_str("## Decision Rule\n\n");
         out.push_str(
             "The seeded route's basin must comfortably contain realistic spec \
-             error: focal ±5 % and tilt ±2° (ADR 0022/0023). Basin narrowness \
+             error: focal ±5 % and tilt ±2° (ADR 0011). Basin narrowness \
              never fails this command's exit code — only operational errors do.\n\n",
         );
         if violations.is_empty() {

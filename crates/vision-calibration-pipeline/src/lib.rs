@@ -43,7 +43,7 @@ mod planar_family;
 mod rig_family;
 pub mod session;
 
-// Device-spec → manual-init seed derivation (ADR 0023)
+// Device-spec → manual-init seed derivation (ADR 0011)
 pub mod device_seed;
 
 // Problem-specific modules
@@ -56,7 +56,7 @@ pub mod rig_laserline_device;
 pub mod scheimpflug_intrinsics;
 pub mod single_cam_handeye;
 
-// Manifest-driven dataset runner (ADR 0016 + ADR 0017)
+// Manifest-driven dataset runner (ADR 0016 + ADR 0016)
 pub mod dataset_runner;
 
 #[cfg(doctest)]

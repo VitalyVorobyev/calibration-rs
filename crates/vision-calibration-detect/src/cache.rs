@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn file_name_is_windows_safe_for_laser_namespace() {
-        // `laser:<name>` namespaces (ADR 0021) must not leak the colon
+        // `laser:<name>` namespaces (ADR 0016) must not leak the colon
         // into the file name — NTFS rejects it (OS error 87).
         let key = CacheKey::from_inputs(b"img", "laser:fake", &json!({}));
         let name = key.file_name();

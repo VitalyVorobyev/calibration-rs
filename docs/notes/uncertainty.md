@@ -5,9 +5,6 @@ Implementation: `vision-calibration-optim::backend` (covariance at the LM
 optimum, shared by both backends); labels and the export type in core;
 wiring per problem in `problems/` and the pipeline exports.
 
-Status: design fixed (ADR 0026); evidence is filled in as the implementation
-lands. Sections marked *open* are what the evidence has to settle.
-
 ## Model
 
 The LM minimizes `½ Σᵢ ρᵢ(‖rᵢ(θ)‖²)` over the free tangent coordinates `θ`.
@@ -49,7 +46,7 @@ Two alternatives were measured and rejected:
   against 8).
 
 The second-order term `Σ ρ′ r · ∇²r` is dropped; it vanishes for exact data
-and is small at sub-pixel residuals. *Open*: its size on the real-data suite
+and is small at sub-pixel residuals. Open: its size on the real-data suite
 entries (compare `H` with a finite-difference Hessian of the objective).
 
 ## Noise level

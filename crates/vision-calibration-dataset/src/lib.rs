@@ -7,20 +7,14 @@
 //! manifest is _descriptive_, never prescriptive: data stays where the
 //! user put it and the manifest just points at it.
 //!
-//! The [`DatasetSpec::unresolved`] field enables a fail-fast-on-ambiguity
-//! contract: the runner refuses a manifest until it is cleared.
+//! # Unresolved fields
 //!
-//! # Tiered fields
-//!
-//! Every field is tagged either `infer_from_data` (a manifest generator such
-//! as [`sniff_folder`] may populate it from filenames / folder structure) or
-//! `human_or_doc_required` (never guessed — it must come from documentation
-//! or the user). When inference fails, the field is left `null` and the
-//! field path is recorded in [`DatasetSpec::unresolved`]; the runner
-//! refuses to proceed until that list is empty.
-//!
-//! Tier metadata is encoded as the `x-calib-tier` schema extension so
-//! both Rust and TypeScript form generators can render the right UX.
+//! A manifest generator such as [`sniff_folder`] fills only what it can
+//! determine from filenames and folder structure. Values that must come from
+//! documentation or the user — the robot-pose convention, the target —
+//! are never guessed: the field is left empty and its path is recorded in
+//! [`DatasetSpec::unresolved`], and the runner refuses the manifest until
+//! that list is empty.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

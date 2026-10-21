@@ -48,7 +48,7 @@ anyhow = "1"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 image = "0.25"
 vision-calibration = { path = "../../crates/vision-calibration" }
-# Laser-line extraction (ADR 0021). vision-metrology is not on
+# Laser-line extraction (ADR 0016). vision-metrology is not on
 # crates.io, so the published pipeline crates only define the
 # `LaserPixelExtractor` trait; this (unpublished) app provides the
 # implementation. Same pin as vision-calibration-bench.

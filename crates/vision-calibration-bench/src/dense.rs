@@ -1,4 +1,4 @@
-//! Dense-matching benchmark harness (ADR 0015).
+//! Dense-matching benchmark harness (ADR 0006).
 //!
 //! Infrastructure for benchmarking dense stereo matchers: image buffers, a
 //! disparity map type, the [`DenseMatcher`] trait, synthetic rectified

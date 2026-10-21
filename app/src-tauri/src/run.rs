@@ -5,10 +5,10 @@
 //! right `CalibrationSession`, runs detection (cached) + calibration on
 //! a `tauri::async_runtime::spawn_blocking` task, and returns the
 //! export plus run metrics. All seven topologies are supported; the
-//! laser topologies (ADR 0021) extract laser-line pixels through
+//! laser topologies (ADR 0016) extract laser-line pixels through
 //! [`crate::laser::VmLaserExtractor`].
 //!
-//! Per ADR 0019, ambiguity that the runtime cannot auto-resolve is
+//! Per ADR 0016, ambiguity that the runtime cannot auto-resolve is
 //! surfaced as a structured `RunResponse::AskUser` so the Run workspace
 //! can render a blocking modal instead of silently guessing.
 
@@ -202,7 +202,7 @@ pub enum RunResponse {
     /// (solver-internal cancellation is out of scope). Surfaced as a
     /// distinct UI state, not an error.
     Cancelled,
-    /// Runtime ambiguity per ADR 0019 — Run workspace must render a
+    /// Runtime ambiguity per ADR 0016 — Run workspace must render a
     /// modal asking the user to fill `field`.
     AskUser {
         /// Dotted field path the runtime needs help with.
@@ -594,7 +594,7 @@ fn run_laserline_topology(
     };
     // Single camera ⇒ planar manifest shape (pose = kept-view index,
     // camera = 0) for the target frames, plus the aligned laser frames
-    // (ADR 0021 §5).
+    // (ADR 0016 §5).
     if let Err(boxed) = splice_image_manifest(
         &mut export,
         laserline_image_manifest(
@@ -783,7 +783,7 @@ fn planar_image_manifest(
 }
 
 /// Single-camera laser manifest: target frames (kind omitted in JSON)
-/// plus one laser frame per kept view (ADR 0021 §5). `view_paths` and
+/// plus one laser frame per kept view (ADR 0016 §5). `view_paths` and
 /// `laser_paths` are aligned by kept-view index.
 fn laserline_image_manifest(
     view_paths: &[PathBuf],
@@ -982,7 +982,7 @@ fn error_category(err: &RunError) -> &'static str {
 }
 
 fn detection_cache_root(spec: &DatasetSpec, base_dir: &Path) -> PathBuf {
-    // Per ADR 0017 the cache root is per-dataset. We use a stable id
+    // Per ADR 0016 the cache root is per-dataset. We use a stable id
     // from the manifest's `description` if set, otherwise the absolute
     // base directory mangled into a filesystem-safe slug.
     let id = match &spec.description {
@@ -1189,7 +1189,7 @@ mod tests {
 
     #[test]
     fn laser_topologies_dispatch_and_fail_validation_without_laser_images() {
-        // The laser arms are wired (ADR 0021); a manifest without
+        // The laser arms are wired (ADR 0016); a manifest without
         // laser_images must now fail *validation*, not dispatch.
         for (topology, num_cams) in [("laserline_device", 1), ("rig_laserline_device", 2)] {
             let cameras: Vec<_> = (0..num_cams)
@@ -1417,7 +1417,7 @@ mod tests {
     /// (6-camera Scheimpflug rig, tiled strips, ChArUco + laser
     /// frames): rig hand-eye first, then `RigLaserlineDevice` with the
     /// stage-1 export as the frozen upstream — exactly the user
-    /// diagnostic path the laser slice ships (ADR 0021). Skips when
+    /// diagnostic path the laser slice ships (ADR 0016). Skips when
     /// `privatedata/rtv3d` is absent (gitignored, local-only).
     #[test]
     #[ignore = "needs the local privatedata/rtv3d dataset; 6-cam detection + two solves"]
@@ -1533,7 +1533,7 @@ mod tests {
                 "cam {cam}: mean laser residual {laser_err:.6} m"
             );
         }
-        // The manifest must carry both frame kinds (ADR 0021 §5): the
+        // The manifest must carry both frame kinds (ADR 0016 §5): the
         // target frames for the reprojection overlay and the laser
         // frames Diagnose's laser view plots residuals onto.
         let frames = laser.export["image_manifest"]["frames"].as_array().unwrap();
