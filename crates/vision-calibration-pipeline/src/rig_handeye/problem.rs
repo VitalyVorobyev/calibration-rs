@@ -109,13 +109,18 @@ pub struct IntrinsicsManualInit {
 
 /// Final hand-eye bundle-adjustment options; robot-pose refinement lives in
 /// the shared [`RobotPoseConfig`] group.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct HandeyeOptimizeConfig {
     /// Robot-pose refinement settings for the final hand-eye BA.
     pub robot_poses: RobotPoseConfig,
+    /// Refine each camera's intrinsics and distortion in the hand-eye BA,
+    /// holding the camera's `fix` lists. Default: `true`, for the reason
+    /// given on `rig.refine_intrinsics`: the final solve's covariance then
+    /// includes the intrinsics.
+    pub refine_intrinsics: bool,
     /// Refine cam_se3_rig in hand-eye BA (default: false).
     /// When true, rig extrinsics are further refined during hand-eye optimization.
     pub refine_cam_se3_rig: bool,
@@ -124,6 +129,17 @@ pub struct HandeyeOptimizeConfig {
     /// untilted sensor have no tilt.
     #[serde(default)]
     pub refine_sensor: bool,
+}
+
+impl Default for HandeyeOptimizeConfig {
+    fn default() -> Self {
+        Self {
+            robot_poses: RobotPoseConfig::default(),
+            refine_intrinsics: true,
+            refine_cam_se3_rig: false,
+            refine_sensor: false,
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -581,9 +597,10 @@ mod tests {
     }
 
     #[test]
-    fn final_handeye_optimize_defaults_keep_intrinsics_and_rig_fixed() {
+    fn final_handeye_optimize_defaults_refine_intrinsics_and_keep_rig_fixed() {
         let config = RigHandeyeConfig::default();
-        assert!(!config.rig.refine_intrinsics);
+        assert!(config.rig.refine_intrinsics);
+        assert!(config.handeye_optimize.refine_intrinsics);
         assert!(!config.handeye_optimize.refine_cam_se3_rig);
         assert!(!config.handeye_optimize.refine_sensor);
         assert!(!config.rig.refine_sensor);

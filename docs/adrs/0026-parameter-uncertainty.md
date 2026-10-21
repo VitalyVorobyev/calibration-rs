@@ -175,9 +175,10 @@ poses; the generator is a convenience for the app.
 
 - Every export carries `uncertainty` (ADR 0012); Python exposes `std_dev`,
   `correlation` and the projection map; the app shows `value ± σ`.
-- Staged problems whose final stage holds intrinsics fixed report
-  conditional, hence optimistic, extrinsic σ; the fixed list says so.
-  Propagating earlier-stage covariance is open.
+- Staged problems refine the intrinsics in their final stage by default
+  (rigs, rig hand-eye), so the covariance carries them. A configuration that
+  holds them reports conditional, hence optimistic, extrinsic σ; the fixed
+  list says so. Propagating earlier-stage covariance is open.
 - Defaults do not fix an observable block for speed, since that would make
   the default covariance conditional on an arbitrary choice.
 - The regression suite gates parameter changes in units of σ.

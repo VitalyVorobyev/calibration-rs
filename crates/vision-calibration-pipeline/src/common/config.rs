@@ -406,16 +406,21 @@ impl Default for HandeyeInitConfig {
 /// Multi-camera rig frame options: reference-camera gauge and rig-BA scope.
 ///
 /// The `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct RigConfig {
     /// Reference camera index for the rig frame (identity extrinsics).
     pub reference_camera_idx: usize,
-    /// Re-refine per-camera intrinsics and distortion jointly during rig
-    /// bundle adjustment, holding the camera's `fix` lists. Default:
-    /// `false` — the per-camera solves have already fitted them.
+    /// Refine per-camera intrinsics and distortion jointly with the rig in
+    /// its bundle adjustment, holding the camera's `fix` lists. Default:
+    /// `true`. Each camera's solve fits them from its own views only; the
+    /// joint solve is the estimate that uses every view, and its covariance
+    /// carries the intrinsics and their correlation with the extrinsics.
+    /// Held fixed, the extrinsics' standard deviations are conditional on
+    /// the intrinsics and understate the uncertainty (several-fold on real
+    /// stereo rigs).
     pub refine_intrinsics: bool,
     /// Re-refine the sensor tilt of each Scheimpflug camera during rig
     /// bundle adjustment, holding its `fix.sensor` list. Default: `false` —
@@ -423,6 +428,16 @@ pub struct RigConfig {
     /// in the joint solve. Cameras with an untilted sensor have no tilt.
     #[serde(default)]
     pub refine_sensor: bool,
+}
+
+impl Default for RigConfig {
+    fn default() -> Self {
+        Self {
+            reference_camera_idx: 0,
+            refine_intrinsics: true,
+            refine_sensor: false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -466,7 +481,7 @@ mod tests {
     fn rig_config_default() {
         let cfg = RigConfig::default();
         assert_eq!(cfg.reference_camera_idx, 0);
-        assert!(!cfg.refine_intrinsics);
+        assert!(cfg.refine_intrinsics);
         assert!(!cfg.refine_sensor);
     }
 
