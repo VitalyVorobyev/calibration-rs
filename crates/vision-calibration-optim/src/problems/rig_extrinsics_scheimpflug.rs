@@ -19,7 +19,7 @@ use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraFixMask, FxFyCxCySkew, Iso3, NoMeta, Pinhole, PinholeCamera, Real,
+    BrownConrady5, Camera, CameraFixMask, FxFyCxCy, Iso3, NoMeta, Pinhole, PinholeCamera, Real,
     RigDataset, ScheimpflugParams, Uncertainty, make_pinhole_camera,
 };
 
@@ -191,7 +191,7 @@ fn build_rig_extrinsics_scheimpflug_ir(
             None,
         );
         cam_ids.push(cam_id);
-        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k)?);
+        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k));
     }
 
     // 2. Per-camera distortion blocks
@@ -294,12 +294,11 @@ fn compute_rig_scheimpflug_reprojection(
     let mut per_cam_sums = vec![0.0_f64; dataset.num_cameras];
     let mut per_cam_counts = vec![0_usize; dataset.num_cameras];
 
-    let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCySkew<Real>>> =
-        cameras
-            .iter()
-            .zip(sensors.iter())
-            .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
-            .collect();
+    let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> = cameras
+        .iter()
+        .zip(sensors.iter())
+        .map(|(cam, sensor)| Camera::new(Pinhole, cam.dist, sensor.compile(), cam.k))
+        .collect();
 
     for (view_idx, view) in dataset.views.iter().enumerate() {
         let rig_from_target = rig_se3_target[view_idx];

@@ -43,13 +43,13 @@ Thresholds are intentionally loose for stable initialization.
 ### PnP (Perspective-n-Point)
 
 ```rust,no_run
-use vision_calibration_core::{FxFyCxCySkew, Pt2, Pt3, RansacOptions};
+use vision_calibration_core::{FxFyCxCy, Pt2, Pt3, RansacOptions};
 use vision_calibration_linear::pnp::PnpSolver;
 
 # fn main() -> Result<(), vision_calibration_linear::Error> {
 let world: Vec<Pt3> = vec![/* target points, target frame */];
 let image: Vec<Pt2> = vec![/* matching pixel observations */];
-let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
+let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 };
 
 // Direct DLT (all points); the pose is T_C_W
 let pose = PnpSolver::dlt(&world, &image, &k)?;
@@ -100,12 +100,12 @@ let gripper_se3_target =
 ### Laserline Plane Fitting
 
 ```rust,no_run
-use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole};
+use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCy, IdentitySensor, Pinhole};
 use vision_calibration_linear::laserline::{LaserlinePlaneSolver, LaserlineView};
 
 # fn main() -> Result<(), vision_calibration_linear::Error> {
 let views: Vec<LaserlineView> = vec![/* views with laser pixels */];
-# let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
+# let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 };
 # let camera = Camera::new(Pinhole, BrownConrady5::default(), IdentitySensor, k);
 
 // Multiple views at different poses break single-view collinearity.

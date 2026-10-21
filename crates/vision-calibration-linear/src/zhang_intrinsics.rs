@@ -6,7 +6,7 @@
 
 use crate::Error;
 use nalgebra::DMatrix;
-use vision_calibration_core::{FxFyCxCySkew, Mat3, Real};
+use vision_calibration_core::{FxFyCxCy, Mat3, Real};
 
 /// Build the 6-vector v_ij(H) as in Zhang's method.
 /// i, j are 0- or 1-based column indices (we'll use 0/1 for (1,2) and (1,1),(2,2)).
@@ -41,7 +41,7 @@ pub struct PlanarIntrinsicsLinearInit;
 /// Returns [`Error::InsufficientData`] if fewer than 3 homographies are given,
 /// [`Error::Singular`] if SVD fails or the configuration is degenerate, or
 /// [`Error::Numerical`] if the recovered lambda has the wrong sign.
-pub fn estimate_intrinsics_from_homographies(hmtxs: &[Mat3]) -> Result<FxFyCxCySkew<Real>, Error> {
+pub fn estimate_intrinsics_from_homographies(hmtxs: &[Mat3]) -> Result<FxFyCxCy<Real>, Error> {
     PlanarIntrinsicsLinearInit::from_homographies(hmtxs)
 }
 
@@ -58,7 +58,7 @@ impl PlanarIntrinsicsLinearInit {
     /// Returns [`Error::InsufficientData`] if fewer than 3 homographies are given,
     /// [`Error::Singular`] if SVD fails or the configuration is degenerate, or
     /// [`Error::Numerical`] if the recovered lambda has the wrong sign.
-    pub fn from_homographies(hmtxs: &[Mat3]) -> Result<FxFyCxCySkew<Real>, Error> {
+    pub fn from_homographies(hmtxs: &[Mat3]) -> Result<FxFyCxCy<Real>, Error> {
         if hmtxs.len() < 3 {
             return Err(Error::InsufficientData {
                 need: 3,
@@ -101,7 +101,8 @@ impl PlanarIntrinsicsLinearInit {
         // γ = -B12 α^2 β / λ
         // u0 = γ v0 / β - B13 α^2 / λ
         //
-        // We name them fx, fy, skew, cx, cy accordingly.
+        // The general solve recovers a skew γ (needed for u0); it is
+        // discarded because the camera model has no skew term.
 
         let denom = b11 * b22 - b12 * b12;
         let denom_norm = b11 * b11 + b22 * b22;
@@ -128,12 +129,11 @@ impl PlanarIntrinsicsLinearInit {
         let gamma = -b12 * alpha * alpha * beta / lambda;
         let u0 = gamma * v0 / beta - b13 * alpha * alpha / lambda;
 
-        Ok(FxFyCxCySkew {
+        Ok(FxFyCxCy {
             fx: alpha,
             fy: beta,
             cx: u0,
             cy: v0,
-            skew: gamma,
         })
     }
 }
@@ -143,17 +143,14 @@ mod tests {
     use super::*;
     use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, Vector3};
 
-    fn make_kmtx() -> (FxFyCxCySkew<Real>, Mat3) {
-        let intr = FxFyCxCySkew {
+    fn make_kmtx() -> (FxFyCxCy<Real>, Mat3) {
+        let intr = FxFyCxCy {
             fx: 900.0,
             fy: 880.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
-        let kmtx = Matrix3::new(
-            intr.fx, intr.skew, intr.cx, 0.0, intr.fy, intr.cy, 0.0, 0.0, 1.0,
-        );
+        let kmtx = Matrix3::new(intr.fx, 0.0, intr.cx, 0.0, intr.fy, intr.cy, 0.0, 0.0, 1.0);
         (intr, kmtx)
     }
 
@@ -204,6 +201,5 @@ mod tests {
         assert!((intr_est.fy - intr_gt.fy).abs() < 5.0, "fy mismatch");
         assert!((intr_est.cx - intr_gt.cx).abs() < 10.0, "cx mismatch");
         assert!((intr_est.cy - intr_gt.cy).abs() < 10.0, "cy mismatch");
-        assert!(intr_est.skew.abs() < 1e-6, "skew not ~0: {}", intr_est.skew);
     }
 }

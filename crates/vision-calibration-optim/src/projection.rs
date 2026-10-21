@@ -20,7 +20,7 @@ use nalgebra::{DVector, Dyn, Matrix2, OMatrix, SVector, U2, Vector2, Vector3};
 use num_dual::{DualDVec64, jacobian};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraParams, IntrinsicsParams, ParameterCovariance, ProjectionParams, Pt2, SensorParams,
+    CameraParams, ParameterCovariance, ProjectionParams, Pt2, SensorParams,
 };
 
 use crate::Error;
@@ -76,7 +76,7 @@ pub struct ProjectionUncertainty {
 /// # Errors
 ///
 /// [`Error::InvalidInput`] when the image is smaller than 2×2 pixels, the
-/// camera model has a general sensor homography or a skew, or the covariance
+/// camera model has a general sensor homography, or the covariance
 /// lists none of the camera's parameters (they were all held fixed);
 /// [`Error::Numerical`] when no ray reaches the image centre.
 pub fn projection_uncertainty(
@@ -132,7 +132,7 @@ pub fn projection_uncertainty(
 /// # Errors
 ///
 /// [`Error::InvalidInput`] for a camera model the solver does not estimate:
-/// a general sensor homography or a skew.
+/// a general sensor homography.
 pub fn camera_parameters(camera: &CameraParams) -> Result<Vec<(&'static str, f64)>, Error> {
     let model = CameraVector::new(camera)?;
     Ok(model
@@ -161,7 +161,7 @@ struct CameraVector {
 impl CameraVector {
     fn new(camera: &CameraParams) -> Result<Self, Error> {
         let ProjectionParams::Pinhole = camera.projection;
-        let IntrinsicsParams::FxFyCxCySkew { params: k } = camera.intrinsics;
+        let k = camera.intrinsics;
         let distortion = distortion_kind(&camera.distortion);
         let (sensor, tilt) = match &camera.sensor {
             SensorParams::Identity => (SensorKind::None, Vec::new()),
@@ -175,7 +175,7 @@ impl CameraVector {
                 ));
             }
         };
-        let intrinsics = pack_intrinsics(&k)?;
+        let intrinsics = pack_intrinsics(&k);
         let dist = pack_distortion_params(&camera.distortion);
         let theta = DVector::from_iterator(
             intrinsics.len() + dist.len() + tilt.len(),
@@ -307,8 +307,7 @@ where
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, DistortionParams, FxFyCxCySkew, ResidualKind, ResidualNoise,
-        ScheimpflugParams,
+        BrownConrady5, DistortionParams, FxFyCxCy, ResidualKind, ResidualNoise, ScheimpflugParams,
     };
 
     fn camera(sensor: SensorParams) -> CameraParams {
@@ -325,14 +324,11 @@ mod tests {
                 },
             },
             sensor,
-            intrinsics: IntrinsicsParams::FxFyCxCySkew {
-                params: FxFyCxCySkew {
-                    fx: 800.0,
-                    fy: 810.0,
-                    cx: 320.0,
-                    cy: 240.0,
-                    skew: 0.0,
-                },
+            intrinsics: FxFyCxCy {
+                fx: 800.0,
+                fy: 810.0,
+                cx: 320.0,
+                cy: 240.0,
             },
         }
     }
@@ -387,14 +383,11 @@ mod tests {
                 },
             },
             sensor,
-            intrinsics: IntrinsicsParams::FxFyCxCySkew {
-                params: FxFyCxCySkew {
-                    fx: t(0),
-                    fy: t(1),
-                    cx: t(2),
-                    cy: t(3),
-                    skew: 0.0,
-                },
+            intrinsics: FxFyCxCy {
+                fx: t(0),
+                fy: t(1),
+                cx: t(2),
+                cy: t(3),
             },
         }
     }

@@ -38,7 +38,7 @@ use std::collections::HashMap;
 #[cfg(test)]
 use vision_calibration_core::UncertaintyUnavailable;
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraFixMask, FxFyCxCySkew, Iso3, Pinhole, PinholeCamera, Real,
+    BrownConrady5, Camera, CameraFixMask, FxFyCxCy, Iso3, Pinhole, PinholeCamera, Real,
     ScheimpflugParams, Uncertainty, make_pinhole_camera,
 };
 
@@ -472,7 +472,7 @@ fn compute_stats(
         laser_line_distance_model_generic, laser_point_to_plane_model_generic,
     };
 
-    let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCySkew<Real>>> = params
+    let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> = params
         .cameras
         .iter()
         .zip(params.sensors.iter())
@@ -485,7 +485,7 @@ fn compute_stats(
     let intr_dvecs: Vec<DVector<f64>> = params
         .cameras
         .iter()
-        .map(|c| pack_intrinsics(&c.k).unwrap())
+        .map(|c| pack_intrinsics(&c.k))
         .collect();
     let dist_dvecs: Vec<DVector<f64>> = params
         .cameras
@@ -788,7 +788,7 @@ fn build_ir(
         let key = format!("cam/{cam_idx}");
         let id = ir.add_param_block(&key, INTRINSICS_DIM, ManifoldKind::Euclidean, fixed, None);
         cam_ids.push(id);
-        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k)?);
+        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k));
     }
     // 2. Per-camera distortion.
     let mut dist_ids = Vec::with_capacity(n);
@@ -1044,7 +1044,7 @@ mod tests {
     use super::*;
     use nalgebra::{Isometry3, Translation3, Unit, UnitQuaternion, Vector3};
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCySkew, Pt2, Pt3, make_pinhole_camera,
+        BrownConrady5, CorrespondenceView, FxFyCxCy, Pt2, Pt3, make_pinhole_camera,
     };
 
     fn target_points() -> Vec<Pt3> {
@@ -1079,12 +1079,11 @@ mod tests {
     ) -> (RigHandeyeLaserlineDataset, RigHandeyeLaserlineParams) {
         // Two cameras, side-by-side, Scheimpflug-tilted, fixed in base.
         // Target rides the gripper (EyeToHand), laser plane per camera.
-        let intr_gt = FxFyCxCySkew {
+        let intr_gt = FxFyCxCy {
             fx: 900.0,
             fy: 900.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         let dist_gt = BrownConrady5::default(); // zero distortion
         let sensor_gt = ScheimpflugParams {
@@ -1137,7 +1136,7 @@ mod tests {
         // Synthesize observations using the ground-truth chain.
         let pts = target_points();
         let cam_se3_rig_gt: Vec<Iso3> = cam_to_rig_gt.iter().map(|t| t.inverse()).collect();
-        let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCySkew<Real>>> =
+        let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> =
             params_gt
                 .cameras
                 .iter()

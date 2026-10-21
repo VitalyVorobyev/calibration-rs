@@ -29,7 +29,7 @@ pub struct ScheimpflugIntrinsicsConfig {
 Tilt, focal length, and distortion are strongly coupled, so seed a coarse prior (the nominal focal length and the nominal mount tilt) instead of relying on the from-scratch initialization:
 
 ```rust
-use vision_calibration::core::{FxFyCxCySkew, ScheimpflugParams};
+use vision_calibration::core::{FxFyCxCy, ScheimpflugParams};
 use vision_calibration::scheimpflug_intrinsics::{
     ScheimpflugIntrinsicsProblem, ScheimpflugManualInit, step_init_with_seed, step_optimize,
 };
@@ -38,7 +38,7 @@ let mut session = CalibrationSession::<ScheimpflugIntrinsicsProblem>::new();
 session.set_input(dataset)?; // PlanarDataset
 
 let mut seed = ScheimpflugManualInit::default();
-seed.intrinsics = Some(FxFyCxCySkew { fx: 1050.0, fy: 1050.0, cx: 360.0, cy: 270.0, skew: 0.0 });
+seed.intrinsics = Some(FxFyCxCy { fx: 1050.0, fy: 1050.0, cx: 360.0, cy: 270.0 });
 seed.sensor = Some(ScheimpflugParams { tilt_x: -0.087, tilt_y: 0.0 });
 
 step_init_with_seed(&mut session, seed, None)?;

@@ -25,18 +25,18 @@ Where:
 - `projection`: camera-frame direction → normalized coordinates (e.g., Pinhole)
 - `distortion`: warp normalized coordinates (Brown-Conrady radial + tangential)
 - `sensor`: apply homography (Identity or Scheimpflug tilt)
-- `K`: intrinsics matrix mapping to pixels (fx, fy, cx, cy, skew)
+- `K`: intrinsics matrix mapping to pixels (fx, fy, cx, cy)
 
 ## Usage
 
 ```rust
 use vision_calibration_core::{
-    Camera, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCySkew,
+    Camera, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCy,
     Pt3, Vec3,
 };
 
 // Build a camera with pinhole projection and Brown-Conrady distortion
-let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
+let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 };
 let dist = BrownConrady5 { k1: -0.1, k2: 0.01, k3: 0.0, p1: 0.0, p2: 0.0, iters: 8 };
 let camera = Camera::new(Pinhole, dist, IdentitySensor, k);
 
@@ -51,8 +51,8 @@ if let Some(pixel) = camera.project_point(&p_cam) {
 
 ```rust
 use vision_calibration_core::synthetic::planar;
-# use vision_calibration_core::{Camera, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCySkew};
-# let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
+# use vision_calibration_core::{Camera, Pinhole, BrownConrady5, IdentitySensor, FxFyCxCy};
+# let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 };
 # let camera = Camera::new(Pinhole, BrownConrady5::default(), IdentitySensor, k);
 
 // Generate a 6x5 chessboard with 40mm squares

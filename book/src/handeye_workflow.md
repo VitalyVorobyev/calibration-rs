@@ -92,7 +92,7 @@ pub struct SingleCamHandeyeConfig {
     // Per-camera linear-initialization stage settings.
     pub intrinsics: IntrinsicsInitConfig,
     // { init_iterations: usize = 2, fix_k3: bool = true,
-    //   fix_tangential: bool = false, zero_skew: bool = true }
+    //   fix_tangential: bool = false }
 
     // Hand-eye linear-initialization stage settings (Tsai-Lenz DLT).
     pub handeye_init: HandeyeInitConfig,

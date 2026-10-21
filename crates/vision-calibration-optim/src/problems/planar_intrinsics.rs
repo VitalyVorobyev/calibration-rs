@@ -15,10 +15,10 @@ use crate::params::pose_se3::{iso3_to_se3_dvec, se3_dvec_to_iso3};
 use crate::uncertainty;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraModel, CameraParams, DistortionFixMask, DistortionParams, FxFyCxCySkew,
-    IntrinsicsFixMask, IntrinsicsParams, Iso3, PinholeCamera, PlanarDataset, ProjectionParams,
-    Real, SensorParams, TargetPose, Uncertainty, View, compute_mean_reproj_error,
-    make_pinhole_camera, pinhole_camera_params,
+    BrownConrady5, CameraModel, CameraParams, DistortionFixMask, DistortionParams, FxFyCxCy,
+    IntrinsicsFixMask, Iso3, PinholeCamera, PlanarDataset, ProjectionParams, Real, SensorParams,
+    TargetPose, Uncertainty, View, compute_mean_reproj_error, make_pinhole_camera,
+    pinhole_camera_params,
 };
 
 /// Optimization result for planar intrinsics.
@@ -109,7 +109,7 @@ impl PlanarIntrinsicsParams {
     ///
     /// Returns [`Error::InsufficientData`] if `poses` is empty.
     pub fn new_from_components(
-        intrinsics: FxFyCxCySkew<Real>,
+        intrinsics: FxFyCxCy<Real>,
         distortion: BrownConrady5<Real>,
         poses: Vec<Iso3>,
     ) -> Result<Self, Error> {
@@ -118,7 +118,7 @@ impl PlanarIntrinsicsParams {
 
     /// Create with zero distortion (pinhole model only).
     pub fn from_intrinsics(
-        intrinsics: FxFyCxCySkew<Real>,
+        intrinsics: FxFyCxCy<Real>,
         camera_se3_target: Vec<Iso3>,
     ) -> Result<Self, Error> {
         Self::from_pinhole(
@@ -128,10 +128,8 @@ impl PlanarIntrinsicsParams {
     }
 
     /// Get intrinsics.
-    pub fn intrinsics(&self) -> FxFyCxCySkew<Real> {
-        match self.camera.intrinsics {
-            IntrinsicsParams::FxFyCxCySkew { params } => params,
-        }
+    pub fn intrinsics(&self) -> FxFyCxCy<Real> {
+        self.camera.intrinsics
     }
 
     /// Get distortion as Brown-Conrady (for BC-only consumers).
@@ -295,7 +293,7 @@ pub(crate) fn build_planar_intrinsics_ir(
         FixedMask::fix_indices(&opts.fix_intrinsics.to_indices()),
         None,
     );
-    initial_map.insert("cam".to_string(), pack_intrinsics(&intrinsics)?);
+    initial_map.insert("cam".to_string(), pack_intrinsics(&intrinsics));
 
     // Only add a distortion block when the model has one.
     let dist_id = if kind != DistortionKind::None {
@@ -406,7 +404,7 @@ pub fn optimize_planar_intrinsics(
         projection: ProjectionParams::Pinhole,
         distortion,
         sensor: SensorParams::Identity,
-        intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
+        intrinsics,
     };
     // The sensor is `Identity` two lines up, so `build` cannot fail here.
     let camera_model = camera_params

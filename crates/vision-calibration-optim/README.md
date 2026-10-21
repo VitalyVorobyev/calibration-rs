@@ -49,7 +49,7 @@ Problem Builder → ProblemIR → Backend.compile() → Backend.solve() → Doma
 
 ```rust,no_run
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Iso3, PlanarDataset, Pt2,
+    BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCy, Iso3, PlanarDataset, Pt2,
     Pt3, View,
 };
 use vision_calibration_optim::{
@@ -67,7 +67,7 @@ let dataset = PlanarDataset::new(vec![view])?;
 
 // 2. Initial parameters (from vision-calibration-linear or a prior calibration).
 let init = PlanarIntrinsicsParams::new_from_components(
-    FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 },
+    FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 },
     BrownConrady5 { k1: 0.0, k2: 0.0, k3: 0.0, p1: 0.0, p2: 0.0, iters: 8 },
     vec![Iso3::identity()], // one pose per view
 )?;

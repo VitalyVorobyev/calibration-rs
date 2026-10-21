@@ -45,7 +45,7 @@ use vision_calibration::scheimpflug_intrinsics::{
 };
 use vision_calibration::session::CalibrationSession;
 use vision_calibration_core::{
-    BrownConrady5, FxFyCxCySkew, IntrinsicsParams, NoMeta, PlanarDataset, ScheimpflugParams,
+    BrownConrady5, FxFyCxCy, NoMeta, PlanarDataset, ScheimpflugParams,
     SensorParams, View,
 };
 use vision_calibration_examples_private::{
@@ -62,7 +62,7 @@ const GATE_PX: f64 = 0.5;
 
 /// Recovered + reference summary for one camera.
 struct CamResult {
-    intr: FxFyCxCySkew<f64>,
+    intr: FxFyCxCy<f64>,
     dist: BrownConrady5<f64>,
     sensor: ScheimpflugParams,
     mean_reproj: f64,
@@ -173,9 +173,7 @@ fn main() -> Result<()> {
         step_optimize(&mut session, None).with_context(|| format!("camera {c}: optimize"))?;
 
         let out = session.output().expect("output after optimize");
-        let intr = match &out.params.camera.intrinsics {
-            IntrinsicsParams::FxFyCxCySkew { params } => *params,
-        };
+        let intr = &out.params.camera.intrinsics;
         let dist = match &out.params.camera.distortion {
             vision_calibration_core::DistortionParams::BrownConrady5 { params } => *params,
             other => {

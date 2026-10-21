@@ -8,7 +8,7 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3, Unit, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Pinhole, Pt3, Real, ScheimpflugParams,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Pinhole, Pt3, Real, ScheimpflugParams,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, LaserPlane, RigLaserlineDataset, RigLaserlineSolveOptions,
@@ -28,12 +28,11 @@ fn make_target_points() -> Vec<Pt3> {
 #[test]
 fn stereo_rig_laserline_recovers_planes() {
     // Ground-truth camera model (same for both cameras, zero distortion for clarity).
-    let intr = FxFyCxCySkew {
+    let intr = FxFyCxCy {
         fx: 600.0,
         fy: 600.0,
         cx: 320.0,
         cy: 240.0,
-        skew: 0.0,
     };
     let dist = BrownConrady5 {
         k1: 0.0,

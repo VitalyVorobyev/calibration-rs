@@ -6,7 +6,7 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3, Vector3};
 use vision_calibration::{
-    core::{BrownConrady5, FxFyCxCySkew, Iso3, Pt2, Pt3, ScheimpflugParams, make_pinhole_camera},
+    core::{BrownConrady5, FxFyCxCy, Iso3, Pt2, Pt3, ScheimpflugParams, make_pinhole_camera},
     optim::LaserPlane,
     rig_handeye::RigHandeyeExport,
     rig_laserline_device::pixel_to_gripper_point,
@@ -17,12 +17,11 @@ use vision_calibration::{
 /// Uses `serde_json` round-trip to construct the `#[non_exhaustive]` struct
 /// without relying on struct literal syntax.
 fn make_eye_in_hand_export() -> RigHandeyeExport {
-    let intr = FxFyCxCySkew {
+    let intr = FxFyCxCy {
         fx: 600.0,
         fy: 600.0,
         cx: 320.0,
         cy: 240.0,
-        skew: 0.0,
     };
     let dist = BrownConrady5 {
         k1: 0.0,
@@ -61,12 +60,11 @@ fn make_eye_in_hand_export() -> RigHandeyeExport {
 
 /// Build a minimal `RigHandeyeExport` (Scheimpflug variant) for EyeToHand mode.
 fn make_eye_to_hand_export() -> RigHandeyeExport {
-    let intr = FxFyCxCySkew {
+    let intr = FxFyCxCy {
         fx: 600.0,
         fy: 600.0,
         cx: 320.0,
         cy: 240.0,
-        skew: 0.0,
     };
     let dist = BrownConrady5 {
         k1: 0.0,

@@ -18,7 +18,7 @@
 #![allow(missing_docs)]
 
 use vision_calibration::core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, NoMeta, PinholeCamera, Pt3, RigDataset,
+    BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, NoMeta, PinholeCamera, Pt3, RigDataset,
     RigView, RigViewObs, make_pinhole_camera,
 };
 use vision_calibration::optim::SolverBackend;
@@ -48,22 +48,20 @@ struct GtCell {
 fn rig_cameras() -> [PinholeCamera; 2] {
     [
         make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 850.0,
                 fy: 845.0,
                 cx: 640.0,
                 cy: 480.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         ),
         make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 820.0,
                 fy: 815.0,
                 cx: 650.0,
                 cy: 470.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         ),

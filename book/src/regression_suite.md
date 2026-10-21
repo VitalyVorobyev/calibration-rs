@@ -180,7 +180,7 @@ lists and the projected laser lines (they follow from the parameters and the
 observations; the residual histograms and the reprojection statistics stay). When comparing them with
 another tool's output:
 
-- **Intrinsics** `k` holds `fx`, `fy`, `cx`, `cy` and `skew` in pixels, in the
+- **Intrinsics** `k` holds `fx`, `fy`, `cx` and `cy` in pixels, in the
   same pixel convention as the observations.
 - **Distortion** `dist` holds the Brown-Conrady coefficients by name; OpenCV's
   five-element `distCoeffs` is `(k1, k2, p1, p2, k3)` of the same model. Most

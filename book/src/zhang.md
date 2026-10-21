@@ -107,8 +107,8 @@ These cases indicate that the input homographies do not sufficiently constrain t
 
 ## Minimum Number of Views
 
-- **$M = 3$** homographies: 6 equations for 6 unknowns — the minimum for a unique solution (with skew)
-- **$M = 2$**: Only 4 equations; requires the additional assumption that $s = 0$ (zero skew) to reduce unknowns to 5
+- **$M = 3$** homographies: 6 equations for the 6 unknowns of $B$ — the minimum for a unique solution. The solve also yields a skew term $\gamma$; it is needed to recover $c_x$ and then discarded, because the camera model has no skew
+- **$M = 2$**: Only 4 equations, not enough for the general solve
 - **$M > 3$**: Overdetermined system; SVD gives the least-squares solution
 
 ## Practical Considerations
@@ -125,7 +125,7 @@ These cases indicate that the input homographies do not sufficiently constrain t
 let K = estimate_intrinsics_from_homographies(&homographies)?;
 ```
 
-Returns `FxFyCxCySkew` with the estimated intrinsics. Typically followed by distortion estimation and non-linear refinement.
+Returns `FxFyCxCy` with the estimated intrinsics. Typically followed by distortion estimation and non-linear refinement.
 
 ## Reference
 

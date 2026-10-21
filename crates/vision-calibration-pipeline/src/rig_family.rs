@@ -20,7 +20,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCySkew, Iso3, Mat3, NoMeta,
+    BrownConrady5, CorrespondenceView, DistortionFixMask, FxFyCxCy, Iso3, Mat3, NoMeta,
     PinholeCamera, PlanarDataset, Pt2, Real, ScheimpflugParams, View, make_pinhole_camera,
 };
 use vision_calibration_linear::prelude::{
@@ -176,7 +176,7 @@ impl RigSensorBundle {
 /// [`bootstrap_rig_intrinsics`]).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RigIntrinsicsSeeds {
-    pub per_cam_intrinsics: Option<Vec<FxFyCxCySkew<Real>>>,
+    pub per_cam_intrinsics: Option<Vec<FxFyCxCy<Real>>>,
     pub per_cam_distortion: Option<Vec<BrownConrady5<Real>>>,
     pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
@@ -415,7 +415,6 @@ fn build_camera_bootstrap_for_index(
             let mut scheimpflug_opts = LinearScheimpflugIntrinsicsInitOptions {
                 iterations: init_opts.iterations,
                 distortion_opts: init_opts.distortion_opts,
-                zero_skew: init_opts.zero_skew,
                 ..Default::default()
             };
             push_unique_tilt_seed(
@@ -486,7 +485,7 @@ fn scheimpflug_bootstrap_with_overrides(
 fn estimate_poses_for_camera(
     cam_idx: usize,
     planar_dataset: &PlanarDataset,
-    intrinsics: &FxFyCxCySkew<Real>,
+    intrinsics: &FxFyCxCy<Real>,
 ) -> Result<Vec<Iso3>, Error> {
     let k_matrix = intrinsics_k_matrix(intrinsics);
     let mut poses = Vec::with_capacity(planar_dataset.num_views());
@@ -564,8 +563,8 @@ pub(crate) fn estimate_target_pose(
 }
 
 /// 3x3 K matrix from intrinsics parameters.
-pub(crate) fn intrinsics_k_matrix(k: &FxFyCxCySkew<Real>) -> Mat3 {
-    Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
+pub(crate) fn intrinsics_k_matrix(k: &FxFyCxCy<Real>) -> Mat3 {
+    Mat3::new(k.fx, 0.0, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
 }
 
 /// Format a "(manual: …; auto: …)" provenance string for session logs.
@@ -617,7 +616,7 @@ pub(crate) fn guard_percam_reproj_errors(errors: &[f64]) -> Result<(), Error> {
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, Camera, FxFyCxCySkew, Pinhole, ScheimpflugParams, View, make_pinhole_camera,
+        BrownConrady5, Camera, FxFyCxCy, Pinhole, ScheimpflugParams, View, make_pinhole_camera,
         synthetic::planar,
     };
     use vision_calibration_linear::distortion_fit::DistortionFitOptions;
@@ -633,18 +632,16 @@ mod tests {
                 fix_tangential: false,
                 iters: 8,
             },
-            zero_skew: true,
         }
     }
 
-    fn pinhole_two_camera_views() -> (PerCamViews, FxFyCxCySkew<Real>, usize) {
+    fn pinhole_two_camera_views() -> (PerCamViews, FxFyCxCy<Real>, usize) {
         let cam_gt = make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 900.0,
                 fy: 880.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         );
@@ -668,14 +665,13 @@ mod tests {
 
     fn scheimpflug_two_camera_views(
         sensor: ScheimpflugParams,
-    ) -> (PerCamViews, FxFyCxCySkew<Real>, usize) {
+    ) -> (PerCamViews, FxFyCxCy<Real>, usize) {
         let base = make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         );
@@ -701,12 +697,11 @@ mod tests {
     #[test]
     fn bundle_constructors_enforce_invariants() {
         let cams = vec![make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         )];
@@ -722,12 +717,11 @@ mod tests {
     #[test]
     fn bundle_serde_roundtrip() {
         let cams = vec![make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         )];
@@ -930,15 +924,14 @@ mod tests {
 
     #[test]
     fn intrinsics_k_matrix_layout() {
-        let k = intrinsics_k_matrix(&FxFyCxCySkew {
+        let k = intrinsics_k_matrix(&FxFyCxCy {
             fx: 100.0,
             fy: 200.0,
             cx: 50.0,
             cy: 60.0,
-            skew: 1.0,
         });
         assert_eq!(k[(0, 0)], 100.0);
-        assert_eq!(k[(0, 1)], 1.0);
+        assert_eq!(k[(0, 1)], 0.0);
         assert_eq!(k[(0, 2)], 50.0);
         assert_eq!(k[(1, 1)], 200.0);
         assert_eq!(k[(1, 2)], 60.0);

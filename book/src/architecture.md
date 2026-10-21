@@ -154,7 +154,7 @@ The camera projection pipeline is built from four independent traits composed vi
 pixel = K(sensor(distortion(projection(direction))))
 ```
 
-Each stage can be mixed and matched. For example, a standard camera uses `Pinhole` + `BrownConrady5` + `IdentitySensor` + `FxFyCxCySkew`, while a laser profiler might use `Pinhole` + `BrownConrady5` + `ScheimpflugParams` + `FxFyCxCySkew`.
+Each stage can be mixed and matched. For example, a standard camera uses `Pinhole` + `BrownConrady5` + `IdentitySensor` + `FxFyCxCy`, while a laser profiler might use `Pinhole` + `BrownConrady5` + `ScheimpflugParams` + `FxFyCxCy`.
 
 ### Backend-Agnostic Optimization
 

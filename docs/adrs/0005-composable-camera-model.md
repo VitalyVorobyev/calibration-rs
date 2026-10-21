@@ -20,7 +20,7 @@ pixel = K(sensor(distortion(projection(dir))))
   extended models).
 - **Sensor** — a homography for sensor-plane effects (`IdentitySensor`,
   `ScheimpflugParams`).
-- **K** — normalized plane to pixels (`FxFyCxCySkew`).
+- **K** — normalized plane to pixels (`FxFyCxCy`).
 
 `Camera<S, P, D, Sm, K>` is generic over the scalar `S: RealField` and the
 four stage traits; aliases such as `PinholeCamera` fix common combinations.

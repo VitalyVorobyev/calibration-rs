@@ -15,7 +15,7 @@
 use anyhow::Result;
 use nalgebra::{Rotation3, Translation3, UnitQuaternion};
 use vision_calibration::core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, Iso3, PinholeCamera, Pt3, RigDataset, RigView,
+    BrownConrady5, CorrespondenceView, FxFyCxCy, Iso3, PinholeCamera, Pt3, RigDataset, RigView,
     RigViewObs, make_pinhole_camera,
 };
 use vision_calibration::optim::{HandEyeMode, RobotPoseMeta};
@@ -29,19 +29,17 @@ fn main() -> Result<()> {
     println!("=== Multi-Camera Rig Hand-Eye Calibration (Synthetic) ===\n");
 
     // Ground truth camera parameters (stereo rig with 2 cameras)
-    let k0_gt = FxFyCxCySkew {
+    let k0_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
-    let k1_gt = FxFyCxCySkew {
+    let k1_gt = FxFyCxCy {
         fx: 810.0,
         fy: 790.0,
         cx: 635.0,
         cy: 355.0,
-        skew: 0.0,
     };
     // Zero distortion for cleaner synthetic data
     let dist_gt = BrownConrady5::default();

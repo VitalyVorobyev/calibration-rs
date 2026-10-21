@@ -38,14 +38,11 @@ mod tests {
             projection: ProjectionParams::Pinhole,
             distortion: DistortionParams::None,
             sensor: SensorParams::Identity,
-            intrinsics: IntrinsicsParams::FxFyCxCySkew {
-                params: FxFyCxCySkew {
-                    fx: 800.0,
-                    fy: 810.0,
-                    cx: 640.0,
-                    cy: 360.0,
-                    skew: 0.0,
-                },
+            intrinsics: FxFyCxCy {
+                fx: 800.0,
+                fy: 810.0,
+                cx: 640.0,
+                cy: 360.0,
             },
         };
         let cam = params.build().unwrap();
@@ -70,14 +67,11 @@ mod tests {
                     tilt_y: -0.01,
                 },
             },
-            intrinsics: IntrinsicsParams::FxFyCxCySkew {
-                params: FxFyCxCySkew {
-                    fx: 800.0,
-                    fy: 800.0,
-                    cx: 640.0,
-                    cy: 360.0,
-                    skew: 0.0,
-                },
+            intrinsics: FxFyCxCy {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 640.0,
+                cy: 360.0,
             },
         };
         let cam = params.build().unwrap();

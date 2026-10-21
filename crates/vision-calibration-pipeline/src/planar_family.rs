@@ -4,7 +4,7 @@
 //! initialization logic used by multiple planar problem variants.
 
 use vision_calibration_core::{
-    CorrespondenceView, FxFyCxCySkew, Iso3, Mat3, PinholeCamera, PlanarDataset, Pt2, Real,
+    CorrespondenceView, FxFyCxCy, Iso3, Mat3, PinholeCamera, PlanarDataset, Pt2, Real,
 };
 
 use crate::Error;
@@ -58,7 +58,7 @@ pub(crate) fn estimate_view_homographies(dataset: &PlanarDataset) -> Result<Vec<
 
 pub(crate) fn recover_planar_poses_from_homographies(
     homographies: &[Mat3],
-    intrinsics: &FxFyCxCySkew<Real>,
+    intrinsics: &FxFyCxCy<Real>,
 ) -> Result<Vec<Iso3>, Error> {
     let k = intrinsics_k_matrix(intrinsics);
     let mut poses = Vec::with_capacity(homographies.len());
@@ -77,26 +77,25 @@ fn board_and_pixel_points(view: &CorrespondenceView) -> (Vec<Pt2>, Vec<Pt2>) {
     (board_2d, pixel_2d)
 }
 
-pub(crate) fn intrinsics_k_matrix(k: &FxFyCxCySkew<Real>) -> Mat3 {
-    Mat3::new(k.fx, k.skew, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
+pub(crate) fn intrinsics_k_matrix(k: &FxFyCxCy<Real>) -> Mat3 {
+    Mat3::new(k.fx, 0.0, k.cx, 0.0, k.fy, k.cy, 0.0, 0.0, 1.0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, FxFyCxCySkew, View, make_pinhole_camera, synthetic::planar,
+        BrownConrady5, FxFyCxCy, View, make_pinhole_camera, synthetic::planar,
     };
     use vision_calibration_linear::distortion_fit::DistortionFitOptions;
 
     fn make_test_dataset() -> PlanarDataset {
         let cam_gt = make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 900.0,
                 fy: 880.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         );
@@ -118,7 +117,6 @@ mod tests {
                     fix_tangential: false,
                     iters: 8,
                 },
-                zero_skew: true,
             },
         )
         .expect("bootstrap");

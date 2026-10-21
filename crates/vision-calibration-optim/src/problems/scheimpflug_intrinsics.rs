@@ -13,9 +13,9 @@ use crate::uncertainty;
 use nalgebra::DVectorView;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, CorrespondenceView, DistortionFixMask, DistortionParams,
-    FxFyCxCySkew, IntrinsicsFixMask, IntrinsicsParams, Iso3, PlanarDataset, ProjectionParams, Real,
-    ScheimpflugParams, SensorParams, Uncertainty, View,
+    BrownConrady5, CameraParams, CorrespondenceView, DistortionFixMask, DistortionParams, FxFyCxCy,
+    IntrinsicsFixMask, Iso3, PlanarDataset, ProjectionParams, Real, ScheimpflugParams,
+    SensorParams, Uncertainty, View,
 };
 
 /// Mask for Scheimpflug tilt parameters.
@@ -83,7 +83,7 @@ impl ScheimpflugBounds {
     /// within `[lo, hi]×` the estimate, principal point within a focal-scaled
     /// window, and tilt within `tilt_center ± tilt_bound`. Wide enough not to
     /// bias a healthy solve, tight enough to forbid the degenerate runaway.
-    fn around(k: &FxFyCxCySkew<Real>, opts: &ScheimpflugStagedInitOptions) -> Self {
+    fn around(k: &FxFyCxCy<Real>, opts: &ScheimpflugStagedInitOptions) -> Self {
         let pp_x = opts.principal_point_bound_focal_fraction * k.fx;
         let pp_y = opts.principal_point_bound_focal_fraction * k.fy;
         Self {
@@ -119,7 +119,7 @@ impl ScheimpflugBounds {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheimpflugIntrinsicsParams {
     /// Camera intrinsics.
-    pub intrinsics: FxFyCxCySkew<Real>,
+    pub intrinsics: FxFyCxCy<Real>,
     /// Distortion parameters (model-agnostic).
     pub distortion: DistortionParams,
     /// Scheimpflug sensor tilt parameters.
@@ -138,7 +138,7 @@ impl ScheimpflugIntrinsicsParams {
     ///
     /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
     pub fn new(
-        intrinsics: FxFyCxCySkew<Real>,
+        intrinsics: FxFyCxCy<Real>,
         distortion: BrownConrady5<Real>,
         sensor: ScheimpflugParams,
         camera_se3_target: Vec<Iso3>,
@@ -157,7 +157,7 @@ impl ScheimpflugIntrinsicsParams {
     ///
     /// Returns [`Error::InsufficientData`] if `camera_se3_target` is empty.
     pub fn new_with_distortion(
-        intrinsics: FxFyCxCySkew<Real>,
+        intrinsics: FxFyCxCy<Real>,
         distortion: DistortionParams,
         sensor: ScheimpflugParams,
         camera_se3_target: Vec<Iso3>,
@@ -668,7 +668,7 @@ fn unpack_scheimpflug(values: DVectorView<'_, f64>) -> Result<ScheimpflugParams,
 
 fn compute_mean_reproj_error(
     dataset: &PlanarDataset,
-    intrinsics: FxFyCxCySkew<f64>,
+    intrinsics: FxFyCxCy<f64>,
     distortion: &DistortionParams,
     sensor: ScheimpflugParams,
     poses: &[Iso3],
@@ -679,7 +679,7 @@ fn compute_mean_reproj_error(
         projection: ProjectionParams::Pinhole,
         distortion: distortion.clone(),
         sensor: SensorParams::Scheimpflug { params: sensor },
-        intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
+        intrinsics,
     }
     .build()
     // A Scheimpflug sensor compiles its own homography from tilt angles and
@@ -715,16 +715,15 @@ mod tests {
     use nalgebra::{Translation3, UnitQuaternion};
     use vision_calibration_core::{Camera, CorrespondenceView, Pinhole, Pt2, Pt3, View};
 
-    fn gt_camera() -> (FxFyCxCySkew<f64>, BrownConrady5<f64>, ScheimpflugParams) {
+    fn gt_camera() -> (FxFyCxCy<f64>, BrownConrady5<f64>, ScheimpflugParams) {
         // Principal point intentionally off image center, a large ~-5.7° tilt
         // (between two sweep seeds, so the sweep cannot trivially land on it),
         // and non-trivial radial distortion.
-        let k = FxFyCxCySkew {
+        let k = FxFyCxCy {
             fx: 1150.0,
             fy: 1155.0,
             cx: 372.0,
             cy: 258.0,
-            skew: 0.0,
         };
         let dist = BrownConrady5 {
             k1: -0.12,
@@ -767,7 +766,7 @@ mod tests {
     }
 
     fn build_dataset(
-        k: FxFyCxCySkew<f64>,
+        k: FxFyCxCy<f64>,
         dist: BrownConrady5<f64>,
         sensor: ScheimpflugParams,
         poses: &[Iso3],
@@ -809,12 +808,11 @@ mod tests {
         // Cold start: focal 5% off, principal point at a nominal center (not the
         // true off-center pp), zero distortion, and crucially tilt = 0.
         let initial = ScheimpflugIntrinsicsParams::new(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 1150.0 * 1.05,
                 fy: 1155.0 * 1.05,
                 cx: 360.0,
                 cy: 270.0,
-                skew: 0.0,
             },
             BrownConrady5 {
                 k1: 0.0,

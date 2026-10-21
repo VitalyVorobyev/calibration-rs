@@ -292,7 +292,6 @@ class IntrinsicsInitConfig(TypedDict, total=False):
     init_iterations: int
     fix_k3: bool
     fix_tangential: bool
-    zero_skew: bool
 
 
 class SolverConfig(TypedDict, total=False):

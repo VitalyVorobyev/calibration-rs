@@ -39,7 +39,7 @@ use vision_calibration::{
     session::CalibrationSession,
 };
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, DistortionFixMask, FrameRef, FxFyCxCySkew,
+    BrownConrady5, CameraFixMask, CorrespondenceView, DistortionFixMask, FrameRef, FxFyCxCy,
     ImageManifest, PixelRect, Pt2, RigDataset, RigView, RigViewObs, ScheimpflugParams,
 };
 use vision_calibration_examples_private::{
@@ -63,13 +63,12 @@ const CELL_SIZE_MM: f64 = 1.014;
 /// Scheimpflug images "compensates" for the missing tilt by shifting cy,
 /// yielding a wrong (but self-consistent) K. Non-linear BA with tilts as
 /// free parameters should then find the correct tilt + refine fx/fy.
-fn build_initial_intrinsics(tile_w: u32, tile_h: u32) -> FxFyCxCySkew<f64> {
-    FxFyCxCySkew {
+fn build_initial_intrinsics(tile_w: u32, tile_h: u32) -> FxFyCxCy<f64> {
+    FxFyCxCy {
         fx: 1800.0,
         fy: 1800.0,
         cx: (tile_w as f64) * 0.5,
         cy: (tile_h as f64) * 0.5,
-        skew: 0.0,
     }
 }
 

@@ -9,8 +9,7 @@
 #![allow(missing_docs)]
 
 use vision_calibration::core::{
-    BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, IntrinsicsParams, Iso3, Pinhole,
-    PlanarDataset, Pt3, View,
+    BrownConrady5, Camera, FxFyCxCy, IdentitySensor, Iso3, Pinhole, PlanarDataset, Pt3, View,
 };
 use vision_calibration::optim::SolverBackend;
 use vision_calibration::planar_intrinsics::{
@@ -54,7 +53,7 @@ fn poses() -> Vec<Iso3> {
 /// Run the standard planar pipeline on one synthetic dataset with both
 /// solver backends, check that they agree, and return the default backend's
 /// (recovered intrinsics, recovered distortion, mean reprojection px).
-fn solve(dataset: PlanarDataset) -> (FxFyCxCySkew<f64>, BrownConrady5<f64>, f64) {
+fn solve(dataset: PlanarDataset) -> (FxFyCxCy<f64>, BrownConrady5<f64>, f64) {
     let tiny = solve_on(dataset.clone(), SolverBackend::TinySolver);
     let factrs = solve_on(dataset, SolverBackend::Factrs);
     // Both backends run the same Levenberg–Marquardt loop to the same
@@ -80,7 +79,7 @@ fn solve(dataset: PlanarDataset) -> (FxFyCxCySkew<f64>, BrownConrady5<f64>, f64)
 fn solve_on(
     dataset: PlanarDataset,
     backend: SolverBackend,
-) -> (FxFyCxCySkew<f64>, BrownConrady5<f64>, f64) {
+) -> (FxFyCxCy<f64>, BrownConrady5<f64>, f64) {
     let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
     let mut config = PlanarIntrinsicsConfig::default();
     config.solver.backend = backend;
@@ -89,7 +88,7 @@ fn solve_on(
     step_init(&mut session, None).expect("init");
     step_optimize(&mut session, None).expect("optimize");
     let out = session.output().expect("output");
-    let IntrinsicsParams::FxFyCxCySkew { params: intr } = out.params.camera.intrinsics;
+    let intr = out.params.camera.intrinsics;
     let dist = match &out.params.camera.distortion {
         vision_calibration::core::DistortionParams::BrownConrady5 { params } => *params,
         other => panic!("unexpected distortion params: {other:?}"),
@@ -119,12 +118,11 @@ fn planar_intrinsics_recovers_gt_across_grid_and_noise() {
 
     for cell in &grid {
         for &noise_px in &noise_levels {
-            let gt_intr = FxFyCxCySkew {
+            let gt_intr = FxFyCxCy {
                 fx: cell.fx,
                 fy: cell.fy,
                 cx: 366.0,
                 cy: 263.0,
-                skew: 0.0,
             };
             let gt_dist = BrownConrady5 {
                 k1: cell.k1,

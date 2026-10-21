@@ -8,7 +8,7 @@ use super::pose_utils::pose_from_points;
 use crate::Error;
 use crate::math::solve_quartic_real;
 use nalgebra::Vector3;
-use vision_calibration_core::{FxFyCxCySkew, Iso3, Mat3, Pt2, Pt3, Real};
+use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Real};
 
 /// Multiply two degree-4 polynomials (truncate to degree 4).
 fn poly_mul_1d(a: &[Real; 5], b: &[Real; 5]) -> [Real; 5] {
@@ -34,7 +34,7 @@ fn poly_mul_1d(a: &[Real; 5], b: &[Real; 5]) -> [Real; 5] {
 /// Returns [`Error::InvalidInput`] if `world` and `image` are not both
 /// of length 3, or [`Error::Singular`] if the intrinsics `k` are
 /// non-invertible or the points are collinear (quartic has no real roots).
-pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Vec<Iso3>, Error> {
+pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Vec<Iso3>, Error> {
     if world.len() != image.len() || world.len() != 3 {
         return Err(Error::invalid_input(format!(
             "invalid number of correspondences: expected 3, got {}",
@@ -154,12 +154,11 @@ mod tests {
 
     #[test]
     fn p3p_recovers_pose_from_minimal_set() {
-        let k = FxFyCxCySkew {
+        let k = FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         let cam = Camera::new(Pinhole, NoDistortion, IdentitySensor, k);
 

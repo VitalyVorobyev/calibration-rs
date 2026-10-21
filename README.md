@@ -29,7 +29,7 @@ Available as a Rust crate, a Python package, and a GUI.
 
 | Workflow | Solves for | Typical input |
 |---|---|---|
-| **Planar intrinsics** | `fx, fy, cx, cy, skew` + Brown-Conrady distortion | one camera, N views of a flat target |
+| **Planar intrinsics** | `fx, fy, cx, cy` + Brown-Conrady distortion | one camera, N views of a flat target |
 | **Scheimpflug intrinsics** | the above + sensor tilt (`tilt_x`, `tilt_y`) | a tilted-sensor camera |
 | **Rig extrinsics** | per-camera intrinsics + camera-to-rig poses | 2+ synchronised cameras |
 | **Single-camera hand-eye** | intrinsics + camera-to-gripper (or -to-base) transform | camera on/observing a robot arm |

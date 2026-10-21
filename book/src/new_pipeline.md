@@ -22,7 +22,7 @@ The state holds intermediate results between steps. It stays crate-private; user
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct MyState {
     // Initialization results
-    pub initial_intrinsics: Option<FxFyCxCySkew<Real>>,
+    pub initial_intrinsics: Option<FxFyCxCy<Real>>,
     pub initial_poses: Option<Vec<Iso3>>,
 
     // Optimization results
@@ -96,7 +96,7 @@ use super::problem::MyProblem;
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct MyInitResult {
-    pub intrinsics: FxFyCxCySkew<Real>,
+    pub intrinsics: FxFyCxCy<Real>,
     pub poses: Vec<Iso3>,
 }
 

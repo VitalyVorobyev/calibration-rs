@@ -15,20 +15,19 @@ use crate::params::pose_se3::iso3_to_se3_dvec;
 use nalgebra::{DVector, Isometry3, Rotation3, Translation3};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    Camera, Division, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3, RationalPolynomial, Real,
+    Camera, Division, FxFyCxCy, IdentitySensor, Pinhole, Pt3, RationalPolynomial, Real,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn gt_intrinsics() -> FxFyCxCySkew<Real> {
-    FxFyCxCySkew {
+fn gt_intrinsics() -> FxFyCxCy<Real> {
+    FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     }
 }
 
@@ -61,13 +60,12 @@ fn perturbed_poses(poses: &[Isometry3<Real>]) -> Vec<Isometry3<Real>> {
         .collect()
 }
 
-fn perturbed_intrinsics() -> FxFyCxCySkew<Real> {
-    FxFyCxCySkew {
+fn perturbed_intrinsics() -> FxFyCxCy<Real> {
+    FxFyCxCy {
         fx: 810.0,
         fy: 790.0,
         cx: 645.0,
         cy: 365.0,
-        skew: 0.0,
     }
 }
 
@@ -151,10 +149,7 @@ fn rational_case(engine: SolverBackend) {
         FixedMask::all_free(),
         None,
     );
-    initial_map.insert(
-        "cam".to_string(),
-        pack_intrinsics(&intrinsics_init).unwrap(),
-    );
+    initial_map.insert("cam".to_string(), pack_intrinsics(&intrinsics_init));
 
     let dist_id = ir.add_param_block(
         "dist",
@@ -287,10 +282,7 @@ fn division_case(engine: SolverBackend) {
         FixedMask::all_free(),
         None,
     );
-    initial_map.insert(
-        "cam".to_string(),
-        pack_intrinsics(&intrinsics_init).unwrap(),
-    );
+    initial_map.insert("cam".to_string(), pack_intrinsics(&intrinsics_init));
 
     let dist_id = ir.add_param_block(
         "dist",

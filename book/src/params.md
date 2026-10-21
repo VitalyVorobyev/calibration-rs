@@ -11,11 +11,11 @@ pub struct CameraParams {
     pub projection: ProjectionParams,
     pub distortion: DistortionParams,
     pub sensor: SensorParams,
-    pub intrinsics: IntrinsicsParams,
+    pub intrinsics: FxFyCxCy<Real>,   // fx, fy, cx, cy
 }
 ```
 
-Each component is an enum of supported variants (serialized with a `"type"` tag in snake_case):
+The projection, distortion and sensor components are enums of supported variants (serialized with a `"type"` tag in snake_case); the intrinsics are the plain `{fx, fy, cx, cy}` struct:
 
 ```rust
 pub enum ProjectionParams { Pinhole }
@@ -32,10 +32,6 @@ pub enum SensorParams {
     Identity,
     Homography { h: [[Real; 3]; 3] },
     Scheimpflug { params: ScheimpflugParams },            // tilt_x, tilt_y
-}
-
-pub enum IntrinsicsParams {
-    FxFyCxCySkew { params: FxFyCxCySkew<Real> },
 }
 ```
 
@@ -56,7 +52,7 @@ This is used internally by the session framework to reconstruct cameras from JSO
 The calibrated planar-intrinsics parameters (`PlanarIntrinsicsParams`, `export.params`) wrap a `CameraParams` in their `camera` field and provide typed accessors:
 
 ```rust
-export.params.intrinsics()   // → FxFyCxCySkew<f64>
+export.params.intrinsics()   // → FxFyCxCy<f64>
 export.params.distortion()   // → Option<BrownConrady5<f64>>; None for non-Brown-Conrady models
 export.params.build_camera()?  // → CameraModel
 ```

@@ -24,22 +24,18 @@
 //!
 //! ```no_run
 //! use vision_calibration_core::{
-//!     CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, ProjectionParams,
-//!     SensorParams,
+//!     CameraParams, DistortionParams, FxFyCxCy, ProjectionParams, SensorParams,
 //! };
 //!
 //! let params = CameraParams {
 //!     projection: ProjectionParams::Pinhole,
 //!     distortion: DistortionParams::None,
 //!     sensor: SensorParams::Identity,
-//!     intrinsics: IntrinsicsParams::FxFyCxCySkew {
-//!         params: FxFyCxCySkew {
-//!             fx: 800.0,
-//!             fy: 800.0,
-//!             cx: 640.0,
-//!             cy: 360.0,
-//!             skew: 0.0,
-//!         },
+//!     intrinsics: FxFyCxCy {
+//!         fx: 800.0,
+//!         fy: 800.0,
+//!         cx: 640.0,
+//!         cy: 360.0,
 //!     },
 //! };
 //! // `build` is fallible only for a `SensorParams::Homography` that is
@@ -93,11 +89,10 @@ pub use math::{
     from_homogeneous, normalized_to_pixel, pixel_to_normalized, to_homogeneous, undistort_pixel,
 };
 pub use models::{
-    AnyDistortion, AnyIntrinsics, AnyProjection, AnySensor, BrownConrady5, Camera, CameraModel,
-    CameraParams, CameraProject, DistortionModel, DistortionParams, Division, FxFyCxCySkew,
-    HomographySensor, IdentitySensor, IntrinsicsModel, IntrinsicsParams, NoDistortion, Pinhole,
-    ProjectionModel, ProjectionParams, RationalPolynomial, Ray, ScheimpflugParams, SensorModel,
-    SensorParams, ThinPrism,
+    AnyDistortion, AnyProjection, AnySensor, BrownConrady5, Camera, CameraModel, CameraParams,
+    CameraProject, DistortionModel, DistortionParams, Division, FxFyCxCy, HomographySensor,
+    IdentitySensor, IntrinsicsModel, NoDistortion, Pinhole, ProjectionModel, ProjectionParams,
+    RationalPolynomial, Ray, ScheimpflugParams, SensorModel, SensorParams, ThinPrism,
 };
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 pub use types::{
@@ -115,12 +110,11 @@ pub use view::{NoMeta, PlanarDataset, RigDataset, RigView, RigViewObs, View};
 /// - projection: [`Pinhole`]
 /// - distortion: [`BrownConrady5`]
 /// - sensor: [`IdentitySensor`]
-/// - intrinsics: [`FxFyCxCySkew`]
-pub type PinholeCamera =
-    Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>>;
+/// - intrinsics: [`FxFyCxCy`]
+pub type PinholeCamera = Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCy<Real>>;
 
 /// Build a [`PinholeCamera`] from intrinsics and Brown-Conrady distortion.
-pub fn make_pinhole_camera(k: FxFyCxCySkew<Real>, dist: BrownConrady5<Real>) -> PinholeCamera {
+pub fn make_pinhole_camera(k: FxFyCxCy<Real>, dist: BrownConrady5<Real>) -> PinholeCamera {
     Camera::new(Pinhole, dist, IdentitySensor, k)
 }
 
@@ -139,14 +133,11 @@ pub fn pinhole_camera_params(camera: &PinholeCamera) -> CameraParams {
             },
         },
         sensor: SensorParams::Identity,
-        intrinsics: IntrinsicsParams::FxFyCxCySkew {
-            params: FxFyCxCySkew {
-                fx: camera.k.fx,
-                fy: camera.k.fy,
-                cx: camera.k.cx,
-                cy: camera.k.cy,
-                skew: camera.k.skew,
-            },
+        intrinsics: FxFyCxCy {
+            fx: camera.k.fx,
+            fy: camera.k.fy,
+            cx: camera.k.cx,
+            cy: camera.k.cy,
         },
     }
 }
@@ -598,12 +589,11 @@ mod tests {
     #[test]
     fn rig_reprojection_stats_zero_for_perfect_data() -> anyhow::Result<()> {
         let cam0 = make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         );
@@ -669,12 +659,11 @@ mod tests {
 
     fn make_test_pinhole() -> PinholeCamera {
         make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         )

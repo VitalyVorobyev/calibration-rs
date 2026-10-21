@@ -135,19 +135,18 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FxFyCxCySkew, IdentitySensor, NoDistortion, Pinhole};
+    use crate::{FxFyCxCy, IdentitySensor, NoDistortion, Pinhole};
 
-    fn camera() -> Camera<Real, Pinhole, NoDistortion, IdentitySensor, FxFyCxCySkew<Real>> {
+    fn camera() -> Camera<Real, Pinhole, NoDistortion, IdentitySensor, FxFyCxCy<Real>> {
         Camera::new(
             Pinhole,
             NoDistortion,
             IdentitySensor,
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 900.0,
                 fy: 900.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
         )
     }

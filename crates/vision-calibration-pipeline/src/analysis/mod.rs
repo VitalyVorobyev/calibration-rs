@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use nalgebra::{Matrix2x6, Matrix6, SVector, Vector2, Vector6};
 
 use vision_calibration_core::{
-    Camera, CameraProject, FxFyCxCySkew, Iso3, Pinhole, PinholeCamera, Pt2, Pt3, RigDataset,
+    Camera, CameraProject, FxFyCxCy, Iso3, Pinhole, PinholeCamera, Pt2, Pt3, RigDataset,
     ScheimpflugParams, TargetFeatureResidual, View, compute_rig_target_residuals,
 };
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_h;
@@ -469,7 +469,7 @@ fn intrinsic_floor_rig_from_export<M>(
 
 fn intrinsic_floor_rig<C, M>(
     cameras: &[C],
-    camera_ks: &[FxFyCxCySkew<f64>],
+    camera_ks: &[FxFyCxCy<f64>],
     dataset: &RigDataset<M>,
 ) -> Vec<TargetFeatureResidual>
 where
@@ -514,7 +514,7 @@ where
 /// Returns `None` when there are fewer than four corners or EPnP fails.
 fn intrinsic_floor_view<C>(
     camera: &C,
-    k: &FxFyCxCySkew<f64>,
+    k: &FxFyCxCy<f64>,
     obs_3d: &[Pt3],
     obs_2d: &[Pt2],
 ) -> Option<Iso3>
@@ -649,7 +649,7 @@ fn max_pose(residuals: &[TargetFeatureResidual]) -> usize {
 /// Intrinsic floor for a generic single-camera view slice.
 fn intrinsic_floor_single_cam<C, M>(
     camera: &C,
-    k: &FxFyCxCySkew<f64>,
+    k: &FxFyCxCy<f64>,
     views: &[View<M>],
     cam_idx: usize,
 ) -> Vec<TargetFeatureResidual>
@@ -671,7 +671,7 @@ where
 /// Intrinsic floor over hand-eye views (single camera).
 fn intrinsic_floor_handeye<C>(
     camera: &C,
-    k: &FxFyCxCySkew<f64>,
+    k: &FxFyCxCy<f64>,
     views: &[SingleCamHandeyeView],
     cam_idx: usize,
 ) -> Vec<TargetFeatureResidual>

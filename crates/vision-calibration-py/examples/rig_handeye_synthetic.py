@@ -43,8 +43,8 @@ def project_view(
 
 
 def make_input() -> vc.RigHandeyeDataset:
-    k0 = {"fx": 800.0, "fy": 780.0, "cx": 640.0, "cy": 360.0, "skew": 0.0}
-    k1 = {"fx": 810.0, "fy": 790.0, "cx": 635.0, "cy": 355.0, "skew": 0.0}
+    k0 = {"fx": 800.0, "fy": 780.0, "cx": 640.0, "cy": 360.0}
+    k1 = {"fx": 810.0, "fy": 790.0, "cx": 635.0, "cy": 355.0}
     dist = {"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}
 
     cam0_se3_rig = make_pose(0.0, 0.0, 0.0, 0.00, 0.00, 0.00)  # T_C0_R

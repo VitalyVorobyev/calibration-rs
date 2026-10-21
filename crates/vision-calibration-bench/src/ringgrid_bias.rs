@@ -35,7 +35,7 @@
 
 use nalgebra::{Matrix2, Matrix3, Vector2, Vector3};
 
-use vision_calibration::core::{IntrinsicsParams, SensorParams};
+use vision_calibration::core::{FxFyCxCy, SensorParams};
 use vision_calibration::scheimpflug_intrinsics::ScheimpflugIntrinsicsExport;
 
 /// Symmetric conic matrix of a circle of radius `r` centered at `(cx, cy)` on
@@ -95,9 +95,8 @@ pub fn predicted_center_bias(h: &Matrix3<f64>, cx: f64, cy: f64, r: f64) -> Opti
 }
 
 /// Build the `3×3` intrinsics matrix `K` from serializable intrinsics.
-fn k_matrix(intr: &IntrinsicsParams) -> Matrix3<f64> {
-    let IntrinsicsParams::FxFyCxCySkew { params } = intr;
-    params.k_matrix()
+fn k_matrix(intr: &FxFyCxCy<f64>) -> Matrix3<f64> {
+    intr.k_matrix()
 }
 
 /// The Scheimpflug tilt homography (normalized → sensor), or identity for a

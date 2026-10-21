@@ -13,8 +13,8 @@ use super::*;
 use crate::common::ExportKind;
 use nalgebra::{SVector, Translation3, UnitQuaternion, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, NoMeta, PerFeatureResiduals, RigView,
-    RigViewObs, compute_rig_target_residuals, make_pinhole_camera,
+    BrownConrady5, CorrespondenceView, FxFyCxCy, NoMeta, PerFeatureResiduals, RigView, RigViewObs,
+    compute_rig_target_residuals, make_pinhole_camera,
 };
 use vision_calibration_optim::HandEyeMode;
 
@@ -35,12 +35,11 @@ impl Lcg {
 }
 
 fn test_camera() -> PinholeCamera {
-    let k = FxFyCxCySkew {
+    let k = FxFyCxCy {
         fx: 800.0,
         fy: 800.0,
         cx: 320.0,
         cy: 240.0,
-        skew: 0.0,
     };
     let dist = BrownConrady5 {
         k1: 0.0,

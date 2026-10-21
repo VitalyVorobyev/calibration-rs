@@ -16,9 +16,9 @@
 //! # Example
 //!
 //! ```no_run
-//! use vision_calibration_core::{synthetic::planar, BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole};
+//! use vision_calibration_core::{synthetic::planar, BrownConrady5, Camera, FxFyCxCy, IdentitySensor, Pinhole};
 //!
-//! let k = FxFyCxCySkew { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0, skew: 0.0 };
+//! let k = FxFyCxCy { fx: 800.0, fy: 800.0, cx: 640.0, cy: 360.0 };
 //! let dist = BrownConrady5 { k1: 0.0, k2: 0.0, k3: 0.0, p1: 0.0, p2: 0.0, iters: 8 };
 //! let cam = Camera::new(Pinhole, dist, IdentitySensor, k);
 //!

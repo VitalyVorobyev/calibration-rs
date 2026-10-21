@@ -8,7 +8,7 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
-    BrownConrady5, CorrespondenceView, FxFyCxCySkew, NoMeta, Pt3, Real, RigDataset, RigView,
+    BrownConrady5, CorrespondenceView, FxFyCxCy, NoMeta, Pt3, Real, RigDataset, RigView,
     RigViewObs, make_pinhole_camera,
 };
 use vision_calibration_optim::{
@@ -18,12 +18,11 @@ use vision_calibration_optim::{
 #[test]
 fn stereo_rig_extrinsics_converges() {
     // Ground truth camera parameters (shared across cameras)
-    let intrinsics_gt = FxFyCxCySkew {
+    let intrinsics_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
 
     let distortion_gt = BrownConrady5 {
@@ -106,19 +105,17 @@ fn stereo_rig_extrinsics_converges() {
     // Initial values (perturbed from ground truth)
     // Per-camera initialization (same values for homogeneous rig)
     let intrinsics_init = [
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 810.0, // Perturbed
             fy: 790.0, // Perturbed
             cx: 645.0, // Perturbed
             cy: 365.0, // Perturbed
-            skew: 0.0,
         },
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 810.0, // Same for camera 1
             fy: 790.0,
             cx: 645.0,
             cy: 365.0,
-            skew: 0.0,
         },
     ];
 

@@ -48,7 +48,7 @@ use vision_calibration::{
     session::CalibrationSession,
 };
 use vision_calibration_core::{
-    DistortionFixMask, FxFyCxCySkew, RigDataset, RigView, RigViewObs, ScheimpflugParams,
+    DistortionFixMask, FxFyCxCy, RigDataset, RigView, RigViewObs, ScheimpflugParams,
 };
 use vision_calibration_examples_private::{
     BoardRinggridSpec, detect_ringgrid_all, load_poses, load_ref_artifacts, load_ringgrid_board,
@@ -201,12 +201,11 @@ fn main() -> Result<()> {
         // Default and set the public fields.
         let mut seed = RigHandeyeIntrinsicsManualInit::default();
         seed.per_cam_intrinsics = Some(vec![
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: focal_seed,
                 fy: focal_seed,
                 cx: TILE_CX,
                 cy: TILE_CY,
-                skew: 0.0,
             };
             NUM_CAMERAS
         ]);

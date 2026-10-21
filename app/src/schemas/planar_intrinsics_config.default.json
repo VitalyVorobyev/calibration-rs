@@ -19,8 +19,7 @@
   "init": {
     "fix_k3": true,
     "fix_tangential": false,
-    "init_iterations": 2,
-    "zero_skew": true
+    "init_iterations": 2
   },
   "solver": {
     "backend": "tiny_solver",

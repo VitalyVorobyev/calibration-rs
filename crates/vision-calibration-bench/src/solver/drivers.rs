@@ -5,8 +5,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use vision_calibration::core::{
-    CameraParams, DistortionParams, IntrinsicsParams, PinholeCamera, ScheimpflugParams,
-    SensorParams,
+    CameraParams, DistortionParams, PinholeCamera, ScheimpflugParams, SensorParams,
 };
 use vision_calibration::laserline_device::{
     LaserlineDeviceProblem, step_init as laser_init, step_optimize as laser_optimize,
@@ -128,7 +127,7 @@ pub fn measure(scene: &Scene, repeats: usize) -> Result<Measured> {
 }
 
 fn camera_set(camera: &CameraParams) -> Result<CameraParamsSet> {
-    let IntrinsicsParams::FxFyCxCySkew { params: k } = camera.intrinsics;
+    let k = camera.intrinsics;
     let DistortionParams::BrownConrady5 { params: dist } = camera.distortion else {
         bail!(
             "expected Brown-Conrady distortion, got {:?}",

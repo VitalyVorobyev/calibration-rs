@@ -197,11 +197,6 @@ fn stereo_zhang_intrinsics_left_right() {
         assert!(fy_rel < 0.05, "{side}: fy rel error too large: {fy_rel}");
         assert!(cx_err < 8.0, "{side}: cx error too large: {cx_err}");
         assert!(cy_err < 8.0, "{side}: cy error too large: {cy_err}");
-        assert!(
-            intr.skew.abs() < 1.0,
-            "{side}: skew too large: {}",
-            intr.skew
-        );
     }
 }
 
@@ -440,7 +435,6 @@ fn stereo_iterative_intrinsics_left_no_gt() {
             fix_tangential: false,
             iters: 8,
         },
-        zero_skew: true,
     };
 
     let result =

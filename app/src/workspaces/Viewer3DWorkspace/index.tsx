@@ -221,12 +221,6 @@ function CameraIntrinsicsPanel({ cameraIndex, camera }: CameraIntrinsicsPanelPro
           <span>{camera.k.cx.toFixed(2)} px</span>
           <span className="text-fg-muted">cy</span>
           <span>{camera.k.cy.toFixed(2)} px</span>
-          {camera.k.skew !== 0 && (
-            <>
-              <span className="text-fg-muted">skew</span>
-              <span>{camera.k.skew.toFixed(4)}</span>
-            </>
-          )}
           {camera.dist && (
             <>
               <div className="col-span-2 mt-2 text-[10px] uppercase tracking-wider text-fg-muted">

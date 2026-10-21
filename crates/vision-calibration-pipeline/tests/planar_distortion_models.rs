@@ -16,8 +16,8 @@
 
 use nalgebra::{Rotation3, Translation3};
 use vision_calibration_core::{
-    Camera, CameraProject, CorrespondenceView, Division, FxFyCxCySkew, IdentitySensor, Iso3,
-    Pinhole, PlanarDataset, Pt2, Pt3, RationalPolynomial, ThinPrism, View, make_pinhole_camera,
+    Camera, CameraProject, CorrespondenceView, Division, FxFyCxCy, IdentitySensor, Iso3, Pinhole,
+    PlanarDataset, Pt2, Pt3, RationalPolynomial, ThinPrism, View, make_pinhole_camera,
 };
 use vision_calibration_optim::DistortionKind;
 use vision_calibration_pipeline::{
@@ -58,13 +58,12 @@ fn gt_poses() -> Vec<Iso3> {
         .collect()
 }
 
-fn gt_intrinsics() -> FxFyCxCySkew<f64> {
-    FxFyCxCySkew {
+fn gt_intrinsics() -> FxFyCxCy<f64> {
+    FxFyCxCy {
         fx: 820.0,
         fy: 800.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     }
 }
 

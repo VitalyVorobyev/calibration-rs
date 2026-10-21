@@ -4,8 +4,8 @@
 
 use nalgebra::{Point3, Rotation3, Translation3, Vector3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, IdentitySensor, Iso3, Pinhole, Pt2,
-    Pt3, ScheimpflugParams, View,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, IdentitySensor, Iso3, Pinhole, Pt2, Pt3,
+    ScheimpflugParams, View,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, LaserPlane, LaserlineMeta, LaserlineParams, LaserlineResidualType,
@@ -30,12 +30,11 @@ fn synthetic_laserline_calibration_smoke_test() {
             iters: 8,
         },
         sensor_params_gt.compile(),
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 640.0,
             cy: 480.0,
-            skew: 0.0,
         },
     );
 
@@ -149,12 +148,11 @@ fn synthetic_laserline_calibration_smoke_test() {
     let dataset = views;
 
     // Create perturbed initialization (10-20% error)
-    let intrinsics_init = FxFyCxCySkew {
+    let intrinsics_init = FxFyCxCy {
         fx: camera.k.fx * 1.1,
         fy: camera.k.fy * 0.9,
         cx: camera.k.cx + 20.0,
         cy: camera.k.cy - 15.0,
-        skew: 0.0,
     };
 
     let distortion_init = BrownConrady5 {
@@ -253,12 +251,11 @@ fn synthetic_laserline_line_dist_normalized_converges() {
             iters: 8,
         },
         IdentitySensor,
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 640.0,
             cy: 480.0,
-            skew: 0.0,
         },
     );
 
@@ -364,12 +361,11 @@ fn synthetic_laserline_line_dist_normalized_converges() {
 
     let dataset = views;
 
-    let intrinsics_init = FxFyCxCySkew {
+    let intrinsics_init = FxFyCxCy {
         fx: camera.k.fx * 1.1,
         fy: camera.k.fy * 0.9,
         cx: camera.k.cx + 20.0,
         cy: camera.k.cy - 15.0,
-        skew: 0.0,
     };
 
     let distortion_init = BrownConrady5 {
@@ -470,12 +466,11 @@ fn compare_point_plane_vs_line_dist() {
             iters: 8,
         },
         IdentitySensor,
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 640.0,
             cy: 480.0,
-            skew: 0.0,
         },
     );
 
@@ -579,12 +574,11 @@ fn compare_point_plane_vs_line_dist() {
 
     let dataset = views;
 
-    let intrinsics_init = FxFyCxCySkew {
+    let intrinsics_init = FxFyCxCy {
         fx: camera.k.fx * 1.1,
         fy: camera.k.fy * 0.9,
         cx: camera.k.cx + 20.0,
         cy: camera.k.cy - 15.0,
-        skew: 0.0,
     };
 
     let distortion_init = BrownConrady5 {

@@ -4,8 +4,8 @@
 use serde::de::DeserializeOwned;
 
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams, PinholeCamera,
-    ProjectionParams, ScheimpflugParams, SensorParams, Uncertainty, pinhole_camera_params,
+    BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, PinholeCamera, ProjectionParams,
+    ScheimpflugParams, SensorParams, Uncertainty, pinhole_camera_params,
 };
 use vision_calibration_optim::{
     Error as OptimError, ProjectionUncertainty, camera_parameters, projection_uncertainty,
@@ -117,7 +117,7 @@ pub fn calibrated_cameras(export: serde_json::Value) -> Result<Box<dyn Calibrate
 /// A pinhole camera with Brown-Conrady distortion and an optional
 /// Scheimpflug sensor.
 fn brown_conrady_camera_params(
-    intrinsics: FxFyCxCySkew<f64>,
+    intrinsics: FxFyCxCy<f64>,
     distortion: BrownConrady5<f64>,
     sensor: Option<ScheimpflugParams>,
 ) -> CameraParams {
@@ -127,7 +127,7 @@ fn brown_conrady_camera_params(
         sensor: sensor.map_or(SensorParams::Identity, |params| SensorParams::Scheimpflug {
             params,
         }),
-        intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
+        intrinsics,
     }
 }
 

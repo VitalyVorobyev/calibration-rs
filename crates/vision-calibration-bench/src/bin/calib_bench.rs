@@ -1207,7 +1207,7 @@ fn rtv3d_nominal_seed(entry: &BenchEntry) -> ManualInitSeed {
     let intrinsics: Vec<_> = entry
         .cameras
         .iter()
-        .map(|_| serde_json::json!({"fx": 2000.0, "fy": 2000.0, "cx": cx, "cy": cy, "skew": 0.0}))
+        .map(|_| serde_json::json!({"fx": 2000.0, "fy": 2000.0, "cx": cx, "cy": cy}))
         .collect();
     let distortion: Vec<_> = entry
         .cameras

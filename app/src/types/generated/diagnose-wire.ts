@@ -202,32 +202,6 @@ export type DistortionParams =
       type: "division";
     };
 /**
- * Serializable intrinsics parameters.
- */
-export type IntrinsicsParams = {
-  /**
-   * Principal point X coordinate in pixels.
-   */
-  cx: number;
-  /**
-   * Principal point Y coordinate in pixels.
-   */
-  cy: number;
-  /**
-   * Focal length in pixels along X.
-   */
-  fx: number;
-  /**
-   * Focal length in pixels along Y.
-   */
-  fy: number;
-  /**
-   * Skew term (typically 0).
-   */
-  skew: number;
-  type: "fx_fy_cx_cy_skew";
-};
-/**
  * Serializable projection model parameters.
  */
 export type ProjectionParams = {
@@ -477,7 +451,7 @@ export interface LaserlineParams {
   /**
    * Camera intrinsics.
    */
-  intrinsics: FxFyCxCySkew;
+  intrinsics: FxFyCxCy;
   /**
    * Laser plane parameters in camera frame.
    */
@@ -521,9 +495,11 @@ export interface BrownConrady5 {
   p2: number;
 }
 /**
- * Standard pinhole intrinsics with optional skew.
+ * Standard pinhole intrinsics: focal lengths and principal point in pixels.
+ *
+ * The pixel grid is assumed orthogonal, so `K` carries no skew term.
  */
-export interface FxFyCxCySkew {
+export interface FxFyCxCy {
   /**
    * Principal point X coordinate in pixels.
    */
@@ -540,10 +516,6 @@ export interface FxFyCxCySkew {
    * Focal length in pixels along Y.
    */
   fy: number;
-  /**
-   * Skew term (typically 0).
-   */
-  skew: number;
 }
 /**
  * Laser plane in camera frame: unit normal + signed distance.
@@ -1025,9 +997,9 @@ export interface CameraParams {
    */
   distortion: DistortionParams;
   /**
-   * Intrinsics model parameters.
+   * Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
    */
-  intrinsics: IntrinsicsParams;
+  intrinsics: FxFyCxCy;
   /**
    * Projection model parameters.
    */
@@ -1152,7 +1124,7 @@ export interface Camera {
   /**
    * Intrinsics model (K).
    */
-  k: FxFyCxCySkew;
+  k: FxFyCxCy;
   /**
    * Projection model (e.g. pinhole).
    */

@@ -371,7 +371,6 @@ mod tests {
                 init_iterations: 5,
                 fix_k3: true,
                 fix_tangential: true,
-                zero_skew: false,
             },
             ..Default::default()
         };
@@ -380,7 +379,6 @@ mod tests {
         assert_eq!(opts.iterations, 5);
         assert!(opts.distortion_opts.fix_k3);
         assert!(opts.distortion_opts.fix_tangential);
-        assert!(!opts.zero_skew);
     }
 
     #[test]
@@ -432,12 +430,11 @@ mod tests {
     #[test]
     fn export_includes_per_camera_reprojection_errors() {
         let camera = vision_calibration_core::make_pinhole_camera(
-            vision_calibration_core::FxFyCxCySkew {
+            vision_calibration_core::FxFyCxCy {
                 fx: 800.0,
                 fy: 790.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
             vision_calibration_core::BrownConrady5::default(),
         );
@@ -504,12 +501,11 @@ mod tests {
         // must report Some(error_px) ≈ 0 for every record and the histogram
         // must place all counts in the first bucket.
         let camera = vision_calibration_core::make_pinhole_camera(
-            vision_calibration_core::FxFyCxCySkew {
+            vision_calibration_core::FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             vision_calibration_core::BrownConrady5::default(),
         );
@@ -580,12 +576,11 @@ mod tests {
         // Round-trip the export through JSON and confirm per_feature_residuals
         // including bucket counts survive serialize/deserialize.
         let camera = vision_calibration_core::make_pinhole_camera(
-            vision_calibration_core::FxFyCxCySkew {
+            vision_calibration_core::FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             vision_calibration_core::BrownConrady5::default(),
         );
@@ -654,12 +649,11 @@ mod tests {
         use vision_calibration_core::{FrameRef, ImageManifest};
 
         let camera = vision_calibration_core::make_pinhole_camera(
-            vision_calibration_core::FxFyCxCySkew {
+            vision_calibration_core::FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             vision_calibration_core::BrownConrady5::default(),
         );

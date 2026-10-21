@@ -3,9 +3,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, DistortionFixMask, DistortionParams, FxFyCxCySkew,
-    IntrinsicsFixMask, IntrinsicsParams, Iso3, ProjectionParams, RationalPolynomial, Real,
-    ScheimpflugParams, SensorParams, ThinPrism,
+    BrownConrady5, CameraParams, DistortionFixMask, DistortionParams, FxFyCxCy, IntrinsicsFixMask,
+    Iso3, ProjectionParams, RationalPolynomial, Real, ScheimpflugParams, SensorParams, ThinPrism,
 };
 use vision_calibration_linear::scheimpflug_init::{
     ScheimpflugIntrinsicsInitOptions as LinearScheimpflugIntrinsicsInitOptions,
@@ -48,7 +47,7 @@ pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 #[non_exhaustive]
 pub struct ScheimpflugManualInit {
     /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
-    pub intrinsics: Option<FxFyCxCySkew<Real>>,
+    pub intrinsics: Option<FxFyCxCy<Real>>,
     /// Manual distortion seed. `None` means auto-init (or zeros when intrinsics are
     /// seeded).
     pub distortion: Option<BrownConrady5<Real>>,
@@ -71,8 +70,8 @@ pub struct ScheimpflugManualInit {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ScheimpflugIntrinsicsInitResult {
-    /// Initial pinhole intrinsics (fx, fy, cx, cy, skew).
-    pub intrinsics: FxFyCxCySkew<Real>,
+    /// Initial pinhole intrinsics (fx, fy, cx, cy).
+    pub intrinsics: FxFyCxCy<Real>,
     /// Initial Brown–Conrady distortion coefficients.
     pub distortion: BrownConrady5<Real>,
     /// Initial Scheimpflug sensor tilt parameters.
@@ -223,7 +222,6 @@ pub fn step_init_with_seed(
             LinearScheimpflugIntrinsicsInitOptions {
                 iterations: init_iterations,
                 distortion_opts: session.config.init.distortion_fit_opts(),
-                zero_skew: session.config.init.zero_skew,
                 ..Default::default()
             },
         )
@@ -611,7 +609,7 @@ pub fn run_calibration(
 }
 
 fn scheimpflug_camera_params(
-    intrinsics: FxFyCxCySkew<f64>,
+    intrinsics: FxFyCxCy<f64>,
     distortion: DistortionParams,
     sensor: ScheimpflugParams,
 ) -> CameraParams {
@@ -619,7 +617,7 @@ fn scheimpflug_camera_params(
         projection: ProjectionParams::Pinhole,
         distortion,
         sensor: SensorParams::Scheimpflug { params: sensor },
-        intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
+        intrinsics,
     }
 }
 
@@ -674,17 +672,16 @@ fn build_initial_distortion_params(
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        Camera, FxFyCxCySkew, Pinhole, PlanarDataset, View, make_pinhole_camera, synthetic::planar,
+        Camera, FxFyCxCy, Pinhole, PlanarDataset, View, make_pinhole_camera, synthetic::planar,
     };
 
     fn make_dataset(sensor: ScheimpflugParams) -> PlanarDataset {
         let base = make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         );
@@ -726,12 +723,11 @@ mod tests {
             .set_input(make_dataset(ScheimpflugParams::default()))
             .expect("input");
         let manual = ScheimpflugManualInit {
-            intrinsics: Some(FxFyCxCySkew {
+            intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             }),
             ..Default::default()
         };
@@ -806,12 +802,11 @@ mod tests {
         session.set_input(make_dataset(sensor_gt)).expect("input");
 
         let manual = ScheimpflugManualInit {
-            intrinsics: Some(FxFyCxCySkew {
+            intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             }),
             distortion: Some(BrownConrady5::default()),
             sensor: Some(sensor_gt),

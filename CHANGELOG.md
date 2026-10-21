@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- Breaking: camera intrinsics are exactly `fx, fy, cx, cy`; skew is gone.
+  `FxFyCxCySkew` is renamed `FxFyCxCy` and loses its `skew` field (its
+  `k_matrix()` has a zero in the skew slot). `IntrinsicsParams` and
+  `AnyIntrinsics` are removed: `CameraParams::intrinsics` is the plain
+  `FxFyCxCy<Real>`, and `CameraModel` is
+  `Camera<Real, AnyProjection, AnyDistortion, AnySensor, FxFyCxCy<Real>>`.
+  `zero_skew` is removed from `IntrinsicsInitConfig` (and the Python
+  `IntrinsicsInitConfig`), `IterativeIntrinsicsOptions` and
+  `ScheimpflugIntrinsicsInitOptions`; Zhang's initialization always drops the
+  skew of its closed-form solve, as `zero_skew: true` did. `pack_intrinsics`
+  no longer returns a `Result`. Migration: rename `FxFyCxCySkew` to
+  `FxFyCxCy`, delete `skew:` initializers and `.skew` reads, replace
+  `IntrinsicsParams::FxFyCxCySkew { params }` with the struct itself, and
+  drop `zero_skew` from configs. JSON intrinsics objects lose `skew` and the
+  `"type": "fx_fy_cx_cy_skew"` tag (`{"fx": …, "fy": …, "cx": …, "cy": …}`);
+  the config schemas, the Python `PinholeIntrinsics` (no `skew`) and the
+  regression and benchmark records follow.
+
 - The Scheimpflug intrinsics defaults (`ScheimpflugIntrinsicsConfig::fix_poses`,
   `ScheimpflugIntrinsicsSolveOptions::fix_poses`, Python
   `ScheimpflugIntrinsicsCalibrationConfig.fix_poses`) no longer hold view 0

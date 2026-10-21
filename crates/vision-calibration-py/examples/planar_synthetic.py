@@ -17,7 +17,7 @@ from _common import (
 
 
 def make_input() -> vc.PlanarDataset:
-    intrinsics_gt = {"fx": 800.0, "fy": 780.0, "cx": 640.0, "cy": 360.0, "skew": 0.0}
+    intrinsics_gt = {"fx": 800.0, "fy": 780.0, "cx": 640.0, "cy": 360.0}
     distortion_gt = {"k1": 0.05, "k2": -0.02, "k3": 0.0, "p1": 0.001, "p2": -0.001, "iters": 8}
     board = grid_points(cols=8, rows=6, spacing_m=0.04)
 

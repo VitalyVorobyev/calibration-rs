@@ -236,16 +236,14 @@ fn apply_homography(h: &Mat3, px: &Pt2) -> Pt2 {
 mod tests {
     use super::*;
     use nalgebra::{Rotation3, Translation3, UnitQuaternion};
-    use vision_calibration_core::{
-        BrownConrady5, Camera, FxFyCxCySkew, IdentitySensor, Pinhole, Pt3,
-    };
+    use vision_calibration_core::{BrownConrady5, Camera, FxFyCxCy, IdentitySensor, Pinhole, Pt3};
 
     type ScheimpflugCamera = Camera<
         Real,
         Pinhole,
         BrownConrady5<Real>,
         vision_calibration_core::HomographySensor<Real>,
-        FxFyCxCySkew<Real>,
+        FxFyCxCy<Real>,
     >;
 
     fn no_distortion() -> BrownConrady5<Real> {
@@ -259,26 +257,20 @@ mod tests {
         }
     }
 
-    fn intr(fx: Real, fy: Real, cx: Real, cy: Real) -> FxFyCxCySkew<Real> {
-        FxFyCxCySkew {
-            fx,
-            fy,
-            cx,
-            cy,
-            skew: 0.0,
-        }
+    fn intr(fx: Real, fy: Real, cx: Real, cy: Real) -> FxFyCxCy<Real> {
+        FxFyCxCy { fx, fy, cx, cy }
     }
 
     /// Build the full Scheimpflug projection camera (zero distortion) used to
     /// generate synthetic observations through the *real* core model.
-    fn scheimpflug_camera(k: &FxFyCxCySkew<Real>, tilt: ScheimpflugParams) -> ScheimpflugCamera {
+    fn scheimpflug_camera(k: &FxFyCxCy<Real>, tilt: ScheimpflugParams) -> ScheimpflugCamera {
         Camera::new(Pinhole, no_distortion(), tilt.compile(), *k)
     }
 
     /// A frontal pinhole projection camera (identity sensor).
     fn pinhole_camera(
-        k: &FxFyCxCySkew<Real>,
-    ) -> Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCySkew<Real>> {
+        k: &FxFyCxCy<Real>,
+    ) -> Camera<Real, Pinhole, BrownConrady5<Real>, IdentitySensor, FxFyCxCy<Real>> {
         Camera::new(Pinhole, no_distortion(), IdentitySensor, *k)
     }
 
@@ -326,7 +318,7 @@ mod tests {
     trait ProjectLike {
         fn project(&self, p_c: &Vector3<Real>) -> Option<Pt2>;
     }
-    impl<Sm> ProjectLike for Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCySkew<Real>>
+    impl<Sm> ProjectLike for Camera<Real, Pinhole, BrownConrady5<Real>, Sm, FxFyCxCy<Real>>
     where
         Sm: vision_calibration_core::SensorModel<Real>,
     {

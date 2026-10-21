@@ -6,7 +6,7 @@
 use super::dlt;
 use crate::Error;
 use vision_calibration_core::{
-    Camera, Estimator, FxFyCxCySkew, IdentitySensor, Iso3, NoDistortion, Pinhole, Pt2, Pt3,
+    Camera, Estimator, FxFyCxCy, IdentitySensor, Iso3, NoDistortion, Pinhole, Pt2, Pt3,
     RansacOptions, Real, ransac_fit,
 };
 
@@ -17,7 +17,7 @@ use vision_calibration_core::{
 pub fn dlt_ransac(
     world: &[Pt3],
     image: &[Pt2],
-    k: &FxFyCxCySkew<Real>,
+    k: &FxFyCxCy<Real>,
     opts: &RansacOptions,
 ) -> Result<(Iso3, Vec<usize>), Error> {
     let n = world.len();
@@ -29,7 +29,7 @@ pub fn dlt_ransac(
     struct PnpDatum {
         pw: Pt3,
         pi: Pt2,
-        k: FxFyCxCySkew<Real>,
+        k: FxFyCxCy<Real>,
     }
 
     struct PnpEst;
@@ -93,12 +93,11 @@ mod tests {
 
     #[test]
     fn ransac_handles_outliers() {
-        let k = FxFyCxCySkew {
+        let k = FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         let cam = Camera::new(Pinhole, NoDistortion, IdentitySensor, k);
 

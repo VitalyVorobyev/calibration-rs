@@ -7,7 +7,7 @@
 use crate::Error;
 use crate::math::{mat34_from_vec, null_space, project_to_so3};
 use nalgebra::{DMatrix, Isometry3, Rotation3, Translation3, UnitQuaternion};
-use vision_calibration_core::{FxFyCxCySkew, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
+use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
 
 /// Direct linear PnP on all input points.
 ///
@@ -21,7 +21,7 @@ use vision_calibration_core::{FxFyCxCySkew, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
 ///
 /// Returns [`Error::InsufficientData`] if fewer than 6 correspondences are given,
 /// [`Error::Singular`] if normalization or SVD fails.
-pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3, Error> {
+pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Error> {
     let n = world.len();
     if n < 6 || image.len() != n {
         return Err(Error::InsufficientData { need: 6, got: n });
@@ -158,12 +158,11 @@ mod tests {
 
     #[test]
     fn dlt_recovers_pose_synthetic() {
-        let k = FxFyCxCySkew {
+        let k = FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         let cam = Camera::new(Pinhole, NoDistortion, IdentitySensor, k);
 

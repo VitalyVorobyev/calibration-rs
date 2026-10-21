@@ -12,7 +12,7 @@
 #![allow(missing_docs)]
 
 use vision_calibration::core::{
-    BrownConrady5, FxFyCxCySkew, Iso3, PinholeCamera, Pt3, make_pinhole_camera,
+    BrownConrady5, FxFyCxCy, Iso3, PinholeCamera, Pt3, make_pinhole_camera,
 };
 use vision_calibration::optim::{HandEyeMode, SolverBackend};
 use vision_calibration::session::CalibrationSession;
@@ -50,12 +50,11 @@ fn robot_poses() -> Vec<Iso3> {
 
 fn camera(fx: f64, fy: f64) -> PinholeCamera {
     make_pinhole_camera(
-        FxFyCxCySkew {
+        FxFyCxCy {
             fx,
             fy,
             cx: 512.0,
             cy: 384.0,
-            skew: 0.0,
         },
         // Zero distortion: this family's proof pack isolates the hand-eye
         // geometry; the distortion sub-model is covered by the planar pack.

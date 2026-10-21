@@ -14,8 +14,8 @@ use nalgebra::{Point2, Point3, Vector3};
 use serde::Serialize;
 use std::{io::Cursor, path::Path};
 use vision_calibration::core::{
-    BrownConrady5, CameraModel, CameraParams, DistortionParams, FxFyCxCySkew, IntrinsicsParams,
-    Iso3, PixelRect, ProjectionParams, ScheimpflugParams, SensorParams,
+    BrownConrady5, CameraModel, CameraParams, DistortionParams, FxFyCxCy, Iso3, PixelRect,
+    ProjectionParams, ScheimpflugParams, SensorParams,
 };
 
 /// Number of depth samples along the ray. 256 keeps the rendered SVG
@@ -307,7 +307,7 @@ fn build_camera(
 #[derive(Clone, Debug)]
 struct CameraGeometry {
     model: CameraModel,
-    k: FxFyCxCySkew<f64>,
+    k: FxFyCxCy<f64>,
 }
 
 fn camera_geometry(export: &serde_json::Value, camera: usize) -> Result<CameraGeometry, String> {
@@ -331,7 +331,7 @@ fn build_camera_geometry(
     camera_json: &serde_json::Value,
     sensor: Option<&ScheimpflugParams>,
 ) -> Result<CameraGeometry, String> {
-    let k: FxFyCxCySkew<f64> = serde_json::from_value(
+    let k: FxFyCxCy<f64> = serde_json::from_value(
         camera_json
             .get("k")
             .ok_or("camera entry has no `k` field")?
@@ -355,7 +355,7 @@ fn build_camera_geometry(
         projection: ProjectionParams::Pinhole,
         distortion: DistortionParams::BrownConrady5 { params: dist },
         sensor: sensor_params,
-        intrinsics: IntrinsicsParams::FxFyCxCySkew { params: k },
+        intrinsics: k,
     };
     Ok(CameraGeometry {
         model: params
@@ -407,13 +407,13 @@ fn undistorted_pixel_to_raw_pixel(geometry: &CameraGeometry, px: [f64; 2]) -> Op
         .filter(|p| p[0].is_finite() && p[1].is_finite())
 }
 
-fn undistorted_pixel_to_ray(k: &FxFyCxCySkew<f64>, px: [f64; 2]) -> Vector3<f64> {
+fn undistorted_pixel_to_ray(k: &FxFyCxCy<f64>, px: [f64; 2]) -> Vector3<f64> {
     let y = (px[1] - k.cy) / k.fy;
-    let x = (px[0] - k.cx - k.skew * y) / k.fx;
+    let x = (px[0] - k.cx) / k.fx;
     Vector3::new(x, y, 1.0)
 }
 
-fn project_undistorted_camera_point(k: &FxFyCxCySkew<f64>, p_c: &Vector3<f64>) -> Option<[f64; 2]> {
+fn project_undistorted_camera_point(k: &FxFyCxCy<f64>, p_c: &Vector3<f64>) -> Option<[f64; 2]> {
     if p_c.z <= 0.0 {
         return None;
     }
@@ -427,8 +427,8 @@ fn project_undistorted_camera_point(k: &FxFyCxCySkew<f64>, p_c: &Vector3<f64>) -
     }
 }
 
-fn normalized_to_pixel(k: &FxFyCxCySkew<f64>, x: f64, y: f64) -> [f64; 2] {
-    [k.fx * x + k.skew * y + k.cx, k.fy * y + k.cy]
+fn normalized_to_pixel(k: &FxFyCxCy<f64>, x: f64, y: f64) -> [f64; 2] {
+    [k.fx * x + k.cx, k.fy * y + k.cy]
 }
 
 fn clip_line_to_image(a: [f64; 2], b: [f64; 2], w: f64, h: f64) -> Vec<[f64; 2]> {
@@ -514,7 +514,7 @@ fn sample_bilinear(src: &RgbaImage, x: f64, y: f64) -> Rgba<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration::core::{BrownConrady5 as BC5, FxFyCxCySkew as K, make_pinhole_camera};
+    use vision_calibration::core::{BrownConrady5 as BC5, FxFyCxCy as K, make_pinhole_camera};
 
     /// Synthetic 2-camera pinhole rig: project a known 3D point through
     /// cam A, ask for the overlay, assert pane-B's projected_pixel of
@@ -527,7 +527,6 @@ mod tests {
             fy: 800.0,
             cx: 320.0,
             cy: 240.0,
-            skew: 0.0,
         };
         let cam_a = make_pinhole_camera(k, BC5::default());
         let cam_b = make_pinhole_camera(k, BC5::default());
@@ -577,7 +576,6 @@ mod tests {
             fy: 800.0,
             cx: 320.0,
             cy: 240.0,
-            skew: 0.0,
         };
         let cam = make_pinhole_camera(k, BC5::default());
         let export = serde_json::json!({
@@ -617,7 +615,6 @@ mod tests {
             fy: 800.0,
             cx: 320.0,
             cy: 240.0,
-            skew: 0.0,
         };
         let cam = make_pinhole_camera(k, BC5::default());
         let t_a_r = Iso3::identity();
@@ -709,8 +706,7 @@ mod tests {
                         "fx": 713.8456995546412,
                         "fy": 724.6690645729575,
                         "cx": 523.4129016186437,
-                        "cy": 285.9522601918888,
-                        "skew": 0.0
+                        "cy": 285.9522601918888
                     },
                     "dist": {
                         "k1": 0.015021094581498156,
@@ -726,8 +722,7 @@ mod tests {
                         "fx": 724.7966090646895,
                         "fy": 735.5984809398797,
                         "cx": 513.9329313241342,
-                        "cy": 292.95508592356225,
-                        "skew": 0.0
+                        "cy": 292.95508592356225
                     },
                     "dist": {
                         "k1": 0.00113846407979313,

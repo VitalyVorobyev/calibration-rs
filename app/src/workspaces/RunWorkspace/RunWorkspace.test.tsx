@@ -37,7 +37,7 @@ pattern = "*.png"
 `;
 
 const DEFAULT_CONFIG = {
-  init: { init_iterations: 2, fix_k3: true, fix_tangential: false, zero_skew: true },
+  init: { init_iterations: 2, fix_k3: true, fix_tangential: false },
   solver: { max_iters: 50, verbosity: 0, robust_loss: "None" },
   distortion_model: "brown_conrady5",
   fix_camera: {

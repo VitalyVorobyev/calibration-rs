@@ -53,7 +53,7 @@ use vision_calibration::{
     session::CalibrationSession,
 };
 use vision_calibration_core::{
-    BrownConrady5, CameraFixMask, CorrespondenceView, DistortionFixMask, FrameRef, FxFyCxCySkew,
+    BrownConrady5, CameraFixMask, CorrespondenceView, DistortionFixMask, FrameRef, FxFyCxCy,
     ImageManifest, Iso3, PixelRect, Pt2, RigDataset, RigView, RigViewObs, ScheimpflugParams,
 };
 use vision_calibration_examples_private::{
@@ -658,13 +658,12 @@ fn print_detection_diagnostics(detected: &DetectedDatasets) {
 
 // ───────────────────────────── seeding ───────────────────────────────────
 
-fn generic_intrinsics(tile_w: u32, tile_h: u32) -> FxFyCxCySkew<f64> {
-    FxFyCxCySkew {
+fn generic_intrinsics(tile_w: u32, tile_h: u32) -> FxFyCxCy<f64> {
+    FxFyCxCy {
         fx: 2000.0,
         fy: 2000.0,
         cx: (tile_w as f64) * 0.5,
         cy: (tile_h as f64) * 0.5,
-        skew: 0.0,
     }
 }
 
@@ -701,12 +700,11 @@ fn build_intrinsics_seed(
                     );
                     continue;
                 }
-                intrinsics[i] = FxFyCxCySkew {
+                intrinsics[i] = FxFyCxCy {
                     fx: cam.fx,
                     fy: cam.fy,
                     cx: cam.cx,
                     cy: cam.cy,
-                    skew: 0.0,
                 };
                 distortion[i] = BrownConrady5 {
                     k1: cam.k1,

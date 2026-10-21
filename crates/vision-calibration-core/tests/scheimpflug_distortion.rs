@@ -4,18 +4,17 @@
 //! Brown-Conrady distortion for forward and inverse projection.
 
 use vision_calibration_core::{
-    BrownConrady5, Camera, FxFyCxCySkew, Pinhole, Pt2, Pt3, ScheimpflugParams,
+    BrownConrady5, Camera, FxFyCxCy, Pinhole, Pt2, Pt3, ScheimpflugParams,
 };
 
 #[test]
 fn scheimpflug_with_brown_conrady_roundtrip() {
     // Create camera with Scheimpflug sensor and Brown-Conrady distortion
-    let intrinsics = FxFyCxCySkew {
+    let intrinsics = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
 
     let sensor_params = ScheimpflugParams {
@@ -84,12 +83,11 @@ fn scheimpflug_with_brown_conrady_roundtrip() {
 
 #[test]
 fn scheimpflug_distortion_affects_projection() {
-    let intrinsics = FxFyCxCySkew {
+    let intrinsics = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
 
     let sensor_params = ScheimpflugParams {
@@ -142,12 +140,11 @@ fn scheimpflug_distortion_affects_projection() {
 
 #[test]
 fn scheimpflug_tilt_affects_projection() {
-    let intrinsics = FxFyCxCySkew {
+    let intrinsics = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
 
     let tilted_params = ScheimpflugParams {
@@ -197,12 +194,11 @@ fn scheimpflug_tilt_affects_projection() {
 
 #[test]
 fn combined_scheimpflug_distortion_unproject() {
-    let intrinsics = FxFyCxCySkew {
+    let intrinsics = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
 
     let sensor_params = ScheimpflugParams {

@@ -3,8 +3,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, Iso3, NoMeta, Pinhole, PlanarDataset,
-    Pt2, Real, SensorModel, View,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, Iso3, NoMeta, Pinhole, PlanarDataset, Pt2,
+    Real, SensorModel, View,
 };
 use vision_calibration_linear::laserline::{
     LaserlinePlaneSolver, LaserlineView as LinearLaserlineView,
@@ -50,7 +50,7 @@ pub struct DeviceInitOptions {
 #[non_exhaustive]
 pub struct LaserlineDeviceManualInit {
     /// Manual intrinsics seed.
-    pub intrinsics: Option<FxFyCxCySkew<Real>>,
+    pub intrinsics: Option<FxFyCxCy<Real>>,
     /// Manual distortion seed.
     pub distortion: Option<BrownConrady5<Real>>,
     /// Manual per-view poses (`camera_se3_target`).
@@ -80,8 +80,8 @@ pub struct DeviceOptimizeOptions {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LaserlineDeviceInitResult {
-    /// Initial pinhole intrinsics (fx, fy, cx, cy, skew).
-    pub intrinsics: FxFyCxCySkew<Real>,
+    /// Initial pinhole intrinsics (fx, fy, cx, cy).
+    pub intrinsics: FxFyCxCy<Real>,
     /// Initial Brown–Conrady distortion coefficients.
     pub distortion: BrownConrady5<Real>,
     /// Initial per-view target poses (`camera_se3_target`).
@@ -134,7 +134,7 @@ fn planar_dataset_from_input(
 
 fn estimate_poses(
     input: &[vision_calibration_optim::LaserlineView],
-    intrinsics: &FxFyCxCySkew<vision_calibration_core::Real>,
+    intrinsics: &FxFyCxCy<vision_calibration_core::Real>,
 ) -> Result<Vec<Iso3>, Error> {
     let k_matrix = intrinsics.k_matrix();
     let mut poses = Vec::with_capacity(input.len());
@@ -157,7 +157,7 @@ fn linear_plane_init<Sm>(
         Pinhole,
         vision_calibration_core::BrownConrady5<vision_calibration_core::Real>,
         Sm,
-        FxFyCxCySkew<vision_calibration_core::Real>,
+        FxFyCxCy<vision_calibration_core::Real>,
     >,
     poses: &[Iso3],
 ) -> Result<(vision_calibration_optim::LaserPlane, f64), Error>

@@ -20,7 +20,6 @@ class TypedModelParsingTest(unittest.TestCase):
                 "fy": 780.0,
                 "cx": 640.0,
                 "cy": 360.0,
-                "skew": 0.0,
             },
             "dist": {
                 "k1": 0.1,
@@ -51,12 +50,10 @@ class TypedModelParsingTest(unittest.TestCase):
         payload = {
             "projection": {"type": "pinhole"},
             "intrinsics": {
-                "type": "fx_fy_cx_cy_skew",
                 "fx": 800.0,
                 "fy": 780.0,
                 "cx": 640.0,
                 "cy": 360.0,
-                "skew": 0.0,
             },
             "distortion": {
                 "type": "brown_conrady5",

@@ -219,8 +219,6 @@ pub struct IntrinsicsArtifact {
     pub cx: f64,
     /// Principal-point y-coordinate in pixels.
     pub cy: f64,
-    /// Pixel skew coefficient (zero for square pixels).
-    pub skew: f64,
 }
 
 /// Brown-Conrady 5-parameter distortion model.
@@ -781,7 +779,6 @@ mod tests {
                         fy: 1000.0,
                         cx: 500.0,
                         cy: 400.0,
-                        skew: 0.0,
                     },
                     distortion_model: "brown_conrady5".into(),
                     distortion: DistortionArtifact {

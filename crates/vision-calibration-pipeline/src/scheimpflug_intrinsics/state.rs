@@ -1,11 +1,11 @@
 //! Intermediate state for Scheimpflug intrinsics calibration.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{BrownConrady5, FxFyCxCySkew, Iso3, Real, ScheimpflugParams};
+use vision_calibration_core::{BrownConrady5, FxFyCxCy, Iso3, Real, ScheimpflugParams};
 
 /// Initial parameter bundle consumed by the optimization step.
 pub type ScheimpflugInitialValues = (
-    FxFyCxCySkew<Real>,
+    FxFyCxCy<Real>,
     BrownConrady5<Real>,
     ScheimpflugParams,
     Vec<Iso3>,
@@ -15,7 +15,7 @@ pub type ScheimpflugInitialValues = (
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct ScheimpflugIntrinsicsState {
     /// Initial intrinsics estimated from iterative linear initialization.
-    pub initial_intrinsics: Option<FxFyCxCySkew<Real>>,
+    pub initial_intrinsics: Option<FxFyCxCy<Real>>,
 
     /// Initial distortion estimated from iterative linear initialization.
     ///
@@ -91,12 +91,11 @@ mod tests {
     #[test]
     fn initialization_and_clear_optimization() {
         let mut state = ScheimpflugIntrinsicsState {
-            initial_intrinsics: Some(FxFyCxCySkew {
+            initial_intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             }),
             initial_distortion: Some(BrownConrady5::default()),
             initial_sensor: Some(ScheimpflugParams::default()),
@@ -119,12 +118,11 @@ mod tests {
     #[test]
     fn json_roundtrip() {
         let state = ScheimpflugIntrinsicsState {
-            initial_intrinsics: Some(FxFyCxCySkew {
+            initial_intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             }),
             initial_distortion: Some(BrownConrady5 {
                 k1: -0.05,

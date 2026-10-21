@@ -37,9 +37,8 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionParams, FxFyCxCySkew,
-    IntrinsicsParams, Iso3, ProjectionParams, RationalPolynomial, Real, SensorParams, ThinPrism,
-    View,
+    BrownConrady5, CameraParams, CameraProject, CorrespondenceView, DistortionParams, FxFyCxCy,
+    Iso3, ProjectionParams, RationalPolynomial, Real, SensorParams, ThinPrism, View,
 };
 use vision_calibration_optim::{DistortionKind, optimize_planar_intrinsics};
 
@@ -76,7 +75,7 @@ pub use crate::common::{IntrinsicsInitOptions, IntrinsicsOptimizeOptions};
 #[non_exhaustive]
 pub struct PlanarManualInit {
     /// Manual intrinsics seed. `None` means auto-init via Zhang's method.
-    pub intrinsics: Option<FxFyCxCySkew<Real>>,
+    pub intrinsics: Option<FxFyCxCy<Real>>,
     /// Manual distortion seed. `None` means auto-init (or zeros when intrinsics are
     /// also seeded — see struct docs).
     pub distortion: Option<BrownConrady5<Real>>,
@@ -121,8 +120,8 @@ impl Default for FilterOptions {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PlanarInitResult {
-    /// Initial pinhole intrinsics (fx, fy, cx, cy, skew).
-    pub intrinsics: FxFyCxCySkew<Real>,
+    /// Initial pinhole intrinsics (fx, fy, cx, cy).
+    pub intrinsics: FxFyCxCy<Real>,
     /// Initial Brown–Conrady distortion coefficients.
     pub distortion: BrownConrady5<Real>,
     /// Initial per-view target poses (`camera_se3_target`).
@@ -320,7 +319,7 @@ pub fn step_init_with_seed(
 /// Returns `None` for `BrownConrady5` — the BC5 path uses `initial_distortion`
 /// directly via `PlanarState::initial_params()`.
 fn build_initial_camera_params(
-    intrinsics: FxFyCxCySkew<Real>,
+    intrinsics: FxFyCxCy<Real>,
     bc5: &BrownConrady5<Real>,
     model: DistortionKind,
 ) -> Option<CameraParams> {
@@ -361,7 +360,7 @@ fn build_initial_camera_params(
         projection: ProjectionParams::Pinhole,
         distortion,
         sensor: SensorParams::Identity,
-        intrinsics: IntrinsicsParams::FxFyCxCySkew { params: intrinsics },
+        intrinsics,
     })
 }
 
@@ -630,17 +629,16 @@ pub fn run_calibration_with_filtering(
 mod tests {
     use super::*;
     use vision_calibration_core::{
-        BrownConrady5, FxFyCxCySkew, make_pinhole_camera, synthetic::planar,
+        BrownConrady5, FxFyCxCy, make_pinhole_camera, synthetic::planar,
     };
 
     fn make_test_camera() -> vision_calibration_core::PinholeCamera {
         make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
             BrownConrady5 {
                 k1: 0.0,
@@ -837,12 +835,11 @@ mod tests {
         session.set_input(make_test_dataset()).unwrap();
 
         let manual = PlanarManualInit {
-            intrinsics: Some(FxFyCxCySkew {
+            intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             }),
             ..Default::default()
         };
@@ -870,12 +867,11 @@ mod tests {
         session.set_input(make_test_dataset()).unwrap();
 
         let manual = PlanarManualInit {
-            intrinsics: Some(FxFyCxCySkew {
+            intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             }),
             distortion: Some(BrownConrady5::default()),
             poses: Some(auto_poses),
@@ -917,12 +913,11 @@ mod tests {
         session.set_input(make_test_dataset()).unwrap();
 
         let manual = PlanarManualInit {
-            intrinsics: Some(FxFyCxCySkew {
+            intrinsics: Some(FxFyCxCy {
                 fx: 800.0,
                 fy: 780.0,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             }),
             ..Default::default()
         };

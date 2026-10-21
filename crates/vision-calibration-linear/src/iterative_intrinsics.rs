@@ -1,7 +1,7 @@
 //! Iterative linear intrinsics estimation with distortion refinement.
 //!
 //! This module implements an alternating optimization scheme for jointly estimating
-//! camera intrinsics (fx, fy, cx, cy, skew) and Brown-Conrady distortion coefficients
+//! camera intrinsics (fx, fy, cx, cy) and Brown-Conrady distortion coefficients
 //! (k1, k2, k3, p1, p2) without requiring ground truth distortion for preprocessing.
 //!
 //! # Algorithm Overview
@@ -65,8 +65,8 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, DistortionModel, FxFyCxCySkew, Mat3, PinholeCamera, PlanarDataset, Pt2, Real,
-    Vec3, make_pinhole_camera,
+    BrownConrady5, DistortionModel, Mat3, PinholeCamera, PlanarDataset, Pt2, Real, Vec3,
+    make_pinhole_camera,
 };
 use vision_geometry::homography::dlt_homography;
 
@@ -87,12 +87,6 @@ pub struct IterativeIntrinsicsOptions {
     ///
     /// Controls which distortion parameters to estimate (fix_k3, fix_tangential).
     pub distortion_opts: DistortionFitOptions,
-
-    /// Force skew to zero after each intrinsics estimate.
-    ///
-    /// Recommended for most cameras and required by current 4-parameter
-    /// optimization backends.
-    pub zero_skew: bool,
 }
 
 impl Default for IterativeIntrinsicsOptions {
@@ -100,7 +94,6 @@ impl Default for IterativeIntrinsicsOptions {
         Self {
             iterations: 2, // One distortion estimate + one K re-estimate typically sufficient
             distortion_opts: DistortionFitOptions::default(),
-            zero_skew: true,
         }
     }
 }
@@ -164,7 +157,6 @@ pub fn estimate_intrinsics_iterative(
 
     let mut current_intrinsics =
         PlanarIntrinsicsLinearInit::from_homographies(&homographies_iter0)?;
-    enforce_zero_skew(&mut current_intrinsics, opts.zero_skew);
 
     let mut current_distortion = BrownConrady5 {
         k1: 0.0,
@@ -230,12 +222,11 @@ pub fn estimate_intrinsics_iterative(
         };
         let undistorted_homographies: Vec<Mat3> = pairs.iter().map(|(_, h)| *h).collect();
 
-        let Ok(mut new_intrinsics) =
+        let Ok(new_intrinsics) =
             PlanarIntrinsicsLinearInit::from_homographies(&undistorted_homographies)
         else {
             break;
         };
-        enforce_zero_skew(&mut new_intrinsics, opts.zero_skew);
 
         // Iteration fully succeeded — commit it.
         current_distortion = new_distortion;
@@ -268,12 +259,6 @@ where
     Ok(pairs)
 }
 
-fn enforce_zero_skew(intrinsics: &mut FxFyCxCySkew<Real>, zero_skew: bool) {
-    if zero_skew {
-        intrinsics.skew = 0.0;
-    }
-}
-
 fn undistort_pixels_to_pixels(
     pixels: &[Pt2],
     k_mtx: &Mat3,
@@ -297,15 +282,14 @@ mod tests {
     use super::*;
     use nalgebra::{Translation3, UnitQuaternion};
     use vision_calibration_core::synthetic::planar::{grid_points, project_views_all};
-    use vision_calibration_core::{Iso3, View};
+    use vision_calibration_core::{FxFyCxCy, Iso3, View};
 
-    fn make_ground_truth() -> (FxFyCxCySkew<Real>, BrownConrady5<Real>) {
-        let intr = FxFyCxCySkew {
+    fn make_ground_truth() -> (FxFyCxCy<Real>, BrownConrady5<Real>) {
+        let intr = FxFyCxCy {
             fx: 800.0,
             fy: 800.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         let dist = BrownConrady5 {
             k1: -0.2,
@@ -358,7 +342,6 @@ mod tests {
                 fix_tangential: false,
                 iters: 8,
             },
-            zero_skew: true,
         };
 
         let result = estimate_intrinsics_iterative(&dataset, opts).unwrap();
@@ -396,7 +379,6 @@ mod tests {
                 fix_tangential: false,
                 iters: 8,
             },
-            zero_skew: true,
         };
 
         let cam0 = estimate_intrinsics_iterative(&dataset, opts0).unwrap();

@@ -23,8 +23,8 @@ use nalgebra::{DVector, DVectorView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vision_calibration_core::{
-    BrownConrady5, Camera, CameraFixMask, FxFyCxCySkew, Iso3, Pinhole, PinholeCamera, Real,
-    RigDataset, RigView, ScheimpflugParams, Uncertainty, make_pinhole_camera,
+    BrownConrady5, Camera, CameraFixMask, FxFyCxCy, Iso3, Pinhole, PinholeCamera, Real, RigDataset,
+    RigView, ScheimpflugParams, Uncertainty, make_pinhole_camera,
 };
 
 use super::handeye::RobotPoseMeta;
@@ -316,7 +316,7 @@ fn compute_reproj_error(
     let mut per_cam_sum = vec![0.0f64; num_cameras];
     let mut per_cam_count = vec![0usize; num_cameras];
 
-    let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCySkew<Real>>> = params
+    let cam_models: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> = params
         .cameras
         .iter()
         .zip(params.sensors.iter())
@@ -486,7 +486,7 @@ fn build_handeye_scheimpflug_ir(
             None,
         );
         cam_ids.push(cam_id);
-        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k)?);
+        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k));
     }
 
     // 2. Per-camera distortion

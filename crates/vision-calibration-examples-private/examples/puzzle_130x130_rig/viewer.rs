@@ -37,7 +37,7 @@ type ViewerCameraModel = Camera<
     Pinhole,
     vision_calibration_core::BrownConrady5<Real>,
     vision_calibration_core::HomographySensor<Real>,
-    vision_calibration_core::FxFyCxCySkew<Real>,
+    vision_calibration_core::FxFyCxCy<Real>,
 >;
 
 struct StageBuildInput<'a> {
@@ -142,7 +142,6 @@ pub(crate) fn write_viewer_artifacts(input: ViewerExportInput<'_>) -> Result<()>
                     camera.k.fy,
                     camera.k.cx,
                     camera.k.cy,
-                    camera.k.skew,
                 ],
                 distortion: [
                     camera.dist.k1,
@@ -293,7 +292,6 @@ fn stage_geometry(params: &RigHandeyeLaserlineParams) -> StageGeometry {
                         camera.k.fy,
                         camera.k.cx,
                         camera.k.cy,
-                        camera.k.skew,
                     ],
                     distortion: [
                         camera.dist.k1,
@@ -535,7 +533,7 @@ struct PoseRecord {
 #[derive(Debug, Clone, Serialize)]
 struct CameraRecord {
     index: usize,
-    intrinsics: [f64; 5],
+    intrinsics: [f64; 4],
     distortion: [f64; 5],
     scheimpflug: [f64; 2],
     cam_se3_rig: TransformRecord,
@@ -580,7 +578,7 @@ struct StageGeometry {
 #[derive(Debug, Clone, Serialize)]
 struct StageCameraRecord {
     index: usize,
-    intrinsics: [f64; 5],
+    intrinsics: [f64; 4],
     distortion: [f64; 5],
     scheimpflug: [f64; 2],
     cam_se3_rig: TransformRecord,

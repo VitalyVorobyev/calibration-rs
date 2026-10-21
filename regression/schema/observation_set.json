@@ -90,8 +90,8 @@
       ],
       "type": "object"
     },
-    "FxFyCxCySkew": {
-      "description": "Standard pinhole intrinsics with optional skew.",
+    "FxFyCxCy": {
+      "description": "Standard pinhole intrinsics: focal lengths and principal point in pixels.\n\nThe pixel grid is assumed orthogonal, so `K` carries no skew term.",
       "properties": {
         "cx": {
           "description": "Principal point X coordinate in pixels.",
@@ -112,19 +112,13 @@
           "description": "Focal length in pixels along Y.",
           "format": "double",
           "type": "number"
-        },
-        "skew": {
-          "description": "Skew term (typically 0).",
-          "format": "double",
-          "type": "number"
         }
       },
       "required": [
         "fx",
         "fy",
         "cx",
-        "cy",
-        "skew"
+        "cy"
       ],
       "type": "object"
     },
@@ -473,7 +467,7 @@
         "intrinsics": {
           "description": "Per-camera intrinsics.",
           "items": {
-            "$ref": "#/$defs/FxFyCxCySkew"
+            "$ref": "#/$defs/FxFyCxCy"
           },
           "type": "array"
         },

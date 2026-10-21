@@ -10,7 +10,7 @@
 //! the camera frame.
 
 use crate::Error;
-use vision_calibration_core::{FxFyCxCySkew, Iso3, Pt2, Pt3, RansacOptions, Real};
+use vision_calibration_core::{FxFyCxCy, Iso3, Pt2, Pt3, RansacOptions, Real};
 
 mod dlt;
 mod epnp;
@@ -42,7 +42,7 @@ impl PnpSolver {
     ///
     /// Returns [`Error::InsufficientData`] if fewer than 6 correspondences are given,
     /// or [`Error::Singular`] if normalization or SVD fails.
-    pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3, Error> {
+    pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Error> {
         dlt::dlt(world, image, k)
     }
 
@@ -55,7 +55,7 @@ impl PnpSolver {
     ///
     /// Returns [`Error::InvalidInput`] if the correspondence count is not exactly 3,
     /// or [`Error::Singular`] if the intrinsics are not invertible.
-    pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Vec<Iso3>, Error> {
+    pub fn p3p(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Vec<Iso3>, Error> {
         p3p::p3p(world, image, k)
     }
 
@@ -68,7 +68,7 @@ impl PnpSolver {
     ///
     /// Returns [`Error::InsufficientData`] if fewer than 4 correspondences are given,
     /// or [`Error::Singular`] if SVD fails.
-    pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCySkew<Real>) -> Result<Iso3, Error> {
+    pub fn epnp(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Error> {
         epnp::epnp(world, image, k)
     }
 
@@ -84,7 +84,7 @@ impl PnpSolver {
     pub fn dlt_ransac(
         world: &[Pt3],
         image: &[Pt2],
-        k: &FxFyCxCySkew<Real>,
+        k: &FxFyCxCy<Real>,
         opts: &RansacOptions,
     ) -> Result<(Iso3, Vec<usize>), Error> {
         ransac::dlt_ransac(world, image, k, opts)

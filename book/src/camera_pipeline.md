@@ -47,7 +47,7 @@ pub fn project_point_c(&self, p_c: &Vector3<S>) -> Option<Point2<S>>
 
 3. **Sensor transform**: Apply sensor model $\mathbf{s} = S(\mathbf{n}_d)$. For standard cameras this is identity; for tilted sensors it applies a homography.
 
-4. **Intrinsics**: Map to pixels $\mathbf{p} = K(\mathbf{s})$. Applies focal lengths, principal point, and optional skew.
+4. **Intrinsics**: Map to pixels $\mathbf{p} = K(\mathbf{s})$. Applies focal lengths, and principal point.
 
 ## Inverse (Back-Projection)
 
@@ -70,7 +70,7 @@ For the most common configuration (pinhole + Brown-Conrady + no tilt):
 
 ```rust
 type PinholeCamera = Camera<f64, Pinhole, BrownConrady5<f64>,
-                            IdentitySensor, FxFyCxCySkew<f64>>;
+                            IdentitySensor, FxFyCxCy<f64>>;
 ```
 
 The `make_pinhole_camera(k, dist)` convenience function constructs this type.
@@ -91,9 +91,9 @@ Each stage is an independent trait. This design allows mixing and matching:
 
 | Projection | Distortion | Sensor | Intrinsics |
 |-----------|-----------|--------|-----------|
-| `Pinhole` | `NoDistortion` | `IdentitySensor` | `FxFyCxCySkew` |
-| `Pinhole` | `BrownConrady5` | `IdentitySensor` | `FxFyCxCySkew` |
-| `Pinhole` | `BrownConrady5` | `HomographySensor` | `FxFyCxCySkew` |
+| `Pinhole` | `NoDistortion` | `IdentitySensor` | `FxFyCxCy` |
+| `Pinhole` | `BrownConrady5` | `IdentitySensor` | `FxFyCxCy` |
+| `Pinhole` | `BrownConrady5` | `HomographySensor` | `FxFyCxCy` |
 
 Note: `ScheimpflugParams` stores the tilt angles and has a `compile()` method that produces a `HomographySensor` suitable for the `Camera` struct. See the [Sensor Models](sensor.md) chapter.
 

@@ -87,7 +87,7 @@ def laser_pixels_for_view(
 
 
 def make_input() -> vc.LaserlineDataset:
-    intrinsics = {"fx": 800.0, "fy": 780.0, "cx": 640.0, "cy": 360.0, "skew": 0.0}
+    intrinsics = {"fx": 800.0, "fy": 780.0, "cx": 640.0, "cy": 360.0}
     distortion = {"k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}
     points_3d = grid_points(cols=6, rows=5, spacing_m=0.03)
     poses = make_poses()

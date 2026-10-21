@@ -136,12 +136,11 @@ ones). This keeps the geometric chain consistent with the seed.
 For a homogeneous rig where all cameras share the same optical design:
 
 ```rust
-use vision_calibration::core::{BrownConrady5, FxFyCxCySkew};
+use vision_calibration::core::{BrownConrady5, FxFyCxCy};
 
-let datasheet_k = FxFyCxCySkew {
+let datasheet_k = FxFyCxCy {
     fx: 1800.0, fy: 1800.0,
-    cx: 360.0, cy: 270.0,
-    skew: 0.0,
+    cx: 360.0, cy: 270.0
 };
 let nominal_distortion = BrownConrady5 { k1: -0.1, ..Default::default() };
 

@@ -135,7 +135,7 @@ fn build_rig_extrinsics_ir(
             None,
         );
         cam_ids.push(cam_id);
-        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k)?);
+        initial_map.insert(key, pack_intrinsics(&initial.cameras[cam_idx].k));
     }
 
     // 2. Per-camera distortion blocks

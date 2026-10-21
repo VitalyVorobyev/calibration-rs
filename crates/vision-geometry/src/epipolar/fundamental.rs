@@ -290,15 +290,14 @@ pub fn fundamental_8point_ransac(
 mod tests {
     use super::*;
     use nalgebra::{Rotation3, Translation3};
-    use vision_calibration_core::{FxFyCxCySkew, Mat3, RansacOptions, Real};
+    use vision_calibration_core::{FxFyCxCy, Mat3, RansacOptions, Real};
 
-    fn make_k() -> (FxFyCxCySkew<Real>, Mat3) {
-        let k = FxFyCxCySkew {
+    fn make_k() -> (FxFyCxCy<Real>, Mat3) {
+        let k = FxFyCxCy {
             fx: 800.0,
             fy: 780.0,
             cx: 640.0,
             cy: 360.0,
-            skew: 0.0,
         };
         (k, k.k_matrix())
     }

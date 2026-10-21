@@ -22,8 +22,8 @@ use vision_calibration::synthetic::planar;
 
 fn main() -> Result<()> {
     // 1. Define ground truth camera
-    let k_gt = FxFyCxCySkew {
-        fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0, skew: 0.0,
+    let k_gt = FxFyCxCy {
+        fx: 800.0, fy: 780.0, cx: 640.0, cy: 360.0
     };
     let dist_gt = BrownConrady5 {
         k1: 0.05, k2: -0.02, k3: 0.0,

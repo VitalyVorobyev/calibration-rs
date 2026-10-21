@@ -8,7 +8,7 @@ use nalgebra::{Quaternion, Translation3, UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, Camera, CameraFixMask, CorrespondenceView, DistortionFixMask, DistortionModel,
-    FxFyCxCySkew, IntrinsicsFixMask, IntrinsicsModel, Iso3, NoMeta, Pinhole, PinholeCamera,
+    FxFyCxCy, IntrinsicsFixMask, IntrinsicsModel, Iso3, NoMeta, Pinhole, PinholeCamera,
     PlanarDataset, Pt2, RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorModel,
     Uncertainty, View, compute_rig_reprojection_stats_per_camera, make_pinhole_camera,
 };
@@ -121,7 +121,7 @@ struct ScheimpflugCameraWork {
 
 #[derive(Debug, Clone, Copy)]
 struct NominalScheimpflugSeed {
-    intrinsics: FxFyCxCySkew<f64>,
+    intrinsics: FxFyCxCy<f64>,
     distortion: BrownConrady5<f64>,
     sensor: ScheimpflugParams,
 }
@@ -481,7 +481,6 @@ pub fn step_intrinsics_optimize_all(
                         backend_opts,
                         config.intrinsics.init_iterations,
                         config.intrinsics.fix_k3,
-                        config.intrinsics.zero_skew,
                     )?
                 } else {
                     optimize_scheimpflug_intrinsics_staged(
@@ -583,7 +582,6 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
     backend_opts: BackendSolveOptions,
     init_iterations: usize,
     fix_k3_in_init: bool,
-    zero_skew: bool,
 ) -> Result<ScheimpflugIntrinsicsEstimate, Error> {
     solve_opts.fix_poses.clear();
     let mut best: Option<ScheimpflugIntrinsicsEstimate> = None;
@@ -601,7 +599,6 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
                     fix_k3: fix_k3_in_init,
                     iters: 8,
                 },
-                zero_skew,
                 tilt_x_seeds: vec![tilt_x],
                 tilt_y_seeds: vec![0.0],
                 refine_rounds: 1,
@@ -763,12 +760,11 @@ fn build_nominal_scheimpflug_seed(
     sensors: &[ScheimpflugParams],
     good_indices: &[usize],
 ) -> Option<NominalScheimpflugSeed> {
-    let intrinsics = FxFyCxCySkew {
+    let intrinsics = FxFyCxCy {
         fx: median_of(good_indices.iter().map(|&idx| cameras[idx].k.fx))?,
         fy: median_of(good_indices.iter().map(|&idx| cameras[idx].k.fy))?,
         cx: median_of(good_indices.iter().map(|&idx| cameras[idx].k.cx))?,
         cy: median_of(good_indices.iter().map(|&idx| cameras[idx].k.cy))?,
-        skew: 0.0,
     };
     let distortion = BrownConrady5 {
         k1: median_of(good_indices.iter().map(|&idx| cameras[idx].dist.k1))?,
@@ -1306,7 +1302,7 @@ fn score_scheimpflug_seed(
 
 fn score_scheimpflug_seed_parts(
     dataset: &PlanarDataset,
-    intrinsics: FxFyCxCySkew<f64>,
+    intrinsics: FxFyCxCy<f64>,
     distortion: BrownConrady5<f64>,
     sensor: ScheimpflugParams,
     scored: &mut Vec<ScoredScheimpflugSeed>,
@@ -1414,7 +1410,7 @@ fn mean_scheimpflug_reproj(dataset: &PlanarDataset, params: &ScheimpflugIntrinsi
 
 fn recover_scheimpflug_poses_for_seed(
     dataset: &PlanarDataset,
-    intrinsics: &FxFyCxCySkew<f64>,
+    intrinsics: &FxFyCxCy<f64>,
     distortion: &BrownConrady5<f64>,
     sensor: ScheimpflugParams,
 ) -> Result<Vec<Iso3>, Error> {
@@ -2132,19 +2128,18 @@ mod tests {
     use super::*;
     use nalgebra::{Rotation3, Translation3};
     use vision_calibration_core::{
-        BrownConrady5, CorrespondenceView, FxFyCxCySkew, PinholeCamera, Pt2, Pt3, RigDataset,
-        RigView, RigViewObs, make_pinhole_camera,
+        BrownConrady5, CorrespondenceView, FxFyCxCy, PinholeCamera, Pt2, Pt3, RigDataset, RigView,
+        RigViewObs, make_pinhole_camera,
     };
     use vision_calibration_optim::RobotPoseMeta;
 
     fn make_test_camera(offset: f64) -> PinholeCamera {
         make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0 + offset,
                 fy: 780.0 + offset,
                 cx: 640.0,
                 cy: 360.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         )
@@ -2322,19 +2317,17 @@ mod tests {
             .set_config(super::super::problem::RigHandeyeConfig {
                 manual_init: Some(RigHandeyeIntrinsicsManualInit {
                     per_cam_intrinsics: Some(vec![
-                        FxFyCxCySkew {
+                        FxFyCxCy {
                             fx: 800.0,
                             fy: 780.0,
                             cx: 640.0,
                             cy: 360.0,
-                            skew: 0.0,
                         },
-                        FxFyCxCySkew {
+                        FxFyCxCy {
                             fx: 810.0,
                             fy: 790.0,
                             cx: 640.0,
                             cy: 360.0,
-                            skew: 0.0,
                         },
                     ]),
                     per_cam_distortion: Some(vec![

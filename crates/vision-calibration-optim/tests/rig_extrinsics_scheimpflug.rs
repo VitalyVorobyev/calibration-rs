@@ -5,8 +5,8 @@
 
 use nalgebra::{Isometry3, Rotation3, Translation3};
 use vision_calibration_core::{
-    BrownConrady5, Camera, CorrespondenceView, FxFyCxCySkew, NoMeta, Pinhole, Pt3, Real,
-    RigDataset, RigView, RigViewObs, ScheimpflugParams, make_pinhole_camera,
+    BrownConrady5, Camera, CorrespondenceView, FxFyCxCy, NoMeta, Pinhole, Pt3, Real, RigDataset,
+    RigView, RigViewObs, ScheimpflugParams, make_pinhole_camera,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, RigExtrinsicsScheimpflugParams, RigExtrinsicsScheimpflugSolveOptions,
@@ -15,12 +15,11 @@ use vision_calibration_optim::{
 
 #[test]
 fn stereo_scheimpflug_rig_extrinsics_converges() {
-    let intrinsics_gt = FxFyCxCySkew {
+    let intrinsics_gt = FxFyCxCy {
         fx: 800.0,
         fy: 780.0,
         cx: 640.0,
         cy: 360.0,
-        skew: 0.0,
     };
     let distortion_gt = BrownConrady5 {
         k1: -0.20,
@@ -40,7 +39,7 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
         },
     ];
 
-    let cam_gt: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCySkew<Real>>> = sensors_gt
+    let cam_gt: Vec<Camera<Real, Pinhole, BrownConrady5<Real>, _, FxFyCxCy<Real>>> = sensors_gt
         .iter()
         .map(|sensor| Camera::new(Pinhole, distortion_gt, sensor.compile(), intrinsics_gt))
         .collect();
@@ -107,12 +106,11 @@ fn stereo_scheimpflug_rig_extrinsics_converges() {
     let dataset = RigDataset::new(views, 2).unwrap();
 
     // Initial values (perturbed from ground truth).
-    let intrinsics_init = FxFyCxCySkew {
+    let intrinsics_init = FxFyCxCy {
         fx: 810.0,
         fy: 790.0,
         cx: 645.0,
         cy: 365.0,
-        skew: 0.0,
     };
     let distortion_init = BrownConrady5 {
         k1: -0.15,

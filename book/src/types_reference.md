@@ -19,7 +19,7 @@ All based on `nalgebra` with `f64` precision:
 
 | Type | Parameters | Description |
 |------|-----------|-------------|
-| `FxFyCxCySkew<S>` | `fx, fy, cx, cy, skew` | Intrinsics matrix |
+| `FxFyCxCy<S>` | `fx, fy, cx, cy` | Intrinsics matrix |
 | `BrownConrady5<S>` | `k1, k2, k3, p1, p2, iters` | Distortion model |
 | `Pinhole` | (none) | Projection model |
 | `IdentitySensor` | (none) | No sensor tilt |
@@ -63,7 +63,7 @@ Every problem's `*Config` embeds the same small structs by stage:
 
 | Type | Fields | Purpose |
 |------|--------|---------|
-| `IntrinsicsInitConfig` | `init_iterations, fix_k3, fix_tangential, zero_skew` | Per-camera linear initialization |
+| `IntrinsicsInitConfig` | `init_iterations, fix_k3, fix_tangential` | Per-camera linear initialization |
 | `SolverConfig` | `max_iters, verbosity, robust_loss` | Non-linear solve |
 | `RobotPoseConfig` | `refine, rot_sigma, trans_sigma` | Robot-pose refinement in hand-eye bundle adjustment |
 | `HandeyeInitConfig` | `handeye_mode, min_motion_angle_deg` | Hand-eye linear initialization |

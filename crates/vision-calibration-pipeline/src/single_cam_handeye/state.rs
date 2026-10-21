@@ -98,7 +98,7 @@ impl SingleCamHandeyeState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vision_calibration_core::{BrownConrady5, FxFyCxCySkew};
+    use vision_calibration_core::{BrownConrady5, FxFyCxCy};
 
     #[test]
     fn default_state_not_initialized() {
@@ -112,12 +112,11 @@ mod tests {
     #[test]
     fn has_intrinsics_init_requires_both() {
         let camera = vision_calibration_core::make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         );
@@ -139,12 +138,11 @@ mod tests {
     #[test]
     fn clear_handeye_keeps_intrinsics() {
         let camera = vision_calibration_core::make_pinhole_camera(
-            FxFyCxCySkew {
+            FxFyCxCy {
                 fx: 800.0,
                 fy: 800.0,
                 cx: 320.0,
                 cy: 240.0,
-                skew: 0.0,
             },
             BrownConrady5::default(),
         );
@@ -168,12 +166,11 @@ mod tests {
     fn json_roundtrip() {
         let state = SingleCamHandeyeState {
             initial_camera: Some(vision_calibration_core::make_pinhole_camera(
-                FxFyCxCySkew {
+                FxFyCxCy {
                     fx: 800.0,
                     fy: 780.0,
                     cx: 320.0,
                     cy: 240.0,
-                    skew: 0.0,
                 },
                 BrownConrady5 {
                     k1: -0.1,
